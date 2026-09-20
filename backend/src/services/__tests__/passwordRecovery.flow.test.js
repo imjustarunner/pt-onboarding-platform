@@ -63,6 +63,8 @@ describe('password recovery delivery', () => {
     m.template.mockResolvedValue({ body: 'Hello', subject: 'Account access' });
     await requestPasswordRecoveryEmail({ email: user.email });
     expect(m.send.mock.calls[0][0].text).toContain('https://tenant.example/reset-password/reset-token');
+    expect(m.send.mock.calls[0][0].text).toContain('You can ignore this email');
+    expect(m.send.mock.calls[0][0].html).toContain('open the link and save a new password');
   });
   it('uses the exact profile target and existing token for an admin email', async () => {
     await requestPasswordRecoveryEmail({ targetUser: user, existingTokenResult: { token: 'admin-token' }, generatedByUserId: 3 });

@@ -31,6 +31,7 @@ import {
 } from '../utils/hogwartsTestEmail.js';
 
 const RESET_HOURS = 48;
+const OPTIONAL_RECOVERY_NOTICE = 'You can ignore this email if you do not need to set or reset your password, including if a colleague requested it for you. Your current password and sign-in remain unchanged. Your password changes only after you open the link and save a new password.';
 const JUNK_NOTICE =
   'Important: this message often lands in Junk or Spam. Please check Junk, move it to Inbox if you find it there, and mark the sender as safe so you do not miss future messages from us.';
 
@@ -174,7 +175,7 @@ async function buildMessage({ user, agency, orgSlug, token, loginEmail, expiresI
     '',
     JUNK_NOTICE,
     '',
-    'If you did not request this, you can ignore this email.'
+    OPTIONAL_RECOVERY_NOTICE
   ].filter((line, idx, arr) => !(line === '' && arr[idx - 1] === '')).join('\n');
   let html = [
     `<p>${firstSet
@@ -183,7 +184,7 @@ async function buildMessage({ user, agency, orgSlug, token, loginEmail, expiresI
     `<p><a href="${resetLink}">${firstSet ? 'Set your password' : 'Reset your password'}</a> (expires in ${expiresInHours} hours)</p>`,
     reminder.html,
     `<p><strong>${JUNK_NOTICE}</strong></p>`,
-    '<p>If you did not request this, you can ignore this email.</p>'
+    `<p>${OPTIONAL_RECOVERY_NOTICE}</p>`
   ].join('');
 
   try {
@@ -207,6 +208,7 @@ async function buildMessage({ user, agency, orgSlug, token, loginEmail, expiresI
         body = `${body}\n\nYour login email / username is: ${loginEmail}`;
       }
       if (!String(body).includes(resetLink)) body = `${body}\n\n${firstSet ? 'Set' : 'Reset'} your password: ${resetLink}`;
+      if (!String(body).includes(OPTIONAL_RECOVERY_NOTICE)) body = `${body}\n\n${OPTIONAL_RECOVERY_NOTICE}`;
       if (!String(body).includes('Junk')) body = `${body}\n\n${JUNK_NOTICE}`;
       html = `<pre style="font-family:inherit;white-space:pre-wrap;">${String(body)
         .replace(/&/g, '&amp;')

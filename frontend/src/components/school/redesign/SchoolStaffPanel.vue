@@ -157,7 +157,7 @@
               <button v-if="canEdit" type="button" @click="menuAction(() => openEdit(u))">Edit</button>
               <button v-if="canToggleSchoolRoles(u)" type="button" @click="menuAction(() => openPermissions(u))">Permissions</button>
               <button v-if="u.id !== currentUserId" type="button" @click="menuAction(() => openMessage(u))">Message</button>
-              <button v-if="canSendReset(u)" type="button" @click="menuAction(() => openResetPasswordModal(u))">Reset password</button>
+              <button v-if="canSendReset(u)" type="button" @click="menuAction(() => openResetPasswordModal(u))">Send recovery email</button>
               <button v-if="canRemove(u)" type="button" class="danger" @click="menuAction(() => removeUser(u))">Remove</button>
             </div>
           </div>
@@ -251,13 +251,12 @@
             v-if="canSendReset(u)"
             type="button"
             class="ssp-footer-btn"
-            :class="{ 'ssp-footer-temp': hasVisibleTempPassword(u) }"
-            :disabled="sendingResetId === u.id"
-            :title="tempPasswordButtonTitle(u)"
-            @click="onTempPasswordButtonClick(u)"
+            :disabled="!!issuingResetLink && resetTarget?.id === u.id"
+            title="Email an optional recovery link; the current password stays unchanged"
+            @click="openResetPasswordModal(u)"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" stroke="currentColor" stroke-width="1.8" fill="none"/><path d="M8 11V8a4 4 0 1 1 8 0v3" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>
-            <span class="ssp-footer-temp-text">{{ tempPasswordButtonLabel(u) }}</span>
+            <span class="ssp-footer-temp-text">Send recovery email</span>
           </button>
           <button
             v-if="canRequest && !canRemove(u) && !canSendReset(u)"
@@ -447,78 +446,33 @@
       <div class="ssp-modal ssp-modal-wide" @click.stop>
         <div class="ssp-modal-head">
           <div>
-            <strong>Reset password</strong>
+            <strong>Send recovery email</strong>
             <p class="ssp-modal-sub">{{ resetTarget ? displayName(resetTarget) : '' }}</p>
           </div>
           <button class="ssp-btn ssp-btn-outline" type="button" @click="closeResetPasswordModal">Close</button>
         </div>
         <div class="ssp-modal-body">
           <div v-if="error" class="ssp-alert ssp-alert-error">{{ error }}</div>
-          <template v-if="!resetResult">
-            <p class="ssp-reset-lead">
-              This creates a <strong>temporary password</strong> for {{ resetTarget?.email || 'this staff member' }}.
-              It replaces their current password immediately.
-              A random password is recommended so client information stays protected.
-            </p>
-            <ol class="ssp-reset-steps">
-              <li>{{ canSetCustomTempPassword && useCustomTempPassword ? 'Confirm below to set your custom temporary password.' : 'Confirm below to generate a random temporary password.' }}</li>
-              <li>Share it privately with the staff member (in person, phone, or secure message).</li>
-              <li>They sign in with their school email and the temporary password.</li>
-              <li>On first login, they will be prompted to set a new permanent password, then a short portal tour.</li>
-              <li>The temporary password expires in 48 hours.</li>
-            </ol>
-            <label v-if="canSetCustomTempPassword" class="ssp-check-row">
-              <input v-model="useCustomTempPassword" type="checkbox" />
-              Set a custom temporary password instead
-            </label>
-            <p v-if="canSetCustomTempPassword" class="ssp-role-help">
-              Only use a custom password when the staff member cannot use the random one. Random passwords better protect client data.
-            </p>
-            <label v-if="canSetCustomTempPassword && useCustomTempPassword" class="ssp-field">
-              <span>Custom temporary password</span>
-              <input
-                v-model="customTempPassword"
-                class="ssp-plain-input"
-                type="text"
-                autocomplete="new-password"
-                placeholder="At least 8 characters, include a letter"
-              />
-            </label>
-            <div class="ssp-reset-link-actions">
-              <p class="ssp-reset-lead">Or send a <strong>reset link</strong> instead — their current password stays in place until they use the link.</p>
-              <div class="ssp-modal-actions ssp-modal-actions-wrap">
-                <button class="ssp-btn ssp-btn-outline" type="button" :disabled="issuingResetLink" @click="copyResetLink">
-                  {{ issuingResetLink === 'copy' ? 'Copying…' : 'Copy reset link' }}
-                </button>
-                <button class="ssp-btn ssp-btn-outline" type="button" :disabled="issuingResetLink || !resetTarget?.email" @click="emailResetLink">
-                  {{ issuingResetLink === 'email' ? 'Sending…' : 'Email reset link' }}
-                </button>
-              </div>
-              <p v-if="resetLinkCopied" class="ssp-role-help">Reset link copied. It expires in 48 hours.</p>
-              <p v-if="resetLinkEmailed" class="ssp-role-help">Reset link emailed from ITSCO Technology Team.</p>
-            </div>
-            <div class="ssp-modal-actions">
-              <button class="ssp-btn ssp-btn-outline" type="button" @click="closeResetPasswordModal">Cancel</button>
-              <button class="ssp-btn ssp-btn-primary" type="button" :disabled="sendingResetId === resetTarget?.id" @click="confirmResetPassword">
-                {{ sendingResetId === resetTarget?.id ? 'Saving…' : (useCustomTempPassword && canSetCustomTempPassword ? 'Set custom temporary password' : 'Generate temporary password') }}
-              </button>
-            </div>
-          </template>
-          <template v-else>
-            <div class="ssp-reset-success">
-              <p>Temporary password created. Copy it now — you will not be able to view it again after leaving this screen unless you generate a new one.</p>
-              <button type="button" class="ssp-temp-password-display" @click="copyTempPassword(resetTarget)">
-                <span class="ssp-temp-password-value">{{ resetResult.temporaryPassword }}</span>
-                <span class="ssp-temp-password-meta">{{ formatTempPasswordExpiry(resetResult.expiresAt) }} · Click to copy</span>
-              </button>
-            </div>
-            <ul class="ssp-reset-steps ssp-reset-steps-compact">
-              <li v-for="(line, i) in resetResult.instructions" :key="i">{{ line }}</li>
-            </ul>
-            <div class="ssp-modal-actions">
-              <button class="ssp-btn ssp-btn-primary" type="button" @click="closeResetPasswordModal">Done</button>
-            </div>
-          </template>
+          <p class="ssp-reset-lead">
+            Send a recovery link to {{ resetTarget?.email || 'this staff member’s email' }}.
+            Their current password and sign-in stay unchanged.
+          </p>
+          <p class="ssp-role-help">
+            They can ignore the email if they do not need it, including when another staff member sends it.
+            Their password changes only after they open the emailed link and save a new password.
+            The link expires in 48 hours.
+          </p>
+          <p v-if="resetLinkEmailed" class="ssp-alert ssp-alert-success">
+            Recovery email sent. No password change is required.
+          </p>
+          <div class="ssp-modal-actions">
+            <button class="ssp-btn ssp-btn-outline" type="button" :disabled="!!issuingResetLink" @click="closeResetPasswordModal">
+              {{ resetLinkEmailed ? 'Done' : 'Cancel' }}
+            </button>
+            <button v-if="!resetLinkEmailed" class="ssp-btn ssp-btn-primary" type="button" :disabled="!!issuingResetLink || !resetTarget?.email" @click="emailResetLink">
+              {{ issuingResetLink ? 'Sending…' : 'Send recovery email' }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -680,8 +634,7 @@ const canRemove = (u) =>
   isAgencyAdmin.value ||
   (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value && u.id !== currentUserId.value);
 const canSendReset = (u) =>
-  (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value)) &&
-  u.id !== currentUserId.value;
+  !!u?.id && (isAgencyAdmin.value || roleNorm.value === 'school_staff');
 const canActivate = (u) =>
   !!u?.needs_activation &&
   (isAgencyAdmin.value || (roleNorm.value === 'school_staff' && isCurrentUserSchoolAdmin.value));
@@ -711,9 +664,7 @@ const currentUserStaff = computed(() => staff.value.find((s) => Number(s.id) ===
 const loading = ref(false);
 const error = ref('');
 const removingId = ref(null);
-const sendingResetId = ref(null);
 const issuingResetLink = ref('');
-const resetLinkCopied = ref(false);
 const resetLinkEmailed = ref(false);
 
 const submitting = ref(false);
@@ -752,7 +703,6 @@ const permissionsTarget = ref(null);
 
 const showResetModal = ref(false);
 const resetTarget = ref(null);
-const resetResult = ref(null);
 const issuedTempPasswords = ref({});
 const showActivateModal = ref(false);
 const activateTarget = ref(null);
@@ -845,8 +795,6 @@ const getIssuedTempPassword = (u) => {
   return entry;
 };
 
-const hasVisibleTempPassword = (u) => !!getIssuedTempPassword(u);
-
 const formatTempPasswordExpiry = (expiresAt) => {
   if (!expiresAt) return 'Expires soon';
   const ms = new Date(expiresAt).getTime() - Date.now();
@@ -861,34 +809,8 @@ const formatTempPasswordExpiry = (expiresAt) => {
   return `Expires in ${minutes}m`;
 };
 
-const tempPasswordButtonLabel = (u) => {
-  if (sendingResetId.value === u.id) return 'Generating…';
-  const issued = getIssuedTempPassword(u);
-  if (issued) return `${issued.password} · ${formatTempPasswordExpiry(issued.expiresAt)}`;
-  if (u.has_active_temporary_password) {
-    return `Temp active · ${formatTempPasswordExpiry(u.temporary_password_expires_at)}`;
-  }
-  return 'Reset Password';
-};
-
-const tempPasswordButtonTitle = (u) => {
-  const issued = getIssuedTempPassword(u);
-  if (issued) return 'Click to copy temporary password';
-  if (u.has_active_temporary_password) return 'A temporary password is active. Click to generate a new one.';
-  return 'Generate a temporary password for this staff member';
-};
-
-const onTempPasswordButtonClick = async (u) => {
-  const issued = getIssuedTempPassword(u);
-  if (issued) {
-    await copyTempPassword(u, issued.password);
-    return;
-  }
-  openResetPasswordModal(u);
-};
-
 const copyTempPassword = async (u, passwordOverride = null) => {
-  const issued = passwordOverride || getIssuedTempPassword(u)?.password || resetResult.value?.temporaryPassword;
+  const issued = passwordOverride || getIssuedTempPassword(u)?.password;
   if (!issued) return;
   try {
     await navigator.clipboard.writeText(issued);
@@ -916,71 +838,41 @@ const resolveCustomTempPasswordPayload = () => {
 };
 
 const openResetPasswordModal = (u) => {
+  if (issuingResetLink.value) return;
   resetTarget.value = u;
-  resetResult.value = null;
   issuingResetLink.value = '';
-  resetLinkCopied.value = false;
   resetLinkEmailed.value = false;
   resetCustomTempPasswordFields();
   showResetModal.value = true;
 };
 
 const closeResetPasswordModal = () => {
+  if (issuingResetLink.value) return;
   showResetModal.value = false;
   resetTarget.value = null;
-  resetResult.value = null;
   issuingResetLink.value = '';
-  resetLinkCopied.value = false;
   resetLinkEmailed.value = false;
   resetCustomTempPasswordFields();
 };
 
-const issueResetLink = async ({ sendEmail = false } = {}) => {
-  const u = resetTarget.value;
-  const id = Number(u?.id);
-  if (!id) return null;
-  issuingResetLink.value = sendEmail ? 'email' : 'copy';
+const emailResetLink = async () => {
+  const id = Number(resetTarget.value?.id);
+  if (!id || issuingResetLink.value) return;
+  issuingResetLink.value = 'email';
   error.value = '';
-  resetLinkCopied.value = false;
-  resetLinkEmailed.value = false;
   try {
-    const r = await api.post(
+    const { data } = await api.post(
       `/school-portal/${props.schoolOrganizationId}/school-staff/${id}/issue-reset-link`,
-      { sendEmail }
+      { sendEmail: true }
     );
-    return r.data || null;
+    if (!data?.emailSent) throw new Error('The recovery email was not sent. Please try again.');
+    resetLinkEmailed.value = true;
+    success.value = data.message || 'Recovery email sent. Their current password stays unchanged.';
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to create reset link';
-    return null;
+    error.value = e.response?.data?.error?.message || e.message || 'Failed to send recovery email';
   } finally {
     issuingResetLink.value = '';
   }
-};
-
-const copyResetLink = async () => {
-  const data = await issueResetLink({ sendEmail: false });
-  const link = String(data?.tokenLink || '').trim();
-  if (!link) return;
-  try {
-    await navigator.clipboard.writeText(link);
-    resetLinkCopied.value = true;
-    success.value = 'Password reset link copied.';
-    setTimeout(() => { success.value = ''; }, 5000);
-  } catch {
-    error.value = 'Reset link created, but copying failed. Try again.';
-  }
-};
-
-const emailResetLink = async () => {
-  const data = await issueResetLink({ sendEmail: true });
-  if (!data) return;
-  if (data.emailSent) {
-    resetLinkEmailed.value = true;
-    success.value = data.message || 'Password reset link emailed.';
-    setTimeout(() => { success.value = ''; }, 5000);
-    return;
-  }
-  error.value = data.emailError || data.message || 'Reset link created but the email did not send.';
 };
 
 const openActivate = (u) => {
@@ -1031,39 +923,6 @@ const confirmActivate = async () => {
     error.value = e.response?.data?.error?.message || 'Failed to activate account';
   } finally {
     activatingId.value = null;
-  }
-};
-
-const confirmResetPassword = async () => {
-  const u = resetTarget.value;
-  const id = Number(u?.id);
-  if (!id) return;
-  try {
-    sendingResetId.value = id;
-    error.value = '';
-    const passwordPayload = resolveCustomTempPasswordPayload();
-    if (passwordPayload === null) return;
-    const r = await api.post(
-      `/school-portal/${props.schoolOrganizationId}/school-staff/${id}/send-reset-password`,
-      passwordPayload
-    );
-    const temporaryPassword = r.data?.temporaryPassword;
-    const expiresAt = r.data?.expiresAt;
-    resetResult.value = {
-      temporaryPassword,
-      expiresAt,
-      instructions: Array.isArray(r.data?.instructions) ? r.data.instructions : []
-    };
-    if (temporaryPassword) {
-      storeIssuedTempPassword(id, temporaryPassword, expiresAt);
-    }
-    await load();
-    success.value = 'Temporary password created. Share it privately with the staff member.';
-    setTimeout(() => { success.value = ''; }, 5000);
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to reset password';
-  } finally {
-    sendingResetId.value = null;
   }
 };
 
