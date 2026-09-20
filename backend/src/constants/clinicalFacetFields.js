@@ -12,26 +12,27 @@ export const CLINICAL_FACET_GROUPS = Object.freeze({
     'pt_specialties_max25',
     'top3_specialties_general',
     'top3_specialties_clinical',
-    'pt_top3_specialties'
+    'pt_top3_specialties',
+    'mental_health'
   ]),
   modalities: Object.freeze([
     'modality',
     'provider_marketing_treatment_modalities',
-    'provider_primary_modality'
+    'provider_primary_modality',
+    'treatment_prefs_max15'
   ]),
   ageGroups: Object.freeze([
     'age_specialty',
     'provider_marketing_age_specialty'
   ]),
   populations: Object.freeze([
-    'mental_health',
     'sexuality',
     'other_issues',
     'groups',
     'provider_marketing_focus',
     'provider_marketing_groups'
   ]),
-  interventions: Object.freeze(['treatment_prefs_max15', 'provider_interventions_techniques']),
+  interventions: Object.freeze(['provider_interventions_techniques']),
   serviceSettings: Object.freeze([
     'work_location',
     'provider_service_settings_in_school',
@@ -47,6 +48,15 @@ export const ALL_CLINICAL_FACET_FIELD_KEYS = Object.freeze(
 
 /** Map legacy / duplicate index keys to canonical facet buckets. */
 export const FACET_FIELD_ALIASES = Object.freeze({
+  provider_specialties: 'specialties_general',
+  provider_top_three_specialties: 'top3_specialties_general',
+  provider_mental_health_categories: 'mental_health',
+  provider_marketing_mental_health_categories: 'mental_health',
+  provider_sexuality: 'sexuality',
+  provider_other_issues: 'other_issues',
+  provider_modality: 'modality',
+  provider_client_focus: 'groups',
+  provider_age_specialty: 'age_specialty',
   provider_marketing_specialties: 'specialties_general',
   provider_marketing_treatment_modalities: 'modality',
   provider_marketing_age_specialty: 'age_specialty',

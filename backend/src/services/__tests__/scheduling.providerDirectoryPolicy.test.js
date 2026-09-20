@@ -6,13 +6,13 @@ describe('canonical provider facets',()=>{
  it('moves ages and populations out of specialties, splitting numbered and comma lists',()=>{
   const result=normalizeClinicalFacets({specialties:['Adults','Adults (18+)','Elders','1. Anxiety & Emotional Regulation, 2. Trauma-Informed Care, 3. ADHD','Anxiety, Depression, Women\'s Issues','LGBTQ+'],ageGroups:['Seniors (65+)','Teen','Teen (14–18)'],modalities:['CBT','Individuals']});
   expect(result.ageGroups).toEqual(['Teen (14-18)','Adults (18+)','Seniors (65+)']);
-  expect(result.specialties).toEqual(['Anxiety & Emotional Regulation','ADHD','Anxiety','Depression',"Women's Issues"]);
-  expect(result.populations).toEqual(['LGBTQ+','Individuals']);
-  expect(result.modalities).toEqual(['Trauma-informed care','CBT']);
+  expect(result.specialties).toEqual(['Anxiety','Emotional Regulation','ADHD','Depression','Women’s Mental Health']);
+  expect(result.populations).toEqual(['LGBTQ+ Clients','Individuals']);
+  expect(result.modalities).toEqual(['Trauma-informed care','Cognitive Behavioral Therapy (CBT)']);
  });
  it('consolidates aliases without fabricating specialties from narrative fragments',()=>{
   const result=normalizeClinicalFacets({specialties:['OCD','Obsessive-Compulsive (OCD)','Sleep/Insomnia','Sleep or Insomnia','and building healthy coping skills. I have particular experience supporting children','as well as their caregivers and families.'],ageGroups:['Preteen','Preteen (11-13)']});
-  expect(result.specialties).toEqual(['Obsessive-Compulsive (OCD)','Sleep or Insomnia']);
+  expect(result.specialties).toEqual(['Obsessive-Compulsive Disorder (OCD)','Sleep Concerns']);
   expect(result.ageGroups).toEqual(['Preteen (11-13)']);
  });
 });

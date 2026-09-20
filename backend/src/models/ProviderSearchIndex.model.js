@@ -1,3 +1,5 @@
+import {normalizeClinicalFacets} from '../utils/providerFacetNormalization.js';
+import {CLINICAL_INDEX_FIELD_KEYS as INDEX_FIELD_KEYS,listClinicalFacetsForUser,bucketForFieldKey} from '../services/providerClinicalFacets.service.js';
 import pool from '../config/database.js';
 import { isBachelorsCredentialText } from '../utils/credentialNormalization.js';
 import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
@@ -23,7 +25,10 @@ class ProviderSearchIndex {
     const aid = Number(agencyId);
     if (!uid || !aid) return { ok: false };
 
-    const keys = Array.isArray(fieldKeys) ? fieldKeys.map((k) => String(k || '').trim()).filter(Boolean) : [];
+    let keys = Array.isArray(fieldKeys) ? fieldKeys.map((k) => String(k || '').trim()).filter(Boolean) : [];
+
+    const refreshClinical=!keys.length||keys.some(key=>INDEX_FIELD_KEYS.includes(key));
+    if(keys.length&&refreshClinical)keys=[...new Set([...keys,...INDEX_FIELD_KEYS])];
 
     // Remove existing rows for this user+agency, then reinsert from user_info_values.
     // Optimization: if fieldKeys are provided, only update those field_keys to keep imports fast.
@@ -62,6 +67,7 @@ class ProviderSearchIndex {
       const fieldType = String(r.field_type || '').trim();
       const value = r.value;
       if (!fieldKey) continue;
+      if(INDEX_FIELD_KEYS.includes(rawKey))continue;
 
       if (fieldType === 'multi_select') {
         const options = normalizeMultiSelect(value);
@@ -101,6 +107,12 @@ class ProviderSearchIndex {
           );
         }
       }
+    }
+
+    if(refreshClinical) {
+      const facets=await listClinicalFacetsForUser(uid,{agencyId:aid});
+      for(const [group,fieldKey] of Object.entries({specialties:'specialties_general',ageGroups:'age_specialty',populations:'groups',modalities:'modality',interventions:'provider_interventions_techniques'}))
+        for(const value of facets[group]||[])await pool.execute(`INSERT INTO provider_search_index (agency_id,user_id,field_key,field_type,value_text,value_option) VALUES (?,?,?,'multi_select',NULL,?)`,[aid,uid,fieldKey,value]);
     }
 
     // Add slot availability metadata so searchProviders can filter on it.
@@ -233,9 +245,18 @@ class ProviderSearchIndex {
     const subqueries = [];
     let idx = 0;
     for (const f of fs) {
-      const fieldKey = String(f?.fieldKey || '').trim();
+      let fieldKey = String(f?.fieldKey || '').trim();
       const op = String(f?.op || '').trim();
-      const value = f?.value;
+      let value = f?.value;
+      if(INDEX_FIELD_KEYS.includes(fieldKey)){
+        const group=bucketForFieldKey(fieldKey),keys={specialties:'specialties_general',ageGroups:'age_specialty',populations:'groups',modalities:'modality',interventions:'provider_interventions_techniques'};
+        if(keys[group])fieldKey=keys[group];
+        if(op==='hasOption'){
+          const normalized=normalizeClinicalFacets({[group]:[value]});
+          const matches=Object.entries(keys).flatMap(([g,k])=>(normalized[g]||[]).map(v=>({field:k,value:v})));
+          if(matches.length===1){fieldKey=matches[0].field;value=matches[0].value;}
+        }
+      }
       if (!fieldKey) continue;
       idx += 1;
 
@@ -254,9 +275,9 @@ class ProviderSearchIndex {
         subqueries.push(
           `SELECT user_id, ${idx} AS filter_idx
            FROM provider_search_index
-           WHERE agency_id = ? AND field_key = ? AND value_text LIKE ?`
+           WHERE agency_id = ? AND field_key = ? AND (value_text LIKE ? OR value_option LIKE ?)`
         );
-        params.push(aid, fieldKey, `%${q}%`);
+        params.push(aid, fieldKey, `%${q}%`, `%${q}%`);
       } else if (op === 'equals') {
         const q = String(value ?? '').trim();
         subqueries.push(
@@ -276,10 +297,9 @@ class ProviderSearchIndex {
         `u.id IN (
           SELECT DISTINCT user_id
           FROM provider_search_index
-          WHERE agency_id = ? AND value_text LIKE ?
+          WHERE agency_id = ? AND (value_text LIKE ? OR value_option LIKE ?)
         )`
       );
-      params.unshift(aid, `%${tq}%`);
     }
 
     let whereSql = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
@@ -299,6 +319,7 @@ class ProviderSearchIndex {
       JOIN user_agencies ua ON ua.user_id = u.id
       WHERE ${baseClauses.join(' AND ')}`;
     params.push(aid);
+    if(tq)params.push(aid, `%${tq}%`, `%${tq}%`);
 
     if (clauses.length) {
       baseUserIdsSql += ` AND ${clauses.join(' AND ')}`;

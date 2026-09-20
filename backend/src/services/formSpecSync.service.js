@@ -1,3 +1,4 @@
+import {clinicalFieldOptions} from '../utils/providerClinicalFieldOptions.js';
 import fs from 'fs/promises';
 import path from 'path';
 import YAML from 'yaml';
@@ -438,12 +439,12 @@ export class FormSpecSyncService {
           const inlineOptions = extractInlineOptions(f);
           const sourceKey = String(f.options_source || '').trim();
           const sourceOptions = sourceKey ? await resolveOptionSource(sourceKey) : null;
-          const options = inlineOptions || sourceOptions || null;
+          const options = clinicalFieldOptions(fieldKey)?.options || inlineOptions || sourceOptions || null;
 
           const upserted = await upsertPlatformFieldDefinition({
             fieldKey,
-            fieldLabel: f.label || f.question || fieldKey,
-            fieldType,
+            fieldLabel: clinicalFieldOptions(fieldKey)?.label || f.label || f.question || fieldKey,
+            fieldType: clinicalFieldOptions(fieldKey) ? 'multi_select' : fieldType,
             options,
             isRequired: f.required === true,
             categoryKey: sectionSlug,

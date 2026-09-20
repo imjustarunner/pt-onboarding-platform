@@ -35,8 +35,8 @@
         <span class="next-label">Next available</span>
         <span class="next-time">{{ formatNextAvailable(provider.availability.nextAvailableAt) }}</span>
       </p>
-      <p v-else class="next-available next-available--none">No published openings for this search</p>
-      <p v-if="hasSlots" class="card-detail">Select a time for a 15-minute hold. No appointment is booked.</p>
+      <p v-else class="next-available next-available--none">{{provider.acceptingNewClients?'Accepting new clients. We’ll work with you directly to find a time.':'No published openings for this search'}}</p>
+      <p v-if="hasSlots" class="card-detail">{{provider.onlineScheduling?'Select a preferred time. Our team confirms placement.':'Availability is shown for reference. We’ll work with you directly to find a time.'}}</p>
       <div class="week-slots">
         <div
           v-for="(daySlots, day) in groupedSlots"
@@ -45,17 +45,18 @@
         >
           <span class="day-label">{{ day }}</span>
           <div class="day-times">
-            <button
-              v-for="slot in daySlots.slice(0, 3)"
-              :key="`${slot.startAt}-${slot.endAt}`"
+            <template v-for="slot in daySlots.slice(0, 3)" :key="`${slot.startAt}-${slot.endAt}`">
+            <button v-if="provider.onlineScheduling"
               class="slot-chip"
               :class="slot.programType === 'VIRTUAL' ? 'slot-chip--virtual' : 'slot-chip--inperson'"
               type="button"
-              :aria-label="`Hold ${formatNextAvailable(slot.startAt)} for 15 minutes`"
+              :aria-label="`Request ${formatNextAvailable(slot.startAt)}`"
               @click="$emit('book', provider, slot)"
             >
               {{ timeLabel(slot.startAt) }}
             </button>
+            <span v-else class="slot-chip slot-display">{{timeLabel(slot.startAt)}}</span>
+            </template>
           </div>
         </div>
       </div>
@@ -158,7 +159,7 @@ function bookFirst() {
 </script>
 
 <style scoped>
-.card-office-buttons{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.card-office-buttons button{font-size:12px;padding:8px}
+.slot-display{cursor:default}.card-office-buttons{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.card-office-buttons button{font-size:12px;padding:8px}
 
 .provider-card {
   /* Inherits agency CSS vars from :root */

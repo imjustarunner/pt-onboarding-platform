@@ -478,7 +478,9 @@ async function getEnrolledProviderIds(agencyId, serviceType) {
 }
 
 async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=false}={}) {
-  if (!(await getAgencyServiceTypes(agencyId)).some((s) => s.service_type === serviceType)) return [];
+  const serviceEnabled=(await getAgencyServiceTypes(agencyId)).some(s=>s.service_type===serviceType);
+  // A clinical directory and school schedule remain public when online booking is not configured.
+  if(!serviceEnabled && !(includeDirectory && serviceType==='counseling')) return [];
   const [rows] = await pool.execute(
     `SELECT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path,
             u.service_focus, u.provider_accepting_new_clients, u.in_office_available, u.title, u.sees_clients, p.public_details_json AS service_details, 1 AS online_enrolled
@@ -495,7 +497,7 @@ async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=fa
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [Number(agencyId), String(serviceType)]
   );
-  const enrolled = rows.filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true,hasEnrollment:true}));
+  const enrolled = rows.filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true,hasEnrollment:true})).map(row=>({...row,online_enrolled:serviceEnabled?1:0}));
   let listed = [];
   if (includeDirectory) {
     const [directory] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.profile_photo_path,

@@ -8,16 +8,16 @@ export const CLINICAL_SUB_TABS = Object.freeze([
   {
     id: 'populations_client_focus',
     label: 'Populations & Client Focus',
-    emptyMeansOpenToAll: true,
+    emptyMeansOpenToAll: false,
     panelHint:
-      'Ages, demographics, communities, and who they serve. Leave multi-select fields blank to include this provider for all clients (when they have availability).',
+      'Client ages are separate from communities and client types. Select only groups this provider has experience serving; blank means not yet specified.',
     fieldKeys: [
       'age_specialty',
       'provider_marketing_age_specialty',
-      'mental_health',
       'sexuality',
       'other_issues',
       'groups',
+      'provider_marketing_focus',
       'pt_gender_ethnicity',
       'work_location',
       'provider_service_settings_in_school',
@@ -45,7 +45,6 @@ export const CLINICAL_SUB_TABS = Object.freeze([
           'age_specialty',
           'provider_marketing_age_specialty',
           'pt_gender_ethnicity',
-          'mental_health',
           'sexuality',
           'other_issues',
           'groups'
@@ -91,14 +90,14 @@ export const CLINICAL_SUB_TABS = Object.freeze([
     fieldKeys: [
       'modality',
       'provider_marketing_treatment_modalities',
-      'provider_marketing_focus',
-      'provider_primary_modality'
+      'provider_primary_modality',
+      'treatment_prefs_max15'
     ]
   },
   {
     id: 'interventions_techniques',
     label: 'Interventions & Techniques',
-    fieldKeys: ['treatment_prefs_max15', 'provider_interventions_techniques']
+    fieldKeys: ['provider_interventions_techniques']
   },
   {
     id: 'groups_programs',
@@ -161,7 +160,9 @@ export const CLINICAL_SUB_TABS = Object.freeze([
     fieldKeys: [
       'specialties_general',
       'pt_specialties_max25',
-      'provider_marketing_specialties'
+      'provider_marketing_specialties',
+      'mental_health',
+      'provider_marketing_mental_health_categories'
     ]
   },
     {
@@ -251,28 +252,35 @@ export const CLINICAL_OVERVIEW_CARDS = Object.freeze([
     id: 'specialties',
     title: 'Specialties',
     editSubTab: 'specialties',
-    fieldKeys: ['specialties_general', 'pt_specialties_max25', 'top3_specialties_general', 'top3_specialties_clinical'],
+    fieldKeys: ['specialties_general', 'pt_specialties_max25', 'top3_specialties_general', 'top3_specialties_clinical', 'mental_health'],
+    displayAs: 'pills'
+  },
+  {
+    id: 'client_ages',
+    title: 'Client Ages',
+    editSubTab: 'populations_client_focus',
+    fieldKeys: ['age_specialty', 'provider_marketing_age_specialty'],
     displayAs: 'pills'
   },
   {
     id: 'populations',
     title: 'Populations Served',
     editSubTab: 'populations_client_focus',
-    fieldKeys: ['age_specialty', 'mental_health', 'sexuality', 'other_issues', 'groups', 'pt_gender_ethnicity'],
+    fieldKeys: ['sexuality', 'other_issues', 'groups', 'provider_marketing_focus'],
     displayAs: 'pills'
   },
   {
     id: 'approaches',
     title: 'Therapeutic Approaches',
     editSubTab: 'therapeutic_approaches',
-    fieldKeys: ['modality', 'provider_marketing_treatment_modalities'],
+    fieldKeys: ['modality', 'provider_marketing_treatment_modalities', 'treatment_prefs_max15'],
     displayAs: 'pills'
   },
   {
     id: 'interventions',
     title: 'Interventions & Techniques',
     editSubTab: 'interventions_techniques',
-    fieldKeys: ['treatment_prefs_max15'],
+    fieldKeys: ['provider_interventions_techniques'],
     displayAs: 'pills'
   },
   {

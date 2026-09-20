@@ -362,6 +362,7 @@
 </template>
 
 <script setup>
+import {SPECIALTIES, POPULATIONS, CLIENT_AGES, THERAPY_APPROACHES} from '../../constants/providerClinicalTaxonomy';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -1089,9 +1090,13 @@ const fetchFieldDefinitions = async () => {
   return res.data || [];
 };
 
-const AGE_SPECIALTY_OPTIONS = ['Toddler (0-5)', 'Children (6-10)', 'Preteen (11-13)', 'Teen (14-18)', 'Adults (18+)', 'Seniors (65+)'];
+const AGE_SPECIALTY_OPTIONS = CLIENT_AGES;
 
 const DEFAULT_MULTI_SELECT_OPTIONS = Object.freeze({
+  specialties_general: SPECIALTIES,
+  pt_specialties_max25: SPECIALTIES,
+  provider_marketing_specialties: SPECIALTIES,
+  modality: THERAPY_APPROACHES,
   age_specialty: AGE_SPECIALTY_OPTIONS,
   provider_marketing_age_specialty: AGE_SPECIALTY_OPTIONS,
   mental_health: [
@@ -1114,10 +1119,10 @@ const DEFAULT_MULTI_SELECT_OPTIONS = Object.freeze({
   ],
   sexuality: ['Bisexual', 'Lesbian', 'LGBTQ+'],
   provider_marketing_sexuality: ['Bisexual', 'Lesbian', 'LGBTQ+'],
-  groups: ['Couples', 'Families', 'Groups', 'Individuals'],
-  provider_marketing_focus: ['Couples', 'Families', 'Groups', 'Individuals'],
-  treatment_prefs_max15: null,
-  provider_marketing_treatment_modalities: null
+  groups: POPULATIONS,
+  provider_marketing_focus: POPULATIONS,
+  treatment_prefs_max15: THERAPY_APPROACHES,
+  provider_marketing_treatment_modalities: THERAPY_APPROACHES
 });
 
 const applyDefaultFieldOptions = (field) => {

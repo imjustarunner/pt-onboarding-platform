@@ -1,3 +1,4 @@
+import {withClinicalFieldOptions} from '../utils/providerClinicalFieldOptions.js';
 import pool from '../config/database.js';
 
 class UserInfoFieldDefinition {
@@ -18,7 +19,7 @@ class UserInfoFieldDefinition {
     query += ' ORDER BY is_platform_template DESC, order_index ASC, created_at ASC';
     
     const [rows] = await pool.execute(query, params);
-    return rows;
+    return rows.map(row=>{const field=withClinicalFieldOptions(row);return {...field,options:Array.isArray(field.options)?JSON.stringify(field.options):field.options};});
   }
 
   static async findById(id) {
@@ -26,7 +27,7 @@ class UserInfoFieldDefinition {
       'SELECT * FROM user_info_field_definitions WHERE id = ?',
       [id]
     );
-    return rows[0] || null;
+    const row=rows[0];if(!row)return null;const field=withClinicalFieldOptions(row);return {...field,options:Array.isArray(field.options)?JSON.stringify(field.options):field.options};
   }
 
   static async findByAgency(agencyId) {

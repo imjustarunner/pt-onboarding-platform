@@ -10,8 +10,9 @@
     <button v-if="selectedOffice" type="button" @click="selectedOffice=''">Show all locations and virtual times</button>
     <p v-if="selectedOffice" class="timezone">Showing in-person openings at {{assignedOffices.find(o=>String(o.id)===String(selectedOffice))?.name||'the selected office'}}.</p>
     <h4>Next available appointments</h4>
-    <p v-if="!visibleSlots.length">No appointment openings at this time. {{schedule.waitlistEnabled?'You can join the waitlist below.':'Inquire with our team for help finding support.'}}</p>
-    <p v-else class="timezone">Times shown in {{schedule.timeZone}}. Our team confirms placement.</p>
+    <p v-if="!visibleSlots.length">{{status==='accepting'?'Accepting new clients. Appointment times aren’t posted yet; we’ll work with you directly to find a time.':schedule.waitlistEnabled?'No appointment times are posted. You can join the waitlist below.':'Not accepting new clients at this time. Inquire with our team for help finding support.'}}</p>
+    <p v-else-if="!schedule.onlineScheduling">These times show this provider’s availability. Contact our team to find a time together; online time selection is not enabled.</p>
+    <p v-if="visibleSlots.length" class="timezone">Times shown in {{schedule.timeZone}}. Our team confirms placement.</p>
     <div class="next-openings"><div v-for="slot in visibleSlots.slice(0,6)" :key="slot.startAt+slot.format"><strong>{{day(slot.startAt)}}</strong><span>{{time(slot.startAt)}}</span><small>{{slot.format==='VIRTUAL'?'Virtual':slot.buildingName||'In person'}}</small></div></div>
     <button v-if="schedule.onlineScheduling && visibleSlots.length" class="primary" @click="calendar=!calendar">{{calendar?'Hide full calendar':'View full calendar & request a time'}}</button>
     <PublicProviderSlotPicker v-if="calendar && schedule.onlineScheduling" :agency-slug="agencySlug" :provider-id="Number(provider.id)" :service-type="serviceType" :office-id="selectedOffice" :office-locations="assignedOffices" @hold="$emit('hold',$event)"/>
@@ -66,7 +67,7 @@ const time=value=>new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-di
 let generation=0;
 async function load(){const id=++generation;loading.value=true;error.value='';schedule.value=null;
  try{const {data}=await api.get(`${base.value}/schedule-summary`,{params:{serviceType:props.serviceType,officeId:selectedOffice.value||undefined},skipAuthRedirect:true});if(id!==generation)return;schedule.value=data;contact.value.format=waitlistFormats.value[0]?.value||'IN_PERSON';emit('loaded',data);}
- catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'We could not check openings. Please inquire with our team.';}
+ catch(e){if(id===generation)error.value=e.response?.status===404?'Availability is not published for this profile yet. Please inquire with our team.':e.response?.data?.error?.message||'We could not check openings. Please inquire with our team.';}
  finally{if(id===generation)loading.value=false;}}
 watch(selectedOffice,()=>load());
 async function joinWaitlist(){sending.value=true;waitlistError.value='';

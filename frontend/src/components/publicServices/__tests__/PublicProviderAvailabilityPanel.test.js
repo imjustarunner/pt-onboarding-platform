@@ -16,7 +16,19 @@ describe('public availability and waitlist',()=>{
   expect(w.find('.next-openings').text()).toContain('Denver');expect(w.find('.next-openings').text()).not.toContain('Springs');expect(w.text()).not.toContain('Unassigned address');
   expect(api.get).toHaveBeenCalledWith(expect.stringContaining('schedule-summary'),expect.objectContaining({params:expect.objectContaining({officeId:'12'})}));w.unmount();
  });
- it('displays typical hours and Maps links even when booking is disabled',async()=>{const w=render();await flushPromises();expect(w.text()).toContain('Saturday mornings');expect(w.text()).toContain('No appointment openings at this time');expect(w.find('a[target="_blank"]').attributes('href')).toContain('query=Example%20Office%2C%20Denver%2C%20CO');expect(w.findComponent({name:'PublicProviderSlotPicker'}).exists()).toBe(false);w.unmount();});
+ it('displays typical hours and Maps links even when booking is disabled',async()=>{const w=render();await flushPromises();expect(w.text()).toContain('Saturday mornings');expect(w.text()).toContain('No appointment times are posted');expect(w.find('a[target="_blank"]').attributes('href')).toContain('query=Example%20Office%2C%20Denver%2C%20CO');expect(w.findComponent({name:'PublicProviderSlotPicker'}).exists()).toBe(false);w.unmount();});
+ it('shows availability without time selection when online booking is disabled',async()=>{
+  api.get.mockResolvedValue({data:{...summary,slots:[{format:'IN_PERSON',buildingId:3,buildingName:'Example Office',startAt:'2030-01-01T16:00:00Z'}]}});
+  const w=render();await flushPromises();expect(w.find('.next-openings').text()).toContain('Example Office');expect(w.text()).toContain('online time selection is not enabled');expect(w.text()).not.toContain('View full calendar & request a time');w.unmount();
+ });
+ it('offers selectable times only for enabled booking',async()=>{
+  api.get.mockResolvedValue({data:{...summary,onlineScheduling:true,slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}});
+  const w=render();await flushPromises();expect(w.text()).toContain('View full calendar & request a time');w.unmount();
+ });
+ it('explains direct scheduling for accepting providers without posted times',async()=>{
+  api.get.mockResolvedValue({data:{...summary,waitlistEnabled:false,inPerson:{status:'accepting'}}});
+  const w=mount(Panel,{props:{provider:{...provider,acceptingNewClients:true,details:{}},agencySlug:'test'},global:{stubs:{RouterLink:true,PublicProviderSlotPicker:true}}});await flushPromises();expect(w.text()).toContain('we’ll work with you directly to find a time');expect(w.text()).not.toContain('Not accepting');w.unmount();
+ });
  it('joins a waitlist through a persisted request and requires a contact method',async()=>{
   const w=render();await flushPromises();await w.findAll('button').find(b=>b.text()==='Join waitlist').trigger('click');
   await w.find('form').trigger('submit');await flushPromises();expect(api.post).not.toHaveBeenCalled();expect(w.text()).toContain('Enter an email address or phone number');

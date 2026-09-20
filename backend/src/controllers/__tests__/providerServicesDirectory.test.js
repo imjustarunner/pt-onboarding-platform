@@ -19,17 +19,17 @@ vi.mock('../../services/officeIntakeProviders.service.js',()=>({listOfficeIntake
 vi.mock('../../services/adaptiveIntake.service.js',()=>({findFullIntakePublicKey:vi.fn()}));
 vi.mock('../../services/providerClinicalFacets.service.js',()=>({listClinicalFacetsForUser:async()=>({specialties:[],modalities:[],ageGroups:[],focus:[]})}));
 vi.mock('../../services/providerAcceptedInsurance.service.js',()=>({listProviderAcceptedInsurancesForDisplay:async()=>[]}));
-let selected,active,bookingEnabled;
+let selected,active,bookingEnabled,servicesConfigured;
 const request=()=>({params:{agencySlug:'test'},query:{view:'directory'},body:{providerId:9,serviceType:'tutoring'}});
 const response=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
 beforeEach(()=>{
- vi.clearAllMocks();selected=['tutoring','counseling'];active=false;bookingEnabled=true;Profile.getForProvider.mockResolvedValue({});
+ vi.clearAllMocks();selected=['tutoring','counseling'];active=false;bookingEnabled=true;servicesConfigured=true;Profile.getForProvider.mockResolvedValue({});
  pool.execute.mockImplementation(async sql=>{
   const person={id:9,first_name:'Example',last_name:'Provider',role:'admin',provider_accepting_new_clients:1,service_details:{serviceOfferingsByAgency:{'2':selected}},online_enrolled:0,has_enrollment:0};
   if(sql.includes('FROM office_standing_assignments s'))return [[{provider_id:9,id:12,name:'Denver',city:'Denver',state:'CO'}]];
   if(sql.includes('FROM public_appointment_requests'))return [[]];
   if(sql.includes('FROM agencies'))return [[{id:2,slug:'test',name:'Example agency',public_availability_enabled:bookingEnabled?1:0}]];
-  if(sql.includes('FROM agency_public_service_types'))return [[{service_type:'tutoring'},{service_type:'counseling'}]];
+  if(sql.includes('FROM agency_public_service_types'))return [servicesConfigured?[{service_type:'tutoring'},{service_type:'counseling'}]:[]];
   if(sql.includes('JOIN provider_public_service_enrollments e'))return [active?[{...person,online_enrolled:1}]:[]];
   if(sql.includes('FROM users u JOIN user_agencies'))return [[person]];
   if(sql.includes('FROM provider_tutoring_profiles')||sql.includes('FROM agency_learning_catalogs'))return [[]];
@@ -42,6 +42,14 @@ describe('public multi-service directories',()=>{
   const tutor=tutoring.json.mock.calls[0][0].providers[0];expect(tutor.providerId).toBe(9);expect(tutor.onlineScheduling).toBe(false);expect(tutor.tutoringProfile.hourlyRateCents).toBeNull();expect(tutor.availability.slots).toEqual([]);expect(tutor.officeLocations).toEqual([{id:12,name:'Denver',city:'Denver',state:'CO',address:'Denver, CO'}]);
   const counseling=response();await listCounselors(request(),counseling,next);expect(next).not.toHaveBeenCalled();expect(counseling.json.mock.calls[0][0].providers.map(p=>p.providerId)).toEqual([9]);
   expect(Availability.computeWeekAvailability).not.toHaveBeenCalled();
+ });
+ it('shows a counseling provider and their schedule without booking service configuration',async()=>{
+  servicesConfigured=false;selected=undefined;
+  const req={...request(),params:{agencySlug:'test',providerId:'9'},query:{serviceType:'counseling'}};
+  const res=response(),next=vi.fn();await getProviderScheduleSummary(req,res,next);
+  expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalledWith(404);
+  expect(readPublicProviderSchedule).toHaveBeenCalledWith(9,2,{officeId:null});expect(res.json).toHaveBeenCalledWith(expect.objectContaining({onlineScheduling:false}));
+  const denied=response();await createBookingRequest({...req,body:{providerId:9,serviceType:'counseling'}},denied,next);expect(denied.status).toHaveBeenCalledWith(400);
  });
  it('uses only openings at the selected office when computing the next appointment',async()=>{
   const slots=[{buildingId:11,startAt:'2035-01-01T16:00:00Z',endAt:'2035-01-01T17:00:00Z'},{buildingId:12,startAt:'2035-01-02T16:00:00Z',endAt:'2035-01-02T17:00:00Z'}];

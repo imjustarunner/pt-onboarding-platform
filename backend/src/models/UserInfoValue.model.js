@@ -1,3 +1,4 @@
+import {withClinicalFieldOptions} from '../utils/providerClinicalFieldOptions.js';
 import pool from '../config/database.js';
 import {
   LICENSE_FIELD_ALIAS_GROUPS,
@@ -365,7 +366,7 @@ class UserInfoValue {
         }
       }
       
-      return fieldWithValue;
+      return withClinicalFieldOptions(fieldWithValue);
     });
   }
 

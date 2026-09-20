@@ -7,7 +7,7 @@ import {
   normalizeFacetFieldKey
 } from '../constants/clinicalFacetFields.js';
 
-const INDEX_FIELD_KEYS = [...new Set([...ALL_CLINICAL_FACET_FIELD_KEYS, ...Object.keys(FACET_FIELD_ALIASES)])];
+export const INDEX_FIELD_KEYS = [...new Set([...ALL_CLINICAL_FACET_FIELD_KEYS, ...Object.keys(FACET_FIELD_ALIASES)])];
 
 function emptyFacets() {
   return {
@@ -21,13 +21,15 @@ function emptyFacets() {
   };
 }
 
-function bucketForFieldKey(fieldKey) {
+export function bucketForFieldKey(fieldKey) {
   const normalized = normalizeFacetFieldKey(fieldKey);
   for (const [group, keys] of Object.entries(CLINICAL_FACET_GROUPS)) {
     if (keys.includes(normalized) || keys.includes(fieldKey)) return group;
   }
   return null;
 }
+
+export const CLINICAL_INDEX_FIELD_KEYS = INDEX_FIELD_KEYS.filter(key=>bucketForFieldKey(key)!=='serviceSettings');
 
 function pushUnique(arr, val) {
   const v = String(val || '').trim();
@@ -36,9 +38,9 @@ function pushUnique(arr, val) {
 }
 
 /**
- * Read indexed clinical facets for one or more providers (from provider_search_index).
+ * Read saved clinical answers directly so a stale search index cannot hide or resurrect profile facts.
  */
-export async function listClinicalFacetsForUsers(userIds, { agencyId = null } = {}) {
+export async function listClinicalFacetsForUsers(userIds, { agencyId = null, database = pool } = {}) {
   const ids = Array.from(new Set((userIds || []).map((id) => Number(id)).filter((n) => Number.isInteger(n) && n > 0)));
   const out = new Map();
   for (const id of ids) out.set(id, emptyFacets());
@@ -49,25 +51,29 @@ export async function listClinicalFacetsForUsers(userIds, { agencyId = null } = 
   const params = [...ids];
   let agencySql = '';
   if (agencyId) {
-    agencySql = ' AND agency_id = ?';
+    agencySql = ' AND (d.agency_id = ? OR d.agency_id IS NULL)';
     params.push(Number(agencyId));
   }
   params.push(...INDEX_FIELD_KEYS);
 
-  const [rows] = await pool.execute(
-    `SELECT user_id, field_key, value_text, value_option
-     FROM provider_search_index
-     WHERE user_id IN (${idPlaceholders})${agencySql}
-       AND field_key IN (${keyPlaceholders})`,
+  const [rows] = await database.execute(
+    `SELECT v.user_id,d.field_key,v.value AS value_text
+     FROM user_info_values v JOIN user_info_field_definitions d ON d.id=v.field_definition_id
+     WHERE v.user_id IN (${idPlaceholders})${agencySql}
+       AND d.field_key IN (${keyPlaceholders})
+     ORDER BY d.agency_id IS NULL ASC,v.updated_at DESC,v.id DESC`,
     params
   );
 
+  const seen = new Set();
   for (const r of rows || []) {
     const uid = Number(r.user_id);
     if (!out.has(uid)) continue;
     const facets = out.get(uid);
     const rawKey = String(r.field_key || '').trim();
-    const val = String(r.value_option || r.value_text || '').trim();
+    const answerKey=`${uid}:${normalizeFacetFieldKey(rawKey)}`;
+    if(seen.has(answerKey))continue;seen.add(answerKey);
+    const val = Array.isArray(r.value_text)?JSON.stringify(r.value_text):String(r.value_option || r.value_text || '').trim();
     if (!val) continue;
 
     const bucket = bucketForFieldKey(rawKey);
