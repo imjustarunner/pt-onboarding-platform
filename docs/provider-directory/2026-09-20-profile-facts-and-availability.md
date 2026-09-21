@@ -33,4 +33,6 @@ ITSCO reconciliation: 90 active client-seeing accounts reviewed; 23 have recogni
 - An accepting provider with no posted times says the team will work directly with the client to find a time.
 - Closed and waitlisted providers retain their distinct status and next steps.
 
-The backend/frontend code must be deployed for the endpoint and UI fixes. The reconciled index/options are already stored in the configured database. No new migration is required.
+Backend and frontend automatic deployments of `14347f44` succeeded. The live Aneta schedule endpoint returned HTTP 200 with online scheduling disabled, 13 typical-availability entries, and three school assignments. The live website payload contains all three recovered specialties. The reconciled index/options are stored in the configured database. No new migration was required.
+
+Validation: 39 targeted backend tests, 25 frontend tests, and the frontend production build passed.
