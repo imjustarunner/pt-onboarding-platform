@@ -18,7 +18,12 @@ describe('public provider schedule summaries',()=>{
   const result=await readPublicProviderSchedule(9,2);
   expect(result.virtual.status).toBe('accepting');expect(result.inPerson.status).toBe('waitlist');expect(result.slots).toHaveLength(1);
   expect(result.waitlistFormats).toEqual(['IN_PERSON']);expect(result.locations[0].address).toBe('123 Example St, Denver, CO, 80202');
-  expect(result.typicalAvailability).toContain('Virtual · Tuesday, 9:00 AM–11:00 AM');expect(result.typicalAvailability).toContain('Saturday mornings');
+  expect(result.typicalAvailability).toEqual(['Saturday mornings']);
+ });
+ it('does not invent typical hours from available appointments when the profile has no summary',async()=>{
+  Profile.getForProvider.mockResolvedValue({details:{}});
+  const result=await readPublicProviderSchedule(9,2);
+  expect(result.slots).toHaveLength(1);expect(result.typicalAvailability).toEqual([]);
  });
  it('does not report no openings when a schedule service fails',async()=>{
   Availability.computeWeekAvailability.mockRejectedValueOnce(new Error('Calendar unavailable'));

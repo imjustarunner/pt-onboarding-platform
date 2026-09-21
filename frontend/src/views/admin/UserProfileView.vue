@@ -578,6 +578,7 @@
                     </div>
                   </div>
                   <div class="form-group form-group-full">
+                    <TypicalAvailabilityInput v-model="providerPublicDetails.typicalAvailability" :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"/>
                     <label>Insurances shown on profile</label>
                     <AcceptedInsuranceBadges
                       v-if="headerAcceptedInsurances.length"
@@ -2952,6 +2953,7 @@ import MovePendingToActiveModal from '../../components/admin/MovePendingToActive
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
 import UserPreferencesHub from '../../components/UserPreferencesHub.vue';
 import ProviderAvailabilitySettings from '../../components/availability/ProviderAvailabilitySettings.vue';
+import TypicalAvailabilityInput from '../../components/publicServices/TypicalAvailabilityInput.vue';
 import ScheduleAvailabilityGrid from '../../components/schedule/ScheduleAvailabilityGrid.vue';
 import {
   AGENCY_POSITION_ROLE_OPTIONS,
@@ -5142,7 +5144,7 @@ const editingProviderPublicProfile = ref(false);
 const providerPublicProfileError = ref('');
 const providerPublicProfileSnapshot = ref(null);
 const providerPublicBlurb = ref('');
-const providerPublicDetails = reactive({ languages: '', locations: '', sessionFormats: '' });
+const providerPublicDetails = reactive({ languages: '', locations: '', sessionFormats: '', typicalAvailability: '' });
 const providerPublicInsurancesCsv = ref('');
 const providerSelfPayRateUsd = ref(null);
 const providerSelfPayRateNote = ref('');

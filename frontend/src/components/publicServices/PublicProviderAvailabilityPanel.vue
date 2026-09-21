@@ -16,7 +16,6 @@
     <div class="next-openings"><div v-for="slot in visibleSlots.slice(0,6)" :key="slot.startAt+slot.format"><strong>{{day(slot.startAt)}}</strong><span>{{time(slot.startAt)}}</span><small>{{slot.format==='VIRTUAL'?'Virtual':slot.buildingName||'In person'}}</small></div></div>
     <button v-if="schedule.onlineScheduling && visibleSlots.length" class="primary" @click="calendar=!calendar">{{calendar?'Hide full calendar':'View full calendar & request a time'}}</button>
     <PublicProviderSlotPicker v-if="calendar && schedule.onlineScheduling" :agency-slug="agencySlug" :provider-id="Number(provider.id)" :service-type="serviceType" :office-id="selectedOffice" :office-locations="assignedOffices" @hold="$emit('hold',$event)"/>
-    <h4>Typical availability</h4><ul v-if="schedule.typicalAvailability?.length"><li v-for="item in schedule.typicalAvailability" :key="item">{{item}}</li></ul><p v-else>Typical hours have not been published yet. Inquire with our team.</p>
     <button v-if="schedule.waitlistEnabled" class="primary" @click="waitlistOpen=!waitlistOpen">Join waitlist</button>
     <form v-if="waitlistOpen" @submit.prevent="joinWaitlist">
      <h4>Join {{provider.firstName||provider.displayName}}’s waitlist</h4><p>The team will follow up about your request. Joining does not reserve an appointment.</p>
@@ -31,6 +30,7 @@
     </form>
     <p v-if="receipt" role="status">Your waitlist request was received. Reference #{{receipt}}. Our team will contact you.</p>
    </template>
+   <section class="typical-availability"><h4>Typical in-office availability</h4><ul v-if="typicalAvailability.length"><li v-for="item in typicalAvailability" :key="item">{{item}}</li></ul><p v-else>Typical hours have not been published yet. We’ll work with you directly to find a time.</p></section>
    <router-link class="contact-link" :to="contactPath">Inquire with our team →</router-link>
    <router-link v-if="provider.schools?.length || schedule?.schools?.length" class="contact-link" :to="`/${agencySlug}/school-referral`">Find school enrollment →</router-link>
    <section v-if="locations.length" class="provider-locations"><h4>Locations</h4><article v-for="location in locations" :key="location.name+location.address"><strong>{{location.name}}</strong><p v-if="location.address">{{location.address}}</p><a :href="mapUrl(location)" target="_blank" rel="noopener noreferrer">View on Google Maps ↗</a></article></section>
@@ -52,6 +52,7 @@ const contact=ref({name:'',email:'',phone:'',message:'',format:'IN_PERSON',phiAc
 const base=computed(()=>`/public/agency-services/${encodeURIComponent(props.agencySlug)}/providers/${Number(props.provider.id)}`);
 const contactPath=computed(()=>`/${encodeURIComponent(props.agencySlug)}/support`);
 const status=computed(()=>overallProviderStatus(props.provider,schedule.value||{}));
+const typicalAvailability=computed(()=>Array.isArray(props.provider.details?.typicalAvailability)?props.provider.details.typicalAvailability:[]);
 const formats=[{key:'inPerson',value:'IN_PERSON',label:'In person'},{key:'virtual',value:'VIRTUAL',label:'Virtual'},{key:'school',value:'SCHOOL',label:'School-based'}];
 const waitlistFormats=computed(()=>formats.filter(f=>(schedule.value?.waitlistFormats||[]).includes(f.value)));
 const assignedOffices=computed(()=>schedule.value?.locations||props.provider.officeLocations||[]);
@@ -66,7 +67,7 @@ const day=value=>new Intl.DateTimeFormat(undefined,{weekday:'short',month:'short
 const time=value=>new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit',timeZone:schedule.value?.timeZone}).format(new Date(value));
 let generation=0;
 async function load(){const id=++generation;loading.value=true;error.value='';schedule.value=null;
- try{const {data}=await api.get(`${base.value}/schedule-summary`,{params:{serviceType:props.serviceType,officeId:selectedOffice.value||undefined},skipAuthRedirect:true});if(id!==generation)return;schedule.value=data;contact.value.format=waitlistFormats.value[0]?.value||'IN_PERSON';emit('loaded',data);}
+ try{const {data}=await api.get(`${base.value}/schedule-summary`,{params:{serviceType:props.serviceType,officeId:selectedOffice.value||undefined},skipAuthRedirect:true,skipGlobalLoading:true,timeout:60000});if(id!==generation)return;schedule.value=data;contact.value.format=waitlistFormats.value[0]?.value||'IN_PERSON';emit('loaded',data);}
  catch(e){if(id===generation)error.value=e.response?.status===404?'Availability is not published for this profile yet. Please inquire with our team.':e.response?.data?.error?.message||'We could not check openings. Please inquire with our team.';}
  finally{if(id===generation)loading.value=false;}}
 watch(selectedOffice,()=>load());

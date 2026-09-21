@@ -5,11 +5,22 @@ import api from '../../../services/api';
 import {websiteCaptchaToken} from '../../../utils/websiteCaptcha';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
 vi.mock('../../../utils/websiteCaptcha',()=>({websiteCaptchaToken:vi.fn(async()=> 'test-captcha')}));
-const provider={id:9,firstName:'Example',displayName:'Example Provider',acceptingNewClients:false,office:true,details:{waitlistEnabled:true}};
+const provider={id:9,firstName:'Example',displayName:'Example Provider',acceptingNewClients:false,office:true,details:{waitlistEnabled:true,typicalAvailability:['Saturday mornings']}};
 const summary={timeZone:'America/Denver',onlineScheduling:false,waitlistEnabled:true,waitlistFormats:['IN_PERSON','VIRTUAL'],slots:[],inPerson:{status:'waitlist'},virtual:{status:'unavailable'},typicalAvailability:['Saturday mornings'],locations:[{id:3,name:'Example Office',address:'Denver, CO'}]};
 const render=()=>mount(Panel,{props:{provider,agencySlug:'test'},global:{stubs:{RouterLink:{props:['to'],template:'<a :href="to"><slot/></a>'},PublicProviderSlotPicker:true}}});
 beforeEach(()=>{vi.resetAllMocks();api.get.mockImplementation(async url=>({data:url.endsWith('schedule-summary')?summary:{recaptchaRequired:false}}));});
 describe('public availability and waitlist',()=>{
+ it('shows only profile-selected typical hours while schedule loading is pending',async()=>{
+  api.get.mockImplementation(()=>new Promise(()=>{}));
+  const w=render();await flushPromises();
+  expect(w.text()).toContain('Checking current openings');
+  expect(w.find('.typical-availability').text()).toContain('Saturday mornings');
+  expect(w.find('.typical-availability').text()).not.toContain('School-based');w.unmount();
+ });
+ it('ignores generated schedule hours in favor of the profile summary',async()=>{
+  api.get.mockResolvedValue({data:{...summary,typicalAvailability:['School-based · Monday · School','In person · Monday, 5:00 PM']}});
+  const w=render();await flushPromises();expect(w.find('.typical-availability').text()).toContain('Saturday mornings');expect(w.find('.typical-availability').text()).not.toContain('Monday');w.unmount();
+ });
  it('preserves the chosen office when showing openings and ignores typed locations',async()=>{
   api.get.mockResolvedValue({data:{...summary,locations:[{id:11,name:'Springs'},{id:12,name:'Denver'}],slots:[{format:'IN_PERSON',buildingId:11,buildingName:'Springs',startAt:'2030-01-01T16:00:00Z'},{format:'IN_PERSON',buildingId:12,buildingName:'Denver',startAt:'2030-01-02T16:00:00Z'}]}});
   const w=mount(Panel,{props:{provider:{...provider,details:{locations:['Unassigned address']}},agencySlug:'test',officeId:'12'},global:{stubs:{RouterLink:true,PublicProviderSlotPicker:true}}});await flushPromises();

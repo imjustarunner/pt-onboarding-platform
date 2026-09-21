@@ -42,6 +42,7 @@ server {
  listen 8080;
  server_name www.itsco.health;
  root /usr/share/nginx/html;
+ location = /manifest.webmanifest { default_type application/manifest+json; add_header Cache-Control "no-cache"; try_files /manifest.webmanifest =404; }
  add_header X-Content-Type-Options nosniff always;
  add_header X-Frame-Options SAMEORIGIN always;
  location ^~ /_public-sites/ { return 404; }
@@ -91,6 +92,7 @@ server {
  listen 8080;
  server_name ${domain} www.${domain};
  root /usr/share/nginx/html;
+ location = /manifest.webmanifest { default_type application/manifest+json; add_header Cache-Control "no-cache"; try_files /manifest.webmanifest =404; }
  location = / { add_header Cache-Control "no-cache"; try_files /_public-sites/${slug}/home.html =404; }
  location = /login { return 302 https://app.${domain}/login$is_args$args; }
  location = /app { return 302 https://app.${domain}/login$is_args$args; }

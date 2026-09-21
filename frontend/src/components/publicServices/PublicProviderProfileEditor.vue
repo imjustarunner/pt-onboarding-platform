@@ -14,6 +14,7 @@
     <label v-for="field in fields" :key="field.key">{{ field.label }}<textarea v-model="draft[field.key]" rows="2" placeholder="Separate entries with commas" /></label>
     <label v-for="[key,label] in availabilityFields" :key="key">{{label}}<select v-model="draft[key]"><option value="auto">Use global acceptance</option><option value="accepting">Accepting new clients</option><option value="waitlist">Waitlist</option><option value="unavailable">Not accepting</option></select></label>
    </div>
+   <TypicalAvailabilityInput v-model="draft.typicalAvailability" :disabled="busy"/>
    <p>Use the availability settings below to control new-client intake and appointment formats. Office and school acceptance settings apply to their assigned locations.</p>
    <p>Specialties, populations, and clinical approaches come from the provider’s clinical profile. <router-link v-if="auth.user?.role !== 'staff'" :to="{name:'UserProfile',params:{userId:provider.id}}">Open full staff profile</router-link></p>
    <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
@@ -28,13 +29,14 @@ import {computed,reactive,ref,watch} from 'vue';
 import {useAuthStore} from '../../store/auth';
 import api from '../../services/api';
 import ProviderAvailabilitySettings from '../availability/ProviderAvailabilitySettings.vue';
+import TypicalAvailabilityInput from './TypicalAvailabilityInput.vue';
 const props=defineProps({provider:{type:Object,required:true},agencyId:{type:Number,required:true}});
 const emit=defineEmits(['saved']);
 const auth=useAuthStore(),verified=ref(false),editing=ref(false),busy=ref(false),error=ref(''),notice=ref(''),photo=ref(null),draft=reactive({});
 const manager=computed(()=>window.parent===window && (Number(auth.user?.id)===Number(props.provider.id) || ['admin','super_admin','support','staff'].includes(auth.user?.role)));
 const allowed=computed(()=>manager.value && verified.value);
 const availabilityFields=[['officeAvailability','Office acceptance'],['virtualAvailability','Virtual acceptance'],['schoolAvailability','Assigned school acceptance']];
-const fields=[{key:'insurances',label:'Insurance accepted'},{key:'languages',label:'Languages'},{key:'locations',label:'Public locations'},{key:'sessionFormats',label:'In-person / virtual'},{key:'typicalAvailability',label:'Typical availability (for example, Saturday mornings)'}];
+const fields=[{key:'insurances',label:'Insurance accepted'},{key:'languages',label:'Languages'},{key:'locations',label:'Public locations'},{key:'sessionFormats',label:'In-person / virtual'}];
 let savedProfile={},generation=0;
 watch(()=>[props.provider.id,props.agencyId,manager.value],async()=>{
  const id=++generation;verified.value=false;editing.value=false;

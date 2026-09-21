@@ -58,7 +58,7 @@ let generation = 0;
 async function load() {
   const id = ++generation; loading.value = true; error.value = ''; slots.value = [];
   try {
-    const { data } = await api.get(`${base.value}/providers/${props.providerId}/slots`, { params: { serviceType: props.serviceType, programType: format.value, weekStart: week.value, bookingMode: 'NEW_CLIENT',officeId:format.value==='IN_PERSON'?selectedOffice.value||undefined:undefined }, skipAuthRedirect: true });
+    const { data } = await api.get(`${base.value}/providers/${props.providerId}/slots`, { params: { serviceType: props.serviceType, programType: format.value, weekStart: week.value, bookingMode: 'NEW_CLIENT',officeId:format.value==='IN_PERSON'?selectedOffice.value||undefined:undefined }, skipAuthRedirect: true, skipGlobalLoading: true, timeout: 60000 });
     if (id === generation) slots.value = data.slots || [];
   } catch (e) { if (id === generation) error.value = e.response?.data?.error?.message || 'Could not check openings.'; }
   finally { if (id === generation) loading.value = false; }

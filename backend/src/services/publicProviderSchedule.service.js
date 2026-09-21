@@ -4,7 +4,7 @@ import Profile from '../models/ProviderPublicProfile.model.js';
 import {publicAcceptance} from '../utils/publicProviderPresentation.js';
 
 export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,officeId=null}={}) {
- const [profile, [people], [offices], [schoolRows], [virtualHours], [officeHours]] = await Promise.all([
+ const [profile, [people], [offices], [schoolRows]] = await Promise.all([
   Profile.getForProvider({providerUserId:providerId}),
   pool.execute('SELECT provider_accepting_new_clients,in_office_available FROM users WHERE id=?',[providerId]),
   pool.execute(`SELECT DISTINCT l.id,l.name,l.street_address,l.city,l.state,l.postal_code,l.timezone
@@ -17,11 +17,7 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,
     AND (EXISTS(SELECT 1 FROM organization_affiliations f WHERE f.agency_id=? AND f.organization_id=a.id AND f.is_active=1)
       OR EXISTS(SELECT 1 FROM agency_schools f WHERE f.agency_id=? AND f.school_organization_id=a.id AND f.is_active=1))
     AND NOT EXISTS(SELECT 1 FROM district_schedule_hidden_providers h WHERE h.agency_id=? AND h.school_organization_id=a.id AND h.provider_user_id=p.provider_user_id)
-    AND NOT EXISTS(SELECT 1 FROM district_schedule_hidden_schools h WHERE h.agency_id=? AND h.school_organization_id=a.id)`,[providerId,agencyId,agencyId,agencyId,agencyId]),
-  pool.execute('SELECT day_of_week,start_time,end_time FROM provider_virtual_working_hours WHERE provider_id=? AND agency_id=?',[providerId,agencyId]),
-  pool.execute(`SELECT DISTINCT s.weekday,s.hour,l.name FROM office_standing_assignments s
-    JOIN office_locations l ON l.id=s.office_location_id JOIN office_location_agencies a ON a.office_location_id=l.id
-    WHERE s.provider_id=? AND s.is_active=1 AND l.is_active=1 AND a.agency_id=?`,[providerId,agencyId])
+    AND NOT EXISTS(SELECT 1 FROM district_schedule_hidden_schools h WHERE h.agency_id=? AND h.school_organization_id=a.id)`,[providerId,agencyId,agencyId,agencyId,agencyId])
  ]);
  const details=profile?.details||{},user=people[0]||{},now=Date.now(),all=[];
  let timeZone='America/Denver';
@@ -39,14 +35,11 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,
   const acceptance=publicAcceptance({globalAccepting:user.provider_accepting_new_clients??true,manual:details.waitlistEnabled&&details[manual]!=='unavailable'?'waitlist':details[manual],assigned:Boolean(enabled||next||['accepting','waitlist'].includes(details[manual])),hasOpenings:key==='school'?schoolOpenings:Boolean(next)});
   formats[key]={...acceptance,nextAvailableAt:next?.startAt||null,hasPublishedOpenings:acceptance.hasOpenings};
  }
- const clock=value=>{const [h,m]=String(value).split(':').map(Number);return `${h%12||12}:${String(m||0).padStart(2,'0')} ${h>=12?'PM':'AM'}`;};
- const typical=[...schoolRows.map(r=>`School-based · ${r.day_of_week}${r.start_time&&r.end_time?`, ${clock(r.start_time)}–${clock(r.end_time)}`:''} · ${r.name}`),...virtualHours.map(r=>`Virtual · ${r.day_of_week}, ${clock(r.start_time)}–${clock(r.end_time)}`),
-  ...officeHours.map(r=>`In person · ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][Number(r.weekday)]}, ${clock(`${r.hour}:00`)} · ${r.name}`)];
  return {timeZone,checkedAt:new Date().toISOString(),...formats,slots:slots.filter(s=>!officeId||(s.format==='IN_PERSON'&&Number(s.buildingId)===Number(officeId))).slice(0,60),nextAvailableAt:slots[0]?.startAt||null,
   hasPublishedOpenings:slots.length>0||schoolOpenings,
   waitlistEnabled:details.waitlistEnabled===true||['officeAvailability','virtualAvailability','schoolAvailability'].some(k=>details[k]==='waitlist'),
   waitlistFormats:[['IN_PERSON','officeAvailability'],['VIRTUAL','virtualAvailability'],['SCHOOL','schoolAvailability']].filter(([,key])=>details.waitlistEnabled===true||details[key]==='waitlist').map(([format])=>format),
-  typicalAvailability:[...new Set([...(details.typicalAvailability||[]),...typical])].slice(0,30),
+  typicalAvailability:Array.isArray(details.typicalAvailability)?[...new Set(details.typicalAvailability)].slice(0,30):[],
   locations:offices.map(o=>({id:o.id,name:o.name,address:[o.street_address,o.city,o.state,o.postal_code].filter(Boolean).join(', ')})),
   schools:[...new Map(schoolRows.map(s=>[s.id,{id:s.id,name:s.name,city:s.city,state:s.state,hasOpenings:schoolRows.some(row=>row.id===s.id&&Number(row.slots_available)>0)}])).values()]};
 }
