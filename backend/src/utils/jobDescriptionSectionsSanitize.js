@@ -104,6 +104,7 @@ export function blankJobDescriptionSections() {
     responsibilitySets: [],
     responsibilities: [],
     qualifications: [],
+    compensation: [],
     benefits: []
   };
 }
@@ -126,6 +127,7 @@ export function sanitizeJobDescriptionSections(raw) {
     responsibilitySets,
     responsibilities: flattenResponsibilityItems(responsibilitySets),
     qualifications: normalizeBullets(raw.qualifications),
+    compensation: normalizeBullets(raw.compensation),
     benefits: normalizeBullets(raw.benefits)
   };
 
@@ -134,6 +136,7 @@ export function sanitizeJobDescriptionSections(raw) {
     || out.responsibilitySets.length > 0
     || out.responsibilities.length > 0
     || out.qualifications.length > 0
+    || out.compensation.length > 0
     || out.benefits.length > 0;
 
   return hasContent ? out : null;

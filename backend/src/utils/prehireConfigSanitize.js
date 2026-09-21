@@ -1,6 +1,6 @@
 import { sanitizeWorkflow } from './hirePortalWorkflow.js';
 import { sanitizeDocumentHtml } from '../services/libraryDocument.service.js';
-const KINDS = new Set(['print_only', 'reference', 'acknowledgement', 'upload', 'company_document']);
+const KINDS = new Set(['print_only', 'reference', 'acknowledgement', 'upload', 'company_document', 'receipt']);
 
 function asObject(raw) {
   if (!raw) return null;
@@ -23,7 +23,7 @@ export function sanitizePrehireConfig(raw) {
       const kind = KINDS.has(kindRaw) ? kindRaw : 'acknowledgement';
       const title = String(d?.title || d?.name || '').trim().slice(0, 255);
       if (!title) return null;
-      const templateId = Number(d?.templateId || d?.documentTemplateId || 0) || null;
+      const templateId = kind === 'receipt' ? null : Number(d?.templateId || d?.documentTemplateId || 0) || null;
       const filePath = String(d?.filePath || d?.file_path || '').trim().slice(0, 1000) || null;
       const fileName = String(d?.fileName || d?.file_name || d?.originalName || '').trim().slice(0, 255) || null;
       const mimeType = String(d?.mimeType || d?.mime_type || '').trim().slice(0, 120) || null;

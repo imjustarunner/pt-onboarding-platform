@@ -8318,7 +8318,7 @@ const jobLandingHasDescriptionSections = computed(() => {
   const hasPdf = String(jobDescriptionSummary.value?.fileUrl || '').trim();
   if (!sections || typeof sections !== 'object') return hasPdf;
   const about = String(sections.aboutTheRole || '').trim();
-  const lists = ['responsibilities', 'qualifications', 'benefits'].some((key) =>
+  const lists = ['responsibilitySets', 'responsibilities', 'qualifications', 'compensation', 'benefits'].some((key) =>
     Array.isArray(sections[key]) && sections[key].some((item) => String(item || '').trim())
   );
   return about || lists || hasPdf;

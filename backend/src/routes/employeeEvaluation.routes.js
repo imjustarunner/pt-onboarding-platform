@@ -18,7 +18,8 @@ import {
   listJobTemplates,
   postGenerateJobTemplate,
   postAttachJobTemplate,
-  listAgencyTemplates
+  listAgencyTemplates,
+  putJobEvaluationRubric
 } from '../controllers/employeeEvaluation.controller.js';
 
 const router = express.Router();
@@ -45,5 +46,7 @@ router.post('/cycles/:cycleId/close', requireCapability('canManageHiring'), post
 router.get('/jobs/:jobDescriptionId/templates', requireCapability('canManageHiring'), listJobTemplates);
 router.post('/jobs/:jobDescriptionId/generate-template', requireCapability('canManageHiring'), postGenerateJobTemplate);
 router.post('/jobs/:jobDescriptionId/attach-template', requireCapability('canManageHiring'), postAttachJobTemplate);
+
+router.put('/jobs/:jobDescriptionId/rubric', requireCapability('canManageHiring'), putJobEvaluationRubric);
 
 export default router;

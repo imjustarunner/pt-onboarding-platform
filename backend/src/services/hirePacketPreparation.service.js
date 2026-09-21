@@ -43,6 +43,7 @@ export async function prepareHirePacket({ userId, agencyId, body }) {
       if (!template || (template.agency_id != null && Number(template.agency_id) !== Number(agencyId)) || !template.is_active) fail(`Choose an available document template for ${doc.title}.`);
       assertHireFormReady(template);
     }
+    if (doc.kind === 'receipt' && !doc.filePath) fail(`Upload ${doc.title} before sending this packet.`);
     if (doc.kind === 'company_document') {
       if (!doc.bodyHtml && !doc.filePath && !doc.templateId) fail(`Write or attach ${doc.title} before sending this packet.`);
       if (doc.bodyHtml) {

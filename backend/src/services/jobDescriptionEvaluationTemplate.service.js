@@ -23,9 +23,10 @@ function parseResponsibilities(jobDescription = {}) {
       sections = null;
     }
   }
-  const bullets = Array.isArray(sections?.responsibilities)
-    ? sections.responsibilities.map((b) => String(b || '').trim()).filter(Boolean)
-    : [];
+  const sets = Array.isArray(sections?.responsibilitySets) ? sections.responsibilitySets : [];
+  const raw = sets.length ? sets.flatMap(s => s?.items || []) : (sections?.responsibilities || []);
+  const bullets = (Array.isArray(raw) ? raw : []).flatMap(b => typeof b === 'object' ? (b?.items || []) : [b])
+    .filter(b => typeof b === 'string').map(b => b.trim()).filter(Boolean).slice(0, 200);
   if (bullets.length) return bullets;
 
   const text = String(jobDescription.description_text || '');

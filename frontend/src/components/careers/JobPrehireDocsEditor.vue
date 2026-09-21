@@ -8,7 +8,8 @@
         </p>
       </div>
       <button type="button" class="btn btn-secondary btn-sm" @click="addDoc('write')">Write / paste document</button>
-      <button type="button" class="btn btn-secondary btn-sm" @click="addDoc('upload')">Upload document</button>
+      <button type="button" class="btn btn-secondary btn-sm" @click="addDoc('upload')">Upload document to sign</button>
+      <button type="button" class="btn btn-secondary btn-sm" @click="addDoc('receipt')">Upload for receipt acknowledgment</button>
     </div>
 
     <div class="jpde-kind-guide" role="note">
@@ -52,9 +53,10 @@
           <input v-model="doc.title" class="input" type="text" placeholder="e.g. Handbook acknowledgement" />
         </label>
         <label>What should the candidate do?
-          <select v-model="doc.kind" class="input">
+          <select v-model="doc.kind" class="input" @change="doc.kind === 'receipt' && (doc.templateId = null, doc.bodyHtml = '')">
             <option value="acknowledgement">Sign job description</option>
             <option value="company_document">Company document to review &amp; sign</option>
+            <option value="receipt">View, download &amp; acknowledge receipt (no signature)</option>
             <option value="upload">Candidate file upload</option>
             <option value="print_only">Printable instructions</option>
             <option value="reference">External website link</option>
@@ -67,8 +69,8 @@
         <label v-if="doc.kind === 'company_document' && !doc.templateId">Document source
           <select :value="doc.bodyHtml || doc.sourceMode === 'write' ? 'write' : 'upload'" class="input" @change="setSource(doc, $event.target.value)"><option value="write">Write / paste branded document</option><option value="upload">Upload PDF or image</option></select>
         </label>
-        <div v-if="!doc.templateId && ((doc.kind === 'company_document' && !doc.bodyHtml && doc.sourceMode !== 'write') || doc.kind === 'upload')" class="jpde-file-block">
-          <label>{{ doc.kind === 'company_document' ? 'Upload company document' : 'Upload blank form (optional)' }}
+        <div v-if="!doc.templateId && ((doc.kind === 'company_document' && !doc.bodyHtml && doc.sourceMode !== 'write') || ['upload', 'receipt'].includes(doc.kind))" class="jpde-file-block">
+          <label>{{ doc.kind === 'receipt' ? 'Upload document to acknowledge' : doc.kind === 'company_document' ? 'Upload company document' : 'Upload blank form (optional)' }}
             <input
               class="input"
               type="file"
@@ -85,7 +87,7 @@
           <p v-if="uploadBusy[doc.id]" class="jpde-field-hint">Uploading…</p>
           <span class="jpde-field-hint">
             {{
-              doc.kind === 'company_document'
+              doc.kind === 'receipt' ? 'Candidate can view and download this file, then acknowledge receipt without signing.' : doc.kind === 'company_document'
                 ? 'Candidate sees this file in their portal and signs to acknowledge it. No external link needed.'
                 : 'Optional: give candidates your blank form to download before they upload their completed copy.'
             }}
@@ -223,7 +225,7 @@ const blankDoc = () => ({
 });
 
 const addDoc = (sourceMode = 'write') => {
-  model.value = { ...model.value, documents: [...model.value.documents, { ...blankDoc(), sourceMode, bodyHtml: '', brandingMode: 'organization' }] };
+  model.value = { ...model.value, documents: [...model.value.documents, { ...blankDoc(), kind: sourceMode === 'receipt' ? 'receipt' : 'company_document', sourceMode, bodyHtml: '', brandingMode: 'organization' }] };
 };
 const removeDoc = (idx) => {
   model.value.documents.splice(idx, 1);
@@ -295,6 +297,7 @@ const instructionsPlaceholder = (kind) => {
       return 'e.g. Complete fingerprint enrollment on the IdentoGO site, then return here.';
     case 'upload':
       return 'e.g. Upload a photo or PDF of your completed fingerprint receipt.';
+    case 'receipt': return 'View or download the document, then acknowledge receipt. No signature is required.';
     case 'company_document':
       return 'e.g. Read this document carefully, then sign to acknowledge you received and understand it.';
     default:
@@ -310,6 +313,7 @@ const kindCallout = (kind) => {
       return 'Candidate sees an “Open link” button. Use this only for vendor sites you do not host.';
     case 'upload':
       return 'Candidate uploads a file to their hire record. Optionally attach your blank form above.';
+    case 'receipt': return 'View or download the document, then acknowledge receipt. No signature is required.';
     case 'company_document':
       return 'Candidate fills and signs this document in the portal. The completed PDF and visible signature stay on their hire record.';
     default:
@@ -356,8 +360,10 @@ const kindCallout = (kind) => {
 }
 .jpde-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .jpde-remove { border: 0; background: none; color: #b91c1c; font-weight: 650; cursor: pointer; }
-.jpde-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.jpde-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .jpde-grid label, .jpde-full, .jpde-file-block { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; font-weight: 650; }
+.jpde-grid > * { min-width: 0; }
+.jpde .input, .jpde .textarea { width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
 .jpde-file-block { grid-column: 1 / -1; }
 .jpde-full { margin-top: 8px; }
 .jpde-field-hint {
@@ -411,6 +417,6 @@ const kindCallout = (kind) => {
 .muted { color: #6b7280; font-size: 0.85rem; font-weight: 400; }
 @media (max-width: 720px) {
   .jpde-grid,
-  .jpde-kind-guide { grid-template-columns: 1fr; }
+  .jpde-kind-guide { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

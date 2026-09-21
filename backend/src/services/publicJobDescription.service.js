@@ -281,6 +281,7 @@ async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
   }
   for (const [heading, items] of [
     ['Qualifications', sections?.qualifications],
+    ['Compensation', sections?.compensation],
     ['Benefits', sections?.benefits]
   ]) {
     if (!Array.isArray(items) || !items.length) continue;

@@ -89,11 +89,11 @@
             </div>
           </div>
           <div class="field-with-hint">
-            <input v-model="agencyPageForm.eyebrow" class="input" type="text" placeholder="Small eyebrow label, e.g. Careers" />
+            <label class="field-label">2 · Welcome: small heading<input v-model="agencyPageForm.eyebrow" class="input" type="text" placeholder="Small eyebrow label, e.g. Careers" /></label>
             <span class="field-hint">Tiny uppercase pill above the headline</span>
           </div>
           <div class="field-with-hint">
-            <input v-model="agencyPageForm.lead" class="input" type="text" placeholder="Lead paragraph, e.g. Join a supportive, purpose-driven team…" />
+            <label class="field-label">2 · Welcome: introduction<input v-model="agencyPageForm.lead" class="input" type="text" placeholder="Lead paragraph, e.g. Join a supportive, purpose-driven team…" /></label>
             <span class="field-hint">Paragraph shown below the headline</span>
           </div>
           <label class="checkbox-inline">
@@ -119,7 +119,7 @@
               </button>
             </div>
             <div class="upload-row" style="margin-top:10px;">
-              <input v-model="agencyPageForm.heroImageUrl" class="input" type="text" placeholder="Paste image URL or use the upload button →" style="flex:1" />
+              <label class="field-label">2 · Welcome: photo URL<input v-model="agencyPageForm.heroImageUrl" class="input" type="text" placeholder="Paste image URL or use the upload button →" style="flex:1" /></label>
               <button type="button" class="btn btn-secondary btn-sm" @click="triggerAgencyHeroUpload">📷 Upload photo</button>
             </div>
             <input ref="agencyHeroFileRef" type="file" accept="image/png,image/jpeg,image/webp,image/*" class="hidden-file" @change="onAgencyHeroFileChange" />
@@ -128,8 +128,8 @@
               <img :src="displayAssetUrl(agencyPageForm.heroImageUrl)" alt="Hero image preview" />
             </div>
           </div>
-          <input v-model="agencyPageForm.heroImageAlt" class="input" type="text" placeholder="Hero image alt text (for accessibility)" />
-          <input v-model="agencyPageForm.heroImagePosition" class="input" type="text" placeholder="Photo focal point, e.g. center top, 30% 50%" />
+          <label class="field-label">2 · Welcome: photo description<input v-model="agencyPageForm.heroImageAlt" class="input" type="text" placeholder="Hero image alt text (for accessibility)" /></label>
+          <label class="field-label">2 · Welcome: photo focus<input v-model="agencyPageForm.heroImagePosition" class="input" type="text" placeholder="Photo focal point, e.g. center top, 30% 50%" /></label>
         </div>
 
         <div class="display-card-editor">
@@ -265,14 +265,15 @@
         </div>
 
         <h5 class="config-section-label" style="margin-top:14px;">📋 Application landing page defaults <span class="field-hint">— shown on the form applicants fill out after clicking Apply Now</span></h5>
+        <JobApplicationPagePreview :config="agencyPageForm" :job="{ title: 'Example job title', descriptionText: 'Each job’s description appears here.' }" :asset-url="displayAssetUrl" :agency-name="selectedAgency?.name || selectedAgency?.official_name" />
         <div class="form-grid">
-          <input v-model="agencyPageForm.titleHighlight" class="input" type="text" placeholder="Title highlight text, e.g. Colorado Springs" />
-          <input v-model="agencyPageForm.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" />
-          <input v-model="agencyPageForm.secureSubtitle" class="input" type="text" placeholder="Header secure subtitle" />
-          <input v-model="agencyPageForm.startHeading" class="input" type="text" placeholder="Start card heading" />
-          <input v-model="agencyPageForm.startSubtitle" class="input" type="text" placeholder="Start card subtitle" />
-          <input v-model="agencyPageForm.startButtonText" class="input" type="text" placeholder="Start button text" />
-          <input v-model="agencyPageForm.startTimeNote" class="input" type="text" placeholder="Time note, e.g. Takes 3-5 minutes to begin" />
+          <label class="field-label">2 · Welcome: highlighted title text<input v-model="agencyPageForm.titleHighlight" class="input" type="text" placeholder="Title highlight text, e.g. Colorado Springs" /></label>
+          <label class="field-label">1 · Header: reassurance title<input v-model="agencyPageForm.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" /></label>
+          <label class="field-label">1 · Header: reassurance subtitle<input v-model="agencyPageForm.secureSubtitle" class="input" type="text" placeholder="Header secure subtitle" /></label>
+          <label class="field-label">5 · Start: heading<input v-model="agencyPageForm.startHeading" class="input" type="text" placeholder="Start card heading" /></label>
+          <label class="field-label">5 · Start: description<input v-model="agencyPageForm.startSubtitle" class="input" type="text" placeholder="Start card subtitle" /></label>
+          <label class="field-label">5 · Start: button label<input v-model="agencyPageForm.startButtonText" class="input" type="text" placeholder="Start button text" /></label>
+          <label class="field-label">5 · Start: time estimate<input v-model="agencyPageForm.startTimeNote" class="input" type="text" placeholder="Time note, e.g. Takes 3-5 minutes to begin" /></label>
         </div>
         <div class="display-card-editor">
           <h5>Feature cards <span class="field-hint">— icon + title + description shown in the hero section</span></h5>
@@ -346,7 +347,7 @@
             <option value="mandatory">Mandatory (required to apply)</option>
           </select>
         </div>
-        <input v-model="createForm.postedDate" class="input" type="date" />
+        <label class="field-label">Posting date<input v-model="createForm.postedDate" class="input" type="date" /><span class="field-hint">Date shown on the job listing. Use “Go live at” below to schedule publication.</span></label>
         <select v-model="createForm.educationLevel" class="input">
           <option value="">Education level (optional)</option>
           <option v-for="opt in educationLevelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
@@ -355,7 +356,7 @@
           <input v-model="createForm.ongoing" type="checkbox" />
           Ongoing (no deadline)
         </label>
-        <input v-model="createForm.applicationDeadline" class="input" type="date" :disabled="createForm.ongoing" />
+        <label class="field-label">Application deadline<input v-model="createForm.applicationDeadline" class="input" type="date" :disabled="createForm.ongoing" /><span class="field-hint">Last day to apply. Select “Ongoing” for no deadline.</span></label>
         <div class="schedule-field" style="grid-column: 1 / -1;">
           <label class="field-label">Schedule posting <span class="field-hint">— times use {{ agencyTimezoneLabel }}</span></label>
           <div class="form-grid" style="margin-top: 6px;">
@@ -410,16 +411,18 @@
           <h4>Single job posting override</h4>
           <span class="muted small">Optional. Empty fields fall back to the agency defaults above.</span>
         </div>
-        <div class="form-grid">
-          <input v-model="createForm.applicationPage.eyebrow" class="input" type="text" placeholder="Small label, e.g. Join Our Team" />
-          <input v-model="createForm.applicationPage.lead" class="input" type="text" placeholder="Lead line under the title" />
-          <input v-model="createForm.applicationPage.titleHighlight" class="input" type="text" placeholder="Title highlight text, e.g. Colorado Springs" />
+        <p class="muted">Careers listing → Apply Now → this welcome page → application questions. These settings change this job’s welcome page. Blank fields inherit the agency defaults.</p>
+            <JobApplicationPagePreview :config="createForm.applicationPage" :defaults="agencyPageForm" :job="createForm" :hero-file="createForm.heroImageFile" :asset-url="displayAssetUrl" :agency-name="selectedAgency?.name || selectedAgency?.official_name" />
+            <div class="form-grid">
+          <label class="field-label">2 · Welcome: small heading<input v-model="createForm.applicationPage.eyebrow" class="input" type="text" placeholder="Small label, e.g. Join Our Team" /></label>
+          <label class="field-label">2 · Welcome: introduction<input v-model="createForm.applicationPage.lead" class="input" type="text" placeholder="Lead line under the title" /></label>
+          <label class="field-label">2 · Welcome: highlighted title text<input v-model="createForm.applicationPage.titleHighlight" class="input" type="text" placeholder="Title highlight text, e.g. Colorado Springs" /></label>
           <label class="checkbox-inline">
             <input v-model="createForm.applicationPage.showLeafAccent" type="checkbox" />
             Show leaf accent near photo
           </label>
           <div class="hero-upload-field">
-            <input v-model="createForm.applicationPage.heroImageUrl" class="input" type="text" placeholder="Hero image URL or upload below" />
+            <label class="field-label">2 · Welcome: photo URL<input v-model="createForm.applicationPage.heroImageUrl" class="input" type="text" placeholder="Hero image URL or upload below" /></label>
             <button type="button" class="btn btn-secondary btn-sm" @click="triggerCreateHeroUpload">Upload photo</button>
             <input
               ref="createHeroFileRef"
@@ -433,17 +436,18 @@
               <img :src="displayAssetUrl(createForm.applicationPage.heroImageUrl)" alt="Hero preview" />
             </div>
           </div>
-          <input v-model="createForm.applicationPage.heroImageAlt" class="input" type="text" placeholder="Hero image alt text" />
-          <input v-model="createForm.applicationPage.heroImagePosition" class="input" type="text" placeholder="Photo focus, e.g. center center" />
-          <input v-model="createForm.applicationPage.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" />
-          <input v-model="createForm.applicationPage.secureSubtitle" class="input" type="text" placeholder="Header secure subtitle" />
-          <input v-model="createForm.applicationPage.startHeading" class="input" type="text" placeholder="Start card heading" />
-          <input v-model="createForm.applicationPage.startSubtitle" class="input" type="text" placeholder="Start card subtitle" />
-          <input v-model="createForm.applicationPage.startButtonText" class="input" type="text" placeholder="Start button text" />
-          <input v-model="createForm.applicationPage.startTimeNote" class="input" type="text" placeholder="Time note, e.g. Takes 3-5 minutes to begin" />
+          <label class="field-label">2 · Welcome: photo description<input v-model="createForm.applicationPage.heroImageAlt" class="input" type="text" placeholder="Hero image alt text" /></label>
+          <label class="field-label">2 · Welcome: photo focus<input v-model="createForm.applicationPage.heroImagePosition" class="input" type="text" placeholder="Photo focus, e.g. center center" /></label>
+              <label class="field-label">2 · Welcome: photo frame<select v-model="createForm.applicationPage.heroFrameStyle" class="input"><option value="">Agency / image default</option><option value="preframed">Keep image framing</option><option value="organic">Organic shape (supports leaf accent)</option><option value="rounded">Rounded rectangle</option></select></label>
+          <label class="field-label">1 · Header: reassurance title<input v-model="createForm.applicationPage.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" /></label>
+          <label class="field-label">1 · Header: reassurance subtitle<input v-model="createForm.applicationPage.secureSubtitle" class="input" type="text" placeholder="Header secure subtitle" /></label>
+          <label class="field-label">5 · Start: heading<input v-model="createForm.applicationPage.startHeading" class="input" type="text" placeholder="Start card heading" /></label>
+          <label class="field-label">5 · Start: description<input v-model="createForm.applicationPage.startSubtitle" class="input" type="text" placeholder="Start card subtitle" /></label>
+          <label class="field-label">5 · Start: button label<input v-model="createForm.applicationPage.startButtonText" class="input" type="text" placeholder="Start button text" /></label>
+          <label class="field-label">5 · Start: time estimate<input v-model="createForm.applicationPage.startTimeNote" class="input" type="text" placeholder="Time note, e.g. Takes 3-5 minutes to begin" /></label>
         </div>
         <div class="display-card-editor">
-          <h5>Feature cells</h5>
+          <h5>3 · Job highlights — between the welcome area and role details</h5>
           <div class="display-card-grid">
             <div v-for="(card, idx) in createForm.applicationPage.featureCards" :key="`create-feature-${idx}`" class="display-card-draft">
               <select v-model="card.icon" class="input">
@@ -455,7 +459,7 @@
           </div>
         </div>
         <div class="display-card-editor">
-          <h5>Trust cells</h5>
+          <h5>6 · Reassurance cards — below the start button</h5>
           <div class="display-card-grid display-card-grid-trust">
             <div v-for="(card, idx) in createForm.applicationPage.trustItems" :key="`create-trust-${idx}`" class="display-card-draft">
               <select v-model="card.icon" class="input">
@@ -591,7 +595,7 @@
                 <option value="mandatory">Mandatory (required to apply)</option>
               </select>
             </div>
-            <input v-model="editForm.postedDate" class="input" type="date" />
+            <label class="field-label">Posting date<input v-model="editForm.postedDate" class="input" type="date" /><span class="field-hint">Date shown on the job listing. Use “Go live at” below to schedule publication.</span></label>
             <select v-model="editForm.educationLevel" class="input">
               <option value="">Education level (optional)</option>
               <option v-for="opt in educationLevelOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
@@ -600,7 +604,7 @@
               <input v-model="editForm.ongoing" type="checkbox" />
               Ongoing (no deadline)
             </label>
-            <input v-model="editForm.applicationDeadline" class="input" type="date" :disabled="editForm.ongoing" />
+            <label class="field-label">Application deadline<input v-model="editForm.applicationDeadline" class="input" type="date" :disabled="editForm.ongoing" /><span class="field-hint">Last day to apply. Select “Ongoing” for no deadline.</span></label>
             <div class="schedule-field" style="grid-column: 1 / -1;">
               <label class="field-label">Schedule posting <span class="field-hint">— times use {{ agencyTimezoneLabel }}</span></label>
               <div class="form-grid" style="margin-top: 6px;">
@@ -650,47 +654,24 @@
             <JobDescriptionSectionsEditor v-model="editForm.descriptionSections" />
             <JobPrehireDocsEditor v-model="editForm.prehireConfig" :agency-id="effectiveAgencyId" />
           </div>
-          <div v-if="editingRow?.id" class="application-page-config eval-rubric-panel">
-            <div class="config-header">
-              <h4>Evaluation rubric</h4>
-              <span class="muted small">Semiannual employee self-assessment template for this role.</span>
-            </div>
-            <div v-if="evalTemplatesLoading" class="muted small">Loading templates…</div>
-            <div v-else-if="evalTemplatesError" class="error-text">{{ evalTemplatesError }}</div>
-            <ul v-else-if="evalTemplates.length" class="eval-rubric-list">
-              <li v-for="t in evalTemplates" :key="t.templateId || t.attachmentId || t.slug">
-                <strong>{{ t.name || t.slug }}</strong>
-                <span v-if="t.version != null" class="muted small"> · v{{ t.version }}</span>
-                <span v-if="t.isPrimary" class="eval-pill">Primary</span>
-                <span v-if="t.isSupervisorRubric" class="eval-pill">Supervisor</span>
-              </li>
-            </ul>
-            <p v-else class="muted small">No evaluation template attached yet.</p>
-            <button
-              type="button"
-              class="btn btn-secondary btn-sm"
-              style="margin-top: 8px;"
-              :disabled="evalTemplatesGenerating || !effectiveAgencyId"
-              @click="generateEvalTemplate"
-            >
-              {{ evalTemplatesGenerating ? 'Generating…' : 'Generate from responsibilities' }}
-            </button>
-          </div>
+          <JobEvaluationRubricEditor v-if="editingRow?.id" :key="`${effectiveAgencyId}-${editingRow.id}`" :job-id="editingRow.id" :agency-id="effectiveAgencyId" :job-title="editForm.title" />
           <div class="application-page-config">
             <div class="config-header">
               <h4>Application landing page</h4>
               <span class="muted small">Optional single-job override. Empty fields fall back to agency defaults.</span>
             </div>
+            <p class="muted">Careers listing → Apply Now → this welcome page → application questions. These settings change this job’s welcome page. Blank fields inherit the agency defaults.</p>
+            <JobApplicationPagePreview :config="editForm.applicationPage" :defaults="agencyPageForm" :job="editForm" :hero-file="editForm.heroImageFile" :asset-url="displayAssetUrl" :agency-name="selectedAgency?.name || selectedAgency?.official_name" :public-url="editingRow?.applicationUrl" />
             <div class="form-grid">
-              <input v-model="editForm.applicationPage.eyebrow" class="input" type="text" placeholder="Small label, e.g. Join Our Team" />
-              <input v-model="editForm.applicationPage.lead" class="input" type="text" placeholder="Lead line under the title" />
-              <input v-model="editForm.applicationPage.titleHighlight" class="input" type="text" placeholder="Title highlight text, e.g. Colorado Springs" />
+              <label class="field-label">2 · Welcome: small heading<input v-model="editForm.applicationPage.eyebrow" class="input" type="text" placeholder="Small label, e.g. Join Our Team" /></label>
+              <label class="field-label">2 · Welcome: introduction<input v-model="editForm.applicationPage.lead" class="input" type="text" placeholder="Lead line under the title" /></label>
+              <label class="field-label">2 · Welcome: highlighted title text<input v-model="editForm.applicationPage.titleHighlight" class="input" type="text" placeholder="Title highlight text, e.g. Colorado Springs" /></label>
               <label class="checkbox-inline">
                 <input v-model="editForm.applicationPage.showLeafAccent" type="checkbox" />
                 Show leaf accent near photo
               </label>
               <div class="hero-upload-field">
-                <input v-model="editForm.applicationPage.heroImageUrl" class="input" type="text" placeholder="Hero image URL or upload below" />
+                <label class="field-label">2 · Welcome: photo URL<input v-model="editForm.applicationPage.heroImageUrl" class="input" type="text" placeholder="Hero image URL or upload below" /></label>
                 <button type="button" class="btn btn-secondary btn-sm" @click="triggerEditHeroUpload">Upload photo</button>
                 <input
                   ref="editHeroFileRef"
@@ -704,17 +685,18 @@
                   <img :src="displayAssetUrl(editForm.applicationPage.heroImageUrl)" alt="Hero preview" />
                 </div>
               </div>
-              <input v-model="editForm.applicationPage.heroImageAlt" class="input" type="text" placeholder="Hero image alt text" />
-              <input v-model="editForm.applicationPage.heroImagePosition" class="input" type="text" placeholder="Photo focus, e.g. center center" />
-              <input v-model="editForm.applicationPage.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" />
-              <input v-model="editForm.applicationPage.secureSubtitle" class="input" type="text" placeholder="Header secure subtitle" />
-              <input v-model="editForm.applicationPage.startHeading" class="input" type="text" placeholder="Start card heading" />
-              <input v-model="editForm.applicationPage.startSubtitle" class="input" type="text" placeholder="Start card subtitle" />
-              <input v-model="editForm.applicationPage.startButtonText" class="input" type="text" placeholder="Start button text" />
-              <input v-model="editForm.applicationPage.startTimeNote" class="input" type="text" placeholder="Time note, e.g. Takes 3-5 minutes to begin" />
+              <label class="field-label">2 · Welcome: photo description<input v-model="editForm.applicationPage.heroImageAlt" class="input" type="text" placeholder="Hero image alt text" /></label>
+              <label class="field-label">2 · Welcome: photo focus<input v-model="editForm.applicationPage.heroImagePosition" class="input" type="text" placeholder="Photo focus, e.g. center center" /></label>
+              <label class="field-label">2 · Welcome: photo frame<select v-model="editForm.applicationPage.heroFrameStyle" class="input"><option value="">Agency / image default</option><option value="preframed">Keep image framing</option><option value="organic">Organic shape (supports leaf accent)</option><option value="rounded">Rounded rectangle</option></select></label>
+              <label class="field-label">1 · Header: reassurance title<input v-model="editForm.applicationPage.secureTitle" class="input" type="text" placeholder="Header secure title, e.g. Secure & Confidential" /></label>
+              <label class="field-label">1 · Header: reassurance subtitle<input v-model="editForm.applicationPage.secureSubtitle" class="input" type="text" placeholder="Header secure subtitle" /></label>
+              <label class="field-label">5 · Start: heading<input v-model="editForm.applicationPage.startHeading" class="input" type="text" placeholder="Start card heading" /></label>
+              <label class="field-label">5 · Start: description<input v-model="editForm.applicationPage.startSubtitle" class="input" type="text" placeholder="Start card subtitle" /></label>
+              <label class="field-label">5 · Start: button label<input v-model="editForm.applicationPage.startButtonText" class="input" type="text" placeholder="Start button text" /></label>
+              <label class="field-label">5 · Start: time estimate<input v-model="editForm.applicationPage.startTimeNote" class="input" type="text" placeholder="Time note, e.g. Takes 3-5 minutes to begin" /></label>
             </div>
             <div class="display-card-editor">
-              <h5>Feature cells</h5>
+              <h5>3 · Job highlights — between the welcome area and role details</h5>
               <div class="display-card-grid">
                 <div v-for="(card, idx) in editForm.applicationPage.featureCards" :key="`edit-feature-${idx}`" class="display-card-draft">
                   <select v-model="card.icon" class="input">
@@ -726,7 +708,7 @@
               </div>
             </div>
             <div class="display-card-editor">
-              <h5>Trust cells</h5>
+              <h5>6 · Reassurance cards — below the start button</h5>
               <div class="display-card-grid display-card-grid-trust">
                 <div v-for="(card, idx) in editForm.applicationPage.trustItems" :key="`edit-trust-${idx}`" class="display-card-draft">
                   <select v-model="card.icon" class="input">
@@ -755,6 +737,8 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import JobApplicationPagePreview from '../../components/careers/JobApplicationPagePreview.vue';
+import JobEvaluationRubricEditor from '../../components/careers/JobEvaluationRubricEditor.vue';
 import JobDescriptionSectionsEditor from '../../components/careers/JobDescriptionSectionsEditor.vue';
 import JobPrehireDocsEditor from '../../components/careers/JobPrehireDocsEditor.vue';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
@@ -778,6 +762,7 @@ const blankSections = () => ({
   aboutTheRole: '',
   responsibilitySets: [{ title: '', items: [] }],
   qualifications: [],
+  compensation: [],
   benefits: []
 });
 const normalizeSections = (raw) => {
@@ -799,6 +784,7 @@ const normalizeSections = (raw) => {
         : (Array.isArray(s?.bullets) ? s.bullets.map((x) => String(x || '').trim()).filter(Boolean) : [])
     })),
     qualifications: Array.isArray(src.qualifications) ? src.qualifications.map((s) => String(s || '').trim()).filter(Boolean) : [],
+    compensation: Array.isArray(src.compensation) ? src.compensation.map(s => String(s || "").trim()).filter(Boolean) : [],
     benefits: Array.isArray(src.benefits) ? src.benefits.map((s) => String(s || '').trim()).filter(Boolean) : []
   };
 };
@@ -1038,10 +1024,6 @@ const editForm = ref({
   file: null
 });
 const editingRow = ref(null);
-const evalTemplates = ref([]);
-const evalTemplatesLoading = ref(false);
-const evalTemplatesGenerating = ref(false);
-const evalTemplatesError = ref('');
 const jobFileRef = ref(null);
 const editFileRef = ref(null);
 const agencyHeroFileRef = ref(null);
@@ -1420,6 +1402,7 @@ const openEdit = (row) => {
       ? String(row.credentialMode).toLowerCase()
       : 'none',
     prehireConfig: {
+      ...JSON.parse(JSON.stringify(row.prehireConfig || {})),
       documents: Array.isArray(row.prehireConfig?.documents) ? row.prehireConfig.documents.map((d) => ({ ...d })) : []
     },
     educationLevel: row.educationLevel || '',
@@ -1435,12 +1418,9 @@ const openEdit = (row) => {
   if (editFileRef.value) editFileRef.value.value = '';
   if (editHeroFileRef.value) editHeroFileRef.value.value = '';
   if (editIconFileRef.value) editIconFileRef.value.value = '';
-  void loadEvalTemplates(row?.id);
 };
 const closeEdit = () => {
   editingRow.value = null;
-  evalTemplates.value = [];
-  evalTemplatesError.value = '';
   editForm.value = {
     title: '',
     descriptionText: '',
@@ -1466,43 +1446,6 @@ const closeEdit = () => {
     file: null
   };
 };
-
-async function loadEvalTemplates(jobId) {
-  const id = Number(jobId || 0);
-  const agencyId = Number(effectiveAgencyId.value || 0);
-  evalTemplates.value = [];
-  evalTemplatesError.value = '';
-  if (!id || !agencyId) return;
-  evalTemplatesLoading.value = true;
-  try {
-    const { data } = await api.get(`/evaluations/jobs/${id}/templates`, { params: { agencyId } });
-    evalTemplates.value = Array.isArray(data?.templates) ? data.templates : [];
-  } catch (e) {
-    evalTemplatesError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load evaluation templates';
-  } finally {
-    evalTemplatesLoading.value = false;
-  }
-}
-
-async function generateEvalTemplate() {
-  const id = Number(editingRow.value?.id || 0);
-  const agencyId = Number(effectiveAgencyId.value || 0);
-  if (!id || !agencyId) return;
-  evalTemplatesGenerating.value = true;
-  evalTemplatesError.value = '';
-  try {
-    const { data } = await api.post(
-      `/evaluations/jobs/${id}/generate-template`,
-      null,
-      { params: { agencyId } }
-    );
-    evalTemplates.value = Array.isArray(data?.templates) ? data.templates : [];
-  } catch (e) {
-    evalTemplatesError.value = e?.response?.data?.error?.message || e?.message || 'Failed to generate template';
-  } finally {
-    evalTemplatesGenerating.value = false;
-  }
-}
 
 const saveEdit = async () => {
   if (!editingRow.value?.id || !effectiveAgencyId.value) return;

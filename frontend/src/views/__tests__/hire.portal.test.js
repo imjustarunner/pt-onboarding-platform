@@ -48,6 +48,21 @@ describe('candidate process interface', () => {
     expect(wrapper.find('.portal-jd-content').text()).toContain('I acknowledge this job description');
     expect(wrapper.find('.portal-jd-content template').exists()).toBe(false);
   });
+  it('lets the candidate download and acknowledge receipt without a signature', async () => {
+    const data=state();data.candidate.status='PREHIRE_OPEN';data.journey={};
+    const doc={id:'notice',title:'Workplace notice',kind:'receipt',filePath:'notice.pdf',mimeType:'application/pdf'};
+    data.workflow.steps.pre_hire=[{key:'doc-notice',kind:'document',title:doc.title,doc}];
+    await open(data);
+    await wrapper.find('.hire-nav nav').findAll('button').find(b=>b.text().includes('Pre-Hire')).trigger('click');
+    const ack=()=>wrapper.findAll('button').find(b=>b.text()==='Acknowledge receipt');
+    expect(ack().attributes('disabled')).toBeDefined();
+    expect(wrapper.find('adaptive-signature-capture-stub').exists()).toBe(false);
+    expect(wrapper.findAll('a').find(a=>a.text()==='Download document').attributes('href')).toContain('/documents/notice/file?download=1');
+    await wrapper.get('.portal-doc-row input[type="checkbox"]').setValue(true);
+    await ack().trigger('click');await flushPromises();
+    expect(http.post).toHaveBeenCalledWith('/prehire-portal/test-token/documents/notice/receipt',{acknowledged:true});
+    expect(wrapper.text()).toContain('Receipt acknowledged.');
+  });
   it('opens only prehire navigation before staff starts onboarding', async () => {
     const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {};
     await open(data);

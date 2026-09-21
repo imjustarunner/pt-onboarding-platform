@@ -90,6 +90,26 @@
 
     <div class="jdse-block">
       <div class="jdse-label-row">
+        <label class="jdse-label">Compensation</label>
+        <span class="jdse-count" :class="{ 'jdse-count--warn': model.compensation.length >= BULLET_MAX }">
+          {{ model.compensation.length }} / {{ BULLET_MAX }} bullets
+        </span>
+      </div>
+      <p class="jdse-hint">
+        One bullet per line — paste from a list works. Max {{ BULLET_MAX }} bullets
+        ({{ BULLET_LEN_MAX }} characters each).
+      </p>
+      <textarea
+        class="jdse-textarea"
+        rows="8"
+        :value="bulletsText(model.compensation)"
+        placeholder="Hourly or salary range&#10;Pay basis and incentives"
+        @input="onBulletsInput('compensation', $event.target.value)"
+      />
+      <p v-if="truncation.compensation" class="jdse-warn">{{ truncation.compensation }}</p>
+    </div>
+    <div class="jdse-block">
+      <div class="jdse-label-row">
         <label class="jdse-label">Benefits</label>
         <span class="jdse-count" :class="{ 'jdse-count--warn': model.benefits.length >= BULLET_MAX }">
           {{ model.benefits.length }} / {{ BULLET_MAX }} bullets
@@ -103,10 +123,16 @@
         class="jdse-textarea"
         rows="8"
         :value="bulletsText(model.benefits)"
-        placeholder="Competitive salary&#10;Health, dental, and vision&#10;…"
+        placeholder="Health, dental, and vision&#10;Paid time off&#10;…"
         @input="onBulletsInput('benefits', $event.target.value)"
       />
       <p v-if="truncation.benefits" class="jdse-warn">{{ truncation.benefits }}</p>
+      <details v-if="model.benefits.length" class="jdse-hint">
+        <summary>Pay details currently in Benefits? Move them to Compensation.</summary>
+        <div v-for="(benefit, i) in model.benefits" :key="i" class="jdse-set-head">
+          <span>{{ benefit }}</span><button type="button" class="jdse-add" :disabled="model.compensation.length >= BULLET_MAX" @click="patch({ benefits: model.benefits.filter((_, index) => index !== i), compensation: [...model.compensation, benefit] })">Move to Compensation</button>
+        </div>
+      </details>
     </div>
   </div>
 </template>
@@ -136,6 +162,7 @@ const SET_BULLET_MAX = JOB_DESCRIPTION_SET_BULLET_MAX;
 
 const truncation = reactive({
   qualifications: '',
+  compensation: '',
   benefits: ''
 });
 
@@ -145,6 +172,7 @@ const blank = () => ({
   aboutTheRole: '',
   responsibilitySets: [blankSet()],
   qualifications: [],
+  compensation: [],
   benefits: []
 });
 
@@ -178,6 +206,7 @@ const model = computed(() => {
     aboutTheRole: String(src.aboutTheRole || ''),
     responsibilitySets: coerceSets(src),
     qualifications: Array.isArray(src.qualifications) ? src.qualifications : [],
+    compensation: Array.isArray(src.compensation) ? src.compensation.map(s => String(s || "").trim()).filter(Boolean) : [],
     benefits: Array.isArray(src.benefits) ? src.benefits : []
   };
 });

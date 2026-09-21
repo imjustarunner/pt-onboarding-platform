@@ -304,6 +304,7 @@ const settingsPath = computed(() => {
 
 const docKindLabel = (kind) => {
   switch (String(kind || '').toLowerCase()) {
+    case 'receipt': return 'View, download & acknowledge receipt';
     case 'company_document': return 'company document';
     case 'upload': return 'candidate upload';
     case 'print_only': return 'printable';

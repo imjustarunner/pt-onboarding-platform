@@ -1,3 +1,4 @@
+import { validateJobEvaluationRubric } from '../utils/jobEvaluationRubric.js';
 /**
  * Semiannual employee evaluation cycles, templates, and self-assessment responses.
  */
@@ -539,7 +540,26 @@ export async function listAgencyEvaluationRoster({ agencyId, periodYear, periodH
   };
 }
 
+async function assertJobAgency(agencyId, jobDescriptionId) {
+  const [[job]] = await pool.execute('SELECT id FROM hiring_job_descriptions WHERE id = ? AND agency_id = ?', [jobDescriptionId, agencyId]);
+  if (!job) throw Object.assign(new Error('Job description not found'), { status: 404 });
+}
+
+export async function saveJobEvaluationRubric({ agencyId, jobDescriptionId, templateId, rubric, createdByUserId }) {
+  await assertJobAgency(agencyId, jobDescriptionId);
+  const original = templateId ? await EmployeeEvaluationTemplate.findById(templateId) : null;
+  if (templateId && (!original || Number(original.agency_id) !== Number(agencyId))) throw Object.assign(new Error('Rubric not found'), { status: 404 });
+  const validated = validateJobEvaluationRubric(rubric);
+  const template = await EmployeeEvaluationTemplate.createVersion({ agencyId,
+    slug: original?.slug || `job_${jobDescriptionId}_custom`, name: validated.title,
+    description: original?.description, rubricJson: validated,
+    isSupervisorRubric: original?.is_supervisor_rubric || false, createdByUserId });
+  await HiringJobEvaluationTemplate.setPrimary({ agencyId, jobDescriptionId, templateId: template.id });
+  return listTemplatesForJob({ agencyId, jobDescriptionId });
+}
+
 export async function listTemplatesForJob({ agencyId, jobDescriptionId }) {
+  await assertJobAgency(agencyId, jobDescriptionId);
   const attached = await HiringJobEvaluationTemplate.listForJob(jobDescriptionId);
   return (attached || []).map((row) => ({
     attachmentId: row.id,
@@ -587,6 +607,9 @@ export async function generateAndAttachTemplateForJob({
 }
 
 export async function attachTemplateToJob({ agencyId, jobDescriptionId, templateId }) {
+  await assertJobAgency(agencyId, jobDescriptionId);
+  const template = await EmployeeEvaluationTemplate.findById(templateId);
+  if (!template || Number(template.agency_id) !== Number(agencyId) || !template.is_active) throw Object.assign(new Error('Rubric not found'), { status: 404 });
   await HiringJobEvaluationTemplate.setPrimary({ agencyId, jobDescriptionId, templateId });
   return listTemplatesForJob({ agencyId, jobDescriptionId });
 }

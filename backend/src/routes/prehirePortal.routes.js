@@ -42,7 +42,8 @@ import {
   uploadPortalPrehireDocument,
   viewPortalPrehireDocFile,
   viewPortalSubmissionFile,
-  signPortalCompanyDocument
+  signPortalCompanyDocument,
+  acknowledgePortalDocumentReceipt
 } from '../controllers/prehirePortal.controller.js';
 
 const router = express.Router();
@@ -152,4 +153,6 @@ router.post('/:token/modules/:moduleId/quiz', [body('answers').isArray()], porta
 router.get('/:token/modules/:moduleId/responses', portalTrainingAction('getResponses'));
 router.post('/:token/modules/:moduleId/responses', portalTrainingAction('saveResponse'));
 router.post('/:token/modules/:moduleId/knowledge-check', portalTrainingAction('knowledgeCheck'));
+router.post('/:token/documents/:docId/receipt', acknowledgePortalDocumentReceipt);
+
 export default router;

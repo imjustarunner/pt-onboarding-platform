@@ -59,6 +59,15 @@
         </ul>
       </section>
 
+      <section v-if="compensation.length" class="jds-card">
+        <h3 class="jds-card-title">
+          <span class="jds-card-ico" aria-hidden="true">💵</span>
+          Compensation
+        </h3>
+        <ul class="jds-list">
+          <li v-for="(item, i) in compensation" :key="`pay-${i}`">{{ item }}</li>
+        </ul>
+      </section>
       <section v-if="benefits.length" class="jds-card">
         <h3 class="jds-card-title">
           <span class="jds-card-ico" aria-hidden="true">✨</span>
@@ -150,6 +159,11 @@ const qualifications = computed(() =>
     ? props.sections.qualifications.map((s) => String(s || '').trim()).filter(Boolean)
     : []
 );
+const compensation = computed(() =>
+  Array.isArray(props.sections?.compensation)
+    ? props.sections.compensation.map((s) => String(s || '').trim()).filter(Boolean)
+    : []
+);
 const benefits = computed(() =>
   Array.isArray(props.sections?.benefits)
     ? props.sections.benefits.map((s) => String(s || '').trim()).filter(Boolean)
@@ -161,6 +175,7 @@ const hasContent = computed(() =>
     aboutParagraphs.value.length
     || responsibilitySets.value.length
     || qualifications.value.length
+    || compensation.value.length
     || benefits.value.length
     || props.pdfUrl
     || (props.showHeader && (props.title || summaryParagraphs.value.length))

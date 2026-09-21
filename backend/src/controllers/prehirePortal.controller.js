@@ -1536,7 +1536,7 @@ export const viewPortalPrehireDocFile = async (req, res, next) => {
     const mime = doc.bodyHtml ? 'application/pdf' : doc.mimeType || 'application/pdf';
     const fileName = doc.fileName || 'document.pdf';
     res.setHeader('Content-Type', mime);
-    res.setHeader('Content-Disposition', `inline; filename="${String(fileName).replace(/"/g, '')}"`);
+    res.setHeader('Content-Disposition', `${req.query.download === "1" ? "attachment" : "inline"}; filename="${String(fileName).replace(/["\r\n]/g, '')}"`);
     res.setHeader('Cache-Control', 'private, max-age=60');
     return res.send(buf);
   } catch (e) { next(e); }
@@ -1857,5 +1857,21 @@ export const viewPortalSignedFile = async (req, res, next) => {
     res.setHeader('Content-Disposition', 'inline; filename="signed-document.pdf"');
     res.setHeader('Cache-Control', 'private, no-store');
     res.send(bytes);
+  } catch (e) { next(e); }
+};
+
+
+export const acknowledgePortalDocumentReceipt = async (req, res, next) => {
+  try {
+    if (req.body?.acknowledged !== true) return res.status(400).json({ error: { message: 'Confirm that you received this document.' } });
+    const userId = req.portalUser.id;
+    const { agency, doc } = await findPortalPrehireDocForUser(userId, String(req.params.docId || ''));
+    if (!agency || doc?.kind !== 'receipt') return res.status(404).json({ error: { message: 'Receipt document not found.' } });
+    if (!doc.filePath) return res.status(400).json({ error: { message: 'Your hiring team must attach this document first.' } });
+    const user = await User.findById(userId);
+    const recipientName = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+    const { savePrehireDocumentReceipt } = await import('../services/prehireSignedReceipt.service.js');
+    const result = await savePrehireDocumentReceipt({ userId, agencyId: agency.id, doc, recipientName });
+    res.json({ ok: true, acknowledged: true, ...result });
   } catch (e) { next(e); }
 };

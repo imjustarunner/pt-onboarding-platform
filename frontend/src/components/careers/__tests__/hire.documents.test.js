@@ -43,6 +43,17 @@ describe('prehire document and resource setup', () => {
     expect(wrapper.vm.config.workflow.resources[0]).toMatchObject({phase:'pre_hire',kind:'video'});
     expect(wrapper.text()).not.toContain('Form W-4');
   });
+  it('uploads a document directly as receipt-only, without a signature template', async () => {
+    mountEditor(); await flushPromises();
+    await button('Upload for receipt acknowledgment').trigger('click');
+    http.post.mockResolvedValueOnce({data:{filePath:'prehire/notice.pdf',fileName:'notice.pdf',mimeType:'application/pdf'}});
+    const input=wrapper.get('input[type="file"]');
+    Object.defineProperty(input.element,'files',{value:[new File(['notice'],'notice.pdf',{type:'application/pdf'})]});
+    await input.trigger('change');await flushPromises();
+    expect(http.post).toHaveBeenCalledWith('/hiring/prehire-doc-files',expect.any(FormData),expect.objectContaining({params:{agencyId:1}}));
+    expect(wrapper.vm.config.documents[0]).toMatchObject({kind:'receipt',filePath:'prehire/notice.pdf'});
+    expect(wrapper.text()).toContain('without signing');
+  });
   it('attaches an existing template once and marks it included', async () => {
     mountEditor(); await flushPromises(); await button('Include document').trigger('click');
     expect(wrapper.vm.config.documents[0].templateId).toBe(3); expect(button('Included').attributes('disabled')).toBeDefined();

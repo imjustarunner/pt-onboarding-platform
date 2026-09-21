@@ -37,6 +37,12 @@ describe('packet readiness before inviting an applicant', () => {
   it('blocks a required resource whose source has not been attached', async () => {
     await expect(request({ portalWorkflow: { resources: [{ id: 'd11', title: 'D11', kind: 'upload', required: true }] } })).rejects.toThrow('Attach a link for D11');
   });
+  it('requires an attached file for a receipt-only document and retains that action', async () => {
+    job.prehire_config_json={documents:[{id:'notice',kind:'receipt',title:'Notice'}]};
+    await expect(request()).rejects.toThrow('Upload Notice');
+    job.prehire_config_json.documents[0].filePath='notice.pdf';
+    expect((await request()).documents[0]).toMatchObject({kind:'receipt',filePath:'notice.pdf',templateId:null});
+  });
   it('requires approved supervisor content and rejects another tenant’s acknowledgement', async () => {
     settings.portal_workflow.supervisorClause = '';
     await expect(request({ portalWorkflow: { supervisorRole: true } })).rejects.toThrow('supervisor duties clause');

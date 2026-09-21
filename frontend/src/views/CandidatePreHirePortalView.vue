@@ -137,7 +137,7 @@
                     @click="trackHandbookOpen(`ref:${doc.id}`)"
                   >{{ doc.title }}</a>
                   <a
-                    v-else-if="(doc.kind === 'company_document' || doc.kind === 'upload') && (doc.filePath || companyDocFileUrl(doc))"
+                    v-else-if="['company_document', 'upload', 'receipt'].includes(doc.kind) && (doc.filePath || companyDocFileUrl(doc))"
                     class="portal-doc-title-link"
                     :href="companyDocFileUrl(doc)"
                     target="_blank"
@@ -159,6 +159,21 @@
                     rel="noopener"
                     @click="trackHandbookOpen(`ref:${doc.id}`)"
                   >Open link</a>
+                  <template v-else-if="doc.kind === 'receipt'">
+                    <template v-if="doc.filePath">
+                      <HireDocumentPreview v-if="!doc.mimeType || doc.mimeType === 'application/pdf'" :http="portalApi"
+                        :url="`/prehire-portal/${token}/documents/${encodeURIComponent(doc.id)}/file`" :title="doc.title" />
+                      <img v-else-if="doc.mimeType?.startsWith('image/')" :src="companyDocFileUrl(doc)" :alt="doc.title" style="max-width:100%" />
+                      <a class="portal-link-copy" :href="companyDocFileUrl(doc) + '?download=1'" target="_blank" rel="noopener">Download document</a>
+                      <p v-if="doc.signed || receiptAcknowledged[doc.id]" class="cred-ok">Receipt acknowledged. The document and receipt are saved in My Documents.</p>
+                      <template v-else>
+                        <label><input v-model="receiptConfirmed[doc.id]" type="checkbox" /> I acknowledge receipt of this document.</label>
+                        <p v-if="companyDocError[doc.id]" role="alert">{{ companyDocError[doc.id] }}</p>
+                        <button type="button" class="btn-primary" :disabled="!receiptConfirmed[doc.id] || companyDocBusy[doc.id]" @click="acknowledgeDocumentReceipt(doc)">{{ companyDocBusy[doc.id] ? 'Saving…' : 'Acknowledge receipt' }}</button>
+                      </template>
+                    </template>
+                    <p v-else>Your hiring team still needs to attach this document.</p>
+                  </template>
                   <template v-else-if="['company_document', 'acknowledgement'].includes(doc.kind)">
                     <p v-if="doc.signed || companyDocSigned[doc.id]" class="cred-ok">Signed — thank you. Saved on your hire record.</p>
                     <template v-else>
@@ -675,6 +690,17 @@ const companyDocSignatures = reactive({});
 const companyDocBusy = reactive({});
 const companyDocError = reactive({});
 const companyDocSigned = reactive({});
+const receiptConfirmed = reactive({}), receiptAcknowledged = reactive({});
+async function acknowledgeDocumentReceipt(doc) {
+  if (!receiptConfirmed[doc.id] || companyDocBusy[doc.id]) return;
+  companyDocBusy[doc.id] = true; companyDocError[doc.id] = '';
+  try {
+    await portalApi.post(`/prehire-portal/${token.value}/documents/${encodeURIComponent(doc.id)}/receipt`, { acknowledged: true });
+    receiptAcknowledged[doc.id] = true;
+    await reloadPortal();
+  } catch (e) { companyDocError[doc.id] = e?.response?.data?.error?.message || 'Could not save receipt. Please try again.'; }
+  finally { companyDocBusy[doc.id] = false; }
+}
 
 const companyDocFileUrl = (doc) => {
   if (!token.value) return '';
@@ -743,6 +769,7 @@ const docKindLabel = (kind) => {
     case 'print_only': return 'Printable';
     case 'reference': return 'External link';
     case 'upload': return 'Complete & upload';
+    case 'receipt': return 'Acknowledge receipt';
     case 'company_document': return 'Review & sign';
     case 'acknowledgement': return 'Job description';
     default: return kind || 'Document';
@@ -761,6 +788,7 @@ const formatSubmissionCategory = (category) => {
     job_description_ack: 'Job description',
     job_description_acknowledgement: 'Job description',
     background_check_authorization: 'Background check',
+    prehire_document_receipt: 'Document receipt',
     prehire_company_document_ack: 'Signed document',
     prehire_upload: 'Uploaded copy'
   };

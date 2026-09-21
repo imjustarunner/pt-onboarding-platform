@@ -111,6 +111,7 @@ function jobApplicationSections(record) {
     const responsibilities = (sections.responsibilitySets || []).map(s => [s.title, ...(s.items || [])].filter(Boolean).join('\n'));
     add(rows, 'Responsibilities', (responsibilities.length ? responsibilities : sections.responsibilities || []).join('\n'));
     add(rows, 'Qualifications', (sections.qualifications || []).join('\n'));
+    add(rows, 'Compensation', (sections.compensation || []).join('\n'));
     add(rows, 'Benefits', (sections.benefits || []).join('\n'));
   }
   const uploads = (record.documents || []).map(doc => ({ label: doc.title || 'Application document', value: doc.name || 'View document', href: doc.href || '' }));

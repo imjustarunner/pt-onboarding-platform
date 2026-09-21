@@ -14,7 +14,8 @@ import {
   listAgencyEvaluationRoster,
   listTemplatesForJob,
   generateAndAttachTemplateForJob,
-  attachTemplateToJob
+  attachTemplateToJob,
+  saveJobEvaluationRubric
 } from '../services/employeeEvaluation.service.js';
 
 function parseAgencyId(req) {
@@ -354,6 +355,19 @@ export const listAgencyTemplates = async (req, res, next) => {
     const templates = await EmployeeEvaluationTemplate.listForAgency(agencyId, {
       includeInactive: String(req.query.includeInactive || '') === '1'
     });
+    res.json({ templates });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+export const putJobEvaluationRubric = async (req, res, next) => {
+  try {
+    const agencyId = parseAgencyId(req);
+    await assertCanManageAgency(req, agencyId);
+    const templates = await saveJobEvaluationRubric({ agencyId, jobDescriptionId: parseId(req.params.jobDescriptionId),
+      templateId: parseId(req.body?.templateId), rubric: req.body?.rubric, createdByUserId: req.user.id });
     res.json({ templates });
   } catch (e) {
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
