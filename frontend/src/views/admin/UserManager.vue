@@ -415,12 +415,16 @@
                   v-for="user in sortedUsers"
                   :key="user.id"
                   :class="{ 'member-row--editing': inlineEditingId === user.id, 'um-row--peeked': umQuickViewUser?.id === user.id }"
-                  @mouseenter="scheduleUmQuickView(user)"
-                  @mouseleave="cancelUmQuickView"
                   @click="!user.isOrphaned && !user.isGuardian ? $router.push(userProfilePath(user.id)) : undefined"
                   :style="{ cursor: (!user.isOrphaned && !user.isGuardian) ? 'pointer' : 'default' }"
                 >
-            <td>
+            <td
+              class="um-name-column"
+              @mouseenter="scheduleUmQuickView(user)"
+              @mouseleave="cancelUmQuickView"
+              @focusin="scheduleUmQuickView(user)"
+              @focusout="cancelUmQuickView"
+            >
               <template v-if="isSscSstcTenant && inlineEditingId === user.id">
                 <div class="inline-edit-fields">
                   <input v-model="inlineDraft.firstName" type="text" placeholder="First name" class="inline-edit-input" />
@@ -615,6 +619,9 @@
                       type="button"
                       class="btn btn-secondary btn-sm um-more-btn"
                       :aria-expanded="openActionsMenuId === Number(user.id) ? 'true' : 'false'"
+                      :aria-label="`Actions for ${user.first_name} ${user.last_name}`"
+                      aria-haspopup="menu"
+                      title="User actions"
                       @click.stop="toggleActionsMenu(user.id)"
                     >⋮</button>
                     <Teleport to="body">
@@ -624,6 +631,12 @@
                         :style="actionsMenuStyle"
                         @click.stop
                       >
+                        <button
+                          v-if="canArchiveDelete && (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant')"
+                          type="button"
+                          class="um-more-item um-more-danger"
+                          @click="openActionsMenuId = null; archiveUser(user)"
+                        >Archive</button>
                         <router-link
                           v-if="!user.isOrphaned && !user.isGuardian"
                           :to="userProfileTabPath(user.id, 'communications')"
@@ -648,12 +661,6 @@
                           class="um-more-item um-more-danger"
                           @click="openActionsMenuId = null; downloadAndWipeUserData(user)"
                         >Download &amp; wipe</button>
-                        <button
-                          v-if="canArchiveDelete && (!isSupervisor(authStore.user) && authStore.user?.role !== 'clinical_practice_assistant')"
-                          type="button"
-                          class="um-more-item um-more-danger"
-                          @click="openActionsMenuId = null; archiveUser(user)"
-                        >Archive</button>
                         <button
                           v-if="isSscSstcTenant && Number(user.id) !== Number(authStore.user?.id) && !user.applicationPending && inlineEditingId !== user.id"
                           type="button"
@@ -1765,86 +1772,28 @@
       </div>
     </div>
 
-    <!-- User quick-view panel (hover-triggered) -->
-    <transition name="um-drawer">
-      <div
-        v-if="umQuickViewUser"
-        class="um-drawer"
-        role="complementary"
-        aria-label="User quick view"
-        @mouseenter="cancelUmQuickViewClose"
-        @mouseleave="scheduleUmQuickViewClose"
-      >
-        <div class="um-drawer-header">
-          <div class="um-drawer-avatar">
-            <img
-              v-if="umQuickViewUser.profile_photo_url"
-              :src="toUploadsUrl(umQuickViewUser.profile_photo_url)"
-              class="um-drawer-avatar-img"
-              @error="$event.target.style.display='none'"
-            />
-            <span v-else class="um-drawer-avatar-initials">
-              {{ ((umQuickViewUser.first_name || '')[0] || '') + ((umQuickViewUser.last_name || '')[0] || '') }}
-            </span>
-          </div>
-          <div class="um-drawer-title">
-            <strong>{{ umQuickViewUser.first_name }} {{ umQuickViewUser.last_name }}</strong>
-            <div class="um-drawer-sub">
-              <span class="um-pill um-pill-role" style="font-size:0.72rem; padding:2px 8px;">{{ formatRole(umQuickViewUser.role) }}</span>
-              <span class="um-status-dot" :class="statusDotClass(umQuickViewUser.status, umQuickViewUser.is_active)" style="margin-left:4px;"></span>
-              <span style="font-size:0.78rem; color:#64748b;">{{ getStatusLabelWrapper(umQuickViewUser.status, umQuickViewUser.is_active) }}</span>
-            </div>
-          </div>
-          <div class="um-drawer-actions">
-            <router-link
-              v-if="!umQuickViewUser.isOrphaned && !umQuickViewUser.isGuardian"
-              :to="userProfilePath(umQuickViewUser.id)"
-              class="um-drawer-open-btn"
-            >Open profile ↗</router-link>
-            <button class="um-drawer-close" type="button" @click="umQuickViewUser = null" aria-label="Close">✕</button>
-          </div>
-        </div>
-        <div class="um-drawer-body">
-          <div class="um-drawer-section">
-            <div class="um-drawer-section-title">Contact</div>
-            <div class="um-drawer-grid">
-              <div>
-                <span class="um-drawer-label">Email</span>
-                <span>{{ umQuickViewUser.email || '—' }}</span>
-              </div>
-              <div v-if="umQuickViewUser.provider_credential">
-                <span class="um-drawer-label">Credential</span>
-                <span>{{ umQuickViewUser.provider_credential }}</span>
-              </div>
-            </div>
-          </div>
-          <div class="um-drawer-section">
-            <div class="um-drawer-section-title">Assignment</div>
-            <div class="um-drawer-grid">
-              <div>
-                <span class="um-drawer-label">Agency</span>
-                <span>{{ userAgencySummary(umQuickViewUser) || '—' }}</span>
-              </div>
-              <div v-if="userChildOrgs(umQuickViewUser).length">
-                <span class="um-drawer-label">Organizations</span>
-                <span>{{ userChildOrgs(umQuickViewUser).length }} linked</span>
-              </div>
-            </div>
-          </div>
-          <div v-if="umQuickViewUser.role === 'provider' || umQuickViewUser.has_provider_access" class="um-drawer-section">
-            <div class="um-drawer-section-title">Provider</div>
-            <div class="um-drawer-grid">
-              <div>
-                <span class="um-drawer-label">Availability</span>
-                <span :class="['badge', availabilityBadgeClass(umQuickViewUser)]" style="font-size:0.72rem;">
-                  {{ availabilityBadgeText(umQuickViewUser) }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </transition>
+    <Teleport to="body">
+      <transition name="um-drawer">
+        <UserDirectoryQuickView
+          v-if="umQuickViewUser"
+          :key="umQuickViewUser.id"
+          :user="umQuickViewUser"
+          :agency-id="agencySort || agencyStore.currentAgency?.id || userAgencyIds(umQuickViewUser)[0] || null"
+          :agency-label="userAgencySummary(umQuickViewUser)"
+          :profile-path="userProfilePath(umQuickViewUser.id)"
+          :role-label="formatRole(umQuickViewUser.role)"
+          :status-label="getStatusLabelWrapper(umQuickViewUser.status, umQuickViewUser.is_active)"
+          :can-archive="canArchiveDelete && !isSupervisor(authStore.user)"
+          @mouseenter="cancelUmQuickViewClose"
+          @mouseleave="scheduleUmQuickViewClose"
+          @focusin="cancelUmQuickViewClose"
+          @focusout="scheduleUmQuickViewClose"
+          @close="closeUmQuickView"
+          @archive="archiveUser(umQuickViewUser)"
+          @navigate="(tab) => { router.push(userProfileTabPath(umQuickViewUser.id, tab)); closeUmQuickView(); }"
+        />
+      </transition>
+    </Teleport>
 
     <IdentityReviewDrawer
       v-if="identityReviewMode"
@@ -1870,6 +1819,8 @@ import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
 import AskAssistantPanel from '../../components/assistant/AskAssistantPanel.vue';
 import UserSmartGrid from '../../components/admin/UserSmartGrid.vue';
+import UserDirectoryQuickView from '../../components/admin/UserDirectoryQuickView.vue';
+import { useDirectoryQuickView } from '../../composables/useDirectoryQuickView.js';
 import IdentityReviewDrawer from '../../components/admin/IdentityReviewDrawer.vue';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
 import { ANNOUNCEMENT_AUDIENCE_OPTIONS } from '../../constants/announcementAudiences.js';
@@ -1879,28 +1830,15 @@ const route = useRoute();
 const canSeeClientExchange = computed(() => canSeeClientExchangeNav(user.value?.role));
 const clientExchangeLink = computed(() => clientExchangePath(route.params?.organizationSlug));
 
-// User quick-view hover panel
-const umQuickViewUser = ref(null);
-let _umHoverOpenTimer = null;
-let _umHoverCloseTimer = null;
-
-function scheduleUmQuickView(user) {
-  cancelUmQuickViewClose();
-  if (umQuickViewUser.value?.id === user.id) return;
-  clearTimeout(_umHoverOpenTimer);
-  _umHoverOpenTimer = setTimeout(() => { umQuickViewUser.value = user; }, 420);
-}
-function cancelUmQuickView() {
-  clearTimeout(_umHoverOpenTimer);
-  scheduleUmQuickViewClose();
-}
-function cancelUmQuickViewClose() {
-  clearTimeout(_umHoverCloseTimer);
-}
-function scheduleUmQuickViewClose() {
-  clearTimeout(_umHoverCloseTimer);
-  _umHoverCloseTimer = setTimeout(() => { umQuickViewUser.value = null; }, 250);
-}
+// Only the name column schedules a preview; row controls never open it.
+const {
+  selectedUser: umQuickViewUser,
+  scheduleOpen: scheduleUmQuickView,
+  cancelOpen: cancelUmQuickView,
+  keepOpen: cancelUmQuickViewClose,
+  scheduleClose: scheduleUmQuickViewClose,
+  close: closeUmQuickView,
+} = useDirectoryQuickView();
 
 const userProfilePath = (userId) => {
   const slug = String(route.params.organizationSlug || '').trim();
@@ -2041,6 +1979,7 @@ const rosterProfileBase = computed(() => {
 // Default to Active Employee per admin workflow.
 const statusSort = ref('ACTIVE_EMPLOYEE');
 const agencySort = ref('');
+watch([agencySort, () => route.fullPath], closeUmQuickView);
 const organizationSort = ref('');
 const roleSort = ref('');
 const userSearch = ref('');
@@ -2484,6 +2423,7 @@ const runPeopleAssistantChip = (chip) => runPeopleAssistantPrompt(chip, { submit
 const runPeopleAssistantDraft = () => runPeopleAssistantPrompt(peopleAssistantDraft.value, { submitNow: true });
 
 const toggleActionsMenu = (userId) => {
+  closeUmQuickView();
   const id = Number(userId);
   openActionsMenuId.value = openActionsMenuId.value === id ? null : id;
 };
@@ -3688,6 +3628,7 @@ const archiveUser = async (user) => {
   
   try {
     await api.post(`/users/${user.id}/archive`);
+    if (umQuickViewUser.value?.id === user.id) closeUmQuickView();
     alert('User archived successfully');
     await fetchUsers();
   } catch (err) {
@@ -6289,133 +6230,13 @@ th {
   animation: um-spin 0.7s linear infinite;
 }
 
-/* User quick-view hover panel */
-.um-row--peeked td {
-  background: #f0fdf4 !important;
-}
-.um-drawer {
-  position: fixed;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: min(380px, 88vw);
-  background: #fff;
-  box-shadow: -4px 0 28px rgba(0, 0, 0, 0.13);
-  z-index: 500;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-left: 1px solid var(--border, #e5e7eb);
-}
-.um-drawer-enter-active,
-.um-drawer-leave-active {
-  transition: transform 0.22s ease, opacity 0.18s ease;
-}
-.um-drawer-enter-from,
-.um-drawer-leave-to {
-  transform: translateX(100%);
-  opacity: 0;
-}
-.um-drawer-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.65rem;
-  padding: 1rem 1.1rem;
-  border-bottom: 1px solid var(--border, #e5e7eb);
-  background: #fff;
-}
-.um-drawer-avatar {
-  width: 2.6rem;
-  height: 2.6rem;
-  border-radius: 999px;
-  background: var(--primary, #2d6a4f);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.82rem;
-  font-weight: 700;
-  flex-shrink: 0;
-  overflow: hidden;
-}
-.um-drawer-avatar-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.um-drawer-avatar-initials {
-  font-size: 0.82rem;
-  font-weight: 700;
-}
-.um-drawer-title {
-  flex: 1;
-  min-width: 0;
-}
-.um-drawer-title strong {
-  font-size: 0.96rem;
-  display: block;
-  margin-bottom: 0.3rem;
-}
-.um-drawer-sub {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-}
-.um-drawer-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-shrink: 0;
-}
-.um-drawer-open-btn {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--primary, #2d6a4f);
-  background: none;
-  border: 1px solid var(--primary, #2d6a4f);
-  border-radius: 7px;
-  padding: 0.25rem 0.6rem;
-  cursor: pointer;
-  white-space: nowrap;
-  text-decoration: none;
-}
-.um-drawer-open-btn:hover { background: #f0fdf4; }
-.um-drawer-close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1rem;
-  color: #6b7280;
-  padding: 0.2rem;
-  line-height: 1;
-}
-.um-drawer-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.25rem 0;
-}
-.um-drawer-section {
-  padding: 0.85rem 1.1rem;
-  border-bottom: 1px solid #f1f5f9;
-}
-.um-drawer-section-title {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #94a3b8;
-  margin-bottom: 0.5rem;
-}
-.um-drawer-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.55rem;
-}
-.um-drawer-label {
-  display: block;
-  font-size: 0.74rem;
-  color: #6b7280;
-  margin-bottom: 0.1rem;
+/* Compact directory typography and preview transition. */
+.users-table table { font-size: 13px; }
+.user-name-link { font-size: 13px; line-height: 1.45; }
+.um-row--peeked td { background: #f0f9f4; }
+.um-drawer-enter-active, .um-drawer-leave-active { transition: transform .18s ease, opacity .18s ease; }
+.um-drawer-enter-from, .um-drawer-leave-to { transform: translateX(100%); opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .um-drawer-enter-active, .um-drawer-leave-active { transition: none; }
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="ov-root">
+  <div class="ov-root" :class="{ 'ov-root--compact': compact }">
     <div v-if="loading" class="ov-full-loading">
       <div class="ov-spinner"></div>
       Loading overview…
@@ -10,7 +10,7 @@
       <div class="ov-layout">
 
         <!-- ═══ LEFT SIDEBAR ══════════════════════════════════════════════════ -->
-        <aside class="ov-sidebar">
+        <aside v-if="!compact" class="ov-sidebar">
 
           <!-- Section navigation -->
           <nav class="ov-nav">
@@ -130,6 +130,26 @@
 
         <!-- ═══ MAIN CONTENT ════════════════════════════════════════════════ -->
         <main class="ov-main">
+          <template v-if="compact">
+            <section class="ov-card ov-quick-key">
+              <div class="ov-card-hdr"><span class="ov-card-title">Key Information</span></div>
+              <div class="ov-field-list">
+                <div class="ov-field-row"><span class="ov-fl">Employee ID</span><span class="ov-fv">{{ user.employee_id || '—' }}</span></div>
+                <div class="ov-field-row"><span class="ov-fl">Credential</span><span class="ov-fv">{{ user.credential || '—' }}</span></div>
+                <div class="ov-field-row"><span class="ov-fl">Agency</span><span class="ov-fv">{{ agencyLabel || '—' }}</span></div>
+                <div class="ov-field-row"><span class="ov-fl">Supervisor</span><span class="ov-fv">{{ primarySupervisorName || '—' }}</span></div>
+                <div class="ov-field-row"><span class="ov-fl">Service Focus</span><span class="ov-fv">{{ ai?.serviceFocus || '—' }}</span></div>
+              </div>
+            </section>
+            <section class="ov-card ov-quick-contact">
+              <div class="ov-card-hdr"><span class="ov-card-title">Contact</span></div>
+              <div class="ov-field-list">
+                <div class="ov-field-row"><span class="ov-fl">Work Email</span><span class="ov-fv"><a :href="`mailto:${user.work_email || user.email}`">{{ user.work_email || user.email || '—' }}</a></span></div>
+                <div class="ov-field-row"><span class="ov-fl">Phone</span><span class="ov-fv">{{ ai?.phoneNumber || ai?.personalPhone || '—' }}</span></div>
+                <div class="ov-field-row"><span class="ov-fl">City, State</span><span class="ov-fv">{{ [ai?.homeCity, ai?.homeState].filter(Boolean).join(', ') || '—' }}</span></div>
+              </div>
+            </section>
+          </template>
 
           <!-- ── Row 1: Metric cards ────────────────────────────────────── -->
           <div class="ov-metric-row">
@@ -186,7 +206,8 @@
           </div>
 
           <!-- ── Row 2: Personal Info + Job Details ─────────────────────── -->
-          <div class="ov-two-col">
+          <component :is="compact ? 'details' : 'div'" class="ov-two-col ov-personal-job">
+            <summary v-if="compact">Personal &amp; employment details</summary>
 
             <!-- Personal Information -->
             <div class="ov-card">
@@ -321,10 +342,10 @@
                 </div>
               </template>
             </div>
-          </div>
+          </component>
 
           <!-- Payroll & HCBS Classification -->
-          <div v-if="canShowClassification" class="ov-card">
+          <div v-if="canShowClassification" class="ov-card ov-classification-card">
             <div class="ov-card-hdr">
               <span class="ov-card-title">Payroll &amp; HCBS Classification</span>
               <button class="ov-btn-viewall" type="button" @click="$emit('navigate', 'account')">Account</button>
@@ -339,7 +360,7 @@
           </div>
 
           <!-- ── Row 3: Insurance accepted ─────────────────────────────── -->
-          <div v-if="acceptedInsurances.length" class="ov-card">
+          <div v-if="acceptedInsurances.length" class="ov-card ov-insurance-card">
             <div class="ov-card-hdr">
               <span class="ov-card-title">Insurance Accepted</span>
               <button v-if="canViewCredentialingTab" class="ov-btn-viewall" type="button" @click="$emit('navigate', 'credentialing')">Manage</button>
@@ -348,7 +369,7 @@
           </div>
 
           <!-- ── Row 4: Assignments (only when data exists) ──────────── -->
-          <div v-if="affiliationsLoading || affiliations.length > 0" class="ov-card">
+          <div v-if="affiliationsLoading || affiliations.length > 0" class="ov-card ov-assignments-card">
             <div class="ov-card-hdr">
               <span class="ov-card-title">Assignments</span>
               <button class="ov-btn-viewall" type="button" @click="$emit('navigate', 'assignments')">View All</button>
@@ -374,9 +395,9 @@
           </div>
 
           <!-- ── Row 4: Lifecycle Management (full width) ───────────────── -->
-          <div v-if="canViewLifecycleTab && lifecycle" class="ov-card">
+          <div v-if="canViewLifecycleTab && lifecycle" class="ov-card ov-lifecycle-card">
             <div class="ov-card-hdr">
-              <span class="ov-card-title">Lifecycle Management</span>
+              <span class="ov-card-title">{{ compact ? 'Lifecycle Snapshot' : 'Lifecycle Management' }}</span>
               <button class="ov-btn-edit" type="button" @click="$emit('navigate', 'lifecycle')">Edit</button>
             </div>
 
@@ -410,7 +431,8 @@
             </div>
 
             <!-- Timeline + Employment Dates -->
-            <div class="ov-lc-bottom">
+            <component :is="compact ? 'details' : 'div'" class="ov-lc-bottom">
+              <summary v-if="compact">All employment dates</summary>
               <!-- Key Dates Timeline -->
               <div class="ov-lc-timeline-col">
                 <div class="ov-lc-subtitle">Key Dates Timeline</div>
@@ -468,7 +490,7 @@
                   </template>
                 </div>
               </div>
-            </div>
+            </component>
           </div>
 
           <!-- ── Row 4: Supervisor Assignments | Permissions | Activity ─── -->
@@ -669,6 +691,8 @@ const refreshOverview = inject('refreshProfileOverview', null);
 const authStore = useAuthStore();
 
 const props = defineProps({
+  compact: { type: Boolean, default: false },
+  agencyLabel: { type: String, default: '' },
   userId: { type: Number, required: true },
   user: { type: Object, required: true },
   canEditUser: { type: Boolean, default: false },
@@ -1101,7 +1125,7 @@ const fetchLifecycle = async () => {
 const fetchTasks = async () => {
   tasksLoading.value = true;
   try {
-    const res = await api.get('/tasks/all', { params: { assignedToUserId: props.userId } });
+    const res = await api.get('/tasks/all', { params: { assignedToUserId: props.userId }, skipGlobalLoading: props.compact });
     allTasks.value = Array.isArray(res.data) ? res.data : (res.data?.tasks || []);
   } finally {
     tasksLoading.value = false;
@@ -1152,7 +1176,7 @@ const fetchNotes = async () => {
 const fetchAffiliations = async () => {
   affiliationsLoading.value = true;
   try {
-    const res = await api.get('/provider-self/affiliations', { params: { providerUserId: props.userId } });
+    const res = await api.get('/provider-self/affiliations', { params: { providerUserId: props.userId }, skipGlobalLoading: props.compact });
     affiliations.value = res.data?.affiliations || [];
   } catch {
     affiliations.value = [];
@@ -2048,4 +2072,49 @@ watch(
   .ov-two-col { grid-template-columns: 1fr; }
   .ov-three-col { grid-template-columns: 1fr; }
 }
+
+/* Directory preview: the same overview cards in a compact, scrollable column. */
+.ov-root--compact .ov-layout { display: block; }
+.ov-root--compact .ov-main { padding: 0; gap: 10px; }
+.ov-root--compact .ov-main > * { order: 8; }
+.ov-root--compact .ov-main > .ov-quick-key { order: 0; }
+.ov-root--compact .ov-main > .ov-classification-card { order: 1; }
+.ov-root--compact .ov-main > .ov-quick-contact { order: 2; }
+.ov-root--compact .ov-main > .ov-assignments-card { order: 3; }
+.ov-root--compact .ov-main > .ov-insurance-card { order: 4; }
+.ov-root--compact .ov-main > .ov-lifecycle-card { order: 5; }
+.ov-root--compact .ov-main > .ov-metric-row { order: 6; }
+.ov-root--compact .ov-main > .ov-personal-job { order: 7; }
+.ov-root--compact .ov-card { padding: 12px; border-color: #e3eae5; border-radius: 10px; box-shadow: 0 1px 2px #173e2904; min-width: 0; }
+.ov-root--compact .ov-card-hdr { margin-bottom: 8px; }
+.ov-root--compact .ov-card-title { font-size: 12px; }
+.ov-root--compact .ov-field-row { font-size: 12px; padding: 3px 0; border: 0; }
+.ov-root--compact .ov-fl { min-width: 100px; }
+.ov-root--compact .ov-fv { text-align: left; overflow-wrap: anywhere; min-width: 0; }
+.ov-root--compact .ov-fv--avatar { justify-content: flex-start; }
+.ov-root--compact .ov-fv a { color: #3f7056; }
+.ov-root--compact .ov-three-col { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.ov-root--compact .ov-metric-row { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.ov-root--compact .ov-metric-card { padding: 10px 8px; min-width: 0; }
+.ov-root--compact .ov-metric-header { gap: 4px; }
+.ov-root--compact .ov-metric-label { font-size: 10px; }
+.ov-root--compact .ov-metric-num { font-size: 20px; margin: 8px 0 0; }
+.ov-root--compact .ov-metric-icon-wrap, .ov-root--compact .ov-metric-divider, .ov-root--compact .ov-metric-link { display: none; }
+.ov-root--compact .ov-affil-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.ov-root--compact .ov-affil-item { padding: 8px; min-width: 0; }
+.ov-root--compact .ov-affil-name { font-size: 12px; overflow-wrap: anywhere; }
+.ov-root--compact .ov-lc-bar { gap: 12px; }
+.ov-root--compact .ov-lc-label { font-size: 10px; }
+.ov-root--compact .ov-lc-val { font-size: 12px; }
+.ov-root--compact details.ov-personal-job { display: block; background: white; border: 1px solid #e3eae5; border-radius: 10px; padding: 12px; }
+.ov-root--compact details.ov-personal-job .ov-card { margin-top: 10px; }
+.ov-root--compact details.ov-lc-bottom { display: block; margin-top: 12px; padding-top: 8px; }
+.ov-root--compact summary { cursor: pointer; font-size: 12px; font-weight: 600; color: #496653; }
+.ov-root--compact .ov-lc-timeline-col, .ov-root--compact .ov-lc-dates-col { margin-top: 12px; min-width: 0; }
+.ov-root--compact .ov-lc-dates-grid { grid-template-columns: minmax(0, 1fr); }
+.ov-root--compact :deep(.accepted-insurance-list) { gap: 5px; }
+.ov-root--compact :deep(.accepted-insurance-item) { padding: 4px 6px; gap: 5px; border-radius: 5px; }
+.ov-root--compact :deep(.accepted-insurance-logo), .ov-root--compact :deep(.accepted-insurance-fallback) { width: 24px; height: 24px; }
+.ov-root--compact :deep(.accepted-insurance-name) { font-size: 11px; }
+.ov-root--compact :deep(.pay-hcbs-axis-label), .ov-root--compact :deep(.pay-hcbs-axis-detail) { font-size: 11px; }
 </style>
