@@ -1,5 +1,7 @@
+import {agencyFormatAllowed} from './providerAgencyAvailability.js';
 export function providerAvailabilityPreferences(user, profile = {}) {
  const details = profile?.details || {};
+ if(profile?.agencyAvailability)return {...profile.agencyAvailability};
  const seesClients = ![false,0,'0'].includes(user?.sees_clients ?? true);
  return {
   seesClients,
@@ -21,5 +23,5 @@ export const availabilitySettingsPath = (providerId, agencyId) => `/admin/users/
 export function publicFormatEnabled(profile, format, bookingMode='NEW_CLIENT') {
  // Actual intake-enabled schedule openings are authoritative. Closing intake
  // withdraws those publications, rather than hiding still-open times here.
- return true;
+ return agencyFormatAllowed(profile?.agencyAvailability,format,{intake:bookingMode!=='CURRENT_CLIENT'});
 }

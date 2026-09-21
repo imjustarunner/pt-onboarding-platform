@@ -1,8 +1,7 @@
+import {availabilityEditingContext,saveAgencyAvailability} from '../services/providerAgencyAvailability.service.js';
 import {readProviderServices,saveProviderServices} from '../services/providerServiceOfferings.service.js';
 import pool from '../config/database.js';
-import {withdrawProviderIntakeOpenings} from '../services/providerIntakePublication.service.js';
 import User from '../models/User.model.js';
-import Profile from '../models/ProviderPublicProfile.model.js';
 import Notification from '../models/Notification.model.js';
 import {readProviderAvailabilitySettings,checkProviderAvailability} from '../services/providerAvailabilityReminders.service.js';
 async function authorize(req,res){
@@ -14,31 +13,20 @@ async function authorize(req,res){
  if(!(await User.getAgencies(providerId)).some(a=>Number(a.id)===agencyId)){res.status(404).json({error:{message:'Provider not found in this agency'}});return null;}
  return {providerId,agencyId};
 }
-export async function getSettings(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json(await readProviderAvailabilitySettings(ids.providerId,ids.agencyId));}catch(e){next(e);}}
+export async function getSettings(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json({...await readProviderAvailabilitySettings(ids.providerId,ids.agencyId),...await availabilityEditingContext(pool,ids.providerId,ids.agencyId,req.user)});}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}}
 export async function saveSettings(req,res,next){try{
  const ids=await authorize(req,res);if(!ids)return;
- const {acceptingNewClients,inPerson,virtual,seesClients,waitlistEnabled}=req.body;
- if(waitlistEnabled!==undefined && typeof waitlistEnabled!=='boolean')return res.status(400).json({error:{message:'Waitlist must be true or false'}});
- if(seesClients!==undefined && (typeof seesClients!=='boolean' || !['admin','super_admin'].includes(req.user.role))) return res.status(typeof seesClients==='boolean'?403:400).json({error:{message:'Only admins can change Sees clients using a true/false value'}});
- if([acceptingNewClients,inPerson,virtual].some(v=>typeof v!=='boolean'))return res.status(400).json({error:{message:'Availability choices must be true or false'}});
  const connection=await pool.getConnection();
  try {
   await connection.beginTransaction();
-  await connection.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[ids.providerId]);
-  if(seesClients!==undefined) await connection.execute('UPDATE users SET sees_clients=? WHERE id=?',[seesClients,ids.providerId]);
-  const prior=await Profile.getForProvider({providerUserId:ids.providerId,database:connection});
-  if(!acceptingNewClients || seesClients===false)await withdrawProviderIntakeOpenings(connection,ids.providerId);
-  else if(!inPerson || !virtual)await withdrawProviderIntakeOpenings(connection,ids.providerId,{inPerson:!inPerson,virtual:!virtual,school:false});
-  await connection.execute('UPDATE users SET provider_accepting_new_clients=?,in_office_available=? WHERE id=?',[acceptingNewClients,inPerson,ids.providerId]);
-  const waitlist=waitlistEnabled ?? prior?.details?.waitlistEnabled ?? false;
-  await Profile.upsertForProvider({...prior,providerUserId:ids.providerId,database:connection,acceptingNewClientsOverride:null,details:{...prior?.details,waitlistEnabled:waitlist,inPersonEnabled:inPerson,virtualEnabled:virtual,officeAvailability:acceptingNewClients&&inPerson?'accepting':waitlist&&inPerson?'waitlist':'unavailable',virtualAvailability:acceptingNewClients&&virtual?'accepting':waitlist&&virtual?'waitlist':'unavailable'}});
-  await connection.execute('UPDATE provider_tutoring_profiles SET accepting_new_students=? WHERE user_id=? AND agency_id=?',[acceptingNewClients,ids.providerId,ids.agencyId]);
+  const prior=await readProviderAvailabilitySettings(ids.providerId,ids.agencyId);
+  await saveAgencyAvailability(connection,{...ids,actor:req.user,body:{school:true,...prior.preferences,...req.body}});
   await connection.commit();
  } catch(error) {await connection.rollback();throw error;} finally {connection.release();}
  // Settings are saved even if a calendar is temporarily unavailable. Never invent a missing-slot warning on errors.
  try{await checkProviderAvailability(ids.providerId,ids.agencyId);}catch(e){return res.json({...await readProviderAvailabilitySettings(ids.providerId,ids.agencyId),checkError:'Settings saved. Calendar availability could not be checked; please retry.'});}
  res.json(await readProviderAvailabilitySettings(ids.providerId,ids.agencyId));
-}catch(e){next(e);}}
+}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}}
 export async function checkSettings(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;await checkProviderAvailability(ids.providerId,ids.agencyId);res.json(await readProviderAvailabilitySettings(ids.providerId,ids.agencyId));}catch(e){next(e);}}
 export async function snoozeReminder(req,res,next){try{
  const ids=await authorize(req,res);if(!ids)return;

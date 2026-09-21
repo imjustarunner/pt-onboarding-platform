@@ -1,7 +1,7 @@
-import { RANGE_TENANT_SQL, RANGE_PROVIDER_SQL, RANGE_SERVICES, eligibleRangeTenant, rangeUrl, stringList, partnerDto, providerDto } from './mentalRange.service.js';
+import { RANGE_TENANT_SQL, RANGE_PROVIDER_SQL, RANGE_SERVICES, eligibleRangeTenant, rangeUrl, stringList, partnerDto, providerDto, rangeProviderEligible } from './mentalRange.service.js';
 
 
-export function createMentalRangeHandlers({ pool, publicUploadsUrlFromStoredPath, listClinicalFacetsForUsers, getProviderDetail }) {
+export function createMentalRangeHandlers({ pool, publicUploadsUrlFromStoredPath, listClinicalFacetsForUsers, readPublicProviderSchedule, enrichProvider=async p=>p }) {
 async function published(res) {
   const [rows] = await pool.execute("SELECT id FROM public_marketing_pages WHERE slug='range' AND is_active=1 LIMIT 1");
   res.set('Cache-Control', 'no-store');
@@ -22,13 +22,17 @@ async function rangePartners(req, res, next) {
 async function rangeProviders(req, res, next) {
   try {
     if (!await published(res)) return;
-    const [rows] = await pool.execute(`${RANGE_PROVIDER_SQL} ORDER BY u.last_name,u.first_name,e.agency_id,e.service_type`);
+    const [candidates] = await pool.execute(`${RANGE_PROVIDER_SQL} ORDER BY u.last_name,u.first_name,a.id,s.service_type`);
+    const rows=candidates.filter(rangeProviderEligible);
     const providers = [];
     // Facets remain scoped to the publishing agency; no cross-tenant clinical index joins.
     for (const aid of [...new Set(rows.map(r => Number(r.agency_id)))]) {
       const group = rows.filter(r => Number(r.agency_id) === aid);
       const facets = await listClinicalFacetsForUsers(group.map(r => r.id), { agencyId: aid });
-      providers.push(...group.map(r => providerDto(r, facets.get(Number(r.id)), publicUploadsUrlFromStoredPath(r.profile_photo_path))));
+      for(let start=0;start<group.length;start+=4)providers.push(...await Promise.all(group.slice(start,start+4).map(async r => {
+        const dto=providerDto({...r,agency_logo_url:rangeUrl(r.agency_logo_url)||publicUploadsUrlFromStoredPath(r.agency_logo_path)},facets.get(Number(r.id)),publicUploadsUrlFromStoredPath(r.profile_photo_path));
+        return enrichProvider(dto,r);
+      })));
     }
     res.json({ providers });
   } catch (e) { next(e); }
@@ -38,20 +42,17 @@ async function rangeAvailability(req, res, next) {
     if (!await published(res)) return;
     const aid = Number(req.params.agencyId), pid = Number(req.params.providerId), service = String(req.query.service || '');
     if (!Number.isSafeInteger(aid) || aid < 1 || !Number.isSafeInteger(pid) || pid < 1 || !RANGE_SERVICES.includes(service)) return res.status(400).json({ error: { message: 'Invalid provider selection' } });
-    const [rows] = await pool.execute(`${RANGE_PROVIDER_SQL} AND a.id=? AND u.id=? AND e.service_type=?`, [aid,pid,service]);
-    if (!rows.length) return res.status(404).json({ error: { message: 'Provider is no longer published in this network' } });
-    // Reuse the existing held-slot and new-client checks. Project only public opening times.
-    const format = req.query.format === 'VIRTUAL' ? 'VIRTUAL' : 'IN_PERSON';
-    if (providerDto(rows[0]).accepting === false) return res.json({ format, slots: [], nextAvailableAt: null, checkedAt: new Date().toISOString() });
-    const childReq = { params: { agencySlug: rows[0].agency_slug, providerId: String(pid) }, query: { serviceType: service, bookingMode: 'NEW_CLIENT', programType: format } };
-    let status = 200;
-    const childRes = { status(code) { status=code; return this; }, json(data) {
-      if (status !== 200) return res.status(status).json({ error: { message: 'Availability is unavailable. Please contact the organization.' } });
-      const now = Date.now();
-      const slots = (data.availability?.slots || []).filter(s => Date.parse(s.startAt)>now).map(s => ({ startAt:s.startAt, endAt:s.endAt }));
-      res.json({ format, slots, nextAvailableAt: Date.parse(data.availability?.nextAvailableAt)>now ? data.availability.nextAvailableAt : null, checkedAt: new Date().toISOString() });
-    } };
-    await getProviderDetail(childReq, childRes, next);
+    const [rows] = await pool.execute(`${RANGE_PROVIDER_SQL} AND a.id=? AND u.id=? AND s.service_type=?`, [aid,pid,service]);
+    if (!rows.length || !rangeProviderEligible(rows[0])) return res.status(404).json({ error: { message: 'Provider is no longer published in this network' } });
+    {
+      const schedule=await readPublicProviderSchedule(pid,aid);
+      const format=String(req.query.format||'ALL').toUpperCase();
+      const slots=schedule.slots.filter(s=>(format==='ALL'||s.format===format)&&Date.parse(s.startAt)>Date.now());
+      return res.json({format,slots:slots.map(s=>({startAt:s.startAt,endAt:s.endAt,format:s.format,buildingId:s.buildingId,buildingName:s.buildingName})),
+        inPerson:schedule.inPerson,virtual:schedule.virtual,school:schedule.school,schools:schedule.schools,locations:schedule.locations,
+        nextAvailableAt:slots[0]?.startAt||null,hasPublishedOpenings:slots.length>0||(format==='SCHOOL'&&schedule.school?.hasPublishedOpenings)||(format==='ALL'&&schedule.school?.hasPublishedOpenings),checkedAt:schedule.checkedAt});
+    }
+
   } catch (e) { next(e); }
 }
 async function getRangeMembership(req, res, next) {

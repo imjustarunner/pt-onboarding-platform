@@ -1,3 +1,5 @@
+import Profile from '../models/ProviderPublicProfile.model.js';
+import {agencyFormatAllowed,agencyOfficeAllowed} from '../utils/providerAgencyAvailability.js';
 import { readActiveHolds, expandWeeklyHold } from './publicProviderHold.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -228,12 +230,22 @@ export class ProviderAvailabilityService {
     const intakeOnlyFlag =
       intakeOnly === true || intakeOnly === 1 || intakeOnly === '1' || String(intakeOnly || '').toLowerCase() === 'true';
 
+    const profile=intakeOnlyFlag?await Profile.getForProvider({providerUserId:pid,agencyId:aid}):null;
+    const policy=profile?.agencyAvailability;
+    let scheduleAid=aid;
+    if(policy?.scheduleAgencyId && Number(policy.scheduleAgencyId)!==aid) {
+      const [members]=await pool.execute(`SELECT ua.agency_id FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id
+        WHERE ua.user_id=? AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0`,[pid,Number(policy.scheduleAgencyId)]);
+      // A removed affiliation must never continue supplying a shared calendar.
+      scheduleAid=members.length?Number(policy.scheduleAgencyId):aid;
+    }
+    const virtualTimeZone=scheduleAid===aid?tz:await this.resolveAgencyTimeZone({agencyId:scheduleAid});
     // 1) Virtual base from weekly template
-    const virtualRows = await ProviderVirtualWorkingHours.listForProvider({ agencyId: aid, providerId: pid });
+    const virtualRows = await ProviderVirtualWorkingHours.listForProvider({ agencyId: scheduleAid, providerId: pid });
     const virtualBase = [];
     for (const r of virtualRows || []) {
-      const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: tz });
-      const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: tz });
+      const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: virtualTimeZone });
+      const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: virtualTimeZone });
       if (s && e && e > s) {
         const sessionType = String(r.sessionType || 'REGULAR').toUpperCase();
         const forIntake = r.availableForIntake === true
@@ -264,10 +276,9 @@ export class ProviderAvailabilityService {
       const [rows] = await pool.execute(
         `SELECT psa.day_of_week, psa.start_time, psa.end_time
          FROM provider_school_assignments psa
-         JOIN organization_affiliations oa ON oa.organization_id = psa.school_organization_id AND oa.agency_id = ? AND oa.is_active = TRUE
          WHERE psa.provider_user_id = ?
            AND psa.is_active = TRUE`,
-        [aid, pid]
+        [pid]
       );
       schoolAssignments = (rows || []).map((r) => ({
         dayOfWeek: r.day_of_week,
@@ -347,7 +358,7 @@ export class ProviderAvailabilityService {
            EXISTS(
              SELECT 1
              FROM provider_in_person_slot_availability ip
-             WHERE ip.agency_id = ?
+             WHERE ip.agency_id IN (?, ?)
                AND ip.provider_id = ?
                AND (
                  ip.source_event_id = e.id
@@ -378,7 +389,7 @@ export class ProviderAvailabilityService {
            AND e.end_at > ?
            AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
          ORDER BY e.start_at ASC`,
-        [aid, pid, aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+        [aid, scheduleAid, pid, aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
       );
       pushOfficeRows(rows, false);
     } catch (e) {
@@ -413,6 +424,14 @@ export class ProviderAvailabilityService {
       pushOfficeRows(fallbackRows, true);
     }
 
+    const [otherBookings]=await pool.execute(`SELECT start_at,end_at FROM office_events
+      WHERE (assigned_provider_id=? OR booked_provider_id=?) AND (UPPER(status)='BOOKED' OR slot_state='ASSIGNED_BOOKED')
+      AND COALESCE(UPPER(status),'')<>'CANCELLED' AND start_at<? AND end_at>?`,[pid,pid,`${weekEnd} 00:00:00`,`${weekStart} 00:00:00`]);
+    for(const row of otherBookings) {
+      const start=parseMySqlDateTime(row.start_at),end=parseMySqlDateTime(row.end_at);
+      if(start&&end)officeBookedBusy.push({start:utcPartsToDate(start),end:utcPartsToDate(end)});
+    }
+
     // 3b) Slot-level virtual overrides (event-driven toggles from Building Schedule)
     const virtualSlotBase = [];
     const virtualSlotOverrideIntervals = [];
@@ -442,7 +461,7 @@ export class ProviderAvailabilityService {
              AND v.start_at < ?
              AND v.end_at > ?
            ORDER BY v.start_at ASC`,
-          [aid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+          [scheduleAid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
         );
         rows = r;
       } catch (colErr) {
@@ -468,7 +487,7 @@ export class ProviderAvailabilityService {
              AND v.start_at < ?
              AND v.end_at > ?
            ORDER BY v.start_at ASC`,
-          [aid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+          [scheduleAid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
         );
         rows = r;
       }
@@ -583,6 +602,7 @@ export class ProviderAvailabilityService {
 
     // Busy unions
     const busyAll = mergeIntervals([
+      ...officeBookedBusy,
       ...selectionBusy,
       ...requestBusy,
       ...schoolBusy,
@@ -646,8 +666,8 @@ export class ProviderAvailabilityService {
       weekEnd,
       timeZone: tz,
       slotMinutes,
-      virtualSlots,
-      inPersonSlots
+      virtualSlots:agencyFormatAllowed(policy,'VIRTUAL')?virtualSlots:[],
+      inPersonSlots:agencyFormatAllowed(policy,'IN_PERSON')?inPersonSlots.filter(slot=>agencyOfficeAllowed(policy,slot.buildingId)):[]
     };
   }
 }

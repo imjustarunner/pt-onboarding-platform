@@ -1,3 +1,4 @@
+import {scopeProviderProfile} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
 import {publicLanguages,restrictPublicInsurances} from '../utils/publicProviderPresentation.js';
 
@@ -7,7 +8,7 @@ function toInt(v) {
 }
 
 class ProviderPublicProfile {
-  static async getForProvider({ providerUserId, database = pool }) {
+  static async getForProvider({ providerUserId, agencyId = null, database = pool }) {
     const userId = toInt(providerUserId);
     if (!userId) return null;
     const columns = 'user_id, public_blurb, insurances_json, public_details_json, self_pay_rate_cents, self_pay_rate_note, accepting_new_clients_override';
@@ -38,7 +39,7 @@ class ProviderPublicProfile {
     if (typeof details === 'string') { try { details = JSON.parse(details); } catch { details = {}; } }
     let publicGender = person.public_gender || '';
     try { const parsed=JSON.parse(publicGender); if(typeof parsed==='string')publicGender=parsed; } catch {}
-    return {
+    return scopeProviderProfile({
       details: {...details, gender:Object.hasOwn(details,'gender')?String(details.gender||''):String(publicGender).trim().slice(0,80), languages: publicLanguages({details}, person.languages_spoken)},
       userId,
       publicBlurb: row.public_blurb || person.provider_school_info_blurb || '',
@@ -48,7 +49,7 @@ class ProviderPublicProfile {
       acceptingNewClientsOverride: row.accepting_new_clients_override == null
         ? null
         : !!row.accepting_new_clients_override
-    };
+    },agencyId);
   }
 
   static async upsertForProvider({
@@ -98,7 +99,8 @@ class ProviderPublicProfile {
        ON DUPLICATE KEY UPDATE
          -- Service selections are changed only by the tenant-authorized services endpoint.
          public_details_json = JSON_SET(VALUES(public_details_json), '$.serviceOfferingsByAgency',
-           COALESCE(JSON_EXTRACT(public_details_json, '$.serviceOfferingsByAgency'), JSON_OBJECT())),
+           COALESCE(JSON_EXTRACT(public_details_json, '$.serviceOfferingsByAgency'), JSON_OBJECT()),
+           '$.availabilityByAgency', COALESCE(JSON_EXTRACT(public_details_json, '$.availabilityByAgency'), JSON_OBJECT())),
          public_blurb = VALUES(public_blurb),
          insurances_json = VALUES(insurances_json),
          self_pay_rate_cents = VALUES(self_pay_rate_cents),

@@ -1,3 +1,4 @@
+import {scopeProviderRow,agencyOfficeAllowed,agencyFormatAllowed} from '../utils/providerAgencyAvailability.js';
 import { providerClickCounts } from './publicWebsiteAnalytics.service.js';
 import {listPublicProviderOffices} from './publicProviderOffices.service.js';
 import {uniquePublicFacets,restrictPublicInsurances,publicAcceptance} from '../utils/publicProviderPresentation.js';
@@ -77,13 +78,15 @@ export async function getItscoWebsiteData(req) {
   // Bound parallel work: public pages must not exhaust the shared DB pool.
   for (let start = 0; start < people.length; start += 5) {
     await Promise.all(people.slice(start, start + 5).map(async row => {
+      const profile = await ProviderPublicProfile.getForProvider({ providerUserId: row.id, agencyId:agency.id });
+      row=scopeProviderRow(row,agency.id,profile?.details);
+      const policy=profile?.agencyAvailability;
       const assignedIds = new Set(assignments.filter(a => Number(a.providerId) === Number(row.id)).map(a => Number(a.schoolId)));
-      const assignedSchools = schools.filter(s => assignedIds.has(s.id));
+      const assignedSchools = (policy?.school===false?[]:schools).filter(s => assignedIds.has(s.id));
       const isProvider = isDirectoryProvider(row, {assigned: assignedSchools.length > 0, enrolled: Boolean(row.enrolled)});
       const isTeam = ['admin', 'super_admin', 'support', 'staff', 'cpa', 'clinical_practice_assistant', 'provider_plus'].includes(row.role);
       const isSupervisor = isItscoSupervisor(row);
       if (!isProvider && !isTeam && !isSupervisor) return;
-      const profile = await ProviderPublicProfile.getForProvider({ providerUserId: row.id });
       const person = publicPerson(row, profile, publicUploadsUrlFromStoredPath);
       if (isTeam) team.push(person);
       if (isSupervisor) supervisors.push(person);
@@ -96,13 +99,13 @@ export async function getItscoWebsiteData(req) {
       for (const name of profile?.insurances || []) if (!insurances.some(i => i.name.toLowerCase() === name.toLowerCase())) insurances.push({ name });
       insurances = restrictPublicInsurances(insurances,row);
       const office = profile?.details?.inPersonEnabled === false ? false : Number(row.in_office_available) === 1 || Boolean(row.has_office_assignment) || (profile?.details?.sessionFormats || []).some(format => /in[ -]?person|in[ -]?office|office/i.test(format));
-      const schoolOpenings=assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.slots_available)>0);
-      providers.push({ ...person, officeLocations:officeLocations.get(Number(row.id))||[], specialties: uniquePublicFacets(facets.specialties), ageGroups: uniquePublicFacets(facets.ageGroups),
+      const schoolOpenings=agencyFormatAllowed(policy,'SCHOOL')&&assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.slots_available)>0);
+      providers.push({ ...person, officeLocations:(officeLocations.get(Number(row.id))||[]).filter(o=>agencyOfficeAllowed(policy,o.id)), specialties: uniquePublicFacets(facets.specialties), ageGroups: uniquePublicFacets(facets.ageGroups),
         officeAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.officeAvailability,assigned:office}),
         schoolAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.schoolAvailability,assigned:assignedSchools.length>0,hasOpenings:schoolOpenings}),
         modalities: facets.modalities || [], populations: facets.populations || [], insurances,
-        schools: assignedSchools.map(s => ({ id: s.id, name: s.name, logoUrl: s.logoUrl, hasOpenings:assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.schoolId)===s.id&&Number(a.slots_available)>0) })),
-        office, schoolOpenings: assignments.some(a => Number(a.providerId) === Number(row.id) && Number(a.slots_available) > 0),
+        schools: assignedSchools.map(s => ({ id: s.id, name: s.name, logoUrl: s.logoUrl, hasOpenings:agencyFormatAllowed(policy,'SCHOOL')&&assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.schoolId)===s.id&&Number(a.slots_available)>0) })),
+        office, schoolOpenings: agencyFormatAllowed(policy,'SCHOOL')&&assignments.some(a => Number(a.providerId) === Number(row.id) && Number(a.slots_available) > 0),
         onlineScheduling: Boolean(row.enrolled && agency.public_availability_enabled) });
     }));
   }

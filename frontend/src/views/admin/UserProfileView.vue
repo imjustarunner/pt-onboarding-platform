@@ -4283,11 +4283,8 @@ const selectedSchoolIsSchool = computed(() => {
   return t === 'school';
 });
 
-function onAvailabilityPreferencesSaved(data) {
- if(data.kind!=='save') return;
- user.value.sees_clients=data.preferences.seesClients;
- user.value.provider_accepting_new_clients=data.preferences.acceptingNewClients;
- providerAcceptingNewClients.value=data.preferences.acceptingNewClients;
+async function onAvailabilityPreferencesSaved(data) {
+ if(data.kind==='save') await fetchUser(); // Agency choices do not change the global header controls.
 }
 const canManageClientParticipation = computed(() => ['admin','super_admin'].includes(authStore.user?.role));
 const updatingClientParticipation = ref(false);

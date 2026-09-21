@@ -9,22 +9,22 @@ import { providerAvailabilityPreferences, missingAvailabilityFormats, availabili
 export function createProviderAvailabilityReminders({pool,User,Profile,Task,Notification,Availability}) {
 async function readProviderAvailabilitySettings(providerId, agencyId) {
  const user = await User.findById(providerId);
- const profile = await Profile.getForProvider({providerUserId:providerId});
+ const profile = await Profile.getForProvider({providerUserId:providerId,agencyId});
  const [reminders] = await pool.execute(`SELECT r.*,nur.snoozed_until FROM provider_availability_reminders r
  LEFT JOIN notification_user_reads nur ON nur.notification_id=r.notification_id AND nur.user_id=r.provider_id
  WHERE r.provider_id=? AND r.agency_id=?`,[providerId,agencyId]);
  const preferences=providerAvailabilityPreferences(user,profile);
  const [[published]] = await pool.execute(`SELECT
-  EXISTS(SELECT 1 FROM provider_in_person_slot_availability WHERE provider_id=? AND is_active=1 AND end_at>UTC_TIMESTAMP()) AS inPerson,
-  (EXISTS(SELECT 1 FROM provider_virtual_slot_availability WHERE provider_id=? AND is_active=1 AND available_for_intake=1 AND end_at>UTC_TIMESTAMP())
-   OR EXISTS(SELECT 1 FROM provider_virtual_working_hours WHERE provider_id=? AND available_for_intake=1)) AS virtual,
-  EXISTS(SELECT 1 FROM provider_school_assignments WHERE provider_user_id=? AND is_active=1 AND slots_available>0) AS school`,[providerId,providerId,providerId,providerId]);
- if(preferences.seesClients && published) {
+  EXISTS(SELECT 1 FROM provider_in_person_slot_availability WHERE provider_id=? AND agency_id=? AND is_active=1 AND end_at>UTC_TIMESTAMP()) AS inPerson,
+  (EXISTS(SELECT 1 FROM provider_virtual_slot_availability WHERE provider_id=? AND agency_id=? AND is_active=1 AND available_for_intake=1 AND end_at>UTC_TIMESTAMP())
+   OR EXISTS(SELECT 1 FROM provider_virtual_working_hours WHERE provider_id=? AND agency_id=? AND available_for_intake=1)) AS hasVirtual,
+  EXISTS(SELECT 1 FROM provider_school_assignments WHERE provider_user_id=? AND is_active=1 AND slots_available>0 AND EXISTS(SELECT 1 FROM organization_affiliations oa WHERE oa.organization_id=school_organization_id AND oa.agency_id=? AND oa.is_active=1)) AS school`,[providerId,agencyId,providerId,agencyId,providerId,agencyId,providerId,agencyId]);
+ if(!profile?.agencyAvailability && preferences.seesClients && published) {
   preferences.inPerson ||= Boolean(published.inPerson);
-  preferences.virtual ||= Boolean(published.virtual);
-  preferences.acceptingNewClients ||= Boolean(published.inPerson||published.virtual||published.school);
+  preferences.virtual ||= Boolean(published.hasVirtual);
+  preferences.acceptingNewClients ||= Boolean(published.inPerson||published.hasVirtual||published.school);
  }
- return {preferences,reminders:reminders.filter(r=>r.is_missing && preferences.seesClients && preferences.acceptingNewClients).map(r=>({
+ return {preferences:{school:true,scheduleAgencyId:Number(agencyId),officeIds:null,...preferences},reminders:reminders.filter(r=>r.is_missing && preferences.seesClients && preferences.acceptingNewClients).map(r=>({
   id:r.id,format:r.format,taskId:r.task_id,notificationId:r.notification_id,checkedAt:r.checked_at,
   snoozedUntil:r.snoozed_until,snoozed:Boolean(r.snoozed_until && new Date(r.snoozed_until).getTime()>Date.now())
  })),checkedAt:reminders[0]?.checked_at || null};
@@ -37,7 +37,7 @@ async function checkProviderAvailability(providerId, agencyId) {
   const [[result]]=await connection.query('SELECT GET_LOCK(?,0) AS acquired',[lock]);
   if(!result.acquired)return;
   const user=await User.findById(providerId);
-  const profile=await Profile.getForProvider({providerUserId:providerId});
+  const profile=await Profile.getForProvider({providerUserId:providerId,agencyId});
   const preferences=providerAvailabilityPreferences(user,profile);
   const slots={inPersonSlots:[],virtualSlots:[]};
   if(preferences.seesClients && preferences.acceptingNewClients && (preferences.inPerson || preferences.virtual)) {

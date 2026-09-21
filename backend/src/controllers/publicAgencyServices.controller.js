@@ -1,3 +1,5 @@
+import {publicSchoolAssignmentSql} from '../utils/providerDirectoryEligibility.js';
+import {scopeProviderRow,agencyOfficeAllowed,agencyFormatAllowed} from '../utils/providerAgencyAvailability.js';
 import {listPublicProviderOffices} from '../services/publicProviderOffices.service.js';
 import { offersProviderService } from '../utils/providerServiceOfferings.js';
 import {publicFormatEnabled} from '../utils/providerAvailabilityReminders.js';
@@ -489,7 +491,7 @@ async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=fa
      JOIN provider_public_service_enrollments e
        ON e.user_id = u.id AND e.agency_id = ? AND e.service_type = ? AND e.is_active = 1
      JOIN user_agencies membership ON membership.user_id = u.id AND membership.agency_id = e.agency_id
-     WHERE u.sees_clients = 1 AND COALESCE(membership.is_active,1)=1 AND COALESCE(u.is_demo,0)=0
+     WHERE COALESCE(membership.is_active,1)=1 AND COALESCE(u.is_demo,0)=0
        AND LOWER(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')))) NOT IN ('super admin','superadmin')
        AND (u.is_active IS NULL OR u.is_active = TRUE)
        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
@@ -497,21 +499,22 @@ async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=fa
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [Number(agencyId), String(serviceType)]
   );
-  const enrolled = rows.filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true,hasEnrollment:true})).map(row=>({...row,online_enrolled:serviceEnabled?1:0}));
+  const enrolled = rows.map(row=>scopeProviderRow(row,agencyId)).filter(row=>![false,0,'0'].includes(row.sees_clients)).filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true,hasEnrollment:true})).map(row=>({...row,online_enrolled:serviceEnabled?1:0}));
   let listed = [];
   if (includeDirectory) {
     const [directory] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.role,u.profile_photo_path,
       u.service_focus,u.provider_accepting_new_clients,u.in_office_available,u.title,u.sees_clients,u.has_provider_access,ua.agency_role,0 AS online_enrolled,
       p.public_details_json AS service_details,
+      ${publicSchoolAssignmentSql('ua.agency_id')} AS has_school_assignment,
       EXISTS(SELECT 1 FROM provider_public_service_enrollments e WHERE e.user_id=u.id AND e.agency_id=ua.agency_id AND e.service_type=?) AS has_enrollment
       FROM users u JOIN user_agencies ua ON ua.user_id=u.id
       LEFT JOIN provider_public_profiles p ON p.user_id=u.id
-      WHERE ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND u.sees_clients=1
+      WHERE ua.agency_id=? AND COALESCE(ua.is_active,1)=1
       AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
       AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE')
       AND LOWER(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')))) NOT IN ('super admin','superadmin')
       ORDER BY u.last_name,u.first_name`,[String(serviceType),Number(agencyId)]);
-    listed = directory.filter(row => !rows.some(e => Number(e.id)===Number(row.id)) && offersProviderService(row.service_details,agencyId,serviceType,{hasEnrollment:Boolean(row.has_enrollment),counselingEligible:['provider','provider_plus','intern','intern_plus','facilitator','supervisor','admin','super_admin'].includes(row.agency_role||row.role)||Boolean(row.has_provider_access)}));
+    listed = directory.map(row=>scopeProviderRow(row,agencyId)).filter(row=>![false,0,'0'].includes(row.sees_clients)).filter(row => !rows.some(e => Number(e.id)===Number(row.id)) && offersProviderService(row.service_details,agencyId,serviceType,{hasEnrollment:Boolean(row.has_enrollment),counselingEligible:['provider','provider_plus','intern','intern_plus','facilitator','supervisor','admin','super_admin'].includes(row.agency_role||row.role)||Boolean(row.has_provider_access)||Boolean(row.has_school_assignment)}));
   }
   const combined = extra => [...new Map([...listed,...extra,...enrolled].map(row => [Number(row.id),row])).values()]
     .sort((a,b)=>`${a.last_name} ${a.first_name}`.localeCompare(`${b.last_name} ${b.first_name}`));
@@ -525,7 +528,7 @@ async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=fa
      LEFT JOIN provider_public_profiles p ON p.user_id=u.id
      JOIN user_agencies ua ON ua.user_id = u.id
      JOIN agencies a ON a.id = ua.agency_id
-     WHERE ua.agency_id = ? AND u.sees_clients=1 AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_demo,0)=0
+     WHERE ua.agency_id = ? AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_demo,0)=0
        AND NOT EXISTS(SELECT 1 FROM provider_public_service_enrollments e WHERE e.user_id=u.id AND e.agency_id=ua.agency_id AND e.service_type=? AND e.is_active=0)
        AND LOWER(COALESCE(a.organization_type, '')) IN ('life_coach', 'consultant')
        AND (u.is_active IS NULL OR u.is_active = TRUE)
@@ -535,7 +538,7 @@ async function listEnrolledProviders(agencyId, serviceType, {includeDirectory=fa
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [Number(agencyId),String(serviceType)]
   );
-  return combined((fallback || []).filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true})));
+  return combined((fallback || []).map(row=>scopeProviderRow(row,agencyId)).filter(row=>![false,0,'0'].includes(row.sees_clients)).filter(row => offersProviderService(row.service_details, agencyId, serviceType, {enrolled:true})));
 }
 
 async function getTutoringProfile(userId, agencyId) {
@@ -583,7 +586,7 @@ async function getCounselingSpecialties(userId, agencyId) {
 
 async function resolveProviderProfileSummary({ agencyId, providerUserId, serviceType = 'counseling' }) {
   const counselingRate = await getPublicCounselingHourlyRate({ agencyId, providerUserId, serviceType });
-  const profile = await ProviderPublicProfile.getForProvider({ providerUserId });
+  const profile = await ProviderPublicProfile.getForProvider({ providerUserId, agencyId });
   const agencySettings = await ProviderPublicProfile.getAgencySettings({ agencyId });
   const effectiveRateCents = counselingRate ?? profile?.selfPayRateCents ?? agencySettings?.defaultSelfPayRateCents ?? null;
   const effectiveRateNote = counselingRate != null ? 'Per hour · cash / self-pay' : String(profile?.selfPayRateNote || agencySettings?.defaultSelfPayRateNote || '').trim() || null;
@@ -598,7 +601,7 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId, service
     acceptedInsurances = [];
   }
   return {
-    details: profile?.details || {},
+    details: Object.fromEntries(Object.entries(profile?.details||{}).filter(([key])=>!['availabilityByAgency','serviceOfferingsByAgency'].includes(key))),
     publicBlurb: String(profile?.publicBlurb || '').trim(),
     insurances: Array.isArray(profile?.insurances) ? profile.insurances : [],
     acceptedInsurances,
@@ -801,8 +804,8 @@ export const listCounselors = async (req, res, next) => {
         programType,
         heldSlots, officeId:Number(req.query.officeId)||null
       });
-      const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) }) || {};
-      profileData.acceptingNewClientsOverride = Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
+      const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id), agencyId:agency.id }) || {};
+      profileData.acceptingNewClientsOverride = profileData.agencyAvailability ? profileData.acceptingNewClientsOverride : Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
       const profile = await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: Number(row.id) });
       if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
       const slotSet = normalizeSlots({
@@ -841,7 +844,7 @@ export const listCounselors = async (req, res, next) => {
       return {
         acceptingNewClients: Boolean(summary.nextAvailableAt) || Boolean(profileData.acceptingNewClientsOverride),
         onlineScheduling: Boolean(agency.public_availability_enabled) && row.online_enrolled !== 0,
-        officeLocations:officeLocations.get(Number(row.id))||[],
+        officeLocations:(officeLocations.get(Number(row.id))||[]).filter(o=>agencyOfficeAllowed(profileData?.agencyAvailability,o.id)),
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -987,9 +990,9 @@ export const listTutors = async (req, res, next) => {
         programType,
         heldSlots, officeId:Number(req.query.officeId)||null
       });
-      const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id) }) || {};
+      const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: Number(row.id), agencyId:agency.id }) || {};
       if (!savedTutoringProfile) tutoringProfile.bio = profileData.publicBlurb || '';
-      profileData.acceptingNewClientsOverride = Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
+      profileData.acceptingNewClientsOverride = profileData.agencyAvailability ? profileData.acceptingNewClientsOverride : Boolean(row.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
       if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
       const slotSet = normalizeSlots({
         result: summary.thisWeek,
@@ -1003,9 +1006,9 @@ export const listTutors = async (req, res, next) => {
       if (filterSubject && !tutoringProfile.subjectAreas.map((s) => s.toLowerCase()).some((s) => s.includes(filterSubject))) return null;
 
       return {
-        acceptingNewClients: Boolean(summary.nextAvailableAt) || (Boolean(profileData.acceptingNewClientsOverride) && tutoringProfile.acceptingNewStudents),
+        acceptingNewClients: Boolean(summary.nextAvailableAt) || (Boolean(profileData.acceptingNewClientsOverride) && (profileData.agencyAvailability?true:tutoringProfile.acceptingNewStudents)),
         onlineScheduling: row.online_enrolled !== 0,
-        officeLocations:officeLocations.get(Number(row.id))||[],
+        officeLocations:(officeLocations.get(Number(row.id))||[]).filter(o=>agencyOfficeAllowed(profileData?.agencyAvailability,o.id)),
         providerId: Number(row.id),
         id: Number(row.id),
         firstName: row.first_name || '',
@@ -1162,11 +1165,11 @@ export const joinProviderWaitlist = async (req,res,next) => {
   const providerId=parseIntSafe(req.params.providerId),serviceType=normalizeServiceType(req.body?.serviceType);
   const provider=(await listEnrolledProviders(agency.id,serviceType,{includeDirectory:true})).find(p=>Number(p.id)===providerId);
   if(!provider)return res.status(404).json({error:{message:'Provider not found'}});
-  const profile=await ProviderPublicProfile.getForProvider({providerUserId:providerId});
+  const profile=await ProviderPublicProfile.getForProvider({providerUserId:providerId,agencyId:agency.id});
   const format=String(req.body?.format||'').toUpperCase();
   const key={IN_PERSON:'officeAvailability',VIRTUAL:'virtualAvailability',SCHOOL:'schoolAvailability'}[format];
   if(!key)return res.status(400).json({error:{message:'Choose in-person, virtual, or school-based support.'}});
-  if(profile?.details?.waitlistEnabled!==true && profile?.details?.[key]!=='waitlist')return res.status(409).json({error:{message:'This provider is not accepting waitlist requests for that format. Please inquire with our team.'}});
+  if(!agencyFormatAllowed(profile?.agencyAvailability,format,{intake:false}) || (profile?.details?.waitlistEnabled!==true && profile?.details?.[key]!=='waitlist'))return res.status(409).json({error:{message:'This provider is not accepting waitlist requests for that format. Please inquire with our team.'}});
   const {createPublicAgencySupportTicket}=await import('../services/publicAgencySupport.service.js');
   const result=await createPublicAgencySupportTicket(agency.slug,{...req.body,category:'provider',message:`Please add me to the ${format.toLowerCase().replace('_','-')} ${serviceType} waitlist for ${provider.first_name} ${provider.last_name}.\n${String(req.body?.message||'').slice(0,2000)}`},req,{providerWaitlist:{providerId,serviceType,format,providerName:`${provider.first_name} ${provider.last_name}`}});
   if(result.suppressed)return res.status(201).json({ok:true});
@@ -1223,8 +1226,8 @@ export const getProviderDetail = async (req, res, next) => {
 
     const heldSlots = onlineScheduling ? await getHeldSlotStartsForProvider(agency.id, providerId) : [];
     const summary = onlineScheduling ? await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots, officeId:Number(req.query.officeId)||null }) : {thisWeek:{virtualSlots:[],inPersonSlots:[]},nextAvailableAt:null};
-    const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId }) || {};
-    profileData.acceptingNewClientsOverride = Boolean(user.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
+    const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId, agencyId:agency.id }) || {};
+    profileData.acceptingNewClientsOverride = profileData.agencyAvailability ? profileData.acceptingNewClientsOverride : Boolean(user.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
     if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
     const profile = await resolveProviderProfileSummary({ agencyId: agency.id, providerUserId: providerId, serviceType });
     if (serviceType === 'tutoring' && !savedTutoringProfile) {
@@ -1252,9 +1255,9 @@ export const getProviderDetail = async (req, res, next) => {
       serviceType,
       agency: { id: agency.id, slug: agency.slug, name: agency.name },
       provider: {
-        acceptingNewClients: Boolean(summary.nextAvailableAt) || (Boolean(profileData.acceptingNewClientsOverride) && tutoringProfile?.acceptingNewStudents !== false),
+        acceptingNewClients: Boolean(summary.nextAvailableAt) || (Boolean(profileData.acceptingNewClientsOverride) && (profileData.agencyAvailability?true:tutoringProfile?.acceptingNewStudents !== false)),
         onlineScheduling,
-        officeLocations,
+        officeLocations:officeLocations.filter(o=>agencyOfficeAllowed(profileData.agencyAvailability,o.id)),
         providerId,
         id: providerId,
         firstName: user.first_name || '',
@@ -1451,7 +1454,7 @@ export const getProviderSlots = async (req, res, next) => {
       intakeOnly: String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT'
     }).catch(() => null);
 
-    const calendarProfile = await ProviderPublicProfile.getForProvider({providerUserId:providerId}) || {};
+    const calendarProfile = await ProviderPublicProfile.getForProvider({providerUserId:providerId,agencyId:agency.id}) || {};
     const [[calendarUser]]=await pool.execute('SELECT provider_accepting_new_clients FROM users WHERE id=?',[providerId]);
     calendarProfile.acceptingNewClientsOverride ??= Boolean(calendarUser?.provider_accepting_new_clients);
     const inPersonSlots = filterHeldSlots(dedupeSlots(publicFormatEnabled(calendarProfile,'IN_PERSON',bookingMode)?result?.inPersonSlots || []:[]), heldSlots)
@@ -1524,7 +1527,7 @@ export const createBookingRequest = async (req, res, next) => {
       });
     }
 
-    const availabilityProfile=await ProviderPublicProfile.getForProvider({providerUserId:providerId}) || {};
+    const availabilityProfile=await ProviderPublicProfile.getForProvider({providerUserId:providerId,agencyId:agency.id}) || {};
     const [[availabilityUser]]=await pool.execute('SELECT provider_accepting_new_clients FROM users WHERE id=?',[providerId]);
     availabilityProfile.acceptingNewClientsOverride ??= Boolean(availabilityUser?.provider_accepting_new_clients);
     if(!publicFormatEnabled(availabilityProfile,modality,bookingMode))return res.status(409).json({error:{message:'This appointment format is not currently accepting new clients.'}});
