@@ -131,6 +131,7 @@ class HiringResumeParse {
        FROM hiring_resume_parses
        WHERE candidate_user_id = ?
          AND extracted_json IS NOT NULL
+         AND JSON_EXTRACT(extracted_json, '$.summary') IS NOT NULL
        ORDER BY updated_at DESC, id DESC
        LIMIT 1`,
       [candidateUserId]
@@ -156,4 +157,3 @@ class HiringResumeParse {
 }
 
 export default HiringResumeParse;
-

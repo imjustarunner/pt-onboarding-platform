@@ -8,7 +8,7 @@ import {
 } from './schoolPrintablePacket.service.js';
 import { OFFICE_PRINTABLE_PACKET_VERSION } from '../constants/officePrintablePacket.js';
 import { buildCompletedIntakeRecord } from './completedIntakeRecord.service.js';
-import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import { PDFDocument, PDFName, PDFString, StandardFonts, rgb } from 'pdf-lib';
 import DocumentSigningService from './documentSigning.service.js';
 import { drawFullBleedCoverImage } from '../utils/fullBleedCover.js';
 
@@ -453,31 +453,36 @@ async function renderCompletedIntakePdf(spec = {}) {
   }
 
   const drawRows = (rows) => {
+    const drawValue = (line, x, href) => {
+      page.drawText(line, { x, y, size: 9, font, color: href ? green : black });
+      if (/^https?:\/\//i.test(href || '')) {
+        const annotation = pdfDoc.context.register(pdfDoc.context.obj({ Type: 'Annot', Subtype: 'Link',
+          Rect: [x, y - 2, x + Math.min(maxWidth, font.widthOfTextAtSize(line, 9)), y + 10], Border: [0, 0, 0],
+          A: { Type: 'Action', S: 'URI', URI: PDFString.of(href) } }));
+        let annotations = page.node.get(PDFName.of('Annots'));
+        if (!annotations) { annotations = pdfDoc.context.obj([]); page.node.set(PDFName.of('Annots'), annotations); }
+        pdfDoc.context.lookup(annotations).push(annotation);
+      }
+    };
     for (const row of rows || []) {
       if (!row?.label || !row?.value) continue;
-      if (row.fullWidth) {
-        const labelLines = wrapPdfText(bold, String(row.label), 9, maxWidth);
-        const valueLines = wrapPdfText(font, String(row.value), 9, maxWidth);
-        ensure(labelLines.length * 12 + valueLines.length * 12 + 10);
-        labelLines.forEach((line, idx) => {
-          page.drawText(line, { x: side, y: y - (idx * 12), size: 9, font: bold, color: black });
-        });
-        y -= labelLines.length * 12 + 2;
-        valueLines.forEach((line, idx) => {
-          page.drawText(line, { x: side, y: y - (idx * 12), size: 9, font, color: black });
-        });
-        y -= valueLines.length * 12 + 8;
-        continue;
+      const full = row.fullWidth || String(row.value).length > 500;
+      if (full) {
+        drawLines(wrapPdfText(bold, String(row.label), 9, maxWidth), { size: 9, type: bold, gap: 12 });
+        for (const line of wrapPdfText(font, String(row.value), 9, maxWidth)) {
+          ensure(12); drawValue(line, side, row.href); y -= 12;
+        }
+      } else {
+        const labels = wrapPdfText(bold, `${row.label}:`, 9, 160);
+        const values = wrapPdfText(font, String(row.value), 9, maxWidth - 170);
+        for (let i = 0; i < Math.max(labels.length, values.length); i += 1) {
+          ensure(12);
+          if (labels[i]) page.drawText(labels[i], { x: side, y, size: 9, font: bold, color: black });
+          if (values[i]) drawValue(values[i], side + 170, row.href);
+          y -= 12;
+        }
       }
-      const labelLines = wrapPdfText(bold, `${row.label}:`, 9, 160);
-      const valueLines = wrapPdfText(font, String(row.value), 9, maxWidth - 170);
-      const used = Math.max(labelLines.length, valueLines.length);
-      ensure(used * 12 + 6);
-      page.drawText(labelLines[0], { x: side, y, size: 9, font: bold, color: black });
-      valueLines.forEach((line, idx) => {
-        page.drawText(line, { x: side + 170, y: y - (idx * 12), size: 9, font, color: black });
-      });
-      y -= used * 12 + 4;
+      y -= 8;
     }
   };
 

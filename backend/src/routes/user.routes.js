@@ -82,7 +82,12 @@ router.get('/me/background-expiration', authenticate, getMyBackgroundExpiration)
 router.put('/me/background-scheduled', authenticate, putMyBackgroundScheduledDate);
 router.get('/me/application-copies', authenticate, listMyApplicationCopies);
 router.get('/me/application-copies/:id/download', authenticate, downloadMyApplicationCopy);
-router.get('/', authenticate, requireAdmin, getAllUsers);
+router.get('/', authenticate, (req, res, next) => {
+  // Assignment options have their own tenant + hiring/staff authorization and
+  // return a limited employee projection instead of the full admin directory.
+  if (req.query.staffOnly === 'true' || req.query.supervisorsOnly === 'true') return next();
+  return requireAdmin(req, res, next);
+}, getAllUsers);
 router.get('/grid/fields', authenticate, requireBackofficeAdmin, getUserGridFields);
 router.get('/grid', authenticate, requireBackofficeAdmin, getUserGrid);
 router.put('/grid/cells', authenticate, requireBackofficeAdmin, putUserGridCells);
@@ -227,4 +232,3 @@ router.post('/:id/move-to-active', authenticate, requireBackofficeAdmin, movePen
 router.delete('/:id/pending/wipe-data', authenticate, requireBackofficeAdmin, wipePendingUserData);
 
 export default router;
-

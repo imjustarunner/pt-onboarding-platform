@@ -158,6 +158,10 @@ export const uploadTemplate = async (req, res, next) => {
 
     // Upload directly to GCS from memory buffer
     const fileBuffer = req.file.buffer;
+    if (!Array.isArray(parsedFieldDefinitions) || !parsedFieldDefinitions.length) {
+      const { detectPdfFormFields } = await import('../utils/pdfFormFields.js');
+      parsedFieldDefinitions = await detectPdfFormFields(fileBuffer);
+    }
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     const filename = `template-${uniqueSuffix}${path.extname(req.file.originalname || '.pdf')}`;
 

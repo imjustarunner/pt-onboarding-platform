@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { deliverExistingInterview } from '../services/hiringInterviewDelivery.service.js';
 import { sendHiringInterviewInviteEmail } from '../services/hiringInterviewInviteEmail.service.js';
@@ -476,6 +477,7 @@ export const endInterviewGuestAccess = async (req, res, next) => {
         if (sessionId) {
           video = await VonageVideoService.endGuestInterviewAccess(sessionId, {
             candidateUserId: interview.candidate_user_id,
+            guestIdentity: `guest-iv-${createHash('sha256').update(String(event.participant_join_token || event.join_token)).digest('hex').slice(0, 16)}`,
             details: guestPayload
           });
         }
@@ -658,8 +660,12 @@ export const previewInterviewInvite = async (req, res, next) => {
       const memberships = await User.getAgencies(id);
       if (memberships.some(a => Number(a.id) === agencyId)) interviewerRows.push(await User.findById(id));
     }
+    const { parseInterviewStart } = await import('../services/hiringInterviewSchedule.service.js');
+    const start = parseInterviewStart(req.body.startsAt, req.body.timezone)?.startDate;
+    const end = start ? new Date(start.getTime() + Math.min(240, Math.max(15, Number(req.body.durationMinutes) || 60)) * 60000) : null;
     const preview = await sendHiringInterviewInviteEmail({ agencyId, candidate,
       title: String(req.body.title || 'Interview invitation').slice(0, 255),
+      startsAt: start, endsAt: end, timezone: req.body.timezone || 'America/Denver',
       whenLabel: `${String(req.body.startsAt || 'Choose a date and time')} (${String(req.body.timezone || 'America/Denver')})`,
       publicJoinUrl: '#interview-link-added-when-scheduled', interviewerRows: interviewerRows.filter(Boolean),
       jobDescriptionId: profile?.job_description_id, jobTitle: profile?.applied_role, preview: true });

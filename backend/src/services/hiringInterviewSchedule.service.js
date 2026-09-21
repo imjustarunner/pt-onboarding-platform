@@ -405,7 +405,7 @@ export async function scheduleHiringInterview({
         agencyId: agency,
         candidate,
         title,
-        whenLabel,
+        whenLabel, startsAt: startDate, endsAt: endDate, timezone: tz, interviewId: interview.id,
         publicJoinUrl,
         interviewerRows,
         jobDescriptionId: resolvedJobDescriptionId,

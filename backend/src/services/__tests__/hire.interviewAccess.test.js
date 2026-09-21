@@ -8,6 +8,11 @@ import { resolveInterviewSender, interviewDeliveryStatus } from '../hiringInterv
 const interview = { agency_id: 4, candidate_user_id: 30, interviewer_user_ids_json: [11, 22] };
 beforeEach(() => { vi.clearAllMocks(); mocks.findById.mockResolvedValue({ id: 11, role: 'provider' }); mocks.getAgencies.mockResolvedValue([{ id: 4 }]); mocks.getUserCapabilities.mockReturnValue({ canAccessPlatform: true, canManageHiring: false }); });
 describe('interview access boundary', () => {
+  it('rejects family portal accounts even with a stale hiring flag or interviewer assignment', async () => {
+    mocks.findById.mockResolvedValue({ id: 11, role: 'client_guardian', has_hiring_access: 1 });
+    mocks.getUserCapabilities.mockReturnValue({ canAccessPlatform: true, canManageHiring: true });
+    expect(await canAccessHiringInterview({ id: 11 }, interview)).toBe(false);
+  });
   it('allows multiple assigned staff without granting hiring-wide access', async () => { expect(await canAccessHiringInterview({ id: 11 }, interview)).toBe(true); expect(await canAccessHiringInterview({ id: 22 }, interview)).toBe(true); });
   it('denies candidate, guest, and unassigned staff', async () => { for (const id of [30, null, 99]) expect(await canAccessHiringInterview({ id }, interview)).toBe(false); });
   it('denies a removed tenant membership and inactive staff', async () => { mocks.getAgencies.mockResolvedValue([{ id: 9 }]); expect(await canAccessHiringInterview({ id: 11 }, interview)).toBe(false); mocks.getAgencies.mockResolvedValue([{ id: 4 }]); mocks.getUserCapabilities.mockReturnValue({ canAccessPlatform: false }); expect(await canAccessHiringInterview({ id: 11 }, interview)).toBe(false); });

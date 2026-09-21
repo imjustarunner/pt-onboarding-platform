@@ -1060,7 +1060,7 @@ const agencyChoices = computed(() => {
     .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')));
 });
 const canChooseAgency = computed(() => agencyChoices.value.length > 1);
-const selectedAgencyId = ref('');
+const selectedAgencyId = ref(String(route.query.agencyId || ''));
 const orgPath = (path) => {
   const slug = String(route.params?.organizationSlug || '').trim();
   if (!slug) return path;
@@ -1645,6 +1645,8 @@ onMounted(async () => {
     selectedAgencyId.value = String(effectiveAgencyId.value);
   }
   await refresh();
+  const requestedJob = jobs.value.find(job => Number(job.id) === Number(route.query.editJobId));
+  if (requestedJob) openEdit(requestedJob);
 });
 </script>
 

@@ -7,6 +7,10 @@ export const parseMetadata = (value) => {
 
 export function taskPhase(task, status) {
   const meta = parseMetadata(task.metadata);
+  // The old combined profile module is employee onboarding, even when an old
+  // pre-hire collection assigned it before the two processes were separated.
+  const title = String(task.title || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if ((task.task_type || task.taskType) === 'training' && ['complete new employee onboarding & profile setup', 'new employee onboarding & profile setup'].includes(title)) return 'onboarding';
   if (['pre_hire', 'onboarding', 'ongoing'].includes(meta.portalPhase)) return meta.portalPhase;
   if (meta.contractGeneration || meta.autoFromSendPreHire) return 'pre_hire';
   return ['ONBOARDING', 'ACTIVE_EMPLOYEE'].includes(status) ? 'onboarding' : 'pre_hire';

@@ -386,6 +386,26 @@ export const getCurrentUser = async (req, res, next) => {
 
 export const getAllUsers = async (req, res, next) => {
   try {
+    if (req.query.staffOnly === 'true' || req.query.supervisorsOnly === 'true') {
+      const agencyId = Number(req.query.agencyId);
+      if (!agencyId) return res.status(400).json({ error: { message: 'Choose an organization for employee assignments.' } });
+      const actor = await User.findById(req.user.id);
+      const { STAFF_ROLES, isStaffAccount, isAssignableSupervisor } = await import('../utils/staffEligibility.js');
+      if (!isStaffAccount(actor) || (!getUserCapabilities(actor).canManageHiring && !isAssignableSupervisor(actor) && !['assistant_admin', 'clinical_practice_assistant', 'provider_plus'].includes(actor.role))) {
+        return res.status(403).json({ error: { message: 'Employee assignment access required.' } });
+      }
+      if (req.user.role !== 'super_admin' && !(await User.getAgencies(req.user.id)).some(a => Number(a.id) === agencyId)) {
+        return res.status(403).json({ error: { message: 'Organization access required.' } });
+      }
+      const db = (await import('../config/database.js')).default;
+      const [rows] = await db.execute(`SELECT DISTINCT u.id, u.first_name, u.last_name, u.email, u.role,
+        u.is_active, u.status, u.has_supervisor_privileges, u.credential AS provider_credential
+        FROM users u JOIN user_agencies ua ON ua.user_id = u.id
+        WHERE ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1 AND u.is_active = 1 AND u.role IN (${STAFF_ROLES.map(() => '?').join(',')})
+        AND UPPER(COALESCE(u.status, '')) IN ('','ACTIVE','ACTIVE_EMPLOYEE')
+        ORDER BY u.last_name, u.first_name`, [agencyId, ...STAFF_ROLES]);
+      return res.json(req.query.supervisorsOnly === 'true' ? rows.filter(isAssignableSupervisor) : rows);
+    }
     const includeArchived = req.query.includeArchived === 'true';
     
     // For non-super_admin users, filter by their agencies
@@ -8332,10 +8352,10 @@ export const toggleSupervisorPrivileges = async (req, res, next) => {
     }
     
     // Only allow toggle for eligible roles
-    const eligibleRoles = ['admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus'];
+    const eligibleRoles = ['admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'provider', 'staff', 'support'];
     if (!eligibleRoles.includes(targetUser.role)) {
       return res.status(400).json({ 
-        error: { message: 'Supervisor privileges can only be enabled for admins, super admins, or clinical practice assistants' } 
+        error: { message: 'Supervisor privileges can only be enabled for an eligible employee account.' }
       });
     }
     
@@ -8346,11 +8366,16 @@ export const toggleSupervisorPrivileges = async (req, res, next) => {
       }
     } else {
       // User is toggling their own privileges - must have eligible role
-      if (!eligibleRoles.includes(req.user.role)) {
+      if (!['admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(req.user.role)) {
         return res.status(403).json({ error: { message: 'You can only toggle supervisor privileges if you are an admin, super admin, or clinical practice assistant' } });
       }
     }
     
+    if (req.user.role !== 'super_admin') {
+      const actorAgencies = await User.getAgencies(req.user.id);
+      const targetAgencies = await User.getAgencies(id);
+      if (!actorAgencies.some(a => targetAgencies.some(b => Number(a.id) === Number(b.id)))) return res.status(403).json({ error: { message: 'Organization access required.' } });
+    }
     const user = await User.update(id, { hasSupervisorPrivileges: enabled });
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
@@ -10616,8 +10641,10 @@ export const promoteToOnboarding = async (req, res, next) => {
     if (!['admin', 'super_admin', 'support'].includes(req.user.role)) return res.status(403).json({ error: { message: 'Admin access required.' } });
     const user = await User.findById(id);
     if (!user || user.status !== 'PREHIRE_REVIEW') return res.status(409).json({ error: { message: 'Complete pre-hire review before starting onboarding.' } });
+    const selectedAgencyId = Number(req.query.agencyId || req.body?.agencyId || req.user.agencyId);
+    if (!selectedAgencyId) return res.status(400).json({ error: { message: 'Select the employee’s agency before starting onboarding.' } });
     const [[agencyRow]] = await pool.execute(
-      'SELECT a.* FROM agencies a JOIN user_agencies ua ON ua.agency_id = a.id WHERE ua.user_id = ? ORDER BY a.id LIMIT 1', [id]);
+      'SELECT a.* FROM agencies a JOIN user_agencies ua ON ua.agency_id = a.id WHERE ua.user_id = ? AND a.id = ? LIMIT 1', [id, selectedAgencyId]);
     if (!agencyRow || !user.work_email) return res.status(400).json({ error: { message: 'Organization and work email are required.' } });
     if (req.user.role !== 'super_admin') {
       const agencies = await User.getAgencies(req.user.id);
@@ -10632,7 +10659,20 @@ export const promoteToOnboarding = async (req, res, next) => {
     if (!packageId) return res.status(400).json({ error: { message: 'Select an onboarding package before promoting this employee.' } });
     const OnboardingPackage = (await import('../models/OnboardingPackage.model.js')).default;
     const pkg = await OnboardingPackage.findById(packageId);
-    if (pkg?.package_type !== 'onboarding') return res.status(400).json({ error: { message: 'Select a package of type onboarding.' } });
+    if (pkg?.package_type !== 'onboarding' || Number(pkg.agency_id) !== Number(agencyRow.id) || !pkg.is_active) return res.status(400).json({ error: { message: 'Select a package of type onboarding.' } });
+    const { composeWorkflow } = await import('../utils/hirePortalWorkflow.js');
+    const workflow = composeWorkflow(settings.portal_workflow, retainedPacket.workflow, req.body?.portalWorkflow);
+    const onboardingResources = workflow.resources.filter(r => r.phase === 'onboarding');
+    for (const resource of onboardingResources) {
+      if (resource.kind === 'document') {
+        const [[document]] = await pool.execute('SELECT * FROM document_templates WHERE id = ?', [resource.templateId]);
+        if (!document || Number(document.agency_id) !== Number(agencyRow.id) || !document.is_active) return res.status(400).json({ error: { message: `Choose an active document for ${resource.title}.` } });
+        const { assertHireFormReady } = await import('../utils/hireDocumentFields.js');
+        assertHireFormReady(document);
+      } else if (resource.required && !resource.url) return res.status(400).json({ error: { message: `Attach a link for ${resource.title}.` } });
+    }
+    const onboardingPacket = { ...retainedPacket, onboardingPackageId: packageId, workflow: { ...retainedPacket.workflow,
+      resources: [...(retainedPacket.workflow?.resources || []).filter(r => r.phase === 'pre_hire'), ...onboardingResources] } };
     const { portalStateForUser } = await import('./prehirePortal.controller.js');
     const state = await portalStateForUser(id);
     if (!state.journey?.prehireCompletedAt && !state.progress.allDone) return res.status(409).json({ error: { message: 'Required pre-hire items are incomplete. Reopen pre-hire and finish them before promotion.' } });
@@ -10643,7 +10683,9 @@ export const promoteToOnboarding = async (req, res, next) => {
     if (locked.status !== 'PREHIRE_REVIEW') throw Object.assign(new Error('This employee has already moved to another process. Refresh and try again.'), { status: 409 });
     await closePrehire(id, { tasks: state.tasks, backgroundCheck: state.backgroundCheck,
       jdAcknowledged: state.jdAcknowledged, prehireDocs: state.prehireDocs }, db);
-    const assigned = await assignPackageToUser({ packageId, userId: id, agencyId: agencyRow.id, assignedByUserId: req.user.id, connection: db, additionalDocuments: (retainedPacket.workflow?.resources || []).filter((r) => r.phase === 'onboarding' && r.kind === 'document').map((r) => r.templateId) });
+    const assigned = await assignPackageToUser({ packageId, userId: id, agencyId: agencyRow.id, assignedByUserId: req.user.id, connection: db, additionalDocuments: onboardingResources.filter((r) => r.kind === 'document').map((r) => r.templateId) });
+    await db.execute(`INSERT INTO hire_portal_packets (user_id, agency_id, config_json) VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE config_json = VALUES(config_json)`, [id, agencyRow.id, JSON.stringify(onboardingPacket)]);
     await startOnboarding(id, db);
     const crypto = await import('node:crypto');
     const portalToken = (locked.passwordless_token_purpose !== 'reset' && locked.passwordless_token) || crypto.randomBytes(32).toString('hex');

@@ -11,11 +11,6 @@ import HiringJobDescription from '../models/HiringJobDescription.model.js';
 import Task from '../models/Task.model.js';
 import TaskAuditLog from '../models/TaskAuditLog.model.js';
 import StorageService from '../services/storage.service.js';
-import {
-  generatePreScreenReportWithGeminiApiKey,
-  generatePreScreenReportWithGoogleSearch,
-  generatePreScreenReportWithVertexNoSearch
-} from '../services/preScreenResearch.service.js';
 import { extractResumeTextFromUpload } from '../services/resumeTextExtraction.service.js';
 import { generateResumeSummaryJson } from '../services/resumeStructuring.service.js';
 import { extractResumePhotoPngFromPdf } from '../services/resumePhotoExtraction.service.js';
@@ -2084,145 +2079,8 @@ export const generateCandidatePreScreenReport = async (req, res, next) => {
     const inAgency = await ensureCandidateInAgency(candidateUserId, agencyId);
     if (!inAgency) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
 
-    const user = await User.findById(candidateUserId);
-    if (!user) return res.status(404).json({ error: { message: 'Candidate not found' } });
-
-    const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
-    let jobDescription = null;
-    if (profile?.job_description_id) {
-      const jd = await HiringJobDescription.findById(profile.job_description_id);
-      if (jd && Number(jd.agency_id) === Number(agencyId) && (jd.is_active === 1 || jd.is_active === true)) {
-        jobDescription = jd;
-      }
-    }
-
-    const candidateNameFromDb = `${user.first_name || ''} ${user.last_name || ''}`.trim();
-    const candidateName = String(req.body?.candidateName || candidateNameFromDb || '').trim();
-    // Prefer extracted resume text from uploaded resume(s).
-    // Allow manual override via req.body.resumeText, but default should “just work” after upload.
-    let resumeText = String(req.body?.resumeText || '').trim();
-    if (!resumeText) {
-      try {
-        const latest = await HiringResumeParse.findLatestCompletedTextByCandidateUserId(candidateUserId);
-        resumeText = String(latest?.extracted_text || '').trim();
-      } catch (e) {
-        // If the table isn't migrated yet, fall back to requiring manual paste.
-        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-      }
-    }
-    resumeText = resumeText.slice(0, 20000);
-    const linkedInUrl = String(req.body?.linkedInUrl || '').trim().slice(0, 800);
-    const psychologyTodayUrl = String(req.body?.psychologyTodayUrl || '').trim().slice(0, 900);
-    const candidateLocation = String(req.body?.candidateLocation || '').trim().slice(0, 180);
-    const coverLetterText = String(req.body?.coverLetterText || profile?.cover_letter_text || '').trim().slice(0, 20000);
-
-    // Prefer job description associated with the candidate profile; allow override via request.
-    const jobTitle = String(req.body?.jobTitle || jobDescription?.title || '').trim().slice(0, 255);
-    const jobDescriptionText = String(req.body?.jobDescriptionText || jobDescription?.description_text || '').trim().slice(0, 60000);
-
-    if (!resumeText) {
-      return res.status(400).json({
-        error: {
-          message:
-            'No resume text available yet. Upload a resume PDF (with selectable text) so we can extract it, or paste resume text manually.'
-        }
-      });
-    }
-
-    const started = Date.now();
-    let ai;
-    try {
-      try {
-        // Preferred (grounded) path: Vertex AI with Google Search tool.
-        ai = await generatePreScreenReportWithGoogleSearch({
-          candidateName,
-          resumeText,
-          linkedInUrl,
-          psychologyTodayUrl,
-          candidateLocation,
-          jobTitle,
-          jobDescriptionText,
-          coverLetterText
-        });
-      } catch (e) {
-        // Common in some environments: Vertex+Search grounding is not permitted (403),
-        // or the Vertex project/env is not configured yet (503). Fall back gracefully:
-        // 1) Try Vertex without Search tool
-        // 2) If GEMINI_API_KEY configured, try the API key path
-        const status = e?.status;
-        const canFallbackStatus = status === 403 || status === 401 || status === 503;
-        if (!canFallbackStatus) throw e;
-
-        try {
-          ai = await generatePreScreenReportWithVertexNoSearch({
-            candidateName,
-            resumeText,
-            linkedInUrl,
-            psychologyTodayUrl,
-            candidateLocation,
-            jobTitle,
-            jobDescriptionText,
-            coverLetterText
-          });
-        } catch (e2) {
-          ai = await generatePreScreenReportWithGeminiApiKey({
-            candidateName,
-            resumeText,
-            linkedInUrl,
-            psychologyTodayUrl,
-            candidateLocation,
-            jobTitle,
-            jobDescriptionText,
-            coverLetterText
-          });
-        }
-      }
-    } catch (e) {
-      await createFailedAiReport({ candidateUserId, createdByUserId: req.user.id, error: e });
-      if (e?.status) {
-        return res.status(e.status).json({ error: { message: e.message || 'AI research failed', ...(e.details ? { details: e.details } : null) } });
-      }
-      throw e;
-    }
-
-    const warnings = [];
-    if (!ai.isGrounded) {
-      warnings.push('No source links were returned by Google Search grounding. Treat this output as unverified and review manually.');
-    }
-
-    const reportText = [
-      warnings.length ? `## Warnings\n- ${warnings.join('\n- ')}\n` : '',
-      ai.text
-    ]
-      .filter(Boolean)
-      .join('\n\n')
-      .trim()
-      .slice(0, 50000);
-
-    const report = await HiringResearchReport.create({
-      candidateUserId,
-      status: 'completed',
-      reportText,
-      reportJson: {
-        kind: 'prescreen',
-        model: ai.modelId,
-        latencyMs: ai.latencyMs,
-        totalMs: Date.now() - started,
-        isGrounded: ai.isGrounded,
-        input: {
-          candidateName: String(candidateName || '').slice(0, 180) || null,
-          linkedInUrl: linkedInUrl || null,
-          resumeTextLength: resumeText.length,
-          coverLetterTextLength: coverLetterText ? coverLetterText.length : 0,
-          jobTitle: jobTitle || null,
-          jobDescriptionTextLength: jobDescriptionText ? jobDescriptionText.length : 0,
-          jobDescriptionId: jobDescription?.id || null
-        },
-        grounding: ai.groundingMetadata || null
-      },
-      createdByUserId: req.user.id,
-      isAiGenerated: true
-    });
+    const { prepareCandidatePreScreen } = await import('../services/hiringCandidatePreScreen.service.js');
+    const report = await prepareCandidatePreScreen({ candidateUserId, agencyId, createdByUserId: req.user.id, overrides: req.body || {} });
 
     res.status(201).json(report);
   } catch (e) {
@@ -2260,7 +2118,7 @@ export const emailPrehirePortalLink = async (req, res, next) => {
     }
 
     const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24, 'prehire_portal');
-    const tokenLink = `${config.frontendUrl}/pre-hire/${tokenResult.token}`;
+    const tokenLink = buildPublicAppUrl(await Agency.findById(agencyId), `pre-hire/${tokenResult.token}`);
 
     const { sendPrehirePortalInviteEmail } = await import('../services/prehireInviteEmail.service.js');
     const emailResult = await sendPrehirePortalInviteEmail({
@@ -2318,7 +2176,7 @@ export const promoteCandidateToPendingSetup = async (req, res, next) => {
 
     // Create or extend the personal pre-hire portal token.
     const tokenResult = await User.generatePasswordlessToken(candidateUserId, 7 * 24, 'prehire_portal');
-    const tokenLink = `${config.frontendUrl}/pre-hire/${tokenResult.token}`;
+    const tokenLink = buildPublicAppUrl(await Agency.findById(agencyId), `pre-hire/${tokenResult.token}`);
 
     // Preserve the exact job-description version this person was hired against.
     await ensureAssignedJobDescriptionDocument(candidateUserId, req.user.id);
@@ -2460,7 +2318,9 @@ export const listHiringAssignees = async (req, res, next) => {
          u.has_hiring_access
        FROM users u
        JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-       WHERE u.status != 'ARCHIVED'
+       WHERE UPPER(COALESCE(u.status, '')) IN ('', 'ACTIVE', 'ACTIVE_EMPLOYEE')
+         AND u.is_active = 1
+         AND u.role IN ('admin','super_admin','assistant_admin','support','staff','provider','provider_plus','clinical_practice_assistant','supervisor','intern','facilitator','clinician')
          AND (
            u.role IN ('admin', 'super_admin', 'support', 'staff')
            OR u.has_hiring_access = 1
@@ -2768,8 +2628,10 @@ export const viewCandidateResume = async (req, res, next) => {
     const { resolveOwnedAdminDocStoragePath } = await import('../utils/candidateApplicationFile.js');
     const storagePath = await resolveOwnedAdminDocStoragePath(doc, candidateUserId);
     const url = await StorageService.getSignedUrl(storagePath, 10);
+    const parsed = await HiringResumeParse.findByResumeDocId(docId);
     res.json({
       url,
+      extractedText: parsed?.extracted_text || null,
       expiresInMinutes: 10,
       originalName: doc.original_name || null,
       mimeType: doc.mime_type || null,
@@ -4236,6 +4098,21 @@ async function resolvePrehirePackageId({ candidateUserId, bodyPackageId, setting
   return parseIntParam(settings.default_prehire_package_id);
 }
 
+export const getCandidatePrehireLink = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const userId = parseIntParam(req.params.userId);
+    if (!await ensureCandidateInAgency(userId, agencyId)) return res.status(404).json({ error: { message: 'Candidate not found.' } });
+    const user = await User.findById(userId);
+    const valid = user?.passwordless_token && user.passwordless_token_purpose === 'prehire_portal'
+      && new Date(user.passwordless_token_expires_at).getTime() > Date.now();
+    const agency = await Agency.findById(agencyId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ portalLink: valid ? buildPublicAppUrl(agency, `pre-hire/${user.passwordless_token}`) : null });
+  } catch (e) { next(e); }
+};
+
 export const sendPreHire = async (req, res, next) => {
   try {
     const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
@@ -4254,11 +4131,22 @@ export const sendPreHire = async (req, res, next) => {
     const preparedPacket = await prepareHirePacket({ userId: candidateUserId, agencyId, body: req.body });
     req.body.packageId = preparedPacket.prehirePackageId;
     if (preparedPacket.workflow.supervisorUserId) {
-      req.body.includeSupervisor = true;
-      req.body.contractTokens = { ...req.body.contractTokens, SUPERVISOR_NAME: preparedPacket.workflow.supervisorName };
+      if (req.body.includeSupervisor) req.body.contractTokens = { ...req.body.contractTokens, SUPERVISOR_NAME: preparedPacket.workflow.supervisorName };
     }
     if (preparedPacket.workflow.supervisorRole) req.body.contractTokens = { ...req.body.contractTokens,
       IS_SUPERVISOR: '1', SUPERVISOR_DUTIES: preparedPacket.workflow.supervisorClause };
+
+    const [[contractSettingsRow]] = await pool.execute('SELECT prehire_settings FROM agencies WHERE id = ?', [agencyId]);
+    const contractSettings = parsePrehireSettings(contractSettingsRow?.prehire_settings);
+    const configId = Number(req.body.contractConfigId || preparedPacket.contractConfigId || contractSettings.default_contract_config_id);
+    if (!configId) return res.status(400).json({ error: { message: 'Choose a Contract Generator configuration and preview the completed agreement before sending.' } });
+    const { previewCandidateContract } = await import('../services/contractGenerator.service.js');
+    const checkedContract = await previewCandidateContract({ agencyId, candidateUserId, configId,
+      templateId: Number(req.body.contractBuilderTemplateId) || null, tokens: req.body.contractTokens || {},
+      compensationCategory: req.body.compensationCategory, credentialOverride: req.body.credential || null });
+    if (checkedContract.unresolvedTokens?.length) return res.status(400).json({ error: { message: `Complete these contract fields: ${checkedContract.unresolvedTokens.join(', ')}` } });
+    if (req.body.contractPreviewHash && req.body.contractPreviewHash !== checkedContract.previewHash) return res.status(409).json({ error: { message: 'Contract settings changed. Update and review the agreement preview before sending.' } });
+    req.body.contractConfigId = configId;
 
     // 1. Promote to PENDING_SETUP (or keep if already there)
     let tokenResult = null;
@@ -4290,8 +4178,9 @@ export const sendPreHire = async (req, res, next) => {
     }
 
     // Link goes directly to the pre-hire portal, not the regular passwordless login
+    const tenantAgency = await Agency.findById(agencyId);
     const tokenLink = tokenResult
-      ? `${config.frontendUrl}/pre-hire/${tokenResult.token}`
+      ? buildPublicAppUrl(tenantAgency, `pre-hire/${tokenResult.token}`)
       : null;
 
     const recipientEmail = String(user.personal_email || user.email || '').trim();
@@ -4313,11 +4202,7 @@ export const sendPreHire = async (req, res, next) => {
     );
     const prehireSettings = parsePrehireSettings(prehireSettingsRows[0]?.prehire_settings);
 
-    const resolvedPackageId = await resolvePrehirePackageId({
-      candidateUserId,
-      bodyPackageId,
-      settings: prehireSettings
-    });
+    const resolvedPackageId = preparedPacket.prehirePackageId;
 
     let templateIds;
     if (Array.isArray(documentTemplateIds)) {
@@ -4421,7 +4306,7 @@ export const sendPreHire = async (req, res, next) => {
       try {
         const tmpl = await DocumentTemplate.findById(templateId);
         if (!tmpl || (tmpl.agency_id && Number(tmpl.agency_id) !== Number(agencyId)) || tmpl.is_active === 0) throw new Error(`Document ${templateId} is unavailable in this organization.`);
-        if (likelyBuilderContractId && isEmploymentAgreementTitle(tmpl.name)) continue;
+        if (likelyBuilderContractId && (templateId === libraryContractId || isEmploymentAgreementTitle(tmpl.name))) continue;
         const task = await TaskAssignmentService.assignDocumentTask({
           title: tmpl.name,
           description: tmpl.description || '',
@@ -4441,7 +4326,7 @@ export const sendPreHire = async (req, res, next) => {
         });
         assignedTasks.push(task);
 
-        for (const sa of signerAssignments) {
+        if (templateId === libraryContractId) for (const sa of signerAssignments) {
           await insertCountersignTask({ candidateTaskId: task.id, docTitle: tmpl.name, sa });
         }
       } catch (docErr) {
@@ -4528,6 +4413,7 @@ export const sendPreHire = async (req, res, next) => {
           agencyId,
           candidateUserId,
           configId: resolvedConfigId,
+          expectedPreviewHash: checkedContract.previewHash,
           templateId: builderTemplateId || null,
           createdByUserId: req.user.id,
           credentialOverride: String(req.body?.credential || '').trim() || null,
@@ -4694,9 +4580,7 @@ export const sendPreHire = async (req, res, next) => {
       passwordlessToken: tokenResult?.token || null,
       passwordlessTokenLink: tokenLink,
       assignedTaskCount: assignedTasks.length,
-      signerTaskCount: contractCountersignCount
-        + (Array.isArray(signerAssignments) ? signerAssignments.filter((s) => s?.userId).length : 0)
-          * Math.max(0, assignedTasks.length - (contractResult?.task ? 1 : 0)),
+      signerTaskCount: contractCountersignCount,
       packageId: resolvedPackageId || null,
       contractTaskId: contractResult?.task?.id || null,
       contractWarning: contractWarning || null
@@ -4749,6 +4633,7 @@ export const listPrehireCandidates = async (req, res, next) => {
       `SELECT
          u.id, u.first_name, u.last_name, u.email, u.personal_email,
          u.status, u.phone_number, u.hired_at, u.created_at,
+         MIN(ua.agency_id) AS portal_agency_id,
          u.passwordless_token, u.passwordless_token_expires_at,
          hp.applied_role, hp.source, hp.interview_date,
          hp.created_at AS applied_at,
@@ -4794,6 +4679,7 @@ export const listPrehireCandidates = async (req, res, next) => {
       statuses
     );
 
+    const linkAgencies = new Map(await Promise.all([...new Set(rows.map(r => agencyId || r.portal_agency_id))].map(async id => [Number(id), await Agency.findById(id)])));
     const candidates = rows.map((r) => {
       const total = parseInt(r.task_total, 10) || 0;
       const completed = parseInt(r.task_completed, 10) || 0;
@@ -4810,7 +4696,7 @@ export const listPrehireCandidates = async (req, res, next) => {
         progress_pct: total > 0 ? Math.round((completed / total) * 100) : 0,
         required_progress_pct: reqTotal > 0 ? Math.round((reqCompleted / reqTotal) * 100) : 0,
         prehire_portal_link: r.passwordless_token && !tokenExpired
-          ? `${config.frontendUrl}/pre-hire/${r.passwordless_token}`
+          ? buildPublicAppUrl(linkAgencies.get(Number(agencyId || r.portal_agency_id)), `pre-hire/${r.passwordless_token}`)
           : null,
         prehire_token_expires_at: r.passwordless_token_expires_at || null,
         prehire_token_expired: tokenExpired,

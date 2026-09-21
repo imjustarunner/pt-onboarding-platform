@@ -51,7 +51,7 @@ async function findLatestJobApplicationSubmission({ agencyId, candidateUserId, j
        FROM intake_submissions s
        INNER JOIN intake_links il ON il.id = s.intake_link_id
       WHERE s.guardian_user_id = ?
-        AND il.agency_id = ?
+        AND il.organization_id = ?
         AND il.form_type = 'job_application'
         AND s.status IN ('submitted', 'completed', 'approved')
         ${jobFilter}
@@ -72,6 +72,7 @@ export async function sendHiringInterviewInviteEmail({
   candidate,
   title,
   whenLabel,
+  startsAt, endsAt, timezone = 'America/Denver', interviewId,
   publicJoinUrl,
   interviewerRows = [],
   jobDescriptionId = null,
@@ -92,6 +93,12 @@ export async function sendHiringInterviewInviteEmail({
   }
 
   const attachments = [];
+  const { interviewCalendar } = await import('../utils/interviewCalendar.js');
+  const calendar = interviewCalendar({ startsAt, endsAt, timezone, title, publicJoinUrl, interviewId });
+  if (calendar) {
+    whenLabel = calendar.whenLabel;
+    attachments.push({ filename: 'interview.ics', contentType: 'text/calendar; charset=utf-8', contentBase64: Buffer.from(calendar.ics).toString('base64') });
+  }
   let submission = null;
   try {
     submission = await findLatestJobApplicationSubmission({
@@ -138,7 +145,7 @@ export async function sendHiringInterviewInviteEmail({
   }
 
   // Prefer branded rebuild for both names when available; otherwise reuse stored bundle.
-  const applicationB64 = applicationPdfBase64 || receiptPdfBase64;
+  const applicationB64 = receiptPdfBase64 || applicationPdfBase64;
   const receiptB64 = receiptPdfBase64 || applicationPdfBase64;
   if (applicationB64) {
     attachments.push({
@@ -176,12 +183,13 @@ export async function sendHiringInterviewInviteEmail({
   const text = [
     `Hi ${firstName},`,
     '',
-    'You are invited to an interview.',
+    `Thank you for your interest in ${agencyBrandOrName(agency)}${roleLabel ? ` and the ${roleLabel} position` : ''}. We enjoyed learning about your experience and would love to meet you, hear more about your goals, and answer your questions about the team.`,
     roleLabel ? `Role: ${roleLabel}` : '',
     `When: ${whenLabel}`,
     `Invited from ${agencyBrandOrName(agency)}: ${interviewerLine}`,
     '',
     `Join link: ${publicJoinUrl}`,
+    ...(calendar ? [`Add to Google Calendar: ${calendar.googleUrl}`, `Add to Outlook: ${calendar.outlookUrl}`, calendar.downloadUrl ? `Apple Calendar / iCal: ${calendar.downloadUrl}` : 'Apple Calendar / iCal: open the attached interview.ics file.'] : []),
     '',
     'Please join a few minutes early. You will wait in a lobby until admitted.',
     jdUrl ? `Job description: ${jdUrl}` : '',
@@ -194,12 +202,13 @@ export async function sendHiringInterviewInviteEmail({
 
   const bodyHtml = `<div style="font-family: Arial, sans-serif; line-height: 1.5; color:#111;">
     <p>Hi ${escapeHtml(firstName)},</p>
-    <p>You are invited to an interview.</p>
+    <p>Thank you for your interest in ${escapeHtml(agencyBrandOrName(agency))}${roleLabel ? ` and the ${escapeHtml(roleLabel)} position` : ''}. We enjoyed learning about your experience and would love to meet you, hear more about your goals, and answer your questions about the team.</p>
     ${roleLabel ? `<p><strong>Role:</strong> ${escapeHtml(roleLabel)}</p>` : ''}
     <p><strong>When:</strong> ${escapeHtml(whenLabel)}</p>
     <p><strong>Interviewers from ${escapeHtml(agencyBrandOrName(agency))}:</strong> ${escapeHtml(interviewerLine)}</p>
     <p style="margin:24px 0;"><a style="display:inline-block;background:#087b52;color:#fff;padding:13px 24px;border-radius:8px;text-decoration:none;font-weight:bold;" href="${escapeHtml(publicJoinUrl)}">Join your interview</a></p><p style="font-size:13px;">Or open: <a href="${escapeHtml(publicJoinUrl)}">${escapeHtml(publicJoinUrl)}</a></p>
     <p>Please join a few minutes early. You will wait in a lobby until admitted.</p>
+    ${calendar ? `<p><strong>Add to your calendar:</strong> <a href="${escapeHtml(calendar.googleUrl)}">Google Calendar</a> · <a href="${escapeHtml(calendar.outlookUrl)}">Outlook</a> · ${calendar.downloadUrl ? `<a href="${escapeHtml(calendar.downloadUrl)}">Apple Calendar / iCal (.ics)</a>` : 'Apple Calendar / iCal: open the attached interview.ics file'}</p>` : ''}
     ${jdUrl ? `<p><strong>Job description:</strong> <a href="${escapeHtml(jdUrl)}">${escapeHtml(jdUrl)}</a></p>` : ''}
     ${attachments.length ? `<p style="color:#555;font-size:14px;">Attached for your reference: ${escapeHtml(attachments.map(a => a.filename).join(', '))}.</p>` : ''}
   </div>`;

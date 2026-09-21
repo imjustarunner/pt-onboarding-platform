@@ -1,3 +1,4 @@
+import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import HiringProfile from '../models/HiringProfile.model.js';
@@ -12,11 +13,13 @@ export async function deliverExistingInterview(interview) {
   const candidate = await User.findById(interview.candidate_user_id);
   const profile = await HiringProfile.findByCandidateUserId(interview.candidate_user_id);
   const interviewerRows = await Promise.all((interview.interviewer_user_ids_json || []).map(id => User.findById(id)));
+  const event = await ProviderScheduleEvent.findById(interview.provider_schedule_event_id);
   let delivery;
   try {
     delivery = interviewDeliveryStatus(await sendHiringInterviewInviteEmail({
       agencyId: interview.agency_id, candidate, title: interview.display_title || 'Interview invitation',
       whenLabel: new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'short', timeZone: interview.interview_timezone || 'America/Denver' }).format(interviewDate(interview.interview_starts_at)) + ` (${interview.interview_timezone || 'America/Denver'})`,
+      startsAt: interviewDate(event?.start_at || interview.interview_starts_at), endsAt: interviewDate(event?.end_at), timezone: interview.interview_timezone, interviewId: interview.id,
       publicJoinUrl: interview.public_join_url, interviewerRows: interviewerRows.filter(Boolean),
       jobDescriptionId: profile?.job_description_id, jobTitle: profile?.applied_role
     }));

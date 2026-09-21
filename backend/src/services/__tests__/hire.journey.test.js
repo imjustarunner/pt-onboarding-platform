@@ -7,6 +7,7 @@ import { taskPhase, taskProgress, creditedActivitySeconds, recordOnboardingActiv
 const db = { execute: mocks.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
 beforeEach(() => { vi.clearAllMocks(); mocks.getConnection.mockResolvedValue(db); });
 describe('process separation', () => {
+  it('keeps the legacy employee profile module out of pre-hire', () => expect(taskPhase({ task_type: 'training', title: 'Complete New Employee Onboarding & Profile Setup', metadata: { portalPhase: 'pre_hire' } }, 'PREHIRE_OPEN')).toBe('onboarding'));
   it('keeps contracts in prehire after promotion', () => expect(taskPhase({ metadata: '{"contractGeneration":true}' }, 'ONBOARDING')).toBe('pre_hire'));
   it('uses explicit package provenance before user status', () => expect(taskPhase({ metadata: { portalPhase: 'onboarding' } }, 'PREHIRE_REVIEW')).toBe('onboarding'));
   it('does not require optional tasks to close the process', () => expect(taskProgress([{ isRequired: true, status: 'completed' }, { isRequired: false, status: 'pending' }]).allDone).toBe(true));

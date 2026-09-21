@@ -50,7 +50,7 @@ class InterviewHubJobQuestionSet {
     const clauses = ['agency_id = ?'];
     const params = [parseIntParam(agencyId)];
     if (jobDescriptionId != null) {
-      clauses.push('job_description_id = ?');
+      clauses.push('(job_description_id = ? OR job_description_id IS NULL)');
       params.push(parseIntParam(jobDescriptionId));
     }
     if (!includeInactive) {

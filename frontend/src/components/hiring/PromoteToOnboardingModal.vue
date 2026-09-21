@@ -7,13 +7,14 @@
           <div class="pto-header-left">
             <div class="pto-avatar" :style="avatarStyle">{{ initials }}</div>
             <div>
-              <h2 class="pto-title">Move to Onboarding</h2>
+              <h2 class="pto-title">Prepare onboarding</h2>
               <p class="pto-subtitle">{{ fullName }} — {{ candidate.personal_email || candidate.email }}</p>
             </div>
           </div>
           <button class="pto-close" @click="$emit('close')">✕</button>
         </div>
 
+        <nav class="pto-wizard" aria-label="Onboarding setup"><button v-for="(label, index) in wizardSteps" :key="label" :aria-current="wizardStep === index ? 'step' : undefined" @click="wizardStep = index">{{ index + 1 }}. {{ label }}</button></nav>
         <!-- Work email gate -->
         <div v-if="!candidate.work_email" class="pto-gate-banner">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -22,14 +23,14 @@
 
         <div :class="{ 'pto-body-disabled': !candidate.work_email }" class="pto-body">
           <!-- Applied role read-only -->
-          <div class="pto-field-row" v-if="candidate.applied_role">
+          <div class="pto-field-row" v-if="candidate.applied_role && wizardStep === 0">
             <label class="pto-label">Job Applied For</label>
             <span class="pto-value">{{ candidate.applied_role }}</span>
           </div>
 
           <!-- Onboarding package selector -->
-          <div class="pto-section">
-            <label class="pto-section-label">Onboarding Package</label>
+          <div v-show="wizardStep === 0" class="pto-section">
+            <label class="pto-section-label">Choose the onboarding collection</label>
             <p class="pto-section-hint">
               The package determines which training, documents, and checklist items are assigned on day one.
               A default has been pre-selected based on the candidate's job role.
@@ -60,8 +61,12 @@
             </div>
           </div>
 
+          <div v-show="wizardStep === 0"><HirePackageContents :package-id="selectedPackageId" :edit-url="packageEditUrl" @loaded="onPackageLoaded" />
+            <h3>Also included</h3><p>Account setup, a clinical profile for staff who see clients, handbook acknowledgement, onboarding time tracking and final review.</p>
+            <HireWorkflowEditor v-model="portalWorkflow" phase="onboarding" :templates="documentTemplates" :editor-url="documentEditUrl" heading="Additional onboarding steps" />
+          </div>
           <!-- Credential delivery -->
-          <div class="pto-section">
+          <div v-show="wizardStep === 1" class="pto-section">
             <label class="pto-section-label">How to deliver access</label>
             <div class="pto-radio-group">
               <label class="pto-radio-card" :class="{ active: sendMethod === 'token' }">
@@ -71,7 +76,7 @@
                     <span>Continue with their personal link</span>
                     <span class="pto-radio-badge pto-badge-blue">Passwordless</span>
                   </div>
-                  <p class="pto-radio-desc">Email the candidate a existing personal portal link (extended for 14 days) to their personal email. They can set a password later.</p>
+                  <p class="pto-radio-desc">Email the candidate their existing personal portal link (extended for 14 days) to their personal email. They can set a password later.</p>
                   <p class="pto-radio-email">→ {{ candidate.personal_email || candidate.email }}</p>
                 </div>
               </label>
@@ -92,7 +97,9 @@
           </div>
 
           <!-- Summary -->
-          <div class="pto-summary" v-if="selectedPackage">
+          <div class="pto-summary" v-if="selectedPackage && wizardStep === 2">
+            <HirePackageContents :package-id="selectedPackageId" :edit-url="packageEditUrl" />
+            <ul><li v-for="resource in portalWorkflow.resources || []" :key="resource.id">{{ resource.title }}</li></ul>
             <div class="pto-summary-title">What happens when you confirm:</div>
             <ul class="pto-summary-list">
               <li>Status changes to <strong>Onboarding</strong> and removed from Pre-Hire view</li>
@@ -110,9 +117,11 @@
         <!-- Footer -->
         <div class="pto-footer">
           <button class="pto-btn pto-btn-secondary" @click="$emit('close')">Cancel</button>
-          <button
+          <button v-if="wizardStep" class="pto-btn pto-btn-secondary" @click="wizardStep--">Back</button>
+          <button v-if="wizardStep < 2" class="pto-btn pto-btn-primary" :disabled="!candidate.work_email || !selectedPackageId || (!packageContents || Number(packageContents.id) !== Number(selectedPackageId))" @click="wizardStep++">Continue →</button>
+          <button v-if="wizardStep === 2"
             class="pto-btn pto-btn-primary"
-            :disabled="!candidate.work_email || promoting"
+            :disabled="!candidate.work_email || promoting || !selectedPackageId || (!packageContents || Number(packageContents.id) !== Number(selectedPackageId))"
             @click="confirm"
           >
             <svg v-if="promoting" class="pto-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
@@ -129,6 +138,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import api from '../../services/api';
+import { useRoute } from 'vue-router';
+import HirePackageContents from './HirePackageContents.vue';
+import HireWorkflowEditor from '../admin/HireWorkflowEditor.vue';
 
 const props = defineProps({
   candidate: { type: Object, required: true },
@@ -138,6 +150,12 @@ const props = defineProps({
 const emit = defineEmits(['close', 'promoted']);
 
 // ── State ─────────────────────────────────────────────────────────────────────
+const route = useRoute();
+const wizardStep = ref(0), wizardSteps = ['Contents', 'Invitation', 'Review'];
+const packageContents = ref(null), portalWorkflow = ref({ resources: [] }), documentTemplates = ref([]);
+const documentEditUrl = computed(() => `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/documents?agencyId=${props.agencyId}`);
+const packageEditUrl = computed(() => `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/settings?agencyId=${props.agencyId}&category=workflow&item=packages`);
+function onPackageLoaded(value) { if (JSON.stringify(value) !== JSON.stringify(packageContents.value)) packageContents.value = value; }
 const packages = ref([]);
 const packagesLoading = ref(true);
 const selectedPackageId = ref(null);
@@ -165,13 +183,16 @@ onMounted(async () => {
   try {
     const params = props.agencyId ? { agencyId: props.agencyId } : {};
 
-    const [pkgsRes, settingsRes] = await Promise.all([
+    const [pkgsRes, settingsRes, documentsRes] = await Promise.all([
       api.get('/onboarding-packages', { params }),
-      api.get('/hiring/settings', { params }).catch(() => ({ data: {} }))
+      api.get('/hiring/settings', { params }),
+      api.get('/document-templates', { params: { ...params, limit: 1000 } })
     ]);
 
-    packages.value = pkgsRes.data || [];
-    const settings = settingsRes.data || {};
+    packages.value = (pkgsRes.data || []).filter(p => p.package_type === 'onboarding' && p.is_active !== false && p.is_active !== 0);
+    const settings = settingsRes.data?.settings || settingsRes.data || {};
+    documentTemplates.value = Array.isArray(documentsRes.data) ? documentsRes.data : documentsRes.data?.templates || [];
+    portalWorkflow.value = { ...settings.portal_workflow, resources: (settings.portal_workflow?.resources || []).filter(r => r.phase === 'onboarding') };
 
     agencyDefaultPackageId.value = settings.default_onboarding_package_id || null;
 
@@ -195,7 +216,7 @@ onMounted(async () => {
       (packages.value[0]?.id ?? null);
 
   } catch (e) {
-    console.error('[PromoteToOnboardingModal] Failed to load packages', e);
+    errorMsg.value = e.response?.data?.error?.message || 'Could not load onboarding setup.';
   } finally {
     packagesLoading.value = false;
   }
@@ -203,7 +224,7 @@ onMounted(async () => {
 
 // ── Confirm ───────────────────────────────────────────────────────────────────
 const confirm = async () => {
-  if (!props.candidate.work_email) return;
+  if (!props.candidate.work_email || !selectedPackageId.value || Number(packageContents.value?.id) !== Number(selectedPackageId.value) || wizardStep.value !== 2) return;
   promoting.value = true;
   errorMsg.value = '';
   try {
@@ -212,6 +233,7 @@ const confirm = async () => {
       `/users/${props.candidate.id}/promote-to-onboarding`,
       {
         packageId: selectedPackageId.value || null,
+        portalWorkflow: portalWorkflow.value,
         sendMethod: sendMethod.value
       },
       { params }
@@ -306,4 +328,5 @@ const confirm = async () => {
 /* Spinner */
 @keyframes spin { to { transform: rotate(360deg); } }
 .pto-spinner { animation: spin 0.8s linear infinite; }
+.pto-wizard{display:flex;gap:8px;padding:16px 24px}.pto-wizard button{flex:1;padding:10px;border:1px solid #d8e2dd;border-radius:7px;background:#fff;color:#234e3f}.pto-wizard button[aria-current=step]{background:#165c46;color:white}
 </style>

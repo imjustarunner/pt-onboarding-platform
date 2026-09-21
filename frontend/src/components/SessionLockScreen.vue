@@ -1,8 +1,8 @@
 <template>
   <Teleport to="body">
-    <div v-if="isLocked" class="session-lock-overlay" role="dialog" aria-modal="true" aria-labelledby="session-lock-title">
+    <div v-if="isLocked" :class="{ 'session-checking': !sessionLockStore.lockConfig }" class="session-lock-overlay" role="dialog" aria-modal="true" aria-labelledby="session-lock-title">
       <video
-        v-if="showTenantVideo && !videoFailed"
+        v-if="sessionLockStore.lockConfig && showTenantVideo && !videoFailed"
         :key="tenantKey"
         class="session-lock-background"
         autoplay muted loop playsinline
@@ -10,7 +10,7 @@
         aria-hidden="true"
         @error="videoFailed = true"
       ><source :src="videoUrl" type="video/mp4" @error="videoFailed = true" /></video>
-      <img v-else class="session-lock-background" :src="showTenantVideo ? posterUrl : mobileBackgroundUrl" alt="" />
+      <img v-else-if="sessionLockStore.lockConfig" class="session-lock-background" :src="showTenantVideo ? posterUrl : mobileBackgroundUrl" alt="" />
       <div class="session-lock-card" :style="cardStyle">
         <BrandingLogo
           :logo-url="agencyLogoUrl"
@@ -175,6 +175,9 @@ watch(() => props.isLocked, (locked) => {
 @media (min-width: 641px) {
   .session-lock-overlay { justify-content: flex-end; padding: clamp(24px, 5vw, 80px); }
 }
+
+.session-lock-overlay.session-checking { background: #f4f8f7; justify-content: center; }
+.session-checking .session-lock-card { box-shadow: 0 8px 36px rgba(20, 60, 50, .1); border: 1px solid #dae5df; }
 
 .session-lock-logo {
   margin-bottom: 24px;

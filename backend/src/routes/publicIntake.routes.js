@@ -1,5 +1,6 @@
 import { requireIntakeBillingSession } from '../middleware/intakeBillingSession.middleware.js';
 import express from 'express';
+import { viewApplicationDocument } from '../services/jobApplicationRecord.service.js';
 import multer from 'multer';
 import { body } from 'express-validator';
 import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
@@ -57,6 +58,7 @@ import { authenticate } from '../middleware/auth.middleware.js';
 const router = express.Router();
 
 router.use(publicIntakeLimiter);
+router.get('/application-documents/:submissionId/:docId', viewApplicationDocument);
 
 router.get('/registration-receipt/:submissionId', getPublicRegistrationReceipt);
 // Flat dedicated-host URL must be registered before the slug param route,

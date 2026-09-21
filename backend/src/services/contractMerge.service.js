@@ -34,28 +34,16 @@ const TOKEN_ALIASES = {
   STARTDATE: 'START_DATE'
 };
 
-function expandCompactTokenKeys(tokens = {}) {
-  const out = { ...tokens };
-  for (const [k, v] of Object.entries(tokens || {})) {
-    if (v == null || v === '') continue;
-    const compact = String(k).replace(/_/g, '');
-    if (compact && compact !== k && (out[compact] == null || out[compact] === '')) {
-      out[compact] = v;
-    }
-  }
-  return out;
-}
-
 function normalizeTokens(tokens = {}) {
-  const out = expandCompactTokenKeys(tokens);
+  const out = {};
+  for (const [key, value] of Object.entries(tokens)) out[key.toUpperCase()] = value;
   for (const [alias, canonical] of Object.entries(TOKEN_ALIASES)) {
-    if (out[alias] != null && out[alias] !== '' && (out[canonical] == null || out[canonical] === '')) {
-      out[canonical] = out[alias];
-    }
-    if (out[canonical] != null && out[canonical] !== '' && (out[alias] == null || out[alias] === '')) {
-      out[alias] = out[canonical];
-    }
+    const name = alias.toUpperCase();
+    if (out[canonical] == null && out[name] != null) out[canonical] = out[name];
+    if (out[canonical] != null) out[name] = out[canonical];
   }
+  // Canonical edits always replace stale compact aliases returned by older templates.
+  for (const [key, value] of Object.entries(out)) if (key.includes('_')) out[key.replaceAll('_', '')] = value;
   return out;
 }
 
@@ -472,8 +460,8 @@ export async function autofillTokensForCandidate({
     EMPLOYEE_FIRST_NAME: user?.first_name || '',
     EMPLOYEE_LAST_NAME: user?.last_name || '',
     EMPLOYEE_EMAIL: user?.personal_email || user?.email || '',
-    COMPANY_NAME: agency?.name || 'ITSCO, LLC',
-    COMPANY_ADDRESS: agency?.address || '437 Windchime Place, Colorado Springs, CO 80919',
+    COMPANY_NAME: agency?.name || '',
+    COMPANY_ADDRESS: agency?.address || '',
     JOB_TITLE: jobTitle,
     JOB_DESCRIPTION: jobDescription,
     SERVICE_FOCUS: serviceFocus,
@@ -555,8 +543,8 @@ export async function renderContractHtml({
     ? clauses
     : (clauses || []).filter((c) => !isSupervisorClause(c));
 
-  const requiredFields = new Set(['EMPLOYEE_FULL_NAME', 'COMPANY_NAME', 'JOB_TITLE', 'START_DATE', 'EXECUTION_DATE', 'EFFECTIVE_DATE', 'DIRECT_RATE', 'INDIRECT_RATE']);
-  const missingFields = [...new Set(visibleClauses.flatMap((c) => findUnresolvedTokens(c.body_html)))].filter((key) => requiredFields.has(key.toUpperCase()) && !String(mergedTokens[key] ?? mergedTokens[key.toUpperCase()] ?? '').trim());
+  const requiredFields = new Set(['EMPLOYEE_FULL_NAME', 'CANDIDATE_NAME', 'COMPANY_NAME', 'COMPANY_ADDRESS', 'JOB_TITLE', 'ROLE_LABEL', 'SERVICE_FOCUS', 'LICENSE_TYPE', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS', 'START_DATE', 'EXECUTION_DATE', 'EFFECTIVE_DATE', 'EXPIRATION_DATE', 'LICENSURE_DEADLINE', 'MIN_DAYS_PER_WEEK', 'MIN_HOURS', 'DIRECT_RATE', 'INDIRECT_RATE'].map(key => key.replaceAll('_', '')));
+  const missingFields = [...new Set(visibleClauses.flatMap((c) => findUnresolvedTokens(c.body_html)))].filter((key) => requiredFields.has(key.toUpperCase().replaceAll('_', '')) && !String(mergedTokens[key] ?? mergedTokens[key.toUpperCase()] ?? '').trim());
   const bodyParts = visibleClauses.map((c) => {
     const body = replaceTokens(c.body_html, mergedTokens);
     if (/^\s*<h[1-3]/i.test(c.body_html || '') || /^\s*<p/i.test(body)) return body;

@@ -14,6 +14,7 @@
           </span>
         </div>
         <div class="resume-toolbar-right">
+          <button v-if="extractedText" type="button" class="btn btn-secondary btn-sm" @click="showExtracted = !showExtracted">{{ showExtracted ? 'Original document' : 'Extracted text' }}</button>
           <button
             v-if="viewerUrl"
             type="button"
@@ -103,6 +104,7 @@
           </div>
 
           <div v-if="viewerLoading" class="loading">Opening resume…</div>
+          <pre v-else-if="showExtracted && extractedText" class="resume-extracted">{{ extractedText }}</pre>
           <iframe
             v-else-if="canEmbed && viewerUrl"
             class="resume-iframe"
@@ -117,7 +119,7 @@
               or paste the resume text if extraction failed.
             </p>
           </div>
-          <div v-else class="empty">Select a resume to view.</div>
+          <div v-else class="empty" role="status">{{ viewerError || 'Select a resume to view.' }}</div>
         </div>
       </template>
     </div>
@@ -232,6 +234,8 @@ const activeResumeId = ref(null);
 const viewerUrl = ref('');
 const viewerMime = ref('');
 const viewerLoading = ref(false);
+const viewerError = ref(''), extractedText = ref(''), showExtracted = ref(false);
+let viewerRequest = 0;
 
 const activeResume = computed(() => (props.resumes || []).find((r) => Number(r.id) === Number(activeResumeId.value)) || null);
 
@@ -254,8 +258,11 @@ watch(
   () => props.resumes,
   async (list) => {
     if (!list?.length) {
+      viewerRequest += 1;
       activeResumeId.value = null;
       viewerUrl.value = '';
+      extractedText.value = '';
+      viewerLoading.value = false;
       return;
     }
     const stillThere = list.some((r) => Number(r.id) === Number(activeResumeId.value));
@@ -279,18 +286,25 @@ function onSelectResume(e) {
 }
 
 async function loadViewer() {
+  const request = ++viewerRequest;
   viewerUrl.value = '';
   viewerMime.value = '';
+  viewerError.value = ''; extractedText.value = ''; showExtracted.value = false;
   if (!activeResume.value) return;
   viewerLoading.value = true;
   try {
     const data = await props.resolveViewerUrl(activeResume.value);
+    if (request !== viewerRequest) return;
     viewerUrl.value = data?.url || '';
+    extractedText.value = data?.extractedText || '';
     viewerMime.value = data?.mimeType || activeResume.value.mimeType || activeResume.value.mime_type || '';
-  } catch {
+    if (!canEmbed.value && extractedText.value) showExtracted.value = true;
+  } catch (e) {
+    if (request !== viewerRequest) return;
     viewerUrl.value = '';
+    viewerError.value = e.response?.data?.error?.message || 'The resume could not be opened. Please retry or contact People Operations.';
   } finally {
-    viewerLoading.value = false;
+    if (request === viewerRequest) viewerLoading.value = false;
   }
 }
 
@@ -359,6 +373,7 @@ function truncate(s, n) {
 </script>
 
 <style scoped>
+.resume-extracted { white-space: pre-wrap; overflow-wrap: anywhere; padding: 24px; margin: 0; color: #1e293b; background: white; font: inherit; line-height: 1.6; }
 .resume-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;

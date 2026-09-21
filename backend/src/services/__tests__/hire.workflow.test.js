@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks }));
 import { composeWorkflow, sanitizeWorkflow, validatePreemployment, summarizeSteps } from '../../utils/hirePortalWorkflow.js';
-import { buildPortalWorkflow, savePortalStep, requiredSubmissionKeys, assertPortalStepCompletion } from '../hirePortalWorkflow.service.js';
+import { portalPacket, buildPortalWorkflow, savePortalStep, requiredSubmissionKeys, assertPortalStepCompletion } from '../hirePortalWorkflow.service.js';
 import { encryptGuardianIntake } from '../guardianIntakeEncryption.service.js';
 process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
 const db = { execute: mocks.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
@@ -39,6 +39,14 @@ describe('packet composition and validation', () => {
   });
 });
 describe('phase manifest', () => {
+  it('repairs a missing legacy handbook from agency settings without replacing retained choices', async () => {
+    mocks.execute.mockImplementation(async sql => sql.includes('config_json FROM') ? [[{ config_json: { workflow: { resources: [] } } }]]
+      : sql.includes('prehire_settings FROM') ? [[{ prehire_settings: { handbook_full_url: 'https://docs.google.com/document/d/handbook/edit' } }]] : [[]]);
+    expect((await portalPacket(1, 2)).handbookUrl).toBe('https://docs.google.com/document/d/handbook/edit');
+    mocks.execute.mockImplementation(async sql => sql.includes('config_json FROM') ? [[{ config_json: { handbookUrl: 'https://example.org/retained-handbook', workflow: { resources: [] } } }]]
+      : sql.includes('prehire_settings FROM') ? [[{ prehire_settings: { handbook_full_url: 'https://example.org/new-handbook' } }]] : [[]]);
+    expect((await portalPacket(1, 2)).handbookUrl).toBe('https://example.org/retained-handbook');
+  });
   it('includes personal information and headshot only in prehire, account setup only in onboarding', async () => {
     mocks.execute.mockImplementation(async (sql) => sql.includes('config_json FROM') ? [[{ config_json: { workflow: { resources: [] }, handbookUrl: 'https://drive.google.com/file/d/book/view' } }]] : [[]]);
     const manifest = await buildPortalWorkflow({ user: { id: 1, status: 'PREHIRE_OPEN', first_name: 'Taylor', sso_password_override: '0' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: {}, hireAccountMode: 'group_password', journey: {} });

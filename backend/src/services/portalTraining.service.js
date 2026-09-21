@@ -1,3 +1,5 @@
+import { needsClinicalProfile } from '../utils/hireClinicalProfile.js';
+import { clinicalFieldOptions } from '../utils/providerClinicalFieldOptions.js';
 import { PREEMPLOYMENT_KEYS } from '../utils/hirePortalWorkflow.js';
 import ModuleContent from '../models/ModuleContent.model.js';
 import UserInfoValue from '../models/UserInfoValue.model.js';
@@ -7,6 +9,16 @@ import ModuleResponseAnswer from '../models/ModuleResponseAnswer.model.js';
 import pool from '../config/database.js';
 import { parseMetadata } from './hireJourney.service.js';
 
+// Clinical questions move into the dedicated step; old closed journeys retain their forms.
+export async function hasPortalClinicalProfile(userId) {
+  const [[user]] = await pool.execute(`SELECT u.role, u.status, u.sees_clients, u.has_provider_access,
+    j.onboarding_completed_at, s.step_key AS clinical_step
+    FROM users u LEFT JOIN hire_journeys j ON j.user_id = u.id
+    LEFT JOIN hire_portal_submissions s ON s.user_id = u.id AND s.phase = 'onboarding' AND s.step_key = 'clinical-profile'
+    WHERE u.id = ?`, [userId]);
+  return !!user?.clinical_step || (user?.status === 'ONBOARDING' && !user?.onboarding_completed_at && needsClinicalProfile(user));
+}
+
 export async function portalModuleForms(userId, moduleId) {
   const content = await ModuleContent.findByModuleId(moduleId);
   const pages = content.filter((c) => c.content_type === 'form').map((c) => parseMetadata(c.content_data));
@@ -14,7 +26,8 @@ export async function portalModuleForms(userId, moduleId) {
   if (!ids.length) return { fields: [], pages };
   const [defs] = await pool.execute(`SELECT id, field_key, field_label, field_type, is_required FROM user_info_field_definitions WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
   const values = await UserInfoValue.findByUserAndFieldIds(userId, ids);
-  return { pages, fields: defs.filter(d => !PREEMPLOYMENT_KEYS.has(d.field_key)).map((d) => ({ id: d.id, label: d.field_label, type: d.field_type,
+  const clinicalProfile = await hasPortalClinicalProfile(userId);
+  return { pages, fields: defs.filter(d => !PREEMPLOYMENT_KEYS.has(d.field_key) && !(clinicalProfile && clinicalFieldOptions(d.field_key))).map((d) => ({ id: d.id, label: d.field_label, type: d.field_type,
     required: !!Number(d.is_required) || pages.some((p) => p.requireAll && (p.fieldDefinitionIds || []).map(Number).includes(d.id)),
     value: values.find((v) => Number(v.field_definition_id) === Number(d.id))?.value ?? null })) };
 }

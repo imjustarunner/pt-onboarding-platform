@@ -1,15 +1,19 @@
+import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
 import pool from '../config/database.js';
+import { CLINICAL_PROFILE_FIELDS, needsClinicalProfile, clinicalProfileForm } from '../utils/hireClinicalProfile.js';
+import { listClinicalFacetsForUser } from './providerClinicalFacets.service.js';
 import { encryptGuardianIntake, decryptGuardianIntake } from './guardianIntakeEncryption.service.js';
 import { PREEMPLOYMENT_FIELDS, composeWorkflow, jsonObject, summarizeSteps, validatePreemployment } from '../utils/hirePortalWorkflow.js';
 
 export async function portalPacket(userId, agencyId) {
   const [[saved]] = await pool.execute('SELECT config_json FROM hire_portal_packets WHERE user_id = ? AND agency_id = ?', [userId, agencyId]);
-  if (saved) return jsonObject(saved.config_json);
+  const retained = saved ? jsonObject(saved.config_json) : null;
   const [[agency]] = await pool.execute('SELECT prehire_settings FROM agencies WHERE id = ?', [agencyId]);
   const [[job]] = await pool.execute(`SELECT jd.prehire_config_json FROM hiring_profiles hp
     JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = ? WHERE hp.candidate_user_id = ?`, [agencyId, userId]);
   const settings = jsonObject(agency?.prehire_settings);
-  return { workflow: composeWorkflow(settings.portal_workflow, jsonObject(job?.prehire_config_json).workflow), handbookUrl: settings.handbook_full_url || '', documents: null };
+  return { workflow: composeWorkflow(settings.portal_workflow, jsonObject(job?.prehire_config_json).workflow), documents: null, ...retained,
+    handbookUrl: retained?.handbookUrl || settings.handbook_full_url || settings.portal_workflow?.handbookUrl || '' };
 }
 
 export async function portalStepSubmissions(userId) {
@@ -18,7 +22,7 @@ export async function portalStepSubmissions(userId) {
 }
 
 export function requiredSubmissionKeys(steps, hasWorkEmail = false) {
-  const savedKinds = new Set(['profile', 'headshot', 'handbook', 'work-email', 'upload', 'video', 'meeting', 'link', 'acknowledgement']);
+  const savedKinds = new Set(['clinical-profile', 'profile', 'headshot', 'handbook', 'work-email', 'upload', 'video', 'meeting', 'link', 'acknowledgement']);
   return steps.filter((step) => step.required !== false && savedKinds.has(step.kind)
     && !(step.kind === 'work-email' && hasWorkEmail)).map((step) => step.key);
 }
@@ -61,6 +65,22 @@ export async function savePortalStep({ userId, agencyId, phase, key, value, comp
       await db.execute(`UPDATE users SET personal_email = COALESCE(NULLIF(?, ''), personal_email), preferred_name = ?, personal_phone = ? WHERE id = ?`,
         [value.permanent_personal_email || value.personal_email, value.preferred_name || null, value.cell_number || null, userId]);
     }
+    if (phase === 'onboarding' && key === 'clinical-profile' && complete) {
+      for (const field of CLINICAL_PROFILE_FIELDS) {
+        const keys = [field.key, ...Object.keys(FACET_FIELD_ALIASES).filter(key => FACET_FIELD_ALIASES[key] === field.key)];
+        const [[existing]] = await db.execute(`SELECT id FROM user_info_field_definitions WHERE field_key IN (${keys.map(() => '?').join(',')}) AND (agency_id = ? OR agency_id IS NULL)
+          ORDER BY agency_id DESC, (field_key = ?) DESC, id ASC LIMIT 1`, [...keys, agencyId, field.key]);
+        let id = existing?.id;
+        if (!id) {
+          const [insert] = await db.execute(`INSERT INTO user_info_field_definitions (field_key, field_label, field_type, options, agency_id, is_required, order_index)
+            VALUES (?, ?, 'multi_select', ?, ?, 0, 0) ON DUPLICATE KEY UPDATE id = LAST_INSERT_ID(id)`,
+          [field.key, `${field.label} — ${field.description}`, JSON.stringify(field.options), agencyId]);
+          id = insert.insertId;
+        }
+        await db.execute(`INSERT INTO user_info_values (user_id, field_definition_id, value) VALUES (?, ?, ?)
+          ON DUPLICATE KEY UPDATE value = VALUES(value)`, [userId, id, JSON.stringify(value.values[field.key])]);
+      }
+    }
     if (file) {
       await db.execute(`INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id, is_legal_hold)
         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`, [userId, file.title, file.docType || 'prehire_upload', file.path, file.name, file.mime, userId]);
@@ -102,6 +122,13 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   }
   for (const task of pTasks || []) if (!contract.includes(task)) add('pre_hire', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });
   add('onboarding', { key: 'account', kind: 'account', title: 'Account setup', required: hireAccountMode === 'group_password', complete: [true, 1, '1'].includes(user.sso_password_override), instructions: 'Set your password and review your login and supervisor.' });
+  if ((needsClinicalProfile(user) && !onboardingClosed) || stored('onboarding', 'clinical-profile')) {
+    const saved = stored('onboarding', 'clinical-profile');
+    const form = clinicalProfileForm(await listClinicalFacetsForUser(user.id, { agencyId }));
+    add('onboarding', { key: 'clinical-profile', kind: 'clinical-profile', title: 'Your clinical profile',
+      instructions: 'Choose the specialties, ages, populations and approaches that reflect your experience.',
+      complete: !!saved?.completedAt, ...form, values: saved?.value?.values || form.values });
+  }
   for (const task of user.status === 'ONBOARDING' ? tasks : []) add('onboarding', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });
   add('onboarding', { key: 'handbook', kind: 'handbook', title: 'Handbook acknowledgement', url: handbook, complete: !!stored('onboarding', 'handbook')?.completedAt });
   for (const resource of config.resources || []) {

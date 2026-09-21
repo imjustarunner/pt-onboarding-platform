@@ -1,3 +1,4 @@
+import { validateClinicalProfile } from '../utils/hireClinicalProfile.js';
 import { randomUUID } from 'node:crypto';
 import { portalStateForUser, getPortalTask, viewPortalSignedFile } from './prehirePortal.controller.js';
 import { savePortalStep, portalStepSubmissions, validatePreemployment } from '../services/hirePortalWorkflow.service.js';
@@ -20,6 +21,9 @@ export async function saveWorkflowStep(req, res, next) {
     let value, file;
     if (ctx.phase === 'pre_hire' && ctx.key === 'profile') {
       value = validatePreemployment(req.body?.values, req.body?.complete !== false);
+    } else if (ctx.phase === 'onboarding' && ctx.step?.kind === 'clinical-profile') {
+      if (req.body?.complete !== false && req.body?.reviewed !== true) fail('Confirm that you have reviewed all four sections.');
+      value = { values: validateClinicalProfile(req.body?.values, ctx.step.fields), reviewed: req.body?.reviewed === true };
     } else if (ctx.phase === 'pre_hire' && ctx.key === 'work-email') {
       const email = String(req.body?.email || '').trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Enter your preferred work email.');
@@ -46,6 +50,14 @@ export async function saveWorkflowStep(req, res, next) {
       }
     }
     await savePortalStep({ ...ctx, value, file, complete: req.body?.complete !== false, profile: ctx.key === 'profile' });
+    if (ctx.step?.kind === 'clinical-profile' && req.body?.complete !== false) {
+      setImmediate(async () => {
+        try {
+          const { default: ProviderSearchIndex } = await import('../models/ProviderSearchIndex.model.js');
+          await ProviderSearchIndex.upsertForUserInAgency({ userId: ctx.userId, agencyId: ctx.agencyId });
+        } catch { /* Saved profile answers remain authoritative if indexing is unavailable. */ }
+      });
+    }
     res.json({ ok: true });
   } catch (e) { next(e); }
 }

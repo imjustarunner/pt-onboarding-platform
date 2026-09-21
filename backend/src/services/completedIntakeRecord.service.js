@@ -17,6 +17,7 @@ import { schoolRoiRecordSections } from './schoolRoiChartText.service.js';
 const SECRET_KEY = /password|preview|card_number|cvc|cvv|ssn|secret|signaturedata|dataurl|token/i;
 const PHOTO_KEY = /photo|image|front|back|preview/i;
 const SKIP_BAG_KEYS = new Set([
+  'applicationRecord',
   'packetSections',
   'packetInformedGroupConsent',
   'packetPolicyServices',
@@ -94,6 +95,28 @@ const IDENTITY_KEYS = new Set([
 
 const ESIGN_STATEMENT =
   'This document was electronically signed in compliance with the Electronic Signatures in Global and National Commerce Act (ESIGN Act), 15 U.S.C. § 7001 et seq. The signer consented to conduct this transaction electronically and was provided the required disclosures.';
+
+function jobApplicationSections(record) {
+  if (!record) return [];
+  const job = record.jobDescription;
+  const rows = [];
+  const add = (rows, label, value) => { if (value) rows.push({ label, value: String(value), fullWidth: String(value).length > 500 }); };
+  if (job) {
+    add(rows, 'Position applied for', job.title);
+    add(rows, 'Location', [job.city, job.state].filter(Boolean).join(', '));
+    add(rows, 'Role', job.role);
+    add(rows, 'Schedule', job.schedule);
+    const sections = parseMaybeJson(job.descriptionSections, {});
+    add(rows, 'About the role', sections.aboutTheRole || job.descriptionText);
+    const responsibilities = (sections.responsibilitySets || []).map(s => [s.title, ...(s.items || [])].filter(Boolean).join('\n'));
+    add(rows, 'Responsibilities', (responsibilities.length ? responsibilities : sections.responsibilities || []).join('\n'));
+    add(rows, 'Qualifications', (sections.qualifications || []).join('\n'));
+    add(rows, 'Benefits', (sections.benefits || []).join('\n'));
+  }
+  const uploads = (record.documents || []).map(doc => ({ label: doc.title || 'Application document', value: doc.name || 'View document', href: doc.href || '' }));
+  return [rows.length ? { title: record.jobDescriptionSource === 'current' ? 'Job description (current copy; original version was not retained)' : 'Job description at application', rows } : null,
+    uploads.length ? { title: 'Submitted application documents', rows: uploads } : null].filter(Boolean);
+}
 
 export function parseMaybeJson(value, fallback = {}) {
   if (value == null || value === '') return fallback;
@@ -620,6 +643,14 @@ function buildSignatures({ signedDocuments = [], intakeData = {}, publicKey = ''
       signerName
     )
   ].filter(Boolean);
+  const applicationSignature = intakeData.applicationRecord?.signature || intakeData.referenceReleaseSignature || intakeData.responses?.submission?.referenceReleaseSignature;
+  const applicationImage = signatureImage({ signatureData: applicationSignature });
+  if (applicationImage) extra.push(agreementCard({
+    documentName: 'Job application acknowledgments & reference release',
+    imageDataUrl: applicationImage, signerName,
+    signedAt: formatDateTime(intakeData.applicationRecord?.submittedAt),
+    hash: '', publicUrl: '', versionLabel: ''
+  }));
 
   const fromDbNames = new Set(fromDb.map((row) => row.documentName));
   const packetPresentedDisclosure = (signedDocuments || []).some((doc) => {
@@ -719,6 +750,7 @@ export function buildCompletedIntakeRecord({
   includeUnansweredQuestions = false
 } = {}) {
   const intakeData = normalizeIntakeDataShape(parseMaybeJson(submission?.intake_data, {}));
+  guardian = { ...(intakeData.guardian || {}), ...guardian, ...(intakeData.applicationRecord?.applicant || {}) };
   const locale = resolveIntakeFormLocale(link, intakeData);
   const byKey = fieldIndex(link);
   const printed = new Set();
@@ -910,6 +942,7 @@ export function buildCompletedIntakeRecord({
       ? { title: isJobApplication ? 'Applicant' : 'Who this packet is for', rows: contactRows }
       : null,
     leftoverGuardian.length ? { title: isJobApplication ? 'Applicant details' : 'Parent / guardian', rows: leftoverGuardian } : null,
+    ...(isJobApplication ? jobApplicationSections(intakeData.applicationRecord) : []),
     referencesBlock,
     waiversBlock,
     coverLetterBlock,

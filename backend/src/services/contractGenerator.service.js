@@ -2,6 +2,7 @@
  * Contract CRUD + generate/assign for pre-hire candidates.
  */
 import pool from '../config/database.js';
+import { createHash } from 'node:crypto';
 import {
   autofillTokensForCandidate,
   renderContractHtml,
@@ -346,7 +347,8 @@ export async function previewCandidateContract({
     compensationLevel: compensationLevel || Number(merged.COMPENSATION_LEVEL),
     jobDescClauseKey: jobDescClauseKey || merged.JOB_DESC_CLAUSE_KEY
   });
-  return { ...rendered, tokens: merged };
+  const previewHash = createHash('sha256').update(JSON.stringify([agencyId, candidateUserId, configId, rendered.html])).digest('hex');
+  return { ...rendered, tokens: merged, previewHash };
 }
 
 export async function generateAndAssignCandidateContract({
@@ -364,12 +366,16 @@ export async function generateAndAssignCandidateContract({
   title,
   taskDescription = 'Please review and sign your employment agreement.',
   documentDescription = 'Generated employment contract',
-  taskMetadata = {}
+  taskMetadata = {},
+  expectedPreviewHash = null
 }) {
   const preview = await previewCandidateContract({ agencyId, candidateUserId, configId, templateId,
     tokens, compensationCategory, compensationLevel, jobDescClauseKey, credentialOverride, officeLocationId });
   if (preview.unresolvedTokens?.length) {
     throw Object.assign(new Error(`Complete these contract fields before assigning: ${preview.unresolvedTokens.join(', ')}`), { status: 400 });
+  }
+  if (expectedPreviewHash && preview.previewHash !== expectedPreviewHash) {
+    throw Object.assign(new Error('The agreement changed since it was reviewed. Update and review the contract preview before sending.'), { status: 409 });
   }
   const db = await pool.getConnection();
   try {

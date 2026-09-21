@@ -1,3 +1,5 @@
+import { hasPortalClinicalProfile } from '../services/portalTraining.service.js';
+import { withClinicalFieldOptions, clinicalFieldOptions } from '../utils/providerClinicalFieldOptions.js';
 import { PREEMPLOYMENT_KEYS } from '../utils/hirePortalWorkflow.js';
 import pool from '../config/database.js';
 import ModuleContent from '../models/ModuleContent.model.js';
@@ -112,7 +114,9 @@ export const getModuleFormDefinition = async (req, res, next) => {
       new Set(pages.flatMap((p) => p.fieldDefinitionIds))
     );
 
-    const fieldDefs = (await loadFieldDefinitionsByIds(fieldDefinitionIds)).filter((f) => !req.portalUser || !PREEMPLOYMENT_KEYS.has(f.field_key));
+    const clinicalProfile = req.portalUser && await hasPortalClinicalProfile(req.user.id);
+    const fieldDefs = (await loadFieldDefinitionsByIds(fieldDefinitionIds)).filter((f) => !req.portalUser ||
+      (!PREEMPLOYMENT_KEYS.has(f.field_key) && !(clinicalProfile && clinicalFieldOptions(f.field_key))));
     const fieldDefMap = new Map(fieldDefs.map((f) => [f.id, f]));
 
     // Preserve the module page ordering for fields
@@ -128,7 +132,7 @@ export const getModuleFormDefinition = async (req, res, next) => {
     const existingValues = await UserInfoValue.findByUserAndFieldIds(req.user.id, fieldDefinitionIds);
     const valueMap = new Map(existingValues.map((v) => [v.field_definition_id, v.value]));
 
-    const fields = orderedFields.map((f) => ({
+    const fields = orderedFields.map((f) => withClinicalFieldOptions({
       ...f,
       value: valueMap.has(f.id) ? valueMap.get(f.id) : null
     }));
@@ -136,7 +140,8 @@ export const getModuleFormDefinition = async (req, res, next) => {
     res.json({
       moduleId,
       pages,
-      fields
+      fields,
+      clinicalProfileStep: !!clinicalProfile
     });
   } catch (error) {
     next(error);
@@ -270,8 +275,10 @@ export const submitModuleForm = async (req, res, next) => {
       }))
       .filter((v) => Number.isInteger(v.fieldDefinitionId) && v.fieldDefinitionId > 0);
 
+    const submittedDefs = await loadFieldDefinitionsByIds(normalizedValues.map(v => v.fieldDefinitionId));
+    const clinicalIds = new Set(submittedDefs.filter(f => clinicalFieldOptions(f.field_key)).map(f => Number(f.id)));
     const effectiveValues = skipBlanks
-      ? normalizedValues.filter((v) => !isBlankSubmittedValue(v.value))
+      ? normalizedValues.filter((v) => !isBlankSubmittedValue(v.value) || (clinicalIds.has(v.fieldDefinitionId) && v.value === '[]'))
       : normalizedValues;
 
     if (effectiveValues.length) {
@@ -312,15 +319,17 @@ export const submitModuleForm = async (req, res, next) => {
 
     const referencedFieldIds = Array.from(new Set(pages.flatMap((p) => p.fieldDefinitionIds)));
     const referencedFieldDefs = await loadFieldDefinitionsByIds(referencedFieldIds);
+    const clinicalProfile = req.portalUser && await hasPortalClinicalProfile(req.user.id);
+    const inModule = key => !req.portalUser || (!PREEMPLOYMENT_KEYS.has(key) && !(clinicalProfile && clinicalFieldOptions(key)));
     const referencedDefMap = new Map(referencedFieldDefs.map((f) => [f.id, f]));
 
     const requiredFieldIds = Array.from(
       new Set(
         pages.flatMap((p) => {
-          if (p.requireAll) return p.fieldDefinitionIds.filter((id) => !req.portalUser || !PREEMPLOYMENT_KEYS.has(referencedDefMap.get(id)?.field_key));
+          if (p.requireAll) return p.fieldDefinitionIds.filter((id) => inModule(referencedDefMap.get(id)?.field_key));
           return p.fieldDefinitionIds.filter((id) => {
             const def = referencedDefMap.get(id);
-            return def && (!req.portalUser || !PREEMPLOYMENT_KEYS.has(def.field_key)) && (def.is_required === 1 || def.is_required === true);
+            return def && inModule(def.field_key) && (def.is_required === 1 || def.is_required === true);
           });
         })
       )

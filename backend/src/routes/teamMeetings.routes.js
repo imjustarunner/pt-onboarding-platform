@@ -1,4 +1,5 @@
 import express from 'express';
+import { downloadInterviewCalendar } from '../controllers/interviewCalendar.controller.js';
 import { authenticate, authenticateOptional } from '../middleware/auth.middleware.js';
 import {
   getTeamMeetingJoinInfo,
@@ -34,6 +35,7 @@ router.post('/:eventId/join-presence', authenticateOptional, postTeamMeetingJoin
 // Interview candidate join links work without an account (opaque participant token only).
 router.get('/:eventId/video-token', authenticateOptional, getTeamMeetingVideoToken);
 router.get('/:eventId/admission-status', authenticateOptional, getTeamMeetingAdmissionStatus);
+router.get('/:eventId/calendar.ics', downloadInterviewCalendar);
 
 router.use(authenticate);
 

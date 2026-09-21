@@ -66,8 +66,8 @@
 import { ref, watch, onMounted, nextTick } from 'vue';
 import * as pdfjsLib from 'pdfjs-dist';
 
-const workerVersion = pdfjsLib.version || '5.4.530';
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${workerVersion}/build/pdf.worker.min.mjs`;
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const props = defineProps({
   pdfUrl: { type: String, required: true },

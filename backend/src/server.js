@@ -1449,6 +1449,14 @@ if (!isBootstrap) {
 
 
   // ── Batched pre-hire notification processor ────────────────────────────────
+  const prepareApplicants = async () => {
+    try {
+      const { processCandidatePreparation } = await import('./services/hiringCandidatePreparation.service.js');
+      await processCandidatePreparation();
+    } catch (err) { console.error('[hiring preparation]', err?.message); }
+  };
+  void prepareApplicants();
+  setInterval(prepareApplicants, 30 * 1000);
   // Checks every 60 s for overdue prehire_notification_queue rows and sends
   // one batched email per candidate with a fresh portal token.
   const processPrehireNotifications = async () => {

@@ -7,6 +7,7 @@
  */
 export function isSupervisor(user) {
   if (!user) return false;
+  if (!['super_admin', 'admin', 'assistant_admin', 'support', 'staff', 'provider', 'provider_plus', 'clinical_practice_assistant', 'supervisor', 'intern', 'facilitator', 'clinician'].includes(String(user.role || '').toLowerCase())) return false;
   
   // Primary check: has_supervisor_privileges boolean (source of truth)
   // Handle different formats: true, 1, '1'

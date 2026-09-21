@@ -48,7 +48,7 @@ async function interviewGuestAccessBlock(event, { actorUserId = null, tokenRole 
 
   // Host link / authenticated interviewers always stay allowed.
   if (role === 'host') return null;
-  if (actorId && candidateId && actorId !== candidateId) return null;
+  if (actorId && actorId !== candidateId && await canAccessHiringInterview({ id: actorId }, interview)) return null;
 
   const payload = await buildInterviewEndedGuestPayload(interview.agency_id);
   return {
@@ -1248,6 +1248,11 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     } else if (!guestJoin) {
       return res.status(401).json({ error: { message: 'Not authenticated' } });
     }
+
+    const guestBlock = await interviewGuestAccessBlock(row, {
+      actorUserId, tokenRole: ProviderScheduleEvent.classifyJoinTokenRole(row, ref)
+    });
+    if (guestBlock) return res.status(guestBlock.status).json(guestBlock.body);
 
     const identity = guestJoin
       ? (interviewGuestIdentityFromRow(row) || `guest-iv-${row.id}`)

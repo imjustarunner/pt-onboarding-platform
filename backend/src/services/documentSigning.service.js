@@ -1,3 +1,4 @@
+import { fitPdfFieldText } from '../utils/pdfFormFields.js';
 import { validateHireDocumentFields } from '../utils/hireDocumentFields.js';
 import { PDFDocument, rgb } from 'pdf-lib';
 import fs from 'fs/promises';
@@ -967,7 +968,7 @@ class DocumentSigningService {
     if (!Array.isArray(fieldDefinitions) || fieldDefinitions.length === 0) return;
     const pages = pdfDoc.getPages();
     const font = await pdfDoc.embedFont('Helvetica');
-    const fontSize = 10;
+    let hasNativeFields = false;
     const isFieldVisible = (def) => {
       const showIf = def?.showIf;
       if (!showIf || !showIf.fieldId) return true;
@@ -995,6 +996,15 @@ class DocumentSigningService {
         value = new Date().toISOString().slice(0, 10);
       }
       if (def.type === 'date' && def.autoToday && def.dateFormat === 'MM/DD/YYYY') value = new Date().toLocaleDateString('en-US', { timeZone: 'America/Denver' });
+      if (def.nativeFieldName) {
+        const field = pdfDoc.getForm().getField(def.nativeFieldName);
+        if (def.type === 'checkbox') {
+          if ([true, 1, '1', 'true', 'yes', 'on', 'checked'].includes(value)) field.check(); else field.uncheck();
+        } else if (def.type === 'select') { if (value) field.select(String(value)); }
+        else { field.setText(sanitizeForPdf(String(value ?? ''))); field.setFontSize(0); }
+        hasNativeFields = true;
+        continue;
+      }
       if (def.type === 'checkbox') {
         const truthy = value === true || value === 'true' || value === '1' || value === 1 || value === 'yes' || value === 'on' || value === 'checked';
         if (!truthy) continue;
@@ -1055,18 +1065,13 @@ class DocumentSigningService {
       }
       const boxWidth = Number(def.width) || 120;
       const boxHeight = Number(def.height) || 24;
-      const textY = Number(def.y) + Math.max(2, (boxHeight - fontSize) / 2);
-      const textX = Number(def.x) + 2;
-
-      page.drawText(sanitizeForPdf(text), {
-        x: textX,
-        y: textY,
-        size: fontSize,
-        font,
-        color: rgb(0, 0, 0),
-        maxWidth: boxWidth - 4
+      const fitted = fitPdfFieldText(sanitizeForPdf(text), font, Math.max(1, boxWidth - 4), Math.max(1, boxHeight - 4), Number(def.fontSize) || 12);
+      page.drawText(fitted.text, {
+        x: Number(def.x) + 2, y: Number(def.y) + boxHeight - 2 - fitted.size,
+        size: fitted.size, lineHeight: fitted.lineHeight, font, color: rgb(0, 0, 0)
       });
     }
+    if (hasNativeFields) { pdfDoc.getForm().updateFieldAppearances(font); pdfDoc.getForm().flatten(); }
   }
 
   /**
@@ -1552,6 +1557,13 @@ class DocumentSigningService {
       fieldDefinitions = [];
     }
 
+    if (context === 'prehire_portal' && htmlContent && /\{\{\s*[A-Za-z0-9_]+\s*\}\}/.test(htmlContent)) {
+      throw Object.assign(new Error('People Operations must regenerate this document with completed details before signing.'), { statusCode: 409 });
+    }
+    if (context === 'prehire_portal' && templatePath && !fieldDefinitions.length) {
+      const { detectPdfFormFields } = await import('../utils/pdfFormFields.js');
+      fieldDefinitions = await detectPdfFormFields(await StorageService.readObject(templatePath));
+    }
     if (context === 'prehire_portal') validateHireDocumentFields(fieldDefinitions, fieldValues);
     const signatureCoords = this.resolveSignatureCoords(source, fieldDefinitions);
     const documentName = source.name || task.title || 'Document';

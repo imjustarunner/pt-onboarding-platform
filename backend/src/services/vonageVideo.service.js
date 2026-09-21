@@ -150,6 +150,7 @@ class VonageVideoService {
    */
   static async endGuestInterviewAccess(sessionId, {
     candidateUserId = null,
+    guestIdentity = null,
     details = null
   } = {}) {
     const sid = String(sessionId || '').trim();
@@ -174,7 +175,7 @@ class VonageVideoService {
 
     const targetIdentity = candidateUserId != null ? `user-${Number(candidateUserId)}` : null;
     let disconnected = 0;
-    if (targetIdentity) {
+    if (targetIdentity || guestIdentity) {
       try {
         const streams = await this.listStreams(sid);
         const connectionIds = new Set();
@@ -191,7 +192,7 @@ class VonageVideoService {
           } catch {
             identity = String(dataRaw || '').trim();
           }
-          if (cid && (identity === targetIdentity || identity.includes(targetIdentity))) {
+          if (cid && (identity === targetIdentity || (guestIdentity && identity === guestIdentity))) {
             connectionIds.add(String(cid));
           }
         }

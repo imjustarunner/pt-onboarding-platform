@@ -335,7 +335,7 @@
                 <span v-if="selectedUser.prehire_token_expired" class="phr-token-expired-badge">Expired</span>
               </div>
               <div v-if="selectedUser.prehire_portal_link" class="phr-token-link-row">
-                <span class="phr-token-url">{{ selectedUser.prehire_portal_link }}</span>
+                <a class="phr-token-url" :href="selectedUser.prehire_portal_link" target="_blank" rel="noopener">Open candidate portal ↗</a>
                 <button class="phr-copy-btn" @click="copyPortalLink(selectedUser.prehire_portal_link)" :title="copyLabel">
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
                   {{ copyLabel }}

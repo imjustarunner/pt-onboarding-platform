@@ -237,6 +237,7 @@ const normalizeOption = (opt = {}) => ({
 const normalizeField = (field) => ({
   id: field.id || `field_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
   label: field.label || '',
+  nativeFieldName: field.nativeFieldName || undefined,
   type: field.type || 'text',
   required: Boolean(field.required),
   autoToday: Boolean(field.autoToday),

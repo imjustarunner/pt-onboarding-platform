@@ -55,11 +55,12 @@
                 <video v-else-if="step.kind === 'video' && /\.(mp4|webm)(\?|$)/i.test(step.url)" controls preload="metadata" :src="step.url" @play="$emit('media', true)" @pause="$emit('media', false)" @ended="$emit('media', false)" />
                 <iframe v-else-if="embedUrl(step.url)" class="resource-frame" :src="embedUrl(step.url)" :title="step.title" allow="fullscreen" referrerpolicy="no-referrer" @load="registerMediaFrame" />
                 <a v-else class="button" :href="step.url" target="_blank" rel="noopener">Open {{ step.title }}<Icon name="arrow" /></a>
-                <p v-if="step.kind === 'handbook'" class="muted">Read the handbook here. If the viewer requests access, contact People Operations.</p>
+                <p v-if="step.kind === 'handbook'" class="muted"><a :href="step.url" target="_blank" rel="noopener">Open handbook in a new tab ↗</a>. If the viewer requests access, contact People Operations.</p>
                 <template v-if="step.kind !== 'upload' && !closed && !step.complete"><label class="check-label"><input v-model="acknowledged" type="checkbox" />{{ step.kind === 'meeting' ? 'I have booked this meeting.' : step.kind === 'video' ? 'I have watched this video.' : 'I have reviewed this information.' }}</label><AdaptiveSignatureCapture v-if="needsSignature" v-model="signature" title="Your acknowledgement" :signer-name="name" /><button class="primary" :disabled="busy || !acknowledged || (needsSignature && !signature)" @click="save(step.key, { acknowledged, signatureData: signature, scheduledAt })">{{ busy ? 'Saving…' : needsSignature ? 'Sign acknowledgement' : 'Save completion' }}</button></template>
                 <p v-if="step.submission?.scheduledAt">Scheduled for {{ new Date(step.submission.scheduledAt).toLocaleString() }}</p><a v-if="step.submission?.receiptPath" :href="fileUrl(phase,step.key)" target="_blank" rel="noopener">View signed acknowledgement</a>
               </template><div v-else class="notice"><Icon name="clock" /><p>People Operations needs to attach this resource. Message the team so they can help you continue.</p></div>
             </div>
+            <div v-else-if="step.kind === 'clinical-profile'" class="card"><HireClinicalProfile :step="step" :busy="busy" :readonly="closed" @save="save(step.key, $event)" /></div>
             <div v-else-if="step.kind === 'task' && step.task.taskType === 'training'" class="card embedded-training"><iframe :key="step.key" :src="`/pre-hire/${token}/module/${step.task.referenceId}?embedded=1`" :title="step.title" /></div>
             <div v-else-if="step.kind === 'task' && step.task.taskType === 'intake_form'" class="card"><iframe v-if="intakeUrl(step.task)" class="resource-frame" :src="intakeUrl(step.task)" :title="step.title" /><button v-if="!closed && !step.complete" class="primary" @click="$emit('complete-task', step.task)">Check form submission</button></div>
             <div v-else-if="step.kind === 'task'" class="card"><p>{{ step.task.description }}</p><button class="primary" :disabled="closed && !step.complete" @click="step.task.taskType === 'custom' ? $emit('complete-task', step.task) : $emit('document', step.task)"><Icon />{{ step.complete ? 'View saved document' : step.task.taskType === 'custom' ? 'Mark complete' : 'Open, review and sign' }}</button></div>
@@ -84,6 +85,7 @@
 <script setup>
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Icon from './HirePortalIcon.vue';
+import HireClinicalProfile from './HireClinicalProfile.vue';
 import AdaptiveSignatureCapture from '../adaptive-intake/AdaptiveSignatureCapture.vue';
 import { buildFormUrl } from '../../utils/publicIntakeUrl.js';
 const props = defineProps({ data: { type: Object, required: true }, token: { type: String, required: true }, http: { type: Object, required: true } });
@@ -122,7 +124,7 @@ watch(() => step.value?.key, () => { emit('media', false); error.value = ''; sav
 function navigate(value) { emit('media', false); section.value = value; emit('section', value, step.value); }
 function select(item) { if (!item) return; selectedKey.value = item.key; nextTick(() => { const current = document.querySelector('.steps [aria-current=step]'); if (window.innerWidth < 761) current?.scrollIntoView({ block: 'nearest', inline: 'center' }); }); }
 function switchPhase(value) { phase.value = value; selectedKey.value = steps.value.find(s => !s.complete)?.key || steps.value[0]?.key || ''; emit('phase', value); navigate('steps'); }
-function iconFor(item) { return ({ background: 'lock', 'job-description': 'document', 'work-email': 'mail', profile: 'people', headshot: 'camera', handbook: 'book', account: 'lock', meeting: 'calendar', video: 'video', upload: 'upload', link: 'link', review: 'check' })[item.kind] || (item.task?.taskType === 'training' ? 'video' : 'document'); }
+function iconFor(item) { return ({ background: 'lock', 'job-description': 'document', 'work-email': 'mail', profile: 'people', 'clinical-profile': 'people', headshot: 'camera', handbook: 'book', account: 'lock', meeting: 'calendar', video: 'video', upload: 'upload', link: 'link', review: 'check' })[item.kind] || (item.task?.taskType === 'training' ? 'video' : 'document'); }
 function fileUrl(p, key) { return `${props.http.defaults.baseURL}/prehire-portal/${encodeURIComponent(props.token)}/workflow/${p}/${encodeURIComponent(key)}/file${key === 'headshot' ? `?v=${encodeURIComponent(workflow.value.headshot?.version || '')}` : ''}`; }
 function intakeUrl(task) { const t = task.metadata?.intakeLinkPublicKey || task.metadata?.intakeToken || task.metadata?.intakeLinkToken; return t ? buildFormUrl(t, task.metadata?.formType || task.metadata?.form_type) : task.metadata?.formUrl || ''; }
 function embedUrl(raw) {

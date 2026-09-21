@@ -40,6 +40,7 @@
       @error="$emit('error', $event)"
       @recreate-room="$emit('recreate-room')"
       @meeting-ended="$emit('meeting-ended', $event)"
+      @interview-guest-ended="$emit('interview-guest-ended', $event)"
       @hand-raised-change="$emit('hand-raised-change', $event)"
       @hands-map-change="$emit('hands-map-change', $event)"
       @audio-map-change="$emit('audio-map-change', $event)"
@@ -114,6 +115,7 @@ defineEmits([
   'update:videoFullscreen',
   'activity-notice-click',
   'meeting-ended',
+  'interview-guest-ended',
   'hand-raised-change',
   'hands-map-change',
   'audio-map-change',

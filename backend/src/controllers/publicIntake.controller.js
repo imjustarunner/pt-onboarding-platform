@@ -1,3 +1,4 @@
+import { applicationSnapshot, enrichApplicationRecord, issueApplicationReceiptToken, appendApplicationJobDescription } from '../services/jobApplicationRecord.service.js';
 import learningReflections from '../../../frontend/src/navigation/learningReflection.js';
 import {prepareLearningPacket} from '../services/learningEnrollment.service.js';
 import { createPublicProviderHoldService } from '../services/publicProviderHold.service.js';
@@ -2922,7 +2923,8 @@ async function tryBuildBrandedAnswersPdf({
         signedDocuments = await IntakeSubmissionDocument.listBySubmissionId(sid);
       }
     }
-    const normalized = normalizeIntakeDataShape(intakeData);
+    const recordSubmission = await enrichApplicationRecord({ ...(submission || {}), id: sid, intake_data: intakeData }, link, agency);
+    const normalized = normalizeIntakeDataShape(recordSubmission.intake_data);
     let clients = Array.isArray(normalized?.clients) ? normalized.clients : [];
     if (Number.isInteger(clientIndex) && clientIndex >= 0) {
       clients = clients[clientIndex] ? [clients[clientIndex]] : clients;
@@ -2932,7 +2934,7 @@ async function tryBuildBrandedAnswersPdf({
       buildCompletedIntakeRecord({
         agency,
         link,
-        submission: { ...(submission || {}), id: sid, intake_data: normalized },
+        submission: { ...recordSubmission, id: sid, intake_data: normalized },
         signedDocuments,
         guardian: normalized?.guardian || normalized?.responses?.guardian || {},
         clients,
@@ -2950,6 +2952,7 @@ async function tryBuildBrandedAnswersPdf({
     );
     const pdf = await generateIntakeSummaryPdf(spec);
     if (!pdf) return null;
+    if (link.form_type === 'job_application') return appendApplicationJobDescription(Buffer.from(pdf), recordSubmission);
     return Buffer.isBuffer(pdf) ? pdf : Buffer.from(pdf);
   } catch (err) {
     console.warn('[publicIntake] branded answers PDF failed; using plain text fallback', err?.message || err);
@@ -7769,6 +7772,7 @@ export const finalizePublicIntake = async (req, res, next) => {
         if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
       }
 
+      const applicationDocuments = [];
       let hasResumeDoc = false;
       for (const row of uploadRows) {
         const storagePath = String(row?.storage_path || '').trim();
@@ -7810,6 +7814,7 @@ export const finalizePublicIntake = async (req, res, next) => {
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [user.id, row.upload_label || 'Application material', docType, storageResult.relativePath, originalName, mimeType, user.id]
         );
+        if (docInsert?.insertId) applicationDocuments.push({ id: docInsert.insertId, title: docType === 'resume' ? 'Resume' : docType === 'cover_letter' ? 'Cover letter' : 'Application material', name: originalName });
         if (docType === 'resume' && docInsert?.insertId) {
           try {
             const extraction = await extractResumeTextFromUpload({ buffer: fileBuffer, mimeType });
@@ -7844,6 +7849,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           );
           resumeDocId = Number(pasteInsert?.insertId || 0) || null;
           if (resumeDocId) {
+            applicationDocuments.push({ id: resumeDocId, title: 'Resume', name: 'resume.txt' });
             try {
               await HiringResumeParse.upsertByResumeDocId({
                 candidateUserId: user.id,
@@ -7913,11 +7919,44 @@ export const finalizePublicIntake = async (req, res, next) => {
         }
       }
 
-      await IntakeSubmission.updateById(submissionId, { guardian_user_id: user.id });
+      if (coverLetterText && !applicationDocuments.some(doc => doc.title === 'Cover letter')) {
+        const filename = `application-${user.id}-${crypto.randomUUID()}.txt`;
+        const stored = await StorageService.saveAdminDoc(Buffer.from(coverLetterText, 'utf8'), filename, 'text/plain');
+        const [insert] = await pool.execute(
+          `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [user.id, 'Cover letter (pasted text)', 'cover_letter', stored.relativePath, 'cover-letter.txt', 'text/plain', user.id]
+        );
+        applicationDocuments.push({ id: insert.insertId, title: 'Cover letter', name: 'cover-letter.txt' });
+      }
+      // Keep file-only job descriptions with this application even if the job
+      // later changes or the original upload is replaced.
+      if (jdForAck?.storage_path && !String(jdForAck.description_text || '').trim() && !jobDescriptionSectionsHaveContent(jdForAck.description_sections_json)) {
+        const bytes = await StorageService.readObject(jdForAck.storage_path);
+        const mime = jdForAck.mime_type || 'application/pdf';
+        const stored = await StorageService.saveAdminDoc(bytes, `application-${user.id}-${crypto.randomUUID()}.pdf`, mime);
+        const [insert] = await pool.execute(
+          `INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [user.id, 'Job description at application', 'application_material', stored.relativePath, jdForAck.original_name || 'job-description.pdf', mime, user.id]
+        );
+        applicationDocuments.push({ id: insert.insertId, title: 'Job description at application', name: jdForAck.original_name || 'job-description.pdf', kind: 'job_description' });
+      }
+
+      intakeData.applicationRecord = applicationSnapshot({
+        applicant: { firstName: gFirst, lastName: gLast, email: gEmail, phone: gPhone },
+        job: jdForAck, documents: applicationDocuments, signature: jobAppCtx.referenceReleaseSignature,
+        submittedAt: new Date().toISOString()
+      });
+      await IntakeSubmission.updateById(submissionId, { guardian_user_id: user.id,
+        signer_name: `${gFirst} ${gLast}`.trim(), signer_email: gEmail, signer_phone: gPhone,
+        intake_data: intakeData, intake_data_hash: crypto.createHash('sha256').update(JSON.stringify(intakeData)).digest('hex') });
+      let applicationSubmission = await IntakeSubmission.findById(submissionId);
+      applicationSubmission.registration_receipt_token = await issueApplicationReceiptToken(applicationSubmission);
       let applicationDownloadUrl = null;
       let answersPdfBuffer = null;
       try {
-        const answersPdf = await buildAnswersPdfBuffer({ link, intakeData });
+        const answersPdf = await buildAnswersPdfBuffer({ link, intakeData, submissionId, submission: applicationSubmission });
         answersPdfBuffer = answersPdf || null;
         if (answersPdf) {
           const bundleHash = DocumentSigningService.calculatePDFHash(answersPdf);

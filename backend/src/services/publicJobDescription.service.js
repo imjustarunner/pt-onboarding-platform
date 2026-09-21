@@ -12,6 +12,7 @@ import {
   jobDescriptionSectionsHaveContent
 } from '../utils/jobDescriptionSectionsSanitize.js';
 import {
+  buildPublicMarketingBaseUrl,
   dedicatedAppHostForSlug,
   hostnameFromCustomDomain,
   platformFrontendBase
@@ -49,7 +50,7 @@ export function buildPublicJobDescriptionUrl(agency, jobId) {
     dedicatedAppHostForSlug(slug)
     || hostnameFromCustomDomain(agency?.custom_domain || agency?.customDomain);
   if (dedicated) {
-    return `https://${dedicated}/careers/jobs/${jid}`;
+    return `${buildPublicMarketingBaseUrl(agency)}/careers/jobs/${jid}`;
   }
   const base = String(config.frontendUrl || platformFrontendBase() || '').replace(/\/$/, '');
   if (!slug) return `${base}/careers/jobs/${jid}`;
@@ -305,16 +306,17 @@ async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
 }
 
 /**
- * Prefer an uploaded job-description PDF when present; otherwise build a branded
- * PDF from structured sections / plain text.
+ * Use the same current sections/text as the careers page. A legacy uploaded
+ * file is used only when there is no editable job description.
  */
 export async function buildJobDescriptionAttachmentForEmail(jobDescription, { agency = null } = {}) {
   if (!jobDescription) return null;
   const title = String(jobDescription.title || 'Job description').trim() || 'Job description';
   const safeName = `${title.replace(/[^\w\-]+/g, '_').slice(0, 80) || 'job'}-description.pdf`;
 
+  const structured = parseJobDescriptionSections(jobDescription.description_sections_json);
   const path = String(jobDescription.storage_path || '').trim();
-  if (path) {
+  if (path && !jobDescriptionSectionsHaveContent(structured) && !String(jobDescription.description_text || '').trim()) {
     try {
       const buf = await StorageService.readObject(path);
       const orig = String(jobDescription.original_name || 'job-description.pdf').trim() || 'job-description.pdf';

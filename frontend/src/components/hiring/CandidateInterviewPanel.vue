@@ -49,6 +49,21 @@
             <option value="">None (standard only)</option>
             <option v-for="s in jobSets" :key="s.id" :value="String(s.id)">{{ s.title }}</option>
           </select>
+          <div class="cip-question-tools">
+            <button type="button" class="btn btn-secondary btn-sm" @click="editQuestions(false)">{{ selectedQuestionSet ? 'View / edit questions' : 'Add job questions' }}</button>
+            <button v-if="selectedQuestionSet" type="button" class="btn btn-secondary btn-sm" @click="editQuestions(true)">New set</button>
+          </div>
+          <details v-if="selectedQuestionSet?.questions_json?.length">
+            <summary>{{ selectedQuestionSet.questions_json.length }} selected questions</summary>
+            <ol><li v-for="(q, index) in selectedQuestionSet.questions_json" :key="index">{{ typeof q === 'string' ? q : q.text || q.question }}</li></ol>
+          </details>
+        </div>
+        <div v-if="questionEditor" class="cip-field cip-field--full cip-question-editor">
+          <label>Question set title<input v-model="questionTitle" class="cip-input" /></label>
+          <label>Questions (one per line)<textarea v-model="questionText" class="cip-input" rows="8" /></label>
+          <p class="muted small">These questions will be included in new interviews using this set. Scheduled interviews keep their saved guide.</p>
+          <div class="cip-question-tools"><button type="button" class="btn btn-primary btn-sm" :disabled="savingQuestions || !questionTitle.trim() || !questionText.trim()" @click="saveQuestions">{{ savingQuestions ? 'Saving…' : 'Save and select questions' }}</button><button type="button" class="btn btn-secondary btn-sm" @click="questionEditor = false">Cancel</button></div>
+          <p v-if="questionError" role="alert">{{ questionError }}</p>
         </div>
         <div class="cip-field cip-field--full">
           <label for="cip-interviewers">Interviewers</label>
@@ -70,9 +85,9 @@
           <span>Send calendar + email invites</span>
         </label>
       </div>
-      <InterviewInvitePreview :agency-id="agencyId" :candidate-user-id="candidateUserId" :title="scheduleTitlePreview" :starts-at="startsLocal" :timezone="timezone" :interviewer-user-ids="interviewerIds" />
+      <InterviewInvitePreview :agency-id="agencyId" :candidate-user-id="candidateUserId" :title="scheduleTitlePreview" :starts-at="startsLocal" :duration-minutes="durationMinutes" :timezone="timezone" :interviewer-user-ids="interviewerIds" />
       <div class="row-actions">
-        <button type="button" class="btn btn-primary" :disabled="scheduling || !startsLocal || !canSubmitSchedule" @click="scheduleInterview">
+        <button type="button" class="btn btn-primary" :disabled="scheduling || questionEditor || !startsLocal || !canSubmitSchedule" @click="scheduleInterview">
           {{ scheduling ? 'Scheduling…' : (sendInvites ? 'Schedule & send invitations' : 'Save without sending') }}
         </button>
       </div>
@@ -314,6 +329,30 @@ const timezone = ref(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Americ
 const durationMinutes = ref(60);
 const jobSets = ref([]);
 const jobQuestionSetId = ref('');
+const selectedQuestionSet = computed(() => jobSets.value.find(s => Number(s.id) === Number(jobQuestionSetId.value)));
+const questionEditor = ref(false), questionTitle = ref(''), questionText = ref(''), savingQuestions = ref(false), questionError = ref('');
+let editingQuestionId = null;
+function editQuestions(createNew) {
+  const set = createNew ? null : selectedQuestionSet.value;
+  editingQuestionId = set?.id || null;
+  questionTitle.value = set?.title || `${props.jobTitle || 'Job'} interview questions`;
+  questionText.value = (set?.questions_json || []).map(q => typeof q === 'string' ? q : q.text || q.question || '').join('\n');
+  questionError.value = ''; questionEditor.value = true;
+}
+async function saveQuestions() {
+  savingQuestions.value = true; questionError.value = '';
+  try {
+    const existing = jobSets.value.find(s => s.id === editingQuestionId);
+    const payload = { agencyId: props.agencyId, title: questionTitle.value.trim(),
+      jobDescriptionId: existing ? existing.job_description_id : props.jobDescriptionId,
+      questions: questionText.value.split('\n').map(s => s.trim()).filter(Boolean).map((text, i) => ({ key: `q_${i + 1}`, text })) };
+    const r = editingQuestionId ? await api.put(`/hiring/interview-hub/job-question-sets/${editingQuestionId}`, payload) : await api.post('/hiring/interview-hub/job-question-sets', payload);
+    await loadJobSets();
+    jobQuestionSetId.value = String(r.data?.data?.id || editingQuestionId || '');
+    questionEditor.value = false;
+  } catch (e) { questionError.value = e.response?.data?.message || e.response?.data?.error?.message || 'Could not save questions.'; }
+  finally { savingQuestions.value = false; }
+}
 const interviewerIds = ref([]);
 const interviewerPick = ref('');
 const sendInvites = ref(true);
@@ -729,6 +768,9 @@ async function openCapsule(c) {
 </script>
 
 <style scoped>
+.cip-question-tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.cip-question-editor { padding: 16px; border: 1px solid #cad7df; border-radius: 12px; }
+.cip-question-editor textarea { width: 100%; box-sizing: border-box; }
 .cip {
   display: flex;
   flex-direction: column;
@@ -881,5 +923,8 @@ async function openCapsule(c) {
 </style>
 
 <style scoped>
+.cip-question-tools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.cip-question-editor { padding: 16px; border: 1px solid #cad7df; border-radius: 12px; }
+.cip-question-editor textarea { width: 100%; box-sizing: border-box; }
 .cip-delivery { padding: 14px; border: 1px solid #b6cec1; background: #f1f8f4; border-radius: 10px; font-size: 14px; }
 </style>

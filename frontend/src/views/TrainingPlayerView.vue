@@ -86,13 +86,15 @@
                 <div class="inline-form">
                   <div v-if="!formDefinition" class="muted">Loading form…</div>
                   <template v-else>
+                    <p v-if="formDefinition.clinicalProfileStep" class="muted">Your specialties, client ages, populations and therapy approaches are collected in the “Your clinical profile” onboarding step.</p>
                     <div v-for="field in fieldsForBlock(formBlock)" :key="field.id" class="form-field">
-                      <label>
+                      <label v-if="!field.clinical_profile">
                         {{ field.field_label }}
                         <span v-if="field.is_required" class="required-asterisk">*</span>
                       </label>
+                      <ClinicalMultiSelect v-if="field.clinical_profile" v-model="formValues[field.id]" :label="field.field_label" :options="field.options || []" :readonly="isCompleted || readOnly" />
                       <textarea
-                        v-if="field.field_type === 'textarea'"
+                        v-else-if="field.field_type === 'textarea'"
                         v-model="formValues[field.id]"
                         rows="4"
                         :disabled="isCompleted || readOnly"
@@ -296,6 +298,7 @@ import { computed, onMounted, ref, watch, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import api from '../services/api';
+import ClinicalMultiSelect from '../components/profile/ClinicalMultiSelect.vue';
 import TrainingBlockRenderer from '../components/training/TrainingBlockRenderer.vue';
 import TimeTracker from '../components/TimeTracker.vue';
 import FocusStepTimeTracker from '../components/FocusStepTimeTracker.vue';

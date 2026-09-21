@@ -1,3 +1,4 @@
+import { enrichApplicationRecord, appendApplicationJobDescription } from '../services/jobApplicationRecord.service.js';
 import Agency from '../models/Agency.model.js';
 import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
@@ -72,7 +73,7 @@ async function resolveOfficeRecord(req) {
     err.statusCode = 404;
     throw err;
   }
-  const submission = await IntakeSubmission.findBySessionToken(sessionToken);
+  let submission = await IntakeSubmission.findBySessionToken(sessionToken);
   if (!submission || Number(submission.id) !== submissionId) {
     const err = new Error('Submission not found');
     err.statusCode = 404;
@@ -97,6 +98,7 @@ async function resolveOfficeRecord(req) {
   } catch (inheritErr) {
     console.warn('[intakeSummaryPdf] school master overlay failed', inheritErr?.message || inheritErr);
   }
+  submission = await enrichApplicationRecord(submission, link, agency);
   const signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(submission.id);
   const packetKind = String(link?.scope_type || '').toLowerCase() === 'school' ? 'school' : 'office';
   const spec = await brandedIntakeSummarySpec(buildCompletedIntakeRecord({
@@ -132,8 +134,8 @@ function summaryPdfFilename(agency, body = {}) {
 /** POST /api/public-intake/:publicKey/:submissionId/summary-pdf */
 export async function downloadPublicIntakeSummaryPdf(req, res, next) {
   try {
-    const { agency, spec } = await resolveOfficeRecord(req);
-    const pdf = await generateIntakeSummaryPdf(spec);
+    const { agency, spec, submission } = await resolveOfficeRecord(req);
+    const pdf = await appendApplicationJobDescription(await generateIntakeSummaryPdf(spec), submission);
     return sendPdf(
       res,
       pdf,
@@ -261,7 +263,7 @@ export async function downloadQuickIntakeSummaryPdf(req, res, next) {
 
 async function buildOfficeSummaryPdf(req) {
   const { agency, spec, submission } = await resolveOfficeRecord(req);
-  const pdf = await generateIntakeSummaryPdf(spec);
+  const pdf = await appendApplicationJobDescription(await generateIntakeSummaryPdf(spec), submission);
   const filename = summaryPdfFilename(agency, {
     initials: req.body?.initials,
     dateOfBirth: req.body?.dateOfBirth || req.body?.clients?.[0]?.dateOfBirth,

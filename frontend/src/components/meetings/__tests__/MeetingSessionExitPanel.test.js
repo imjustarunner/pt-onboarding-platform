@@ -16,7 +16,7 @@ describe('MeetingSessionExitPanel', () => {
     expect(wrapper.get('h2').text()).toBe('Team meeting was closed');
     expect(wrapper.get('.mse__closure').text()).toContain('Team meeting was closed by Morgan Admin.');
     expect(wrapper.get('.mse__closure').text()).toContain('2026');
-    expect(wrapper.find('button.btn-primary').text()).toBe('Back to my schedule');
+    expect(wrapper.find('button.btn-primary').text()).toBe('Back to portal');
     expect(wrapper.text()).not.toContain('Rejoin meeting');
   });
 });

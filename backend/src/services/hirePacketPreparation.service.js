@@ -1,5 +1,6 @@
 import { assertHireFormReady } from '../utils/hireDocumentFields.js';
 import pool from '../config/database.js';
+import { isAssignableSupervisor } from '../utils/staffEligibility.js';
 import { composeWorkflow, jsonObject } from '../utils/hirePortalWorkflow.js';
 import { mergePrehireDocuments } from '../utils/prehireConfigSanitize.js';
 
@@ -11,15 +12,16 @@ export async function prepareHirePacket({ userId, agencyId, body }) {
   const jobConfig = jsonObject(job?.prehire_config_json);
   const preset = (settings.hire_packet_templates || []).find((p) => p.id === body.packetTemplateId);
   const workflow = composeWorkflow(settings.portal_workflow, jobConfig.workflow, { ...(preset?.workflow || {}), ...(body.portalWorkflow || {}) });
+  workflow.resources = workflow.resources.filter(resource => resource.phase === 'pre_hire');
   const availableDocs = mergePrehireDocuments(jobConfig, { documents: settings.default_prehire_docs || [] }).documents;
   const selected = Array.isArray(body.selectedJobDocs) ? new Set(body.selectedJobDocs.map((d) => String(d.id))) : null;
   const documents = selected ? availableDocs.filter((d) => selected.has(String(d.id))) : availableDocs;
   const fail = (message) => { throw Object.assign(new Error(message), { status: 400 }); };
   if (!job || (!String(job.description_text || '').trim() && !Object.keys(jsonObject(job.description_sections_json)).length)) fail('Attach the job description this person is being hired for before sending pre-hire.');
   if (workflow.supervisorUserId) {
-    const [[supervisor]] = await pool.execute(`SELECT u.first_name, u.last_name FROM users u JOIN user_agencies ua ON ua.user_id = u.id
-      WHERE u.id = ? AND ua.agency_id = ? AND u.is_active = 1`, [workflow.supervisorUserId, agencyId]);
-    if (!supervisor || workflow.supervisorUserId === userId) fail('Choose an existing supervisor in this organization.');
+    const [[supervisor]] = await pool.execute(`SELECT u.first_name, u.last_name, u.role, u.status, u.is_active, u.has_supervisor_privileges FROM users u JOIN user_agencies ua ON ua.user_id = u.id
+      WHERE u.id = ? AND ua.agency_id = ? AND COALESCE(ua.is_active, 1) = 1 AND u.is_active = 1`, [workflow.supervisorUserId, agencyId]);
+    if (!isAssignableSupervisor(supervisor) || Number(workflow.supervisorUserId) === Number(userId)) fail('Choose an active employee marked as a supervisor in this organization.');
     workflow.supervisorName = `${supervisor.first_name} ${supervisor.last_name}`.trim();
   }
   if (workflow.supervisorRole) {
@@ -35,9 +37,9 @@ export async function prepareHirePacket({ userId, agencyId, body }) {
       assertHireFormReady(document);
     } else if (resource.required && !resource.url) fail(`Attach a link for ${resource.title} before sending this packet.`);
   }
-  const packet = { workflow, documents, jobDescription: job ? { id: job.id, title: job.title, descriptionText: job.description_text, descriptionSections: jsonObject(job.description_sections_json), scheduleText: job.schedule_text } : null, handbookUrl: settings.handbook_full_url || '',
-    onboardingPackageId: Number(body.onboardingPackageId || preset?.onboardingPackageId || settings.default_onboarding_package_id) || null,
-    prehirePackageId: Number(body.packageId || preset?.prehirePackageId || settings.default_prehire_package_id) || null };
+  const packet = { workflow, documents, contractConfigId: Number(job.default_contract_config_id) || null, jobDescription: job ? { id: job.id, title: job.title, descriptionText: job.description_text, descriptionSections: jsonObject(job.description_sections_json), scheduleText: job.schedule_text } : null, handbookUrl: workflow.handbookUrl || settings.handbook_full_url || '',
+    onboardingPackageId: null,
+    prehirePackageId: Object.hasOwn(body, 'packageId') ? Number(body.packageId) || null : Number(preset?.prehirePackageId || settings.default_prehire_package_id) || null };
   if (!packet.handbookUrl) fail('Add the workplace handbook viewer link in Hiring & Pre-Hire settings before sending.');
   for (const [key, type] of [['prehirePackageId','pre_hire'],['onboardingPackageId','onboarding']]) {
     if (!packet[key]) continue;

@@ -9,7 +9,7 @@ beforeEach(() => {
   execute.mockImplementation(async (sql) => {
     if (sql.includes('SELECT prehire_settings')) return [[{ prehire_settings: settings }]];
     if (sql.includes('FROM hiring_profiles')) return [[job].filter(Boolean)];
-    if (sql.includes('FROM users u JOIN user_agencies')) return [[{ first_name: 'Sam', last_name: 'Supervisor' }]];
+    if (sql.includes('FROM users u JOIN user_agencies')) return [[{ first_name: 'Sam', last_name: 'Supervisor', role: 'provider', has_supervisor_privileges: 1, is_active: 1, status: 'ACTIVE' }]];
     if (sql.includes('FROM document_templates')) return [[{ agency_id: 2, document_action_type: 'signature', is_active: 1 }]];
     return [[]];
   });
@@ -23,6 +23,13 @@ describe('packet readiness before inviting an applicant', () => {
   });
   it('assigns a supervisor without granting supervisory duties to the new hire', async () => {
     expect((await request({ portalWorkflow: { supervisorUserId: 7 } })).workflow).toMatchObject({ supervisorName: 'Sam Supervisor', supervisorRole: false });
+  });
+  it('prepares only prehire resources without requiring future onboarding choices', async () => {
+    settings.default_onboarding_package_id = 99;
+    settings.portal_workflow.resources = [{ id: 'w4', title: 'W4', phase: 'onboarding', kind: 'document' }];
+    const packet = await request({ packageId: null, portalWorkflow: { handbookUrl: 'https://docs.google.com/document/d/current/preview' } });
+    expect(packet.workflow.resources).toEqual([]); expect(packet.onboardingPackageId).toBeNull();
+    expect(packet.prehirePackageId).toBeNull(); expect(packet.handbookUrl).toContain('/current/');
   });
   it('blocks a packet with no actual job description', async () => {
     job = null; await expect(request()).rejects.toThrow('job description');

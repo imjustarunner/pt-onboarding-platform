@@ -6,6 +6,7 @@ import { buildPortalWorkflow, portalPacket, portalStepSubmissions, requiredSubmi
  * no full login required. `req.portalUser` is the validated candidate.
  */
 import pool from '../config/database.js';
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { savePrehireSignedReceipt } from '../services/prehireSignedReceipt.service.js';
 import { journeyTasks, getJourney, taskProgress, closePrehire, completeOnboarding, recordOnboardingActivity } from '../services/hireJourney.service.js';
 import User from '../models/User.model.js';
@@ -135,7 +136,7 @@ export const getPortal = async (req, res, next) => {
     try {
       const [agRows] = await pool.execute(
         `SELECT a.id, a.name, a.official_name, a.logo_url, a.logo_path, a.color_palette, a.theme_settings,
-                a.phone_number, a.portal_url, a.feature_flags,
+                a.phone_number, a.portal_url, a.slug, a.custom_domain, a.organization_type, a.feature_flags,
                 a.street_address, a.city, a.state, a.postal_code
          FROM agencies a
          JOIN user_agencies ua ON ua.agency_id = a.id
@@ -222,7 +223,7 @@ export const getPortal = async (req, res, next) => {
     }
     const token = String(req.params.token || '');
     const portalPath = token ? `/pre-hire/${token}` : null;
-    const portalLink = portalPath ? `${resolveBaseUrl(req)}${portalPath}` : null;
+    const portalLink = portalPath ? buildPublicAppUrl(agencyRaw, portalPath) : null;
 
     let credentialPacket = null;
     try {
@@ -375,30 +376,14 @@ export const getPortalTask = async (req, res, next) => {
       } catch { /* ignore */ }
     }
 
-    if (task.status !== 'completed' && htmlContent && /\{\{\s*[A-Za-z0-9_]+\s*\}\}/.test(htmlContent)) {
-      try {
-        const { applyContractTokens, autofillTokensForCandidate } = await import('../services/contractMerge.service.js');
-        let tokens = {};
-        try {
-          const [genRows] = await pool.execute(
-            `SELECT token_values_json FROM contract_generations WHERE task_id = ? ORDER BY id DESC LIMIT 1`,
-            [taskId]
-          );
-          if (genRows[0]?.token_values_json) {
-            tokens = typeof genRows[0].token_values_json === 'string'
-              ? JSON.parse(genRows[0].token_values_json)
-              : genRows[0].token_values_json;
-          }
-        } catch { /* table may not exist */ }
-        if (!Object.keys(tokens).length) {
-          tokens = await autofillTokensForCandidate({
-            agencyId: task.assigned_to_agency_id,
-            candidateUserId: userId,
-            credentialOverride: null
-          }).catch(() => ({}));
-        }
-        htmlContent = applyContractTokens(htmlContent, tokens);
-      } catch { /* keep original html */ }
+    if (task.status !== 'completed' && htmlContent && /\{\{\s*[A-Za-z0-9_]+\s*\}\}/.test(htmlContent)
+      && (metadata.contractGeneration || metadata.employmentContract || metadata.autoFromSendPreHire)) {
+      return res.status(409).json({ error: { message: 'People Operations needs to regenerate this employment agreement with your completed details before you can review and sign it.' } });
+    }
+    if (task.status !== 'completed' && templateType === 'pdf' && filePath && !fieldDefs?.length) {
+      const StorageService = (await import('../services/storage.service.js')).default;
+      const { detectPdfFormFields } = await import('../utils/pdfFormFields.js');
+      fieldDefs = await detectPdfFormFields(await StorageService.readObject(filePath));
     }
 
     const cosigners = [];
@@ -1067,7 +1052,7 @@ export const completePortalModule = async (req, res, next) => {
       ok: true,
       progress,
       portalPath,
-      portalLink: portalPath ? `${resolveBaseUrl(req)}${portalPath}` : null,
+      portalLink: portalPath ? buildPublicAppUrl(await loadPortalAgency(userId), portalPath) : null,
       message: 'Form completed. You can return to your portal anytime with your personal link.'
     });
   } catch (e) {

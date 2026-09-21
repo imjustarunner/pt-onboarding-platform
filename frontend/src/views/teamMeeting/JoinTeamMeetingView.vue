@@ -18,7 +18,7 @@
       :variant="sessionExit?.variant || 'host-ended'"
       :can-rejoin="sessionExit ? sessionExit.canRejoin : false"
       meeting-label="meeting"
-      session-kind="team-meeting"
+      :session-kind="isInterviewMeeting ? 'interview' : 'team-meeting'"
       :banner-dismissed="exitBannerDismissed"
       :closed-by-name="meetingClosedByName"
       :closed-at="meetingCompletedAt"
@@ -1240,6 +1240,7 @@ async function pollMeetingCompletion() {
       skipGlobalLoading: true
     });
     const data = resp?.data || {};
+    if (data.interviewGuestEnded) { onInterviewGuestEndedSignal(data); return; }
     if (data.attendanceTrackingEnabled != null) {
       applyAttendanceTrackingStatus(!!data.attendanceTrackingEnabled);
     }
@@ -1248,8 +1249,8 @@ async function pollMeetingCompletion() {
       meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
       onMeetingEnded();
     }
-  } catch {
-    /* best-effort */
+  } catch (e) {
+    if (e?.response?.data?.interviewGuestEnded) onInterviewGuestEndedSignal(e.response.data);
   }
 }
 
@@ -1290,6 +1291,7 @@ async function pollAdmission() {
       skipGlobalLoading: true
     });
     const data = resp?.data || {};
+    if (data.interviewGuestEnded) { onInterviewGuestEndedSignal(data); return; }
     if (data.meetingCompleted || data.meetingCompletedAt || data.roomMode === 'ended') {
       applyClosurePayload(data);
       meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
@@ -1312,8 +1314,8 @@ async function pollAdmission() {
       startPresenceHeartbeat();
       startCompletionPolling();
     }
-  } catch {
-    /* keep waiting */
+  } catch (e) {
+    if (e?.response?.data?.interviewGuestEnded) onInterviewGuestEndedSignal(e.response.data);
   }
 }
 
@@ -1835,7 +1837,9 @@ async function rejoinMeeting() {
 
 function navigateAway() {
   const slug = organizationSlug.value || authStore.user?.organization?.slug;
-  if (slug) {
+  if (isInterviewMeeting.value) {
+    router.push(slug ? `/${slug}/dashboard` : '/dashboard').catch(() => {});
+  } else if (slug) {
     router.push(`/${slug}/my-schedule`).catch(() => {});
   } else {
     router.push('/my-schedule').catch(() => {});
@@ -2465,11 +2469,11 @@ onUnmounted(() => {
   top: auto;
   width: min(300px, 32vw);
   max-width: calc(100% - 28px);
-  max-height: min(280px, 42vh);
+  max-height: min(480px, 65vh);
   height: auto;
   min-height: 0;
   border-radius: 14px;
-  overflow: hidden;
+  overflow: auto;
   z-index: 5;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
   border: 2px solid rgba(255, 255, 255, 0.4);
@@ -2555,6 +2559,8 @@ onUnmounted(() => {
   min-height: 0 !important;
   height: 100% !important;
 }
+.join-video--lobby :deep(.vsr__viewport) { aspect-ratio: 4 / 3; height: auto; min-height: 0; }
+.join-video--lobby :deep(.vsr__stage:not(.vsr__stage--strip)) { flex: 1 1 auto; height: 100% !important; }
 .join-video :deep(.vsr__controls) {
   position: relative;
   z-index: 30;
@@ -2786,6 +2792,9 @@ onUnmounted(() => {
   font-size: 0.82rem;
 }
 @media (max-width: 900px) {
+  .join-video--lobby { min-height: 0; overflow: auto; }
+  .join-video--lobby :deep(.swr) { position: relative; inset: auto; flex: 0 0 auto; }
+  .join-video--lobby :deep(.swr__overlay) { position: relative; inset: auto; padding: 18px; max-width: none; }
   .join-session-layout,
   .join-session-layout--chat-only {
     grid-template-columns: 1fr;
@@ -2794,12 +2803,13 @@ onUnmounted(() => {
     max-height: 48vh;
   }
   .join-video__stage--pip {
-    top: auto;
-    left: 14px;
-    right: 14px;
-    bottom: 14px;
-    width: auto;
-    max-height: 48vh;
+    position: relative;
+    inset: auto;
+    flex: 0 0 auto;
+    width: min(320px, calc(100% - 28px));
+    margin: 14px auto;
+    max-height: none;
+    overflow: visible;
   }
 }
 

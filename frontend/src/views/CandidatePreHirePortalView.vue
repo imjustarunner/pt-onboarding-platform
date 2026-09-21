@@ -80,7 +80,7 @@
               <p v-if="jdAcknowledged" class="cred-ok">
                 You acknowledged this job description. A signed copy is saved on your hire record.
               </p>
-              <template>
+              <div class="portal-jd-content">
                 <p class="portal-jd-accountability">
                   These are the expectations of the job you applied for and are being hired to perform. Additional information is in your employment agreement. By signing, you confirm you have read and understand
                   this job description for {{ jobDescription?.title || 'this role' }} and accept that
@@ -112,7 +112,7 @@
                   {{ jdSaving ? 'Saving…' : 'I acknowledge this job description' }}
                 </button>
                 </template>
-              </template>
+              </div>
             </section>
 
 </template>

@@ -107,16 +107,16 @@ const headline = computed(() => {
 
 const bodyText = computed(() => {
   if (props.variant === 'host-ended') {
-    return `This ${sessionNoun.value} is no longer live. Head back to your schedule, or close this tab.`;
+    return `This ${sessionNoun.value} is no longer live. Head back to your portal, or close this tab.`;
   }
   if (props.variant === 'ended-by-you') {
-    return `Everyone has been disconnected. You can return to your schedule when ready.`;
+    return `Everyone has been disconnected. You can return to your portal when ready.`;
   }
-  return `You can rejoin if the ${sessionNoun.value} is still open, or go back to your schedule.`;
+  return `You can rejoin if the ${sessionNoun.value} is still open, or go back to your portal.`;
 });
 
 const scheduleButtonLabel = computed(() => (
-  isSupervision.value ? 'Back to my schedule' : 'Back to my schedule'
+  isSupervision.value ? 'Back to my schedule' : 'Back to portal'
 ));
 
 </script>

@@ -1,3 +1,4 @@
+import { CLINICAL_PROFILE_FIELDS } from '../utils/hireClinicalProfile.js';
 import pool from '../config/database.js';
 import {normalizeClinicalFacets} from '../utils/providerFacetNormalization.js';
 import {
@@ -66,6 +67,7 @@ export async function listClinicalFacetsForUsers(userIds, { agencyId = null, dat
   );
 
   const seen = new Set();
+  const explicit = new Map();
   for (const r of rows || []) {
     const uid = Number(r.user_id);
     if (!out.has(uid)) continue;
@@ -76,6 +78,19 @@ export async function listClinicalFacetsForUsers(userIds, { agencyId = null, dat
     const val = Array.isArray(r.value_text)?JSON.stringify(r.value_text):String(r.value_option || r.value_text || '').trim();
     if (!val) continue;
 
+    // A reviewed structured answer, including [], supersedes older survey answers
+    // for this category. Historical narrative stays stored and available for review.
+    const canonical = CLINICAL_PROFILE_FIELDS.find(f => f.key === normalizeFacetFieldKey(rawKey));
+    if (canonical) {
+      let selected; try { selected = JSON.parse(val); } catch { /* legacy text */ }
+      if (Array.isArray(selected) && selected.every(v => typeof v === 'string')) {
+        const normalized = normalizeClinicalFacets({ [canonical.group]: selected });
+        const misplaced = CLINICAL_PROFILE_FIELDS.some(f => f.group !== canonical.group && normalized[f.group]?.length);
+        if (!misplaced && !normalized.reviewNeeded?.length) {
+          explicit.set(`${uid}:${canonical.group}`, normalized[canonical.group] || []);
+        }
+      }
+    }
     const bucket = bucketForFieldKey(rawKey);
     if (bucket && facets[bucket]) pushUnique(facets[bucket], val);
   }
@@ -87,7 +102,19 @@ export async function listClinicalFacetsForUsers(userIds, { agencyId = null, dat
       ...facets.ageGroups.slice(0, 2)
     ];
     facets.summaryTags = [...new Set(tags)].slice(0, 6);
-    out.set(uid, normalizeClinicalFacets(facets));
+    const normalized = normalizeClinicalFacets(facets);
+    for (const field of CLINICAL_PROFILE_FIELDS) {
+      const key = `${uid}:${field.group}`;
+      if (explicit.has(key)) {
+        const selected = explicit.get(key);
+        for (const value of normalized[field.group] || []) {
+          if (!selected.includes(value)) normalized.reviewNeeded.push({ group: field.group, value });
+        }
+        normalized[field.group] = selected;
+      }
+    }
+    normalized.summaryTags = [...new Set([...normalized.specialties.slice(0, 3), ...normalized.modalities.slice(0, 2), ...normalized.ageGroups.slice(0, 2)])].slice(0, 6);
+    out.set(uid, normalized);
   }
 
   return out;

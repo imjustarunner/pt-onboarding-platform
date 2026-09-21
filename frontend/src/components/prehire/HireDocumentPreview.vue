@@ -1,6 +1,7 @@
-<template><div class="pdf-preview"><p v-if="loading" role="status">Preparing your branded document…</p><div v-else-if="error" role="alert"><p>{{ error }}</p><button type="button" @click="load">Try again</button></div><template v-else><iframe :src="blobUrl" :title="title" /><a :href="blobUrl" target="_blank" rel="noopener">Open full PDF</a></template></div></template>
+<template><div class="pdf-preview"><p v-if="loading" role="status">Preparing your branded document…</p><div v-else-if="error" role="alert"><p>{{ error }}</p><button type="button" @click="load">Try again</button></div><template v-else><PDFPreview :pdf-url="blobUrl" /><a :href="blobUrl" target="_blank" rel="noopener">Open full PDF</a></template></div></template>
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue';
+import { defineAsyncComponent, ref, onMounted, onBeforeUnmount, watch } from 'vue';
+const PDFPreview = defineAsyncComponent(() => import('../documents/PDFPreview.vue'));
 const props = defineProps({ http: Object, url: String, title: String });
 const emit = defineEmits(['ready']);
 const loading = ref(true), error = ref(''), blobUrl = ref('');

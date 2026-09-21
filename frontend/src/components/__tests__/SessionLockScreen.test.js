@@ -32,7 +32,8 @@ describe('Quick View unlock screen', () => {
     expect(wrapper.text()).not.toContain('Session Locked');
     expect(wrapper.text()).not.toContain('Automatic logout');
     expect(wrapper.find('video').exists()).toBe(false);
-    expect(wrapper.get('.session-lock-background').attributes('src')).toBe('/branding/session/MobileBackground.png');
+    expect(wrapper.find('.session-lock-background').exists()).toBe(false);
+    expect(wrapper.find('.session-checking').exists()).toBe(true);
   });
   it('shows the countdown only when a real warning deadline exists', () => {
     const store=useSessionLockStore();store.warningActive=true;store.warningSecondsLeft=90;

@@ -4909,7 +4909,7 @@ const canToggleSupervisorPrivileges = computed(() => {
     return false;
   }
   // Supervisors are represented by this boolean; "provider + supervisor privileges" is the preferred model.
-  const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus'];
+  const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff', 'support'];
   return eligibleRoles.includes(role);
 });
 
@@ -4997,7 +4997,7 @@ const showPlatformGearAccessToggle = computed(() => {
 
 // Watch for role changes to reset supervisor privileges if role becomes ineligible
 watch(() => accountForm.value.role, (newRole) => {
-  const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus'];
+  const eligibleRoles = ['provider', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff', 'support'];
   if (!eligibleRoles.includes(newRole)) {
     accountForm.value.hasSupervisorPrivileges = false;
   }

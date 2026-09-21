@@ -224,13 +224,12 @@ const rootStyle = computed(() => ({
   margin: 0 0 20px;
 }
 .jds-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 22px 28px;
+  columns: 2;
+  column-gap: 28px;
   text-align: left;
 }
 .jds--compact .jds-grid { gap: 16px; }
-.jds-card { text-align: left; min-width: 0; }
+.jds-card { text-align: left; min-width: 0; break-inside: avoid; margin-bottom: 22px; }
 .jds-card-title {
   margin: 0 0 10px;
   display: flex;
@@ -286,7 +285,7 @@ const rootStyle = computed(() => ({
 .jds-pdf-link:hover { text-decoration: underline; }
 
 @media (max-width: 720px) {
-  .jds-grid { grid-template-columns: 1fr; }
+  .jds-grid { columns: 1; }
   .jds-title { font-size: 1.35rem; }
 }
 </style>

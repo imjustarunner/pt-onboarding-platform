@@ -15,5 +15,5 @@ export function withClinicalFieldOptions(field){
  // Original selections remain visible to their author for review, even if legacy labels changed.
  let values=field.value;try{values=JSON.parse(values);}catch{}
  const legacy=Array.isArray(values)?values:[];
- return {...field,field_type:'multi_select',field_label:definition.label,options:[...new Set([...definition.options,...legacy.filter(v=>typeof v==='string')])]};
+ return {...field,clinical_profile:true,field_type:'multi_select',field_label:definition.label,options:[...new Set([...definition.options,...legacy.filter(v=>typeof v==='string')])]};
 }

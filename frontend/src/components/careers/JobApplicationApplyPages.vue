@@ -66,16 +66,17 @@
           </label>
           <label>
             Best time to contact
-            <input :value="bestTimeToContact" type="text" placeholder="Weekday mornings, after 4pm…" @input="$emit('update:bestTimeToContact', $event.target.value)" />
+            <select :value="bestTimeToContact" @change="$emit('update:bestTimeToContact', $event.target.value)">
+              <option value="">Select a contact time</option>
+              <option v-if="bestTimeToContact && !['Weekday mornings', 'Weekday afternoons', 'Weekday evenings', 'Weekends', 'Any time'].includes(bestTimeToContact)">{{ bestTimeToContact }}</option>
+              <option>Weekday mornings</option><option>Weekday afternoons</option><option>Weekday evenings</option><option>Weekends</option><option>Any time</option>
+            </select>
           </label>
           <label>
             Languages spoken fluently
             <input :value="fluentLanguages" type="text" placeholder="e.g., English, Spanish, ASL" @input="$emit('update:fluentLanguages', $event.target.value)" />
           </label>
-          <label class="jap-span">
-            General virtual interview availability
-            <textarea :value="interviewAvailability" rows="3" placeholder="Days, times, or notice you need for a virtual interview…" @input="$emit('update:interviewAvailability', $event.target.value)" />
-          </label>
+          <WeeklyAvailabilityPicker class="jap-span" :model-value="interviewAvailability" @update:model-value="$emit('update:interviewAvailability', $event)" />
         </div>
 
         <div v-if="collectCredential" class="jap-cred">
@@ -206,6 +207,7 @@
 </template>
 
 <script setup>
+import WeeklyAvailabilityPicker from './WeeklyAvailabilityPicker.vue';
 import { computed, ref } from 'vue';
 import JobDescriptionSections from './JobDescriptionSections.vue';
 import { AdaptiveSignatureCapture } from '../adaptive-intake';
@@ -338,6 +340,7 @@ const patchRef = (idx, key, value) => {
 </script>
 
 <style scoped>
+.jap textarea { width: 100%; box-sizing: border-box; }
 .jap { color: #0f172a; }
 .jap-page { display: flex; flex-direction: column; gap: 18px; }
 .jap-job-card, .jap-card {

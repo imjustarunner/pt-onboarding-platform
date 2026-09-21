@@ -6,7 +6,7 @@ vi.mock('../contractMerge.service.js', () => ({
   renderContractHtml: mocks.preview, getAgencyBuilderDefaults: vi.fn(), inferCompensationFromCredential: vi.fn()
 }));
 vi.mock('../../models/PayrollCompensationLevel.model.js', () => ({ default: {}, COMPENSATION_CATEGORIES: [] }));
-import { generateAndAssignCandidateContract } from '../contractGenerator.service.js';
+import { generateAndAssignCandidateContract, previewCandidateContract } from '../contractGenerator.service.js';
 const db = { execute: mocks.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
 const request = { agencyId: 1, candidateUserId: 2, configId: 3, createdByUserId: 4 };
 beforeEach(() => { vi.clearAllMocks(); mocks.getConnection.mockResolvedValue(db); mocks.preview.mockResolvedValue({ html: '<p>Agreement</p>', unresolvedTokens: [] }); });
@@ -21,6 +21,12 @@ function setup({ existing = [], failGeneration = false } = {}) {
   });
 }
 describe('contract assignment consistency', () => {
+  it('rejects a contract changed after staff reviewed its preview', async () => {
+    const reviewed = await previewCandidateContract(request);
+    mocks.preview.mockResolvedValue({ html: '<p>Changed compensation</p>', unresolvedTokens: [] });
+    await expect(generateAndAssignCandidateContract({ ...request, expectedPreviewHash: reviewed.previewHash })).rejects.toThrow('changed since it was reviewed');
+    expect(mocks.getConnection).not.toHaveBeenCalled();
+  });
   it('rejects unresolved tokens before creating any documents', async () => {
     mocks.preview.mockResolvedValue({ html: '{{MISSING}}', unresolvedTokens: ['MISSING'] });
     await expect(generateAndAssignCandidateContract(request)).rejects.toThrow('MISSING');

@@ -1,0 +1,11 @@
+# Clinical profile in onboarding
+
+Clinical staff now have a dedicated “Your clinical profile” onboarding step with searchable multi-select sections for Specialties, Client Ages, Populations Served, and Therapy Approaches. It uses the catalogs already introduced for the provider directory: all 61 specialties (including the school-focused choices), populations with age-only labels removed, existing client-age choices, and therapy approaches.
+
+The step is separate from pre-hire. It applies to providers/interns/facilitators/supervisors who have not explicitly opted out of seeing clients, and other staff explicitly marked as seeing clients or having provider access. It does not add new requirements to closed legacy onboarding journeys.
+
+Answers reuse `specialties_general`, `age_specialty`, `groups`, and `modality` and recognized aliases in `user_info_values`. Existing tenant definitions take precedence over global definitions. Definitions are created only if missing when confirming the step. Drafts stay in the retained portal submission; confirmation publishes all four answers and marks completion in the same transaction. Empty sections are valid after explicit review, and intentional clears persist. A structured answer for a canonical category takes precedence over older survey answers for that category, preventing removed selections from reappearing. Historical source values and unrecognized narrative remain available for review.
+
+For these portal users, the older embedded onboarding questionnaire omits the equivalent clinical questions and points to the dedicated step. Module validation uses the same exclusion. Other questionnaire contexts receive the current catalogs and searchable selectors through the existing field-definition endpoint. Closed journeys retain their previous forms.
+
+Validation: backend hiring, clinical facets/index, and directory-policy tests; frontend clinical selection, portal, and setup tests; production Vite compilation. A local Chrome fixture verified selection and saving at 1440 px and 390 px without horizontal overflow. Database behavior was verified with mocked connections; no live applicant data was modified. No migrations, deployment, commit, or push were performed.

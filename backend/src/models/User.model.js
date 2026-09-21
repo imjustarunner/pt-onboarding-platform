@@ -1,3 +1,4 @@
+import { isAssignableSupervisor, isStaffAccount } from '../utils/staffEligibility.js';
 import pool, { onTableWrite } from '../config/database.js';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
@@ -3239,7 +3240,7 @@ class User {
    * Check if a user is a supervisor (using has_supervisor_privileges as source of truth)
    */
   static isSupervisor(user) {
-    if (!user) return false;
+    if (!isStaffAccount(user)) return false;
     // Primary check: has_supervisor_privileges boolean (source of truth)
     if (user.has_supervisor_privileges === true || user.has_supervisor_privileges === 1 || user.has_supervisor_privileges === '1') {
       return true;
@@ -3253,18 +3254,7 @@ class User {
    * Check if a user can be assigned as a supervisor (has supervisor role OR has supervisor privileges)
    */
   static canBeAssignedAsSupervisor(user) {
-    if (!user) return false;
-    // Use isSupervisor() as primary check
-    if (this.isSupervisor(user)) return true;
-    // Also allow admins/superadmins/CPAs with supervisor privileges
-    const hasPrivileges = user.has_supervisor_privileges === true || 
-                          user.has_supervisor_privileges === 1 || 
-                          user.has_supervisor_privileges === '1';
-    if (hasPrivileges && 
-        (user.role === 'admin' || user.role === 'super_admin' || user.role === 'clinical_practice_assistant')) {
-      return true;
-    }
-    return false;
+    return isAssignableSupervisor(user);
   }
 
   /**

@@ -949,12 +949,15 @@ const loadHubInterviews = async () => {
     hubInterviews.value = [];
     return;
   }
+  const requestedId = selectedId.value;
   try {
     const r = await api.get(`/hiring/interview-hub/candidates/${selectedId.value}/interviews`, {
       params: { agencyId: effectiveAgencyId.value }
     });
+    if (requestedId !== selectedId.value) return;
     hubInterviews.value = r.data?.data || r.data || [];
   } catch {
+    if (requestedId !== selectedId.value) return;
     hubInterviews.value = [];
   }
 };
@@ -1176,10 +1179,13 @@ const downloadApplicantsCsv = () => {
 const candidatePhotoUrl = ref('');
 const loadCandidatePhoto = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
+  const requestedId = selectedId.value;
   try {
     const r = await api.get(`/hiring/candidates/${selectedId.value}/photo`, { params: { agencyId: effectiveAgencyId.value } });
+    if (requestedId !== selectedId.value) return;
     candidatePhotoUrl.value = String(r.data?.url || '').trim();
   } catch {
+    if (requestedId !== selectedId.value) return;
     candidatePhotoUrl.value = '';
   }
 };
@@ -1377,28 +1383,22 @@ const selectCandidate = async (id) => {
   lastHireTokenLink.value = '';
   preScreenLinkedInUrl.value = '';
   hubInterviews.value = [];
-  await loadAssignees();
-  await loadDetail();
-  await loadCandidatePhoto();
-  await loadResumes();
-  await loadResumeSummary();
-  await loadHubInterviews();
-  await loadTasks();
-  syncInterviewFromProfile();
-  // If resume text already exists but summary was never built, generate in the background.
-  const hasParsedResume = (resumes.value || []).some(
-    (r) => String(r.resumeParseStatus || '').toLowerCase() === 'completed'
-  );
-  if (hasParsedResume && !resumeSummary.value?.summary) {
-    maybeAutoAssessAfterResumeChange();
-  }
+  detail.value = null;
+  candidatePhotoUrl.value = '';
+  resumes.value = [];
+  resumeSummary.value = null;
+  tasks.value = [];
+  await Promise.allSettled([loadAssignees(), loadDetail(), loadCandidatePhoto(), loadResumes(), loadResumeSummary(), loadHubInterviews(), loadTasks()]);
+  if (Number(selectedId.value) === Number(id)) syncInterviewFromProfile();
 };
 
 const loadDetail = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
+  const requestedId = selectedId.value;
   try {
     detailLoading.value = true;
     const r = await api.get(`/hiring/candidates/${selectedId.value}`, { params: { agencyId: effectiveAgencyId.value } });
+    if (requestedId !== selectedId.value) return;
     detail.value = r.data || {
       user: null,
       profile: null,
@@ -1410,8 +1410,10 @@ const loadDetail = async () => {
       latestPreScreen: null
     };
   } catch (e) {
+    if (requestedId !== selectedId.value) return;
     error.value = e.response?.data?.error?.message || e.message || 'Failed to load candidate';
   } finally {
+    if (requestedId !== selectedId.value) return;
     detailLoading.value = false;
   }
 };
@@ -1425,15 +1427,19 @@ const quickResumeBullets = computed(() => buildQuickResumeBullets(resumeSummary.
 
 const loadResumeSummary = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
+  const requestedId = selectedId.value;
   try {
     resumeSummaryLoading.value = true;
     resumeSummaryError.value = '';
     const r = await api.get(`/hiring/candidates/${selectedId.value}/resume-summary`, { params: { agencyId: effectiveAgencyId.value } });
+    if (requestedId !== selectedId.value) return;
     resumeSummary.value = r.data?.summary || null;
   } catch (e) {
+    if (requestedId !== selectedId.value) return;
     resumeSummaryError.value = e.response?.data?.error?.message || 'Failed to load resume summary';
     resumeSummary.value = null;
   } finally {
+    if (requestedId !== selectedId.value) return;
     resumeSummaryLoading.value = false;
   }
 };
@@ -1552,6 +1558,7 @@ const resolveResumeViewerUrl = async (r) => {
   });
   return {
     url: resp.data?.url || null,
+    extractedText: resp.data?.extractedText || null,
     mimeType: resp.data?.mimeType || r.mimeType || r.mime_type || null
   };
 };
@@ -1598,14 +1605,18 @@ const onResumeWorkspacePaste = async ({ resumeText, title }) => {
 
 const loadResumes = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
+  const requestedId = selectedId.value;
   try {
     resumesLoading.value = true;
     resumeError.value = '';
     const r = await api.get(`/hiring/candidates/${selectedId.value}/resumes`, { params: { agencyId: effectiveAgencyId.value } });
+    if (requestedId !== selectedId.value) return;
     resumes.value = r.data || [];
   } catch (e) {
+    if (requestedId !== selectedId.value) return;
     resumeError.value = e.response?.data?.error?.message || 'Failed to load resumes';
   } finally {
+    if (requestedId !== selectedId.value) return;
     resumesLoading.value = false;
   }
 };
@@ -2050,13 +2061,17 @@ const toggleNoteReaction = async (noteId, emoji) => {
 
 const loadTasks = async () => {
   if (!selectedId.value || !effectiveAgencyId.value) return;
+  const requestedId = selectedId.value;
   try {
     tasksLoading.value = true;
     const r = await api.get(`/hiring/candidates/${selectedId.value}/tasks`, { params: { agencyId: effectiveAgencyId.value } });
+    if (requestedId !== selectedId.value) return;
     tasks.value = r.data || [];
   } catch {
+    if (requestedId !== selectedId.value) return;
     tasks.value = [];
   } finally {
+    if (requestedId !== selectedId.value) return;
     tasksLoading.value = false;
   }
 };

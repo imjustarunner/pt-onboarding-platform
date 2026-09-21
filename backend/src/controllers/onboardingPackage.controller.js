@@ -49,6 +49,12 @@ export const getPackageById = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Onboarding package not found' } });
     }
 
+    if (!['super_admin', 'support'].includes(req.user.role) && pkg.agency_id) {
+      const User = (await import('../models/User.model.js')).default;
+      const agencies = await User.getAgencies(req.user.id);
+      if (!agencies.some(a => Number(a.id) === Number(pkg.agency_id))) return res.status(403).json({ error: { message: 'Organization access required.' } });
+    }
+
     // Get all associated items
     const trainingFocuses = await OnboardingPackage.getTrainingFocuses(id);
     const modules = await OnboardingPackage.getModules(id);

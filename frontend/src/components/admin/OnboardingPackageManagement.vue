@@ -518,6 +518,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 
@@ -530,6 +531,7 @@ const props = defineProps({
   scopedAgencyId: { type: Number, default: null }
 });
 
+const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
@@ -1318,6 +1320,8 @@ onMounted(async () => {
     packageForm.value.agencyId = sid;
     assignForm.value.agencyId = String(sid);
   }
+  const requestedPackage = packages.value.find(pkg => Number(pkg.id) === Number(route.query.packageId) && (!sid || Number(pkg.agency_id) === sid));
+  if (requestedPackage && !props.readOnly) editPackage(requestedPackage);
 });
 
 watch(

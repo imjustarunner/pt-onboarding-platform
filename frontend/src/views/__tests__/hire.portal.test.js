@@ -38,6 +38,16 @@ describe('candidate process interface', () => {
     expect(transport.post).toHaveBeenCalledTimes(2);
     expect(transport.post.mock.calls[1][1]).toMatchObject({ active: false, sequence: 2 });
   });
+  it('renders the job description content and acknowledgement inside the step', async () => {
+    const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {}; data.jdAcknowledged = false;
+    data.jobDescription = { title: 'Counselor', descriptionText: 'Provide compassionate care in schools.' };
+    data.workflow.steps.pre_hire = [{ key: 'job-description', kind: 'job-description', title: 'Your job description' }];
+    await open(data);
+    await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text().includes('Pre-Hire')).trigger('click');
+    expect(wrapper.find('.portal-jd-content').text()).toContain('Provide compassionate care in schools.');
+    expect(wrapper.find('.portal-jd-content').text()).toContain('I acknowledge this job description');
+    expect(wrapper.find('.portal-jd-content template').exists()).toBe(false);
+  });
   it('opens only prehire navigation before staff starts onboarding', async () => {
     const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {};
     await open(data);

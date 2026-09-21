@@ -1248,9 +1248,9 @@
             </small>
           </div>
 
-          <div v-if="userForm.role === 'provider' || userForm.role === 'admin' || userForm.role === 'super_admin' || userForm.role === 'clinical_practice_assistant' || userForm.role === 'provider_plus'" class="form-group">
+          <div v-if="['provider', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff', 'support'].includes(userForm.role)" class="form-group">
             <label class="toggle-label">
-              <span>Supervisor Privileges</span>
+              <span>Is supervisor</span>
               <div class="toggle-switch">
                 <input 
                   type="checkbox" 
@@ -3183,7 +3183,7 @@ const saveUser = async () => {
       }
       
       // Include supervisor privileges if user has eligible role
-      if (userForm.value.role === 'provider' || userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant' || userForm.value.role === 'provider_plus') {
+      if (['provider', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff', 'support'].includes(userForm.value.role)) {
         updateData.hasSupervisorPrivileges = Boolean(userForm.value.hasSupervisorPrivileges);
       }
       
@@ -3336,7 +3336,7 @@ const saveUser = async () => {
         }
         
         // Include supervisor privileges if user has eligible role
-        if (userForm.value.role === 'provider' || userForm.value.role === 'admin' || userForm.value.role === 'super_admin' || userForm.value.role === 'clinical_practice_assistant' || userForm.value.role === 'provider_plus') {
+        if (['provider', 'admin', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'staff', 'support'].includes(userForm.value.role)) {
           createData.hasSupervisorPrivileges = Boolean(userForm.value.hasSupervisorPrivileges);
         }
         

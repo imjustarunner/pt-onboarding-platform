@@ -2880,17 +2880,19 @@ defineExpose({
 .vsr--lobby .vsr__viewport {
   flex: 0 0 auto;
   width: 100%;
-  aspect-ratio: 1 / 1;
+  aspect-ratio: 4 / 3;
+  height: auto;
   min-height: 0;
-  /* No pixel ceiling — width comes from the parent rail (itself a % of the
-     screen), and aspect-ratio derives height from that, so this genuinely
-     scales with whatever screen the person has instead of topping out. */
+  /* The parent bounds the width; the preview keeps the camera's aspect ratio. */
 }
 .vsr--lobby .vsr__stage {
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
+.vsr--lobby .vsr__tile--local { grid-area: 1 / 1 / -1 / -1; }
 .vsr--lobby .vsr__stage--solo,
 .vsr--lobby .vsr__tile--local {
   min-height: 0 !important;

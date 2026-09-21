@@ -328,20 +328,10 @@ const fetchAgencies = async () => {
 
 const fetchSupervisors = async () => {
   try {
-    const response = await api.get('/users');
-    // Filter to supervisors using has_supervisor_privileges as source of truth
-    supervisors.value = response.data.filter(u => isSupervisor(u));
-    
-    // Filter by agency if one is selected and we have supervisee agencies
-    if (newAssignment.value.agencyId && agencies.value.length > 0) {
-      const agencyIds = agencies.value.map(a => a.id);
-      supervisors.value = supervisors.value.filter(supervisor => {
-        // Check if supervisor belongs to any of the supervisee's agencies
-        // We'll need to check this via the supervisor's agencies
-        // For now, show all supervisors - backend will validate agency membership
-        return true;
-      });
-    }
+    const agencyId = newAssignment.value.agencyId || selectedAgencyId.value;
+    if (!agencyId) { supervisors.value = []; return; }
+    const response = await api.get('/users', { params: { agencyId, supervisorsOnly: true } });
+    supervisors.value = response.data.filter(isSupervisor);
   } catch (err) {
     console.error('Failed to fetch supervisors:', err);
     supervisors.value = [];
@@ -350,29 +340,10 @@ const fetchSupervisors = async () => {
 
 const fetchAvailableUsers = async () => {
   try {
-    const response = await api.get('/users');
-    // Include provider and other common supervisee roles.
-    let users = response.data.filter(u => 
-      ['provider', 'staff', 'facilitator', 'intern', 'admin', 'school_staff'].includes(String(u?.role || '').toLowerCase())
-    );
-    
-    // If we have agencies (from supervisee), filter users by those agencies
-    if (agencies.value.length > 0) {
-      const agencyIds = agencies.value.map(a => a.id);
-      // Users from API may have agency_ids as comma-separated string or array
-      users = users.filter(user => {
-        if (user.agency_ids) {
-          const userAgencyIds = typeof user.agency_ids === 'string' 
-            ? user.agency_ids.split(',').map(id => parseInt(id.trim()))
-            : user.agency_ids;
-          return userAgencyIds.some(id => agencyIds.includes(id));
-        }
-        // If no agency_ids field, include them (backend will validate)
-        return true;
-      });
-    }
-    
-    availableUsers.value = users;
+    const agencyId = newAssignment.value.agencyId || selectedAgencyId.value;
+    if (!agencyId) { availableUsers.value = []; return; }
+    const response = await api.get('/users', { params: { agencyId, staffOnly: true } });
+    availableUsers.value = response.data;
   } catch (err) {
     console.error('Failed to fetch users:', err);
     availableUsers.value = [];
@@ -490,7 +461,7 @@ const formatDate = (dateString) => {
 // Watch for agency selection to filter available users
 watch(() => newAssignment.value.agencyId, async (newAgencyId) => {
   if (newAgencyId) {
-    await fetchAvailableUsers();
+    await Promise.all([fetchAvailableUsers(), fetchSupervisors()]);
   }
 });
 

@@ -25,11 +25,12 @@ export const safePortalUrl = (value) => {
 };
 const resourceKey = (value) => {
   const key = String(value).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60);
-  return /^(background|job-description|agreement|work-email|profile|headshot|resume|handbook|account|review)$|^(task|doc)-/.test(key) ? `resource-${key}`.slice(0, 60) : key;
+  return /^(background|job-description|agreement|work-email|profile|clinical-profile|headshot|resume|handbook|account|review)$|^(task|doc)-/.test(key) ? `resource-${key}`.slice(0, 60) : key;
 };
 export function sanitizeWorkflow(input) {
   const raw = jsonObject(input);
   return {
+    handbookUrl: safePortalUrl(raw.handbookUrl),
     bannerUrl: safePortalUrl(raw.bannerUrl), tagline: String(raw.tagline || '').slice(0, 160),
     supervisorName: String(raw.supervisorName || '').trim().slice(0, 180),
     supervisorUserId: Number(raw.supervisorUserId) > 0 ? Number(raw.supervisorUserId) : null,
