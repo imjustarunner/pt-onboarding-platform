@@ -93,3 +93,16 @@ export function createPublicWebsiteAnalyticsService(db, secret) {
   }
   return { authorize,ingest,report };
 }
+
+/** Distinct anonymous browsers clicking a provider, across all buttons/pages, over 30 days. */
+export async function providerClickCounts(db, pageId) {
+ const [rows] = await db.execute(`SELECT CAST(REGEXP_SUBSTR(
+   REGEXP_SUBSTR(target_key, '(^|/)(provider|profile)-[0-9]+(/|$)'), '[0-9]+') AS UNSIGNED) providerId,
+   COUNT(DISTINCT visitor_hash) visitors, COUNT(*) clicks
+   FROM public_website_analytics_events
+   WHERE page_id = ? AND occurred_at >= UTC_TIMESTAMP() - INTERVAL 30 DAY
+    AND event_kind IN ('click','profile_open')
+    AND target_key REGEXP '(^|/)(provider|profile)-[0-9]+(/|$)'
+   GROUP BY providerId ORDER BY visitors DESC, providerId`, [pageId]);
+ return rows.map(r=>({providerId:Number(r.providerId),visitors:Number(r.visitors),clicks:Number(r.clicks)}));
+}

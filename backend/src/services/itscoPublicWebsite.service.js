@@ -1,3 +1,4 @@
+import { providerClickCounts } from './publicWebsiteAnalytics.service.js';
 import {listPublicProviderOffices} from './publicProviderOffices.service.js';
 import {uniquePublicFacets,restrictPublicInsurances,publicAcceptance} from '../utils/publicProviderPresentation.js';
 import pool from '../config/database.js';
@@ -31,6 +32,10 @@ export async function resolveItscoWebsite() {
 export async function getItscoWebsiteData(req) {
   const { agency, page, settings } = await resolveItscoWebsite();
   const baseUrl = requestBaseUrl(req);
+  const [officeRows] = await pool.execute(`SELECT DISTINCT l.id,l.name,l.city,l.state,l.street_address,l.postal_code
+    FROM office_locations l JOIN office_location_agencies a ON a.office_location_id=l.id
+    WHERE a.agency_id=? AND l.is_active=1 ORDER BY l.city,l.name`,[agency.id]);
+  const offices=officeRows.map(o=>({id:Number(o.id),name:o.name,city:o.city||'',state:o.state||'',address:[o.street_address,o.city,o.state,o.postal_code].filter(Boolean).join(', ')}));
   // A school must have a real portal account, not just an outreach/directory entry.
   const [schoolRows] = await pool.execute(`SELECT org.id, org.name, org.official_name, org.slug, org.logo_url, org.logo_path, org.city, org.state,
     COALESCE(NULLIF(sp.district_name, ''), ad.name) AS district_name,
@@ -101,6 +106,13 @@ export async function getItscoWebsiteData(req) {
         onlineScheduling: Boolean(row.enrolled && agency.public_availability_enabled) });
     }));
   }
+  // Publish only rank; individual counts remain behind tenant analytics authorization.
+  let popularity = [];
+  try { popularity = await providerClickCounts(pool, page.id); }
+  catch (error) { console.warn('Public provider popularity unavailable:', error.code || 'query failed'); }
+  const ranks = new Map(popularity.map(r => [r.providerId, r.visitors]));
+  const scores = [...new Set(popularity.map(r=>r.visitors))].sort((a,b)=>b-a);
+  for (const provider of providers) provider.popularityRank = ranks.has(provider.id) ? scores.indexOf(ranks.get(provider.id)) : scores.length;
   providers.sort((a,b) => a.displayName.localeCompare(b.displayName));
   team.sort((a,b) => a.displayName.localeCompare(b.displayName));
   supervisors.sort((a,b) => a.displayName.localeCompare(b.displayName));
@@ -110,7 +122,7 @@ export async function getItscoWebsiteData(req) {
   return { agency: { id: agency.id, name: agency.official_name || agency.name, slug: 'itsco',
     logoUrl: resolveOrgLogoUrl(agency, { baseUrl }), schedulingEnabled: Boolean(agency.public_availability_enabled) },
     content: { logoUrl: page.brandingJson?.logoUrl || null, heroTitle: page.heroTitle, heroSubtitle: page.heroSubtitle, heroImageUrl: page.heroImageUrl },
-    settings, districts, providers, team, supervisors,
+    settings, offices, districts, providers, team, supervisors,
     insurances: [...new Map(providers.flatMap(p => p.insurances).map(i => [i.name.toLowerCase(), i])).values()],
     metrics: { schools: schools.length, districts: districts.filter(d => d.slug !== 'other').length,
       providers: providers.length, teamMembers: new Set([...providers, ...team, ...supervisors].map(p => p.id)).size,

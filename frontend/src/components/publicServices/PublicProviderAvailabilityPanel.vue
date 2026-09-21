@@ -30,7 +30,7 @@
     </form>
     <p v-if="receipt" role="status">Your waitlist request was received. Reference #{{receipt}}. Our team will contact you.</p>
    </template>
-   <section class="typical-availability"><h4>Typical in-office availability</h4><ul v-if="typicalAvailability.length"><li v-for="item in typicalAvailability" :key="item">{{item}}</li></ul><p v-else>Typical hours have not been published yet. We’ll work with you directly to find a time.</p></section>
+   <section v-if="typicalAvailability.length || (!loading && !visibleSlots.length && !error)" class="typical-availability"><h4>Typical in-office availability</h4><ul v-if="typicalAvailability.length"><li v-for="item in typicalAvailability" :key="item">{{item}}</li></ul><p v-else>Typical hours have not been published yet. We’ll work with you directly to find a time.</p></section>
    <router-link class="contact-link" :to="contactPath">Inquire with our team →</router-link>
    <router-link v-if="provider.schools?.length || schedule?.schools?.length" class="contact-link" :to="`/${agencySlug}/school-referral`">Find school enrollment →</router-link>
    <section v-if="locations.length" class="provider-locations"><h4>Locations</h4><article v-for="location in locations" :key="location.name+location.address"><strong>{{location.name}}</strong><p v-if="location.address">{{location.address}}</p><a :href="mapUrl(location)" target="_blank" rel="noopener noreferrer">View on Google Maps ↗</a></article></section>

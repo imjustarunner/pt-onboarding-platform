@@ -11,6 +11,7 @@ export function internalItscoPath(value) {
   const path = String(value);
   if (/^\/careers(?:\/jobs\/[^/?#]+)?\/?(?:[?#]|$)/.test(path)) return path.replace(/^\/careers/, '/careers/itsco');
   const pathname = path.split(/[?#]/)[0].replace(/\/$/, '');
+  if (/^\/providers\/[a-z0-9-]+-[1-9][0-9]*$/.test(pathname)) return `/p/itsco${path}`;
   if (ITSCO_PUBLIC_SECTIONS.some(s => pathname === (s ? `/${s}` : ''))) return `/p/itsco${path === '/' ? '' : path}`;
   return path;
 }

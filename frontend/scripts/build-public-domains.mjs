@@ -55,6 +55,7 @@ server {
  location = /careers/itsco { return 301 ${ITSCO_ORIGIN}/careers$is_args$args; }
  location ~ ^/careers/itsco/(.*)$ { return 301 ${ITSCO_ORIGIN}/careers/$1$is_args$args; }
  ${redirects}
+ location ~ ^/providers/[a-z0-9-]+-[1-9][0-9]*$ { add_header Cache-Control "no-cache"; add_header X-Robots-Tag "noindex" always; try_files /_public-sites/itsco/providers.html =404; }
  ${locations.join('\n')}
  location = /sitemap.xml { default_type application/xml; try_files /_public-sites/itsco/sitemap.xml =404; }
  location = /robots.txt { default_type text/plain; try_files /_public-sites/itsco/robots.txt =404; }

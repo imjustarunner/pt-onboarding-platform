@@ -7,7 +7,7 @@ describe('remembered Google account card', () => {
     const wrapper = mount(Card, { props: { account: { username: 'example@example.test', displayName: 'Example Member' } } });
     expect(wrapper.find('h3').text()).toBe('Example Member');
     expect(wrapper.find('.account-avatar').text()).toBe('EM');
-    for (const [label, event] of [['Continue with Google', 'continue'], ['Use another username', 'switch'], ['Forget this account', 'forget']]) {
+    for (const [label, event] of [['Continue as Example Member', 'continue'], ['Choose another username', 'switch'], ['Forget this account', 'forget']]) {
       await wrapper.findAll('button').find(button => button.text().includes(label)).trigger('click');
       expect(wrapper.emitted(event)).toHaveLength(1);
     }

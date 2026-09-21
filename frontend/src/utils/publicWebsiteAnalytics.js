@@ -17,7 +17,7 @@ export function analyticsCsv(rows) {
 }
 export function createWebsiteTracker({document,window,pagePath,canTrack,emit,onTargets}) {
   let root=null,disposed=false,ready=false,scanTimer=null;const metadata=new WeakMap(),targets=new Map(),viewed=new Set(),timers=new Map();
-  const context={pagePath,source:websiteSource(document.referrer,window.location.origin)};
+  const context={pagePath:pagePath.replace(/(\/p\/itsco\/providers)\/[^/?#]+$/, '$1'),source:websiteSource(document.referrer,window.location.origin)};
   function send(kind,meta){if(disposed||!canTrack())return;emit({...context,eventId:window.crypto.randomUUID(),kind,targetKey:meta.key,label:meta.label,device:window.innerWidth<600?'mobile':window.innerWidth<1024?'tablet':'desktop',language:(document.documentElement.lang||'en').split('-')[0]});}
   function meaningfulText(el){const explicit=el.getAttribute('data-analytics-label');if(explicit)return compact(explicit);const heading=el.querySelector('h1,h2,h3,h4');return compact(heading?.textContent)||({HEADER:'Navigation',FOOTER:'Footer',ARTICLE:'Card',SECTION:'Section'}[el.tagName])||'Page area';}
   function describe(el,area=false){
@@ -54,7 +54,7 @@ export function createWebsiteTracker({document,window,pagePath,canTrack,emit,onT
   }
   function queueScan(){if(scanTimer||disposed)return;scanTimer=window.setTimeout(()=>{scanTimer=null;scan();},150);}
   function click(event){const el=event.target.closest('a,button,summary');if(!el||!allowed(el))return;const meta=describe(el);const explicit=el.getAttribute('data-analytics-kind');const href=el.getAttribute('href')||'';
-    const kind=explicit==='filter_use'||el.matches('button[aria-pressed],button[aria-selected],[role=tab]')?'filter_use':explicit==='profile_open'||/[?&]provider=|\/provider\//.test(href)?'profile_open':'click';send(kind==='profile_open'&&el.tagName==='SUMMARY'&&el.parentElement?.open?'click':kind,meta);}
+    const kind=explicit==='filter_use'||el.matches('button[aria-pressed],button[aria-selected],[role=tab]')?'filter_use':explicit==='profile_open'||/[?&]provider=|\/providers?\//.test(href)?'profile_open':'click';send(kind==='profile_open'&&el.tagName==='SUMMARY'&&el.parentElement?.open?'click':kind,meta);}
   function change(event){const el=event.target;if(el.matches('select')&&allowed(el))send('filter_use',describe(el));}
   // Search usage, not individual keystrokes or the submitted search text.
   function search(event){const el=event.target;if(el.matches('input[type="search"]')&&allowed(el))send('search',describe(el));}

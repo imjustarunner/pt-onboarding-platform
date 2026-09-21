@@ -110,7 +110,11 @@
               <div class="muted name-sub">{{ row.email }}</div>
             </td>
             <td v-for="f in selectedFields" :key="`${row.id}-${f.key}`">
-              <template v-if="f.type === 'file'">
+              <template v-if="f.key === 'public_provider_url'">
+                <template v-if="cellValue(row,f)"><a :href="cellValue(row,f)" target="_blank" rel="noopener noreferrer">View public profile ↗</a> <button class="btn btn-secondary btn-sm" type="button" @click="copyProfileLink(row,f)">Copy link</button></template>
+                <span v-else class="muted">No published profile</span>
+              </template>
+              <template v-else-if="f.type === 'file'">
                 <div class="file-cell">
                   <img
                     v-if="f.key === 'email_signature' && fileUrl(row, f)"
@@ -315,6 +319,11 @@ function displayName(row) {
 
 function profilePath(id) {
   return `${props.profileBase.replace(/\/$/, '')}/${id}`;
+}
+
+async function copyProfileLink(row,field) {
+ try { await navigator.clipboard.writeText(cellValue(row,field)); banner.value='Profile link copied'; bannerError.value=false; }
+ catch { banner.value='Could not copy. Open the profile and copy its address.'; bannerError.value=true; }
 }
 
 function cellValue(row, field) {

@@ -30,7 +30,8 @@ export function itscoPublicResponse(host, originalUrl) {
   const section = clean.slice(1);
   const indexable = Object.hasOwn(titles, section);
   // Existing enrollment and policy URLs remain functional, but are outside the public sitemap.
-  const functional = /^\/(live-chat-support|join|intake|careers|itsco|sign|public|secure-message|preferences-form)(\/|$)/.test(clean);
+  const providerProfile = /^\/providers\/[a-z0-9-]+-[1-9][0-9]*$/.test(clean);
+  const functional = providerProfile || /^\/(live-chat-support|join|intake|careers|itsco|sign|public|secure-message|preferences-form)(\/|$)/.test(clean);
   return {
     status: indexable || functional ? 200 : 404,
     internalPath: internalItscoPath(clean),

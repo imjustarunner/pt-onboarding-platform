@@ -39,6 +39,7 @@ export const USER_GRID_MEDCANCEL_OPTIONS = [
 
 /** @type {UserGridField[]} */
 export const USER_GRID_FIELDS = [
+  { key: 'public_provider_url', label: 'Public provider profile', group: 'Communications', type: 'url', source: 'computed', editable: false, sortable: true },
   { key: 'is_demo', label: 'Demo / test', group: 'Account', type: 'boolean', source: 'user', userField: 'isDemo', editable: true, sortable: true },
   { key: 'preferred_name', label: 'Preferred name', group: 'Account', type: 'text', source: 'user', userField: 'preferredName', editable: true, sortable: true },
   { key: 'title', label: 'Title', group: 'Account', type: 'text', source: 'user', userField: 'title', editable: true, sortable: true },

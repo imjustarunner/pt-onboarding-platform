@@ -1566,6 +1566,9 @@ onMounted(async () => {
   rememberedGoogleLogin.value = memory.google;
   if (memory.remembered || memory.google) rememberLogin.value = true;
 
+  if (memory.remembered && !memory.google && username.value && !showPassword.value) {
+    await verifyUsername({ reason: 'remembered' });
+  }
   await playTenantLoginBgVideos();
 });
 

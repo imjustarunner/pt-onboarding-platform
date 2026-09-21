@@ -1,0 +1,11 @@
+# ITSCO provider discovery
+
+- Directory defaults to most clicked providers over the preceding 30 days. Each anonymous browser counts once per provider across its profile buttons/pages. Availability and name break ties. Signed-in staff and bots are excluded by the existing analytics collector. This measures browsers, not identified people.
+- Authorized agency admins/support and platform admins can see a provider's unique-browser and total-click counts on the public profile. Public directory responses contain a relative rank only.
+- Public profile links use `/providers/name-id`; the ID remains authoritative after a name change. Existing `?provider=id` links continue to work. Users → Columns → Communications → Public provider profile exposes the copy button.
+- Displaying schedule openings does not grant booking permission. Profile and card previews display actual times; booking actions remain enrollment-controlled. Empty typical-hours guidance is suppressed when appointment times exist. Typical hours continue to come only from profile selections.
+- The home finder passes care type, city, and payment preferences to the directory. Self-pay is a payment preference, not a requirement that the provider publish a rate; the team confirms rates.
+- Office options and the interactive Google map use active agency office records. Provider filtering uses actual assigned offices. Updating an office's address/city/state updates its map and location options; no hardcoded city list needs editing for expansion. Office geography does not determine a clinician's authorization to practice in a state. Publish future services only after their service scope and provider assignments are configured.
+- Remembered SSO offers “Continue as [name]” and “Choose another username.” Existing provider authentication still applies; the app never stores passwords or bypasses authentication. Password accounts with Remember username selected return to the password step.
+
+Validation: 80 targeted frontend/backend tests, production frontend build, read-only directory and Users-column comparison (all 39 provider links matched), and isolated desktop/mobile browser checks of login, directory filters, readable links/reload, care finder, and rendered office map.

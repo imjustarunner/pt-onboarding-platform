@@ -32,6 +32,10 @@ describe('public availability and waitlist',()=>{
   api.get.mockResolvedValue({data:{...summary,slots:[{format:'IN_PERSON',buildingId:3,buildingName:'Example Office',startAt:'2030-01-01T16:00:00Z'}]}});
   const w=render();await flushPromises();expect(w.find('.next-openings').text()).toContain('Example Office');expect(w.text()).toContain('online time selection is not enabled');expect(w.text()).not.toContain('View full calendar & request a time');w.unmount();
  });
+ it('does not show the typical-hours fallback when appointments are posted',async()=>{
+  api.get.mockResolvedValue({data:{...summary,slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}});
+  const w=mount(Panel,{props:{provider:{...provider,details:{}},agencySlug:'test'},global:{stubs:{RouterLink:true,PublicProviderSlotPicker:true}}});await flushPromises();expect(w.find('.typical-availability').exists()).toBe(false);expect(w.find('.next-openings').text()).toContain('Virtual');w.unmount();
+ });
  it('offers selectable times only for enabled booking',async()=>{
   api.get.mockResolvedValue({data:{...summary,onlineScheduling:true,slots:[{format:'VIRTUAL',startAt:'2030-01-01T16:00:00Z'}]}});
   const w=render();await flushPromises();expect(w.text()).toContain('View full calendar & request a time');w.unmount();

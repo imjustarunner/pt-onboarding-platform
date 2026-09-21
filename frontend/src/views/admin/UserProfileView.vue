@@ -30,7 +30,7 @@
               {{ leaveOfAbsence?.departureDate ? 'Edit leave of absence' : 'Record leave of absence' }}
             </button>
             <label v-if="showGlobalAvailabilityInHeader" class="header-availability">
-              <input type="checkbox" :checked="user.sees_clients !== false && user.sees_clients !== 0" :disabled="!canManageClientParticipation || updatingClientParticipation" @change="saveClientParticipation($event.target.checked)" /> Sees clients
+              <span>Sees clients</span><span class="toggle-switch toggle-switch-sm"><input type="checkbox" role="switch" aria-label="Sees clients" :checked="user.sees_clients !== false && user.sees_clients !== 0" :disabled="!canManageClientParticipation || updatingClientParticipation" @change="saveClientParticipation($event.target.checked)" /><span class="slider"></span></span>
             </label>
             <div v-if="showGlobalAvailabilityInHeader" class="header-availability" :title="providerAcceptingNewClients ? 'OPEN (global)' : 'CLOSED (global)'" data-tour="user-profile-global-availability">
               <span class="header-availability-label">Global</span>
@@ -66,14 +66,16 @@
             <span v-if="headerEmployeeId" class="ph-contact-chip ph-contact-chip--id" :title="'Employee ID'">
               {{ headerEmployeeId }}
             </span>
+            <span v-if="headerSupervisorName" class="ph-contact-chip">Supervisor: {{ headerSupervisorName }}</span>
           </div>
 
-          <div v-if="headerAcceptedInsurances.length" class="ph-accepted-insurance">
-            <AcceptedInsuranceBadges :items="headerAcceptedInsurances" label="Insurance accepted" />
-          </div>
+          <details v-if="headerAcceptedInsurances.length" class="ph-accepted-insurance">
+            <summary>Insurance accepted · {{ headerAcceptedInsurances.length }} plans</summary>
+            <AcceptedInsuranceBadges :items="headerAcceptedInsurances" label="" />
+          </details>
 
           <div
-            v-if="headerHireDate || headerStartDate || headerManagerName || headerSupervisorName"
+            v-if="headerHireDate || headerStartDate || headerManagerName"
             class="ph-metrics-bar"
           >
             <div v-if="headerHireDate" class="ph-metric">
@@ -88,10 +90,7 @@
               <div class="ph-ml">Manager</div>
               <div class="ph-mv">{{ headerManagerName }}</div>
             </div>
-            <div v-if="headerSupervisorName" class="ph-metric">
-              <div class="ph-ml">Supervisor</div>
-              <div class="ph-mv">{{ headerSupervisorName }}</div>
-            </div>
+
           </div>
 
           <div class="ph-search-wrap" data-tour="user-profile-search">
@@ -170,7 +169,7 @@
             {{ leaveOfAbsence?.departureDate ? 'Edit leave of absence' : 'Record leave of absence' }}
           </button>
           <label v-if="showGlobalAvailabilityInHeader" class="header-availability">
-              <input type="checkbox" :checked="user.sees_clients !== false && user.sees_clients !== 0" :disabled="!canManageClientParticipation || updatingClientParticipation" @change="saveClientParticipation($event.target.checked)" /> Sees clients
+              <span>Sees clients</span><span class="toggle-switch toggle-switch-sm"><input type="checkbox" role="switch" aria-label="Sees clients" :checked="user.sees_clients !== false && user.sees_clients !== 0" :disabled="!canManageClientParticipation || updatingClientParticipation" @change="saveClientParticipation($event.target.checked)" /><span class="slider"></span></span>
             </label>
             <div v-if="showGlobalAvailabilityInHeader" class="header-availability" :title="providerAcceptingNewClients ? 'OPEN (global)' : 'CLOSED (global)'" data-tour="user-profile-global-availability">
             <span class="header-availability-label">Global</span>

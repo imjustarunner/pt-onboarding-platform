@@ -205,6 +205,37 @@ async function enrichRows(rows, fields, { agencyId }) {
     return extraByUser.get(id);
   };
 
+  if (fields.some(f=>f.key==='public_provider_url')) {
+    await loadMapInChunks(ids, async group => {
+      const [published] = await pool.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name
+        FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+        JOIN agencies a ON a.id=ua.agency_id
+        WHERE u.id IN (${group.map(()=>'?').join(',')}) AND a.slug='itsco'
+          AND a.is_active=1 AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_active,1)=1
+          AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0
+          AND UPPER(COALESCE(u.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE')
+          AND COALESCE(u.sees_clients,1)=1
+          AND LOWER(TRIM(CONCAT(COALESCE(u.first_name,''),' ',COALESCE(u.last_name,'')))) NOT IN ('super admin','superadmin')
+          AND (COALESCE(NULLIF(ua.agency_role,''),u.role) IN ('provider','provider_plus','intern','intern_plus','facilitator','supervisor','admin','super_admin') OR u.has_provider_access=1
+            OR EXISTS (SELECT 1 FROM provider_public_service_enrollments e JOIN agency_public_service_types st
+              ON st.agency_id=e.agency_id AND st.service_type=e.service_type AND st.is_enabled=1
+              WHERE e.agency_id=a.id AND e.user_id=u.id AND e.is_active=1 AND e.service_type='counseling')
+            OR EXISTS (SELECT 1 FROM provider_school_assignments psa JOIN agencies school ON school.id=psa.school_organization_id
+              WHERE psa.provider_user_id=u.id AND psa.is_active=1 AND school.organization_type='school' AND COALESCE(school.is_archived,0)=0
+                AND (EXISTS (SELECT 1 FROM organization_affiliations aff WHERE aff.agency_id=a.id AND aff.organization_id=school.id AND aff.is_active=1)
+                  OR EXISTS (SELECT 1 FROM agency_schools aff WHERE aff.agency_id=a.id AND aff.school_organization_id=school.id AND aff.is_active=1))
+                AND EXISTS (SELECT 1 FROM user_agencies sa JOIN users su ON su.id=sa.user_id WHERE sa.agency_id=school.id AND COALESCE(sa.is_active,1)=1
+                  AND su.role='school_staff' AND COALESCE(su.is_active,1)=1 AND COALESCE(su.is_archived,0)=0 AND COALESCE(su.is_demo,0)=0 AND UPPER(COALESCE(su.status,'')) IN ('ACTIVE','ACTIVE_EMPLOYEE'))
+                AND NOT EXISTS (SELECT 1 FROM district_schedule_hidden_schools h WHERE h.agency_id=a.id AND h.school_organization_id=school.id)
+                AND NOT EXISTS (SELECT 1 FROM district_schedule_hidden_providers h WHERE h.agency_id=a.id AND h.school_organization_id=school.id AND h.provider_user_id=u.id)))
+          ${Number(agencyId)>0?'AND a.id=?':''}`, Number(agencyId)>0?[...group,Number(agencyId)]:group);
+      for(const person of published) {
+        const name=[person.first_name,person.last_name].filter(Boolean).join(' ').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'provider';
+        ensure(Number(person.id)).public_provider_url=`https://www.itsco.health/providers/${name}-${person.id}`;
+      }
+    });
+  }
+
   if (needUserCols.length) {
     const cols = [...new Set(needUserCols.map((f) => USER_COL_BY_KEY[f.key]))];
     await loadMapInChunks(ids, async (group, _map) => {
