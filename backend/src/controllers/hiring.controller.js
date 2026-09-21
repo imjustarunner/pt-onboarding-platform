@@ -4315,7 +4315,7 @@ export const sendPreHire = async (req, res, next) => {
           assignedToUserId: candidateUserId,
           assignedToAgencyId: agencyId,
           documentActionType: tmpl.document_action_type || 'signature',
-          isRequired: tmpl.is_required || templateId === libraryContractId || (preparedPacket.workflow.supervisorRole && templateId === preparedPacket.workflow.supervisorTemplateId) || preparedPacket.workflow.resources.some(r => r.templateId === templateId && r.required) ? 1 : 0,
+          isRequired: tmpl.is_required || preparedPacket.documents.some(d => Number(d.templateId) === Number(templateId)) || templateId === libraryContractId || (preparedPacket.workflow.supervisorRole && templateId === preparedPacket.workflow.supervisorTemplateId) || preparedPacket.workflow.resources.some(r => r.templateId === templateId && r.required) ? 1 : 0,
           lifecycleItemKey: tmpl.lifecycle_item_key || null,
           metadata: {
             prehire: true,

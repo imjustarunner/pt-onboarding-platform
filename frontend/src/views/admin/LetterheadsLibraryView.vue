@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <h1>Letterheads</h1>
-        <p class="subtitle">Reusable print-safe letterhead templates (header/footer + CSS)</p>
+        <p class="subtitle">Named letterheads for documents and printed pages. Duplicate a design to keep multiple versions available.</p>
       </div>
       <div class="header-actions">
         <button @click="showCreateModal = true" class="btn btn-primary">Create / Upload Letterhead</button>
@@ -50,6 +50,8 @@
         </div>
 
         <div class="actions">
+          <button v-if="lh.is_active" class="btn btn-secondary btn-sm" :disabled="previewBusy" @click="previewLetterhead(lh)">Preview</button>
+          <button class="btn btn-secondary btn-sm" :disabled="saving" @click="duplicateLetterhead(lh)">Duplicate version</button>
           <button class="btn btn-secondary btn-sm" @click="openEdit(lh)">Edit</button>
           <button
             v-if="lh.is_active"
@@ -70,6 +72,14 @@
 
       <div v-if="letterheads.length === 0" class="empty">
         No letterheads found for this scope.
+      </div>
+    </div>
+
+    <div v-if="previewUrl" class="modal-overlay" @click.self="closePreview">
+      <div class="modal-content large" role="dialog" aria-modal="true" aria-label="Letterhead preview">
+        <h2>{{ previewName }}</h2>
+        <iframe :src="previewUrl" title="Letterhead print preview" style="width:100%;height:65vh;border:0" />
+        <div class="form-actions"><a :href="previewUrl" target="_blank" rel="noopener">Open PDF</a><button class="btn btn-secondary" @click="closePreview">Close</button></div>
       </div>
     </div>
 
@@ -241,11 +251,36 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
+import { previewLibraryDocument } from '../../services/library.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import HtmlDocumentBuilder from '../../components/documents/HtmlDocumentBuilder.vue';
+
+const previewUrl = ref('');
+const previewName = ref('');
+const previewBusy = ref(false);
+let disposed = false;
+function closePreview() { if (previewUrl.value) URL.revokeObjectURL(previewUrl.value); previewUrl.value = ''; }
+async function previewLetterhead(lh) {
+  previewBusy.value = true; error.value = '';
+  try {
+    const agencyId = lh.agency_id || (Number(filterAgencyId.value) || availableAgencies.value[0]?.id);
+    if (!agencyId) throw new Error('Select an agency to preview this letterhead.');
+    const blob = await previewLibraryDocument({ agencyId, organizationId: lh.organization_id, brandingMode: 'letterhead', letterheadTemplateId: lh.id, name: lh.name,
+      bodyHtml: '<h1>Document preview</h1><p>Your organization’s letterhead appears on every page.</p><h2>A place for your words</h2><p>Create a document, fill out a template, or share an individual copy. This sample shows the selected page size and margins.</p><div class="page-break"></div><h2>Second page</h2><p>The header and footer repeat as the document continues.</p>' });
+    if (!disposed) { closePreview(); previewName.value = lh.name; previewUrl.value = URL.createObjectURL(blob); }
+  } catch (e) { error.value = e?.message || 'Could not prepare the preview.'; }
+  finally { previewBusy.value = false; }
+}
+async function duplicateLetterhead(lh) {
+  saving.value = true; error.value = '';
+  try { const { data } = await api.post(`/letterhead-templates/${lh.id}/duplicate`); await loadLetterheads(); openEdit(data); }
+  catch (e) { error.value = e?.response?.data?.error?.message || 'Could not duplicate the letterhead.'; }
+  finally { saving.value = false; }
+}
+onBeforeUnmount(() => { disposed = true; closePreview(); });
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();

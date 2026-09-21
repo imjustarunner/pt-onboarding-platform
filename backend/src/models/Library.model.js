@@ -101,6 +101,7 @@ function mapResource(row) {
     archivedAt: row.archived_at || null,
     bodyHtml: row.body_html || null,
     letterheadTemplateId: row.letterhead_template_id != null ? Number(row.letterhead_template_id) : null,
+    brandingMode: row.branding_mode || (row.letterhead_template_id ? 'letterhead' : 'plain'),
     categoryName: row.category_name || null,
     categorySlug: row.category_slug || null,
     folderName: row.folder_name || null,
@@ -414,8 +415,13 @@ class Library {
       LEFT JOIN users ou ON ou.id = r.owner_user_id
       LEFT JOIN users cu ON cu.id = r.created_by
       WHERE r.id = ? AND r.agency_id = ?
+      ${userId ? `AND (COALESCE(r.scope, 'organization') = 'organization' OR r.owner_user_id = ?
+        OR EXISTS (SELECT 1 FROM library_permissions p WHERE p.agency_id = r.agency_id
+          AND (p.resource_id = r.id OR p.folder_id = r.folder_id)
+          AND p.grantee_type = 'user' AND p.grantee_value = ?))` : ''}
       LIMIT 1
     `;
+    if (userId) params.push(Number(userId), String(userId));
     const [rows] = await pool.execute(sql, params);
     return mapResource(rows[0]);
   }
@@ -550,10 +556,10 @@ class Library {
     const [result] = await pool.execute(
       `INSERT INTO library_resources
         (agency_id, organization_id, name, description, resource_type, file_type, mime_type,
-         original_filename, file_path, external_url, body_html, letterhead_template_id, file_size_bytes, category_id, folder_id,
+         original_filename, file_path, external_url, body_html, letterhead_template_id, branding_mode, file_size_bytes, category_id, folder_id,
          owner_user_id, source_resource_id, scope, visibility, audience_json, featured, client_shareable, status,
          review_date, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         Number(data.agencyId),
         data.organizationId != null ? Number(data.organizationId) : null,
@@ -567,6 +573,7 @@ class Library {
         data.externalUrl || null,
         data.bodyHtml || null,
         data.letterheadTemplateId != null ? Number(data.letterheadTemplateId) : null,
+        data.brandingMode || (data.letterheadTemplateId ? 'letterhead' : 'plain'),
         data.fileSizeBytes != null ? Number(data.fileSizeBytes) : null,
         data.categoryId != null ? Number(data.categoryId) : null,
         data.folderId != null ? Number(data.folderId) : null,
@@ -586,7 +593,7 @@ class Library {
     if (data.tags?.length) {
       await this.setResourceTags(result.insertId, data.agencyId, data.tags);
     }
-    return this.findResource(result.insertId, data.agencyId, { userId: data.createdBy });
+    return this.findResource(result.insertId, data.agencyId, { userId: data.ownerUserId || data.createdBy });
   }
 
   static async updateResource(id, agencyId, data) {
@@ -605,6 +612,7 @@ class Library {
       externalUrl: 'external_url',
       bodyHtml: 'body_html',
       letterheadTemplateId: 'letterhead_template_id',
+      brandingMode: 'branding_mode',
       filePath: 'file_path',
       fileType: 'file_type',
       mimeType: 'mime_type',
@@ -647,11 +655,17 @@ class Library {
     }
 
     if (fields.length) {
+      fields.push('version = version + 1');
       params.push(Number(id), Number(agencyId));
-      await pool.execute(
-        `UPDATE library_resources SET ${fields.join(', ')} WHERE id = ? AND agency_id = ?`,
+      const versionCheck = data.expectedVersion !== undefined ? ' AND version = ?' : '';
+      if (versionCheck) params.push(Number(data.expectedVersion));
+      const [result] = await pool.execute(
+        `UPDATE library_resources SET ${fields.join(', ')} WHERE id = ? AND agency_id = ?${versionCheck}`,
         params
       );
+      if (versionCheck && !result.affectedRows) {
+        throw Object.assign(new Error('This document changed in another window. Your edits are still here. Save a personal copy or load the latest version.'), { status: 409, statusCode: 409 });
+      }
     }
 
     if (data.tags !== undefined) {
@@ -907,14 +921,14 @@ class Library {
 
   static async userHasResourcePermission(resourceId, agencyId, userId, minPermission = 'view') {
     const [rows] = await pool.execute(
-      `SELECT permission FROM library_permissions
-       WHERE agency_id = ? AND resource_id = ? AND grantee_type = 'user' AND grantee_value = ?
-       LIMIT 1`,
-      [Number(agencyId), Number(resourceId), String(userId)]
+      `SELECT p.permission FROM library_permissions p
+       JOIN library_resources r ON r.id = ? AND r.agency_id = p.agency_id
+       WHERE p.agency_id = ? AND (p.resource_id = r.id OR p.folder_id = r.folder_id)
+         AND p.grantee_type = 'user' AND p.grantee_value = ?`,
+      [Number(resourceId), Number(agencyId), String(userId)]
     );
-    if (!rows?.[0]) return false;
     const rank = { view: 1, edit: 2, manage: 3 };
-    return (rank[rows[0].permission] || 0) >= (rank[minPermission] || 1);
+    return (rows || []).some(row => (rank[row.permission] || 0) >= (rank[minPermission] || 1));
   }
 
   static async userCanEditResource(resource, userId, caps = {}) {

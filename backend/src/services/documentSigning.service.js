@@ -1,3 +1,4 @@
+import { applyDocumentAnnotations } from '../utils/pdfDocumentAnnotations.js';
 import { fitPdfFieldText } from '../utils/pdfFormFields.js';
 import { validateHireDocumentFields } from '../utils/hireDocumentFields.js';
 import { PDFDocument, rgb } from 'pdf-lib';
@@ -285,8 +286,11 @@ class DocumentSigningService {
         await this.addFieldValuesToPDF(pdfDoc, fieldDefinitions, fieldValues);
       }
 
+      const placedEntries = await applyDocumentAnnotations(pdfDoc, options.documentAnnotations || [], signatureImage);
+      if (placedEntries.length) auditTrail.documentAnnotations = placedEntries;
+
       // Add signature image at fixed bottom position (original document)
-      if (signatureImage) {
+      if (signatureImage && !placedEntries.some(entry => entry.kind === 'signature')) {
         console.log(`DocumentSigningService.generateFinalizedPDF: Adding signature to PDF...`);
         console.log(`DocumentSigningService.generateFinalizedPDF: Signature coordinates:`, signatureCoords);
         await this.addSignatureToPDF(pdfDoc, signatureImage, signatureCoords, { suppressDate: suppressSignatureDate });
@@ -1425,6 +1429,7 @@ class DocumentSigningService {
     signerName,
     signatureData,
     fieldValues = {},
+    documentAnnotations = [],
     context = 'prehire_portal',
     ipAddress = null,
     userAgent = null
@@ -1602,6 +1607,7 @@ class DocumentSigningService {
         documentName,
         signatureOnAuditPage: false,
         fieldDefinitions,
+        documentAnnotations: context === 'prehire_portal' ? documentAnnotations : [],
         fieldValues: fieldValues && typeof fieldValues === 'object' ? fieldValues : {}
       }
     );

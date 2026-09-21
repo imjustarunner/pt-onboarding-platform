@@ -7,7 +7,7 @@
       </header>
 
       <p class="lib-dist-modal__lead">
-        Choose how people receive this Library item. The master stays in the Library unless you give personal copies.
+        Choose how people receive this Library item. The original stays in the Library. Personal copies are independent documents.
       </p>
 
       <div class="lib-dist-modes">
@@ -28,7 +28,7 @@
           @click="mode = 'collaborate'"
         >
           <strong>Collaborate</strong>
-          <small>Same document — permitted users edit the shared master together.</small>
+          <small>People with edit access can save changes to the original. Conflicting saves are protected.</small>
         </button>
         <button
           v-if="isEditable"

@@ -61,7 +61,7 @@ export async function addLibraryLink(payload) {
 }
 
 export async function updateLibraryResource(id, payload) {
-  const { data } = await api.patch(`${base}/resources/${id}`, payload);
+  const { data } = await api.patch(`${base}/resources/${id}`, payload, { skipGlobalLoading: true });
   return data;
 }
 
@@ -157,5 +157,20 @@ export async function distributeLibraryResource(resourceId, payload) {
 
 export async function fetchMyLibraryCopies(params = {}) {
   const { data } = await api.get(`${base}/my-copies`, { params });
+  return data;
+}
+
+export async function previewLibraryDocument(payload) {
+  const { data } = await api.post(`${base}/documents/preview`, payload, { responseType: 'blob', skipGlobalLoading: true });
+  return data;
+}
+
+export async function copyLibraryDocument(id, payload = {}) {
+  const { data } = await api.post(`${base}/resources/${id}/copy`, payload);
+  return data;
+}
+
+export async function exportLibraryDocument(id, format, agencyId) {
+  const { data } = await api.get(`${base}/resources/${id}/${format}`, { params: { agencyId }, responseType: 'blob' });
   return data;
 }

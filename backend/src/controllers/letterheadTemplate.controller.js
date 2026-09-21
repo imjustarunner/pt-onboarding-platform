@@ -3,6 +3,30 @@ import pool from '../config/database.js';
 import StorageService from '../services/storage.service.js';
 import LetterheadTemplate from '../models/LetterheadTemplate.model.js';
 
+async function canManageLetterhead(req, letterhead) {
+  if (req.user?.role === 'super_admin') return true;
+  if (!letterhead.agency_id) return false;
+  const User = (await import('../models/User.model.js')).default;
+  const agencies = await User.getAgencies(req.user.id);
+  return agencies.some(agency => Number(agency.id) === Number(letterhead.agency_id));
+}
+
+export const duplicateLetterheadTemplate = async (req, res, next) => {
+  try {
+    const source = await LetterheadTemplate.findById(Number(req.params.id));
+    if (!source) return res.status(404).json({ error: { message: 'Letterhead not found' } });
+    if (!(await canManageLetterhead(req, source))) return res.status(403).json({ error: { message: 'Not authorized to manage this letterhead' } });
+    const copy = await LetterheadTemplate.create({
+      name: `${source.name.slice(0, 230)} — Copy`, agencyId: source.agency_id, organizationId: source.organization_id,
+      templateType: source.template_type, filePath: source.file_path, headerHtml: source.header_html, footerHtml: source.footer_html,
+      cssContent: source.css_content, pageSize: source.page_size, orientation: source.orientation,
+      marginTop: source.margin_top, marginRight: source.margin_right, marginBottom: source.margin_bottom, marginLeft: source.margin_left,
+      headerHeight: source.header_height, footerHeight: source.footer_height, createdByUserId: req.user.id
+    });
+    res.status(201).json(copy);
+  } catch (error) { next(error); }
+};
+
 const parseNullablePositiveInt = (value) => {
   if (value === null || value === undefined) return null;
   const s = String(value).trim();
@@ -349,10 +373,12 @@ export const updateLetterheadTemplate = async (req, res, next) => {
       parsedOrganizationId = null;
     }
 
+    if (!(await canManageLetterhead(req, { agency_id: parsedAgencyId }))) return res.status(403).json({ error: { message: 'Not authorized to move this letterhead to that agency' } });
+
     const scopeOk = await validateAgencyOrgScope({ agencyId: parsedAgencyId, organizationId: parsedOrganizationId });
     if (!scopeOk.ok) return res.status(400).json({ error: { message: scopeOk.message } });
 
-    const updated = await LetterheadTemplate.update(id, {
+    const updated = await LetterheadTemplate.update(id, Object.fromEntries(Object.entries({
       name: req.body.name,
       agencyId: parsedAgencyId,
       organizationId: parsedOrganizationId,
@@ -367,7 +393,7 @@ export const updateLetterheadTemplate = async (req, res, next) => {
       marginLeft: req.body.marginLeft,
       headerHeight: req.body.headerHeight,
       footerHeight: req.body.footerHeight
-    });
+    }).filter(([, value]) => value !== undefined)));
 
     res.json(updated);
   } catch (e) {
@@ -381,6 +407,7 @@ export const archiveLetterheadTemplate = async (req, res, next) => {
     if (!id) return res.status(400).json({ error: { message: 'Invalid id' } });
     const existing = await LetterheadTemplate.findById(id);
     if (!existing) return res.status(404).json({ error: { message: 'Letterhead not found' } });
+    if (!(await canManageLetterhead(req, existing))) return res.status(403).json({ error: { message: 'Not authorized to manage this letterhead' } });
     const updated = await LetterheadTemplate.setActive(id, false);
     res.json(updated);
   } catch (e) {
@@ -394,6 +421,7 @@ export const restoreLetterheadTemplate = async (req, res, next) => {
     if (!id) return res.status(400).json({ error: { message: 'Invalid id' } });
     const existing = await LetterheadTemplate.findById(id);
     if (!existing) return res.status(404).json({ error: { message: 'Letterhead not found' } });
+    if (!(await canManageLetterhead(req, existing))) return res.status(403).json({ error: { message: 'Not authorized to manage this letterhead' } });
     const updated = await LetterheadTemplate.setActive(id, true);
     res.json(updated);
   } catch (e) {

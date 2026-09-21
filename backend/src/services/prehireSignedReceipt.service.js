@@ -1,9 +1,10 @@
+import { applyDocumentAnnotations } from '../utils/pdfDocumentAnnotations.js';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import StorageService from './storage.service.js';
 
-export async function buildSignedReceipt({ title, body, signerName, signatureData, source = null, sourceName = 'original-document', signedAt = new Date().toISOString() }) {
+export async function buildSignedReceipt({ title, body, signerName, signatureData, source = null, sourceName = 'original-document', documentAnnotations = [], signedAt = new Date().toISOString() }) {
   if (!/^data:image\/(png|jpeg);base64,/.test(String(signatureData || ''))) {
     throw Object.assign(new Error('Capture a valid signature before submitting.'), { status: 400 });
   }
@@ -12,6 +13,7 @@ export async function buildSignedReceipt({ title, body, signerName, signatureDat
   if (source && Buffer.from(source).subarray(0, 4).toString() !== '%PDF') {
     await pdf.attach(source, sourceName, { description: 'Original document acknowledged by the signer' });
   }
+  await applyDocumentAnnotations(pdf, documentAnnotations, signatureData);
   const fullText = `${title}\n\n${body}\n\nSigned by ${signerName}\nSigned at ${signedAt}`;
   // Preserve the exact Unicode text as well as a printable receipt.
   await pdf.attach(Buffer.from(fullText, 'utf8'), 'acknowledgment.txt', { mimeType: 'text/plain' });
@@ -30,9 +32,9 @@ export async function buildSignedReceipt({ title, body, signerName, signatureDat
   return Buffer.from(await pdf.save());
 }
 
-export async function savePrehireSignedReceipt({ userId, agencyId, itemKey, title, docType, body, signerName, signatureData, sourcePath = null, sourceName = null }) {
-  const source = sourcePath ? await StorageService.readObject(sourcePath) : null;
-  const pdf = await buildSignedReceipt({ title, body, signerName, signatureData, source, sourceName: sourceName || 'original-document' });
+export async function savePrehireSignedReceipt({ userId, agencyId, itemKey, title, docType, body, signerName, signatureData, sourcePath = null, sourceName = null, source = null, documentAnnotations = [] }) {
+  source = sourcePath ? await StorageService.readObject(sourcePath) : source;
+  const pdf = await buildSignedReceipt({ title, body, signerName, signatureData, source, documentAnnotations, sourceName: sourceName || 'original-document' });
   const fileName = `prehire-signed-${userId}-${randomUUID()}.pdf`;
   const saved = await StorageService.saveAdminDoc(pdf, fileName, 'application/pdf');
   const db = await pool.getConnection();

@@ -3,6 +3,7 @@ import { body } from 'express-validator';
 import multer from 'multer';
 import {
   listLetterheadTemplates,
+  duplicateLetterheadTemplate,
   getLetterheadTemplate,
   createLetterheadTemplate,
   uploadLetterheadAsset,
@@ -36,6 +37,8 @@ router.post('/', authenticate, requireBackofficeAdmin, validateCreate, createLet
 
 // SVG/PNG upload letterhead
 router.post('/upload', authenticate, requireBackofficeAdmin, upload.single('file'), validateCreate, uploadLetterheadAsset);
+
+router.post('/:id/duplicate', authenticate, requireBackofficeAdmin, duplicateLetterheadTemplate);
 
 router.put('/:id', authenticate, requireBackofficeAdmin, updateLetterheadTemplate);
 router.post('/:id/archive', authenticate, requireBackofficeAdmin, archiveLetterheadTemplate);

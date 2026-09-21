@@ -23,6 +23,7 @@
                 </router-link>
               </template>
             </nav>
+            <button type="button" class="lib-btn lib-btn--primary" @click="openAdd('branded')">+ Create document</button>
             <button
               type="button"
               class="lib-btn lib-btn--primary"
@@ -281,7 +282,7 @@
       </div>
     </div>
 
-    <LibraryAddResourceModal
+    <LibraryAddResourceModal ref="addResourceModal" :agency-id="agencyId"
       v-if="showAdd"
       :categories="categories"
       :folders="folders"
@@ -321,9 +322,12 @@
     <div v-if="viewerResource" class="library-viewer-overlay" @click.self="closeViewer">
       <div class="library-viewer-shell">
         <LibraryResourceViewer
+          ref="resourceViewer"
           :resource="viewerResource"
           :can-distribute="canDistribute(viewerResource)"
           @close="closeViewer"
+          @saved="onDocumentSaved"
+          @copied="onDocumentCopied"
           @distribute="openDistribute(viewerResource)"
         />
       </div>
@@ -358,6 +362,7 @@
 <script setup>
 import HireJourneyLibrary from '../components/prehire/HireJourneyLibrary.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
@@ -702,8 +707,9 @@ function runSearch() {
 }
 
 async function openResource(item) {
+  if ((await resourceViewer.value?.prepareToLeave()) === false) return;
   try {
-    const full = await fetchLibraryResource(item.id);
+    const full = await fetchLibraryResource(item.id, { agencyId: agencyId.value });
     viewerResource.value = full;
     if (route.params.resourceId !== String(item.id) && orgSlug.value) {
       router
@@ -718,7 +724,20 @@ async function openResource(item) {
   }
 }
 
-function closeViewer() {
+const resourceViewer = ref(null);
+const addResourceModal = ref(null);
+async function saveBeforeNavigation() {
+  if ((await resourceViewer.value?.prepareToLeave()) === false) return false;
+  return addResourceModal.value?.prepareToLeave() ?? true;
+}
+onBeforeRouteLeave(saveBeforeNavigation);
+onBeforeRouteUpdate(saveBeforeNavigation);
+
+function onDocumentSaved(item) { viewerResource.value = { ...viewerResource.value, ...item }; }
+async function onDocumentCopied(item) { await openResource(item); await refresh(); }
+
+async function closeViewer() {
+  if ((await resourceViewer.value?.prepareToLeave()) === false) return;
   viewerResource.value = null;
   if (route.name === 'OrganizationLibraryResource' && orgSlug.value) {
     router.replace({ name: 'OrganizationLibrary', params: { organizationSlug: orgSlug.value } }).catch(() => {});
@@ -787,6 +806,7 @@ async function onCreated(payload = {}) {
   await refresh();
   const item = payload?.item;
   const shareMode = payload?.shareMode;
+  if (item?.resourceType === 'branded_doc') await openResource(item);
   if (payload?.kind === 'resource' && item && shareMode && canDistribute(item)) {
     openDistribute(item, shareMode);
   }

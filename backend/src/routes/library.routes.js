@@ -32,7 +32,10 @@ import {
   listResourceShares,
   setResourceShares,
   distributeResource,
-  listMyCopies
+  listMyCopies,
+  previewLibraryDocument,
+  copyLibraryDocument,
+  exportLibraryDocumentWord
 } from '../controllers/library.controller.js';
 
 const router = express.Router();
@@ -62,6 +65,7 @@ router.delete('/favorites/:resourceId', removeFavorite);
 
 router.get('/resources', listResources);
 router.post('/resources/branded', createBrandedDoc);
+router.post('/documents/preview', previewLibraryDocument);
 router.post(
   '/resources/suggest-metadata',
   (req, res, next) => {
@@ -97,6 +101,8 @@ router.post('/resources/link', addLinkResource);
 router.get('/resources/:id', getResource);
 router.get('/resources/:id/download', downloadResource);
 router.get('/resources/:id/pdf', renderBrandedDocPdf);
+router.get('/resources/:id/docx', exportLibraryDocumentWord);
+router.post('/resources/:id/copy', copyLibraryDocument);
 router.get('/resources/:id/shares', listResourceShares);
 router.put('/resources/:id/shares', setResourceShares);
 router.post('/resources/:id/distribute', distributeResource);

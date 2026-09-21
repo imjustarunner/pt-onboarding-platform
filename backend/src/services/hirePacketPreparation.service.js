@@ -37,6 +37,20 @@ export async function prepareHirePacket({ userId, agencyId, body }) {
       assertHireFormReady(document);
     } else if (resource.required && !resource.url) fail(`Attach a link for ${resource.title} before sending this packet.`);
   }
+  for (const doc of documents) {
+    if (doc.templateId) {
+      const [[template]] = await pool.execute('SELECT * FROM document_templates WHERE id = ?', [doc.templateId]);
+      if (!template || (template.agency_id != null && Number(template.agency_id) !== Number(agencyId)) || !template.is_active) fail(`Choose an available document template for ${doc.title}.`);
+      assertHireFormReady(template);
+    }
+    if (doc.kind === 'company_document') {
+      if (!doc.bodyHtml && !doc.filePath && !doc.templateId) fail(`Write or attach ${doc.title} before sending this packet.`);
+      if (doc.bodyHtml) {
+        const { validateDocumentBranding } = await import('./libraryDocument.service.js');
+        await validateDocumentBranding({ agencyId, brandingMode: doc.brandingMode, letterheadTemplateId: doc.letterheadTemplateId });
+      }
+    }
+  }
   const packet = { workflow, documents, contractConfigId: Number(job.default_contract_config_id) || null, jobDescription: job ? { id: job.id, title: job.title, descriptionText: job.description_text, descriptionSections: jsonObject(job.description_sections_json), scheduleText: job.schedule_text } : null, handbookUrl: workflow.handbookUrl || settings.handbook_full_url || '',
     onboardingPackageId: null,
     prehirePackageId: Object.hasOwn(body, 'packageId') ? Number(body.packageId) || null : Number(preset?.prehirePackageId || settings.default_prehire_package_id) || null };

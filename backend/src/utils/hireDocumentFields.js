@@ -28,6 +28,8 @@ export function assertHireFormReady(template) {
   const name = String(template.name || '');
   const needsInputs = ['w4', 'i9', 'direct_deposit_form'].includes(key) || /\bW-?4\b|\bI-?9\b|direct deposit|withholding certificate|health insurance opt/i.test(name);
   if (!needsInputs || template.document_action_type === 'review') return;
+  // PDF candidates can use native fields or place their own entries without admin mapping.
+  if (template.template_type === 'pdf' && template.file_path) return;
   let fields = template.field_definitions || [];
   try { if (typeof fields === 'string') fields = JSON.parse(fields); } catch { fields = []; }
   if (!Array.isArray(fields) || !fields.some(f => !['signature', 'date'].includes(f.type))) {

@@ -1,11 +1,9 @@
 <template>
   <div class="hps-root">
     <div class="hps-header">
-      <h2 class="hps-title">Hiring &amp; Pre-Hire</h2>
-      <p class="hps-subtitle">
-        Configure defaults for the pre-hire workflow. Settings here drive the <strong>Start Pre-Hire</strong> page
-        and control what candidates see when they first receive access.
-      </p>
+      <h2 class="hps-title">{{ phase === 'pre_hire' ? 'Hiring & Pre-Hire' : 'Onboarding' }}</h2>
+      <p class="hps-subtitle">{{ phase === 'pre_hire' ? 'Prepare candidate documents, contracts and resources before employment begins.' : 'Set up employee forms, training and profile steps after pre-hire is complete.' }}</p>
+      <nav class="hps-process-tabs" aria-label="Hiring process"><button type="button" :aria-pressed="phase === 'pre_hire'" @click="phase = 'pre_hire'">Hiring &amp; Pre-Hire</button><button type="button" :aria-pressed="phase === 'onboarding'" @click="phase = 'onboarding'">Onboarding</button></nav>
     </div>
 
     <div v-if="pageLoading" class="hps-loading">Loading settings…</div>
@@ -13,11 +11,11 @@
 
     <template v-else>
       <!-- Default Pre-Hire Package -->
-      <div class="hps-section">
+      <div v-if="phase === 'pre_hire'" class="hps-section">
         <div class="hps-section-header">
           <div class="hps-section-title">Default Pre-Hire Package</div>
           <div class="hps-section-sub">
-            Assigned automatically when Initiate is clicked on Start Pre-Hire, unless that job posting lists its own documents.
+            A saved collection of documents added to the individual pre-hire steps below. You can choose a different collection when preparing a candidate’s pre-hire.
           </div>
         </div>
         <div class="hps-field">
@@ -29,13 +27,13 @@
             </select>
           </div>
           <div v-if="preHirePackages.length === 0" class="hps-help hps-help-warn">
-            No pre_hire packages found. Create one in Settings → Packages first.
+            No pre-hire packages yet. Use “Create or edit packages here” below, or add individual documents.
           </div>
         </div>
       </div>
 
       <!-- Default Onboarding Package -->
-      <div class="hps-section">
+      <div v-if="phase === 'onboarding'" class="hps-section">
         <div class="hps-section-header">
           <div class="hps-section-title">Default Onboarding Package</div>
           <div class="hps-section-sub">
@@ -51,8 +49,12 @@
         </div>
       </div>
 
+      <HirePackageContents :key="packageRefresh + phase" :package-id="phase === 'pre_hire' ? form.default_prehire_package_id : form.default_onboarding_package_id" :documents-only="phase === 'pre_hire'" />
+      <button type="button" class="btn btn-secondary" @click="managePackages = !managePackages">{{ managePackages ? 'Close package editor' : 'Create or edit packages here' }}</button>
+      <OnboardingPackageManagement v-if="managePackages" :key="phase" :phase="phase" :scoped-agency-id="Number(agencyId)" @changed="refreshPackages" />
+
       <!-- Default Contract -->
-      <div class="hps-section">
+      <div v-if="phase === 'pre_hire'" class="hps-section">
         <div class="hps-section-header">
           <div class="hps-section-title">Default Employment Contract</div>
           <div class="hps-section-sub">
@@ -77,7 +79,7 @@
       </div>
 
       <!-- Workplace handbook links -->
-      <div class="hps-section">
+      <div v-if="phase === 'pre_hire'" class="hps-section">
         <div class="hps-section-header">
           <div class="hps-section-title">Workplace handbook links</div>
           <div class="hps-section-sub">
@@ -86,8 +88,8 @@
         </div>
         <div class="hps-field-group">
           <div class="hps-field">
-            <label class="hps-label">Handbook acknowledgement URL</label>
-            <input v-model="form.handbook_ack_url" class="input" type="url" placeholder="https://…" />
+            <label class="hps-label">External handbook acknowledgement (optional)</label>
+            <input v-model="form.handbook_ack_url" class="input" type="url" placeholder="https://…" /><p class="hps-help">To keep the acknowledgement in this app, use “Write / paste document” in Default pre-hire documents below. No external URL is needed for that document.</p>
           </div>
           <div class="hps-field">
             <label class="hps-label">Full Workplace Handbook URL</label>
@@ -96,7 +98,7 @@
         </div>
       </div>
 
-      <div class="hps-section">
+      <div v-if="phase === 'pre_hire'" class="hps-section">
         <div class="hps-section-header">
           <div class="hps-section-title">Default pre-hire documents</div>
           <div class="hps-section-sub">
@@ -112,24 +114,24 @@
       </div>
 
       <div class="hps-section">
-        <HireWorkflowEditor v-model="form.portal_workflow" :templates="templates" branding supervisor-settings heading="Tenant portal design and step defaults" />
-        <p class="hps-help">Use a Google Drive viewer link for the handbook above. Manage viewer download permissions in Drive. The portal does not add a handbook download action.</p>
+        <HireWorkflowEditor v-model="form.portal_workflow" :templates="templates" :phase="phase" branding :supervisor-settings="phase === 'pre_hire'" :heading="phase === 'pre_hire' ? 'Pre-hire portal resources' : 'Onboarding portal resources'" />
+
       </div>
-      <div class="hps-section">
-        <div class="hps-section-title">Reusable hire packet templates</div>
+      <div v-if="phase === 'pre_hire'" class="hps-section">
+        <div class="hps-section-title">Reusable pre-hire setups</div>
         <p class="hps-help">Choose these on Start Pre-Hire. Each combines package assignments and additional portal steps.</p>
         <div v-for="(packet, index) in form.hire_packet_templates" :key="packet.id" class="hps-section">
           <label class="hps-label">Template name<input v-model="packet.name" class="input" /></label>
           <label class="hps-label">Pre-hire package<select v-model="packet.prehirePackageId" class="input"><option :value="null">Agency default</option><option v-for="p in preHirePackages" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
-          <label class="hps-label">Onboarding package<select v-model="packet.onboardingPackageId" class="input"><option :value="null">Agency default</option><option v-for="p in onboardingPackages" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
-          <HireWorkflowEditor v-model="packet.workflow" :templates="templates" heading="Additional steps for this template" />
+          <HirePackageContents :package-id="packet.prehirePackageId || form.default_prehire_package_id" documents-only />
+          <HireWorkflowEditor v-model="packet.workflow" :templates="templates" phase="pre_hire" heading="Additional pre-hire steps for this setup" />
           <button type="button" class="btn btn-secondary" @click="form.hire_packet_templates.splice(index, 1)">Remove template</button>
         </div>
         <button type="button" class="btn btn-secondary" @click="addPacketTemplate">Add packet template</button>
       </div>
 
       <!-- Candidate Access Token -->
-      <div class="hps-section">
+      <div v-if="phase === 'pre_hire'" class="hps-section">
         <div class="hps-section-header">
           <div class="hps-section-title">Candidate Access Token</div>
           <div class="hps-section-sub">
@@ -154,13 +156,13 @@
             <label class="hps-label">Email body</label>
             <textarea v-model="form.invite_email_body" class="textarea" rows="5"
               placeholder="Hi {{firstName}}, we're excited to have you join our team! Click below to complete your pre-hire paperwork." />
-            <div class="hps-help">Supports: <code>{{firstName}}</code>, <code>{{lastName}}</code>, <code>{{orgName}}</code>, <code>{{role}}</code></div>
+            <div v-pre class="hps-help">Supports: <code>{{firstName}}</code>, <code>{{lastName}}</code>, <code>{{orgName}}</code>, <code>{{role}}</code></div>
           </div>
         </div>
       </div>
 
       <!-- Job Role → Onboarding Package Mapping -->
-      <div class="hps-section">
+      <div v-if="phase === 'onboarding'" class="hps-section">
         <div class="hps-section-header">
           <div class="hps-section-title">Onboarding Package by Job Role</div>
           <div class="hps-section-sub">
@@ -205,7 +207,7 @@
       </div>
 
       <!-- Internal Signer Roles -->
-      <div class="hps-section hps-section-signers">
+      <div v-if="phase === 'pre_hire'" class="hps-section hps-section-signers">
         <div class="hps-section-header">
           <div class="hps-section-title">Internal Signer Roles</div>
           <div class="hps-section-sub">
@@ -281,6 +283,8 @@
 </template>
 
 <script setup>
+import OnboardingPackageManagement from './OnboardingPackageManagement.vue';
+import HirePackageContents from '../hiring/HirePackageContents.vue';
 import HireWorkflowEditor from './HireWorkflowEditor.vue';
 import { ref, computed, watch, onMounted } from 'vue';
 import api from '../../services/api';
@@ -288,9 +292,18 @@ import { useAgencyStore } from '../../store/agency';
 import JobPrehireDocsEditor from '../careers/JobPrehireDocsEditor.vue';
 
 const props = defineProps({
+  process: { type: String, default: 'pre_hire' },
   scopedAgencyId: { type: [Number, String], default: null }
 });
 
+const phase = ref(props.process);
+watch(() => props.process, value => { phase.value = value; });
+const managePackages = ref(false), packageRefresh = ref(0);
+async function refreshPackages() {
+  const { data } = await api.get('/onboarding-packages', { params: { agencyId: agencyId.value, includeInactive: 'true' } });
+  packages.value = (Array.isArray(data) ? data : []).filter(p => p.is_active !== false && p.is_active !== 0);
+  packageRefresh.value++;
+}
 const agencyStore = useAgencyStore();
 const agencyId = computed(() => {
   const scoped = Number(props.scopedAgencyId || 0);
@@ -371,7 +384,7 @@ const loadAll = async () => {
     const [settingsRes, pkgsRes, tmplRes, rolesRes, usersRes, libraryRes] = await Promise.all([
       api.get('/hiring/settings', { params }),
       api.get('/onboarding-packages', { params: { ...params, includeInactive: 'true' } }),
-      api.get('/document-templates', { params: { limit: 1000 } }),
+      api.get('/document-templates', { params: { ...params, limit: 1000 } }),
       api.get('/hiring/signer-roles', { params }),
       api.get('/users').catch(() => ({ data: [] })),
       api.get('/contracts/library', { params }).catch(() => ({ data: {} }))
@@ -395,7 +408,7 @@ const loadAll = async () => {
     };
 
     const pkgList = Array.isArray(pkgsRes.data) ? pkgsRes.data : [];
-    packages.value = pkgList.filter(p => p.is_active !== false);
+    packages.value = pkgList.filter(p => p.is_active !== false && p.is_active !== 0);
     templates.value = parseTemplateList(tmplRes.data).filter(t => t.is_active !== false && t.is_active !== 0);
     contractConfigs.value = Array.isArray(libraryRes.data?.configs) ? libraryRes.data.configs : [];
     signerRoles.value = rolesRes.data || [];
@@ -502,6 +515,7 @@ watch(agencyId, (id, prev) => {
 </script>
 
 <style scoped>
+.hps-process-tabs{display:flex;gap:12px;margin:16px 0}.hps-process-tabs button{padding:12px 18px;border:1px solid #b7cec6;border-radius:8px;background:white;color:#185b46}.hps-process-tabs button[aria-pressed=true]{background:#185b46;color:white}
 .hps-root { max-width: 720px; }
 
 .hps-header { margin-bottom: 24px; }

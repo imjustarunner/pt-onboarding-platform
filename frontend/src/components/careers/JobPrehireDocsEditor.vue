@@ -4,11 +4,11 @@
       <div>
         <h4>{{ heading }}</h4>
         <p class="muted">
-          These items appear on the candidate’s pre-hire portal. Upload company documents here for
-          candidates to review and sign — or ask them to upload a completed file.
+          These items appear on the candidate’s pre-hire portal. Write a branded acknowledgement, attach a document to fill and sign, or request an upload. Included items are listed below.
         </p>
       </div>
-      <button type="button" class="btn btn-secondary btn-sm" @click="addDoc">Add document</button>
+      <button type="button" class="btn btn-secondary btn-sm" @click="addDoc('write')">Write / paste document</button>
+      <button type="button" class="btn btn-secondary btn-sm" @click="addDoc('upload')">Upload document</button>
     </div>
 
     <div class="jpde-kind-guide" role="note">
@@ -18,7 +18,7 @@
       </div>
       <div class="jpde-kind-guide-item">
         <strong>Company document to sign</strong>
-        <span>Upload a PDF/form you provide. Candidate reviews it in the portal and signs.</span>
+        <span>Paste formatted text on your letterhead, or attach a PDF candidates can fill and sign.</span>
       </div>
       <div class="jpde-kind-guide-item">
         <strong>Candidate upload</strong>
@@ -30,12 +30,21 @@
       </div>
     </div>
 
-    <details><summary>Additional portal steps for this job</summary><HireWorkflowEditor :model-value="model.workflow || {}" @update:model-value="model = { ...model, workflow: $event }" heading="Job-specific videos, links and meetings" /></details>
-    <div v-if="!model.documents.length" class="jpde-empty muted">No pre-hire documents on this job yet.</div>
-
+    <section v-if="allowAgencyDefault" class="jpde-card">
+      <h4>Agency defaults included with this job</h4>
+      <p v-if="catalogError" role="alert">{{ catalogError }} <button type="button" @click="loadCatalog">Retry</button></p>
+      <p v-else-if="catalogLoading">Loading available documents…</p>
+      <p v-else-if="!inheritedDocuments.length">No additional agency default documents.</p>
+      <div v-for="doc in inheritedDocuments" :key="doc.id" class="jpde-card-head">
+        <label><input type="checkbox" :checked="!(model.excludedDocumentIds || []).includes(doc.id)" @change="toggleDefault(doc.id, $event.target.checked)" /> {{ doc.title }} · {{ doc.kind === 'company_document' ? 'Review and sign' : doc.kind.replaceAll('_', ' ') }}</label>
+        <button type="button" class="btn btn-secondary btn-sm" @click="customizeDefault(doc)">View / customize for this job</button>
+      </div>
+    </section>
+    <h4>{{ allowAgencyDefault ? 'Job-specific documents' : 'Included documents' }} · {{ model.documents.length }}</h4>
+    <p v-if="!model.documents.length" class="jpde-empty muted">Use the buttons above to add a document.</p>
     <div v-for="(doc, idx) in model.documents" :key="doc.id || idx" class="jpde-card">
       <div class="jpde-card-head">
-        <strong>Document {{ idx + 1 }}</strong>
+        <strong>{{ doc.title || `Document ${idx + 1}` }} <small v-if="doc.templateId">· Library template</small></strong>
         <button type="button" class="jpde-remove" @click="removeDoc(idx)">Remove</button>
       </div>
       <div class="jpde-grid">
@@ -55,7 +64,10 @@
           <input v-model="doc.url" class="input" type="url" placeholder="https://uenroll.identogo.com/…" />
           <span class="jpde-field-hint">Candidate taps “Open link” and leaves your portal for this site.</span>
         </label>
-        <div v-if="doc.kind === 'company_document' || doc.kind === 'upload'" class="jpde-file-block">
+        <label v-if="doc.kind === 'company_document' && !doc.templateId">Document source
+          <select :value="doc.bodyHtml || doc.sourceMode === 'write' ? 'write' : 'upload'" class="input" @change="setSource(doc, $event.target.value)"><option value="write">Write / paste branded document</option><option value="upload">Upload PDF or image</option></select>
+        </label>
+        <div v-if="!doc.templateId && ((doc.kind === 'company_document' && !doc.bodyHtml && doc.sourceMode !== 'write') || doc.kind === 'upload')" class="jpde-file-block">
           <label>{{ doc.kind === 'company_document' ? 'Upload company document' : 'Upload blank form (optional)' }}
             <input
               class="input"
@@ -83,6 +95,8 @@
           <input v-model="doc.scheduledOn" class="input" type="date" />
         </label>
       </div>
+      <LibraryDocumentEditor v-if="doc.kind === 'company_document' && !doc.templateId && (doc.bodyHtml || doc.sourceMode === 'write')" v-model="doc.bodyHtml" v-model:branding-mode="doc.brandingMode" v-model:letterhead-template-id="doc.letterheadTemplateId" :agency-id="agencyId" :name="doc.title || 'Acknowledgement'" />
+      <p v-if="doc.templateId" class="muted">This template will be assigned as a document step. <a :href="templateEditUrl(doc.templateId)" target="_blank" rel="noopener">View / edit template ↗</a></p>
       <label class="jpde-full">Portal instructions
         <textarea
           v-model="doc.instructions"
@@ -113,13 +127,26 @@
       </div>
       <p v-if="defaultError[doc.id]" class="jpde-upload-err">{{ defaultError[doc.id] }}</p>
     </div>
+    <section class="jpde-card">
+      <h4>Available document templates</h4>
+      <p class="muted">Attach an existing template here. Included templates are marked.</p>
+      <p v-if="!allowAgencyDefault && catalogError" role="alert">{{ catalogError }} <button type="button" @click="loadCatalog">Retry</button></p>
+      <p v-if="!availableTemplates.length && !catalogLoading">No active document templates in this agency.</p>
+      <label class="jpde-full">Find a document<input v-model="templateSearch" type="search" class="input" placeholder="Search available documents" /></label><div class="jpde-template-list">
+      <div v-for="template in filteredTemplates" :key="template.id" class="jpde-card-head">
+        <span><a :href="templateEditUrl(template.id)" target="_blank" rel="noopener">{{ template.name }} · View / edit ↗</a></span><button type="button" class="btn btn-secondary btn-sm" :disabled="templateIncluded(template.id)" @click="attachTemplate(template)">{{ templateIncluded(template.id) ? 'Included' : 'Include document' }}</button>
+      </div></div>
+    </section>
+    <HireWorkflowEditor v-if="allowAgencyDefault" :model-value="model.workflow || {}" @update:model-value="model = { ...model, workflow: $event }" :templates="availableTemplates" phase="pre_hire" heading="Job-specific videos, links and meetings" />
   </div>
 </template>
 
 <script setup>
 import HireWorkflowEditor from '../admin/HireWorkflowEditor.vue';
-import { computed, reactive } from 'vue';
+import LibraryDocumentEditor from '../library/LibraryDocumentEditor.vue';
+import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import { useRoute } from 'vue-router';
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({ documents: [] }) },
@@ -128,7 +155,39 @@ const props = defineProps({
   allowAgencyDefault: { type: Boolean, default: true }
 });
 const emit = defineEmits(['update:modelValue']);
+const route = useRoute();
+function templateEditUrl(id) { return `${route.params.organizationSlug ? '/' + encodeURIComponent(route.params.organizationSlug) : ''}/admin/documents/${id}/edit?agencyId=${encodeURIComponent(props.agencyId)}`; }
 
+const availableTemplates = ref([]), agencyDocuments = ref([]), catalogError = ref(''), catalogLoading = ref(false);
+const templateSearch = ref('');
+const filteredTemplates = computed(() => availableTemplates.value.filter(t => t.name?.toLowerCase().includes(templateSearch.value.toLowerCase())));
+const inheritedDocuments = computed(() => agencyDocuments.value.filter(d => !model.value.documents.some(local => local.id === d.id)));
+let catalogRequest = 0;
+async function loadCatalog() {
+  const request = ++catalogRequest;
+  availableTemplates.value = []; agencyDocuments.value = []; catalogError.value = '';
+  if (!Number(props.agencyId)) return;
+  catalogLoading.value = true;
+  try {
+    const [templates, defaults] = await Promise.all([
+      api.get('/document-templates', { params: { agencyId: props.agencyId, limit: 1000 } }),
+      props.allowAgencyDefault ? api.get('/hiring/settings', { params: { agencyId: props.agencyId } }) : Promise.resolve({ data: {} })
+    ]);
+    if (request !== catalogRequest) return;
+    const list = Array.isArray(templates.data) ? templates.data : templates.data?.templates || templates.data?.data || [];
+    availableTemplates.value = list.filter(t => (t.agency_id == null || Number(t.agency_id) === Number(props.agencyId)) && t.is_active !== false && t.is_active !== 0);
+    agencyDocuments.value = defaults.data?.settings?.default_prehire_docs || [];
+  } catch { if (request === catalogRequest) catalogError.value = 'Could not load available documents.'; }
+  finally { if (request === catalogRequest) catalogLoading.value = false; }
+}
+function toggleDefault(id, include) {
+  model.value = { ...model.value, excludedDocumentIds: include ? (model.value.excludedDocumentIds || []).filter(x => x !== id) : [...new Set([...(model.value.excludedDocumentIds || []), id])] };
+}
+function customizeDefault(doc) { model.value = { ...model.value, documents: [...model.value.documents, JSON.parse(JSON.stringify(doc))], excludedDocumentIds: (model.value.excludedDocumentIds || []).filter(id => id !== doc.id) }; }
+function templateIncluded(id) { return [...model.value.documents, ...inheritedDocuments.value.filter(d => !(model.value.excludedDocumentIds || []).includes(d.id))].some(d => Number(d.templateId) === Number(id)); }
+function attachTemplate(template) { if (!templateIncluded(template.id)) model.value = { ...model.value, documents: [...model.value.documents, { ...blankDoc(), title: template.name, templateId: template.id }] }; }
+function setSource(doc, source) { doc.sourceMode = source; if (source === 'write') clearFile(doc); else doc.bodyHtml = ''; }
+watch(() => props.agencyId, loadCatalog, { immediate: true });
 const uploadBusy = reactive({});
 const uploadError = reactive({});
 const defaultBusy = reactive({});
@@ -163,8 +222,8 @@ const blankDoc = () => ({
   scheduledOn: ''
 });
 
-const addDoc = () => {
-  model.value.documents.push(blankDoc());
+const addDoc = (sourceMode = 'write') => {
+  model.value = { ...model.value, documents: [...model.value.documents, { ...blankDoc(), sourceMode, bodyHtml: '', brandingMode: 'organization' }] };
 };
 const removeDoc = (idx) => {
   model.value.documents.splice(idx, 1);
@@ -252,7 +311,7 @@ const kindCallout = (kind) => {
     case 'upload':
       return 'Candidate uploads a file to their hire record. Optionally attach your blank form above.';
     case 'company_document':
-      return 'Candidate reviews your uploaded document in the portal and signs. Stored on their hire record.';
+      return 'Candidate fills and signs this document in the portal. The completed PDF and visible signature stay on their hire record.';
     default:
       return 'Candidate reviews this job’s description in the portal and signs. That signed copy is kept on their hire record.';
   }
@@ -261,7 +320,9 @@ const kindCallout = (kind) => {
 
 <style scoped>
 .jpde { margin-top: 14px; }
-.jpde-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.jpde-template-list { max-height: 300px; overflow: auto; margin-top: 12px; }
+.jpde-card-head { gap: 12px; flex-wrap: wrap; }
+.jpde-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: flex-start; }
 .jpde-head h4 { margin: 0 0 4px; }
 .jpde-empty { padding: 10px 0; }
 .jpde-kind-guide {

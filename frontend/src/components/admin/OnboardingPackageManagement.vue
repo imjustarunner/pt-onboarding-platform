@@ -1,7 +1,7 @@
 <template>
   <div class="onboarding-packages">
     <div class="section-header">
-      <h2>Onboarding Packages</h2>
+      <h2>{{ phase === 'pre_hire' ? 'Pre-hire packages' : phase === 'onboarding' ? 'Onboarding packages' : 'Hire packages' }}</h2>
       <button v-if="!readOnly" @click="showCreateModal = true" class="btn btn-primary">Create New Package</button>
     </div>
 
@@ -78,7 +78,7 @@
           </div>
           <div class="form-group">
             <label>Package Type *</label>
-            <select v-model="packageForm.packageType" class="form-control" required>
+            <select v-model="packageForm.packageType" class="form-control" :disabled="!!phase" required>
               <option value="pre_hire">Pre-Hire</option>
               <option value="onboarding">Onboarding</option>
               <option value="training">Training</option>
@@ -523,6 +523,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 
 const props = defineProps({
+  phase: { type: String, default: '' },
   readOnly: {
     type: Boolean,
     default: false
@@ -531,6 +532,7 @@ const props = defineProps({
   scopedAgencyId: { type: Number, default: null }
 });
 
+const emit = defineEmits(['changed']);
 const route = useRoute();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
@@ -553,7 +555,7 @@ const packageForm = ref({
   description: '',
   agencyId: null,
   isActive: true,
-  packageType: 'onboarding',
+  packageType: props.phase || 'onboarding',
   lifecycleItemKeys: []
 });
 
@@ -626,14 +628,13 @@ const fetchLifecycleDefinitions = async () => {
 
 const filteredPackages = computed(() => {
   const sid = Number(props.scopedAgencyId || 0);
-  if (!Number.isFinite(sid) || sid <= 0) return packages.value;
-  return packages.value.filter((p) => Number(p.agency_id) === sid);
+  return packages.value.filter(p => (!props.phase || p.package_type === props.phase) && (!sid || Number(p.agency_id) === sid));
 });
 
 const fetchPackages = async () => {
   try {
     loading.value = true;
-    const response = await api.get('/onboarding-packages?includeInactive=true');
+    const response = await api.get('/onboarding-packages', { params: { includeInactive: true, ...(props.scopedAgencyId ? { agencyId: props.scopedAgencyId } : {}) } });
     const packagesData = response.data;
     
     // Fetch counts for each package
@@ -931,6 +932,7 @@ const savePackage = async () => {
 
     closeModal();
     fetchPackages();
+    emit('changed');
   } catch (err) {
     modalError.value = err.response?.data?.error?.message || 'Failed to save package';
   } finally {
@@ -963,6 +965,7 @@ const deletePackage = async (id) => {
   try {
     await api.delete(`/onboarding-packages/${id}`);
     fetchPackages();
+    emit('changed');
   } catch (err) {
     error.value = err.response?.data?.error?.message || 'Failed to delete package';
   }
@@ -977,7 +980,7 @@ const closeModal = () => {
     description: '',
     agencyId: null,
     isActive: true,
-    packageType: 'onboarding',
+    packageType: props.phase || 'onboarding',
     lifecycleItemKeys: []
   };
 };

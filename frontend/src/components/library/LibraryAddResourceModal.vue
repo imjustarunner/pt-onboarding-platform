@@ -1,9 +1,9 @@
 <template>
-  <div class="lib-modal-backdrop" @click.self="$emit('close')">
-    <div class="lib-modal" role="dialog" aria-modal="true" aria-labelledby="lib-add-title">
+  <div class="lib-modal-backdrop" @click.self="requestClose">
+    <div class="lib-modal" :class="{ 'lib-modal--document': mode === 'branded' }" role="dialog" aria-modal="true" aria-labelledby="lib-add-title">
       <header class="lib-modal__head">
         <h2 id="lib-add-title">Add Resource</h2>
-        <button type="button" class="lib-modal__x" aria-label="Close" @click="$emit('close')">×</button>
+        <button type="button" class="lib-modal__x" aria-label="Close" @click="requestClose">×</button>
       </header>
 
       <div class="lib-modal__tabs">
@@ -73,18 +73,7 @@
             <span>Document name</span>
             <input v-model="form.name" type="text" placeholder="e.g. Safety Plan" />
           </label>
-          <label class="lib-field">
-            <span>Letterhead</span>
-            <select v-model="form.letterheadTemplateId">
-              <option value="">Default / none</option>
-              <option v-for="lh in letterheads" :key="lh.id" :value="String(lh.id)">
-                {{ lh.name }}{{ lh.isPlatform ? ' (platform)' : '' }}
-              </option>
-            </select>
-          </label>
-          <div class="lib-branded-editor">
-            <HtmlDocumentBuilder v-model="form.bodyHtml" :paper-mode="true" />
-          </div>
+          <LibraryDocumentEditor v-model="form.bodyHtml" v-model:branding-mode="form.brandingMode" v-model:letterhead-template-id="form.letterheadTemplateId" :name="form.name" :agency-id="agencyId" />
         </template>
 
         <template v-else>
@@ -109,7 +98,7 @@
               <input v-model="form.scope" type="radio" value="organization" />
               <span>
                 <strong>Everyone</strong>
-                <small>Shared with the whole organization</small>
+                <small>Shared with the whole organization; only you and managers edit the original</small>
               </span>
             </label>
             <label class="lib-scope__opt lib-scope__opt--mine" :class="{ 'is-active': form.scope === 'personal' }">
@@ -151,7 +140,7 @@
               @click="form.shareMode = 'collaborate'"
             >
               <strong>Collaborate</strong>
-              <small>Same shared document — permitted people edit the master together.</small>
+              <small>Same shared document — people with edit access can save changes. Conflicting saves are protected.</small>
             </button>
             <button
               type="button"
@@ -229,7 +218,7 @@
       </div>
 
       <footer class="lib-modal__foot">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="$emit('close')">
+        <button type="button" class="btn btn-secondary" :disabled="saving" @click="requestClose">
           Cancel
         </button>
         <button type="button" class="btn btn-primary" :disabled="saving" @click="submit">
@@ -241,23 +230,23 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import {
   getGoogleWorkspacePreviewUrl,
   isGoogleWorkspaceUrl
 } from '../../utils/googleWorkspacePreview.js';
-import HtmlDocumentBuilder from '../documents/HtmlDocumentBuilder.vue';
+import LibraryDocumentEditor from './LibraryDocumentEditor.vue';
 import {
   uploadLibraryResource,
   uploadLibraryBatch,
   addLibraryLink,
   createLibraryFolder,
   createLibraryBrandedDoc,
-  suggestLibraryMetadata,
-  fetchLibraryLetterheads
+  suggestLibraryMetadata
 } from '../../services/library.js';
 
 const props = defineProps({
+  agencyId: { type: [Number, String], default: null },
   categories: { type: Array, default: () => [] },
   folders: { type: Array, default: () => [] },
   defaultFolderId: { type: [String, Number], default: '' },
@@ -284,7 +273,6 @@ const aiApplied = ref(false);
 const error = ref('');
 const file = ref(null);
 const folderFiles = ref([]);
-const letterheads = ref([]);
 const aiSnapshot = ref(null);
 
 const form = reactive({
@@ -298,8 +286,19 @@ const form = reactive({
   scope: props.canManage ? 'organization' : 'personal',
   shareMode: 'view_only',
   bodyHtml: '<p></p>',
-  letterheadTemplateId: ''
+  letterheadTemplateId: null,
+  brandingMode: 'organization'
 });
+
+const hasUnsavedDocument = computed(() => mode.value === 'branded' && !!(form.name.trim() || String(form.bodyHtml).replace(/<[^>]*>/g, '').trim()));
+function prepareToLeave() {
+  return !hasUnsavedDocument.value || window.confirm('Discard this document draft? Use Save document to keep it in your library.');
+}
+function requestClose() { if (!saving.value && prepareToLeave()) emit('close'); }
+function beforeUnload(event) { if (hasUnsavedDocument.value) { event.preventDefault(); event.returnValue = ''; } }
+onMounted(() => window.addEventListener('beforeunload', beforeUnload));
+onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload));
+defineExpose({ prepareToLeave });
 
 const isEditableMode = computed(() => mode.value === 'branded');
 const showsShareModes = computed(() => !['folder', 'upload_folder'].includes(mode.value));
@@ -341,13 +340,6 @@ const googlePreview = computed(() => {
   return getGoogleWorkspacePreviewUrl(form.url);
 });
 
-onMounted(async () => {
-  try {
-    letterheads.value = await fetchLibraryLetterheads();
-  } catch {
-    letterheads.value = [];
-  }
-});
 
 function setMode(id) {
   mode.value = id;
@@ -472,10 +464,9 @@ async function submit() {
 
     if (mode.value === 'branded') {
       if (!form.name.trim()) throw new Error('Document name is required');
-      if (!String(form.bodyHtml || '').replace(/<[^>]+>/g, '').trim()) {
-        throw new Error('Add some document content');
-      }
       const item = await createLibraryBrandedDoc({
+        agencyId: props.agencyId || undefined,
+        brandingMode: form.brandingMode,
         name: form.name.trim(),
         bodyHtml: form.bodyHtml,
         letterheadTemplateId: form.letterheadTemplateId || null,
@@ -520,6 +511,7 @@ async function submit() {
 </script>
 
 <style scoped>
+.lib-modal.lib-modal--document { width: min(1150px, 96vw); max-width: 1150px; }
 .lib-modal-backdrop {
   position: fixed;
   inset: 0;

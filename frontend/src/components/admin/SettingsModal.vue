@@ -770,6 +770,9 @@ const allCategories = [
         excludeSupervisor: true
       },
       {
+        id: 'onboarding-setup', label: 'Onboarding', icon: '🌱', component: 'HiringPreHireSettings', props: { process: 'onboarding' }, requiresAgency: true, requiresOnboardingTrainingEnabled: true, roles: ['super_admin', 'admin', 'support'], excludeRoles: ['clinical_practice_assistant'], excludeSupervisor: true
+      },
+      {
         id: 'packages',
         label: 'Packages',
         icon: '📦',
@@ -1162,7 +1165,7 @@ const tenantHubSecondaryBlocks = computed(() => {
     const peopleCatalog = pick(['client-settings', 'school-settings', 'provider-settings']);
     const scheduling = pick(['provider-scheduling', 'availability-intake', 'shift-programs']);
     // Promoted into Tenant hub “Pay & workforce”; still listed here so the hub can pull them.
-    const peopleOps = pick(['payroll-schedule', 'departments', 'hiring-prehire']);
+    const peopleOps = pick(['payroll-schedule', 'departments', 'hiring-prehire', 'onboarding-setup']);
     const programs = pick(['challenge-management']);
     const used = new Set(
       [...onboarding, ...peopleCatalog, ...scheduling, ...peopleOps, ...programs].map((i) => i.id)

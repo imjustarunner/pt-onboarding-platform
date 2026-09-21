@@ -1,4 +1,5 @@
 import { sanitizeWorkflow } from './hirePortalWorkflow.js';
+import { sanitizeDocumentHtml } from '../services/libraryDocument.service.js';
 const KINDS = new Set(['print_only', 'reference', 'acknowledgement', 'upload', 'company_document']);
 
 function asObject(raw) {
@@ -33,6 +34,9 @@ export function sanitizePrehireConfig(raw) {
         instructions: String(d?.instructions || '').trim().slice(0, 4000),
         printInstructions: String(d?.printInstructions || d?.print_instructions || '').trim().slice(0, 8000),
         url: String(d?.url || '').trim().slice(0, 2000),
+        bodyHtml: kind === 'company_document' ? sanitizeDocumentHtml(String(d?.bodyHtml || '').slice(0, 500000)) : '',
+        brandingMode: ['plain', 'organization', 'letterhead'].includes(d?.brandingMode) ? d.brandingMode : 'organization',
+        letterheadTemplateId: Number(d?.letterheadTemplateId) || null,
         filePath,
         fileName,
         mimeType,
@@ -46,7 +50,7 @@ export function sanitizePrehireConfig(raw) {
     .map((n) => Number(n))
     .filter((n) => Number.isFinite(n) && n > 0);
 
-  return { documents, signerRoleIds, ...(parsed.workflow ? { workflow: sanitizeWorkflow(parsed.workflow) } : {}) };
+  return { documents, signerRoleIds, excludedDocumentIds: (Array.isArray(parsed.excludedDocumentIds) ? parsed.excludedDocumentIds : []).map(id => String(id).slice(0, 80)), ...(parsed.workflow ? { workflow: sanitizeWorkflow(parsed.workflow) } : {}) };
 }
 
 export function mergePrehireDocuments(jobConfig, agencyDefaults) {
@@ -55,7 +59,7 @@ export function mergePrehireDocuments(jobConfig, agencyDefaults) {
   const seen = new Set(job.documents.map((d) => d.id));
   const merged = [...job.documents];
   for (const d of defaults.documents) {
-    if (!seen.has(d.id)) merged.push(d);
+    if (!seen.has(d.id) && !job.excludedDocumentIds.includes(d.id)) merged.push(d);
   }
   return {
     documents: merged,

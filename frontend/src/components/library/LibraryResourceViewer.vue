@@ -1,5 +1,6 @@
 <template>
-  <div class="lib-viewer" role="dialog" aria-modal="true" aria-label="Resource viewer">
+  <LibraryDocumentWorkspace v-if="isBranded" ref="workspace" :key="resource.id" :resource="resource" :can-distribute="canDistribute" @close="$emit('close')" @saved="$emit('saved', $event)" @copied="$emit('copied', $event)" @distribute="$emit('distribute')" />
+  <div v-else class="lib-viewer" role="dialog" aria-modal="true" aria-label="Resource viewer">
     <header class="lib-viewer__bar">
       <div class="lib-viewer__titles">
         <h2>{{ resource?.name || 'Resource' }}</h2>
@@ -14,15 +15,6 @@
         >
           Distribute…
         </button>
-        <a
-          v-if="isBranded"
-          class="btn btn-secondary btn-sm"
-          :href="pdfUrl"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Print / PDF
-        </a>
         <a
           v-if="openExternalUrl"
           class="btn btn-secondary btn-sm"
@@ -47,9 +39,8 @@
     </header>
 
     <div class="lib-viewer__body">
-      <div v-if="isBranded" class="lib-viewer__branded" v-html="resource?.bodyHtml || ''" />
       <iframe
-        v-else-if="embedUrl"
+        v-if="embedUrl"
         class="lib-viewer__frame"
         :src="embedUrl"
         :title="resource?.name || 'Preview'"
@@ -75,27 +66,25 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
+import LibraryDocumentWorkspace from './LibraryDocumentWorkspace.vue';
 import {
   isGoogleWorkspaceUrl,
   getGoogleWorkspacePreviewUrl,
   detectGoogleResourceLabel
 } from '../../utils/googleWorkspacePreview.js';
-import { libraryBrandedDocPdfUrl } from '../../services/library.js';
 
 const props = defineProps({
   resource: { type: Object, required: true },
   canDistribute: { type: Boolean, default: false }
 });
 
-defineEmits(['close', 'distribute']);
+defineEmits(['close', 'distribute', 'saved', 'copied']);
+const workspace = ref(null);
+defineExpose({ prepareToLeave: () => workspace.value?.prepareToLeave() ?? true });
 
 const isBranded = computed(
   () => String(props.resource?.resourceType || '').toLowerCase() === 'branded_doc'
-);
-
-const pdfUrl = computed(() =>
-  isBranded.value && props.resource?.id ? libraryBrandedDocPdfUrl(props.resource.id) : null
 );
 
 const isGoogle = computed(() => {

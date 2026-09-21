@@ -377,7 +377,7 @@ const load = async () => {
     const defaults = Array.isArray(settings.value.default_prehire_docs) ? settings.value.default_prehire_docs : [];
     const seen = new Set();
     const merged = [];
-    for (const d of [...(jobConfig.documents || []), ...defaults]) {
+    for (const d of [...(jobConfig.documents || []), ...defaults.filter(d => !(jobConfig.excludedDocumentIds || []).includes(d.id))]) {
       const id = String(d.id || d.title || '');
       if (seen.has(id)) continue;
       seen.add(id);

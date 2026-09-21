@@ -553,6 +553,7 @@ export const portalSign = async (req, res, next) => {
       signerName: `${first_name} ${last_name}`.trim(),
       signatureData,
       fieldValues: fieldValues || {},
+      documentAnnotations: req.body?.documentAnnotations || [],
       context: 'prehire_portal',
       ipAddress: req.ip
     });
@@ -1526,13 +1527,13 @@ export const viewPortalPrehireDocFile = async (req, res, next) => {
   try {
     const userId = req.portalUser.id;
     const docId = String(req.params.docId || '').trim();
-    const { doc } = await findPortalPrehireDocForUser(userId, docId);
-    if (!doc?.filePath) {
+    const { agency, doc } = await findPortalPrehireDocForUser(userId, docId);
+    if (!doc?.filePath && !doc?.bodyHtml) {
       return res.status(404).json({ error: { message: 'Document file not found.' } });
     }
     const StorageService = (await import('../services/storage.service.js')).default;
-    const buf = await StorageService.readObject(doc.filePath);
-    const mime = doc.mimeType || 'application/pdf';
+    const buf = doc.bodyHtml ? await (await import('../services/prehireAuthoredDocument.service.js')).renderPrehireAuthoredDocument(doc, agency.id) : await StorageService.readObject(doc.filePath);
+    const mime = doc.bodyHtml ? 'application/pdf' : doc.mimeType || 'application/pdf';
     const fileName = doc.fileName || 'document.pdf';
     res.setHeader('Content-Type', mime);
     res.setHeader('Content-Disposition', `inline; filename="${String(fileName).replace(/"/g, '')}"`);
@@ -1583,11 +1584,13 @@ export const signPortalCompanyDocument = async (req, res, next) => {
     const user = await User.findById(userId);
     const signerName = String(req.body?.signerName || `${user?.first_name || ''} ${user?.last_name || ''}`).trim();
     const itemKey = `prehire_doc_${doc.id}`.slice(0, 120);
-    if (!doc.filePath) return res.status(400).json({ error: { message: 'People Operations must attach the document before you can sign it.' } });
+    if (!doc.filePath && !doc.bodyHtml) return res.status(400).json({ error: { message: 'People Operations must attach the document before you can sign it.' } });
     await savePrehireSignedReceipt({ userId, agencyId: agency.id, itemKey,
       title: `${doc.title || 'Company document'} — signed acknowledgement`, docType: 'prehire_company_document_ack',
       body: `Pre-hire document: ${doc.title}. ${doc.instructions || ''}`, signerName, signatureData: signature,
-      sourcePath: doc.filePath, sourceName: doc.fileName });
+      sourcePath: doc.bodyHtml ? null : doc.filePath, sourceName: doc.fileName,
+      source: doc.bodyHtml ? await (await import('../services/prehireAuthoredDocument.service.js')).renderPrehireAuthoredDocument(doc, agency.id) : null,
+      documentAnnotations: req.body?.documentAnnotations || [] });
     res.json({ ok: true, signed: true, signerName, itemKey });
   } catch (e) { next(e); }
 };

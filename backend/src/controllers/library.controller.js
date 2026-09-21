@@ -1,3 +1,4 @@
+import { sanitizeDocumentHtml, validateDocumentBranding, resolveDocumentLetterhead, buildDocumentRender, documentError } from '../services/libraryDocument.service.js';
 import multer from 'multer';
 import Library from '../models/Library.model.js';
 import StorageService from '../services/storage.service.js';
@@ -53,38 +54,6 @@ function isEditableLibraryType(resourceType) {
   return String(resourceType || '').toLowerCase() === 'branded_doc';
 }
 
-async function wrapBrandedDocHtml({ bodyHtml, letterheadTemplateId }) {
-  const LetterheadTemplate = (await import('../models/LetterheadTemplate.model.js')).default;
-  let header = '';
-  let footer = '';
-  let css = '';
-  const lid = Number(letterheadTemplateId || 0);
-  if (lid) {
-    const lh = await LetterheadTemplate.findById(lid).catch(() => null);
-    if (lh) {
-      css = lh.css_content || '';
-      footer = lh.footer_html || '';
-      if (lh.file_path) {
-        const url = publicUploadsUrlFromStoredPath(lh.file_path);
-        header = url
-          ? `<div class="lib-letterhead"><img src="${String(url).replace(/"/g, '')}" alt="" style="width:100%;max-width:800px;display:block;" /></div>`
-          : (lh.header_html || '');
-      } else {
-        header = lh.header_html || '';
-      }
-    }
-  }
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>
-    @page { size: Letter; margin: 0.75in; }
-    body { font-family: Georgia, 'Times New Roman', serif; color: #111; line-height: 1.45; }
-    ${css || ''}
-  </style></head><body>
-    ${header || ''}
-    <div class="lib-branded-body">${bodyHtml || ''}</div>
-    ${footer || ''}
-  </body></html>`;
-}
-
 function resolveAgencyId(req) {
   const fromQuery = Number.parseInt(String(req.query?.agencyId || ''), 10);
   if (Number.isFinite(fromQuery) && fromQuery > 0) return fromQuery;
@@ -137,6 +106,7 @@ function resolveScope(req, caps) {
 function enrichResource(resource, viewerUserId = null) {
   if (!resource) return null;
   const out = { ...resource };
+  if (out.resourceType === 'branded_doc') out.bodyHtml = sanitizeDocumentHtml(out.bodyHtml);
   if (out.filePath) {
     out.fileUrl = publicUploadsUrlFromStoredPath(out.filePath);
   }
@@ -398,26 +368,13 @@ export const listResources = async (req, res, next) => {
 export const getResource = async (req, res, next) => {
   try {
     const agencyId = resolveAgencyId(req);
-    await assertLibraryAccess(req, agencyId);
+    const caps = await assertLibraryAccess(req, agencyId);
     const resource = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
     if (!resource || resource.archivedAt) {
       return res.status(404).json({ error: { message: 'Resource not found' } });
     }
-    // Enforce personal visibility
-    if (
-      resource.scope === 'personal' &&
-      Number(resource.ownerUserId) !== Number(req.user.id)
-    ) {
-      const shares = resource.folderId
-        ? await Library.listFolderShares(resource.folderId, agencyId)
-        : [];
-      const shared = shares.some((s) => Number(s.userId) === Number(req.user.id));
-      if (!shared) {
-        return res.status(404).json({ error: { message: 'Resource not found' } });
-      }
-    }
     await Library.recordView(req.user.id, resource.id);
-    res.json(enrichResource(resource, req.user.id));
+    res.json({ ...enrichResource(resource, req.user.id), canEdit: !resource.archivedAt && await Library.userCanEditResource(resource, req.user.id, caps) });
   } catch (error) {
     next(error);
   }
@@ -597,9 +554,11 @@ export const createBrandedDoc = async (req, res, next) => {
     const agencyId = resolveAgencyId(req);
     const caps = await assertLibraryAccess(req, agencyId);
     const name = String(req.body.name || '').trim();
-    if (!name) return res.status(400).json({ error: { message: 'Resource name is required' } });
+    if (!name || name.length > 255) return res.status(400).json({ error: { message: 'Resource name must contain 1–255 characters' } });
 
-    const bodyHtml = String(req.body.bodyHtml || req.body.html || '').trim();
+    const bodyHtml = sanitizeDocumentHtml(req.body.bodyHtml || req.body.html || '<p></p>');
+    const brandingMode = req.body.brandingMode || (req.body.letterheadTemplateId ? 'letterhead' : 'organization');
+    await validateDocumentBranding({ agencyId, brandingMode, letterheadTemplateId: req.body.letterheadTemplateId });
     if (!bodyHtml) {
       return res.status(400).json({ error: { message: 'Document body is required' } });
     }
@@ -613,7 +572,8 @@ export const createBrandedDoc = async (req, res, next) => {
       fileType: 'branded_doc',
       mimeType: 'text/html',
       bodyHtml,
-      letterheadTemplateId: req.body.letterheadTemplateId || null,
+      letterheadTemplateId: brandingMode === 'letterhead' ? Number(req.body.letterheadTemplateId) : null,
+      brandingMode,
       categoryId: req.body.categoryId || null,
       folderId: req.body.folderId || null,
       ownerUserId: req.user.id,
@@ -637,16 +597,15 @@ export const renderBrandedDocPdf = async (req, res, next) => {
     const agencyId = resolveAgencyId(req);
     await assertLibraryAccess(req, agencyId);
     const resource = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
-    if (!resource || resource.resourceType !== 'branded_doc') {
+    if (!resource || resource.archivedAt || resource.resourceType !== 'branded_doc') {
       return res.status(404).json({ error: { message: 'Branded document not found' } });
     }
 
-    const html = await wrapBrandedDocHtml({
-      bodyHtml: resource.bodyHtml,
-      letterheadTemplateId: resource.letterheadTemplateId
-    });
+    const letterhead = await resolveDocumentLetterhead(resource);
+    const rendered = buildDocumentRender(resource, letterhead);
     const DocumentSigningService = (await import('../services/documentSigning.service.js')).default;
-    const pdf = await DocumentSigningService.convertHTMLToPDF(html, { format: 'Letter' });
+    const pdf = await DocumentSigningService.convertHTMLToPDF(rendered.html, rendered.options);
+    res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
@@ -665,6 +624,7 @@ export const listLetterheadsForLibrary = async (req, res, next) => {
     const LetterheadTemplate = (await import('../models/LetterheadTemplate.model.js')).default;
     const list = await LetterheadTemplate.list({
       agencyId,
+      organizationId: Number(req.query.organizationId) || null,
       includePlatform: true,
       includeInactive: false
     });
@@ -679,6 +639,71 @@ export const listLetterheadsForLibrary = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+// The preview uses the same renderer as the saved document, including page breaks.
+export const previewLibraryDocument = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+    const document = { agencyId, organizationId: req.body.organizationId || null, name: String(req.body.name || 'Document'),
+      bodyHtml: sanitizeDocumentHtml(req.body.bodyHtml), brandingMode: req.body.brandingMode || 'plain',
+      letterheadTemplateId: req.body.letterheadTemplateId || null };
+    const letterhead = await resolveDocumentLetterhead(document);
+    const rendered = buildDocumentRender(document, letterhead);
+    const DocumentSigningService = (await import('../services/documentSigning.service.js')).default;
+    const pdf = await DocumentSigningService.convertHTMLToPDF(rendered.html, rendered.options);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.type('application/pdf').send(pdf);
+  } catch (error) { next(error); }
+};
+
+export const copyLibraryDocument = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+    const source = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
+    if (!source || source.archivedAt || source.resourceType !== 'branded_doc') {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+    const brandingMode = req.body.brandingMode || source.brandingMode;
+    const letterheadTemplateId = req.body.letterheadTemplateId !== undefined ? req.body.letterheadTemplateId : source.letterheadTemplateId;
+    await validateDocumentBranding({ agencyId, organizationId: source.organizationId, brandingMode, letterheadTemplateId });
+    const name = String(req.body.name || `${source.name} — My copy`).trim();
+    if (!name || name.length > 255) throw documentError('Document name must contain 1–255 characters');
+    const copy = await Library.createResource({ agencyId, organizationId: source.organizationId,
+      name, description: source.description, resourceType: 'branded_doc', fileType: 'branded_doc', mimeType: 'text/html',
+      bodyHtml: sanitizeDocumentHtml(req.body.bodyHtml ?? source.bodyHtml),
+      brandingMode, letterheadTemplateId: brandingMode === 'letterhead' ? letterheadTemplateId : null,
+      ownerUserId: req.user.id, sourceResourceId: source.id, scope: 'personal', visibility: 'internal',
+      categoryId: source.categoryId, folderId: null, createdBy: req.user.id });
+    res.status(201).json({ ...enrichResource(copy, req.user.id), canEdit: true });
+  } catch (error) { next(error); }
+};
+
+export const exportLibraryDocumentWord = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+    const document = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
+    if (!document || document.archivedAt || document.resourceType !== 'branded_doc') {
+      return res.status(404).json({ error: { message: 'Document not found' } });
+    }
+    const letterhead = await resolveDocumentLetterhead(document);
+    // Word does not support the PDF's fixed-position CSS watermark; an inline
+    // image here would push the actual document onto later pages.
+    const rendered = buildDocumentRender(document, letterhead, { includeWatermark: false });
+    const HTMLtoDOCX = (await import('html-to-docx')).default;
+    const buffer = await HTMLtoDOCX(rendered.html, letterhead.headerHtml || '<p></p>', {
+      title: document.name, header: true, footer: true, pageNumber: true,
+      orientation: letterhead.orientation,
+      pageSize: letterhead.pageSize === 'a4' ? { width: 11906, height: 16838 } : { width: 12240, height: 15840 },
+      margins: Object.fromEntries(Object.entries(rendered.options.margin).map(([key, value]) => [key, Math.round(parseFloat(value) * 1440)]))
+    }, letterhead.footerHtml || '<p></p>');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Content-Disposition', `attachment; filename="${String(document.name).replace(/[^\w.-]+/g, '_')}.docx"`);
+    res.type('application/vnd.openxmlformats-officedocument.wordprocessingml.document').send(buffer);
+  } catch (error) { next(error); }
 };
 
 export const addLinkResource = async (req, res, next) => {
@@ -745,6 +770,18 @@ export const updateResource = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'You can only edit resources you own' } });
     }
 
+    const documentEdit = ['bodyHtml', 'letterheadTemplateId', 'brandingMode', 'name'].some((key) => req.body[key] !== undefined);
+    let brandingMode = req.body.brandingMode ?? existing.brandingMode;
+    let letterheadTemplateId = req.body.letterheadTemplateId !== undefined ? req.body.letterheadTemplateId : existing.letterheadTemplateId;
+    if (existing.resourceType === 'branded_doc' && documentEdit) {
+      if (!Number.isSafeInteger(req.body.expectedVersion) || req.body.expectedVersion < 1) {
+        return res.status(428).json({ error: { message: 'Reload the document before saving so its version can be checked.' } });
+      }
+      if (existing.archivedAt) throw documentError('Archived documents cannot be edited');
+      if (req.body.name !== undefined && (!String(req.body.name).trim() || String(req.body.name).length > 255)) throw documentError('Document name must contain 1–255 characters');
+      await validateDocumentBranding({ agencyId, organizationId: existing.organizationId, brandingMode, letterheadTemplateId });
+      if (brandingMode !== 'letterhead') letterheadTemplateId = null;
+    }
     const resource = await Library.updateResource(req.params.id, agencyId, {
       name: req.body.name,
       description: req.body.description,
@@ -756,15 +793,21 @@ export const updateResource = async (req, res, next) => {
       status: req.body.status,
       reviewDate: req.body.reviewDate,
       externalUrl: req.body.externalUrl ?? req.body.url,
-      bodyHtml: req.body.bodyHtml,
-      letterheadTemplateId: req.body.letterheadTemplateId,
+      bodyHtml: req.body.bodyHtml !== undefined ? sanitizeDocumentHtml(req.body.bodyHtml) : undefined,
+      brandingMode: documentEdit ? brandingMode : undefined,
+      expectedVersion: existing.resourceType === 'branded_doc' && documentEdit ? req.body.expectedVersion : undefined,
+      letterheadTemplateId: documentEdit ? letterheadTemplateId : undefined,
       audience: req.body.audience !== undefined ? parseAudience(req.body.audience) : undefined,
       tags: req.body.tags !== undefined ? parseTags(req.body.tags) : undefined,
       archived: req.body.archived,
       updatedBy: req.user.id,
       userId: req.user.id
     });
-    res.json(enrichResource(resource, req.user.id));
+    res.json({ ...enrichResource(resource, req.user.id),
+      // A later save can happen between our atomic UPDATE and the readback.
+      // Return the version this request wrote, never the later writer's token.
+      ...(existing.resourceType === 'branded_doc' && documentEdit ? { version: req.body.expectedVersion + 1 } : {}),
+      canEdit: true });
   } catch (error) {
     next(error);
   }
@@ -814,7 +857,7 @@ export const downloadResource = async (req, res, next) => {
   try {
     const agencyId = resolveAgencyId(req);
     await assertLibraryAccess(req, agencyId);
-    const resource = await Library.findResource(req.params.id, agencyId);
+    const resource = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
     if (!resource || resource.archivedAt) {
       return res.status(404).json({ error: { message: 'Resource not found' } });
     }
@@ -860,7 +903,7 @@ export const addFavorite = async (req, res, next) => {
   try {
     const agencyId = resolveAgencyId(req);
     await assertLibraryAccess(req, agencyId);
-    const resource = await Library.findResource(req.params.resourceId, agencyId);
+    const resource = await Library.findResource(req.params.resourceId, agencyId, { userId: req.user.id });
     if (!resource) return res.status(404).json({ error: { message: 'Resource not found' } });
     await Library.addFavorite(req.user.id, resource.id);
     res.json({ ok: true });
@@ -886,7 +929,7 @@ export const getRecent = async (req, res, next) => {
     await assertLibraryAccess(req, agencyId);
     const [viewed, updated] = await Promise.all([
       Library.recentlyViewed(agencyId, req.user.id, 12),
-      Library.recentlyUpdated(agencyId, 12)
+      Library.recentlyUpdated(agencyId, 12, req.user.id)
     ]);
     res.json({
       viewed: viewed.map((r) => enrichResource(r, req.user.id)),
@@ -951,7 +994,14 @@ async function resolveDistributeRecipients(agencyId, { emails, userIds, audience
     for (const r of rows || []) ids.add(Number(r.id));
   }
 
-  return [...ids];
+  const candidates = [...ids].filter(Number.isSafeInteger);
+  if (!candidates.length) return [];
+  // Explicit user IDs must belong to this agency, just like email/audience recipients.
+  const [members] = await pool.execute(
+    `SELECT DISTINCT user_id AS id FROM user_agencies WHERE agency_id = ? AND user_id IN (${candidates.map(() => '?').join(',')})`,
+    [agencyId, ...candidates]
+  );
+  return members.map(row => Number(row.id));
 }
 
 export const listResourceShares = async (req, res, next) => {
@@ -1110,8 +1160,9 @@ export const distributeResource = async (req, res, next) => {
         originalFilename: resource.originalFilename,
         filePath,
         externalUrl: resource.externalUrl,
-        bodyHtml: resource.bodyHtml || null,
+        bodyHtml: sanitizeDocumentHtml(resource.bodyHtml),
         letterheadTemplateId: resource.letterheadTemplateId || null,
+        brandingMode: resource.brandingMode,
         fileSizeBytes,
         categoryId: resource.categoryId,
         folderId: null,

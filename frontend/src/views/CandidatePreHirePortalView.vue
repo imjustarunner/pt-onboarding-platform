@@ -162,14 +162,11 @@
                   <template v-else-if="['company_document', 'acknowledgement'].includes(doc.kind)">
                     <p v-if="doc.signed || companyDocSigned[doc.id]" class="cred-ok">Signed — thank you. Saved on your hire record.</p>
                     <template v-else>
-                      <div v-if="doc.filePath" class="portal-doc-embed">
-                        <iframe
-                          class="portal-doc-frame"
-                          title="Company document"
-                          :src="companyDocFileUrl(doc)"
-                        />
-                      </div>
-                      <p v-else class="muted">Your hiring team still needs to attach this document file.</p>
+                      <HireDocumentPreview v-if="doc.bodyHtml || (doc.filePath && (!doc.mimeType || doc.mimeType === 'application/pdf'))"
+                        :http="portalApi" :url="`/prehire-portal/${token}/documents/${encodeURIComponent(doc.id)}/file`" :title="doc.title"
+                        editable v-model="companyDocAnnotations[doc.id]" :signature-data="companyDocSignatures[doc.id]" @ready="companyDocReady[doc.id] = $event" />
+                      <img v-else-if="doc.filePath && doc.mimeType?.startsWith('image/')" :src="companyDocFileUrl(doc)" :alt="doc.title" style="max-width:100%" @load="companyDocReady[doc.id] = true" />
+                      <p v-else class="muted">Your hiring team still needs to attach this document.</p>
                       <AdaptiveSignatureCapture
                         v-model="companyDocSignatures[doc.id]"
                         title="Sign this document"
@@ -179,7 +176,7 @@
                       <button
                         type="button"
                         class="btn-primary"
-                        :disabled="!!companyDocBusy[doc.id]"
+                        :disabled="!!companyDocBusy[doc.id] || !companyDocReady[doc.id]"
                         @click="signCompanyDocument(doc)"
                       >
                         {{ companyDocBusy[doc.id] ? 'Saving…' : 'I acknowledge this document' }}
@@ -412,7 +409,7 @@
 
               <div v-if="panelStep !== 'consent' || activeTask.status === 'completed'" class="review-block">
                 <HireDocumentPreview v-if="activeTaskDetail?.document" :key="activeTask.id" :http="portalApi"
-                  :url="`/prehire-portal/${token}/tasks/${activeTask.id}/preview`" :title="activeTask.title" @ready="previewReady = $event" />
+                  :url="`/prehire-portal/${token}/tasks/${activeTask.id}/preview`" :title="activeTask.title" :editable="activeTask.status !== 'completed' && activeTask.actionType !== 'review' && !fillableFields.length" v-model="documentAnnotations" @ready="previewReady = $event" />
                 <div v-if="fillableFields.length && activeTask.status !== 'completed'" class="doc-form-fields">
                   <div v-if="!activeTaskDetail?.document?.htmlContent" class="doc-form-intro">
                     <div class="doc-form-title">{{ activeTask.title }}</div>
@@ -672,6 +669,8 @@ const jdAcknowledgedLocal = ref(false);
 const uploadBusy = ref({});
 const uploadDone = ref({});
 const uploadError = ref({});
+const companyDocAnnotations = reactive({}), companyDocReady = reactive({});
+const documentAnnotations = ref([]);
 const companyDocSignatures = reactive({});
 const companyDocBusy = reactive({});
 const companyDocError = reactive({});
@@ -703,7 +702,8 @@ const signCompanyDocument = async (doc) => {
   try {
     await portalApi.post(`/prehire-portal/${token.value}/documents/${encodeURIComponent(id)}/sign`, {
       signatureData,
-      signerName: candidateDisplayName.value
+      signerName: candidateDisplayName.value,
+      documentAnnotations: companyDocAnnotations[id] || []
     });
     companyDocSigned[id] = true;
     await reloadPortal();
@@ -891,7 +891,8 @@ const acknowledgeJobDescription = async () => {
   try {
     await portalApi.post(`/prehire-portal/${token.value}/job-description/acknowledge`, {
       signatureData: jdSignature.value,
-      signerName: candidateDisplayName.value
+      signerName: candidateDisplayName.value,
+      documentAnnotations: companyDocAnnotations[id] || []
     });
     jdAcknowledgedLocal.value = true;
     await reloadPortal();
@@ -1332,6 +1333,7 @@ const pillLabel = (t) => {
 
 const selectTask = async (task) => {
   previewReady.value = false;
+  documentAnnotations.value = [];
   activeTaskId.value = task.id;
   panelStep.value = task.status === 'completed' ? 'review' : 'consent';
   panelError.value = '';
@@ -1463,7 +1465,8 @@ const submitSign = async () => {
   try {
     await portalApi.post(`/prehire-portal/${token.value}/tasks/${activeTask.value.id}/sign`, {
       signatureData: dataUrl,
-      fieldValues: fieldValues.value
+      fieldValues: fieldValues.value,
+      documentAnnotations: documentAnnotations.value
     });
     await reloadPortal();
     closePanel();
