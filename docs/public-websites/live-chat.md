@@ -13,3 +13,9 @@ Apply `database/migrations/1460_live_chat_collaboration.sql` before deploying th
 - Recognized whole-word profanity is masked on the server before encryption for both parties. The filter is not exhaustive. Staff can separately confirm a Community Standards flag; visitors receive a linked warning. The standards page applies to all communications and is linked from chat, public forms, tickets, messaging, policy pages, public footers, and website ticket reply emails.
 
 Validation covers invitation enforcement, claims, closing without deletion, visitor endings, moderation, referral scoping, page metadata, typing, drafts, unread alerts, topic prefilling, and public-domain routing. Service tests use a database double; a two-browser smoke test against the migrated database is still needed before release. Verify staff A/B, a visitor, claims and handoff, abrupt tab closure, and the submitted ticket's attribution.
+
+## Desk controls (September 20)
+
+Drag the grip beside the Live Chat button to move the desk, or focus the grip and use the arrow keys. The position is saved per support account in this browser and clamped to the viewport when the panel or window changes size.
+
+After minimizing, refreshes and new activity update the badge without reopening the panel. Closing a conversation keeps it in the available list, without reopening its thread. Read markers and the panel’s expanded state survive page navigation and reloads in the same browser tab. A waiting badge requires an unread visitor message newer than the latest staff reply; system notices, staff replies, ended chats, and expired sessions do not count. No database migration is needed for these desk fixes; deploy the backend queue update with the frontend.

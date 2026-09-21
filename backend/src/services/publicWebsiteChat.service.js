@@ -108,6 +108,7 @@ export function createWebsiteChatService(db=pool,identity=getPublicWebsiteIdenti
  s.name,s.accent_color AS color,s.logo_url AS logoUrl,
  (SELECT MAX(m.id) FROM public_website_chat_messages m WHERE m.session_id=c.id) AS lastMessageId,
  (SELECT MAX(m.id) FROM public_website_chat_messages m WHERE m.session_id=c.id AND m.sender='visitor') AS lastVisitorMessageId,
+ (SELECT MAX(m.id) FROM public_website_chat_messages m WHERE m.session_id=c.id AND m.sender='staff') AS lastStaffMessageId,
  (SELECT COUNT(*) FROM public_website_chat_messages m WHERE m.session_id=c.id AND m.sender='visitor') AS visitorMessages
  FROM public_website_chat_sessions c JOIN public_website_support_sites s ON s.slug=c.site_slug WHERE (c.last_seen_at>UTC_TIMESTAMP()-INTERVAL 90 SECOND OR EXISTS(SELECT 1 FROM public_website_chat_messages m WHERE m.session_id=c.id))${scope} ORDER BY c.created_at DESC LIMIT 100`,params);return rows;}
  async function staffSession(user,id){const [rows]=await db.execute('SELECT * FROM public_website_chat_sessions WHERE id=?',[id]);if(!rows[0])throw fail('Chat not found',404);const site=await authorize(user,rows[0].site_slug);return {session:rows[0],site};}
