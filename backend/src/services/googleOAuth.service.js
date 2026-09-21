@@ -65,13 +65,14 @@ export function getGoogleOAuthClient({ redirectUri: redirectUriOverride = null }
   return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
 }
  
-export function getGoogleAuthorizeUrl({ state, nonce, prompt = 'select_account', redirectUri = null }) {
+export function getGoogleAuthorizeUrl({ state, nonce, prompt = 'select_account', loginHint = null, redirectUri = null }) {
   const client = getGoogleOAuthClient({ redirectUri });
   return client.generateAuthUrl({
     access_type: 'online',
     response_type: 'code',
     scope: ['openid', 'email', 'profile'],
-    prompt,
+    ...(prompt ? { prompt } : {}),
+    ...(loginHint ? { login_hint: loginHint } : {}),
     state,
     nonce
   });

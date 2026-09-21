@@ -5498,7 +5498,7 @@ onMounted(async () => {
     ).trim().toLowerCase();
     const username = String(authStore.user?.username || authStore.user?.email || '').trim();
     if (orgSlug && username) {
-      setRememberedGoogleLogin({ username, orgSlug });
+      setRememberedGoogleLogin({ username, orgSlug, displayName: [authStore.user?.firstName || authStore.user?.first_name, authStore.user?.lastName || authStore.user?.last_name].filter(Boolean).join(' '), loginHint: authStore.user?.email || username });
     }
     const nextQuery = { ...route.query };
     delete nextQuery.sso;

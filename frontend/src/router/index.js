@@ -1,3 +1,4 @@
+import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { createRouter, createWebHistory } from 'vue-router';
 import { publicDomainHistory, publicSupportSlugFromHost } from '../utils/publicDomainRouting.js';
 import { updateItscoDocumentMeta } from '../utils/itscoPublicSeo.js';
@@ -5037,7 +5038,16 @@ router.beforeEach(async (to, from, next) => {
       // Google OAuth returns with an HttpOnly cookie instead of going through
       // authStore.login(). Preserve the same fresh-login signal used by password,
       // passwordless, and biometric flows so privileged briefings open reliably.
-      if (String(to.query?.sso || '') === '1') signalFreshLogin();
+      if (String(to.query?.sso || '') === '1') {
+        signalFreshLogin();
+        const orgSlug = String(to.query?.ssoOrg || to.params?.organizationSlug || '').trim().toLowerCase();
+        if (orgSlug) setRememberedGoogleLogin({
+          username: u.username || u.email,
+          orgSlug,
+          displayName: [u.firstName || u.first_name, u.lastName || u.last_name].filter(Boolean).join(' '),
+          loginHint: u.email || u.username
+        });
+      }
       return true;
     } catch {
       return false;

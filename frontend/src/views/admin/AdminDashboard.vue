@@ -98,7 +98,7 @@ onMounted(() => {
     const ssoOrg = String(route.query?.ssoOrg || '').trim().toLowerCase();
     const username = String(authStore.user?.username || authStore.user?.email || '').trim();
     if (ssoOrg && username) {
-      setRememberedGoogleLogin({ username, orgSlug: ssoOrg });
+      setRememberedGoogleLogin({ username, orgSlug: ssoOrg, displayName: [authStore.user?.firstName || authStore.user?.first_name, authStore.user?.lastName || authStore.user?.last_name].filter(Boolean).join(' '), loginHint: authStore.user?.email || username });
     }
     agencyStore.setPlatformMode();
     const nextQuery = { ...route.query };

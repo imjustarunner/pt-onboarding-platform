@@ -439,17 +439,14 @@
           </div>
         </section>
 
-        <button
+        <RememberedGoogleAccount
           v-if="showRememberedGoogleButton && !isIOSNative"
-          type="button"
-          class="btn google-quick-login"
-          :disabled="loading || verifying"
-          @click="startRememberedGoogleLogin"
-        >
-          <span class="google-quick-login-text">
-            Continue as <strong>{{ rememberedGoogleLogin?.username }}</strong> with Google
-          </span>
-        </button>
+          :account="rememberedGoogleLogin"
+          :busy="loading || verifying"
+          @continue="startRememberedGoogleLogin"
+          @switch="resetToUsernameStep"
+          @forget="forgetRememberedAccount"
+        />
 
         <!-- Biometric login button (native only, when token is saved) -->
         <div v-if="showBiometricButton" class="biometric-login-wrap">
@@ -473,7 +470,7 @@
         </div>
 
         <div :class="{ 'app-auth-panel': isAppLike, 'ipad-auth-panel': isIpadPreviewMode }">
-          <form @submit.prevent="handleSubmit" class="login-form">
+          <form v-if="!showRememberedGoogleButton" @submit.prevent="handleSubmit" class="login-form">
             <div
               class="login-credentials-wrap"
               :class="{ 'login-credentials-wrap--school-split': schoolPortalCredentialsRow }"
@@ -550,7 +547,7 @@
 
             <div v-if="!needsOrgChoice" class="remember-row">
               <label class="remember-me">
-                <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" />
+                <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" @change="saveRememberPreference" />
                 Remember username
               </label>
             </div>
@@ -803,6 +800,7 @@ const isIOSNative = (() => {
 })();
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
+import RememberedGoogleAccount from '../components/RememberedGoogleAccount.vue';
 import api from '../services/api';
 import { getBackendBaseUrl } from '../utils/uploadsUrl';
 import { getDashboardRoute } from '../utils/router';
@@ -810,7 +808,8 @@ import {
   getRememberedLogin,
   setRememberedLogin,
   clearRememberedLogin,
-  getRememberedGoogleLogin,
+  getPortalLoginMemory,
+  clearRememberedGoogleLogin,
   setRememberedGoogleLogin,
   getRememberedSchoolStaffPasswordLogin,
   setRememberedSchoolStaffPasswordLogin,
@@ -1560,31 +1559,12 @@ onMounted(async () => {
     }
   }
 
-  // Platform login convenience: restore the remembered username, but do not auto-route away from
-  // the generic platform login. That auto-jump can trap users on a stale remembered org slug.
-  if (!isOrgLogin.value) {
-    const remembered = getRememberedLogin();
-    const hostSlug = effectiveLoginSlug.value;
-    if (
-      remembered?.username
-      && !String(username.value || '').trim()
-      && (!remembered.orgSlug || !hostSlug || remembered.orgSlug === hostSlug)
-    ) {
-      username.value = remembered.username;
-      rememberLogin.value = true;
-    }
-  }
-
-  const rememberedGoogle = isIOSNative ? null : getRememberedGoogleLogin();
-  const rememberedGoogleSlug = String(rememberedGoogle?.orgSlug || '').trim().toLowerCase();
-  const currentSlug = effectiveLoginSlug.value;
-  if (rememberedGoogle && currentSlug && rememberedGoogleSlug === currentSlug) {
-    rememberedGoogleLogin.value = rememberedGoogle;
-    if (!String(username.value || '').trim()) {
-      username.value = rememberedGoogle.username;
-    }
-    rememberLogin.value = true;
-  }
+  // Restore both password and Google accounts on every matching branded portal,
+  // including custom-domain /login. An explicit username always takes priority.
+  const memory = getPortalLoginMemory(effectiveLoginSlug.value, { username: username.value, allowGoogle: !isIOSNative });
+  username.value = memory.username;
+  rememberedGoogleLogin.value = memory.google;
+  if (memory.remembered || memory.google) rememberLogin.value = true;
 
   await playTenantLoginBgVideos();
 });
@@ -1935,7 +1915,27 @@ const startRememberedGoogleLogin = () => {
   const rememberedOrg = String(rememberedGoogleLogin.value?.orgSlug || '').trim().toLowerCase();
   if (!rememberedOrg) return;
   const base = getBackendBaseUrl();
-  window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(rememberedOrg)}${ssoNextParam()}`;
+  window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(rememberedOrg)}&loginHint=${encodeURIComponent(rememberedGoogleLogin.value.loginHint || rememberedGoogleLogin.value.username)}${ssoNextParam()}`;
+};
+
+const saveRememberPreference = () => {
+  const slug = effectiveLoginSlug.value;
+  if (rememberLogin.value) {
+    if (slug && username.value.trim()) setRememberedLogin({ username: username.value, orgSlug: slug, parentOrgSlug: resolveParentForNestedLogin(slug) });
+  } else {
+    clearRememberedLogin();
+    clearRememberedGoogleLogin(slug || null);
+    clearRememberedSchoolStaffPasswordLogin(slug || null);
+    for (const key of ['username', 'verify', 'remember']) {
+      try { sessionStorage.removeItem(`__pt_login_pending_${key}__`); } catch { /* Storage may be disabled. */ }
+    }
+  }
+};
+const forgetRememberedAccount = () => {
+  clearRememberedGoogleLogin(rememberedGoogleLogin.value?.orgSlug);
+  rememberLogin.value = false;
+  saveRememberPreference();
+  resetToUsernameStep();
 };
 
 const onUsernameInput = () => {
@@ -2225,7 +2225,8 @@ const handleLogin = async () => {
   const result = await authStore.login(username.value, password.value, loginSlug.value);
   
   if (result.success) {
-    const currentOrgSlug = String(loginSlug.value || '').trim().toLowerCase();
+    const currentOrgSlug = String(effectiveLoginSlug.value || '').trim().toLowerCase();
+    saveRememberPreference();
     const roleNorm = String(authStore.user?.role || '').toLowerCase();
     const verifiedMethod = String(identifiedLoginMethod.value || 'password').toLowerCase();
 
@@ -4534,6 +4535,18 @@ const handleLogoError = (event) => {
 </style>
 
 <style scoped>
+@media (min-width: 769px) {
+  .login-page--video-auth:not(.login-page--tisi-video):not(.login-page--app-like) .login-container {
+    justify-content: center;
+    padding: 40px clamp(20px, 5vw, 40px);
+  }
+  .login-page--video-auth:not(.login-page--tisi-video):not(.login-page--app-like) .video-auth-hero,
+  .login-page--video-auth:not(.login-page--tisi-video):not(.login-page--app-like) .platform-hero {
+    padding-top: 0;
+    flex-shrink: 0;
+  }
+}
+
 .login-security-footer { margin-top: .75rem; text-align: center; }
 .login-security-guidance { margin: .6rem 0 0; padding: .85rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; font-size: .85rem; line-height: 1.5; text-align: left; }
 .login-security-guidance p { margin: .35rem 0 0; }

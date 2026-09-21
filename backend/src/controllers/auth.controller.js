@@ -1766,7 +1766,11 @@ export const googleOAuthStart = async (req, res, next) => {
     const payload = verifyGoogleState(state);
     const nonce = payload?.nonce || null;
 
-    const authUrl = getGoogleAuthorizeUrl({ state, nonce, redirectUri });
+    // The remembered address is only a Google account hint, never proof of identity.
+    // The callback still verifies the ID token, organization membership and session policy.
+    const hintRaw = typeof req.query?.loginHint === 'string' ? req.query.loginHint.trim() : '';
+    const loginHint = hintRaw.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(hintRaw) ? hintRaw : null;
+    const authUrl = getGoogleAuthorizeUrl({ state, nonce, redirectUri, loginHint, prompt: loginHint ? null : 'select_account' });
     return res.redirect(302, authUrl);
   } catch (error) {
     next(error);
