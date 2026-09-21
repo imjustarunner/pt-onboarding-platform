@@ -2190,29 +2190,7 @@
           >✕</button>
         </div>
       </div>
-      <div
-        v-if="joinReminderToast.visible"
-        class="join-reminder-toast"
-        role="alert"
-      >
-        <span class="join-reminder-toast-icon" aria-hidden="true">📅</span>
-        <span class="join-reminder-toast-message">{{ joinReminderToast.message }}</span>
-        <button
-          type="button"
-          class="join-reminder-toast-btn btn-join-pulse"
-          @click="joinReminderToastJoin"
-        >
-          Join now
-        </button>
-        <button
-          type="button"
-          class="join-reminder-toast-dismiss"
-          aria-label="Dismiss"
-          @click.stop="dismissJoinReminderToast"
-        >
-          ×
-        </button>
-      </div>
+      <ActiveMeetingToasts v-if="isAuthenticated && user?.id" :key="user.id" :user-id="user.id" />
       <TimeCapsuleRevealSplashModal v-if="isAuthenticated && hasCapability('canManageHiring')" />
       <ToolsAssignModal
         v-if="toolsAssignState"
@@ -2338,7 +2316,7 @@ import {
   isSessionRecordingEnabledForAgencyFlags
 } from './config/sessionRecordingAccess.js';
 import api from './services/api';
-import { navigateToJoinLink } from './utils/appJoinNavigation';
+import ActiveMeetingToasts from './components/meetings/ActiveMeetingToasts.vue';
 import { listActivities } from './services/counselingApi.js';
 import { launchActivity, isStandaloneLaunchable, isToolsCatalogActivity, isEmbeddedSessionActivity, resolveStandaloneUrl } from './services/launchActivity.js';
 import {
@@ -6484,8 +6462,6 @@ const notificationUpdateCursor = ref(0);
 const notificationUpdatesInitialized = ref(false);
 const notificationToastQueue = ref([]);
 const seenNotificationToastIds = new Set();
-const joinReminderToast = ref({ visible: false, message: '', prompt: null });
-let joinReminderPollInterval = null;
 
 const dismissNewNotificationToast = () => {
   newNotificationToastVisible.value = false;
@@ -6494,10 +6470,6 @@ const dismissNewNotificationToast = () => {
     newNotificationToastTimer.value = null;
   }
   showNextNotificationToast();
-};
-
-const dismissJoinReminderToast = () => {
-  joinReminderToast.value = { visible: false, message: '', prompt: null };
 };
 
 function showNextNotificationToast() {
@@ -6679,59 +6651,6 @@ const textMeReminder = async () => {
   }
 };
 
-const isOnSupervisionJoinRoute = () => {
-  const path = String(route.path || window.location.pathname || '');
-  return /\/join\/supervision(\/|$)/i.test(path);
-};
-
-const fetchJoinPrompts = async () => {
-  if (!isAuthenticated.value || !user.value?.id) return;
-  // Already in a live join room — never show Join-now (opens a second window).
-  if (isOnSupervisionJoinRoute()) {
-    joinReminderToast.value = { visible: false, message: '', prompt: null };
-    return;
-  }
-  try {
-    const params = {};
-    const aid = agencyStore.currentAgency?.id;
-    if (aid) params.agencyId = Number(aid);
-    const resp = await api.get('/supervision/my-prompts', { params, skipGlobalLoading: true });
-    const prompts = Array.isArray(resp.data?.prompts) ? resp.data.prompts : [];
-    const first = prompts[0];
-    if (first && (first.joinUrl || first.googleMeetLink)) {
-      const start = first.startAt ? new Date(first.startAt) : null;
-      const isLive = first.isLive;
-      const msg = isLive ? 'Supervision in progress' : (start ? `Supervision starting at ${start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Supervision starting soon');
-      joinReminderToast.value = { visible: true, message: msg, prompt: first };
-    } else {
-      joinReminderToast.value = { visible: false, message: '', prompt: null };
-    }
-  } catch {
-    joinReminderToast.value = { visible: false, message: '', prompt: null };
-  }
-};
-
-const joinReminderToastJoin = () => {
-  const p = joinReminderToast.value?.prompt;
-  const appUrl = String(p?.joinUrl || '').trim();
-  const meetLink = String(p?.googleMeetLink || '').trim();
-  dismissJoinReminderToast();
-  // Same-tab path join — keeps cookies/JWT on iPad Safari (noreferrer new tabs lost auth).
-  if (navigateToJoinLink(router, appUrl)) return;
-  const sid = p?.id || p?.sessionId || p?.session_id;
-  const slug = String(route.params?.organizationSlug || '').trim();
-  if (sid && slug) {
-    void router.push(`/${slug}/join/supervision/${encodeURIComponent(sid)}`);
-    return;
-  }
-  if (sid) {
-    void router.push(`/join/supervision/${encodeURIComponent(sid)}`);
-    return;
-  }
-  if (meetLink) {
-    window.open(meetLink, '_blank', 'noopener');
-  }
-};
 
 const goToNotifications = async () => {
   markLoginNotificationDismissed();
@@ -6811,18 +6730,6 @@ function syncNotificationsCounts(enabled) {
 }
 watch(shouldFetchNotificationsCounts, syncNotificationsCounts);
 
-function syncJoinPrompts(auth) {
-  if (auth) {
-    fetchJoinPrompts();
-    if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
-    joinReminderPollInterval = setInterval(fetchJoinPrompts, 60 * 1000);
-  } else {
-    joinReminderToast.value = { visible: false, message: '', prompt: null };
-    if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
-    joinReminderPollInterval = null;
-  }
-}
-watch(isAuthenticated, syncJoinPrompts);
 
 let communicationsCountsInterval = null;
 /** Avoid `{ immediate: true }` here: it runs during setup() and has repeatedly hit TDZ with minified bundles. */
@@ -6841,13 +6748,6 @@ watch(showEngagementMenu, syncCommunicationsCountsWithEngagementMenu);
 watch(() => route.path, (path) => {
   if (path && (path.includes('/admin/communications') || path.includes('/tickets'))) {
     void communicationsCountsStore.fetchCounts();
-  }
-  if (path && /\/join\/supervision(\/|$)/i.test(String(path || ''))) {
-    joinReminderToast.value = { visible: false, message: '', prompt: null };
-    return;
-  }
-  if (path && path.includes('/dashboard') && isAuthenticated.value) {
-    void fetchJoinPrompts();
   }
 });
 
@@ -6907,7 +6807,6 @@ onMounted(async () => {
     syncAuthenticatedSideEffects(isAuthenticated.value);
     syncSchoolClientsPending([isAuthenticated.value, showSchoolClientsPendingBadge.value, schoolClientsAgencyId.value]);
     syncNotificationsCounts(shouldFetchNotificationsCounts.value);
-    syncJoinPrompts(isAuthenticated.value);
     syncCommunicationsCountsWithEngagementMenu(showEngagementMenu.value);
     syncIndirectTimeSessionPolling();
     syncRegistryGamesNav(canSeeGamesNav.value);
@@ -7065,8 +6964,6 @@ onUnmounted(() => {
   buildingsPendingInterval = null;
   if (notificationsInterval) clearInterval(notificationsInterval);
   notificationsInterval = null;
-  if (joinReminderPollInterval) clearInterval(joinReminderPollInterval);
-  joinReminderPollInterval = null;
   if (schoolClientsPendingInterval) clearInterval(schoolClientsPendingInterval);
   schoolClientsPendingInterval = null;
 });

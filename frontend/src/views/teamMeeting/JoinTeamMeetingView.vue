@@ -282,6 +282,7 @@
               @cohost-granted="onCohostGranted"
               @participant-left="onParticipantLeft"
               @activity-notice-click="onFullscreenActivityClick"
+              @leave-request="requestLeave"
             />
           </div>
           <section
@@ -303,6 +304,16 @@
               theme="dark"
               @update:open="chatPanelOpen = $event"
               @activity-notice="onLiveActivityNotice"
+            />
+          </section>
+          <section v-if="transcriptEnabled && !canSeeFullWorkspace && !videoFullscreen && !isInterviewMeeting && !isEvaluationMeeting" class="join-stack-section">
+            <MeetingNotesPanel
+              :event-id="resolvedEventId"
+              :live-capturing="transcriptCapturing"
+              :live-hint="transcriptHint"
+              :live-preview="transcriptLivePreview"
+              auto-refresh
+              read-only
             />
           </section>
         </div>
@@ -805,7 +816,6 @@ const transcriptEnabled = computed(() => (
   && !isInLobby.value
   && !!Number(resolvedEventId.value || 0)
   && !intentionalLeave.value
-  && isAttendanceTrackingActive.value
   && (isAutoTranscriptKind.value || transcriptionExplicitlyEnabled.value)
 ));
 
@@ -998,10 +1008,9 @@ const muteOthersMode = computed(() => (isAdminMeeting.value ? 'everyone' : 'host
 
 const showTranscriptionNotice = computed(() => (
   !transcriptionNoticeDismissed.value
-  && !isInLobby.value
-  && !!token.value
-  && isAttendanceTrackingActive.value
-  && (transcriptCapturing.value || videoConnected.value)
+  && transcriptEnabled.value
+  && !transcriptPaused.value
+  && !transcriptRoomStopped.value
 ));
 
 const isGeneralTeamMeeting = computed(() => (
@@ -1023,7 +1032,6 @@ const showEnableTranscriptionButton = computed(() => (
   && !isInLobby.value
   && !!token.value
   && isGeneralTeamMeeting.value
-  && attendanceTrackingEnabled.value
   && !transcriptionExplicitlyEnabled.value
   && !meetingCompletedAt.value
 ));
@@ -1094,7 +1102,7 @@ const showNotesTab = computed(() => {
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
   if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') return true;
-  return attendanceTrackingEnabled.value;
+  return transcriptionExplicitlyEnabled.value;
 });
 
 /** Host or non-provider staff can create polls (providers vote / chat / ask). */
@@ -1244,6 +1252,7 @@ async function pollMeetingCompletion() {
     if (data.attendanceTrackingEnabled != null) {
       applyAttendanceTrackingStatus(!!data.attendanceTrackingEnabled);
     }
+    if (data.transcriptState) applyTranscriptState(data.transcriptState);
     if (data.meetingCompleted || data.meetingCompletedAt || data.roomMode === 'ended') {
       applyClosurePayload(data);
       meetingCompletedAt.value = meetingCompletedAt.value || new Date().toISOString();
@@ -1678,11 +1687,7 @@ async function enableTranscription() {
   enablingTranscription.value = true;
   enableTrackingError.value = '';
   try {
-    if (!attendanceTrackingEnabled.value) {
-      const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/enable-attendance-tracking`);
-      applyAttendanceTrackingStatus(!!data?.attendanceTrackingEnabled);
-      await attendancePanelRef.value?.load?.();
-    }
+    await api.post(`/team-meetings/${encodeURIComponent(eid)}/transcript-control`, {action:'start'});
     transcriptionExplicitlyEnabled.value = true;
     videoRoomRef.value?.signalTranscriptControl?.({
       action: 'start',
@@ -1761,9 +1766,8 @@ function onTranscriptControlApi(payload) {
 function onRemoteTranscriptControl(payload) {
   const action = String(payload?.action || '');
   if (action === 'start') {
-    applyAttendanceTrackingStatus(true);
-    transcriptionNoticeDismissed.value = false;
-    void attendancePanelRef.value?.load?.({ quiet: true });
+    // Verify the persisted host action, including for late joiners/reconnects.
+    void pollMeetingCompletion();
   } else if (action === 'pause') void pauseTranscriptLocal();
   else if (action === 'resume') void resumeTranscriptLocal();
   else if (action === 'stop') {
@@ -1779,6 +1783,18 @@ function applyAttendanceTrackingStatus(enabled) {
   const wasEnabled = attendanceTrackingEnabled.value;
   attendanceTrackingEnabled.value = next;
   if (next && !wasEnabled) transcriptionNoticeDismissed.value = false;
+}
+
+function applyTranscriptState(state) {
+  const wasEnabled = transcriptionExplicitlyEnabled.value;
+  transcriptionExplicitlyEnabled.value = !!state.startedAt;
+  if (state.startedAt && !wasEnabled) transcriptionNoticeDismissed.value = false;
+  if (state.stoppedAt && !transcriptRoomStopped.value) {
+    void applyTranscriptRoomStop({stoppedAt:state.stoppedAt,stoppedByName:state.stoppedByName});
+  } else if (!state.stoppedAt && !transcriptRoomStopped.value) {
+    if (state.paused && !transcriptPaused.value) void pauseTranscriptLocal();
+    else if (!state.paused && transcriptPaused.value) void resumeTranscriptLocal();
+  }
 }
 
 function onAttendanceTrackingStatus(enabled) {
@@ -2548,7 +2564,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
 }
-.join-video :deep(.vsr__stage:not(.vsr__stage--strip)) {
+.join-video :deep(.vsr__stage:not(.vsr__stage--strip):not(.vsr__stage--focus-collapsed)) {
   flex: 1 1 0;
   min-height: 0 !important;
   height: auto !important;

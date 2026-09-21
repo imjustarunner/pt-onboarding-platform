@@ -12,6 +12,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { bootstrapResponse } from './utils/bootstrapHealth.js';
+import { splitSqlStatements, stripSqlLineComments, isIgnorableSchemaError } from './utils/migrationSql.js';
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const HOST = '0.0.0.0';
@@ -29,6 +30,7 @@ const placeholder = (req, res) => {
 };
 
 async function runStartupMigrations() {
+  let connection;
   try {
     const migrationsDir = path.join(__dirname, '../database/migrations');
     if (!fs.existsSync(migrationsDir)) {
@@ -37,9 +39,11 @@ async function runStartupMigrations() {
     }
 
     const { default: pool } = await import('./config/database.js');
+    // SET variables and PREPARE/EXECUTE belong to one MySQL session, not a pool.
+    connection = await pool.getConnection();
 
     // Ensure the migrations_log tracking table exists (same schema as run-migrations.js).
-    await pool.query(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS migrations_log (
         id INT AUTO_INCREMENT PRIMARY KEY,
         migration_name VARCHAR(255) NOT NULL UNIQUE,
@@ -56,7 +60,7 @@ async function runStartupMigrations() {
       .sort();
 
     // Fetch all already-successful migrations in one query.
-    const [logRows] = await pool.query(
+    const [logRows] = await connection.query(
       'SELECT migration_name FROM migrations_log WHERE success = 1'
     );
     const applied = new Set(logRows.map(r => r.migration_name));
@@ -72,34 +76,21 @@ async function runStartupMigrations() {
       }
 
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-      // Strip line comments then split on unquoted semicolons (mirrors run-migrations.js logic).
-      const stripped = sql.split('\n').map(l => /^\s*(--|#)/.test(l) ? '' : l).join('\n');
-      const statements = stripped.split(';').map(s => s.trim()).filter(Boolean);
+      const statements = splitSqlStatements(stripSqlLineComments(sql));
+      console.log(`[startup:migration] Applying ${file} (${statements.length} statements)`);
 
       const startTime = Date.now();
       let errorMsg = null;
       try {
         for (const stmt of statements) {
           try {
-            await pool.query(stmt);
+            await connection.query(stmt);
           } catch (err) {
-            const msg = String(err?.message || '');
-            const code = String(err?.code || '');
-            const ignorable =
-              msg.includes('already exists') ||
-              msg.includes('Duplicate column') ||
-              msg.includes('Duplicate key name') ||
-              msg.includes("doesn't exist") ||
-              msg.includes('check that it exists') ||
-              code === 'ER_FK_DUP_NAME' ||
-              err.errno === 1022 ||
-              err.errno === 1060 ||
-              err.errno === 1061;
-            if (!ignorable) throw err;
+            if (!isIgnorableSchemaError(err)) throw err;
           }
         }
         const ms = Date.now() - startTime;
-        await pool.query(
+        await connection.query(
           `INSERT INTO migrations_log (migration_name, execution_time_ms, success, error_message)
            VALUES (?, ?, 1, NULL)
            ON DUPLICATE KEY UPDATE executed_at = CURRENT_TIMESTAMP, execution_time_ms = ?, success = 1, error_message = NULL`,
@@ -109,7 +100,7 @@ async function runStartupMigrations() {
       } catch (err) {
         errorMsg = String(err?.message || err);
         const ms = Date.now() - startTime;
-        await pool.query(
+        await connection.query(
           `INSERT INTO migrations_log (migration_name, execution_time_ms, success, error_message)
            VALUES (?, ?, 0, ?)
            ON DUPLICATE KEY UPDATE executed_at = CURRENT_TIMESTAMP, execution_time_ms = ?, success = 0, error_message = ?`,
@@ -122,6 +113,10 @@ async function runStartupMigrations() {
     console.log(`✅ Startup migrations complete — ${ran} applied, ${skipped} skipped (already run)`);
   } catch (err) {
     console.error('⚠️  Startup migrations failed (non-fatal):', err?.message || err);
+  } finally {
+    // Migration SET variables, prepared statements, and session flags must not
+    // leak into application queries through a reused pooled connection.
+    connection?.destroy();
   }
 }
 
@@ -132,10 +127,14 @@ server.listen(PORT, HOST, () => {
 
   runStartupMigrations()
     .then(async () => {
+      console.log('[startup:security] Checking required security storage and configuration');
       const { requireSecurityReadiness } = await import('./services/securityEvidence.service.js');
       await requireSecurityReadiness();
     })
-    .then(() => import('./server.js'))
+    .then(() => {
+      console.log('[startup:app] Loading application modules');
+      return import('./server.js');
+    })
     .then(({ app }) => {
       if (typeof app !== 'function') throw new Error('server.js did not export a valid Express app');
       server.removeAllListeners('request');

@@ -141,6 +141,21 @@ class ProviderScheduleEventArtifact {
     return this.findByEventId(eid);
   }
 
+  // Atomic append: concurrent participants must not overwrite one another's
+  // transcript. Pause/stop is checked in this same update, not only before it.
+  static async appendTranscriptChunk({ eventId, text, updatedByUserId = null }) {
+    const chunk = String(text || '').trim().slice(0, 120000);
+    if (!chunk) return this.findByEventId(eventId);
+    await pool.execute(`UPDATE provider_schedule_event_artifacts
+      SET transcript_text = CASE
+        WHEN LOCATE(?, COALESCE(transcript_text,'')) > 0 THEN transcript_text
+        ELSE LEFT(CONCAT_WS('\n',NULLIF(transcript_text,''),?),120000) END,
+        updated_by_user_id=?, updated_at=CURRENT_TIMESTAMP
+      WHERE event_id=? AND COALESCE(transcript_paused,0)=0 AND transcript_stopped_at IS NULL`,
+    [chunk,chunk,updatedByUserId,Number(eventId)]);
+    return this.findByEventId(eventId);
+  }
+
   static async upsertWorkspace({
     eventId,
     focusTitle = undefined,

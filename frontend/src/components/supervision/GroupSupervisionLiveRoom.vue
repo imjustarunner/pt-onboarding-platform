@@ -197,6 +197,7 @@
           @participant-left="onParticipantLeft"
           @meeting-ended="$emit('meeting-ended', $event)"
           @activity-notice-click="onFullscreenActivityClick"
+          @leave-request="onLeaveClick"
         />
       </div>
     </div>
@@ -866,8 +867,9 @@ defineExpose({
   flex: 0 0 auto;
   height: auto;
   min-height: 88px;
-  max-height: 104px;
+  max-height: none;
 }
+.gsl__video-strip--collapsed :deep(.vsr__stage--focus-collapsed) { height: 104px; flex: 0 0 104px; }
 .gsl__video-strip :deep(.supervision-video-room),
 .gsl__video-strip :deep(.vsr) {
   height: 100%;

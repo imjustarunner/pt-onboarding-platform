@@ -1125,7 +1125,7 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 120px;
+  min-height: 0;
 }
 .mlap__empty {
   color: #94a3b8;
@@ -1168,6 +1168,8 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   padding: 10px;
   border-top: 1px solid rgba(148, 163, 184, 0.35);
   flex-shrink: 0;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 .mlap__input {
   flex: 1;
@@ -1178,6 +1180,12 @@ defineExpose({ loadActivity, open: () => { panelOpen.value = true; } });
   background: #1e293b;
   color: #f8fafc;
   font-size: 0.9rem;
+}
+.mlap__form--rich .mlap__input { flex: 1 1 140px; }
+.mlap__form--rich { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+@media (max-width: 480px) {
+  .mlap__form--rich .mlap__input { flex-basis: calc(100% - 90px); order: 1; font-size: 16px; }
+  .mlap__form--rich button[type='submit'] { order: 2; }
 }
 .mlap--embedded .mlap__input,
 .mlap--below-video .mlap__input,

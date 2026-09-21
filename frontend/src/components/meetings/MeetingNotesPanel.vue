@@ -51,11 +51,12 @@
         v-model="transcriptDisplay"
         class="mnp__textarea"
         rows="8"
-        :disabled="loading || saving || importing"
+        :readonly="readOnly"
+        :disabled="saving || importing"
         placeholder="Live speech appears here as the meeting runs…"
         @input="onDisplayInput"
       />
-      <div class="mnp__actions">
+      <div v-if="!readOnly" class="mnp__actions">
         <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || saving || importing" @click="importChat">
           {{ importing ? 'Importing…' : 'Import chat' }}
         </button>
@@ -82,6 +83,7 @@ const props = defineProps({
   liveHint: { type: String, default: '' },
   livePreview: { type: String, default: '' },
   autoRefresh: { type: Boolean, default: false },
+  readOnly: { type: Boolean, default: false },
   canControlTranscript: { type: Boolean, default: false },
   canStopTranscript: { type: Boolean, default: false },
   paused: { type: Boolean, default: false },
@@ -99,7 +101,7 @@ const error = ref('');
 const transcript = ref('');
 const summary = ref('');
 const dirty = ref(false);
-const expanded = ref(false);
+const expanded = ref(props.autoRefresh);
 const roomPaused = ref(false);
 const localStopMeta = ref(null);
 let refreshTimer = null;
@@ -263,7 +265,7 @@ watch(() => [props.eventId, props.sessionId], () => {
 onMounted(() => {
   void load({ force: true });
   if (props.autoRefresh) {
-    refreshTimer = setInterval(() => { void load(); }, 15000);
+    refreshTimer = setInterval(() => { if (!loading.value) void load(); }, 5000);
   }
 });
 

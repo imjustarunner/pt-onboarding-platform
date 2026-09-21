@@ -160,7 +160,7 @@
             </button>
           </div>
         </div>
-        <div v-show="sectionState.video !== 'collapsed'" class="isl__video-body">
+        <div class="isl__video-body">
           <SupervisionVideoRoom
             v-if="token && vonageSessionId && applicationId"
             ref="videoRoomRef"
@@ -191,6 +191,7 @@
             @participant-left="onParticipantLeft"
             @meeting-ended="$emit('meeting-ended', $event)"
             @activity-notice-click="onFullscreenActivityClick"
+            @leave-request="$emit('leave', { endForAll: false })"
           />
         </div>
       </section>

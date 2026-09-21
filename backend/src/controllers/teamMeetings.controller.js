@@ -1267,11 +1267,19 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     ) {
       isHost = true;
     }
+    const transcriptArtifact = await ProviderScheduleEventArtifact.findByEventId(row.id);
+    const transcriptState = {
+      startedAt: transcriptArtifact?.transcript_started_at || null,
+      paused: !!Number(transcriptArtifact?.transcript_paused || 0),
+      stoppedAt: transcriptArtifact?.transcript_stopped_at || null,
+      stoppedByName: transcriptArtifact?.transcript_stopped_by_name || null
+    };
     const meetingCompletedAt = row.meeting_completed_at || null;
 
     if (meetingCompletedAt) {
       const closure = await meetingClosureDetails(row);
       return res.json({
+        transcriptState,
         admitted: false,
         roomMode: 'ended',
         meetingCompleted: true,
@@ -1289,6 +1297,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
         joinIdentity: identity
       });
       return res.json({
+        transcriptState,
         admitted: true,
         roomMode: 'main',
         meetingCompleted: false,
@@ -1322,6 +1331,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
         kind: row.kind
       });
       return res.json({
+        transcriptState,
         admitted: false,
         roomMode: 'lobby',
         meetingCompleted: false,
@@ -1396,6 +1406,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     }
 
     res.json({
+      transcriptState,
       admitted: true,
       roomMode: 'main',
       meetingCompleted: false,
@@ -1513,28 +1524,23 @@ export const saveTeamMeetingClientTranscript = async (req, res, next) => {
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
     }
-    let nextText = stamped;
-    if (!replace) {
-      const existing = await ProviderScheduleEventArtifact.findByEventId(eventId);
-      const prev = String(existing?.transcript_text || '').trim();
-      if (prev) {
-        if (prev.includes(stamped)) nextText = prev;
-        else nextText = `${prev}\n${stamped}`;
-      }
+    const updatedByUserId = Number(req.user?.id || 0) || null;
+    const saved = replace
+      ? await ProviderScheduleEventArtifact.upsertByEventId({ eventId, transcriptText: stamped.slice(0,120000), updatedByUserId })
+      : await ProviderScheduleEventArtifact.appendTranscriptChunk({ eventId, text: stamped, updatedByUserId });
+    if (!replace && (saved?.transcript_paused || saved?.transcript_stopped_at)) {
+      return res.status(409).json({error:{message:'Transcription is paused or stopped.'}});
     }
-
-    await ProviderScheduleEventArtifact.upsertByEventId({
-      eventId,
-      transcriptText: nextText.slice(0, 120000),
-      updatedByUserId: Number(req.user?.id || 0) || null
-    });
-
-    const { triggerTeamMeetingSummaryFromTranscript } = await import('../services/teamMeetingTranscriptSummary.service.js');
-    await triggerTeamMeetingSummaryFromTranscript(eventId).catch((e) => {
-      console.error('[TeamMeeting] AI summary from client transcript:', e?.message);
-    });
-
-    res.json({ ok: true, eventId, chars: nextText.length });
+    // Ordinary live captions must not wait for an AI request per speaker/chunk.
+    // Complete-meeting already generates the final summary; retain the existing
+    // explicit replacement and interview intelligence behavior.
+    if (replace || isInterviewMeeting(row)) {
+      const { triggerTeamMeetingSummaryFromTranscript } = await import('../services/teamMeetingTranscriptSummary.service.js');
+      await triggerTeamMeetingSummaryFromTranscript(eventId).catch((e) => {
+        console.error('[TeamMeeting] AI summary from client transcript:', e?.message);
+      });
+    }
+    res.json({ ok: true, eventId, chars: String(saved?.transcript_text || '').length });
   } catch (e) {
     next(e);
   }
@@ -2017,7 +2023,7 @@ export const enableTeamMeetingAttendanceTracking = async (req, res, next) => {
   }
 };
 
-/** POST /api/team-meetings/:eventId/transcript-control — pause | resume | stop */
+/** POST /api/team-meetings/:eventId/transcript-control — start | pause | resume | stop */
 export const postTeamMeetingTranscriptControl = async (req, res, next) => {
   try {
     const eventId = parseInt(req.params.eventId, 10);
@@ -2034,10 +2040,13 @@ export const postTeamMeetingTranscriptControl = async (req, res, next) => {
     if (!isHost && !isPrivileged) {
       return res.status(403).json({ error: { message: 'Only the host or admin can control transcription.' } });
     }
+    if (!(await canAccessTeamMeeting(req, event))) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
 
     const action = String(req.body?.action || '').trim().toLowerCase();
-    if (!['pause', 'resume', 'stop'].includes(action)) {
-      return res.status(400).json({ error: { message: "action must be 'pause', 'resume', or 'stop'" } });
+    if (!['start', 'pause', 'resume', 'stop'].includes(action)) {
+      return res.status(400).json({ error: { message: "action must be 'start', 'pause', 'resume', or 'stop'" } });
     }
 
     await ProviderScheduleEventArtifact.ensureTagged({ eventId, updatedByUserId: actorId });
@@ -2053,7 +2062,12 @@ export const postTeamMeetingTranscriptControl = async (req, res, next) => {
     const displayName = String(req.body?.displayName || displayNameFromUser(req.user) || '').trim().slice(0, 255)
       || `User ${actorId}`;
 
-    if (action === 'pause') {
+    if (action === 'start') {
+      await pool.execute(`UPDATE provider_schedule_event_artifacts
+        SET transcript_started_at=COALESCE(transcript_started_at,UTC_TIMESTAMP()),
+            transcript_paused=0, updated_by_user_id=?, updated_at=CURRENT_TIMESTAMP
+        WHERE event_id=? AND transcript_stopped_at IS NULL`,[actorId,eventId]);
+    } else if (action === 'pause') {
       await pool.execute(
         `UPDATE provider_schedule_event_artifacts
          SET transcript_paused = 1, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
@@ -2086,6 +2100,7 @@ export const postTeamMeetingTranscriptControl = async (req, res, next) => {
       ok: true,
       eventId,
       action,
+      transcriptStartedAt: artifact?.transcript_started_at || null,
       transcriptPaused: !!(artifact?.transcript_paused === 1 || artifact?.transcript_paused === true),
       transcriptStoppedAt: artifact?.transcript_stopped_at || null,
       transcriptStoppedByUserId: artifact?.transcript_stopped_by_user_id
@@ -2107,7 +2122,7 @@ export const postTeamMeetingTranscriptControl = async (req, res, next) => {
   } catch (e) {
     if (e?.code === 'ER_BAD_FIELD_ERROR') {
       return res.status(503).json({
-        error: { message: 'Transcript control requires migration 1095.' }
+        error: { message: 'Transcript control requires migrations 1095 and 1475.' }
       });
     }
     next(e);

@@ -561,6 +561,17 @@ jobs:
             --to-revisions="${CANDIDATE_REVISION}=100"
           echo "Candidate readiness passed; promoted ${CANDIDATE_REVISION}."
 
+      - name: Failed candidate startup diagnostics
+        if: failure() && env.CANDIDATE_SUFFIX != ''
+        run: |
+          CANDIDATE_REVISION="${SERVICE_NAME}-${CANDIDATE_SUFFIX}"
+          gcloud run revisions describe "$CANDIDATE_REVISION" --region "$REGION" \
+            --format='yaml(status.conditions)' || true
+          # Do not dump environment variables/secrets; show only this candidate's boot diagnostics.
+          gcloud logging read \
+            "resource.type=\"cloud_run_revision\" AND resource.labels.revision_name=\"${CANDIDATE_REVISION}\" AND (severity>=ERROR OR textPayload:\"startup:\" OR textPayload:\"Migration\" OR textPayload:\"Failed to load application\")" \
+            --freshness=1h --limit=80 --format='table(timestamp,severity,textPayload,jsonPayload.code,jsonPayload.component,jsonPayload.requiredMigration)' || true
+
       - name: Remove temporary candidate URL
         if: always() && env.CANDIDATE_TAG != ''
         run: |

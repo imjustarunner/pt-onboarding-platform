@@ -116,6 +116,57 @@ describe('VideoSessionRoom connection lifecycle', () => {
     wrapper.unmount();
   });
 
+  it('switches focused peers without dropping back to equal tiles', async () => {
+    const wrapper = mount(VideoSessionRoom, {props:{autoConnect:false,allowTileFocus:true,tileFocus:'remote'}});
+    wrapper.vm.remotes.push({streamId:'alice',name:'Alice',hasVideo:true,hasAudio:true},{streamId:'bob',name:'Bob',hasVideo:true,hasAudio:true});
+    await wrapper.vm.$nextTick();
+    await wrapper.findAll('.vsr__tile--remote')[1].trigger('click');
+    expect(wrapper.emitted('update:tileFocus').at(-1)).toEqual(['remote']);
+    expect(wrapper.get('.vsr__tile--remote.vsr__tile--featured').text()).toContain('Bob');
+    await wrapper.findAll('.vsr__tile--remote')[0].trigger('click');
+    expect(wrapper.get('.vsr__tile--remote.vsr__tile--featured').text()).toContain('Alice');
+    wrapper.unmount();
+  });
+
+  it('exposes leave in full screen and delegates the host leave/end flow', async () => {
+    const wrapper=mount(VideoSessionRoom,{props:{autoConnect:false,videoFullscreen:true}});
+    await wrapper.get('.vsr__fs-leave').trigger('click');
+    expect(wrapper.emitted('leave-request')).toHaveLength(1);
+    expect(wrapper.emitted('update:videoFullscreen').at(-1)).toEqual([false]);
+    expect(wrapper.emitted('disconnected')).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it('hides sharing until permission arrives, then reveals it without remounting', async () => {
+    const wrapper=mount(VideoSessionRoom,{props:{autoConnect:false,screenShareMode:'restricted',canShareScreen:false}});
+    expect(wrapper.find('[title="Share your screen"]').exists()).toBe(false);
+    await wrapper.setProps({canShareScreen:true});
+    expect(wrapper.find('[title="Share your screen"]').exists()).toBe(true);
+    await wrapper.setProps({canShareScreen:false});
+    expect(wrapper.find('[title="Share your screen"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('prioritizes a shared screen, permits another layout, and restores priority from Layout', async () => {
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'screen-test',token:'eyJ.test.token',allowTileFocus:true,tileFocus:'collapsed',playJoinTone:false}});
+    await flushPromises(); await vi.dynamicImportSettled();
+    videoSdk.session.subscribe=vi.fn((_stream,target)=>({element:target,streamId:'screen-1',on:vi.fn()}));
+    videoSdk.session._handlers.streamCreated({stream:{streamId:'screen-1',videoType:'screen',connection:{connectionId:'presenter'},hasVideo:true,hasAudio:false}});
+    await flushPromises();
+    expect(wrapper.find('.vsr__stage--screen').exists()).toBe(true);
+    expect(wrapper.find('.vsr__tile--mini').exists()).toBe(false);
+    expect(wrapper.emitted('update:tileFocus').at(-1)).toEqual(['equal']);
+    await wrapper.setProps({tileFocus:'equal'});
+    await wrapper.get('[title="Video layout"]').trigger('click');
+    await wrapper.findAll('.vsr__layout-item').find(b=>b.text().includes('Equal tiles')).trigger('click');
+    expect(wrapper.find('.vsr__stage--screen').exists()).toBe(false);
+    await wrapper.get('[title="Video layout"]').trigger('click');
+    await wrapper.findAll('.vsr__layout-item').find(b=>b.text().includes('Shared screen')).trigger('click');
+    expect(wrapper.find('.vsr__stage--screen').exists()).toBe(true);
+    expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
   it('tests the lobby microphone only on explicit request and releases it', async () => {
     const stop = vi.fn();
     const getUserMedia = vi.fn().mockResolvedValue({

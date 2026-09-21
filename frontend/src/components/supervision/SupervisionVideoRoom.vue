@@ -35,6 +35,7 @@
       @update:tile-focus="$emit('update:tileFocus', $event)"
       @update:video-fullscreen="$emit('update:videoFullscreen', $event)"
       @activity-notice-click="$emit('activity-notice-click', $event)"
+      @leave-request="$emit('leave-request')"
       @disconnected="$emit('disconnected')"
       @connected="$emit('connected', $event)"
       @error="$emit('error', $event)"
@@ -114,6 +115,7 @@ defineEmits([
   'update:tileFocus',
   'update:videoFullscreen',
   'activity-notice-click',
+  'leave-request',
   'meeting-ended',
   'interview-guest-ended',
   'hand-raised-change',

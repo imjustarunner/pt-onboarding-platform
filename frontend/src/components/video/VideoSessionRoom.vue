@@ -48,19 +48,19 @@
           :style="stageGridStyle"
           :class="{
             'vsr__stage--strip': layout === 'strip',
-            'vsr__stage--solo': isSoloStage && !hasScreenShare,
-            'vsr__stage--duo': isDuoStage && !hasScreenShare,
-            'vsr__stage--grid': isGridStage && !hasScreenShare,
-            'vsr__stage--screen': hasScreenShare,
-            'vsr__stage--focus-local': tileFocus === 'local' && !hasScreenShare,
-            'vsr__stage--focus-remote': (tileFocus === 'remote' || tileFocus === 'speaker') && !hasScreenShare,
-            'vsr__stage--focus-speaker': tileFocus === 'speaker' && !hasScreenShare,
-            'vsr__stage--focus-collapsed': tileFocus === 'collapsed' && !hasScreenShare,
-            [`vsr__stage--count-${Math.min(stageVideoCount, 6)}`]: layout !== 'strip' && !hasScreenShare && stageVideoCount > 0
+            'vsr__stage--solo': isSoloStage && !screenFocused,
+            'vsr__stage--duo': isDuoStage && !screenFocused,
+            'vsr__stage--grid': isGridStage && !screenFocused,
+            'vsr__stage--screen': screenFocused,
+            'vsr__stage--focus-local': tileFocus === 'local' && !screenFocused,
+            'vsr__stage--focus-remote': (tileFocus === 'remote' || tileFocus === 'speaker') && !screenFocused,
+            'vsr__stage--focus-speaker': tileFocus === 'speaker' && !screenFocused,
+            'vsr__stage--focus-collapsed': tileFocus === 'collapsed' && !screenFocused,
+            [`vsr__stage--count-${Math.min(stageVideoCount, 6)}`]: layout !== 'strip' && !screenFocused && stageVideoCount > 0
           }"
         >
           <div
-            v-show="hasScreenShare"
+            v-show="screenFocused"
             class="vsr__tile vsr__tile--screen"
           >
             <div ref="screenEl" class="vsr__media" />
@@ -76,16 +76,16 @@
               'vsr__tile--cam-off': !useSplitCamOffLayout && !r.hasVideo,
               'vsr__tile--muted': !r.hasAudio,
               'vsr__tile--hand': handRaisedForConnection(r.connectionId),
-              'vsr__tile--pip': hasScreenShare || tileFocus === 'local' || (tileFocus === 'speaker' && r.streamId !== featuredSpeakerStreamId),
+              'vsr__tile--pip': screenFocused || tileFocus === 'local' || (tileFocus === 'speaker' && r.streamId !== featuredSpeakerStreamId),
               'vsr__tile--featured': (
                 (tileFocus === 'remote' && r.streamId === focusedRemoteStreamId)
                 || (tileFocus === 'speaker' && r.streamId === featuredSpeakerStreamId)
               ),
-              'vsr__tile--mini': tileFocus === 'collapsed',
+              'vsr__tile--mini': tileFocus === 'collapsed' && !screenFocused,
               'vsr__tile--speaking': isParticipantSpeaking({ key: r.streamId }),
-              'vsr__tile--paged-hidden': tileFocus === 'equal' && tileHiddenByPage('remote', r.streamId)
+              'vsr__tile--paged-hidden': !screenFocused && tileFocus === 'equal' && tileHiddenByPage('remote', r.streamId)
             }"
-            :style="tileFocus === 'equal' ? { order: tileOrderFor('remote', r.streamId) } : null"
+            :style="!screenFocused && tileFocus === 'equal' ? { order: tileOrderFor('remote', r.streamId) } : null"
             @click="onTileActivate('remote', r.streamId)"
           >
             <div
@@ -151,16 +151,16 @@
               'vsr__tile--muted': !publishAudio,
               'vsr__tile--cam-off': !publishVideo && !useSplitCamOffLayout,
               'vsr__tile--hand': localHandRaised,
-              'vsr__tile--solo': isSoloStage && !hasScreenShare && tileFocus === 'equal',
-              'vsr__tile--duo': isDuoStage && !hasScreenShare && tileFocus === 'equal',
-              'vsr__tile--grid-local': isGridStage && !hasScreenShare && tileFocus === 'equal',
-              'vsr__tile--pip': hasScreenShare || tileFocus === 'remote' || (tileFocus === 'speaker' && !!featuredSpeakerStreamId),
+              'vsr__tile--solo': isSoloStage && !screenFocused && tileFocus === 'equal',
+              'vsr__tile--duo': isDuoStage && !screenFocused && tileFocus === 'equal',
+              'vsr__tile--grid-local': isGridStage && !screenFocused && tileFocus === 'equal',
+              'vsr__tile--pip': screenFocused || tileFocus === 'remote' || (tileFocus === 'speaker' && !!featuredSpeakerStreamId),
               'vsr__tile--featured': tileFocus === 'local' || (tileFocus === 'speaker' && !featuredSpeakerStreamId),
-              'vsr__tile--mini': tileFocus === 'collapsed',
+              'vsr__tile--mini': tileFocus === 'collapsed' && !screenFocused,
               'vsr__tile--speaking': isParticipantSpeaking({ key: 'local' }),
-              'vsr__tile--paged-hidden': tileFocus === 'equal' && tileHiddenByPage('local', 'local')
+              'vsr__tile--paged-hidden': !screenFocused && tileFocus === 'equal' && tileHiddenByPage('local', 'local')
             }"
-            :style="tileFocus === 'equal' ? { order: tileOrderFor('local', 'local') } : null"
+            :style="!screenFocused && tileFocus === 'equal' ? { order: tileOrderFor('local', 'local') } : null"
             @click="onTileActivate('local')"
           >
             <div ref="localMediaStageEl" class="vsr__media" />
@@ -361,7 +361,7 @@
           {{ publishVideo ? 'Camera' : 'Cam off' }}
         </button>
         <button
-          v-if="!lobbyMode"
+          v-if="!lobbyMode && (effectiveCanShareScreen || sharingScreen)"
           type="button"
           class="vsr__ctrl"
           :aria-pressed="hideSelfView"
@@ -450,6 +450,9 @@
       <div v-if="videoFullscreen" class="vsr__fs-chrome">
         <button type="button" class="vsr__fs-exit" @click="setVideoFullscreen(false)">
           Exit full screen
+        </button>
+        <button type="button" class="vsr__fs-exit vsr__fs-leave" @click="requestLeave">
+          Leave meeting
         </button>
         <span v-if="raisedHandsNotice" class="vsr__fs-hand" role="status">✋ {{ raisedHandsNotice }}</span>
         <button
@@ -545,6 +548,7 @@ const emit = defineEmits([
   'update:tileFocus',
   'update:videoFullscreen',
   'activity-notice-click',
+  'leave-request',
   'meeting-ended',
   'interview-guest-ended',
   'hand-raised-change',
@@ -591,6 +595,14 @@ const voiceIsolationStatus = ref('');
 const remotes = ref([]);
 const sharingScreen = ref(false);
 const hasScreenShare = ref(false);
+const prioritizeScreen = ref(true);
+const screenFocused = computed(() => hasScreenShare.value && prioritizeScreen.value);
+watch(hasScreenShare, (active) => {
+  if (!active) return;
+  prioritizeScreen.value = true;
+  // A collapsed parent container must expand as well as the shared-screen tile.
+  if (props.tileFocus === 'collapsed') emit('update:tileFocus', 'equal');
+});
 const screenShareLabel = ref('');
 const sessionReady = ref(false);
 const remoteMediaEls = new Map();
@@ -657,7 +669,7 @@ const stageEl = ref(null);
 const stageSize = ref({ width: 960, height: 540 });
 let stageResizeObserver = null;
 const stageGridStyle = computed(() => {
-  if (!isGridStage.value || hasScreenShare.value) return null;
+  if (!isGridStage.value || screenFocused.value) return null;
   const count = Math.min(stageVideoCount.value, visibleStagePages.value * STAGE_TILE_PAGE_SIZE);
   const grid = tileGrid(count, stageSize.value.width, stageSize.value.height, props.compact ? 'mini' : tileSizePreset.value);
   return { gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${grid.rows}, minmax(0, 1fr))` };
@@ -731,6 +743,7 @@ function setTileSize(preset) {
   if (['s', 'm', 'l'].includes(preset)) tileSizePreset.value = preset;
 }
 const layoutMenuOptions = [
+  { id: 'screen', label: 'Shared screen priority (automatic on share)', kind: 'screen' },
   { id: 'equal', label: 'Equal tiles', kind: 'focus' },
   { id: 'speaker', label: 'Speaker only', kind: 'focus' },
   { id: 'remote', label: 'Focus peer', kind: 'focus' },
@@ -740,6 +753,7 @@ const layoutMenuOptions = [
 ];
 const useSplitCamOffLayout = computed(() =>
   props.layout !== 'strip'
+  && !screenFocused.value
   && props.tileFocus === 'equal'
   && !props.videoFullscreen
 );
@@ -769,7 +783,7 @@ const stageVideoCount = computed(() => {
   return count;
 });
 const showStageEmpty = computed(() => (
-  !hasScreenShare.value
+  !screenFocused.value
   && !hasRemote.value
   && !showLocalOnStage.value
 ));
@@ -1363,8 +1377,9 @@ function muteAllExcept(excludeConnectionIds = []) {
 
 function isLayoutOptionActive(opt) {
   if (!opt) return false;
+  if (opt.kind === 'screen') return prioritizeScreen.value;
   if (opt.kind === 'fullscreen') return !!props.videoFullscreen;
-  return props.tileFocus === opt.id && !props.videoFullscreen;
+  return !screenFocused.value && props.tileFocus === opt.id && !props.videoFullscreen;
 }
 
 function setVideoFullscreen(on) {
@@ -1375,10 +1390,17 @@ function setVideoFullscreen(on) {
 
 function applyLayoutOption(opt) {
   if (!opt) return;
+  if (opt.kind === 'screen') {
+    prioritizeScreen.value = true;
+    if (props.tileFocus === 'collapsed') emit('update:tileFocus', 'equal');
+    layoutMenuOpen.value = false;
+    return;
+  }
   if (opt.kind === 'fullscreen') {
     setVideoFullscreen(!props.videoFullscreen);
     return;
   }
+  prioritizeScreen.value = false;
   emit('update:tileFocus', opt.id);
   layoutMenuOpen.value = false;
 }
@@ -1567,12 +1589,20 @@ function setRemoteMediaEl(streamId, el) {
 
 function onTileActivate(which, streamId = '') {
   if (!props.allowTileFocus) return;
+  const alreadyFocused = !screenFocused.value && props.tileFocus === which
+    && (which !== 'remote' || focusedRemoteStreamId.value === streamId);
+  prioritizeScreen.value = false;
   if (which === 'remote') selectedRemoteStreamId.value = streamId;
-  if (props.tileFocus === which) {
+  if (alreadyFocused) {
     emit('update:tileFocus', 'equal');
     return;
   }
   emit('update:tileFocus', which);
+}
+
+function requestLeave() {
+  setVideoFullscreen(false);
+  emit('leave-request');
 }
 
 function initialsFromLabel(label) {
@@ -3749,7 +3779,7 @@ defineExpose({
   display: flex;
   flex: 0 0 auto;
   height: 104px;
-  min-height: 104px;
+  min-height: 104px !important;
   max-height: 104px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -3771,7 +3801,9 @@ defineExpose({
 }
 .vsr--focus-collapsed .vsr__viewport {
   flex: 0 0 auto;
+  min-height: 104px;
 }
+.vsr__fs-leave { background: #b91c1c; color: #fff; }
 .vsr__focus-btn {
   position: absolute;
   top: 0.45rem;

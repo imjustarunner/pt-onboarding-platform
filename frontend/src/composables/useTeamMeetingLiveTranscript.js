@@ -22,6 +22,8 @@ export function useTeamMeetingLiveTranscript({
   const stopMeta = ref(null);
   let speechCapture = null;
   let flushTimer = null;
+  let flushInFlight = false;
+  let pendingFlush = Promise.resolve();
 
   const eid = computed(() => Number(eventId?.value ?? eventId ?? 0) || 0);
   const isEnabled = computed(() => !!(enabled?.value ?? enabled));
@@ -36,10 +38,15 @@ export function useTeamMeetingLiveTranscript({
   }
 
   async function flush({ final = false } = {}) {
+    // A leave/pause flush must wait for an earlier save, then drain new speech.
+    while (flushInFlight) await pendingFlush;
     const chunks = (liveChunks.value || []).map((t) => String(t || '').trim()).filter(Boolean);
     if (!chunks.length || !eid.value) return;
     const transcript = chunks.join(' ').trim();
     if (!transcript) return;
+    flushInFlight = true;
+    let finishFlush;
+    pendingFlush = new Promise(resolve => { finishFlush = resolve; });
     liveChunks.value = [];
     try {
       await api.post(
@@ -57,6 +64,9 @@ export function useTeamMeetingLiveTranscript({
       if (final) {
         transcriptHint.value = e?.response?.data?.error?.message || 'Could not save live transcript.';
       }
+    } finally {
+      flushInFlight = false;
+      finishFlush();
     }
   }
 
@@ -93,7 +103,7 @@ export function useTeamMeetingLiveTranscript({
     if (started && !flushTimer) {
       flushTimer = setInterval(() => {
         void flush({ final: false });
-      }, 20000);
+      }, 5000);
     }
   }
 
