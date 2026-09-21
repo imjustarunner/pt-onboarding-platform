@@ -2090,6 +2090,7 @@
               section="controls"
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
+              v-model:reminder-minutes="meetingReminderMinutes"
               v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
@@ -2377,6 +2378,7 @@
             v-model:title="editorMeetingTitle"
             v-model:is-virtual="editorMeetingIsVirtual"
             v-model:use-platform-video="linkMeetingPlatformVideo"
+            v-model:reminder-minutes="meetingReminderMinutes"
             v-model:waiting-room-enabled="editorMeetingWaitingRoomEnabled"
             v-model:create-meet-link="createMeetingMeetLink"
             v-model:notify-participants="notifyMeetingParticipants"
@@ -3595,6 +3597,7 @@
               section="controls"
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
+              v-model:reminder-minutes="meetingReminderMinutes"
               v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
@@ -3894,7 +3897,7 @@
               <span>Email invites &amp; reminders</span>
             </label>
             <div class="muted nr-help" style="margin-top: 4px;">
-              Turn off to add silently — no calendar invite emails, in-app notify emails, or join reminder emails.
+              Branded app invitations and reminders only. Turn off to add silently. Google invitation emails are not sent.
             </div>
             <div v-if="requestType === 'agency_meeting' || requestType === 'huddle'" class="agenda-draft-section" style="margin-top: 12px;">
               <label class="lbl">Agenda items (optional)</label>
@@ -17030,6 +17033,7 @@ const linkMeetingPlatformVideo = ref(true);
 const editorMeetingWaitingRoomEnabled = ref(true);
 /** When false, calendar sync still happens but Google/in-app invite emails are suppressed. */
 const notifyMeetingParticipants = ref(true);
+const meetingReminderMinutes = ref(5);
 const createGoalDraftItems = ref([]);
 const createActionDraftItems = ref([]);
 
@@ -17743,7 +17747,8 @@ const patchScheduleEventInSummary = ({
   isPrivate = false,
   attendeeUserIds = null,
   waitingRoomEnabled = undefined,
-  notifyParticipants = undefined
+  notifyParticipants = undefined,
+  reminderMinutes = undefined
 } = {}) => {
   const eid = Number(eventId || 0);
   if (!eid || !summary.value) return;
@@ -17770,6 +17775,7 @@ const patchScheduleEventInSummary = ({
     endAt: nextEnd,
     timeZone: tz || prev.timeZone || null,
     ...(Array.isArray(attendeeUserIds) ? { attendeeUserIds } : {}),
+    ...(reminderMinutes !== undefined ? { reminderMinutes } : {}),
     ...(waitingRoomEnabled !== undefined && ['TEAM_MEETING', 'HUDDLE'].includes(String(prev?.kind || '').toUpperCase())
       ? { waitingRoomEnabled: !!waitingRoomEnabled }
       : {}),
@@ -18463,6 +18469,8 @@ const openSlotActionModal = async ({
   scheduleEventPrivate.value = false;
   meetingIsTrainingPayEligible.value = false;
   meetingSubtype.value = 'general';
+  meetingReminderMinutes.value = 5;
+  notifyMeetingParticipants.value = true;
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
   scheduleEventOccurrenceCount.value = 7;
@@ -20526,6 +20534,8 @@ const closeModal = () => {
   scheduleEventPrivate.value = false;
   meetingIsTrainingPayEligible.value = false;
   meetingSubtype.value = 'general';
+  meetingReminderMinutes.value = 5;
+  notifyMeetingParticipants.value = true;
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
   createGoalDraftItems.value = [];
@@ -21327,6 +21337,7 @@ const submitRequest = async () => {
                   createPlatformVideoLink,
                   waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
                   notifyParticipants: !!notifyMeetingParticipants.value,
+                  reminderMinutes: meetingReminderMinutes.value,
                   allowLocalOnly: true,
                   isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                   meetingSubtype: meetingSubtypeForCreate,
@@ -21345,6 +21356,7 @@ const submitRequest = async () => {
           if (isMeetingAction && resp?.data?.googleCalendarWarning) {
             virtualSessionGoogleWarning.value = String(resp.data.googleCalendarWarning).trim();
           }
+          if (resp?.data?.invitationWarning) virtualSessionGoogleWarning.value = resp.data.invitationWarning;
         }
       } else {
         const ranges = mergeSelectedSlotsByDay({
@@ -21378,6 +21390,7 @@ const submitRequest = async () => {
                     createPlatformVideoLink,
                     waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
                     notifyParticipants: !!notifyMeetingParticipants.value,
+                    reminderMinutes: meetingReminderMinutes.value,
                     allowLocalOnly: true,
                     isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                     meetingSubtype: meetingSubtypeForCreate,
@@ -21396,6 +21409,7 @@ const submitRequest = async () => {
             if (isMeetingAction && resp?.data?.googleCalendarWarning) {
               virtualSessionGoogleWarning.value = String(resp.data.googleCalendarWarning).trim();
             }
+            if (resp?.data?.invitationWarning) virtualSessionGoogleWarning.value = resp.data.invitationWarning;
           }
         }
       }
@@ -22136,6 +22150,7 @@ const submitRequest = async () => {
           createMeetLink: !!editorSupervisionIsVirtual.value && !!createSupervisionMeetLink.value,
           modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
           waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
+          reminderMinutes: meetingReminderMinutes.value,
           notifyParticipants: !!notifyMeetingParticipants.value,
           ...(supervisionSeriesId
             ? {
@@ -22146,6 +22161,7 @@ const submitRequest = async () => {
             : {})
         });
         if (supervisionSeriesId) supervisionRecurrenceIndex += 1;
+        if (supvRes?.data?.invitationWarning) officeReminderToast.value = supvRes.data.invitationWarning;
         const sessionId = Number(supvRes?.data?.session?.id || 0);
         if (sessionId > 0) createdSessionIds.push(sessionId);
         const createdSession = supvRes?.data?.session || null;
@@ -23653,6 +23669,8 @@ const openSupvModal = (dayName, hour) => {
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.startAt));
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
   supvNotes.value = String(first.notes || '');
+  meetingReminderMinutes.value = first.reminderMinutes === undefined ? 5 : first.reminderMinutes;
+  notifyMeetingParticipants.value = first.notifyParticipants !== false;
   supvCreateMeetLink.value = false;
   editTimingBaseline.value = {
     startAt: String(supvStartIsoLocal.value || '').trim(),
@@ -23698,6 +23716,8 @@ watch(selectedSupvSessionId, (id) => {
   const ev = selectedSupvSession.value;
   if (!ev) return;
   supvNotes.value = String(ev.notes || '');
+  meetingReminderMinutes.value = ev.reminderMinutes === undefined ? 5 : ev.reminderMinutes;
+  notifyMeetingParticipants.value = ev.notifyParticipants !== false;
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.startAt));
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.endAt));
   editTimingBaseline.value = {
@@ -23868,6 +23888,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       presenterUserIds,
       modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
       waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
+      reminderMinutes: meetingReminderMinutes.value,
       notifyParticipants: !!notifyMeetingParticipants.value,
       inviteAudienceAllSupervised: !!supervisionInviteAudienceAllSupervised.value,
       inviteAudienceGroupSupport: !!supervisionInviteAudienceGroupSupport.value,
@@ -24966,6 +24987,7 @@ const beginEditScheduleStackItem = async (item) => {
     notifyMeetingParticipants.value = item?.notifyParticipants !== false
       && item?.notify_participants !== false
       && item?.notify_participants !== 0;
+    meetingReminderMinutes.value = item?.reminderMinutes === undefined ? 5 : item.reminderMinutes;
     if (agencyId > 0) void loadMeetingCandidates();
   } else if (agencyId > 0) {
     void loadVirtualSessionClients(agencyId);
@@ -25121,6 +25143,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
                 isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                 waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
                 notifyParticipants: !!notifyMeetingParticipants.value,
+                reminderMinutes: meetingReminderMinutes.value,
                 ...(String(item?.eventKind || '').toUpperCase() === 'TEAM_MEETING'
                   ? {
                       meetingSubtype: (canSetAdminMeetingSubtype.value
@@ -25158,7 +25181,8 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
         ? (savedEvent.notifyParticipants !== undefined
           ? savedEvent.notifyParticipants !== false
           : !!notifyMeetingParticipants.value)
-        : undefined
+        : undefined,
+      reminderMinutes: isMeeting ? (savedEvent.reminderMinutes === undefined ? meetingReminderMinutes.value : savedEvent.reminderMinutes) : undefined
     });
     editAgencyBaseline.value = saveAgencyId;
     editTimingBaseline.value = {
@@ -25434,6 +25458,8 @@ const openSupervisionEditInScheduleModal = (dayName, hour) => {
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.startAt));
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
   supvNotes.value = String(first.notes || '');
+  meetingReminderMinutes.value = first.reminderMinutes === undefined ? 5 : first.reminderMinutes;
+  notifyMeetingParticipants.value = first.notifyParticipants !== false;
   supvCreateMeetLink.value = false;
   editTimingBaseline.value = {
     startAt: String(supvStartIsoLocal.value || '').trim(),
@@ -25944,6 +25970,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     ),
     isCancelled: cancelled,
     isTrainingPayEligible: !!ev?.isTrainingPayEligible,
+    reminderMinutes: ev?.reminderMinutes === undefined ? 5 : ev.reminderMinutes,
     meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),
     waitingRoomEnabled: ev?.waitingRoomEnabled !== false
       && ev?.waiting_room_enabled !== false

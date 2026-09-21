@@ -374,6 +374,7 @@ class ProviderScheduleEvent {
     meetingSubtype = undefined,
     waitingRoomEnabled = undefined,
     notifyParticipants = undefined,
+    reminderMinutes = undefined,
     updatedByUserId = null
   }) {
     const eid = Number(eventId || 0);
@@ -463,6 +464,10 @@ class ProviderScheduleEvent {
           ? 0
           : 1
       );
+    }
+    if (reminderMinutes !== undefined) {
+      sets.push('reminder_minutes = ?');
+      params.push(reminderMinutes);
     }
     if (!sets.length) return this.findByIdForProvider({ eventId: eid, providerId: pid });
     sets.push('updated_by_user_id = ?');

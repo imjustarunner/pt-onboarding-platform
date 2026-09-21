@@ -91,7 +91,7 @@
           <div class="supb-switch-copy">
             <span class="supb-switch-title">Email invites &amp; reminders</span>
             <p class="supb-hint muted">
-              Send calendar invite emails, in-app schedule emails, and the automatic join reminder (~5 min before).
+              Send a branded app invitation with a personal join link. Recurring sessions send one series invitation, without Google invite emails.
               Turn off to add silently with no reminder emails.
             </p>
           </div>
@@ -109,6 +109,18 @@
         </div>
       </div>
 
+      <div v-if="showNotifyOption && notifyParticipants && showControls" class="supb-row">
+        <label class="supb-label">App reminder</label>
+        <select aria-label="App reminder" class="supb-select" :value="reminderMinutes ?? 'off'" :disabled="disabled" @change="emit('update:reminderMinutes', $event.target.value === 'off' ? null : Number($event.target.value))">
+          <option value="off">No reminder</option>
+          <option :value="5">5 minutes before (default)</option>
+          <option :value="10">10 minutes before</option>
+          <option :value="15">15 minutes before</option>
+          <option :value="30">30 minutes before</option>
+          <option :value="60">1 hour before</option>
+          <option :value="1440">1 day before</option>
+        </select>
+      </div>
       <template v-if="showDetails">
         <template v-if="groupMode && canBookGroup">
           <div class="supb-row">
@@ -300,8 +312,9 @@ import { computed, ref } from 'vue';
 const props = defineProps({
   isVirtual: { type: Boolean, default: true },
   waitingRoomEnabled: { type: Boolean, default: true },
-  /** When false: no calendar invite emails, in-app notify emails, or join reminder emails. */
+  /** When false: no branded app invitation or join reminder emails. */
   notifyParticipants: { type: Boolean, default: true },
+  reminderMinutes: { type: Number, default: 5 },
   showNotifyOption: { type: Boolean, default: true },
   groupMode: { type: Boolean, default: false },
   signupOnly: { type: Boolean, default: false },
@@ -330,6 +343,7 @@ const emit = defineEmits([
   'update:isVirtual',
   'update:waitingRoomEnabled',
   'update:notifyParticipants',
+  'update:reminderMinutes',
   'update:groupMode',
   'update:signupOnly',
   'update:facilitatorUserId',

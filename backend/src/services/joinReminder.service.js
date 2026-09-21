@@ -1,4 +1,6 @@
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
+import { personalMeetingInvitation } from './meetingInvitations.service.js';
+import { escapeMeetingHtml } from './meetingInvitationPolicy.js';
 /**
  * Join reminder service: sends email/SMS with join link 5 minutes before
  * supervision sessions and team meetings when configured.
@@ -46,6 +48,21 @@ async function recordSent(sessionType, sessionId, recipientKey, userId = null) {
 }
 
 async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessionType, sessionId }) {
+  const db = await pool.getConnection();
+  const lock = `join-reminder:${sessionType}:${sessionId}:${userId}`;
+  let acquired = false;
+  try {
+    const [rows] = await db.execute('SELECT GET_LOCK(?,0) AS acquired',[lock]);
+    acquired = !!rows[0].acquired;
+    if (!acquired) return {email:false,sms:false};
+    return await deliverJoinReminderToUser({userId,agencyId,joinUrl,label,sessionType,sessionId});
+  } finally {
+    if (acquired) await db.execute('SELECT RELEASE_LOCK(?)',[lock]);
+    db.release();
+  }
+}
+
+async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, sessionType, sessionId }) {
   if (!joinUrl || !userId || !agencyId) return { email: false, sms: false };
   const recipientKey = `u:${userId}`;
   if (await alreadySent(sessionType, sessionId, recipientKey)) return { email: false, sms: false };
@@ -67,6 +84,16 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
 
   // Prefer Quick View deep link for non-SSO / personal-email staff when configured
   let finalJoinUrl = joinUrl;
+  let when = 'starting soon';
+  if (sessionType === 'team_meeting' || sessionType === 'supervision') {
+    const table = sessionType === 'supervision' ? 'supervision_sessions' : 'provider_schedule_events';
+    const [events] = await pool.execute(`SELECT * FROM ${table} WHERE id=?`,[sessionId]);
+    if (events[0]) {
+      finalJoinUrl = (await personalMeetingInvitation(events[0],userId)).url;
+      const tz = events[0].event_timezone || 'America/Denver';
+      when = `scheduled for ${new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short',timeZone:tz}).format(parseUtcDate(events[0].start_at))} (${tz})`;
+    }
+  }
   try {
     const { getAgencyEmailSettings } = await import('./emailSettings.service.js');
     const {
@@ -76,7 +103,7 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
       buildDeliveryQuickViewUrl
     } = await import('./quickViewAuth.service.js');
     const settings = await getAgencyEmailSettings(agencyId);
-    if (settings.quickViewEnabled) {
+    if (settings.quickViewEnabled && !['team_meeting','supervision'].includes(sessionType)) {
       const status = await getCredentialStatus(userId);
       if (!status.hasPasscode) {
         // Fall back to direct join until passcode is set
@@ -115,8 +142,8 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
   if (decision?.email && toEmail) {
     try {
       const subject = `Join reminder: ${label}`;
-      const text = `${label} is starting soon.\n\nJoin here: ${finalJoinUrl}`;
-      const html = `<p>${label} is starting soon.</p><p><a href="${finalJoinUrl}">Join here</a></p><p style="font-size:12px;color:#64748b">If prompted, enter your 6-digit Quick View passcode.</p>`;
+      const text = `${label} is ${when}.\n\nYour personal join link: ${finalJoinUrl}\nSign in with your invited account.`;
+      const html = `<p>${escapeMeetingHtml(label)} is ${escapeMeetingHtml(when)}.</p><p><a href="${escapeMeetingHtml(finalJoinUrl)}">Join your meeting</a></p><p>Sign in with your invited account.</p>`;
       const result = await sendNotificationEmail({
         agencyId,
         triggerKey: 'meeting_join_reminder',
@@ -145,7 +172,7 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
         ? PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
         : null;
       if (from) {
-        const body = `${label} starting soon. Join: ${finalJoinUrl}`.slice(0, 480);
+        const body = `${label} ${when}. Join: ${finalJoinUrl}`.slice(0, 480);
         await VonageService.sendSms({ to: toPhoneNorm, from, body });
         smsSent = true;
       }
@@ -224,7 +251,7 @@ export function joinReminderWindowSql({ now = new Date() } = {}) {
 export async function runJoinReminderTick({ now = new Date() } = {}) {
   const { startSql, endSql } = joinReminderWindowSql({ now });
 
-  const useAppJoin = isVideoConfigured() && FRONTEND_URL;
+  const useAppJoin = isVideoConfigured();
 
   try {
     // Supervision sessions starting in 5-8 min
@@ -237,9 +264,13 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
          FROM supervision_sessions ss
          JOIN users sup ON sup.id = ss.supervisor_user_id
          WHERE (ss.status IS NULL OR ss.status <> 'CANCELLED')
-           AND ss.start_at >= ? AND ss.start_at < ?
+           AND ss.reminder_minutes IS NOT NULL
+           AND ss.status='SCHEDULED'
+           AND ss.start_at > ?
+           AND DATE_SUB(ss.start_at, INTERVAL ss.reminder_minutes MINUTE) <= ?
+           AND DATE_SUB(ss.start_at, INTERVAL ss.reminder_minutes MINUTE) > DATE_SUB(?, INTERVAL 3 MINUTE)
          ORDER BY ss.start_at ASC`,
-        [startSql, endSql]
+        [toSqlDatetimeUtc(now),toSqlDatetimeUtc(now),toSqlDatetimeUtc(now)]
       );
       supvRows = rows || [];
     } catch (e) {
@@ -318,9 +349,13 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
          FROM provider_schedule_events pse
          WHERE UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
            AND (pse.status IS NULL OR pse.status = 'ACTIVE')
-           AND pse.start_at >= ? AND pse.start_at < ?
+           AND pse.reminder_minutes IS NOT NULL
+           AND pse.meeting_completed_at IS NULL
+           AND pse.start_at > ?
+           AND DATE_SUB(pse.start_at, INTERVAL pse.reminder_minutes MINUTE) <= ?
+           AND DATE_SUB(pse.start_at, INTERVAL pse.reminder_minutes MINUTE) > DATE_SUB(?, INTERVAL 3 MINUTE)
          ORDER BY pse.start_at ASC`,
-        [startSql, endSql]
+        [toSqlDatetimeUtc(now), toSqlDatetimeUtc(now), toSqlDatetimeUtc(now)]
       );
       teamRows = rows || [];
     } catch (e) {
@@ -436,10 +471,11 @@ function sessionTypeForScheduleKind(kind) {
   return null;
 }
 
-function reminderFireAtFromStart(startAt) {
+function reminderFireAtFromStart(startAt, minutes = WINDOW_START_MINUTES) {
+  if (minutes === null) return null;
   const d = parseUtcDate(startAt);
   if (!d) return null;
-  d.setUTCMinutes(d.getUTCMinutes() - WINDOW_START_MINUTES);
+  d.setUTCMinutes(d.getUTCMinutes() - minutes);
   return toSqlDatetimeUtc(d);
 }
 
@@ -463,7 +499,8 @@ export async function buildScheduleEventNotificationPlan(eventRow) {
   const title = String(eventRow.title || (kind === 'HUDDLE' ? 'Huddle' : 'Team meeting')).trim()
     || (kind === 'HUDDLE' ? 'Huddle' : 'Team meeting');
   const startAt = eventRow.start_at || null;
-  const fireAt = notifyOn ? reminderFireAtFromStart(startAt) : null;
+  const minutes = eventRow.reminder_minutes === undefined ? 5 : eventRow.reminder_minutes;
+  const fireAt = notifyOn ? reminderFireAtFromStart(startAt, minutes) : null;
   const nowMs = Date.now();
   const startParsed = parseUtcDate(startAt);
   const startMs = startParsed ? startParsed.getTime() : NaN;
@@ -515,7 +552,7 @@ export async function buildScheduleEventNotificationPlan(eventRow) {
     try {
       const decision = await NotificationGatekeeperService.decideChannels({
         userId: uid,
-        context: { severity: 'info' }
+        context: { severity: 'info', isMeetingReminder: true }
       });
       emailEnabled = !!decision?.email;
       smsEnabled = !!decision?.sms;
@@ -554,7 +591,7 @@ export async function buildScheduleEventNotificationPlan(eventRow) {
         recipientName: name,
         scheduledFor: fireAt,
         fireAt,
-        bodyPreview: `${title} — automatic reminder about 5 minutes before start`
+        bodyPreview: `${title} — automatic reminder ${minutes} minutes before start`
       });
     }
   }
@@ -570,6 +607,6 @@ export async function buildScheduleEventNotificationPlan(eventRow) {
     attendees,
     canSendAdditionalReminder: false,
     meetingTitle: title,
-    reminderWindowMinutes: WINDOW_START_MINUTES
+    reminderWindowMinutes: minutes
   };
 }

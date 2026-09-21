@@ -1,5 +1,7 @@
 import { getPasswordRecoverySsoState } from '../services/passwordRecoveryPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
+import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
+import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
 import User from '../models/User.model.js';
 import UserAccount from '../models/UserAccount.model.js';
 import AdminAuditLog from '../models/AdminAuditLog.model.js';
@@ -4768,6 +4770,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
           hostJoinToken: hostJoinToken || null,
           joinUrl: joinableSession ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), joinKey) : null,
           participantJoinUrl: joinableSession ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), joinKey) : null,
+          reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
+          timeZone: r.event_timezone || null,
           hostJoinUrl: joinableSession && hostJoinToken
             ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), hostJoinToken)
             : null,
@@ -4928,6 +4932,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           participantJoinUrl: appJoinUrl,
           waitingRoomEnabled: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? waitingRoomEnabled : null,
           notifyParticipants: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? notifyParticipants : null,
+          reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
           status: String(r.status || 'ACTIVE').trim().toUpperCase() || 'ACTIVE',
           isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
           isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,
@@ -6382,6 +6387,9 @@ export const createUserScheduleEvent = async (req, res, next) => {
       || req.body?.sendCalendarInvites === 'false'
     );
 
+    const isAppMeeting = ['TEAM_MEETING', 'HUDDLE'].includes(kind);
+    const meetingReminderMinutes = isAppMeeting ? normalizeMeetingReminder(req.body?.reminderMinutes) : undefined;
+    // Notifications belong to the branded app, not Google's guest-invite channel.
     const result = await GoogleCalendarService.createProviderScheduleEvent({
       subjectEmail,
       startAt,
@@ -6397,7 +6405,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
       isPrivate,
       attendeeEmails,
       createMeetLink,
-      sendUpdates: notifyParticipants ? 'all' : 'none'
+      sendUpdates: isAppMeeting ? 'none' : (notifyParticipants ? 'all' : 'none')
     });
 
     const googleOk = !!result?.ok;
@@ -6475,6 +6483,10 @@ export const createUserScheduleEvent = async (req, res, next) => {
         const ProviderScheduleEventAttendee = (await import('../models/ProviderScheduleEventAttendee.model.js')).default;
         await ProviderScheduleEventAttendee.upsertForEvent(saved.id, attendeeUserIds);
       }
+      if (saved?.id && isAppMeeting) {
+        await pool.execute('UPDATE provider_schedule_events SET reminder_minutes=? WHERE id=?', [meetingReminderMinutes, saved.id]);
+        saved.reminder_minutes = meetingReminderMinutes;
+      }
       if (saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE') && invitedGroupIds?.length) {
         try {
           const { linkGroupsToEvent } = await import('../services/meetingInviteGroupSync.service.js');
@@ -6498,7 +6510,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
             subjectEmail,
             googleEventId: result.eventId,
             appendText: `Join with app: ${absoluteJoinForCalendar}`,
-            sendUpdates: notifyParticipants ? 'all' : 'none'
+            sendUpdates: 'none'
           }).catch(() => {});
         }
       }
@@ -6557,6 +6569,11 @@ export const createUserScheduleEvent = async (req, res, next) => {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
+    let invitationWarning = null;
+    if (notifyParticipants && saved?.id && isAppMeeting) {
+      const delivery = await queueMeetingInvitations(saved, [userId, ...attendeeUserIds]);
+      if (delivery.failed) invitationWarning = 'Meeting saved, but some app invitations could not be queued. Please contact support before relying on email delivery.';
+    }
     // Notify attendees / host counterparts so their schedule can refresh.
     if (notifyParticipants && saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE')) {
       try {
@@ -6601,6 +6618,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
     return res.status(201).json({
       ok: true,
       googleSynced: googleOk,
+      invitationWarning,
       ...(googleOk ? {} : {
         googleCalendarWarning: googleError?.includes('invalid_grant')
           ? 'Saved in-app, but Google Calendar could not sync (invalid Google user/email grant). Platform video still works.'
@@ -6621,6 +6639,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
         notifyParticipants: (kind === 'TEAM_MEETING' || kind === 'HUDDLE')
           ? !!notifyParticipants
           : null,
+        reminderMinutes: meetingReminderMinutes,
         agencyId,
         kind,
         meetingSubtype,
@@ -6746,7 +6765,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const disallowedKeys = [
         'title', 'description', 'attendeeUserIds', 'invitedGroupIds', 'clientId',
         'isPrivate', 'meetingSubtype', 'meeting_subtype', 'isTrainingPayEligible',
-        'waitingRoomEnabled', 'notifyParticipants', 'agencyId'
+        'waitingRoomEnabled', 'notifyParticipants', 'reminderMinutes', 'agencyId'
       ];
       const attempted = disallowedKeys.filter((k) => Object.prototype.hasOwnProperty.call(req.body || {}, k));
       if (attempted.length) {
@@ -7001,6 +7020,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       );
     }
 
+    const nextReminderMinutes = req.body?.reminderMinutes === undefined ? undefined : normalizeMeetingReminder(req.body.reminderMinutes);
     const scope = String(req.body?.scope || 'single').trim().toLowerCase();
     if (!['single', 'future'].includes(scope)) {
       return res.status(400).json({ error: { message: 'scope must be single or future' } });
@@ -7072,6 +7092,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         meetingSubtype: isPrimary ? nextMeetingSubtype : (scope === 'future' ? nextMeetingSubtype : undefined),
         waitingRoomEnabled: isPrimary ? nextWaitingRoomEnabled : undefined,
         notifyParticipants: isPrimary ? nextNotifyParticipants : (scope === 'future' ? nextNotifyParticipants : undefined),
+        reminderMinutes: nextReminderMinutes,
         updatedByUserId: actorUserId
       });
       if (isPrimary) updated = rowUpdated;
@@ -7184,17 +7205,24 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         subjectEmail,
         existingGoogleEventId: googleEventId,
         summary: String(fresh?.title || title || '').trim() || 'Schedule event',
-        description: fresh?.description || null,
+        description: ['TEAM_MEETING', 'HUDDLE'].includes(kind) && (fresh.platform_video_link == null || Number(fresh.platform_video_link) !== 0)
+          ? [fresh.description, `Join with app: ${joinUrlForTeamMeeting(await tenantMeetingBase(fresh.agency_id), fresh.participant_join_token || fresh.join_token || fresh.id)}`].filter(Boolean).join('\n\n')
+          : fresh?.description || null,
+        ...(['TEAM_MEETING', 'HUDDLE'].includes(kind) ? { sendUpdates: 'none', disableReminders: true } : {}),
         startAt: gStart,
         endAt: gEnd,
         allDay: occAllDay,
         startDate: occAllDay && fresh.start_date ? String(fresh.start_date).slice(0, 10) : null,
         endDate: occAllDay && fresh.end_date ? String(fresh.end_date).slice(0, 10) : null,
         timeZone: tz,
-        ...(occId === eventId && attendeeEmails ? { attendees: attendeeEmails } : {})
+        ...(occId === eventId && attendeeEmails && !['TEAM_MEETING', 'HUDDLE'].includes(kind) ? { attendees: attendeeEmails } : {})
       }).catch(() => {});
     }
 
+    if (['TEAM_MEETING','HUDDLE'].includes(kind) && Number(updated?.notify_participants ?? 1)!==0 && (timingChanged || wantsAttendeeUpdate || req.body?.title !== undefined || req.body?.description !== undefined)) {
+      const freshEvents = await Promise.all(rowsToUpdate.map(e=>ProviderScheduleEvent.findById(e.id)));
+      await sendMeetingScheduleChange(freshEvents.filter(Boolean),'updated');
+    }
     return res.json({
       ok: true,
       scope,
@@ -7226,7 +7254,8 @@ export const updateUserScheduleEvent = async (req, res, next) => {
             || updated?.notify_participants === false
             || updated?.notify_participants === '0')
           : null,
-        recurrenceSeriesId: seriesId || null
+        recurrenceSeriesId: seriesId || null,
+        reminderMinutes: updated?.reminder_minutes === undefined ? 5 : updated.reminder_minutes
       }
     });
   } catch (e) {
@@ -7322,7 +7351,7 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
         subjectEmail,
         calendarId: 'primary',
         eventId: gid,
-        sendUpdates: notifyParticipants ? 'all' : 'none'
+        sendUpdates: ['TEAM_MEETING', 'HUDDLE'].includes(String(target.kind || '').toUpperCase()) ? 'none' : (notifyParticipants ? 'all' : 'none')
       }).catch(() => {});
     }));
 
@@ -7341,6 +7370,7 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
       console.warn('[deleteUserScheduleEvent] training pay withdraw failed', payErr?.message || payErr);
     }
 
+    if (notifyParticipants && ['TEAM_MEETING','HUDDLE'].includes(String(target.kind || '').toUpperCase())) await sendMeetingScheduleChange(rowsToCancel,'cancelled');
     return res.json({
       ok: true,
       scope,

@@ -6,7 +6,7 @@ import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import { buildImpersonatedJwtClient } from './googleWorkspaceAuth.service.js';
 import { requireHousehold, assertFamilyBenefit } from './familyAuth.service.js';
 import { familyError } from './familyPolicy.js';
-import { digest, renderCalendar, googleEventBody } from './calendarPublicationPolicy.js';
+import { digest, renderCalendar, googleEventBody, publicationOwner } from './calendarPublicationPolicy.js';
 import { workCalendarEvents, familyCalendarEvents } from './calendarEvents.service.js';
 
 export async function assertWorkCalendar(userId,agencyId) {
@@ -123,7 +123,9 @@ export async function createGooglePublication(session,id){
   const initial=await publication(session,id,true);
   await locked(initial.id,async()=>{
     const p=await publication(session,id);if(!p.google_calendar_id){
-      const subject=process.env.CALENDAR_PUBLICATION_OWNER || process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER || process.env.GMAIL_IMPERSONATE_USER || 'ai@plottwistco.com';
+      // Must be a real, delegated Workspace mailbox, not a send-as alias. Google's
+      // creator field reflects this account and cannot be relabelled by our app.
+      const subject=publicationOwner(session.agencyId);
       const owner=await authorizePublication(session,id),name=id?`${owner.name} · Family`:`${owner.first_name} ${owner.last_name} · ${owner.agency_name} work`;
       const calendar=await googleClient(subject);
       const {data}=await calendar.calendars.insert({requestBody:{summary:name,timeZone:owner.timezone || 'America/Denver',description:'Managed by the app. Read-only shared calendar; make changes in the app.'}});

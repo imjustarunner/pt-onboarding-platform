@@ -38,7 +38,30 @@ export function renderCalendar(name,events) {
 }
 export function googleEventBody(event) {
   return {summary:event.title,description:event.url?`Join: ${event.url}`:'',location:event.location || '',
+    reminders:{useDefault:false,overrides:[]},
     start:event.startDate?{date:event.startDate}:{dateTime:new Date(event.start).toISOString()},
     end:event.endDate?{date:event.endDate}:{dateTime:new Date(event.end).toISOString()},
     visibility:'default',extendedProperties:{private:{plotCalendar:'1',eventKey:event.key}}};
+}
+
+// Same reservation represented by multiple legacy rows: one mirror, not multiple
+// copies. Never collapse different rooms, clients, or overlapping (non-identical) times.
+export function uniqueOfficeReservations(rows) {
+  const seen = new Set();
+  return [...rows].sort((a,b)=>Number(a.id)-Number(b.id)).filter(row => {
+    const key = JSON.stringify([row.office_location_id,row.room_id,new Date(row.start_at).toISOString(),new Date(row.end_at).toISOString(),row.client_id || null,row.clinical_session_id || null,row.appointment_type_code || null,row.appointment_subtype_code || null]);
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+}
+
+export function publicationOwner(agencyId, env = process.env) {
+  let owners = {};
+  if (env.CALENDAR_PUBLICATION_OWNERS) {
+    try { owners = JSON.parse(env.CALENDAR_PUBLICATION_OWNERS); }
+    catch { throw new Error('CALENDAR_PUBLICATION_OWNERS must be an agency-id to Workspace mailbox JSON object.'); }
+  }
+  const owner = owners[String(agencyId)] || env.CALENDAR_PUBLICATION_OWNER || env.GOOGLE_WORKSPACE_IMPERSONATE_USER || env.GMAIL_IMPERSONATE_USER;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(owner || ''))) throw new Error('Configure a Workspace calendar owner before creating shared calendars.');
+  return String(owner).trim().toLowerCase();
 }

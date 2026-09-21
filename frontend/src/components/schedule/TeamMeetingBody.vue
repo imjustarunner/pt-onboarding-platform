@@ -100,7 +100,7 @@
           <div class="tmb-switch-copy">
             <span class="tmb-switch-title">Email invites &amp; reminders</span>
             <p class="muted">
-              Send calendar invite emails, in-app schedule emails, and the automatic join reminder (~5 min before).
+              Send a branded app invitation with each person's own join link. Recurring meetings send one series invitation. Google invite emails are not sent.
               Turn off to add silently with no reminder emails.
             </p>
           </div>
@@ -116,6 +116,19 @@
             <span class="tmb-switch-slider" aria-hidden="true"></span>
           </label>
         </div>
+      </div>
+
+      <div v-if="showNotifyOption && notifyParticipants" class="tmb-row">
+        <label class="tmb-label">App reminder</label>
+        <select aria-label="App reminder" class="tmb-input" :value="reminderMinutes ?? 'off'" :disabled="disabled" @change="emit('update:reminderMinutes', $event.target.value === 'off' ? null : Number($event.target.value))">
+          <option value="off">No reminder</option>
+          <option :value="5">5 minutes before (default)</option>
+          <option :value="10">10 minutes before</option>
+          <option :value="15">15 minutes before</option>
+          <option :value="30">30 minutes before</option>
+          <option :value="60">1 hour before</option>
+          <option :value="1440">1 day before</option>
+        </select>
       </div>
 
       <div v-if="showParticipants" class="tmb-row">
@@ -419,6 +432,7 @@ const props = defineProps({
   videoConfigured: { type: Boolean, default: false },
   /** When false, calendar/Google still sync but invite emails are suppressed. */
   notifyParticipants: { type: Boolean, default: true },
+  reminderMinutes: { type: Number, default: 5 },
   showNotifyOption: { type: Boolean, default: true },
   /** When false, Virtual / platform / waiting-room switches live next to the join-link panel. */
   showVirtualOptions: { type: Boolean, default: true },
@@ -458,6 +472,7 @@ const emit = defineEmits([
   'update:waitingRoomEnabled',
   'update:createMeetLink',
   'update:notifyParticipants',
+  'update:reminderMinutes',
   'update:agendaItems',
   'update:goalDraftItems',
   'update:actionDraftItems',

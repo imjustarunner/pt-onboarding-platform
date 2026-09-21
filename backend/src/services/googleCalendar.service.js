@@ -396,7 +396,8 @@ export class GoogleCalendarService {
     eventId,
     startAtIso,
     endAtIso,
-    timeZone = null
+    timeZone = null,
+    sendUpdates = 'none'
   } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const eid = String(eventId || '').trim();
@@ -411,7 +412,7 @@ export class GoogleCalendarService {
       await cal.events.patch({
         calendarId,
         eventId: eid,
-        sendUpdates: 'all',
+        sendUpdates,
         requestBody: {
           start: { dateTime: startAtIso, timeZone: tz },
           end: { dateTime: endAtIso, timeZone: tz }
@@ -472,9 +473,9 @@ export class GoogleCalendarService {
       .map((v) => String(v || '').trim().toLowerCase())
       .filter(Boolean)))
       .filter((email) => email !== subject);
-    const sendUpdatesMode = ['all', 'externalOnly', 'none'].includes(String(sendUpdates || ''))
-      ? String(sendUpdates)
-      : 'all';
+    const sendUpdatesMode = ['TEAM_MEETING', 'HUDDLE'].includes(normalizedKind)
+      ? 'none'
+      : (['all', 'externalOnly', 'none'].includes(String(sendUpdates || '')) ? String(sendUpdates) : 'all');
 
     // Provider schedule create payloads are already wall-clock in `timeZone`
     // (e.g. "2026-07-29T11:00:00" meaning 11am Denver). Do NOT run them through
@@ -488,6 +489,7 @@ export class GoogleCalendarService {
     const requestBody = {
       summary: normalizedSummary,
       description: description ? String(description) : undefined,
+      ...(['TEAM_MEETING', 'HUDDLE'].includes(normalizedKind) ? { reminders: { useDefault: false, overrides: [] } } : {}),
       visibility: isPrivate ? 'private' : undefined,
       ...(normalizedColorId ? { colorId: normalizedColorId } : {}),
       ...(isAllDay
@@ -506,7 +508,10 @@ export class GoogleCalendarService {
           ...(normalizedReason ? { pt_schedule_event_reason: normalizedReason } : {})
         }
       },
-      ...(attendees.length ? { attendees: attendees.map((email) => ({ email })) } : {})
+      // App meetings use personal shared calendars + branded app invitations.
+      // Do not enlist Google's guest invitation system (sendUpdates:none alone
+      // does not reliably deliver guest copies to external calendars).
+      ...(attendees.length && !['TEAM_MEETING', 'HUDDLE'].includes(normalizedKind) ? { attendees: attendees.map((email) => ({ email })) } : {})
     };
     if (createMeetLink) {
       requestBody.conferenceData = {
@@ -665,7 +670,9 @@ export class GoogleCalendarService {
     startDate = null,
     endDate = null,
     attendees = [],
-    extendedProperties = {}
+    extendedProperties = {},
+    sendUpdates = 'all',
+    disableReminders = false
   } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
@@ -675,6 +682,7 @@ export class GoogleCalendarService {
 
     const requestBody = {
       summary: normalizedSummary,
+      ...(disableReminders ? { reminders: { useDefault: false, overrides: [] } } : {}),
       ...(description ? { description: String(description) } : {}),
       ...(location ? { location: String(location) } : {}),
       ...(Object.keys(extendedProperties || {}).length
@@ -716,14 +724,14 @@ export class GoogleCalendarService {
           calendarId,
           eventId: googleEventId,
           requestBody,
-          sendUpdates: 'all'
+          sendUpdates
         });
         googleEventId = upd.data?.id || googleEventId;
       } else {
         const ins = await cal.events.insert({
           calendarId,
           requestBody,
-          sendUpdates: 'all'
+          sendUpdates
         });
         googleEventId = ins.data?.id || null;
       }
@@ -928,7 +936,7 @@ export class GoogleCalendarService {
     appJoinUrl = null,
     existingGoogleEventId = null,
     existingMeetLink = null,
-    sendUpdates = 'all'
+    sendUpdates = 'none'
   }) {
     const subject = String(hostEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_host_email' };
@@ -938,15 +946,6 @@ export class GoogleCalendarService {
 
     const cal = this.buildCalendarClientForSubject(subject);
     const calendarId = 'primary';
-
-    const extraAttendees = Array.from(
-      new Set(
-        (Array.isArray(additionalAttendeeEmails) ? additionalAttendeeEmails : [])
-          .map((raw) => String(raw || '').trim().toLowerCase())
-          .filter((email) => email && email !== attendee && email !== subject)
-      )
-    );
-    const attendees = [{ email: attendee }, ...extraAttendees.map((email) => ({ email }))];
 
     let finalDescription = description ? String(description) : '';
     if (appJoinUrl && String(appJoinUrl).trim()) {
@@ -958,10 +957,12 @@ export class GoogleCalendarService {
 
     const requestBody = {
       summary: String(summary || 'Supervision').trim() || 'Supervision',
+      reminders: { useDefault: false, overrides: [] },
       description: finalDescription || undefined,
       start: { dateTime: toRfc3339Local(startAt, tz), timeZone: tz },
       end: { dateTime: toRfc3339Local(endAt, tz), timeZone: tz },
-      attendees,
+      // No Google guest list for new sessions; on patch, leave legacy guests
+      // untouched rather than silently cancelling their existing copies.
       extendedProperties: {
         private: {
           pt_supervision_session_id: String(supervisionSessionId || ''),
@@ -1513,4 +1514,3 @@ export class GoogleCalendarService {
 }
 
 export default GoogleCalendarService;
-

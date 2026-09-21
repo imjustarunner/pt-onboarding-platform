@@ -1138,16 +1138,15 @@ export const addTeamMeetingAttendee = async (req, res, next) => {
         WHERE id = ? AND NOT JSON_CONTAINS(COALESCE(interviewer_user_ids_json, JSON_ARRAY()), JSON_ARRAY(?))`, [userId, interview.id, userId]);
     }
     await ProviderScheduleEventAttendee.upsertForEvent(row.id, [userId]);
+    const { personalMeetingInvitation } = await import('../services/meetingInvitations.service.js');
+    const personalInvite = await personalMeetingInvitation(row,userId,{queue:Number(row.notify_participants ?? 1)!==0});
 
     try {
       const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
       const actor = await User.findById(actorId);
       const actorName = displayNameFromUser(actor) || 'A teammate';
       const title = String(row.title || '').trim() || 'Team meeting';
-      const joinUrl = joinUrlForTeamMeeting(
-        await tenantMeetingBase(row.agency_id),
-        row.participant_join_token || row.join_token || row.id
-      );
+      const joinUrl = personalInvite.url;
       await createNotificationAndDispatch({
         type: 'team_meeting_invited_live',
         severity: 'info',

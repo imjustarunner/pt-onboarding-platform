@@ -4,6 +4,7 @@ import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import ProviderScheduleEventAttendee from '../models/ProviderScheduleEventAttendee.model.js';
 import { toMysqlUtcDateTime } from '../utils/officeEventDateTime.util.js';
 import { sendMeetingInviteEmail } from './meetingCancellation.service.js';
+import { personalMeetingInvitation } from './meetingInvitations.service.js';
 
 const MEETING_ROLES = new Set([
   'admin',
@@ -134,7 +135,7 @@ export async function startAdhocTeamMeeting({
       meetingTitle,
       meetingStartAt: startAt,
       meetingEndAt: endAt,
-      joinUrl
+      joinUrl: (await personalMeetingInvitation(created, otherId)).url
     });
   } catch {
     // best-effort

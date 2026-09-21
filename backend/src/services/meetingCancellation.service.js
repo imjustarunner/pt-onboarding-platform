@@ -117,7 +117,8 @@ export async function cancelOneMeeting({
       await GoogleCalendarService.deleteEvent({
         subjectEmail,
         calendarId: 'primary',
-        eventId: gid
+        eventId: gid,
+        sendUpdates: 'none'
       }).catch(() => {});
     }
   } catch {

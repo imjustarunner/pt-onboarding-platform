@@ -1,4 +1,6 @@
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
+import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
+import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
@@ -4229,6 +4231,7 @@ export const createSupervisionSession = async (req, res, next) => {
       || req.body?.sendCalendarInvites === '0'
       || req.body?.sendCalendarInvites === 'false'
     );
+    const meetingReminderMinutes = normalizeMeetingReminder(req.body?.reminderMinutes);
     const created = await SupervisionSession.create({
       agencyId,
       supervisorUserId,
@@ -4254,6 +4257,7 @@ export const createSupervisionSession = async (req, res, next) => {
       autoCancelIfEmpty: isSignupOnly
     });
 
+    await pool.execute('UPDATE supervision_sessions SET reminder_minutes=?,event_timezone=? WHERE id=?',[meetingReminderMinutes,supervisionTimeZone,created.id]);
     // Ensure newly scheduled sessions immediately appear in supervision rosters.
     if (!isSignupOnly) {
       await SupervisorAssignment.ensure(
@@ -4426,7 +4430,7 @@ export const createSupervisionSession = async (req, res, next) => {
       description: desc,
       createMeetLink: useVideo ? false : createMeetLink,
       appJoinUrl,
-      sendUpdates: notifyParticipants ? 'all' : 'none'
+      sendUpdates: 'none'
     });
 
     if (sync?.ok) {
@@ -4450,9 +4454,16 @@ export const createSupervisionSession = async (req, res, next) => {
     }
 
     const out = await SupervisionSession.resolveByJoinRef(created.id) || await SupervisionSession.findById(created.id);
+    let invitationWarning = null;
+    if (notifyParticipants) {
+      const attendees = await SupervisionSession.listAttendees(created.id);
+      const delivery = await queueMeetingInvitations(out,[supervisorUserId,...attendees.map(a=>a.user_id)]);
+      if (delivery.failed) invitationWarning = 'Session saved, but some app invitations could not be queued. Please contact support before relying on email delivery.';
+    }
 
     res.status(201).json({
       ok: true,
+      invitationWarning,
       session: {
         ...out,
         joinUrl: await supervisionAppJoinUrl(out),
@@ -4486,7 +4497,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const supervisionTimeZone = String(req.body?.timeZone || DEFAULT_SCHEDULE_TZ).trim() || DEFAULT_SCHEDULE_TZ;
+    const supervisionTimeZone = String(req.body?.timeZone || row.event_timezone || DEFAULT_SCHEDULE_TZ).trim() || DEFAULT_SCHEDULE_TZ;
     const startWall = req.body?.startAt !== undefined ? parseDateTimeLocalString(req.body?.startAt) : undefined;
     const endWall = req.body?.endAt !== undefined ? parseDateTimeLocalString(req.body?.endAt) : undefined;
     let startAt;
@@ -4571,6 +4582,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     if (!nextStart || !nextEnd) return res.status(400).json({ error: { message: 'Invalid startAt/endAt' } });
     if (String(nextEnd) <= String(nextStart)) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
 
+    const nextReminderMinutes = req.body?.reminderMinutes === undefined ? undefined : normalizeMeetingReminder(req.body.reminderMinutes);
     const scope = String(req.body?.scope || 'single').trim().toLowerCase();
     if (!['single', 'future'].includes(scope)) {
       return res.status(400).json({ error: { message: 'scope must be single or future' } });
@@ -4632,6 +4644,9 @@ export const patchSupervisionSession = async (req, res, next) => {
         } : {})
       });
       if (occId === id) updated = rowUpdated;
+      if (nextReminderMinutes !== undefined) await pool.execute('UPDATE supervision_sessions SET reminder_minutes=? WHERE id=?',[nextReminderMinutes,occId]);
+      if (timingChanged) await pool.execute('UPDATE supervision_sessions SET event_timezone=? WHERE id=?',[supervisionTimeZone,occId]);
+      if (req.body?.notifyParticipants !== undefined) await pool.execute('UPDATE supervision_sessions SET notify_participants=? WHERE id=?',[notifyParticipants?1:0,occId]);
     }
     if (!updated) updated = await SupervisionSession.updateById(id, {
       startAt: startAt !== undefined ? startAt : undefined,
@@ -4698,7 +4713,7 @@ export const patchSupervisionSession = async (req, res, next) => {
         appJoinUrl,
         existingGoogleEventId: fresh.google_event_id || null,
         existingMeetLink: fresh.google_meet_link || null,
-        sendUpdates: notifyParticipants ? 'all' : 'none'
+        sendUpdates: 'none'
       });
 
       if (sync?.ok) {
@@ -4725,6 +4740,10 @@ export const patchSupervisionSession = async (req, res, next) => {
     }
 
     const out = await SupervisionSession.findById(id);
+    if (notifyParticipants && Number(out?.notify_participants ?? 1)!==0 && timingChanged) {
+      const fresh = await Promise.all(rowsToUpdate.map(e=>SupervisionSession.findById(e.id)));
+      await sendMeetingScheduleChange(fresh.filter(Boolean),'updated');
+    }
     res.json({ ok: true, session: out });
   } catch (e) {
     next(e);
@@ -4770,10 +4789,11 @@ export const cancelSupervisionSession = async (req, res, next) => {
       await GoogleCalendarService.cancelSupervisionSessionGoogleEvent({
         hostEmail,
         googleEventId: row.google_event_id,
-        sendUpdates: notifyParticipants ? 'all' : 'none'
+        sendUpdates: 'none'
       });
     }
 
+    if (notifyParticipants) await sendMeetingScheduleChange([row],'cancelled');
     res.json({ ok: true, session: cancelled });
   } catch (e) {
     next(e);

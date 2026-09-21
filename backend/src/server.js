@@ -155,6 +155,7 @@ import communicationsRoutes from './routes/communications.routes.js';
 import quickViewRoutes from './routes/quickView.routes.js';
 import familyRoutes from './routes/family.routes.js';
 import calendarSharingRoutes from './routes/calendarSharing.routes.js';
+import meetingInvitationsRoutes from './routes/meetingInvitations.routes.js';
 import providerImportRoutes from './routes/providerImport.routes.js';
 import mboxImportRoutes from './routes/mboxImport.routes.js';
 import noteAidRoutes from './routes/noteAid.routes.js';
@@ -896,6 +897,7 @@ app.use('/api/quick-view', quickViewRoutes);
 app.use('/api/family/calendar-sharing', calendarSharingRoutes);
 app.use('/api/family', familyRoutes);
 app.use('/api/calendar-sharing', calendarSharingRoutes);
+app.use('/api/meeting-invitations', meetingInvitationsRoutes);
 
 app.use('/api', userCommunicationRoutes);
 app.use('/api', userAdminDocsRoutes);
@@ -2198,8 +2200,12 @@ if (!isBootstrap) {
     }
   }, 10 * 1000);
 
-  // Join reminder (email/SMS 5 min before supervision + team meetings)
+  // App invitations and configurable join reminders. A one-minute tick must fit
+  // inside the three-minute delivery window; prevent overlapping local workers.
+  let joinReminderInFlight = false;
   const scheduleJoinReminder = async () => {
+    if (joinReminderInFlight) return;
+    joinReminderInFlight = true;
     try {
       const { runJoinReminderTick } = await import('./services/joinReminder.service.js');
       await runJoinReminderTick();
@@ -2210,15 +2216,29 @@ if (!isBootstrap) {
         error?.code === 'ER_BAD_FIELD_ERROR' ||
         msg.includes('join_reminder');
       if (missing) {
-        console.warn('Join reminder tables not found. Run migration 522_meeting_join_reminder_trigger.sql');
+        console.warn('Meeting notification schema missing. Apply pending migrations (including 1473).');
       } else {
         console.error('Error in join reminder scheduler:', error);
       }
-    }
+    } finally { joinReminderInFlight = false; }
   };
 
   scheduleJoinReminder();
-  setInterval(scheduleJoinReminder, 5 * 60 * 1000);
+  setInterval(scheduleJoinReminder, 60 * 1000);
+
+  // Invitation backfills must not delay time-sensitive reminders.
+  let meetingInvitationsInFlight = false;
+  const scheduleMeetingInvitations = async () => {
+    if (meetingInvitationsInFlight) return;
+    meetingInvitationsInFlight = true;
+    try {
+      const { sendDueMeetingInvitations } = await import('./services/meetingInvitations.service.js');
+      await sendDueMeetingInvitations();
+    } catch (error) { console.warn('[Meeting invitations] Worker failed', error.code || 'unknown'); }
+    finally { meetingInvitationsInFlight = false; }
+  };
+  scheduleMeetingInvitations();
+  setInterval(scheduleMeetingInvitations, 60 * 1000);
 
   // Session documentation Notes tasks (~5 min before booked clinical sessions)
   const scheduleSessionDocTasks = async () => {
