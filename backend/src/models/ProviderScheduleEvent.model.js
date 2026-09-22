@@ -44,7 +44,7 @@ class ProviderScheduleEvent {
     const hostToken = needsJoinToken ? generateJoinToken().slice(0, 64) : null;
     const waitingRoomFlag = waitingRoomEnabled === false || waitingRoomEnabled === 0 ? 0 : 1;
     const requestedSubtype = String(meetingSubtype || '').trim().toLowerCase();
-    const subtype = kindUpper === 'TEAM_MEETING'
+    const subtype = kindUpper === 'HUDDLE' && ['cpa','mentorship'].includes(requestedSubtype) ? requestedSubtype : kindUpper === 'TEAM_MEETING'
       && (
         requestedSubtype === 'admin'
         || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype)
@@ -440,7 +440,7 @@ class ProviderScheduleEvent {
     if (meetingSubtype !== undefined) {
       const requestedSubtype = String(meetingSubtype || '').trim().toLowerCase();
       const nextSubtype = (
-        requestedSubtype === 'admin'
+        ['cpa','mentorship'].includes(requestedSubtype) || requestedSubtype === 'admin'
         || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype)
         || requestedSubtype === 'interview'
         || requestedSubtype === 'evaluation'

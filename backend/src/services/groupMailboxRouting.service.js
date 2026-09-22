@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import Directory from './googleWorkspaceDirectory.service.js';
+import { getImpersonatedUser } from './unifiedEmail/gmailClient.js';
 
 const norm = (s) => String(s || '').trim().toLowerCase();
 /** Expand only addressed groups, never From/Reply-To. Stop at personal mailboxes:
@@ -53,6 +54,14 @@ export async function resolvePersonalMailRecipients(addresses) {
   // may keep delivering to a removed staff member.
   return expandMailboxRecipients(addresses, boxes, async (groupKey) => {
     if (!admin) return [];
+    // Calendar invitations often address the app relay and actual Workspace
+    // users alongside a provider Group. Those users are leaves, not Groups.
+    if (norm(groupKey) === norm(getImpersonatedUser())) return [];
+    try {
+      if (await Directory.getUser({ primaryEmail: groupKey })) return [];
+    } catch (error) {
+      if (Number(error.code || error.response?.status) !== 400 || !/Type not supported: userKey/i.test(String(error.message))) throw error;
+    }
     const members = []; let pageToken;
     do {
       let result;

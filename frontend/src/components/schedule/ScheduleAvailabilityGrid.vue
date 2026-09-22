@@ -9337,7 +9337,7 @@ const evaluationPeriodYear = ref(new Date().getFullYear());
 const evaluationRubricPreview = ref([]);
 function normalizeMeetingSubtype(value) {
   const subtype = String(value || 'general').trim().toLowerCase();
-  if (subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return subtype;
+  if (['cpa','mentorship'].includes(subtype) || subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return subtype;
   return 'general';
 }
 function meetingSubtypeForCreatePayload() {
@@ -10735,7 +10735,7 @@ const meetingTypeDisplayLabel = (ev) => {
   const eventKind = String(ev?.kind || ev?.eventKind || '').trim().toUpperCase();
   const subtype = String(ev?.meetingSubtype || '').toLowerCase();
   const multi = isMultiParticipantMeeting(ev);
-  if (eventKind === 'HUDDLE') return multi ? 'Group Huddle' : 'Huddle';
+  if (eventKind === 'HUDDLE') return ({cpa:'CPA Meeting',mentorship:'Mentorship Meeting'})[subtype] || (multi ? 'Group Huddle' : 'Huddle');
   if (eventKind === 'TEAM_MEETING') {
     if (subtype === 'admin') return 'Admin Meeting';
     if (subtype === 'town_hall') return 'Town Hall';
@@ -12840,10 +12840,10 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'huddle',
-      label: 'Huddle',
+      label: 'CPA / Mentorship Meeting',
       description: canScheduleHuddleForOthers.value && !isCpaOrProviderPlus.value
-        ? 'Schedule a Huddle for a CPA or Provider Plus host (Individual Meeting rate for host; MEETING for attendees)'
-        : 'CPA / Provider Plus: host paid at Individual Meeting rate; attendees at MEETING rate',
+        ? 'Schedule a CPA Meeting or Mentorship Meeting with recorded attendance'
+        : 'CPA: Admin Time; mentor: Individual Meeting rate; interns: unpaid indirect time',
       disabledReason: canSeeHuddleAction.value
         ? ((canScheduleHuddleForOthers.value
           && huddleHostRoleKey.value
@@ -21336,7 +21336,7 @@ const submitRequest = async () => {
         : false;
       const meetingSubtypeForCreate = normalizedAction === 'agency_meeting'
         ? meetingSubtypeForCreatePayload()
-        : 'general';
+        : normalizeMeetingSubtype(meetingSubtype.value);
       const evaluationCreateFields = meetingSubtypeForCreate === 'evaluation'
         ? {
             evaluationPeriodYear: Number(evaluationPeriodYear.value) || new Date().getFullYear(),

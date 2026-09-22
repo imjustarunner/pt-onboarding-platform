@@ -1,11 +1,12 @@
+import { huddleTitle, huddleHostServiceCode } from './huddlePolicy.js';
 import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 /**
  * Auto time claims for Huddle / Admin Meeting / Town Hall compensation.
  *
- * - Huddle host → Individual Meeting
- * - Huddle attendees → MEETING
+ * - CPA host → Admin Time; mentorship host → Individual Meeting
+ * - Huddle attendees → MEETING; interns → unpaid indirect time
  * - Admin Meeting / Town Hall participants (host + attendees) → MEETING
  * - Supervisors on leadership/admin/supervisor meetings → 50% of individual supervision
  * - Administrators and staff salaried on the meeting date receive no extra meeting pay
@@ -91,7 +92,7 @@ export function isCompensationClaimMeeting(event) {
 
 export function meetingTypeLabelForEvent(event) {
   const kind = String(event?.kind || '').trim().toUpperCase();
-  if (kind === 'HUDDLE') return 'Huddle';
+  if (kind === 'HUDDLE') return huddleTitle(event,event.host_role);
   const subtype = normalizeMeetingSubtype(event?.meeting_subtype ?? event?.meetingSubtype);
   if (subtype === 'admin') return 'Admin Meeting';
   if (subtype === 'town_hall') return 'Town Hall';
@@ -370,12 +371,13 @@ async function syncCompensationClaimsUnlocked({
       let payRateSource = 'meeting';
       let categoryLabel = null;
       let compensationNote = null;
-      if (kind === 'HUDDLE' && isHost) {
-        serviceCode = HUDDLE_HOST_SERVICE_CODE;
-        payRateSource = 'individual_meeting';
-      }
-
       const role = await loadUserRole(uid);
+      const unpaidIndirect = kind === 'HUDDLE' && role === 'intern';
+      if (kind === 'HUDDLE' && isHost) {
+        serviceCode = huddleHostServiceCode(row, role);
+        payRateSource = serviceCode === 'Admin Time' ? 'admin_time' : 'individual_meeting';
+      }
+      if (unpaidIndirect) { serviceCode='Unpaid Indirect'; payRateSource='unpaid'; }
       if (ADMIN_SALARY_ROLES.has(role)) { results.push({userId:uid,ok:true,skipped:true,error:'admin_not_compensated'}); continue; }
       const salary = await PayrollSalaryPosition.findActiveForUser({agencyId,userId:uid,asOfDate:claimDate});
       if (Number(salary?.salary_per_pay_period)>0) { results.push({userId:uid,ok:true,skipped:true,error:'salary_not_compensated'}); continue; }
@@ -399,7 +401,7 @@ async function syncCompensationClaimsUnlocked({
         continue;
       }
 
-      if (!(await hasUsableRate({agencyId,userId:uid,serviceCode,asOf:claimDate}))) {
+      if (!unpaidIndirect && !(await hasUsableRate({agencyId,userId:uid,serviceCode,asOf:claimDate}))) {
         results.push({ userId: uid, ok: true, skipped: true, error: 'no_usable_rate' });
         continue;
       }
@@ -413,6 +415,7 @@ async function syncCompensationClaimsUnlocked({
         categoryLabel,
         compensationNote
       });
+      if (unpaidIndirect) Object.assign(payload,{unpaidIndirect:true,amount:0,bucket:'indirect',categoryLabel:`${meetingType} · unpaid indirect time`});
       // eslint-disable-next-line no-await-in-loop
       const res = await upsertClaim({
         agencyId,

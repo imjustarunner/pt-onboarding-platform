@@ -1,3 +1,4 @@
+import { huddleHostServiceCode } from './huddlePolicy.js';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import pool from '../config/database.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
@@ -23,8 +24,9 @@ export async function meetingParticipantRows(event,{includeCompensation=false}={
     if(includeCompensation) {
       const salary=await PayrollSalaryPosition.findActiveForUser({agencyId:event.agency_id,userId:row.id,asOfDate});
       const supervisorRate = ['admin','leadership_circle','supervisors_meeting'].includes(event.meeting_subtype) && (row.role==='supervisor' || Number(row.has_supervisor_privileges)===1);
-      const serviceCode = supervisorRate ? 'Supervisor meeting' : 'MEETING';
-      if (['admin','super_admin','superadmin'].includes(row.role)) row.compensation='Not compensated · administrator';
+      const serviceCode = event.kind==='HUDDLE' && row.isHost ? huddleHostServiceCode(event,row.role) : supervisorRate ? 'Supervisor meeting' : 'MEETING';
+      if (event.kind==='HUDDLE' && row.role==='intern') row.compensation='Unpaid indirect time · recorded attendance';
+      else if (['admin','super_admin','superadmin'].includes(row.role)) row.compensation='Not compensated · administrator';
       else if (Number(salary?.salary_per_pay_period)>0) row.compensation='Not compensated · salaried';
       else if (!isCompensationClaimMeeting(event)) row.compensation='Not compensated · meeting setting';
       else {

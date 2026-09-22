@@ -151,6 +151,8 @@
           @change="onTypeSelectChange($event.target.value)"
         >
           <option v-if="showHuddleOption || meetingKind === 'huddle'" value="huddle">Huddle</option>
+          <option v-if="showHuddleOption || meetingKind === 'huddle'" value="cpa">CPA Meeting</option>
+          <option v-if="showHuddleOption || meetingKind === 'huddle'" value="mentorship">Mentorship Meeting</option>
           <option v-if="showMeetingSubtype || meetingKind !== 'huddle'" value="general">General team meeting</option>
           <option v-if="canSetInterviewSubtype || meetingSubtype === 'interview'" value="interview">Interview</option>
           <option v-if="canSetLeadershipSubtype || meetingSubtype === 'leadership_circle'" value="leadership_circle">Leadership Circle</option>
@@ -176,7 +178,7 @@
         </select>
         <p v-if="meetingKind === 'huddle'" class="muted">
           Agency-internal huddle. Solo / 1:1 includes goals (like individual supervision); group huddles (2+ invitees) are agenda-only.
-          No action items. Host (CPA / Provider Plus) is paid at the Individual Meeting rate when they have one; attendees use MEETING time.
+          CPA Meeting: host uses Admin Time. Mentorship Meeting: host uses the Individual Meeting rate. Eligible participants use the meeting rate; interns receive unpaid indirect time. All time is based on recorded attendance.
         </p>
         <p v-else-if="meetingSubtype === 'evaluation'" class="muted">
           Semi-annual employee self-assessment meeting. Invite exactly one employee; attendance pays at the Support Activity (MEETING) rate.
@@ -508,7 +510,7 @@ const actionAddRef = ref(null);
 const showWorkspaceSide = computed(() => !!(props.showAgendaDraft || props.showGoalsActionsDraft));
 
 const typeSelectValue = computed(() => (
-  props.meetingKind === 'huddle' ? 'huddle' : String(props.meetingSubtype || 'general')
+  props.meetingKind === 'huddle' ? (['cpa','mentorship'].includes(props.meetingSubtype) ? props.meetingSubtype : 'huddle') : String(props.meetingSubtype || 'general')
 ));
 const typeSelectLocked = computed(() => (
   props.meetingKind !== 'huddle'
@@ -520,9 +522,9 @@ const typeSelectLocked = computed(() => (
 
 function onTypeSelectChange(value) {
   const v = String(value || '').trim().toLowerCase();
-  if (v === 'huddle') {
+  if (['huddle','cpa','mentorship'].includes(v)) {
     emit('update:meetingKind', 'huddle');
-    emit('update:meetingSubtype', 'general');
+    emit('update:meetingSubtype', v === 'huddle' ? 'general' : v);
     emit('update:isTrainingPayEligible', false);
     return;
   }

@@ -2215,6 +2215,7 @@ if (!isBootstrap) {
       await sendSupervisionDayAheadReminders();
       const { forwardUnreadSupervisionReplies } = await import('./services/supervisionEmailReplies.service.js');
       await forwardUnreadSupervisionReplies();
+      await (await import('./services/priorityEventEmail.service.js')).retryPriorityEventInboxCopies();
 
     } catch (error) {
       const msg = String(error?.message || '');

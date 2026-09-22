@@ -1,3 +1,4 @@
+import { priorityEventEmailRecipient, savePriorityEventInboxCopy, PRIORITY_EVENT_EMAILS } from '../priorityEventEmail.service.js';
 import { protectOutboundEmail } from '../activityProtection.service.js';
 import { assertMessageReminderRecipient } from '../messageReminderRecipient.service.js';
 import { randomUUID } from 'node:crypto';
@@ -561,6 +562,8 @@ export async function sendNotificationEmail({
   senderIdentityId = null,
   replyToOverride = null
 }) {
+  const eventDelivery = await priorityEventEmailRecipient({agencyId,userId,templateType:templateType || triggerKey,to,subject});
+  to=eventDelivery.to; subject=eventDelivery.subject;
   await assertMessageReminderRecipient({ templateType, userId, to });
   const gate = await canSendEmail({ source, agencyId });
   if (!gate.allowed) {
@@ -675,7 +678,7 @@ export async function sendNotificationEmail({
     return { skipped: true, reason: optGate.reason };
   }
 
-  const effectiveSubject = delivery.subjectOverride || subject;
+  const effectiveSubject = (await priorityEventEmailRecipient({agencyId,userId,templateType:templateType || triggerKey,to,subject:delivery.subjectOverride || subject})).subject;
 
   if (isForbiddenFallbackFrom({ fromEmail: identity.from_email })) {
     const block = await createMissingAliasTaskAndBlock({
@@ -886,6 +889,10 @@ export async function sendNotificationEmail({
     }).catch(() => {});
   }
 
+  if (eventDelivery.appOnly && messageId && !redirected.redirected && PRIORITY_EVENT_EMAILS.has(templateType || triggerKey)) {
+    await savePriorityEventInboxCopy({agencyId,userId,templateType:templateType || triggerKey,messageId,threadId:result.data?.threadId,fromEmail:identity.from_email,replyToEmail:replyTo,subject:effectiveSubject,text:signedContent.text,attachments}).catch(error=>console.warn('[event email] Inbox copy needs retry',userId,error.code||'persistence_failed'));
+  }
+
   if (agencyId && to) {
     await logContactCommunicationIfApplicable({
       agencyId,
@@ -950,6 +957,8 @@ export async function sendEmailFromIdentity({
   await assertMessageReminderRecipient({ templateType, userId, to, cc, bcc });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
+  const eventDelivery=await priorityEventEmailRecipient({agencyId:identity.agency_id,userId,templateType,to,subject});
+  to=eventDelivery.to; subject=eventDelivery.subject;
   const gate = await canSendEmail({ source, agencyId: identity?.agency_id || null });
   if (!gate.allowed) {
     // Gate blocked — log a visible "skipped" row on the recipient's / client's
@@ -1320,6 +1329,10 @@ export async function sendEmailFromIdentity({
       ...(cc ? { cc } : {}),
       ...redirectMeta
     }).catch(() => {});
+  }
+
+  if (eventDelivery.appOnly && messageId && !redirected.redirected && PRIORITY_EVENT_EMAILS.has(templateType)) {
+    await savePriorityEventInboxCopy({agencyId,userId,templateType,messageId,threadId:result.data?.threadId,fromEmail:identity.from_email,replyToEmail:replyTo,subject,text:signedContent.text,attachments}).catch(error=>console.warn('[event email] Inbox copy needs retry',userId,error.code||'persistence_failed'));
   }
 
   if (agencyId && to) {

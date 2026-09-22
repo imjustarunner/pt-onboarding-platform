@@ -1,5 +1,5 @@
 export const MEETING_TYPES = {
-  general: 'General team meeting', huddle: 'Huddle', admin: 'Admin Meeting', town_hall: 'Town Hall',
+  general: 'General team meeting', huddle: 'Huddle', cpa: 'CPA Meeting', mentorship: 'Mentorship Meeting', admin: 'Admin Meeting', town_hall: 'Town Hall',
   interview: 'Interview', evaluation: 'Employee Evaluation',
   leadership_circle: 'Leadership Circle', supervisors_meeting: 'Supervisors meeting'
 };
@@ -7,7 +7,7 @@ export const ADMIN_ONLY_MEETING_TYPES = new Set(['leadership_circle', 'superviso
 export function defaultMeetingSettings(type = 'general') {
   return { agenda: type !== 'interview', goals: type !== 'interview', actionItems: type !== 'interview',
     attendance: true, transcription: true, screenShare: true,
-    compensation: ['huddle','admin','town_hall','evaluation','leadership_circle','supervisors_meeting'].includes(type),
+    compensation: ['huddle','cpa','mentorship','admin','town_hall','evaluation','leadership_circle','supervisors_meeting'].includes(type),
     reminders: ['business_days_3', 1440, 5] };
 }
 export function parseMeetingSettings(raw) {

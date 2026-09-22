@@ -1,3 +1,4 @@
+import { isUnpaidMeetingClaim } from '../services/huddlePolicy.js';
 import multer from 'multer';
 import { parse } from 'csv-parse/sync';
 import XLSX from 'xlsx';
@@ -6525,6 +6526,7 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
     // mapped event-type rate-card slot (Skill Builders keep direct/indirect split).
     // Stored applied_amount only wins when payroll explicitly overrode the rate.
     const effectiveTimeClaimAmount = async (c) => {
+      if (isUnpaidMeetingClaim(c)) return 0;
       const stored = Number(c?.applied_amount || 0);
       const claimType = String(c?.claim_type || '').trim().toLowerCase();
       const payload = c?.payload || {};
@@ -19495,7 +19497,7 @@ export const patchTimeClaim = async (req, res, next) => {
           computedDefaultAmount = null;
         }
       }
-      const appliedAmount = Number.isFinite(override)
+      const appliedAmount = isUnpaidMeetingClaim(claim) ? 0 : Number.isFinite(override)
         ? override
         : (Number.isFinite(payloadAmountRaw) ? payloadAmountRaw : (Number.isFinite(computedDefaultAmount) ? computedDefaultAmount : 0));
       if (!Number.isFinite(appliedAmount) || appliedAmount < 0) {

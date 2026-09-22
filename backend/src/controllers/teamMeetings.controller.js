@@ -1,3 +1,4 @@
+import { huddleHostServiceCode } from '../services/huddlePolicy.js';
 import { eventMeetingSettings } from '../services/meetingSettings.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { canAccessHiringInterview } from '../services/hiringInterviewAccess.service.js';
@@ -2416,7 +2417,7 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
     const hostId = Number(event.provider_id || 0);
     const rows = (attendance?.participants || []).map((p) => {
       const claim = latestByUser.get(Number(p.userId)) || null;
-      const defaultCode = (kind === 'HUDDLE' && p.isHost) ? 'Individual Meeting' : 'MEETING';
+      const defaultCode = kind==='HUDDLE' && p.role==='intern' ? 'Unpaid Indirect' : (kind === 'HUDDLE' && p.isHost) ? huddleHostServiceCode(event,p.role) : 'MEETING';
       return {
         userId: p.userId,
         name: p.name,

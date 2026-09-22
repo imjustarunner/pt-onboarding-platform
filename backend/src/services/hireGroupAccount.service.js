@@ -438,7 +438,7 @@ export async function provisionHireGroupUsername({
   try {
     group = await GoogleWorkspaceDirectoryService.createGroup({
       email,
-      name: `${name} (hire)`.slice(0, 73),
+      name: name.slice(0, 73),
       description: `Hire mailbox for ${name} — PlotTwistHQ group_password path. External senders may email the address; personal email stays in-app only (not a group member).`,
       whoCanPostMessage: 'ANYONE_CAN_POST',
       whoCanViewGroup: 'ALL_MEMBERS_CAN_VIEW',

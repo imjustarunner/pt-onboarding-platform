@@ -149,7 +149,7 @@ export async function sendDueMeetingInvitations() {
       const recipientIdentity = await resolveMeetingRecipient({agencyId:invitation.agency_id,user:recipient});
       const joinUrl = `${await tenantMeetingBase(invitation.agency_id)}/join/invitation/${invitation.join_token}`;
       const content = meetingInvitationContent({events,joinUrl,hostName:[host?.first_name,host?.last_name].filter(Boolean).join(' '),participants:await meetingParticipantRows(events[0]),details:await meetingEmailDetails(events[0])});
-      const result = invitation.meeting_type === 'supervision'
+      const result = (invitation.meeting_type === 'supervision' || events[0].kind==='HUDDLE')
         ? await (await import('./supervisionEmail.service.js')).sendSupervisionEmail({session:events[0],user:recipient,joinUrl})
         : await sendNotificationEmail({agencyId:invitation.agency_id,triggerKey:'meeting_invited',replyToOverride:await meetingReplyTo(events[0]),to:recipientIdentity.email,...content,source:'auto',userId:invitation.user_id,templateType:'meeting_invited'});
       if (!result?.skipped) await db.execute("UPDATE meeting_email_invitations SET delivery_status=?,sent_at=IF(?='sent',UTC_TIMESTAMP(),NULL),communication_id=? WHERE id=?",[result?.pendingApproval?'approval':'sent',result?.pendingApproval?'approval':'sent',result?.communicationId||null,invitation.id]);

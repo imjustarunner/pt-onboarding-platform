@@ -1,3 +1,4 @@
+import { huddleSubtype, HUDDLE_SUBTYPES } from '../services/huddlePolicy.js';
 import { randomUUID } from 'node:crypto';
 import { captureMeetingChange, queueMeetingChange } from '../services/meetingScheduleChanges.service.js';
 import { saveEventMeetingSettings, assertMeetingCompensationSetting } from '../services/meetingSettings.service.js';
@@ -6267,7 +6268,9 @@ export const createUserScheduleEvent = async (req, res, next) => {
     if (ADMIN_ONLY_MEETING_TYPES.has(requestedSubtype) && !['admin','super_admin','superadmin'].includes(actorRole)) return res.status(403).json({error:{message:'Only administrators can schedule this meeting type.'}});
     if (req.body?.meetingSettings != null) normalizeMeetingSettings(req.body.meetingSettings);
     await assertMeetingCompensationSetting({agencyId,type:kind==='HUDDLE'?'huddle':requestedSubtype,input:req.body?.meetingSettings,role:actorRole});
-    let meetingSubtype = 'general';
+    let meetingSubtype = kind === 'HUDDLE' ? huddleSubtype({meeting_subtype:requestedSubtype},provider.role) : 'general';
+    if (HUDDLE_SUBTYPES.includes(requestedSubtype) && kind !== 'HUDDLE') return res.status(400).json({error:{message:'CPA and Mentorship meetings must use the huddle meeting kind.'}});
+    if (kind==='HUDDLE' && meetingSubtype==='cpa' && provider.role!=='clinical_practice_assistant') return res.status(400).json({error:{message:'Select a Clinical Practice Assistant as the CPA Meeting host.'}});
     if (kind === 'TEAM_MEETING' && (requestedSubtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype) || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
       if (requestedSubtype === 'interview') {
         const { getUserCapabilities } = await import('../utils/capabilities.js');
@@ -6311,6 +6314,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
       || req.body?.isTrainingPayEligible === 'true';
     let isTrainingPayEligible = false;
     if (wantsTrainingPay) {
+      if (kind === 'HUDDLE') return res.status(400).json({error:{message:'CPA and Mentorship meetings use recorded attendance for pay; a separate training claim is not needed.'}});
       if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
         return res.status(400).json({ error: { message: 'Training/Mentorship/Onboarding pay is only for meetings.' } });
       }
@@ -6944,6 +6948,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         || req.body?.isTrainingPayEligible === 1
         || req.body?.isTrainingPayEligible === '1'
         || req.body?.isTrainingPayEligible === 'true';
+      if (wantsTrainingPay && kind === 'HUDDLE') return res.status(400).json({error:{message:'CPA and Mentorship meetings use recorded attendance for pay; a separate training claim is not needed.'}});
       if (wantsTrainingPay && !['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
         return res.status(400).json({ error: { message: 'Training/Mentorship/Onboarding pay is only for meetings.' } });
       }
@@ -6984,6 +6989,11 @@ export const updateUserScheduleEvent = async (req, res, next) => {
           });
         }
         nextMeetingSubtype = requestedSubtype;
+      } else if (HUDDLE_SUBTYPES.includes(requestedSubtype)) {
+        if(kind!=='HUDDLE') return res.status(400).json({error:{message:'CPA and Mentorship meetings must use the huddle meeting kind.'}});
+        const host=await User.findById(hostProviderId);
+        if(requestedSubtype==='cpa' && host?.role!=='clinical_practice_assistant') return res.status(400).json({error:{message:'Select a Clinical Practice Assistant as the CPA Meeting host.'}});
+        nextMeetingSubtype=requestedSubtype;
       } else if (requestedSubtype === 'interview' || requestedSubtype === 'evaluation') {
         const canSetPrivilegedMeetingSubtype = ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole);
         const { getUserCapabilities } = await import('../utils/capabilities.js');

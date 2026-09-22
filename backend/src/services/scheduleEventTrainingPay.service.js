@@ -107,6 +107,7 @@ export async function syncTrainingPayClaimForEvent({
     if (!eventId || !agencyId || !userId) {
       return { ok: false, skipped: true, error: 'missing event/agency/provider' };
     }
+    if (kind === 'HUDDLE' && enabled) return {ok:true,skipped:true,error:'huddle_uses_attendance_compensation'};
     if (!['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
       return { ok: false, skipped: true, error: 'not a meeting kind' };
     }

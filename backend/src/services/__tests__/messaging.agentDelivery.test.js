@@ -38,3 +38,11 @@ it('delivers automated notifications without enabling automatic replies', async 
   expect(ingestPersonalMailboxInbound).toHaveBeenCalledTimes(2);
   expect(ingestPersonalMailboxInbound).toHaveBeenCalledWith(expect.objectContaining({ allowAutomation: false }));
 });
+
+it('continues delivering other providers’ mail when an earlier Gmail message fails',async()=>{
+ gmail.users.messages.list.mockResolvedValue({data:{messages:[{id:'broken'},{id:'working'}]}});
+ gmail.users.messages.get.mockRejectedValueOnce(Object.assign(new Error('Gmail unavailable'),{code:503}));
+ const result=await runInboundEmailAgentOnce();expect(result.needsHuman).toBe(1);expect(ingestPersonalMailboxInbound).toHaveBeenCalledTimes(2);
+ expect(gmail.users.messages.modify).not.toHaveBeenCalledWith(expect.objectContaining({id:'broken'}));
+ expect(gmail.users.messages.modify).toHaveBeenCalledWith(expect.objectContaining({id:'working'}));
+});

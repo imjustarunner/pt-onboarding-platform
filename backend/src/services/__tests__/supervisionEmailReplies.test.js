@@ -7,7 +7,7 @@ vi.mock('../personalMailbox.service.js',()=>({ensurePersonalMailbox:async({userI
 vi.mock('../inboundEmailPersistence.service.js',()=>({persistInboundEmail:m.persist}));
 vi.mock('../tenantMessageMailboxes.service.js',()=>({ensureTenantMessageMailboxes:async()=>({notifications:{id:6}})}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
-import {ingestSupervisionReply,forwardUnreadSupervisionReplies} from '../supervisionEmailReplies.service.js';
+import {ingestSupervisionReply,forwardUnreadSupervisionReplies,saveHuddleReplyRsvp} from '../supervisionEmailReplies.service.js';
 const session={id:10,agency_id:2,supervisor_user_id:3,co_facilitator_user_id:null,status:'SCHEDULED',start_at:'2099-01-01 12:00:00'};
 const reply={identityId:6,fromEmail:'person@itsco.health',inReplyTo:'<invitation@test>',messageId:'<reply@test>',subject:'Re: Supervision',bodyText:"I'm out sick today.",receivedAt:new Date(),authenticationResults:'mx.google.com; dmarc=pass header.from=itsco.health'};
 beforeEach(()=>{vi.clearAllMocks();m.persist.mockResolvedValue({messageId:100,conversationId:200});m.send.mockResolvedValue({id:'sent',communicationId:300});m.execute.mockImplementation(async sql=>{
@@ -29,4 +29,10 @@ it('forwards only rows due by the unread/24-hour query and claims each once',asy
  const query=m.execute.mock.calls[0];expect(query[0]).toContain('DATE_SUB(?,INTERVAL 24 HOUR)');expect(query[0]).toContain('s.start_at<=DATE_ADD(?,INTERVAL 24 HOUR)');expect(query[0]).toContain('r.last_read_at<f.received_at');expect(query[0]).toContain('answer.author_user_id=f.host_user_id');expect(query[1]).toEqual([now,now]);
  expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:6,replyToOverride:'person@itsco.health',userId:3}));
  m.send.mockClear();m.execute.mockResolvedValueOnce([[row]]).mockResolvedValueOnce([{affectedRows:0}]);await forwardUnreadSupervisionReplies(now);expect(m.send).not.toHaveBeenCalled();
+});
+
+it('updates a huddle RSVP only while the recipient remains invited to an active future huddle',async()=>{
+ await saveHuddleReplyRsvp({eventId:7,userId:8,response:'declined'});
+ expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("p.kind='HUDDLE' AND p.status='ACTIVE' AND p.start_at>UTC_TIMESTAMP()"),['declined',8,7]);
+ m.execute.mockResolvedValueOnce([{affectedRows:0}]);await expect(saveHuddleReplyRsvp({eventId:7,userId:9,response:'declined'})).rejects.toMatchObject({status:410});
 });

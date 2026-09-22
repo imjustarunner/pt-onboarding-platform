@@ -1,4 +1,5 @@
 import express from 'express';
+import { huddleTitle } from '../services/huddlePolicy.js';
 import { supervisionCalendar, supervisionEmailPeople } from '../services/supervisionEmail.service.js';
 import { saveSupervisionRsvp } from '../services/supervisionRsvp.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
@@ -21,13 +22,13 @@ router.post('/interview/:token/rsvp', async (req,res,next) => {
 router.get('/:token/calendar.ics', async (req,res,next) => {
   try {
     if(!/^[\w-]{32}$/.test(String(req.params.token)))return res.sendStatus(404);
-    const [rows]=await pool.execute("SELECT * FROM meeting_email_invitations WHERE join_token=? AND meeting_type='supervision'",[req.params.token]);
+    const [rows]=await pool.execute("SELECT * FROM meeting_email_invitations WHERE join_token=?",[req.params.token]);
     if(!rows[0])return res.sendStatus(404);
     const event=(await invitationEvents(rows[0])).find(e=>Number(e.id)===Number(req.query.eventId));
-    if(!event)return res.sendStatus(404);
+    if(!event || (rows[0].meeting_type!=='supervision' && event.kind!=='HUDDLE'))return res.sendStatus(404);
     const calendar=supervisionCalendar(event,`${await tenantMeetingBase(event.agency_id)}/join/invitation/${req.params.token}`);
     if(!calendar)return res.sendStatus(404);
-    res.set({'Content-Type':'text/calendar; charset=utf-8','Content-Disposition':'attachment; filename="supervision.ics"','Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}).send(calendar.ics);
+    res.set({'Content-Type':'text/calendar; charset=utf-8','Content-Disposition':`attachment; filename="${event.kind==='HUDDLE'?'huddle':'supervision'}.ics"`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}).send(calendar.ics);
   }catch(error){next(error);}
 });
 router.get('/active' , authenticate, async (req,res,next) => {
@@ -59,9 +60,9 @@ router.get('/:token', authenticate, async (req,res,next) => {
       const [rows]=await pool.execute('SELECT * FROM meeting_email_invitations WHERE join_token=? AND user_id=?',[req.params.token,req.user.id]);
       const event=rows[0]&&(await invitationEvents(rows[0])).find(e=>Number(e.id)===Number(req.query.eventId));
       if(!event)return res.status(404).json({error:{message:'Invitation not found'}});
-      const people=rows[0].meeting_type==='supervision'?await supervisionEmailPeople(event):[];
+      const people=rows[0].meeting_type==='supervision'||event.kind==='HUDDLE'?await supervisionEmailPeople(event):[];
       const tz=event.event_timezone||'America/Denver';
-      return res.json({meeting:{title:event.session_type==='group'?'Group supervision':event.title||'Supervision',when:new Intl.DateTimeFormat('en-US',{dateStyle:'full',timeStyle:'short',timeZone:tz}).format(parseUtcDate(event.start_at))+` (${tz})`,location:event.location_text||'Virtual',participants:people.map(p=>({name:p.name,status:p.status,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter}))}});
+      return res.json({meeting:{title:event.kind==='HUDDLE'?huddleTitle(event):event.session_type==='group'?'Group supervision':event.title||'Supervision',when:new Intl.DateTimeFormat('en-US',{dateStyle:'full',timeStyle:'short',timeZone:tz}).format(parseUtcDate(event.start_at))+` (${tz})`,location:event.location_text||'Virtual',participants:people.map(p=>({name:p.name,status:p.status,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter}))}});
     }
     res.json(await resolvePersonalMeetingInvitation(req.params.token,req.user.id));
   }

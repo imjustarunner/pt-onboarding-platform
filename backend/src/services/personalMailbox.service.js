@@ -512,6 +512,7 @@ export async function ingestPersonalMailboxInbound({
     threadId, fromEmail, replyToEmail, subject, bodyText, to: to.map((email) => ({ email })), cc: cc.map((email) => ({ email })),
     inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments
   });
+  await (await import('./inboundEventInvitation.service.js')).forwardInboundEventInvitation({inbox,userId:Number(inbox.owner_user_id||ownerUserId),messageId:result.messageId,gmail,gmailMessageId,payload:gmailPayload,subject,bodyText,fromEmail,to,cc});
   const conv = { id: result.conversationId };
   const messageDbId = result.messageId;
   try {

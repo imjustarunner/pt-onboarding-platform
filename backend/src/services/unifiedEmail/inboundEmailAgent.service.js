@@ -921,6 +921,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     const id = m.id;
     if (!id) continue;
 
+    try {
     const full = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
     const payload = full.data?.payload || null;
     const hdrs = headerMap(payload?.headers || []);
@@ -1674,6 +1675,12 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       id,
       requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] }
     });
+    } catch (error) {
+      // Leave the failed delivery unacknowledged for retry without starving
+      // every other provider's mail in this poll.
+      results.needsHuman += 1;
+      console.warn('[EmailAgent] message will retry:', id, error?.code || 'delivery_failed');
+    }
   }
 
   return results;

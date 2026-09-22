@@ -17,3 +17,19 @@ describe('meeting compensation eligibility',()=>{
  it('checks salary effective on the meeting date',async()=>{m.salary.mockResolvedValue({salary_per_pay_period:1000});await syncCompensationClaimsForEvent({event});expect(m.salary).toHaveBeenCalledWith({agencyId:2,userId:1,asOfDate:'2026-09-21'});expect(m.create).not.toHaveBeenCalled();});
  it('does not duplicate an approved claim or a concurrent sync',async()=>{m.execute.mockImplementation(async sql=>sql.includes('FROM payroll_time_claims')?[[{id:10}]]:sql.includes('SELECT role')?[[{role:'provider'}]]:[[]]);m.find.mockResolvedValue({id:10,status:'approved'});await syncCompensationClaimsForEvent({event});expect(m.create).not.toHaveBeenCalled();expect(m.resubmit).not.toHaveBeenCalled();m.lock.mockResolvedValue([[{acquired:0}]]);expect((await syncCompensationClaimsForEvent({event})).error).toBe('sync_in_progress');});
 });
+
+it('pays a CPA host Admin Time and an attending provider MEETING', async()=>{
+ m.attendees.mockResolvedValue([2]); m.rollups.mockResolvedValue([{user_id:1,total_seconds:1800},{user_id:2,total_seconds:1200}]);
+ m.execute.mockImplementation(async (sql,args)=>sql.includes('SELECT role')?[[{role:args[0]===1?'clinical_practice_assistant':'provider'}]]:[[]]);
+ await syncCompensationClaimsForEvent({event:{...event,kind:'HUDDLE',meeting_subtype:'cpa'}});
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:1,payload:expect.objectContaining({serviceCode:'Admin Time',totalMinutes:30})}));
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:2,payload:expect.objectContaining({serviceCode:'MEETING',totalMinutes:20})}));
+});
+it('pays the mentor Individual Meeting and records intern attendance as unpaid indirect without a pay rate',async()=>{
+ m.attendees.mockResolvedValue([2]);m.rollups.mockResolvedValue([{user_id:1,total_seconds:3600},{user_id:2,total_seconds:2700}]);
+ m.execute.mockImplementation(async (sql,args)=>sql.includes('SELECT role')?[[{role:args[0]===1?'provider_plus':'intern'}]]:[[]]);
+ await syncCompensationClaimsForEvent({event:{...event,kind:'HUDDLE',meeting_subtype:'mentorship'}});
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:1,payload:expect.objectContaining({serviceCode:'Individual Meeting'})}));
+ expect(m.create).toHaveBeenCalledWith(expect.objectContaining({userId:2,payload:expect.objectContaining({serviceCode:'Unpaid Indirect',amount:0,unpaidIndirect:true,bucket:'indirect',totalMinutes:45})}));
+ expect(m.rate).not.toHaveBeenCalledWith(expect.objectContaining({userId:2}));
+});

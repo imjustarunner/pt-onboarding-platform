@@ -150,7 +150,7 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
       const subject = `Join reminder: ${label}`;
       const text = `${label} is ${when}.\n\nYour personal join link: ${finalJoinUrl}\nSign in with your invited account.`;
       const html = `<p>${escapeMeetingHtml(label)} is ${escapeMeetingHtml(when)}.</p><p><a href="${escapeMeetingHtml(finalJoinUrl)}">Join your meeting</a></p><p>Sign in with your invited account.</p>`;
-      const result = sessionType === 'supervision' && meetingEvent
+      const result = meetingEvent && (sessionType === 'supervision' || meetingEvent.kind==='HUDDLE')
         ? await (await import('./supervisionEmail.service.js')).sendSupervisionEmail({session:meetingEvent,user,kind:'join_reminder'})
         : await sendNotificationEmail({
         agencyId,

@@ -24,6 +24,7 @@ export async function sendConfiguredMeetingReminders(now=new Date()) {
         const recipientIdentity=await resolveMeetingRecipient({agencyId:event.agency_id,user,guest:!!user.guest_join_token});
         const result=user.guest_join_token
           ? await sendHiringInterviewReminder(event,user)
+          : event.kind==='HUDDLE' ? await (await import('./supervisionEmail.service.js')).sendSupervisionEmail({session:event,user,joinUrl:invite.url,kind:`reminder:${reminder.key}`})
           : await sendNotificationEmail({agencyId:event.agency_id,triggerKey:'meeting_join_reminder',to:recipientIdentity.email,replyToOverride:await meetingReplyTo(event),...content,subject:`Meeting reminder: ${event.title}`,userId:user.id,templateType:'meeting_join_reminder',source:'auto'});
         if(!result?.skipped)await db.execute('INSERT IGNORE INTO meeting_reminder_deliveries (event_id,user_id,reminder_key,start_at,delivery_status,communication_id) VALUES (?,?,?,?,?,?)',[...params,result?.pendingApproval?'pending_approval':'sent',result?.communicationId || null]);
       } catch(error){console.warn('[Meeting reminder]',event.id,user.id,error.code||error.message);} finally{if(acquired)await db.execute('SELECT RELEASE_LOCK(?)',[lock]);db.release();}
