@@ -1,3 +1,4 @@
+vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.email,displayName:[user.first_name,user.last_name].filter(Boolean).join(' '),calendarAccountEmail:user.email})}));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({ sender: vi.fn(), send: vi.fn(), wrap: vi.fn(), agency: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: async () => [[]] } }));

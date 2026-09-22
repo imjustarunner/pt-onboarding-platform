@@ -1,3 +1,4 @@
+vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.email,displayName:[user.first_name,user.last_name].filter(Boolean).join(' '),calendarAccountEmail:user.email})}));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invitationKey, meetingInvitationContent, reminderMinutes } from '../meetingInvitationPolicy.js';
 const m = vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),lock:vi.fn(),release:vi.fn()}));

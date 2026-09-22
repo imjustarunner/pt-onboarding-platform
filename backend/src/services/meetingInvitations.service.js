@@ -1,3 +1,4 @@
+import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { meetingReplyTo, meetingParticipantRows, meetingEmailDetails } from './meetingParticipants.service.js';
 import pool from '../config/database.js';
 import { generateJoinToken, joinUrlForTeamMeeting, joinUrlForSupervision } from '../utils/joinToken.js';
@@ -49,15 +50,16 @@ export async function sendMeetingScheduleChange(rawEvents, action) {
   }
   for (const [uid,events] of recipients) {
     try {
-      const [users] = await pool.execute('SELECT email FROM users WHERE id=?',[uid]);
+      const [users] = await pool.execute('SELECT id,email,work_email,first_name,last_name FROM users WHERE id=?',[uid]);
       if (!users[0]?.email) continue;
       const first = events[0];
+      const recipientIdentity = await resolveMeetingRecipient({agencyId:first.agency_id,user:users[0]});
       const change = action === 'cancelled' ? 'cancelled' : 'updated';
       const joinUrl = change === 'cancelled' ? null : (await personalMeetingInvitation(first,uid)).url;
       const { parseUtcDate } = await import('../utils/officeEventDateTime.util.js');
       const dates = events.map(e=>e.all_day ? String(e.start_date).slice(0,10) : new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short',timeZone:e.event_timezone || 'America/Denver'}).format(parseUtcDate(e.start_at)));
       const text = `${first.title || 'Meeting'} was ${change}.\n${dates.join('\n')}\nTimes: ${first.event_timezone || 'America/Denver'}.\n${joinUrl ? `Your personal join link: ${joinUrl}` : 'These dates are no longer scheduled.'}`;
-      await sendNotificationEmail({agencyId:first.agency_id,triggerKey:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled',to:users[0].email,replyToOverride:await meetingReplyTo(first),subject:`Meeting ${change}: ${first.title || 'Meeting'}`,text,html:`<p>${escapeMeetingHtml(text).replace(/\n/g,'<br>')}</p>${joinUrl?`<p><a href="${escapeMeetingHtml(joinUrl)}">Join your meeting</a></p>`:''}`,source:'auto',userId:uid,templateType:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled'});
+      await sendNotificationEmail({agencyId:first.agency_id,triggerKey:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled',to:recipientIdentity.email,replyToOverride:await meetingReplyTo(first),subject:`Meeting ${change}: ${first.title || 'Meeting'}`,text,html:`<p>${escapeMeetingHtml(text).replace(/\n/g,'<br>')}</p>${joinUrl?`<p><a href="${escapeMeetingHtml(joinUrl)}">Join your meeting</a></p>`:''}`,source:'auto',userId:uid,templateType:change==='cancelled'?'meeting_cancelled':'meeting_rescheduled'});
     } catch (error) { console.warn('[Meeting change] Delivery failed',uid,error.code || 'send_failed'); }
   }
   } catch (error) { console.warn('[Meeting change] Recipient lookup failed',error.code || 'unknown'); }
@@ -139,13 +141,14 @@ export async function sendDueMeetingInvitations() {
         await db.execute("UPDATE meeting_email_invitations SET delivery_status='cancelled' WHERE id=?",[invitation.id]);
         continue;
       }
-      const [users] = await db.execute('SELECT id,email,first_name,last_name FROM users WHERE id IN (?,?)',[invitation.user_id,invitation.provider_id]);
+      const [users] = await db.execute('SELECT id,email,work_email,first_name,last_name FROM users WHERE id IN (?,?)',[invitation.user_id,invitation.provider_id]);
       const recipient = users.find(u=>Number(u.id)===Number(invitation.user_id));
       const host = users.find(u=>Number(u.id)===Number(invitation.provider_id));
       if (!recipient?.email) continue;
+      const recipientIdentity = await resolveMeetingRecipient({agencyId:invitation.agency_id,user:recipient});
       const joinUrl = `${await tenantMeetingBase(invitation.agency_id)}/join/invitation/${invitation.join_token}`;
       const content = meetingInvitationContent({events,joinUrl,hostName:[host?.first_name,host?.last_name].filter(Boolean).join(' '),participants:await meetingParticipantRows(events[0]),details:await meetingEmailDetails(events[0])});
-      const result = await sendNotificationEmail({agencyId:invitation.agency_id,triggerKey:'meeting_invited',replyToOverride:await meetingReplyTo(events[0]),to:recipient.email,...content,source:'auto',userId:invitation.user_id,templateType:'meeting_invited'});
+      const result = await sendNotificationEmail({agencyId:invitation.agency_id,triggerKey:'meeting_invited',replyToOverride:await meetingReplyTo(events[0]),to:recipientIdentity.email,...content,source:'auto',userId:invitation.user_id,templateType:'meeting_invited'});
       if (!result?.skipped) await db.execute("UPDATE meeting_email_invitations SET delivery_status=?,sent_at=IF(?='sent',UTC_TIMESTAMP(),NULL),communication_id=? WHERE id=?",[result?.pendingApproval?'approval':'sent',result?.pendingApproval?'approval':'sent',result?.communicationId||null,invitation.id]);
       else await db.execute('UPDATE meeting_email_invitations SET ready_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 1 HOUR) WHERE id=?',[invitation.id]);
     } catch (error) {

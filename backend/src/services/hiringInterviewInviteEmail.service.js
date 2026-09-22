@@ -1,3 +1,4 @@
+import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 /**
  * Helpers for hiring interview candidate invite emails (People Operations).
  */
@@ -79,6 +80,7 @@ export async function sendHiringInterviewInviteEmail({
   jobTitle = '',
   preview = false
 }) {
+  interviewerRows = await Promise.all(interviewerRows.map(async user=>({...user,...await resolveMeetingRecipient({agencyId,user})})));
   const to = String(candidate?.email || '').trim();
   if (!to || !publicJoinUrl) return { skipped: true, reason: 'missing_to_or_url' };
 
@@ -168,7 +170,7 @@ export async function sendHiringInterviewInviteEmail({
   const jdUrl = job?.id ? buildPublicJobDescriptionUrl(agency, job.id) : '';
   const roleLabel = String(jobTitle || job?.title || '').trim();
   const interviewerNames = (Array.isArray(interviewerRows) ? interviewerRows : [])
-    .map(formatPersonName)
+    .map(person => `${formatPersonName(person)}${person.email ? ` <${person.email}>` : ''}`)
     .filter(Boolean);
   const uniqueInterviewers = [...new Set(interviewerNames)];
   const interviewerLine = uniqueInterviewers.length

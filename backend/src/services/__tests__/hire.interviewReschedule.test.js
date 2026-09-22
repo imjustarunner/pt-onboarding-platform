@@ -16,11 +16,10 @@ describe('rescheduling an interview', () => {
     const result = await rescheduleHiringInterview(interview, { startsAt: '2026-10-02T13:00:00', timezone: 'America/Denver', interviewerUserIds: [33] });
     expect(m.conn.execute.mock.calls[0][1]).toEqual(['2026-10-02 19:00:00', '2026-10-02 20:00:00', 'America/Denver', 2]);
     expect(m.conn.execute.mock.calls.some(([sql]) => sql.includes('DELETE FROM provider_schedule_event_attendees'))).toBe(true);
-    expect(m.calendar.mock.calls[0][0]).toMatchObject({ subjectEmail: 'po@tenant.org', startAt: '2026-10-02T19:00:00.000Z', endAt: '2026-10-02T20:00:00.000Z' });
-    expect(m.calendar.mock.calls[0][0].description).not.toContain('host');
+    expect(m.delivery).toHaveBeenCalledWith(interview);
     expect(m.conn.commit).toHaveBeenCalledOnce(); expect(result.delivery.sent).toBe(true);
   });
-  it('does not send legacy calendar updates from a personal mailbox', async () => { const result = await rescheduleHiringInterview({ ...interview, calendar_sender_email: null }, { startsAt: '2026-10-02T13:00:00', timezone: 'America/Denver' }); expect(m.calendar).not.toHaveBeenCalled(); expect(result.calendarWarning).toContain('staff mailbox'); expect(m.delivery).toHaveBeenCalledOnce(); });
+  it('surfaces calendar failures returned by delivery', async () => { m.delivery.mockResolvedValue({sent:true,calendarWarning:'Calendar unavailable'});const result=await rescheduleHiringInterview(interview,{startsAt:'2026-10-02T13:00:00',timezone:'America/Denver'});expect(result.calendarWarning).toBe('Calendar unavailable'); });
   it('rolls back database failures and does not email a false update', async () => { m.conn.execute.mockRejectedValue(new Error('Database unavailable')); await expect(rescheduleHiringInterview(interview, { startsAt: '2026-10-02T13:00:00' })).rejects.toThrow('Database unavailable'); expect(m.conn.rollback).toHaveBeenCalledOnce(); expect(m.delivery).not.toHaveBeenCalled(); });
   it('rejects closed interviews and unavailable staff before mutations', async () => { await expect(rescheduleHiringInterview({ ...interview, guest_access_ended_at: 'ended' }, {})).rejects.toMatchObject({ status: 409 }); m.access.mockResolvedValue(false); await expect(rescheduleHiringInterview(interview, { startsAt: '2026-10-02T13:00:00' })).rejects.toMatchObject({ status: 400 }); expect(m.conn.beginTransaction).not.toHaveBeenCalled(); });
 });

@@ -1,8 +1,6 @@
 import pool from '../config/database.js';
-import User from '../models/User.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import HiringInterview from '../models/HiringInterview.model.js';
-import GoogleCalendarService from './googleCalendar.service.js';
 import { parseInterviewStart } from './hiringInterviewSchedule.service.js';
 import { interviewDate, deliverExistingInterview } from './hiringInterviewDelivery.service.js';
 import { canAccessHiringInterview } from './hiringInterviewAccess.service.js';
@@ -38,24 +36,7 @@ export async function rescheduleHiringInterview(interview, body) {
     await conn.execute("UPDATE hiring_profiles SET interview_starts_at = ?, interview_timezone = ?, interview_interviewer_user_ids = ? WHERE candidate_user_id = ?", [sqlDate(start), timezone, JSON.stringify(ids), interview.candidate_user_id]);
     await conn.commit();
   } catch(e) { await conn.rollback(); throw e; } finally { conn.release(); }
-  let calendarWarning = null;
-  if (event.google_event_id) {
-    const owner = await User.findById(event.provider_id);
-    const users = await Promise.all([...ids, interview.candidate_user_id].map(id => User.findById(id)));
-    const sender = interview.calendar_sender_email || owner?.email;
-    // Legacy events belong to a personal calendar. Do not send new mail from that address.
-    if (!/^po@/i.test(sender || '')) calendarWarning = 'This older calendar invitation belongs to a staff mailbox. The interview link email has the updated time; update the old calendar invitation separately.';
-    else {
-      try {
-        const result = await GoogleCalendarService.patchEventDetails({ subjectEmail: sender, eventId: event.google_event_id,
-          startAt: start.toISOString(), endAt: end.toISOString(), timeZone: timezone,
-          description: `Join interview: ${interview.public_join_url}\nInterviewers: sign in with your staff account to open the private workspace.`,
-          attendeeEmails: users.map(u => u?.email).filter(Boolean) });
-        if (!result?.ok || result.skipped) calendarWarning = 'The interview was updated, but calendar delivery failed.';
-      } catch { calendarWarning = 'The interview was updated, but calendar delivery failed.'; }
-    }
-  } else calendarWarning = 'No connected calendar invitation exists for this interview.';
   const updated = await HiringInterview.findById(interview.id);
   const delivery = await deliverExistingInterview(updated);
-  return { interview: await HiringInterview.findById(interview.id), delivery, calendarWarning };
+  return { interview: await HiringInterview.findById(interview.id), delivery, calendarWarning: delivery.calendarWarning || null };
 }

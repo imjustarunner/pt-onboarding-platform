@@ -1,3 +1,4 @@
+vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.email,displayName:[user.first_name,user.last_name].filter(Boolean).join(' '),calendarAccountEmail:user.email})}));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({ execute: vi.fn(), candidate: vi.fn(), agencies: vi.fn(), sender: vi.fn(), access: vi.fn(), template: vi.fn(), questions: vi.fn(), profile: vi.fn(), calendar: vi.fn(), append: vi.fn(), event: vi.fn(), attendees: vi.fn(), interview: vi.fn(), update: vi.fn(), artifact: vi.fn(), invite: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
@@ -23,10 +24,10 @@ beforeEach(() => {
   m.candidate.mockImplementation(async id => ({ id, email: `${id}@tenant.org`, first_name: 'Person' })); m.agencies.mockResolvedValue([{ id: 4 }]); m.sender.mockResolvedValue({ id: 1, from_email: 'po@tenant.org' }); m.access.mockResolvedValue(true); m.template.mockResolvedValue({ id: 1, agency_id: 4 }); m.profile.mockResolvedValue({ id: 8 }); m.calendar.mockResolvedValue({ ok: true, eventId: 'calendar-1' }); m.append.mockResolvedValue({ ok: true }); m.event.mockResolvedValue({ id: 2, participant_join_token: 'guest-only-token', host_join_token: 'secret-host-token' }); m.interview.mockResolvedValue({ id: 5 }); m.update.mockResolvedValue({ id: 5, invite_sent_at: 'confirmed' }); m.artifact.mockResolvedValue({}); m.invite.mockResolvedValue({ id: 'email-1' }); m.execute.mockImplementation(async sql => sql.includes('FROM users') ? [[{ id: 11, email: '11@tenant.org' }, { id: 22, email: '22@tenant.org' }, { id: 30, email: '30@tenant.org' }]] : [[]]);
 });
 describe('interview scheduling delivery', () => {
-  it('creates calendar mail from PO and shares only the candidate link with attendees', async () => {
+  it('uses the real host calendar, names Google guests, and shares only the candidate link', async () => {
     const result = await scheduleHiringInterview(args);
-    expect(m.calendar.mock.calls[0][0]).toMatchObject({ subjectEmail: 'po@tenant.org', sendUpdates: 'none' });
-    expect(m.append.mock.calls[0][0]).toMatchObject({ subjectEmail: 'po@tenant.org', sendUpdates: 'all' });
+    expect(m.calendar.mock.calls[0][0]).toMatchObject({ subjectEmail: '11@tenant.org', sendUpdates: 'none', inviteGoogleGuests:true, attendeeDetails:expect.arrayContaining([expect.objectContaining({email:'30@tenant.org'})]) });
+    expect(m.append.mock.calls[0][0]).toMatchObject({ subjectEmail: '11@tenant.org', sendUpdates: 'all' });
     expect(m.append.mock.calls[0][0].appendText).toContain('https://app.tenant.example/join/team-meeting/guest-only-token');
     expect(JSON.stringify(m.calendar.mock.calls) + JSON.stringify(m.append.mock.calls)).not.toContain('secret-host-token');
     expect(m.interview.mock.calls[0][0].inviteSentAt).toBeNull();

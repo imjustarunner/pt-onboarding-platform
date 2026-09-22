@@ -1,3 +1,4 @@
+import { syncHiringInterviewCalendar } from './hiringInterviewCalendar.service.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -10,6 +11,7 @@ export async function deliverExistingInterview(interview) {
   if (interview.guest_access_ended_at || ['completed', 'cancelled'].includes(interview.status)) {
     throw Object.assign(new Error('This interview has ended. Schedule a new round instead.'), { status: 409 });
   }
+  const calendar = await syncHiringInterviewCalendar(interview);
   const candidate = await User.findById(interview.candidate_user_id);
   const profile = await HiringProfile.findByCandidateUserId(interview.candidate_user_id);
   const interviewerRows = await Promise.all((interview.interviewer_user_ids_json || []).map(id => User.findById(id)));
@@ -26,7 +28,7 @@ export async function deliverExistingInterview(interview) {
   } catch (e) { delivery = { sent: false, reason: e.message || 'Invitation failed.' }; }
   if (delivery.sent) await HiringInterview.updateById(interview.id, { inviteSentAt: new Date() });
   await pool.execute('UPDATE hiring_interviews SET invite_error = ? WHERE id = ?', [delivery.sent ? null : delivery.reason, interview.id]);
-  return delivery;
+  return {...delivery,calendarWarning:calendar.ok?null:calendar.error};
 }
 
 export function interviewDate(value) {

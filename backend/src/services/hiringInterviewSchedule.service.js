@@ -1,3 +1,4 @@
+import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { saveEventMeetingSettings } from './meetingSettings.service.js';
 import { queueMeetingInvitations } from './meetingInvitations.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
@@ -125,8 +126,10 @@ export async function scheduleHiringInterview({
 
   const candidateAgencies = await User.getAgencies(candidateId);
   if (!candidateAgencies.some(a => Number(a.id) === agency)) throw Object.assign(new Error('Candidate is not in this agency'), { status: 400 });
-  const sender = sendInvites ? await resolveInterviewSender(agency) : null;
-  const calendarSender = sender?.from_email || host.email;
+  if (sendInvites) await resolveInterviewSender(agency);
+  // A mail send-as alias (for example po@tenant) may not own a Google calendar.
+  const hostIdentity = await resolveMeetingRecipient({ agencyId: agency, user: host });
+  const calendarSender = hostIdentity.calendarAccountEmail;
 
   let resolvedTemplateId = templateId ? Number(templateId) : null;
   let template = resolvedTemplateId ? await InterviewHubTemplate.findById(resolvedTemplateId) : null;
@@ -231,13 +234,11 @@ export async function scheduleHiringInterview({
   const allUserIds = Array.from(new Set([...interviewerIds, candidateId]));
   const placeholders = allUserIds.map(() => '?').join(',');
   const [attendeeRows] = await pool.execute(
-    `SELECT id, email, first_name, last_name FROM users WHERE id IN (${placeholders})`,
+    `SELECT id, email, work_email, first_name, last_name FROM users WHERE id IN (${placeholders})`,
     allUserIds
   );
-  const emailById = new Map((attendeeRows || []).map((r) => [Number(r.id), String(r.email || '').trim().toLowerCase()]));
-  const attendeeEmails = Array.from(new Set(
-    allUserIds.map((id) => emailById.get(id)).filter(Boolean)
-  ));
+  const attendeeDetails = await Promise.all(attendeeRows.map(user => resolveMeetingRecipient({agencyId:agency,user,guest:Number(user.id)===candidateId})));
+  const attendeeEmails = attendeeDetails.map(person => person.email).filter(Boolean);
 
   let calendarWarning = null;
   let googleEventId = null;
@@ -246,7 +247,8 @@ export async function scheduleHiringInterview({
   const agencyName = agencyRows[0]?.name || 'your agency';
   const descriptionParts = [
     `Hiring interview for ${candidateName}.`,
-    `Join with the ${agencyName} interview link below.`
+    `Join with the ${agencyName} interview link below.`,
+    `Participants:\n${attendeeDetails.map(person=>`${person.displayName} <${person.email}>`).join('\n')}`
   ];
 
   try {
@@ -258,7 +260,10 @@ export async function scheduleHiringInterview({
       summary: title,
       description: descriptionParts.join('\n\n'),
       kind: 'TEAM_MEETING',
-      attendeeEmails,
+      attendeeEmails: sendInvites ? attendeeEmails : [],
+      attendeeDetails: sendInvites ? attendeeDetails : [],
+      inviteGoogleGuests: true,
+      isPrivate: true,
       createMeetLink: false,
       sendUpdates: 'none',
       colorId: INTERVIEW_GOOGLE_COLOR_ID
@@ -266,9 +271,9 @@ export async function scheduleHiringInterview({
     if (gcal?.ok) {
       googleEventId = gcal.eventId || null;
       googleHtmlLink = gcal.htmlLink || null;
-    } else calendarWarning = 'Calendar invitation was not created. Check the People Operations calendar connection.';
+    } else calendarWarning = 'Calendar invitation was not created. Check the host’s Google Calendar connection.';
   } catch (e) {
-    calendarWarning = 'Calendar invitation was not created. Check the People Operations calendar connection.';
+    calendarWarning = 'Calendar invitation was not created. Check the host’s Google Calendar connection.';
     console.warn('[scheduleHiringInterview] Google Calendar create failed:', e?.message || e);
   }
 

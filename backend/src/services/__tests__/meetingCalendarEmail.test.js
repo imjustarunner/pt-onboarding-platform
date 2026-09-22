@@ -14,6 +14,10 @@ describe('app-owned meeting notifications',()=>{
     expect(insert).toHaveBeenCalledOnce();
     const args=insert.mock.calls[0][0];expect(args.sendUpdates).toBe('none');expect(args.requestBody.attendees).toBeUndefined();expect(args.requestBody.reminders).toEqual({useDefault:false,overrides:[]});
   });
+  it('includes named tenant guests when an interview explicitly requests calendar invitations',async()=>{
+    await GoogleCalendarService.createProviderScheduleEvent({subjectEmail:'host@primary.com',startAt:'2026-09-28T16:00:00',endAt:'2026-09-28T17:00:00',summary:'Interview',kind:'TEAM_MEETING',inviteGoogleGuests:true,attendeeDetails:[{email:'haley@itsco.health',displayName:'Haley Inyart'},{email:'applicant@example.org',displayName:'Applicant Name'}],sendUpdates:'all'});
+    expect(insert.mock.calls[0][0]).toMatchObject({sendUpdates:'all',requestBody:{attendees:[{email:'haley@itsco.health',displayName:'Haley Inyart'},{email:'applicant@example.org',displayName:'Applicant Name'}]}});
+  });
   it('does not change unrelated personal calendar invitation behavior',async()=>{
     await GoogleCalendarService.createProviderScheduleEvent({subjectEmail:'host@example.com',startAt:'2026-09-28T16:00:00',endAt:'2026-09-28T17:00:00',summary:'Personal',kind:'PERSONAL_EVENT',attendeeEmails:['invitee@example.com']});
     expect(insert.mock.calls[0][0].sendUpdates).toBe('all');expect(insert.mock.calls[0][0].requestBody.attendees).toHaveLength(1);

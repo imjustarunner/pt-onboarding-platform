@@ -1,3 +1,4 @@
+import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { isDeepStrictEqual } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
@@ -64,7 +65,7 @@ export async function sendDueMeetingChanges() {
       const snapshotHash=meetingChangeDeliveryHash(event,before,after);
       if(hasMeetingChange(before,after)) {
         const ids=[...new Set([before.hostId,after.hostId,...before.attendees,...after.attendees])];
-        const [users]=await db.query('SELECT u.id,u.email,u.first_name,u.last_name,hi.guest_join_token FROM users u LEFT JOIN hiring_interviews hi ON hi.candidate_user_id=u.id AND hi.provider_schedule_event_id=? WHERE u.id IN (?)',[event.id,ids]);
+        const [users]=await db.query('SELECT u.id,u.email,u.work_email,u.first_name,u.last_name,hi.guest_join_token FROM users u LEFT JOIN hiring_interviews hi ON hi.candidate_user_id=u.id AND hi.provider_schedule_event_id=? WHERE u.id IN (?)',[event.id,ids]);
         const name=id=>{const u=users.find(u=>Number(u.id)===id);return u?[u.first_name,u.last_name].filter(Boolean).join(' '):`Participant ${id}`;};
         const format=raw=>raw?new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short',timeZone:event.event_timezone||'America/Denver'}).format(new Date(raw)):'All day';
         const changes=[];
@@ -86,7 +87,8 @@ export async function sendDueMeetingChanges() {
           const stillInvited=Number(user.id)===after.hostId||after.attendees.includes(Number(user.id));
           const url=stillInvited?(user.guest_join_token ? `${await tenantMeetingBase(event.agency_id)}/join/team-meeting/${user.guest_join_token}` : (await personalMeetingInvitation(event,user.id)).url):null;
           const text=`${event.title} was updated.${event.recurrence_series_id ? ' This update applies to the affected dates in your recurring series; review your schedule for each date.' : ''}\n\n${changes.join('\n')}\n\n${url?`Your meeting: ${url}`:'You have been removed from this meeting.'}`;
-          const result=await sendNotificationEmail({agencyId:event.agency_id,triggerKey:'meeting_rescheduled',to:user.email,replyToOverride:await meetingReplyTo(event),subject:`Meeting updated: ${event.title}`,text,html:`<p>${escapeMeetingHtml(text).replace(/\n/g,'<br>')}</p>`,userId:user.id,templateType:'meeting_rescheduled',source:'auto'});
+          const recipientIdentity=await resolveMeetingRecipient({agencyId:event.agency_id,user,guest:!!user.guest_join_token});
+          const result=await sendNotificationEmail({agencyId:event.agency_id,triggerKey:'meeting_rescheduled',to:recipientIdentity.email,replyToOverride:await meetingReplyTo(event),subject:`Meeting updated: ${event.title}`,text,html:`<p>${escapeMeetingHtml(text).replace(/\n/g,'<br>')}</p>`,userId:user.id,templateType:'meeting_rescheduled',source:'auto'});
           if(result?.skipped)throw new Error('Meeting change email held by delivery settings');
           await db.execute('INSERT IGNORE INTO meeting_change_deliveries (batch_key,snapshot_hash,user_id) VALUES (?,?,?)',deliveryParams);
         }

@@ -189,7 +189,7 @@
       <div class="kv"><div class="k">Invitation</div><div class="v">
         <span>{{ selected.invite_sent_at ? `Sent ${formatWhen(selected.invite_sent_at)}` : 'Not sent' }}</span>
         <p v-if="selected.invite_error" role="alert">{{ selected.invite_error }}</p>
-        <button v-if="!selected.guest_access_ended_at && ['scheduled', 'in_progress'].includes(selected.status)" type="button" class="btn btn-secondary btn-sm" :disabled="resending" @click="resendInvite">{{ resending ? 'Sending…' : 'Send / resend candidate invitation' }}</button>
+        <button v-if="!selected.guest_access_ended_at && ['scheduled', 'in_progress'].includes(selected.status)" type="button" class="btn btn-secondary btn-sm" :disabled="resending" @click="resendInvite">{{ resending ? 'Sending…' : 'Send / resend invitation and sync calendar' }}</button>
       </div></div>
       <div class="kv" v-if="selected.provider_schedule_event_id">
         <div class="k">Schedule event</div>
@@ -694,7 +694,7 @@ async function resendInvite() {
   try {
     const r = await api.post(`/hiring/interview-hub/interviews/${selected.value.id}/send-invite`, { agencyId: props.agencyId });
     const delivery = r.data?.data?.delivery;
-    deliveryNotice.value = delivery?.sent ? (delivery.redirected ? 'Invitation sent to the configured test recipient.' : 'Candidate invitation sent.') : delivery?.reason || 'Invitation was not sent.';
+    deliveryNotice.value = [delivery?.sent ? (delivery.redirected ? 'Invitation sent to the configured test recipient.' : 'Candidate invitation sent.') : delivery?.reason || 'Invitation was not sent.', delivery?.calendarWarning].filter(Boolean).join(' ');
     await loadInterviews();
   } catch (e) { deliveryNotice.value = e.response?.data?.error?.message || 'Invitation was not sent. Try again.'; }
   finally { resending.value = false; }

@@ -441,6 +441,8 @@ export class GoogleCalendarService {
     reasonCode = null,
     isPrivate = false,
     attendeeEmails = [],
+    attendeeDetails = null,
+    inviteGoogleGuests = false,
     createMeetLink = false,
     /** Google Calendar invite emails: 'all' | 'externalOnly' | 'none' */
     sendUpdates = 'all',
@@ -469,11 +471,12 @@ export class GoogleCalendarService {
     const calendarId = 'primary';
     const normalizedKind = String(kind || 'PERSONAL_EVENT').trim().toUpperCase();
     const normalizedReason = String(reasonCode || '').trim().toUpperCase() || null;
-    const attendees = Array.from(new Set((Array.isArray(attendeeEmails) ? attendeeEmails : [])
-      .map((v) => String(v || '').trim().toLowerCase())
+    const attendees = Array.from(new Set((attendeeDetails || (Array.isArray(attendeeEmails) ? attendeeEmails : []))
+      .map(v => String(typeof v === 'string' ? v : v?.email || '').trim().toLowerCase())
       .filter(Boolean)))
       .filter((email) => email !== subject);
-    const sendUpdatesMode = ['TEAM_MEETING', 'HUDDLE'].includes(normalizedKind)
+    const appOnlyGuests = ['TEAM_MEETING', 'HUDDLE'].includes(normalizedKind) && !inviteGoogleGuests;
+    const sendUpdatesMode = appOnlyGuests
       ? 'none'
       : (['all', 'externalOnly', 'none'].includes(String(sendUpdates || '')) ? String(sendUpdates) : 'all');
 
@@ -508,10 +511,12 @@ export class GoogleCalendarService {
           ...(normalizedReason ? { pt_schedule_event_reason: normalizedReason } : {})
         }
       },
-      // App meetings use personal shared calendars + branded app invitations.
-      // Do not enlist Google's guest invitation system (sendUpdates:none alone
-      // does not reliably deliver guest copies to external calendars).
-      ...(attendees.length && !['TEAM_MEETING', 'HUDDLE'].includes(normalizedKind) ? { attendees: attendees.map((email) => ({ email })) } : {})
+      // Interviews explicitly invite Google guests; other app meetings keep their
+      // existing personal-calendar delivery and debounced app notifications.
+      ...(attendees.length && !appOnlyGuests ? { attendees: attendees.map(email => {
+        const detail = attendeeDetails?.find(a => a.email?.toLowerCase() === email);
+        return {email, ...(detail?.displayName ? {displayName:detail.displayName} : {})};
+      }) } : {})
     };
     if (createMeetLink) {
       requestBody.conferenceData = {
