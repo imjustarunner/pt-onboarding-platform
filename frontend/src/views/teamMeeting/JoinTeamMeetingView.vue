@@ -268,7 +268,9 @@
               :activity-notice="videoFullscreenActivityNotice"
               :raised-hands-notice="videoFullscreenHandsNotice"
               layout="standard"
-              :equal-tiles-when-remote="!isInterviewMeeting"
+              :equal-tiles-when-remote="true"
+              :focus-candidate="isInterviewMeeting && canSeeFullWorkspace"
+              :preserve-video-aspect="isInterviewMeeting"
               :local-display-name="localDisplayName"
               :local-role-label="localRoleLabel"
               :local-profile-photo-url="localProfilePhotoUrl"
@@ -339,7 +341,8 @@
               :dark="true"
               @guest-access-ended="onGuestAccessEndedByInterviewer"
             />
-            <section v-if="showAttendanceTab" class="join-stack-section">
+            <details v-if="showAttendanceTab" class="join-stack-section join-interview-support">
+              <summary>Attendance and participants</summary>
               <MeetingAttendancePanel
                 ref="attendancePanelRef"
                 :event-id="resolvedEventId"
@@ -351,8 +354,9 @@
                 :dark="true"
                 @tracking-status="onAttendanceTrackingStatus"
               />
-            </section>
-            <section v-if="showNotesTab" class="join-stack-section">
+            </details>
+            <details v-if="showNotesTab" class="join-stack-section join-interview-support">
+              <summary>Transcript controls</summary>
               <MeetingNotesPanel
                 :event-id="resolvedEventId"
                 :live-capturing="transcriptCapturing"
@@ -369,7 +373,7 @@
                 @stop="onTranscriptStop"
                 @control="onTranscriptControlApi"
               />
-            </section>
+            </details>
           </div>
 
           <div v-else-if="isEvaluationMeeting" class="join-workspace__body join-workspace__body--stack">
@@ -1072,6 +1076,10 @@ const canSeeFullWorkspace = computed(() => {
   return FULL_WORKSPACE_ROLES.has(actorRole.value);
 });
 
+watch([isInterviewMeeting, canSeeFullWorkspace], ([interview, interviewer]) => {
+  if (interview) tileFocus.value = interviewer ? 'remote' : 'equal';
+}, { immediate: true });
+
 /** Agenda mutations: host or admin — not every workspace viewer. */
 const canEditAgenda = computed(() => {
   if (isHost.value) return true;
@@ -1194,7 +1202,7 @@ function applyTokenPayload(data) {
   if (data.kind) meetingKind.value = String(data.kind).toUpperCase();
   if (data.meetingSubtype || data.meeting_subtype) {
     meetingSubtype.value = String(data.meetingSubtype || data.meeting_subtype || 'general').toLowerCase();
-    if (meetingSubtype.value === 'interview') tileFocus.value = 'remote';
+
   }
   if (data.attendanceTrackingEnabled != null) {
     attendanceTrackingEnabled.value = !!data.attendanceTrackingEnabled;
@@ -1374,7 +1382,7 @@ async function resolveAndRedirect() {
       meetingSubtype.value = (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation')
         ? subtype
         : 'general';
-      if (meetingSubtype.value === 'interview') tileFocus.value = 'remote';
+
     }
     if (!slug) {
       error.value = 'Meeting not found';
@@ -2054,7 +2062,7 @@ watch(
       meetingSettings.value = data?.meetingSettings || null;
       const subtype = String(data?.meetingSubtype || 'general').toLowerCase();
       meetingSubtype.value = (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') ? subtype : 'general';
-      if (subtype === 'interview') tileFocus.value = 'remote';
+
       if (data?.kind) meetingKind.value = String(data.kind).toUpperCase();
       if (data?.attendanceTrackingEnabled != null) {
         attendanceTrackingEnabled.value = !!data.attendanceTrackingEnabled;
@@ -2083,7 +2091,7 @@ watch(
         meetingSubtype.value = (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation')
           ? subtype
           : meetingSubtype.value;
-        if (subtype === 'interview') tileFocus.value = 'remote';
+
       }
       if (att?.attendanceTrackingEnabled != null) {
         attendanceTrackingEnabled.value = !!att.attendanceTrackingEnabled;
@@ -2894,6 +2902,10 @@ onUnmounted(() => {
 
 <style scoped>
 .join-session-layout--interview { grid-template-columns: minmax(230px, 290px) minmax(0, 1fr) minmax(330px, 410px); }
+.join-session-layout--interview .join-workspace { background: #172332; }
+.join-session-layout--interview .join-workspace__body > * { flex-shrink: 0; }
+.join-interview-support summary { cursor: pointer; padding: 4px 0; font-weight: 600; }
+.join-interview-support[open] summary { margin-bottom: 12px; }
 .interview-candidate-brief { min-width: 0; overflow: auto; border-radius: 12px; }
 @media (min-width: 901px) and (max-width: 1250px) {
   .join-session-layout--interview { grid-template-columns: minmax(0, 1fr) minmax(330px, 390px); overflow: auto; }
@@ -2902,7 +2914,7 @@ onUnmounted(() => {
 }
 @media (max-width: 900px) {
   .join-session-layout--interview { display: flex; flex-direction: column; overflow: auto; }
-  .join-session-layout--interview .join-video { order: 0; min-height: 45vh; flex: 0 0 45vh; }
+  .join-session-layout--interview .join-video { order: 0; min-height: 560px; height: 75dvh; flex: 0 0 auto; }
   .interview-candidate-brief { order: 1; max-height: 40vh; flex: 0 0 auto; }
   .join-session-layout--interview .join-workspace { order: 2; min-height: 60vh; max-height: none; flex: 0 0 auto; }
 }

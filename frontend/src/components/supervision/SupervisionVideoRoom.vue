@@ -17,6 +17,8 @@
       :promote-local-when-alone="promoteLocalWhenAlone"
       :equal-tiles-when-remote="equalTilesWhenRemote"
       :tile-focus="tileFocus"
+      :focus-candidate="focusCandidate"
+      :preserve-video-aspect="preserveVideoAspect"
       :video-fullscreen="videoFullscreen"
       :activity-notice="activityNotice"
       :raised-hands-notice="raisedHandsNotice"
@@ -85,6 +87,8 @@ const props = defineProps({
   /** When false, remotes fill the stage and local stays a small corner PiP. */
   equalTilesWhenRemote: { type: Boolean, default: true },
   tileFocus: { type: String, default: 'equal' },
+  focusCandidate: { type: Boolean, default: false },
+  preserveVideoAspect: { type: Boolean, default: false },
   videoFullscreen: { type: Boolean, default: false },
   activityNotice: { type: String, default: '' },
   raisedHandsNotice: { type: String, default: '' },

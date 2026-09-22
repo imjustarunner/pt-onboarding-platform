@@ -7,6 +7,7 @@
       'vsr--hide-controls': hideControls,
       'vsr--fullscreen': videoFullscreen,
       'vsr--lobby': lobbyMode,
+      'vsr--preserve-aspect': preserveVideoAspect,
       [`vsr--focus-${tileFocus}`]: !!tileFocus,
       [`vsr--tile-size-${tileSizePreset}`]: true
     }"
@@ -76,7 +77,7 @@
               'vsr__tile--cam-off': !useSplitCamOffLayout && !r.hasVideo,
               'vsr__tile--muted': !r.hasAudio,
               'vsr__tile--hand': handRaisedForConnection(r.connectionId),
-              'vsr__tile--pip': screenFocused || tileFocus === 'local' || (tileFocus === 'speaker' && r.streamId !== featuredSpeakerStreamId),
+              'vsr__tile--pip': screenFocused || tileFocus === 'local' || (tileFocus === 'remote' && r.streamId !== focusedRemoteStreamId) || (tileFocus === 'speaker' && r.streamId !== featuredSpeakerStreamId),
               'vsr__tile--featured': (
                 (tileFocus === 'remote' && r.streamId === focusedRemoteStreamId)
                 || (tileFocus === 'speaker' && r.streamId === featuredSpeakerStreamId)
@@ -155,7 +156,7 @@
               'vsr__tile--duo': isDuoStage && !screenFocused && tileFocus === 'equal',
               'vsr__tile--grid-local': isGridStage && !screenFocused && tileFocus === 'equal',
               'vsr__tile--pip': screenFocused || tileFocus === 'remote' || (tileFocus === 'speaker' && !!featuredSpeakerStreamId),
-              'vsr__tile--featured': tileFocus === 'local' || (tileFocus === 'speaker' && !featuredSpeakerStreamId),
+              'vsr__tile--featured': tileFocus === 'local' || (tileFocus === 'remote' && !focusedRemoteStreamId) || (tileFocus === 'speaker' && !featuredSpeakerStreamId),
               'vsr__tile--mini': tileFocus === 'collapsed' && !screenFocused,
               'vsr__tile--speaking': isParticipantSpeaking({ key: 'local' }),
               'vsr__tile--paged-hidden': !screenFocused && tileFocus === 'equal' && tileHiddenByPage('local', 'local')
@@ -501,6 +502,9 @@ const props = defineProps({
   canRecreateRoom: { type: Boolean, default: false },
   /** equal | speaker | local | remote | collapsed — parent-driven expandable tiles */
   tileFocus: { type: String, default: 'equal' },
+  /** Interviewers start with the candidate featured, regardless of join order. */
+  focusCandidate: { type: Boolean, default: false },
+  preserveVideoAspect: { type: Boolean, default: false },
   /** Hide built-in control bar when parent renders its own dock */
   hideControls: { type: Boolean, default: false },
   /** Show Expand/Shrink controls on tiles */
@@ -664,11 +668,21 @@ function toggleLayoutMenu() {
 const lastSpeakerStreamId = ref('');
 const selectedRemoteStreamId = ref('');
 const focusedRemoteStreamId = computed(() => stageRemotes.value.some((r) => r.streamId === selectedRemoteStreamId.value)
-  ? selectedRemoteStreamId.value : stageRemotes.value[0]?.streamId || '');
+  ? selectedRemoteStreamId.value
+  : (props.focusCandidate && stageRemotes.value.find(r => r.isInterviewCandidate)?.streamId) || stageRemotes.value[0]?.streamId || '');
 const stageEl = ref(null);
 const stageSize = ref({ width: 960, height: 540 });
 let stageResizeObserver = null;
 const stageGridStyle = computed(() => {
+  if (screenFocused.value || ['remote', 'local', 'speaker'].includes(props.tileFocus)) {
+    const thumbnails = Math.max(0, stageVideoCount.value - (screenFocused.value ? 0 : 1));
+    const columns = Math.max(1, Math.min(thumbnails, Math.floor(stageSize.value.width / 144)));
+    const rows = Math.ceil(thumbnails / columns);
+    return {
+      gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+      gridTemplateRows: `minmax(180px, 1fr)${rows ? ` repeat(${rows}, 100px)` : ''}`
+    };
+  }
   if (!isGridStage.value || screenFocused.value) return null;
   const count = Math.min(stageVideoCount.value, visibleStagePages.value * STAGE_TILE_PAGE_SIZE);
   const grid = tileGrid(count, stageSize.value.width, stageSize.value.height, props.compact ? 'mini' : tileSizePreset.value);
@@ -1629,7 +1643,7 @@ function forceMediaFill(container) {
     el.style.maxWidth = 'none';
     el.style.maxHeight = 'none';
     if (el.tagName === 'VIDEO') {
-      el.style.objectFit = 'cover';
+      el.style.objectFit = props.preserveVideoAspect ? 'contain' : 'cover';
     }
   });
 }
@@ -1678,10 +1692,13 @@ function isOwnStream(stream) {
 function remoteMetaFromStream(stream) {
   let name = String(stream?.name || '').trim() || 'Participant';
   let profilePhotoUrl = '';
+  let isInterviewCandidate = false;
   try {
     const data = stream.connection?.data;
     if (data) {
       const parsed = typeof data === 'string' ? JSON.parse(data) : (data || {});
+      isInterviewCandidate = String(parsed.identity || '').startsWith('guest-iv-')
+        || String(parsed.roleLabel || '').toLowerCase() === 'candidate';
       name = formatRemoteLabel(parsed);
       profilePhotoUrl = String(parsed.profilePhotoUrl || parsed.profile_photo_url || '').trim();
     }
@@ -1692,7 +1709,8 @@ function remoteMetaFromStream(stream) {
     name,
     hasVideo: stream?.hasVideo !== false,
     hasAudio: stream?.hasAudio !== false,
-    profilePhotoUrl
+    profilePhotoUrl,
+    isInterviewCandidate
   };
 }
 
@@ -1840,7 +1858,7 @@ async function subscribeStreamOnce(stream, owner) {
       insertMode: 'append',
       width: '100%',
       height: '100%',
-      fitMode: 'cover',
+      fitMode: props.preserveVideoAspect ? 'contain' : 'cover',
       subscribeToAudio: true,
       subscribeToVideo: true,
       style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
@@ -2265,7 +2283,7 @@ async function connect() {
         width: '100%',
         height: '100%',
         // Camera previews use the same fill mode as remote camera tiles.
-        fitMode: 'cover',
+        fitMode: props.preserveVideoAspect ? 'contain' : 'cover',
         publishAudio: mainRoom && !!withAudio,
         publishVideo: publishVideo.value,
         name: props.localName,
@@ -3628,6 +3646,7 @@ defineExpose({
 }
 .vsr__stage--focus-local .vsr__tile--local.vsr__tile--featured,
 .vsr__stage--focus-remote .vsr__tile--remote.vsr__tile--featured,
+.vsr__stage--focus-remote .vsr__tile--local.vsr__tile--featured,
 .vsr__stage--focus-speaker .vsr__tile--remote.vsr__tile--featured,
 .vsr__stage--focus-speaker .vsr__tile--local.vsr__tile--featured,
 .vsr__stage--screen .vsr__tile--screen {
@@ -3642,6 +3661,7 @@ defineExpose({
 }
 .vsr__stage--focus-local .vsr__tile--remote.vsr__tile--pip,
 .vsr__stage--focus-remote .vsr__tile--local.vsr__tile--pip,
+.vsr__stage--focus-remote .vsr__tile--remote.vsr__tile--pip,
 .vsr__stage--focus-speaker .vsr__tile--local.vsr__tile--pip,
 .vsr__stage--focus-speaker .vsr__tile--remote.vsr__tile--pip,
 .vsr__stage--screen .vsr__tile--pip {
@@ -3843,6 +3863,9 @@ defineExpose({
   background: #0b0e14;
 }
 .vsr__tile--screen :deep(video) {
+  object-fit: contain !important;
+}
+.vsr--preserve-aspect .vsr__tile :deep(video) {
   object-fit: contain !important;
 }
 .vsr__stage--strip .vsr__tile--local {

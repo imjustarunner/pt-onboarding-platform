@@ -3,6 +3,13 @@
     <Teleport :to="briefTeleportTarget || 'body'" :disabled="!briefTeleportTarget">
     <div class="ilw-brief" :class="{ dark }">
       <h3>{{ candidateName || 'Candidate brief' }}</h3><p class="muted small">{{ candidateRole }} · Interviewers only</p>
+      <section class="ilw-highlights" aria-label="Candidate strengths">
+        <h4>Strengths</h4>
+        <ul v-if="strengthItems.length" class="ilw-resume-list ilw-strengths">
+          <li v-for="(strength, index) in strengthItems.slice(0, 3)" :key="index">{{ strength }}</li>
+        </ul>
+        <p v-else class="muted small">{{ loading ? 'Loading candidate strengths…' : 'No pre-screen strengths recorded yet.' }}</p>
+      </section>
       <div class="ilw-brief-nav">
         <button type="button" class="ilw-brief-tab" :class="{ active: briefPage === 0 }" @click="briefPage = 0">
           Resume
@@ -150,6 +157,7 @@
               class="ilw-star"
               :class="{ on: (ratings[c.key] || 0) >= n }"
               :aria-label="`${c.label}: ${n} out of 4`"
+              :aria-pressed="ratings[c.key] === n"
               @click="setRating(c.key, n)"
             >★</button>
           </div>
@@ -342,16 +350,15 @@ async function load() {
     Object.keys(completed).forEach((k) => delete completed[k]);
     Object.assign(completed, doneMap);
 
-    const crit = data.template?.scorecard_criteria_json
-      || data.artifact?.scorecard_json?.criteria
-      || [
+    const defaultCriteria = [
         { key: 'communication', label: 'Communication' },
         { key: 'relevant_experience', label: 'Relevant Experience' },
         { key: 'problem_solving', label: 'Problem Solving' },
         { key: 'culture_collaboration', label: 'Culture & Collaboration' },
         { key: 'overall_fit', label: 'Overall Fit' }
       ];
-    criteria.value = Array.isArray(crit) ? crit : [];
+    criteria.value = [data.template?.scorecard_criteria_json, data.artifact?.scorecard_json?.criteria]
+      .find(items => Array.isArray(items) && items.length) || defaultCriteria;
     Object.keys(ratings).forEach((k) => delete ratings[k]);
     const savedRatings = data.artifact?.my_scorecard || {};
     Object.assign(ratings, savedRatings);
@@ -625,10 +632,12 @@ function formatWhen(v) {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  height: 100%;
+  height: auto;
+  flex: 0 0 auto;
   min-height: 0;
   color: #111827;
 }
+.ilw > * { flex-shrink: 0; }
 .ilw.dark { color: #e5e7eb; }
 .ilw-tabs {
   display: flex;
@@ -659,8 +668,9 @@ function formatWhen(v) {
   font-size: 10px;
 }
 .ilw-panel {
-  flex: 1;
-  min-height: 0;
+  flex: 0 0 auto;
+  min-height: 220px;
+  max-height: 60vh;
   overflow: auto;
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 12px;
@@ -668,6 +678,8 @@ function formatWhen(v) {
 }
 .ilw-section-head {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
@@ -857,6 +869,8 @@ function formatWhen(v) {
 
 <style scoped>
 .ilw-brief h3 { margin: 0 0 8px; }
+.ilw-highlights { margin: 12px 0 16px; padding: 12px; border-radius: 8px; background: #14532d44; }
+.ilw-highlights h4 { margin: 0 0 8px; }
 .ilw-brief.dark { color: #e5e7eb; background: #192331; }
 .ilw-source-card { border: 1px solid #64748b55; border-radius: 10px; padding: 12px; margin-top: 12px; font-size: 13px; }
 .ilw-source-card p { margin: 8px 0; }

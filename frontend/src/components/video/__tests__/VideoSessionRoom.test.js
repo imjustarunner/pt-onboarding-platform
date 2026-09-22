@@ -40,6 +40,40 @@ describe('VideoSessionRoom connection lifecycle', () => {
     videoSdk.initPublisher.mockReset();
   });
 
+  it('features the interview candidate after hosts join first, with every interviewer in a thumbnail', async () => {
+    const wrapper = mount(VideoSessionRoom, {
+      props: { applicationId: '11111111-1111-4111-8111-111111111111', sessionId: 'interview', token: 'eyJ.test.token',
+        tileFocus: 'remote', focusCandidate: true, preserveVideoAspect: true, playJoinTone: false }
+    });
+    await flushPromises();
+    await vi.dynamicImportSettled();
+    videoSdk.session.subscribe = vi.fn((_stream, target) => {
+      const element = document.createElement('div');
+      element.appendChild(document.createElement('video')); target.appendChild(element);
+      return { element, on: vi.fn() };
+    });
+    for (const [id, identity, roleLabel] of [['host', 'user-1', 'Host'], ['candidate', 'guest-iv-opaque', 'Participant'], ['peer', 'user-2', 'Host']]) {
+      videoSdk.session._handlers.streamCreated({ stream: {
+        streamId: id, name: id, hasVideo: true, hasAudio: true,
+        connection: { connectionId: id, data: JSON.stringify({ identity, roleLabel, displayName: id }) }
+      } });
+      await flushPromises();
+    }
+    expect(wrapper.findAll('.vsr__tile--featured')).toHaveLength(1);
+    expect(wrapper.find('.vsr__tile--featured').text()).toContain('candidate');
+    expect(wrapper.findAll('.vsr__tile--remote.vsr__tile--pip')).toHaveLength(2);
+    expect(wrapper.find('.vsr__stage').attributes('style')).toContain('100px');
+    expect(videoSdk.session.subscribe.mock.calls.every(call => call[2].fitMode === 'contain')).toBe(true);
+    // Candidate keeps the same position when the camera is disabled or re-enabled.
+    videoSdk.session._handlers.streamPropertyChanged({stream: {streamId:'candidate'}, changedProperty:'hasVideo', newValue:false});
+    await flushPromises();
+    expect(wrapper.find('.vsr__tile--featured').text()).toContain('candidate');
+    await wrapper.setProps({ tileFocus:'equal', focusCandidate:false });
+    expect(wrapper.find('.vsr__stage--grid').exists()).toBe(true);
+    expect(wrapper.findAll('.vsr__tile--featured')).toHaveLength(0);
+    wrapper.unmount();
+  });
+
   it('keeps publisher and subscriber targets mounted while the SDK is connecting', async () => {
     const wrapper = mount(VideoSessionRoom, {
       props: {

@@ -30,7 +30,7 @@ export function splitMarkdownSections(md) {
   let current = { title: '', body: [] };
 
   for (const line of lines) {
-    const heading = line.match(/^#{1,3}\s+(.+)/);
+    const heading = line.match(/^#{1,6}\s+(.+)/) || line.match(/^\s*\*\*([^*]+?)\*\*:?\s*$/);
     if (heading) {
       if (current.title || current.body.length) {
         sections.push({
@@ -119,7 +119,7 @@ export function digestPreScreenReport(reportText) {
 
   // Fallback: standalone strength/weakness sections
   if (!strengths.length) {
-    const s = findSection(sections, /^strengths?$/i);
+    const s = findSection(sections, /^(?:(?:key|candidate|professional)\s+)?strengths?\b/i);
     if (s) strengths = extractBulletsFromText(s.body);
   }
   if (!weaknesses.length) {
