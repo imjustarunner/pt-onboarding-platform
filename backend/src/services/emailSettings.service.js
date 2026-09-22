@@ -91,7 +91,7 @@ export async function emailRequiresAdminApproval({
     'school_staff_account_recovery',
     // School group confirmation emails must send immediately on packet submit/upload.
     'school_enrollment_packet_status',
-    'school_ready_to_schedule_digest',
+    'school_client_status_update',
     // Job application receipt must send immediately (demo/@example → testing inbox).
     'job_applications',
     'job_application_received'

@@ -2018,23 +2018,17 @@ if (!isBootstrap) {
   scheduleUnfinishedEnrollmentReminders();
   setInterval(scheduleUnfinishedEnrollmentReminders, 60 * 60 * 1000);
 
-  // School Ready-to-Schedule digests (Mon/Wed/Fri ~10:00 America/Denver)
-  const scheduleReadyToScheduleDigests = async () => {
+  // School assignment/waitlist notices are individual transactional emails.
+  const scheduleSchoolClientStatusEmails = async () => {
     try {
-      const { runReadyToScheduleDigestTick } = await import('./services/schoolReadyScheduleDigest.service.js');
-      await runReadyToScheduleDigestTick();
+      const { sendPendingSchoolClientStatusEmails } = await import('./services/schoolClientStatusEmail.service.js');
+      await sendPendingSchoolClientStatusEmails();
     } catch (error) {
-      const msg = String(error?.message || '');
-      const missing = error?.code === 'ER_NO_SUCH_TABLE' || msg.includes('school_ready_schedule_digest');
-      if (missing) {
-        console.warn('Ready-to-schedule digest table not found. Run migration 1270_school_ready_schedule_digests.sql');
-      } else {
-        console.error('Error in ready-to-schedule digest scheduler:', error);
-      }
+      console.error('Error in school client status email worker:', error?.message || error);
     }
   };
-  scheduleReadyToScheduleDigests();
-  setInterval(scheduleReadyToScheduleDigests, 5 * 60 * 1000);
+  scheduleSchoolClientStatusEmails();
+  setInterval(scheduleSchoolClientStatusEmails, 60 * 1000);
 
   // Incomplete school-onboarding digests (ITSCO → Rachel Finch, Mon/Wed/Fri ~10:00 America/Denver)
   const scheduleIncompleteOnboardingDigests = async () => {

@@ -5,8 +5,7 @@ import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
 import CommunicationLoggingService from './communicationLogging.service.js';
-import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
-import Agency from '../models/Agency.model.js';
+import { schoolEmailPortalUrl, SCHOOL_EMAIL_DISPLAY_NAME } from './schoolEmailPortal.service.js';
 
 async function alreadyNotified({ agencyId, userId, type, relatedEntityId }) {
   const [rows] = await pool.execute(
@@ -288,17 +287,10 @@ async function sendSchoolIntakeStatusEmail({
     return false;
   }
 
-  let portalUrl = 'https://app.itsco.health';
-  try {
-    const agency = aid ? await Agency.findById(aid) : null;
-    portalUrl = buildPublicAppUrl(agency || { slug: 'itsco' }, '') || portalUrl;
-  } catch {
-    // keep default
-  }
-  const loginUrl = portalUrl.replace(/\/$/, '') + '/login';
+  const portalUrl = await schoolEmailPortalUrl({ schoolOrganizationId: sid, agencyId: aid });
 
   const packetLabel = isPaper ? 'Paper Enrollment Packet' : 'Digital Enrollment Packet';
-  const supportTeam = 'School support team';
+  const supportTeam = SCHOOL_EMAIL_DISPLAY_NAME;
 
   const lead = isPaper
     ? (
@@ -319,10 +311,10 @@ async function sendSchoolIntakeStatusEmail({
     '',
     lead,
     '',
-    'Our team has been notified and we are working on getting this client onboarded and ready for scheduling. Once our team has completed our steps and we assign a clinician, you will receive an email that the client is ready to schedule. If they are waitlisted, you will also be notified on that same status digest with the waitlist reason.',
+    'Our team has been notified and we are working on getting this client onboarded and ready for scheduling. When a clinician is assigned, the school team and assigned clinician will receive an individual email with the next steps. If the client is placed on the waitlist, the school team will receive a separate update with the recorded reason.',
     '',
     `You can view this client's status in the school portal anytime:`,
-    loginUrl,
+    portalUrl,
     '',
     'Thank you,',
     '',
@@ -341,18 +333,14 @@ async function sendSchoolIntakeStatusEmail({
     <div style="font-family: Arial, Helvetica, sans-serif; line-height: 1.55; color: #1a1a1a; max-width: 640px;">
       <p>Hello,</p>
       <p>${esc(lead)}</p>
-      <p>Our team has been notified and we are working on getting this client onboarded and ready for scheduling. Once our team has completed our steps and we assign a clinician, you will receive an email that the client is ready to schedule. If they are waitlisted, you will also be notified on that same status digest with the waitlist reason.</p>
-      <p><a href="${esc(loginUrl)}" style="display:inline-block;padding:10px 16px;background:#1f6b4a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Open school portal</a></p>
-      <p style="font-size:13px;color:#555;">Or visit <a href="${esc(loginUrl)}">${esc(loginUrl)}</a></p>
+      <p>Our team has been notified and we are working on getting this client onboarded and ready for scheduling. When a clinician is assigned, the school team and assigned clinician will receive an individual email with the next steps. If the client is placed on the waitlist, the school team will receive a separate update with the recorded reason.</p>
+      <p><a href="${esc(portalUrl)}" style="display:inline-block;padding:10px 16px;background:#1f6b4a;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">Open school portal</a></p>
+      <p style="font-size:13px;color:#555;">Or visit <a href="${esc(portalUrl)}">${esc(portalUrl)}</a></p>
       <p>Thank you,</p>
       <p style="margin-top: 12px;"><strong>${esc(supportTeam)}</strong></p>
       <p style="font-size:12px;color:#666;">Questions? Reply to this email or contact <a href="mailto:schools@ITSCO.health">schools@ITSCO.health</a>.</p>
     </div>
   `.trim();
-
-  const fromDisplayNameOverride = isPaper
-    ? `${schoolName} - Paper Enrollment Packet Uploaded`
-    : `${schoolName} - Digital Enrollment Packet`;
 
   try {
     const result = await sendEmailFromIdentity({
@@ -365,10 +353,10 @@ async function sendSchoolIntakeStatusEmail({
       agencyId: aid,
       clientId: clientId || null,
       templateType: 'school_enrollment_packet_status',
-      fromDisplayNameOverride,
+      fromDisplayNameOverride: SCHOOL_EMAIL_DISPLAY_NAME,
       replyToOverride: SCHOOLS_REPLY_TO,
       signatureIdentityId,
-      linkUrl: loginUrl
+      linkUrl: portalUrl
     });
     if (result?.skipped || result?.blocked) {
       console.warn('[schoolEnrollmentPacketStatus] send skipped/blocked', {
@@ -798,7 +786,7 @@ export async function notifyPaperworkReceived({ agencyId, schoolOrganizationId, 
 }
 
 /**
- * Admin/support: client queued for school Ready-to-Schedule digest (Mon/Wed/Fri ~10 MT).
+ * Admin/support: client ready for an individual school status notice.
  */
 export async function notifyClientReadyToSchedule({
   agencyId,
@@ -826,11 +814,8 @@ export async function notifyClientReadyToSchedule({
 
   const school = schoolName || 'school';
   const to = digestTo || '(no school group email configured)';
-  const when = sendYmd
-    ? `${sendLabel || 'next digest'} ${sendYmd} ~10:00 MT`
-    : `${sendLabel || 'Mon/Wed/Fri'} ~10:00 MT`;
   const title = 'Client Ready to Schedule';
-  const message = `${clientLabel || `Client #${clientId}`} at ${school} is queued for the school digest to ${to} on ${when}.`;
+  const message = `${clientLabel || `Client #${clientId}`} at ${school} is ready for scheduling. An individual status notice is queued for ${to} and the assigned provider.`;
 
   await createNotificationAndDispatch({
     type: 'client_ready_to_schedule',

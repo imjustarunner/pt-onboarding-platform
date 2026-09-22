@@ -1640,6 +1640,8 @@ export const setClientAssignedDay = async (req, res, next) => {
       });
     }
 
+    const { queueSchoolClientStatusEmails } = await import('../services/schoolClientStatusEmail.service.js');
+    await queueSchoolClientStatusEmails(connection, { clientId });
     await connection.commit();
 
     let clientStatusUpdate = null;

@@ -118,6 +118,8 @@ export async function setClientLifecycleStatus({
   if (Number(statusId) === Number(client.client_status_id || 0)) {
     if (Object.keys(extraPatch || {}).length) {
       await Client.update(cid, extraPatch, actorUserId);
+      const { queueSchoolClientStatusEmails } = await import('./schoolClientStatusEmail.service.js');
+      await queueSchoolClientStatusEmails(pool, { clientId: cid });
     }
     return { changed: false, statusKey: key, statusId };
   }
@@ -166,51 +168,15 @@ export async function setClientLifecycleStatus({
     }
   }
 
-  if (key === LIFECYCLE_STATUS_KEYS.READY_TO_SCHEDULE || key === LIFECYCLE_STATUS_KEYS.WAITLIST) {
-    try {
-      const {
-        enqueueReadyToScheduleDigest,
-        DIGEST_CATEGORY_READY,
-        DIGEST_CATEGORY_WAITLIST
-      } = await import('./schoolReadyScheduleDigest.service.js');
-      const isWaitlist = key === LIFECYCLE_STATUS_KEYS.WAITLIST;
-      let waitlistReason = null;
-      if (isWaitlist) {
-        const noteText = String(note || '').trim();
-        if (/^waitlisted:\s*/i.test(noteText)) {
-          waitlistReason = noteText.replace(/^waitlisted:\s*/i, '').slice(0, 500);
-        } else if (noteText) {
-          waitlistReason = noteText.slice(0, 500);
-        }
-        try {
-          const intake = client.agency_intake_json
-            ? (typeof client.agency_intake_json === 'string'
-              ? JSON.parse(client.agency_intake_json)
-              : client.agency_intake_json)
-            : null;
-          if (!waitlistReason && intake?.waitlistReason) {
-            waitlistReason = String(intake.waitlistReason).slice(0, 500);
-          }
-        } catch {
-          // ignore parse errors
-        }
-      }
-      await enqueueReadyToScheduleDigest({
-        agencyId: client.agency_id,
-        schoolOrganizationId: client.organization_id,
-        clientId: cid,
-        clientInitials: client.initials || null,
-        clientLabel: client.initials || client.full_name || client.identifier_code || null,
-        category: isWaitlist ? DIGEST_CATEGORY_WAITLIST : DIGEST_CATEGORY_READY,
-        waitlistReason,
-        clearedFromWaitlist: !isWaitlist && currentKey === 'waitlist',
-        statusChangedAt: isWaitlist
-          ? (client.waitlist_started_at || new Date())
-          : new Date()
-      });
-    } catch (err) {
-      console.error('[clientLifecycleStatus] school status digest enqueue failed', err?.message || err);
-    }
+  // Queue every meaningful lifecycle transition, including cancellation of stale
+  // notices. Provider assignment changes also queue through the assignment hook.
+  try {
+    const { queueSchoolClientStatusEmails } = await import('./schoolClientStatusEmail.service.js');
+    await queueSchoolClientStatusEmails(pool, { clientId: cid,
+      waitlistReason: key === 'waitlist' && /^waitlisted:\s*/i.test(String(note || ''))
+        ? String(note).replace(/^waitlisted:\s*/i, '') : null });
+  } catch (err) {
+    console.error('[clientLifecycleStatus] school status email enqueue failed', err?.message || err);
   }
 
   // Keep provider Tasks Hub items in sync with Clients Action / Next Step

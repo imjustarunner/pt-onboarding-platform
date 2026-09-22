@@ -1,5 +1,6 @@
 import { resolveClientProviderHolds } from './publicProviderHold.service.js';
 import pool from '../config/database.js';
+import { queueSchoolClientStatusEmails } from './schoolClientStatusEmail.service.js';
 
 /**
  * Ensure an active client_provider_assignments row exists for client+org+provider.
@@ -195,6 +196,7 @@ export async function afterLegacyProviderFieldsChanged(
   if (cleared) {
     await resolveClientProviderHolds(connection,{clientId:cid,userId});
     await deactivateClientProviderAssignments(connection, { clientId: cid, userId });
+    await queueSchoolClientStatusEmails(connection, { clientId: cid });
     return;
   }
 
@@ -208,6 +210,7 @@ export async function afterLegacyProviderFieldsChanged(
     serviceDay,
     isPrimary
   });
+  await queueSchoolClientStatusEmails(connection, { clientId: cid });
 }
 
 /**
@@ -219,6 +222,7 @@ export async function afterScopedProviderAssignmentChanged(connection, { clientI
   await resolveClientProviderHolds(connection,{clientId:cid,userId});
   if (forceLegacy) {
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
+    await queueSchoolClientStatusEmails(connection, { clientId: cid });
     return;
   }
 
@@ -227,6 +231,7 @@ export async function afterScopedProviderAssignmentChanged(connection, { clientI
   if (!hasLegacy) {
     await syncPrimaryLegacyFromClientAssignments(connection, { clientId: cid, userId });
   }
+  await queueSchoolClientStatusEmails(connection, { clientId: cid });
 }
 
 /**
