@@ -1,10 +1,12 @@
+import {appointmentTimePredicate} from '../utils/publicAppointmentTimeSearch.js';
 import {agencyFormatAllowed,agencyOfficeAllowed,scopeProviderRow} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
 import Availability from './providerAvailability.service.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
 import {publicAcceptance} from '../utils/publicProviderPresentation.js';
 
-export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,officeId=null}={}) {
+export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,officeId=null,timePreferences={}}={}) {
+ const matchesTime=appointmentTimePredicate(timePreferences);
  const [profile, [people], [offices], [schoolRows]] = await Promise.all([
   Profile.getForProvider({providerUserId:providerId,agencyId}),
   pool.execute('SELECT sees_clients,provider_accepting_new_clients,in_office_available FROM users WHERE id=?',[providerId]),
@@ -28,7 +30,7 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,
   for(const [key,format] of [['inPersonSlots','IN_PERSON'],['virtualSlots','VIRTUAL']])
    for(const slot of result[key]||[])if(Date.parse(slot.startAt)>now)all.push({startAt:slot.startAt,endAt:slot.endAt,format,frequency:slot.frequency||'WEEKLY',buildingId:slot.buildingId,buildingName:slot.buildingName});
  }
- const slots=[...new Map(all.map(s=>[`${s.format}:${s.startAt}:${s.endAt}:${s.buildingId||''}`,s])).values()].filter(s=>(!officeId||(s.format==='IN_PERSON'&&Number(s.buildingId)===Number(officeId)))&&agencyFormatAllowed(profile?.agencyAvailability,s.format)&&agencyOfficeAllowed(s.format==='IN_PERSON'?profile?.agencyAvailability:null,s.buildingId)).sort((a,b)=>a.startAt.localeCompare(b.startAt));
+ const slots=[...new Map(all.map(s=>[`${s.format}:${s.startAt}:${s.endAt}:${s.buildingId||''}`,s])).values()].filter(s=>matchesTime(s)&&(!officeId||(s.format==='IN_PERSON'&&Number(s.buildingId)===Number(officeId)))&&agencyFormatAllowed(profile?.agencyAvailability,s.format)&&agencyOfficeAllowed(s.format==='IN_PERSON'?profile?.agencyAvailability:null,s.buildingId)).sort((a,b)=>a.startAt.localeCompare(b.startAt));
  const policy=profile?.agencyAvailability;
  const schoolOpenings=agencyFormatAllowed(policy,'SCHOOL')&&schoolRows.some(s=>Number(s.slots_available)>0);
  const formats={};

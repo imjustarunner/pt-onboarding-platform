@@ -1,5 +1,5 @@
 // Public search preferences only. Tenant-local office IDs are translated to geography.
-export const networkSearchKeys=['search','setting','city','state','age','specialty','insurance','accepting','openings','gender','care','school','service','agency'];
+export const networkSearchKeys=['search','setting','city','state','age','specialty','insurance','accepting','openings','gender','care','school','service','agency','day','timeFrom','timeTo'];
 export function readNetworkSearch(query={}) {
  return Object.fromEntries(networkSearchKeys.map(key=>[key,typeof query[key]==='string'?query[key].slice(0,200):'']));
 }

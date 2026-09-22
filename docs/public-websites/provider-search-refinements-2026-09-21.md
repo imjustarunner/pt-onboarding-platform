@@ -1,0 +1,11 @@
+# Provider search refinements
+
+- Virtual care is nested under Colorado in the homepage location picker and carries `setting=virtual&state=CO` into search. Virtual state coverage is separate from office addresses; ITSCO/NLU currently offer Colorado, while other organizations require explicit coverage data.
+- Collective links remain visible above results and after each availability section, including successful searches. All public preferences, including desired days and hours, carry into the editable network search.
+- Advanced filters stay collapsed initially. School is the last filter. Day/time choices cover weekdays, weekends, individual days, and an inclusive appointment start-time range, with an After 4 PM shortcut. Times use Mountain time and a four-week published-calendar horizon; typical profile hours are not treated as bookable appointments. Later weeks are checked when earlier openings do not meet the requested hours.
+- Search includes all specialties, approaches, and populations. Matching clinical tags are promoted to visible card tags rather than disappearing behind the default preview limit.
+- Inquire links preselect Finding a provider and a message naming the provider. The API verifies current agency membership and stores the provider’s canonical name/ID in the ticket subject/body. These are team inquiries; no message was sent during testing.
+- A closed provider can keep a waitlist: under Public Provider Profile → New client availability, leave Sees clients and offered formats enabled, turn off Accepting new clients, and enable Accept waitlist requests. Coverage includes the public waitlist button and agency-scoped closed status.
+- Routine public website reads now have a separate per-route/IP limit (120/minute), independent of the 40-per-15-minute metrics budget. The browser deduplicates simultaneous website-data/partner reads and reuses public data for 60 seconds; edits force a refresh. Appointments and private data are never cached by this helper. Typing search terms does not trigger calendar reloads; changing day/time preferences does.
+
+Validation includes focused backend/frontend tests, production build, and desktop/mobile Chrome checks with fixture schedules and no live message submissions. No database migration is required.

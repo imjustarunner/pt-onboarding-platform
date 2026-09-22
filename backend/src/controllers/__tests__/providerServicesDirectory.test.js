@@ -87,4 +87,18 @@ describe('public multi-service directories',()=>{
   const res=response(),next=vi.fn();await joinProviderWaitlist({...request(),params:{agencySlug:'test',providerId:'9'},body:{serviceType:'counseling',format:'VIRTUAL'}},res,next);
   expect(res.status).toHaveBeenCalledWith(409);expect(createPublicAgencySupportTicket).not.toHaveBeenCalled();
  });
+ it('returns the first available week’s times for search even when this week is full',async()=>{
+  const nextWeek=[{startAt:'2035-01-08T17:00:00Z',endAt:'2035-01-08T18:00:00Z'},{startAt:'2035-01-09T23:00:00Z',endAt:'2035-01-10T00:00:00Z'}];
+  Availability.computeWeekAvailability.mockResolvedValueOnce({inPersonSlots:[],virtualSlots:[]}).mockResolvedValue({inPersonSlots:[],virtualSlots:nextWeek});
+  const res=response(),next=vi.fn();await listCounselors({...request(),query:{view:'availability',programType:'VIRTUAL',weekStart:'2035-01-01'}},res,next);
+  expect(next).not.toHaveBeenCalled();const availability=res.json.mock.calls[0][0].providers[0].availability;
+  expect(availability.slots).toEqual([]);expect(availability.upcomingSlots.map(s=>s.startAt)).toEqual(nextWeek.map(s=>s.startAt));
+ });
+
+ it('continues looking ahead when this week has openings outside the requested hours',async()=>{
+  Availability.computeWeekAvailability.mockResolvedValueOnce({inPersonSlots:[],virtualSlots:[{startAt:'2035-01-02T17:00:00Z',endAt:'2035-01-02T18:00:00Z'}]}).mockResolvedValue({inPersonSlots:[],virtualSlots:[{startAt:'2035-01-09T23:00:00Z',endAt:'2035-01-10T00:00:00Z'}]});
+  const res=response(),next=vi.fn();await listCounselors({...request(),query:{view:'availability',programType:'VIRTUAL',weekStart:'2035-01-01',day:'weekdays',timeFrom:'16:00'}},res,next);
+  expect(next).not.toHaveBeenCalled();expect(res.json.mock.calls[0][0].providers[0].availability.nextAvailableAt).toBe('2035-01-09T23:00:00Z');
+ });
+
 });

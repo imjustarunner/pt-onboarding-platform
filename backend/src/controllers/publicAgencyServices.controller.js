@@ -1,3 +1,4 @@
+import {appointmentTimePredicate} from '../utils/publicAppointmentTimeSearch.js';
 import {publicSchoolAssignmentSql} from '../utils/providerDirectoryEligibility.js';
 import {scopeProviderRow,agencyOfficeAllowed,agencyFormatAllowed} from '../utils/providerAgencyAvailability.js';
 import {listPublicProviderOffices} from '../services/publicProviderOffices.service.js';
@@ -612,10 +613,10 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId, service
   };
 }
 
-async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16, officeId = null }) {
+async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16, officeId = null, matchesTime = () => true }) {
   const intakeOnly = String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT';
   const program = normalizeProgramType(programType);
-  const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || [])).filter(s => Date.parse(s.startAt) > Date.now());
+  const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || [])).filter(s => Date.parse(s.startAt) > Date.now() && matchesTime(s));
 
   const computeForWeek = async (candidateWeekStart) => {
     const result = await ProviderAvailabilityService.computeWeekAvailability({
@@ -637,10 +638,11 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
   const thisWeek = await computeForWeek(weekStart);
   const allThisWeek = dedupeSlots(pickProgramSlots(thisWeek));
   if (allThisWeek.length > 0) {
-    return { thisWeek, nextAvailableAt: allThisWeek[0].startAt, bookedThroughYmd: null };
+    return { thisWeek, upcomingWeek:thisWeek, nextAvailableAt: allThisWeek[0].startAt, bookedThroughYmd: null };
   }
 
   let nextAvailable = null;
+  let upcomingWeek = thisWeek;
   let bookedThroughYmd = null;
   for (let i = 1; i <= lookaheadWeeks; i += 1) {
     const candidateWeek = addDaysYmd(weekStart, i * 7);
@@ -648,6 +650,7 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
     const candidate = await computeForWeek(candidateWeek);
     const merged = dedupeSlots(pickProgramSlots(candidate));
     if (merged.length > 0) {
+      upcomingWeek = candidate;
       nextAvailable = merged[0].startAt;
       const nextDate = new Date(nextAvailable);
       if (!Number.isNaN(nextDate.getTime())) bookedThroughYmd = addDaysYmd(nextDate.toISOString().slice(0, 10), -1);
@@ -655,7 +658,7 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
     }
   }
 
-  return { thisWeek, nextAvailableAt: nextAvailable, bookedThroughYmd };
+  return { thisWeek, upcomingWeek, nextAvailableAt: nextAvailable, bookedThroughYmd };
 }
 
 function normalizeSlots({ result, bookingMode, profile }) {
@@ -771,6 +774,7 @@ export const listChooseProviders = async (req, res, next) => {
 
 export const listCounselors = async (req, res, next) => {
   try {
+    const matchesTime=appointmentTimePredicate(req.query);
     const agency = await requireAgencyBySlug(res, req.params.agencySlug, {directoryOnly:true});
     if (!agency) return;
 
@@ -797,6 +801,7 @@ export const listCounselors = async (req, res, next) => {
       const heldSlots = directoryOnly ? [] : await getHeldSlotStartsForProvider(agency.id, Number(row.id));
       const summary = directoryOnly ? { thisWeek: { virtualSlots: [], inPersonSlots: [] }, nextAvailableAt: null, bookedThroughYmd: null } : await computeProviderWindowSummary({
         lookaheadWeeks: req.query.view === 'availability' ? 3 : 16,
+        matchesTime,
         agencyId: agency.id,
         providerId: Number(row.id),
         weekStart,
@@ -872,6 +877,7 @@ export const listCounselors = async (req, res, next) => {
           bookingMode,
           programType,
           weekStart,
+          upcomingSlots: (programType==='VIRTUAL'?normalizeSlots({result:summary.upcomingWeek,bookingMode,profile:profileData}).virtual:normalizeSlots({result:summary.upcomingWeek,bookingMode,profile:profileData}).inPerson),
           thisWeekCount: filteredThisWeek.length,
           // A schedule opening is distinct from permission to accept a new client.
           hasPublishedOpenings: Boolean(summary.nextAvailableAt),

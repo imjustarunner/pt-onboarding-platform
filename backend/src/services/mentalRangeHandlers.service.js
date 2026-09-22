@@ -45,7 +45,7 @@ async function rangeAvailability(req, res, next) {
     const [rows] = await pool.execute(`${RANGE_PROVIDER_SQL} AND a.id=? AND u.id=? AND s.service_type=?`, [aid,pid,service]);
     if (!rows.length || !rangeProviderEligible(rows[0])) return res.status(404).json({ error: { message: 'Provider is no longer published in this network' } });
     {
-      const schedule=await readPublicProviderSchedule(pid,aid);
+      const schedule=await readPublicProviderSchedule(pid,aid,{timePreferences:{day:req.query.day,timeFrom:req.query.timeFrom,timeTo:req.query.timeTo}});
       const format=String(req.query.format||'ALL').toUpperCase();
       const slots=schedule.slots.filter(s=>(format==='ALL'||s.format===format)&&Date.parse(s.startAt)>Date.now());
       return res.json({format,slots:slots.map(s=>({startAt:s.startAt,endAt:s.endAt,format:s.format,buildingId:s.buildingId,buildingName:s.buildingName})),

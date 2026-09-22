@@ -24,13 +24,13 @@ import { useRoute } from 'vue-router';
 const route=useRoute();
 const currentSlug=computed(()=>String(route?.path||'').match(/^\/p\/([^/]+)/)?.[1] || (isItscoPublicHost(window.location.hostname)?'itsco':publicSiteSlug(window.location.hostname)));
 const resourceHref = value => { const href=safe(value); return publicSitePaths(window.location.hostname)?.clean(href)||href; };
-import api from '../../services/api';
+import {readPublicWebsite} from '../../services/publicWebsiteRead';
 import { publicWebsiteUrl as safe } from '../../composables/useStandalonePublicWebsite';
 defineProps({resourcesPath:{type:String,default:''}});
 const root=ref(),trigger=ref(),partnerTrigger=ref(),open=ref(false),partnersOpen=ref(false),allPartners=ref([]),loading=ref(true),error=ref(false);
 const partners=computed(()=>allPartners.value.filter(p=>p.slug!==currentSlug.value));
 let mounted=true;
-async function load(){loading.value=true;error.value=false;try{const{data}=await api.get('/public/marketing-pages/partners',{skipAuthRedirect:true,skipGlobalLoading:true});if(mounted)allPartners.value=(data.partners||[]).filter(p=>!p.comingSoon&&p.name&&safe(p.url));}catch{if(mounted)error.value=true;}finally{if(mounted)loading.value=false;}}
+async function load(){loading.value=true;error.value=false;try{const{data}=await readPublicWebsite('/public/marketing-pages/partners');if(mounted)allPartners.value=(data.partners||[]).filter(p=>!p.comingSoon&&p.name&&safe(p.url));}catch{if(mounted)error.value=true;}finally{if(mounted)loading.value=false;}}
 function hoverMenu(){if(window.innerWidth>1100&&window.matchMedia('(hover: hover)').matches)open.value=true;}
 function hoverPartners(){if(window.innerWidth>1100&&window.matchMedia('(hover: hover)').matches)partnersOpen.value=true;}
 function close(focus=false){open.value=false;partnersOpen.value=false;if(focus)trigger.value?.focus();}

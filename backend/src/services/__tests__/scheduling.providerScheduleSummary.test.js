@@ -29,4 +29,10 @@ describe('public provider schedule summaries',()=>{
   Availability.computeWeekAvailability.mockRejectedValueOnce(new Error('Calendar unavailable'));
   await expect(readPublicProviderSchedule(9,2)).rejects.toThrow('Calendar unavailable');
  });
+ it('allows a closed provider to take waitlist requests for enabled agency formats',async()=>{
+  const policy={seesClients:true,acceptingNewClients:false,waitlistEnabled:true,inPerson:true,virtual:true,school:false,officeIds:null};
+  Profile.getForProvider.mockResolvedValue({agencyAvailability:policy,details:{waitlistEnabled:true,inPersonEnabled:true,virtualEnabled:true,officeAvailability:'waitlist',virtualAvailability:'waitlist',availabilityByAgency:{'2':policy}}});
+  const result=await readPublicProviderSchedule(9,2);expect(result.slots).toEqual([]);expect(result.inPerson.status).toBe('waitlist');expect(result.virtual.status).toBe('waitlist');expect(result.waitlistFormats).toEqual(['IN_PERSON','VIRTUAL']);
+ });
+
 });

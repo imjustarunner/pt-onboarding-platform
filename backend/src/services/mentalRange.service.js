@@ -33,6 +33,7 @@ export function providerDto(row, facets = {}, photo = '') {
     service: row.service_type, name: `${row.first_name || ''} ${row.last_name || ''}`.trim(), title: row.title || '', credential:row.credential||'', photoUrl: photo,
     bio: row.service_type === 'tutoring' ? row.tutoring_bio || row.public_blurb || '' : row.public_blurb || '',
     accepting: accepting == null ? null : !!Number(accepting), waitlistEnabled:policy?policy.waitlistEnabled:details.waitlistEnabled===true,
+    virtualStates:stringList(details.virtualStates).length?stringList(details.virtualStates):(['itsco','nlu'].includes(row.agency_slug)?['CO']:[]),
     gender:details.gender||'',languages:stringList(details.languages),populations:facets.populations||[],
     inPerson:policy?policy.inPerson:details.inPersonEnabled!==false,virtual:policy?policy.virtual:details.virtualEnabled===true||Boolean(row.has_virtual_openings)||(details.sessionFormats||[]).some(v=>/virtual|telehealth|online/i.test(v)),school:policy?.school!==false,
     onlineScheduling:!!row.online_enrolled&&!!row.public_availability_enabled, specialties: facets.specialties || [], modalities: facets.modalities || [],

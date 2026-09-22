@@ -23,4 +23,18 @@ describe('network discovery',()=>{
  api.get.mockImplementation(async url=>{if(url.endsWith('/providers'))return {data:{providers:[provider]}};throw Error('offline');});
  const{w}=await render('?openings=no');expect(w.findAll('.range-provider-card')).toHaveLength(0);expect(w.text()).toContain('could not be checked');w.unmount();
  });
+ it('applies time filters from ITSCO and lets visitors clear them',async()=>{
+  schedule={...schedule,slots:[{...slot,startAt:'2030-01-07T23:00:00Z'}]};
+  const {w,router}=await render('?day=weekdays&timeFrom=16:00&openings=yes');expect(w.findAll('.range-provider-card')).toHaveLength(2);
+  await router.push('/p/range/providers?day=weekends&timeFrom=16:00&openings=yes');await flushPromises();expect(w.findAll('.range-provider-card')).toHaveLength(0);w.unmount();
+ });
+
+ it('refreshes the calendar when a visitor edits desired times in the filter controls',async()=>{
+  schedule={...schedule,slots:[{...slot,startAt:'2030-01-07T23:00:00Z'}]};
+  const {w}=await render('?day=weekends&timeFrom=16:00&openings=yes');expect(w.findAll('.range-provider-card')).toHaveLength(0);
+  await w.findAll('button').find(b=>b.text().includes('More filters')).trigger('click');
+  await w.findAll('label').find(l=>l.text().startsWith('Preferred day')).find('select').setValue('weekdays');await flushPromises();
+  expect(w.findAll('.range-provider-card')).toHaveLength(2);expect(api.get.mock.calls.at(-1)[1].params.day).toBe('weekdays');w.unmount();
+ });
+
 });

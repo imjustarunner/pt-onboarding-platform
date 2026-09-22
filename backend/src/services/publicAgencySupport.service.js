@@ -440,7 +440,16 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
   const phone = String(payload.phone || payload.callbackPhone || '').trim().slice(0, 40);
   const preferText = payload.preferText === true || payload.preferText === 'true' || payload.preferText === 1;
   const message = String(payload.message || payload.question || '').trim().slice(0, 4000);
-  const category = PUBLIC_SUPPORT_CATEGORIES.some((c) => c.id === payload.category)
+  let inquiryProvider = null;
+  if (!internshipInquiry && !providerWaitlist && payload.providerId != null) {
+    const providerId=Number(payload.providerId);
+    if (!Number.isSafeInteger(providerId)||providerId<1) throw Object.assign(new Error('Please choose a valid provider.'),{status:400});
+    const [rows]=await pool.execute(`SELECT u.id,u.first_name,u.last_name FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+      WHERE u.id=? AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 LIMIT 1`,[providerId,agency.id]);
+    if (!rows.length) throw Object.assign(new Error('This provider is not available at this organization. Please choose another provider.'),{status:400});
+    inquiryProvider={id:providerId,name:[rows[0].first_name,rows[0].last_name].filter(Boolean).join(' ')};
+  }
+  const category = inquiryProvider ? 'provider' : PUBLIC_SUPPORT_CATEGORIES.some((c) => c.id === payload.category)
     ? payload.category
     : 'other';
   const phiAcknowledged = payload.phiAcknowledged === true || payload.phiAcknowledged === 'true';
@@ -486,7 +495,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
   const internshipContact = internshipInquiry ? await resolveInternshipContact(agency) : null;
   const chatReferral = await resolveChatReferral(String(agencySlug),payload.chatReferral);
   const categoryLabel = PUBLIC_SUPPORT_CATEGORIES.find((c) => c.id === category)?.label || category;
-  const subject = internshipInquiry ? INTERNSHIP_INQUIRY_SUBJECT : providerWaitlist ? `Provider waitlist: ${providerWaitlist.providerName} — ${providerWaitlist.serviceType}`.slice(0,255) : `${categoryLabel} — ${name}`.slice(0, 255);
+  const subject = internshipInquiry ? INTERNSHIP_INQUIRY_SUBJECT : providerWaitlist ? `Provider waitlist: ${providerWaitlist.providerName} — ${providerWaitlist.serviceType}`.slice(0,255) : inquiryProvider ? `Provider inquiry: ${inquiryProvider.name} — ${name}`.slice(0,255) : `${categoryLabel} — ${name}`.slice(0, 255);
   const question = [
     message,
     '',
@@ -496,6 +505,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
     `Callback number: ${phone}`,
     `Prefers text: ${preferText ? 'yes' : 'no'}`,
     `Category: ${categoryLabel}`,
+    inquiryProvider ? `Requested provider: ${inquiryProvider.name} (ID ${inquiryProvider.id})` : null,
     scan.flags.length ? `Content flags: ${scan.flags.join(', ')}` : null,
     chatReferral ? `Source: Live Chat ${chatReferral.sessionId}${chatReferral.authorUserId ? ` — referred by support user ${chatReferral.authorUserId}` : ' — visitor submitted from chat'}` : 'Source: public agency support page'
   ].filter(Boolean).join('\n');

@@ -143,6 +143,16 @@ export const publicHiringReferenceSubmitLimiter = rateLimit({
   }
 });
 
+// Routine public navigation is independent of the low-volume aggregate metrics budget.
+export const publicWebsiteReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  message: { error: { message: 'Please wait a moment before loading this page again.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: req => `public-website:${req.route?.path || req.path}:${getClientIpAddress(req) || req.ip || 'unknown'}`
+});
+
 export const publicMarketingPageMetricsLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: isDevelopment ? 120 : 40,

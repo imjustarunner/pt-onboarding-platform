@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import {reactive} from 'vue';
 import Website from '../ItscoPublicWebsite.vue';
 import api from '../../../services/api';
 
+const route=reactive({params:{section:'providers'},query:{},fullPath:'/p/itsco/providers'});
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ params: { section: 'providers' }, query: {}, fullPath: '/p/itsco/providers' }),
+  useRoute: () => route,
   useRouter: () => ({ replace: vi.fn() })
 }));
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn() } }));
@@ -43,6 +45,10 @@ describe('public directory background availability', () => {
     pending.slice(2).forEach(({ resolve }) => resolve({ data: { providers: [] } }));
     await flushPromises();
     expect(wrapper.text()).not.toContain('Some online appointment times could not be checked');
+    route.query={search:'Example'};await flushPromises();expect(pending).toHaveLength(4);
+    route.query={search:'Example',day:'weekends'};await flushPromises();expect(pending).toHaveLength(6);
+    expect(api.get.mock.calls.at(-1)[1].params.day).toBe('weekends');
+    pending.slice(4).forEach(({resolve})=>resolve({data:{providers:[]}}));await flushPromises();
     vi.unstubAllGlobals();
   });
 });

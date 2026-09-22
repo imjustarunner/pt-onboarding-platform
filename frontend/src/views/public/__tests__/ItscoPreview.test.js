@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import Itsco from '../ItscoPublicWebsite.vue';
 import api from '../../../services/api';
 const route = vi.hoisted(() => ({ query: { marketingPreview: '1' }, params: {}, fullPath: '/p/itsco?marketingPreview=1' }));
-vi.mock('vue-router', () => ({ useRoute: () => route }));
+vi.mock('vue-router', () => ({ useRoute: () => route, useRouter:()=>({push:vi.fn(),replace:vi.fn()}) }));
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn() } }));
 const fixture = { agency: { id: 1 }, content: { heroTitle: 'Published title' }, settings: {}, districts: [], providers: [], team: [], insurances: [], metrics: { studentsSupported: null, schools: 0, districts: 0, teamMembers: 0 } };
 const parent = { postMessage: vi.fn() };
