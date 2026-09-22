@@ -21,6 +21,12 @@ export function overallProviderStatus(provider,availability={},schoolId='') {
  if(statuses.includes('waitlist'))return 'waitlist';
  return provider.acceptingNewClients && !['officeAvailability','virtualAvailability','schoolAvailability'].some(k=>provider.details?.[k]==='unavailable')?'accepting':'unavailable';
 }
+// School capacity belongs to enrollment, not the public appointment search.
+export function officeVirtualProviderStatus(provider,availability={}) {
+ const statuses=['office','virtual'].map(format=>providerFormatStatus(provider,availability,format));
+ if(statuses.includes('accepting'))return 'accepting';
+ return statuses.includes('waitlist')?'waitlist':'unavailable';
+}
 export function providerPriority(provider,availability={},mode='all',schoolId='') {
  const s=providerStatuses(provider,availability,schoolId);
  if(mode!=='all'||schoolId)return {accepting:0,waitlist:1,unavailable:2}[s[schoolId?'school':mode]];
