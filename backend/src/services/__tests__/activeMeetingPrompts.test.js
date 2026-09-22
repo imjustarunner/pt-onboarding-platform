@@ -17,7 +17,10 @@ describe('invited active meeting prompts',()=>{
     expect(teamSql).toContain('p.meeting_completed_at IS NULL');
     expect(teamSql).toContain('provider_schedule_event_attendees');
     expect(teamSql).toContain('ua.is_active=1');
-    expect(teamSql).toContain('provider_schedule_event_video_admissions');
+    expect(teamSql).not.toContain('video_admissions');
+    expect(teamSql).toContain('live.last_seen_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 90 SECOND)');
+    expect(mocks.execute.mock.calls[1][0]).not.toContain('video_admissions');
+    expect(mocks.execute.mock.calls[1][0]).toContain('live.last_seen_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 90 SECOND)');
     expect(teamArgs).toEqual(['user-9',9,9,9]);
     expect(mocks.execute.mock.calls[1][0]).toContain('s.live_ended_at IS NULL');
     expect(mocks.execute.mock.calls[1][0]).toContain("'DECLINED','REMOVED','CANCELLED'");

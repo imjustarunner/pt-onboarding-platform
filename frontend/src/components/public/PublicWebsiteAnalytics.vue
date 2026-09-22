@@ -1,6 +1,6 @@
 <template>
  <Teleport to="body">
-  <div class="public-website-analytics" translate="no" data-analytics-ignore>
+  <div v-show="!websiteEditor.active" class="public-website-analytics" translate="no" data-analytics-ignore>
    <div v-if="allowed" class="wa-toolbar">
     <button type="button" :aria-pressed="mode" @click="toggleMode">▥ Analytics mode <strong>{{ mode ? 'ON' : 'OFF' }}</strong></button>
     <button v-if="mode" type="button" @click="openArea()">Page stats</button>
@@ -40,6 +40,7 @@
 </template>
 
 <script setup>
+import {websiteEditor} from '../../composables/usePublicWebsiteEditor';
 import {computed,ref,shallowRef,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
 import {useRoute} from 'vue-router';
 import {useAuthStore} from '../../store/auth';

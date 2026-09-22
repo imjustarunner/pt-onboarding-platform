@@ -3,7 +3,7 @@
     <div v-for="meeting in visible" :key="meeting.key" class="active-meeting-toast">
       <div><strong>{{ meeting.title }}</strong><br><span>{{ meeting.isLive ? 'In progress' : 'Starting soon' }}</span></div>
       <button type="button" @click="join(meeting)">{{ meeting.previouslyJoined ? 'Rejoin' : 'Join' }}</button>
-      <button type="button" :aria-label="`Dismiss ${meeting.title} for 15 minutes`" @click="dismiss(meeting.key)">×</button>
+      <button type="button" :aria-label="`Dismiss ${meeting.title} for this meeting`" @click="dismiss(meeting.key)">×</button>
     </div>
   </aside>
 </template>
@@ -18,9 +18,11 @@ const route = useRoute();
 const router = useRouter();
 const mini = useActiveMeeting();
 const prompts = ref([]);
-const dismissed = ref({});
+const storageKey=()=>`meeting-dismissals:${props.userId}`;
+function savedDismissals(){try{const value=JSON.parse(localStorage.getItem(storageKey())||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}}
+const dismissed = ref(savedDismissals());
 const now = ref(Date.now());
-const inMeeting = computed(() => mini.state.active || /\/join\/(team-meeting|supervision|invitation)(\/|$)/.test(route.path));
+const inMeeting = computed(() => route.meta?.publicMarketingHub || mini.state.active || /\/join\/(team-meeting|supervision|invitation)(\/|$)/.test(route.path));
 const visible = computed(() => prompts.value.filter(m => !(dismissed.value[m.key] > now.value)));
 let timer;
 let inFlight = false;
@@ -36,9 +38,9 @@ async function refresh() {
   } catch { if (mounted) prompts.value = []; }
   finally { inFlight = false; }
 }
-function dismiss(key) { dismissed.value = {...dismissed.value,[key]:Date.now()+15*60*1000}; }
+function dismiss(key) { dismissed.value = Object.fromEntries(Object.entries({...dismissed.value,[key]:Date.now()+7*86400000}).filter(([,until])=>until>Date.now()));try{localStorage.setItem(storageKey(),JSON.stringify(dismissed.value));}catch{} }
 function join(meeting) { navigateToJoinLink(router,meeting.joinUrl); }
-watch(() => props.userId, () => { prompts.value=[]; dismissed.value={}; void refresh(); });
+watch(() => props.userId, () => { prompts.value=[]; dismissed.value=savedDismissals(); void refresh(); });
 watch(() => route.path, () => { if (!inMeeting.value) void refresh(); });
 onMounted(() => { void refresh(); timer=setInterval(refresh,15000); window.addEventListener('focus',refresh); });
 onUnmounted(() => { mounted=false; clearInterval(timer); window.removeEventListener('focus',refresh); });

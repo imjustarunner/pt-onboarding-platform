@@ -1424,7 +1424,7 @@ async function autoFinalizeOverdueSessions({ agencyId = null, actorUserId = null
 }
 
 async function maybeReopenAutoFinalizedSessionForJoin(row) {
-  if (!row?.id) return row;
+  if (!row?.id || row.live_ended_at) return row;
   const status = String(row.status || '').trim().toUpperCase();
   const finalizeSource = String(row.finalize_source || '').trim().toLowerCase();
   if (!['FINALIZED', 'MISSED'].includes(status) || finalizeSource !== 'auto_plus_15') {

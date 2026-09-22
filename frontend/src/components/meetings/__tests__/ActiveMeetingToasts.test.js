@@ -8,7 +8,7 @@ vi.mock('vue-router',()=>({useRouter:()=>({push:mock.push}),useRoute:()=>mock.ro
 vi.mock('../../../composables/useActiveMeeting',()=>({useActiveMeeting:()=>({state:mock.mini})}));
 describe('active meeting notices',()=>{
   beforeEach(()=>{
-    vi.useFakeTimers(); vi.clearAllMocks(); mock.route=reactive({path:'/dashboard'});mock.mini=reactive({active:false});
+    vi.useFakeTimers(); vi.clearAllMocks();localStorage.clear(); mock.route=reactive({path:'/dashboard'});mock.mini=reactive({active:false});
     mock.get.mockResolvedValue({data:{prompts:[{key:'team_meeting:1',title:'Leadership',isLive:true,previouslyJoined:true,joinUrl:'https://tenant.example/join/team-meeting/opaque'},{key:'supervision:2',title:'Supervision',isLive:true,joinUrl:'/join/supervision/2'}]}});
   });
   afterEach(()=>vi.useRealTimers());
@@ -22,13 +22,17 @@ describe('active meeting notices',()=>{
   });
   it('does not cover an active room or mini and respects dismissal across polls',async()=>{
     const w=mount(ActiveMeetingToasts,{props:{userId:7}});await flushPromises();
-    await w.get('[aria-label="Dismiss Leadership for 15 minutes"]').trigger('click');
+    await w.get('[aria-label="Dismiss Leadership for this meeting"]').trigger('click');
     await vi.advanceTimersByTimeAsync(15000);
     expect(w.text()).not.toContain('Leadership');
     mock.route.path='/brand/join/team-meeting/opaque';await flushPromises();expect(w.find('aside').exists()).toBe(false);
     mock.route.path='/dashboard';mock.mini.active=true;await flushPromises();expect(w.find('aside').exists()).toBe(false);
     mock.mini.active=false;await flushPromises();expect(w.text()).toContain('Supervision');w.unmount();
     const count=mock.get.mock.calls.length;await vi.advanceTimersByTimeAsync(60000);expect(mock.get).toHaveBeenCalledTimes(count);
+  });
+  it('keeps dismissals after remount and isolates them by account',async()=>{
+    let w=mount(ActiveMeetingToasts,{props:{userId:7}});await flushPromises();await w.get('[aria-label="Dismiss Leadership for this meeting"]').trigger('click');w.unmount();
+    w=mount(ActiveMeetingToasts,{props:{userId:7}});await flushPromises();expect(w.text()).not.toContain('Leadership');await w.setProps({userId:8});await flushPromises();expect(w.text()).toContain('Leadership');w.unmount();
   });
   it('clears ended meetings on the next poll',async()=>{
     const w=mount(ActiveMeetingToasts,{props:{userId:7}});await flushPromises();

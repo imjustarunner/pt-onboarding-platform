@@ -21,7 +21,7 @@ export async function activeMeetingPrompts(userId) {
       AND (p.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=p.id AND a.user_id=?))
       AND ${member('p')}
       AND p.start_at <= DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE)
-      AND (p.end_at >= UTC_TIMESTAMP() OR EXISTS(SELECT 1 FROM provider_schedule_event_video_admissions admitted WHERE admitted.event_id=p.id)
+      AND (p.end_at >= UTC_TIMESTAMP()
         OR EXISTS(SELECT 1 FROM provider_schedule_event_join_presence live WHERE live.event_id=p.id AND live.left_at IS NULL AND live.last_seen_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 90 SECOND)))
     ORDER BY p.start_at DESC`,[`user-${uid}`,uid,uid,uid]);
   const [supervision] = await pool.execute(`SELECT s.id,s.agency_id,'Supervision' AS title,s.start_at,s.end_at,
@@ -33,8 +33,7 @@ export async function activeMeetingPrompts(userId) {
         OR EXISTS(SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=? AND a.status NOT IN ('DECLINED','REMOVED','CANCELLED')))
       AND ${member('s')}
       AND s.start_at <= DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE)
-      AND (s.end_at>=UTC_TIMESTAMP() OR s.status='IN_PROGRESS'
-        OR EXISTS(SELECT 1 FROM supervision_session_video_admissions admitted WHERE admitted.session_id=s.id))
+      AND (s.end_at>=UTC_TIMESTAMP() OR EXISTS(SELECT 1 FROM supervision_session_join_presence live WHERE live.session_id=s.id AND live.left_at IS NULL AND live.last_seen_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 90 SECOND)))
     ORDER BY s.start_at DESC`,[`user-${uid}`,uid,uid,uid,uid,uid]);
   const bases = new Map();
   return Promise.all([...team,...supervision].map(async row => {

@@ -1,6 +1,7 @@
 import { createHmac } from 'node:crypto';
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const KINDS = new Set(['page_view','section_view','click','profile_open','filter_use','search','scroll_depth']);
+export const validAnalyticsPage=(slug,path)=>/^[a-z0-9][a-z0-9-]{0,188}$/.test(slug)&&String(path).length<=255&&new RegExp(`^/p/${slug}(?:/[a-z0-9][a-z0-9-]{0,100}){0,2}/?$`).test(path);
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 export function normalizeAnalyticsEvents(slug, body) {
   if (!/^[a-z0-9][a-z0-9-]{0,188}$/.test(slug) || !UUID.test(body?.visitorId || '')) throw fail('Invalid analytics request');
@@ -9,7 +10,7 @@ export function normalizeAnalyticsEvents(slug, body) {
     if (!e || typeof e !== 'object') throw fail('Invalid analytics event');
     const pagePath = String(e.pagePath || '');
     if (!UUID.test(e.eventId || '') || !KINDS.has(e.kind)
-      || !new RegExp(`^/p/${slug}(?:/[a-z0-9][a-z0-9-]{0,100})?/?$`).test(pagePath)
+      || !validAnalyticsPage(slug,pagePath)
       || pagePath.length > 255 || !/^[a-z0-9][a-z0-9/_.:-]{0,239}$/.test(e.targetKey || '')) throw fail('Invalid analytics event');
     // An explicit schema prevents accidental storage of extra payload fields such as input values.
     return { eventId:e.eventId, pagePath, targetKey:e.targetKey,
@@ -65,7 +66,16 @@ export function createPublicWebsiteAnalyticsService(db, secret) {
     const params=[site.id,range.start,range.until];
     let where='page_id = ? AND occurred_at >= ? AND occurred_at < ?';
     const selectedPage=String(query.page || '');
-    if(selectedPage){if(!new RegExp(`^/p/${slug}(?:/[a-z0-9][a-z0-9-]{0,100})?/?$`).test(selectedPage))throw fail('Invalid page');where+=' AND page_path = ?';params.push(selectedPage);}
+    if(selectedPage){
+      if(!validAnalyticsPage(slug,selectedPage))throw fail('Invalid page');
+      const provider=selectedPage.match(/^\/p\/itsco\/providers\/(?:[a-z0-9-]+-)?(\d+)$/);
+      if(provider){
+        // Older clients recorded profile areas on the directory path. Only recover
+        // that provider's identifiable areas; never attribute directory totals to them.
+        where+=' AND (page_path = ? OR (page_path = ? AND target_key REGEXP ?))';
+        params.push(selectedPage,'/p/itsco/providers',`(^|/)profile-${provider[1]}(/|$)`);
+      }else{where+=' AND page_path = ?';params.push(selectedPage);}
+    }
     const target=String(query.target||'');
     if(target){if(!/^[a-z0-9][a-z0-9/_.:-]{0,239}$/.test(target))throw fail('Invalid area');where+=' AND (target_key = ? OR target_key LIKE ? ESCAPE \'!\')';params.push(target,target.replace(/[!_%]/g,m=>'!'+m)+'/%');}
     const [[totals], [rows], [daily], [pages], [breakdown]] = await Promise.all([

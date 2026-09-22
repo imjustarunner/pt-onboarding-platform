@@ -17,7 +17,7 @@ export function analyticsCsv(rows) {
 }
 export function createWebsiteTracker({document,window,pagePath,canTrack,emit,onTargets}) {
   let root=null,disposed=false,ready=false,scanTimer=null;const metadata=new WeakMap(),targets=new Map(),viewed=new Set(),timers=new Map();
-  const context={pagePath:pagePath.replace(/(\/p\/itsco\/providers)\/[^/?#]+$/, '$1'),source:websiteSource(document.referrer,window.location.origin)};
+  const context={pagePath,source:websiteSource(document.referrer,window.location.origin)};
   function send(kind,meta){if(disposed||!canTrack())return;emit({...context,eventId:window.crypto.randomUUID(),kind,targetKey:meta.key,label:meta.label,device:window.innerWidth<600?'mobile':window.innerWidth<1024?'tablet':'desktop',language:(document.documentElement.lang||'en').split('-')[0]});}
   function meaningfulText(el){const explicit=el.getAttribute('data-analytics-label');if(explicit)return compact(explicit);const heading=el.querySelector('h1,h2,h3,h4');return compact(heading?.textContent)||({HEADER:'Navigation',FOOTER:'Footer',ARTICLE:'Card',SECTION:'Section'}[el.tagName])||'Page area';}
   function describe(el,area=false){

@@ -2240,6 +2240,19 @@ if (!isBootstrap) {
   scheduleMeetingInvitations();
   setInterval(scheduleMeetingInvitations, 60 * 1000);
 
+  let meetingExpiryInFlight = false;
+  const closeEmptyPastMeetings = async () => {
+    if (meetingExpiryInFlight) return;
+    meetingExpiryInFlight = true;
+    try {
+      const { expireEmptyMeetings } = await import('./services/meetingExpiry.service.js');
+      await expireEmptyMeetings();
+    } catch (error) { console.warn('[Meeting expiration] Worker failed', error.code || 'unknown'); }
+    finally { meetingExpiryInFlight = false; }
+  };
+  closeEmptyPastMeetings();
+  setInterval(closeEmptyPastMeetings, 5 * 60 * 1000);
+
   // Session documentation Notes tasks (~5 min before booked clinical sessions)
   const scheduleSessionDocTasks = async () => {
     try {

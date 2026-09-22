@@ -1,3 +1,4 @@
+import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import pool from '../config/database.js';
 import Notification from './Notification.model.js';
 import { generateJoinToken } from '../utils/joinToken.js';
@@ -255,7 +256,7 @@ class SupervisionSession {
     } catch {
       /* columns may not exist yet */
     }
-    return row;
+    return await expireEmptyMeeting('supervision',row);
   }
 
   static async upsertAttendees(sessionId, attendees = []) {

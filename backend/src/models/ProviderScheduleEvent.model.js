@@ -1,3 +1,4 @@
+import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import { assertProviderEventCanMove, syncAppointmentFromProviderEvent, moveOfficeFromProviderEvent, cancelAppointmentsFromCalendar } from '../services/appointmentScheduleSync.service.js';
 import pool from '../config/database.js';
 import { generateJoinToken } from '../utils/joinToken.js';
@@ -256,7 +257,7 @@ class ProviderScheduleEvent {
         /* columns may not exist yet */
       }
     }
-    return row;
+    return isMeeting ? await expireEmptyMeeting('team',row) : row;
   }
 
   static async listForUserInWindow({ agencyId, agencyIds = null, allAgencies = false, providerId, windowStart, windowEnd }) {

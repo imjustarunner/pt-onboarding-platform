@@ -5035,7 +5035,7 @@ router.beforeEach(async (to, from, next) => {
   ]);
 
   const tryBootstrapAuthFromCookie = async () => {
-    if (authStore.isAuthenticated) return true;
+    if (authStore.isAuthenticated && String(to.query?.sso || '') !== '1') return true;
     try {
       // OAuth callback sets HttpOnly cookie server-side; hydrate SPA user from cookie-backed /users/me.
       const resp = await api.get('/users/me', { skipGlobalLoading: true, skipAuthRedirect: true });
@@ -5139,6 +5139,7 @@ router.beforeEach(async (to, from, next) => {
 
   // Public marketing hub: apply hub theme (not org slug theme).
   if (to.meta.publicMarketingHub) {
+    if (to.query.editWebsite === '1' || to.query.sso === '1') await tryBootstrapAuthFromCookie();
     const hubSlug = String(to.params.hubSlug || '').trim();
     if (hubSlug) {
       try {
