@@ -1,4 +1,4 @@
-import { getPasswordRecoverySsoState } from '../services/passwordRecoveryPolicy.service.js';
+import { getPasswordRecoverySsoState, passwordRecoveryRequiresSupport } from '../services/passwordRecoveryPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
 import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
@@ -9813,6 +9813,10 @@ export const sendResetPasswordLink = async (req, res, next) => {
     if (!await requireSharedAgencyAccessOrSuperAdmin({
       actorUserId: req.user.id, targetUserId: userId, actorRole: req.user.role
     })) return res.status(403).json({ error: { message: 'Access denied' } });
+
+    if (passwordRecoveryRequiresSupport(user)) {
+      return res.status(409).json({ error: { message: 'Review and restore account access before issuing a password reset link.' } });
+    }
 
     if ((await getSsoStateForUser(user)).ssoRequired) {
       return res.status(409).json({ error: { message: 'Password reset is disabled for SSO accounts. Use Google sign-in.' } });

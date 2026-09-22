@@ -2,11 +2,11 @@
  * Password recovery (Forgot Password) — first principles
  *
  * Rules:
- * 1. Any non-SSO user may request a reset/set-password link.
+ * 1. Eligible non-SSO users may request a reset/set-password link.
  * 2. Password state does not matter: never set, temporary (active or expired),
  *    or lasting password (active or expired).
- * 3. Recovery changes credentials, not archived/inactive access restrictions.
- * 4. Always write a user_communications row (sent or failed) — never silent.
+ * 3. Restricted accounts require a support ticket and manual review, never a reset link.
+ * 4. Always write a user_communications row for email delivery (sent or failed).
  * 5. Captcha is not part of this flow (public login / local often have none).
  * 6. Lookup accepts work/login email OR personal/recovery email (and aliases).
  * 7. Delivery prefers personal_email as recovery inbox when present; login
@@ -14,7 +14,8 @@
  */
 
 import pool from '../config/database.js';
-import { getPasswordRecoverySsoState } from './passwordRecoveryPolicy.service.js';
+import { getPasswordRecoverySsoState, passwordRecoveryRequiresSupport } from './passwordRecoveryPolicy.service.js';
+import { createPasswordRecoverySupportTicket } from './passwordRecoverySupport.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import EmailTemplateService from './emailTemplate.service.js';
@@ -249,7 +250,7 @@ async function sendResetEmail({
 /**
  * @returns {{
  *   ok: true,
- *   outcome: 'sent'|'failed'|'sso_required'|'unknown_user'|'no_recipient',
+ *   outcome: 'sent'|'failed'|'sso_required'|'unknown_user'|'no_recipient'|'support_requested',
  *   communicationId?: number|null,
  *   resetLink?: string|null,
  *   sendResult?: object|null,
@@ -279,6 +280,13 @@ export async function requestPasswordRecoveryEmail({
   }
 
   const user = targetUser || (await User.findById(found.id)) || found;
+  if (passwordRecoveryRequiresSupport(user)) {
+    const agency = await resolveContextAgency({ userId: user.id, orgSlug });
+    const ticketId = await createPasswordRecoverySupportTicket({
+      user, agency, requestedEmail, generatedByUserId, replyEmail: pickRecipientEmail(user, requestedEmail)
+    });
+    return { ok: true, outcome: 'support_requested', ticketId };
+  }
   if ((await getPasswordRecoverySsoState(user)).ssoRequired) {
     return { ok: true, outcome: 'sso_required' };
   }

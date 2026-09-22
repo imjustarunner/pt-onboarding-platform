@@ -1,5 +1,6 @@
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
+import { PASSWORD_RECOVERY_SUPPORT_MESSAGE } from '../services/passwordRecoveryPolicy.service.js';
 
 export const createSchoolStaffRecoveryHandler = (hasSchoolAccess) => async (req, res, next) => {
   try {
@@ -38,6 +39,9 @@ export const createSchoolStaffRecoveryHandler = (hasSchoolAccess) => async (req,
       generatedByUserId: actorId,
       req
     });
+    if (result.outcome === 'support_requested') {
+      return res.json({ ok: true, emailSent: false, message: PASSWORD_RECOVERY_SUPPORT_MESSAGE });
+    }
     if (result.outcome !== 'sent') {
       return res.status(result.outcome === 'sso_required' ? 409 : 502).json({
         error: { message: result.outcome === 'sso_required'

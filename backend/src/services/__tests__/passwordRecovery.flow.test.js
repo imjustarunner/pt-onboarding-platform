@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ find: vi.fn(), byId: vi.fn(), agencies: vi.fn(), token: vi.fn(), send: vi.fn(), identities: vi.fn(), log: vi.fn(), template: vi.fn(), parent: vi.fn(), agency: vi.fn(), execute: vi.fn(), audit: vi.fn() }));
+const m = vi.hoisted(() => ({ find: vi.fn(), byId: vi.fn(), agencies: vi.fn(), token: vi.fn(), send: vi.fn(), identities: vi.fn(), log: vi.fn(), template: vi.fn(), parent: vi.fn(), agency: vi.fn(), execute: vi.fn(), audit: vi.fn(), ticket: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute } }));
 vi.mock('../../models/User.model.js', () => ({ default: { findByEmail: m.find, findById: m.byId, getAgencies: m.agencies, generatePasswordlessToken: m.token } }));
 vi.mock('../../models/AgencySchool.model.js', () => ({ default: { getActiveAgencyIdForSchool: vi.fn() } }));
@@ -11,20 +11,52 @@ vi.mock('../communicationLogging.service.js', () => ({ default: { logGeneratedCo
 vi.mock('../activityLog.service.js', () => ({ default: { logActivity: m.audit } }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../../utils/hogwartsTestEmail.js', () => ({ looksLikeTestInboxRedirectAddress: () => false, shouldRedirectHogwartsOutboundEmail: async () => false }));
+vi.mock('../passwordRecoverySupport.service.js', () => ({ createPasswordRecoverySupportTicket: m.ticket }));
 import { requestPasswordRecoveryEmail } from '../passwordRecovery.service.js';
-import { passwordRecoverySsoState, passwordResetRequiresSignIn } from '../passwordRecoveryPolicy.service.js';
+import { passwordRecoverySsoState, passwordRecoveryRequiresSupport } from '../passwordRecoveryPolicy.service.js';
 const tenant = { id: 9, slug: 'tenant', organization_type: 'agency', feature_flags: { googleSsoEnabled: true, googleSsoRequiredRoles: ['provider'] } };
 let user;
 beforeEach(() => {
   vi.clearAllMocks();
   user = { id: 42, email: 'eric@school.example', role: 'school_staff', status: 'PENDING_SETUP', password_hash: null };
+  m.ticket.mockResolvedValue(81);
   m.find.mockImplementation(async () => user); m.byId.mockImplementation(async () => user);
   m.agencies.mockResolvedValue([tenant]); m.token.mockResolvedValue({ token: 'reset-token' });
   m.send.mockResolvedValue({ id: 'message-id' }); m.log.mockResolvedValue({ id: 7 }); m.execute.mockResolvedValue([]);
   m.identities.mockResolvedValue([{ id: 12, agency_id: 9, from_email: 'app@tenant.example' }]); m.template.mockResolvedValue(null);
 });
 describe('password recovery delivery', () => {
-  it.each(['PENDING_SETUP', 'PREHIRE_OPEN', 'ACTIVE_EMPLOYEE', 'ARCHIVED', 'inactive'])('emails a school account at stage %s', async (status) => {
+  it.each([
+    { status: 'ARCHIVED' }, { status: 'inactive' }, { status: 'INACTIVE_EMPLOYEE' },
+    { status: 'TERMINATED' }, { status: 'TERMINATED_PENDING' }, { is_archived: '1' },
+    { pending_access_locked: 1 }, { is_active: false }, { is_active: 0 }, { is_active: '0' }
+  ])('routes restricted accounts to support without issuing credentials: %j', async (restriction) => {
+    Object.assign(user, restriction);
+    expect(await requestPasswordRecoveryEmail({ email: user.email })).toEqual({ ok: true, outcome: 'support_requested', ticketId: 81 });
+    expect(m.ticket).toHaveBeenCalledWith({ user, agency: tenant, requestedEmail: user.email, generatedByUserId: null, replyEmail: user.email });
+    expect(m.token).not.toHaveBeenCalled();
+    expect(m.send).not.toHaveBeenCalled();
+    expect(m.log).not.toHaveBeenCalled();
+  });
+  it('also files restricted SSO accounts for review', async () => {
+    Object.assign(user, { role: 'provider', status: 'INACTIVE_EMPLOYEE' });
+    expect((await requestPasswordRecoveryEmail({ email: user.email })).outcome).toBe('support_requested');
+    expect(m.send).not.toHaveBeenCalled();
+  });
+  it('does not claim submission or fall back to email when ticket creation fails', async () => {
+    user.status = 'ARCHIVED'; m.ticket.mockRejectedValue(new Error('ticket unavailable'));
+    await expect(requestPasswordRecoveryEmail({ email: user.email })).rejects.toThrow('ticket unavailable');
+    expect(m.token).not.toHaveBeenCalled(); expect(m.send).not.toHaveBeenCalled();
+  });
+  it('routes archived school accounts to their parent tenant', async () => {
+    user.status = 'ARCHIVED';
+    m.agencies.mockResolvedValue([{ id: 20, organization_type: 'school' }]);
+    m.parent.mockResolvedValue(9); m.agency.mockResolvedValue(tenant);
+    await requestPasswordRecoveryEmail({ email: user.email, organizationSlug: 'unrelated-portal' });
+    expect(m.ticket).toHaveBeenCalledWith(expect.objectContaining({ agency: tenant }));
+  });
+
+  it.each(['PENDING_SETUP', 'PREHIRE_OPEN', 'ACTIVE_EMPLOYEE'])('emails a school account at stage %s', async (status) => {
     user.status = status;
     expect((await requestPasswordRecoveryEmail({ email: user.email })).outcome).toBe('sent');
     expect(m.send).toHaveBeenCalledWith(expect.objectContaining({ to: user.email, senderIdentityId: 12, replyToOverride: 'technology@tenant.example', templateType: 'password_reset', html: expect.stringContaining('https://tenant.example/reset-password/reset-token') }));
@@ -100,6 +132,6 @@ describe('recovery SSO and account restrictions', () => {
     expect(passwordRecoverySsoState({ role: 'clinical_practice_assistant', sso_password_override: '1' }, orgs).ssoRequired).toBe(false);
   });
   it.each([{ status: 'ARCHIVED' }, { status: 'inactive' }, { is_archived: '1' }, { pending_access_locked: 1 }])('preserves access restrictions for %j', (u) => {
-    expect(passwordResetRequiresSignIn(u)).toBe(true);
+    expect(passwordRecoveryRequiresSupport(u)).toBe(true);
   });
 });

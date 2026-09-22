@@ -2482,9 +2482,8 @@ const submitForgotPassword = async () => {
     recoveryDebug.value = resp?.data?.debug || null;
     startForgotPasswordCooldown();
   } catch (e) {
-    recoverySuccess.value = 'If the email matches an account, you will receive a reset link shortly.';
+    recoveryError.value = 'We could not submit your request. Please try again in a few minutes.';
     recoveryDebug.value = e?.response?.data?.debug || null;
-    startForgotPasswordCooldown();
   } finally {
     recoveryLoading.value = false;
   }

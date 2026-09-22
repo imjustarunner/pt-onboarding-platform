@@ -26,7 +26,10 @@ export async function getPasswordRecoverySsoState(user) {
   return passwordRecoverySsoState(user, await User.getAgencies(user.id, { includeInactive: true }));
 }
 
-export function passwordResetRequiresSignIn(user) {
+export const PASSWORD_RECOVERY_SUPPORT_MESSAGE = 'Your request has been submitted to our support team. Please allow 24–48 hours for a response regarding next steps.';
+
+export function passwordRecoveryRequiresSupport(user) {
   return enabled(user?.is_archived) || enabled(user?.pending_access_locked) ||
-    ['ARCHIVED', 'INACTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED', 'TERMINATED_PENDING'].includes(String(user?.status || '').toUpperCase());
+    [false, 0, '0'].includes(user?.is_active) ||
+    ['ARCHIVED', 'INACTIVE', 'INACTIVE_EMPLOYEE', 'TERMINATED', 'TERMINATED_PENDING'].includes(String(user?.status || '').trim().toUpperCase());
 }

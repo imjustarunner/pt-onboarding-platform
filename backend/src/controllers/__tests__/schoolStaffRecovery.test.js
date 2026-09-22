@@ -41,6 +41,12 @@ describe('school portal optional account recovery', () => {
   it('reports delivery failure instead of claiming an email was sent', async () => {
     m.recovery.mockResolvedValue({ outcome: 'failed' }); await run(); expect(res.status).toHaveBeenCalledWith(502);
   });
+  it('confirms manual review without claiming a recovery email was sent', async () => {
+    m.recovery.mockResolvedValue({ outcome: 'support_requested', ticketId: 81 });
+    await run();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: true, emailSent: false, message: expect.stringContaining('24–48 hours') }));
+    expect(res.status).not.toHaveBeenCalled();
+  });
   it('rejects SSO recovery', async () => {
     m.recovery.mockResolvedValue({ outcome: 'sso_required' }); await run(); expect(res.status).toHaveBeenCalledWith(409);
   });

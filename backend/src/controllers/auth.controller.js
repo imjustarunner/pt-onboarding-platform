@@ -1,4 +1,4 @@
-import { getPasswordRecoverySsoState, passwordResetRequiresSignIn } from '../services/passwordRecoveryPolicy.service.js';
+import { getPasswordRecoverySsoState, passwordRecoveryRequiresSupport, PASSWORD_RECOVERY_SUPPORT_MESSAGE } from '../services/passwordRecoveryPolicy.service.js';
 import { accountPasswordLocked, recordPasswordResult } from '../middleware/loginProtection.middleware.js';
 import bcrypt from 'bcrypt';
 import { changeSessionSecurity, loadSessionPolicy, finalizeExpiredSession } from '../services/sessionSecurity.service.js';
@@ -2522,6 +2522,12 @@ export const validateSetupToken = async (req, res, next) => {
       return res.status(401).json({ error: { message: 'Invalid or expired token' } });
     }
 
+    // A reset/setup token must not bypass manual review through this alternate endpoint.
+    const setupUser = await User.findById(user.id);
+    if (!setupUser || passwordRecoveryRequiresSupport(setupUser)) {
+      return res.status(403).json({ error: { message: 'Please submit a password recovery request from the sign-in page so our support team can assist you.' } });
+    }
+
     // Check if user already has password
     if (user.password_hash) {
       return res.status(400).json({ error: { message: 'Password already set' } });
@@ -2566,6 +2572,9 @@ export const validateResetToken = async (req, res, next) => {
 
     const recoveryUser = await User.findById(user.id);
     if (!recoveryUser) return res.status(401).json({ error: { message: 'Invalid or expired reset link' } });
+    if (passwordRecoveryRequiresSupport(recoveryUser)) {
+      return res.status(403).json({ error: { message: 'Please submit a password recovery request from the sign-in page so our support team can assist you.' } });
+    }
     if ((await getPasswordRecoverySsoState(recoveryUser)).ssoRequired) {
       return res.status(409).json({ error: { message: 'Password reset is disabled for SSO accounts. Use Google sign-in.' } });
     }
@@ -3063,6 +3072,10 @@ export const requestPasswordReset = async (req, res, next) => {
       includeDebug
     });
 
+    if (result.outcome === 'support_requested') {
+      return safeGenericRecoveryResponse(res, { message: PASSWORD_RECOVERY_SUPPORT_MESSAGE });
+    }
+
     if (includeDebug) {
       return safeGenericRecoveryResponse(res, {
         debug: {
@@ -3264,6 +3277,9 @@ export const resetPasswordWithToken = async (req, res, next) => {
 
     const recoveryUser = await User.findById(user.id);
     if (!recoveryUser) return res.status(401).json({ error: { message: 'Invalid or expired reset link' } });
+    if (passwordRecoveryRequiresSupport(recoveryUser)) {
+      return res.status(403).json({ error: { message: 'Please submit a password recovery request from the sign-in page so our support team can assist you.' } });
+    }
     if ((await getPasswordRecoverySsoState(recoveryUser)).ssoRequired) {
       return res.status(409).json({ error: { message: 'Password reset is disabled for SSO accounts. Use Google sign-in.' } });
     }
@@ -3340,11 +3356,6 @@ export const resetPasswordWithToken = async (req, res, next) => {
 
     // Set new password (overwrites old password hash and clears temporary password)
     await User.changePassword(user.id, password);
-
-    if (passwordResetRequiresSignIn(recoveryUser)) {
-      await User.markTokenAsUsed(user.id);
-      return res.json({ requiresSignIn: true, message: 'Your password has been reset. Existing account access restrictions still apply.' });
-    }
 
     // School staff / guardians: leave PENDING_SETUP (or accidental PREHIRE) and become active
     let updatedUser = await activateExternalPortalUserAfterPasswordSet(user);
@@ -3454,6 +3465,12 @@ export const initialSetup = async (req, res, next) => {
     const user = await User.validatePasswordlessToken(token);
     if (!user) {
       return res.status(401).json({ error: { message: 'Invalid or expired token' } });
+    }
+
+    // Reject restricted accounts even when a reset token is submitted to initial setup.
+    const setupUser = await User.findById(user.id);
+    if (!setupUser || passwordRecoveryRequiresSupport(setupUser)) {
+      return res.status(403).json({ error: { message: 'Please submit a password recovery request from the sign-in page so our support team can assist you.' } });
     }
 
     // Check if user already has password
