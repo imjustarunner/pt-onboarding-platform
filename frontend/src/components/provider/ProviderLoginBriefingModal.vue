@@ -46,6 +46,7 @@
           <template v-else>
             <div class="briefing-layout">
               <div class="briefing-main">
+                <DashboardMeetings />
                 <div v-if="sections.length" class="briefing-card-grid">
                   <article
                     v-for="section in sections"
@@ -137,6 +138,7 @@
 </template>
 
 <script setup>
+import DashboardMeetings from '../meetings/DashboardMeetings.vue';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';

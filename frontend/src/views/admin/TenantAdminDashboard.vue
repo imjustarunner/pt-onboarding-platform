@@ -217,12 +217,7 @@
             class="dash-block dash-block--full mid-stack"
             :style="midGridStyle"
           >
-            <DocumentationAlertsCard
-              v-if="isVisible('documentationAlerts')"
-              :alerts="docAlerts"
-              :view-all-to="`/${slug}/admin/unassigned-documents`"
-              @navigate="go"
-            />
+
 
             <div
               v-if="showQaScheduleRow"
@@ -486,7 +481,6 @@ import FrequentPagesBar from '../../components/admin/FrequentPagesBar.vue';
 import QuickActionsSection from '../../components/admin/QuickActionsSection.vue';
 import OpsDaySchedulePanel from '../../components/admin/opsDashboard/OpsDaySchedulePanel.vue';
 import AtAGlanceRow from '../../components/admin/opsDashboard/AtAGlanceRow.vue';
-import DocumentationAlertsCard from '../../components/admin/opsDashboard/DocumentationAlertsCard.vue';
 import OpsSummaryCards from '../../components/admin/opsDashboard/OpsSummaryCards.vue';
 import PeopleOpsPipelineCard from '../../components/admin/opsDashboard/PeopleOpsPipelineCard.vue';
 import TenantContextCards from '../../components/admin/opsDashboard/TenantContextCards.vue';

@@ -18,7 +18,7 @@
       {{ openSlotHint }}
     </p>
 
-    <div v-if="isWeekBased" class="rec-row rec-weekdays">
+    <div v-if="isWeekBased && !openSlotHint" class="rec-row rec-weekdays">
       <label class="rec-label">Days</label>
       <div class="rec-day-chips">
         <button
@@ -40,7 +40,7 @@
       Repeats on the same day of each month (e.g. the 15th). Shorter months clamp to the last day.
     </p>
 
-    <div v-if="isRecurring" class="rec-row">
+    <div v-if="isRecurring && !openSlotHint" class="rec-row">
       <label class="rec-label">Ends</label>
       <select
         class="rec-select"
@@ -54,7 +54,7 @@
       </select>
     </div>
 
-    <div v-if="isRecurring && endMode === 'count'" class="rec-row">
+    <div v-if="isRecurring && !openSlotHint && endMode === 'count'" class="rec-row">
       <label class="rec-label">Occurrences</label>
       <input
         class="rec-select"
@@ -67,7 +67,7 @@
       />
     </div>
 
-    <div v-if="isRecurring && endMode === 'until'" class="rec-row">
+    <div v-if="isRecurring && !openSlotHint && endMode === 'until'" class="rec-row">
       <label class="rec-label">Until</label>
       <input
         class="rec-select"
@@ -114,7 +114,7 @@ const emit = defineEmits([
   'update:weekdays'
 ]);
 
-const recurrenceOptions = RECURRENCE_OPTIONS;
+const recurrenceOptions = computed(() => props.openSlotHint ? RECURRENCE_OPTIONS.filter(o => o.value === 'WEEKLY' || o.value === props.frequency) : RECURRENCE_OPTIONS);
 
 const weekdayOptions = [
   { value: 'Mon', short: 'Mon' },

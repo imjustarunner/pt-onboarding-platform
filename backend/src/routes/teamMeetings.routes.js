@@ -2,6 +2,10 @@ import express from 'express';
 import { downloadInterviewCalendar } from '../controllers/interviewCalendar.controller.js';
 import { authenticate, authenticateOptional } from '../middleware/auth.middleware.js';
 import {
+  getMeetingParticipantPreferences,
+  putMeetingParticipantPreferences,
+  getMeetingTypeSettings,
+  putMeetingTypeSettings,
   getTeamMeetingJoinInfo,
   getTeamMeetingVideoToken,
   setTeamMeetingRecordingRules,
@@ -41,6 +45,8 @@ router.use(authenticate);
 
 // Static paths before /:eventId
 router.get('/admin-log', listAdminMeetingsLog);
+router.get('/types', getMeetingTypeSettings);
+router.put('/types/:typeKey', putMeetingTypeSettings);
 
 router.get('/:eventId/lobby-participants', getTeamMeetingLobbyParticipants);
 router.post('/:eventId/admit/:userId', admitTeamMeetingParticipant);
@@ -52,6 +58,8 @@ router.post('/:eventId/transcript-control', postTeamMeetingTranscriptControl);
 router.post('/:eventId/enable-attendance-tracking', enableTeamMeetingAttendanceTracking);
 router.get('/:eventId/activity', getTeamMeetingActivity);
 router.post('/:eventId/activity', postTeamMeetingActivity);
+router.get('/:eventId/participants', getMeetingParticipantPreferences);
+router.put('/:eventId/participants/:userId', putMeetingParticipantPreferences);
 router.get('/:eventId/workspace', getTeamMeetingWorkspace);
 router.post('/:eventId/workspace', upsertTeamMeetingWorkspace);
 router.post('/:eventId/action-items/:itemId/escalate', escalateTeamMeetingActionItem);

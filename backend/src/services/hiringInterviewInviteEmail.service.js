@@ -177,9 +177,10 @@ export async function sendHiringInterviewInviteEmail({
 
   const firstName = String(candidate.first_name || '').trim() || formatPersonName(candidate);
   const fromDisplay = peopleOperationsFromDisplayName(agency || {});
-  const replyTo = String(identity.from_email).trim();
+  const replyTo = (Array.isArray(interviewerRows) ? interviewerRows : []).map(row=>String(row.email || '').trim()).filter(Boolean).join(', ') || String(identity.from_email).trim();
 
   const subject = String(title || 'Interview invitation').trim();
+  const rsvpUrl = publicJoinUrl.replace('/join/team-meeting/','/interview-rsvp/');
   const text = [
     `Hi ${firstName},`,
     '',
@@ -189,6 +190,7 @@ export async function sendHiringInterviewInviteEmail({
     `Invited from ${agencyBrandOrName(agency)}: ${interviewerLine}`,
     '',
     `Join link: ${publicJoinUrl}`,
+    `Confirm attendance or decline: ${rsvpUrl}`,
     ...(calendar ? [`Add to Google Calendar: ${calendar.googleUrl}`, `Add to Outlook: ${calendar.outlookUrl}`, calendar.downloadUrl ? `Apple Calendar / iCal: ${calendar.downloadUrl}` : 'Apple Calendar / iCal: open the attached interview.ics file.'] : []),
     '',
     'Please join a few minutes early. You will wait in a lobby until admitted.',
@@ -207,6 +209,7 @@ export async function sendHiringInterviewInviteEmail({
     <p><strong>When:</strong> ${escapeHtml(whenLabel)}</p>
     <p><strong>Interviewers from ${escapeHtml(agencyBrandOrName(agency))}:</strong> ${escapeHtml(interviewerLine)}</p>
     <p style="margin:24px 0;"><a style="display:inline-block;background:#087b52;color:#fff;padding:13px 24px;border-radius:8px;text-decoration:none;font-weight:bold;" href="${escapeHtml(publicJoinUrl)}">Join your interview</a></p><p style="font-size:13px;">Or open: <a href="${escapeHtml(publicJoinUrl)}">${escapeHtml(publicJoinUrl)}</a></p>
+    <p><a href="${escapeHtml(rsvpUrl)}">Confirm attendance or decline</a></p>
     <p>Please join a few minutes early. You will wait in a lobby until admitted.</p>
     ${calendar ? `<p><strong>Add to your calendar:</strong> <a href="${escapeHtml(calendar.googleUrl)}">Google Calendar</a> · <a href="${escapeHtml(calendar.outlookUrl)}">Outlook</a> · ${calendar.downloadUrl ? `<a href="${escapeHtml(calendar.downloadUrl)}">Apple Calendar / iCal (.ics)</a>` : 'Apple Calendar / iCal: open the attached interview.ics file'}</p>` : ''}
     ${jdUrl ? `<p><strong>Job description:</strong> <a href="${escapeHtml(jdUrl)}">${escapeHtml(jdUrl)}</a></p>` : ''}

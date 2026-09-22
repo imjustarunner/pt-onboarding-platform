@@ -128,7 +128,7 @@
           </button>
         </div>
 
-        <div v-if="selectedChips.length" class="mpp-selected">
+        <div v-if="selectedChips.length" class="mpp-selected" :class="{ 'mpp-selected--collapsed': !showAllSelected }">
           <button
             v-for="chip in selectedChips"
             :key="`mpp-sel-${chip.id}`"
@@ -137,11 +137,12 @@
             :disabled="disabled"
             @click="emit('remove', chip.id)"
           >
-            <span>{{ chipLabel(chip) }}</span>
+            <img v-if="chip.row && photoUrl(chip.row)" class="mpp-chip-photo" :src="photoUrl(chip.row)" alt="" /><span>{{ chipLabel(chip) }}</span>
             <span aria-hidden="true">×</span>
           </button>
         </div>
 
+        <button v-if="selectedChips.length > 4" type="button" class="btn btn-ghost btn-sm" @click="showAllSelected = !showAllSelected">{{ showAllSelected ? 'Show less' : 'Show all selected' }}</button>
         <div class="mpp-scroll">
           <div class="mpp-grid">
             <button
@@ -178,6 +179,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue';
 
+const showAllSelected = ref(false);
 const props = defineProps({
   expanded: { type: Boolean, default: false },
   /** When true, always show panel (used under header Participants) */
@@ -239,7 +241,7 @@ function isGroupFullySelected(group) {
 }
 
 function chipLabel(chip) {
-  if (chip?.row) return props.personLabel(chip.row);
+  if (chip?.row) return props.personLabel(chip.row).replace(/\s*\([^)]*@[^)]*\)\s*$/, '');
   return props.personLabel({ id: chip.id });
 }
 
@@ -290,6 +292,8 @@ watch(
 </script>
 
 <style scoped>
+.mpp-selected--collapsed { max-height: 76px; overflow: hidden; }
+.mpp-chip-photo { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
 .mpp { display: flex; flex-direction: column; gap: 8px; }
 .mpp--tray .mpp-panel {
   border: none;

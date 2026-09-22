@@ -1282,7 +1282,10 @@ export const patchMyVirtualWorkingHoursRow = async (req, res, next) => {
       providerId,
       dayOfWeek,
       startTime,
-      endTime
+      endTime,
+      availableForIntake: req.body?.availableForIntake,
+      availableForSession: req.body?.availableForSession,
+      frequency: req.body?.frequency
     });
     res.json({ ok: true, agencyId, providerId, row: updated });
   } catch (e) {

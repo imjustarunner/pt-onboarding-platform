@@ -61,11 +61,13 @@ export { userIdFromJoinIdentity };
 
 /** Huddles, admin meetings, and town halls always track; general team meetings opt in. */
 export function isAttendanceTrackingEnabledForEvent(event) {
+  const settings = typeof event?.meeting_settings_json === 'string' ? JSON.parse(event.meeting_settings_json) : event?.meeting_settings_json;
+  if (typeof settings?.attendance === 'boolean') return settings.attendance;
   const kind = String(event?.kind || '').toUpperCase();
   if (kind === 'HUDDLE') return true;
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = String(event?.meeting_subtype || 'general').trim().toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview') return true;
+  if (subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'interview') return true;
   return Number(event?.attendance_tracking_enabled || 0) === 1;
 }
 
@@ -227,7 +229,7 @@ export async function loadMeetingEvent(eventId) {
     `SELECT id, agency_id, provider_id, kind, meeting_subtype, start_at, end_at,
             meeting_completed_at, meeting_completed_by_user_id, status,
             google_meet_link, platform_video_link, title,
-            attendance_tracking_enabled
+            attendance_tracking_enabled,meeting_settings_json,event_timezone
      FROM provider_schedule_events
      WHERE id = ?
      LIMIT 1`,
@@ -563,8 +565,11 @@ export async function listAttendanceSummary(eventId) {
       `SELECT u.id, u.first_name, u.last_name, u.email, u.role
        FROM provider_schedule_event_attendees a
        JOIN users u ON u.id = a.user_id
-       WHERE a.event_id = ?`,
-      [eid]
+       WHERE a.event_id = ?
+       UNION SELECT u.id,u.first_name,u.last_name,u.email,u.role
+       FROM hiring_interviews hi JOIN users u ON u.id=hi.candidate_user_id
+       WHERE hi.provider_schedule_event_id=?`,
+      [eid,eid]
     );
     for (const a of attRows || []) {
       const uid = Number(a.id || 0);

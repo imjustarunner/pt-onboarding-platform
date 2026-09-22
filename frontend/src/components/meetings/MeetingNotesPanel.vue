@@ -39,7 +39,7 @@
           {{ liveHint || 'Capturing live speech from participants’ mics…' }}
         </template>
         <template v-else>
-          Live speech is captured automatically while people are in the video room (Chrome/Safari). Newest lines appear first.
+          Speech is captured while transcription is enabled in the video room and the browser supports speech recognition. Check the live capture indicator during the meeting.
         </template>
       </p>
       <p v-if="livePreview" class="mnp__live">
@@ -66,7 +66,7 @@
       </div>
       <label class="mnp__label">Summary</label>
       <div class="mnp__summary" v-html="summaryHtml"></div>
-      <p v-if="!summary && !loading && !transcript.trim()" class="muted">No transcript yet — join the video room to start capturing speech, or paste notes.</p>
+      <p v-if="!summary && !loading && !transcript.trim()" class="muted">No transcript was saved. If speech was not captured during the meeting, it cannot be recovered here. You can paste meeting notes to create a summary.</p>
       <p v-else-if="!summary && !loading && transcript.trim()" class="muted">No summary yet. It is generated when the meeting is completed, or click Save &amp; summarize.</p>
     </template>
   </div>

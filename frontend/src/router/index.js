@@ -963,6 +963,12 @@ const routes = [
   },
   // Join team meeting (no org slug): resolve event → redirect to /{slug}/join/team-meeting/:id
   {
+    path: '/interview-rsvp/:token',
+    name: 'InterviewRsvp',
+    component: () => import('../views/teamMeeting/PersonalMeetingInvitationView.vue'),
+    meta: { requiresAuth: false }
+  },
+  {
     path: '/join/invitation/:token',
     name: 'PersonalMeetingInvitation',
     alias: '/:organizationSlug/join/invitation/:token',

@@ -1866,7 +1866,6 @@
             class="supv-info-layout"
             :class="{
               'supv-info-layout--with-workspace': showSupervisionAgendaWorkspace
-                || (editorIsMeeting && Number(scheduleEventEditId || 0) > 0)
             }"
           >
             <AppointmentInfoPanel
@@ -1874,7 +1873,7 @@
               :when-date-label="editorInfoWhenDateLabel"
               :when-time-label="editorInfoWhenTimeLabel"
               :type-label="editorInfoTypeLabel"
-              :status-label="editorStatus"
+              :status-label="editorIsMeeting ? '' : editorStatus"
               :modality-label="editorInfoModalityLabel"
               :tenant-label="modalTenantLabel"
               :tenant-icon-url="editorTenantIconUrl"
@@ -1886,10 +1885,8 @@
               :client-name="editorInfoClientName"
               :can-open-client="canOpenScheduleClientProfile"
               :participant-label="editorParticipantLabel"
-              :participant-summary="editorIsMeeting || editorIsSupervision ? editorParticipantSummary : ''"
-              :participant-names="editorIsMeeting
-                ? editorMeetingParticipantNames
-                : (editorIsSupervision ? editorSupervisionInfoParticipantNames : [])"
+              :participant-summary="editorIsSupervision ? editorParticipantSummary : ''"
+              :participant-names="editorIsSupervision ? editorSupervisionInfoParticipantNames : []"
               :expandable-participants="editorIsMeeting || (editorIsSupervision && editorSupervisionInfoParticipantNames.length > 1)"
               :presenter-names="editorIsSupervision ? editorSupervisionPresenterNames : []"
               :service-label="editorInfoServiceLabel"
@@ -1919,20 +1916,7 @@
               @open-note="editorWorkspaceTab = 'note'"
               @join="startTrackedSupvMeet"
             />
-            <aside
-              v-if="editorIsMeeting && Number(scheduleEventEditId || 0) > 0"
-              class="meeting-info-side"
-              aria-label="Meeting agenda, goals, and action items"
-            >
-              <MeetingAgendaPanel
-                meeting-type="provider_schedule_event"
-                :meeting-id="Number(scheduleEventEditId)"
-                :can-add-item="true"
-                :embedded="true"
-              />
-              <!-- Goals/action items edit only via workspace Goals / Action Items tabs
-                   (a second section=both panel here was wiping action_items_json on save). -->
-            </aside>
+            <MeetingParticipantsDetails v-if="editorIsMeeting && Number(scheduleEventEditId || 0)" :event-id="scheduleEventEditId" />
             <aside
               v-if="showSupervisionAgendaWorkspace"
               class="meeting-info-side"
@@ -1986,7 +1970,7 @@
           :tenant-options="headerTenantOptions"
           :tenant-label="modalTenantLabel"
           :tenant-icon-url="editorTenantIconUrl"
-          :can-edit-tenant="headerTenantOptions.length > 1"
+          :can-edit-tenant="headerTenantOptions.length > 1 && !editingOpenSlot?.virtualHoursId"
           :provider-label="isAppointmentEditMode ? 'Booked for' : 'Provider'"
           :provider-name="bookingTargetUserLabel"
           :appointment-type="editorAppointmentType"
@@ -2002,7 +1986,7 @@
           :show-occurrence-count="editorShowOccurrenceCount"
           :occurrence-count-label="editorOccurrenceCountLabel"
           :show-type="!editorIsOpenSlot && editorIsClinical && editorTypeOptions.length > 1"
-          :show-status="!editorIsOpenSlot && (isAppointmentEditMode || isScheduleEventEditMode)"
+          :show-status="!editorIsOpenSlot && !editorIsMeeting && (isAppointmentEditMode || isScheduleEventEditMode)"
           :show-location="editorShowLocation"
           :location-address="editorLocationAddress"
           :location-options="editorServiceLocationOptions"
@@ -2053,7 +2037,7 @@
           :show-others-present="editorShowOthersPresent"
           :others-present-names="editorOthersPresentNames"
           :admin-catalog-links="editorAdminCatalogLinks"
-          :recurrence-frequency-options="RECURRENCE_OPTIONS"
+          :recurrence-frequency-options="editorIsOpenSlot ? RECURRENCE_OPTIONS.filter(o => o.value === 'WEEKLY') : RECURRENCE_OPTIONS"
           @update:dateYmd="onEditorDateYmd"
           @update:startTime="onEditorStartTime"
           @update:endTime="onEditorEndTime"
@@ -2387,19 +2371,24 @@
             v-model:action-draft-items="createActionDraftItems"
             v-model:notes="editorMeetingNotes"
             v-model:is-training-pay-eligible="meetingIsTrainingPayEligible"
-            v-model:meeting-subtype="meetingSubtype"
+            :meeting-subtype="meetingSubtype"
+            @update:meetingSubtype="meetingSubtype = $event; meetingSettings = null"
             :meeting-kind="editorMeetingKind"
             :show-huddle-option="canSeeHuddleAction && !isAppointmentEditMode"
             :show-training-pay-option="showMeetingTrainingPayOption && editorMeetingKind !== 'huddle'"
             :show-meeting-subtype="editorMeetingKind === 'agency_meeting' || String(editingScheduleStackItem?.eventKind || '').toUpperCase() === 'TEAM_MEETING'"
             :can-set-admin-subtype="canSetAdminMeetingSubtype"
+            :can-set-interview-subtype="canSetInterviewMeetingSubtype"
+              :can-set-leadership-subtype="['admin','super_admin','superadmin'].includes(String(authStore.user?.role || '').toLowerCase())"
             :can-set-evaluation-subtype="canSetEvaluationMeetingSubtype"
             :participants-required="editorMeetingKind !== 'huddle'"
             :video-configured="scheduleVideoConfigured"
             :show-virtual-options="false"
-            :show-agenda-draft="!isScheduleEventEditMode"
-            :show-goals-actions-draft="!isScheduleEventEditMode && (editorMeetingKind !== 'huddle' || isIndividualHuddleEditor)"
-            :show-action-draft="editorMeetingKind !== 'huddle'"
+            :show-reminder-option="false"
+            :show-agenda-draft="!isScheduleEventEditMode && meetingSettings?.agenda !== false"
+            :show-goals-actions-draft="!isScheduleEventEditMode && (meetingSettings?.goals !== false || meetingSettings?.actionItems !== false) && (editorMeetingKind !== 'huddle' || isIndividualHuddleEditor)"
+            :show-goal-draft="meetingSettings?.goals !== false"
+            :show-action-draft="editorMeetingKind !== 'huddle' && meetingSettings?.actionItems !== false"
             :assignee-options="meetingDraftAssigneeOptions"
             :show-participants="false"
             :title-missing="isMeetingTitleMissing"
@@ -2407,6 +2396,8 @@
             @update:meetingKind="onEditorMeetingKind"
           >
           </TeamMeetingBody>
+          <MeetingSettingsEditor v-if="editorIsMeeting" :agency-id="Number(editorAgencyId || 0)" :type="editorMeetingKind === 'huddle' ? 'huddle' : meetingSubtype" v-model="meetingSettings" :disabled="submitting || scheduleEventSaving" />
+          <label v-if="editorIsMeeting && isScheduleEventEditMode" class="sched-toggle"><input v-model="notifyMeetingChanges" type="checkbox" /> Notify participants of changes (after 5 minutes)</label>
 
           <SupervisionBody
             v-else-if="editorIsSupervision"
@@ -2446,6 +2437,7 @@
             class="osorb-linked-room-hint muted"
           >
             {{ editorPreferredRoomsHint }}
+            <button type="button" class="btn btn-secondary btn-sm" @click="editorAttachOfficeRequest = true">Link office booking</button>
           </p>
         </AppointmentEditorShell>
 
@@ -4200,6 +4192,8 @@
                 :disabled="!canSetAdminMeetingSubtype && !canSetInterviewMeetingSubtype && !canSetEvaluationMeetingSubtype && meetingSubtype === 'general'"
               >
                 <option value="general">General team meeting</option>
+                <option v-if="['admin','super_admin','superadmin'].includes(String(authStore.user?.role || '').toLowerCase()) || meetingSubtype === 'leadership_circle'" value="leadership_circle">Leadership Circle</option>
+                <option v-if="['admin','super_admin','superadmin'].includes(String(authStore.user?.role || '').toLowerCase()) || meetingSubtype === 'supervisors_meeting'" value="supervisors_meeting">Supervisors meeting</option>
                 <option v-if="canSetAdminMeetingSubtype || meetingSubtype === 'admin'" value="admin">
                   Admin Meeting
                 </option>
@@ -5463,6 +5457,7 @@
             Move to <strong>{{ appointmentMoveDraft?.targetLabel || '—' }}</strong>?
           </p>
           <div v-if="appointmentMoveError" class="error" style="margin-bottom: 12px;">{{ appointmentMoveError }}</div>
+          <label v-if="['TEAM_MEETING','HUDDLE'].includes(appointmentMoveDraft?.eventKind)" class="form-group"><input v-model="appointmentMoveDraft.notifyChanges" type="checkbox" /> Notify participants of changes (after 5 minutes)</label>
           <label v-if="appointmentMoveDraft?.kind === 'ob'" class="form-group">
             Office room
             <select v-model.number="appointmentMoveDraft.roomId" :disabled="appointmentMoveBusy">
@@ -5884,6 +5879,7 @@ import {
 import OfficeWeeklyRoomGrid from './OfficeWeeklyRoomGrid.vue';
 import OfficeRoomPhotoButton from './OfficeRoomPhotoButton.vue';
 import OfficeRoomPhotoGalleryModal from './OfficeRoomPhotoGalleryModal.vue';
+import MeetingParticipantsDetails from '../meetings/MeetingParticipantsDetails.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import SupervisionLiveRoom from '../supervision/SupervisionLiveRoom.vue';
 import UnifiedBookingPanel from './UnifiedBookingPanel.vue';
@@ -5899,6 +5895,7 @@ import AppointmentClinicalPanel from './AppointmentClinicalPanel.vue';
 import OfficeEventSessionNotePanel from './OfficeEventSessionNotePanel.vue';
 import ClinicalSessionBody from './ClinicalSessionBody.vue';
 import MeetingParticipantsPicker from './MeetingParticipantsPicker.vue';
+import MeetingSettingsEditor from './MeetingSettingsEditor.vue';
 import TeamMeetingBody from './TeamMeetingBody.vue';
 import VirtualLinkControls from './VirtualLinkControls.vue';
 import SupervisionBody from './SupervisionBody.vue';
@@ -5947,6 +5944,7 @@ const props = defineProps({
   weekStartsOn: { type: String, default: 'monday' },
   /** When set (e.g. Staff schedules drill-in), open this schedule event once summary loads. */
   focusEventId: { type: Number, default: 0 },
+  focusEventKind: { type: String, default: '' },
   // Optional: availability overlay (computed server-side), to highlight open slots.
   availabilityOverlay: { type: Object, default: null },
   // Club/affiliation context: hide office space, Open finder, Google busy, Therapy Notes.
@@ -9143,7 +9141,7 @@ const headerTenantOptions = computed(() => {
     || selectedOfficeLocationId.value
     || 0
   );
-  const officeContext = showRequestModal.value && (
+  const officeContext = showRequestModal.value && !editorIsOpenSlot.value && (
     String(modalActionSource.value || '') === 'office_block'
     || viewMode.value === 'office_layout'
     || Number(modalContext.value?.officeEventId || 0) > 0
@@ -9317,6 +9315,8 @@ const canMarkMeetingTrainingPay = computed(() => TRAINING_PAY_HOST_ROLES.has(boo
 const meetingIsTrainingPayEligible = ref(false);
 /** general | admin | town_hall | interview | evaluation — privileged subtypes for admin/support; interview/evaluation also for hiring */
 const meetingSubtype = ref('general');
+const meetingSettings = ref(null);
+const notifyMeetingChanges = ref(true);
 const canSetAdminMeetingSubtype = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'superadmin', 'admin', 'support'].includes(role);
@@ -9337,7 +9337,7 @@ const evaluationPeriodYear = ref(new Date().getFullYear());
 const evaluationRubricPreview = ref([]);
 function normalizeMeetingSubtype(value) {
   const subtype = String(value || 'general').trim().toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') return subtype;
+  if (subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return subtype;
   return 'general';
 }
 function meetingSubtypeForCreatePayload() {
@@ -9808,6 +9808,14 @@ let lastOpenedFocusEventId = 0;
 const tryOpenFocusScheduleEvent = () => {
   const eid = Number(props.focusEventId || 0);
   if (!eid || eid === lastOpenedFocusEventId) return;
+  if (props.focusEventKind === 'SUPERVISION') {
+    const session=(summary.value?.supervisionSessions || []).find(e=>Number(e.id)===eid);
+    if(!session)return;
+    const start=parseLocalDateTime(session.startAt);if(!start)return;
+    lastOpenedFocusEventId=eid;
+    openSupervisionEditInScheduleModal(dayNameForDateYmd(localYmd(start)), start.getHours(), eid);
+    return;
+  }
   const rows = Array.isArray(summary.value?.scheduleEvents) ? summary.value.scheduleEvents : [];
   const ev = rows.find((e) => Number(e?.id || 0) === eid);
   if (!ev) return;
@@ -10731,6 +10739,10 @@ const meetingTypeDisplayLabel = (ev) => {
   if (eventKind === 'TEAM_MEETING') {
     if (subtype === 'admin') return 'Admin Meeting';
     if (subtype === 'town_hall') return 'Town Hall';
+    if (subtype === 'leadership_circle') return 'Leadership Circle';
+    if (subtype === 'supervisors_meeting') return 'Supervisors meeting';
+    if (subtype === 'leadership_circle') return 'Leadership Circle';
+    if (subtype === 'supervisors_meeting') return 'Supervisors meeting';
     if (subtype === 'interview') return 'Interview';
     if (subtype === 'evaluation') return 'Employee Evaluation';
     return multi ? 'Group Meeting' : 'Meeting';
@@ -11482,6 +11494,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       startTime: row?.startTime || null,
       endTime: row?.endTime || null,
       virtualHoursId: vwhId,
+      frequency: row?.frequency || 'WEEKLY',
       officeTied: portalOfficeTied,
       startAt,
       endAt,
@@ -11592,6 +11605,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       kind: 'sevt',
       eventKind: String(ev?.kind || '').trim().toUpperCase(),
       meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),
+      meetingSettings: ev?.meetingSettings || null,
       allDay: !!ev?.allDay,
       shortLabel: scheduleEventShortLabel(ev, 'start', { multiline: true }),
       title: scheduleEventBlockTitle(ev, dayName, hour),
@@ -12345,7 +12359,7 @@ const isQuarterHourRequestType = computed(() => {
   const t = String(requestType.value || '');
   // office_request_only uses AppointmentHeaderFields type=time; without this, a watch
   // in ensureModalEndTimeValid zeros minutes on blur (e.g. 6:30 PM → 6:00 PM).
-  return ['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'school', 'office_request_only'].includes(t);
+  return ['supervision', 'agency_meeting', 'huddle', 'personal_event', 'schedule_hold', 'schedule_hold_all_day', 'indirect_services', 'school', 'office_request_only', 'portal_intake', 'attach_open_for_booking'].includes(t);
 });
 const canUseQuarterHourInput = computed(
   () => isQuarterHourRequestType.value && !isScheduleEventAllDayUi.value
@@ -13710,6 +13724,7 @@ const editorBookedUntilLabel = computed(() => {
   return label || '—';
 });
 const editorRecurrenceOccurrenceLabel = computed(() => {
+  if (editorIsOpenSlot.value) return 'Ongoing weekly availability';
   const freq = editorRecurrenceFrequency.value;
   const lastLabel = formatEditorDateLabel(editorLastOccurrenceYmd.value);
   if (freq === 'ONCE') return lastLabel ? `One session on ${lastLabel}` : 'One session';
@@ -13721,7 +13736,7 @@ const editorRecurrenceOccurrenceLabel = computed(() => {
   if (lastLabel) return `Booked until ${lastLabel}`;
   return `Books ${editorRecurrenceOccurrenceCount.value} time(s)`;
 });
-const editorShowOccurrenceCount = computed(() => editorRecurrenceFrequency.value !== 'ONCE');
+const editorShowOccurrenceCount = computed(() => !editorIsOpenSlot.value && editorRecurrenceFrequency.value !== 'ONCE');
 const editorOccurrenceCountLabel = computed(() => {
   const lastLabel = formatEditorDateLabel(editorLastOccurrenceYmd.value);
   if (editorRecurrenceFrequency.value === 'ONCE') return lastLabel || '1 time';
@@ -13931,18 +13946,18 @@ const editorWorkspaceTabs = computed(() => {
         );
       }
     }
-    const showAttendance = eventKind === 'HUDDLE'
+    const showAttendance = meetingSettings.value?.attendance === true || eventKind === 'HUDDLE'
       || subtype === 'admin'
-      || subtype === 'town_hall'
+      || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype)
       || subtype === 'interview'
       || subtype === 'evaluation'
       || !!editingScheduleStackItem.value?.attendanceTrackingEnabled;
-    const showComp = eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall' || subtype === 'evaluation';
+    const showComp = meetingSettings.value?.compensation === true || eventKind === 'HUDDLE' || subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'evaluation';
     tabs.push({
       id: 'attendance',
-      label: 'Attendance',
+      label: 'Participants / Attendance',
       icon: '◎',
-      disabled: !showAttendance,
+      disabled: false,
       disabledReason: showAttendance
         ? ''
         : 'General meetings track attendance only when the host enables transcription & attendance in the live meeting, or schedule a Huddle, Admin Meeting, or Town Hall.'
@@ -13961,7 +13976,7 @@ const editorWorkspaceTabs = computed(() => {
   if (isSelectedSupvReadOnlyView.value) {
     return tabs.filter((t) => !['edit', 'notifications'].includes(t.id));
   }
-  return tabs;
+  return editorIsMeeting.value ? tabs.filter(tab => tab.id === 'attendance' || meetingSettings.value?.[({actions:'actionItems',time_claims:'compensation',meeting_notes:'transcription'})[tab.id] || tab.id] !== false) : tabs;
 });
 
 /** Synthetic school location ids are negative: -(schoolOrganizationId). */
@@ -14185,6 +14200,7 @@ const stackItemTimezoneLabel = (item) => {
   return timezoneLabelFor(isMeetingStackItem(item) ? teamMeetingTimeZone() : scheduleMeetingTimeZone());
 };
 const editorInfoTypeLabel = computed(() => {
+  if (editorIsMeeting.value) return ({general:'General team meeting',admin:'Admin Meeting',town_hall:'Town Hall',interview:'Interview',evaluation:'Employee Evaluation',leadership_circle:'Leadership Circle',supervisors_meeting:'Supervisors meeting'})[meetingSubtype.value] || 'Team meeting';
   if (editorIsClinical.value) {
     const sid = Number(editorTenantServiceId.value || 0);
     const svc = (editorTenantServices.value || []).find((s) => Number(s.id) === sid);
@@ -14486,7 +14502,7 @@ const editorAdminCatalogLinks = computed(() => {
 const editorCanEditRoom = computed(() => !!editorIsOpenSlot.value);
 const editorOpenSlotRecurrenceHint = computed(() => {
   if (!editorIsOpenSlot.value) return '';
-  return 'Open slots are typically weekly so prospective clients can see ongoing availability. You can choose “Does not repeat” for a one-time window.';
+  return 'This publishes ongoing weekly availability. Editing an existing open slot updates its weekly series.';
 });
 const editorOpenSlotDurationWarning = computed(() => {
   if (!editorIsOpenSlot.value) return '';
@@ -14510,7 +14526,7 @@ const editorRoomOptions = computed(() => {
   return mergeEditorRoomOptionsWithBookings(base);
 });
 const editorShowBookedUntil = computed(() => (
-  editorShowRecurrence.value && editorRecurrenceFrequency.value !== 'ONCE'
+  !editorIsOpenSlot.value && editorShowRecurrence.value && editorRecurrenceFrequency.value !== 'ONCE'
 ));
 const editorShowOfficeRequestCta = computed(() => {
   // Open-slot: the rich chip-list panel expands when attach is checked (officeRequestActive).
@@ -16678,7 +16694,7 @@ const canOpenMeetingAttendanceTab = computed(() => {
   if (!editorIsMeeting.value || !Number(scheduleEventEditId.value || 0)) return false;
   const eventKind = String(editingScheduleStackItem.value?.eventKind || '').toUpperCase();
   const subtype = normalizeMeetingSubtype(meetingSubtype.value || editingScheduleStackItem.value?.meetingSubtype);
-  if (eventKind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') return true;
+  if (eventKind === 'HUDDLE' || subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return true;
   return !!editingScheduleStackItem.value?.attendanceTrackingEnabled;
 });
 const supervisionCanUseAllAgencies = computed(
@@ -18417,6 +18433,7 @@ const maybeAutoOpenSelectionActions = (opts = {}) => {
   openSlotActionModal({ ...rows[0], actionSource: 'plus_or_blank' });
 };
 
+const editingOpenSlot = ref(null);
 const openSlotActionModal = async ({
   dayName,
   hour,
@@ -18426,9 +18443,11 @@ const openSlotActionModal = async ({
   preserveSelectionRange = true,
   initialRequestType = '',
   initialModality = '',
-  actionSource = 'general'
+  actionSource = 'general',
+  sourceOpenSlot = null
 } = {}) => {
   if (!canBookFromGrid.value) return;
+  editingOpenSlot.value = sourceOpenSlot;
   modalActionSource.value = String(actionSource || 'general');
   modalDay.value = String(dayName);
   modalHour.value = Number(hour);
@@ -18469,6 +18488,8 @@ const openSlotActionModal = async ({
   scheduleEventPrivate.value = false;
   meetingIsTrainingPayEligible.value = false;
   meetingSubtype.value = 'general';
+  meetingSettings.value = null;
+  notifyMeetingChanges.value = true;
   meetingReminderMinutes.value = 5;
   notifyMeetingParticipants.value = true;
   scheduleEventRecurrence.value = 'ONCE';
@@ -18549,8 +18570,8 @@ const openSlotActionModal = async ({
   if (canSelectBookingProvider.value) {
     void loadBookingProviderDirectory();
   }
-  if (isScheduleSuperAdmin.value && !(agencyStore.agencies || []).length) {
-    void agencyStore.fetchAgencies().catch(() => {});
+  if (isScheduleSuperAdmin.value) {
+    await agencyStore.fetchAgencies().catch(() => {});
   }
   // Admin assign: never auto-pick the calendar owner — office + person are chosen in the form.
   if (canManageOffices.value) {
@@ -18631,6 +18652,21 @@ const openSlotActionModal = async ({
     roomId: Number(roomId || 0)
   };
   lastAutoOpenedSelectionSignature.value = selectedActionSignature(rows.length ? rows : [fallbackRow]);
+  if (editorIsOpenSlot.value) {
+    scheduleEventRecurrence.value = 'WEEKLY';
+    scheduleEventRecurrenceEndMode.value = 'indefinite';
+  }
+  if (sourceOpenSlot) {
+    selectedActionAgencyId.value = Number(sourceOpenSlot.agencyId || selectedActionAgencyId.value);
+    modalContext.value = {...modalContext.value, agencyId:selectedActionAgencyId.value, officeEventId:null,slotState:null};
+    const start=String(sourceOpenSlot.startTime || '').split(':').map(Number);
+    const end=String(sourceOpenSlot.endTime || '').split(':').map(Number);
+    if(start.length>=2){modalHour.value=start[0];modalStartHour.value=start[0];modalStartMinute.value=start[1];}
+    if(end.length>=2){modalEndHour.value=end[0];modalEndMinute.value=end[1];}
+    scheduleEventRecurrence.value=sourceOpenSlot.frequency || 'WEEKLY';
+    officeBookingRecurrence.value=scheduleEventRecurrence.value;
+    scheduleEventRecurrenceEndMode.value='indefinite';
+  }
   showRequestModal.value = true;
   void loadBookingMetadataForProvider();
   void loadSupervisionProviders();
@@ -19696,7 +19732,7 @@ function meetingTypePalette(b, dark) {
         ? { fill: 'rgba(251, 191, 36, 0.40)', border: 'rgba(252, 211, 77, 0.90)', stripe: 'rgba(253, 224, 71, 0.95)', text: 'rgba(254, 243, 199, 0.98)' }
         : { fill: 'rgba(245, 158, 11, 0.26)', border: 'rgba(180, 83, 9, 0.58)', stripe: 'rgba(217, 119, 6, 0.92)', text: 'rgba(120, 53, 15, 0.98)' };
     }
-    if (subtype === 'town_hall') {
+    if (['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype)) {
       return dark
         ? { fill: 'rgba(129, 140, 248, 0.45)', border: 'rgba(165, 180, 252, 0.90)', stripe: 'rgba(199, 210, 254, 0.95)', text: 'rgba(224, 231, 255, 0.98)' }
         : { fill: 'rgba(79, 70, 229, 0.24)', border: 'rgba(67, 56, 202, 0.55)', stripe: 'rgba(79, 70, 229, 0.90)', text: 'rgba(49, 46, 129, 0.98)' };
@@ -20534,6 +20570,8 @@ const closeModal = () => {
   scheduleEventPrivate.value = false;
   meetingIsTrainingPayEligible.value = false;
   meetingSubtype.value = 'general';
+  meetingSettings.value = null;
+  notifyMeetingChanges.value = true;
   meetingReminderMinutes.value = 5;
   notifyMeetingParticipants.value = true;
   createAgendaDraftTitle.value = '';
@@ -20662,14 +20700,21 @@ const ensureVirtualWorkingHoursForRange = async ({
   dayName,
   startHour,
   endHour,
+  startMinute = 0,
+  endMinute = 0,
   availableForIntake = true,
   availableForSession = false
 } = {}) => {
   const agencyId = Number(effectiveAgencyId.value || 0);
   if (!agencyId) return;
+  if (editingOpenSlot.value?.virtualHoursId) {
+    if (agencyId !== Number(editingOpenSlot.value.agencyId)) throw new Error('This weekly series belongs to its original agency. Create a new open slot to publish for another agency.');
+    await api.patch(`/availability/me/virtual-working-hours/${editingOpenSlot.value.virtualHoursId}`, {agencyId,dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,frequency:scheduleEventRecurrence.value});
+    return;
+  }
   const day = String(dayName || '');
-  const targetStart = `${pad2(startHour)}:00`;
-  const targetEnd = `${pad2(endHour)}:00`;
+  const targetStart = `${pad2(startHour)}:${pad2(startMinute)}`;
+  const targetEnd = `${pad2(endHour)}:${pad2(endMinute)}`;
   const forIntake = availableForIntake !== false;
   const forSession = availableForSession === true;
   const sessionType = forIntake && forSession ? 'BOTH' : (forIntake ? 'INTAKE' : (forSession ? 'REGULAR' : 'INTAKE'));
@@ -20697,7 +20742,7 @@ const ensureVirtualWorkingHoursForRange = async ({
   });
 
   // Already covers requested flags — nothing to write.
-  if (overlaps.some((r) => (!forIntake || r.availableForIntake) && (!forSession || r.availableForSession))) {
+  if (overlaps.some((r) => minuteFromTime(r.startTime) <= targetStartMin && minuteFromTime(r.endTime) >= targetEndMin && (!forIntake || r.availableForIntake) && (!forSession || r.availableForSession))) {
     return;
   }
 
@@ -21338,6 +21383,8 @@ const submitRequest = async () => {
                   waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
                   notifyParticipants: !!notifyMeetingParticipants.value,
                   reminderMinutes: meetingReminderMinutes.value,
+                  meetingSettings: meetingSettings.value,
+                  notifyChanges: notifyMeetingChanges.value,
                   allowLocalOnly: true,
                   isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                   meetingSubtype: meetingSubtypeForCreate,
@@ -21391,6 +21438,8 @@ const submitRequest = async () => {
                     waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
                     notifyParticipants: !!notifyMeetingParticipants.value,
                     reminderMinutes: meetingReminderMinutes.value,
+                  meetingSettings: meetingSettings.value,
+                  notifyChanges: notifyMeetingChanges.value,
                     allowLocalOnly: true,
                     isTrainingPayEligible: !!meetingIsTrainingPayEligible.value,
                     meetingSubtype: meetingSubtypeForCreate,
@@ -21438,7 +21487,7 @@ const submitRequest = async () => {
             }
           } catch { /* ignore */ }
         }
-        if ((requestType.value === 'agency_meeting' || requestType.value === 'huddle') && createAgendaDraftItems.value.length) {
+        if ((requestType.value === 'agency_meeting' || requestType.value === 'huddle') && meetingSettings.value?.agenda !== false && createAgendaDraftItems.value.length) {
           const items = [...createAgendaDraftItems.value];
           for (const ev of createdScheduleEvents) {
             const eid = ev?.providerScheduleEventId ?? ev?.id;
@@ -21447,8 +21496,8 @@ const submitRequest = async () => {
           createAgendaDraftItems.value = [];
         }
         if (requestType.value === 'agency_meeting' || requestType.value === 'huddle') {
-          const goals = [...(createGoalDraftItems.value || [])];
-          const actions = [...(createActionDraftItems.value || [])];
+          const goals = meetingSettings.value?.goals === false ? [] : [...(createGoalDraftItems.value || [])];
+          const actions = meetingSettings.value?.actionItems === false ? [] : [...(createActionDraftItems.value || [])];
           if (goals.length || actions.length) {
             const draftResults = await Promise.all(
               createdScheduleEvents.map(async (ev) => {
@@ -21811,7 +21860,7 @@ const submitRequest = async () => {
     } else if (requestType.value === 'portal_intake' || requestType.value === 'attach_open_for_booking') {
       const agencyId = Number(effectiveAgencyId.value || 0);
       if (!agencyId) throw new Error('Select an agency for portal availability.');
-      if (!(endH > h)) throw new Error('End time must be after start time.');
+      if (endTotalMinutes <= startTotalMinutes) throw new Error('End time must be after start time.');
       const forIntake = editorAvailableForIntake.value !== false;
       const forSession = editorAvailableForSession.value === true;
       if (!forIntake && !forSession) {
@@ -21822,6 +21871,8 @@ const submitRequest = async () => {
         dayName: dn,
         startHour: h,
         endHour: endH,
+        startMinute,
+        endMinute,
         availableForIntake: forIntake,
         availableForSession: forSession
       });
@@ -22151,6 +22202,8 @@ const submitRequest = async () => {
           modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
           waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
           reminderMinutes: meetingReminderMinutes.value,
+                  meetingSettings: meetingSettings.value,
+                  notifyChanges: notifyMeetingChanges.value,
           notifyParticipants: !!notifyMeetingParticipants.value,
           ...(supervisionSeriesId
             ? {
@@ -23889,6 +23942,8 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
       waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
       reminderMinutes: meetingReminderMinutes.value,
+                  meetingSettings: meetingSettings.value,
+                  notifyChanges: notifyMeetingChanges.value,
       notifyParticipants: !!notifyMeetingParticipants.value,
       inviteAudienceAllSupervised: !!supervisionInviteAudienceAllSupervised.value,
       inviteAudienceGroupSupport: !!supervisionInviteAudienceGroupSupport.value,
@@ -24252,6 +24307,7 @@ const onCellBlockResizePointerUp = () => {
   }
   appointmentMoveError.value = '';
   appointmentMoveDraft.value = {
+    notifyChanges: true,
     kind: rs.kind,
     eventId: rs.eventId,
     officeLocationId: rs.officeLocationId,
@@ -24378,6 +24434,7 @@ const openAppointmentMoveConfirm = (st, target) => {
   const newRange = clockRangeLabel(newStartAt, newEndAt);
   appointmentMoveError.value = '';
   appointmentMoveDraft.value = {
+    notifyChanges: true,
     kind: st.kind,
     eventId: st.eventId,
     officeLocationId: st.officeLocationId,
@@ -24466,6 +24523,7 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
         startAt: draft.newStartAt,
         endAt: draft.newEndAt,
         timeZone: moveTz,
+        ...(isMeeting ? {notifyChanges: draft.notifyChanges !== false} : {}),
         ...(scope ? { scope } : {})
       }, { skipGlobalLoading: true });
     }
@@ -24530,7 +24588,8 @@ const dispatchCellBlockAction = (block, dayName, hour, minute = 0) => {
       hour,
       preserveSelectionRange: false,
       initialRequestType: 'portal_intake',
-      actionSource: 'other_block'
+      actionSource: 'other_block',
+      sourceOpenSlot: block
     });
     return;
   }
@@ -24963,6 +25022,8 @@ const beginEditScheduleStackItem = async (item) => {
   };
   meetingIsTrainingPayEligible.value = !!item?.isTrainingPayEligible;
   meetingSubtype.value = normalizeMeetingSubtype(item?.meetingSubtype);
+  meetingSettings.value = item?.meetingSettings || null;
+  notifyMeetingChanges.value = true;
   editAgencyBaseline.value = agencyId;
   editTimingBaseline.value = {
     startAt: String(scheduleEventEditForm.value.startAt || '').trim(),
@@ -25144,13 +25205,11 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
                 waitingRoomEnabled: !!editorMeetingWaitingRoomEnabled.value,
                 notifyParticipants: !!notifyMeetingParticipants.value,
                 reminderMinutes: meetingReminderMinutes.value,
+                  meetingSettings: meetingSettings.value,
+                  notifyChanges: notifyMeetingChanges.value,
                 ...(String(item?.eventKind || '').toUpperCase() === 'TEAM_MEETING'
                   ? {
-                      meetingSubtype: (canSetAdminMeetingSubtype.value
-                        || meetingSubtype.value === 'admin'
-                        || meetingSubtype.value === 'town_hall')
-                        ? normalizeMeetingSubtype(meetingSubtype.value)
-                        : 'general'
+                      meetingSubtype: normalizeMeetingSubtype(meetingSubtype.value)
                     }
                   : {})
               }
@@ -25172,6 +25231,7 @@ const saveScheduleStackItem = async (item, { scope = null, pastConfirmed = false
       agencyId: saveAgencyId,
       isPrivate: !!scheduleEventEditForm.value.isPrivate,
       attendeeUserIds: isMeeting ? savedAttendeeIds : null,
+      ...(isMeeting ? {meetingSettings: meetingSettings.value, meetingSubtype: meetingSubtype.value} : {}),
       waitingRoomEnabled: isMeeting
         ? (savedEvent.waitingRoomEnabled !== undefined
           ? savedEvent.waitingRoomEnabled !== false
@@ -25382,6 +25442,7 @@ const openAppointmentEditInScheduleModal = async ({
   if (agencyId > 0) selectedActionAgencyId.value = agencyId;
   // Mode first, then open — avoids empty requestType → office action chooser.
   requestType.value = 'edit_schedule_event';
+  editingOpenSlot.value = null;
   showRequestModal.value = true;
   void loadBookingMetadataForProvider();
   await beginEditScheduleStackItem(target);
@@ -25443,7 +25504,7 @@ const pickScheduleEventForEdit = async (item) => {
   requestType.value = 'edit_schedule_event';
 };
 
-const openSupervisionEditInScheduleModal = (dayName, hour) => {
+const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0) => {
   const hits = supervisionSessionsInCell(dayName, hour);
   if (!hits.length) return;
   showStackDetailsModal.value = false;
@@ -25453,7 +25514,7 @@ const openSupervisionEditInScheduleModal = (dayName, hour) => {
   supvDayLabel.value = String(dayName);
   supvStartHour.value = Number(hour);
   supvEndHour.value = Number(hour) + 1;
-  const first = hits[0];
+  const first = hits.find(s=>Number(s.id)===Number(preferredId)) || hits[0];
   selectedSupvSessionId.value = Number(first.id || 0);
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.startAt));
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
@@ -25972,6 +26033,7 @@ const buildScheduleStackItemFromEvent = (ev, overrides = {}) => {
     isTrainingPayEligible: !!ev?.isTrainingPayEligible,
     reminderMinutes: ev?.reminderMinutes === undefined ? 5 : ev.reminderMinutes,
     meetingSubtype: normalizeMeetingSubtype(ev?.meetingSubtype),
+      meetingSettings: ev?.meetingSettings || null,
     waitingRoomEnabled: ev?.waitingRoomEnabled !== false
       && ev?.waiting_room_enabled !== false
       && ev?.waiting_room_enabled !== 0,

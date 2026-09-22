@@ -125,7 +125,7 @@ const filters = [
 
 const meetingEmptyLabel = computed(() => {
   if (props.lastSentLabel) return `Last sent: ${props.lastSentLabel}`;
-  return 'No join reminders sent yet. Automatic reminders go out about 5 minutes before the meeting starts.';
+  return 'No matching invitation or reminder deliveries are recorded. Review the meeting’s email and reminder settings in Edit.';
 });
 
 function formatWhenLocal(value) {
@@ -151,9 +151,9 @@ const normalizedItems = computed(() => {
   const rows = Array.isArray(props.planItems) ? props.planItems : [];
   return rows.map((item, idx) => {
     const status = String(item.status || item.state || '').trim() || 'Scheduled';
-    const kind = String(item.kind || item.label || item.type || 'Reminder').trim();
+    const kind = String(item.label || item.kind || item.type || 'Reminder').trim();
     const channel = String(item.channel || item.channels?.[0] || 'email').toLowerCase();
-    const whenRaw = item.scheduledFor || item.fireAt || item.sendAt || item.at || '';
+    const whenRaw = item.sentAt || item.scheduledFor || item.fireAt || item.sendAt || item.at || '';
     const recipient = item.recipientName || item.toName || item.attendeeName || '';
     return {
       key: item.id || `${kind}-${idx}`,

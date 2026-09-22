@@ -1,3 +1,4 @@
+import { eventMeetingSettings } from '../services/meetingSettings.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { canAccessHiringInterview } from '../services/hiringInterviewAccess.service.js';
 /**
@@ -179,6 +180,13 @@ async function profilePhotoUrlForUserId(userId) {
   } catch {
     return null;
   }
+}
+
+async function isMeetingHost(event, userId) {
+  if (!Number(userId)) return false;
+  if (Number(userId) === Number(event.provider_id)) return true;
+  const [rows] = await pool.execute(`SELECT 1 FROM meeting_participant_preferences p JOIN provider_schedule_event_attendees a ON a.event_id=p.event_id AND a.user_id=p.user_id WHERE p.event_id=? AND p.user_id=? AND p.is_cohost=1`,[event.id,userId]);
+  return !!rows.length;
 }
 
 async function canAccessTeamMeeting(req, event) {
@@ -747,7 +755,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     const createdByUserId = Number(row.created_by_user_id || row.createdByUserId || 0);
     // Host: calendar owner, meeting creator, or privileged scheduler (admin schedule).
     // Interviews only: any logged-in agency staff is a host; unauthenticated guest-link users are candidates.
-    let isHost = actorUserId === Number(row.provider_id)
+    let isHost = await isMeetingHost(row,actorUserId)
       || (tokenRole === 'host' && (actorUserId === createdByUserId || privilegedHost));
     if (
       !isHost
@@ -907,6 +915,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       kind: kindNorm,
       meetingSubtype: String(row.meeting_subtype || 'general').trim().toLowerCase(),
       attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
+      meetingSettings: eventMeetingSettings(row),
       videoConfigured: true,
       diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
     });
@@ -954,7 +963,7 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
       isGuest: !!req.body?.isGuest || identity.startsWith('guest-')
     });
 
-    const isHost = actorUserId > 0 && actorUserId === Number(row.provider_id || 0);
+    const isHost = await isMeetingHost(row,actorUserId);
     const waitingRoomOn = isWaitingRoomEnabled(row);
     const admitted = isHost
       || !waitingRoomOn
@@ -989,7 +998,7 @@ export const getTeamMeetingLobbyParticipants = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const actorUserId = Number(req.user?.id || 0);
-    if (actorUserId !== Number(row.provider_id)) {
+    if (!(await isMeetingHost(row,actorUserId))) {
       return res.status(403).json({ error: { message: 'Only the host can view the waiting room' } });
     }
 
@@ -1049,7 +1058,7 @@ export const admitTeamMeetingParticipant = async (req, res, next) => {
     const eventId = Number(row.id);
 
     const actorUserId = Number(req.user?.id || 0);
-    if (actorUserId !== Number(row.provider_id)) {
+    if (!(await isMeetingHost(row,actorUserId))) {
       return res.status(403).json({ error: { message: 'Only the host can admit participants' } });
     }
 
@@ -1183,7 +1192,7 @@ export const setTeamMeetingWaitingRoomLive = async (req, res, next) => {
     if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
     const eventId = Number(row.id);
     const actorUserId = Number(req.user?.id || 0);
-    if (actorUserId !== Number(row.provider_id)) {
+    if (!(await isMeetingHost(row,actorUserId))) {
       return res.status(403).json({ error: { message: 'Only the host can change the waiting room' } });
     }
     const enabled = !(req.body?.enabled === false || req.body?.enabled === 0 || req.body?.enabled === '0');
@@ -1257,7 +1266,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       ? (interviewGuestIdentityFromRow(row) || `guest-iv-${row.id}`)
       : `user-${actorUserId}`;
     const waitingRoomOn = isWaitingRoomEnabled(row);
-    let isHost = actorUserId > 0 && actorUserId === Number(row.provider_id);
+    let isHost = await isMeetingHost(row,actorUserId);
     if (
       !isHost
       && isInterviewMeeting(row)
@@ -1284,6 +1293,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
         roomMode: 'ended',
         meetingCompleted: true,
         attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
+      meetingSettings: eventMeetingSettings(row),
         ...closure,
         lobbyEnabledForSession: waitingRoomOn,
         waitingRoomEnabled: waitingRoomOn
@@ -1303,6 +1313,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
         meetingCompleted: false,
         meetingCompletedAt: null,
         attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
+      meetingSettings: eventMeetingSettings(row),
         lobbyEnabledForSession: waitingRoomOn,
         waitingRoomEnabled: waitingRoomOn
       });
@@ -1337,6 +1348,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
         meetingCompleted: false,
         meetingCompletedAt: null,
         attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
+      meetingSettings: eventMeetingSettings(row),
         lobbyEnabledForSession: waitingRoomOn,
         waitingRoomEnabled: waitingRoomOn,
         sessionTitle: waitingPrep.sessionTitle || String(row.title || '').trim() || null,
@@ -1424,6 +1436,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       isHost: false,
       eventId: Number(row.id),
       attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(row),
+      meetingSettings: eventMeetingSettings(row),
       lobbyEnabledForSession: waitingRoomOn,
       waitingRoomEnabled: waitingRoomOn,
       diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
@@ -1459,7 +1472,7 @@ export const setTeamMeetingRecordingRules = async (req, res, next) => {
     const actorUserId = Number(req.user?.id || 0);
     if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
-    const isHost = actorUserId === Number(row.provider_id);
+    const isHost = await isMeetingHost(row,actorUserId);
     if (!isHost) {
       return res.status(403).json({ error: { message: 'Only the host can change recording settings' } });
     }
@@ -1556,10 +1569,11 @@ async function loadMeetingParticipants(event) {
        SELECT ? AS user_id
        UNION
        SELECT psa.user_id FROM provider_schedule_event_attendees psa WHERE psa.event_id = ?
+       UNION SELECT candidate_user_id FROM hiring_interviews WHERE provider_schedule_event_id=?
      ) x
      JOIN users u ON u.id = x.user_id
      ORDER BY u.last_name ASC, u.first_name ASC`,
-    [hostId || 0, eid]
+    [hostId || 0, eid, eid]
   );
   return (rows || []).map((r) => ({
     id: Number(r.id),
@@ -1599,7 +1613,7 @@ export const getTeamMeetingWorkspace = async (req, res, next) => {
     const workspace = ProviderScheduleEventArtifact.toWorkspaceDto(artifact);
     const participants = await loadMeetingParticipants(event);
     const subtypeRaw = String(event.meeting_subtype || 'general').toLowerCase();
-    const meetingSubtype = (subtypeRaw === 'admin' || subtypeRaw === 'town_hall' || subtypeRaw === 'interview')
+    const meetingSubtype = (subtypeRaw === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtypeRaw) || subtypeRaw === 'interview')
       ? subtypeRaw
       : 'general';
     res.json({
@@ -1610,6 +1624,7 @@ export const getTeamMeetingWorkspace = async (req, res, next) => {
       attendanceTrackingEnabled: isAttendanceTrackingEnabledForEvent(event),
       title: String(event.title || '').trim() || null,
       participants,
+      meetingSettings: eventMeetingSettings(event),
       workspace
     });
   } catch (e) {
@@ -1669,10 +1684,11 @@ export const upsertTeamMeetingWorkspace = async (req, res, next) => {
       eventId,
       meetingSubtype: (() => {
         const subtypeRaw = String(event.meeting_subtype || 'general').toLowerCase();
-        if (subtypeRaw === 'admin' || subtypeRaw === 'town_hall' || subtypeRaw === 'interview') return subtypeRaw;
+        if (subtypeRaw === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtypeRaw) || subtypeRaw === 'interview') return subtypeRaw;
         return 'general';
       })(),
       participants,
+      meetingSettings: eventMeetingSettings(event),
       workspace
     });
   } catch (e) {
@@ -1871,11 +1887,13 @@ async function canEditMeetingTimeClaims(req, agencyId) {
 }
 
 function isCompensationEligibleMeeting(event) {
+  const configured = eventMeetingSettings(event);
+  if (configured) return configured.compensation;
   const kind = String(event?.kind || '').toUpperCase();
   if (kind === 'HUDDLE') return true;
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = String(event?.meeting_subtype || 'general').trim().toLowerCase();
-  return subtype === 'admin' || subtype === 'town_hall';
+  return subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype);
 }
 
 /** POST /api/team-meetings/:eventId/complete — host marks session completed (stops pay accrual). */
@@ -1889,7 +1907,7 @@ export const completeTeamMeetingSession = async (req, res, next) => {
     }
     const actorId = Number(req.user?.id || 0);
     const role = String(req.user?.role || '').toLowerCase();
-    const isHost = actorId === Number(event.provider_id || 0);
+    const isHost = await isMeetingHost(event,actorId);
     const isPrivileged = ['super_admin', 'superadmin', 'admin', 'support'].includes(role);
     if (!isHost && !isPrivileged) {
       return res.status(403).json({ error: { message: 'Only the host or admin/support/super admin can complete this meeting.' } });
@@ -1952,7 +1970,7 @@ export const enableTeamMeetingAttendanceTracking = async (req, res, next) => {
     const actorId = Number(req.user?.id || 0);
     if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     const role = String(req.user?.role || '').toLowerCase();
-    const isHost = actorId === Number(event.provider_id || 0)
+    const isHost = await isMeetingHost(event,actorId)
       || actorId === Number(event.created_by_user_id || 0);
     const isPrivileged = [
       'super_admin',
@@ -1967,7 +1985,7 @@ export const enableTeamMeetingAttendanceTracking = async (req, res, next) => {
     }
 
     const subtype = String(event.meeting_subtype || 'general').trim().toLowerCase();
-    if (kind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall') {
+    if (kind === 'HUDDLE' || subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype)) {
       return res.json({
         ok: true,
         eventId,
@@ -2035,7 +2053,7 @@ export const postTeamMeetingTranscriptControl = async (req, res, next) => {
     const actorId = Number(req.user?.id || 0);
     if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
     const role = String(req.user?.role || '').toLowerCase();
-    const isHost = actorId === Number(event.provider_id || 0) || actorId === Number(event.created_by_user_id || 0);
+    const isHost = await isMeetingHost(event,actorId) || actorId === Number(event.created_by_user_id || 0);
     const isPrivileged = ['super_admin', 'superadmin', 'admin', 'support', 'staff', 'clinical_practice_assistant'].includes(role);
     if (!isHost && !isPrivileged) {
       return res.status(403).json({ error: { message: 'Only the host or admin can control transcription.' } });
@@ -2194,7 +2212,7 @@ export const listAdminMeetingsLog = async (req, res, next) => {
        ) att ON att.event_id = pse.id
        WHERE pse.agency_id = ?
          AND UPPER(COALESCE(pse.kind, '')) = 'TEAM_MEETING'
-         AND LOWER(COALESCE(pse.meeting_subtype, 'general')) = 'admin'
+         AND LOWER(COALESCE(pse.meeting_subtype, 'general')) IN ('admin','leadership_circle','supervisors_meeting')
          AND UPPER(COALESCE(pse.status, 'ACTIVE')) <> 'CANCELLED'
        ORDER BY pse.start_at DESC
        LIMIT ${limit}`,
@@ -2215,7 +2233,7 @@ export const listAdminMeetingsLog = async (req, res, next) => {
         endAt: r.end_at || null,
         meetingCompletedAt: r.meeting_completed_at || null,
         status: r.status || null,
-        meetingSubtype: 'admin',
+        meetingSubtype: r.meeting_subtype,
         hostUserId: r.provider_id ? Number(r.provider_id) : null,
         hostName: String(r.host_name || '').trim() || null,
         attendanceDurationSeconds: Number(r.attendance_max_seconds || 0),
@@ -2321,6 +2339,12 @@ export const getTeamMeetingAttendance = async (req, res, next) => {
     }
     const { listAttendanceSummary } = await import('../services/meetingAttendanceSegments.service.js');
     const summary = await listAttendanceSummary(eventId);
+    const { meetingParticipantRows } = await import('../services/meetingParticipants.service.js');
+    const preferences = await meetingParticipantRows(event);
+    for (const participant of summary?.participants || []) {
+      const pref=preferences.find(p=>Number(p.id)===Number(participant.userId));
+      if(pref)Object.assign(participant,{isRequired:!!pref.is_required,isCohost:!!pref.is_cohost,rsvp:pref.rsvp});
+    }
     res.json({
       ...(summary || { eventId, participants: [], copyNamesCsv: '', copyNamesWithTimeCsv: '' }),
       attendanceTrackingEnabled: true,
@@ -2416,7 +2440,7 @@ export const getTeamMeetingTimeClaims = async (req, res, next) => {
       canEdit,
       meetingCompletedAt: attendance?.meetingCompletedAt || null,
       ...(await meetingClosureDetails(event)),
-      rows
+      rows: canEdit ? rows : rows.filter(r=>Number(r.userId)===Number(req.user.id))
     });
   } catch (e) {
     next(e);
@@ -2502,4 +2526,57 @@ export const getTeamMeetingNotes = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const getMeetingTypeSettings = async (req, res, next) => {
+  try {
+    const agencyId = Number(req.query.agencyId || 0);
+    const role = String(req.user?.role || '').toLowerCase();
+    const agencies = await User.getAgencies(req.user.id);
+    if (!agencyId || (!['super_admin','superadmin'].includes(role) && !agencies.some(a=>Number(a.id)===agencyId))) return res.status(403).json({error:{message:'Access denied'}});
+    const { meetingTypesForAgency } = await import('../services/meetingSettings.service.js');
+    res.json({types:await meetingTypesForAgency(agencyId),canEdit:['admin','super_admin','superadmin'].includes(role)});
+  } catch (error) { next(error); }
+};
+export const putMeetingTypeSettings = async (req, res, next) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const agencyId = Number(req.body.agencyId || 0);
+    if (!['admin','super_admin','superadmin'].includes(role)) return res.status(403).json({error:{message:'Only administrators can edit meeting types.'}});
+    const agencies = await User.getAgencies(req.user.id);
+    if (!agencyId || (role==='admin' && !agencies.some(a=>Number(a.id)===agencyId))) return res.status(403).json({error:{message:'Access denied'}});
+    const { MEETING_TYPES, normalizeMeetingSettings, defaultMeetingSettings } = await import('../services/meetingSettingsPolicy.js');
+    const key = String(req.params.typeKey || '');
+    if (!Object.hasOwn(MEETING_TYPES,key)) return res.status(400).json({error:{message:'Invalid meeting type'}});
+    const settings = normalizeMeetingSettings(req.body.settings,defaultMeetingSettings(key));
+    await pool.execute('INSERT INTO agency_meeting_types (agency_id,type_key,settings_json,updated_by_user_id) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE settings_json=VALUES(settings_json),updated_by_user_id=VALUES(updated_by_user_id)',[agencyId,key,JSON.stringify(settings),req.user.id]);
+    res.json({settings});
+  } catch (error) { next(error); }
+};
+
+export const getMeetingParticipantPreferences = async (req,res,next) => {
+  try {
+    const event=await ProviderScheduleEvent.findById(Number(req.params.eventId));
+    if(!event || !await canAccessTeamMeeting(req,event))return res.status(403).json({error:{message:'Access denied'}});
+    const role=String(req.user.role||'').toLowerCase();
+    const admin=['admin','super_admin','superadmin'].includes(role);
+    const { meetingParticipantRows }=await import('../services/meetingParticipants.service.js');
+    res.json({participants:await meetingParticipantRows(event,{includeCompensation:admin}),canEdit:Number(event.provider_id)===Number(req.user.id)||admin});
+  }catch(error){next(error);}
+};
+export const putMeetingParticipantPreferences = async (req,res,next) => {
+  try {
+    const event=await ProviderScheduleEvent.findById(Number(req.params.eventId));
+    if(!event || !await canAccessTeamMeeting(req,event))return res.status(403).json({error:{message:'Access denied'}});
+    const admin=['admin','super_admin','superadmin'].includes(String(req.user.role||'').toLowerCase());
+    if(Number(event.provider_id)!==Number(req.user.id)&&!admin)return res.status(403).json({error:{message:'Only the scheduler or an administrator may change participants.'}});
+    const { meetingParticipantRows }=await import('../services/meetingParticipants.service.js');
+    const participants=await meetingParticipantRows(event);const person=participants.find(p=>Number(p.id)===Number(req.params.userId));
+    if(!person)return res.status(404).json({error:{message:'Participant not found'}});
+    if(typeof req.body.isRequired!=='boolean'||typeof req.body.isCohost!=='boolean')return res.status(400).json({error:{message:'Required and cohost must be true or false.'}});
+    const [candidate]=await pool.execute('SELECT 1 FROM hiring_interviews WHERE provider_schedule_event_id=? AND candidate_user_id=?',[event.id,person.id]);
+    if(candidate.length&&req.body.isCohost)return res.status(400).json({error:{message:'An interview candidate cannot be a cohost.'}});
+    await pool.execute(`INSERT INTO meeting_participant_preferences (event_id,user_id,is_required,is_cohost) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE is_required=VALUES(is_required),is_cohost=VALUES(is_cohost)`,[event.id,person.id,Number(req.body.isRequired),Number(req.body.isCohost)]);
+    res.json({ok:true});
+  }catch(error){next(error);}
 };

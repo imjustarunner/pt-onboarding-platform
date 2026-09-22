@@ -15,13 +15,13 @@ const event={id:10,kind:'TEAM_MEETING',title:'Leadership',provider_id:5,start_at
 describe('editable meeting reminders',()=>{
   it('shows the actual selected reminder time in the event notification plan',async()=>{
     const plan=await buildScheduleEventNotificationPlan({...event,reminder_minutes:30});
-    expect(plan.items[0].scheduledFor).toBe('2099-09-28 21:30:00');expect(plan.items[0].bodyPreview).toContain('30 minutes');
+    expect(plan.items[0].scheduledFor).toBe('2099-09-28T21:30:00.000Z');expect(plan.items[0].bodyPreview).toContain('30 minutes');
   });
   it('does not schedule a reminder when explicitly turned off',async()=>{
     expect((await buildScheduleEventNotificationPlan({...event,reminder_minutes:null})).items).toEqual([]);
     expect((await buildScheduleEventNotificationPlan({...event,notify_participants:0})).items).toEqual([]);
   });
-  it('preserves the five-minute default for existing events',async()=>{expect((await buildScheduleEventNotificationPlan(event)).items[0].scheduledFor).toBe('2099-09-28 21:55:00');});
+  it('preserves the five-minute default for existing events',async()=>{expect((await buildScheduleEventNotificationPlan(event)).items[0].scheduledFor).toBe('2099-09-28T21:55:00.000Z');});
   it('uses UTC and persisted per-event settings for both meeting types',async()=>{
     await runJoinReminderTick({now:new Date('2026-09-28T21:30:00Z')});
     const queries=m.execute.mock.calls.filter(([sql])=>sql.includes('INTERVAL') && sql.includes('reminder_minutes'));

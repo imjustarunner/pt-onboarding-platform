@@ -330,7 +330,7 @@
     >
       <header class="ahf-section-head">
         <span class="ahf-section-icon" aria-hidden="true">👥</span>
-        <h4 class="ahf-section-title">Service &amp; clients</h4>
+        <h4 class="ahf-section-title">{{ showVirtualOptions ? 'Participants' : 'Service & clients' }}</h4>
       </header>
       <div class="ahf-details ahf-details--section">
         <div v-if="showType && typeOptions.length > 1" class="ahf-field">
@@ -947,6 +947,9 @@ function nudgeEnd(deltaMin) {
 .ahf-field--full {
   flex: 1 1 100%;
   max-width: none;
+
+  flex: 1 1 100%;
+  max-width: none;
   width: 100%;
 }
 .ahf-req { color: #b91c1c; }
@@ -1152,6 +1155,8 @@ function nudgeEnd(deltaMin) {
   padding: 10px;
 }
 .ahf-office {
+  width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1333,6 +1338,8 @@ function nudgeEnd(deltaMin) {
     flex-basis: 100%;
   }
   .ahf-office {
+  width: 100%;
+  box-sizing: border-box;
     flex-wrap: wrap;
   }
 }
@@ -1360,6 +1367,7 @@ function nudgeEnd(deltaMin) {
   flex: 1 1 180px;
   max-width: none;
 }
+.ahf-location-stack > .ahf-field--full { width: 100%; max-width: none; flex: 0 0 auto; }
 .ahf-location-stack {
   flex: 1 1 100%;
   display: flex;

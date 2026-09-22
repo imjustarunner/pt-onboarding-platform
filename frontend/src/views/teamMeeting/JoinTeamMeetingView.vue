@@ -57,7 +57,7 @@
         role="status"
       >
         <span class="join-transcript-banner__dot" aria-hidden="true" />
-        <p>This meeting is being transcribed. Live speech may be captured and summarized for attendees with workspace access.</p>
+        <p>{{ transcriptCapturing ? 'Speech capture is active in this browser. Captured speech may be summarized for attendees with workspace access.' : (transcriptHint || 'Transcription is enabled. Waiting for speech capture to start in this browser.') }}</p>
         <button
           type="button"
           class="join-transcript-banner__x"
@@ -422,7 +422,7 @@
           </div>
 
           <div v-else class="join-workspace__body join-workspace__body--stack">
-            <section class="join-stack-section">
+            <section v-if="meetingSettings?.agenda !== false" class="join-stack-section">
               <MeetingAgendaPanel
                 meeting-type="provider_schedule_event"
                 :meeting-id="resolvedEventId"
@@ -433,7 +433,7 @@
                 theme="dark"
               />
             </section>
-            <section v-if="!isGroupHuddle" class="join-stack-section">
+            <section v-if="!isGroupHuddle && meetingSettings?.goals !== false" class="join-stack-section">
               <MeetingGoalsActionsPanel
                 :event-id="resolvedEventId"
                 section="goals"
@@ -443,7 +443,7 @@
                 embedded
               />
             </section>
-            <section v-if="!isHuddle" class="join-stack-section">
+            <section v-if="!isHuddle && meetingSettings?.actionItems !== false" class="join-stack-section">
               <MeetingGoalsActionsPanel
                 :event-id="resolvedEventId"
                 section="actions"
@@ -799,15 +799,17 @@ const isAttendanceTrackingActive = computed(() => {
   const kind = String(meetingKind.value || '').toUpperCase();
   if (kind === 'HUDDLE') return true;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') return true;
+  if (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return true;
   return attendanceTrackingEnabled.value;
 });
 
 /** General meetings need the host to opt-in to transcription separately. */
+const meetingSettings = ref(null);
 const isAutoTranscriptKind = computed(() => {
+  if (typeof meetingSettings.value?.transcription === 'boolean') return meetingSettings.value.transcription;
   const kind = String(meetingKind.value || '').toUpperCase();
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  return kind === 'HUDDLE' || subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation';
+  return kind === 'HUDDLE' || subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation';
 });
 
 const transcriptEnabled = computed(() => (
@@ -989,7 +991,7 @@ const displayMeetingTitle = computed(() => {
   const subtype = String(meetingSubtype.value || '').toLowerCase();
   if (kind === 'HUDDLE') return isGroupHuddle.value ? 'Group Huddle' : 'Huddle';
   if (subtype === 'admin') return 'Admin Meeting';
-  if (subtype === 'town_hall') return 'Town Hall';
+  if (['town_hall','leadership_circle','supervisors_meeting'].includes(subtype)) return 'Town Hall';
   if (subtype === 'interview') return 'Interview';
   if (subtype === 'evaluation') return 'Employee Evaluation';
   if (kind === 'TEAM_MEETING') return isMultiParticipant.value ? 'Group Meeting' : 'Meeting';
@@ -1078,7 +1080,7 @@ const canEditAgenda = computed(() => {
 
 /** Multi-participant rooms restrict screen share to host (+ grants); 1:1 stays open. */
 const screenShareMode = computed(() => (
-  isMultiParticipant.value || isGroupHuddle.value ? 'restricted' : 'everyone'
+  meetingSettings.value?.screenShare === false ? 'restricted' : 'everyone'
 ));
 const canShareScreenByDefault = computed(() => {
   if (screenShareMode.value !== 'restricted') return true;
@@ -1097,11 +1099,12 @@ const showAttendanceTab = computed(() => {
 
 const showNotesTab = computed(() => {
   if (!canSeeFullWorkspace.value) return false;
+  if (meetingSettings.value?.transcription != null) return meetingSettings.value.transcription;
   const kind = String(meetingKind.value || '').toUpperCase();
   if (kind === 'HUDDLE') return true;
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = String(meetingSubtype.value || '').toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') return true;
+  if (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') return true;
   return transcriptionExplicitlyEnabled.value;
 });
 
@@ -1368,7 +1371,7 @@ async function resolveAndRedirect() {
 
     if (data.meetingSubtype || data.meeting_subtype) {
       const subtype = String(data.meetingSubtype || data.meeting_subtype || 'general').toLowerCase();
-      meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation')
+      meetingSubtype.value = (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation')
         ? subtype
         : 'general';
       if (meetingSubtype.value === 'interview') tileFocus.value = 'remote';
@@ -1458,6 +1461,7 @@ async function fetchTokenAndJoin({ afterLogin = false } = {}) {
     );
     applyTokenPayload(resp?.data || {});
     const payload = resp?.data || {};
+    meetingSettings.value = payload.meetingSettings || null;
     // Interviews only: if we somehow still got a guest token while authenticated as staff,
     // retry once after session hydrate — do not bounce to host link (403 for non-hosts).
     const joinedAsGuest = !!(payload.isGuest || String(payload.identity || '').startsWith('guest-'));
@@ -2047,8 +2051,9 @@ watch(
         skipGlobalLoading: true,
         skipAuthRedirect: true
       });
+      meetingSettings.value = data?.meetingSettings || null;
       const subtype = String(data?.meetingSubtype || 'general').toLowerCase();
-      meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') ? subtype : 'general';
+      meetingSubtype.value = (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') ? subtype : 'general';
       if (subtype === 'interview') tileFocus.value = 'remote';
       if (data?.kind) meetingKind.value = String(data.kind).toUpperCase();
       if (data?.attendanceTrackingEnabled != null) {
@@ -2075,7 +2080,7 @@ watch(
       if (att?.kind) meetingKind.value = String(att.kind).toUpperCase();
       if (att?.meetingSubtype) {
         const subtype = String(att.meetingSubtype).toLowerCase();
-        meetingSubtype.value = (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation')
+        meetingSubtype.value = (subtype === 'admin' || ['town_hall','leadership_circle','supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation')
           ? subtype
           : meetingSubtype.value;
         if (subtype === 'interview') tileFocus.value = 'remote';

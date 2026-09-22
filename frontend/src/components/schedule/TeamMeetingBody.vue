@@ -118,7 +118,7 @@
         </div>
       </div>
 
-      <div v-if="showNotifyOption && notifyParticipants" class="tmb-row">
+      <div v-if="showNotifyOption && notifyParticipants && showReminderOption" class="tmb-row">
         <label class="tmb-label">App reminder</label>
         <select aria-label="App reminder" class="tmb-input" :value="reminderMinutes ?? 'off'" :disabled="disabled" @change="emit('update:reminderMinutes', $event.target.value === 'off' ? null : Number($event.target.value))">
           <option value="off">No reminder</option>
@@ -152,6 +152,9 @@
         >
           <option v-if="showHuddleOption || meetingKind === 'huddle'" value="huddle">Huddle</option>
           <option v-if="showMeetingSubtype || meetingKind !== 'huddle'" value="general">General team meeting</option>
+          <option v-if="canSetInterviewSubtype || meetingSubtype === 'interview'" value="interview">Interview</option>
+          <option v-if="canSetLeadershipSubtype || meetingSubtype === 'leadership_circle'" value="leadership_circle">Leadership Circle</option>
+          <option v-if="canSetLeadershipSubtype || meetingSubtype === 'supervisors_meeting'" value="supervisors_meeting">Supervisors meeting</option>
           <option
             v-if="showMeetingSubtype && (canSetAdminSubtype || meetingSubtype === 'admin')"
             value="admin"
@@ -272,7 +275,7 @@
         <p v-else class="muted tmb-empty">No agenda items yet.</p>
       </div>
 
-      <div v-if="showGoalsActionsDraft" class="tmb-side-section" data-testid="tmb-goals-draft">
+      <div v-if="showGoalsActionsDraft && showGoalDraft" class="tmb-side-section" data-testid="tmb-goals-draft">
         <div class="tmb-side-head">
           <label class="tmb-label">Goals</label>
           <button type="button" class="tmb-link-btn" :disabled="disabled" @click="focusGoalAdd">+ Add goal</button>
@@ -433,6 +436,7 @@ const props = defineProps({
   /** When false, calendar/Google still sync but invite emails are suppressed. */
   notifyParticipants: { type: Boolean, default: true },
   reminderMinutes: { type: Number, default: 5 },
+  showReminderOption: {type:Boolean,default:true},
   showNotifyOption: { type: Boolean, default: true },
   /** When false, Virtual / platform / waiting-room switches live next to the join-link panel. */
   showVirtualOptions: { type: Boolean, default: true },
@@ -444,6 +448,7 @@ const props = defineProps({
   notes: { type: String, default: '' },
   /** When false (edit mode), agenda is managed in the live meeting panel instead */
   showAgendaDraft: { type: Boolean, default: true },
+  showGoalDraft: {type: Boolean, default: true},
   showGoalsActionsDraft: { type: Boolean, default: false },
   /** When false, hide action-item draft even if goals are shown (individual huddles). */
   showActionDraft: { type: Boolean, default: true },
@@ -455,6 +460,8 @@ const props = defineProps({
   isTrainingPayEligible: { type: Boolean, default: false },
   showMeetingSubtype: { type: Boolean, default: false },
   meetingSubtype: { type: String, default: 'general' },
+  canSetLeadershipSubtype: {type:Boolean,default:false},
+  canSetInterviewSubtype: {type:Boolean,default:false},
   canSetAdminSubtype: { type: Boolean, default: false },
   canSetEvaluationSubtype: { type: Boolean, default: false },
   /** agency_meeting | huddle */
@@ -520,7 +527,7 @@ function onTypeSelectChange(value) {
     return;
   }
   emit('update:meetingKind', 'agency_meeting');
-  emit('update:meetingSubtype', (v === 'admin' || v === 'town_hall' || v === 'evaluation') ? v : 'general');
+  emit('update:meetingSubtype', (v === 'admin' || v === 'town_hall' || v === 'evaluation' || v === 'interview' || v === 'leadership_circle' || v === 'supervisors_meeting') ? v : 'general');
 }
 
 function moveInList(list, idx, delta) {

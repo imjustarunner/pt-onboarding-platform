@@ -72,6 +72,7 @@
 
             <div class="briefing-layout">
               <div class="briefing-main">
+                <DashboardMeetings />
                 <div v-if="sections.length" class="briefing-card-grid">
                   <article
                     v-for="section in sections"
@@ -215,6 +216,7 @@
 </template>
 
 <script setup>
+import DashboardMeetings from '../meetings/DashboardMeetings.vue';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -927,7 +929,7 @@ onBeforeUnmount(() => {
 .briefing-modal--platform .briefing-header { background: transparent; }
 .briefing-eyebrow { color: var(--brief-primary); font-size: 12px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
 .briefing-modal--platform .briefing-eyebrow { color: #c4b5fd; }
-.briefing-header h1 { margin: 4px 0 3px; font-size: clamp(25px, 2.2vw, 36px); line-height: 1.1; }
+.briefing-header h1 { color: #1f2937; margin: 4px 0 3px; font-size: clamp(25px, 2.2vw, 36px); line-height: 1.1; }
 .briefing-header p { margin: 0; color: #526078; font-size: 14px; }
 .briefing-modal--platform .briefing-header p { color: #94a3b8; }
 .briefing-date { display: flex; align-items: center; gap: 10px; min-width: 180px; font-size: 12px; }
@@ -941,6 +943,7 @@ onBeforeUnmount(() => {
 .briefing-spinner { width: 23px; height: 23px; border: 3px solid #dbe5e0; border-top-color: var(--brief-primary); border-radius: 50%; animation: briefing-spin .75s linear infinite; }
 .briefing-warning { margin: 0 26px 12px 126px; padding: 9px 12px; border: 1px solid #fcd34d; border-radius: 8px; background: #fffbeb; color: #92400e; font-size: 12px; }
 .briefing-layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 18px; padding: 0 28px 18px 126px; }
+.briefing-modal--platform .briefing-header h1 { color: #f1f5f9; }
 .briefing-main { min-width: 0; }
 .briefing-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .briefing-card { min-height: 230px; display: flex; flex-direction: column; padding: 18px; border: 1px solid #dce2ea; border-radius: 12px; background: rgba(255,255,255,.92); box-shadow: 0 6px 24px rgba(15, 23, 42, .035); }

@@ -165,7 +165,7 @@ class ProviderVirtualWorkingHours {
   /**
    * Update a single virtual-working-hours row owned by the provider.
    */
-  static async updateRowForProvider({ id, agencyId, providerId, dayOfWeek, startTime, endTime }) {
+  static async updateRowForProvider({ id, agencyId, providerId, dayOfWeek, startTime, endTime, availableForIntake, availableForSession, frequency }) {
     const rowId = Number(id || 0);
     const aid = Number(agencyId || 0);
     const pid = Number(providerId || 0);
@@ -176,11 +176,25 @@ class ProviderVirtualWorkingHours {
     if (!DAY_SET.has(day) || !start || !end || end <= start) {
       throw new Error('Invalid day/time range');
     }
+    const assignments = ['day_of_week = ?', 'start_time = ?', 'end_time = ?'];
+    const values = [day, start, end];
+    if (availableForIntake != null || availableForSession != null) {
+      const sessionType = deriveSessionType({ availableForIntake, availableForSession });
+      const flags = flagsFromSessionType(sessionType);
+      assignments.push('session_type = ?', 'available_for_intake = ?', 'available_for_session = ?');
+      values.push(sessionType, Number(flags.availableForIntake), Number(flags.availableForSession));
+    }
+    if (frequency != null) {
+      if (!['WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'EITHER'].includes(String(frequency).toUpperCase())) {
+        throw new Error('Invalid recurring availability frequency');
+      }
+      assignments.push('frequency = ?');
+      values.push(normFrequency(frequency));
+    }
     const [result] = await pool.execute(
-      `UPDATE provider_virtual_working_hours
-       SET day_of_week = ?, start_time = ?, end_time = ?, updated_at = CURRENT_TIMESTAMP
+      `UPDATE provider_virtual_working_hours SET ${assignments.join(', ')}, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND agency_id = ? AND provider_id = ?`,
-      [day, start, end, rowId, aid, pid]
+      [...values, rowId, aid, pid]
     );
     if (!result?.affectedRows) {
       const err = new Error('Virtual working hours row not found');

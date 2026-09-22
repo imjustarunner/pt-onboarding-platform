@@ -558,7 +558,8 @@ export async function sendNotificationEmail({
   templateType = null,
   templateId = null,
   source = 'auto',
-  senderIdentityId = null
+  senderIdentityId = null,
+  replyToOverride = null
 }) {
   await assertMessageReminderRecipient({ templateType, userId, to });
   const gate = await canSendEmail({ source, agencyId });
@@ -716,7 +717,7 @@ export async function sendNotificationEmail({
   }
 
   const from = pickFromHeader({ displayName: identity.display_name, fromEmail: identity.from_email });
-  const replyTo = identity.reply_to || null;
+  const replyTo = String(replyToOverride || '').trim() || identity.reply_to || null;
   const signedContent = await finalizeOutboundContent({
     identity,
     text,
@@ -799,7 +800,7 @@ export async function sendNotificationEmail({
         triggerKey,
         senderIdentityId: identity.id,
         fromEmail: identity.from_email,
-        replyTo: identity.reply_to || null,
+        replyTo: String(replyToOverride || '').trim() || identity.reply_to || null,
         source,
         ...redirectMeta
       }
@@ -880,7 +881,7 @@ export async function sendNotificationEmail({
       impersonatedUser: getImpersonatedUser(),
       senderIdentityId: identity.id,
       fromEmail: identity.from_email,
-      replyTo: identity.reply_to || null,
+      replyTo: String(replyToOverride || '').trim() || identity.reply_to || null,
       ...redirectMeta
     }).catch(() => {});
   }

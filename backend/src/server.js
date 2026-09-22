@@ -2209,6 +2209,9 @@ if (!isBootstrap) {
     try {
       const { runJoinReminderTick } = await import('./services/joinReminder.service.js');
       await runJoinReminderTick();
+      const { sendConfiguredMeetingReminders } = await import('./services/meetingConfiguredReminders.service.js');
+      await sendConfiguredMeetingReminders();
+
     } catch (error) {
       const msg = String(error?.message || '');
       const missing =
@@ -2234,6 +2237,8 @@ if (!isBootstrap) {
     try {
       const { sendDueMeetingInvitations } = await import('./services/meetingInvitations.service.js');
       await sendDueMeetingInvitations();
+      const { sendDueMeetingChanges } = await import('./services/meetingScheduleChanges.service.js');
+      await sendDueMeetingChanges();
     } catch (error) { console.warn('[Meeting invitations] Worker failed', error.code || 'unknown'); }
     finally { meetingInvitationsInFlight = false; }
   };

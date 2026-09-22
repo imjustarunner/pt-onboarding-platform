@@ -47,7 +47,7 @@ class ProviderScheduleEvent {
     const subtype = kindUpper === 'TEAM_MEETING'
       && (
         requestedSubtype === 'admin'
-        || requestedSubtype === 'town_hall'
+        || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype)
         || requestedSubtype === 'interview'
         || requestedSubtype === 'evaluation'
       )
@@ -55,7 +55,7 @@ class ProviderScheduleEvent {
       : 'general';
     const attendanceTrackingEnabled = kindUpper === 'HUDDLE'
       || subtype === 'admin'
-      || subtype === 'town_hall'
+      || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype)
       || subtype === 'interview'
       || subtype === 'evaluation'
       ? 1
@@ -441,7 +441,7 @@ class ProviderScheduleEvent {
       const requestedSubtype = String(meetingSubtype || '').trim().toLowerCase();
       const nextSubtype = (
         requestedSubtype === 'admin'
-        || requestedSubtype === 'town_hall'
+        || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype)
         || requestedSubtype === 'interview'
         || requestedSubtype === 'evaluation'
       )

@@ -42,6 +42,7 @@
             {{ verifying ? 'Verifying…' : 'Unlock' }}
           </button>
         </form>
+        <template v-if="!sessionLockStore.lockConfig"><p v-if="error" class="session-lock-error" role="alert">{{ error }}</p><button type="button" class="btn btn-secondary" :disabled="verifying" @click="retryVerification">{{ verifying ? 'Checking…' : 'Retry sign-in check' }}</button></template>
         <button type="button" class="session-lock-logout" @click="logoutInstead">
           Log out instead
         </button>
@@ -56,7 +57,7 @@ import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
 import BrandingLogo from './BrandingLogo.vue';
 import { useSessionLockStore } from '../store/sessionLock';
-import { resumeSession } from '../utils/activityTracker';
+import { resumeSession, refetchSessionLockConfig } from '../utils/activityTracker';
 import { formatCountdownClock, resolveSessionTimeoutTenantKey, getTimedownVideoUrl, getTimedownPosterUrl, getMobileTimedownBgUrl } from '../utils/sessionTimeoutBranding';
 import { getCurrentPortalSlugFromHostCache, getCurrentPortalSlugFromPath } from '../utils/loginRedirect';
 
@@ -126,6 +127,10 @@ async function submitPin() {
   }
 }
 
+async function retryVerification() {
+  verifying.value=true;error.value='';
+  try { await refetchSessionLockConfig(); } catch { error.value='The session check could not reach the server. Check your connection and retry.'; } finally { verifying.value=false; }
+}
 function logoutInstead() {
   emit('logout');
 }

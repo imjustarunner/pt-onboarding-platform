@@ -1,3 +1,4 @@
+import { meetingReminderSchedule } from './meetingReminderPolicy.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { personalMeetingInvitation } from './meetingInvitations.service.js';
 import { escapeMeetingHtml } from './meetingInvitationPolicy.js';
@@ -10,6 +11,7 @@ import User from '../models/User.model.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
 import VonageService from './vonage.service.js';
 import { resolveReminderNumber } from './communicationRouting.service.js';
+import { meetingReplyTo } from './meetingParticipants.service.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import NotificationGatekeeperService from './notificationGatekeeper.service.js';
 import { isVideoConfigured } from './video.service.js';
@@ -85,10 +87,12 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
   // Prefer Quick View deep link for non-SSO / personal-email staff when configured
   let finalJoinUrl = joinUrl;
   let when = 'starting soon';
+  let replyTo;
   if (sessionType === 'team_meeting' || sessionType === 'supervision') {
     const table = sessionType === 'supervision' ? 'supervision_sessions' : 'provider_schedule_events';
     const [events] = await pool.execute(`SELECT * FROM ${table} WHERE id=?`,[sessionId]);
     if (events[0]) {
+      replyTo=await meetingReplyTo(sessionType==='supervision'?{...events[0],meeting_type:'supervision',provider_id:events[0].supervisor_user_id}:events[0]);
       finalJoinUrl = (await personalMeetingInvitation(events[0],userId)).url;
       const tz = events[0].event_timezone || 'America/Denver';
       when = `scheduled for ${new Intl.DateTimeFormat('en-US',{dateStyle:'medium',timeStyle:'short',timeZone:tz}).format(parseUtcDate(events[0].start_at))} (${tz})`;
@@ -148,6 +152,7 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
         agencyId,
         triggerKey: 'meeting_join_reminder',
         to: toEmail,
+        replyToOverride: replyTo,
         subject,
         text,
         html,
@@ -349,6 +354,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
          FROM provider_schedule_events pse
          WHERE UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
            AND (pse.status IS NULL OR pse.status = 'ACTIVE')
+           AND pse.meeting_settings_json IS NULL
            AND pse.reminder_minutes IS NOT NULL
            AND pse.meeting_completed_at IS NULL
            AND pse.start_at > ?
@@ -365,6 +371,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
          FROM provider_schedule_events pse
          WHERE UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
            AND (pse.status IS NULL OR pse.status = 'ACTIVE')
+           AND pse.meeting_settings_json IS NULL
            AND pse.start_at >= ? AND pse.start_at < ?
          ORDER BY pse.start_at ASC`,
         [startSql, endSql]
@@ -476,7 +483,7 @@ function reminderFireAtFromStart(startAt, minutes = WINDOW_START_MINUTES) {
   const d = parseUtcDate(startAt);
   if (!d) return null;
   d.setUTCMinutes(d.getUTCMinutes() - minutes);
-  return toSqlDatetimeUtc(d);
+  return d.toISOString();
 }
 
 /**
@@ -569,7 +576,7 @@ export async function buildScheduleEventNotificationPlan(eventRow) {
       inAppEnabled: emailEnabled
     });
 
-    const sentAt = sentByUserId.get(uid);
+    const sentAt = parseUtcDate(sentByUserId.get(uid))?.toISOString();
     if (sentAt) {
       items.push({
         id: `join-sent-${uid}`,
@@ -596,6 +603,28 @@ export async function buildScheduleEventNotificationPlan(eventRow) {
     }
   }
 
+  // Invitations and hiring delivery are separate from join reminders; expose both.
+  const [invitations] = await pool.execute(`SELECT i.user_id,COALESCE(uc.delivery_status,i.delivery_status) delivery_status,COALESCE(uc.sent_at,i.sent_at) sent_at,i.ready_at FROM meeting_email_invitations i LEFT JOIN user_communications uc ON uc.id=i.communication_id WHERE i.event_id=? AND i.meeting_type='team_meeting'`,[eventId]);
+  for(const invite of invitations) {
+    if(invite.delivery_status==='none')continue;
+    const person=attendees.find(a=>Number(a.userId)===Number(invite.user_id));
+    items.push({id:`invitation-${invite.user_id}`,kind:'booking',label:'Booking invitation',status:invite.delivery_status==='sent'?'Sent':invite.delivery_status==='approval'||invite.delivery_status==='pending_approval'?'Pending approval':invite.delivery_status==='pending'?'Scheduled':invite.delivery_status,channel:'email',recipientName:person?.name||'Participant',sentAt:parseUtcDate(invite.sent_at)?.toISOString(),scheduledFor:parseUtcDate(invite.ready_at)?.toISOString()});
+  }
+  const [interviews] = await pool.execute(`SELECT hi.candidate_user_id,hi.invite_sent_at,hi.invite_error,u.first_name,u.last_name FROM hiring_interviews hi JOIN users u ON u.id=hi.candidate_user_id WHERE hi.provider_schedule_event_id=?`,[eventId]);
+  for(const interview of interviews) {
+    const name=[interview.first_name,interview.last_name].filter(Boolean).join(' ');
+    attendees.push({userId:interview.candidate_user_id,name,displayName:name,emailEnabled:true,smsEnabled:false,inAppEnabled:false});
+    if(interview.invite_sent_at || interview.invite_error)items.push({id:`candidate-invite-${interview.candidate_user_id}`,kind:'booking',label:'Interview invitation',status:interview.invite_sent_at?'Sent':'Failed',channel:'email',recipientName:name,sentAt:parseUtcDate(interview.invite_sent_at)?.toISOString(),bodyPreview:interview.invite_error||'Interview booking invitation'});
+  }
+  if(eventRow.meeting_settings_json || interviews.length) {
+    for(let i=items.length-1;i>=0;i--)if(eventRow.meeting_settings_json && items[i].kind==='join_reminder'&&items[i].status==='Scheduled')items.splice(i,1);
+    const [deliveries]=await pool.execute('SELECT d.user_id,d.reminder_key,COALESCE(uc.sent_at,d.sent_at) sent_at,COALESCE(uc.delivery_status,d.delivery_status) delivery_status FROM meeting_reminder_deliveries d LEFT JOIN user_communications uc ON uc.id=d.communication_id WHERE d.event_id=? AND d.start_at=?',[eventId,eventRow.start_at]);
+    for(const person of attendees.filter(a=>eventRow.meeting_settings_json || interviews.some(i=>Number(i.candidate_user_id)===Number(a.userId))))for(const reminder of meetingReminderSchedule(eventRow)) {
+      const sent=deliveries.find(d=>Number(d.user_id)===Number(person.userId)&&d.reminder_key===reminder.key);
+      if(!sent&&(!notifyOn||reminder.at.getTime()<nowMs))continue;
+      items.push({id:`configured-${person.userId}-${reminder.key}`,kind:'join_reminder',label:`Meeting reminder · ${reminder.label}`,status:!sent?'Scheduled':['sent','delivered','read'].includes(sent.delivery_status)?'Sent':/pending|approval/.test(sent.delivery_status)?'Pending approval':sent.delivery_status,channel:'email',recipientName:person.name,sentAt:sent?.delivery_status==='sent'?parseUtcDate(sent?.sent_at)?.toISOString():undefined,scheduledFor:reminder.at.toISOString()});
+    }
+  }
   items.sort((a, b) => {
     const aRaw = a.sentAt || a.scheduledFor || a.fireAt || '';
     const bRaw = b.sentAt || b.scheduledFor || b.fireAt || '';

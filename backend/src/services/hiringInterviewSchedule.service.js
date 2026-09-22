@@ -1,3 +1,5 @@
+import { saveEventMeetingSettings } from './meetingSettings.service.js';
+import { queueMeetingInvitations } from './meetingInvitations.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { resolveInterviewSender, interviewDeliveryStatus } from './hiringInterviewSender.service.js';
 import { canAccessHiringInterview } from './hiringInterviewAccess.service.js';
@@ -240,9 +242,11 @@ export async function scheduleHiringInterview({
   let calendarWarning = null;
   let googleEventId = null;
   let googleHtmlLink = null;
+  const [agencyRows] = await pool.execute('SELECT name FROM agencies WHERE id=?',[agency]);
+  const agencyName = agencyRows[0]?.name || 'your agency';
   const descriptionParts = [
     `Hiring interview for ${candidateName}.`,
-    'Join with the PlotTwist interview link (app video). Google Meet is not used for this interview.'
+    `Join with the ${agencyName} interview link below.`
   ];
 
   try {
@@ -302,6 +306,9 @@ export async function scheduleHiringInterview({
   } catch (e) {
     console.warn('[scheduleHiringInterview] attendee upsert failed:', e?.message || e);
   }
+
+  await saveEventMeetingSettings(saved);
+  if (sendInvites) await queueMeetingInvitations(saved, interviewerIds);
 
   const guestToken = saved.participant_join_token || saved.join_token || null;
   const hostToken = saved.host_join_token || guestToken;

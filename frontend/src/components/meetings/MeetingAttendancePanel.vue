@@ -33,12 +33,13 @@
         >
           <span class="map__name">
             {{ p.name }}
+            <span v-if="p.isCohost && !p.isHost" class="map__host">Co-host</span>
             <span v-if="p.isHost" class="map__host">{{ t('Host', lang) }}</span>
             <span v-else-if="p.isRequired === false" class="map__optional">{{ t('Optional', lang) }}</span>
             <span v-else class="map__required">{{ t('Mandatory', lang) }}</span>
             <span v-if="participantHasRaisedHand(p)" class="map__hand-hint" title="Hand raised">✋</span>
             <span v-if="participantIsMuted(p)" class="map__mute-hint" title="Muted">{{ t('Muted', lang) }}</span>
-            <span class="map__status map__status--active">{{ t('In room', lang) }}</span>
+            <span class="map__status map__status--active">{{ p.isPresent ? t('In room', lang) : 'Attended' }}</span>
           </span>
           <span v-if="trackingEnabled" class="map__mins">
             {{ formatMins(p.totalMinutes) }}
@@ -58,7 +59,7 @@
       <!-- Invited but not yet in room -->
       <template v-if="absentParticipants.length">
         <button type="button" class="map__invited-toggle" @click="showAbsent = !showAbsent">
-          {{ showAbsent ? 'Hide' : 'Show' }} {{ absentParticipants.length }} invited{{ showAbsent ? '' : ' not yet here' }}
+          {{ showAbsent ? 'Hide' : 'Show' }} {{ absentParticipants.length }} {{ meetingCompletedAt ? 'did not attend' : 'invited · not yet here' }}
           <span class="map__invited-caret" :class="{ 'map__invited-caret--open': showAbsent }">▾</span>
         </button>
         <ul v-if="showAbsent" class="map__list map__list--absent">
@@ -69,7 +70,8 @@
           >
             <span class="map__name">
               {{ p.name }}
-              <span v-if="p.isHost" class="map__host">Host</span>
+              <span v-if="p.isCohost && !p.isHost" class="map__host">Co-host</span>
+            <span v-if="p.isHost" class="map__host">Host</span>
               <span v-else-if="p.isRequired === false" class="map__optional">Optional</span>
               <span v-else class="map__required">Mandatory</span>
               <span v-if="p.leftAt" class="map__status map__status--left">Left {{ formatWhen(p.leftAt) }}</span>
@@ -85,11 +87,13 @@
         </ul>
       </template>
     </template>
+    <MeetingParticipantsDetails v-if="meetingKind === 'team-meeting'" :event-id="eventId" @updated="load" />
     <p v-if="copied" class="map__copied">Copied</p>
   </div>
 </template>
 
 <script setup>
+import MeetingParticipantsDetails from './MeetingParticipantsDetails.vue';
 import { ref, watch, onMounted, onUnmounted, computed } from 'vue';
 import api from '../../services/api';
 import { t, useMeetingLang } from '../../composables/useMeetingI18n.js';
@@ -117,9 +121,9 @@ const props = defineProps({
 });
 
 const mutedCount = computed(() => (props.mutedNames || []).length);
-const presentParticipants = computed(() => (participants.value || []).filter((p) => p.isPresent));
-const absentParticipants = computed(() => (participants.value || []).filter((p) => !p.isPresent));
-const presentCount = computed(() => presentParticipants.value.length);
+const presentParticipants = computed(() => (participants.value || []).filter((p) => p.isPresent || (props.trackingEnabled && (Number(p.totalMinutes) > 0 || Number(p.segmentCount) > 0))));
+const absentParticipants = computed(() => (participants.value || []).filter((p) => !presentParticipants.value.includes(p)));
+const presentCount = computed(() => participants.value.filter(p => p.isPresent).length);
 
 const loading = ref(false);
 const error = ref('');

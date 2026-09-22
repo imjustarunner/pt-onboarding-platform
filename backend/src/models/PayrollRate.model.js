@@ -88,6 +88,11 @@ class PayrollRate {
   }
 
   static async findBestRate({ agencyId, userId, serviceCode, asOf = null }) {
+    if (serviceCode === 'Supervisor meeting') {
+      const individual = await this.findBestRate({agencyId,userId,serviceCode:'99415',asOf});
+      if (!individual || !(Number(individual.rate_amount)>0)) return null;
+      return {...individual,service_code:serviceCode,rate_amount:Number(individual.rate_amount)*0.5,rate_unit:'per_hour'};
+    }
     // Pick the most recent rate effective at asOf (or latest).
     const params = [agencyId, userId, serviceCode];
     let where = 'agency_id = ? AND user_id = ? AND service_code = ?';

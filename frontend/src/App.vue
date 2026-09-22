@@ -1980,6 +1980,7 @@
 
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
         <ProviderAvailabilityNotice v-if="isAuthenticated && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
+        <DashboardMeetings v-if="authStore.isAuthenticated && /dashboard/i.test(route.path)" />
         <router-view :key="route.path" />
       </main>
       <PublicTranslateWidget v-if="showPublicTranslateWidget" />
@@ -2282,6 +2283,7 @@
 </template>
 
 <script setup>
+import DashboardMeetings from './components/meetings/DashboardMeetings.vue';
 import { ref, computed, watch, onMounted, onUnmounted, unref, nextTick, provide } from 'vue';
 import { Capacitor } from '@capacitor/core';
 const isNative = Capacitor.isNativePlatform();

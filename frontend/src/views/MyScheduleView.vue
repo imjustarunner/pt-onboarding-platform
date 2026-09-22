@@ -53,6 +53,8 @@
           :active-hub-view="'self'"
           schedule-title="My Schedule"
           :week-start-ymd="weekStartYmd || null"
+          :focus-event-id="Number(route.query.eventId || 0)"
+          :focus-event-kind="String(route.query.eventKind || '')"
           :show-skill-builders-programs-button="true"
           :show-company-events-calendar-button="true"
           @update:weekStartYmd="onWeekStartUpdate"
@@ -129,7 +131,7 @@ const onSelectHubView = (viewId) => {
   }).catch(() => {});
 };
 
-const weekStartYmd = ref('');
+const weekStartYmd = ref(/^\d{4}-\d{2}-\d{2}$/.test(String(route.query.weekStart || '')) ? String(route.query.weekStart) : '');
 const onWeekStartUpdate = (ymd) => {
   const next = String(ymd || '').slice(0, 10);
   if (next) weekStartYmd.value = next;

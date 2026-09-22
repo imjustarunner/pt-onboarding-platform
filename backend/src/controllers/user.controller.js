@@ -1,3 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { captureMeetingChange, queueMeetingChange } from '../services/meetingScheduleChanges.service.js';
+import { saveEventMeetingSettings, assertMeetingCompensationSetting } from '../services/meetingSettings.service.js';
+import { ADMIN_ONLY_MEETING_TYPES, normalizeMeetingSettings } from '../services/meetingSettingsPolicy.js';
 import { getPasswordRecoverySsoState, passwordRecoveryRequiresSupport } from '../services/passwordRecoveryPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
@@ -4889,7 +4893,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         );
         const meetingSubtypeNorm = (() => {
           const subtype = String(r.meeting_subtype || 'general').trim().toLowerCase();
-          if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'interview' || subtype === 'evaluation') {
+          if (subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'interview' || subtype === 'evaluation') {
             return subtype;
           }
           return 'general';
@@ -4937,7 +4941,10 @@ export const getUserScheduleSummary = async (req, res, next) => {
           isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
           isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,
           meetingSubtype: meetingSubtypeNorm,
+          meetingSettings: r.meeting_settings_json ? (typeof r.meeting_settings_json === 'string' ? JSON.parse(r.meeting_settings_json) : r.meeting_settings_json) : null,
           attendanceTrackingEnabled: (() => {
+            const settings = typeof r.meeting_settings_json === 'string' ? JSON.parse(r.meeting_settings_json) : r.meeting_settings_json;
+            if (typeof settings?.attendance === 'boolean') return settings.attendance;
             if (kind === 'HUDDLE') return true;
             if (meetingSubtypeNorm === 'admin' || meetingSubtypeNorm === 'town_hall' || meetingSubtypeNorm === 'interview' || meetingSubtypeNorm === 'evaluation') return true;
             return Number(r.attendance_tracking_enabled || 0) === 1;
@@ -6257,8 +6264,11 @@ export const createUserScheduleEvent = async (req, res, next) => {
     const requestedSubtype = String(req.body?.meetingSubtype || req.body?.meeting_subtype || 'general')
       .trim()
       .toLowerCase();
+    if (ADMIN_ONLY_MEETING_TYPES.has(requestedSubtype) && !['admin','super_admin','superadmin'].includes(actorRole)) return res.status(403).json({error:{message:'Only administrators can schedule this meeting type.'}});
+    if (req.body?.meetingSettings != null) normalizeMeetingSettings(req.body.meetingSettings);
+    await assertMeetingCompensationSetting({agencyId,type:kind==='HUDDLE'?'huddle':requestedSubtype,input:req.body?.meetingSettings,role:actorRole});
     let meetingSubtype = 'general';
-    if (kind === 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall' || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
+    if (kind === 'TEAM_MEETING' && (requestedSubtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype) || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
       if (requestedSubtype === 'interview') {
         const { getUserCapabilities } = await import('../utils/capabilities.js');
         const caps = getUserCapabilities(req.user, { effectiveRole: req.user?.effectiveRole });
@@ -6283,14 +6293,14 @@ export const createUserScheduleEvent = async (req, res, next) => {
       } else if (!canSetPrivilegedMeetingSubtype) {
         return res.status(403).json({
           error: {
-            message: requestedSubtype === 'town_hall'
+            message: ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype)
               ? 'Only admin, support, or super admin can schedule Town Hall meetings.'
               : 'Only admin, support, or super admin can schedule Admin Meetings.'
           }
         });
       }
       meetingSubtype = requestedSubtype;
-    } else if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall' || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
+    } else if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype) || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
       return res.status(400).json({
         error: { message: 'Admin Meeting, Town Hall, Interview, and Evaluation subtypes are only valid for team meetings.' }
       });
@@ -6527,6 +6537,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
           console.warn('[createUserScheduleEvent] training pay claim sync failed', payErr?.message || payErr);
         }
       }
+      if (saved?.id && isAppMeeting) await saveEventMeetingSettings(saved, req.body?.meetingSettings);
       if (saved?.id && meetingSubtype === 'evaluation') {
         try {
           const { createEvaluationCycle, currentEvaluationPeriod } = await import('../services/employeeEvaluation.service.js');
@@ -6765,7 +6776,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const disallowedKeys = [
         'title', 'description', 'attendeeUserIds', 'invitedGroupIds', 'clientId',
         'isPrivate', 'meetingSubtype', 'meeting_subtype', 'isTrainingPayEligible',
-        'waitingRoomEnabled', 'notifyParticipants', 'reminderMinutes', 'agencyId'
+        'waitingRoomEnabled', 'notifyParticipants', 'reminderMinutes', 'meetingSettings', 'notifyChanges', 'agencyId'
       ];
       const attempted = disallowedKeys.filter((k) => Object.prototype.hasOwnProperty.call(req.body || {}, k));
       if (attempted.length) {
@@ -6955,17 +6966,18 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const requestedSubtype = String(req.body?.meetingSubtype || req.body?.meeting_subtype || 'general')
         .trim()
         .toLowerCase();
-      if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || requestedSubtype === 'town_hall' || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
+      if (ADMIN_ONLY_MEETING_TYPES.has(requestedSubtype) && !['admin','super_admin','superadmin'].includes(actorRole)) return res.status(403).json({error:{message:'Only administrators can schedule this meeting type.'}});
+      if (kind !== 'TEAM_MEETING' && (requestedSubtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype) || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
         return res.status(400).json({
           error: { message: 'Admin Meeting, Town Hall, Interview, and Evaluation subtypes are only valid for team meetings.' }
         });
       }
-      if (requestedSubtype === 'admin' || requestedSubtype === 'town_hall') {
+      if (requestedSubtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype)) {
         const canSetPrivilegedMeetingSubtype = ['super_admin', 'superadmin', 'admin', 'support'].includes(actorRole);
         if (!canSetPrivilegedMeetingSubtype) {
           return res.status(403).json({
             error: {
-              message: requestedSubtype === 'town_hall'
+              message: ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype)
                 ? 'Only admin, support, or super admin can set Town Hall subtype.'
                 : 'Only admin, support, or super admin can set Admin Meeting subtype.'
             }
@@ -7046,6 +7058,12 @@ export const updateUserScheduleEvent = async (req, res, next) => {
 
     const { applyClockTimesToOccurrence } = await import('../utils/seriesTimeShift.js');
     let updated = null;
+    if (req.body?.meetingSettings != null) normalizeMeetingSettings(req.body.meetingSettings);
+    await assertMeetingCompensationSetting({agencyId:target.agency_id,existing:target,type:kind==='HUDDLE'?'huddle':nextMeetingSubtype || target.meeting_subtype,input:req.body?.meetingSettings,role:actorRole});
+    const meetingChangeBefore = new Map();
+    if (['TEAM_MEETING','HUDDLE'].includes(kind)) {
+      for (const occurrence of rowsToUpdate) meetingChangeBefore.set(Number(occurrence.id), await captureMeetingChange(occurrence));
+    }
     for (const occ of rowsToUpdate) {
       const occId = Number(occ.id || 0);
       if (!occId) continue;
@@ -7099,6 +7117,10 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     }
     if (!updated) {
       updated = await ProviderScheduleEvent.findByIdForProvider({ eventId, providerId: hostProviderId });
+    }
+
+    if (['TEAM_MEETING','HUDDLE'].includes(kind) && req.body?.meetingSettings !== undefined) {
+      for (const occurrence of rowsToUpdate) await saveEventMeetingSettings(await ProviderScheduleEvent.findById(occurrence.id), req.body.meetingSettings);
     }
 
     if (wantsAttendeeUpdate && attendeeUserIds) {
@@ -7219,9 +7241,12 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       }).catch(() => {});
     }
 
-    if (['TEAM_MEETING','HUDDLE'].includes(kind) && Number(updated?.notify_participants ?? 1)!==0 && (timingChanged || wantsAttendeeUpdate || req.body?.title !== undefined || req.body?.description !== undefined)) {
-      const freshEvents = await Promise.all(rowsToUpdate.map(e=>ProviderScheduleEvent.findById(e.id)));
-      await sendMeetingScheduleChange(freshEvents.filter(Boolean),'updated');
+    if (['TEAM_MEETING','HUDDLE'].includes(kind)) {
+      const changeBatchKey = randomUUID();
+      for (const occurrence of rowsToUpdate) {
+        const fresh = await ProviderScheduleEvent.findById(occurrence.id);
+        await queueMeetingChange(fresh,meetingChangeBefore.get(Number(occurrence.id)),req.body?.notifyChanges !== false && Number(fresh.notify_participants ?? 1)!==0,changeBatchKey);
+      }
     }
     return res.json({
       ok: true,

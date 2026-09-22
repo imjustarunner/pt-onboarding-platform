@@ -90,7 +90,7 @@
           >
             Join session
           </button>
-          <button type="button" class="btn-linkish" @click="goSchedule">
+          <button type="button" class="btn-linkish" @click="goSchedule(detailItem)">
             Open in schedule
           </button>
         </footer>
@@ -100,7 +100,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import { formatViewerTimeRangeMs } from '../../../utils/timezones.js';
 import { parseScheduleUtcInstant } from '../../../utils/scheduleEventInstants.js';
@@ -117,6 +117,10 @@ const loading = ref(true);
 const error = ref('');
 const items = ref([]);
 const detailItem = ref(null);
+const now = ref(Date.now());
+let clockTimer;
+onMounted(() => { clockTimer = setInterval(() => { now.value = Date.now(); }, 15000); });
+onUnmounted(() => clearInterval(clockTimer));
 
 function eventsOverlap(a, b) {
   const a0 = a.startMs ?? 0;
@@ -238,7 +242,8 @@ function resolveJoinUrl(item) {
 }
 
 function canJoinItem(item) {
-  return !!resolveJoinUrl(item);
+  return !['CANCELLED','CANCELED','COMPLETED'].includes(String(item?.status || '').toUpperCase()) && !!resolveJoinUrl(item) && Number.isFinite(item?.startMs) && Number.isFinite(item?.endMs)
+    && now.value >= item.startMs - 5 * 60000 && now.value < item.endMs;
 }
 
 function joinItem(item) {
@@ -260,9 +265,10 @@ function closeDetail() {
   detailItem.value = null;
 }
 
-function goSchedule() {
+function goSchedule(item = null) {
+  const query = item?.eventId ? `?eventId=${item.eventId}&eventKind=${encodeURIComponent(item.eventKind || item.kind || '')}&weekStart=${startOfWeekMondayYmd(new Date(item.startMs))}` : '';
   closeDetail();
-  emit('navigate', props.schedulePath);
+  emit('navigate', `${props.schedulePath}${query}`);
 }
 
 function scheduleJoinFields(e, kind) {
@@ -418,6 +424,7 @@ onMounted(load);
 </script>
 
 <style scoped>
+.join-btn { min-width: 110px; min-height: 44px; font-size: 1rem !important; font-weight: 800; }
 .ops-day-schedule {
   background: #fff;
   border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);

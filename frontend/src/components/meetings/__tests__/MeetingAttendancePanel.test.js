@@ -7,6 +7,12 @@ const apiMock = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../../../services/api', () => ({ default: apiMock }));
 
 describe('MeetingAttendancePanel', () => {
+  it('shows departed attendees with recorded time instead of hiding them as absent',async()=>{
+    apiMock.get.mockResolvedValue({data:{meetingCompletedAt:'2026-09-21T23:06:00Z',participants:[{userId:7,name:'Attended person',isPresent:false,totalMinutes:59.3,segmentCount:3},{userId:8,name:'Absent person',isPresent:false,totalMinutes:0}]}});
+    const wrapper=mount(MeetingAttendancePanel,{props:{eventId:42},global:{stubs:{MeetingParticipantsDetails:true}}});await flushPromises();
+    expect(wrapper.text()).toContain('Attended person');expect(wrapper.text()).toContain('59.3m');expect(wrapper.text()).not.toContain('No attendance recorded');expect(wrapper.text()).toContain('1 did not attend');wrapper.unmount();
+  });
+
   beforeEach(() => {
     apiMock.get.mockReset();
     apiMock.get.mockResolvedValue({
@@ -22,6 +28,7 @@ describe('MeetingAttendancePanel', () => {
 
   it('shows live participants without implying their time is tracked', async () => {
     const wrapper = mount(MeetingAttendancePanel, {
+      global: {stubs:{MeetingParticipantsDetails:true}},
       props: { eventId: 42, trackingEnabled: false }
     });
     await flushPromises();
@@ -46,6 +53,7 @@ describe('MeetingAttendancePanel', () => {
       }
     });
     const wrapper = mount(MeetingAttendancePanel, {
+      global: {stubs:{MeetingParticipantsDetails:true}},
       props: { eventId: 42, trackingEnabled: false }
     });
     await flushPromises();

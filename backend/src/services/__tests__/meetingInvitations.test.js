@@ -4,6 +4,7 @@ const m = vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),lock:vi.fn(),release:vi.
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.lock,release:m.release})}}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendNotificationEmail:m.send}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async id=>`https://tenant${id}.example.com`}));
+vi.mock('../meetingParticipants.service.js',()=>({meetingReplyTo:async()=> 'host@example.com',meetingParticipantRows:async()=>[],meetingEmailDetails:async()=>''}));
 import { personalMeetingInvitation, resolvePersonalMeetingInvitation, sendDueMeetingInvitations, invitationEvents } from '../meetingInvitations.service.js';
 const token = 'a'.repeat(32);
 const event = {id:10,agency_id:2,provider_id:3,title:'Leadership <meeting>',start_at:'2026-09-28 22:00:00',end_at:'2026-09-28 23:00:00',event_timezone:'America/Denver',participant_join_token:'participant',host_join_token:'SECRET',recurrence_series_id:'series',recurrence_frequency:'WEEKLY'};
@@ -72,6 +73,6 @@ describe('durable invitation delivery',()=>{
   });
   it('prevents concurrent replicas sending the same invite',async()=>{m.lock.mockResolvedValue([[{acquired:0}]]);await sendDueMeetingInvitations();expect(m.send).not.toHaveBeenCalled();});
   it('does not replay a delivery that completed while waiting for the lock',async()=>{m.lock.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:[[]]);await sendDueMeetingInvitations();expect(m.send).not.toHaveBeenCalled();});
-  it('does not label approval-queued email as sent or repeatedly enqueue it',async()=>{m.send.mockResolvedValue({queued:true,pendingApproval:true});await sendDueMeetingInvitations();expect(m.lock).toHaveBeenCalledWith(expect.stringContaining('delivery_status=?'),['approval',1]);});
+  it('does not label approval-queued email as sent or repeatedly enqueue it',async()=>{m.send.mockResolvedValue({queued:true,pendingApproval:true});await sendDueMeetingInvitations();expect(m.lock).toHaveBeenCalledWith(expect.stringContaining('delivery_status=?'),['approval','approval',null,1]);});
   it('backs off on disabled email instead of flooding requests',async()=>{m.send.mockResolvedValue({skipped:true});await sendDueMeetingInvitations();expect(m.lock.mock.calls.some(([sql])=>sql.includes('INTERVAL 1 HOUR'))).toBe(true);});
 });

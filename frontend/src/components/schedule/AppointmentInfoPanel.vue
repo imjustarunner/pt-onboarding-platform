@@ -16,7 +16,7 @@
           <div class="aip-v">{{ typeLabel || '—' }}</div>
         </div>
       </div>
-      <div class="aip-card">
+      <div v-if="statusLabel" class="aip-card">
         <span class="aip-ico aip-ico--green" aria-hidden="true">●</span>
         <div>
           <div class="aip-k">Status</div>

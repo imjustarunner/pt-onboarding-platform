@@ -1,11 +1,14 @@
+import PayrollSalaryPosition from '../models/PayrollSalaryPosition.model.js';
+import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 /**
  * Auto time claims for Huddle / Admin Meeting / Town Hall compensation.
  *
  * - Huddle host → Individual Meeting
  * - Huddle attendees → MEETING
  * - Admin Meeting / Town Hall participants (host + attendees) → MEETING
- * - Supervisors on Admin Meetings → Admin Time (admin compensation rate)
- * - admin / super_admin / support: only if they have MEETING (or Admin Time) rate > 0
+ * - Supervisors on leadership/admin/supervisor meetings → 50% of individual supervision
+ * - Administrators and staff salaried on the meeting date receive no extra meeting pay
  */
 import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
@@ -18,7 +21,7 @@ export const COMP_CLAIM_SOURCE = 'meeting_compensation_auto';
 export const HUDDLE_HOST_SERVICE_CODE = 'Individual Meeting';
 export const MEETING_SERVICE_CODE = 'MEETING';
 export const ADMIN_TIME_SERVICE_CODE = 'Admin Time';
-export const ADMIN_SALARY_ROLES = new Set(['admin', 'super_admin', 'superadmin', 'support']);
+export const ADMIN_SALARY_ROLES = new Set(['admin', 'super_admin', 'superadmin']);
 
 function wallPartsFromMysqlDateTime(raw) {
   if (raw instanceof Date && !Number.isNaN(raw.getTime())) {
@@ -57,8 +60,11 @@ function resolveClaimDate(event) {
     const ymd = String(event?.start_date || '').slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
   }
-  const parts = wallPartsFromMysqlDateTime(event?.start_at);
-  return parts?.ymd || null;
+  const date = parseUtcDate(event?.start_at);
+  if (!date) return null;
+  const parts = new Intl.DateTimeFormat('en-CA',{timeZone:event.event_timezone || 'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+  const get=k=>parts.find(p=>p.type===k)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
 function buildPlatformLabel(event) {
@@ -69,16 +75,18 @@ function buildPlatformLabel(event) {
 
 export function normalizeMeetingSubtype(value) {
   const subtype = String(value || 'general').trim().toLowerCase();
-  if (subtype === 'admin' || subtype === 'town_hall' || subtype === 'evaluation') return subtype;
+  if (subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'evaluation') return subtype;
   return 'general';
 }
 
 export function isCompensationClaimMeeting(event) {
+  const settings = parseMeetingSettings(event?.meeting_settings_json);
+  if (typeof settings.compensation === 'boolean') return settings.compensation;
   const kind = String(event?.kind || '').trim().toUpperCase();
   if (kind === 'HUDDLE') return true;
   if (kind !== 'TEAM_MEETING') return false;
   const subtype = normalizeMeetingSubtype(event?.meeting_subtype ?? event?.meetingSubtype);
-  return subtype === 'admin' || subtype === 'town_hall' || subtype === 'evaluation';
+  return subtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(subtype) || subtype === 'evaluation';
 }
 
 export function meetingTypeLabelForEvent(event) {
@@ -87,6 +95,8 @@ export function meetingTypeLabelForEvent(event) {
   const subtype = normalizeMeetingSubtype(event?.meeting_subtype ?? event?.meetingSubtype);
   if (subtype === 'admin') return 'Admin Meeting';
   if (subtype === 'town_hall') return 'Town Hall';
+  if (subtype === 'leadership_circle') return 'Leadership Circle';
+  if (subtype === 'supervisors_meeting') return 'Supervisors meeting';
   if (subtype === 'evaluation') return 'Employee Evaluation';
   return 'Team Meeting';
 }
@@ -173,13 +183,12 @@ export async function findSubmittedCompensationClaim({
      WHERE agency_id = ?
        AND user_id = ?
        AND claim_type = 'meeting_training'
-       AND status = 'submitted'
+       AND status IN ('submitted','approved','paid','deferred','needs_changes','rejected')
        AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.scheduleEventId')) AS UNSIGNED) = ?
        AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.source')) = ?
-       AND UPPER(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.serviceCode')), ''))) = UPPER(?)
      ORDER BY id DESC
      LIMIT 1`,
-    [aid, uid, eid, COMP_CLAIM_SOURCE, code]
+    [aid, uid, eid, COMP_CLAIM_SOURCE]
   );
   const row = rows?.[0] || null;
   if (!row) return null;
@@ -196,8 +205,8 @@ function buildPayload({
   compensationNote = null
 }) {
   const title = String(event?.title || meetingType).trim() || meetingType;
-  const startParts = wallPartsFromMysqlDateTime(event?.start_at);
-  const endParts = wallPartsFromMysqlDateTime(event?.end_at);
+  const localTime = raw => { const date=parseUtcDate(raw); return date ? new Intl.DateTimeFormat('en-GB',{timeZone:event.event_timezone || 'America/Denver',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(date) : null; };
+  const startTime=localTime(event?.start_at),endTime=localTime(event?.end_at);
   return {
     meetingType,
     platform: buildPlatformLabel(event),
@@ -207,11 +216,11 @@ function buildPayload({
     scheduleEventId: Number(event?.id || 0) || null,
     attestation: true,
     source: COMP_CLAIM_SOURCE,
-    totalMinutes: Math.max(1, Math.round(Number(totalMinutes) || 0)),
+    totalMinutes: Math.max(1, Math.round((Number(totalMinutes) || 0) * 100) / 100),
     ...(categoryLabel ? { categoryLabel } : {}),
     ...(compensationNote ? { compensationNote } : {}),
-    ...(startParts?.hm ? { startTime: startParts.hm } : {}),
-    ...(endParts?.hm ? { endTime: endParts.hm } : {})
+    ...(startTime ? { startTime } : {}),
+    ...(endTime ? { endTime } : {})
   };
 }
 
@@ -240,6 +249,7 @@ async function upsertClaim({
     return { ok: false, skipped: true, error: win?.errorMessage || 'outside submission window' };
   }
 
+  if (existing?.id && existing.status !== 'submitted') return {ok:true,skipped:true,error:`existing_${existing.status}_claim`,claimId:existing.id,userId};
   if (existing?.id) {
     await PayrollTimeClaim.resubmit({
       id: existing.id,
@@ -265,7 +275,24 @@ async function upsertClaim({
 /**
  * Sync compensation time claims for one Huddle / Admin Meeting / Town Hall event.
  */
-export async function syncCompensationClaimsForEvent({
+export async function syncCompensationClaimsForEvent(options = {}) {
+  const id = Number(options.eventId || options.event?.id);
+  if (!id) return { ok: false, skipped: true, error: 'event_not_found', results: [] };
+  const db = await pool.getConnection();
+  const lock = `meeting-compensation:${id}`;
+  let acquired = false;
+  try {
+    const [rows] = await db.execute('SELECT GET_LOCK(?, 0) acquired', [lock]);
+    acquired = !!rows[0]?.acquired;
+    if (!acquired) return { ok: true, skipped: true, error: 'sync_in_progress', results: [] };
+    return await syncCompensationClaimsUnlocked(options);
+  } finally {
+    if (acquired) await db.execute('SELECT RELEASE_LOCK(?)', [lock]);
+    db.release();
+  }
+}
+
+async function syncCompensationClaimsUnlocked({
   eventId = null,
   event = null,
   actorUserId = null,
@@ -330,7 +357,7 @@ export async function syncCompensationClaimsForEvent({
     for (const uid of minutesByUser.keys()) participantIds.add(uid);
 
     // Once segments exist (or meeting completed), never fall back to full scheduled duration.
-    const useScheduledFallback = allowScheduledFallback && !hasSegments && !row.meeting_completed_at;
+    const useScheduledFallback = false; // Invitations alone never establish payable attendance.
     if (!minutesByUser.size && !(useScheduledFallback && meetingEnded && scheduledMinutes >= 1)) {
       return { ok: true, skipped: true, error: 'waiting_for_attendance_or_end', results: [] };
     }
@@ -348,18 +375,19 @@ export async function syncCompensationClaimsForEvent({
         payRateSource = 'individual_meeting';
       }
 
-      const role = uid === hostId
-        ? String(row.host_role || '').trim().toLowerCase()
-        : await loadUserRole(uid);
+      const role = await loadUserRole(uid);
+      if (ADMIN_SALARY_ROLES.has(role)) { results.push({userId:uid,ok:true,skipped:true,error:'admin_not_compensated'}); continue; }
+      const salary = await PayrollSalaryPosition.findActiveForUser({agencyId,userId:uid,asOfDate:claimDate});
+      if (Number(salary?.salary_per_pay_period)>0) { results.push({userId:uid,ok:true,skipped:true,error:'salary_not_compensated'}); continue; }
 
-      // Supervisors present in Admin Meetings are paid at Admin Time (not MEETING).
-      if (kind === 'TEAM_MEETING' && meetingSubtype === 'admin') {
+      // Supervisor meeting time uses half the effective individual-supervision rate.
+      if (kind === 'TEAM_MEETING' && ['admin','leadership_circle','supervisors_meeting'].includes(meetingSubtype)) {
         const isSupervisor = await loadUserIsSupervisor(uid);
         if (isSupervisor) {
-          serviceCode = ADMIN_TIME_SERVICE_CODE;
-          payRateSource = 'admin_time';
-          categoryLabel = 'Admin Meeting (Supervisor)';
-          compensationNote = 'Supervisor Admin Meeting attendance is compensated at the Admin Time rate on the compensation schedule.';
+          serviceCode = 'Supervisor meeting';
+          payRateSource = 'individual_supervision_half';
+          categoryLabel = `${meetingType} (Supervisor)`;
+          compensationNote = '50% of the individual supervision hourly rate (99415) in effect on the meeting date.';
         }
       }
 
@@ -371,32 +399,9 @@ export async function syncCompensationClaimsForEvent({
         continue;
       }
 
-      // Admin/support/superadmin: require usable rate for the code they will be paid under.
-      if (ADMIN_SALARY_ROLES.has(role)) {
-        const gateCode = serviceCode === HUDDLE_HOST_SERVICE_CODE || serviceCode === ADMIN_TIME_SERVICE_CODE
-          ? serviceCode
-          : MEETING_SERVICE_CODE;
-        const okRate = await hasUsableRate({
-          agencyId,
-          userId: uid,
-          serviceCode: gateCode,
-          asOf: claimDate
-        });
-        if (!okRate) {
-          results.push({ userId: uid, ok: true, skipped: true, error: 'no_meeting_rate_for_admin' });
-          continue;
-        }
-      } else {
-        const okRate = await hasUsableRate({
-          agencyId,
-          userId: uid,
-          serviceCode,
-          asOf: claimDate
-        });
-        if (!okRate) {
-          results.push({ userId: uid, ok: true, skipped: true, error: 'no_usable_rate' });
-          continue;
-        }
+      if (!(await hasUsableRate({agencyId,userId:uid,serviceCode,asOf:claimDate}))) {
+        results.push({ userId: uid, ok: true, skipped: true, error: 'no_usable_rate' });
+        continue;
       }
 
       const payload = buildPayload({
@@ -453,7 +458,7 @@ export async function syncCompensationClaimsForAgencyInWindow(agencyId, periodSt
          UPPER(COALESCE(kind, '')) = 'HUDDLE'
          OR (
            UPPER(COALESCE(kind, '')) = 'TEAM_MEETING'
-           AND LOWER(COALESCE(meeting_subtype, 'general')) IN ('admin', 'town_hall', 'evaluation')
+           AND LOWER(COALESCE(meeting_subtype, 'general')) IN ('admin', 'town_hall', 'evaluation', 'leadership_circle', 'supervisors_meeting')
          )
        )
        AND (
