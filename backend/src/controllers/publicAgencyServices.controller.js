@@ -1,3 +1,4 @@
+import { readPublicWeekAvailability } from '../services/publicAvailabilitySnapshot.service.js';
 import {appointmentTimePredicate} from '../utils/publicAppointmentTimeSearch.js';
 import {publicSchoolAssignmentSql} from '../utils/providerDirectoryEligibility.js';
 import {scopeProviderRow,agencyOfficeAllowed,agencyFormatAllowed} from '../utils/providerAgencyAvailability.js';
@@ -613,13 +614,13 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId, service
   };
 }
 
-async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16, officeId = null, matchesTime = () => true }) {
+async function computeProviderWindowSummary({ agencyId, providerId, weekStart, bookingMode, programType, heldSlots = null, lookaheadWeeks = 16, officeId = null, matchesTime = () => true, liveAvailability = false }) {
   const intakeOnly = String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT';
   const program = normalizeProgramType(programType);
   const pickProgramSlots = (result) => (program === 'VIRTUAL' ? (result?.virtualSlots || []) : (result?.inPersonSlots || [])).filter(s => Date.parse(s.startAt) > Date.now() && matchesTime(s));
 
   const computeForWeek = async (candidateWeekStart) => {
-    const result = await ProviderAvailabilityService.computeWeekAvailability({
+    const result = await readPublicWeekAvailability({
       agencyId,
       providerId,
       weekStartYmd: candidateWeekStart,
@@ -627,7 +628,7 @@ async function computeProviderWindowSummary({ agencyId, providerId, weekStart, b
       externalCalendarIds: [],
       slotMinutes: 60,
       intakeOnly
-    });
+    }, {fresh:liveAvailability});
     if (!result) return { inPersonSlots: [], virtualSlots: [] };
     return {
       inPersonSlots: filterHeldSlots(dedupeSlots((result.inPersonSlots || []).filter(slot=>!officeId||Number(slot.buildingId)===Number(officeId))), heldSlots),
@@ -1231,7 +1232,7 @@ export const getProviderDetail = async (req, res, next) => {
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
 
     const heldSlots = onlineScheduling ? await getHeldSlotStartsForProvider(agency.id, providerId) : [];
-    const summary = onlineScheduling ? await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots, officeId:Number(req.query.officeId)||null }) : {thisWeek:{virtualSlots:[],inPersonSlots:[]},nextAvailableAt:null};
+    const summary = onlineScheduling ? await computeProviderWindowSummary({ agencyId: agency.id, providerId, weekStart, bookingMode, programType, heldSlots, officeId:Number(req.query.officeId)||null, liveAvailability:req._liveAvailability===true }) : {thisWeek:{virtualSlots:[],inPersonSlots:[]},nextAvailableAt:null};
     const profileData = await ProviderPublicProfile.getForProvider({ providerUserId: providerId, agencyId:agency.id }) || {};
     profileData.acceptingNewClientsOverride = profileData.agencyAvailability ? profileData.acceptingNewClientsOverride : Boolean(user.provider_accepting_new_clients ?? profileData.acceptingNewClientsOverride ?? true);
     if(!publicFormatEnabled(profileData,programType,bookingMode))summary.nextAvailableAt=null;
@@ -1450,7 +1451,7 @@ export const getProviderSlots = async (req, res, next) => {
     if (!enrolledRow?.[0]) return res.status(404).json({ error: { message: 'Provider not found' } });
 
     const heldSlots = await getHeldSlotStartsForProvider(agency.id, providerId);
-    const result = await ProviderAvailabilityService.computeWeekAvailability({
+    const result = await readPublicWeekAvailability({
       agencyId: agency.id,
       providerId,
       weekStartYmd: weekStart,
@@ -2085,7 +2086,7 @@ export const createProviderSlotHold = async (req, res, next) => {
       startAt: req.body?.startAt, endAt: req.body?.endAt,
       validateAvailability: async () => {
         let data, status = 200;
-        await getProviderDetail({ params: req.params, query: { serviceType, programType: modality, bookingMode: 'NEW_CLIENT', weekStart: req.body.startAt.slice(0, 10) } },
+        await getProviderDetail({ _liveAvailability:true, params: req.params, query: { serviceType, programType: modality, bookingMode: 'NEW_CLIENT', weekStart: req.body.startAt.slice(0, 10) } },
           { status(code) { status = code; return this; }, json(value) { data = value; } }, (error) => { throw error; });
         const valid = status === 200 && data?.availability?.slots?.some((s) =>
           +new Date(s.startAt) === +new Date(req.body.startAt) && +new Date(s.endAt) === +new Date(req.body.endAt));

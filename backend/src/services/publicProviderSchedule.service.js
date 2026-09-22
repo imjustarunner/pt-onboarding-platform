@@ -1,7 +1,7 @@
 import {appointmentTimePredicate} from '../utils/publicAppointmentTimeSearch.js';
 import {agencyFormatAllowed,agencyOfficeAllowed,scopeProviderRow} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
-import Availability from './providerAvailability.service.js';
+import {readPublicWeekAvailability} from './publicAvailabilitySnapshot.service.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
 import {publicAcceptance} from '../utils/publicProviderPresentation.js';
 
@@ -23,10 +23,11 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,
     AND NOT EXISTS(SELECT 1 FROM district_schedule_hidden_schools h WHERE h.agency_id=? AND h.school_organization_id=a.id)`,[providerId,agencyId,agencyId,agencyId,agencyId])
  ]);
  const details=profile?.details||{},user=scopeProviderRow(people[0]||{},agencyId,profile?.details),now=Date.now(),all=[];
- let timeZone='America/Denver';
+ let timeZone='America/Denver', checkedAt=null;
  for(let week=0;week<weeks;week++) {
-  const result=await Availability.computeWeekAvailability({agencyId,providerId,weekStartYmd:new Date(now+week*7*86400000).toISOString().slice(0,10),intakeOnly:true,includeGoogleBusy:true,externalCalendarIds:[],slotMinutes:60});
+  const result=await readPublicWeekAvailability({agencyId,providerId,weekStartYmd:new Date(now+week*7*86400000).toISOString().slice(0,10),intakeOnly:true,includeGoogleBusy:true,externalCalendarIds:[],slotMinutes:60});
   timeZone=result.timeZone||timeZone;
+  if(result.checkedAt&&(!checkedAt||result.checkedAt<checkedAt))checkedAt=result.checkedAt;
   for(const [key,format] of [['inPersonSlots','IN_PERSON'],['virtualSlots','VIRTUAL']])
    for(const slot of result[key]||[])if(Date.parse(slot.startAt)>now)all.push({startAt:slot.startAt,endAt:slot.endAt,format,frequency:slot.frequency||'WEEKLY',buildingId:slot.buildingId,buildingName:slot.buildingName});
  }
@@ -40,7 +41,7 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,
   if(policy&&!agencyFormatAllowed(policy,format)){acceptance.status=policy.seesClients&&policy.waitlistEnabled&&agencyFormatAllowed({...policy,acceptingNewClients:true},format)?'waitlist':'unavailable';acceptance.hasOpenings=false;}
   formats[key]={...acceptance,nextAvailableAt:next?.startAt||null,hasPublishedOpenings:acceptance.hasOpenings};
  }
- return {timeZone,checkedAt:new Date().toISOString(),...formats,slots:['IN_PERSON','VIRTUAL'].flatMap(format=>slots.filter(s=>s.format===format).slice(0,60)).sort((a,b)=>a.startAt.localeCompare(b.startAt)),nextAvailableAt:slots[0]?.startAt||null,
+ return {timeZone,checkedAt:checkedAt||new Date().toISOString(),...formats,slots:['IN_PERSON','VIRTUAL'].flatMap(format=>slots.filter(s=>s.format===format).slice(0,60)).sort((a,b)=>a.startAt.localeCompare(b.startAt)),nextAvailableAt:slots[0]?.startAt||null,
   hasPublishedOpenings:slots.length>0||schoolOpenings,
   waitlistEnabled:details.waitlistEnabled===true||['officeAvailability','virtualAvailability','schoolAvailability'].some(k=>details[k]==='waitlist'),
   waitlistFormats:[['IN_PERSON','officeAvailability'],['VIRTUAL','virtualAvailability'],['SCHOOL','schoolAvailability']].filter(([format,key])=>agencyFormatAllowed(policy,format,{intake:false})&&(details.waitlistEnabled===true||details[key]==='waitlist')).map(([format])=>format),

@@ -16,6 +16,20 @@ let wrapper;
 afterEach(() => { wrapper?.unmount(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('public directory background availability', () => {
+  it('renders the provider heading and search immediately on a first visit without a loading screen or false empty results', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: false }));
+    let resolveWebsite;
+    api.get.mockImplementation(url => url.endsWith('website-data') ? new Promise(resolve => { resolveWebsite = resolve; }) : Promise.resolve({data:{providers:[]}}));
+    wrapper = mount(Website, {global:{stubs:{RouterLink:{props:['to'],template:'<a><slot/></a>'},PublicResourcesMenu:true,PublicProviderProfileEditor:true}}});
+    expect(wrapper.find('h1').text()).toBe('Real People. A Brighter Tomorrow.');
+    expect(wrapper.find('input[type="search"]').exists()).toBe(true);
+    expect(wrapper.find('.its-profile-placeholders').exists()).toBe(true);
+    expect(wrapper.text()).not.toContain('Loading ITSCO');
+    expect(wrapper.text()).not.toContain('No matching providers');
+    resolveWebsite({data:{agency:{id:1},providers:[provider],districts:[],team:[],metrics:{}}});await flushPromises();
+    expect(wrapper.find('.its-profile-placeholders').exists()).toBe(false);
+    expect(wrapper.find('.its-provider-card').text()).toContain('Example Provider');
+  });
   it('keeps providers searchable during slow requests, and offers retry after a timeout', async () => {
     vi.stubGlobal('matchMedia', () => ({ matches: false }));
     const pending = [];

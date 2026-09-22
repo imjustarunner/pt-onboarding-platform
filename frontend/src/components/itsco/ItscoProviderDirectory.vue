@@ -31,10 +31,10 @@
      <ProviderTimeFilters v-model="desiredTime"/>
      <label>School<select v-model="school"><option value="">All schools</option><option v-for="s in schools" :key="s.id" :value="String(s.id)">{{s.name}}</option></select></label>
     </div>
-    <div class="its-search-summary"><strong role="status">{{filtered.length}} {{filtered.length===1?'provider':'providers'}}</strong><button class="its-text-button" @click="clear">Clear filters</button><label>Sort by <select v-model="sort"><option value="popular">Most clicked · 30 days</option><option value="recommended">Availability &amp; setting</option><option value="soonest">Next appointment</option><option value="name">Name</option></select></label></div>
+    <div class="its-search-summary"><strong v-if="!directoryLoading" role="status">{{filtered.length}} {{filtered.length===1?'provider':'providers'}}</strong><button class="its-text-button" @click="clear">Clear filters</button><label>Sort by <select v-model="sort"><option value="popular">Most clicked · 30 days</option><option value="recommended">Availability &amp; setting</option><option value="soonest">Next appointment</option><option value="name">Name</option></select></label></div>
     <p v-if="availabilityLoading" role="status" class="its-small">Checking current appointment availability…</p><p v-else-if="availabilityError" class="its-soft" role="status">{{availabilityError}} <button class="its-text-button" @click="$emit('retry-availability')">Retry availability</button></p>
     <p v-if="insurance==='self-pay'" class="its-small">Self-pay selected. Our team will confirm rates and payment options with you.</p>
-    <section v-for="group in providerGroups" :key="group.key" class="its-opening-group"><h2>{{group.title}} <small>({{group.providers.length}})</small></h2><p v-if="!group.providers.length" class="its-small">No matching providers in this section.</p><div class="its-provider-grid"><article v-for="p in group.providers.slice(0,limit)" :key="p.id" :data-analytics-id="'provider-'+p.id" :data-analytics-label="p.displayName" class="its-provider-card">
+    <ItscoProfilePlaceholders v-if="directoryLoading"/><template v-else><section v-for="group in providerGroups" :key="group.key" class="its-opening-group"><h2>{{group.title}} <small>({{group.providers.length}})</small></h2><p v-if="!group.providers.length" class="its-small">No matching providers in this section.</p><div class="its-provider-grid"><article v-for="p in group.providers.slice(0,limit)" :key="p.id" :data-analytics-id="'provider-'+p.id" :data-analytics-label="p.displayName" class="its-provider-card">
      <div class="its-card-top"><div class="its-provider-photo"><img v-if="p.photoUrl" :src="p.photoUrl" :alt="p.displayName" loading="lazy"/><div v-else class="its-avatar">{{initials(p.displayName)}}</div></div><div><h3>{{p.displayName}}<template v-if="p.credential">, {{p.credential}}</template></h3><p class="its-small">{{p.title}}</p><div class="its-tags"><span v-for="v in matchingProviderTags(p,search,specialty)" :key="v">{{v}}</span></div></div></div>
      <span class="its-status" :class="{'its-waitlist':!isAccepting(p)}">{{acceptanceLabel(p)}}</span>
      <p v-if="p.bio" class="its-provider-bio">{{p.bio}}</p>
@@ -45,7 +45,7 @@
      <div class="its-card-actions"><router-link class="its-button" data-analytics-kind="profile_open" :to="profileLink(p)">View profile</router-link><router-link class="its-button its-outline" :to="inquiryLink(p)">Inquire with our team</router-link><router-link v-if="p.onlineScheduling&&(isAccepting(p)||hasOpenings(p))" class="its-button its-book" :to="`/itsco/provider/${p.id}?serviceType=counseling${officeId?'&officeId='+officeId:''}`">Book now →</router-link><router-link v-else-if="currentStatus(p)==='waitlist'" class="its-text-button" :to="profileLink(p)">Join waitlist →</router-link></div>
     </article></div><button v-if="group.providers.length>limit" class="its-button its-outline its-load-more" @click="limit+=12">Show more providers →</button>
     <div class="its-network-search"><div><strong>Explore more options with Mental Range Collective</strong><p>Find providers across our network using your search preferences.</p></div><a class="its-button its-outline" :href="networkSearchUrl">Search the collective →</a></div></section>
-    <div v-if="!filtered.length" class="its-soft"><h3>No matching providers.</h3><p>Try fewer filters or ask our team to help you find support.</p><button class="its-button its-outline" @click="clear">Clear filters</button></div>
+    </template><div v-if="!directoryLoading&&!filtered.length" class="its-soft"><h3>No matching providers.</h3><p>Try fewer filters or ask our team to help you find support.</p><button class="its-button its-outline" @click="clear">Clear filters</button></div>
    </template>
   </template>
  </section>
@@ -53,6 +53,7 @@
 <script setup>
 import {mentalRangeSearchUrl,providerOpeningGroups,networkSearchKeys} from '../../utils/networkProviderSearch';
 import Icon from '../rise/RiseIcon.vue';
+import ItscoProfilePlaceholders from './ItscoProfilePlaceholders.vue';
 import ProviderTimeFilters from '../publicServices/ProviderTimeFilters.vue';
 import {hasTimePreference,slotMatchesTime,matchingProviderTags,publicVirtualStates,normalizeServiceState} from '../../utils/providerTimeSearch';
 import ProviderOpeningPreview from './ProviderOpeningPreview.vue';
@@ -66,7 +67,7 @@ import {useRoute,useRouter} from 'vue-router';
 import PublicOfficeLocations from '../publicServices/PublicOfficeLocations.vue';
 import PublicProviderProfileEditor from '../publicServices/PublicProviderProfileEditor.vue';
 import PublicProviderAvailabilityPanel from '../publicServices/PublicProviderAvailabilityPanel.vue';
-const props=defineProps({providers:{type:Array,default:()=>[]},offices:{type:Array,default:()=>[]},schools:{type:Array,default:()=>[]},availability:{type:Object,default:()=>({})},availabilityLoading:Boolean,availabilityError:String,agencyId:{type:Number,required:true}});
+const props=defineProps({providers:{type:Array,default:()=>[]},offices:{type:Array,default:()=>[]},schools:{type:Array,default:()=>[]},availability:{type:Object,default:()=>({})},directoryLoading:Boolean,availabilityLoading:Boolean,availabilityError:String,agencyId:{type:Number,required:true}});
 defineEmits(['refresh','retry-availability']);
 const route=useRoute(),router=useRouter(),officeId=ref(''),mode=ref('all'),school=ref(''),search=ref(''),age=ref(''),specialty=ref(''),insurance=ref(''),accepting=ref(''),openings=ref(''),gender=ref(''),sort=ref('popular'),limit=ref(12),profileSchedule=ref(null);
 const moreFilters=ref(false),care=ref(''),city=ref(''),state=ref(''),desiredTime=ref({});

@@ -1,3 +1,4 @@
+import { readPublicSnapshot } from '../services/publicReadSnapshot.service.js';
 import {restrictPublicInsurances} from '../utils/publicProviderPresentation.js';
 import {readPublicProviderSchedule} from '../services/publicProviderSchedule.service.js';
 import {listPublicProviderOffices} from '../services/publicProviderOffices.service.js';
@@ -23,4 +24,4 @@ import pool from '../config/database.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { listClinicalFacetsForUsers } from '../services/providerClinicalFacets.service.js';
 import { createMentalRangeHandlers } from '../services/mentalRangeHandlers.service.js';
-export const { rangePartners, rangeProviders, rangeAvailability, getRangeMembership, saveRangeMembership } = createMentalRangeHandlers({ pool, publicUploadsUrlFromStoredPath, listClinicalFacetsForUsers, readPublicProviderSchedule, enrichProvider });
+export const { rangePartners, rangeProviders, rangeAvailability, getRangeMembership, saveRangeMembership } = createMentalRangeHandlers({ pool, publicUploadsUrlFromStoredPath, listClinicalFacetsForUsers, readPublicProviderSchedule, enrichProvider, readPublicSnapshot });

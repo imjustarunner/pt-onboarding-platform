@@ -1,18 +1,19 @@
 import {describe,it,expect,vi,beforeEach} from 'vitest';
 import pool from '../../config/database.js';
 import Availability from '../../services/providerAvailability.service.js';
-import {listTutors,listCounselors,createBookingRequest,joinProviderWaitlist,getProviderScheduleSummary} from '../publicAgencyServices.controller.js';
+import * as Snapshots from '../../services/publicAvailabilitySnapshot.service.js';
+import {listTutors,listCounselors,createBookingRequest,createProviderSlotHold,joinProviderWaitlist,getProviderScheduleSummary} from '../publicAgencyServices.controller.js';
 import Profile from '../../models/ProviderPublicProfile.model.js';
 import {createPublicAgencySupportTicket} from '../../services/publicAgencySupport.service.js';
 import {readPublicProviderSchedule} from '../../services/publicProviderSchedule.service.js';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
-vi.mock('../../services/providerAvailability.service.js',()=>({default:{computeWeekAvailability:vi.fn()}}));
+vi.mock('../../services/providerAvailability.service.js',()=>({default:{computeWeekAvailability:vi.fn(),resolveAgencyTimeZone:async()=>'UTC'}}));
 vi.mock('../../models/PublicAppointmentRequest.model.js',()=>({default:{}}));
 vi.mock('../../models/ProviderPublicProfile.model.js',()=>({default:{getForProvider:vi.fn(async()=>({})),getAgencySettings:async()=>({})}}));
 vi.mock('../../services/publicAgencySupport.service.js',()=>({createPublicAgencySupportTicket:vi.fn(async()=>({ok:true,ticketId:123}))}));
 vi.mock('../../services/publicProviderSchedule.service.js',()=>({readPublicProviderSchedule:vi.fn(async()=>({slots:[],waitlistEnabled:true}))}));
 vi.mock('../../services/publicCounselingRate.service.js',()=>({getPublicCounselingHourlyRate:async()=>null}));
-vi.mock('../../services/publicProviderHold.service.js',()=>({createPublicProviderHoldService:()=>({}),holdError:vi.fn()}));
+vi.mock('../../services/publicProviderHold.service.js',()=>({createPublicProviderHoldService:()=>({create:async options=>{await options.validateAvailability();return {token:'test-token'};}}),holdError:vi.fn()}));
 vi.mock('../../services/publicIntakeClient.service.js',()=>({default:{},PUBLIC_BOOKING_INQUIRY_CLIENT_OPTIONS:{},isPractitionerOrgType:()=>false,resolveOrganizationIdForPublicBooking:vi.fn()}));
 vi.mock('../../services/email.service.js',()=>({default:{}}));
 vi.mock('../../services/officeIntakeProviders.service.js',()=>({listOfficeIntakeProviders:vi.fn()}));
@@ -37,6 +38,19 @@ beforeEach(()=>{
  });
 });
 describe('public multi-service directories',()=>{
+ it('validates a hold against live availability even when discovery uses snapshots',async()=>{
+  active=true;
+  const original=pool.execute.getMockImplementation();
+  pool.execute.mockImplementation(async(sql,...args)=>sql.includes('FROM users\n')?[[{id:9,first_name:'Example',last_name:'Provider',provider_accepting_new_clients:1}]]:original(sql,...args));
+  const slot={startAt:'2030-01-08T16:00:00Z',endAt:'2030-01-08T17:00:00Z'};
+  Availability.computeWeekAvailability.mockResolvedValue({virtualSlots:[slot],inPersonSlots:[]});
+  const snapshot=vi.spyOn(Snapshots,'readPublicWeekAvailability');
+  const req={params:{agencySlug:'test',providerId:'9'},body:{serviceType:'counseling',modality:'VIRTUAL',...slot}},res={...response(),setHeader:vi.fn()},next=vi.fn();
+  await createProviderSlotHold(req,res,next);
+  expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);
+  expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({providerId:9}),{fresh:true});
+  snapshot.mockRestore();
+ });
  it('lists an explicitly selected provider in both directories without tutoring pricing or booking',async()=>{
   const next=vi.fn();const tutoring=response();await listTutors(request(),tutoring,next);expect(next).not.toHaveBeenCalled();
   const tutor=tutoring.json.mock.calls[0][0].providers[0];expect(tutor.providerId).toBe(9);expect(tutor.onlineScheduling).toBe(false);expect(tutor.tutoringProfile.hourlyRateCents).toBeNull();expect(tutor.availability.slots).toEqual([]);expect(tutor.officeLocations).toEqual([{id:12,name:'Denver',city:'Denver',state:'CO',address:'Denver, CO'}]);

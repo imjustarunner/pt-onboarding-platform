@@ -3,6 +3,7 @@ import express from 'express';
 import pool from '../config/database.js';
 import { listPublicReferralNetwork } from '../services/publicReferralNetwork.service.js';
 import { listPublicWebsiteIdentities } from '../services/publicWebsiteIdentity.service.js';
+import { readPublicSnapshot } from '../services/publicReadSnapshot.service.js';
 import { publicBusinessOnboardingRouter } from './businessOnboarding.routes.js';
 import { publicGeocodeLimiter, publicWebsiteReadLimiter, publicMarketingPageMetricsLimiter } from '../middleware/rateLimiter.middleware.js';
 import {
@@ -29,7 +30,7 @@ router.get('/:slug/coaching-catalog', async (req,res,next)=>{try{
 router.get('/referral-network', publicWebsiteReadLimiter, async (req,res,next)=>{try{res.set('Cache-Control','public, max-age=60').json({companies:await listPublicReferralNetwork()});}catch(e){next(e);}});
 router.get('/partners', publicWebsiteReadLimiter, async (req, res, next) => {
   try {
-    res.set('Cache-Control', 'public, max-age=60').json({partners:await listPublicWebsiteIdentities()});
+    res.set('Cache-Control', 'public, max-age=60').json(await readPublicSnapshot({key:['public-partners-v1'],kind:'website'},async()=>({partners:await listPublicWebsiteIdentities()})));
   } catch (error) { next(error); }
 });
 router.post('/:slug/analytics/events', publicAnalyticsIngestLimiter, ingestPublicWebsiteAnalytics);

@@ -1,3 +1,4 @@
+import { readPublicSnapshot } from './publicReadSnapshot.service.js';
 import {scopeProviderRow,agencyOfficeAllowed,agencyFormatAllowed} from '../utils/providerAgencyAvailability.js';
 import { providerClickCounts } from './publicWebsiteAnalytics.service.js';
 import {listPublicProviderOffices} from './publicProviderOffices.service.js';
@@ -31,8 +32,13 @@ export async function resolveItscoWebsite() {
 }
 
 export async function getItscoWebsiteData(req) {
-  const { agency, page, settings } = await resolveItscoWebsite();
+  const { agency } = await resolveItscoWebsite();
   const baseUrl = requestBaseUrl(req);
+  return readPublicSnapshot({key:['itsco-website-v1',agency.id,baseUrl],kind:'website'}, async () =>
+    buildItscoWebsiteData({...await resolveItscoWebsite(),baseUrl}));
+}
+
+async function buildItscoWebsiteData({agency,page,settings,baseUrl}) {
   const [officeRows] = await pool.execute(`SELECT DISTINCT l.id,l.name,l.city,l.state,l.street_address,l.postal_code
     FROM office_locations l JOIN office_location_agencies a ON a.office_location_id=l.id
     WHERE a.agency_id=? AND l.is_active=1 ORDER BY l.city,l.name`,[agency.id]);

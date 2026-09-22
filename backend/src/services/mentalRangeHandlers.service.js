@@ -1,7 +1,7 @@
 import { RANGE_TENANT_SQL, RANGE_PROVIDER_SQL, RANGE_SERVICES, eligibleRangeTenant, rangeUrl, stringList, partnerDto, providerDto, rangeProviderEligible } from './mentalRange.service.js';
 
 
-export function createMentalRangeHandlers({ pool, publicUploadsUrlFromStoredPath, listClinicalFacetsForUsers, readPublicProviderSchedule, enrichProvider=async p=>p }) {
+export function createMentalRangeHandlers({ pool, publicUploadsUrlFromStoredPath, listClinicalFacetsForUsers, readPublicProviderSchedule, enrichProvider=async p=>p, readPublicSnapshot=async (_options,load)=>load() }) {
 async function published(res) {
   const [rows] = await pool.execute("SELECT id FROM public_marketing_pages WHERE slug='range' AND is_active=1 LIMIT 1");
   res.set('Cache-Control', 'no-store');
@@ -22,6 +22,7 @@ async function rangePartners(req, res, next) {
 async function rangeProviders(req, res, next) {
   try {
     if (!await published(res)) return;
+    const result=await readPublicSnapshot({key:['range-providers-v1'],kind:'website'},async()=>{
     const [candidates] = await pool.execute(`${RANGE_PROVIDER_SQL} ORDER BY u.last_name,u.first_name,a.id,s.service_type`);
     const rows=candidates.filter(rangeProviderEligible);
     const providers = [];
@@ -34,7 +35,9 @@ async function rangeProviders(req, res, next) {
         return enrichProvider(dto,r);
       })));
     }
-    res.json({ providers });
+    return {providers};
+    });
+    res.json(result);
   } catch (e) { next(e); }
 }
 async function rangeAvailability(req, res, next) {
