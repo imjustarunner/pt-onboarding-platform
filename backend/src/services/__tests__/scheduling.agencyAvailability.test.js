@@ -13,7 +13,7 @@ import Profile from '../../models/ProviderPublicProfile.model.js';
 import Hours from '../../models/ProviderVirtualWorkingHours.model.js';
 import Availability from '../providerAvailability.service.js';
 const open={seesClients:true,acceptingNewClients:true,inPerson:true,virtual:true,school:true,scheduleAgencyId:1,officeIds:[7]};
-const event={id:1,start_at:'2030-01-07 17:00:00',end_at:'2030-01-07 18:00:00',status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE',in_person_intake_enabled:1,building_timezone:'UTC',office_location_id:7,room_id:1};
+const event={id:1,start_at:'2030-01-07 17:00:00',end_at:'2030-01-07 18:00:00',status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE',in_person_intake_enabled:1,room_available:1,building_timezone:'UTC',office_location_id:7,room_id:1};
 let policy,bookings;
 beforeEach(()=>{vi.clearAllMocks();policy={...open};bookings=[];Profile.getForProvider.mockImplementation(async()=>({agencyAvailability:policy}));Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);pool.execute.mockImplementation(async(sql,args)=>[sql.includes('SELECT ol.timezone')?[{timezone:'UTC'}]:sql.includes('SELECT ua.agency_id')?[{agency_id:1}]:sql.includes('FROM office_events e')?[event]:sql.includes('SELECT start_at,end_at FROM office_events')?bookings:[]]);});
 const compute=agencyId=>Availability.computeWeekAvailability({agencyId,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:false,includeExternalBusy:false,materializeOfficeEvents:false});

@@ -29,6 +29,11 @@ describe('public provider schedule summaries',()=>{
   Availability.computeWeekAvailability.mockRejectedValueOnce(new Error('Calendar unavailable'));
   await expect(readPublicProviderSchedule(9,2)).rejects.toThrow('Calendar unavailable');
  });
+ it('reports capacity per school and does not imply that a full school accepts clients',async()=>{
+  const original=pool.execute.getMockImplementation();pool.execute.mockImplementation((sql,args)=>sql.includes('FROM provider_school_assignments p')?Promise.resolve([[{id:1,name:'Open school',slots_available:0},{id:1,name:'Open school',slots_available:2},{id:2,name:'Full school',slots_available:0}]]):original(sql,args));
+  let result=await readPublicProviderSchedule(9,2);expect(result.schools).toHaveLength(2);expect(result.schools.map(s=>s.status)).toEqual(['accepting','unavailable']);
+  Profile.getForProvider.mockResolvedValue({details:{schoolAvailability:'waitlist'}});result=await readPublicProviderSchedule(9,2);expect(result.schools.map(s=>s.status)).toEqual(['accepting','waitlist']);
+ });
  it('allows a closed provider to take waitlist requests for enabled agency formats',async()=>{
   const policy={seesClients:true,acceptingNewClients:false,waitlistEnabled:true,inPerson:true,virtual:true,school:false,officeIds:null};
   Profile.getForProvider.mockResolvedValue({agencyAvailability:policy,details:{waitlistEnabled:true,inPersonEnabled:true,virtualEnabled:true,officeAvailability:'waitlist',virtualAvailability:'waitlist',availabilityByAgency:{'2':policy}}});

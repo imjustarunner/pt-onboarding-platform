@@ -339,7 +339,7 @@ export class ProviderAvailabilityService {
         const isBookedState = slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED';
         // For intake availability, only advertise open in-person slots (not booked).
         const includeInPersonForIntake = intakeOnlyFlag && inPersonIntakeEnabled && isOpenAssignmentState;
-        if (!isBookedState && ((isOpenAssignmentState && !intakeOnlyFlag) || includeInPersonForIntake)) {
+        if (Number(r.room_available) === 1 && !isBookedState && ((isOpenAssignmentState && !intakeOnlyFlag) || includeInPersonForIntake)) {
           officeBase.push({ start: s, end: e, meta });
         }
         if (isBookedState) {
@@ -373,6 +373,18 @@ export class ProviderAvailabilityService {
                )
                AND ip.is_active = TRUE
            ) AS in_person_intake_enabled,
+           (r.is_active = 1 AND ol.is_active = 1 AND r.location_id = e.office_location_id
+             AND e.assigned_provider_id IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM office_events conflict
+               WHERE conflict.room_id = e.room_id AND conflict.id <> e.id
+                 AND conflict.start_at < e.end_at AND conflict.end_at > e.start_at
+                 AND COALESCE(UPPER(conflict.status), '') <> 'CANCELLED'
+                 AND (UPPER(conflict.status) = 'BOOKED' OR conflict.slot_state = 'ASSIGNED_BOOKED'
+                   OR (conflict.assigned_provider_id <> e.assigned_provider_id
+                     AND (conflict.slot_state IN ('ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY')
+                       OR (COALESCE(conflict.slot_state, '') = '' AND UPPER(conflict.status) = 'RELEASED'))))
+             )) AS room_available,
            ol.timezone AS building_timezone,
            ol.name AS building_name,
            e.office_location_id,
@@ -401,6 +413,18 @@ export class ProviderAvailabilityService {
            e.end_at,
            e.status,
            e.slot_state,
+           (r.is_active = 1 AND ol.is_active = 1 AND r.location_id = e.office_location_id
+             AND e.assigned_provider_id IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM office_events conflict
+               WHERE conflict.room_id = e.room_id AND conflict.id <> e.id
+                 AND conflict.start_at < e.end_at AND conflict.end_at > e.start_at
+                 AND COALESCE(UPPER(conflict.status), '') <> 'CANCELLED'
+                 AND (UPPER(conflict.status) = 'BOOKED' OR conflict.slot_state = 'ASSIGNED_BOOKED'
+                   OR (conflict.assigned_provider_id <> e.assigned_provider_id
+                     AND (conflict.slot_state IN ('ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY')
+                       OR (COALESCE(conflict.slot_state, '') = '' AND UPPER(conflict.status) = 'RELEASED'))))
+             )) AS room_available,
            ol.timezone AS building_timezone,
            ol.name AS building_name,
            e.office_location_id,

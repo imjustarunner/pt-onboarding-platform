@@ -8,17 +8,23 @@ vi.mock('../googleCalendar.service.js',()=>({default:{}}));
 vi.mock('../officeScheduleMaterializer.service.js',()=>({default:{}}));
 vi.mock('../publicProviderHold.service.js',()=>({readActiveHolds:vi.fn(async()=>[]),expandWeeklyHold:vi.fn(()=>[])}));
 import pool from '../../config/database.js';
+import Hours from '../../models/ProviderVirtualWorkingHours.model.js';
 import {readActiveHolds,expandWeeklyHold} from '../publicProviderHold.service.js';
 import Availability from '../providerAvailability.service.js';
 import Profile from '../../models/ProviderPublicProfile.model.js';
 import {publicAcceptance,restrictPublicInsurances,uniquePublicFacets} from '../../utils/publicProviderPresentation.js';
-const event={id:1,start_at:'2030-01-07 17:00:00',end_at:'2030-01-07 18:00:00',status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE',in_person_intake_enabled:1,building_timezone:'UTC',office_location_id:1,room_id:1};
+const event={id:1,start_at:'2030-01-07 17:00:00',end_at:'2030-01-07 18:00:00',status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE',in_person_intake_enabled:1,room_available:1,building_timezone:'UTC',office_location_id:1,room_id:1};
 let events;
-beforeEach(()=>{vi.clearAllMocks();events=[{...event}];readActiveHolds.mockResolvedValue([]);expandWeeklyHold.mockReturnValue([]);pool.execute.mockImplementation(async sql=>[sql.includes('SELECT ol.timezone')?[{timezone:'UTC'}]:sql.includes('FROM office_events e')?events:[]]);});
+beforeEach(()=>{vi.clearAllMocks();events=[{...event}];Hours.listForProvider.mockResolvedValue([]);readActiveHolds.mockResolvedValue([]);expandWeeklyHold.mockReturnValue([]);pool.execute.mockImplementation(async sql=>[sql.includes('SELECT ol.timezone')?[{timezone:'UTC'}]:sql.includes('FROM office_events e')?events:[]]);});
 const compute=()=>Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:false,includeExternalBusy:false,materializeOfficeEvents:false});
 describe('published office availability and profile policy',()=>{
  it('published intake capacity overrides a stale closed flag',async()=>{const result=await compute();expect(result.inPersonSlots).toHaveLength(1);expect(result.inPersonSlots[0].startAt).toBe('2030-01-07T17:00:00.000Z');expect(publicAcceptance({globalAccepting:false,manual:'waitlist',hasOpenings:true}).status).toBe('accepting');});
  it('never offers booked or intake-disabled office times',async()=>{events[0].status='BOOKED';expect((await compute()).inPersonSlots).toHaveLength(0);events=[{...event},{...event,id:2,status:'BOOKED',slot_state:'ASSIGNED_BOOKED'}];expect((await compute()).inPersonSlots).toHaveLength(0);events=[{...event,in_person_intake_enabled:0}];expect((await compute()).inPersonSlots).toHaveLength(0);});
+ it('keeps a published virtual time when its assigned office room is unavailable',async()=>{
+  events[0].room_available=0;Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);
+  const result=await compute();expect(result.inPersonSlots).toEqual([]);expect(result.virtualSlots).toHaveLength(1);
+  Hours.listForProvider.mockResolvedValue([]);expect((await compute()).virtualSlots).toEqual([]);
+ });
  it('subtracts pending weekly intake holds without treating them as bookings',async()=>{readActiveHolds.mockResolvedValue([{id:5}]);expandWeeklyHold.mockReturnValue([{start:new Date('2030-01-07T17:00:00Z'),end:new Date('2030-01-07T18:00:00Z')}]);expect((await compute()).inPersonSlots).toHaveLength(0);});
  it('separates assigned settings and manual acceptance from actual openings',()=>{expect(publicAcceptance({globalAccepting:true,assigned:false}).status).toBe('unavailable');expect(publicAcceptance({globalAccepting:true,manual:'waitlist'}).status).toBe('waitlist');expect(publicAcceptance({globalAccepting:false,manual:'accepting'})).toMatchObject({status:'unavailable',hasOpenings:false});});
  it('restricts bachelor providers to Medicaid plans and normalizes duplicate age ranges',()=>{const plans=['Aetna','Medicaid','Colorado Access','Cigna'];expect(restrictPublicInsurances(plans,{credential:'BA'})).toEqual(['Medicaid','Colorado Access']);expect(restrictPublicInsurances(plans,{credential:'MA, LPCC'})).toEqual(plans);expect(uniquePublicFacets(['Toddler','Toddler (0-5)','Teens','Teen (14–18)'])).toEqual(['Toddler (0-5)','Teen (14–18)']);});

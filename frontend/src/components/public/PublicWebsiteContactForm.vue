@@ -27,7 +27,9 @@ const props=defineProps({agencySlug:{type:String,required:true},title:{type:Stri
 const inquiryQuery=new URLSearchParams(window.location.search);
 const inquiryProviderId=!props.internshipInquiry&&/^\d+$/.test(inquiryQuery.get('provider')||'')?Number(inquiryQuery.get('provider')):null;
 const inquiryProviderName=inquiryProviderId?String(inquiryQuery.get('providerName')||'this provider').slice(0,160):'';
-const inquiryMessage=inquiryProviderId?`I would like to inquire about working with ${inquiryProviderName}. Please contact me about availability and next steps.`:'';
+const inquiryFormat=({VIRTUAL:'virtual',IN_PERSON:'in-person',SCHOOL:'school-based'})[inquiryQuery.get('format')]||'';
+const inquiryOffice=inquiryFormat==='in-person'?String(inquiryQuery.get('officeName')||'').slice(0,160):'';
+const inquiryMessage=inquiryProviderId?`I would like to inquire about working with ${inquiryProviderName}${inquiryFormat?' for '+inquiryFormat+' care':''}${inquiryOffice?' at '+inquiryOffice:''}. Please contact me about availability and next steps.`:'';
 const referralToken=props.chatReferral||new URLSearchParams(window.location.search).get('ref')||'';
 const fromChat=ref(false);
 const form=reactive({name:'',email:'',phone:'',category:inquiryProviderId?'provider':'',message:(props.initialMessage||inquiryMessage).slice(0,4000),website:'',phiAcknowledged:false});

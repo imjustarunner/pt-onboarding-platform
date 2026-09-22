@@ -13,7 +13,7 @@ vi.mock('../../models/ProviderPublicProfile.model.js',()=>({default:{getForProvi
 vi.mock('../../services/publicAgencySupport.service.js',()=>({createPublicAgencySupportTicket:vi.fn(async()=>({ok:true,ticketId:123}))}));
 vi.mock('../../services/publicProviderSchedule.service.js',()=>({readPublicProviderSchedule:vi.fn(async()=>({slots:[],waitlistEnabled:true}))}));
 vi.mock('../../services/publicCounselingRate.service.js',()=>({getPublicCounselingHourlyRate:async()=>null}));
-vi.mock('../../services/publicProviderHold.service.js',()=>({createPublicProviderHoldService:()=>({create:async options=>{await options.validateAvailability();return {token:'test-token'};}}),holdError:vi.fn()}));
+vi.mock('../../services/publicProviderHold.service.js',()=>({createPublicProviderHoldService:()=>({create:async options=>{await options.validateAvailability();return {token:'test-token'};}}),holdError:(message,status=409)=>Object.assign(new Error(message),{status})}));
 vi.mock('../../services/publicIntakeClient.service.js',()=>({default:{},PUBLIC_BOOKING_INQUIRY_CLIENT_OPTIONS:{},isPractitionerOrgType:()=>false,resolveOrganizationIdForPublicBooking:vi.fn()}));
 vi.mock('../../services/email.service.js',()=>({default:{}}));
 vi.mock('../../services/officeIntakeProviders.service.js',()=>({listOfficeIntakeProviders:vi.fn()}));
@@ -50,6 +50,13 @@ describe('public multi-service directories',()=>{
   expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(201);
   expect(snapshot).toHaveBeenCalledWith(expect.objectContaining({providerId:9}),{fresh:true});
   snapshot.mockRestore();
+ });
+ it('rejects an in-person hold when that time is only open at a different office',async()=>{
+  active=true;const original=pool.execute.getMockImplementation();pool.execute.mockImplementation(async(sql,...args)=>sql.includes('FROM users\n')?[[{id:9,first_name:'Example',last_name:'Provider',provider_accepting_new_clients:1}]]:original(sql,...args));
+  const slot={startAt:'2030-01-08T16:00:00Z',endAt:'2030-01-08T17:00:00Z',buildingId:12};
+  Availability.computeWeekAvailability.mockResolvedValue({virtualSlots:[],inPersonSlots:[slot]});
+  const req={params:{agencySlug:'test',providerId:'9'},body:{serviceType:'counseling',modality:'IN_PERSON',officeId:13,...slot}},res={...response(),setHeader:vi.fn()},next=vi.fn();
+  await createProviderSlotHold(req,res,next);expect(next).not.toHaveBeenCalled();expect(res.status).toHaveBeenCalledWith(409);expect(res.json).toHaveBeenCalledWith({error:{message:expect.stringContaining('no longer available')}});
  });
  it('lists an explicitly selected provider in both directories without tutoring pricing or booking',async()=>{
   const next=vi.fn();const tutoring=response();await listTutors(request(),tutoring,next);expect(next).not.toHaveBeenCalled();

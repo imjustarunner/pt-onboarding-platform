@@ -15,7 +15,7 @@ export async function readPublicWeekAvailability(options, { fresh = false } = {}
     intakeOnly: Boolean(options.intakeOnly), slotMinutes: 60,
     includeGoogleBusy: true, externalCalendarIds: []
   };
-  return readPublicSnapshot({ key: ['public-week-v1', normalized], kind: 'availability', providerId: normalized.providerId }, async () => {
+  return readPublicSnapshot({ key: ['public-week-v2', normalized], kind: 'availability', providerId: normalized.providerId }, async () => {
     const result = await Availability.computeWeekAvailability(normalized);
     if (!result) throw new Error('Availability could not be loaded');
     // Explicit public allowlist: no busy events, client data, or calendar URLs.

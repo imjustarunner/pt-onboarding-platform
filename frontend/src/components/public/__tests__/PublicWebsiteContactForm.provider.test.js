@@ -12,5 +12,9 @@ describe('provider inquiries',()=>{
   await w.find('input[autocomplete=name]').setValue('Visitor Name');await w.find('input[type=email]').setValue('visitor@example.com');await w.find('input[type=checkbox]').setValue(true);await w.find('form').trigger('submit');await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/public/agency-support/itsco/tickets',expect.objectContaining({providerId:496,category:'provider',message:expect.stringContaining('Megan Geil-Crader')}),expect.any(Object));w.unmount();
  });
+ it('carries the selected care setting and office into the inquiry message',async()=>{
+  window.history.replaceState({},'', '/contact?provider=496&providerName=Megan&format=IN_PERSON&officeName=Windchime');
+  const w=mount(Form,{props:{agencySlug:'itsco'}});await flushPromises();expect(w.find('textarea').element.value).toContain('Megan for in-person care at Windchime');w.unmount();
+ });
  it('keeps the internship workflow separate',async()=>{const w=mount(Form,{props:{agencySlug:'itsco',internshipInquiry:true}});await flushPromises();expect(w.find('.provider-inquiry').exists()).toBe(false);expect(w.find('textarea').element.value).toBe('');w.unmount();});
 });

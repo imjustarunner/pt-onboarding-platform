@@ -3,7 +3,7 @@
     <h2>Find a time that works</h2>
     <p>Choose an opening to hold this recurring weekly time until the team resolves your placement. This is not a confirmed appointment.</p>
     <div class="opening-controls">
-      <label>Session format<select v-model="format" @change="load"><option value="IN_PERSON">In person</option><option value="VIRTUAL">Telehealth</option></select></label>
+      <label v-if="!fixedFormat">Session format<select v-model="format" @change="load"><option value="IN_PERSON">In person</option><option value="VIRTUAL">Telehealth</option></select></label>
       <label>Week of<input v-model="week" type="date" :min="today" @change="load" /></label>
     </div>
     <PublicOfficeLocations v-if="format==='IN_PERSON' && officeLocations.length" v-model="selectedOffice" :offices="officeLocations" title="Appointment location"/>
@@ -29,13 +29,13 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import PublicOfficeLocations from './PublicOfficeLocations.vue';
-const props = defineProps({ agencySlug: { type: String, required: true }, providerId: { type: Number, required: true }, serviceType: { type: String, default: 'counseling' }, officeId:{type:[String,Number],default:''},officeLocations:{type:Array,default:()=>[]} });
+const props = defineProps({ agencySlug: { type: String, required: true }, providerId: { type: Number, required: true }, serviceType: { type: String, default: 'counseling' }, officeId:{type:[String,Number],default:''},officeLocations:{type:Array,default:()=>[]},fixedFormat:{type:String,default:''},initialWeek:{type:String,default:''},timeZone:{type:String,default:''} });
 const emit = defineEmits(['hold']);
-const today = new Date().toLocaleDateString('en-CA');
+const timezone = props.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+const today = new Date().toLocaleDateString('en-CA',{timeZone:timezone});
 const selectedOffice=ref(String(props.officeId||''));
 const needsOffice=computed(()=>format.value==='IN_PERSON'&&props.officeLocations.length>0&&!props.officeLocations.some(o=>String(o.id)===selectedOffice.value));
-const week = ref(today), format = ref('IN_PERSON'), loading = ref(false), busy = ref(false), error = ref(''), slots = ref([]), hold = ref(null), clock = ref(Date.now());
-const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const week = ref(props.initialWeek||today), format = ref(props.fixedFormat||'IN_PERSON'), loading = ref(false), busy = ref(false), error = ref(''), slots = ref([]), hold = ref(null), clock = ref(Date.now());
 const active = computed(() => !!hold.value && !hold.value.resolved && (!hold.value.expiresAt || +new Date(hold.value.expiresAt) > clock.value));
 const key = computed(() => `provider-hold:${props.agencySlug}`);
 const base = computed(() => `/public/agency-services/${encodeURIComponent(props.agencySlug)}`);
@@ -43,15 +43,15 @@ const days = computed(() => {
   const groups = new Map();
   if(needsOffice.value)return [];
   for (const slot of slots.value.filter(s => +new Date(s.startAt) > clock.value && (format.value!=='IN_PERSON'||!selectedOffice.value||String(s.buildingId)===selectedOffice.value))) {
-    const day = new Date(slot.startAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    const day = new Date(slot.startAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric',timeZone:timezone });
     if (!groups.has(day)) groups.set(day, []);
     groups.get(day).push(slot);
   }
   return [...groups];
 });
-const time = value => new Date(value).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+const time = value => new Date(value).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit',timeZone:timezone });
 const weeklyTime = value => new Intl.DateTimeFormat(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit', timeZone: value.timeZone || timezone }).format(new Date(value.startAt));
-const dateTime = value => new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+const dateTime = value => new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short',timeZone:timezone });
 watch(()=>props.officeId,id=>{selectedOffice.value=String(id||'');});
 watch(selectedOffice,()=>{load();});
 let generation = 0;
@@ -76,7 +76,7 @@ async function select(slot) {
     // Only one held selection per browser/agency. Never put its bearer token in a URL.
     let previous; try { previous = JSON.parse(sessionStorage.getItem(key.value) || 'null'); } catch {}
     if (previous?.token) await api.post(`${base.value}/release-hold`, { token: previous.token }, { skipAuthRedirect: true });
-    const { data } = await api.post(`${base.value}/providers/${props.providerId}/holds`, { startAt: slot.startAt, endAt: slot.endAt, modality: format.value, serviceType: props.serviceType }, { skipAuthRedirect: true });
+    const { data } = await api.post(`${base.value}/providers/${props.providerId}/holds`, { startAt: slot.startAt, endAt: slot.endAt, modality: format.value, serviceType: props.serviceType, officeId:format.value==='IN_PERSON'?slot.buildingId||selectedOffice.value||undefined:undefined }, { skipAuthRedirect: true });
     save(data.hold); await load();
   } catch (e) { error.value = e.response?.data?.error?.message || 'Could not hold this opening. Please refresh availability.'; }
   finally { busy.value = false; }
@@ -91,7 +91,7 @@ async function verifyHold() {
 }
 watch(() => [props.agencySlug, props.providerId, props.serviceType], () => {
   hold.value = null;
-  try { const saved = JSON.parse(sessionStorage.getItem(key.value) || 'null'); if (saved?.providerId === props.providerId && saved?.serviceType === props.serviceType) { hold.value = saved; format.value = saved.modality || 'IN_PERSON'; } } catch {}
+  try { const saved = JSON.parse(sessionStorage.getItem(key.value) || 'null'); if (saved?.providerId === props.providerId && saved?.serviceType === props.serviceType) { hold.value = saved; format.value = props.fixedFormat || saved.modality || 'IN_PERSON'; } } catch {}
   emit('hold', active.value ? hold.value : null); verifyHold(); load();
 }, { immediate: true });
 const statusTimer = setInterval(verifyHold, 60000);

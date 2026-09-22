@@ -2086,7 +2086,7 @@ export const createProviderSlotHold = async (req, res, next) => {
       startAt: req.body?.startAt, endAt: req.body?.endAt,
       validateAvailability: async () => {
         let data, status = 200;
-        await getProviderDetail({ _liveAvailability:true, params: req.params, query: { serviceType, programType: modality, bookingMode: 'NEW_CLIENT', weekStart: req.body.startAt.slice(0, 10) } },
+        await getProviderDetail({ _liveAvailability:true, params: req.params, query: { serviceType, programType: modality, bookingMode: 'NEW_CLIENT', officeId:modality==='IN_PERSON'?Number(req.body.officeId)||undefined:undefined, weekStart: req.body.startAt.slice(0, 10) } },
           { status(code) { status = code; return this; }, json(value) { data = value; } }, (error) => { throw error; });
         const valid = status === 200 && data?.availability?.slots?.some((s) =>
           +new Date(s.startAt) === +new Date(req.body.startAt) && +new Date(s.endAt) === +new Date(req.body.endAt));
