@@ -18,6 +18,10 @@ export function interviewCalendar({ startsAt, endsAt, timezone = 'America/Denver
   const start = date(startsAt), end = date(endsAt);
   if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) return null;
   const whenLabel = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }).format(start);
+  const dateLabel = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(start);
+  const timeFormat = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' });
+  const endDateLabel = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(end);
+  const timeLabel = `${timeFormat.format(start)} – ${endDateLabel !== dateLabel ? `${endDateLabel}, ` : ''}${timeFormat.format(end)}`;
   const description = `We look forward to meeting you. Join your interview: ${publicJoinUrl}`;
   const params = new URLSearchParams({ action: 'TEMPLATE', text: title, dates: `${stamp(start)}/${stamp(end)}`, ctz: timezone, details: description, location: publicJoinUrl });
   const outlook = new URLSearchParams({ path: '/calendar/action/compose', rru: 'addevent', subject: title, startdt: start.toISOString(), enddt: end.toISOString(), body: description, location: publicJoinUrl });
@@ -26,5 +30,5 @@ export function interviewCalendar({ startsAt, endsAt, timezone = 'America/Denver
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//People Operations//Interview//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
     `UID:hiring-interview-${escape(interviewId)}@people-operations`, `DTSTAMP:${stamp(now)}`, `DTSTART:${stamp(start)}`, `DTEND:${stamp(end)}`,
     `SUMMARY:${escape(title)}`, `DESCRIPTION:${escape(description)}`, `URL:${publicJoinUrl}`, 'END:VEVENT', 'END:VCALENDAR'].map(fold).join('\r\n') + '\r\n';
-  return { whenLabel, googleUrl: `https://calendar.google.com/calendar/render?${params}`, outlookUrl: `https://outlook.live.com/calendar/0/deeplink/compose?${outlook}`, downloadUrl, ics };
+  return { whenLabel, dateLabel, timeLabel, googleUrl: `https://calendar.google.com/calendar/render?${params}`, outlookUrl: `https://outlook.live.com/calendar/0/deeplink/compose?${outlook}`, downloadUrl, ics };
 }

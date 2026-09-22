@@ -1,3 +1,4 @@
+import { interviewInvitationBody } from '../utils/interviewInvitationBody.js';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 /**
  * Helpers for hiring interview candidate invite emails (People Operations).
@@ -29,14 +30,6 @@ function agencyBrandOrName(agency) {
   return official || name || 'our agency';
 }
 
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 async function findLatestJobApplicationSubmission({ agencyId, candidateUserId, jobDescriptionId = null }) {
   const aid = Number(agencyId);
   const uid = Number(candidateUserId);
@@ -66,9 +59,10 @@ async function findLatestJobApplicationSubmission({ agencyId, candidateUserId, j
 }
 
 /**
- * Send candidate interview invite from People Operations with application materials.
+ * Prepare the candidate invitation without sending so delivery and review copies
+ * share the same body, personal links, sender, and application materials.
  */
-export async function sendHiringInterviewInviteEmail({
+export async function prepareHiringInterviewInviteEmail({
   agencyId,
   candidate,
   title,
@@ -77,8 +71,7 @@ export async function sendHiringInterviewInviteEmail({
   publicJoinUrl,
   interviewerRows = [],
   jobDescriptionId = null,
-  jobTitle = '',
-  preview = false
+  jobTitle = ''
 }) {
   interviewerRows = await Promise.all(interviewerRows.map(async user=>({...user,...await resolveMeetingRecipient({agencyId,user})})));
   const to = String(candidate?.email || '').trim();
@@ -196,6 +189,7 @@ export async function sendHiringInterviewInviteEmail({
     ...(calendar ? [`Add to Google Calendar: ${calendar.googleUrl}`, `Add to Outlook: ${calendar.outlookUrl}`, calendar.downloadUrl ? `Apple Calendar / iCal: ${calendar.downloadUrl}` : 'Apple Calendar / iCal: open the attached interview.ics file.'] : []),
     '',
     'Please join a few minutes early. You will wait in a lobby until admitted.',
+    'Need to reschedule or have a question? Just reply to this email to reach your interview team.',
     jdUrl ? `Job description: ${jdUrl}` : '',
     attachments.length
       ? `Attached for your reference: ${attachments.map(a => a.filename).join(', ')}.`
@@ -204,39 +198,30 @@ export async function sendHiringInterviewInviteEmail({
     .filter(Boolean)
     .join('\n');
 
-  const bodyHtml = `<div style="font-family: Arial, sans-serif; line-height: 1.5; color:#111;">
-    <p>Hi ${escapeHtml(firstName)},</p>
-    <p>Thank you for your interest in ${escapeHtml(agencyBrandOrName(agency))}${roleLabel ? ` and the ${escapeHtml(roleLabel)} position` : ''}. We enjoyed learning about your experience and would love to meet you, hear more about your goals, and answer your questions about the team.</p>
-    ${roleLabel ? `<p><strong>Role:</strong> ${escapeHtml(roleLabel)}</p>` : ''}
-    <p><strong>When:</strong> ${escapeHtml(whenLabel)}</p>
-    <p><strong>Interviewers from ${escapeHtml(agencyBrandOrName(agency))}:</strong> ${escapeHtml(interviewerLine)}</p>
-    <p style="margin:24px 0;"><a style="display:inline-block;background:#087b52;color:#fff;padding:13px 24px;border-radius:8px;text-decoration:none;font-weight:bold;" href="${escapeHtml(publicJoinUrl)}">Join your interview</a></p><p style="font-size:13px;">Or open: <a href="${escapeHtml(publicJoinUrl)}">${escapeHtml(publicJoinUrl)}</a></p>
-    <p><a href="${escapeHtml(rsvpUrl)}">Confirm attendance or decline</a></p>
-    <p>Please join a few minutes early. You will wait in a lobby until admitted.</p>
-    ${calendar ? `<p><strong>Add to your calendar:</strong> <a href="${escapeHtml(calendar.googleUrl)}">Google Calendar</a> · <a href="${escapeHtml(calendar.outlookUrl)}">Outlook</a> · ${calendar.downloadUrl ? `<a href="${escapeHtml(calendar.downloadUrl)}">Apple Calendar / iCal (.ics)</a>` : 'Apple Calendar / iCal: open the attached interview.ics file'}</p>` : ''}
-    ${jdUrl ? `<p><strong>Job description:</strong> <a href="${escapeHtml(jdUrl)}">${escapeHtml(jdUrl)}</a></p>` : ''}
-    ${attachments.length ? `<p style="color:#555;font-size:14px;">Attached for your reference: ${escapeHtml(attachments.map(a => a.filename).join(', '))}.</p>` : ''}
-  </div>`;
+  const bodyHtml = interviewInvitationBody({
+    firstName, candidateName: formatPersonName(candidate), agencyName: agencyBrandOrName(agency),
+    title: subject, jobTitle: roleLabel, whenLabel, timezone, calendar,
+    interviewers: interviewerRows.map(person => ({ name: formatPersonName(person), email: person.email })),
+    joinUrl: publicJoinUrl, rsvpUrl, jobUrl: jdUrl, attachmentNames: attachments.map(a => a.filename)
+  });
 
-  const html = await wrapOutboundHtmlWithTenantChrome({ html: bodyHtml, agencyId, opts: { replyMailto: replyTo } });
-  if (preview) return { to, from: identity.from_email, fromDisplay, subject, html, attachments: attachments.map(a => a.filename) };
-  {
-    return sendEmailFromIdentity({
-      senderIdentityId: identity.id,
-      to,
-      subject,
-      text,
-      html: bodyHtml,
-      attachments: attachments.length ? attachments : null,
-      source: 'auto',
-      userId: candidate?.id || null,
-      templateType: 'hiring_interview_invite',
-      jobDescriptionId: job?.id || jid || null,
-      intakeSubmissionId: submission?.id || null,
-      fromDisplayNameOverride: fromDisplay,
-      replyToOverride: replyTo,
-      linkUrl: publicJoinUrl
-    });
+  return {
+    senderIdentityId: identity.id, to, subject, text, html: bodyHtml,
+    attachments: attachments.length ? attachments : null,
+    source: 'auto', userId: candidate?.id || null, templateType: 'hiring_interview_invite',
+    jobDescriptionId: job?.id || jid || null, intakeSubmissionId: submission?.id || null,
+    fromDisplayNameOverride: fromDisplay, replyToOverride: replyTo, linkUrl: publicJoinUrl,
+    from: identity.from_email
+  };
+}
+
+export async function sendHiringInterviewInviteEmail(options) {
+  const email = await prepareHiringInterviewInviteEmail(options);
+  if (email.skipped) return email;
+  const { from, ...delivery } = email;
+  if (options.preview) {
+    const html = await wrapOutboundHtmlWithTenantChrome({ html: email.html, agencyId: options.agencyId, opts: { replyMailto: email.replyToOverride } });
+    return { to: email.to, from, fromDisplay: email.fromDisplayNameOverride, subject: email.subject, html, attachments: (email.attachments || []).map(a => a.filename) };
   }
-
+  return sendEmailFromIdentity(delivery);
 }

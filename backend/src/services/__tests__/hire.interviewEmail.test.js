@@ -11,7 +11,7 @@ vi.mock('../hiringInterviewSender.service.js', () => ({ resolveInterviewSender: 
 vi.mock('../tenantEmailChrome.service.js', () => ({ wrapOutboundHtmlWithTenantChrome: m.wrap }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: m.send }));
 vi.mock('../publicJobDescription.service.js', () => ({ buildJobDescriptionAttachmentForEmail: async () => null, buildPublicJobDescriptionUrl: () => '', peopleOperationsFromDisplayName: a => `${a.name} People Operations` }));
-import { sendHiringInterviewInviteEmail } from '../hiringInterviewInviteEmail.service.js';
+import { sendHiringInterviewInviteEmail, prepareHiringInterviewInviteEmail } from '../hiringInterviewInviteEmail.service.js';
 const args = { agencyId: 4, candidate: { id: 30, email: 'candidate@example.org', first_name: 'A & B' }, title: 'Interview invitation', whenLabel: 'October 2, 1 pm MDT', publicJoinUrl: 'https://tenant.org/join/guest', interviewerRows: [{ first_name: 'Elena', last_name: 'Cruz' }, { first_name: 'Alex', last_name: 'Rivera' }] };
 beforeEach(() => { vi.clearAllMocks(); m.agency.mockResolvedValue({ name: 'Tenant' }); m.sender.mockResolvedValue({ id: 7, from_email: 'po@tenant.org', reply_to: 'unrelated@tenant.org' }); m.wrap.mockImplementation(async ({ html }) => `<header>Tenant header</header>${html}<footer>Tenant footer</footer>`); m.send.mockResolvedValue({ id: 'provider-message' }); });
 describe('branded interview invitation', () => {
@@ -28,7 +28,20 @@ describe('branded interview invitation', () => {
     expect(ics).toContain('DTSTART:20260919T210000Z');
     expect(ics).toContain(`URL:${args.publicJoinUrl}`);
   });
-  it('previews sender, branding, and all interviewers without sending', async () => { const preview = await sendHiringInterviewInviteEmail({ ...args, preview: true }); expect(preview.from).toBe('po@tenant.org'); expect(preview.html).toContain('Tenant header'); expect(preview.html).toContain('Tenant footer'); expect(preview.html).toContain('Elena Cruz, Alex Rivera'); expect(preview.html).toContain('A &amp; B'); expect(m.send).not.toHaveBeenCalled(); });
-  it('uses PO From and Reply-To with the normal signature and tenant branding pipeline', async () => { await sendHiringInterviewInviteEmail(args); expect(m.send.mock.calls[0][0]).toMatchObject({ senderIdentityId: 7, replyToOverride: 'po@tenant.org', fromDisplayNameOverride: 'Tenant People Operations', templateType: 'hiring_interview_invite' }); expect(m.send.mock.calls[0][0].html).toContain('Join your interview'); expect(m.send.mock.calls[0][0].html).not.toContain('<header>'); });
+  it('previews sender, branding, and all interviewers without sending', async () => { const preview = await sendHiringInterviewInviteEmail({ ...args, preview: true }); expect(preview.from).toBe('po@tenant.org'); expect(preview.html).toContain('Tenant header'); expect(preview.html).toContain('Tenant footer'); expect(preview.html).toContain('Elena Cruz'); expect(preview.html).toContain('Alex Rivera'); expect(preview.html).toContain('A &amp; B'); expect(m.send).not.toHaveBeenCalled(); });
+  it('uses PO From and Reply-To with the normal signature and tenant branding pipeline', async () => { await sendHiringInterviewInviteEmail(args); expect(m.send.mock.calls[0][0]).toMatchObject({ senderIdentityId: 7, replyToOverride: 'po@tenant.org', fromDisplayNameOverride: 'Tenant People Operations', templateType: 'hiring_interview_invite' }); expect(m.send.mock.calls[0][0].html).toContain('Join Interview'); expect(m.send.mock.calls[0][0].html).not.toContain('<header>'); });
   it('does not fall back to a platform sender if PO is unavailable', async () => { m.sender.mockRejectedValue(new Error('Configure PO')); await expect(sendHiringInterviewInviteEmail(args)).rejects.toThrow('Configure PO'); expect(m.send).not.toHaveBeenCalled(); });
+  it('prepares the exact candidate body for a review copy without sending or changing the recipient', async () => {
+    const options = { ...args, jobTitle: 'Mental Health Provider <Denver>', interviewerRows: [{ first_name: 'Haley', last_name: 'Inyart', email: 'haley@tenant.org' }] };
+    const prepared = await prepareHiringInterviewInviteEmail(options);
+    expect(m.send).not.toHaveBeenCalled();
+    expect(prepared.to).toBe(args.candidate.email);
+    expect(prepared.html).toContain('Mental Health Provider &lt;Denver&gt;');
+    expect(prepared.html).toContain('mailto:haley@tenant.org');
+    expect(prepared.html).toContain(`href="${args.publicJoinUrl}"`);
+    expect(prepared.html).not.toContain('Sign in with your invited account');
+    await sendHiringInterviewInviteEmail(options);
+    expect(m.send.mock.calls[0][0].html).toBe(prepared.html);
+  });
+
 });
