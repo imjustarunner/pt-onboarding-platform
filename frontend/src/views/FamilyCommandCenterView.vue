@@ -1,5 +1,5 @@
 <template>
-  <div class="fcc" :class="{ 'fcc-gate': !dashboard }">
+  <div class="fcc" :class="{ 'fcc-gate': !dashboard, 'fcc-calendar-screen': dashboard && tab === 'Calendar' }">
     <div v-if="loading && !dashboard" class="fcc-welcome"><div class="fcc-mark">⌂</div><h1>A little more together.</h1><p>Opening your family dashboard…</p></div>
     <section v-else-if="!session" class="fcc-welcome">
       <div class="fcc-mark">⌂</div><span class="eyebrow">YOUR EVERYDAY, TOGETHER</span><h1>Family Command Center</h1><p>A home for everything that makes a family.</p>
@@ -19,13 +19,13 @@
 
     <template v-if="dashboard">
       <aside class="fcc-sidebar">
-        <a class="fcc-brand" href="#" @click.prevent="tab='Home'"><span class="fcc-mark">⌂</span><span>family<span class="fcc-brand-sub">COMMAND CENTER</span></span></a>
+        <a class="fcc-brand" href="#" @click.prevent="tab='Calendar'" aria-label="Family calendar"><span class="fcc-mark">⌂</span><span>family<span class="fcc-brand-sub">COMMAND CENTER</span></span></a>
         <div class="fcc-house-name">{{ dashboard.household.name }}</div>
-        <nav aria-label="Family navigation"><button v-for="item in nav" :key="item.label" :class="{ selected: tab === item.label }" @click="tab=item.label"><span>{{ item.icon }}</span>{{ item.label }}<span v-if="item.label==='Lists' && uncheckedLists" class="fcc-count">{{ uncheckedLists }}</span></button></nav>
+        <nav aria-label="Family navigation"><button v-for="item in nav" :key="item.label" :class="{ selected: tab === item.label }" :title="item.label" :aria-label="item.label" :aria-current="tab === item.label ? 'page' : undefined" @click="tab=item.label"><span aria-hidden="true">{{ item.icon }}</span><span class="fcc-nav-label">{{ item.label }}</span><span v-if="item.label==='Lists' && uncheckedLists" class="fcc-count">{{ uncheckedLists }}</span></button></nav>
         <div class="fcc-sidebar-foot"><span class="fcc-live-dot" /> All together, wherever you are.<button @click="logout">Sign out of this device</button></div>
       </aside>
       <main class="fcc-main">
-        <header class="fcc-topbar"><div><span class="eyebrow">{{ dateLabel }}</span><h1>{{ tab === 'Home' ? greeting : tab }}<span v-if="tab==='Home'" class="fcc-sun"> ☀</span></h1><p>{{ tab === 'Home' ? 'Here’s what’s happening in your little world.' : dashboard.household.name }}</p></div><div class="fcc-top-actions"><span class="fcc-clock">{{ timeLabel }}</span><div class="fcc-avatar-stack"><span v-for="m in dashboard.members.slice(0,5)" :key="m.user_id" :style="{ background: m.color }"><img v-if="m.photo_url" :src="m.photo_url" alt="" />{{ m.photo_url ? '' : m.display_name[0] }}</span></div><button class="fcc-primary" @click="openEditor('event')">＋ Add event</button></div></header>
+        <header class="fcc-topbar"><div><span class="eyebrow">{{ dateLabel }}</span><h1>{{ tab === 'Home' ? greeting : tab }}<span v-if="tab==='Home'" class="fcc-sun"> ☀</span></h1><p>{{ tab === 'Home' ? 'Here’s what’s happening in your little world.' : dashboard.household.name }}</p></div><div class="fcc-top-actions"><span class="fcc-clock">{{ timeLabel }}</span><div v-if="tab==='Calendar'" class="fcc-member-filters" aria-label="Filter by family member"><button v-for="m in dashboard.members" :key="m.user_id" :aria-pressed="activeMember===String(m.user_id)" :aria-label="'Show '+m.display_name+'’s calendar'" @click="activeMember=activeMember===String(m.user_id)?'all':String(m.user_id)"><span class="fcc-filter-avatar" :style="calendarEventStyle({memberId:m.user_id}, 'person', dashboard.members)"><img v-if="m.photo_url" :src="m.photo_url" alt="" /><template v-else>{{ m.display_name[0] }}</template></span><small>{{ m.display_name }}</small></button><button :aria-pressed="activeMember==='all'" @click="activeMember='all'"><span class="fcc-filter-avatar">◎</span><small>All</small></button></div><div v-else class="fcc-avatar-stack"><span v-for="m in dashboard.members.slice(0,5)" :key="m.user_id" :style="{ background: m.color }"><img v-if="m.photo_url" :src="m.photo_url" alt="" />{{ m.photo_url ? '' : m.display_name[0] }}</span></div><button class="fcc-primary" @click="openEditor('event')">＋ Add event</button></div></header>
 
         <div v-if="tab==='Home'" class="fcc-pocket-shortcut"><button @click="tab='On the go'">↗ Lists &amp; email · On the go</button><span>Your groceries, to-dos and upcoming plans in one easy view.</span></div>
         <FamilyPocket v-if="tab==='On the go'" :key="householdId" :http="http" :household-id="householdId" :is-parent="isParent" @updated="loadDashboard" @error="report" />
@@ -40,7 +40,7 @@
 
 
 
-        <div class="fcc-grid" v-if="['Home','Calendar','Chores','Rewards','Lists','Meals','Family'].includes(tab)">
+        <div class="fcc-grid" v-if="['Home','Chores','Rewards','Lists','Meals','Family'].includes(tab)">
           <FamilyPager v-if="['Home','Chores'].includes(tab)" title="✓ Chores, little wins" :pages="['Everyone', ...dashboard.members.map(m=>m.display_name)]">
             <template #default="{index}"><div class="fcc-card-intro"><span>{{ chores.filter(c=>choreDone(c)).length }} of {{ chores.length }} complete</span><button v-if="isParent" @click="openEditor('chore')">＋ Add</button></div><div class="fcc-progress"><span :style="{width: (chores.length ? chores.filter(c=>choreDone(c)).length/chores.length*100 : 0)+'%'}" /></div>
               <div v-for="c in chores.filter(c=>index===0 || c.assigned_user_id===dashboard.members[index-1]?.user_id)" :key="c.id" class="fcc-check-row"><button class="fcc-check" :class="{ checked: choreDone(c) }" :disabled="busy || !!choreActivity(c)" :aria-label="'Complete '+c.title" @click="act(c,'complete')">{{ choreDone(c) ? '✓' : choreActivity(c) ? '◷' : '' }}</button><button class="fcc-row-title" @click="openDetails(c)">{{ c.title }}<small>{{ memberName(c.assigned_user_id) }} · {{ c.metadata.points }} pts {{ c.metadata.recurrence !== 'none' ? '· '+c.metadata.recurrence : '' }}</small></button><span class="fcc-mini-avatar" :style="{background: member(c.assigned_user_id)?.color}">{{ memberName(c.assigned_user_id)[0] }}</span></div><p v-if="!chores.length" class="fcc-empty">Small jobs. Big teamwork.<br>Add your first chore to get started.</p>
@@ -63,14 +63,14 @@
         <div v-if="tab==='Home'" class="fcc-quick-actions"><button @click="openEditor('grocery')">＋ Add to grocery list</button><button v-if="isParent" @click="openEditor('announcement')">✦ Add announcement</button><button @click="tab='Meals'">♧ Find a recipe</button><button @click="tab='Settings'">▧ Photo frame</button><button @click="openEditor('status')">◷ Set a status</button></div>
         <FamilyHomeTools :key="householdId" :http="http" :household-id="householdId" :tab="tab" :is-parent="isParent" :suspended="editor || !!detail || !!redeem" :time="timeLabel" :upcoming="upNext ? upNext.title+' · '+eventTime(upNext) : null" :meals="entriesOf('meal')" @updated="loadDashboard" @error="report" />
 
-        <FamilyCalendarView v-if="tab==='Calendar'" :http="http" :household-id="householdId" :timezone="dashboard.household.timezone" :revision="dashboard" />
-        <CalendarSharing v-if="isParent && ['Calendar','Settings'].includes(tab)" :key="`sharing-${householdId}`" :household-id="householdId" />
-        <FamilyCalendarConnection v-if="isParent && ['Calendar','Settings'].includes(tab)" :key="householdId" :http="http" :household-id="householdId" :members="dashboard.members" :timezone="dashboard.household.timezone" @updated="loadDashboard" @error="report" />
+        <FamilyCalendarView v-if="tab==='Calendar'" :http="http" :household-id="householdId" :timezone="dashboard.household.timezone" :revision="dashboard" :members="dashboard.members" :member-filter="activeMember" :now="now" @edit="editCalendarEvent" @settings="tab='Settings'" />
+        <CalendarSharing v-if="isParent && tab==='Settings'" :key="`sharing-${householdId}`" :household-id="householdId" />
+        <FamilyCalendarConnection v-if="isParent && tab==='Settings'" :key="householdId" :http="http" :household-id="householdId" :members="dashboard.members" :timezone="dashboard.household.timezone" @updated="loadDashboard" @error="report" />
         <section v-if="isParent && pending.length" class="family-card fcc-approvals"><header><h2>♡ A parent’s thumbs-up</h2></header><div v-for="a in pending" :key="a.id"><span>{{ memberName(a.user_id) }} · {{ entryTitle(a.entry_id) }} · {{ a.points }} points</span><button :disabled="busy" @click="approve(a,'approve')">Approve</button><button :disabled="busy" @click="approve(a,'reject')">Decline</button></div></section>
 
-        <section v-if="tab==='Settings'" class="family-card fcc-settings"><h2>Our family</h2><label v-if="session.households.length>1">Household<select v-model="householdId" @change="loadDashboard"><option v-for="h in session.households" :key="h.id" :value="h.id">{{ h.name }}</option></select></label><p>Time zone: {{ dashboard.household.timezone }}</p><label class="fcc-inline"><input type="checkbox" :checked="member(session.userId)?.share_work" @change="shareWork($event.target.checked)" /> Include my work schedule in this household</label><p class="fcc-small">Work appears as “Work.” The calendar’s details option adds the event category and time. Client names and clinical notes stay private.</p><form v-if="isParent" @submit.prevent="addMember" class="fcc-settings-form"><h3>Add someone to your family</h3><p>Adults, children and pets can have a name, photo and color without a login. Everyone can use this shared display.</p><label>Family role<select v-model="newMember.role"><option value="member">Child / family member</option><option value="parent">Parent / adult</option><option value="pet">Pet</option></select></label><label>Name<input v-model="newMember.name" required maxlength="80" /></label><label>Color<input v-model="newMember.color" type="color" /></label><label>Photo<input type="file" accept="image/jpeg,image/png,image/webp" @change="pickPhoto($event, 'member')" /></label><button class="fcc-primary" :disabled="busy">Add family member</button></form><div v-if="isParent" class="fcc-settings-form"><h3>Optional: connect another adult’s account</h3><p>They’ll sign in with their own account and join your household.</p><button @click="makeInvite" :disabled="busy">Create a parent invitation</button><label v-if="createdInvite">Share this invitation code (valid for 48 hours)<textarea readonly :value="createdInvite" /></label></div><form class="fcc-settings-form" @submit.prevent="joinHome"><label>Join another household<input v-model="inviteCode" required /></label><button :disabled="busy">Join</button></form><button @click="logout">Sign out of this device</button></section>
-        <section v-if="tab==='Smart home'" class="family-card fcc-integration"><div class="fcc-mark">⌂</div><h2>A more connected home, in time.</h2><p>Google Home lights and cameras are not connected yet. Your Google sign-in does not grant access to your home devices.</p><p>Connect a shared Google calendar from Calendar or Settings to import events. Use On the go for email commands and your live lists. Text-message capture is not connected yet.</p></section>
-        <footer class="fcc-bottom"><span>⌂ A place for your people.</span><span>{{ refreshing ? 'Updating…' : 'Saved across your family’s devices' }}</span></footer>
+        <section v-if="tab==='Settings'" class="family-card fcc-settings"><h2>Our family</h2><label v-if="session.households.length>1">Household<select v-model="householdId" @change="loadDashboard"><option v-for="h in session.households" :key="h.id" :value="h.id">{{ h.name }}</option></select></label><p>Time zone: {{ dashboard.household.timezone }}</p><label class="fcc-inline"><input type="checkbox" :checked="member(session.userId)?.share_work" @change="shareWork($event.target.checked)" /> Include my work schedule in this household</label><p class="fcc-small">Work appears as “Work.” The calendar’s details option adds the event category and time. Client names and clinical notes stay private.</p><div v-if="isParent" class="fcc-settings-form"><h3>Everyone’s colors</h3><p>Choose a color for each person or pet. In Calendar, choose “Color by person” to use these colors.</p><div class="fcc-member-colors"><label v-for="m in dashboard.members" :key="m.user_id">{{ m.display_name }}<input type="color" :value="m.color || '#6552a8'" :aria-label="m.display_name+' color'" :disabled="busy" @change="changeMemberColor(m,$event.target.value)" /></label></div></div><form v-if="isParent" @submit.prevent="addMember" class="fcc-settings-form"><h3>Add someone to your family</h3><p>Adults, children and pets can have a name, photo and color without a login. Everyone can use this shared display.</p><label>Family role<select v-model="newMember.role"><option value="member">Child / family member</option><option value="parent">Parent / adult</option><option value="pet">Pet</option></select></label><label>Name<input v-model="newMember.name" required maxlength="80" /></label><label>Color<input v-model="newMember.color" type="color" /></label><label>Photo<input type="file" accept="image/jpeg,image/png,image/webp" @change="pickPhoto($event, 'member')" /></label><button class="fcc-primary" :disabled="busy">Add family member</button></form><div v-if="isParent" class="fcc-settings-form"><h3>Optional: connect another adult’s account</h3><p>They’ll sign in with their own account and join your household.</p><button @click="makeInvite" :disabled="busy">Create a parent invitation</button><label v-if="createdInvite">Share this invitation code (valid for 48 hours)<textarea readonly :value="createdInvite" /></label></div><form class="fcc-settings-form" @submit.prevent="joinHome"><label>Join another household<input v-model="inviteCode" required /></label><button :disabled="busy">Join</button></form><button @click="logout">Sign out of this device</button></section>
+        <section v-if="tab==='Smart home'" class="family-card fcc-integration"><div class="fcc-mark">⌂</div><h2>A more connected home, in time.</h2><p>Google Home lights and cameras are not connected yet. Your Google sign-in does not grant access to your home devices.</p><p>Connect a shared Google calendar from Settings to import events. Use On the go for email commands and your live lists. Text-message capture is not connected yet.</p></section>
+        <footer v-if="tab!=='Calendar'" class="fcc-bottom"><span>⌂ A place for your people.</span><span>{{ refreshing ? 'Updating…' : 'Saved across your family’s devices' }}</span></footer>
       </main>
     </template>
     <div v-if="error" class="fcc-error" role="alert"><span>{{ error }}</span><button @click="error=''" aria-label="Dismiss error">×</button></div>
@@ -108,18 +108,21 @@ import FamilyArtworkPicker from '../components/family/FamilyArtworkPicker.vue';
 import FamilyHomeTools from '../components/family/FamilyHomeTools.vue';
 import FamilyCalendarConnection from '../components/family/FamilyCalendarConnection.vue';
 import FamilyCalendarView from '../components/family/FamilyCalendarView.vue';
+import { calendarEventStyle } from '../utils/familyCalendarDisplay';
 import CalendarSharing from '../components/CalendarSharing.vue';
 import { familyStatuses, eventType, eventArtwork, entryType, memberStatus, familyCalendarEntries, normalizeFamilyStatus } from '../utils/familyCommandCenter';
 const http = axios.create({ baseURL:'/api/family', withCredentials:true });
 const session=ref(null), dashboard=ref(null), tenant=ref(null), loading=ref(true), busy=ref(false), refreshing=ref(false), error=ref(''), notice=ref('');
 const params=new URLSearchParams(window.location.search), organization=ref(params.get('organization') || ''), agencyId=ref(Number(params.get('agencyId')) || null), pin=ref(''), email=ref(''), needsEmail=ref(false);
 const householdId=ref(Number(new URLSearchParams(window.location.search).get('household')) || null), householdName=ref(''), timezone=ref(Intl.DateTimeFormat().resolvedOptions().timeZone), inviteCode=ref(''), createdInvite=ref('');
-const tab=ref(new URLSearchParams(window.location.search).get('view')==='on-the-go'?'On the go':'Home'), now=ref(new Date()), weather=ref(null), workMode=ref('busy'), calendarDate=ref('');
+const tab=ref(new URLSearchParams(window.location.search).get('view')==='on-the-go'?'On the go':new URLSearchParams(window.location.search).get('view')==='home'?'Home':'Calendar'), now=ref(new Date()), weather=ref(null), workMode=ref('busy'), calendarDate=ref('');
+const activeMember=ref('all');
+watch(householdId,()=>{activeMember.value='all';});
 const editor=ref(false), detail=ref(null), redeem=ref(null), redeemUser=ref(null), draft=ref({}), modal=ref(null), newMember=ref({name:'',role:'member',color:'#9d8ace',photoUrl:null});
 let refreshTimer, clockTimer, noticeTimer, previousFocus;
 const nav=[{label:'Home',icon:'⌂'},{label:'On the go',icon:'↗'},{label:'Calendar',icon:'▦'},{label:'Chores',icon:'✓'},{label:'Rewards',icon:'☆'},{label:'Lists',icon:'☷'},{label:'Meals',icon:'♧'},{label:'Family',icon:'♡'},{label:'Smart home',icon:'⌘'},{label:'Settings',icon:'⚙'}];
 const isParent=computed(()=>dashboard.value?.household.role==='parent');
-watch([tab,householdId],()=>{const url=new URL(window.location.href);if(tab.value==='On the go')url.searchParams.set('view','on-the-go');else url.searchParams.delete('view');if(householdId.value)url.searchParams.set('household',householdId.value);history.replaceState(null,'',url.pathname+url.search+url.hash);});
+watch([tab,householdId],()=>{const url=new URL(window.location.href);if(tab.value==='On the go')url.searchParams.set('view','on-the-go');else if(tab.value==='Home')url.searchParams.set('view','home');else url.searchParams.delete('view');if(householdId.value)url.searchParams.set('household',householdId.value);history.replaceState(null,'',url.pathname+url.search+url.hash);});
 const dateLabel=computed(()=>now.value.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric', timeZone: dashboard.value?.household.timezone}));
 const timeLabel=computed(()=>now.value.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:dashboard.value?.household.timezone}));
 const greeting=computed(()=>{const h=Number(new Intl.DateTimeFormat('en-US',{hour:'numeric',hourCycle:'h23',timeZone:dashboard.value?.household.timezone}).format(now.value));return h<12?'Good morning, family.':h<17?'Good afternoon, family.':'Good evening, family.';});
@@ -162,6 +165,7 @@ async function joinHome(){await run(async()=>{const{data}=await http.post('/join
 async function logout(){await run(async()=>{await http.post('/logout');session.value=null;dashboard.value=null;await resolveTenant();});}
 function localInput(date){return isoToZonedDatetimeLocal(date, dashboard.value.household.timezone);}
 function openEditor(kind){previousFocus=document.activeElement;draft.value={kind,title:kind==='status'?'Home':'',memberUserId:null,startAt:['event','status','chore','meal'].includes(kind)?localInput(new Date()):'',endAt:['event','status'].includes(kind)?localInput(new Date(Date.now()+3600000)):'',metadata:{eventType:'family',color:'#7976d7',points:kind==='reward'?50:10,approval:true,recurrence:'none',rotation:[],reminderMinutes:0}};editor.value=true;nextTick(()=>modal.value?.querySelector('input,select')?.focus());}
+function editCalendarEvent(e){const entry=dashboard.value.entries.find(item=>String(item.id)===String(e.id));if(entry){previousFocus=document.activeElement;detail.value=entry;editDetail();nextTick(()=>modal.value?.querySelector('input,select')?.focus());}}
 function openDetails(e){previousFocus=document.activeElement;detail.value=e;nextTick(()=>modal.value?.focus());}
 function closeModal(){editor.value=false;detail.value=null;redeem.value=null;previousFocus?.focus?.();}
 function editDetail(){draft.value={id:detail.value.id,kind:detail.value.kind,title:detail.value.kind==='status'?normalizeFamilyStatus(detail.value.title):detail.value.title,memberUserId:detail.value.member_user_id,startAt:detail.value.start_at?localInput(detail.value.start_at):'',endAt:detail.value.end_at?localInput(detail.value.end_at):'',metadata:JSON.parse(JSON.stringify(detail.value.metadata))};detail.value=null;editor.value=true;}
@@ -172,6 +176,7 @@ async function approve(a,action){await act({id:a.entry_id},action,{activityId:a.
 function openRedemption(r){previousFocus=document.activeElement;redeem.value=r;redeemUser.value=session.value.userId;nextTick(()=>modal.value?.focus());}
 async function redeemReward(){await act(redeem.value,'redeem',{userId:redeemUser.value,requestId:crypto.randomUUID()});if(!error.value)closeModal();}
 async function addMember(){await run(async()=>{await http.post(`/households/${householdId.value}/members`,newMember.value);newMember.value={name:'',role:'member',color:'#9d8ace',photoUrl:null};await loadDashboard();});}
+async function changeMemberColor(m,color){await run(async()=>{await http.patch(`/households/${householdId.value}/members/${m.user_id}`,{color});await loadDashboard();});}
 async function shareWork(value){await run(async()=>{await http.patch(`/households/${householdId.value}/members/${session.value.userId}`,{shareWork:value});await loadDashboard();});}
 async function makeInvite(){await run(async()=>{createdInvite.value=(await http.post(`/households/${householdId.value}/invites`,{role:'parent'})).data.token;});}
 async function pickPhoto(event,target){const file=event.target.files?.[0];if(!file)return;try{const data=await resizeFamilyPhoto(file,{maxEdge:target==='member'?512:1200,maxDataLength:700000});if(target==='member')newMember.value.photoUrl=data;else draft.value.metadata.artwork=data;}catch(e){report(e);}}
@@ -402,4 +407,35 @@ onUnmounted(()=>{clearInterval(refreshTimer);clearInterval(clockTimer);clearTime
 @media(prefers-reduced-motion:reduce){.fcc *{scroll-behavior:auto!important;transition:none!important}
 }
 
+/* A quiet navigation rail leaves the schedule room to breathe. */
+@media(min-width:761px){
+.fcc-sidebar{width:80px;padding:16px 10px;align-items:center}
+.fcc-brand{flex-direction:column;gap:4px;font-size:18px;text-align:center}
+.fcc-brand-sub{font-size:5px;letter-spacing:.8px;margin-top:3px}
+.fcc-brand .fcc-mark{width:32px;height:32px;font-size:25px;border-radius:9px}
+.fcc-house-name{display:none}
+.fcc-sidebar nav{width:100%;margin-top:24px;gap:5px}
+.fcc-sidebar nav button{position:relative;justify-content:center;padding:10px;min-height:44px;color:var(--ink)}
+.fcc-nav-label{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.fcc-count{position:absolute;right:0;top:0;font-size:10px;padding:0 4px}
+.fcc-sidebar-foot{font-size:10px;text-align:center;padding-top:15px;line-height:1.5}
+.fcc-sidebar-foot button{font-size:10px;padding:6px 0}
+.fcc-main{padding:20px 24px;max-width:none;margin:0}
+.fcc-calendar-screen .fcc-main{padding:16px 20px 12px}
+.fcc-calendar-screen .fcc-topbar{margin-bottom:14px;min-height:64px;gap:12px}
+.fcc-calendar-screen .fcc-topbar h1{font-size:28px;margin:0;line-height:1.25}
+.fcc-calendar-screen .fcc-topbar p{margin:0}
+.fcc-calendar-screen .eyebrow{font-size:12px;letter-spacing:0}
+.fcc-calendar-screen .fcc-clock{display:none}
+}
+.fcc-member-filters{display:flex;gap:8px;align-items:center;max-width:48vw;overflow-x:auto;padding:3px}
+.fcc-member-filters button{background:none;border:0;padding:2px 4px;color:var(--ink);min-width:48px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:3px}
+.fcc-member-filters small{font-size:12px;max-width:76px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fcc-filter-avatar{display:grid;place-items:center;width:36px;height:36px;border-radius:50%;background:var(--event-fill,var(--soft));color:var(--event-ink,var(--purple));border:2px solid var(--event-color,var(--purple));font-weight:700;overflow:hidden}
+.fcc-filter-avatar img{width:100%;height:100%;object-fit:cover}
+.fcc-member-filters button[aria-pressed=true] .fcc-filter-avatar{outline:2px solid var(--ink);outline-offset:3px}
+.fcc-member-colors{display:flex;gap:16px;flex-wrap:wrap}
+.fcc-member-colors input{max-width:100px}
+@media(max-width:1000px) and (min-width:761px){.fcc-calendar-screen .fcc-main{padding:12px}.fcc-calendar-screen .fcc-top-actions{gap:8px}.fcc-member-filters{max-width:42vw;gap:2px}.fcc-calendar-screen .fcc-primary{padding:10px}}
+@media(max-width:760px){.fcc-calendar-screen .fcc-topbar{margin-bottom:12px;display:grid;grid-template-columns:1fr auto;gap:12px}.fcc-calendar-screen .fcc-top-actions{display:contents!important}.fcc-calendar-screen .fcc-member-filters{grid-column:1/-1;grid-row:2}.fcc-calendar-screen .fcc-top-actions>.fcc-primary{grid-column:2;grid-row:1}.fcc-calendar-screen .fcc-top-actions{width:100%;flex-wrap:wrap;justify-content:space-between;gap:12px}.fcc-calendar-screen .fcc-clock{display:none}.fcc-member-filters{max-width:100%;order:2;width:100%}.fcc-calendar-screen .fcc-topbar h1{margin-bottom:0}.fcc-calendar-screen .fcc-main{padding:14px 12px}.fcc-calendar-screen .fcc-topbar p{margin-bottom:8px}}
 </style>

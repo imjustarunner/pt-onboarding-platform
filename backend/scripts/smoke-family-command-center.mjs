@@ -65,7 +65,7 @@ try{
       }
       else if(url.pathname==='/api/family/calendar-sharing/family/1')data={enabled:false,readers:[]};
       else if(url.pathname==='/api/family/calendar-sharing/family/1/subscription')data={url:'https://app.example.com/api/calendar-sharing/feed/test.ics'};
-      else if(url.pathname==='/api/family/households/1/calendar-view')data={events:fixture.entries.filter(e=>e.kind==='event').map(e=>({key:`family:${e.id}`,title:e.title,start:e.start_at,end:e.end_at,memberName:'Emma',color:'#6552a8'})),warnings:[]};
+      else if(url.pathname==='/api/family/households/1/calendar-view')data={events:fixture.entries.filter(e=>e.kind==='event').map(e=>({key:`family:${e.id}`,id:e.id,title:e.title,start:e.start_at,end:e.end_at,memberId:e.member_user_id,memberName:members.find(m=>m.user_id===e.member_user_id)?.display_name,color:members.find(m=>m.user_id===e.member_user_id)?.color,metadata:e.metadata})),warnings:[]};
       else if(url.pathname==='/api/family/households/1/tools')data=homeTools;
       else if(url.pathname==='/api/family/households/1/preferences'){homeTools.preferences=JSON.parse(req.postData());data=homeTools.preferences;}
       else if(url.pathname==='/api/family/households/1/decide')data={choice:JSON.parse(req.postData()).options[1]};
@@ -94,7 +94,16 @@ try{
   });
   await page.setViewport({width:1440,height:1100,deviceScaleFactor:1});
   await page.goto(base+'/family',{waitUntil:'networkidle2',timeout:60000});
-  await page.waitForSelector('.fcc-upnext',{timeout:30000});
+  await page.waitForSelector('.family-calendar',{timeout:30000});
+  assert.equal(await page.$$eval('.day-column',nodes=>nodes.length),7,'Open directly to the weekly schedule');
+  assert.ok(await page.$eval('.fcc-sidebar',el=>el.getBoundingClientRect().width)<=84,'Slim desktop navigation');
+  assert.ok(await page.$eval('.calendar-scroll',el=>el.getBoundingClientRect().width)>1200,'Calendar uses the screen width');
+  await page.screenshot({path:'/tmp/family-calendar-desktop.png',fullPage:true});
+  await page.setViewport({width:1194,height:834,deviceScaleFactor:1});
+  await page.screenshot({path:'/tmp/family-calendar-ipad.png',fullPage:true});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Calendar fits iPad');
+  await page.evaluate(()=>[...document.querySelectorAll('.fcc-sidebar nav button')].find(b=>b.textContent.includes('Home')).click());
+  await page.waitForSelector('.fcc-upnext');
   assert.equal(await page.$eval('.fcc-hero-copy h2',el=>el.textContent),'Soccer practice');
   assert.equal(await page.$('.navbar'),null);
   await page.screenshot({path:'/tmp/family-command-center-desktop.png',fullPage:true});
@@ -208,6 +217,8 @@ try{
   await page.screenshot({path:'/tmp/family-calendar-week.png',fullPage:true});
   await page.evaluate(()=>[...document.querySelectorAll('.family-calendar button')].find(b=>b.textContent==='Day').click());
   assert.equal(await page.$$eval('.day-column',nodes=>nodes.length),1);
+  await clickText('.fcc-sidebar nav button','Settings');
+  await page.waitForFunction(()=>[...document.querySelectorAll('.calendar-sharing button')].some(b=>b.textContent==='Create subscription link'&&!b.disabled));
   await page.evaluate(()=>[...document.querySelectorAll('.calendar-sharing button')].find(b=>b.textContent==='Create subscription link').click());
   await page.waitForSelector('.subscription input');
   assert.match(await page.$eval('.subscription input',el=>el.value),/calendar-sharing\/feed/);
@@ -237,9 +248,9 @@ try{
   await page.waitForSelector('.fcc-pin');
   await page.type('.fcc-pin','123456');
   await page.click('.fcc-login .fcc-primary');
-  await page.waitForSelector('.fcc-upnext');
+  await page.waitForSelector('.family-calendar');
   await page.reload({waitUntil:'networkidle2'});
-  await page.waitForSelector('.fcc-upnext');
+  await page.waitForSelector('.family-calendar');
   assert.equal(unlocks,1,'Reload must restore the device session without another code');
   assert.deepEqual(failures,[],'No browser runtime errors');
   console.log('Family desktop/mobile smoke passed: On the go deep links, quick add, email buttons, dashboard, isolated shell, saved list entry, responsive layout, PIN-only login, session restore, recipe ingredients, random choices, photo upload/slideshow, shared calendar import with artwork choice, searchable expanded event types and national parks, Camping artwork save/reload/edit, member/calendar status events, recipe cuisine selection, matching takeout choices.');
