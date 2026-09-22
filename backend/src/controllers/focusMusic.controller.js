@@ -28,7 +28,7 @@ export function canManagePlatformPlaylists(req) {
 }
 
 /** Enabled for all tenants unless explicitly turned off in feature_flags. */
-async function isFocusMusicEnabledForAgency(agencyId) {
+export async function isFocusMusicEnabledForAgency(agencyId) {
   if (!agencyId) return false;
   const agency = await Agency.findById(agencyId);
   if (!agency) return false;

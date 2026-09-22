@@ -1,5 +1,5 @@
 <template>
-  <div class="fcc" :class="{ 'fcc-gate': !dashboard, 'fcc-calendar-screen': dashboard && tab === 'Calendar' }">
+  <div class="fcc" :class="{ 'fcc-gate': !dashboard, 'fcc-calendar-screen': dashboard && tab === 'Calendar', 'fcc-nav-expanded': navExpanded }">
     <div v-if="loading && !dashboard" class="fcc-welcome"><div class="fcc-mark">⌂</div><h1>A little more together.</h1><p>Opening your family dashboard…</p></div>
     <section v-else-if="!session" class="fcc-welcome">
       <div class="fcc-mark">⌂</div><span class="eyebrow">YOUR EVERYDAY, TOGETHER</span><h1>Family Command Center</h1><p>A home for everything that makes a family.</p>
@@ -18,13 +18,13 @@
     </section>
 
     <template v-if="dashboard">
-      <aside class="fcc-sidebar">
+      <aside class="fcc-sidebar"><button class="fcc-nav-toggle" :aria-expanded="navExpanded" aria-controls="family-navigation" :aria-label="navExpanded ? 'Collapse navigation' : 'Expand navigation'" @click="navExpanded=!navExpanded">☰ <span v-if="navExpanded">Menu</span></button>
         <a class="fcc-brand" href="#" @click.prevent="tab='Calendar'" aria-label="Family calendar"><span class="fcc-mark">⌂</span><span>family<span class="fcc-brand-sub">COMMAND CENTER</span></span></a>
         <div class="fcc-house-name">{{ dashboard.household.name }}</div>
-        <nav aria-label="Family navigation"><button v-for="item in nav" :key="item.label" :class="{ selected: tab === item.label }" :title="item.label" :aria-label="item.label" :aria-current="tab === item.label ? 'page' : undefined" @click="tab=item.label"><span aria-hidden="true">{{ item.icon }}</span><span class="fcc-nav-label">{{ item.label }}</span><span v-if="item.label==='Lists' && uncheckedLists" class="fcc-count">{{ uncheckedLists }}</span></button></nav>
+        <nav id="family-navigation" aria-label="Family navigation"><button v-for="item in nav" :key="item.label" :class="{ selected: tab === item.label }" :title="item.label" :aria-label="item.label" :aria-current="tab === item.label ? 'page' : undefined" @click="item.label==='Focus music' ? musicOpen=!musicOpen : tab=item.label"><span aria-hidden="true">{{ item.icon }}</span><span class="fcc-nav-label">{{ item.label }}</span><span v-if="item.label==='Lists' && uncheckedLists" class="fcc-count">{{ uncheckedLists }}</span></button></nav>
         <div class="fcc-sidebar-foot"><span class="fcc-live-dot" /> All together, wherever you are.<button @click="logout">Sign out of this device</button></div>
       </aside>
-      <main class="fcc-main">
+      <main class="fcc-main"><FamilyFocusMusic :http="http" :open="musicOpen" :user-id="session.userId" @close="musicOpen=false" @open="musicOpen=true" />
         <header class="fcc-topbar"><div><span class="eyebrow">{{ dateLabel }}</span><h1>{{ tab === 'Home' ? greeting : tab }}<span v-if="tab==='Home'" class="fcc-sun"> ☀</span></h1><p>{{ tab === 'Home' ? 'Here’s what’s happening in your little world.' : dashboard.household.name }}</p></div><div class="fcc-top-actions"><span class="fcc-clock">{{ timeLabel }}</span><div v-if="tab==='Calendar'" class="fcc-member-filters" aria-label="Filter by family member"><button v-for="m in dashboard.members" :key="m.user_id" :aria-pressed="activeMember===String(m.user_id)" :aria-label="'Show '+m.display_name+'’s calendar'" @click="activeMember=activeMember===String(m.user_id)?'all':String(m.user_id)"><span class="fcc-filter-avatar" :style="calendarEventStyle({memberId:m.user_id}, 'person', dashboard.members)"><img v-if="m.photo_url" :src="m.photo_url" alt="" /><template v-else>{{ m.display_name[0] }}</template></span><small>{{ m.display_name }}</small></button><button :aria-pressed="activeMember==='all'" @click="activeMember='all'"><span class="fcc-filter-avatar">◎</span><small>All</small></button></div><div v-else class="fcc-avatar-stack"><span v-for="m in dashboard.members.slice(0,5)" :key="m.user_id" :style="{ background: m.color }"><img v-if="m.photo_url" :src="m.photo_url" alt="" />{{ m.photo_url ? '' : m.display_name[0] }}</span></div><button class="fcc-primary" @click="openEditor('event')">＋ Add event</button></div></header>
 
         <div v-if="tab==='Home'" class="fcc-pocket-shortcut"><button @click="tab='On the go'">↗ Lists &amp; email · On the go</button><span>Your groceries, to-dos and upcoming plans in one easy view.</span></div>
@@ -63,7 +63,7 @@
         <div v-if="tab==='Home'" class="fcc-quick-actions"><button @click="openEditor('grocery')">＋ Add to grocery list</button><button v-if="isParent" @click="openEditor('announcement')">✦ Add announcement</button><button @click="tab='Meals'">♧ Find a recipe</button><button @click="tab='Settings'">▧ Photo frame</button><button @click="openEditor('status')">◷ Set a status</button></div>
         <FamilyHomeTools :key="householdId" :http="http" :household-id="householdId" :tab="tab" :is-parent="isParent" :suspended="editor || !!detail || !!redeem" :time="timeLabel" :upcoming="upNext ? upNext.title+' · '+eventTime(upNext) : null" :meals="entriesOf('meal')" @updated="loadDashboard" @error="report" />
 
-        <FamilyCalendarView v-if="tab==='Calendar'" :http="http" :household-id="householdId" :timezone="dashboard.household.timezone" :revision="dashboard" :members="dashboard.members" :member-filter="activeMember" :now="now" @edit="editCalendarEvent" @settings="tab='Settings'" />
+        <FamilyCalendarView v-if="tab==='Calendar'" :http="http" :household-id="householdId" :timezone="dashboard.household.timezone" :revision="dashboard" :members="dashboard.members" :member-filter="activeMember" :now="now" @edit="editCalendarEvent" @settings="tab='Settings'" @create="openCalendarSlot" :reschedule="rescheduleCalendarEvent" :saving="busy" />
         <CalendarSharing v-if="isParent && tab==='Settings'" :key="`sharing-${householdId}`" :household-id="householdId" />
         <FamilyCalendarConnection v-if="isParent && tab==='Settings'" :key="householdId" :http="http" :household-id="householdId" :members="dashboard.members" :timezone="dashboard.household.timezone" @updated="loadDashboard" @error="report" />
         <section v-if="isParent && pending.length" class="family-card fcc-approvals"><header><h2>♡ A parent’s thumbs-up</h2></header><div v-for="a in pending" :key="a.id"><span>{{ memberName(a.user_id) }} · {{ entryTitle(a.entry_id) }} · {{ a.points }} points</span><button :disabled="busy" @click="approve(a,'approve')">Approve</button><button :disabled="busy" @click="approve(a,'reject')">Decline</button></div></section>
@@ -83,7 +83,7 @@
           <label v-if="draft.kind==='status'">Status<select v-model="draft.title"><option v-if="!familyStatuses.includes(draft.title)" :value="draft.title">{{ draft.title }}</option><option v-for="s in familyStatuses" :key="s">{{ s }}</option></select></label><label v-else>{{ draft.kind==='event'?'What’s happening?':'Title' }}<input v-model="draft.title" required maxlength="200" placeholder="Give it a name" /></label>
           <div class="fcc-form-pair"><label>For<select v-model="draft.memberUserId"><option :value="null">Everyone</option><option v-for="m in dashboard.members" :key="m.user_id" :value="m.user_id">{{ m.display_name }}</option></select></label><label>Color<input v-model="draft.metadata.color" type="color" /></label></div>
           <p v-if="['event','status','chore','meal'].includes(draft.kind)" class="fcc-small">Times shown in {{ dashboard.household.timezone }}.</p><FamilyEventTypePicker v-if="draft.kind==='event'" v-model="draft.metadata.eventType" @change="draft.metadata.color=$event.color; draft.metadata.artworkVariant=null" />
-          <div v-if="['event','status','chore','meal'].includes(draft.kind)" class="fcc-form-pair"><label>{{ draft.kind==='chore'?'Due':'Starts' }}<input v-model="draft.startAt" type="datetime-local" :required="['event','status'].includes(draft.kind)" /></label><label v-if="['event','status'].includes(draft.kind)">Ends<input v-model="draft.endAt" type="datetime-local" required /></label></div>
+          <label v-if="draft.kind==='event'" class="fcc-inline"><input v-model="draft.metadata.allDay" type="checkbox" @change="normalizeAllDay" /> All-day event</label><div v-if="draft.kind==='event'&&draft.metadata.allDay" class="fcc-form-pair"><label>First day<input type="date" :value="draft.startAt.slice(0,10)" @input="draft.startAt=$event.target.value+'T00:00'" required /></label><label>Last day<input type="date" :value="shiftCalendarDay(draft.endAt.slice(0,10),-1)" @input="draft.endAt=shiftCalendarDay($event.target.value,1)+'T00:00'" required /></label></div><div v-else-if="['event','status','chore','meal'].includes(draft.kind)" class="fcc-form-pair"><label>{{ draft.kind==='chore'?'Due':'Starts' }}<input v-model="draft.startAt" type="datetime-local" :required="['event','status'].includes(draft.kind)" /></label><label v-if="['event','status'].includes(draft.kind)">Ends<input v-model="draft.endAt" type="datetime-local" required /></label></div>
           <template v-if="draft.kind==='event'"><label>Location or address<input v-model="draft.metadata.address" placeholder="Where are we headed?" /></label><div class="fcc-form-pair"><label>Drop-off<input v-model="draft.metadata.dropoff" /></label><label>Pick-up<input v-model="draft.metadata.pickup" /></label></div><label>What to bring<textarea v-model="draft.metadata.equipment" placeholder="Water bottle, cleats, a snack…" /></label><label>Contact information<input v-model="draft.metadata.contact" /></label><label>Preparation reminder<select v-model.number="draft.metadata.reminderMinutes"><option :value="0">No reminder</option><option :value="15">15 minutes before</option><option :value="30">30 minutes before</option><option :value="60">1 hour before</option><option :value="1440">1 day before</option></select></label><FamilyArtworkPicker v-model="draft.metadata.artworkVariant" :event-type="draft.metadata.eventType" @change="draft.metadata.artwork=null" /><img class="fcc-art-preview" :src="eventArtwork(draft.metadata)" :alt="eventType(draft.metadata.eventType).label+' artwork'" /><button v-if="draft.metadata.artwork" type="button" @click="draft.metadata.artwork=null">Use themed artwork</button><label>Custom background<input type="file" accept="image/jpeg,image/png,image/webp" @change="pickPhoto($event, 'artwork')" /></label></template>
           <div v-if="['chore','reward'].includes(draft.kind)" class="fcc-form-pair"><label>{{ draft.kind==='reward'?'Point cost':'Points earned' }}<input v-model.number="draft.metadata.points" type="number" min="0" max="100000" required /></label><label v-if="draft.kind==='chore'">Repeat<select v-model="draft.metadata.recurrence"><option value="none">Once</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label></div>
           <template v-if="draft.kind==='chore'"><label class="fcc-inline"><input v-model="draft.metadata.approval" type="checkbox" /> Parent approval required</label><fieldset><legend>Rotate between family members</legend><label v-for="m in dashboard.members" :key="m.user_id" class="fcc-inline"><input v-model="draft.metadata.rotation" type="checkbox" :value="m.user_id" />{{ m.display_name }}</label></fieldset></template>
@@ -107,7 +107,9 @@ import FamilyEventTypePicker from '../components/family/FamilyEventTypePicker.vu
 import FamilyArtworkPicker from '../components/family/FamilyArtworkPicker.vue';
 import FamilyHomeTools from '../components/family/FamilyHomeTools.vue';
 import FamilyCalendarConnection from '../components/family/FamilyCalendarConnection.vue';
+import FamilyFocusMusic from '../components/family/FamilyFocusMusic.vue';
 import FamilyCalendarView from '../components/family/FamilyCalendarView.vue';
+import { shiftCalendarDay } from '../utils/familyCalendarInteraction';
 import { calendarEventStyle } from '../utils/familyCalendarDisplay';
 import CalendarSharing from '../components/CalendarSharing.vue';
 import { familyStatuses, eventType, eventArtwork, entryType, memberStatus, familyCalendarEntries, normalizeFamilyStatus } from '../utils/familyCommandCenter';
@@ -116,11 +118,13 @@ const session=ref(null), dashboard=ref(null), tenant=ref(null), loading=ref(true
 const params=new URLSearchParams(window.location.search), organization=ref(params.get('organization') || ''), agencyId=ref(Number(params.get('agencyId')) || null), pin=ref(''), email=ref(''), needsEmail=ref(false);
 const householdId=ref(Number(new URLSearchParams(window.location.search).get('household')) || null), householdName=ref(''), timezone=ref(Intl.DateTimeFormat().resolvedOptions().timeZone), inviteCode=ref(''), createdInvite=ref('');
 const tab=ref(new URLSearchParams(window.location.search).get('view')==='on-the-go'?'On the go':new URLSearchParams(window.location.search).get('view')==='home'?'Home':'Calendar'), now=ref(new Date()), weather=ref(null), workMode=ref('busy'), calendarDate=ref('');
-const activeMember=ref('all');
+const activeMember=ref('all'),navExpanded=ref(false),musicOpen=ref(false);
+try{navExpanded.value=localStorage.getItem('family-navigation-expanded')==='true';}catch{}
+watch(navExpanded,value=>{try{localStorage.setItem('family-navigation-expanded',String(value));}catch{}});
 watch(householdId,()=>{activeMember.value='all';});
 const editor=ref(false), detail=ref(null), redeem=ref(null), redeemUser=ref(null), draft=ref({}), modal=ref(null), newMember=ref({name:'',role:'member',color:'#9d8ace',photoUrl:null});
 let refreshTimer, clockTimer, noticeTimer, previousFocus;
-const nav=[{label:'Home',icon:'⌂'},{label:'On the go',icon:'↗'},{label:'Calendar',icon:'▦'},{label:'Chores',icon:'✓'},{label:'Rewards',icon:'☆'},{label:'Lists',icon:'☷'},{label:'Meals',icon:'♧'},{label:'Family',icon:'♡'},{label:'Smart home',icon:'⌘'},{label:'Settings',icon:'⚙'}];
+const nav=[{label:'Home',icon:'⌂'},{label:'On the go',icon:'↗'},{label:'Calendar',icon:'▦'},{label:'Chores',icon:'✓'},{label:'Rewards',icon:'☆'},{label:'Lists',icon:'☷'},{label:'Meals',icon:'♧'},{label:'Family',icon:'♡'},{label:'Smart home',icon:'⌘'},{label:'Focus music',icon:'♫'},{label:'Settings',icon:'⚙'}];
 const isParent=computed(()=>dashboard.value?.household.role==='parent');
 watch([tab,householdId],()=>{const url=new URL(window.location.href);if(tab.value==='On the go')url.searchParams.set('view','on-the-go');else if(tab.value==='Home')url.searchParams.set('view','home');else url.searchParams.delete('view');if(householdId.value)url.searchParams.set('household',householdId.value);history.replaceState(null,'',url.pathname+url.search+url.hash);});
 const dateLabel=computed(()=>now.value.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric', timeZone: dashboard.value?.household.timezone}));
@@ -165,10 +169,27 @@ async function joinHome(){await run(async()=>{const{data}=await http.post('/join
 async function logout(){await run(async()=>{await http.post('/logout');session.value=null;dashboard.value=null;await resolveTenant();});}
 function localInput(date){return isoToZonedDatetimeLocal(date, dashboard.value.household.timezone);}
 function openEditor(kind){previousFocus=document.activeElement;draft.value={kind,title:kind==='status'?'Home':'',memberUserId:null,startAt:['event','status','chore','meal'].includes(kind)?localInput(new Date()):'',endAt:['event','status'].includes(kind)?localInput(new Date(Date.now()+3600000)):'',metadata:{eventType:'family',color:'#7976d7',points:kind==='reward'?50:10,approval:true,recurrence:'none',rotation:[],reminderMinutes:0}};editor.value=true;nextTick(()=>modal.value?.querySelector('input,select')?.focus());}
+function openCalendarSlot({start,end,allDay=false}){
+  openEditor('event');draft.value.startAt=localInput(start);draft.value.endAt=localInput(end);
+  draft.value.metadata.allDay=allDay;draft.value.memberUserId=activeMember.value==='all'?null:Number(activeMember.value);
+}
+async function rescheduleCalendarEvent(event,times){
+  if(busy.value)throw new Error('Please wait for the current change to finish.');
+  const entry=dashboard.value.entries.find(e=>String(e.id)===String(event.id));
+  if(!entry || !['event','status'].includes(entry.kind))throw new Error('This event can only be changed in its source calendar.');
+  busy.value=true;
+  try{
+    await http.put(`/households/${householdId.value}/entries/${entry.id}`,{kind:entry.kind,title:entry.title,memberUserId:entry.member_user_id,startAt:times.start,endAt:times.end,metadata:entry.metadata});
+    // The save is complete even if a subsequent dashboard refresh loses connectivity.
+    entry.start_at=times.start;entry.end_at=times.end;
+    try{await loadDashboard();}catch{notice.value='Time saved. Reconnect to refresh the rest of the dashboard.';clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>notice.value='',8000);}
+  }finally{busy.value=false;}
+}
 function editCalendarEvent(e){const entry=dashboard.value.entries.find(item=>String(item.id)===String(e.id));if(entry){previousFocus=document.activeElement;detail.value=entry;editDetail();nextTick(()=>modal.value?.querySelector('input,select')?.focus());}}
 function openDetails(e){previousFocus=document.activeElement;detail.value=e;nextTick(()=>modal.value?.focus());}
 function closeModal(){editor.value=false;detail.value=null;redeem.value=null;previousFocus?.focus?.();}
 function editDetail(){draft.value={id:detail.value.id,kind:detail.value.kind,title:detail.value.kind==='status'?normalizeFamilyStatus(detail.value.title):detail.value.title,memberUserId:detail.value.member_user_id,startAt:detail.value.start_at?localInput(detail.value.start_at):'',endAt:detail.value.end_at?localInput(detail.value.end_at):'',metadata:JSON.parse(JSON.stringify(detail.value.metadata))};detail.value=null;editor.value=true;}
+function normalizeAllDay(){if(draft.value.metadata.allDay){const d=draft.value;d.startAt=d.startAt.slice(0,10)+'T00:00';d.endAt=(d.endAt.slice(0,10)>d.startAt.slice(0,10)?d.endAt.slice(0,10):shiftCalendarDay(d.startAt.slice(0,10),1))+'T00:00';}}
 async function saveEntry(){await run(async()=>{const d=draft.value;const data={...d,startAt:d.startAt?zonedDatetimeLocalToIso(d.startAt,dashboard.value.household.timezone):null,endAt:d.endAt?zonedDatetimeLocalToIso(d.endAt,dashboard.value.household.timezone):null};const path=`/households/${householdId.value}/entries`;if(d.id)await http.put(`${path}/${d.id}`,data);else await http.post(path,data);closeModal();await loadDashboard();});}
 async function act(e,action,extra={}){await run(async()=>{await http.post(`/households/${householdId.value}/entries/${e.id}/actions`,{action,...extra});await loadDashboard();});}
 async function removeDetail(){const e=detail.value;await act(e,'delete');if(!error.value)closeModal();}
@@ -438,4 +459,7 @@ onUnmounted(()=>{clearInterval(refreshTimer);clearInterval(clockTimer);clearTime
 .fcc-member-colors input{max-width:100px}
 @media(max-width:1000px) and (min-width:761px){.fcc-calendar-screen .fcc-main{padding:12px}.fcc-calendar-screen .fcc-top-actions{gap:8px}.fcc-member-filters{max-width:42vw;gap:2px}.fcc-calendar-screen .fcc-primary{padding:10px}}
 @media(max-width:760px){.fcc-calendar-screen .fcc-topbar{margin-bottom:12px;display:grid;grid-template-columns:1fr auto;gap:12px}.fcc-calendar-screen .fcc-top-actions{display:contents!important}.fcc-calendar-screen .fcc-member-filters{grid-column:1/-1;grid-row:2}.fcc-calendar-screen .fcc-top-actions>.fcc-primary{grid-column:2;grid-row:1}.fcc-calendar-screen .fcc-top-actions{width:100%;flex-wrap:wrap;justify-content:space-between;gap:12px}.fcc-calendar-screen .fcc-clock{display:none}.fcc-member-filters{max-width:100%;order:2;width:100%}.fcc-calendar-screen .fcc-topbar h1{margin-bottom:0}.fcc-calendar-screen .fcc-main{padding:14px 12px}.fcc-calendar-screen .fcc-topbar p{margin-bottom:8px}}
+.fcc .fcc-nav-toggle{width:100%;margin-bottom:10px;padding:7px;font-size:19px;background:transparent;border-color:var(--line);color:var(--ink)}
+@media(min-width:761px){.fcc-nav-expanded .fcc-sidebar{width:216px;align-items:stretch}.fcc-nav-expanded .fcc-brand{flex-direction:row;justify-content:center}.fcc-nav-expanded .fcc-house-name{display:block;padding:14px 4px 0}.fcc-nav-expanded .fcc-nav-label{position:static;width:auto;height:auto;overflow:visible;clip-path:none}.fcc-nav-expanded .fcc-sidebar nav button{justify-content:flex-start;gap:12px}.fcc-sidebar{overflow-y:auto}.fcc-nav-expanded .fcc-sidebar-foot{text-align:left}}
+@media(max-width:760px){.fcc .fcc-nav-toggle{width:auto;margin:0}.fcc-nav-expanded .fcc-sidebar nav{display:grid;grid-template-columns:1fr 1fr;overflow:visible}.fcc-nav-expanded .fcc-sidebar nav button{white-space:normal}}
 </style>

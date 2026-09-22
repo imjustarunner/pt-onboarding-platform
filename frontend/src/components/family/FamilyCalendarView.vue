@@ -1,5 +1,5 @@
 <template>
-  <section ref="calendarRoot" class="family-calendar" aria-label="Family calendar">
+  <section ref="calendarRoot" class="family-calendar" :class="{'touch-edit':touchEdit,'calendar-dragging':gesture?.moved}" aria-label="Family calendar">
     <div class="calendar-context">
       <section class="glance" aria-label="Today at a glance">
         <header><h2>☀ Today at a glance</h2><span>{{ heading(todayKey) }} · {{ todayEvents.length }} plans</span></header>
@@ -20,24 +20,28 @@
       <div class="controls view-controls">
         <div class="view-switch" aria-label="Calendar view"><button :aria-pressed="mode==='day'" @click="mode='day'">Day</button><button :aria-pressed="mode==='week'" @click="mode='week'">Week</button></div>
         <label class="sr-only" for="family-calendar-source">Show calendars</label><select id="family-calendar-source" v-model="source"><option value="all">All calendars</option><option value="family">Family events</option><option value="work">Work schedule</option><option value="google">Google calendar</option></select>
-        <button :aria-expanded="optionsOpen" @click="optionsOpen=!optionsOpen" aria-label="Calendar display options">⚙ <span class="options-label">Display</span></button>
+        <button :aria-pressed="touchEdit" @click="touchEdit=!touchEdit" aria-label="Touch editing">☝ <span class="options-label">Touch edit</span></button><button :aria-expanded="optionsOpen" @click="optionsOpen=!optionsOpen" aria-label="Calendar display options">⚙ <span class="options-label">Display</span></button>
       </div>
     </header>
     <div v-if="optionsOpen" class="calendar-options">
       <label>Event colors<select v-model="colorMode"><option value="activity">Color by activity</option><option value="person">Color by person</option></select></label>
       <label>Show work schedule<select v-model="work"><option value="hidden">Hide work</option><option value="busy">Work only</option><option value="details">Work categories</option></select></label>
-      <span>{{ timezone.replaceAll('_',' ') }}</span><button @click="load" :disabled="loading">Refresh</button><button @click="$emit('settings')">Calendar connections &amp; family colors →</button>
+      <label>First day of week<select v-model.number="weekStartsOn" aria-label="First day of week"><option :value="1">Monday</option><option :value="0">Sunday</option></select></label><label class="weekend-option"><input v-model="showWeekends" type="checkbox" /> Show weekends</label><span>{{ timezone.replaceAll('_',' ') }}</span><button @click="load" :disabled="loading">Refresh</button><button @click="$emit('settings')">Calendar connections &amp; family colors →</button>
     </div>
+    <p class="calendar-gesture-hint">Tap a time to add · Drag to choose a duration · Use an event’s move grip or bottom edge to reschedule. <span v-if="touchEdit">Touch editing is on. Turn it off to swipe-scroll.</span><span v-else>Swipe to scroll, or turn on Touch edit to draw a time range.</span></p>
+    <p v-if="changeMessage" class="calendar-change" role="status">{{ changeMessage }} <button v-if="undoChange" :disabled="saving||changing" @click="undoLastChange">Undo</button></p>
     <p v-if="error" class="calendar-message" role="alert">{{ error }} <button @click="load">Try again</button></p><p v-for="warning in warnings" :key="warning" class="calendar-message" role="status">{{ warning }}</p>
-    <div class="calendar-scroll" ref="scroll" :style="calendarHeight ? {height:calendarHeight+'px'} : undefined" :aria-busy="loading" tabindex="0" aria-label="Schedule; scroll to see earlier or later hours">
+    <div class="calendar-scroll" ref="scroll" :style="calendarHeight ? {height:calendarHeight+'px'} : undefined" :aria-busy="loading||saving||changing" @pointermove="moveGesture" @pointerup="endGesture" @pointercancel="cancelGesture" tabindex="0" aria-label="Schedule; scroll to see earlier or later hours">
       <div class="calendar-grid" :style="{gridTemplateColumns:`48px repeat(${days.length},minmax(0,1fr))`,minWidth:mode==='week'?'680px':'0','--hour-height':`${hourHeight}px`}">
         <div class="day-heading time-heading"><span v-if="loading" role="status">•••</span><span v-else>{{ mode==='week' ? 'Week' : 'Day' }}</span></div><div v-for="d in days" :key="d" class="day-heading" :class="{current:d===todayKey}">{{ weekday(d) }} <span>{{ Number(d.slice(-2)) }}</span></div>
-        <template v-if="hasAllDay"><div class="all-day-label">All day</div><div v-for="d in days" :key="`all-${d}`" class="all-day"><button v-for="e in allDay(d)" :key="e.key" class="calendar-event all-day-event" :style="eventStyle(e)" @click="showEvent(e)">{{ icon(e) }} {{ e.title }}</button></div></template>
+        <template v-if="days.length"><div class="all-day-label">All day</div><div v-for="d in days" :key="`all-${d}`" class="all-day"><button class="all-day-add" :aria-label="'Add all-day event on '+d" @click="createAllDay(d)">＋</button><button v-for="e in allDay(d)" :key="e.key" class="calendar-event all-day-event" :style="eventStyle(e)" @click="showEvent(e)">{{ icon(e) }} {{ e.title }}</button></div></template>
         <div class="hours"><span v-for="hour in 24" :key="hour" :style="{top:`${(hour-1)*hourHeight}px`}">{{ hourLabel(hour-1) }}</span></div>
-        <div v-for="d in days" :key="`hours-${d}`" class="day-column" :class="{'today-column':d===todayKey}">
-          <button v-for="e in timed(d)" :key="e.key" class="calendar-event" :style="e.style" :aria-label="`${e.title}, ${time(e.start)} to ${time(e.end)}${e.memberName?', '+e.memberName:''}`" @click="showEvent(e)">
-            <strong><span aria-hidden="true">{{ icon(e) }}</span> {{ e.title }}</strong><span class="event-time">{{ time(e.start) }} – {{ time(e.end) }}</span><small v-if="e.memberName" class="event-person"><img v-if="e.photo" :src="e.photo" alt="" />{{ e.memberName }}</small>
+        <div v-for="d in days" :key="`hours-${d}`" class="day-column" :data-day="d" :class="{'today-column':d===todayKey}" tabindex="0" :aria-label="heading(d)+', tap a time or press Enter to add an event'" @keydown.enter.self.prevent="createAt(d,540)" @pointerdown="beginGesture($event,d)">
+          <button v-for="e in timed(d)" :key="e.key" class="calendar-event" :style="e.style" :class="{editable:canEdit(e)}" @pointerdown.stop="beginGesture($event,d,e)" :aria-label="`${e.title}, ${time(e.start)} to ${time(e.end)}${e.memberName?', '+e.memberName:''}`" @click="eventClick(e)">
+            <span v-if="canEdit(e)" class="event-move-handle" title="Drag to move this event" aria-hidden="true" @pointerdown.stop="beginGesture($event,d,e,'move')">⠿</span><strong><span aria-hidden="true">{{ icon(e) }}</span> {{ e.title }}</strong><span class="event-time">{{ time(e.start) }} – {{ time(e.end) }}</span><small v-if="e.memberName" class="event-person"><img v-if="e.photo" :src="e.photo" alt="" />{{ e.memberName }}</small>
+            <span v-if="canEdit(e)&&localDay(new Date(new Date(e.end)-1))===d" class="event-resize-handle" title="Drag to change the end time" aria-hidden="true" @pointerdown.stop="beginGesture($event,d,e,'resize')" />
           </button>
+          <div v-if="gesture?.preview&&touchesDay(gesture.preview,d)" class="selection-preview" :style="previewStyle(d)"><strong>{{ gesture.kind==='create'?'New event':gesture.event.title }}</strong><span>{{ time(gesture.preview.start) }} – {{ time(gesture.preview.end) }}</span></div>
           <div v-if="d===todayKey" class="now-line" :style="{top:`${minutes(now)*hourHeight/60}px`}" aria-label="Current time" />
         </div>
       </div>
@@ -51,10 +55,13 @@
 <script setup>
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue';
 import {eventType} from '../../utils/familyCommandCenter';
+import {calendarWeekDays,calendarSlotIso,calendarSelection,movedCalendarTime} from '../../utils/familyCalendarInteraction';
 import {calendarEventStyle,filterCalendarEvents} from '../../utils/familyCalendarDisplay';
-const props=defineProps({http:{required:true},householdId:{required:true},timezone:{default:'America/Denver'},revision:{default:0},members:{default:()=>[]},memberFilter:{default:'all'},now:{default:()=>new Date()}});
-const emit=defineEmits(['edit','settings']);
+const props=defineProps({http:{required:true},householdId:{required:true},timezone:{default:'America/Denver'},revision:{default:0},members:{default:()=>[]},memberFilter:{default:'all'},now:{default:()=>new Date()},saving:Boolean,reschedule:Function});
+const emit=defineEmits(['edit','settings','create']);
 const mode=ref(window.innerWidth<700?'day':'week'),work=ref('busy'),date=ref(''),events=ref([]),contextEvents=ref([]),warnings=ref([]),loading=ref(false),error=ref(''),selected=ref(null),scroll=ref(null),eventDialog=ref(null);
+const weekStartsOn=ref(1),showWeekends=ref(true),touchEdit=ref(false),gesture=ref(null),changing=ref(false),undoChange=ref(null),changeMessage=ref('');
+let ignoreClickUntil=0,scrollFrame;
 const source=ref('all'),colorMode=ref('activity'),optionsOpen=ref(false),hourHeight=44;
 const calendarRoot=ref(null),calendarHeight=ref(null);
 let request=0,resizeObserver,resizeFrame;
@@ -62,22 +69,21 @@ function scheduleFit(){cancelAnimationFrame(resizeFrame);resizeFrame=requestAnim
 function fitCalendar(){calendarHeight.value=window.innerWidth>760&&scroll.value?Math.max(340,Math.floor(window.innerHeight-scroll.value.getBoundingClientRect().top-12)):null;}
 // Display preferences belong to this device and household; failure to store them never prevents viewing.
 function preferenceKey(){return `family-calendar-display:${props.householdId}`;}
-function restorePreferences(){try{const saved=JSON.parse(localStorage.getItem(preferenceKey())||'{}');colorMode.value=saved.colorMode==='person'?'person':'activity';}catch{colorMode.value='activity';}}
+function restorePreferences(){try{const saved=JSON.parse(localStorage.getItem(preferenceKey())||'{}');colorMode.value=saved.colorMode==='person'?'person':'activity';weekStartsOn.value=saved.weekStartsOn===0?0:1;showWeekends.value=saved.showWeekends!==false;}catch{colorMode.value='activity';weekStartsOn.value=1;showWeekends.value=true;}}
 restorePreferences();
-watch(colorMode,value=>{try{localStorage.setItem(preferenceKey(),JSON.stringify({colorMode:value}));}catch{/* storage may be unavailable on shared devices */}});
+watch([colorMode,weekStartsOn,showWeekends],()=>{try{localStorage.setItem(preferenceKey(),JSON.stringify({colorMode:colorMode.value,weekStartsOn:weekStartsOn.value,showWeekends:showWeekends.value}));}catch{/* storage may be unavailable on shared devices */}});
 function localDay(value){return new Intl.DateTimeFormat('en-CA',{timeZone:props.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));}
 function shift(day,n){const d=new Date(`${day}T12:00:00Z`);d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
 const todayKey=computed(()=>localDay(props.now));
 function today(){date.value=todayKey.value;}
 today();
-const days=computed(()=>{let start=date.value || todayKey.value;if(mode.value==='week')start=shift(start,-new Date(`${start}T12:00:00Z`).getUTCDay());return Array.from({length:mode.value==='week'?7:1},(_,i)=>shift(start,i));});
+const days=computed(()=>mode.value==='week'?calendarWeekDays(date.value||todayKey.value,weekStartsOn.value,showWeekends.value):[date.value||todayKey.value]);
 const periodLabel=computed(()=>mode.value==='day'?heading(date.value):`${heading(days.value[0])} – ${heading(days.value.at(-1))}`);
 const visibleEvents=computed(()=>filterCalendarEvents(events.value,props.memberFilter,source.value));
 const filteredContext=computed(()=>filterCalendarEvents(contextEvents.value,props.memberFilter,source.value));
 const touchesDay=(e,day)=>e.startDate ? e.startDate<=day && e.endDate>day : localDay(e.start)<=day&&localDay(new Date(new Date(e.end)-1))>=day;
 const todayEvents=computed(()=>filteredContext.value.filter(e=>touchesDay(e,todayKey.value)).sort((a,b)=>Number(!!b.startDate)-Number(!!a.startDate)||new Date(a.start)-new Date(b.start)));
 const upNext=computed(()=>filteredContext.value.filter(e=>!e.startDate&&new Date(e.end)>props.now).sort((a,b)=>new Date(a.start)-new Date(b.start))[0]);
-const hasAllDay=computed(()=>visibleEvents.value.some(e=>e.startDate&&days.value.some(d=>touchesDay(e,d))));
 const inVisibleDays=e=>days.value.some(d=>touchesDay(e,d));
 function move(n){date.value=shift(date.value,n*(mode.value==='week'?7:1));}
 function heading(d){return new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric'});}
@@ -99,6 +105,71 @@ function closeEvent(){eventDialog.value?.close();}
 function closeOutside(event){if(event.target===eventDialog.value){const r=eventDialog.value.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeEvent();}}
 const canEdit=e=>String(e.key).startsWith('family:')&&e.id!=null;
 function editSelected(){const event=selected.value;closeEvent();emit('edit',event);}
+function createAt(day,minute){try{emit('create',calendarSelection({day,minute},{day,minute},props.timezone,false));}catch(e){error.value=e.message;}}
+function createAllDay(day){try{emit('create',{start:calendarSlotIso(day,0,props.timezone),end:calendarSlotIso(day,1440,props.timezone),allDay:true});}catch(e){error.value=e.message;}}
+function eventClick(e){if(performance.now()>ignoreClickUntil)showEvent(e);}
+function slotAt(clientX,clientY,fallbackDay){
+  const columns=[...calendarRoot.value.querySelectorAll('.day-column')];
+  const column=columns.find(el=>{const r=el.getBoundingClientRect();return clientX>=r.left&&clientX<r.right;})||columns.find(el=>el.dataset.day===fallbackDay);
+  if(!column)return null;const rect=column.getBoundingClientRect();
+  return {day:column.dataset.day,minute:Math.max(0,Math.min(1425,Math.floor((clientY-rect.top)/hourHeight*60/15)*15))};
+}
+function beginGesture(e,day,event=null,action=null){
+  if(e.button!==0||!e.isPrimary||props.saving||changing.value||loading.value||gesture.value)return;
+  if(event&&(!canEdit(event)||event.startDate))return;
+  if(event&&e.pointerType==='touch'&&!action&&!touchEdit.value)return;
+  const anchor=slotAt(e.clientX,e.clientY,day);if(!anchor)return;
+  // Avoid browser focus scrolling the tall day column underneath a touch gesture.
+  e.preventDefault();
+  const target=e.currentTarget;target.setPointerCapture(e.pointerId);
+  gesture.value={pointerId:e.pointerId,target,kind:action||(event?'move':'create'),event,anchor,current:anchor,x:e.clientX,y:e.clientY,lastX:e.clientX,lastY:e.clientY,moved:false,preview:null,pointerType:e.pointerType};
+  error.value='';
+}
+function updatePreview(g){
+  try{g.preview=g.kind==='create'?calendarSelection(g.anchor,g.current,props.timezone,g.moved):movedCalendarTime(g.event,g.anchor,g.current,props.timezone,g.kind==='resize');}
+  catch(e){g.preview=null;error.value=e.message;}
+}
+function moveGesture(e){
+  const g=gesture.value;if(!g||e.pointerId!==g.pointerId)return;
+  g.lastX=e.clientX;g.lastY=e.clientY;
+  if(Math.hypot(e.clientX-g.x,e.clientY-g.y)>6)g.moved=true;
+  if(!g.moved)return;
+  // Normal touch swipes stay scrolling gestures. The explicit edit mode/grips opt into dragging.
+  if(g.pointerType==='touch'&&g.kind==='create'&&!touchEdit.value){cancelGesture();return;}
+  e.preventDefault();g.current=slotAt(e.clientX,e.clientY,g.anchor.day)||g.current;updatePreview(g);
+  if(!scrollFrame)scrollFrame=requestAnimationFrame(autoScrollGesture);
+}
+function autoScrollGesture(){
+  scrollFrame=null;const g=gesture.value;if(!g?.moved||!scroll.value)return;
+  const r=scroll.value.getBoundingClientRect();
+  if(g.lastX<r.left||g.lastX>r.right)return;
+  const dy=g.lastY<r.top+90?-8:g.lastY>r.bottom-35?8:0;
+  const dx=g.lastX<r.left+25?-8:g.lastX>r.right-25?8:0;
+  if(dy||dx){scroll.value.scrollBy(dx,dy);g.current=slotAt(g.lastX,g.lastY,g.current.day)||g.current;updatePreview(g);scrollFrame=requestAnimationFrame(autoScrollGesture);}
+}
+function cancelGesture(){const g=gesture.value;gesture.value=null;cancelAnimationFrame(scrollFrame);scrollFrame=null;if(g?.target.hasPointerCapture(g.pointerId))g.target.releasePointerCapture(g.pointerId);}
+function gestureKeydown(e){if(e.key==='Escape'&&gesture.value){e.preventDefault();ignoreClickUntil=performance.now()+500;cancelGesture();}}
+async function endGesture(e){
+  const g=gesture.value;if(!g||e.pointerId!==g.pointerId)return;
+  if(g.moved)ignoreClickUntil=performance.now()+500;
+  const preview=g.preview;cancelGesture();
+  if(g.kind==='create'){
+    if(g.moved){if(preview)emit('create',preview);}else createAt(g.anchor.day,g.anchor.minute);
+  }else if(g.moved&&preview&&(preview.start!==g.event.start||preview.end!==g.event.end))await applyMove(g.event,preview);
+}
+function previewStyle(day){const e=gesture.value.preview;const top=(localDay(e.start)<day?0:minutes(e.start))*hourHeight/60;const bottom=(localDay(e.end)>day?1440:minutes(e.end))*hourHeight/60;return {top:top+'px',height:Math.max(30,bottom-top)+'px'};}
+async function applyMove(event,times,undo=false){
+  if(!props.reschedule)return;changing.value=true;error.value='';
+  try{
+    await props.reschedule(event,times);
+    undoChange.value=undo?null:{event,times:{start:event.start,end:event.end}};
+    changeMessage.value=undo?'Original time restored.':`${event.title} rescheduled. ${time(times.start)} – ${time(times.end)}.`;
+    await load();
+  }catch(e){error.value=e.response?.data?.error?.message||e.message||'Could not save the new time.';}
+  finally{changing.value=false;}
+}
+function undoLastChange(){if(undoChange.value)applyMove(undoChange.value.event,undoChange.value.times,true);}
+watch([date,mode,weekStartsOn,showWeekends,touchEdit],()=>cancelGesture());
 async function load(){
   const current=++request;loading.value=true;error.value='';
   const fetchRange=(from,to)=>props.http.get(`/households/${props.householdId}/calendar-view`,{params:{from:`${shift(from,-1)}T00:00:00Z`,to:`${shift(to,2)}T00:00:00Z`,work:work.value}});
@@ -112,10 +183,10 @@ async function load(){
     warnings.value=[...new Set([...(view.data.warnings||[]),...(context?.data.warnings||[])])];
   }catch(e){if(current===request){events.value=[];contextEvents.value=[];error.value=e.response?.data?.error?.message || 'Could not load this calendar.';}}finally{if(current===request)loading.value=false;}
 }
-watch([date,mode,work,()=>props.revision,todayKey],load);
-watch(()=>props.householdId,()=>{events.value=[];contextEvents.value=[];closeEvent();restorePreferences();today();load();});
-onMounted(()=>{load();if(scroll.value)scroll.value.scrollTop=6*hourHeight;fitCalendar();resizeObserver=new ResizeObserver(scheduleFit);resizeObserver.observe(calendarRoot.value);window.addEventListener('resize',scheduleFit);});
-onUnmounted(()=>{request++;resizeObserver?.disconnect();window.removeEventListener('resize',scheduleFit);cancelAnimationFrame(resizeFrame);});
+watch([date,mode,work,weekStartsOn,showWeekends,()=>props.revision,todayKey],load);
+watch(()=>props.householdId,()=>{cancelGesture();undoChange.value=null;changeMessage.value='';events.value=[];contextEvents.value=[];closeEvent();restorePreferences();today();load();});
+onMounted(()=>{load();if(scroll.value)scroll.value.scrollTop=6*hourHeight;fitCalendar();resizeObserver=new ResizeObserver(scheduleFit);resizeObserver.observe(calendarRoot.value);window.addEventListener('resize',scheduleFit);window.addEventListener('keydown',gestureKeydown);});
+onUnmounted(()=>{cancelGesture();window.removeEventListener('keydown',gestureKeydown);request++;resizeObserver?.disconnect();window.removeEventListener('resize',scheduleFit);cancelAnimationFrame(resizeFrame);});
 </script>
 <style scoped>
 .family-calendar{color:var(--ink);min-width:0}
@@ -133,4 +204,5 @@ h2{font-size:14px;margin:0;font-weight:750}.calendar-context header>span{font-si
 .event-detail{color:var(--ink);background:var(--surface);padding:24px;border:1px solid var(--line);border-radius:16px;max-width:520px;width:calc(100% - 32px);max-height:85dvh;overflow:auto;margin:auto}.event-detail::backdrop{background:#16212b88}.event-detail p{white-space:pre-line;font-size:14px}.event-detail h3{font-size:22px;margin:12px 0}.detail-icon{color:var(--event-ink);background:var(--event-fill);border-left:4px solid var(--event-color);font-size:30px;padding:5px 12px;display:inline-block;border-radius:8px}.close{float:right}.empty{color:var(--muted);font-size:13px;margin:6px 0}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 @media(min-width:761px) and (max-width:1100px){.calendar-context{grid-template-columns:minmax(0,2fr) minmax(210px,1fr)}.glance-events>button{min-width:115px}.calendar-context header>span{display:none}.calendar-toolbar{gap:6px}.date-picker{font-size:12px;padding:7px}.options-label{display:none}.calendar-scroll{height:calc(100dvh - 254px)}}
 @media(max-width:760px){.calendar-context{grid-template-columns:1fr}.up-next{display:none}.calendar-toolbar{align-items:stretch}.controls{gap:5px}.date-controls{justify-content:space-between;width:100%}.date-picker{flex:1;text-align:center}.view-controls{width:100%;justify-content:space-between}.calendar-scroll{height:65dvh;min-height:400px}.calendar-context header>span{font-size:10px}.options-label{display:none}.glance-events>button{min-width:130px}}
+.calendar-gesture-hint{font-size:11px;color:var(--muted);margin:4px 0 8px}.calendar-change{font-size:13px;margin:6px 0;padding:6px 10px;background:var(--soft);border-radius:8px}.calendar-change button{margin-left:10px}.calendar-options .weekend-option{flex-direction:row;align-items:center}.weekend-option input{min-height:0;width:auto}.all-day{padding-right:25px}.family-calendar .all-day-add{position:absolute;right:2px;top:3px;z-index:2;min-height:24px;padding:0 5px;border:0;background:transparent;color:var(--muted)}.day-column{touch-action:pan-x pan-y}.touch-edit .day-column{touch-action:none}.touch-edit .calendar-scroll{overflow:hidden;touch-action:none}.day-column:focus-visible{outline:2px solid var(--purple);outline-offset:-2px}.calendar-dragging{user-select:none;-webkit-user-select:none}.selection-preview{position:absolute;left:2px;right:2px;z-index:5;border:2px solid var(--purple);border-radius:6px;background:#ece5ffdd;color:#33265e;padding:4px;pointer-events:none;font-size:11px;overflow:hidden}.selection-preview strong,.selection-preview span{display:block}.calendar-event.editable{cursor:grab;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.calendar-event.editable strong{padding-right:16px}.event-move-handle{position:absolute;right:0;top:0;width:20px;height:22px;text-align:center;font-size:19px;line-height:20px;cursor:grab;touch-action:none}.touch-edit .event-resize-handle{height:14px}.event-resize-handle{position:absolute;bottom:0;left:4px;right:4px;height:8px;cursor:ns-resize;touch-action:none;border-bottom:2px solid var(--event-color)}.family-calendar button[aria-pressed=true]{background:var(--purple);color:white}
 </style>

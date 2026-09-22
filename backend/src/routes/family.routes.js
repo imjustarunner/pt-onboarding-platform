@@ -1,6 +1,7 @@
 import { createGooglePublication } from '../services/calendarPublication.service.js';
 import { familyCalendarView } from '../services/familyCalendarView.service.js';
 import express from 'express';
+import { familyFocusMusicCatalog, familyFocusMusicStream } from '../controllers/familyFocusMusic.controller.js';
 import { getFamilyPocket, addFamilyPocketItems } from '../services/familyEmail.service.js';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
@@ -68,6 +69,8 @@ router.post('/logout', wrap(async (req, res) => {
   res.clearCookie('fcc_session', { ...familyCookieOptions, maxAge: undefined }).json({ ok: true });
 }));
 router.use(requireFamilySession);
+router.get('/focus-music/catalog', wrap(familyFocusMusicCatalog));
+router.get('/focus-music/stream/:slug', wrap(familyFocusMusicStream));
 router.get('/households/:id/calendar-view', wrap(async(req,res)=>res.json(await familyCalendarView(req.family,req.params.id,req.query))));
 router.get('/households/:id/pocket', wrap(async(req,res)=>res.json(await getFamilyPocket(req.family,req.params.id))));
 router.post('/households/:id/pocket/items', wrap(async(req,res)=>res.status(201).json(await addFamilyPocketItems(req.family,req.params.id,req.body))));

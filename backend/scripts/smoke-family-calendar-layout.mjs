@@ -3,7 +3,9 @@ import puppeteer from 'puppeteer';
 import assert from 'node:assert/strict';
 const base=process.env.FAMILY_SMOKE_URL||'http://127.0.0.1:5173';
 const members=[{user_id:1,display_name:'Dad',role:'parent',color:'#2563eb'},{user_id:2,display_name:'Mom',role:'parent',color:'#c42e70'},{user_id:3,display_name:'Emma',role:'member',color:'#8042c6'},{user_id:4,display_name:'Liam',role:'member',color:'#288443'}];
-const rows=[];
+const rows=[];let failNextSave=false;
+// A small silent WAV lets the browser exercise real playback without external requests.
+const audioFixture=Buffer.alloc(44+8000*2*5);audioFixture.write('RIFF',0);audioFixture.writeUInt32LE(audioFixture.length-8,4);audioFixture.write('WAVEfmt ',8);audioFixture.writeUInt32LE(16,16);audioFixture.writeUInt16LE(1,20);audioFixture.writeUInt16LE(1,22);audioFixture.writeUInt32LE(8000,24);audioFixture.writeUInt32LE(16000,28);audioFixture.writeUInt16LE(2,32);audioFixture.writeUInt16LE(16,34);audioFixture.write('data',36);audioFixture.writeUInt32LE(audioFixture.length-44,40);
 const at=(day,hour)=>new Date(`2026-09-${day}T${hour}:00-06:00`).toISOString();
 function add(day,start,end,title,memberId,type,color,extra={}){rows.push({id:rows.length+1,key:`family:${rows.length+1}`,title,memberId,memberName:members.find(m=>m.user_id===memberId)?.display_name,start:at(day,start),end:at(day,end),color:members.find(m=>m.user_id===memberId)?.color,metadata:{eventType:type,color},...extra});}
 for(let day=21;day<=25;day++)add(day,'07:30','08:00','School drop-off',1,'drop-off','#167bc2');
@@ -29,14 +31,17 @@ try{
  await page.setRequestInterception(true);
  page.on('request',async req=>{
   const u=new URL(req.url());if(!u.pathname.startsWith('/api/'))return u.origin===new URL(base).origin?req.continue():req.abort();
+  if(u.pathname.startsWith('/api/family/focus-music/stream/'))return req.respond({status:200,contentType:'audio/wav',body:audioFixture});
   let data={};
   if(u.pathname==='/api/family/me')data={userId:1,agencyId:1,households:[{id:1,name:'Mendez Family',role:'parent'}]};
   else if(u.pathname==='/api/family/households/1')data=fixture;
   else if(u.pathname.endsWith('/calendar-view'))data={events:rows.filter(e=>new Date(e.start)<new Date(u.searchParams.get('to'))&&new Date(e.end)>new Date(u.searchParams.get('from'))&&(u.searchParams.get('work')!=='hidden'||!e.work)),warnings:[]};
+  else if(u.pathname==='/api/family/focus-music/catalog')data={tracks:[{id:'calm',title:'Calm focus',streamUrl:'/api/family/focus-music/stream/calm'},{id:'rain',title:'Rain',streamUrl:'/api/family/focus-music/stream/rain'}]};
   else if(u.pathname.endsWith('/tools'))data={preferences:{},photos:[],cuisines:[]};
   else if(u.pathname==='/api/family/calendar-sharing/family/1')data={enabled:false,readers:[]};
   else if(u.pathname.endsWith('/members/1')&&req.method()==='PATCH'){members[0].color=JSON.parse(req.postData()).color;data={ok:true};}
-  else if(/\/entries\/\d+$/.test(u.pathname)&&req.method()==='PUT'){const id=Number(u.pathname.split('/').at(-1)),body=JSON.parse(req.postData());Object.assign(rows.find(e=>e.id===id),{metadata:body.metadata,title:body.title});Object.assign(fixture.entries.find(e=>e.id===id),{metadata:body.metadata,title:body.title});data={id};}
+  else if(u.pathname.endsWith('/entries')&&req.method()==='POST'){const body=JSON.parse(req.postData()),id=rows.length+1;rows.push({id,key:`family:${id}`,title:body.title,start:body.startAt,end:body.endAt,memberId:body.memberUserId,metadata:body.metadata});fixture.entries.push({id,kind:body.kind,title:body.title,start_at:body.startAt,end_at:body.endAt,member_user_id:body.memberUserId,metadata:body.metadata});data={id};}
+  else if(/\/entries\/\d+$/.test(u.pathname)&&req.method()==='PUT'){if(failNextSave){failNextSave=false;return req.respond({status:500,contentType:'application/json',body:JSON.stringify({error:{message:'Simulated save failure'}})});}const id=Number(u.pathname.split('/').at(-1)),body=JSON.parse(req.postData());Object.assign(rows.find(e=>e.id===id),{metadata:body.metadata,title:body.title,start:body.startAt,end:body.endAt});Object.assign(fixture.entries.find(e=>e.id===id),{metadata:body.metadata,title:body.title,start_at:body.startAt,end_at:body.endAt});data={id};}
   return req.respond({status:200,contentType:'application/json',body:JSON.stringify(data)});
  });
  const clickText=(selector,text)=>page.evaluate((selector,text)=>{const b=[...document.querySelectorAll(selector)].find(el=>el.textContent.trim()===text);if(!b)throw Error('Missing '+text);b.click();},selector,text);
@@ -47,6 +52,66 @@ try{
  assert.equal(await page.$$eval('.day-column',nodes=>nodes.length),7);
  assert.equal(await page.$('.calendar-sharing'),null,'Setup does not compete with the schedule');
  assert.ok(await page.$$eval('.calendar-event',nodes=>nodes.find(e=>e.textContent.includes('Bedtime reminder')).getBoundingClientRect().height)>=28,'Short late-night events remain readable');
+
+ // Expandable labels and saved week preferences.
+ await page.click('.fcc-nav-toggle');
+ assert.ok(await page.$eval('.fcc-sidebar',el=>el.getBoundingClientRect().width)>200);
+ assert.equal(await page.$eval('.fcc-nav-label',el=>getComputedStyle(el).clipPath),'none');
+ await page.reload({waitUntil:'networkidle2'});await page.waitForSelector('.calendar-event');
+ assert.equal(await page.$eval('.fcc-nav-toggle',el=>el.getAttribute('aria-expanded')),'true');
+ await page.click('.fcc-nav-toggle');
+ await page.click('[aria-label="Calendar display options"]');
+ assert.match(await page.$eval('.day-heading:nth-child(2)',el=>el.textContent),/Mon/);
+ await page.select('[aria-label="First day of week"]','0');
+ await page.waitForFunction(()=>document.querySelector('.day-heading:nth-child(2)')?.textContent.includes('Sun'));
+ await page.reload({waitUntil:'networkidle2'});await page.waitForSelector('.calendar-event');
+ assert.match(await page.$eval('.day-heading:nth-child(2)',el=>el.textContent),/Sun/);
+ await page.click('[aria-label="Calendar display options"]');
+ await page.select('[aria-label="First day of week"]','1');
+ await page.click('.weekend-option input');
+ assert.equal(await page.$$eval('.day-column',els=>els.length),5);
+ await page.click('.weekend-option input');await page.click('[aria-label="Calendar display options"]');
+ const point=async(day,minute,fraction=0.8)=>page.$eval(`.day-column[data-day="${day}"]`,(el,{minute,fraction})=>{const r=el.getBoundingClientRect();return {x:r.left+r.width*fraction,y:r.top+minute*44/60+2};},{minute,fraction});
+ const mouseDrag=async(from,to)=>{await page.mouse.move(from.x,from.y);await page.mouse.down();await page.mouse.move(to.x,to.y,{steps:12});await page.mouse.up();};
+ const closeEditor=()=>page.click('.fcc-modal-close');
+ const inputTimes=()=>page.$$eval('.fcc-modal input[type="datetime-local"]',els=>els.map(el=>el.value));
+ let p=await point('2026-09-23',390);await page.mouse.click(p.x,p.y);
+ await page.waitForSelector('.fcc-modal');assert.deepEqual(await inputTimes(),['2026-09-23T06:30','2026-09-23T07:30']);
+ await page.type('.fcc-modal form > label input','Morning walk');await page.click('.fcc-modal .fcc-primary');
+ await page.waitForFunction(()=>!document.querySelector('.fcc-modal'));
+ assert.ok(rows.some(e=>e.title==='Morning walk'));
+ await mouseDrag(await point('2026-09-27',600),await point('2026-09-27',660));
+ await page.waitForSelector('.fcc-modal');assert.deepEqual(await inputTimes(),['2026-09-27T10:00','2026-09-27T11:15']);await closeEditor();
+ await page.click('[aria-label="Add all-day event on 2026-09-25"]');await page.waitForSelector('.fcc-modal');
+ assert.deepEqual(await page.$$eval('.fcc-modal input[type="date"]',els=>els.map(e=>e.value)),['2026-09-25','2026-09-25']);await closeEditor();
+ const doctor=rows.find(e=>e.title==='Doctor appointment'),original={start:doctor.start,end:doctor.end};
+ const handlePoint=async(kind)=>page.$$eval('.calendar-event',(els,kind)=>{const event=els.find(e=>e.textContent.includes('Doctor appointment'));const r=event.querySelector(`.event-${kind}-handle`).getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2};},kind);
+ await mouseDrag(await handlePoint('move'),await point('2026-09-23',600));
+ await page.waitForFunction(()=>document.querySelector('.calendar-change')?.textContent.includes('rescheduled'));
+ assert.equal(doctor.start,at(23,'09:45'));assert.equal(doctor.end,at(23,'10:45'));
+ await clickText('.calendar-change button','Undo');await page.waitForFunction(()=>document.querySelector('.calendar-change')?.textContent.includes('restored'));
+ assert.equal(doctor.start,original.start);
+ await mouseDrag(await handlePoint('resize'),await point('2026-09-22',660));
+ await page.waitForFunction(()=>document.querySelector('.calendar-change')?.textContent.includes('rescheduled'));
+ assert.equal(doctor.end,at(22,'11:00'));
+ await clickText('.calendar-change button','Undo');await page.waitForFunction(()=>document.querySelector('.calendar-change')?.textContent.includes('restored'));
+ failNextSave=true;await mouseDrag(await handlePoint('move'),await point('2026-09-23',600));
+ await page.waitForFunction(()=>document.querySelector('.calendar-message')?.textContent.includes('Simulated save failure'));
+ assert.equal(doctor.start,original.start,'Failed saves leave original time intact');
+ // Escape cancels drawing without creating a modal or saving.
+ const anchor=await point('2026-09-27',600),target=await point('2026-09-27',645);
+ await page.mouse.move(anchor.x,anchor.y);await page.mouse.down();await page.mouse.move(target.x,target.y,{steps:5});await page.keyboard.press('Escape');await page.mouse.up();assert.equal(await page.$('.fcc-modal'),null);
+ await page.click('[aria-label="Focus music"]');await page.waitForSelector('.family-focus-music select');
+ assert.equal(await page.$$eval('.family-focus-music select option',els=>els.length),2);
+ assert.equal(await page.$eval('.family-focus-music audio',el=>el.getAttribute('src')),'/api/family/focus-music/stream/calm');
+ await page.select('.family-focus-music select','rain');
+ assert.equal(await page.$eval('.family-focus-music audio',el=>el.getAttribute('src')),'/api/family/focus-music/stream/rain');
+ await page.click('[aria-label="Play music"]');
+ await page.waitForFunction(()=>document.querySelector('.family-focus-music audio')?.paused===false);
+ await page.click('[aria-label="Close focus music"]');
+ await page.waitForSelector('.music-mini');
+ await clickText('.music-mini button','Pause music');
+ await page.waitForFunction(()=>document.querySelector('.family-focus-music audio')?.paused===true);
  await page.screenshot({path:'/tmp/family-calendar-populated.png',fullPage:true});
  for(const width of [1194,1024,820]){
   await page.setViewport({width,height:834,deviceScaleFactor:1});
@@ -106,6 +171,26 @@ try{
  await clickText('.view-switch button','Week');
  assert.equal(await page.$$eval('.day-column',nodes=>nodes.length),7);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Mobile week scrolls inside the calendar');
+ await page.setViewport({width:390,height:844,deviceScaleFactor:1,hasTouch:true,isMobile:true});
+ await page.reload({waitUntil:'networkidle2'});await page.waitForSelector('.calendar-event');
+ let touch=await point('2026-09-22',390);await page.touchscreen.tap(touch.x,touch.y);
+ await page.waitForSelector('.fcc-modal');assert.deepEqual(await inputTimes(),['2026-09-22T06:30','2026-09-22T07:30']);await closeEditor();
+ const cdp=await page.createCDPSession();
+ touch=await point('2026-09-22',390);
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touch]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:touch.x,y:touch.y-100}]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ assert.equal(await page.$('.fcc-modal'),null,'Swiping must not create an event');
+ // Wait for the previous native swipe's inertial scroll before choosing screen coordinates.
+ await page.waitForFunction(()=>{const top=document.querySelector('.calendar-scroll').scrollTop;if(window.lastTouchScroll===top)window.stableTouchFrames=(window.stableTouchFrames||0)+1;else window.stableTouchFrames=0;window.lastTouchScroll=top;return window.stableTouchFrames>12;});
+ await page.click('[aria-label="Touch editing"]');
+ await page.$eval('.calendar-scroll',el=>{el.scrollTop=264;});
+ await page.waitForFunction(()=>document.querySelector('.calendar-scroll').scrollTop===264);
+ touch=await point('2026-09-22',390);const touchEnd=await point('2026-09-22',435);
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touch]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[touchEnd]});
+ await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ await page.waitForSelector('.fcc-modal');assert.deepEqual(await inputTimes(),['2026-09-22T06:30','2026-09-22T07:30']);await closeEditor();
  assert.deepEqual(errors,[]);
- console.log('Calendar layout passed: tablet/phone, weekly/day views, member/source/work filters, today across date navigation, saved member/activity colors, editing, and household-wide events.');
+ console.log('Calendar interactions passed: tap, touch, drag creation/move/resize, undo, failed saves, Escape, week start, weekends, navigation labels, focus music, and calendar layout: tablet/phone, weekly/day views, member/source/work filters, today across date navigation, saved member/activity colors, editing, and household-wide events.');
 }finally{await browser.close();}
