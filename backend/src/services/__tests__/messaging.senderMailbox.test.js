@@ -18,3 +18,8 @@ it('rejects an inbox from another tenant and an identity whose From disagrees', 
   Identity.findById.mockResolvedValue({ id: 7, agency_id: 2, from_email: 'different@itsco.health' });
   await expect(resolveEmailSendMailbox({ agencyId: 2, userId: 5, inbox })).rejects.toMatchObject({ status: 400 });
 });
+
+it('repairs a legacy shared Reply-To for a personal mailbox at send time', async () => {
+ Identity.findById.mockResolvedValue({id:7,agency_id:2,from_email:inbox.from_email,reply_to:'messages@itsco.health',is_active:1});
+ expect((await resolveEmailSendMailbox({agencyId:2,userId:5,inbox})).replyTo).toBe(inbox.from_email);
+});

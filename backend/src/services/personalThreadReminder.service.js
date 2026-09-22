@@ -61,7 +61,7 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
       claimed = true;
       const result = await sendEmailFromIdentity({ senderIdentityId: mailbox.identity.id, to: recipient, subject: 'You have messages waiting', text: `${bodyText}\n\nOpen in Messages: ${appUrl}`, html, replyToOverride: row.from_email, internetMessageIdOverride: messageId, source: 'auto', userId: row.user_id, templateType: 'personal_thread_reminder' });
       const delivered = result?.id && !result.blocked && !result.skipped && !result.pendingApproval && !result.queued;
-      await pool.execute('UPDATE communication_thread_reminders SET delivery_status=?, sent_at=? WHERE internet_message_id=?', [delivered ? 'sent' : 'held', delivered ? now : null, messageId]);
+      await pool.execute('UPDATE communication_thread_reminders SET delivery_status=?, sent_at=?, internet_message_id=? WHERE internet_message_id=?', [delivered ? 'sent' : 'held', delivered ? now : null, result?.internetMessageId || messageId, messageId]);
       if (delivered) sent += 1;
     } catch (e) {
       // Delivery may have occurred before a network timeout. Preserve the claim to avoid duplicates.

@@ -1,0 +1,11 @@
+import {it,expect,vi,beforeEach} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),commit:vi.fn(),rollback:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{getConnection:async()=>({...m,beginTransaction:vi.fn(),release:vi.fn()})}}));
+vi.mock('../supervisionSignup.service.js',()=>({isSignupOpen:session=>session.signupOpen!==false}));
+import {saveSupervisionRsvp} from '../supervisionRsvp.service.js';
+const session={id:1,status:'SCHEDULED',start_at:'2099-09-22 18:30:00',attendee_status:'INVITED'};
+beforeEach(()=>{vi.clearAllMocks();m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[session]]:[{affectedRows:1}]);});
+it('updates only the invited person’s RSVP without recording attendance',async()=>{await saveSupervisionRsvp({sessionId:1,userId:2,response:'declined'});expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE supervision_session_attendees'),['DECLINED',1,2]);expect(m.commit).toHaveBeenCalledOnce();expect(m.execute.mock.calls.some(([sql])=>sql.includes('attendance_rollups'))).toBe(false);});
+it('requires an active agency membership and existing attendee record',async()=>{m.execute.mockResolvedValue([[]]);await expect(saveSupervisionRsvp({sessionId:1,userId:99,response:'accepted'})).rejects.toMatchObject({status:410});expect(m.rollback).toHaveBeenCalled();expect(m.execute.mock.calls[0][0]).toContain('ua.agency_id=s.agency_id');});
+it('allows an invited person to change a prior decline',async()=>{m.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[{...session,attendee_status:'DECLINED'}]]:[{affectedRows:1}]);await saveSupervisionRsvp({sessionId:1,userId:2,response:'accepted'});expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('UPDATE supervision_session_attendees'),['SIGNED_UP',1,2]);});
+it('does not reopen closed signup or past supervision',async()=>{m.execute.mockResolvedValue([[{...session,enrollment_mode:'signup_only',signupOpen:false}]]);await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'accepted'})).rejects.toMatchObject({status:409});m.execute.mockResolvedValue([[{...session,start_at:'2020-01-01 12:00:00'}]]);await expect(saveSupervisionRsvp({sessionId:1,userId:2,response:'declined'})).rejects.toMatchObject({status:410});});

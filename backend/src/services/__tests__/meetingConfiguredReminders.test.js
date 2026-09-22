@@ -1,3 +1,4 @@
+vi.mock('../hiringInterviewReminder.service.js',()=>({sendHiringInterviewReminder:async(event,user)=>m.send({to:user.email,replyToOverride:'host@tenant.test',text:'RSVP /interview-rsvp/guest',html:'Styled interview reminder'})}));
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.email,displayName:[user.first_name,user.last_name].filter(Boolean).join(' '),calendarAccountEmail:user.email})}));
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),db:vi.fn(),send:vi.fn(),release:vi.fn()}));

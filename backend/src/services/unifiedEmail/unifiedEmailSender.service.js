@@ -1249,7 +1249,7 @@ export async function sendEmailFromIdentity({
 
   const gmail = await getGmailClient();
   if (internetMessageIdOverride && !/^<[^<>\s]+@[^<>\s]+>$/.test(internetMessageIdOverride)) throw new Error('Invalid RFC Message-ID');
-  const internetMessageId = internetMessageIdOverride || `<${randomUUID()}@${String(identity.from_email).split('@').pop()}>`;
+  let internetMessageId = internetMessageIdOverride || `<${randomUUID()}@${String(identity.from_email).split('@').pop()}>`;
   const mime = buildMimeMessage({
     messageId: internetMessageId,
     to: redirected.to,
@@ -1297,6 +1297,16 @@ export async function sendEmailFromIdentity({
 
   const messageId = result.data?.id || null;
   const finalThreadId = result.data?.threadId || threadId || null;
+  // Gmail may replace the supplied RFC Message-ID for a send-as alias. Persist
+  // the delivered header so replies can be matched to the original app thread.
+  if (messageId) {
+    try {
+      const delivered = await gmail.users.messages.get({ userId: 'me', id: messageId, format: 'metadata', metadataHeaders: ['Message-ID'] });
+      const header = delivered.data?.payload?.headers?.find(h => String(h.name).toLowerCase() === 'message-id')?.value;
+      if (/^<[^<>\s]+@[^<>\s]+>$/.test(header || '')) internetMessageId = header;
+    } catch (error) { console.warn('[email] Delivered message header unavailable', error?.code || 'lookup_failed'); }
+  }
+
   const agencyId = identity?.agency_id || null;
 
   if (comm?.id && messageId) {

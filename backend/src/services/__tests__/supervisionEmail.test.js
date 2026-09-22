@@ -1,0 +1,17 @@
+import {describe,it,expect} from 'vitest';
+import {supervisionEmailBody} from '../../utils/supervisionEmailBody.js';
+import {supervisionReplyIntent} from '../../utils/supervisionReplyIntent.js';
+import {interviewCalendar} from '../../utils/interviewCalendar.js';
+const calendar=interviewCalendar({startsAt:'2026-09-22T18:30:00Z',endsAt:'2026-09-22T19:30:00Z',title:'Supervision',publicJoinUrl:'https://tenant.test/join/invitation/token'});
+const args={session:{id:1,session_type:'group'},recipientName:'Ada',hostNames:['Haley'],people:[{name:'Alex',status:'SIGNED_UP',participant_role:'supervisee'},{name:'Pat',status:'INVITED',participant_role:'supervisee',isPresenter:true}],calendar,joinUrl:'https://tenant.test/join/invitation/personal',rsvpUrl:'https://tenant.test/rsvp',detailsUrl:'https://tenant.test/details',presentationUrl:'https://tenant.test/presentation'};
+describe('supervision email variants',()=>{
+ it('uses the correct local time, calendar buttons, and counts only confirmed RSVPs',()=>{const {html}=supervisionEmailBody(args);expect(html).toContain('12:30 PM MDT');expect(html).toContain('1 confirmed attendee');expect(html).not.toContain('2 confirmed');expect(html).toContain('Optional session');expect(html).toContain('Google Calendar');expect(html).toContain('Apple Calendar / iCal');expect(html).toContain('Case conceptualization presenter');});
+ it('gives the presenter an edit action and mandatory invitees a required label',()=>{expect(supervisionEmailBody({...args,isPresenter:true}).html).toContain('Edit Your Presentation');expect(supervisionEmailBody({...args,isRequired:true}).html).toContain('Your attendance is required');expect(supervisionEmailBody(args).html).not.toContain('Edit Your Presentation');});
+ it('renders individual supervision and respects in-person location',()=>{const {html}=supervisionEmailBody({...args,session:{session_type:'individual',modality:'IN_PERSON',location_text:'Office 10'}});expect(html).toContain('Individual supervision');expect(html).toContain('Office 10');expect(html).not.toContain('Join Group Supervision');});
+ it('shows the actual signup requirement rather than an invented sample minimum',()=>{const {html}=supervisionEmailBody({...args,session:{session_type:'group',enrollment_mode:'signup_only',auto_cancel_if_empty:1}});expect(html).toContain('at least one participant');expect(html).not.toContain('minimum: 5');});
+ it('escapes participant content and keeps presentation links personal',()=>{expect(supervisionEmailBody({...args,recipientName:'<script>'}).html).toContain('&lt;script&gt;');expect(supervisionEmailBody({...args,isPresenter:true}).html).toContain('href="https://tenant.test/presentation"');});
+});
+describe('attendance interpretation',()=>{
+ it.each(["I can't attend today.","I'm unable to make it.","I have a dentist appointment at the same time.","I'm home sick today.","Please reschedule my supervision.","I have a family emergency.","Could we reschedule?","I am not feeling well.","I have a client session at that time."] )('infers nonattendance from %s',text=>expect(supervisionReplyIntent(text)).toBe('declined'));
+ it.each(['Can we talk about scheduling?','I might have a conflict.',"I'm running late.","I have a dentist appointment but I will attend.","She can't attend.","I have no conflict.","I can't attend next week.",'Thanks!\nOn Tuesday Supervisor wrote:\n> I cannot attend'])('does not turn %s into a cancellation',text=>expect(supervisionReplyIntent(text)).not.toBe('declined'));
+});

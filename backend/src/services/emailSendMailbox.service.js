@@ -21,5 +21,5 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox }) {
       String(identity.from_email || '').toLowerCase() !== String(selected.from_email || '').toLowerCase()) {
     throw Object.assign(new Error('Work mailbox sender identity is unavailable'), { status: 400 });
   }
-  return { inbox: selected, identity, fromEmail: identity.from_email, replyTo: identity.reply_to || identity.from_email, displayName: identity.display_name || selected.display_name };
+  return { inbox: selected, identity, fromEmail: identity.from_email, replyTo: selected.kind === 'personal' ? identity.from_email : (identity.reply_to || identity.from_email), displayName: identity.display_name || selected.display_name };
 }

@@ -206,14 +206,8 @@ export async function ensureStaffTenantSendAlias({ agencyId, userId } = {}) {
   const preferred = await resolvePreferredTenantFromEmail({ agencyId: aid, user });
   if (!preferred || !preferred.includes('@')) return null;
 
-  let replyTo = preferred;
-  try {
-    const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
-    const mailboxes = await ensureTenantMessageMailboxes(aid);
-    if (mailboxes.messages?.from_email) replyTo = mailboxes.messages.from_email;
-  } catch {
-    /* keep preferred */
-  }
+  // Personal replies must return to the mailbox owner, not the shared messages inbox.
+  const replyTo = preferred;
 
   const displayName =
     [user.first_name, user.last_name].filter(Boolean).join(' ') || preferred;
@@ -314,14 +308,8 @@ export async function ensurePersonalMailbox({ agencyId, userId, actorUserId = nu
   const fromEmail = await uniqueAliasEmail({ agencyId: aid, user, domain, format });
   const displayName = [user.first_name, user.last_name].filter(Boolean).join(' ') || fromEmail;
   const identityKey = `personal_${uid}`;
-  let replyTo = fromEmail;
-  try {
-    const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
-    const mailboxes = await ensureTenantMessageMailboxes(aid);
-    if (mailboxes.messages?.from_email) replyTo = mailboxes.messages.from_email;
-  } catch {
-    /* keep alias */
-  }
+  // Personal replies must return to the mailbox owner, not the shared messages inbox.
+  const replyTo = fromEmail;
 
   let identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, identityKey);
 
@@ -410,14 +398,8 @@ export async function ensurePersonalMailboxForAddress({
     [user.first_name, user.last_name].filter(Boolean).join(' ') ||
     email;
   const identityKey = `personal_${uid}`;
-  let replyTo = email;
-  try {
-    const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
-    const mailboxes = await ensureTenantMessageMailboxes(aid);
-    if (mailboxes.messages?.from_email) replyTo = mailboxes.messages.from_email;
-  } catch {
-    /* keep address */
-  }
+  // Personal replies must return to the mailbox owner, not the shared messages inbox.
+  const replyTo = email;
 
   let identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(aid, identityKey);
   if (!identity) {

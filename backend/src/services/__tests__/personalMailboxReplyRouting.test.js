@@ -1,0 +1,11 @@
+import {it,expect,vi,beforeEach} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),hasMember:vi.fn(),getGroup:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../googleWorkspaceDirectory.service.js',()=>({default:{isConfigured:()=>true,getClient:async()=>({members:{hasMember:m.hasMember}}),getGroup:m.getGroup}}));
+import {resolvePersonalReplyMailbox} from '../personalMailboxReplyRouting.service.js';
+const input={identityId:167,fromEmail:'host@tenant.test',inReplyTo:'<parent@tenant.test>',threadId:'gmail-thread'};
+beforeEach(()=>{vi.clearAllMocks();m.getGroup.mockResolvedValue({email:'admin@tenant.test'});m.hasMember.mockResolvedValue({data:{isMember:true}});});
+it('keeps the original recipient and agency constraints for direct replies',async()=>{m.execute.mockResolvedValueOnce([[{agency_id:2}]]).mockResolvedValueOnce([[{id:10,owner_user_id:20}]]);expect(await resolvePersonalReplyMailbox(input)).toMatchObject({owner_user_id:20});expect(m.execute.mock.calls[1][0]).toContain('JSON_CONTAINS');expect(m.execute.mock.calls[1][1]).toEqual([2,input.fromEmail,input.fromEmail,input.inReplyTo]);});
+it('does not route an ambiguous thread',async()=>{m.execute.mockResolvedValueOnce([[{agency_id:2}]]).mockResolvedValueOnce([[{id:10},{id:11}]]);expect(await resolvePersonalReplyMailbox(input)).toBeNull();});
+it('requires current Group membership before recovering a Group reply',async()=>{const candidate={id:10,owner_user_id:20,from_email:'employee@tenant.test',to_json:[{email:'admin@tenant.test'}],cc_json:[]};m.execute.mockImplementation(async sql=>sql.includes('SELECT agency_id')?[[{agency_id:2}]]:sql.includes('m.to_json, m.cc_json')?[[candidate]]:[[]]);expect(await resolvePersonalReplyMailbox(input)).toMatchObject({owner_user_id:20});expect(m.hasMember).toHaveBeenCalledWith({groupKey:'admin@tenant.test',memberKey:input.fromEmail});m.hasMember.mockResolvedValue({data:{isMember:false}});expect(await resolvePersonalReplyMailbox(input)).toBeNull();});
+it('never guesses a thread from subject or sender alone',async()=>{m.execute.mockResolvedValue([[{agency_id:2}]]);expect(await resolvePersonalReplyMailbox({...input,inReplyTo:null,threadId:null})).toBeNull();expect(m.execute).toHaveBeenCalledTimes(1);});

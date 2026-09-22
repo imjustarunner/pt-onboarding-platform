@@ -1,10 +1,30 @@
 <script setup>
-defineProps({
+import { computed, ref } from 'vue';
+const props = defineProps({
   conversations: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
   selectedId: { type: [Number, String, null], default: null },
   filter: { type: String, default: 'all' }
 });
+
+const expandedCopies = ref(new Set());
+// Keep mailbox ownership and read states separate, but show one card for copies
+// of the same provider thread within the same agency.
+const groupedConversations = computed(() => {
+  const groups = new Map();
+  for (const row of props.conversations) {
+    const key = row.channel === 'email' && row.external_thread_id
+      ? `${row.agency_id}:email:${row.external_thread_id}` : `conversation:${row.id}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  return [...groups.values()].map(copies => ({ ...(copies.find(row => row.id === props.selectedId) || copies[0]), copies }));
+});
+function toggleCopies(id) {
+  const next = new Set(expandedCopies.value);
+  next.has(id) ? next.delete(id) : next.add(id);
+  expandedCopies.value = next;
+}
 
 const emit = defineEmits(['update:filter', 'select']);
 
@@ -84,9 +104,9 @@ function initials(row) {
     </div>
     <ul v-else class="uc-list-items">
       <li
-        v-for="row in conversations"
+        v-for="row in groupedConversations"
         :key="row.id"
-        :class="{ on: selectedId === row.id, unread: row.is_unread }"
+        :class="{ on: row.copies.some(copy => selectedId === copy.id), unread: row.copies.some(copy => copy.is_unread) }"
         @click="emit('select', row.id)"
       >
         <div class="uc-avatar" aria-hidden="true">{{ initials(row) }}</div>
@@ -100,18 +120,25 @@ function initials(row) {
           </div>
           <div class="uc-list-subject">{{ row.subject || '(no subject)' }}</div>
           <div class="uc-list-preview">{{ row.last_message_preview || '' }}</div>
+          <div v-if="row.copies.length > 1" class="uc-copy-list">
+            <button type="button" class="uc-copy-toggle" @click.stop="toggleCopies(row.copies[0].id)">{{ row.copies.length }} inbox copies · {{ expandedCopies.has(row.copies[0].id) ? 'Hide' : 'Show mailboxes' }}</button>
+            <template v-if="expandedCopies.has(row.copies[0].id)">
+              <button v-for="copy in row.copies" :key="copy.id" type="button" class="uc-copy-toggle" @click.stop="emit('select', copy.id)">{{ copy.inbox_from_email || copy.inbox_display_name }} · {{ statusLabel(copy.status) }}{{ copy.is_unread ? ' · Unread' : '' }}</button>
+            </template>
+          </div>
           <div class="uc-list-tags">
             <span v-if="row.starred" class="uc-star" title="Starred">★</span>
             <span class="uc-pill" :class="statusClass(row.status)">{{ statusLabel(row.status) }}</span>
           </div>
         </div>
-        <span v-if="row.is_unread" class="uc-dot" aria-label="Unread" />
+        <span v-if="row.copies.some(copy => copy.is_unread)" class="uc-dot" aria-label="Unread" />
       </li>
     </ul>
   </section>
 </template>
 
 <style scoped>
+.uc-copy-toggle { display:block; margin:5px 0; padding:2px 0; border:0; background:transparent; color:#356b52; text-align:left; font:inherit; font-size:12px; cursor:pointer; }
 .uc-list {
   border-right: 1px solid #e2e8f0;
   display: flex;

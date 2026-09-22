@@ -2211,6 +2211,10 @@ if (!isBootstrap) {
       await runJoinReminderTick();
       const { sendConfiguredMeetingReminders } = await import('./services/meetingConfiguredReminders.service.js');
       await sendConfiguredMeetingReminders();
+      const { sendSupervisionDayAheadReminders } = await import('./services/supervisionEmail.service.js');
+      await sendSupervisionDayAheadReminders();
+      const { forwardUnreadSupervisionReplies } = await import('./services/supervisionEmailReplies.service.js');
+      await forwardUnreadSupervisionReplies();
 
     } catch (error) {
       const msg = String(error?.message || '');

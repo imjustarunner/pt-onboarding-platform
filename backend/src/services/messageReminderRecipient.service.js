@@ -16,7 +16,15 @@ export async function messageReminderRecipient(user, { channel = 'email', allowP
     if (!Directory.isConfigured()) return null;
     const login = email(user.email);
     if (!login) return null;
-    if (await Directory.getUser({ primaryEmail: login })) return channel !== 'email' && login !== email(user.personal_email) ? login : null;
+    let workspaceUser;
+    try { workspaceUser = await Directory.getUser({ primaryEmail: login }); }
+    catch (error) {
+      // The Directory users endpoint returns this 400 for a Group address.
+      // Continue only to the positive Group verification below; other errors
+      // remain failures, and no personal recipient is allowed without a Group.
+      if (Number(error.code || error.response?.status) !== 400 || !/Type not supported: userKey/i.test(String(error.message))) throw error;
+    }
+    if (workspaceUser) return channel !== 'email' && login !== email(user.personal_email) ? login : null;
     if (!allowPersonal || !email(user.personal_email)) return null;
     if (!await Directory.getGroup({ groupEmail: login })) return null;
     return email(user.personal_email) === login ? null : email(user.personal_email);

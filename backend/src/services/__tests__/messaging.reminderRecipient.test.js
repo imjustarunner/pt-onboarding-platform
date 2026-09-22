@@ -48,3 +48,13 @@ it('routes a migrated Workspace user to SSO even when personal reminders are opt
   const migrated = { ...user, sso_password_override: 1, login_is_group_email: 1 };
   expect(await messageReminderRecipient(migrated, { channel: 'secure', allowPersonal: false })).toBe(user.email);
 });
+
+it('verifies the Group after the Directory userKey error, never bypassing Group checks', async () => {
+ const appOnly={...user,sso_password_override:1,login_is_group_email:1};
+ Directory.getUser.mockRejectedValue(Object.assign(new Error('Type not supported: userKey'),{code:400}));
+ expect(await messageReminderRecipient(appOnly)).toBe(user.personal_email);
+ Directory.getGroup.mockResolvedValue(null);
+ expect(await messageReminderRecipient(appOnly)).toBeNull();
+ Directory.getUser.mockRejectedValue(Object.assign(new Error('Permission denied'),{code:403}));
+ await expect(messageReminderRecipient(appOnly)).rejects.toThrow('Permission denied');
+});

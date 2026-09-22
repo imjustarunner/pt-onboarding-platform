@@ -945,6 +945,32 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
 
     const routed = await routeSenderIdentityFromHeaders(hdrs);
     const automated = isAutoReply(hdrs);
+    if (!automated && routed.senderIdentityId) {
+      const { ingestSupervisionReply } = await import('../supervisionEmailReplies.service.js');
+      const supervisionReply = await ingestSupervisionReply({gmail,gmailMessageId:id,gmailPayload:payload,identityId:routed.senderIdentityId,fromEmail:rawFromEmail,
+        inReplyTo:hdrs.get('in-reply-to'),referencesHeader:hdrs.get('references'),threadId:full.data?.threadId,
+        messageId:hdrs.get('message-id') || `gmail:${id}`,subject,bodyText:pickBodyText(payload),
+        receivedAt:new Date(Number(full.data?.internalDate)||Date.now()),authenticationResults:hdrs.get('authentication-results')||''});
+      if(supervisionReply.ingested){
+        await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});
+        results.draftedToTickets += 1;
+        continue;
+      }
+
+      const { resolvePersonalReplyMailbox } = await import('../personalMailboxReplyRouting.service.js');
+      const personalReply = await resolvePersonalReplyMailbox({ identityId: routed.senderIdentityId, fromEmail,
+        inReplyTo: hdrs.get('in-reply-to'), referencesHeader: hdrs.get('references'), threadId: full.data?.threadId });
+      if (personalReply) {
+        await ingestPersonalMailboxInbound({ gmail, gmailMessageId: id, gmailPayload: payload,
+          agencyId: personalReply.agency_id, identity: personalReply, fromEmail, subject, bodyText: pickBodyText(payload),
+          messageIdHeader: hdrs.get('message-id'), threadId: full.data?.threadId,
+          inReplyTo: hdrs.get('in-reply-to'), referencesHeader: hdrs.get('references'),
+          receivedAt: new Date(Number(full.data?.internalDate) || Date.now()), to: routed.to, cc: routed.cc });
+        await gmail.users.messages.modify({ userId: 'me', id, requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] } });
+        results.draftedToTickets += 1;
+        continue;
+      }
+    }
     // Human inboxes receive receipts, notifications and staff mail too. Suppress
     // automated *responses*, not delivery. Each recipient has an inbox-scoped receipt.
     let personalRecipients;
@@ -1652,4 +1678,3 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
 
   return results;
 }
-

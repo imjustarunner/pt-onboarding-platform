@@ -88,10 +88,12 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
   let finalJoinUrl = joinUrl;
   let when = 'starting soon';
   let replyTo;
+  let meetingEvent;
   if (sessionType === 'team_meeting' || sessionType === 'supervision') {
     const table = sessionType === 'supervision' ? 'supervision_sessions' : 'provider_schedule_events';
     const [events] = await pool.execute(`SELECT * FROM ${table} WHERE id=?`,[sessionId]);
     if (events[0]) {
+      meetingEvent = events[0];
       replyTo=await meetingReplyTo(sessionType==='supervision'?{...events[0],meeting_type:'supervision',provider_id:events[0].supervisor_user_id}:events[0]);
       finalJoinUrl = (await personalMeetingInvitation(events[0],userId)).url;
       const tz = events[0].event_timezone || 'America/Denver';
@@ -148,7 +150,9 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
       const subject = `Join reminder: ${label}`;
       const text = `${label} is ${when}.\n\nYour personal join link: ${finalJoinUrl}\nSign in with your invited account.`;
       const html = `<p>${escapeMeetingHtml(label)} is ${escapeMeetingHtml(when)}.</p><p><a href="${escapeMeetingHtml(finalJoinUrl)}">Join your meeting</a></p><p>Sign in with your invited account.</p>`;
-      const result = await sendNotificationEmail({
+      const result = sessionType === 'supervision' && meetingEvent
+        ? await (await import('./supervisionEmail.service.js')).sendSupervisionEmail({session:meetingEvent,user,kind:'join_reminder'})
+        : await sendNotificationEmail({
         agencyId,
         triggerKey: 'meeting_join_reminder',
         to: toEmail,
@@ -328,7 +332,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
         }
       } else {
         for (const a of attendees || []) {
-          if (a.user_id) userIds.add(Number(a.user_id));
+          if (a.user_id && !['DECLINED','WITHDRAWN','REMOVED','CANCELLED'].includes(String(a.status || '').toUpperCase())) userIds.add(Number(a.user_id));
         }
       }
 
@@ -406,7 +410,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
         [sessionId]
       );
       for (const a of attendees || []) {
-        if (a.user_id) userIds.add(Number(a.user_id));
+        if (a.user_id && !['DECLINED','WITHDRAWN','REMOVED','CANCELLED'].includes(String(a.status || '').toUpperCase())) userIds.add(Number(a.user_id));
       }
 
       for (const uid of userIds) {
