@@ -10,8 +10,9 @@
  </div>
 </template>
 <script setup>
-import {ref,computed,watch} from 'vue';import QRCode from 'qrcode';import {PDFDocument,StandardFonts,rgb} from 'pdf-lib';
-const props=defineProps({url:String,name:String,externalOpen:Boolean,defaultTarget:{type:String,default:'find'}});const open=ref(false),hover=ref(false),target=ref(props.defaultTarget),qr=ref(''),copied=ref(false),error=ref('');
+import {ref,computed,watch} from 'vue';import QRCode from 'qrcode';import {PDFDocument,StandardFonts,rgb,pushGraphicsState,popGraphicsState,rectangle,clip,endPath} from 'pdf-lib';
+import {LATINX_ARTWORK,LATINX_BOARD_SIZE} from './latinxBrand';
+const props=defineProps({url:String,name:String,directorySlug:String,externalOpen:Boolean,defaultTarget:{type:String,default:'find'}});const open=ref(false),hover=ref(false),target=ref(props.defaultTarget),qr=ref(''),copied=ref(false),error=ref('');
 const link=computed(()=>`${props.url}${target.value==='join'?'/join':''}`);
 watch(link,async v=>{if(v)qr.value=await QRCode.toDataURL(v,{width:600,margin:2,errorCorrectionLevel:'M'});},{immediate:true});
 async function copy(){try{await navigator.clipboard.writeText(link.value);copied.value=true;}catch{error.value='Select the link above to copy it.';}}
@@ -19,7 +20,19 @@ async function download(){try{
  const pdf=await PDFDocument.create(),page=pdf.addPage([612,792]),font=await pdf.embedFont(StandardFonts.Helvetica),bold=await pdf.embedFont(StandardFonts.HelveticaBold);
  page.drawRectangle({x:0,y:540,width:612,height:252,color:rgb(.98,.86,.39)});
  const title=String(props.name||'Provider directory').replace(/[^\x20-\x7E]/g,'');
- const size=Math.min(26,520/bold.widthOfTextAtSize(title,1));page.drawText(title,{x:46,y:704,size,font:bold,color:rgb(.34,.07,.31)});
+ let titleX=46,titleWidth=520;
+ if(props.directorySlug==='latinx') {
+  const art=LATINX_ARTWORK.printLogo;
+  const response=await fetch(art.source);
+  if(!response.ok)throw new Error('Brand artwork could not be loaded');
+  const image=await pdf.embedPng(await response.arrayBuffer());
+  const x=46,y=667,width=142,scale=width/art.width,height=art.height*scale;
+  page.pushOperators(pushGraphicsState(),rectangle(x,y,width,height),clip(),endPath());
+  page.drawImage(image,{x:x-art.x*scale,y:y-(LATINX_BOARD_SIZE.height-art.y-art.height)*scale,width:LATINX_BOARD_SIZE.width*scale,height:LATINX_BOARD_SIZE.height*scale});
+  page.pushOperators(popGraphicsState());
+  titleX=210;titleWidth=356;
+ }
+ const size=Math.min(26,titleWidth/bold.widthOfTextAtSize(title,1));page.drawText(title,{x:titleX,y:704,size,font:bold,color:rgb(.34,.07,.31)});
  page.drawText(target.value==='join'?'Build your provider profile':'Find care that understands you',{x:46,y:644,size:24,font:bold,color:rgb(.34,.07,.31)});
  page.drawText(target.value==='join'?'Create an account. Share your experience. Submit for review.':'Explore providers by state, language, specialty and care type.',{x:46,y:605,size:13,font});
  const png=await pdf.embedPng(qr.value);page.drawImage(png,{x:176,y:264,width:260,height:260});
