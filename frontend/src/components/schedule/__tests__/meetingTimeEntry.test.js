@@ -72,11 +72,13 @@ describe('meeting time entry independent of the visible calendar band', () => {
     try {
       s.onEditorStartTime('06:30');
       await nextTick();
-      s.gridMinHour.value = 9;
-      s.gridMaxHour.value = 18;
-      await nextTick();
-      expect([s.modalStartHour.value, s.modalStartMinute.value]).toEqual([6, 30]);
-      expect([s.modalEndHour.value, s.modalEndMinute.value]).toEqual([7, 30]);
+      for (const [min, max] of [[0, 24], [7, 22], [9, 18]]) {
+        s.gridMinHour.value = min;
+        s.gridMaxHour.value = max;
+        await nextTick();
+        expect([s.modalStartHour.value, s.modalStartMinute.value]).toEqual([6, 30]);
+        expect([s.modalEndHour.value, s.modalEndMinute.value]).toEqual([7, 30]);
+      }
     } finally { s.stop(); }
   });
 

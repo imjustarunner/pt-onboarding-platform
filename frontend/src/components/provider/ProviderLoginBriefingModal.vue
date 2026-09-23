@@ -46,7 +46,7 @@
           <template v-else>
             <div class="briefing-layout">
               <div class="briefing-main">
-                <DashboardMeetings />
+                <DashboardMeetings @navigate="dismiss" />
                 <div v-if="sections.length" class="briefing-card-grid">
                   <article
                     v-for="section in sections"

@@ -3,8 +3,8 @@
     <h2>Your meetings</h2>
     <article v-for="meeting in meetings.slice(0, 4)" :key="meeting.key" :class="{ ready: canJoin(meeting) }">
       <div><strong>{{ meeting.title }}</strong><p>{{ formatTime(meeting.start) }} · {{ meeting.end <= now ? 'Ended' : meeting.start <= now ? 'In progress' : 'Upcoming' }}</p></div>
-      <a v-if="canJoin(meeting)" :href="meeting.url" class="meeting-join">Join meeting</a>
-      <RouterLink v-else :to="scheduleLink(meeting)">View meeting</RouterLink>
+      <a v-if="canJoin(meeting)" :href="meeting.url" class="meeting-join" @click="notifyNavigation">Join meeting</a>
+      <RouterLink v-else :to="scheduleLink(meeting)" @click="notifyNavigation">View meeting</RouterLink>
     </article>
   </section>
 </template>
@@ -15,6 +15,13 @@ import { useAgencyStore } from '../../store/agency';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { parseScheduleUtcInstant } from '../../utils/scheduleEventInstants.js';
+const emit = defineEmits(['navigate']);
+function notifyNavigation(event) {
+  // RouterLink already prevents the native click's default action. Notify the
+  // enclosing briefing on same-tab navigation, including a repeated route.
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button > 0) return;
+  emit('navigate');
+}
 const auth=useAuthStore(), agencies=useAgencyStore(), route=useRoute(), rows=ref([]), now=ref(Date.now());
 let timer;
 const meetings=computed(()=>rows.value.filter(m=>m.end>now.value).sort((a,b)=>a.start-b.start));
