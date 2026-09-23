@@ -40,6 +40,8 @@
       </div>
     </div>
 
+    <LatinxDirectoryMembership v-if="!embedded || visibleProviderFields.some(f => /ethnicity|heritage|gender/.test(f.field_key || f.fieldKey || ''))" :user-id="userId" />
+
     <div v-if="installError" class="error" style="margin-bottom: 12px;">{{ installError }}</div>
     <div v-if="saveError" class="error" style="margin-bottom: 12px;">{{ saveError }}</div>
     <div v-if="saveSuccess" class="success" style="margin-bottom: 12px;">{{ saveSuccess }}</div>
@@ -362,6 +364,7 @@
 </template>
 
 <script setup>
+import LatinxDirectoryMembership from '../providerDirectory/LatinxDirectoryMembership.vue';
 import {SPECIALTIES, POPULATIONS, CLIENT_AGES, THERAPY_APPROACHES} from '../../constants/providerClinicalTaxonomy';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';

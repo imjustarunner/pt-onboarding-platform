@@ -88,6 +88,7 @@ import intakeLinksRoutes from './routes/intakeLinks.routes.js';
 import publicTranslationsRoutes from './routes/publicTranslations.routes.js';
 import adminTranslationsRoutes from './routes/adminTranslations.routes.js';
 import directoryRoutes from './routes/directory.routes.js';
+import providerDirectoryRoutes from './routes/providerDirectory.routes.js';
 import intakeFieldTemplatesRoutes from './routes/intakeFieldTemplates.routes.js';
 import unassignedDocumentsRoutes from './routes/unassignedDocuments.routes.js';
 import schoolPortalRoutes from './routes/schoolPortal.routes.js';
@@ -327,6 +328,7 @@ app.use(cors({
   credentials: true,
   // Explicitly set allowed headers for mobile browser compatibility
   allowedHeaders: [
+    'X-Directory-Session',
     'Content-Type',
     'Authorization',
     'X-User-Authorization',
@@ -807,6 +809,7 @@ app.get('/api/auth/verify-club-manager-email/:token', verifyClubManagerEmail);
 app.get('/api/summit-stats/clubs', listClubs);
 
 // API Routes
+app.use('/api/provider-directories', providerDirectoryRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/modules', moduleRoutes);

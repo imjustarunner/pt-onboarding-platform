@@ -1,0 +1,14 @@
+<template>
+ <section class="latinx-membership"><h3>Latinx Therapist Project</h3><p>Build a separate public directory profile with Latinx Therapist Project CO. Your employee account and private profile information stay separate.</p><p v-if="!isSelf">The provider can request inclusion from their own profile. Heritage and publication consent must be supplied by the provider.</p>
+  <template v-else><p v-if="eligible">Your saved heritage includes Hispanic or Latino identity.</p><label>Confirm your heritage for this directory<select v-model="heritage"><option value="">Select your self-identified heritage</option><option v-for="h in HERITAGES" :key="h">{{ h }}</option></select></label><label class="check"><input v-model="optIn" type="checkbox" /> Include me in the Latinx Project directory after profile review and approval</label><button class="btn btn-primary" :disabled="busy || (optIn && !heritage)" @click="save">{{ optIn?'Save & open my directory profile':'Save preference' }}</button><p v-if="status">Directory status: {{ status.replaceAll('_',' ') }}</p><p v-if="message" role="status">{{ message }}</p><p v-if="error" role="alert">{{ error }}</p></template>
+ </section>
+</template>
+<script setup>
+import {ref,onMounted,computed} from 'vue';import {useRouter} from 'vue-router';import {useAuthStore} from '../../store/auth';import api from '../../services/api';import {HERITAGES,rememberSession} from '../../services/providerDirectory';
+const props=defineProps({userId:Number});const auth=useAuthStore(),router=useRouter(),isSelf=computed(()=>Number(auth.user?.id)===Number(props.userId));const heritage=ref(''),optIn=ref(false),eligible=ref(false),status=ref(''),busy=ref(false),message=ref(''),error=ref('');
+onMounted(async()=>{if(!isSelf.value)return;try{const {data}=await api.get('/provider-directories/latinx/platform-membership');eligible.value=data.eligible;heritage.value=data.member?.heritage||'';optIn.value=!!data.member?.optIn;status.value=data.member?.status||'';}catch(e){error.value=e.response?.data?.error?.message||'Directory preference is unavailable.';}});
+async function save(){busy.value=true;error.value='';try{const {data}=await api.post('/provider-directories/latinx/platform-membership',{optIn:optIn.value,heritage:heritage.value});if(data.token){rememberSession('latinx',data.token);router.push('/latinx/join');}else message.value='Your listing is not included in the directory.';}catch(e){error.value=e.response?.data?.error?.message||'Could not save directory preference.';}finally{busy.value=false;}}
+</script>
+<style scoped>
+.latinx-membership{border:1px solid #decfe2;background:#faf7fb;padding:22px;border-radius:12px;margin:20px 0;line-height:1.6}.latinx-membership h3{margin-top:0;color:#631957}.latinx-membership label{display:grid;gap:8px;margin:15px 0}.latinx-membership select{padding:10px;max-width:400px}.latinx-membership .check{display:flex;align-items:flex-start}.check input{margin-top:6px;width:auto}
+</style>
