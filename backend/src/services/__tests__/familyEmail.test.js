@@ -1,10 +1,12 @@
 import {describe,it,expect,vi,beforeEach} from 'vitest';
-const mocks=vi.hoisted(()=>({execute:vi.fn(),benefit:vi.fn(),household:vi.fn(),save:vi.fn(),begin:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()}));
+const mocks=vi.hoisted(()=>({execute:vi.fn(),benefit:vi.fn(),household:vi.fn(),save:vi.fn(),begin:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),alias:vi.fn(),gmailSend:vi.fn(),protect:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:mocks.execute,getConnection:async()=>({execute:mocks.execute,beginTransaction:mocks.begin,commit:mocks.commit,rollback:mocks.rollback,release:mocks.release})}}));
 vi.mock('../familyAuth.service.js',async()=>{const crypto=await import('node:crypto');return {assertFamilyBenefit:mocks.benefit,requireHousehold:mocks.household,familyHash:x=>crypto.createHash('sha256').update(x).digest('hex')};});
 vi.mock('../family.service.js',()=>({saveFamilyEntry:mocks.save,familyTransaction:async fn=>fn({execute:mocks.execute})}));
+vi.mock('../unifiedEmail/gmailClient.js',()=>({getGmailClient:async()=>({users:{settings:{sendAs:{get:mocks.alias}},messages:{send:mocks.gmailSend}}})}));
+vi.mock('../activityProtection.service.js',()=>({protectOutboundEmail:mocks.protect}));
 import {extractFamilyEmailText,parseFamilyEmail,authenticatedFamilySender,buildFamilySummary,familySummaryText,familyEmailHtml} from '../familyEmailPolicy.js';
-import {handleFamilyEmailInbound,addFamilyPocketItems,getFamilyPocket} from '../familyEmail.service.js';
+import {handleFamilyEmailInbound,addFamilyPocketItems,getFamilyPocket,sendFamilyEmailReply} from '../familyEmail.service.js';
 const headers=[{name:'From',value:'Dad <dad@example.com>'},{name:'Authentication-Results',value:'mx.google.com; dkim=pass header.i=@example.com; dmarc=pass (p=REJECT) header.from=example.com'}];
 const input={fromEmail:'dad@example.com',subject:'Add groceries: milk, eggs',bodyText:'',agencyId:1,senderIdentityId:88,headers,gmailMessageId:'gmail-123',messageIdHeader:'<test@example.com>'};
 let ledger,entries,homes;
@@ -79,4 +81,24 @@ describe('private family command execution',()=>{
  it('holds commands for retry when another replica is processing this sender',async()=>{const original=mocks.execute.getMockImplementation();mocks.execute.mockImplementation((sql,p)=>sql.includes('GET_LOCK')?Promise.resolve([[{acquired:0}]]):original(sql,p));expect(await handleFamilyEmailInbound(input)).toMatchObject({retry:true});expect(mocks.save).not.toHaveBeenCalled();});
  it('rolls back a batch and never confirms failed writes',async()=>{mocks.save.mockRejectedValueOnce(new Error('write failed'));const sendReply=vi.fn();await expect(handleFamilyEmailInbound({...input,sendReply})).rejects.toThrow('write failed');expect(mocks.rollback).toHaveBeenCalled();expect(mocks.commit).not.toHaveBeenCalled();expect(sendReply).not.toHaveBeenCalled();});
  it('requires a parent to add chores',async()=>{mocks.household.mockRejectedValue(Object.assign(new Error('Parent required'),{status:403}));await expect(addFamilyPocketItems({userId:1,agencyId:1},7,{kind:'chore',items:['Dentist']})).rejects.toThrow('Parent required');expect(mocks.household).toHaveBeenCalledWith(expect.anything(),7,expect.anything(),true);expect(mocks.save).not.toHaveBeenCalled();});
+});
+
+ describe('family outgoing email transport',()=>{
+ const args={identity:{from_email:'app@example.com'},to:'mom@example.com',text:'Milk & eggs',householdId:7,requestHash:'abc123',actorUserId:1,automaticReply:false,subject:'Grocery list'};
+ beforeEach(()=>{mocks.alias.mockResolvedValue({data:{verificationStatus:'accepted'}});mocks.gmailSend.mockResolvedValue({data:{id:'gmail-id'}});mocks.protect.mockResolvedValue();});
+ it('sends through the verified sender with reply address, reconciliation ID and outbound protection',async()=>{
+  expect(await sendFamilyEmailReply(args)).toBe('gmail-id');
+  expect(mocks.alias).toHaveBeenCalledWith({userId:'me',sendAsEmail:'app@example.com'});
+  expect(mocks.protect).toHaveBeenCalledWith({to:'mom@example.com',actorUserId:1});
+  const mime=Buffer.from(mocks.gmailSend.mock.calls[0][0].requestBody.raw,'base64url').toString();
+  expect(mime).toContain('Auto-Submitted: auto-generated');expect(mime).toContain('To: mom@example.com');expect(mime).toContain('Reply-To: app@example.com');expect(mime).toContain('Message-ID: <family-abc123@example.com>');
+ });
+ it('never sends through an unverified alias and marks it safe to retry',async()=>{
+  mocks.alias.mockResolvedValue({data:{verificationStatus:'pending'}});
+  await expect(sendFamilyEmailReply(args)).rejects.toMatchObject({deliveryStarted:false});expect(mocks.gmailSend).not.toHaveBeenCalled();
+ });
+ it('marks transport failures as uncertain so retries must reconcile',async()=>{
+  mocks.gmailSend.mockRejectedValueOnce(new Error('connection reset'));
+  await expect(sendFamilyEmailReply(args)).rejects.toMatchObject({deliveryStarted:true});
+ });
 });

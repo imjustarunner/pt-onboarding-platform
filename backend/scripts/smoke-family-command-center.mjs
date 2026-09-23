@@ -25,7 +25,7 @@ const fixture={household:{id:1,name:'The Anderson family',role:'parent',timezone
 const photoBytes=await readFile(new URL('../../frontend/public/assets/family-events/family.jpg',import.meta.url));
 const recipe={title:'Lemon pasta',cuisine:'Italian',description:'A bright weeknight dinner.',servings:4,minutes:20,ingredients:[{name:'Pasta',quantity:'1 lb',category:'Pantry'},{name:'Lemons',quantity:'2',category:'Produce'}],steps:['Cook the pasta.','Toss with lemon and serve.']};
 const homeTools={cuisines:FAMILY_CUISINES,preferences:{screensaverEnabled:false,idleMinutes:5,slideSeconds:15,showClock:true,decisionOptions:[]},photos:[],calendar:null};
-let ingredientRequests=0;
+let ingredientRequests=0,emailRequests=[];
 const browser=await puppeteer.launch({headless:'new',channel:'chrome',args:['--no-sandbox']});
 if(process.argv.includes('--artwork-gallery')){
   try{
@@ -58,7 +58,8 @@ try{
         const body=JSON.parse(req.postData());assert.equal(body.passcode,'123456');assert.equal(body.agencyId,undefined);authenticated=true;unlocks++;data={ok:true};
       }
       else if(url.pathname==='/api/family/households/1')data=fixture;
-      else if(url.pathname==='/api/family/households/1/pocket')data={...buildFamilySummary(fixture),emailAddress:'app@example.com',accountEmail:'alex@example.com'};
+      else if(url.pathname==='/api/family/households/1/pocket')data={...buildFamilySummary(fixture),emailAddress:'app@example.com',accountEmail:'alex@example.com',sendEmailAvailable:true,recipients:[{userId:1,name:'Alex',email:'alex@example.com'},{userId:2,name:'Jordan',email:'jordan@example.com'}]};
+      else if(url.pathname==='/api/family/households/1/pocket/email'){const body=JSON.parse(req.postData());emailRequests.push(body);assert.match(body.requestId,/^[a-f0-9-]{36}$/);data={sent:true,to:body.to,sections:body.sections};}
       else if(url.pathname==='/api/family/households/1/pocket/items'){
         const body=JSON.parse(req.postData());assert.equal(body.kind,'grocery');assert.deepEqual(body.items,['Coffee','Bananas']);
         for(const title of body.items)fixture.entries.push(entry(500+fixture.entries.length,body.kind,title,null));data={added:body.items.length,skipped:0};
@@ -118,8 +119,24 @@ try{
   assert.equal(overflow,false,'Mobile layout must not overflow horizontally');
   const clickText=async(selector,text)=>page.evaluate((selector,text)=>{const b=[...document.querySelectorAll(selector)].find(b=>b.textContent.trim().includes(text));if(!b)throw new Error('Missing button: '+text);b.click();},selector,text);
   await clickText('.fcc-sidebar nav button','On the go');
-  await page.waitForSelector('.pocket-email a');
-  assert.equal(await page.$eval('.pocket-email a',a=>a.getAttribute('href')), 'mailto:app@example.com?subject=%5BFamily%20%231%5D%20Family%20summary&body=');
+  await page.waitForSelector('.pocket-send select');
+  assert.equal(await page.$('.pocket-email a[href^="mailto:"]'),null,'Send does not launch an email client');
+  await page.select('.pocket-send select','jordan@example.com');
+  await clickText('.pocket-send button','Clear choices');
+  assert.equal(await page.$eval('.pocket-send-button',b=>b.disabled),true);
+  await page.click('.pocket-send input[value="grocery"]');
+  await page.click('.pocket-send-button');
+  await page.waitForFunction(()=>document.querySelector('.delivery-success')?.textContent.includes('jordan@example.com'));
+  assert.deepEqual(emailRequests[0].sections,['grocery']);
+  await page.select('.pocket-send select','custom');
+  await page.type('.pocket-send input[type="email"]','family@gmail.com');
+  await page.click('.pocket-send input[value="upcoming"]');
+  await page.click('.pocket-send-button');
+  await page.waitForFunction(()=>document.querySelector('.delivery-success')?.textContent.includes('family@gmail.com'));
+  assert.equal(emailRequests[1].to,'family@gmail.com');
+  assert.deepEqual(emailRequests[1].sections,['grocery','upcoming']);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Direct email controls fit on mobile');
+  await page.screenshot({path:'/tmp/family-pocket-send-mobile.png',fullPage:true});
   await page.click('.pocket-add-wrap summary');
   await page.type('.pocket-add textarea','Coffee\nBananas');
   await page.click('.pocket-add .fcc-primary');
@@ -128,6 +145,7 @@ try{
   await page.screenshot({path:'/tmp/family-pocket-mobile.png',fullPage:true});
   await page.goto(base+'/family?view=on-the-go&household=1',{waitUntil:'networkidle2'});
   await page.waitForSelector('.pocket-list');
+  assert.equal(await page.$eval('.pocket-send input[type="email"]',el=>el.value),'family@gmail.com','Remember the selected family email on this device');
   await page.setViewport({width:1440,height:1100,deviceScaleFactor:1});
   await page.screenshot({path:'/tmp/family-pocket-desktop.png',fullPage:true});
   await page.setViewport({width:390,height:844,deviceScaleFactor:1});

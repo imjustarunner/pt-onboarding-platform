@@ -14,6 +14,15 @@ export async function getFamilyEmailIdentity(agencyId, db=pool) {
   return rows[0] || null;
 }
 
+export async function getFamilyDeliveryIdentity(agencyId, db=pool) {
+  const [rows]=await db.execute("SELECT id,from_email FROM email_sender_identities WHERE agency_id=? AND identity_key='app' AND is_active=1 LIMIT 1",[agencyId]);
+  return rows[0] || null;
+}
+export async function getFamilyEmailRecipients(id,db=pool) {
+  const [rows]=await db.execute("SELECT m.user_id,m.display_name,u.email FROM family_members m JOIN users u ON u.id=m.user_id WHERE m.household_id=? AND u.email IS NOT NULL AND u.email NOT LIKE '%@members.invalid' ORDER BY m.display_name",[id]);
+  return rows.map(r=>({userId:r.user_id,name:r.display_name,email:r.email}));
+}
+
 export async function getFamilyPocket(session, id, db=pool) {
   await assertFamilyBenefit(session.userId,session.agencyId,db);
   const household=await requireHousehold(session,id,db);
@@ -27,7 +36,8 @@ export async function getFamilyPocket(session, id, db=pool) {
   const result=buildFamilySummary({household,members,entries:entries.slice(0,1500),activity},now);
   const identity=await getFamilyEmailIdentity(session.agencyId,db);
   const [users]=await db.execute('SELECT email FROM users WHERE id=?',[session.userId]);
-  return {...result,truncated:entries.length>1500,emailAddress:identity?.from_email || null,accountEmail:users[0]?.email || null};
+  const [deliveryIdentity,recipients]=await Promise.all([getFamilyDeliveryIdentity(session.agencyId,db),getFamilyEmailRecipients(id,db)]);
+  return {...result,truncated:entries.length>1500,emailAddress:identity?.from_email || null,accountEmail:users[0]?.email || null,sendEmailAvailable:!!deliveryIdentity,recipients};
 }
 
 export async function addFamilyPocketItems(session,id,{kind,items},dbConnection=null) {
@@ -52,17 +62,22 @@ export async function addFamilyPocketItems(session,id,{kind,items},dbConnection=
 }
 
 // Family mail is private household content: don't put its body in workplace communication logs.
-// These are direct user-requested replies, sent only to the account address, with no fallback sender.
-export async function sendFamilyEmailReply({identity,to,text,messageIdHeader,requestHash,householdId}) {
-  const gmail=await getGmailClient();
-  const {data:alias}=await gmail.users.settings.sendAs.get({userId:'me',sendAsEmail:identity.from_email});
-  if(alias.verificationStatus!=='accepted')throw familyError('The family email mailbox is not ready to send replies.',503);
-  const mime=buildMimeMessage({from:`Family Command Center <${identity.from_email}>`,replyTo:identity.from_email,to,
-    subject:householdId?`[Family #${householdId}] Family summary`:'Family Command Center',text,html:familyEmailHtml(text),
-    inReplyTo:messageIdHeader,references:messageIdHeader,messageId:`<family-${requestHash}@${identity.from_email.split('@')[1]}>`});
-  const { protectOutboundEmail } = await import('./activityProtection.service.js');
-  await protectOutboundEmail({ to });
-  await gmail.users.messages.send({userId:'me',requestBody:{raw:base64UrlEncode('Auto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\n'+mime)}});
+// Inbound replies use the account address; in-app sends validate the chosen recipient first. No fallback sender.
+export async function sendFamilyEmailReply({identity,to,text,messageIdHeader,requestHash,householdId,subject=null,automaticReply=true,actorUserId=null}) {
+  let deliveryStarted=false;
+  try {
+    const gmail=await getGmailClient();
+    const {data:alias}=await gmail.users.settings.sendAs.get({userId:'me',sendAsEmail:identity.from_email});
+    if(alias.verificationStatus!=='accepted')throw familyError('The family email mailbox is not ready to send replies.',503);
+    const mime=buildMimeMessage({from:`Family Command Center <${identity.from_email}>`,replyTo:identity.from_email,to,
+      subject:subject || (householdId?`[Family #${householdId}] Family summary`:'Family Command Center'),text,html:familyEmailHtml(text),
+      inReplyTo:messageIdHeader,references:messageIdHeader,messageId:`<family-${requestHash}@${identity.from_email.split('@')[1]}>`});
+    const { protectOutboundEmail } = await import('./activityProtection.service.js');
+    await protectOutboundEmail({ to, actorUserId });
+    deliveryStarted=true;
+    const response=await gmail.users.messages.send({userId:'me',requestBody:{raw:base64UrlEncode(`Auto-Submitted: ${automaticReply?'auto-replied':'auto-generated'}\r\nX-Auto-Response-Suppress: All\r\n`+mime)}});
+    return response.data?.id || null;
+  } catch(error) {error.deliveryStarted=deliveryStarted;throw error;}
 }
 
 export async function handleFamilyEmailInbound({fromEmail,subject,bodyText,agencyId,senderIdentityId,headers=[],gmailMessageId,messageIdHeader,sendReply=sendFamilyEmailReply}) {

@@ -2,6 +2,7 @@ import { createGooglePublication } from '../services/calendarPublication.service
 import { familyCalendarView } from '../services/familyCalendarView.service.js';
 import express from 'express';
 import { familyFocusMusicCatalog, familyFocusMusicStream } from '../controllers/familyFocusMusic.controller.js';
+import { sendFamilyPocketEmail } from '../services/familyPocketDelivery.service.js';
 import { getFamilyPocket, addFamilyPocketItems } from '../services/familyEmail.service.js';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
@@ -73,6 +74,7 @@ router.get('/focus-music/catalog', wrap(familyFocusMusicCatalog));
 router.get('/focus-music/stream/:slug', wrap(familyFocusMusicStream));
 router.get('/households/:id/calendar-view', wrap(async(req,res)=>res.json(await familyCalendarView(req.family,req.params.id,req.query))));
 router.get('/households/:id/pocket', wrap(async(req,res)=>res.json(await getFamilyPocket(req.family,req.params.id))));
+router.post('/households/:id/pocket/email', wrap(async(req,res)=>res.json(await sendFamilyPocketEmail(req.family,req.params.id,req.body))));
 router.post('/households/:id/pocket/items', wrap(async(req,res)=>res.status(201).json(await addFamilyPocketItems(req.family,req.params.id,req.body))));
 router.get('/households/:id/google/calendars', wrap(async(req,res)=>res.json(await listFamilyCalendars(req.family,req.params.id))));
 router.post('/households/:id/google/connect', wrap(async(req,res)=>res.json(await connectFamilyCalendar(req.family,req.params.id,req.body))));
