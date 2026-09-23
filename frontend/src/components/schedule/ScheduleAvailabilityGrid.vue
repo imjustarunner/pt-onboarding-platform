@@ -12387,13 +12387,14 @@ const snapQuarterMinute = (m) => {
 const effectiveModalStartHour = computed(() =>
   canUseQuarterHourInput.value ? Number(modalStartHour.value || modalHour.value || 0) : Number(modalHour.value || 0)
 );
-const modalGridMaxEnd = computed(() => {
-  // Supervision (incl. agency signup) may run into the evening; allow through midnight.
-  // Use requestType string only — isSupervisionEditMode is defined later (TDZ).
+const modalHasFullDayTimeRange = computed(() => {
+  // The calendar's visible day band is not a meeting scheduling restriction.
+  // Include the chooser so entering 6:30 AM before selecting Meeting is safe too.
+  // Use requestType only — later editor computeds are not initialized yet (TDZ).
   const t = String(requestType.value || '');
-  if (t === 'supervision' || t === 'edit_supervision') return 24;
-  return gridMaxHour.value;
+  return !t || ['agency_meeting', 'huddle', 'supervision', 'edit_supervision'].includes(t);
 });
+const modalGridMaxEnd = computed(() => modalHasFullDayTimeRange.value ? 24 : gridMaxHour.value);
 const modalStartTimeValue = computed(() => (
   `${pad2Clock(effectiveModalStartHour.value)}:${pad2Clock(modalStartMinute.value)}`
 ));
@@ -18215,11 +18216,8 @@ const loadSupervisionProviders = async () => {
 
 const startHourOptions = computed(() => {
   if (useModalQuarterHourTime.value) {
-    const t = String(requestType.value || '');
-    const supervisionWide = t === 'supervision' || t === 'edit_supervision';
-    // Agency signup / evening group sessions need full-day start hours even in clinical day-band view.
-    const minH = supervisionWide ? 0 : Number(gridMinHour.value || 0);
-    const maxH = supervisionWide ? 23 : Number(gridMaxHour.value || 24) - 1;
+    const minH = modalHasFullDayTimeRange.value ? 0 : Number(gridMinHour.value || 0);
+    const maxH = modalHasFullDayTimeRange.value ? 23 : Number(gridMaxHour.value || 24) - 1;
     const out = [];
     for (let h = minH; h <= maxH; h += 1) out.push(h);
     return out;
