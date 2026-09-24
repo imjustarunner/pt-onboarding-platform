@@ -1,4 +1,5 @@
 import { buildPortalWorkflow, portalPacket, portalStepSubmissions, requiredSubmissionKeys, assertPortalStepCompletion } from '../services/hirePortalWorkflow.service.js';
+import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
 /**
  * Pre-hire candidate portal controller.
  *
@@ -361,10 +362,11 @@ export const getPortalTask = async (req, res, next) => {
           || ((metadata.contractGeneration || metadata.autoFromSendPreHire) && task.reference_id ? await UserSpecificDocument.findById(task.reference_id) : null);
         if (usd && Number(usd.user_id) === Number(userId)) {
           docName = usd.name || docName || task.title;
-          htmlContent = usd.html_content || htmlContent;
-          filePath = usd.file_path || filePath;
-          templateType = usd.template_type || templateType || 'html';
+          htmlContent = usd.html_content || null;
+          filePath = usd.file_path || null;
+          templateType = usd.template_type || 'html';
           documentType = documentType || 'contract';
+          fieldDefs = null;
           if (usd.field_definitions) {
             try {
               fieldDefs = typeof usd.field_definitions === 'string'
@@ -376,7 +378,7 @@ export const getPortalTask = async (req, res, next) => {
       } catch { /* ignore */ }
     }
 
-    if (task.status !== 'completed' && htmlContent && /\{\{\s*[A-Za-z0-9_]+\s*\}\}/.test(htmlContent)
+    if (task.status !== 'completed' && htmlContent && findContractPlaceholders(htmlContent).length
       && (metadata.contractGeneration || metadata.employmentContract || metadata.autoFromSendPreHire)) {
       return res.status(409).json({ error: { message: 'People Operations needs to regenerate this employment agreement with your completed details before you can review and sign it.' } });
     }

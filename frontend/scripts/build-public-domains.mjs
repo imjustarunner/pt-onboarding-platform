@@ -66,6 +66,7 @@ server {
   add_header X-Robots-Tag "noindex" always;
   try_files /index.html =404;
  }
+ location ~* \\.mjs$ { types { application/javascript mjs; } default_type application/javascript; try_files $uri =404; }
  location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf|eot|json)$ {
   expires 1d;
   try_files $uri =404;
@@ -102,6 +103,7 @@ server {
  location ~ ^/p/${slug}/(.*)$ { return 301 /$1$is_args$args; }
  location ^~ /_public-sites/ { return 404; }
  location ~ \\.nginx\\.conf$ { return 404; }
+ location ~* \\.mjs$ { types { application/javascript mjs; } default_type application/javascript; try_files $uri =404; }
  location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf|eot)$ { try_files $uri =404; }
  location / { add_header Cache-Control "no-cache"; try_files $uri /_public-sites/${slug}/home.html =404; }
 }

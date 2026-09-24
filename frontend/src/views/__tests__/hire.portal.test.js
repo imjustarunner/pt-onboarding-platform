@@ -63,6 +63,38 @@ describe('candidate process interface', () => {
     expect(http.post).toHaveBeenCalledWith('/prehire-portal/test-token/documents/notice/receipt',{acknowledged:true});
     expect(wrapper.text()).toContain('Receipt acknowledged.');
   });
+  it('submits the captured job-description signature and confirms server success', async () => {
+    const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {}; data.jdAcknowledged = false;
+    data.jobDescription = { title: 'Counselor', descriptionText: 'Provide compassionate care in schools.' };
+    data.workflow.steps.pre_hire = [{ key: 'job-description', kind: 'job-description', title: 'Your job description' }];
+    await open(data);
+    await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text().includes('Pre-Hire')).trigger('click');
+    wrapper.findComponent({ name: 'AdaptiveSignatureCapture' }).vm.$emit('update:modelValue', 'data:image/png;base64,drawn');
+    await nextTick();
+    await wrapper.findAll('button').find(b => b.text() === 'I acknowledge this job description').trigger('click');
+    await flushPromises();
+    expect(http.post).toHaveBeenCalledWith('/prehire-portal/test-token/job-description/acknowledge', {
+      signatureData: 'data:image/png;base64,drawn', signerName: 'Elena Cruz'
+    });
+    expect(wrapper.text()).toContain('You acknowledged this job description.');
+    expect(wrapper.text()).not.toContain('Could not save acknowledgement.');
+  });
+  it('keeps the job-description signature available after a failed save', async () => {
+    const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {}; data.jdAcknowledged = false;
+    data.jobDescription = { title: 'Counselor', descriptionText: 'Care in schools.' };
+    data.workflow.steps.pre_hire = [{ key: 'job-description', kind: 'job-description', title: 'Your job description' }];
+    await open(data);
+    await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text().includes('Pre-Hire')).trigger('click');
+    wrapper.findComponent({ name: 'AdaptiveSignatureCapture' }).vm.$emit('update:modelValue', 'data:image/png;base64,drawn');
+    await nextTick();
+    http.post.mockRejectedValueOnce({ response: { data: { error: { message: 'Please retry saving.' } } } });
+    const submit = () => wrapper.findAll('button').find(b => b.text() === 'I acknowledge this job description');
+    await submit().trigger('click'); await flushPromises();
+    expect(wrapper.text()).toContain('Please retry saving.');
+    expect(wrapper.text()).not.toContain('You acknowledged this job description.');
+    await submit().trigger('click'); await flushPromises();
+    expect(wrapper.text()).toContain('You acknowledged this job description.');
+  });
   it('opens only prehire navigation before staff starts onboarding', async () => {
     const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {};
     await open(data);

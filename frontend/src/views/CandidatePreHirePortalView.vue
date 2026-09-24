@@ -919,8 +919,7 @@ const acknowledgeJobDescription = async () => {
   try {
     await portalApi.post(`/prehire-portal/${token.value}/job-description/acknowledge`, {
       signatureData: jdSignature.value,
-      signerName: candidateDisplayName.value,
-      documentAnnotations: companyDocAnnotations[id] || []
+      signerName: candidateDisplayName.value
     });
     jdAcknowledgedLocal.value = true;
     await reloadPortal();

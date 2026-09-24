@@ -1,4 +1,5 @@
 import { applyDocumentAnnotations } from '../utils/pdfDocumentAnnotations.js';
+import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
 import { fitPdfFieldText } from '../utils/pdfFormFields.js';
 import { validateHireDocumentFields } from '../utils/hireDocumentFields.js';
 import { PDFDocument, rgb } from 'pdf-lib';
@@ -1498,6 +1499,11 @@ class DocumentSigningService {
       }
     }
 
+    if ((taskMeta.contractGeneration || taskMeta.employmentContract || taskMeta.autoFromSendPreHire)
+      && findContractPlaceholders((userSpecificDocument || template)?.html_content).length) {
+      throw Object.assign(new Error('People Operations needs to regenerate this employment agreement with completed details before you can sign it.'), { status: 409, statusCode: 409 });
+    }
+
     const user = await User.findById(userId);
     if (!user) {
       const err = new Error('User not found');
@@ -1641,4 +1647,3 @@ class DocumentSigningService {
 }
 
 export default DocumentSigningService;
-

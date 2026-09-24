@@ -6,6 +6,7 @@ import PayrollCompensationLevel from '../models/PayrollCompensationLevel.model.j
 import HiringResumeParse from '../models/HiringResumeParse.model.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import appConfig from '../config/config.js';
+import { normalizeContractPlaceholders, findContractPlaceholders } from '../utils/contractPlaceholders.js';
 import {
   classifyPayCategory,
   determineLicenseStatus
@@ -48,7 +49,7 @@ function normalizeTokens(tokens = {}) {
 }
 
 function replaceTokens(html, tokens = {}) {
-  let out = String(html || '');
+  let out = normalizeContractPlaceholders(html);
   const merged = normalizeTokens(tokens);
   for (const [key, value] of Object.entries(merged)) {
     const safeKey = String(key).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -60,6 +61,13 @@ function replaceTokens(html, tokens = {}) {
 
 export function applyContractTokens(html, tokens = {}) {
   return replaceTokens(html, tokens);
+}
+
+const REQUIRED_CONTRACT_FIELDS = new Set(['EMPLOYEE_FULL_NAME', 'CANDIDATE_NAME', 'COMPANY_NAME', 'COMPANY_ADDRESS', 'JOB_TITLE', 'ROLE_LABEL', 'SERVICE_FOCUS', 'LICENSE_TYPE', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS', 'START_DATE', 'EXECUTION_DATE', 'EFFECTIVE_DATE', 'EXPIRATION_DATE', 'LICENSURE_DEADLINE', 'MIN_DAYS_PER_WEEK', 'MIN_HOURS', 'DIRECT_RATE', 'INDIRECT_RATE'].map(key => key.replaceAll('_', '')));
+
+export function missingContractFields(html, tokens = {}) {
+  const values = normalizeTokens(tokens);
+  return findContractPlaceholders(html).filter(key => REQUIRED_CONTRACT_FIELDS.has(key.replaceAll('_', '')) && !String(values[key] ?? '').trim());
 }
 
 function includeSupervisorFromTokens(tokens = {}) {
@@ -76,8 +84,7 @@ function isSupervisorClause(clause) {
 }
 
 function findUnresolvedTokens(html) {
-  const matches = String(html || '').match(/\{\{\s*[A-Za-z0-9_]+\s*\}\}/g) || [];
-  return [...new Set(matches.map((m) => m.replace(/[{}\s]/g, '')))];
+  return findContractPlaceholders(html);
 }
 
 function parseJsonValue(value) {
@@ -357,13 +364,25 @@ export async function autofillTokensForCandidate({
               jd.title, jd.description_text, jd.job_desc_clause_key, jd.default_contract_config_id,
               jd.role_type, jd.tags_json
        FROM hiring_profiles hp
-       LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id
+       LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = ?
        WHERE hp.candidate_user_id = ?
        ORDER BY hp.updated_at DESC, hp.id DESC
        LIMIT 1`,
-      [candidateUserId]
+      [agencyId, candidateUserId]
     );
     jobDescriptionRow = hp?.[0] || null;
+    if (!jobDescriptionRow?.title) {
+      // Older intake applications did not always populate hiring_profiles.
+      const [applications] = await pool.execute(
+        `SELECT jd.id AS job_description_id, jd.title, jd.description_text,
+                jd.job_desc_clause_key, jd.default_contract_config_id, jd.role_type, jd.tags_json
+         FROM intake_submissions s
+         JOIN intake_links il ON il.id = s.intake_link_id
+         JOIN hiring_job_descriptions jd ON jd.id = il.job_description_id AND jd.agency_id = ?
+         WHERE s.guardian_user_id = ? AND il.form_type = 'job_application'
+         ORDER BY s.id DESC LIMIT 1`, [agencyId, candidateUserId]);
+      if (applications?.[0]) jobDescriptionRow = applications[0];
+    }
     jobTitle = jobDescriptionRow?.title || jobDescriptionRow?.applied_role || user?.title || '';
     jobDescription = jobDescriptionRow?.description_text || '';
     roleType = String(jobDescriptionRow?.role_type || '').trim();
@@ -543,8 +562,7 @@ export async function renderContractHtml({
     ? clauses
     : (clauses || []).filter((c) => !isSupervisorClause(c));
 
-  const requiredFields = new Set(['EMPLOYEE_FULL_NAME', 'CANDIDATE_NAME', 'COMPANY_NAME', 'COMPANY_ADDRESS', 'JOB_TITLE', 'ROLE_LABEL', 'SERVICE_FOCUS', 'LICENSE_TYPE', 'ASSIGNED_OFFICE_NAME', 'ASSIGNED_OFFICE_ADDRESS', 'START_DATE', 'EXECUTION_DATE', 'EFFECTIVE_DATE', 'EXPIRATION_DATE', 'LICENSURE_DEADLINE', 'MIN_DAYS_PER_WEEK', 'MIN_HOURS', 'DIRECT_RATE', 'INDIRECT_RATE'].map(key => key.replaceAll('_', '')));
-  const missingFields = [...new Set(visibleClauses.flatMap((c) => findUnresolvedTokens(c.body_html)))].filter((key) => requiredFields.has(key.toUpperCase().replaceAll('_', '')) && !String(mergedTokens[key] ?? mergedTokens[key.toUpperCase()] ?? '').trim());
+  const missingFields = missingContractFields(visibleClauses.map(c => c.body_html).join('\n'), mergedTokens);
   const bodyParts = visibleClauses.map((c) => {
     const body = replaceTokens(c.body_html, mergedTokens);
     if (/^\s*<h[1-3]/i.test(c.body_html || '') || /^\s*<p/i.test(body)) return body;

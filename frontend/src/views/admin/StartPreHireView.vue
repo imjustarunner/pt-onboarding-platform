@@ -78,7 +78,9 @@
           </label>
         </div>
         <p v-if="inferredPayLabel" class="muted small">Inferred: {{ inferredPayLabel }}</p>
-        <h3>Contract details</h3><div class="sph-grid"><label v-for="field in contractFields" :key="field.key">{{ field.label }}<input v-model="contractOverrides[field.key]" /></label></div>
+        <h3>Contract details</h3>
+        <p class="muted">Employer name and address come from the agency profile. Job title and role label come from the job posting. Review these values and complete anything missing before previewing.</p>
+        <div class="sph-grid"><label v-for="field in contractFields" :key="field.key">{{ field.label }}<input v-model="contractOverrides[field.key]" /></label></div>
         <p class="muted">Confirm these values against the candidate and your agency records.</p>
         <button type="button" class="btn btn-primary" :disabled="previewBusy || !contractConfigId" @click="previewContract">{{ previewBusy ? 'Preparing preview…' : 'Update contract preview' }}</button>
         <p v-if="previewError" role="alert" class="error">{{ previewError }}</p>
@@ -358,6 +360,7 @@ const load = async () => {
     signerAssignments.value = mapSignerRolesWithDefaults(roles, staffUsers.value);
     wizardTokens.value = wizardRes.data?.tokens || {};
     for (const field of contractFields) contractOverrides[field.key] = wizardTokens.value[field.key] || '';
+    contractOverrides.JOB_TITLE = wizardTokens.value.JOB_TITLE || jobTitle.value;
     currentPortalLink.value = (await api.get(`/hiring/candidates/${userId.value}/prehire-link`, { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} }))).data?.portalLink || '';
     contractConfigs.value = Array.isArray(wizardRes.data?.configs) ? wizardRes.data.configs : [];
     contractConfigId.value = wizardRes.data?.suggested?.configId
@@ -478,7 +481,7 @@ const initiate = async () => {
 const setupSteps = ['Person & job', 'Pre-hire steps', 'Contract & cosigners', 'Review & invite'];
 const setupStep = ref(0), currentPortalLink = ref('');
 const builtInSteps = ['Background check authorization', 'Job description · review and sign', 'Employment agreement · review and sign', 'Choose work email', 'Pre-employment information', 'Professional headshot', 'Workplace handbook · review', 'Final review and submission'];
-const contractFields = [{ key: 'COMPANY_NAME', label: 'Employer name' }, { key: 'COMPANY_ADDRESS', label: 'Employer address' }, { key: 'ROLE_LABEL', label: 'Role label' }, { key: 'SERVICE_FOCUS', label: 'Service focus' }, { key: 'LICENSE_TYPE', label: 'License / credential' }, { key: 'ASSIGNED_OFFICE_NAME', label: 'Assigned office' }, { key: 'ASSIGNED_OFFICE_ADDRESS', label: 'Office address' }];
+const contractFields = [{ key: 'COMPANY_NAME', label: 'Employer name' }, { key: 'COMPANY_ADDRESS', label: 'Employer address' }, { key: 'JOB_TITLE', label: 'Job title' }, { key: 'ROLE_LABEL', label: 'Role label' }, { key: 'SERVICE_FOCUS', label: 'Service focus' }, { key: 'LICENSE_TYPE', label: 'License / credential' }, { key: 'ASSIGNED_OFFICE_NAME', label: 'Assigned office' }, { key: 'ASSIGNED_OFFICE_ADDRESS', label: 'Office address' }];
 const contractOverrides = reactive({}), contractPreview = ref(null), contractReviewed = ref(false), previewBusy = ref(false), previewError = ref('');
 const contractsPath = computed(() => orgPath(`/admin/contracts?agencyId=${agencyId.value}&candidateUserId=${userId.value}`));
 const packagesPath = computed(() => orgPath(`/admin/settings?agencyId=${agencyId.value}&category=workflow&item=packages`));
@@ -486,7 +489,7 @@ const documentsPath = computed(() => orgPath(`/admin/documents?agencyId=${agency
 const assignedSupervisorName = computed(() => { const u = staffUsers.value.find(u => Number(u.id) === Number(portalWorkflow.value.supervisorUserId)); return u ? `${u.first_name} ${u.last_name}` : ''; });
 const contractTokens = computed(() => ({ ...wizardTokens.value, ...contractOverrides,
   START_DATE: contract.startDate, EXECUTION_DATE: contract.executionDate, EXPIRATION_DATE: contract.expirationDate,
-  CANDIDATE_NAME: candidateName.value, EMPLOYEE_FULL_NAME: candidateName.value, JOB_TITLE: jobTitle.value,
+  CANDIDATE_NAME: candidateName.value, EMPLOYEE_FULL_NAME: candidateName.value,
   SUPERVISOR_NAME: includeSupervisor.value ? (assignedSupervisorName.value || contract.supervisor) : '', INCLUDE_SUPERVISION: includeSupervisor.value ? '1' : '0',
   LICENSURE_DEADLINE: contract.licenseBy, MIN_DAYS_PER_WEEK: contract.minDays, MIN_HOURS: contract.minHours,
   IS_SUPERVISOR: portalWorkflow.value.supervisorRole ? '1' : '0', SUPERVISOR_DUTIES: portalWorkflow.value.supervisorClause || '' }));

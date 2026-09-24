@@ -31,7 +31,11 @@ describe('hire setup wizards', () => {
     expect(wrapper.find('.workflow-editor').text()).toContain('Welcome video');
     expect(wrapper.find('.workflow-editor').text()).not.toContain('W4');
     await wrapper.findAll('.sph-steps button')[2].trigger('click');
+    const jobTitleInput = wrapper.findAll('label').find(label => label.text() === 'Job title').get('input');
+    expect(jobTitleInput.element.value).toBe('Counselor');
+    await jobTitleInput.setValue('School Counselor');
     await button('Update contract preview').trigger('click'); await flushPromises();
+    expect(http.post.mock.calls.find(([url]) => url.endsWith('/preview'))[1].tokens.JOB_TITLE).toBe('School Counselor');
     expect(wrapper.find('iframe[title="Candidate employment agreement preview"]').attributes('srcdoc')).toContain('Elena Cruz');
     const reviewed = wrapper.findAll('label').find(l => l.text().includes('I reviewed this agreement')).get('input');
     await reviewed.setValue(true);
