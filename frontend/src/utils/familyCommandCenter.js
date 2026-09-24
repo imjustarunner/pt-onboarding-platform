@@ -36,3 +36,33 @@ export function searchFamilyEventGroups(query = '', category = '') {
   const words=normalize(query).split(' ').filter(Boolean);
   return familyEventCategories.filter(g=>!category || g.label===category).map(g=>({...g,types:g.ids.map(id=>eventType(id)).filter(t=>words.every(w=>normalize([t.label,g.label,...(t.keywords || []),...(t.artworks || []).map(a=>a.label)].join(' ')).includes(w)))})).filter(g=>g.types.length);
 }
+
+// Match whole words/phrases so “park” cannot match “parking”. Specific activities
+// outrank generic pickup/travel/family labels; an explicit selection always wins.
+const normalizeEventTitle = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+export function inferFamilyEventType(title) {
+  const text = ` ${normalizeEventTitle(title)} `;
+  const aliases = { airport: ['airport', 'flight', 'arrivals', 'departures'], zoo: ['zoo'], pickup: ['pick up', 'pickup'], 'drop-off': ['drop off'], 'school-pickup': ['school pickup', 'school pick up'], 'grocery-shopping': ['groceries', 'grocery shopping'], 'np-rocky-mountain': ['rocky mountain national park'], 'np-yellowstone': ['yellowstone'], camping: ['camping', 'campsite'], 'dog-walk': ['walk the dog', 'dog walk'] };
+  let best = null, bestScore = 0;
+  for (const type of familyEventTypes) {
+    const phrases = [type.id.replaceAll('-', ' '), ...type.label.split(/\s+\/\s+/), ...(aliases[type.id] || [])];
+    for (const phrase of phrases) {
+      const normalized = normalizeEventTitle(phrase);
+      if (normalized.length < 3 || !text.includes(` ${normalized} `)) continue;
+      const generic = ['family', 'pickup', 'drop-off', 'travel', 'trip', 'drive', 'park', 'work', 'appointment'].includes(type.id);
+      const score = (generic ? 0 : 100) + normalized.length;
+      if (score > bestScore) { best = type; bestScore = score; }
+    }
+  }
+  return best || eventType('family');
+}
+export function familyEventMetadata(title, metadata = {}) {
+  const m = metadata || {};
+  if (m.eventType && m.autoTheme !== true) return m;
+  const type = inferFamilyEventType(title);
+  return { ...m, eventType: type.id, color: type.color };
+}
+export function themedFamilyCalendarEvent(event) {
+  if (event.work) return event;
+  return { ...event, metadata: familyEventMetadata(event.title, event.metadata) };
+}

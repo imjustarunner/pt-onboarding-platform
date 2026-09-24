@@ -30,6 +30,7 @@ export function validateEntry(body) {
   const metadata = {
     ...(kind === 'meal' && m.recipe ? { recipe: normalizeRecipe(m.recipe) } : {}),
     eventType: String(m.eventType || 'family').slice(0, 40),
+    autoTheme: m.autoTheme === true || !m.eventType,
     allDay: m.allDay === true,
     color: /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : '#6667d9',
     artwork: safePhoto(m.artwork),

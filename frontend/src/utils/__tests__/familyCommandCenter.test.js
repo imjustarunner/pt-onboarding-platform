@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isFamilyHost, memberStatus, eventType, eventArtwork, eventArtworkChoices, familyEventTypes, familyStatuses, familyEventCategories, familyCalendarEntries, searchFamilyEventGroups } from '../familyCommandCenter';
+import { inferFamilyEventType, familyEventMetadata, themedFamilyCalendarEvent, isFamilyHost, memberStatus, eventType, eventArtwork, eventArtworkChoices, familyEventTypes, familyStatuses, familyEventCategories, familyCalendarEntries, searchFamilyEventGroups } from '../familyCommandCenter';
 import requested from './familyEventCatalog.expected.json';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -88,5 +88,23 @@ describe('family calendar and routing',()=>{
     expect(familyScheduleProjection(rows,'busy')[0]).toMatchObject({title:'Personal event',description:null});
     expect(familyScheduleProjection(rows,'details',{1:{title:'Soccer',metadata:{address:'Park'}}})[0]).toMatchObject({title:'Soccer',description:'Park'});
     expect(rows[0].title).toBe('Private trip');
+  });
+});
+
+describe('automatic personal event themes',()=>{
+  it.each([['Pick up Sam from airport','airport'],['Going to zoo','zoo'],['School pickup','school-pickup'],['Camping at the lake','camping'],['Visit Yellowstone National Park','np-yellowstone'],['Parking permit renewal','family']])('matches %s to %s',(title,id)=>{expect(inferFamilyEventType(title).id).toBe(id);});
+  it('uses distinct zoo and airport pictures rather than generic covers',()=>{
+    expect(eventArtwork(familyEventMetadata('Going to zoo'))).toBe('/assets/family-events/zoo.jpg');
+    expect(eventArtwork(familyEventMetadata('Pick up Sam from airport'))).toBe('/assets/family-events/airport.jpg');
+  });
+  it('updates automatic themes after renaming while preserving explicit selections and photos',()=>{
+    const explicit={eventType:'camping',artworkVariant:'camping-green-tent'};
+    expect(familyEventMetadata('Zoo',explicit)).toBe(explicit);
+    expect(familyEventMetadata('Zoo',{eventType:'airport',autoTheme:true}).eventType).toBe('zoo');
+    expect(eventArtwork(familyEventMetadata('Zoo',{autoTheme:true,artwork:'https://example.com/photo.jpg'}))).toBe('https://example.com/photo.jpg');
+  });
+  it('themes live Google events without modifying work overlays',()=>{
+    expect(themedFamilyCalendarEvent({source:'Google',title:'Going to zoo'}).metadata.eventType).toBe('zoo');
+    const work={work:true,title:'Airport'};expect(themedFamilyCalendarEvent(work)).toBe(work);
   });
 });

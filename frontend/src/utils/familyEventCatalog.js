@@ -1515,7 +1515,7 @@ export const familyEventTypes = [
     "icon": "✈",
     "color": "#7d9bb5",
     "status": "Traveling",
-    "artwork": "/assets/family-events/travel.jpg",
+    "artwork": "/assets/family-events/airport.jpg",
     "categories": [
       "Travel & Transportation"
     ]
@@ -1821,7 +1821,7 @@ export const familyEventTypes = [
     "icon": "🦒",
     "color": "#a58dba",
     "status": "At Activity",
-    "artwork": "/assets/family-events/community.jpg",
+    "artwork": "/assets/family-events/zoo.jpg",
     "categories": [
       "Outdoors & Recreation"
     ]

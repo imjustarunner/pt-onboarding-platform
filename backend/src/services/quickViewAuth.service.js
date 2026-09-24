@@ -393,6 +393,7 @@ export async function verifyPasscodeAndStartSession({
  */
 export async function verifyPasscodeForTenantAndStartSession({
   passcode,
+  email = null,
   agencyId,
   meetingEventType = null,
   meetingEventId = null,
@@ -412,6 +413,7 @@ export async function verifyPasscodeForTenantAndStartSession({
     `SELECT c.*
      FROM user_quick_view_credentials c
      WHERE c.passcode_hash IS NOT NULL
+       ${email ? 'AND EXISTS (SELECT 1 FROM users u WHERE u.id=c.user_id AND LOWER(u.email)=?)' : ''}
        AND (
          c.agency_id = ?
          OR EXISTS (
@@ -421,7 +423,7 @@ export async function verifyPasscodeForTenantAndStartSession({
        )
      ORDER BY c.last_passcode_ok_at DESC, c.user_id DESC
      LIMIT 200`,
-    [aid, aid]
+    [...(email ? [String(email).trim().toLowerCase()] : []), aid, aid]
   );
 
   if (!rows?.length) {
@@ -561,7 +563,7 @@ async function startSessionForCredential(cred, {
   };
 }
 
-export async function touchSession(rawSessionToken, { meetingEndsAt = null } = {}) {
+export async function touchSession(rawSessionToken, { meetingEndsAt = null, activity = false } = {}) {
   const hash = sha256(rawSessionToken);
   const [rows] = await pool.execute(
     `SELECT * FROM quick_view_sessions
@@ -582,7 +584,13 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null } = {
     return null;
   }
 
-  // Sliding 10-minute window unless meeting grace is longer
+  // Read/poll requests verify the absolute deadline without renewing it.
+  if (!activity && !meetingEndsAt) return {
+    userId: session.user_id, agencyId: session.agency_id, sessionId: session.id,
+    expiresAt, meetingEventType: session.meeting_event_type, meetingEventId: session.meeting_event_id
+  };
+
+  // Sliding 10-minute window for explicit activity unless meeting grace is longer
   let nextExpiry = new Date(now.getTime() + SESSION_TTL_MS);
   const meetingEnd = meetingEndsAt || session.meeting_ends_at;
   if (meetingEnd) {

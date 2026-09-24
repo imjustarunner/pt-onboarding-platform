@@ -1,3 +1,4 @@
+import { recordQuickPresenceActivity } from './quickViewPresence.controller.js';
 import { quickDayWindow, quickMeetingLink } from '../utils/quickViewCalendar.js';
 import crypto from 'crypto';
 import {
@@ -516,6 +517,7 @@ export const postTenantUnlock = async (req, res, next) => {
     }
     const result = await verifyPasscodeForTenantAndStartSession({
       passcode: req.body?.passcode,
+      email: req.body?.email,
       agencyId,
       ipHash: ipHash(req),
       userAgent: ua(req)
@@ -566,8 +568,9 @@ export const postTenantUnlock = async (req, res, next) => {
 export const postHeartbeat = async (req, res, next) => {
   try {
     const raw = req.cookies?.qv_session || req.headers['x-quick-view-session'] || req.body?.sessionToken;
-    const session = await touchSession(raw, { meetingEndsAt: req.body?.meetingEndsAt || null });
+    const session = await touchSession(raw, { meetingEndsAt: req.body?.meetingEndsAt || null, activity: req.body?.activity === true });
     if (!session) return res.status(401).json({ error: { message: 'Session expired' } });
+    if (req.body?.activity === true) await recordQuickPresenceActivity(session).catch(e => console.warn('[quickView] presence activity:', e.message));
     res.json({ ok: true, ...session });
   } catch (e) {
     next(e);

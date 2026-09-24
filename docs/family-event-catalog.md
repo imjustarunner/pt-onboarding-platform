@@ -2,7 +2,7 @@
 
 341 event types: the original 259 requested activities, two legacy types, 17 additional personalized activities, and 63 U.S. national parks. Repeated listings share one saved type. The 30 status choices remain separate timed calendar entries that update family-member status.
 
-The library contains 124 matching illustrations. Camping remains one type with five picture choices: lakeside tent, green tent, the black 2014 Tundra with a teal bed-rack rooftop tent, the Tundra towing a Coleman trailer, and a green tent in the backyard. Each national park has a separate illustration, following the [National Park Service list](https://www.nps.gov/aboutus/national-park-system.htm). These are generated illustrations, not documentary photographs.
+The library contains 126 matching illustrations. Camping remains one type with five picture choices: lakeside tent, green tent, the black 2014 Tundra with a teal bed-rack rooftop tent, the Tundra towing a Coleman trailer, and a green tent in the backyard. Each national park has a separate illustration, following the [National Park Service list](https://www.nps.gov/aboutus/national-park-system.htm). These are generated illustrations, not documentary photographs.
 
 Search and category filters are available in the event editor and Google import theme picker. Related types may share artwork; images load only when displayed. `metadata.artworkVariant` preserves an optional picture choice independently of `metadata.artwork` (a custom upload). Unknown or mismatched variants fall back to the event type's default picture. Existing saved event IDs and custom photos remain supported.
 
@@ -180,7 +180,7 @@ Search and category filters are available in the event editor and Google import 
 | Road Trip | Traveling | road-trip-tundra.jpg |
 | Travel Day | Traveling | travel-black-sienna.jpg |
 | Flight | Traveling | travel.jpg |
-| Airport | Traveling | travel.jpg |
+| Airport | Traveling | airport.jpg |
 | Hotel | Vacation | vacation.jpg |
 | Camping | Vacation | camping.jpg |
 | RV Trip | Traveling | camping.jpg |
@@ -211,7 +211,7 @@ Search and category filters are available in the event editor and Google import 
 | Park | At Activity | park-day.jpg |
 | Playground | At Activity | family.jpg |
 | Picnic | At Activity | family.jpg |
-| Zoo | At Activity | community.jpg |
+| Zoo | At Activity | zoo.jpg |
 | Aquarium | At Activity | vacation.jpg |
 | Museum | At Activity | community.jpg |
 | Amusement Park | At Activity | community.jpg |

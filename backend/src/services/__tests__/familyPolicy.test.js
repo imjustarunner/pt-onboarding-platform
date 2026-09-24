@@ -52,3 +52,10 @@ describe('family policy', () => {
     expect(assignedMember(e,'America/Denver',new Date('2026-09-23T18:00:00Z'))).toBe(1);
   });
 });
+
+it('preserves automatic title matching while allowing explicit event themes',()=>{
+  const base={kind:'event',title:'Going to zoo',startAt:'2026-09-24T12:00:00Z',endAt:'2026-09-24T13:00:00Z'};
+  expect(validateEntry({...base,metadata:{eventType:'zoo',autoTheme:true}}).metadata.autoTheme).toBe(true);
+  expect(validateEntry({...base,metadata:{eventType:'camping',autoTheme:false}}).metadata.autoTheme).toBe(false);
+  expect(validateEntry(base).metadata.autoTheme).toBe(true);
+});

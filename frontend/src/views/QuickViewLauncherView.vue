@@ -12,7 +12,8 @@
 
     <template v-else-if="ready">
       <p class="hint">Enter your 6-digit Quick View passcode</p>
-      <form class="form" @submit.prevent="unlock">
+      <form class="form" autocomplete="on" @submit.prevent="unlock">
+        <label>Account email (optional, for saved sign-in)<input v-model="credentialEmail" name="username" type="email" autocomplete="username" /></label>
         <input
           v-model="passcode"
           class="pin"
@@ -20,7 +21,9 @@
           inputmode="numeric"
           maxlength="6"
           pattern="\d{6}"
-          autocomplete="one-time-code"
+          id="quick-view-passcode"
+            name="password"
+            autocomplete="current-password"
           placeholder="••••••"
           aria-label="6-digit Quick View passcode"
         />
@@ -55,6 +58,7 @@ const ready = ref(false);
 const busy = ref(false);
 const error = ref('');
 const passcode = ref('');
+const credentialEmail = ref('');
 const agencyId = ref(null);
 const agencyName = ref('');
 const agencyLogoUrl = ref('');
@@ -147,6 +151,7 @@ async function unlock() {
       `${apiBase}/tenant/unlock`,
       {
         passcode: passcode.value,
+        email: credentialEmail.value.trim() || undefined,
         agencyId: agencyId.value,
         portal: portalSlug.value || undefined
       },
@@ -226,6 +231,8 @@ onMounted(async () => {
   color: var(--qv-text, #f4faf6);
 }
 .hint { margin: 0; color: var(--qv-muted, #d1e7d8) !important; }
+.form label { display:flex;flex-direction:column;gap:8px;text-align:left;font-size:13px; }
+.form input[type=email] { box-sizing:border-box;width:100%;padding:12px;border:1px solid var(--qv-border);border-radius:10px;background:var(--qv-surface);color:var(--qv-text);font:inherit; }
 .form { display: grid; gap: 12px; width: min(100%, 320px); }
 .pin {
   width: 100%;

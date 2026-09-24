@@ -85,7 +85,7 @@ export async function importFamilyCalendarEvent(session,id,body) {
   // All metadata comes from the authorized calendar, never a caller-supplied calendar/subject.
   // Unique link insert shares the entry transaction: retry/parallel imports cannot duplicate schedules.
   try{
-    return await saveFamilyEntry(session,id,{kind:'event',title:event.title.slice(0,200),memberUserId:body.memberUserId,startAt:event.startAt,endAt:event.endAt,metadata:{eventType:body.eventType || 'family',artworkVariant:body.artworkVariant,address:event.address,notes:event.notes,allDay:event.allDay,googleSource:true}},null,async(db,entryId)=>{
+    return await saveFamilyEntry(session,id,{kind:'event',title:event.title.slice(0,200),memberUserId:body.memberUserId,startAt:event.startAt,endAt:event.endAt,metadata:{eventType:body.eventType || 'family',autoTheme:body.autoTheme === true || !body.eventType,artworkVariant:body.artworkVariant,address:event.address,notes:event.notes,allDay:event.allDay,googleSource:true}},null,async(db,entryId)=>{
       const [current]=await db.execute('SELECT calendar_id FROM family_calendar_connections WHERE household_id=?',[id]);
       if(current[0]?.calendar_id!==connection.calendar_id)throw familyError('The calendar connection changed. Refresh and try again.',409);
       await db.execute('INSERT INTO family_google_event_links (household_id,calendar_id,entry_id,google_event_id,google_etag) VALUES (?,?,?,?,?)',[id,connection.calendar_id,entryId,eventId,data.etag || null]);

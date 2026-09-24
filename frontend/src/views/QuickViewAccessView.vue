@@ -46,8 +46,9 @@
       </template>
       <template v-else>
         <p v-if="tokenInfo">Hi {{ tokenInfo.firstName || 'there' }} — enter your 6-digit passcode.</p>
-        <p v-else-if="!error">Validating your private link…</p>
-        <form v-if="tokenInfo" class="qv-form" @submit.prevent="unlock">
+        <a v-else class="qv-btn primary" href="/qv">Unlock Quick View</a>
+        <form v-if="tokenInfo" class="qv-form" autocomplete="on" @submit.prevent="unlock">
+          <label>Account email (optional, for saved sign-in)<input v-model="credentialEmail" name="username" type="email" autocomplete="username" /></label>
           <input
             v-model="passcode"
             class="qv-pin"
@@ -55,7 +56,9 @@
             inputmode="numeric"
             maxlength="6"
             pattern="\d{6}"
-            autocomplete="one-time-code"
+            id="quick-view-passcode"
+            name="password"
+            autocomplete="current-password"
             placeholder="••••••"
             aria-label="6-digit Quick View passcode"
           />
@@ -71,14 +74,17 @@
 
     <template v-if="session">
       <div v-if="sendNotice" class="qv-pad" role="status">{{ sendNotice }} <button v-if="undoSend" type="button" class="qv-btn ghost sm" @click="undoEmail">Undo send</button></div>
+      <p v-if="remainingSeconds<=120" class="qv-pad" role="status">Quick View locks in {{ remainingSeconds }} seconds. <button class="qv-btn primary sm" @click="extendSession">Keep me signed in</button></p>
       <nav class="qv-tabs">
         <button type="button" :class="{ on: tab === 'home' }" @click="tab = 'home'; loadHome()">Messages</button>
         <button type="button" :class="{ on: tab === 'tasks' }" @click="switchTasks">Tasks</button>
         <button type="button" :class="{ on: tab === 'calendar' }" @click="switchCalendar">Calendar</button>
         <button type="button" :class="{ on: tab === 'noteaid' }" @click="switchNoteAid">Note Aid</button>
+        <button type="button" :class="{ on: tab === 'presence' }" @click="tab = 'presence'">Presence</button>
         <button type="button" :class="{ on: tab === 'contacts' }" @click="loadContacts">Contacts</button>
       </nav>
 
+      <QuickViewPresence v-if="tab==='presence'" :http="presenceHttp" />
       <div v-if="tab === 'home'" class="qv-pane">
         <div class="qv-suite">
           <button type="button" :class="{ on: msgSuite === 'email' }" @click="switchMsgSuite('email')">Email</button>
@@ -753,6 +759,7 @@
 
 <script setup>
 import { quickViewDeepLink } from '../utils/quickViewDeepLink';
+import QuickViewPresence from '../components/quickView/QuickViewPresence.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
@@ -778,6 +785,7 @@ async function keepEmailUnread(){
 }
 
 const apiBase = '/api/quick-view';
+const presenceHttp={get:path=>axios.get(apiBase+path,{headers:authHeaders(),withCredentials:true}),post:(path,body)=>axios.post(apiBase+path,body,{headers:authHeaders(),withCredentials:true})};
 const quickPreview = ref(null);
 let quickPreviewTimer=null,quickPreviewHideTimer=null;
 function hideQuickPreview(){clearTimeout(quickPreviewTimer);quickPreviewHideTimer=setTimeout(()=>quickPreview.value=null,200);}
@@ -795,10 +803,14 @@ const loading = ref(true);
 const error = ref('');
 const tokenInfo = ref(null);
 const passcode = ref('');
+const credentialEmail = ref('');
 const unlocking = ref(false);
 const session = ref(null);
 const sessionUserId = ref(null);
 const expiresAt = ref(null);
+const clockNow=ref(Date.now());
+const remainingSeconds=computed(()=>Math.max(0,Math.ceil((new Date(expiresAt.value).getTime()-clockNow.value)/1000)));
+let deadlineTimer,lastActivitySent=0,activityPending=false;
 const agencyName = ref('');
 const agencyLogoUrl = ref('');
 const agencyPrimaryColor = ref('');
@@ -1201,6 +1213,7 @@ async function unlock() {
     const token = String(route.params.token || '');
     const body = {
       passcode: passcode.value,
+      email: credentialEmail.value.trim() || undefined,
       agencyId: tokenInfo.value?.agencyId || null
     };
     if (route.query.join && route.query.id) {
@@ -1233,23 +1246,39 @@ async function unlock() {
   }
 }
 
+function checkDeadline(){
+  clockNow.value=Date.now();
+  if(session.value && expiresAt.value && remainingSeconds.value<=0){clearSession();error.value='Quick View timed out. Use your saved six-digit code to reopen it.';if(!tokenInfo.value)window.location.replace(`/qv?${new URLSearchParams(quickViewDeepLink(route.query))}`);}
+}
+async function recordActivity(event){
+  if(!event.isTrusted || document.hidden)return;
+  checkDeadline();
+  if(!session.value || activityPending || Date.now()-lastActivitySent<30000)return;
+  const activeSession=session.value;activityPending=true;lastActivitySent=Date.now();
+  try{const {data}=await axios.post(`${apiBase}/session/heartbeat`,{activity:true},{headers:authHeaders(),withCredentials:true});if(session.value===activeSession)expiresAt.value=data.expiresAt;}
+  catch(e){if(session.value===activeSession && e.response?.status===401){clearSession();error.value='Quick View timed out. Reopen it with your code.';}}
+  finally{activityPending=false;}
+}
 function startHeartbeat() {
   stopHeartbeat();
+  deadlineTimer=setInterval(checkDeadline,1000);
   refreshTimer = setInterval(() => refreshMessages(), 15000);
   heartbeatTimer = setInterval(async () => {
+    const activeSession=session.value;
     try {
       const { data } = await axios.post(
         `${apiBase}/session/heartbeat`,
         {},
         { headers: authHeaders(), withCredentials: true }
       );
-      expiresAt.value = data.expiresAt;
-    } catch {
-      clearSession();
+      if(session.value===activeSession)expiresAt.value = data.expiresAt;
+    } catch(e) {
+      if(session.value===activeSession && e.response?.status===401){clearSession();error.value='Quick View timed out. Reopen it with your code.';}
     }
   }, 60000);
 }
 function stopHeartbeat() {
+  clearInterval(deadlineTimer);deadlineTimer=null;
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeatTimer = null;
   if (refreshTimer) clearInterval(refreshTimer);
@@ -2290,7 +2319,7 @@ function clearSession() {
   replyText.value = ''; replyAttachments.value = []; chatReply.value = ''; chatAttachments.value = [];
   composeToEmail.value = ''; composeSubject.value = ''; composeText.value = ''; composeAttachments.value = [];
   tasks.value = []; dayItems.value = []; undoSend.value = null; sendNotice.value = ''; showCompose.value = false;
-  passcode.value = ''; tab.value = 'home';
+  passcode.value = ''; tab.value = 'home';lastActivitySent=0;expiresAt.value=null;
   try { sessionStorage.removeItem('plottwist.quickViewSession'); } catch { /* ignore */ }
 }
 async function logout() {
@@ -2343,6 +2372,9 @@ watch([agencyName, agencyLogoUrl, agencyPrimaryColor], () => {
 });
 
 onMounted(() => {
+  for(const type of ['pointerdown','keydown','touchstart'])window.addEventListener(type,recordActivity,{passive:true});
+  window.addEventListener('focus',checkDeadline);
+  document.addEventListener('visibilitychange',checkDeadline);
   try {
     homeScreenTip.value = localStorage.getItem(HOME_TIP_KEY) !== '1';
   } catch {
@@ -2355,6 +2387,9 @@ onMounted(() => {
   }
 });
 onUnmounted(() => {
+  for(const type of ['pointerdown','keydown','touchstart'])window.removeEventListener(type,recordActivity);
+  window.removeEventListener('focus',checkDeadline);
+  document.removeEventListener('visibilitychange',checkDeadline);
   stopHeartbeat(); clearTimeout(undoTimer);
   stopNoteAidSpeak();
 });
@@ -2595,6 +2630,8 @@ onUnmounted(() => {
   -webkit-text-fill-color: #f4faf6;
 }
 .qv-gate p { margin: 0; line-height: 1.4; }
+.qv-form label { display:flex;flex-direction:column;gap:8px;font-size:13px; }
+.qv-form input[type=email] { box-sizing:border-box;width:100%;padding:12px;border:1px solid var(--qv-border);border-radius:10px;background:var(--qv-surface);color:var(--qv-text);font:inherit; }
 .qv-form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; width: 100%; }
 .qv-pin {
   width: 100%;
@@ -2634,8 +2671,9 @@ onUnmounted(() => {
 }
 .qv-tabs { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid var(--qv-border, #1e293b); overflow-x: auto; }
 .qv-tabs button {
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
   background: #ffffff !important;
   color: var(--qv-tab-ink, #1e3a5f) !important;
   -webkit-text-fill-color: var(--qv-tab-ink, #1e3a5f);

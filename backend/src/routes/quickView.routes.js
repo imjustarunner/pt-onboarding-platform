@@ -1,3 +1,4 @@
+import { getQuickPresence, postQuickAway, postQuickPresenceClear } from '../controllers/quickViewPresence.controller.js';
 import emailDraftRoutes from './emailDraft.routes.js';
 import { getQuickConversation, patchQuickConversation, postQuickReply, postQuickCompose, getQuickAttachment, postQuickReaction, postQuickUndo } from '../controllers/quickViewMessaging.controller.js';
 import express from 'express';
@@ -86,6 +87,9 @@ router.post('/session/extend', postExtendSession);
 router.post('/session/logout', postLogout);
 
 // Scoped Quick View data
+router.get('/presence', requireQuickViewSession, getQuickPresence);
+router.post('/presence/away', requireQuickViewSession, postQuickAway);
+router.post('/presence/clear', requireQuickViewSession, postQuickPresenceClear);
 router.get('/home', requireQuickViewSession, getQuickHome);
 router.use('/drafts', requireQuickViewSession, emailDraftRoutes);
 router.get('/tasks', requireQuickViewSession, getQuickTasks);

@@ -1,7 +1,7 @@
 <template>
   <section class="calendar-connection">
     <h2>▦ Bring in a Google calendar</h2>
-    <p>Choose a shared calendar from your Workspace account. Its events appear live in the day/week calendar. To assign a person or theme, add a saved copy to the family calendar.</p>
+    <p>Choose a shared calendar from your Workspace account. Events added on your computer or in Google appear live with a matching picture and activity based on their title, such as “Pick up Sam from airport” or “Going to zoo”. To assign a person or keep a separate copy, add it to the family calendar.</p>
     <p class="calendar-note">Imports are saved copies. Later changes in Google and changes here are separate.</p>
     <template v-if="!connection">
       <button :disabled="busy" @click="listCalendars">Find my shared calendars</button>
@@ -9,7 +9,7 @@
       <p v-if="searched && !calendars.length">No shared calendars found. Add your family calendar to your Google account, then try again.</p>
     </template>
     <template v-else><div class="calendar-actions"><strong>{{ connection.calendar_name }}</strong><button :disabled="busy" @click="refresh">Refresh Google events</button><button :disabled="busy" @click="disconnect">Disconnect</button></div>
-      <div v-if="events.length" class="calendar-actions"><label>Import for<select v-model="memberId"><option :value="null">Everyone</option><option v-for="m in members" :key="m.user_id" :value="m.user_id">{{ m.display_name }}</option></select></label><FamilyEventTypePicker v-model="type" label="Theme" @change="artworkVariant=null" /><FamilyArtworkPicker v-model="artworkVariant" :event-type="type" /></div>
+      <div v-if="events.length" class="calendar-actions"><label>Import for<select v-model="memberId"><option :value="null">Everyone</option><option v-for="m in members" :key="m.user_id" :value="m.user_id">{{ m.display_name }}</option></select></label><label><input v-model="automatic" type="checkbox" /> Match each event’s title automatically</label><FamilyEventTypePicker v-if="!automatic" v-model="type" label="Theme" @change="artworkVariant=null" /><FamilyArtworkPicker v-if="!automatic" v-model="artworkVariant" :event-type="type" /></div>
       <div class="google-events"><article v-for="e in events" :key="e.id"><div><strong>{{ e.title }}</strong><small>{{ date(e) }}</small></div><button :disabled="busy || e.imported" @click="importEvent(e)">{{ e.imported?'Added ✓':'＋ Add to family' }}</button></article></div>
       <p v-if="loaded && !events.length">No events in the next 90 days.</p>
     </template>
@@ -18,19 +18,21 @@
 </template>
 <script setup>
 import { onMounted,ref } from 'vue';
+import { inferFamilyEventType } from '../../utils/familyCommandCenter';
 import FamilyEventTypePicker from './FamilyEventTypePicker.vue';
 import FamilyArtworkPicker from './FamilyArtworkPicker.vue';
 const props=defineProps({http:{type:Function,required:true},householdId:{type:[Number,String],required:true},members:{type:Array,default:()=>[]},timezone:String});
 const emit=defineEmits(['updated','error']);
+const automatic=ref(true);
 const busy=ref(false),connection=ref(null),calendars=ref([]),events=ref([]),selected=ref(''),searched=ref(false),loaded=ref(false),memberId=ref(null),type=ref('family'),artworkVariant=ref(null),message=ref('');
 const path=()=>`/households/${props.householdId}`;
 async function run(fn){if(busy.value)return;busy.value=true;message.value='';try{await fn();}catch(e){emit('error',e);}finally{busy.value=false;}}
 async function listCalendars(){await run(async()=>{calendars.value=(await props.http.get(`${path()}/google/calendars`)).data;searched.value=true;});}
 async function connect(){await run(async()=>{const{data}=await props.http.post(`${path()}/google/connect`,{calendarId:selected.value});connection.value={calendar_name:data.name};await loadEvents();emit('updated');});}
 async function loadEvents(){events.value=(await props.http.get(`${path()}/google/events`)).data.events;loaded.value=true;}
-async function refresh(){await run(loadEvents);}
+async function refresh(){await run(async()=>{await loadEvents();emit('updated');});}
 async function disconnect(){await run(async()=>{await props.http.delete(`${path()}/google`);connection.value=null;events.value=[];message.value='Disconnected. Events already added remain on your family calendar.';emit('updated');});}
-async function importEvent(e){await run(async()=>{await props.http.post(`${path()}/google/import`,{eventId:e.id,memberUserId:memberId.value,eventType:type.value,artworkVariant:artworkVariant.value});e.imported=true;message.value='Added to the family calendar and personal schedules.';emit('updated');});}
+async function importEvent(e){await run(async()=>{await props.http.post(`${path()}/google/import`,{eventId:e.id,memberUserId:memberId.value,eventType:automatic.value?inferFamilyEventType(e.title).id:type.value,autoTheme:automatic.value,artworkVariant:automatic.value?null:artworkVariant.value});e.imported=true;message.value='Added to the family calendar and personal schedules.';emit('updated');});}
 function date(e){return new Date(e.startAt).toLocaleString('en-US',{month:'short',day:'numeric',...(e.allDay?{}:{hour:'numeric',minute:'2-digit'}),timeZone:props.timezone})+(e.allDay?' · All day':'');}
 onMounted(()=>run(async()=>{connection.value=(await props.http.get(`${path()}/tools`)).data.calendar;if(connection.value)await loadEvents();}));
 </script>

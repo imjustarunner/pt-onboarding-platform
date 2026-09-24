@@ -8,6 +8,7 @@
       <option v-if="!selectedVisible" :value="modelValue">{{ selected.icon }} {{ selected.label }} (current)</option>
       <optgroup v-for="g in groups" :key="g.label" :label="g.label"><option v-for="type in g.types" :key="type.id" :value="type.id">{{ type.icon }} {{ type.label }}</option></optgroup>
     </select></label>
+    <details class="picture-library"><summary>Browse matching pictures</summary><div class="picture-grid"><button v-for="type in matchingTypes" :key="type.id" type="button" :aria-pressed="modelValue===type.id" @click="select(type.id)"><img :src="type.artwork" alt="" loading="lazy" width="180" height="120" /><span>{{ type.icon }} {{ type.label }}</span></button></div></details>
     <p role="status">{{ count ? count+' matching types' : 'No matches. Try another search or category.' }}</p>
   </div>
 </template>
@@ -20,6 +21,7 @@ const query=ref(''),category=ref('');
 const selected=computed(()=>eventType(props.modelValue));
 const groups=computed(()=>searchFamilyEventGroups(query.value,category.value));
 const ids=computed(()=>new Set(groups.value.flatMap(g=>g.types.map(t=>t.id))));
+const matchingTypes=computed(()=>[...new Map(groups.value.flatMap(g=>g.types).map(t=>[t.id,t])).values()]);
 const count=computed(()=>ids.value.size);
 const selectedVisible=computed(()=>ids.value.has(props.modelValue));
 function select(value){emit('update:modelValue',value);emit('change',eventType(value));}
@@ -33,4 +35,10 @@ function select(value){emit('update:modelValue',value);emit('change',eventType(v
 .event-type-picker input:focus,.event-type-picker select:focus{outline:2px solid var(--purple);outline-offset:1px}
 .event-type-picker p{font-size:13px;color:var(--muted);margin:6px 0}
 
+.picture-library summary{cursor:pointer;padding:10px 0;color:var(--purple)}
+.picture-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;max-height:360px;overflow:auto;padding:4px}
+.picture-grid button{padding:4px;border:2px solid var(--control);border-radius:10px;background:var(--surface);color:var(--ink);cursor:pointer;font:inherit}
+.picture-grid button[aria-pressed=true]{border-color:var(--purple)}
+.picture-grid img{width:100%;height:auto;aspect-ratio:3/2;object-fit:cover;border-radius:6px}
+.picture-grid span{display:block;font-size:12px;padding:6px 2px}
 </style>

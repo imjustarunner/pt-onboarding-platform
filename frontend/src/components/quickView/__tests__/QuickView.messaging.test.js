@@ -99,3 +99,15 @@ it('restores forwarded content and original attachments without starting another
   axios.post.mockResolvedValue({ data: { body: 'FYI\nForwarded original content', attachments: [{ filename: 'original.txt', contentBase64: 'YQ==' }] } });
   await state.undoEmail(); expect(state.replyMode).toBe('reply'); expect(state.replyText).toContain('Forwarded original content'); expect(state.replyAttachments[0].filename).toBe('original.txt');
 });
+
+describe('Quick View inactivity',()=>{
+  it('covers an expired session immediately when its deadline is checked',()=>{
+    state.expiresAt=new Date(Date.now()-1000).toISOString();state.tokenInfo={firstName:'Pat'};
+    state.checkDeadline();
+    expect(state.session).toBeNull();expect(state.error).toContain('timed out');
+  });
+  it('ignores synthetic activity and does not renew on deadline checks',async()=>{
+    axios.post.mockClear();state.checkDeadline();await state.recordActivity({isTrusted:false});
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+});
