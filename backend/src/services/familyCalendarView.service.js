@@ -9,7 +9,7 @@ export async function familyCalendarView(session,id,query={}) {
   const household=await requireHousehold(session,id);
   const {start,end}=calendarWindow(query.from,query.to,35);
   const events=await familyCalendarEvents(id,start,end,{details:true}),warnings=[];
-  try{events.push(...await visibleGoogleFamilyEvents(session,id,start,end));}catch{warnings.push('Google events could not be loaded. Check the incoming calendar connection below.');}
+  try{events.push(...await visibleGoogleFamilyEvents(session,id,start,end,{warnings}));}catch{warnings.push('Google events could not be loaded. Check the incoming calendar connection below.');}
   if(query.work!=='hidden'){
     const [members]=await pool.execute('SELECT user_id,display_name,color,photo_url FROM family_members WHERE household_id=? AND share_work=1',[id]);
     for(const member of members){

@@ -1,12 +1,12 @@
 <template>
   <section class="calendar-connection">
     <h2>▦ Bring in a Google calendar</h2>
-    <p>Choose a shared calendar from your Workspace account. Events added on your computer or in Google appear live with a matching picture and activity based on their title, such as “Pick up Sam from airport” or “Going to zoo”. To assign a person or keep a separate copy, add it to the family calendar.</p>
+    <p>Choose the Google calendar where you create personal events. The household’s shared Family calendar is included automatically. You can also connect your primary calendar or another calendar available to your Workspace account. Everyone in this household will see events from the selected calendar. Events added on your computer or in Google appear live with a matching picture and activity based on their title, such as “Pick up Sam from airport” or “Going to zoo”. To assign a person or keep a separate copy, add it to the family calendar.</p>
     <p class="calendar-note">Imports are saved copies. Later changes in Google and changes here are separate.</p>
     <template v-if="!connection">
-      <button :disabled="busy" @click="listCalendars">Find my shared calendars</button>
-      <form v-if="calendars.length" @submit.prevent="connect"><label>Family calendar<select v-model="selected" required><option value="" disabled>Choose a calendar</option><option v-for="c in calendars" :key="c.id" :value="c.id">{{ c.name }}</option></select></label><button :disabled="busy || !selected">Connect calendar</button></form>
-      <p v-if="searched && !calendars.length">No shared calendars found. Add your family calendar to your Google account, then try again.</p>
+      <button :disabled="busy" @click="listCalendars">Find my Google calendars</button>
+      <form v-if="calendars.length" @submit.prevent="connect"><label>Family calendar<select v-model="selected" required><option value="" disabled>Choose a calendar</option><option v-for="c in calendars" :key="c.id" :value="c.id">{{ c.name }}{{ c.primary ? " (primary)" : "" }}</option></select></label><button :disabled="busy || !selected">Connect calendar</button></form>
+      <p v-if="searched && !calendars.length">No readable Google calendars found. Add your family calendar to your Google account, then try again.</p>
     </template>
     <template v-else><div class="calendar-actions"><strong>{{ connection.calendar_name }}</strong><button :disabled="busy" @click="refresh">Refresh Google events</button><button :disabled="busy" @click="disconnect">Disconnect</button></div>
       <div v-if="events.length" class="calendar-actions"><label>Import for<select v-model="memberId"><option :value="null">Everyone</option><option v-for="m in members" :key="m.user_id" :value="m.user_id">{{ m.display_name }}</option></select></label><label><input v-model="automatic" type="checkbox" /> Match each event’s title automatically</label><FamilyEventTypePicker v-if="!automatic" v-model="type" label="Theme" @change="artworkVariant=null" /><FamilyArtworkPicker v-if="!automatic" v-model="artworkVariant" :event-type="type" /></div>

@@ -25,3 +25,11 @@ These are illustrations, not documentary photographs. Final prompts:
 Run `node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.quick-view.config.js` for presence permissions and expiry, and the existing `backend/vitest.family.config.js` suite for family persistence and Google imports. Frontend coverage includes `familyCommandCenter.test.js`, `familyCalendarDisplay.test.js`, `QuickView.messaging.test.js`, `QuickView.presence.test.js`, and `FamilyEventTypePicker.test.js`. Build with `NODE_OPTIONS=--max-old-space-size=8192 npm --prefix frontend run build`.
 
 Live Google account access and password-manager save prompts require a deployed browser/account smoke test; automated tests use mocked API boundaries.
+
+## Calendar visibility follow-up
+
+Saved Family entries now feed the calendar directly, including immediately after a successful save. Google/work overlays cannot hide those entries while loading or failing. Refreshes for the same date range queue behind an active request; stale household responses cannot overwrite newer saves. The app refreshes after returning to the foreground, and the calendar has an explicit Refresh button.
+
+The app now reads new Google-created events from its household’s shared Google calendar as well as the explicitly connected incoming calendar. App-exported copies are excluded using stored event IDs and household export markers. A failure in one Google calendar no longer hides the working calendar. Primary Google calendars are now available in the connection selector; selecting one explicitly shares its events with the household. Other Google calendars are not automatically included by the “All calendars” filter.
+
+Regression checks cover the reported “Get Vince” title, 12:15 PM Denver time, delayed external requests, stale pre-save responses, Google-created events in the shared Family calendar, explicit primary-calendar selection, source deduplication, and household authorization. A mocked browser check verifies the confirmed save remains visible on iPad and phone layouts. Live account event verification is separate from these tests.

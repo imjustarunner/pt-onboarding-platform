@@ -1,4 +1,4 @@
-import { eventType } from './familyCommandCenter';
+import { eventType, themedFamilyCalendarEvent } from './familyCommandCenter';
 
 const hex = value => /^#[0-9a-f]{6}$/i.test(value || '') ? value : null;
 export function calendarEventColor(event, mode = 'activity', members = []) {
@@ -24,4 +24,21 @@ export function filterCalendarEvents(events, memberId = 'all', source = 'all') {
     const calendar = e.work ? 'work' : e.source === 'Google' ? 'google' : 'family';
     return personMatches && (source === 'all' || source === calendar);
   });
+}
+
+// The household response (including a just-saved entry) must remain visible while
+// optional Google/work overlays load, fail, or return an older copy of the event.
+export function mergeFamilyCalendarEntries(events, entries, householdId, members = [], timezone = 'America/Denver') {
+  const merged=new Map(events.map(e=>[e.key,e]));
+  const day=value=>new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
+  for(const entry of entries){
+    if(!['event','status'].includes(entry.kind) || entry.archived_at || !entry.start_at || !entry.end_at)continue;
+    const member=members.find(m=>String(m.user_id)===String(entry.member_user_id));
+    const event=themedFamilyCalendarEvent({key:`family:${householdId}:${entry.id}`,id:entry.id,title:entry.title,start:entry.start_at,end:entry.end_at,
+      memberId:entry.member_user_id,memberName:member?.display_name,color:member?.color,photo:member?.photo_url,
+      metadata:entry.metadata,location:entry.metadata?.address || '',
+      ...(entry.metadata?.allDay?{startDate:day(entry.start_at),endDate:day(entry.end_at)}:{})});
+    merged.set(event.key,event);
+  }
+  return [...merged.values()];
 }

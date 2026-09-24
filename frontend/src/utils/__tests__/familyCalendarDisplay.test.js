@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calendarEventColor, calendarEventStyle, filterCalendarEvents } from '../familyCalendarDisplay';
+import { calendarEventColor, calendarEventStyle, mergeFamilyCalendarEntries,filterCalendarEvents } from '../familyCalendarDisplay';
 
 const members = [{user_id:1,color:'#2244aa'}, {user_id:2,color:'#aa2244'}];
 const event = {memberId:1,color:'#000000',metadata:{color:'#22aa44',eventType:'baseball'}};
@@ -29,4 +29,19 @@ describe('family calendar display', () => {
     expect(filterCalendarEvents(events,'2','work')).toEqual([]);
     expect(filterCalendarEvents(events,'all','google').map(e=>e.key)).toEqual(['google']);
   });
+});
+
+describe('saved Family events during external calendar refresh',()=>{
+ const saved={id:42,kind:'event',title:'Get Vince',start_at:'2026-09-24T18:15:00Z',end_at:'2026-09-24T21:15:00Z',member_user_id:1,metadata:{eventType:'airport'}};
+ it('shows a saved app event even when the external response is empty',()=>{
+   expect(mergeFamilyCalendarEntries([], [saved],7,[{user_id:1,display_name:'Dad'}])).toMatchObject([{key:'family:7:42',title:'Get Vince',memberName:'Dad',start:saved.start_at}]);
+ });
+ it('replaces a stale API copy without hiding other days or Google events',()=>{
+   const result=mergeFamilyCalendarEntries([{key:'family:7:42',title:'Old title'},{key:'family:7:1',title:'Yesterday zoo'},{key:'google:external',title:'Get Vince'}],[saved],7);
+   expect(result).toHaveLength(3);expect(result.find(e=>e.key==='family:7:42').title).toBe('Get Vince');
+ });
+ it('preserves all-day dates in the household timezone and ignores other entry kinds',()=>{
+   const result=mergeFamilyCalendarEntries([], [{...saved,metadata:{allDay:true},start_at:'2026-09-24T06:00:00Z',end_at:'2026-09-25T06:00:00Z'},{...saved,id:43,kind:'grocery'}],7,[],'America/Denver');
+   expect(result).toHaveLength(1);expect(result[0]).toMatchObject({startDate:'2026-09-24',endDate:'2026-09-25'});
+ });
 });

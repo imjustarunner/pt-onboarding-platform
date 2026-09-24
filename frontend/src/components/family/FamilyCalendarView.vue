@@ -17,7 +17,7 @@
     </div>
     <header class="calendar-toolbar">
       <div class="controls date-controls"><button @click="move(-1)" aria-label="Previous period">‹</button><button @click="today">Today</button><button @click="move(1)" aria-label="Next period">›</button><label class="date-picker"><span>{{ periodLabel }}</span><input type="date" v-model="date" aria-label="Calendar date" /></label></div>
-      <div class="controls view-controls">
+      <div class="controls view-controls"><button @click="load" :disabled="loading" aria-label="Refresh family calendar">{{ loading ? "Refreshing…" : "Refresh" }}</button>
         <div class="view-switch" aria-label="Calendar view"><button :aria-pressed="mode==='day'" @click="mode='day'">Day</button><button :aria-pressed="mode==='week'" @click="mode='week'">Week</button></div>
         <label class="sr-only" for="family-calendar-source">Show calendars</label><select id="family-calendar-source" v-model="source"><option value="all">All calendars</option><option value="family">Family events</option><option value="work">Work schedule</option><option value="google">Google calendar</option></select>
         <button :aria-pressed="touchEdit" @click="touchEdit=!touchEdit" aria-label="Touch editing">☝ <span class="options-label">Touch edit</span></button><button :aria-expanded="optionsOpen" @click="optionsOpen=!optionsOpen" aria-label="Calendar display options">⚙ <span class="options-label">Display</span></button>
@@ -56,15 +56,15 @@
 import {computed,nextTick,onMounted,onUnmounted,ref,watch} from 'vue';
 import {eventType,eventArtwork,themedFamilyCalendarEvent} from '../../utils/familyCommandCenter';
 import {calendarWeekDays,calendarSlotIso,calendarSelection,movedCalendarTime} from '../../utils/familyCalendarInteraction';
-import {calendarEventStyle,filterCalendarEvents} from '../../utils/familyCalendarDisplay';
-const props=defineProps({http:{required:true},householdId:{required:true},timezone:{default:'America/Denver'},revision:{default:0},members:{default:()=>[]},memberFilter:{default:'all'},now:{default:()=>new Date()},saving:Boolean,reschedule:Function});
+import {calendarEventStyle,filterCalendarEvents,mergeFamilyCalendarEntries} from '../../utils/familyCalendarDisplay';
+const props=defineProps({http:{required:true},householdId:{required:true},timezone:{default:'America/Denver'},revision:{default:0},entries:{default:()=>[]},members:{default:()=>[]},memberFilter:{default:'all'},now:{default:()=>new Date()},saving:Boolean,reschedule:Function});
 const emit=defineEmits(['edit','settings','create']);
 const mode=ref(window.innerWidth<700?'day':'week'),work=ref('busy'),date=ref(''),events=ref([]),contextEvents=ref([]),warnings=ref([]),loading=ref(false),error=ref(''),selected=ref(null),scroll=ref(null),eventDialog=ref(null);
 const weekStartsOn=ref(1),showWeekends=ref(true),touchEdit=ref(false),gesture=ref(null),changing=ref(false),undoChange=ref(null),changeMessage=ref('');
 let ignoreClickUntil=0,scrollFrame;
 const source=ref('all'),colorMode=ref('activity'),optionsOpen=ref(false),hourHeight=44;
 const calendarRoot=ref(null),calendarHeight=ref(null);
-let request=0,resizeObserver,resizeFrame;
+let request=0,resizeObserver,resizeFrame,activeRange='',refreshQueued=false,disposed=false;
 function scheduleFit(){cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(fitCalendar);}
 function fitCalendar(){calendarHeight.value=window.innerWidth>760&&scroll.value?Math.max(340,Math.floor(window.innerHeight-scroll.value.getBoundingClientRect().top-12)):null;}
 // Display preferences belong to this device and household; failure to store them never prevents viewing.
@@ -79,8 +79,8 @@ function today(){date.value=todayKey.value;}
 today();
 const days=computed(()=>mode.value==='week'?calendarWeekDays(date.value||todayKey.value,weekStartsOn.value,showWeekends.value):[date.value||todayKey.value]);
 const periodLabel=computed(()=>mode.value==='day'?heading(date.value):`${heading(days.value[0])} – ${heading(days.value.at(-1))}`);
-const visibleEvents=computed(()=>filterCalendarEvents(events.value,props.memberFilter,source.value));
-const filteredContext=computed(()=>filterCalendarEvents(contextEvents.value,props.memberFilter,source.value));
+const visibleEvents=computed(()=>filterCalendarEvents(mergeFamilyCalendarEntries(events.value,props.entries,props.householdId,props.members,props.timezone),props.memberFilter,source.value));
+const filteredContext=computed(()=>filterCalendarEvents(mergeFamilyCalendarEntries(contextEvents.value,props.entries,props.householdId,props.members,props.timezone),props.memberFilter,source.value));
 const touchesDay=(e,day)=>e.startDate ? e.startDate<=day && e.endDate>day : localDay(e.start)<=day&&localDay(new Date(new Date(e.end)-1))>=day;
 const todayEvents=computed(()=>filteredContext.value.filter(e=>touchesDay(e,todayKey.value)).sort((a,b)=>Number(!!b.startDate)-Number(!!a.startDate)||new Date(a.start)-new Date(b.start)));
 const upNext=computed(()=>filteredContext.value.filter(e=>!e.startDate&&new Date(e.end)>props.now).sort((a,b)=>new Date(a.start)-new Date(b.start))[0]);
@@ -171,6 +171,10 @@ async function applyMove(event,times,undo=false){
 function undoLastChange(){if(undoChange.value)applyMove(undoChange.value.event,undoChange.value.times,true);}
 watch([date,mode,weekStartsOn,showWeekends,touchEdit],()=>cancelGesture());
 async function load(){
+  if(disposed)return;
+  const range=JSON.stringify([props.householdId,days.value,todayKey.value,work.value]);
+  if(loading.value && range===activeRange){refreshQueued=true;return;}
+  activeRange=range;refreshQueued=false;
   const current=++request;loading.value=true;error.value='';
   const fetchRange=(from,to)=>props.http.get(`/households/${props.householdId}/calendar-view`,{params:{from:`${shift(from,-1)}T00:00:00Z`,to:`${shift(to,2)}T00:00:00Z`,work:work.value}});
   // Keep today's context accurate even when browsing another week. Merge into one request when nearby.
@@ -181,12 +185,12 @@ async function load(){
     if(current!==request)return;
     events.value=view.data.events.map(themedFamilyCalendarEvent);contextEvents.value=(context?.data.events||view.data.events).map(themedFamilyCalendarEvent).filter(e=>e.startDate?e.startDate<=contextEnd&&e.endDate>todayKey.value:localDay(e.start)<=contextEnd&&localDay(e.end)>=todayKey.value);
     warnings.value=[...new Set([...(view.data.warnings||[]),...(context?.data.warnings||[])])];
-  }catch(e){if(current===request){events.value=[];contextEvents.value=[];error.value=e.response?.data?.error?.message || 'Could not load this calendar.';}}finally{if(current===request)loading.value=false;}
+  }catch(e){if(current===request){events.value=[];contextEvents.value=[];error.value=e.response?.data?.error?.message || 'Could not load this calendar.';}}finally{if(current===request){loading.value=false;if(refreshQueued){refreshQueued=false;void load();}}}
 }
 watch([date,mode,work,weekStartsOn,showWeekends,()=>props.revision,todayKey],load);
 watch(()=>props.householdId,()=>{cancelGesture();undoChange.value=null;changeMessage.value='';events.value=[];contextEvents.value=[];closeEvent();restorePreferences();today();load();});
 onMounted(()=>{load();if(scroll.value)scroll.value.scrollTop=6*hourHeight;fitCalendar();resizeObserver=new ResizeObserver(scheduleFit);resizeObserver.observe(calendarRoot.value);window.addEventListener('resize',scheduleFit);window.addEventListener('keydown',gestureKeydown);});
-onUnmounted(()=>{cancelGesture();window.removeEventListener('keydown',gestureKeydown);request++;resizeObserver?.disconnect();window.removeEventListener('resize',scheduleFit);cancelAnimationFrame(resizeFrame);});
+onUnmounted(()=>{disposed=true;cancelGesture();window.removeEventListener('keydown',gestureKeydown);request++;resizeObserver?.disconnect();window.removeEventListener('resize',scheduleFit);cancelAnimationFrame(resizeFrame);});
 </script>
 <style scoped>
 .family-calendar{color:var(--ink);min-width:0}

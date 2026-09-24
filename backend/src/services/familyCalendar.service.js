@@ -18,7 +18,7 @@ export async function listFamilyCalendars(session, id) {
   const calendars=[]; let pageToken;
   do {
     const {data}=await calendar.calendarList.list({maxResults:250,pageToken});
-    for(const c of data.items || []) if(!c.primary && !c.deleted && ['owner','writer','reader'].includes(c.accessRole)) calendars.push({id:c.id,name:c.summaryOverride || c.summary,access:c.accessRole});
+    for(const c of data.items || []) if(!c.deleted && ['owner','writer','reader'].includes(c.accessRole)) calendars.push({id:c.id,name:c.summaryOverride || c.summary,access:c.accessRole,...(c.primary?{primary:true}:{})});
     pageToken=data.nextPageToken;
   } while(pageToken);
   return calendars;
@@ -49,7 +49,7 @@ async function connectedCalendar(session,id) {
   await requireHousehold({userId:connection.connected_by_user_id,agencyId:session.agencyId},id,pool,true);
   const client=await employeeCalendar(connection.connected_by_user_id);
   // Reading calendar metadata rechecks the connector’s current Google ACL access.
-  await client.calendar.calendars.get({calendarId:connection.calendar_id});
+  await client.calendar.calendars.get({calendarId:connection.calendar_id},{timeout:10000});
   return {...client,connection,household};
 }
 export function googleFamilyEvent(event,timezone) {
@@ -100,24 +100,55 @@ export async function disconnectFamilyCalendar(session,id) {
   });
 }
 
-// Read a selected incoming calendar live; imported copies are not duplicated in the view.
-export async function visibleGoogleFamilyEvents(session,id,from,to) {
-  await requireHousehold(session,id);
-  const [rows]=await pool.execute('SELECT connected_by_user_id FROM family_calendar_connections WHERE household_id=?',[id]);
-  if(!rows[0])return [];
-  const connector={userId:rows[0].connected_by_user_id,agencyId:session.agencyId};
-  const {calendar,connection,household}=await connectedCalendar(connector,id);
-  const [links]=await pool.execute('SELECT google_event_id FROM family_google_event_links WHERE household_id=? AND calendar_id=?',[id,connection.calendar_id]);
-  const imported=new Set(links.map(l=>l.google_event_id));const events=[];let pageToken;
-  do{
-    const {data}=await calendar.events.list({calendarId:connection.calendar_id,timeMin:from.toISOString(),timeMax:to.toISOString(),singleEvents:true,orderBy:'startTime',maxResults:250,pageToken});
-    for(const raw of data.items || [])if(raw.status!=='cancelled' && raw.start && !imported.has(raw.id)){
-      const e=googleFamilyEvent(raw,household.timezone);
-      events.push({key:`google:${connection.calendar_id}:${e.id}`,title:e.title,start:e.startAt,end:e.endAt,source:'Google',location:e.address,
-        ...(e.allDay?{startDate:raw.start.date,endDate:raw.end.date}:{})});
+// Read both the household's shared Google calendar and its explicitly selected
+// incoming calendar. App-exported copies are excluded by their persisted IDs.
+export async function visibleGoogleFamilyEvents(session,id,from,to,{warnings=[]}={}) {
+  const household=await requireHousehold(session,id);
+  const [connections]=await pool.execute('SELECT connected_by_user_id,calendar_id,calendar_name FROM family_calendar_connections WHERE household_id=?',[id]);
+  const [publications]=await pool.execute(`SELECT id,google_calendar_id,google_subject,google_name FROM calendar_publications
+    WHERE household_id=? AND agency_id=? AND calendar_kind='family' AND google_calendar_id IS NOT NULL`,[id,session.agencyId]);
+  const sources=new Map();
+  for(const publication of publications) sources.set(publication.google_calendar_id,{
+    name:publication.google_name || 'Shared family calendar',
+    client:()=>getWorkspaceClientsForEmployee({subjectEmail:publication.google_subject})
+  });
+  for(const connection of connections){
+    if(sources.has(connection.calendar_id))continue;
+    sources.set(connection.calendar_id,{
+      name:connection.calendar_name || 'Connected Google calendar',
+      client:()=>connectedCalendar({userId:connection.connected_by_user_id,agencyId:session.agencyId},id)
+    });
+  }
+  const events=[];
+  for(const [calendarId,source] of sources){
+    try{
+      const {calendar}=await source.client();
+      await calendar.calendars.get({calendarId},{timeout:10000});
+      const [links]=await pool.execute('SELECT google_event_id FROM family_google_event_links WHERE household_id=? AND calendar_id=?',[id,calendarId]);
+      const [mirrors]=await pool.execute(`SELECT e.google_event_id FROM calendar_publication_events e
+        JOIN calendar_publications p ON p.id=e.publication_id
+        WHERE p.household_id=? AND p.agency_id=? AND p.google_calendar_id=?`,[id,session.agencyId,calendarId]);
+      const excluded=new Set([...links,...mirrors].map(e=>e.google_event_id));
+      const sourceEvents=[];let pageToken;
+      do{
+        const {data}=await calendar.events.list({calendarId,timeMin:from.toISOString(),timeMax:to.toISOString(),singleEvents:true,orderBy:'startTime',maxResults:250,pageToken},{timeout:10000});
+        for(const raw of data.items || [])if(raw.status!=='cancelled' && raw.start && !excluded.has(raw.id)){
+          // Also suppress an app export that Google accepted just before its DB link
+          // was saved. Only recognize this household's own export key.
+          const key=raw.extendedProperties?.private?.eventKey;
+          if(raw.extendedProperties?.private?.plotCalendar==='1' && String(key || '').startsWith(`family:${id}:`))continue;
+          const e=googleFamilyEvent(raw,household.timezone);
+          sourceEvents.push({key:`google:${calendarId}:${e.id}`,title:e.title,start:e.startAt,end:e.endAt,source:'Google',sourceCalendar:source.name,location:e.address,
+            metadata:{autoTheme:true,notes:e.notes,allDay:e.allDay},
+            ...(e.allDay?{startDate:raw.start.date,endDate:raw.end.date}:{})});
+        }
+        pageToken=data.nextPageToken;
+        if(sourceEvents.length>2000)throw familyError('Too many Google events in this range. Choose a shorter range.');
+      }while(pageToken);
+      events.push(...sourceEvents);
+    }catch{
+      warnings.push(`${source.name} could not be refreshed. Saved family events are still shown. Check Calendar connections in Settings.`);
     }
-    pageToken=data.nextPageToken;
-    if(events.length>2000)throw familyError('Too many Google events in this range. Choose a shorter range.');
-  }while(pageToken);
+  }
   return events;
 }
