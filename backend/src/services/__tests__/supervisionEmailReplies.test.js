@@ -1,6 +1,7 @@
 import {beforeEach,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),persist:vi.fn(),rsvp:vi.fn(),send:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),persist:vi.fn(),rsvp:vi.fn(),send:vi.fn(),reminderRecipient:vi.fn(async()=>null)}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../messageReminderRecipient.service.js',()=>({messageReminderRecipient:m.reminderRecipient}));
 vi.mock('../supervisionRsvp.service.js',()=>({saveSupervisionRsvp:m.rsvp}));
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async()=>({email:'person@itsco.health'})}));
 vi.mock('../personalMailbox.service.js',()=>({ensurePersonalMailbox:async({userId})=>({id:userId,from_email:'host@itsco.health'})}));
@@ -35,4 +36,11 @@ it('updates a huddle RSVP only while the recipient remains invited to an active 
  await saveHuddleReplyRsvp({eventId:7,userId:8,response:'declined'});
  expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("p.kind='HUDDLE' AND p.status='ACTIVE' AND p.start_at>UTC_TIMESTAMP()"),['declined',8,7]);
  m.execute.mockResolvedValueOnce([{affectedRows:0}]);await expect(saveHuddleReplyRsvp({eventId:7,userId:9,response:'declined'})).rejects.toMatchObject({status:410});
+});
+
+it('delegates non-SSO personal notifications to the configurable inbox reminder instead of forwarding independently',async()=>{
+ const row={message_id:100,host_user_id:3,agency_id:2,personal_email:'private@example.org'};
+ m.execute.mockResolvedValueOnce([[row]]).mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([{affectedRows:1}]);
+ m.reminderRecipient.mockResolvedValueOnce(row.personal_email);
+ await forwardUnreadSupervisionReplies();expect(m.send).not.toHaveBeenCalled();expect(m.execute).toHaveBeenCalledWith(expect.stringContaining("delivery_status='inbox_reminder'"),[100,3]);
 });

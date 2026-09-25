@@ -1,3 +1,4 @@
+import { isDistributionMail } from './personalMessageThreadPolicy.service.js';
 import { persistInboundEmail } from './inboundEmailPersistence.service.js';
 import { prepareInboundAttachments } from './communicationAttachments.service.js';
 /**
@@ -150,7 +151,7 @@ export async function ingestHubEmailReply({
     deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null),
     threadId, fromEmail, subject, bodyText,
     to: toAddresses.map((email) => ({ email })), cc: ccAddresses.map((email) => ({ email })),
-    inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments
+    inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments, isGroupEmail: isDistributionMail(gmailPayload?.headers, null)
   });
   return { ...result, personKey };
 }

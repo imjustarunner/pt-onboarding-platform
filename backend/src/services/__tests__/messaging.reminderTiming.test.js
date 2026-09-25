@@ -41,3 +41,13 @@ it('delivers only during availability, with 7–7 weekday defaults even if gener
 it('fails closed on missing or invalid received dates', () => {
   for (const value of ['invalid', null, undefined, '']) expect(Number.isNaN(messageReminderDueAt(value).getTime())).toBe(true);
 });
+
+import {personalMessageDueAt} from '../../utils/messageReminderTiming.js';
+it('honors immediate and custom-hour choices without rounding up to a business day',()=>{
+ const at=(date,mode,hours)=>personalMessageDueAt(date,{preferences:{personalEmailDelayMode:mode,personalEmailDelayHours:hours}}).toISOString();
+ expect(at('2026-09-21T10:00:00-06:00','immediate',24)).toBe('2026-09-21T16:00:00.000Z');
+ expect(at('2026-09-21T10:00:00-06:00','hours',2)).toBe('2026-09-21T18:00:00.000Z');
+ expect(at('2026-09-21T18:00:00-06:00','hours',2)).toBe('2026-09-22T13:00:00.000Z');
+ expect(at('2026-09-18T20:00:00-06:00','immediate',0)).toBe('2026-09-21T13:00:00.000Z');
+ expect(at('2026-09-21T18:00:00-06:00','business_day',24)).toBe('2026-09-23T13:00:00.000Z');
+});

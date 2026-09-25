@@ -186,6 +186,8 @@
       </div>
     </section>
 
+    <PersonalMessageDeliverySettings v-if="isOwnAccount && !viewOnly" />
+
     <!-- Section 2: Availability & Work Style -->
     <section id="prefs-availability" class="preferences-section">
       <div class="section-header">
@@ -907,6 +909,7 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useUserPreferencesStore } from '../store/userPreferences';
 import api from '../services/api';
+import PersonalMessageDeliverySettings from './messages/PersonalMessageDeliverySettings.vue';
 import NotificationTypeSettingsPanel from './notifications/NotificationTypeSettingsPanel.vue';
 import QuickViewPrivacyPanel from './account/QuickViewPrivacyPanel.vue';
 import { refetchSessionLockConfig } from '../utils/activityTracker';

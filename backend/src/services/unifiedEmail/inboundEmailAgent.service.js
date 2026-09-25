@@ -948,6 +948,20 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     const routed = await routeSenderIdentityFromHeaders(hdrs);
     const automated = isAutoReply(hdrs);
     if (!automated && routed.senderIdentityId) {
+      const {resolvePersonalReminderMailbox}=await import('../personalThreadReminder.service.js');
+      const reminderMailbox=await resolvePersonalReminderMailbox({identityId:routed.senderIdentityId,fromEmail,
+        addresses:[...routed.to,...routed.cc,...routed.deliveredTo,...extractEmails(hdrs.get('x-original-to')),...extractEmails(hdrs.get('envelope-to'))],
+        inReplyTo:hdrs.get('in-reply-to'),referencesHeader:hdrs.get('references')});
+      if(reminderMailbox){
+        const delivered=await ingestPersonalMailboxInbound({gmail,gmailMessageId:id,gmailPayload:payload,agencyId:reminderMailbox.agency_id,
+          identity:reminderMailbox,reminderId:reminderMailbox.reminder_id,fromEmail,subject,bodyText:pickBodyText(payload),
+          messageIdHeader:hdrs.get('message-id')||`gmail:${id}`,inReplyTo:hdrs.get('in-reply-to'),referencesHeader:hdrs.get('references'),
+          receivedAt:new Date(Number(full.data?.internalDate)||Date.now()),to:routed.to,cc:routed.cc});
+        if(!delivered?.ingested)throw new Error('Personal reminder reply could not be saved');
+        await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});
+        results.inboxDeliveries++;continue;
+      }
+
       const { ingestSupervisionReply } = await import('../supervisionEmailReplies.service.js');
       const supervisionReply = await ingestSupervisionReply({gmail,gmailMessageId:id,gmailPayload:payload,identityId:routed.senderIdentityId,fromEmail:rawFromEmail,
         inReplyTo:hdrs.get('in-reply-to'),referencesHeader:hdrs.get('references'),threadId:full.data?.threadId,
@@ -963,11 +977,12 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       const personalReply = await resolvePersonalReplyMailbox({ identityId: routed.senderIdentityId, fromEmail,
         inReplyTo: hdrs.get('in-reply-to'), referencesHeader: hdrs.get('references'), threadId: full.data?.threadId });
       if (personalReply) {
-        await ingestPersonalMailboxInbound({ gmail, gmailMessageId: id, gmailPayload: payload,
-          agencyId: personalReply.agency_id, identity: personalReply, fromEmail, subject, bodyText: pickBodyText(payload),
+        const replyDelivery = await ingestPersonalMailboxInbound({ gmail, gmailMessageId: id, gmailPayload: payload,
+          agencyId: personalReply.agency_id, identity: personalReply, conversationId:personalReply.reply_conversation_id, fromEmail, subject, bodyText: pickBodyText(payload),
           messageIdHeader: hdrs.get('message-id'), threadId: full.data?.threadId,
           inReplyTo: hdrs.get('in-reply-to'), referencesHeader: hdrs.get('references'),
-          receivedAt: new Date(Number(full.data?.internalDate) || Date.now()), to: routed.to, cc: routed.cc });
+          receivedAt: new Date(Number(full.data?.internalDate) || Date.now()), to: routed.to, cc: routed.cc, replyToEmail:extractEmails(hdrs.get('reply-to'))[0]||null });
+        if(!replyDelivery?.ingested)throw new Error('Shared mailbox reply could not be saved');
         await gmail.users.messages.modify({ userId: 'me', id, requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] } });
         results.inboxDeliveries += 1;
         continue;

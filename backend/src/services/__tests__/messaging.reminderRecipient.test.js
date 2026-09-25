@@ -1,6 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../googleWorkspaceDirectory.service.js', () => ({ default: { isConfigured: vi.fn(() => true), getUser: vi.fn(async () => null), getGroup: vi.fn(async () => ({ id: 'group' })) } }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: vi.fn() } }));
+vi.mock('../inboxDigest.service.js', () => ({ getCommunicationPrefs: vi.fn() }));
+import { getCommunicationPrefs } from '../inboxDigest.service.js';
 import User from '../../models/User.model.js';
 import Directory from '../googleWorkspaceDirectory.service.js';
 import { messageReminderRecipient, assertMessageReminderRecipient } from '../messageReminderRecipient.service.js';
@@ -21,11 +23,11 @@ it('rejects stale app-only flags when the login is now a real Workspace user', a
   Directory.getUser.mockResolvedValue({ id: 'workspace-user' });
   expect(await messageReminderRecipient({ ...user, sso_password_override: 1, login_is_group_email: 1 })).toBeNull();
 });
-it('fails closed for an unavailable or missing Group, opted-out users, demos, and nonproviders', async () => {
+it('fails closed for an unavailable or missing Group, opted-out users, demos, and nonstaff', async () => {
   const appOnly = { ...user, sso_password_override: 1, login_is_group_email: 1 };
   expect(await messageReminderRecipient(appOnly, { allowPersonal: false })).toBeNull();
   expect(await messageReminderRecipient({ ...appOnly, is_demo: 1 })).toBeNull();
-  expect(await messageReminderRecipient({ ...appOnly, role: 'admin' })).toBeNull();
+  expect(await messageReminderRecipient({ ...appOnly, role: 'client_guardian' })).toBeNull();
   Directory.getGroup.mockResolvedValue(null); expect(await messageReminderRecipient(appOnly)).toBeNull();
   Directory.isConfigured.mockReturnValue(false); expect(await messageReminderRecipient(appOnly)).toBeNull();
 });
@@ -57,4 +59,28 @@ it('verifies the Group after the Directory userKey error, never bypassing Group 
  expect(await messageReminderRecipient(appOnly)).toBeNull();
  Directory.getUser.mockRejectedValue(Object.assign(new Error('Permission denied'),{code:403}));
  await expect(messageReminderRecipient(appOnly)).rejects.toThrow('Permission denied');
+});
+
+it('supports app-only staff and suspended SSO accounts with active app access',async()=>{
+ const staff={...user,role:'staff',sso_password_override:1,login_is_group_email:1,is_active:1,status:'ACTIVE_EMPLOYEE'};
+ expect(await messageReminderRecipient(staff)).toBe(user.personal_email);
+ Directory.getUser.mockResolvedValue({id:'workspace',suspended:true});
+ expect(await messageReminderRecipient({...staff,login_is_group_email:0})).toBe(user.personal_email);
+ for(const change of [{is_active:0},{is_archived:1},{status:'TERMINATED'}])expect(await messageReminderRecipient({...staff,...change})).toBeNull();
+ Directory.getUser.mockResolvedValue({id:'workspace',suspended:false});
+ expect(await messageReminderRecipient(staff)).toBeNull();
+});
+
+it('rechecks notification opt-out and forwarding opt-in at the send boundary', async () => {
+  User.findById.mockResolvedValue({ ...user, sso_password_override: 1, login_is_group_email: 1 });
+  const delivery = { userId: 5, to: user.personal_email };
+  getCommunicationPrefs.mockResolvedValue({ personalEmailNotify: true, personalEmailDeliveryMode: 'notification' });
+  await expect(assertMessageReminderRecipient({ ...delivery, templateType: 'personal_thread_reminder' })).resolves.toBeUndefined();
+  await expect(assertMessageReminderRecipient({ ...delivery, templateType: 'personal_thread_forward' })).rejects.toMatchObject({ code: 'REMINDER_RECIPIENT_POLICY' });
+  getCommunicationPrefs.mockResolvedValue({ personalEmailNotify: true, personalEmailDeliveryMode: 'forward_one_to_one' });
+  await expect(assertMessageReminderRecipient({ ...delivery, templateType: 'personal_thread_forward' })).resolves.toBeUndefined();
+  getCommunicationPrefs.mockResolvedValue({ personalEmailNotify: false, personalEmailDeliveryMode: 'forward_one_to_one' });
+  for (const templateType of ['personal_thread_reminder', 'personal_thread_forward', 'hub_secure_unread_digest']) {
+    await expect(assertMessageReminderRecipient({ ...delivery, templateType })).rejects.toMatchObject({ code: 'REMINDER_RECIPIENT_POLICY' });
+  }
 });

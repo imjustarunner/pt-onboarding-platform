@@ -351,7 +351,8 @@ export async function getUnifiedPrefs(req, res, next) {
   try {
     if (!isAllowedRole(req.user)) return deny(res);
     const prefs = await getCommunicationPrefs(req.user.id);
-    res.json({ prefs });
+    const { personalMessageSettingsEligibility } = await import('../services/messageReminderRecipient.service.js');
+    res.json({ prefs, personalDelivery: await personalMessageSettingsEligibility(req.user.id) });
   } catch (e) {
     next(e);
   }
@@ -366,6 +367,9 @@ export async function patchUnifiedPrefs(req, res, next) {
     if (!isAllowedRole(req.user)) return deny(res);
     const prefs = await updateCommunicationPrefs(req.user.id, {
       personalEmailNotify: req.body?.personalEmailNotify,
+      personalEmailDeliveryMode: req.body?.personalEmailDeliveryMode,
+      personalEmailDelayMode: req.body?.personalEmailDelayMode,
+      personalEmailDelayHours: req.body?.personalEmailDelayHours,
       digestHours: req.body?.digestHours,
       digestBusinessHours: req.body?.digestBusinessHours,
       availabilityHoursEnabled: req.body?.availabilityHoursEnabled,
@@ -375,7 +379,8 @@ export async function patchUnifiedPrefs(req, res, next) {
       sendDelayInternalSeconds: req.body?.sendDelayInternalSeconds,
       sendDelaySmsSeconds: req.body?.sendDelaySmsSeconds
     });
-    res.json({ prefs });
+    const { personalMessageSettingsEligibility } = await import('../services/messageReminderRecipient.service.js');
+    res.json({ prefs, personalDelivery: await personalMessageSettingsEligibility(req.user.id) });
   } catch (e) {
     next(e);
   }

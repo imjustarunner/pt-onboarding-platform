@@ -10,10 +10,11 @@ export async function resolvePersonalReplyMailbox({ identityId, fromEmail, inRep
   const email = String(fromEmail || '').trim().toLowerCase();
   const parents = replyMessageIds(inReplyTo, referencesHeader);
   const matches = async (condition, values) => {
-    const [rows] = await pool.execute(`SELECT DISTINCT esi.*, i.id AS inbox_id, i.owner_user_id
+    const [rows] = await pool.execute(`SELECT DISTINCT esi.*, i.id AS inbox_id, i.owner_user_id, c.id AS reply_conversation_id
       FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id
       JOIN communication_inboxes i ON i.id=c.inbox_id JOIN email_sender_identities esi ON esi.id=i.sender_identity_id
       WHERE c.agency_id=? AND i.kind='personal' AND i.is_active=1 AND esi.is_active=1
+        AND EXISTS (SELECT 1 FROM users owner JOIN user_agencies membership ON membership.user_id=owner.id AND membership.agency_id=c.agency_id AND membership.is_active=1 WHERE owner.id=i.owner_user_id AND owner.is_active=1 AND COALESCE(owner.is_archived,0)=0 AND UPPER(owner.status) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING'))
         AND m.direction='outbound' AND m.send_status='sent'
         AND (JSON_CONTAINS(LOWER(CAST(m.to_json AS CHAR)), JSON_OBJECT('email', ?)) OR JSON_CONTAINS(LOWER(CAST(m.cc_json AS CHAR)), JSON_OBJECT('email', ?)))
         AND ${condition} LIMIT 2`, [identities[0].agency_id, email, email, ...values]);
@@ -29,10 +30,11 @@ export async function resolvePersonalReplyMailbox({ identityId, fromEmail, inRep
     // A reply to a Group invitation can come from a current Group member. Keep
     // the recipient check: only verified membership in an originally addressed
     // tenant Group permits this fallback, and ambiguous threads fail closed.
-    const [groupCandidates] = await pool.execute(`SELECT esi.*, i.id AS inbox_id, i.owner_user_id, m.to_json, m.cc_json
+    const [groupCandidates] = await pool.execute(`SELECT esi.*, i.id AS inbox_id, i.owner_user_id, c.id AS reply_conversation_id, m.to_json, m.cc_json
       FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id
       JOIN communication_inboxes i ON i.id=c.inbox_id JOIN email_sender_identities esi ON esi.id=i.sender_identity_id
       WHERE c.agency_id=? AND c.external_thread_id=? AND i.kind='personal' AND i.is_active=1 AND esi.is_active=1
+        AND EXISTS (SELECT 1 FROM users owner JOIN user_agencies membership ON membership.user_id=owner.id AND membership.agency_id=c.agency_id AND membership.is_active=1 WHERE owner.id=i.owner_user_id AND owner.is_active=1 AND COALESCE(owner.is_archived,0)=0 AND UPPER(owner.status) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING'))
         AND m.direction='outbound' AND m.send_status='sent' ORDER BY m.id DESC LIMIT 2`, [identities[0].agency_id,threadId]);
     if (groupCandidates.length !== 1 || !Directory.isConfigured()) return null;
     const candidate = groupCandidates[0];

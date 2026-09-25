@@ -1,3 +1,4 @@
+import { isDistributionMail } from './personalMessageThreadPolicy.service.js';
 import { persistInboundEmail } from './inboundEmailPersistence.service.js';
 import { prepareInboundAttachments } from './communicationAttachments.service.js';
 import pool from '../config/database.js';
@@ -16,7 +17,8 @@ const ELIGIBLE_ROLES = new Set([
   'clinical_practice_assistant',
   'schedule_manager',
   'supervisor',
-  'intern'
+  'intern',
+  'intern_plus'
 ]);
 
 export function isPersonalMailboxEligibleRole(role) {
@@ -470,7 +472,7 @@ export async function ingestPersonalMailboxInbound({
   receivedAt = null,
   to = [],
   cc = [], gmail = null, gmailMessageId = null, gmailPayload = null,
-  allowAutomation = true, replyToEmail = null
+  allowAutomation = true, replyToEmail = null, reminderId = null, conversationId = null
 } = {}) {
   const aid = Number(agencyId || identity?.agency_id || 0);
   const key = String(identity?.identity_key || '').trim().toLowerCase();
@@ -504,13 +506,13 @@ export async function ingestPersonalMailboxInbound({
 
   const attachments = await prepareInboundAttachments({ gmail, gmailMessageId, payload: gmailPayload, inboxId: inbox.id });
   const { queuePersonalReminderReply } = await import('./personalThreadReminder.service.js');
-  const reminderReply = allowAutomation && await queuePersonalReminderReply({ inbox, fromEmail, bodyText, gmailPayload, inReplyTo, referencesHeader, attachments, deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null) });
+  const reminderReply = allowAutomation && await queuePersonalReminderReply({ inbox, fromEmail, bodyText, gmailPayload, inReplyTo, referencesHeader, attachments, reminderId, to, cc, deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null) });
   if (reminderReply) return reminderReply;
   const result = await persistInboundEmail({
-    inboxId: inbox.id, agencyId: aid, ownerUserId: Number(inbox.owner_user_id || ownerUserId) || null,
+    inboxId: inbox.id, agencyId: aid, conversationId, ownerUserId: Number(inbox.owner_user_id || ownerUserId) || null,
     deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null),
     threadId, fromEmail, replyToEmail, subject, bodyText, to: to.map((email) => ({ email })), cc: cc.map((email) => ({ email })),
-    inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments
+    inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments, isGroupEmail: isDistributionMail(gmailPayload?.headers, inbox.from_email)
   });
   await (await import('./inboundEventInvitation.service.js')).forwardInboundEventInvitation({inbox,userId:Number(inbox.owner_user_id||ownerUserId),messageId:result.messageId,gmail,gmailMessageId,payload:gmailPayload,subject,bodyText,fromEmail,to,cc});
   const conv = { id: result.conversationId };
