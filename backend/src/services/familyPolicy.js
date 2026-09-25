@@ -34,6 +34,7 @@ export function validateEntry(body) {
     allDay: m.allDay === true,
     color: /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : '#6667d9',
     artwork: safePhoto(m.artwork),
+    artworkType:typeof m.artworkType==='string'&&/^[a-z0-9-]{1,80}$/.test(m.artworkType)?m.artworkType:null,
     artworkVariant: typeof m.artworkVariant === 'string' && /^[a-z0-9-]{1,80}$/.test(m.artworkVariant) ? m.artworkVariant : null,
     points,
     approval: m.approval !== false,
