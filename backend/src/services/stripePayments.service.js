@@ -15,6 +15,7 @@
  */
 
 import Stripe from 'stripe';
+import {quoteAgencyCardFee} from './medicalServiceFees.service.js';
 
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY || '';
@@ -260,10 +261,13 @@ class StripePaymentsService {
       off_session: true
     };
 
-    if (connectedAccountId && applicationFeeAmountCents > 0) {
-      intentParams.application_fee_amount = applicationFeeAmountCents;
-    }
+    const feeQuote=await quoteAgencyCardFee({agencyId:metadata.agency_id,connectedAccountId,amountCents:Number(intentParams.amount),currency:String(intentParams.currency).toLowerCase(),idempotencyKey});
+    if(applicationFeeAmountCents>0&&feeQuote.feeCents>0)throw new Error('Two application fee policies cannot apply to the same payment');
+    const applicationFee=feeQuote.feeCents||applicationFeeAmountCents;
+    if(connectedAccountId&&applicationFee>0)intentParams.application_fee_amount=applicationFee;
+    if(feeQuote.quoteId)intentParams.metadata={...metadata,agency_fee_quote_id:String(feeQuote.quoteId)};
 
+    if(feeQuote.feeCents>0){delete intentParams.automatic_payment_methods;intentParams.payment_method_types=['card'];}
     return stripe.paymentIntents.create(intentParams, opts);
   }
 
@@ -294,10 +298,13 @@ class StripePaymentsService {
       automatic_payment_methods: { enabled: true }
     };
     if (customerId) intentParams.customer = customerId;
-    if (connectedAccountId && applicationFeeAmountCents > 0) {
-      intentParams.application_fee_amount = applicationFeeAmountCents;
-    }
+    const feeQuote=await quoteAgencyCardFee({agencyId:metadata.agency_id,connectedAccountId,amountCents:Number(intentParams.amount),currency:String(intentParams.currency).toLowerCase(),idempotencyKey});
+    if(applicationFeeAmountCents>0&&feeQuote.feeCents>0)throw new Error('Two application fee policies cannot apply to the same payment');
+    const applicationFee=feeQuote.feeCents||applicationFeeAmountCents;
+    if(connectedAccountId&&applicationFee>0)intentParams.application_fee_amount=applicationFee;
+    if(feeQuote.quoteId)intentParams.metadata={...metadata,agency_fee_quote_id:String(feeQuote.quoteId)};
 
+    if(feeQuote.feeCents>0){delete intentParams.automatic_payment_methods;intentParams.payment_method_types=['card'];}
     return stripe.paymentIntents.create(intentParams, opts);
   }
 
@@ -307,7 +314,9 @@ class StripePaymentsService {
   }
 
   static async refundPaymentIntent({ paymentIntentId, amountCents, connectedAccountId, idempotencyKey, metadata }) {
-    return getStripe().refunds.create({ payment_intent: paymentIntentId, amount: amountCents, metadata }, { stripeAccount: connectedAccountId, idempotencyKey });
+    const stripe=getStripe();
+    const intent=await stripe.paymentIntents.retrieve(paymentIntentId,{},connectOpts(connectedAccountId));
+    return stripe.refunds.create({ payment_intent: paymentIntentId, amount: amountCents, metadata, ...(intent.application_fee_amount>0?{refund_application_fee:true}:{}) }, { ...connectOpts(connectedAccountId), idempotencyKey });
   }
 
   static async retrieveRefund(refundId, connectedAccountId) {

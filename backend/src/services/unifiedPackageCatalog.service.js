@@ -298,7 +298,8 @@ export async function startPackageCheckout({
       client_id: String(clientId),
       payment_mode: paymentMode
     },
-    connectedAccountId
+    connectedAccountId,
+    idempotencyKey:`unified-package:${agencyId}:${pending.id}`
   });
 
   await pool.execute(

@@ -1,3 +1,4 @@
+import {reserveMedicalServiceUsage,completeMedicalServiceUsage} from '../services/medicalServiceFees.service.js';
 import { resolveClaimMdConnection, claimMdConnectionMeta, requireClaimMdTransmission } from '../services/claimMdConnection.service.js';
 import { prepareClaimReview } from './claimMdWorkflow.controller.js';
 import { assertOriginalTransmissionAllowed } from '../services/claimServiceChanges.service.js';
@@ -2767,6 +2768,7 @@ export const submitClaimToClaimMd = async (req, res, next) => {
     if (!readiness.ready) return res.status(409).json({ error: { message: 'Clinical documentation is not ready for submission' }, readiness });
     if (reviewHash !== req.body.reviewHash) return res.status(409).json({ error: { message: 'Claim data changed since review. Review the updated claim before submitting.' } });
     const attemptId = crypto.randomUUID();
+    const feeUsageId=await reserveMedicalServiceUsage({agencyId,kind:'claim',sourceId:Number(claimId)});
     const db = await clinicalPool.getConnection();
     try {
       await db.beginTransaction();
@@ -2802,6 +2804,7 @@ export const submitClaimToClaimMd = async (req, res, next) => {
         [lifecycle, accepted ? 'SUBMITTED' : 'PENDING', String(ack.status || 'unknown'), String(ack.claimmd_id || ack.claimid), claimId, agencyId]);
       await ackDb.commit();
     } catch (e) { await ackDb.rollback(); throw e; } finally { ackDb.release(); }
+    await completeMedicalServiceUsage(feeUsageId,agencyId);
     return res.json({ ok: true, accepted, message: accepted
       ? 'Acknowledged by Claim.MD. Payer transmission may still require approval in the Claim.MD portal.'
       : 'Claim.MD returned an issue. Review the claim history before taking further action.' });

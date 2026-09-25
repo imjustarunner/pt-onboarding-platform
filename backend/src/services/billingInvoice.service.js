@@ -1,3 +1,4 @@
+import {medicalServiceInvoiceLines,appendMedicalServiceLines,attachMedicalServiceInvoice} from './medicalServiceFees.service.js';
 import StorageService from './storage.service.js';
 import BillingUsageService from './billingUsage.service.js';
 import { buildEstimate, getEffectiveBillingPricingForAgency } from './billingPricing.service.js';
@@ -77,31 +78,35 @@ class BillingInvoiceService {
     const invoice = await createBusinessLifecycleService(pool).withBillingLock(parsedAgencyId, lifecycle, async db => {
       const concurrentInvoice = await AgencyBillingInvoice.findByAgencyAndPeriod(parsedAgencyId, { periodStart: periodStartStr, periodEnd: periodEndStr }, db);
       if (concurrentInvoice) { alreadyCreated = true; return concurrentInvoice; }
-      return AgencyBillingInvoice.create({
+      const serviceLines=await medicalServiceInvoiceLines(parsedAgencyId,periodStart,{db});
+      const invoiceEstimate=appendMedicalServiceLines(estimate,serviceLines);
+      const created=await AgencyBillingInvoice.create({
         agencyId: parsedAgencyId,
         billingDomain: 'agency_subscription',
         merchantMode: merchantContext.merchantMode,
         providerConnectionId: merchantContext.providerConnectionId,
         periodStart: periodStartStr,
         periodEnd: periodEndStr,
-        schoolsUsed: estimate.usage.schoolsUsed,
-        programsUsed: estimate.usage.programsUsed,
-        adminsUsed: estimate.usage.adminsUsed,
-        activeOnboardeesUsed: estimate.usage.activeOnboardeesUsed,
-        baseFeeCents: estimate.totals.baseFeeCents,
-        extraSchoolsCents: estimate.totals.extraSchoolsCents,
-        extraProgramsCents: estimate.totals.extraProgramsCents,
-        extraAdminsCents: estimate.totals.extraAdminsCents,
-        extraOnboardeesCents: estimate.totals.extraOnboardeesCents,
-        communicationActualCostCents: estimate.totals.communicationActualCostCents,
-        communicationMarkupCents: estimate.totals.communicationMarkupCents,
-        communicationSubtotalCents: estimate.totals.communicationSubtotalCents,
-        totalCents: estimate.totals.totalCents,
-        lineItemsJson: estimate,
+        schoolsUsed: invoiceEstimate.usage.schoolsUsed,
+        programsUsed: invoiceEstimate.usage.programsUsed,
+        adminsUsed: invoiceEstimate.usage.adminsUsed,
+        activeOnboardeesUsed: invoiceEstimate.usage.activeOnboardeesUsed,
+        baseFeeCents: invoiceEstimate.totals.baseFeeCents,
+        extraSchoolsCents: invoiceEstimate.totals.extraSchoolsCents,
+        extraProgramsCents: invoiceEstimate.totals.extraProgramsCents,
+        extraAdminsCents: invoiceEstimate.totals.extraAdminsCents,
+        extraOnboardeesCents: invoiceEstimate.totals.extraOnboardeesCents,
+        communicationActualCostCents: invoiceEstimate.totals.communicationActualCostCents,
+        communicationMarkupCents: invoiceEstimate.totals.communicationMarkupCents,
+        communicationSubtotalCents: invoiceEstimate.totals.communicationSubtotalCents,
+        totalCents: invoiceEstimate.totals.totalCents,
+        lineItemsJson: invoiceEstimate,
         status: 'draft',
         paymentStatus: 'unpaid',
         invoiceDeliveryMode
       }, db);
+      if(invoiceEstimate.medicalServiceLines)await attachMedicalServiceInvoice(parsedAgencyId,created.id,serviceLines,db);
+      return created;
     });
     if (alreadyCreated) return invoice;
     await AgencyCommunicationUsageLedger.attachInvoiceToPeriod(parsedAgencyId, {

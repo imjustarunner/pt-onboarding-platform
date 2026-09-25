@@ -65,7 +65,7 @@
           <section class="panel"><h2>Saved views</h2><p class="subtle">Save this scope and claim filter in this browser. Saved views contain no claim or patient data.</p><form class="panel-toolbar" @submit.prevent="saveView"><input v-model="savedViewName" maxlength="60" placeholder="View name" aria-label="Saved view name" required /><button class="secondary">Save current view</button></form><div v-for="view in savedViews" :key="view.id" class="saved-view"><button class="text-button" @click="restoreView(view)">{{ view.name }}</button><button class="icon-button" :aria-label="`Remove ${view.name}`" @click="removeView(view.id)">×</button></div><p class="panel-note">Scheduled report delivery is not enabled. Company reports can be exported on demand.</p></section>
         </template>
 
-        <template v-if="section === 'settings'"><BillingCostPlanner /><EligibilityAutomationPanel v-if="scopedOrganization" :key="`eligibility-${scopeId}`" :agency-id="scopedOrganization.id" /><section class="panel"><h2>Company billing settings</h2><p>Choose a company to manage service codes, billing locations, fees, and clearinghouse configuration.</p><select v-model="scopeId"><option value="all">Select a company</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></section><SupervisedPayerPolicies v-if="scopedOrganization" :key="`policies-${scopeId}`" :agency-id="scopedOrganization.id" /><MedicalBillingView v-if="scopedOrganization" :key="`settings-${scopeId}`" :billing-agency-id="scopedOrganization.id" :billing-agency-slug="scopedOrganization.slug" /></template>
+        <template v-if="section === 'settings'"><BillingCostPlanner /><MedicalServiceFeesPanel v-if="scopedOrganization" :key="`fees-${scopeId}`" :agency-id="scopedOrganization.id" /><EligibilityAutomationPanel v-if="scopedOrganization" :key="`eligibility-${scopeId}`" :agency-id="scopedOrganization.id" /><section class="panel"><h2>Company billing settings</h2><p>Choose a company to manage service codes, billing locations, fees, and clearinghouse configuration.</p><select v-model="scopeId"><option value="all">Select a company</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></section><SupervisedPayerPolicies v-if="scopedOrganization" :key="`policies-${scopeId}`" :agency-id="scopedOrganization.id" /><MedicalBillingView v-if="scopedOrganization" :key="`settings-${scopeId}`" :billing-agency-id="scopedOrganization.id" :billing-agency-slug="scopedOrganization.slug" /></template>
       </template>
     </main>
 
@@ -77,6 +77,7 @@
 import PayerEftPanel from '../../components/billing/PayerEftPanel.vue';
 import BillingCostPlanner from '../../components/billing/BillingCostPlanner.vue';
 import EligibilityAutomationPanel from '../../components/billing/EligibilityAutomationPanel.vue';
+import MedicalServiceFeesPanel from '../../components/billing/MedicalServiceFeesPanel.vue';
 import SecondaryClaimPanel from '../../components/admin/SecondaryClaimPanel.vue';
 import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import { useRoute, useRouter } from 'vue-router';

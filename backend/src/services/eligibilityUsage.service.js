@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {reserveMedicalServiceUsage,completeMedicalServiceUsage} from './medicalServiceFees.service.js';
 import { billingError } from './familyBillingPolicy.service.js';
 import { runCoverageCheck, coverageFingerprint, buildEligibilityRequest } from './coverageVerification.service.js';
 import { readClientInsurance } from './clientInsurance.service.js';
@@ -47,13 +48,17 @@ export async function runMeteredCoverageCheck(input, deps={}) {
   const fingerprint=coverageFingerprint(insurance);
   if(input.expectedFingerprint&&input.expectedFingerprint!==fingerprint)throw billingError(409,'Insurance changed; refresh the verification request');
   const reservation=await (deps.reserve||reserveEligibilityUsage)({...input,source:input.source||'manual',connectionId:connection.connectionId},deps);
+  let checkStarted=false;
   try {
+    const feeUsageId=await (deps.reserveFee||reserveMedicalServiceUsage)({agencyId:input.agencyId,kind:'eligibility',sourceId:reservation},deps);
+    checkStarted=true;
     const result=await (deps.check||runCoverageCheck)({...input,accountKey:connection.accountKey,expectedFingerprint:fingerprint},deps);
     await db.execute("UPDATE claimmd_eligibility_usage SET status='returned',coverage_check_id=?,completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=?",[result.id,reservation,input.agencyId]);
+    await (deps.completeFee||completeMedicalServiceUsage)(feeUsageId,input.agencyId,db);
     return result;
   } catch(e) {
     // Only local validation failures establish that no request reached Claim.MD.
-    await db.execute('UPDATE claimmd_eligibility_usage SET status=?,completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=?',[e.status===400||e.status===409?'not_sent':'unknown',reservation,input.agencyId]);
+    await db.execute('UPDATE claimmd_eligibility_usage SET status=?,completed_at=CURRENT_TIMESTAMP(6) WHERE id=? AND agency_id=? AND status=\'reserved\'',[!checkStarted||e.status===400||e.status===409?'not_sent':'unknown',reservation,input.agencyId]);
     throw e;
   }
 }
