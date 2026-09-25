@@ -3,6 +3,8 @@
  * and cancellation/termination intent → support ticket review.
  */
 import pool from '../config/database.js';
+import { handleSupportKeywordReply } from './emailSupportKeyword.service.js';
+export { handleSupportKeywordReply };
 import { getAgencyEmailSettings } from './emailSettings.service.js';
 import {
   isUserAvailable,
@@ -147,68 +149,6 @@ export async function maybeSendClientOooAutoReply({
     console.warn('[emailAutomation] OOO reply failed:', e?.message || e);
     return { sent: false, reason: e?.message || 'send_failed' };
   }
-}
-
-export async function handleSupportKeywordReply({
-  agencyId,
-  conversationId,
-  ownerUserId,
-  bodyText,
-  fromEmail
-}) {
-  const settings = await getAgencyEmailSettings(agencyId);
-  const keyword = String(settings.clientOooSupportKeyword || 'SUPPORT').toUpperCase();
-  const body = String(bodyText || '').trim().toUpperCase();
-  if (!body.includes(keyword)) return { handled: false };
-
-  // Create support ticket with thread context
-  const [msgs] = await pool.execute(
-    `SELECT subject, body_text, direction, sent_at, created_at, is_auto_reply
-     FROM communication_messages
-     WHERE conversation_id = ?
-     ORDER BY COALESCE(sent_at, created_at) ASC
-     LIMIT 40`,
-    [conversationId]
-  );
-  const transcript = (msgs || [])
-    .map((m) => `[${m.direction}${m.is_auto_reply ? '/auto' : ''}] ${previewText(m.body_text)}`)
-    .join('\n');
-
-  const subject = `Client requested SUPPORT forward (conversation #${conversationId})`;
-  const [ins] = await pool.execute(
-    `INSERT INTO support_tickets
-      (agency_id, subject, status, priority, source_channel, created_by_user_id, metadata_json)
-     VALUES (?, ?, 'open', 'normal', 'email', ?, ?)
-     ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
-    [
-      agencyId,
-      subject,
-      ownerUserId || null,
-      JSON.stringify({
-        conversationId,
-        fromEmail,
-        keyword,
-        transcript: transcript.slice(0, 8000)
-      })
-    ]
-  ).catch(async () => {
-    // Minimal insert if columns differ
-    const [r] = await pool.execute(
-      `INSERT INTO support_tickets (agency_id, subject, status, created_by_user_id)
-       VALUES (?, ?, 'open', ?)`,
-      [agencyId, subject, ownerUserId || null]
-    );
-    return [r];
-  });
-
-  const ticketId = ins?.insertId || null;
-  if (ticketId) {
-    await pool.execute(
-      `UPDATE communication_conversations SET support_ticket_id = COALESCE(support_ticket_id, ?) WHERE id = ?`,
-      [ticketId, conversationId]
-    ).catch(() => {});
-  }
-  return { handled: true, ticketId };
 }
 
 export async function maybeCreateIntentReview({

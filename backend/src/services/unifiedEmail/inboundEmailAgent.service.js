@@ -911,6 +911,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     scanned: msgs.length,
     replied: 0,
     draftedToTickets: 0,
+    inboxDeliveries: 0,
     reinitUpdated: 0,
     needsHuman: 0,
     ignored: 0,
@@ -954,7 +955,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         receivedAt:new Date(Number(full.data?.internalDate)||Date.now()),authenticationResults:hdrs.get('authentication-results')||''});
       if(supervisionReply.ingested){
         await gmail.users.messages.modify({userId:'me',id,requestBody:{removeLabelIds:['UNREAD'],addLabelIds:[processedLabelId]}});
-        results.draftedToTickets += 1;
+        results.inboxDeliveries += 1;
         continue;
       }
 
@@ -968,7 +969,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           inReplyTo: hdrs.get('in-reply-to'), referencesHeader: hdrs.get('references'),
           receivedAt: new Date(Number(full.data?.internalDate) || Date.now()), to: routed.to, cc: routed.cc });
         await gmail.users.messages.modify({ userId: 'me', id, requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] } });
-        results.draftedToTickets += 1;
+        results.inboxDeliveries += 1;
         continue;
       }
     }
@@ -990,7 +991,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           to: routed.to, cc: routed.cc, allowAutomation: !automated, replyToEmail: extractEmails(hdrs.get('reply-to'))[0] || null
         });
         if (!result?.ingested) throw new Error('Personal recipient could not be persisted');
-        results.draftedToTickets += 1;
+        results.inboxDeliveries += 1;
       }
     } catch (e) {
       console.warn('[EmailAgent] recipient delivery will retry:', e?.message || e);
@@ -1139,7 +1140,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now())
           });
           if (hubResult?.ingested) {
-            results.draftedToTickets += 1;
+            results.inboxDeliveries += 1;
             await gmail.users.messages.modify({
               userId: 'me',
               id,
@@ -1173,7 +1174,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           to: routed.to || [],
           cc: routed.cc || []
         });
-        if (ingested?.ingested) results.draftedToTickets += 1;
+        if (ingested?.ingested) results.inboxDeliveries += 1;
         else results.ignored += 1;
         await gmail.users.messages.modify({
           userId: 'me',
