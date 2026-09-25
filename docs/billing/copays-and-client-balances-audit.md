@@ -78,3 +78,16 @@ Before enabling live automatic collections:
 Use only a disposable `127.0.0.1:33316/family_billing_test` database and the synthetic fixture user, never application data. Load `backend/fixtures/family-billing-security.sql`, migrations 613, 665, 1413, clinical 014 and 020, main 1414–1416, `backend/fixtures/family-ledger-workflows.sql`, then 1485, 1486 and clinical 022. The workflow fixture includes the current package columns and a minimal clinical-session schema.
 
 Run `familyBilling.mysql.test.js`, `familyLedger.mysql.test.js`, and `familyLedger.sources.mysql.test.js` sequentially on the same fresh fixture; the latter suites reuse payer authorizations. Run `familyCopays.mysql.test.js` and `coverageCoordination.mysql.test.js` each after a fresh fixture load. Set both main and clinical database variables to that same disposable database, `FAMILY_BILLING_MYSQL_TEST=1`, `NODE_ENV=test`, `SKIP_DB_CONNECT=1`, and a synthetic `FAMILY_BILLING_ENCRYPTION_KEY_BASE64`. The tests reject unexpected database identities and mock payment processor calls.
+
+
+## Final zero patient responsibility
+
+When billing staff post reviewed final ERA/EOB responsibility, an empty amount defaults to zero. The claim must still belong to the agency/client, represent a completed service, and pass amendment and final-secondary-payer checks. This operation is not triggered by merely entering insurance or receiving a clearinghouse acknowledgement.
+
+A final zero closes the same primary/secondary patient balance through an audited adjustment, cancels proposed/active payment plans, and removes it from open balances and collection aging. No payer assignment, card, or collection setup is required for a new verified zero balance. The portal displays “Closed — no patient responsibility.” Missing or unverified coverage continues to hold collection rather than being treated as final adjudication.
+
+Prior patient receipts are preserved. If money was already received, the unpaid portion becomes zero immediately and the final patient liability is stored as zero; existing net payments remain in their original ledger allocations pending refund review. This preserves the ledger's payment/refund constraints and does not fabricate a refund. The billing desk's Refund review view exposes those amounts. Confirmed refunds reduce the retained amount and keep the zero-responsibility balance closed. Unknown/in-flight payments must be reconciled before the zero adjustment; no second collection or automatic refund is initiated.
+
+Canonical billing-report imports preserve an explicit settled insurance balance after payment instead of rebuilding contractual adjustments as unpaid charges. Settled lines are projected into receivables even at zero, updating and closing the existing row. Unresolved insurer amounts remain open even when patient responsibility is zero. The receivables screen and billing desk default to open work; the desk retains closed and refund-review views.
+
+Validation uses synthetic MySQL records for zero posting, repeated posting, existing copays, refunds, pending payment holds, tenant isolation and report replacement, plus portal and billing-desk rendering tests. No live patient balances or payments were changed by these tests.

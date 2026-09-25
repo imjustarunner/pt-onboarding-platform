@@ -7,7 +7,7 @@ import pool from '../../config/database.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import BookingPackage from '../../models/BookingPackage.model.js';
 import { billingError, requireResponsiblePayer, positiveId } from '../familyBillingPolicy.service.js';
-import { createReceivable,findReceivable,sourcePayload } from './receivables.js';
+import { createReceivable,findReceivable,sourcePayload,closeZeroClaimResponsibility } from './receivables.js';
 import { transaction,parseJson,dateOnly,key,requireClient,cents } from './policy.js';
 export function sourceDomain(type){let value=String(type||'').toLowerCase();value=({life_coach:'coaching',consultant:'consulting',therapy:'mental_health'})[value]||value;return ['tutoring','coaching','consulting','mentorship','mental_health','clinical'].includes(value)?value:'unknown';}
 export async function importSessionCharge({agencyId,chargeId,actorUserId}){
@@ -25,6 +25,8 @@ export async function syncSessionBalances({agencyId,actorUserId,clientId=null}){
   const results=[];for(const row of rows){try{const r=await importSessionCharge({agencyId,actorUserId,chargeId:row.id});results.push({chargeId:row.id,receivableId:r.id});}catch(e){if(e.status!==409)throw e;results.push({chargeId:row.id,review:e.message});}}return results;
 }
 export async function setClaimResponsibility({agencyId,claimId,clientId,amountCents,responsibilityType,verificationBasis='benefit',reason,actorUserId,dueDate}){
+  // The verified final-posting form defaults an empty responsibility to zero.
+  if (verificationBasis === 'era') { amountCents = amountCents ?? 0; responsibilityType ||= 'patient_balance'; }
   if(!['copay','deductible','coinsurance','patient_balance'].includes(responsibilityType)||!String(reason||'').trim())throw billingError(400,'Select the patient responsibility type and document verification');
   if(!['benefit','era'].includes(verificationBasis)|| (verificationBasis!=='era'&&responsibilityType!=='copay'))throw billingError(400,'Deductible, coinsurance and final patient balances require a verified payer remittance');
   const [claims]=await clinicalPool.execute('SELECT c.id,c.parent_claim_id,c.payer_sequence,c.destination_payer_id,c.claimmd_submitted_at,c.claim_lifecycle,c.claim_status,c.agency_id,c.client_id,s.scheduled_start_at,s.encounter_status FROM clinical_claims c JOIN clinical_sessions s ON s.id=c.clinical_session_id AND s.agency_id=c.agency_id AND s.client_id=c.client_id WHERE c.id=? AND c.agency_id=? AND c.is_deleted=0',[positiveId(claimId),agencyId]);if(!claims.length)throw billingError(404,'Claim not found in this organization');if(clientId&&Number(clientId)!==Number(claims[0].client_id))throw billingError(409,'The claim belongs to a different client');
@@ -40,13 +42,19 @@ export async function setClaimResponsibility({agencyId,claimId,clientId,amountCe
 
   const input={agencyId,clientId:claims[0].client_id,sourceType:'claim_responsibility',sourceKey:String(balanceClaimId),serviceDomain:'mental_health',serviceDate,serviceLabel:'Visit patient responsibility',amountCents:cents(amountCents,{allowZero:true}),insuranceReviewed:true,dueDate,actorUserId,payload:{claimId:balanceClaimId,finalAdjudicationClaimId:claimId,finalPayerId:claims[0].destination_payer_id||insurance?.primary?.payerId,responsibilityType,verificationBasis,serviceCompleted:true,verifiedClaimChangeId:Number(changes[0].latestId),verificationReason:String(reason).slice(0,2000),verifiedBy:actorUserId}};
   return transaction(async db=>{
-    // Creation is idempotent by the primary claim. Never reset allocations, payments or holds.
-    const found=await createReceivable(input,db);
+    // Primary and secondary use one balance; final zero closes it through an audited adjustment.
+    const finalZero = verificationBasis === 'era' && input.amountCents === 0;
+    await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[input.clientId,agencyId]);
+    const [existing] = finalZero ? await db.execute("SELECT * FROM family_receivables WHERE agency_id=? AND source_type='claim_responsibility' AND source_key=?",[agencyId,input.sourceKey]) : [[]];
+    const found = existing[0] || await createReceivable(input,db);
     const row=await findReceivable(agencyId,found.id,db,true);
+    if(Number(row.client_id)!==Number(input.clientId))throw billingError(409,'The existing balance belongs to a different client');
     if(row.status==='void')throw billingError(409,'Reconcile the voided visit balance before posting responsibility');
     const previous=sourcePayload(row);
     const payload={...previous,...input.payload,responsibilityReviews:[...(previous.responsibilityReviews||[]),{previous:{verificationBasis:previous.verificationBasis,finalAdjudicationClaimId:previous.finalAdjudicationClaimId,finalPayerId:previous.finalPayerId},...input.payload,at:new Date().toISOString()}]};
+    if(input.amountCents>0){delete payload.zeroResponsibilityClosed;delete payload.finalPatientResponsibilityCents;delete payload.refundReviewCents;}
     await db.execute('UPDATE family_receivables SET source_payload=?,insurance_reviewed=1,insurance_fingerprint=? WHERE id=? AND agency_id=?',[encryptFamilyBilling(payload,`receivable:${agencyId}:${row.client_id}`),insuranceFingerprint(insurance),row.id,agencyId]);
+    if(finalZero)await closeZeroClaimResponsibility(row,payload,actorUserId,db);
     await auditBilling({agencyId,clientId:row.client_id,userId:actorUserId,action:'claim_responsibility_verified',objectId:row.id},db);
     return findReceivable(agencyId,row.id,db);
   });

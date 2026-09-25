@@ -13,6 +13,10 @@ beforeEach(()=>{
   api.get.mockImplementation(async path=>({data:path.endsWith('/balances')?{balances,planTermsVersion:'v1'}:path.endsWith('/tasks')?{tasks:[]}:path.endsWith('/receipts')?{receipts:[]}:path.endsWith('/splits')?{requests:[]}:path.endsWith('/readiness')?{profiles:[]}:{payers:{}}}));
 });
 describe('client billing portal',()=>{
+  it('labels a final zero as closed without offering a payment',async()=>{
+    balances=[{receivableId:9,allocationId:90,status:'paid',billingState:'closed',balanceCents:0,dueCents:0,canPay:false,explanation:'Your final patient responsibility is $0. This balance is closed; nothing is due.'}];
+    const w=mount(FamilyLedgerPanel,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();expect(w.text()).toContain('Closed — no patient responsibility');expect(button(w,'Make a payment')).toBeUndefined();w.unmount();
+  });
   it('held full fees and already paid copays never appear in verified amount due',async()=>{
     balances=[{receivableId:1,allocationId:1,status:'review',billingState:'review',balanceCents:20000,dueCents:0,holdReason:'insurance_review',canPay:false,explanation:'Under review. Nothing is due.'},{receivableId:2,allocationId:2,status:'paid',billingState:'paid',balanceCents:0,dueCents:0,paidCents:2500,canPay:false,explanation:'Payment recorded. Nothing remains due for this share.'}];
     const w=mount(FamilyLedgerPanel,{props:{agencyId:1},global:{stubs:{RouterLink:true}}});await flushPromises();

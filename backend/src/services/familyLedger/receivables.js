@@ -1,3 +1,4 @@
+import { assertLedgerIntegrity } from './integrity.js';
 import pool from '../../config/database.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { readClientInsurance } from '../clientInsurance.service.js';
@@ -31,8 +32,9 @@ export async function createReceivable(input, connection = null) {
     if (Number(existing[0].client_id) !== clientId || Number(existing[0].amount_cents) !== amount) throw billingError(409, 'The existing source balance differs; use an audited adjustment');
     return existing[0];
   }
-  let shares = input.shares ? normalizeShares(input.shares) : null;
-  if (!shares) {
+  const confirmedZero = source === 'claim_responsibility' && input.insuranceReviewed === true && amount === 0;
+  let shares = !confirmedZero && input.shares ? normalizeShares(input.shares) : null;
+  if (!shares && !confirmedZero) {
     const [rules] = await db.execute('SELECT * FROM family_billing_rules WHERE agency_id = ? AND client_id = ? FOR UPDATE', [agencyId, clientId]);
     if (rules.length) {
       const rule = rules[0], all = normalizeShares(parseJson(rule.shares_json));
@@ -48,7 +50,8 @@ export async function createReceivable(input, connection = null) {
   const proposed = { agency_id: agencyId, client_id: clientId, service_domain: domain, status: 'open', insurance_reviewed: input.insuranceReviewed === true, insurance_fingerprint: fingerprint, disputed_at: null, hold_reason: null };
   let status = input.reviewRequired || !shares ? 'review' : amount === 0 ? 'paid' : 'open';
   let hold = input.reviewRequired ? 'staff_review' : !shares ? 'payer_assignment' : null;
-  try { await assertCollectible(proposed, db); } catch (e) { if (e.status !== 409) throw e; status = 'review'; hold = 'insurance_review'; }
+  if (confirmedZero) { status = 'paid'; hold = null; }
+  else try { await assertCollectible(proposed, db); } catch (e) { if (e.status !== 409) throw e; status = 'review'; hold = 'insurance_review'; }
   const [result] = await db.execute(`INSERT INTO family_receivables (agency_id,client_id,source_type,source_key,service_domain,service_label,service_date,amount_cents,currency,due_date,status,insurance_reviewed,hold_reason,source_payload,created_by_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [agencyId, clientId, source, sourceKey, domain, String(input.serviceLabel || 'Services').slice(0,120), input.serviceDate ? dateOnly(input.serviceDate) : null, amount, 'USD', dateOnly(input.dueDate || today()), status, input.insuranceReviewed === true ? 1 : 0, hold, input.payload ? encryptFamilyBilling(input.payload, `receivable:${agencyId}:${clientId}`) : null, input.actorUserId || null]);
   const id = result.insertId;
@@ -123,11 +126,29 @@ export async function adjustBalance({agencyId,receivableId,amountCents,reason,sh
     const [pending]=await db.execute("SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status IN ('pending','requires_action','unknown')",[row.id]);
     const [plans]=await db.execute("SELECT p.id FROM family_payment_plans p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status IN ('proposed','active')",[row.id]);
     if(pending.length||plans.length)throw billingError(409,'Resolve pending payments and cancel plans before adjusting the balance');
-    const payload=sourcePayload(row);payload.adjustments=[...(payload.adjustments||[]),{fromCents:Number(row.amount_cents),toCents:amount,reason:String(reason).slice(0,2000),actorUserId,at:new Date().toISOString()}];
+    const payload=sourcePayload(row);
+    if(amount>0){delete payload.zeroResponsibilityClosed;delete payload.finalPatientResponsibilityCents;delete payload.refundReviewCents;}
+    payload.adjustments=[...(payload.adjustments||[]),{fromCents:Number(row.amount_cents),toCents:amount,reason:String(reason).slice(0,2000),actorUserId,at:new Date().toISOString()}];
     await db.execute('UPDATE family_receivables SET amount_cents=?,source_payload=? WHERE id=?',[amount,encryptFamilyBilling(payload,`receivable:${agencyId}:${row.client_id}`),row.id]);
     if(amount===paid){for(const a of allocations)await db.execute('UPDATE family_receivable_allocations SET amount_cents=paid_cents WHERE id=?',[a.id]);await db.execute("UPDATE family_receivables SET status=?,hold_reason=NULL,disputed_at=NULL WHERE id=?",[amount===0?'void':'paid',row.id]);}
     else {await allocateBalance({agencyId,receivableId:row.id,shares,actorUserId},db);await db.execute("UPDATE family_receivables SET status='review',hold_reason='adjustment_review' WHERE id=?",[row.id]);}
     await auditBilling({agencyId,clientId:row.client_id,userId:actorUserId,action:'balance_adjusted',objectId:row.id},db);
     return findReceivable(agencyId,row.id,db);
   });
+}
+
+// A final zero is a liability adjustment, never a fabricated payment or refund.
+// Keep already-received money in its original allocations until it is refunded.
+export async function closeZeroClaimResponsibility(row, payload, actorUserId, db) {
+  const allocations = await allocationsFor(row.id, db, true);
+  await assertLedgerIntegrity(row, db);
+  const [pending] = await db.execute("SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status IN ('pending','requires_action','unknown')", [row.id]);
+  if (pending.length) throw billingError(409, 'Reconcile the pending payment before closing patient responsibility');
+  const paid = allocations.reduce((n, a) => n + Number(a.paid_cents), 0);
+  for (const a of allocations) await db.execute('UPDATE family_receivable_allocations SET amount_cents=paid_cents WHERE id=?', [a.id]);
+  await db.execute("UPDATE family_payment_plans p JOIN family_receivable_allocations a ON a.id=p.allocation_id SET p.status='cancelled',p.auto_pay=0 WHERE a.receivable_id=? AND p.status IN ('proposed','active')", [row.id]);
+  const updated = { ...payload, finalPatientResponsibilityCents: 0, zeroResponsibilityClosed: true, refundReviewCents: paid };
+  if (!payload.zeroResponsibilityClosed) updated.adjustments = [...(payload.adjustments || []), { fromCents: Number(row.amount_cents), toCents: 0, reason: payload.verificationReason, actorUserId, at: new Date().toISOString() }];
+  await db.execute("UPDATE family_receivables SET amount_cents=?,status='paid',hold_reason=NULL,disputed_at=NULL,source_payload=? WHERE id=? AND agency_id=?", [paid, encryptFamilyBilling(updated, `receivable:${row.agency_id}:${row.client_id}`), row.id, row.agency_id]);
+  await auditBilling({ agencyId: row.agency_id, clientId: row.client_id, userId: actorUserId, action: paid ? 'zero_responsibility_refund_review' : 'zero_responsibility_closed', objectId: row.id }, db);
 }

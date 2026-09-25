@@ -107,6 +107,41 @@ test('copay readiness, portal balances, automatic collection and reconciliation 
       await updateBalanceReview({...c,receivableId:r.id,insuranceReviewed:true,release:true,verificationBasis:'era',reason:'Corrected claim still leaves the same copay'});
       assert.equal((await rows()).find(b=>b.receivableId===r.id).dueCents,2500);
     });
+    await t.test('final zero closes a new balance without billing setup or payer assignment',async()=>{
+      await visit(8190);
+      await pool.execute("UPDATE client_billing_readiness SET setup_status='incomplete' WHERE agency_id=1 AND client_id=102");
+      const before=(await pool.execute('SELECT next_sequence FROM family_billing_rules WHERE agency_id=1 AND client_id=102'))[0][0].next_sequence;
+      const r=await setClaimResponsibility({...c,claimId:8190,verificationBasis:'era',reason:'Final remittance confirms no patient responsibility'});
+      assert.equal(r.status,'paid');assert.equal(r.amount_cents,0);assert.equal(r.hold_reason,null);
+      const after=(await pool.execute('SELECT next_sequence FROM family_billing_rules WHERE agency_id=1 AND client_id=102'))[0][0].next_sequence;assert.equal(after,before);
+      const [allocation]=await allocationsFor(r.id);assert.equal(allocation.amount_cents,0);
+      await writeClientInsurance({...c,primary});await setup({collectionPolicy:'manual'});
+    });
+    await t.test('final zero adjusts an unpaid copay in place and removes it from open aging',async()=>{
+      await visit(8191);const original=await copay(8191);
+      const r=await setClaimResponsibility({...c,claimId:8191,amountCents:0,verificationBasis:'era',reason:'Posted final ERA: no patient responsibility'});
+      assert.equal(r.id,original.id);assert.equal(r.amount_cents,0);assert.equal(r.status,'paid');
+      const shown=(await rows()).find(b=>b.receivableId===r.id);assert.equal(shown.billingState,'closed');assert.equal(shown.patientResponsibilityCents,0);assert.equal(shown.canPay,false);
+      const {aging}=await import('../familyLedger/collections.js');assert.equal((await aging({agencyId:1})).some(b=>b.receivableId===r.id),false);
+      const again=await setClaimResponsibility({...c,claimId:8191,verificationBasis:'era',reason:'Repeated posting of same final ERA'});assert.equal(again.id,r.id);assert.equal(again.amount_cents,0);
+    });
+    await t.test('prior copay receipts survive zero responsibility and a refund does not reopen debt',async()=>{
+      await visit(8192);const original=await copay(8192),[a]=await allocationsFor(original.id);
+      const receipt=await recordCash({...c,allocationId:a.id,payerUserId:10,amountCents:1000,idempotencyKey:'zero-responsibility-cash',note:'Synthetic partial copay received'});
+      await setClaimResponsibility({...c,claimId:8192,amountCents:0,verificationBasis:'era',reason:'Final ERA leaves no patient responsibility'});
+      const shown=(await rows()).find(b=>b.receivableId===original.id);assert.equal(shown.totalCents,0);assert.equal(shown.dueCents,0);assert.equal(shown.paidCents,1000);assert.equal(shown.refundReviewCents,1000);assert.equal(shown.billingState,'closed');
+      await refundPayment({...c,paymentId:receipt.paymentId,amountCents:1000,idempotencyKey:'zero-responsibility-refund',reason:'Return copay after final zero responsibility'});
+      const {findReceivable}=await import('../familyLedger/receivables.js');const closed=await findReceivable(1,original.id);assert.equal(closed.amount_cents,0);assert.equal(closed.status,'paid');
+      const history=await receiptFor({agencyId:1,paymentId:receipt.paymentId,userId:10});assert.equal(history.amountCents,1000);assert.equal(history.refundedCents,1000);
+      assert.equal((await rows()).find(b=>b.receivableId===original.id).billingState,'closed');
+    });
+    await t.test('unconfirmed card attempts must be reconciled before a zero adjustment',async()=>{
+      await visit(8193);const r=await copay(8193),[a]=await allocationsFor(r.id);
+      await pool.execute("INSERT INTO family_ledger_payments (agency_id,allocation_id,payer_user_id,processor,amount_cents,idempotency_key,snapshot_encrypted,status) VALUES (1,?,10,'STRIPE',2500,'zero-pending-test','synthetic-no-call','unknown')",[a.id]);
+      await assert.rejects(setClaimResponsibility({...c,claimId:8193,verificationBasis:'era',reason:'Cannot lose a pending card payment'}),/pending payment/);
+      assert.equal((await allocationsFor(r.id))[0].amount_cents,2500);
+      await pool.execute("UPDATE family_ledger_payments SET status='cancelled' WHERE idempotency_key='zero-pending-test'");
+    });
     await t.test('secondary Medicaid blocks collection even with commercial copay and signed authorization',async()=>{
       await writeClientInsurance({...c,primary,secondary:{memberId:'SYNTHETIC-MEDICAID',insurerName:'Health First Colorado',isMedicaid:true}});
       await assert.rejects(setup(),/Medicaid/);

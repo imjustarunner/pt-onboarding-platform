@@ -39,3 +39,10 @@ test('an adult self account may consent to paying; children, unknown ages and re
 test('provider roles cannot inherit financial access from a stale billing flag',async()=>{
   for(const role of ['provider','provider_plus'])await assert.rejects(requireBillingStaff({id:1,role},1,{execute:()=>{throw new Error('Must reject before reading financial access');}}),e=>e.status===403);
 });
+
+test('final zero displays a closed balance and preserves prior money for refund review',()=>{
+  for(const paid of [0,2500]){
+    const value=presentBalance({...row,amountCents:paid,totalCents:paid,paidCents:paid,status:'paid',holdReason:null},{collectible:false,own:true,responsibility:{zeroResponsibilityClosed:true,finalPatientResponsibilityCents:0}});
+    assert.equal(value.totalCents,0);assert.equal(value.patientResponsibilityCents,0);assert.equal(value.paidCents,paid);assert.equal(value.refundReviewCents,paid);assert.equal(value.dueCents,0);assert.equal(value.billingState,'closed');assert.equal(value.canPay,false);
+  }
+});

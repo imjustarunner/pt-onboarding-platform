@@ -162,14 +162,20 @@ function moneyFromRow(n, keys, regexes = []) {
   return safeMoney(raw);
 }
 
+function reportedMoney(value) {
+  if(value == null)return null;
+  const numeric=String(value).trim().replace(/[$,]/g,'');
+  return /^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(numeric)?safeMoney(numeric):null;
+}
+
 export function deriveBillingOutstandingAmounts({
   chargeRate = 0,
   patientAmount = 0,
-  patientResponsibility = 0,
+  patientResponsibility = null,
   patientBalance = 0,
   insuranceAmount = 0,
   insuranceAmountPaid = 0,
-  insuranceOutstanding = 0,
+  insuranceOutstanding = null,
   primaryPayer = ''
 } = {}) {
   const charge = safeMoney(chargeRate);
@@ -184,6 +190,10 @@ export function deriveBillingOutstandingAmounts({
     !!primaryPayer &&
     /self[\s-]*pay|private[\s-]*pay|cash|patient[\s-]*pay|out[\s-]*of[\s-]*pocket|\boop\b/i.test(payerLower);
 
+  // Preserve an explicitly settled insurer balance after posting, including contractual adjustments.
+  const insuranceSettled = reportedMoney(insuranceOutstanding) !== null && insurancePaid > 0 && insuranceOwed === 0;
+  if (insuranceSettled && reportedMoney(patientResponsibility) !== null && responsibility === 0) patientOwed = 0;
+
   if (!patientOwed && responsibility > 0) {
     patientOwed = Math.max(0, Math.round((responsibility - patientPaid) * 100) / 100);
   }
@@ -192,7 +202,7 @@ export function deriveBillingOutstandingAmounts({
     insuranceBilled = charge;
   }
 
-  if (!insuranceOwed && insuranceBilled > 0) {
+  if (!insuranceSettled && !insuranceOwed && insuranceBilled > 0) {
     insuranceOwed = Math.max(0, Math.round((insuranceBilled - insurancePaid) * 100) / 100);
   }
 
@@ -201,7 +211,7 @@ export function deriveBillingOutstandingAmounts({
     Math.round((charge - patientPaid - insurancePaid - patientOwed - insuranceOwed) * 100) / 100
   );
 
-  if (totalRemaining > 0.009) {
+  if (!insuranceSettled && totalRemaining > 0.009) {
     if (isSelfPay) {
       patientOwed = Math.max(patientOwed, totalRemaining);
     } else {
@@ -378,8 +388,7 @@ function mapNormalizedRow(n, agencyId, keyMaterial) {
     ['patient amount', 'patient amount paid', 'patient paid', 'patient payment', 'copay', 'copay amount'],
     [/patient\s*amount\s*paid/i, /patient\s*paid/i, /patient\s*payment/i, /^copay/i]
   );
-  const patientResponsibility = moneyFromRow(
-    n,
+  const patientResponsibilityRaw = getFirst(n,
     [
       'patient responsibility',
       'patient responsibility amount',
@@ -387,9 +396,8 @@ function mapNormalizedRow(n, agencyId, keyMaterial) {
       'patient responsible',
       'patient owes',
       'patient owe'
-    ],
-    [/patient\s*responsib/i, /patient\s*owe/i]
-  );
+    ]) ?? firstMatchByRegexes(n, [/patient\s*responsib/i, /patient\s*owe/i]);
+  const patientResponsibility = reportedMoney(patientResponsibilityRaw);
   let patientBalance = moneyFromRow(
     n,
     ['patient balance', 'patient outstanding', 'patient balance due', 'balance due'],
@@ -405,11 +413,8 @@ function mapNormalizedRow(n, agencyId, keyMaterial) {
     ['insurance amount paid', 'insurance paid', 'payer paid', 'insurance payment', 'ins payment'],
     [/insurance\s*amount\s*paid/i, /insurance\s*paid/i, /insurance\s*payment/i]
   );
-  let insuranceOutstanding = moneyFromRow(
-    n,
-    ['insurance outstanding', 'insurance balance', 'insurance amount outstanding', 'insurance due'],
-    [/insurance\s*outstanding/i, /insurance\s*balance/i, /insurance\s*due/i]
-  );
+  const insuranceOutstandingRaw = getFirst(n, ['insurance outstanding', 'insurance balance', 'insurance amount outstanding', 'insurance due']) ?? firstMatchByRegexes(n, [/insurance\s*outstanding/i, /insurance\s*balance/i, /insurance\s*due/i]);
+  let insuranceOutstanding = reportedMoney(insuranceOutstandingRaw);
 
   const derived = deriveBillingOutstandingAmounts({
     chargeRate,
@@ -1005,12 +1010,13 @@ async function upsertEncounter({ agencyId, clientId, providerUserId, lineId, row
   return encounterId;
 }
 
-async function projectReceivablesFromLines({ agencyId, uploadId, actingUserId }) {
+export async function projectReceivablesFromLines({ agencyId, uploadId, actingUserId }) {
   const [lines] = await pool.execute(
     `SELECT *
      FROM billing_report_lines
      WHERE agency_id = ? AND upload_id = ?
-       AND (patient_balance > 0.009 OR insurance_outstanding > 0.009)`,
+       AND (patient_balance > 0.009 OR insurance_outstanding > 0.009
+         OR (patient_balance=0 AND insurance_outstanding=0 AND insurance_amount_paid>0))`,
     [agencyId, uploadId]
   );
   if (!lines?.length) return 0;
@@ -1039,6 +1045,7 @@ async function projectReceivablesFromLines({ agencyId, uploadId, actingUserId })
          insurance_amount, insurance_amount_paid, insurance_outstanding_amount, billing_line_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
+         collections_status = CASE WHEN VALUES(patient_outstanding_amount)=0 AND VALUES(insurance_outstanding_amount)=0 AND VALUES(insurance_amount_paid)>0 THEN 'closed' ELSE collections_status END,
          upload_id = VALUES(upload_id),
          service_date = VALUES(service_date),
          patient_balance_status = VALUES(patient_balance_status),
@@ -1087,6 +1094,7 @@ async function projectReceivablesFromLines({ agencyId, uploadId, actingUserId })
         r.id
       ]
     );
+    if (patientOutstanding === 0 && insuranceOutstanding === 0 && Number(r.insurance_amount_paid) > 0) await pool.execute("UPDATE agency_receivables_report_rows SET collections_status='closed' WHERE agency_id=? AND row_fingerprint=?",[agencyId,r.line_fingerprint]);
     count += 1;
   }
   return count;

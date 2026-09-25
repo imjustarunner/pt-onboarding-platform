@@ -1,3 +1,4 @@
+import { closeZeroClaimResponsibility, sourcePayload } from './receivables.js';
 import pool from '../../config/database.js';
 import Stripe from '../stripePayments.service.js';
 import { billingError, auditBilling } from '../familyBillingPolicy.service.js';
@@ -53,7 +54,9 @@ export async function finalizeRefund(refundId,agencyId,processorRefund,accountId
     if(Number(row.amount_cents)>Number(allocation.paid_cents))throw billingError(409,'Refund requires reconciliation');
     await db.execute('UPDATE family_receivable_allocations SET paid_cents=paid_cents-? WHERE id=?',[row.amount_cents,allocation.id]);
     await db.execute("UPDATE family_payment_refunds SET status='succeeded',completed_at=CURRENT_TIMESTAMP WHERE id=?",[refundId]);
-    await db.execute("UPDATE family_receivables SET status='review',hold_reason='refund_review' WHERE id=?",[receivable.id]);
+    const responsibility = sourcePayload(receivable);
+    if (responsibility.zeroResponsibilityClosed && responsibility.finalPatientResponsibilityCents === 0) await closeZeroClaimResponsibility(receivable,responsibility,row.created_by_user_id,db);
+    else await db.execute("UPDATE family_receivables SET status='review',hold_reason='refund_review' WHERE id=?",[receivable.id]);
     await auditBilling({agencyId,clientId:receivable.client_id,userId:row.created_by_user_id,action:'payment_refunded',objectId:refundId},db);
   });
 }

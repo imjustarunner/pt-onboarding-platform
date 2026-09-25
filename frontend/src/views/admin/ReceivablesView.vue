@@ -528,7 +528,7 @@ const downloadingEvidence = ref(false);
 const worklistView = ref('patients'); // patients | rows
 const bucketFilter = ref('all');
 const stageFilter = ref('all');
-const collectionsStatusFilter = ref('all');
+const collectionsStatusFilter = ref('open');
 const expandedPatients = ref({});
 
 const invoices = ref([]);
