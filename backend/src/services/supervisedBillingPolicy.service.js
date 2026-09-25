@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import clinicalPool from '../config/clinicalDatabase.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import { getProviderClaimBillingMode } from './resolveClaimProviders.service.js';
 
@@ -22,10 +23,33 @@ export function isNonBillableDocument(note) {
   const meta = parseObject(note.metadata_json);
   return NONBILLABLE_TYPES.includes(normalizeNoteType(note.note_type || meta.noteType)) || meta.documentationFlow === 'review' || meta.nonBillable === true;
 }
-export function normalizeSupervisionPolicy(input) {
+export function hasClinicalAmendments(note) {
+  return !!note.latest_addendum_at || Number(note.addendum_count || 0) > 0;
+}
+export function hasCurrentSupervisorCosign(note, supervisorUserId, contentHash = note.review_content_hash) {
+  if (!supervisorUserId || !note.supervisor_cosigned_at || Number(note.supervisor_cosigned_by_user_id) !== Number(supervisorUserId)) return false;
+  const signedHash = parseObject(note.metadata_json).supervisorCosign?.contentHash;
+  // Amended documents require a signature over the exact note and all addenda.
+  if (hasClinicalAmendments(note)) return !!signedHash && !!contentHash && signedHash === contentHash;
+  return signedHash && contentHash ? signedHash === contentHash : true;
+}
+export function documentReviewRequirement(note, policy, mandatoryTypes = []) {
+  const type = normalizeNoteType(note.note_type || parseObject(note.metadata_json).noteType);
+  const mandatoryReview = hasClinicalAmendments(note) || mandatoryTypes.includes(type);
+  return { mandatoryReview, reviewRequested: mandatoryReview || !isNonBillableDocument(note)
+    || policy.nonBillableReview === 'all'
+    || (policy.nonBillableReview === 'selected' && (policy.noteTypes || []).includes(type)) };
+}
+export async function nonBillableReviewTypes(agencyId) {
+  const [rows] = await clinicalPool.execute(`SELECT DISTINCT COALESCE(NULLIF(note_type,''), JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.noteType'))) AS note_type
+    FROM clinical_notes WHERE agency_id=? AND is_deleted=0 AND
+    (JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.nonBillable'))='true' OR JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.documentationFlow'))='review')`, [agencyId]);
+  return [...new Set([...NONBILLABLE_TYPES, ...rows.map(r=>normalizeNoteType(r.note_type)).filter(t=>/^[A-Z][A-Z0-9_]{0,63}$/.test(t))])];
+}
+export function normalizeSupervisionPolicy(input, availableTypes = NONBILLABLE_TYPES) {
   if (!['before_submission','after_submission'].includes(input.cosignTiming)) throw policyError(400, 'Choose when billable notes need cosign');
   if (!['all','selected','none'].includes(input.nonBillableReview)) throw policyError(400, 'Choose non-billable review coverage');
-  if (!Array.isArray(input.noteTypes) || input.noteTypes.some(t => !NONBILLABLE_TYPES.includes(t))) throw policyError(400, 'Choose valid non-billable document types');
+  if (!Array.isArray(input.noteTypes) || input.noteTypes.some(t => !availableTypes.includes(t))) throw policyError(400, 'Choose valid non-billable document types');
   if (!Number.isInteger(input.cosignDueDays) || input.cosignDueDays < 1 || input.cosignDueDays > 30) throw policyError(400, 'Cosign follow-up must be within 1–30 days');
   return { cosignTiming: input.cosignTiming, nonBillableReview: input.nonBillableReview, noteTypes: [...new Set(input.noteTypes)], cosignDueDays: input.cosignDueDays };
 }
@@ -80,9 +104,8 @@ export function evaluateSupervisedBilling({ policy, payerPolicy, dateOfService, 
   const dos = dateOnly(dateOfService);
   const rule = payerPolicy?.rules?.find(r => r.effectiveFrom <= dos && r.effectiveThrough >= dos) || null;
   const supervised = policy.billingMode === 'billing_supervisor';
-  const cosignHash=parseObject(note.metadata_json).supervisorCosign?.contentHash;
-  const cosigned = !!note.supervisor_cosigned_at && Number(note.supervisor_cosigned_by_user_id) === Number(policy.supervisorUserId)
-    && (cosignHash && note.review_content_hash ? cosignHash===note.review_content_hash : !note.latest_addendum_at || new Date(note.latest_addendum_at) < new Date(note.supervisor_cosigned_at));
+  const cosigned = hasCurrentSupervisorCosign(note, policy.supervisorUserId);
+  const amended = hasClinicalAmendments(note);
   const nonBillable = isNonBillableDocument(note);
   if (nonBillable) blockers.push('This document is non-billable');
   if (!note.provider_signed_at) blockers.push('Provider signature is required');
@@ -95,9 +118,10 @@ export function evaluateSupervisedBilling({ policy, payerPolicy, dateOfService, 
   if (supervised && !validNpi(supervisor?.npi)) blockers.push('The overseeing provider needs a valid individual NPI');
   if (npi2027 && supervised && rule?.providerMapping !== 'service_rendering_with_supervisor') blockers.push('January 2027 requires the service provider NPI on the claim; confirm the updated payer/Claim.MD mapping');
   if (coMedicaid && !npi2027 && !validNpi(serviceProvider?.npi)) warnings.push('Obtain the treating provider’s individual NPI before January 1, 2027');
-  const cosignPending = !!policy.supervisorUserId && !cosigned;
+  const cosignPending = (!!policy.supervisorUserId || amended) && !cosigned;
   if (cosignPending) {
-    if (policy.cosignTiming !== 'after_submission' || !rule?.deferredCosignAllowed) blockers.push('Supervisor cosign is required before submission');
+    if (amended) blockers.push('Every amendment/addendum requires supervisor sign-off before submission; review settings and deferred cosign cannot waive it');
+    else if (policy.cosignTiming !== 'after_submission' || !rule?.deferredCosignAllowed) blockers.push('Supervisor cosign is required before submission');
     else warnings.push(`Supervisor cosign remains due within ${policy.cosignDueDays} days of provider signature`);
   }
   const rendering = supervised && rule?.providerMapping === 'supervisor_rendering' ? supervisor : serviceProvider;

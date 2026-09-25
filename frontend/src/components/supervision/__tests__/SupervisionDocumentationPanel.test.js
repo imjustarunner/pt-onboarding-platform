@@ -6,6 +6,14 @@ vi.mock('../../../services/api',()=>({default:{get:vi.fn(),put:vi.fn(),post:vi.f
 const settings={policy:{version:2,cosignTiming:'before_submission',cosignDueDays:7,nonBillableReview:'all',noteTypes:[]},canManage:true,canAttest:true,noteTypes:['TERMINATION','TREATMENT_PLAN']};
 beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue({data:structuredClone(settings)});api.put.mockResolvedValue({data:{ok:true}});});
 describe('supervisee documentation controls',()=>{
+  it('turns individual non-service types off without changing other types or mandatory amendments',async()=>{
+    api.get.mockResolvedValue({data:{...structuredClone(settings),noteTypes:['TERMINATION','CONTACT_NOTE','TREATMENT_PLAN']}});
+    const w=mount(SupervisionDocumentationPanel,{props:{agencyId:1,providerId:7}});await flushPromises();
+    const toggles=w.findAll('.types input');expect(toggles).toHaveLength(3);expect(toggles.every(t=>t.element.checked)).toBe(true);
+    await toggles[1].setValue(false);await w.find('textarea').setValue('Contact notes no longer need discretionary review');await w.find('form').trigger('submit');await flushPromises();
+    expect(api.put).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({policy:expect.objectContaining({nonBillableReview:'selected',noteTypes:['TERMINATION','TREATMENT_PLAN']})}));
+    expect(w.text()).toContain('Amendments and addenda always require supervisor sign-off.');w.unmount();
+  });
   it('saves policy against its version and tenant, without financial fields',async()=>{
     const w=mount(SupervisionDocumentationPanel,{props:{agencyId:1,providerId:7}});await flushPromises();await w.find('select').setValue('after_submission');await w.find('textarea').setValue('Approved permitted deferred review workflow');await w.find('form').trigger('submit');await flushPromises();
     expect(api.put).toHaveBeenCalledWith('/supervision-sessions/supervisee/7/documentation-policy',expect.objectContaining({agencyId:1,version:2,policy:expect.objectContaining({cosignTiming:'after_submission'})}));expect(w.text()).not.toContain('Billed amount');w.unmount();

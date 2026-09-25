@@ -13,6 +13,8 @@ export async function claimDocumentation(agencyId, claim, db = clinicalPool) {
   const [[note]] = await db.execute('SELECT * FROM clinical_notes WHERE id = ? AND agency_id = ? AND clinical_session_id = ? AND is_deleted = 0', [claim.clinical_note_id, agencyId, claim.clinical_session_id]);
   if (!note) throw policyError(409,'A current clinical note is required');
   const [addenda] = await db.execute('SELECT id,body,created_by_user_id,created_at FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? ORDER BY id', [note.id,agencyId]);
+  note.addendum_count=addenda.length;
+  note.latest_addendum_at=addenda.at(-1)?.created_at || null;
   note.review_content_hash=crypto.createHash('sha256').update(noteReviewContent(note.note_payload,addenda)).digest('hex');
   const raw = maybeDecryptNotePayload(note.note_payload);
   let narrative = raw;

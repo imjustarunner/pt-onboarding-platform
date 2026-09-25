@@ -98,7 +98,7 @@
         <ul v-if="signingNotes.length" class="mb-list">
           <li v-for="n in signingNotes" :key="n.id">
             #{{ n.id }} — {{ n.title }}
-            <button type="button" class="mb-btn mb-btn--small" @click="cosignNote(n.id)">Cosign</button>
+            <ClinicalNoteCosignReview :note-id="n.id" :agency-id="agencyId" :provider-id="n.created_by_user_id" @signed="loadSigningNotes" />
           </li>
         </ul>
         <p v-else class="muted">No notes waiting for cosign.</p>
@@ -385,6 +385,7 @@
 </template>
 
 <script setup>
+import ClinicalNoteCosignReview from '../../components/clinical/ClinicalNoteCosignReview.vue';
 import { computed, watch, ref } from 'vue';
 import ClaimMdWorkspace from '../../components/admin/ClaimMdWorkspace.vue';
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
@@ -809,15 +810,6 @@ const loadSigningNotes = async () => {
     error.value = e.response?.data?.error?.message || 'Failed to load signing notes';
   } finally {
     signingLoading.value = false;
-  }
-};
-
-const cosignNote = async (noteId) => {
-  try {
-    await api.post(`/medical-billing/notes/${noteId}/cosign`, { agencyId: agencyId.value });
-    await loadSigningNotes();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Cosign failed';
   }
 };
 

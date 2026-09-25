@@ -12,6 +12,7 @@ export async function loadReviewDocument(s,type,id, db = clinicalPool) {
   if(type==='note') {
     const [addenda]=await db.execute('SELECT id,body,created_at FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? ORDER BY id',[id,s.agencyId]);
     row.latest_addendum_at=addenda.at(-1)?.created_at || null;
+    row.addendum_count=addenda.length;
     content=noteReviewContent(row.note_payload,addenda);
   } else content=JSON.stringify(await ClinicalTreatmentPlan.findById(id));
   return {row,content,hash:crypto.createHash('sha256').update(String(content)).digest('hex')};

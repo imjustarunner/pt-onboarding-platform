@@ -263,7 +263,7 @@
         {{ supervisorCosignStatement }}
         <span class="ccn-esign-hint">{{ showSupervisorSigMeta ? 'Hide details' : 'Show e-signature details' }}</span>
       </button>
-      <dl v-if="showSupervisorSigMeta && note.supervisorCosign" class="ccn-esign-meta">
+      <dl v-if="!amendmentPending && showSupervisorSigMeta && note.supervisorCosign" class="ccn-esign-meta">
         <div><dt>Reviewed at</dt><dd>{{ formatTimestamp(note.supervisorCosign.cosignedAt || note.supervisorCosignedAt) }}</dd></div>
         <div v-if="note.supervisorCosign.ipAddress"><dt>IP address</dt><dd>{{ note.supervisorCosign.ipAddress }}</dd></div>
         <div v-if="note.supervisorCosign.userAgent"><dt>Device</dt><dd class="ccn-esign-ua">{{ note.supervisorCosign.userAgent }}</dd></div>
@@ -287,7 +287,7 @@
         </div>
         <div>
           <dt>Supervisor cosign</dt>
-          <dd>{{ note.supervisorCosignedAt ? formatTimestamp(note.supervisorCosignedAt) : (note.needsSupervisorCosign ? 'Awaiting' : '—') }}</dd>
+          <dd>{{ amendmentPending ? 'Awaiting amendment sign-off' : note.supervisorCosignedAt ? formatTimestamp(note.supervisorCosignedAt) : (note.needsSupervisorCosign ? 'Awaiting' : '—') }}</dd>
         </div>
         <div>
           <dt>Billing NPI</dt>
@@ -314,7 +314,7 @@
 
     <section v-if="!compact" class="ccn-block" aria-label="Addenda">
       <h4 class="ccn-block-title">Addenda</h4>
-      <p class="ccn-field-hint">Each addendum is saved on this signed note; the original narrative is never replaced. All addenda stay in the permanent record.</p>
+      <p class="ccn-field-hint">Each addendum is saved on this signed note; the original narrative is never replaced. Every amendment and addendum requires fresh supervisor sign-off, even when review for this note type is off.</p>
       <article v-for="item in addenda" :key="item.id" class="ccn-addendum">
         <p>{{ item.body }}</p>
         <small>{{ formatTimestamp(item.createdAt) }} · user #{{ item.createdByUserId }}</small>
@@ -324,6 +324,7 @@
       <button type="button" class="ccn-copy-btn ccn-copy-btn--primary" :disabled="savingAddendum || !addendumDraft.trim()" @click="saveAddendum">
         {{ savingAddendum ? 'Saving…' : 'Attach addendum' }}
       </button>
+      <p v-if="amendmentPending" role="status">Addendum saved. Supervisor sign-off is required before claim submission or resubmission.</p>
       <p v-if="addendumError" class="ccn-error">{{ addendumError }}</p>
     </section>
 
@@ -345,7 +346,7 @@
 
 <script setup>
 import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import api from '../../services/api.js';
 import { MSE_DOMAINS } from '../../utils/noteAidSessionQueue.js';
 import {
@@ -375,7 +376,11 @@ const showSupervisorSigMeta = ref(false);
 const addendumDraft = ref('');
 const savingAddendum = ref(false);
 const addendumError = ref('');
+const amendedNoteId = ref(null);
+const amendmentPending = computed(() => amendedNoteId.value === Number(props.note?.id));
 const localAddenda = ref([]);
+watch(() => props.note?.id, () => { localAddenda.value = []; amendedNoteId.value = null; });
+watch(() => props.note?.supervisorCosignedAt, value => { if (value) amendedNoteId.value = null; });
 const billingDraft = ref({
   serviceCode: '',
   placeOfService: '',
@@ -445,6 +450,7 @@ const providerAttestationStatement = computed(() => {
 });
 
 const supervisorCosignStatement = computed(() => {
+  if (amendmentPending.value) return '';
   const stmt = String(props.note?.supervisorCosign?.statement || '').trim();
   if (stmt) return stmt;
   if (!props.note?.supervisorCosignedAt) return '';
@@ -612,6 +618,7 @@ const ratingsCopyText = computed(() =>
 );
 
 const signStatusLabel = computed(() => {
+  if (amendmentPending.value) return 'Awaiting supervisor amendment sign-off';
   if (props.note?.supervisorCosignedAt) return 'Supervisor signed';
   if (props.note?.providerSignedAt && props.note?.needsSupervisorCosign) return 'Awaiting supervisor';
   if (props.note?.providerSignedAt) return 'Provider signed';
@@ -636,6 +643,7 @@ async function saveAddendum() {
       createdByUserId: a.created_by_user_id || a.createdByUserId,
       createdAt: a.created_at || a.createdAt
     }));
+    amendedNoteId.value = noteId;
     addendumDraft.value = '';
   } catch (e) {
     addendumError.value = e.response?.data?.error?.message || e.message || 'Could not save addendum';

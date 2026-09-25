@@ -38,15 +38,7 @@
       >
         {{ busy === 'sign' ? 'Signing…' : 'Provider sign' }}
       </button>
-      <button
-        v-else-if="!supervisorSigned"
-        type="button"
-        class="ts-btn ts-btn-primary"
-        :disabled="busy === 'cosign'"
-        @click="cosignSupervisor"
-      >
-        {{ busy === 'cosign' ? 'Cosigning…' : 'Supervisor cosign' }}
-      </button>
+      <ClinicalNoteCosignReview v-else-if="!supervisorSigned" :note-id="noteId" :agency-id="agencyId" @signed="onSupervisorSigned" />
     </div>
 
     <div class="ts-doc-upload">
@@ -67,6 +59,7 @@
 </template>
 
 <script setup>
+import ClinicalNoteCosignReview from './ClinicalNoteCosignReview.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api.js';
 
@@ -174,24 +167,10 @@ async function signProvider() {
   }
 }
 
-async function cosignSupervisor() {
-  error.value = '';
-  success.value = '';
-  busy.value = 'cosign';
-  try {
-    await api.post(
-      `/medical-billing/notes/${props.noteId}/cosign`,
-      { agencyId: Number(props.agencyId) },
-      { skipGlobalLoading: true }
-    );
-    localSupervisorSigned.value = new Date().toISOString();
-    success.value = 'Clinical supervisor cosign applied.';
-    emit('updated');
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || e.message || 'Supervisor cosign failed';
-  } finally {
-    busy.value = '';
-  }
+function onSupervisorSigned() {
+  localSupervisorSigned.value = new Date().toISOString();
+  success.value = 'Clinical supervisor cosign applied.';
+  emit('updated');
 }
 
 async function linkPrintUpload() {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()},onTableWrite:vi.fn()}));
-import { evaluateSupervisedBilling, normalizePayerPolicy, normalizeSupervisionPolicy, validNpi, isNonBillableDocument } from '../supervisedBillingPolicy.service.js';
+import { evaluateSupervisedBilling, normalizePayerPolicy, normalizeSupervisionPolicy, validNpi, isNonBillableDocument, documentReviewRequirement, NONBILLABLE_TYPES } from '../supervisedBillingPolicy.service.js';
 import { applyOverrideRules } from '../applyBillingClaimOverrides.service.js';
 import { reviewInterval, assertNoReviewTimeOverlap, assertNoMeetingOverlap, withSupervisorTimeLock } from '../supervisionReviewTime.service.js';
 import { evaluateNoteContentReview } from '../clinicalNoteContentReview.service.js';
@@ -10,6 +10,31 @@ import { buildClaimMdJsonClaim } from '../claimMd.service.js';
 const rule=()=>({effectiveFrom:'2024-09-15',effectiveThrough:'2026-12-31',providerMapping:'supervisor_rendering',mappingVerified:true,deferredCosignAllowed:true,reference:'Verified payer manual section 4',requiredReviewTypes:[]});
 const input=()=>({policy:{billingMode:'billing_supervisor',supervisorUserId:2,version:1,cosignTiming:'after_submission',cosignDueDays:7},payerPolicy:{coloradoMedicaid:true,version:1,rules:[rule()]},dateOfService:'2026-09-24',claimDate:'2026-09-24',serviceProvider:{id:1,npi:'1234567893'},supervisor:{id:2,npi:'1306688650'},note:{note_type:'PROGRESS',provider_signed_at:'2026-09-24T12:00:00Z'}});
 describe('supervised billing policy',()=>{
+  it('allows independent discretionary review for every non-service note type',()=>{
+    for (const selected of NONBILLABLE_TYPES) {
+      const policy=normalizeSupervisionPolicy({cosignTiming:'after_submission',cosignDueDays:7,nonBillableReview:'selected',noteTypes:[selected]});
+      for(const type of NONBILLABLE_TYPES)expect(documentReviewRequirement({note_type:type},policy).reviewRequested).toBe(type===selected);
+      expect(documentReviewRequirement({note_type:selected},{...policy,nonBillableReview:'none'},[selected])).toEqual({mandatoryReview:true,reviewRequested:true});
+    }
+  });
+  it('requires amendment sign-off even for excluded non-service note types',()=>{
+    for(const type of NONBILLABLE_TYPES)for(const mode of ['none','selected']) {
+      expect(documentReviewRequirement({note_type:type,addendum_count:1},{nonBillableReview:mode,noteTypes:[]})).toEqual({mandatoryReview:true,reviewRequested:true});
+    }
+  });
+  it('never defers an amendment cosign and never accepts the original or wrong supervisor signature',()=>{
+    const v=input();Object.assign(v.note,{addendum_count:1,review_content_hash:'amended',supervisor_cosigned_at:'2026-09-24',supervisor_cosigned_by_user_id:2,metadata_json:{supervisorCosign:{contentHash:'original'}}});
+    expect(evaluateSupervisedBilling(v).blockers.join()).toMatch(/Every amendment/);
+    v.note.metadata_json.supervisorCosign.contentHash='amended';expect(evaluateSupervisedBilling(v).blockers).toEqual([]);
+    v.note.supervisor_cosigned_by_user_id=3;expect(evaluateSupervisedBilling(v).blockers.join()).toMatch(/Every amendment/);
+    v.policy.supervisorUserId=null;expect(evaluateSupervisedBilling(v).blockers.join()).toMatch(/Every amendment/);
+  });
+  it('does not accept timestamp-only legacy amendment sign-off or the same signature for a later addendum',()=>{
+    const v=input();Object.assign(v.note,{latest_addendum_at:'2026-09-24',review_content_hash:'new',supervisor_cosigned_at:'2026-09-25',supervisor_cosigned_by_user_id:2});
+    expect(evaluateSupervisedBilling(v).blockers.join()).toMatch(/Every amendment/);
+    v.note.metadata_json={supervisorCosign:{contentHash:'new'}};expect(evaluateSupervisedBilling(v).blockers).toEqual([]);
+    v.note.review_content_hash='second-addendum';expect(evaluateSupervisedBilling(v).blockers.join()).toMatch(/Every amendment/);
+  });
   it('keeps billing group, treating provider and supervising provider distinct in the outgoing payload',()=>{
     const insurance={verifiedForClaims:true,acceptAssignment:true,primary:{payerId:'COCHA',memberId:'SYNTHETIC',subscriberFirstName:'Test',subscriberLastName:'Person',subscriberDob:'1980-01-01',subscriberSex:'F',subscriberAddressLine1:'1 Test',subscriberCity:'Denver',subscriberState:'CO',subscriberPostalCode:'80000',relationshipToSubscriber:'self'},patient:{firstName:'Test',lastName:'Person',dateOfBirth:'1980-01-01',sex:'F',addressLine1:'1 Test',city:'Denver',state:'CO',postalCode:'80000'}};
     const claim={id:1,agency_id:1,billing_npi:'1111111111',rendering_npi:'1234567893',rendering_first_name:'Treating',rendering_last_name:'Clinician',supervising_provider:{npi:'1306688650',firstName:'Overseeing',lastName:'Clinician'},diagnosis_codes_json:['F41.1'],place_of_service:'11',date_of_service:'2027-01-01'};

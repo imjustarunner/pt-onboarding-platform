@@ -5,7 +5,7 @@ import { hasSchedulingBillingAccess } from '../services/schedulingBillingAccess.
 import { encryptFamilyBilling, decryptFamilyBilling } from '../services/familyBillingEncryption.service.js';
 import { loadReviewDocument } from '../services/clinicalReviewDocument.service.js';
 import { recordClaimEvent } from '../services/claimMdWorkflow.service.js';
-import { resolveDocumentationPolicy, normalizeSupervisionPolicy, normalizePayerPolicy, policyError, parseObject, normalizeNoteType, NONBILLABLE_TYPES, requiredDocumentReviewTypes, validNpi, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
+import { resolveDocumentationPolicy, normalizeSupervisionPolicy, normalizePayerPolicy, policyError, parseObject, normalizeNoteType, nonBillableReviewTypes, requiredDocumentReviewTypes, validNpi, isNonBillableDocument, hasCurrentSupervisorCosign, documentReviewRequirement } from '../services/supervisedBillingPolicy.service.js';
 import { withSupervisorTimeLock, reviewInterval, assertNoReviewTimeOverlap, assertNoMeetingOverlap } from '../services/supervisionReviewTime.service.js';
 
 const mysqlTime=v=>v instanceof Date?v.toISOString().slice(0,19).replace('T',' '):String(v);
@@ -23,7 +23,7 @@ async function scope(req, { write = false, supervisorOnly = false } = {}) {
   return { agencyId, providerUserId, policy, canManage: assigned || admin, canAttest: assigned };
 }
 export async function getSupervisionDocumentationPolicy(req, res, next) {
-  try { const s = await scope(req); res.json({ policy: s.policy, canManage: s.canManage, canAttest: s.canAttest, noteTypes: NONBILLABLE_TYPES }); } catch(e) { next(e); }
+  try { const s = await scope(req); res.json({ policy: s.policy, canManage: s.canManage, canAttest: s.canAttest, noteTypes: await nonBillableReviewTypes(s.agencyId) }); } catch(e) { next(e); }
 }
 export async function saveSupervisionDocumentationPolicy(req, res, next) {
   try {
@@ -31,7 +31,7 @@ export async function saveSupervisionDocumentationPolicy(req, res, next) {
     if (!s.policy.supervisorUserId) throw policyError(409, 'Assign a clinical or billing supervisor first');
     const reason = String(req.body.reason || '').trim();
     if (!reason || reason.length > 1000) throw policyError(400, 'A policy change reason is required');
-    const policy = normalizeSupervisionPolicy(req.body.policy || {});
+    const policy = normalizeSupervisionPolicy(req.body.policy || {}, await nonBillableReviewTypes(s.agencyId));
     // Serialize policy changes against user membership so stale settings cannot overwrite a newer version.
     const db = await pool.getConnection();
     try {
@@ -124,26 +124,31 @@ export async function changeDocumentationReviewTime(req,res,next) {
   } catch(e){next(e);}
 }
 export async function getSuperviseeReviewDocument(req,res,next) {
-  try { const s=await scope(req);if(!['note','treatment_plan'].includes(req.params.type))throw policyError(400,'Invalid document type'); const d=await loadReviewDocument(s,req.params.type,Number(req.params.documentId));const signedHash=parseObject(d.row.metadata_json).supervisorCosign?.contentHash; const cosignCurrent=d.row.supervisor_cosigned_at && (signedHash ? signedHash===d.hash : !d.row.latest_addendum_at || new Date(d.row.latest_addendum_at)<new Date(d.row.supervisor_cosigned_at));res.json({content:d.content,contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null}); }catch(e){next(e);}
+  try {
+    const s=await scope(req);
+    if(!['note','treatment_plan'].includes(req.params.type))throw policyError(400,'Invalid document type');
+    const d=await loadReviewDocument(s,req.params.type,Number(req.params.documentId));
+    const cosignCurrent=hasCurrentSupervisorCosign(d.row,s.policy.supervisorUserId,d.hash);
+    res.json({content:d.content,contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:Number(d.row.addendum_count || 0)>0});
+  }catch(e){next(e);}
 }
 export async function listSuperviseeDocumentReviews(req,res,next) {
   try {
-    const s=await scope(req), [notes]=await clinicalPool.execute(`SELECT id,client_id,note_type,title,provider_signed_at,supervisor_cosigned_at,metadata_json,created_at FROM clinical_notes WHERE agency_id = ? AND created_by_user_id = ? AND is_deleted = 0 AND provider_signed_at IS NOT NULL ORDER BY id DESC LIMIT 100`,[s.agencyId,s.providerUserId]);
+    const s=await scope(req), [notes]=await clinicalPool.execute(`SELECT n.*, (SELECT COUNT(*) FROM clinical_note_addenda a WHERE a.clinical_note_id=n.id AND a.agency_id=n.agency_id) AS addendum_count FROM clinical_notes n WHERE n.agency_id = ? AND n.created_by_user_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL ORDER BY n.updated_at DESC, n.id DESC LIMIT 100`,[s.agencyId,s.providerUserId]);
     const [plans]=await clinicalPool.execute(`SELECT id,client_id,title,status,created_at FROM clinical_treatment_plans WHERE agency_id = ? AND created_by_user_id = ? AND status IN ('active','final') ORDER BY id DESC LIMIT 100`,[s.agencyId,s.providerUserId]);
     const [reviews]=await pool.execute('SELECT id,document_type,document_id,outcome,created_at,content_hash,feedback_encrypted FROM clinical_document_reviews WHERE agency_id = ? AND provider_user_id = ? ORDER BY id DESC LIMIT 300',[s.agencyId,s.providerUserId]);
-    const wants=type=>s.policy.nonBillableReview==='all'||(s.policy.nonBillableReview==='selected'&&s.policy.noteTypes.includes(type));
-    const documents=[...notes.map(n=>({id:n.id,nonBillable:isNonBillableDocument(n),clientId:n.client_id,createdAt:n.created_at,type:'note',noteType:normalizeNoteType(n.note_type),title:n.title,signedAt:n.provider_signed_at,cosignedAt:n.supervisor_cosigned_at,cosignDueAt:n.provider_signed_at ? new Date(new Date(n.provider_signed_at).getTime()+Number(parseObject(n.metadata_json).supervisionPolicyAtSignature?.cosignDueDays || s.policy.cosignDueDays)*86400000).toISOString():null})),...plans.map(p=>({id:p.id,nonBillable:true,clientId:p.client_id,createdAt:p.created_at,type:'treatment_plan',noteType:'TREATMENT_PLAN',title:p.title}))]
-      .map(d=>({...d,reviewRequested:!d.nonBillable||wants(d.noteType),latestReview:reviews.find(r=>r.document_type===d.type&&Number(r.document_id)===Number(d.id))||null}));
+    const documents=[...notes.map(n=>({id:n.id,nonBillable:isNonBillableDocument(n),clientId:n.client_id,createdAt:n.created_at,type:'note',noteType:normalizeNoteType(n.note_type || parseObject(n.metadata_json).noteType),title:n.title,signedAt:n.provider_signed_at,cosignedAt:null,amendmentSignoffRequired:Number(n.addendum_count || 0)>0,cosignDueAt:n.provider_signed_at ? new Date(new Date(n.provider_signed_at).getTime()+Number(parseObject(n.metadata_json).supervisionPolicyAtSignature?.cosignDueDays || s.policy.cosignDueDays)*86400000).toISOString():null})),...plans.map(p=>({id:p.id,nonBillable:true,clientId:p.client_id,createdAt:p.created_at,type:'treatment_plan',noteType:'TREATMENT_PLAN',title:p.title}))];
     const cache=new Map();
     for(const d of documents) {
       const key=`${d.clientId}:${String(d.createdAt).slice(0,10)}`;
       if(!cache.has(key))cache.set(key,await requiredDocumentReviewTypes(s.agencyId,d.clientId,d.createdAt));
-      d.mandatoryReview=cache.get(key).includes(d.noteType);
-      d.reviewRequested ||= d.mandatoryReview;
-      if(d.latestReview) {
+      Object.assign(d,documentReviewRequirement({note_type:d.noteType,addendum_count:d.amendmentSignoffRequired?1:0,metadata_json:{nonBillable:d.nonBillable}},s.policy,cache.get(key)));
+      d.latestReview=reviews.find(r=>r.document_type===d.type&&Number(r.document_id)===Number(d.id))||null;
+      const row=d.type==='note'?notes.find(n=>Number(n.id)===Number(d.id)):null;
+      if(d.latestReview || row?.supervisor_cosigned_at) {
         const current=await loadReviewDocument(s,d.type,d.id);
-        if(d.type==='note' && ((parseObject(current.row.metadata_json).supervisorCosign?.contentHash && parseObject(current.row.metadata_json).supervisorCosign.contentHash!==current.hash) || (current.row.latest_addendum_at && new Date(current.row.latest_addendum_at)>new Date(d.cosignedAt || 0)))) d.cosignedAt=null;
-        d.latestReview={id:d.latestReview.id,outcome:d.latestReview.outcome,created_at:d.latestReview.created_at,stale:d.latestReview.content_hash!==current.hash,
+        if(row && hasCurrentSupervisorCosign(current.row,s.policy.supervisorUserId,current.hash))d.cosignedAt=current.row.supervisor_cosigned_at;
+        if(d.latestReview)d.latestReview={id:d.latestReview.id,outcome:d.latestReview.outcome,created_at:d.latestReview.created_at,stale:d.latestReview.content_hash!==current.hash,
           feedback:decryptFamilyBilling(d.latestReview.feedback_encrypted,`document-review:${s.agencyId}:${d.type}:${d.id}`)?.feedback || ''};
       }
     }
