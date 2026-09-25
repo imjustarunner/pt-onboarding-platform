@@ -1,0 +1,21 @@
+import {mount,flushPromises} from '@vue/test-utils';
+import {beforeEach,describe,it,expect,vi} from 'vitest';
+import FinanceOperationsView from '../../../views/FinanceOperationsView.vue';
+import FinanceBankPanel from '../FinanceBankPanel.vue';
+import api from '../../../services/api';
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn(),put:vi.fn()}}));
+vi.mock('../../../store/auth',()=>({useAuthStore:()=>({user:{id:11,role:'super_admin'}})}));
+vi.mock('vue-router',()=>({useRoute:()=>({query:{area:'overview'},params:{}}),useRouter:()=>({replace:vi.fn()})}));
+const organizations=[{agency_id:1,name:'MH4Kidz',mode:'sponsored',manager_name:'Plot Twist Co',summary:{budget:10000,paid:2000,committed:1000}},{agency_id:2,name:'Rocky Mountain Mentors — Demo',is_demo:1,summary:{budget:27500000,paid:400000,committed:500000}}];
+const workspace=(role='manager',id=1)=>({role,organization:{agency_id:id,revision:1,fiscal_start_month:1},programs:[{id:10,name:'Mentor Academy'}],budgets:[{id:20,program_id:10,name:'Training budget',amount_cents:10000}],expenses:[{id:30,title:`Expense tenant ${id}`,program_id:10,amount_cents:2000,status:'paid',revision:1}],totals:{budget:10000,paid:2000,committed:1000,available:7000},documents:[],requests:[],history:[],events:[],splits:[],funds:[],grants:[],allocations:[],partners:[],receipts:[]});
+const button=(w,text)=>w.findAll('button').find(b=>b.text()===text);
+const mountView=()=>mount(FinanceOperationsView,{global:{stubs:{RouterLink:{template:'<a><slot/></a>'}}}});
+beforeEach(()=>{vi.clearAllMocks();api.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/organizations')?{organizations}:workspace()}));});
+describe('Finance Operations',()=>{
+ it('keeps fictional money out of live portfolio totals',async()=>{const w=mountView();await flushPromises();expect(w.find('.finance-metrics').text()).toContain('$100.00');expect(w.find('.finance-metrics').text()).not.toContain('$275,');expect(w.text()).toContain('Live portfolio totals exclude demo');w.unmount();});
+ it('applies tenant branding and shows the managing organization',async()=>{const w=mountView();await flushPromises();await w.find('[aria-label="Organization scope"]').setValue('1');await flushPromises();expect(w.text()).toContain('Managed by Plot Twist Co');expect(w.text()).toContain('Expense tenant 1');w.unmount();});
+ it('discards a late response from the previous tenant',async()=>{const w=mountView();await flushPromises();let resolve;api.get.mockImplementation(url=>url.includes('/1/workspace')?new Promise(r=>resolve=r):Promise.resolve({data:workspace('manager',2)}));await w.find('[aria-label="Organization scope"]').setValue('1');await w.find('[aria-label="Organization scope"]').setValue('2');await flushPromises();resolve({data:workspace('manager',1)});await flushPromises();expect(w.text()).toContain('Expense tenant 2');expect(w.text()).not.toContain('Expense tenant 1');w.unmount();});
+ it('removes financial results when refreshed permission fails',async()=>{const w=mountView();await flushPromises();await w.find('[aria-label="Organization scope"]').setValue('1');await flushPromises();api.get.mockRejectedValue({response:{data:{error:{message:'Access denied'}}}});await button(w,'Refresh').trigger('click');await flushPromises();expect(w.text()).not.toContain('Expense tenant 1');expect(w.text()).toContain('Access denied');w.unmount();});
+ it('renders a restricted program portal without bank or approval controls',async()=>{const w=mountView();await flushPromises();api.get.mockResolvedValue({data:workspace('requester')});await w.find('[aria-label="Organization scope"]').setValue('1');await flushPromises();expect(w.find('.finance-nav').text()).toContain('Program Budgets');expect(w.find('.finance-nav').text()).not.toContain('Bank &');expect(w.find('.finance-nav').text()).not.toContain('Approvals');w.unmount();});
+ it('never offers a live bank connection in the demo',async()=>{api.get.mockResolvedValue({data:{enabled:false,accounts:[],entries:[]}});const w=mount(FinanceBankPanel,{props:{agencyId:2,agencyName:'Demo',isDemo:true,expenses:[]}});await flushPromises();expect(w.text()).toContain('cannot connect a real bank');expect(w.text()).not.toContain('Connect bank through Stripe');w.unmount();});
+});

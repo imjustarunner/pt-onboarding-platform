@@ -1,4 +1,5 @@
 import { checkAccess } from './accessControl.js';
+import {financeAgencyIds} from '../services/finance/policy.js';
 import User from '../models/User.model.js';
 import { listAgencyIdsInTenantTree, resolveTenantRootAgencyId } from './meDashboardTenantScope.js';
 
@@ -44,6 +45,7 @@ export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
     : [[], [], [], []];
   const credentialingAgencyIds = await expandCredentialingAgencyIds(rawCredentialingAgencyIds);
   const baseCaps = getUserCapabilities(userForCaps);
+  const financeIds = await financeAgencyIds(userForCaps);
   const canManagePayroll = roleForCaps === 'super_admin' || payrollAgencyIds.length > 0;
   const canAccessBudgetManagement =
     canManagePayroll ||
@@ -65,6 +67,7 @@ export async function buildAgencyAccessCaps(user, { effectiveRole } = {}) {
       canAccessBudgetManagement,
       canManageCredentialing,
       canManageMedicalBilling,
+      canAccessFinanceOperations: financeIds.length > 0 || roleForCaps === 'super_admin',
       canViewMyPayroll: true
     }
   };

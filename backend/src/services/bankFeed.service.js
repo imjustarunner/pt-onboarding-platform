@@ -21,7 +21,7 @@ export function bankTransactionEvidence(value,account){
  return {reference:value.id,amountCents:value.amount,currency:value.currency,status:value.status,transactedAt:value.transacted_at,postedAt:value.status_transitions?.posted_at||null,updated:value.updated};
 }
 export async function bankFeedOverview(agencyId,accountId=null,after=0){
- const [rows]=await pool.execute('SELECT * FROM bank_feed_accounts WHERE agency_id=? ORDER BY id',[agencyId]);
+ const [rows]=await pool.execute("SELECT * FROM bank_feed_accounts WHERE agency_id=? AND purpose='payer_deposit' ORDER BY id",[agencyId]);
  const accounts=rows.map(r=>({id:r.id,status:r.status,syncEnabled:!!r.sync_enabled,sharedAccount:!!r.shared_account,livemode:!!r.livemode,lastSyncedAt:r.last_synced_at,lastError:r.last_error,...decryptFamilyBilling(r.details_encrypted,accountContext(agencyId,r.external_id))}));
  const selected=rows.find(r=>Number(r.id)===Number(accountId));
  if(accountId&&!selected)throw billingError(404,'Bank connection not found in this agency');
@@ -29,23 +29,24 @@ export async function bankFeedOverview(agencyId,accountId=null,after=0){
  return {enabled:process.env.BANK_FEEDS_ENABLED==='true',stripeConfigured:isStripeConfigured()&&!!getStripePublishableKey(),accounts,verifications:targets.map(t=>({id:t.id,...t.era,status:t.status,updatedAt:t.updated_at})),nextAfter:null};
 }
 export async function startBankConnection(input,deps={}){
+ const purpose=input.purpose||'payer_deposit';if(!['payer_deposit','finance_operations'].includes(purpose))throw billingError(400,'Invalid bank connection purpose');
  requireEnabled();if(input.ownerAuthorized!==true||typeof input.sharedAccount!=='boolean'||!/^[-a-f0-9]{36}$/i.test(input.requestKey||''))throw billingError(400,'Confirm authority to share this organization’s bank transactions');
  const stripe=deps.stripe||stripeClient(),db=deps.db||pool,livemode=deps.livemode??currentMode(),publishableKey=getStripePublishableKey();
  if(!publishableKey||publishableKey.startsWith('pk_live_')!==livemode)throw billingError(503,'Stripe publishable and secret keys must use the same mode');
  const [[agency]]=await db.execute('SELECT id,name FROM agencies WHERE id=?',[input.agencyId]);if(!agency)throw billingError(404,'Agency not found');
  let [[owner]]=await db.execute('SELECT stripe_customer_id FROM agency_bank_feed_customers WHERE agency_id=? AND livemode=?',[input.agencyId,livemode]);
  if(!owner){const customer=await stripe.customers.create({name:agency.name,metadata:{agency_id:String(input.agencyId),purpose:'bank_transaction_feed'}},{idempotencyKey:`bank-owner:${input.agencyId}:${livemode}`});await db.execute('INSERT INTO agency_bank_feed_customers (agency_id,livemode,stripe_customer_id) VALUES (?,?,?) ON DUPLICATE KEY UPDATE agency_id=VALUES(agency_id)',[input.agencyId,livemode,customer.id]);[[owner]]=await db.execute('SELECT stripe_customer_id FROM agency_bank_feed_customers WHERE agency_id=? AND livemode=?',[input.agencyId,livemode]);}
- await db.execute('INSERT INTO bank_feed_sessions (session_key,agency_id,actor_user_id,stripe_customer_id,livemode,shared_account) VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE session_key=VALUES(session_key)',[input.requestKey,input.agencyId,input.actorUserId,owner.stripe_customer_id,livemode,input.sharedAccount]);
+ await db.execute('INSERT INTO bank_feed_sessions (session_key,agency_id,actor_user_id,stripe_customer_id,livemode,shared_account,purpose) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE session_key=VALUES(session_key)',[input.requestKey,input.agencyId,input.actorUserId,owner.stripe_customer_id,livemode,input.sharedAccount,purpose]);
  const [[saved]]=await db.execute('SELECT * FROM bank_feed_sessions WHERE session_key=?',[input.requestKey]);
- if(saved.agency_id!==input.agencyId||saved.actor_user_id!==input.actorUserId||saved.stripe_customer_id!==owner.stripe_customer_id||!!saved.shared_account!==input.sharedAccount||saved.completed_at||Date.now()-new Date(saved.created_at).getTime()>3600000)throw billingError(409,'Start a new bank connection for this organization');
+ if((saved.purpose||'payer_deposit')!==purpose||saved.agency_id!==input.agencyId||saved.actor_user_id!==input.actorUserId||saved.stripe_customer_id!==owner.stripe_customer_id||!!saved.shared_account!==input.sharedAccount||saved.completed_at||Date.now()-new Date(saved.created_at).getTime()>3600000)throw billingError(409,'Start a new bank connection for this organization');
  const session=saved.stripe_session_id?await stripe.financialConnections.sessions.retrieve(saved.stripe_session_id):await stripe.financialConnections.sessions.create({account_holder:{type:'customer',customer:owner.stripe_customer_id},permissions:['transactions']},{idempotencyKey:`bank-session:${input.requestKey}`});
  await db.execute('UPDATE bank_feed_sessions SET stripe_session_id=? WHERE session_key=? AND agency_id=?',[session.id,input.requestKey,input.agencyId]);
  return {sessionKey:input.requestKey,clientSecret:session.client_secret,publishableKey};
 }
-export async function completeBankConnection({agencyId,actorUserId,sessionKey},deps={}){
+export async function completeBankConnection({agencyId,actorUserId,sessionKey,purpose='payer_deposit'},deps={}){
  requireEnabled();const stripe=deps.stripe||stripeClient(),db=deps.db||pool;
  const [[saved]]=await db.execute('SELECT * FROM bank_feed_sessions WHERE session_key=? AND agency_id=? AND actor_user_id=?',[sessionKey,agencyId,actorUserId]);
- if(!saved?.stripe_session_id||saved.completed_at||Date.now()-new Date(saved.created_at).getTime()>3600000)throw billingError(409,'This connection session expired; start again');
+ if(!saved?.stripe_session_id||(saved.purpose||'payer_deposit')!==purpose||saved.completed_at||Date.now()-new Date(saved.created_at).getTime()>3600000)throw billingError(409,'This connection session expired; start again');
  if(!!saved.livemode!==(deps.livemode??currentMode()))throw billingError(409,'Bank connection mode differs from the configured Stripe account');
  const session=await stripe.financialConnections.sessions.retrieve(saved.stripe_session_id);
  if(session.account_holder?.customer!==saved.stripe_customer_id||session.livemode!==!!saved.livemode)throw billingError(409,'Connection session ownership could not be verified');
@@ -60,9 +61,9 @@ export async function completeBankConnection({agencyId,actorUserId,sessionKey},d
   const connection=await db.getConnection();
   try{await connection.beginTransaction();
    const details=encryptFamilyBilling({institution:account.institution_name||'Bank',name:account.display_name||'Account',last4:account.last4||''},accountContext(agencyId,account.id));
-   await connection.execute('INSERT INTO bank_feed_accounts (agency_id,external_id,stripe_customer_id,livemode,shared_account,details_encrypted,connected_by_user_id) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE external_id=VALUES(external_id)',[agencyId,account.id,saved.stripe_customer_id,saved.livemode,saved.shared_account,details,actorUserId]);
+   await connection.execute('INSERT INTO bank_feed_accounts (agency_id,external_id,stripe_customer_id,livemode,shared_account,details_encrypted,connected_by_user_id,purpose) VALUES (?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE external_id=VALUES(external_id)',[agencyId,account.id,saved.stripe_customer_id,saved.livemode,saved.shared_account,details,actorUserId,purpose]);
    const [[record]]=await connection.execute('SELECT * FROM bank_feed_accounts WHERE external_id=? FOR UPDATE',[account.id]);
-   if(record.agency_id!==agencyId||record.stripe_customer_id!==saved.stripe_customer_id||['disconnecting','disconnected','inactive'].includes(record.status))throw billingError(409,'Bank account is already assigned to a different owner');
+   if((record.purpose||'payer_deposit')!==purpose||record.agency_id!==agencyId||record.stripe_customer_id!==saved.stripe_customer_id||['disconnecting','disconnected','inactive'].includes(record.status))throw billingError(409,'Bank account is already assigned to a different owner');
    await connection.execute("UPDATE bank_feed_accounts SET sync_enabled=1,status='pending',details_encrypted=?,shared_account=?,connected_by_user_id=?,next_sync_at=UTC_TIMESTAMP() WHERE id=?",[details,saved.shared_account,actorUserId,record.id]);
    await auditBilling({agencyId,userId:actorUserId,action:'bank_feed_consent_completed',objectId:record.id},connection);
    await connection.commit();ids.push(record.id);
@@ -76,7 +77,7 @@ export async function completeBankConnection({agencyId,actorUserId,sessionKey},d
 }
 export async function disconnectBankFeed({agencyId,accountId,actorUserId},deps={}){
  const db=deps.db||pool,stripe=deps.stripe||stripeClient();
- const [[row]]=await db.execute('SELECT external_id,livemode FROM bank_feed_accounts WHERE id=? AND agency_id=?',[accountId,agencyId]);if(!row)throw billingError(404,'Bank connection not found');
+ const [[row]]=await db.execute('SELECT external_id,livemode FROM bank_feed_accounts WHERE id=? AND agency_id=? AND purpose=?',[accountId,agencyId,deps.purpose||'payer_deposit']);if(!row)throw billingError(404,'Bank connection not found');
  await db.execute("UPDATE bank_feed_accounts SET sync_enabled=0,status='disconnecting' WHERE id=? AND agency_id=?",[accountId,agencyId]);
  if(!!row.livemode!==(deps.livemode??currentMode()))throw billingError(409,'Local import stopped; restore the matching Stripe mode to revoke bank access');
  await stripe.financialConnections.accounts.disconnect(row.external_id);
@@ -118,13 +119,15 @@ export async function syncBankFeed(agencyId,accountId,deps={}){
  requireEnabled();const stripe=deps.stripe||stripeClient(),db=await (deps.db||pool).getConnection();let locked=false;
  try{
   const [[lock]]=await db.execute('SELECT GET_LOCK(?,0) AS acquired',[`bank-feed:${accountId}`]);if(!lock.acquired)return {deferred:true};locked=true;
-  const [[row]]=await db.execute('SELECT * FROM bank_feed_accounts WHERE id=? AND agency_id=? AND sync_enabled=1',[accountId,agencyId]);if(!row)throw billingError(404,'Active bank connection not found');
+  const [[row]]=await db.execute('SELECT * FROM bank_feed_accounts WHERE id=? AND agency_id=? AND sync_enabled=1 AND purpose=?',[accountId,agencyId,deps.purpose||'payer_deposit']);if(!row)throw billingError(404,'Active bank connection not found');
   if(!!row.livemode!==(deps.livemode??currentMode()))throw billingError(409,'Bank connection mode differs from the configured Stripe account');
   await db.execute('UPDATE bank_feed_accounts SET next_sync_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 15 MINUTE) WHERE id=?',[accountId]);
   const account=await stripe.financialConnections.accounts.retrieve(row.external_id);
   if(account.status!=='active'||!account.permissions?.includes('transactions')){await db.execute("UPDATE bank_feed_accounts SET status='inactive',sync_enabled=0,last_error='Transaction sharing is inactive; reconnect with owner consent' WHERE id=?",[accountId]);return {inactive:true};}
   verifyBankAccount(account,row.stripe_customer_id,row.livemode);
-  const targets=await depositVerificationTargets(db,row);
+  const finance=(row.purpose==='finance_operations')?await import('./finance/bank.js'):null;
+  if(finance&&!await finance.financeBankCanSync(db,agencyId)){await db.execute("UPDATE bank_feed_accounts SET sync_enabled=0,status='paused' WHERE id=?",[accountId]);return {inactive:true};}
+  const targets=finance?[{}]:await depositVerificationTargets(db,row);
   if(!targets.length){await db.execute("UPDATE bank_feed_accounts SET status='awaiting_remittance',last_error=NULL WHERE id=?",[accountId]);return {noTargets:true};}
   const refresh=account.transaction_refresh;
   if(refresh?.status!=='succeeded'){await db.execute('UPDATE bank_feed_accounts SET status=?,last_error=? WHERE id=?',[refresh?.status==='failed'?'refresh_failed':'awaiting_transactions',refresh?.status==='failed'?'The bank refresh failed; check the connection in Stripe':null,accountId]);return {pending:true};}
@@ -139,7 +142,7 @@ export async function syncBankFeed(agencyId,accountId,deps={}){
    await db.beginTransaction();
    try{
     const [[current]]=await db.execute('SELECT sync_enabled FROM bank_feed_accounts WHERE id=? AND agency_id=? FOR UPDATE',[accountId,agencyId]);if(!current?.sync_enabled)throw billingError(409,'Bank synchronization was stopped');
-    for(const txn of page.data)if(await storeBankTransaction(db,row,txn))count++;
+    for(const txn of page.data)if(await (finance?finance.storeFinanceBankEntry(db,row,txn):storeBankTransaction(db,row,txn)))count++;
     cursor=page.has_more?page.data.at(-1).id:null;
     if(cursor)await db.execute('UPDATE bank_feed_accounts SET page_cursor=?,last_error=NULL,next_sync_at=UTC_TIMESTAMP() WHERE id=?',[cursor,accountId]);
     else await db.execute("UPDATE bank_feed_accounts SET last_refresh=?,sync_target_refresh=NULL,page_cursor=NULL,status='active',last_error=NULL,last_synced_at=UTC_TIMESTAMP(),next_sync_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 15 MINUTE) WHERE id=?",[target,accountId]);
@@ -157,7 +160,7 @@ export async function bankFeedWebhook(event){
 }
 export async function runBankFeedSync(){
  if(process.env.BANK_FEEDS_ENABLED!=='true')return [];
- const [rows]=await pool.execute('SELECT id,agency_id FROM bank_feed_accounts WHERE sync_enabled=1 AND next_sync_at<=UTC_TIMESTAMP() ORDER BY next_sync_at,id LIMIT 10');const results=[];
- for(const row of rows)try{results.push(await syncBankFeed(row.agency_id,row.id));}catch{results.push({needsReview:true});}
+ const [rows]=await pool.execute('SELECT id,agency_id,purpose FROM bank_feed_accounts WHERE sync_enabled=1 AND next_sync_at<=UTC_TIMESTAMP() ORDER BY next_sync_at,id LIMIT 10');const results=[];
+ for(const row of rows)try{results.push(await syncBankFeed(row.agency_id,row.id,{purpose:row.purpose}));}catch{results.push({needsReview:true});}
  return results;
 }

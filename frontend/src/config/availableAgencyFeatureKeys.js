@@ -1,5 +1,6 @@
 /** Keys aligned with Platform Settings → Available Agency Features and Company Profile toggles. */
 export const AVAILABLE_AGENCY_FEATURE_KEYS = [
+  { key: 'financeOperationsEnabled', label: 'Finance Operations', defaultAvailable: false },
   { key: 'budgetManagementEnabled', label: 'Budget Management' },
   {
     key: 'onboardingTrainingEnabled',

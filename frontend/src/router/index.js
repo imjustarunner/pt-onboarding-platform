@@ -1828,6 +1828,12 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/finance-operations',
+    name: 'OrganizationFinanceOperations',
+    component: () => import('../views/FinanceOperationsView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/people-operations',
     name: 'OrganizationPeopleOperations',
     component: () => import('../views/PeopleOperationsHubView.vue'),
@@ -3385,6 +3391,12 @@ const routes = [
     name: 'SchoolOperations',
     component: () => import('../views/SchoolOperationsHubView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
+  },
+  {
+    path: '/finance-operations',
+    name: 'FinanceOperations',
+    component: () => import('../views/FinanceOperationsView.vue'),
+    meta: { requiresAuth: true }
   },
   {
     path: '/people-operations',

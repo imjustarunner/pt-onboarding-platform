@@ -740,6 +740,7 @@
                         {{ formatNavBadgeCount(workforceOperationsPendingCount) }}
                       </span>
                     </router-link>
+                    <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeAllNavMenus"><span>Finance Operations</span></router-link>
                     <router-link
                       v-if="canSeePeopleOperationsNav"
                       :to="orgTo('/people-operations')"
@@ -1809,6 +1810,7 @@
                       {{ formatNavBadgeCount(workforceOperationsPendingCount) }}
                     </span>
                   </router-link>
+                  <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink"><span>Finance Operations</span></router-link>
                   <router-link
                     v-if="canSeePeopleOperationsNav"
                     :to="orgTo('/people-operations')"
@@ -5286,6 +5288,8 @@ const canSeeScheduleBuildingsDirectoryNav = computed(() => {
 
 const canSeeWorkforceOperationsNav = computed(() => canSeeScheduleBuildingsDirectoryNav.value);
 
+const canSeeFinanceOperationsNav = computed(() => user.value?.role === 'super_admin' || !!user.value?.capabilities?.canAccessFinanceOperations);
+
 const canSeePeopleOperationsNav = computed(() =>
   canAccessPeopleOperationsHub({
     role: user.value?.role,
@@ -5306,6 +5310,7 @@ const canSeeProviderManagementNav = computed(() => {
 const canSeeManagementHubsNav = computed(
   () =>
     canSeeWorkforceOperationsNav.value
+    || canSeeFinanceOperationsNav.value
     || canSeePeopleOperationsNav.value
     || canSeeSchoolPortalsNav.value
     || canSeeSchoolClientsNav.value
@@ -5323,6 +5328,7 @@ const showManagementDashboardLinks = computed(
 const showManagementHubLinks = computed(
   () =>
     canSeeWorkforceOperationsNav.value
+    || canSeeFinanceOperationsNav.value
     || canSeePeopleOperationsNav.value
     || canSeeSchoolPortalsNav.value
     || canSeeSchoolClientsNav.value
