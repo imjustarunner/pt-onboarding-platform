@@ -1,5 +1,8 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { requireActiveStatus } from '../middleware/auth.middleware.js';
+import { getSuperviseeReviewDocument } from '../controllers/supervisedBilling.controller.js';
+import { getSupervisionDocumentationPolicy, saveSupervisionDocumentationPolicy, listDocumentationReviewTime, saveDocumentationReviewTime, changeDocumentationReviewTime, listSuperviseeDocumentReviews, recordSuperviseeDocumentReview } from '../controllers/supervisedBilling.controller.js';
 import {
   listSupervisionProviderCandidates,
   listSupervisionAttendanceLogs,
@@ -75,6 +78,15 @@ router.post('/guest-activity/:joinToken', postSupervisionGuestActivity);
 router.post('/sessions/:id/join-presence', postSupervisionJoinPresence);
 
 router.use(authenticate);
+const documentationGate=[requireActiveStatus,(req,res,next)=>{res.set('Cache-Control','no-store');next();}];
+router.get('/supervisee/:providerId/documentation-policy',...documentationGate,getSupervisionDocumentationPolicy);
+router.put('/supervisee/:providerId/documentation-policy',...documentationGate,saveSupervisionDocumentationPolicy);
+router.get('/supervisee/:providerId/review-time',...documentationGate,listDocumentationReviewTime);
+router.post('/supervisee/:providerId/review-time',...documentationGate,saveDocumentationReviewTime);
+router.patch('/supervisee/:providerId/review-time/:timeId',...documentationGate,changeDocumentationReviewTime);
+router.get('/supervisee/:providerId/document-reviews',...documentationGate,listSuperviseeDocumentReviews);
+router.get('/supervisee/:providerId/document-reviews/:type/:documentId',...documentationGate,getSuperviseeReviewDocument);
+router.post('/supervisee/:providerId/document-reviews',...documentationGate,recordSuperviseeDocumentReview);
 
 router.get('/providers', listSupervisionProviderCandidates);
 router.get('/attendance-logs', listSupervisionAttendanceLogs);
@@ -132,4 +144,3 @@ router.patch('/sessions/:id', patchSupervisionSessionValidators, patchSupervisio
 router.post('/sessions/:id/cancel', cancelSupervisionSession);
 
 export default router;
-

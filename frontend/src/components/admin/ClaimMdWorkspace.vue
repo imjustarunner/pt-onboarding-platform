@@ -74,6 +74,33 @@
       <p>Session #{{ review.clinicalSessionId }} · Signed note #{{ review.clinicalNoteId }} · {{ review.lifecycle }}</p>
       <p><strong>{{ review.payload.pat_name_f }} {{ review.payload.pat_name_l }}</strong> · {{ review.payload.payer_name }} · Member {{ review.payload.ins_number }}</p>
       <p>Billing NPI {{ review.payload.bill_npi }} · Rendering NPI {{ review.payload.prov_npi }}</p>
+      <section v-if="review.supervision" class="review">
+        <h4>Who delivered and oversaw the service</h4>
+        <p>Treating clinician: {{ providerLabel(review.supervision.serviceProvider) }}</p>
+        <p v-if="review.supervision.supervisingProvider">Overseeing clinician: {{ providerLabel(review.supervision.supervisingProvider) }}</p>
+        <p>Claim rendering provider: {{ providerLabel(review.supervision.renderingProvider) }}</p>
+        <p v-if="review.supervision.cosignPending">Supervisor cosign is still outstanding. Submission follows the applicable supervision and payer policy.</p>
+        <p v-if="review.supervision.npi2027">January 2027 individual service-provider NPI requirement applies.</p>
+        <p v-if="review.supervision.rule">Policy basis: {{ review.supervision.rule.reference }} · {{ review.supervision.rule.effectiveFrom }}–{{ review.supervision.rule.effectiveThrough }}</p>
+      </section>
+      <section v-if="review.aiReview" class="review" aria-label="AI content review">
+        <h4>AI content &amp; claim consistency</h4>
+        <p>{{ { required: 'Review required for the current note and claim', needs_review: 'Findings need resolution', passed: 'Current review completed' }[review.aiReview.status] }}</p>
+        <p>Checks clinical content against billing fields. Identity and insurance verification remain separate. Any relevant edit requires a fresh review.</p>
+        <button :disabled="busy" @click="runAiReview">{{ busy ? 'Working…' : 'Run AI consistency review' }}</button>
+        <article v-for="finding in review.aiReview.findings" :key="finding.id">
+          <strong>{{ finding.severity }} · {{ finding.category.replaceAll('_', ' ') }}</strong><p>{{ finding.message }}</p>
+          <p v-if="finding.resolution">Exception recorded: {{ finding.resolution.reason }} · {{ finding.resolution.policyReference }}</p>
+          <button v-else-if="['place_of_service','modifiers'].includes(finding.category)" :disabled="busy" @click="exceptionFinding = finding; exceptionReason = ''; exceptionReference = ''">Document payer exception</button>
+          <p v-else-if="finding.severity === 'blocker'">Correct the clinical record through an amendment/addendum, then rerun review.</p>
+        </article>
+        <form v-if="exceptionFinding" @submit.prevent="saveAiException">
+          <label>Why this claim follows the payer rule<textarea v-model="exceptionReason" required minlength="10" maxlength="1000" /></label>
+          <label>Payer policy / support reference<input v-model="exceptionReference" required minlength="5" maxlength="1000" /></label>
+          <button :disabled="busy">Record exception</button><button type="button" @click="exceptionFinding = null">Cancel</button>
+        </form>
+      </section>
+      <details v-if="review.appliedOverrides?.length"><summary>Applied billing overrides</summary><p v-for="override in review.appliedOverrides" :key="override.overrideId">{{ override.field }}: {{ override.from }} → {{ override.to }} · {{ override.reason }} · {{ override.policyReference }}</p></details>
       <p v-if="review.billingOffice">Billing office: {{ review.billingOffice.name }} · {{ review.payload.bill_name }} · {{ review.payload.bill_addr_1 }}, {{ review.payload.bill_city }}, {{ review.payload.bill_state }} {{ review.payload.bill_zip }}</p>
       <table><thead><tr><th>Service date</th><th>Code</th><th>Modifiers</th><th>Units</th><th>POS</th><th>Charge</th></tr></thead>
         <tbody><tr v-for="(line, index) in review.payload.charge" :key="index"><td>{{ line.from_date }}</td><td>{{ line.proc_code }}</td><td>{{ [line.mod1,line.mod2,line.mod3,line.mod4].filter(Boolean).join(', ') }}</td><td>{{ line.units }}</td><td>{{ line.place_of_service }}</td><td>${{ line.charge }}</td></tr></tbody>
@@ -110,6 +137,8 @@ const enrollmentStatus = status => ({ requested: 'Requested — open enrollment 
 const payers = ref([]), enrollments = ref([]), review = ref(null), approved = ref(false), history = ref([]), historyClaimId = ref(null);
 const draft = ref(null), correctionReason = ref('');
 const undrafted = ref([]);
+const exceptionFinding = ref(null), exceptionReason = ref(''), exceptionReference = ref('');
+const providerLabel = p => p ? `${p.firstName || ''} ${p.lastName || ''} · NPI ${p.npi || 'missing'}` : 'Not configured';
 let active = true;
 onBeforeUnmount(() => { active = false; });
 const canEnroll = computed(() => /^\d{10}$/.test(selectedOffice.value?.practice_npi || '') && ['test', 'live'].includes(props.connection.mode) && (enrollmentType.value !== 'era' || acknowledgeEraRouting.value));
@@ -194,6 +223,18 @@ const reviewClaim = claimId => run(async () => {
   review.value = null; approved.value = false;
   const { data } = await api.get(`/medical-billing/claimmd/claims/${claimId}/review`, { params: { agencyId: props.agencyId } });
   if (active) { review.value = data; historyClaimId.value = claimId; history.value = data.history || []; }
+});
+async function reloadReview() {
+  const {data}=await api.get(`/medical-billing/claimmd/claims/${review.value.claimId}/review`,{params:{agencyId:props.agencyId}});
+  if(active){review.value=data;approved.value=false;exceptionFinding.value=null;}
+}
+const runAiReview=()=>run(async()=>{
+  await api.post(`/medical-billing/claimmd/claims/${review.value.claimId}/ai-review`,{agencyId:props.agencyId});
+  if(active)await reloadReview();
+});
+const saveAiException=()=>run(async()=>{
+  await api.post(`/medical-billing/claimmd/claims/${review.value.claimId}/ai-findings/resolve`,{agencyId:props.agencyId,reviewId:review.value.aiReview.id,findingId:exceptionFinding.value.id,reason:exceptionReason.value,policyReference:exceptionReference.value});
+  if(active)await reloadReview();
 });
 const submit = () => run(async () => {
   if (!approved.value || !review.value) return;

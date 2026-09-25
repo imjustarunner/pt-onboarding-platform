@@ -21,6 +21,8 @@
       </button>
     </header>
 
+    <SupervisionDocumentationPanel v-if="scopeOrgId && !isSelfView" :key="`${scopeOrgId}-${userId}`" :agency-id="Number(scopeOrgId)" :provider-id="Number(userId)" />
+
     <div v-if="loading" class="ust-loading">Loading supervision…</div>
     <div v-else-if="error" class="ust-error">{{ error }}</div>
 
@@ -404,6 +406,7 @@
 </template>
 
 <script setup>
+import SupervisionDocumentationPanel from '../supervision/SupervisionDocumentationPanel.vue';
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import { parseUtcInstant } from '../../utils/timezones.js';

@@ -14,6 +14,12 @@ beforeEach(() => {
   api.post.mockResolvedValue({ data: { message: 'Acknowledged' } });
 });
 describe('Claim.MD billing desk', () => {
+  it('runs an actual AI review and clears prior approval when refreshed', async () => {
+    api.get.mockImplementation(async url=>({data:url.endsWith('/review')?{...claim,aiReview:{status:'required',findings:[]}}:{items:[]}}));
+    const w=mount(ClaimMdWorkspace,{props});await flushPromises();await w.vm.reviewClaim(11);await flushPromises();await w.find('input[type="checkbox"]').setValue(true);
+    await button(w,'Run AI consistency review').trigger('click');await flushPromises();
+    expect(api.post).toHaveBeenCalledWith('/medical-billing/claimmd/claims/11/ai-review',{agencyId:1});expect(w.find('input[type="checkbox"]').element.checked).toBe(false);expect(button(w,'Approve and submit').attributes('disabled')).toBeDefined();w.unmount();
+  });
   it('requires agency billing permission and always hides billing from provider roles', () => {
     expect(canAccessMedicalBilling({ role: 'provider', billingAgencyIds: [1] }, 1)).toBe(false);
     expect(canAccessMedicalBilling({ role: 'provider_plus', billingAgencyIds: [1] }, 1)).toBe(false);

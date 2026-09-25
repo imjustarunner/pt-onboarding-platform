@@ -62,6 +62,8 @@ import {
 } from '../services/medicalBillingReports.service.js';
 import { listBillingEncountersForClient } from '../services/billingReportIngest.service.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
+import { resolveDocumentationPolicy, isNonBillableDocument, normalizeNoteType, requiredDocumentReviewTypes } from '../services/supervisedBillingPolicy.service.js';
+import { loadReviewDocument } from '../services/clinicalReviewDocument.service.js';
 
 async function completeNoteAidSigningWorkflow(note) {
   await recordSignedTermination(note);
@@ -1874,12 +1876,15 @@ export const signClinicalNote = async (req, res, next) => {
       ipAddress: getClientIpAddress(req),
       userAgent: String(req.headers['user-agent'] || '').slice(0, 500) || null
     };
-    const { shouldSkipSupervisorCosign, isReviewOnlyNoteType } = await import('../services/clinicalNoteContentReview.service.js');
-    const supervisors = await SupervisorAssignment.findBySupervisee(req.user.id, note.agency_id);
-    const supervisor = shouldSkipSupervisorCosign({ noteType: note.note_type, metadata: meta })
-      ? null : SupervisorAssignment.pickClinicalCosignSupervisor(supervisors, req.user.id);
-    const nonBillable = isReviewOnlyNoteType(note.note_type) || shouldSkipSupervisorCosign({ noteType: note.note_type, metadata: meta });
-    const isBillable = !nonBillable && !supervisor;
+    const documentationPolicy = await resolveDocumentationPolicy(note.agency_id, req.user.id);
+    const nonBillable = isNonBillableDocument(note);
+    const mandatoryTypes = nonBillable ? await requiredDocumentReviewTypes(note.agency_id, note.client_id, note.created_at) : [];
+    const wantsReview = !nonBillable || mandatoryTypes.includes(normalizeNoteType(note.note_type)) || documentationPolicy.nonBillableReview === 'all'
+      || (documentationPolicy.nonBillableReview === 'selected' && documentationPolicy.noteTypes.includes(normalizeNoteType(note.note_type)));
+    const supervisor = wantsReview && documentationPolicy.supervisorUserId ? { supervisor_id: documentationPolicy.supervisorUserId } : null;
+    // Billability describes the service. Submission timing is evaluated separately for each payer.
+    const isBillable = !nonBillable;
+    meta.supervisionPolicyAtSignature = { version: documentationPolicy.version, supervisorUserId: documentationPolicy.supervisorUserId, cosignTiming: documentationPolicy.cosignTiming, cosignDueDays: documentationPolicy.cosignDueDays };
     await clinicalPool.execute(
       `UPDATE clinical_notes
        SET provider_signed_at = NOW(),
@@ -1958,6 +1963,7 @@ export const signClinicalNote = async (req, res, next) => {
 };
 
 export const cosignClinicalNote = async (req, res, next) => {
+  let cosignDb;
   try {
     const noteId = parseIntValue(req.params.noteId);
     const [rows] = await clinicalPool.execute(`SELECT * FROM clinical_notes WHERE id = ? LIMIT 1`, [noteId]);
@@ -1968,10 +1974,23 @@ export const cosignClinicalNote = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Provider must sign before supervisor cosign' } });
     }
 
-    const supervisors = await SupervisorAssignment.findBySupervisee(note.created_by_user_id, note.agency_id);
-    const assignedSupervisor = SupervisorAssignment.pickClinicalCosignSupervisor(supervisors, note.created_by_user_id);
-    if (!assignedSupervisor || Number(assignedSupervisor.supervisor_id) !== Number(req.user.id)) {
-      return res.status(403).json({ error: { message: 'Only the assigned clinical supervisor can cosign this note' } });
+    const documentationPolicy = await resolveDocumentationPolicy(note.agency_id, note.provider_signed_by_user_id || note.created_by_user_id);
+    if (!documentationPolicy.supervisorUserId || Number(documentationPolicy.supervisorUserId) !== Number(req.user.id)) {
+      return res.status(403).json({ error: { message: 'Only the assigned responsible supervisor can cosign this note' } });
+    }
+    cosignDb = await clinicalPool.getConnection();
+    await cosignDb.beginTransaction();
+    await cosignDb.execute('SELECT id FROM clinical_notes WHERE id = ? AND agency_id = ? FOR UPDATE',[noteId,note.agency_id]);
+    await cosignDb.execute('SELECT id FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? FOR UPDATE',[noteId,note.agency_id]);
+    const current = await loadReviewDocument({ agencyId:note.agency_id, providerUserId:note.created_by_user_id }, 'note', noteId, cosignDb);
+    Object.assign(note,current.row);
+    const previousCosignHash = (typeof note.metadata_json==='string' ? JSON.parse(note.metadata_json || '{}') : note.metadata_json || {}).supervisorCosign?.contentHash;
+    if (note.supervisor_cosigned_at && (previousCosignHash ? previousCosignHash===current.hash : !note.latest_addendum_at || new Date(note.latest_addendum_at) < new Date(note.supervisor_cosigned_at))) {
+      await cosignDb.commit();
+      return res.json({ ok:true,noteId,cosignedAt:note.supervisor_cosigned_at,isBillable:!isNonBillableDocument(note) });
+    }
+    if (req.body.contentHash) {
+      if (current.hash !== req.body.contentHash || req.body.reviewedAndApproved !== true) throw Object.assign(new Error('Read the current note and addenda before cosigning.'),{status:409});
     }
     let meta = {};
     try {
@@ -1983,10 +2002,7 @@ export const cosignClinicalNote = async (req, res, next) => {
       meta = {};
     }
 
-    const { shouldSkipSupervisorCosign } = await import('../services/clinicalNoteContentReview.service.js');
-    if (shouldSkipSupervisorCosign({ noteType: note.note_type, metadata: meta })) {
-      return res.status(409).json({ error: { message: 'This note is non-billable and does not require a supervisor signature' } });
-    }
+    const nonBillable = isNonBillableDocument(note);
     let signerLabel = null;
     try {
       const pool = (await import('../config/database.js')).default;
@@ -2038,7 +2054,9 @@ export const cosignClinicalNote = async (req, res, next) => {
       ? `${signerLabel}, reviewed and signed this note and approved it for clinical documentation under their license on ${formatAttestationClock(cosignedAtIso)}.`
       : `Supervisor reviewed and signed this note and approved it for clinical documentation on ${formatAttestationClock(cosignedAtIso)}.`;
 
+    if (meta.supervisorCosign) meta.supervisorCosignHistory = [...(meta.supervisorCosignHistory || []),meta.supervisorCosign];
     meta.supervisorCosign = {
+      contentHash: current.hash,
       ...(meta.supervisorCosign || {}),
       reviewedAndApproved: true,
       cosignedAt: cosignedAtIso,
@@ -2049,25 +2067,27 @@ export const cosignClinicalNote = async (req, res, next) => {
       userAgent: String(req.headers['user-agent'] || '').slice(0, 500) || null
     };
 
-    await clinicalPool.execute(
+    await cosignDb.execute(
       `UPDATE clinical_notes
        SET supervisor_cosigned_at = NOW(),
            supervisor_cosigned_by_user_id = ?,
-           is_billable = 1,
+           is_billable = ?,
            metadata_json = ?,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [req.user.id, JSON.stringify(meta), noteId]
+      [req.user.id, nonBillable ? 0 : 1, JSON.stringify(meta), noteId]
     );
+    await cosignDb.commit();
     await pool.execute(
       `UPDATE clinical_note_signoffs SET status = 'signed', supervisor_signed_at = NOW()
        WHERE clinical_note_id = ? AND supervisor_user_id = ? AND agency_id = ?`,
       [noteId, req.user.id, note.agency_id]
     );
-    return res.json({ ok: true, noteId, cosignedAt: cosignedAtIso, isBillable: true });
+    return res.json({ ok: true, noteId, cosignedAt: cosignedAtIso, isBillable: !nonBillable });
   } catch (e) {
+    if(cosignDb) await cosignDb.rollback();
     next(e);
-  }
+  } finally { cosignDb?.release(); }
 };
 
 export const listNotesForSigning = async (req, res, next) => {
@@ -2730,7 +2750,7 @@ export const submitClaimToClaimMd = async (req, res, next) => {
     const connection = await resolveClaimMdConnection(agencyId);
     requireClaimMdTransmission(connection);
     if (req.body.accountMode !== connection.mode) return res.status(409).json({ error: { message: 'The connection mode changed. Review the account mode again.' } });
-    const { claim, readiness, insurance, payload, reviewHash } = await prepareClaimReview(agencyId, claimId);
+    const { claim, readiness, insurance, payload, reviewHash, supervision } = await prepareClaimReview(agencyId, claimId);
     if (!['ready', 'draft', 'rejected'].includes(claim.claim_lifecycle)) return res.status(409).json({ error: { message: 'This claim is already submitted, in progress, or needs reconciliation' } });
     if (claim.claimmd_connection_id && claim.claimmd_connection_id !== connection.connectionId) return res.status(409).json({ error: { message: 'Reconcile the claim in its original Claim.MD account before changing accounts' } });
     if (!readiness.ready) return res.status(409).json({ error: { message: 'Clinical documentation is not ready for submission' }, readiness });
@@ -2739,13 +2759,19 @@ export const submitClaimToClaimMd = async (req, res, next) => {
     const db = await clinicalPool.getConnection();
     try {
       await db.beginTransaction();
+      await db.execute('SELECT id FROM clinical_claims WHERE id = ? AND agency_id = ? FOR UPDATE',[claimId,agencyId]);
+      await db.execute('SELECT id FROM clinical_notes WHERE id = ? AND agency_id = ? FOR UPDATE',[claim.clinical_note_id || null,agencyId]);
+      await db.execute('SELECT id FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? FOR UPDATE',[claim.clinical_note_id || null,agencyId]);
+      const latestReview = await prepareClaimReview(agencyId,claimId);
+      if (!latestReview.readiness.ready || latestReview.reviewHash !== reviewHash) throw Object.assign(new Error('Documentation or billing policy changed. Review this claim again.'),{status:409});
       const [queued] = await db.execute(`UPDATE clinical_claims SET claim_lifecycle = 'queued', member_id = NULL,
-        insurance_payload = ?, claimmd_connection_id = ? WHERE id = ? AND agency_id = ? AND is_deleted = 0
+        insurance_payload = ?, claimmd_connection_id = ?, rendering_npi = ? WHERE id = ? AND agency_id = ? AND is_deleted = 0
         AND claim_lifecycle IN ('ready','draft','rejected') AND billing_revision = ?`,
-        [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connection.connectionId, claimId, agencyId, claim.billing_revision]);
+        [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connection.connectionId, payload.prov_npi || null, claimId, agencyId, claim.billing_revision]);
       if (!queued.affectedRows) throw Object.assign(new Error('This claim changed or is already being submitted. Refresh its review.'), { status: 409 });
       await recordClaimEvent({ agencyId, claimId, connectionId: connection.connectionId, eventKey: `submission:${attemptId}`,
-        eventType: 'approved_submission', actorUserId: req.user.id, payload: { reviewHash, mode: connection.mode, payload } }, db);
+        eventType: 'approved_submission', actorUserId: req.user.id, payload: { reviewHash, mode: connection.mode, payload,
+          supervision } }, db);
       await db.commit();
     } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
     // A transport failure stays queued: never automatically repeat a possibly successful upload.

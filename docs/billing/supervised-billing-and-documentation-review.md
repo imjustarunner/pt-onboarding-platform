@@ -1,21 +1,42 @@
 # Supervised billing and documentation review
 
-Status: requirements and code audit, September 24, 2026. **Not implemented or approved for live use by this document.** Audit baseline: `ffdd887f` on `codex/claimmd-billing-workspace`.
+Status: implemented locally, September 24, 2026; **not deployed or verified with a live payer**. This release extends the Claim.MD workspace on `codex/claimmd-billing-workspace`.
 
-The owner requires AI-supported billable documentation, supervisor-controlled cosign timing, audited claim corrections, configurable review of non-billable documents, and attested documentation-review time without double counting. These are supervised-billing launch requirements, not capabilities implied by the existing workspace.
+## Implemented
 
-## Current implementation and gaps
+- Versioned supervisor policies per agency/supervisee, with before-submission cosign as the default. Deferred cosign additionally requires a dated, verified payer/product rule. Clinical note billability is independent of cosign timing.
+- Separate treating clinician, overseeing clinician, rendering identity, and group billing identity in claim preparation and the encrypted submission snapshot. Missing or unverified supervised mappings hold submission.
+- Mandatory server-recorded AI content review of the signed note, addenda, and effective claim. Metadata flags and regex checklists cannot satisfy the submission gate. Changed clinical content, billing fields, overrides or policy versions invalidate review/approval.
+- Claim-side overrides require exact payer/product scope or specific client/claim, effective dates, reason and policy reference. Replacement versions preserve encrypted audit history. Clinical facts remain in signed notes/addenda. POS/modifier findings permit a specifically documented billing resolution; clinical findings require clinical correction.
+- Supervisor review settings and a clinical document queue in the supervision modal and user supervision tab. Non-billable types can have all, selected or no discretionary review. Configured payer-required types remain requested. Treatment plans and termination notes stay non-billable.
+- Separate scheduled/attested/void documentation-review and RPO time. Shared per-person MySQL locks reject review/meeting overlaps across agencies and supervisees, including meeting creation, rescheduling, attendance additions, and status changes. No automatic payroll or licensure credit is awarded.
+- Billing-only payer-policy editor and individual-NPI readiness roster. Supervisor status does not confer financial access.
 
-| Area | Current code | Required change |
-| --- | --- | --- |
-| Claim edits | `claimMdWorkflow.controller.js::correctClaim` permits POS, NPIs, taxonomy, charges and modifiers; requires a reason and revision check; saves encrypted before/after history in the transaction. | Include applicable policy evidence and distinguish claim corrections from clinical amendments; invalidate content review. |
-| Standing overrides | `applyBillingClaimOverrides.service.js` applies claim/client/payer rules. | Require reasons, stable payer/product identifiers, effective dates, policy evidence and immutable rule versions. Current reasons are optional and payer matching uses substrings. |
-| Signature timing | `signClinicalNote` marks supervised billable notes non-billable until cosign; drafts can exist beforehand. | Separate service billability, signature requirements and submission eligibility. No per-supervisee deferred-cosign setting exists. |
-| Supervising identity | `pickClinicalCosignSupervisor` excludes billing-only assignments. `resolveClaimProviders` selects a supervisor billing NPI but retains the treating clinician rendering NPI. Claim creation then prefers the office group billing NPI. | Model treating clinician, supervising clinician, payer-required claim rendering identity and billing group separately. Do not call current supervisor billing end-to-end ready. |
-| AI checks | `clinicalNoteContentReview.service.js` auto-passes `aiGenerated` and labels a regex checklist `ai_checked`. Note creation accepts generation metadata from the client. | Require server-verifiable AI evidence. `evaluateClaimReadiness` currently does not enforce AI assistance or content/claim consistency. |
-| Non-billable review | Review-only types/metadata bypass cosign broadly; cosign rejects those notes and marks allowed notes billable. | Supervisor-owned review policy per document type, including treatment plans through their separate model/routes. Reviewing or cosigning must never convert a non-billable document to billable. |
-| Amendments | Clinical addenda and billing-amendment records exist; claim corrections preserve signed notes. | Bind review/approval to the original note, every addendum and effective claim data. |
-| Review time | Scheduled supervision, finalized-session credits and payroll-derived hours exist. | Separate attested documentation-review ledger, scheduling integration and bidirectional overlap controls are needed. |
+Main migration: `1483_supervised_billing_policies.sql`. Clinical migration: `019_claim_documentation_reviews.sql` (requires the previous Claim.MD clinical migration `018`). Apply and verify in staging before rollout.
+
+## Verified Colorado January change
+
+HCPF’s [June 30, 2026 behavioral-health update](https://myemail.constantcontact.com/Health-First-Colorado-Behavioral-Health-Updates-June-2026.html?aid=9i8MEgGa9aY&soid=1120776134797) says that **January 1, 2027** begins the requirement for individual NPIs for all behavioral-health service providers, including pre-licensed and unlicensed professionals, and that the individual NPI must appear on the claim.
+
+The announcement does **not** specify the 837 field/loop, whether the existing overseeing-provider mapping changes, or whether the transition is keyed to service date or submission date. Until confirmed, the implementation conservatively holds Colorado Medicaid supervised claims when either date reaches January 2027 unless a verified, applicable rule includes the service provider NPI. This is an application safeguard, not a claim that HCPF announced both date criteria.
+
+Claim.MD’s [professional-claim field reference](https://docs.claim.md/docs/professional-claim-form-overview) documents `chg_supv_prov_npi` and associated supervising-provider names. The adapter supports these charge-level fields alongside the treating provider’s `prov_npi`, **only behind a verified dated payer rule**. No TISI/CCHA rule is pre-marked verified. Obtain Claim.MD/CCHA confirmation before enabling this proposed mapping; vendor documentation alone does not establish CCHA acceptance.
+
+HCPF’s [Rendering Provider Oversight policy](https://hcpf.colorado.gov/sites/hcpf/files/Health%20First%20Colorado%20Behavioral%20Health%20Rendering%20Provider%20Oversight%20Policy_FINAL.pdf) and [December 2025 FAQ](https://hcpf.colorado.gov/sites/hcpf/files/FAQs%20on%20Rendering%20Provider%20Oversight_December%202025.pdf) distinguish Medicaid oversight from licensure supervision and do not impose a blanket cosign requirement on every note. Requirements from the particular contract, credential, service, or other regulation still apply. Minimum RPO described by the policy is one hour per 40 billable service hours for pre-licensed clinicians and one per 20 for unlicensed professionals; this release records RPO time but does not certify those ratios automatically.
+
+## AI privacy enablement
+
+The application locally removes known coverage/chart identifiers, calls Google Sensitive Data Protection de-identification, then sends the returned narrative and a whitelist of service code, units, POS and modifiers to Vertex. It does not send the patient/insurance object to the language model. Sensitive Vertex errors suppress response-body logging, and this workflow cannot fall back to the API-key endpoint.
+
+Enable only after the organization has reviewed the processing arrangement, locations, IAM, retention/logging and redaction quality: `CLINICAL_AI_PRIVACY_APPROVED=true`, an approved `GCP_PROJECT_ID` (or existing equivalent), DLP `content:deidentify` and Vertex permissions/API enablement, and the existing clinical/billing encryption configuration. Missing privacy configuration, redaction failure, malformed/incomplete model output, or a missing fresh review holds submission. Redaction is not a guarantee that narrative contains no PHI; DLP itself processes sensitive content. No real patient narrative was sent during local verification.
+
+## Remaining production checks and limits
+
+- Confirm CCHA’s precise January mapping, deferred-cosign permission, product identifiers and effective periods. NPI checksum validation does not verify Type 1 ownership, licensure, credential eligibility, enrollment or group affiliation; these require verified source records.
+- Exercise migrations and concurrent writes on disposable MySQL/staging, then use a **separate Claim.MD test account** for synthetic submission and response scenarios. The supplied account is production and was not used for test claims.
+- Review-time entries are a separate ledger. Imported payroll/licensure totals without start/end intervals cannot be overlap-checked or credited by this release. Do not add these minutes to those totals automatically.
+- Clinical review queues show the latest 100 signed notes and 100 active/final treatment plans. Mandatory document review is surfaced as requested work; separate treatment-plan activation/renewal policies still apply. Post-submission changes create a billing history follow-up event; an automated corrected-claim/appeal workflow is not supplied.
+- Existing payments workspace limitations remain: ERA reconciliation/posting, reversal handling and payment reporting are separate unfinished work. Accepted claims are never labeled paid merely from an acknowledgement.
 
 ## Required lifecycle
 
@@ -62,7 +83,7 @@ AI findings support human review and cannot guarantee all errors are caught. Do 
 
 Allow supervisors to schedule review blocks or directly record completed work. Planned time earns no completed-time credit until attested. Record agency, supervisor, supervisee, start/end/timezone, activity category, linked documents, actual minutes, attestation timestamp and amendment/void history. Attestation may occur later; work timestamps describe the actual work.
 
-Proposed default pending the owner's answer: documentation-review minutes are separate from meeting hours, payroll compensation and licensure-supervision credit. Do not give a supervisee meeting attendance for work they did not attend. Any permitted credit conversion requires an explicit rule and traceable allocation.
+Implemented default: documentation-review minutes are separate from meeting hours, payroll compensation and licensure-supervision credit. Do not give a supervisee meeting attendance for work they did not attend. Any permitted credit conversion requires an explicit rule and traceable allocation.
 
 Reject duplicate/overlapping counted time across review entries, individual/group supervision, imported credited work, supervisees and agencies. Check both creation orders, including later meeting creation/rescheduling/finalization. Handle partial overlap, timezones/DST, retries and simultaneous writes transactionally. Present conflicts for resolution without revealing another tenant's confidential details; do not silently double count or prorate.
 
@@ -79,18 +100,12 @@ Reject duplicate/overlapping counted time across review entries, individual/grou
 - Cross-tenant access, provider access to financial amounts and unauthorized signing/policy changes are denied server-side.
 - Review time requires actual-work attestation and rejects overlaps in either creation order without inflating meeting/licensure totals.
 
-## Policy verification still needed
+## Payer-specific exceptions
 
-The owner reports that their Colorado workflow permits provider signature before later supervisor cosign. This audit has **not established a universal Colorado rule allowing submission before cosign**. Confirm the specific credential, payer/product, service and dates, including CCHA's requirements, before enabling it.
+The [2026 Kaiser Colorado billing manual](https://healthy.kaiserpermanente.org/content/dam/kporg/final/documents/community-providers/co/kpco-provider-manual-section-5-billing-and-payment.pdf) ties claims/payment to the agreement and applicable requirements. No blanket telehealth POS 02-to-11 instruction was verified. Record the product-specific instruction and effective period. A system accepting a code is not evidence that the code accurately represents the service.
 
-[HCPF behavioral-health guidance](https://hcpf.test.colorado.gov/bh-policies), under “Medicaid Supervision Policy,” distinguishes Medicaid billing supervision from licensure supervision and describes circumstances where the enrolled supervisor belongs in the claim rendering-provider field. This is why the current supervisor billing-NPI preference is insufficient. The accessible page is on HCPF's test host; obtain the applicable current policy/RAE confirmation before encoding production rules.
+## Local verification
 
-The [2026 Kaiser Colorado billing manual](https://healthy.kaiserpermanente.org/content/dam/kporg/final/documents/community-providers/co/kpco-provider-manual-section-5-billing-and-payment.pdf) ties claims/payment to the agreement and applicable requirements. This audit did not verify a blanket telehealth POS 02-to-11 instruction. Obtain the specific product's instruction/reference and effective period.
+136 targeted tests passed: 56 Claim.MD/supervised-billing backend tests, 30 adapter/security Node tests, 11 scheduling-access/readiness tests, and 39 frontend workspace/supervision/clinical-note tests. These cover permission boundaries, policy dates/versions, provider identities, AI failure and freshness gates, audited overrides, time overlap locks, and approval invalidation.
 
-## Implementation order
-
-1. Separate billability, provider identities and signature policy; implement supervisor settings and policy history.
-2. Implement authenticated AI evidence, privacy boundary and submission consistency checks with amendment/override invalidation.
-3. Complete audited payer exceptions, effective-payload preview and non-billable review queues, including treatment plans.
-4. Add attested review-time ledger, scheduling integration and transactional overlap controls.
-5. Test these cases with synthetic data, then verify TISI/CCHA before supervised live claims.
+An isolated release copy excludes unrelated intake changes. Its production frontend build passes (existing large-chunk warnings remain). Synthetic Chrome checks at desktop and phone sizes exercise policy saving, NPI readiness, the document queue and scheduled/unattested review time; no runtime errors or horizontal page overflow remain. These are local checks, not live payer, real-MySQL concurrency, privacy-quality, or production deployment verification.

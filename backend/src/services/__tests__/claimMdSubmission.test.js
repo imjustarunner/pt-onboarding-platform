@@ -18,6 +18,13 @@ beforeEach(() => {
   mocks.upload.mockResolvedValue({ claim: [{ remote_claimid: '11', claimmd_id: '800', status: 'A' }] });
 });
 describe('reviewed claim transmission', () => {
+  it('rechecks review freshness under the claim and documentation locks before upload', async () => {
+    mocks.prepare.mockResolvedValueOnce(prepared()).mockResolvedValueOnce({...prepared(),reviewHash:'b'.repeat(64)});
+    const next=vi.fn();await submitClaimToClaimMd(request(),response(),next);
+    expect(next.mock.calls[0][0].status).toBe(409);expect(mocks.rollback).toHaveBeenCalled();expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.execute.mock.calls.filter(([sql])=>sql.includes('FOR UPDATE'))).toHaveLength(3);
+    expect(mocks.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE clinical_claims'))).toBe(false);
+  });
   it('requires explicit approval before resolving credentials or transmitting', async () => {
     const req = request(); req.body.approved = false; const res = response(); await submitClaimToClaimMd(req, res, e => { throw e; });
     expect(res.code).toBe(400); expect(mocks.upload).not.toHaveBeenCalled(); expect(mocks.connection).not.toHaveBeenCalled();
@@ -41,7 +48,7 @@ describe('reviewed claim transmission', () => {
     mocks.upload.mockRejectedValue(new Error('timeout')); const next = vi.fn();
     await submitClaimToClaimMd(request(), response(), next);
     expect(mocks.commit).toHaveBeenCalledTimes(1); expect(mocks.event).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'approved_submission', actorUserId: 9 }), expect.anything());
-    expect(mocks.upload).toHaveBeenCalledTimes(1); expect(mocks.execute).toHaveBeenCalledTimes(1);
+    expect(mocks.upload).toHaveBeenCalledTimes(1); expect(mocks.execute.mock.calls.filter(([sql]) => sql.startsWith('UPDATE clinical_claims'))).toHaveLength(1);
     expect(mocks.commit.mock.invocationCallOrder[0]).toBeLessThan(mocks.upload.mock.invocationCallOrder[0]);
     expect(next.mock.calls[0][0].message).toBe('timeout');
   });
@@ -55,11 +62,11 @@ describe('reviewed claim transmission', () => {
   it('stores a matching acknowledgement without treating it as a payment', async () => {
     const res = response(); await submitClaimToClaimMd(request(), res, e => { throw e; });
     expect(res.body.accepted).toBe(true); expect(res.body.message).toContain('portal');
-    expect(mocks.execute.mock.calls[1][1][0]).toBe('submitted'); expect(mocks.commit).toHaveBeenCalledTimes(2);
+    expect(mocks.execute.mock.calls.find(([sql]) => sql.includes('SET claim_lifecycle = ?'))[1][0]).toBe('submitted'); expect(mocks.commit).toHaveBeenCalledTimes(2);
   });
   it('rejects an acknowledgement for a different claim and leaves this claim queued', async () => {
     mocks.upload.mockResolvedValue({ claim: [{ remote_claimid: '99', claimmd_id: '800', status: 'A' }] });
     const next = vi.fn(); await submitClaimToClaimMd(request(), response(), next);
-    expect(next.mock.calls[0][0].status).toBe(502); expect(mocks.execute).toHaveBeenCalledTimes(1);
+    expect(next.mock.calls[0][0].status).toBe(502); expect(mocks.execute.mock.calls.filter(([sql]) => sql.startsWith('UPDATE clinical_claims'))).toHaveLength(1);
   });
 });

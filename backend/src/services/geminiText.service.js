@@ -57,7 +57,7 @@ function buildCandidateModels(configured) {
   return list;
 }
 
-async function performVertexCall({ modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget }) {
+async function performVertexCall({ modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive = false }) {
   const url = `https://${encodeURIComponent(location)}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(
     projectId
   )}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(modelName)}:generateContent`;
@@ -65,6 +65,7 @@ async function performVertexCall({ modelName, projectId, location, token, prompt
   const started = Date.now();
   const resp = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(90000),
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json; charset=utf-8'
@@ -80,7 +81,7 @@ async function performVertexCall({ modelName, projectId, location, token, prompt
 
   if (!resp.ok) {
     const t = await resp.text();
-    const details = String(t || '').slice(0, 1000);
+    const details = sensitive ? 'Sensitive request details withheld' : String(t || '').slice(0, 1000);
     console.error(`[Vertex] HTTP ${resp.status} latency=${latencyMs}ms model=${modelName} details=${details}`);
     const err = new Error('Vertex Gemini request failed');
     err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
@@ -173,8 +174,9 @@ async function callViaApiKey({ prompt, temperature, maxOutputTokens, model = nul
   throw lastErr || new Error('Gemini request failed for all candidate models');
 }
 
-export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800, model = null, thinkingBudget }) {
+export async function callGeminiText({ prompt, temperature = 0.2, maxOutputTokens = 800, model = null, thinkingBudget, vertexOnly = false, sensitive = false }) {
   const useVertex = shouldUseVertex();
+  if (vertexOnly && !useVertex) throw Object.assign(new Error('An approved Vertex configuration is required'), { status: 503 });
   const hasApiKey = !!(process.env.GEMINI_API_KEY || '').trim();
   const configuredModel =
     String(model || process.env.GEMINI_MODEL || process.env.VERTEX_AI_MODEL || 'gemini-2.5-flash').trim()
@@ -195,7 +197,7 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
       for (const modelName of candidates) {
         try {
           return await performVertexCall({
-            modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget
+            modelName, projectId, location, token, prompt, temperature, maxOutputTokens, thinkingBudget, sensitive
           });
         } catch (err) {
           lastErr = err;
@@ -207,7 +209,7 @@ export async function callGeminiText({ prompt, temperature = 0.2, maxOutputToken
       }
       throw lastErr || new Error('Vertex Gemini request failed for all candidate models');
     } catch (vertexErr) {
-      if (hasApiKey) {
+      if (hasApiKey && !vertexOnly) {
         console.warn(
           `[Vertex] unavailable (${vertexErr?.status || 'error'}: ${vertexErr?.message}); falling back to GEMINI_API_KEY path`
         );

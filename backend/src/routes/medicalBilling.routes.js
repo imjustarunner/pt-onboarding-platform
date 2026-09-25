@@ -2,6 +2,8 @@ import { listTreatmentFrequencies, addTreatmentFrequency, suggestObjectiveInterv
 import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '../controllers/medicalBilling.controller.js';
 import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
 import express from 'express';
+import { listSupervisedPayerPolicies, saveSupervisedPayerPolicy, supervisedProviderReadiness } from '../controllers/supervisedBilling.controller.js';
+import { runClaimAiReview, resolveClaimAiFinding } from '../controllers/claimMdWorkflow.controller.js';
 import { getBillingWorkspace } from '../controllers/claimMdWorkspace.controller.js';
 import { reviewClaim, claimHistory, claimDraft, listUndraftedNotes, correctClaim, searchClaimMdPayers, startClaimMdEnrollment, listClaimMdEnrollments, listClaimMdOffices } from '../controllers/claimMdWorkflow.controller.js';
 import { body, param, query } from 'express-validator';
@@ -88,6 +90,9 @@ const router = express.Router();
 
 router.use(authenticate, requireActiveStatus, (req,res,next)=>{res.set('Cache-Control','no-store');next();});
 router.get('/workspace', getBillingWorkspace);
+router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, listSupervisedPayerPolicies);
+router.get('/supervised-provider-readiness', requireMedicalBillingFinancialAccess, supervisedProviderReadiness);
+router.post('/supervised-payer-policies', requireMedicalBillingFinancialAccess, saveSupervisedPayerPolicy);
 router.get('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, getClientInsurance);
 router.put('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, saveClientInsurance);
 
@@ -549,6 +554,8 @@ router.post(
 router.post('/claimmd/responses/sync', ...claimMdGate, refreshClaimMdResponses);
 router.get('/claims/undrafted-notes', ...claimMdGate, listUndraftedNotes);
 router.get('/claimmd/claims/:claimId/review', ...claimMdGate, reviewClaim);
+router.post('/claimmd/claims/:claimId/ai-review', ...claimMdGate, runClaimAiReview);
+router.post('/claimmd/claims/:claimId/ai-findings/resolve', ...claimMdGate, resolveClaimAiFinding);
 router.get('/claimmd/claims/:claimId/history', ...claimMdGate, claimHistory);
 router.get('/claimmd/claims/:claimId/draft', ...claimMdGate, claimDraft);
 router.patch('/claimmd/claims/:claimId', ...claimMdGate, correctClaim);

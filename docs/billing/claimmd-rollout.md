@@ -164,3 +164,11 @@ SKIP_DB_CONNECT=1 NODE_ENV=test node frontend/node_modules/vitest/vitest.mjs run
 node frontend/node_modules/vitest/vitest.mjs run --config frontend/vite.config.js \
   frontend/src/components/admin/__tests__/ClaimMdWorkspace.test.js frontend/src/views/admin/__tests__/ClinicalNoteGeneratorView.smoke.test.js
 ```
+
+## Supervised billing follow-up release (2026-09-24)
+
+See [supervised billing and documentation review](supervised-billing-and-documentation-review.md) for implemented controls, the verified January 1, 2027 Colorado individual-NPI change, and remaining payer/privacy validation.
+
+Apply main migration `1483` and clinical migration `019` after `018`. The new submission gate requires an actual current AI review; before enabling live submissions, configure and validate the approved DLP/Vertex workflow. Keep `CLINICAL_AI_PRIVACY_APPROVED` unset until that validation is complete. Store credentials only in the existing Google Cloud secret arrangement; no API key is needed in the frontend or GitHub repository.
+
+No January provider mapping, deferred-cosign permission, payer enrollment, live claim, or ERA payment has been certified by this local release. TISI/CCHA remains subject to the rollout blockers above, including the missing verified tax ID and deployment access.

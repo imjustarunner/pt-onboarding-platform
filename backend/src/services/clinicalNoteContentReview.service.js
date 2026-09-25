@@ -1,7 +1,8 @@
 /**
  * Content Review — checks that a note body has required clinical content.
  * Never inspects demographics or other PHI fields outside the note text.
- * AI-generated Note Aid output is treated as complete (auto-pass).
+ * This deterministic checklist is NOT evidence of an AI review. Claim submission
+ * uses claimContentReview.service.js against the current note and effective claim.
  */
 
 const TERMINATION_REQUIRED = [
@@ -11,7 +12,7 @@ const TERMINATION_REQUIRED = [
 ];
 
 const GENERIC_REQUIRED = [
-  { id: 'body', label: 'Clinical narrative content', pattern: /\S{40,}/ }
+  { id: 'body', label: 'Clinical narrative content', pattern: /(?:\S\s*){40,}/ }
 ];
 
 function parseMeta(note) {
@@ -58,16 +59,6 @@ export function evaluateNoteContentReview({
   const body = noteBodyText(notePayload);
   const required = requiredItemsForNote(noteType, toolId);
 
-  if (aiGenerated) {
-    return {
-      status: 'passed',
-      source: 'ai_generated',
-      checkedAt: new Date().toISOString(),
-      items: required.map((r) => ({ id: r.id, label: r.label, passed: true, auto: true })),
-      notes: 'AI Note Aid output — content checklist auto-passed (content only; demographics/PHI not reviewed).'
-    };
-  }
-
   const items = required.map((r) => ({
     id: r.id,
     label: r.label,
@@ -77,7 +68,7 @@ export function evaluateNoteContentReview({
   const allPassed = items.every((i) => i.passed);
   return {
     status: allPassed ? 'passed' : 'pending',
-    source: 'ai_checked',
+    source: 'checklist',
     checkedAt: new Date().toISOString(),
     items,
     notes: allPassed

@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
 import clinicalPool from '../config/clinicalDatabase.js';
+import pool from '../config/database.js';
+import { resolveDocumentationPolicy, loadPayerPolicy, evaluateSupervisedBilling, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
+import { claimDocumentation, reviewSourceHash, currentClaimContentReview, runClaimContentReview } from '../services/claimContentReview.service.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { evaluateClaimReadiness } from '../services/clinicalClaimReadiness.service.js';
@@ -25,15 +28,46 @@ export async function prepareClaimReview(agencyId, claimId) {
   const readiness = await evaluateClaimReadiness({ agencyId, clientId: claim.client_id, clinicalSessionId: claim.clinical_session_id, clinicalNoteId: claim.clinical_note_id, requireSignedNote: true });
   if (!claim.clinical_note_id || lines.some(line => Number(line.clinical_note_id) !== Number(claim.clinical_note_id))) throw fail(409, 'Every service line must be linked to this claim’s signed note');
   const insurance = await readClientInsurance(claim.client_id, agencyId);
+  const documentation = await claimDocumentation(agencyId, claim);
+  documentation.note.latest_addendum_at = documentation.addenda.at(-1)?.created_at || null;
+  const [[session]] = await clinicalPool.execute('SELECT provider_user_id, rendering_provider_user_id FROM clinical_sessions WHERE id = ? AND agency_id = ?', [claim.clinical_session_id,agencyId]);
+  const providerId = Number(session?.rendering_provider_user_id || session?.provider_user_id);
+  const policy = await resolveDocumentationPolicy(agencyId, providerId);
+  const [users] = await pool.execute('SELECT id,first_name,last_name,npi,license_type FROM users WHERE id IN (?,?)', [providerId,policy.supervisorUserId || 0]);
+  const person = id => { const u=users.find(r=>Number(r.id)===Number(id)); return u?{id:Number(u.id),firstName:u.first_name,lastName:u.last_name,npi:u.npi || null}:null; };
+  const configuredPayerPolicy = await loadPayerPolicy(agencyId, insurance?.primary?.payerId, insurance?.primary?.planType);
+  const payerPolicy = { ...configuredPayerPolicy, coloradoMedicaid: configuredPayerPolicy?.coloradoMedicaid === true || insurance?.primary?.payerId === 'COCHA' };
+  const supervision = evaluateSupervisedBilling({ policy,payerPolicy,dateOfService:claim.date_of_service,serviceProvider:person(providerId),supervisor:person(policy.supervisorUserId),note:documentation.note });
+  if (Number(documentation.note.provider_signed_by_user_id || documentation.note.created_by_user_id) !== providerId) supervision.blockers.push('The signed note author does not match the treating service provider');
+  // Older notes used is_billable=0 to represent a cosign hold. Policy now owns that hold.
+  if (documentation.note.provider_signed_at && !isNonBillableDocument(documentation.note) && policy.supervisorUserId) readiness.blockers = readiness.blockers.filter(b=>b!=='Note requires supervisor approval or is non-billable');
   const billingProfile = await resolveClaimMdBillingProfile(agencyId, claim.clinical_session_id);
   const { practice } = billingProfile;
   const overrides = await applyBillingClaimOverrides({ agencyId, clientId: claim.client_id, claimId,
-    placeOfService: claim.place_of_service, billingNpi: claim.billing_npi, taxonomyCode: claim.taxonomy_code, payerName: claim.payer_name });
-  const effective = { ...claim, place_of_service: overrides?.placeOfService || claim.place_of_service, billing_npi: overrides?.billingNpi || claim.billing_npi, taxonomy_code: overrides?.taxonomyCode || claim.taxonomy_code };
+    placeOfService: claim.place_of_service, billingNpi: claim.billing_npi, taxonomyCode: claim.taxonomy_code, payerName: claim.payer_name,
+    payerId: insurance?.primary?.payerId, planType: insurance?.primary?.planType, dateOfService: claim.date_of_service });
+  const effective = { ...claim, rendering_npi: supervision.renderingProvider?.npi || claim.rendering_npi, rendering_first_name: supervision.renderingProvider?.firstName, rendering_last_name: supervision.renderingProvider?.lastName,
+    supervising_provider: supervision.emitSupervisor ? supervision.supervisingProvider : null,
+    place_of_service: overrides?.placeOfService || claim.place_of_service, billing_npi: overrides?.billingNpi || claim.billing_npi, taxonomy_code: overrides?.taxonomyCode || claim.taxonomy_code };
   assertClaimBillingNpi(billingProfile, effective.billing_npi);
   const effectiveLines = overrides?.modifiers ? lines.map(line => ({ ...line, modifiers_json: String(overrides.modifiers).split(/[,\s]+/).filter(Boolean) })) : lines;
   const payload = buildClaimMdJsonClaim(effective, effectiveLines, { insurance, practice });
-  return { claim, lines, readiness, insurance, payload, billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash(payload) };
+  const sourceHash = reviewSourceHash({ documentation, payload, supervision, overrides: overrides?.applied || [], revision:claim.billing_revision });
+  const aiReview = await currentClaimContentReview(agencyId,claimId,sourceHash);
+  const history = aiReview.id ? await claimEventHistory(agencyId,claimId) : [];
+  const resolutions = history.filter(e=>e.type==='ai_finding_resolution' && Number(e.reviewId)===Number(aiReview.id) && e.sourceHash===sourceHash);
+  aiReview.findings = aiReview.findings.map(f=>({...f,resolution:resolutions.find(r=>r.findingId===f.id)||null}));
+  const unresolved = aiReview.findings.filter(f=>f.severity==='blocker'&&!f.resolution);
+  if(aiReview.status==='required')readiness.blockers.push('Run the AI content and claim consistency review');
+  else if(unresolved.length)readiness.blockers.push(...unresolved.map(f=>f.message));
+  else aiReview.status='passed';
+  const [[clinicalReview]] = await pool.execute("SELECT outcome FROM clinical_document_reviews WHERE agency_id = ? AND document_type = 'note' AND document_id = ? ORDER BY id DESC LIMIT 1",[agencyId,claim.clinical_note_id]);
+  if(clinicalReview?.outcome==='changes_requested')readiness.blockers.push('Supervisor requested documentation changes; obtain review after the amendment');
+  readiness.blockers.push(...supervision.blockers);
+  readiness.warnings.push(...supervision.warnings,...aiReview.findings.filter(f=>f.severity==='warning').map(f=>f.message));
+  readiness.ready=readiness.blockers.length===0;
+  return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, appliedOverrides:overrides?.applied || [],
+    billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
 }
 
 export async function reviewClaim(req, res, next) {
@@ -44,8 +78,32 @@ export async function reviewClaim(req, res, next) {
     const prepared = await prepareClaimReview(agencyId, claimId);
     const history = await claimEventHistory(agencyId, claimId);
     res.json({ claimId, clinicalSessionId: prepared.claim.clinical_session_id, clinicalNoteId: prepared.claim.clinical_note_id,
-      lifecycle: prepared.claim.claim_lifecycle, billingOffice: prepared.billingOffice, payload: prepared.payload, readiness: prepared.readiness, reviewHash: prepared.reviewHash, history });
+      lifecycle: prepared.claim.claim_lifecycle, billingOffice: prepared.billingOffice, payload: prepared.payload, readiness: prepared.readiness, reviewHash: prepared.reviewHash,
+      supervision:prepared.supervision,aiReview:prepared.aiReview,appliedOverrides:prepared.appliedOverrides,history });
   } catch (e) { next(e); }
+}
+
+export async function runClaimAiReview(req,res,next) {
+  try {
+    const agencyId=await agencyFor(req),claimId=Number(req.params.claimId),prepared=await prepareClaimReview(agencyId,claimId);
+    if(!['draft','ready','rejected'].includes(prepared.claim.claim_lifecycle))throw fail(409,'Reconcile this submitted claim before reviewing a replacement');
+    if(!prepared.documentation.note.provider_signed_at)throw fail(409,'Provider must sign before submission review');
+    const result=await runClaimContentReview({agencyId,claimId,sourceHash:prepared.sourceHash,documentation:prepared.documentation,payload:prepared.payload,insurance:prepared.insurance,actorUserId:req.user.id});
+    res.json({review:result});
+  }catch(e){next(e);}
+}
+export async function resolveClaimAiFinding(req,res,next) {
+  try {
+    const agencyId=await agencyFor(req),claimId=Number(req.params.claimId),prepared=await prepareClaimReview(agencyId,claimId);
+    const finding=prepared.aiReview.findings.find(f=>f.id===req.body.findingId);
+    if(!['draft','ready','rejected'].includes(prepared.claim.claim_lifecycle)||Number(req.body.reviewId)!==Number(prepared.aiReview.id))throw fail(409,'Claim review changed. Reload before resolving findings.');
+    if(!finding||!['place_of_service','modifiers'].includes(finding.category))throw fail(409,'Clinical findings require correction through an amendment/addendum and a new review');
+    const reason=String(req.body.reason||'').trim(),reference=String(req.body.policyReference||'').trim();
+    if(reason.length<10||reason.length>1000||reference.length<5||reference.length>1000)throw fail(400,'Document the payer exception reason and supporting policy/reference');
+    await recordClaimEvent({agencyId,claimId,connectionId:prepared.claim.claimmd_connection_id||`agency:${agencyId}`,eventKey:`ai-resolution:${crypto.randomUUID()}`,eventType:'ai_finding_resolution',actorUserId:req.user.id,
+      payload:{reviewId:prepared.aiReview.id,sourceHash:prepared.sourceHash,findingId:finding.id,reason,policyReference:reference}});
+    res.json({ok:true});
+  }catch(e){next(e);}
 }
 
 export async function claimHistory(req, res, next) {

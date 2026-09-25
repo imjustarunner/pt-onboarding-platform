@@ -125,7 +125,10 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
     const references=String(line.diagnosis_pointers || '1').split(/[,\s]+/).map(Number);
     if(references.length>8 || references.some(p=>!Number.isInteger(p) || p<1 || p>diagnoses.length)) throw Object.assign(new Error('Service diagnosis references are invalid'),{status:409});
     const pointers=references.map(p=>String.fromCharCode(64+p)).join('');
-    return {...(line.id ? {remote_chgid:String(line.id)} : {}),proc_code:line.procedure_code,charge:(Number(line.charge_cents)/100).toFixed(2),units:String(line.units),from_date:fdos,thru_date:fdos,place_of_service:claim.place_of_service,diag_ref:pointers,charge_record_type:'UN',...Object.fromEntries(mods.slice(0,4).map((mod,i)=>[`mod${i+1}`,mod]))};
+    const supervisor=claim.supervising_provider;
+    if(supervisor && (!/^\d{10}$/.test(supervisor.npi || '') || !supervisor.firstName || !supervisor.lastName || supervisor.npi===claim.rendering_npi))throw Object.assign(new Error('Supervising provider identity is incomplete or duplicates the rendering provider'),{status:409});
+    return {...(line.id ? {remote_chgid:String(line.id)} : {}),proc_code:line.procedure_code,charge:(Number(line.charge_cents)/100).toFixed(2),units:String(line.units),from_date:fdos,thru_date:fdos,place_of_service:claim.place_of_service,diag_ref:pointers,charge_record_type:'UN',...Object.fromEntries(mods.slice(0,4).map((mod,i)=>[`mod${i+1}`,mod])),
+      ...(supervisor?{chg_supv_prov_npi:supervisor.npi,chg_supv_prov_name_f:supervisor.firstName,chg_supv_prov_name_l:supervisor.lastName}:{})};
   });
   if (!/^\d{10}$/.test(required.bill_npi) || !/^\d{10}$/.test(required.prov_npi) || !/^\d{9}$/.test(required.bill_taxid)) throw Object.assign(new Error('Billing NPI, rendering NPI, or tax ID is invalid'), {status:409});
   const secondary = insurance.secondary;
@@ -133,6 +136,7 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
     payer_name:primary.insurerName,payer_order:'Primary',ins_group:primary.groupNumber || '',
     ins_addr_2:primary.subscriberAddressLine2 || '',pat_addr_2:patient.addressLine2 || '',
     bill_taxid_type:practice.tax_id_type==='ssn'?'S':'E',prov_taxonomy:claim.taxonomy_code || '',
+    ...(claim.rendering_first_name?{prov_name_f:claim.rendering_first_name}:{}),...(claim.rendering_last_name?{prov_name_l:claim.rendering_last_name}:{}),
     total_charge:(charge.reduce((sum,c)=>sum+Math.round(Number(c.charge)*100),0)/100).toFixed(2),
     ...Object.fromEntries(diagnoses.map((d,i)=>[`diag_${i+1}`,d])),charge};
   const limits={payerid:32,payer_name:64,pcn:32,pat_name_l:35,pat_name_f:25,pat_addr_1:55,pat_addr_2:55,pat_city:30,pat_state:2,pat_zip:15,ins_number:32,bill_name:32,bill_addr_1:128,bill_addr_2:128,bill_city:32,bill_state:2,bill_zip:12,bill_phone:16};

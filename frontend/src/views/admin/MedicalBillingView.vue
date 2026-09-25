@@ -283,8 +283,7 @@
 
         <h3 style="margin-top: 1.25rem;">Billing overrides (claim-side)</h3>
         <p class="muted">
-          Remap place of service, billing NPI, taxonomy, or modifiers on claims only
-          (e.g. Medicaid → NPI 1215615711). Providers still see the real service location on schedule/notes.
+          Correct claim fields with a documented reason, policy reference, and effective dates. The claim must accurately represent the service. Clinical corrections require an addendum to the signed note.
         </p>
         <div class="mb-row">
           <select v-model="overrideForm.scope" class="mb-input">
@@ -300,9 +299,9 @@
           </select>
           <input
             v-if="overrideForm.scope === 'payer'"
-            v-model="overrideForm.payerName"
+            v-model="overrideForm.payerId"
             class="mb-input"
-            placeholder="Payer / insurer name"
+            placeholder="Exact payer ID"
           />
           <input
             v-if="overrideForm.scope === 'client'"
@@ -330,7 +329,14 @@
             :placeholder="overrideForm.fieldKey === 'billing_npi' ? 'To NPI' : (overrideForm.fieldKey === 'place_of_service' ? 'To POS' : 'To value')"
             :maxlength="overrideForm.fieldKey === 'place_of_service' ? 2 : 32"
           />
-          <button type="button" class="mb-btn" @click="saveOverride">Save override</button>
+          <input v-if="overrideForm.scope === 'payer'" v-model="overrideForm.planType" class="mb-input" placeholder="Exact insurance plan type" aria-label="Insurance plan type" />
+          <label>Effective from<input v-model="overrideForm.effectiveFrom" type="date" class="mb-input" /></label>
+          <label>Effective through<input v-model="overrideForm.effectiveThrough" type="date" class="mb-input" /></label>
+          <input v-model="overrideForm.policyReference" class="mb-input mb-input--wide" placeholder="Payer policy reference or documented instruction" aria-label="Policy reference" maxlength="1000" />
+          <textarea v-model="overrideForm.reason" class="mb-input mb-input--wide" placeholder="Why is this correction appropriate for the actual service?" aria-label="Override reason" maxlength="1000" />
+          <label v-if="overrideForm.id"><input v-model="overrideForm.isActive" type="checkbox" /> Keep replacement active</label>
+          <button type="button" class="mb-btn" :disabled="overrideSaving" @click="saveOverride">Save audited override</button>
+          <button type="button" class="mb-btn" :disabled="overrideSaving" @click="overrideForm = emptyOverride()">New override / cancel edit</button>
         </div>
         <ul class="mb-list">
           <li v-for="o in claimOverrides" :key="o.id">
@@ -339,7 +345,9 @@
             <template v-if="o.client_id"> · client {{ o.client_id }}</template>
             <template v-if="o.claim_id"> · claim {{ o.claim_id }}</template>
             · {{ o.from_value || '*' }} → {{ o.to_value }}
+            <small>{{ o.notes || 'Legacy rule: needs documented review' }} · {{ o.policy_reference || 'Policy reference missing' }} · {{ o.effective_from || 'Dates missing' }} – {{ o.effective_through || '—' }}</small>
             <span v-if="!o.is_active" class="muted"> (inactive)</span>
+            <button v-else type="button" class="mb-btn" @click="editOverride(o)">Replace / retire</button>
           </li>
         </ul>
         <p v-if="!claimOverrides.length" class="muted">No claim overrides yet.</p>
@@ -408,15 +416,19 @@ const signingLoading = ref(false);
 const claims = ref([]);
 const claimsLoading = ref(false);
 const claimOverrides = ref([]);
-const overrideForm = ref({
+const overrideSaving = ref(false);
+const emptyOverride = () => ({
+  id: null, isActive: true,
   scope: 'payer',
   fieldKey: 'place_of_service',
-  payerName: '',
+  payerId: '', planType: '', effectiveFrom: '', effectiveThrough: '', reason: '', policyReference: '',
   clientId: null,
   claimId: null,
-  fromValue: '03',
-  toValue: '12'
+  fromValue: '',
+  toValue: ''
 });
+const overrideForm = ref(emptyOverride());
+const editOverride = o => { overrideForm.value = { id:o.id,isActive:true,scope:o.scope,fieldKey:o.field_key,payerId:o.payer_id || '',planType:o.plan_type || '',clientId:o.client_id,claimId:o.claim_id,fromValue:o.from_value || '',toValue:o.to_value,reason:'',policyReference:o.policy_reference || '',effectiveFrom:String(o.effective_from || '').slice(0,10),effectiveThrough:String(o.effective_through || '').slice(0,10) }; };
 const feeItems = ref([]);
 const feeCode = ref('');
 const feeCents = ref(0);
@@ -842,11 +854,13 @@ const loadClaimOverrides = async () => {
 };
 
 const saveOverride = async () => {
+  if (overrideSaving.value) return;
+  overrideSaving.value = true;
   try {
     await api.post('/medical-billing/claim-overrides', {
+      ...overrideForm.value,
       agencyId: agencyId.value,
       scope: overrideForm.value.scope,
-      payerName: overrideForm.value.scope === 'payer' ? overrideForm.value.payerName : null,
       clientId: overrideForm.value.scope === 'client' ? overrideForm.value.clientId : null,
       claimId: overrideForm.value.scope === 'claim' ? overrideForm.value.claimId : null,
       fromValue: overrideForm.value.fromValue || null,
@@ -854,25 +868,25 @@ const saveOverride = async () => {
       fieldKey: overrideForm.value.fieldKey || 'place_of_service'
     });
     await loadClaimOverrides();
+    overrideForm.value = emptyOverride();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to save override';
-  }
+  } finally { overrideSaving.value = false; }
 };
 
 const quickClaimPosOverride = async (claim) => {
-  const from = String(claim?.place_of_service || '03').padStart(2, '0').slice(-2);
-  const to = window.prompt(`Remap POS for claim #${claim.id} (from ${from}) to:`, '12');
-  if (!to) return;
+  const from = String(claim?.place_of_service || '');
   overrideForm.value = {
     scope: 'claim',
     fieldKey: 'place_of_service',
-    payerName: '',
+    payerId: '', planType: '', reason: '', policyReference: '',
+    effectiveFrom: String(claim.date_of_service || '').slice(0,10), effectiveThrough: String(claim.date_of_service || '').slice(0,10),
     clientId: null,
     claimId: Number(claim.id),
     fromValue: from,
-    toValue: String(to).padStart(2, '0').slice(-2)
+    toValue: ''
   };
-  await saveOverride();
+  document.querySelector('[aria-label="Override reason"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 };
 
 const addFeeItem = async () => {
@@ -915,6 +929,7 @@ const loadEras = async () => {
 };
 
 watch(agencyId, async () => {
+  overrideForm.value = emptyOverride();
   claims.value = []; feeItems.value = []; claimOverrides.value = []; claimMdLog.value = ''; chart.value = null;
   claimMd.value = { configured: false }; flags.value = { medicalBillingEnabled: false }; error.value = '';
   if (!canRunBillingReports.value) { loading.value = false; return; }
