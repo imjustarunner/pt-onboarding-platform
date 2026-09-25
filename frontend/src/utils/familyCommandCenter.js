@@ -12,7 +12,7 @@ export const eventArtworkChoices = id => {
 };
 export function eventArtwork(metadata = {}) {
   const m = metadata || {};
-  return m.artwork || eventArtworkChoices(m.eventType).find(a => a.id === m.artworkVariant)?.artwork || eventType(m.eventType).artwork;
+  return m.artwork || eventArtworkChoices(m.artworkType || m.eventType).find(a => a.id === m.artworkVariant)?.artwork || eventType(m.artworkType || m.eventType).artwork;
 }
 export function memberStatus(member, entries, work, now = new Date()) {
   const active = entries.filter(e => ['event', 'status'].includes(e.kind) && (!e.member_user_id || e.member_user_id === member.user_id) && new Date(e.start_at) <= now && new Date(e.end_at) > now);
@@ -42,7 +42,7 @@ export function searchFamilyEventGroups(query = '', category = '') {
 const normalizeEventTitle = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 export function inferFamilyEventType(title) {
   const text = ` ${normalizeEventTitle(title)} `;
-  const aliases = { airport: ['airport', 'flight', 'arrivals', 'departures'], zoo: ['zoo'], pickup: ['pick up', 'pickup'], 'drop-off': ['drop off'], 'school-pickup': ['school pickup', 'school pick up'], 'grocery-shopping': ['groceries', 'grocery shopping'], 'np-rocky-mountain': ['rocky mountain national park'], 'np-yellowstone': ['yellowstone'], camping: ['camping', 'campsite'], 'dog-walk': ['walk the dog', 'dog walk'] };
+  const aliases = { 'scheels-shopping': ['scheels', 'scheel s'], airport: ['airport', 'flight', 'arrivals', 'departures'], zoo: ['zoo'], pickup: ['pick up', 'pickup'], 'drop-off': ['drop off'], 'school-pickup': ['school pickup', 'school pick up'], 'grocery-shopping': ['groceries', 'grocery shopping'], 'np-rocky-mountain': ['rocky mountain national park'], 'np-yellowstone': ['yellowstone'], camping: ['camping', 'campsite'], 'dog-walk': ['walk the dog', 'dog walk'] };
   let best = null, bestScore = 0;
   for (const type of familyEventTypes) {
     const phrases = [type.id.replaceAll('-', ' '), ...type.label.split(/\s+\/\s+/), ...(aliases[type.id] || [])];

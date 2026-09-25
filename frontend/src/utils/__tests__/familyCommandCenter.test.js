@@ -108,3 +108,13 @@ describe('automatic personal event themes',()=>{
     const work={work:true,title:'Airport'};expect(themedFamilyCalendarEvent(work)).toBe(work);
   });
 });
+
+it.each(['Scheels','Shopping at Scheels','Go to Scheels at 10 AM',"Scheel’s trip"])('matches the Scheels picture from %s',title=>{
+ expect(inferFamilyEventType(title).id).toBe('scheels-shopping');
+ expect(eventArtwork(familyEventMetadata(title))).toBe('/assets/family-events/scheels-shopping.jpg');
+});
+it('keeps a selected library picture when the title/theme changes and after JSON reload',()=>{
+ const metadata=JSON.parse(JSON.stringify(familyEventMetadata('Soccer',{autoTheme:true,eventType:'scheels-shopping',artworkType:'camping',artworkVariant:'camping-tundra-rooftop'})));
+ expect(metadata.eventType).toBe('soccer');
+ expect(eventArtwork(metadata)).toBe(eventArtworkChoices('camping').find(c=>c.id==='camping-tundra-rooftop').artwork);
+});
