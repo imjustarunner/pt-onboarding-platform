@@ -34,6 +34,7 @@
           placeholder="4/9/26&#10;She Bar&#10;Create a Progress Note…"
         />
       </label>
+      <p v-if="Number(form.agencyId) === 377" class="hint">Service to-dos will link to a planned session for claim preparation. Signing the note prepares its claim; billing review is required before submission. Treatment plans and other non-service notes do not create claims.</p>
 
       <p v-if="preview.skipped.length" class="muted">
         Will skip {{ preview.skipped.length }} consultation / 99415 item{{ preview.skipped.length === 1 ? '' : 's' }}.
@@ -278,6 +279,7 @@ async function submit() {
       const linked = await findOrCreateClient(item, agencyId, organizationId);
       built.push({
         ...item,
+        importedFromEhr: true,
         clientId: linked.clientId,
         clientName: linked.clientName,
         agencyId,

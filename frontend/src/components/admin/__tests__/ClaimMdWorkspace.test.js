@@ -62,8 +62,8 @@ describe('Claim.MD billing desk', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(popup);
     api.post.mockResolvedValue({ data: { url: 'https://www.claim.md/enroll/example/' } });
     const w = mount(ClaimMdWorkspace, { props }); await flushPromises();
-    await w.find('form input').setValue('Colorado');
-    await w.find('form').trigger('submit'); await flushPromises();
+    await w.find('[data-testid="payer-directory-search"] input').setValue('Colorado');
+    await w.find('[data-testid="payer-directory-search"]').trigger('submit'); await flushPromises();
     expect(button(w, 'Open enrollment').attributes('disabled')).toBeDefined();
     await w.find('[data-testid="billing-office"]').setValue('8');
     await button(w, 'Open enrollment').trigger('click'); await flushPromises();

@@ -8,6 +8,8 @@ import { getClientInsurance, saveClientInsurance } from '../controllers/clientIn
 import { getCoverageEvidence, checkClientCoverage, reviewClientCoverage } from '../controllers/coverageVerification.controller.js';
 import { createSecondaryClaim } from '../controllers/claimMdWorkflow.controller.js';
 import express from 'express';
+import { getAppointmentBilling, getPlannedBillingServices } from '../controllers/appointmentBilling.controller.js';
+import { payerSetupRequests } from '../controllers/payerSetupRequest.controller.js';
 import { listSupervisedPayerPolicies, saveSupervisedPayerPolicy, supervisedProviderReadiness } from '../controllers/supervisedBilling.controller.js';
 import { runClaimAiReview, resolveClaimAiFinding } from '../controllers/claimMdWorkflow.controller.js';
 import { getBillingWorkspace } from '../controllers/claimMdWorkspace.controller.js';
@@ -96,6 +98,10 @@ import {
 const router = express.Router();
 
 router.use(authenticate, requireActiveStatus, (req,res,next)=>{res.set('Cache-Control','no-store');next();});
+router.get('/sessions/:sessionId/appointment-billing', requireMedicalClaims, getAppointmentBilling);
+router.get('/planned-services', ...claimsGate, requireMedicalBillingFinancialAccess, getPlannedBillingServices);
+router.get('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
+router.post('/payer-setup-requests', ...claimsGate, requireMedicalBillingFinancialAccess, payerSetupRequests);
 router.get('/workspace', getBillingWorkspace);
 router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, listSupervisedPayerPolicies);
 router.get('/supervised-provider-readiness', requireMedicalBillingFinancialAccess, supervisedProviderReadiness);

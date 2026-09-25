@@ -1,5 +1,6 @@
 import { validationResult } from 'express-validator';
 import NoteAidWorkQueueItem from '../models/NoteAidWorkQueueItem.model.js';
+import { linkImportedPlannedServices } from '../services/noteAidPlannedClaim.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -53,11 +54,14 @@ export async function appendNoteAidWorkQueue(req, res) {
     if (items.length > 200) {
       return res.status(400).json({ error: { message: 'Too many items (max 200)' } });
     }
-    const saved = await NoteAidWorkQueueItem.appendForUser(userId, items);
+    const prepared = await linkImportedPlannedServices(items.filter(item => item.importedFromEhr === true), req.user);
+    let cursor = 0;
+    const linked = items.map(item => item.importedFromEhr === true ? prepared[cursor++] : item);
+    const saved = await NoteAidWorkQueueItem.appendForUser(userId, linked);
     return res.json({ items: saved });
   } catch (error) {
     console.error('appendNoteAidWorkQueue:', error);
-    return res.status(500).json({ error: { message: error.message || 'Failed to append work queue' } });
+    return res.status(error.status || 500).json({ error: { message: error.status ? error.message : 'Failed to append work queue' } });
   }
 }
 

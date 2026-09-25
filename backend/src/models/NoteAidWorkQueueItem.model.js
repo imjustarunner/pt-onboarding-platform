@@ -111,6 +111,7 @@ function toApiItem(row) {
     docStatus: status,
     clientName: payload.clientName || '',
     action: payload.action || '',
+    importedFromEhr: payload.importedFromEhr === true,
     participantsSummary: payload.participantsSummary || null,
     locationLabel: payload.locationLabel || null,
     clientDob: payload.clientDob || null,
@@ -129,6 +130,7 @@ function buildPayloadFromItem(item = {}) {
   return {
     clientName: String(item.clientName || item.client_name || '').trim(),
     action: String(item.action || '').trim(),
+    importedFromEhr: item.importedFromEhr === true,
     participantsSummary: item.participantsSummary || item.participants_summary || null,
     locationLabel: item.locationLabel || item.location_label || null,
     clientDob: item.clientDob || item.client_dob || null,

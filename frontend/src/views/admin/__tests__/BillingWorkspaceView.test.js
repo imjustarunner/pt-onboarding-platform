@@ -29,7 +29,7 @@ describe('billing workspace', () => {
     expect(w.find('[aria-label="Company billing details"]').exists()).toBe(true);
     expect(w.find('[data-testid="organization-scope"]').element.value).toBe('all');
     await button(w, 'Work in Company One').trigger('click'); await flushPromises();
-    expect(api.get.mock.calls.at(-1)[1].params.agencyId).toBe('1');
+    expect(api.get.mock.calls.filter(([path])=>path==='/medical-billing/workspace').at(-1)[1].params.agencyId).toBe('1');
     expect(w.attributes('style')).toContain('--bw-brand: #23564f'); w.unmount();
   });
   it('discards stale scope responses instead of replacing the current agency data', async () => {

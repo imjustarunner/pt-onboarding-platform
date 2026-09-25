@@ -225,6 +225,14 @@
           @toggle-setup="showClientSetupDrawer = true"
           @toggle-addon-code="toggleManualAddonCode"
         />
+        <details v-if="sessionClinicalSessionId && Number(noteAidAgencyId || currentAgencyId) === 377" :open="noteBillingExpanded" @toggle="noteBillingExpanded = $event.target.open">
+          <summary>Insurance &amp; claim progress</summary>
+          <AppointmentBillingPanel v-if="noteBillingExpanded" :key="`${sessionClinicalSessionId}-${signedNoteViewerId || ''}`"
+            :agency-id="Number(noteAidAgencyId || currentAgencyId)" :clinical-session-id="sessionClinicalSessionId"
+            :client-name="noteSubjectLabel" :service-label="quickSessionServiceLabel" :service-date-label="dateOfService"
+            :provider-name="sessionClinicianLabel" :location-label="sessionLocationLabel"
+            @open-note="noteBillingExpanded = false" />
+        </details>
 
         <section
           v-if="needsClientAttachStep"
@@ -1578,6 +1586,7 @@ import NoteAidIntakeDraftEditor from '../../components/clinical/NoteAidIntakeDra
 import NoteAidDemographicsImportReview from '../../components/clinical/NoteAidDemographicsImportReview.vue';
 import NoteAidWorkQueuePanel from '../../components/clinical/NoteAidWorkQueuePanel.vue';
 import NoteAidTodoListImportModal from '../../components/clinical/NoteAidTodoListImportModal.vue';
+import AppointmentBillingPanel from '../../components/schedule/AppointmentBillingPanel.vue';
 import NoteAidDiagnosisWriterModal from '../../components/clinical/NoteAidDiagnosisWriterModal.vue';
 import NoteAidTreatmentPlanStandaloneModal from '../../components/clinical/NoteAidTreatmentPlanStandaloneModal.vue';
 import NoteAidSessionContextStrip from '../../components/clinical/NoteAidSessionContextStrip.vue';
@@ -2061,6 +2070,7 @@ const showIntakeDraftEditor = ref(false);
 const intakeDraftEditorId = ref(null);
 const showDemographicsImport = ref(false);
 const showTodoImportModal = ref(false);
+const noteBillingExpanded = ref(false);
 /** Last Add ToDo List batch — used by Undo on the work queue panel. */
 const lastTodoImportBatch = ref(null);
 const showDiagnosisWriterModal = ref(false);
@@ -7617,7 +7627,7 @@ async function activateCosignQueueItem(item) {
   approvalMessage.value = 'Opened note for supervisor co-signature.';
 }
 
-function onTodoListBuilt({ items }) {
+async function onTodoListBuilt({ items }) {
   showTodoImportModal.value = false;
   const incoming = (Array.isArray(items) ? items : []).map((i) => ({
     ...i,
@@ -7634,21 +7644,21 @@ function onTodoListBuilt({ items }) {
     if (k) existingKeys.add(k);
     return true;
   });
-  workQueueItems.value = [...(workQueueItems.value || []), ...appended];
-  lastTodoImportBatch.value = appended.length
-    ? {
-        clientKeys: appended.map((i) => String(i.clientKey || i.id)),
-        at: new Date().toISOString()
-      }
-    : null;
-  appendWorkQueueToApi(authStore.user?.id, appended)
-    .then(({ merged }) => {
-      if (Array.isArray(merged)) workQueueItems.value = merged.map(normalizeWorkQueueItemStatus);
-    })
-    .catch((e) => {
-      console.warn('Work queue append failed:', e?.response?.data?.error?.message || e.message);
-      persistWorkQueue();
-    });
+  if (!appended.length) {
+    approvalMessage.value = 'These items are already in your work queue.';
+    return;
+  }
+  try {
+    const { merged } = await appendWorkQueueToApi(authStore.user?.id, appended);
+    if (Array.isArray(merged)) workQueueItems.value = merged.map(normalizeWorkQueueItemStatus);
+    lastTodoImportBatch.value = appended.length ? {
+      clientKeys: appended.map(i => String(i.clientKey || i.id)), at: new Date().toISOString()
+    } : null;
+  } catch (error) {
+    approvalMessage.value = error?.response?.data?.error?.message || 'Import could not be saved. Retry before documenting these services.';
+    lastTodoImportBatch.value = null;
+    return;
+  }
   api.post('/clinical-notes/audit', {
     agencyId: noteAidAgencyId.value || currentAgencyId.value,
     action: 'note_aid_todo_added',

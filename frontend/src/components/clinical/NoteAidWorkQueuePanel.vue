@@ -202,6 +202,7 @@
               {{ item.providerName || 'Provider' }}
               <template v-if="item.date"> · {{ formatQueueDate(item.date) }}</template>
               <template v-if="item.serviceCode"> · {{ item.serviceCode }}</template>
+              <span v-if="item.importedFromEhr && Number(item.agencyId) === 377 && item.clinicalSessionId && ['progress','intake'].includes(item.noteKind)"> · Claim preparation linked</span>
             </div>
           </button>
         </li>

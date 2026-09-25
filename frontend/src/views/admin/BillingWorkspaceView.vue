@@ -51,6 +51,7 @@
         <ClaimMdWorkspace v-if="section === 'claims' && scopedOrganization" :key="`drafts-${scopeId}`" :agency-id="scopedOrganization.id" :connection="scopedOrganization.connection || {}" section="claims" @updated="reload" />
 
         <section v-if="section === 'payers'" class="panel"><div class="panel-heading"><div><h2>Payer connections &amp; ERA enrollment</h2><p>Track each transaction separately for the selected company and billing office.</p></div></div><div class="table-scroll"><table><thead><tr><th>Organization</th><th>Payer</th><th>Claims enrollment</th><th>ERA enrollment</th><th>Eligibility</th><th>EFT direct deposit</th><th></th></tr></thead><tbody><tr v-for="row in payerRows" :key="row.key"><td>{{ row.organization.name }}</td><td>{{ row.payerId }}<small class="cell-detail">Office #{{ row.officeId }} · NPI {{ row.providerNpi }}</small></td><td>{{ row.claims }}</td><td>{{ row.era }}</td><td>{{ row.eligibility }}</td><td>{{ row.eft || 'Not recorded' }}</td><td><button class="text-button" @click="drillInto(row.organization, 'payers')">Manage →</button></td></tr></tbody></table></div><p v-if="!payerRows.length" class="empty-state">{{ capabilities.enrollments ? 'No payer enrollment activity has been recorded in this workspace.' : 'Enrollment tracking is awaiting setup.' }}</p><p class="panel-note">Contracting, claims enrollment, ERA enrollment, and bank deposit setup are separate. A configured API key does not verify a payer connection.</p><label v-if="!scopedOrganization" class="inline-scope">Connect a payer for <select v-model="scopeId"><option value="all">Choose a company</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></label></section>
+        <PlannedBillingServices v-if="['workspace','claims'].includes(section) && scopedOrganization" :key="`planned-${scopeId}`" :agency-id="scopedOrganization.id" />
         <PayerEftPanel v-if="['payers', 'payments'].includes(section) && scopedOrganization" :key="`eft-${scopeId}`" :agency-id="scopedOrganization.id" @updated="reload" />
         <ClaimMdWorkspace v-if="section === 'payers' && scopedOrganization" :key="`payers-${scopeId}`" :agency-id="scopedOrganization.id" :connection="scopedOrganization.connection || {}" section="payers" @updated="reload" />
 
@@ -74,6 +75,7 @@
 </template>
 
 <script setup>
+import PlannedBillingServices from '../../components/admin/PlannedBillingServices.vue';
 import BankFeedPanel from '../../components/billing/BankFeedPanel.vue';
 import PayerEftPanel from '../../components/billing/PayerEftPanel.vue';
 import BillingCostPlanner from '../../components/billing/BillingCostPlanner.vue';

@@ -23,8 +23,15 @@
     </template>
     <template v-if="['all', 'payers'].includes(section)">
     <h3>Payer enrollment</h3>
+    <section aria-label="Requested payer setup">
+      <h4>Agency payer setup list</h4>
+      <p>Confirm the exact plan and electronic payer ID from the member card and payer directory. Claims, ERA and eligibility are enrolled separately for the selected billing group.</p>
+      <ul><li v-for="request in payerRequests" :key="request.id">{{ request.payer_name }} <button :disabled="busy || !connection.configured" @click="search = request.payer_name; searchPayers()">Find in payer directory</button></li></ul>
+      <form class="actions" @submit.prevent="addPayerRequest"><label>Request another payer <input v-model="requestedPayer" required minlength="2" maxlength="120" /></label><button :disabled="busy">Add to setup list</button></form>
+      <p>Being on this list does not establish contracting, electronic enrollment or active coverage. Enrollment progress appears below.</p>
+    </section>
     <p>Use this agency’s billing NPI. Claim.MD uses the agency tax ID from Company Profile. Enrollment may require a verification call to the phone number listed in NPPES.</p>
-    <form class="actions" @submit.prevent="searchPayers">
+    <form class="actions" data-testid="payer-directory-search" @submit.prevent="searchPayers">
       <label>Payer name <input v-model="search" minlength="2" maxlength="64" required /></label>
       <button :disabled="busy || !connection.configured">Find payers</button>
     </form>
@@ -133,6 +140,9 @@ import api from '../../services/api';
 const props = defineProps({ agencyId: { type: Number, required: true }, connection: { type: Object, required: true }, section: { type: String, default: 'all' } });
 const emit = defineEmits(['updated']);
 const busy = ref(false), error = ref(''), notice = ref('');
+const payerRequests=ref([]), requestedPayer=ref('');
+const loadPayerRequests=async()=>{const {data}=await api.get('/medical-billing/payer-setup-requests',{params:{agencyId:props.agencyId}});if(active)payerRequests.value=data.items || [];};
+const addPayerRequest=()=>run(async()=>{const {data}=await api.post('/medical-billing/payer-setup-requests',{agencyId:props.agencyId,payerName:requestedPayer.value});if(active){payerRequests.value=data.items || [];requestedPayer.value='';}});
 const search = ref(''), billingOfficeId = ref(''), billingOffices = ref([]), enrollmentType = ref('1500'), acknowledgeEraRouting = ref(false);
 const selectedOffice = computed(() => billingOffices.value.find(o => Number(o.id) === Number(billingOfficeId.value)));
 const enrollmentStatus = status => ({ requested: 'Requested — open enrollment to continue', started: 'Form issued — complete steps in Claim.MD' })[status] || status;
@@ -244,7 +254,7 @@ const submit = () => run(async () => {
   const { data } = await api.post(`/medical-billing/claimmd/claims/${claimId}/submit`, { agencyId: props.agencyId, approved: true, reviewHash: review.value.reviewHash, accountMode: props.connection.mode });
   if (active) { review.value = null; approved.value = false; notice.value = data.message; emit('updated'); await fetchHistory(claimId); }
 });
-onMounted(() => { if (props.connection.configured && ['all', 'payers'].includes(props.section)) run(async () => { await fetchBillingOffices(); await fetchEnrollments(); }); });
+onMounted(() => { if (['all', 'payers'].includes(props.section)) run(async () => { await loadPayerRequests(); if(props.connection.configured){ await fetchBillingOffices(); await fetchEnrollments(); } }); });
 defineExpose({ reviewClaim, showHistory, editClaim });
 </script>
 

@@ -95,9 +95,12 @@ export async function resolveClaimDateOfService({
   const sessionId = safeInt(clinicalSessionId);
   if (sessionId) {
     const [rows] = await clinicalPool.execute(
-      `SELECT scheduled_start_at, source_timezone, created_at FROM clinical_sessions WHERE id = ? LIMIT 1`,
+      `SELECT scheduled_start_at, source_timezone, created_at, metadata_json FROM clinical_sessions WHERE id = ? LIMIT 1`,
       [sessionId]
     );
+    const metadata = typeof rows?.[0]?.metadata_json === 'string' ? JSON.parse(rows[0].metadata_json) : rows?.[0]?.metadata_json;
+    const importedDate = isoDate(metadata?.serviceDate);
+    if (importedDate) return importedDate;
     const raw = rows?.[0]?.scheduled_start_at || rows?.[0]?.created_at;
     const instant = raw instanceof Date ? raw : new Date(String(raw || '').replace(' ', 'T').replace(/Z?$/, 'Z'));
     const fromSession = utcDateToZonedYmd(instant, rows?.[0]?.source_timezone || 'America/Denver');

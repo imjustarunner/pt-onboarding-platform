@@ -1,266 +1,58 @@
 <template>
-  <div class="abp" data-testid="appointment-billing-panel">
-    <div class="abp-overview">
-      <div class="abp-stat">
-        <div class="abp-stat-k">Billing status</div>
-        <div class="abp-stat-v" :class="ready ? 'ok' : ''">{{ ready ? 'Ready to bill' : 'Needs details' }}</div>
-        <div class="abp-stat-h">{{ readyHint }}</div>
-      </div>
-      <div class="abp-stat">
-        <div class="abp-stat-k">Primary code</div>
-        <div class="abp-stat-v">{{ primaryServiceCode || serviceCode || '—' }}</div>
-        <div class="abp-stat-h">{{ serviceName || 'No primary code selected' }}</div>
-      </div>
-      <div class="abp-stat">
-        <div class="abp-stat-k">Add-ons</div>
-        <div class="abp-stat-v">{{ addonLabel }}</div>
-        <div class="abp-stat-h">Only true add-on codes (e.g. 99051, 90875)</div>
-      </div>
-      <div class="abp-stat">
-        <div class="abp-stat-k">Claim</div>
-        <div class="abp-stat-v">{{ claimId ? `#${claimId}` : 'Not created' }}</div>
-        <div class="abp-stat-h">{{ claimId ? 'Linked claim' : 'Open workspace to create' }}</div>
-      </div>
-    </div>
-
-    <div class="abp-edit">
-      <div class="abp-field">
-        <label class="abp-label">Primary service code</label>
-        <select
-          class="abp-input"
-          :value="primaryServiceCode"
-          :disabled="disabled || !primaryCodeOptions.length"
-          @change="emit('update:primaryServiceCode', String($event.target.value || ''))"
-        >
-          <option value="">Select primary code…</option>
-          <option v-for="opt in primaryCodeOptions" :key="`abp-pri-${opt.code}`" :value="opt.code">
-            {{ formatServiceCodeLabel(opt) }}
-          </option>
-        </select>
-      </div>
-      <div class="abp-field">
-        <label class="abp-label">Add-on service codes</label>
-        <div class="abp-addons">
-          <label v-for="opt in addonCodeOptions" :key="`abp-addon-${opt.code}`" class="abp-check">
-            <input
-              type="checkbox"
-              :checked="addonSet.has(opt.code)"
-              :disabled="disabled"
-              @change="toggleAddon(opt.code)"
-            />
-            <span>{{ formatServiceCodeLabel(opt) }}</span>
-          </label>
-          <p v-if="!addonCodeOptions.length" class="abp-muted">No add-on codes for this tenant.</p>
-        </div>
-      </div>
-    </div>
-
-    <div class="abp-details">
-      <div class="abp-detail">
-        <span class="abp-detail-k">Service date</span>
-        <span class="abp-detail-v">{{ serviceDateLabel || '—' }}</span>
-      </div>
-      <div class="abp-detail">
-        <span class="abp-detail-k">Start / end</span>
-        <span class="abp-detail-v">{{ timeRangeLabel || '—' }}</span>
-      </div>
-      <div class="abp-detail">
-        <span class="abp-detail-k">Place of service</span>
-        <span class="abp-detail-v">{{ locationLabel || modalityLabel || '—' }}</span>
-      </div>
-      <div class="abp-detail">
-        <span class="abp-detail-k">Rendering provider</span>
-        <span class="abp-detail-v">{{ providerName || '—' }}</span>
-      </div>
-      <div class="abp-detail">
-        <span class="abp-detail-k">Duration</span>
-        <span class="abp-detail-v">{{ durationLabel || '—' }}</span>
-      </div>
-    </div>
-
-    <aside class="abp-side">
-      <div class="abp-side-title">Claim summary</div>
-      <p class="abp-side-note">
-        Primary and add-on codes can be set here, on the Schedule tab, or later on the clinical note.
-      </p>
-      <button
-        type="button"
-        class="btn btn-primary btn-sm"
-        :disabled="!claimId && !clinicalSessionId"
-        @click="emit('open-claim')"
-      >
-        {{ claimId ? 'Open claim' : 'Open billing / claim' }}
-      </button>
-    </aside>
-  </div>
+  <section class="abp" data-testid="appointment-billing-panel">
+    <header class="abp-heading"><div><h2>Appointment Billing</h2><p>{{ serviceLabel || primaryServiceCode || 'Service details pending' }}</p></div><button class="btn btn-secondary btn-sm" :disabled="loading || !clinicalSessionId" @click="load">Refresh status</button></header>
+    <p v-if="loading" role="status">Loading claim progress…</p>
+    <p v-if="error" role="alert" class="abp-error">{{ error }}</p>
+    <section class="abp-card abp-overview" aria-label="Insurance and appointment">
+      <div><span class="abp-label">Primary policy</span><strong>{{ data?.primaryPolicy?.insurerName || 'Insurance not yet recorded' }}</strong><p v-if="data?.primaryPolicy?.memberId">Member {{ data.primaryPolicy.memberId }}</p><p v-if="data?.primaryPolicy?.planType">{{ data.primaryPolicy.planType }}</p><p v-if="data?.secondaryPolicy">Secondary: {{ data.secondaryPolicy.insurerName }}</p><small>Coverage and network participation require verification for the service date.</small></div>
+      <dl><div><dt>Service date</dt><dd>{{ serviceDateLabel || 'Not recorded' }}</dd></div><div><dt>Provider</dt><dd>{{ providerName || 'Not recorded' }}</dd></div><div><dt>Client</dt><dd>{{ clientName || 'Linked appointment client' }}</dd></div><div><dt>Service location</dt><dd>{{ locationLabel || modalityLabel || 'Needs confirmation' }}</dd></div><div><dt>Time</dt><dd>{{ timeRangeLabel || 'Not recorded' }}</dd></div></dl>
+    </section>
+    <section v-for="(claim, index) in progress" :key="claim.claimId || index" class="abp-card" aria-label="Claim progress">
+      <div class="abp-heading"><h3>{{ claim.payerSequence === 2 ? 'Secondary claim progress' : 'Claim progress' }}</h3><span class="abp-badge" :class="claim.status">{{ claim.label }}</span></div>
+      <ol class="abp-progress"><li v-for="(step, i) in steps" :key="step" :class="{reached: i <= claim.step}" :aria-current="i === claim.step ? 'step' : undefined"><span>{{ i < claim.step ? '✓' : i + 1 }}</span>{{ step }}</li></ol>
+      <p class="abp-muted">Acceptance is an acknowledgement. Payment requires separate adjudication and posting.</p>
+      <ul v-if="claim.actions?.length" class="abp-actions"><li v-for="action in claim.actions" :key="action">{{ action }}</li></ul>
+      <button v-if="claim.actions?.length" type="button" class="btn btn-secondary btn-sm" @click="emit('open-note')">Open note / documentation</button>
+      <p v-if="claim.correctionPending" class="abp-muted">Changes to a signed note use a signed amendment or addendum with supervisor approval.</p>
+    </section>
+    <template v-if="data?.financialAccess === true && canViewFinancials">
+      <section class="abp-card" aria-label="Charge details"><h3>Charge details</h3><table v-if="financialClaims.length"><thead><tr><th>Claim</th><th>Service</th><th>Units / modifiers</th><th>Charge</th><th>Status</th></tr></thead><tbody><tr v-for="line in financialLines" :key="`${line.claimId}-${line.lineNumber}`"><td>#{{ line.claimId }} · {{ line.payerSequence === 2 ? 'Secondary' : 'Primary' }}</td><td>{{ line.serviceCode || 'Review claim lines' }}</td><td>{{ line.units ?? '—' }} · {{ modifiers(line.modifiers) }}</td><td>{{ money(line.chargeCents, line.currency) }}</td><td>{{ line.label }}</td></tr></tbody></table><p v-else>Charges will appear after the signed service note is used to prepare a claim.</p><p class="abp-muted">Primary and secondary charges represent the same service; they are not added together.</p></section>
+      <section v-if="patientLedger" class="abp-card" aria-label="Patient payment breakdown"><h3>Patient payment breakdown</h3><dl><div><dt>Recorded responsibility</dt><dd>{{ money(patientLedger.responsibilityCents, patientLedger.currency) }}</dd></div><div><dt>Net payments recorded</dt><dd>{{ money(patientLedger.paidCents, patientLedger.currency) }}</dd></div><div><dt>Remaining patient balance</dt><dd>{{ money(patientLedger.balanceCents, patientLedger.currency) }}</dd></div></dl><p v-if="patientLedger.refundReviewCents">Refund review: {{ money(patientLedger.refundReviewCents, patientLedger.currency) }}. Patient responsibility is zero.</p><p v-if="patientLedger.held">Balance is on hold or disputed; review before collection.</p><p v-else>Ledger status: {{ patientLedger.status }}</p></section>
+      <section class="abp-card"><h3>Reconciliation &amp; actions</h3><p>Review verified patient balances and posted payments in the billing workspace. Claim acceptance does not establish a payment or patient balance.</p><button type="button" class="btn btn-primary btn-sm" :disabled="!clinicalSessionId" @click="emit('open-claim', financialClaims[0]?.claimId || null)">Open claim and billing actions</button><p class="abp-muted">Billing edits, review, corrections and submission use the existing audited claim workflow.</p></section>
+    </template>
+  </section>
 </template>
-
 <script setup>
-import { computed } from 'vue';
-import { isAddonServiceCode } from '../../config/practiceCategories.js';
-
+import { computed, ref, watch, onBeforeUnmount } from 'vue';
+import api from '../../services/api';
 const props = defineProps({
-  serviceLabel: { type: String, default: '' },
-  locationLabel: { type: String, default: '' },
-  modalityLabel: { type: String, default: '' },
-  providerName: { type: String, default: '' },
-  serviceDateLabel: { type: String, default: '' },
-  timeRangeLabel: { type: String, default: '' },
-  durationLabel: { type: String, default: '' },
-  claimId: { type: [Number, String], default: 0 },
-  clinicalSessionId: { type: [Number, String], default: 0 },
-  primaryServiceCode: { type: String, default: '' },
-  addonServiceCodes: { type: Array, default: () => [] },
-  serviceCodeOptions: { type: Array, default: () => [] },
-  disabled: { type: Boolean, default: false }
+  agencyId: {type:[Number,String],default:0}, clinicalSessionId:{type:[Number,String],default:0},
+  canViewFinancials:{type:Boolean,default:false}, clientName:{type:String,default:''},
+  serviceLabel:{type:String,default:''}, primaryServiceCode:{type:String,default:''},
+  locationLabel:{type:String,default:''}, modalityLabel:{type:String,default:''}, providerName:{type:String,default:''},
+  serviceDateLabel:{type:String,default:''}, timeRangeLabel:{type:String,default:''}
 });
-
-const emit = defineEmits(['open-claim', 'update:primaryServiceCode', 'update:addonServiceCodes']);
-
-const serviceCode = computed(() => {
-  const s = String(props.serviceLabel || '');
-  const m = s.match(/^([A-Z0-9]+)\s*·/i);
-  return m ? m[1] : '';
-});
-const serviceName = computed(() => {
-  const s = String(props.serviceLabel || '');
-  if (!s) return '';
-  const parts = s.split('·').map((x) => x.trim()).filter(Boolean);
-  return parts.length > 1 ? parts.slice(1).join(' · ') : s;
-});
-const primaryCodeOptions = computed(() =>
-  (props.serviceCodeOptions || []).filter((row) => !isAddonServiceCode(row.code, row))
-);
-const addonCodeOptions = computed(() =>
-  (props.serviceCodeOptions || []).filter((row) => isAddonServiceCode(row.code, row))
-);
-
-function formatServiceCodeLabel(opt) {
-  const code = String(opt?.code || '').trim().toUpperCase();
-  let label = String(opt?.label || '').trim();
-  if (!code) return label || '';
-  if (!label) return code;
-  const upper = label.toUpperCase();
-  if (upper === code || upper.startsWith(`${code} `) || upper.startsWith(`${code}—`) || upper.startsWith(`${code} -`)) {
-    return label;
-  }
-  return `${code} — ${label}`;
+const emit=defineEmits(['open-claim','open-note']);
+const data=ref(null),loading=ref(false),error=ref(''); let request=0;
+const steps=['Planned / draft','Ready for review','Submitted','Accepted','Payment recorded'];
+const progress=computed(()=>data.value?.progress || [{status:'open',label:props.clinicalSessionId ? 'Status not yet loaded' : 'Planned — save session to track progress',step:0,actions:[]}]);
+const financialClaims=computed(()=>progress.value.filter(c=>c.financial));
+const financialLines=computed(()=>financialClaims.value.flatMap(c=>(c.financial.lines?.length ? c.financial.lines : [{lineNumber:0,serviceCode:props.primaryServiceCode,chargeCents:c.financial.chargeCents}]).map(line=>({...line,claimId:c.claimId,payerSequence:c.payerSequence,label:c.label,currency:c.financial.currency}))));
+const modifiers=value=>{try{const list=typeof value==='string'?JSON.parse(value):value;return Array.isArray(list)?list.join(', ') || '—':'—';}catch{return 'Review';}};
+const patientLedger=computed(()=>financialClaims.value.find(c=>c.payerSequence !== 2)?.financial?.patient || null);
+const money=(cents,currency)=>new Intl.NumberFormat('en-US',{style:'currency',currency:currency || 'USD'}).format(Number(cents)/100);
+async function load(){
+  const id=++request; data.value=null; error.value=''; loading.value=false;
+  if(!Number(props.agencyId)||!Number(props.clinicalSessionId))return;
+  loading.value=true;
+  try {const result=await api.get(`/medical-billing/sessions/${props.clinicalSessionId}/appointment-billing`,{params:{agencyId:Number(props.agencyId)}});if(id===request)data.value=result.data;}
+  catch {if(id===request)error.value='Claim progress could not be loaded. Refresh or ask the billing team to check this session.';}
+  finally {if(id===request)loading.value=false;}
 }
-const addonSet = computed(
-  () => new Set((props.addonServiceCodes || []).map((c) => String(c || '').toUpperCase()).filter(Boolean))
-);
-const addonLabel = computed(() => {
-  const list = Array.from(addonSet.value);
-  return list.length ? list.join(', ') : '—';
-});
-const ready = computed(() => !!(props.primaryServiceCode || serviceCode.value || props.serviceLabel)
-  && !!(props.locationLabel || props.modalityLabel));
-const readyHint = computed(() => (
-  ready.value
-    ? 'Core billing details are present for this session.'
-    : 'Select a primary service code and location on Schedule or here.'
-));
-
-function toggleAddon(code) {
-  const c = String(code || '').toUpperCase();
-  if (!c) return;
-  const next = new Set(addonSet.value);
-  if (next.has(c)) next.delete(c);
-  else next.add(c);
-  emit('update:addonServiceCodes', Array.from(next.values()));
-}
+watch(()=>[props.agencyId,props.clinicalSessionId,props.canViewFinancials],load,{immediate:true});
+onBeforeUnmount(()=>{request++;});
 </script>
-
 <style scoped>
-.abp {
-  display: grid;
-  grid-template-columns: 1fr minmax(200px, 240px);
-  gap: 14px;
-  align-items: start;
-}
-.abp-overview {
-  grid-column: 1;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.abp-edit {
-  grid-column: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: #fff;
-}
-.abp-field { display: flex; flex-direction: column; gap: 6px; }
-.abp-label {
-  font-size: 0.68rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #64748b;
-}
-.abp-input {
-  width: 100%;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  padding: 8px 10px;
-  font: inherit;
-}
-.abp-addons {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 140px;
-  overflow: auto;
-}
-.abp-check { display: flex; align-items: center; gap: 8px; font-size: 0.88rem; }
-.abp-stat {
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: #f8fafc;
-  border: 1px solid #eef2f7;
-}
-.abp-stat-k {
-  font-size: 0.66rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #64748b;
-}
-.abp-stat-v { margin-top: 4px; font-size: 1.05rem; font-weight: 700; color: #0f172a; }
-.abp-stat-v.ok { color: #047857; }
-.abp-stat-h { margin-top: 2px; font-size: 0.75rem; color: #64748b; }
-.abp-details {
-  grid-column: 1;
-  display: grid;
-  gap: 8px;
-}
-.abp-detail {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid #f1f5f9;
-  font-size: 0.88rem;
-}
-.abp-detail-k { color: #64748b; }
-.abp-detail-v { font-weight: 600; color: #0f172a; text-align: right; }
-.abp-side {
-  grid-column: 2;
-  grid-row: 1 / span 3;
-  padding: 14px;
-  border-radius: 12px;
-  background: #0f172a;
-  color: #f8fafc;
-}
-.abp-side-title { font-weight: 800; margin-bottom: 8px; }
-.abp-side-note { font-size: 0.82rem; opacity: 0.85; margin: 0 0 12px; }
-.abp-muted { margin: 0; font-size: 0.8rem; color: #64748b; }
-@media (max-width: 900px) {
-  .abp { grid-template-columns: 1fr; }
-  .abp-side { grid-column: 1; grid-row: auto; }
-}
+.abp{display:grid;gap:16px;color:var(--text-primary,#172b4d)}
+.abp-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.abp h2,.abp h3{margin:0 0 8px}.abp p{margin:8px 0}.abp-card{border:1px solid var(--border-color,#dce5ed);border-radius:14px;padding:20px;background:var(--bg-primary,#fff)}.abp-overview{display:grid;grid-template-columns:1fr 1fr;gap:24px}.abp-label{display:block;margin-bottom:12px;color:var(--text-secondary,#586a80)}.abp-overview strong{display:block;font-size:1.1rem}.abp dl{margin:0}.abp dl div{display:flex;justify-content:space-between;gap:16px;padding:8px 0;border-bottom:1px solid #edf1f5}.abp dt,.abp-muted,.abp small{color:var(--text-secondary,#586a80)}.abp dd{margin:0;text-align:right}.abp-progress{display:flex;list-style:none;padding:16px 0;margin:0}.abp-progress li{flex:1;text-align:center;position:relative;font-size:.82rem;color:#63738a}.abp-progress li span{display:grid;place-items:center;position:relative;z-index:1;border-radius:50%;width:32px;height:32px;margin:0 auto 8px;background:#e7edf3}.abp-progress li:not(:last-child):after{content:'';height:3px;background:#e7edf3;position:absolute;left:50%;right:-50%;top:15px}.abp-progress .reached span{background:var(--primary-color,#1677bc);color:white}.abp-badge{background:#fff3d9;color:#895400;padding:7px 12px;border-radius:20px;font-weight:600;font-size:.85rem}.abp-badge.rejected,.abp-badge.denied,.abp-error{color:#b42332;background:#fff0f1}.abp-badge.paid{background:#dff6ed;color:#086c47}.abp-actions{padding-left:20px;line-height:1.7}.abp table{width:100%;border-collapse:collapse;text-align:left}.abp th,.abp td{padding:12px 8px;border-bottom:1px solid #e7edf3}.abp th{background:#f3f7fb;font-size:.85rem}.abp-error{padding:12px;border-radius:8px}@media(max-width:650px){.abp-overview{grid-template-columns:1fr}.abp-card{padding:14px}.abp-progress li{font-size:.7rem}.abp table{font-size:.8rem}}
 </style>

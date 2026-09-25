@@ -1903,7 +1903,7 @@
               :show-edit-action="!isSelectedSupvReadOnlyView"
               :note-quick-label="isSelectedSupvPresenterView ? 'Presenter prep notes' : 'Supervision note'"
               :note-quick-hint="isSelectedSupvPresenterView ? 'Private prep for your case presentation' : 'Short note, transcript & summary'"
-              :show-billing="editorShowBillingTab"
+              :show-billing="editorCanViewBillingFinancials"
               :show-clinical="editorShowClinicalTab"
               :claim-id="editorClaimId"
               :clinical-session-id="editorClinicalSessionId"
@@ -2324,7 +2324,7 @@
           </template>
 
           <ClinicalSessionBody
-            :show-billing-tools="editorShowBillingTab"
+            :show-billing-tools="editorCanViewBillingFinancials"
             v-if="editorIsClinical"
             v-model:modality="editorModality"
             v-model:tenant-service-id="editorTenantServiceId"
@@ -2445,6 +2445,9 @@
           <div v-if="editorShowBillingTab" v-show="editorWorkspaceTab === 'billing'" class="appt-workspace-panel appt-workspace-panel--flush">
             <AppointmentBillingPanel
               v-if="editorIsClinical && editorPracticeCategory === 'mental_health'"
+              :agency-id="Number(editorAgencyId || selectedActionAgencyId || 0)"
+              :client-name="editorInfoClientName"
+              :can-view-financials="editorCanViewBillingFinancials"
               v-model:primary-service-code="bookingServiceCode"
               v-model:addon-service-codes="editorAddonServiceCodes"
               :service-label="editorInfoServiceLabel"
@@ -2459,6 +2462,7 @@
               :service-code-options="bookingServiceCodeOptions"
               :disabled="submitting"
               @open-claim="openEditorClinicalClaim"
+              @open-note="openEditorQuickNote"
             />
             <AppointmentPackageSettlement
               v-if="editorShowPackageSettlement"
@@ -13852,12 +13856,15 @@ const bookingPreSessionAddonOptions = computed(() => {
   return rows.filter((row) => String(row.code || '').toUpperCase() === '99051');
 });
 
-const editorShowBillingTab = computed(() => {
+const editorCanViewBillingFinancials = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
-  if (['provider', 'provider_plus'].includes(role) || (!['admin', 'super_admin'].includes(role) && !(authStore.user?.billingAgencyIds || []).map(Number).includes(aid))) return false;
+  return !['provider', 'provider_plus'].includes(role) && (['admin', 'super_admin'].includes(role) || (authStore.user?.billingAgencyIds || []).map(Number).includes(aid));
+});
+const editorShowBillingTab = computed(() => {
   if (!editorIsClinical.value) return false;
   if (String(editorPracticeCategory.value || '') === 'mental_health') return true;
+  if (!editorCanViewBillingFinancials.value) return false;
   // Coaching / tutoring / consulting: package settlement (not claims)
   if (['coaching', 'tutoring', 'consulting'].includes(String(editorPracticeCategory.value || ''))) {
     return true;
@@ -13869,6 +13876,7 @@ const editorShowBillingTab = computed(() => {
 });
 
 const editorShowPackageSettlement = computed(() => {
+  if (!editorCanViewBillingFinancials.value) return false;
   if (!editorIsClinical.value) return false;
   const cat = String(editorPracticeCategory.value || '');
   if (['coaching', 'tutoring', 'consulting'].includes(cat)) return true;
@@ -15341,19 +15349,21 @@ async function openEditorClinicalNote() {
   });
 }
 
-function openEditorClinicalClaim() {
+function openEditorClinicalClaim(linkedClaimId = null) {
   const role = String(authStore.user?.role || '').toLowerCase();
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
   if (['provider', 'provider_plus'].includes(role) || (!['admin', 'super_admin'].includes(role) && !(authStore.user?.billingAgencyIds || []).map(Number).includes(aid))) {
     modalError.value = 'Billing access is required to open the billing desk. You can sign the note and prepare its claim in Note Aid.';
     return;
   }
-  const claimId = Number(editorClaimId.value || 0);
+  const claimId = Number(linkedClaimId || editorClaimId.value || 0);
   const sessionId = Number(editorClinicalSessionId.value || 0);
   const query = claimId
     ? { claimId: String(claimId) }
     : (sessionId ? { clinicalSessionId: String(sessionId) } : null);
   if (!query) return;
+  query.agencyId = String(aid);
+  query.billingSection = 'claims';
   router.push({ name: 'OrganizationMedicalBilling', query }).catch(() => {
     router.push({ path: '/admin/medical-billing', query }).catch(() => {});
   });

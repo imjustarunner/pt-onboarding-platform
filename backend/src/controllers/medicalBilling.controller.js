@@ -1959,6 +1959,15 @@ export const signClinicalNote = async (req, res, next) => {
     } catch (linkErr) {
       console.warn('[signClinicalNote] objective rating link failed', linkErr?.message || linkErr);
     }
+    // Imported service tasks have no calendar completion action. A signed service
+    // note attests to the encounter; never revive a canceled/no-show encounter.
+    if (!nonBillable && note.clinical_session_id) {
+      await clinicalPool.execute(`UPDATE clinical_sessions SET encounter_status='completed'
+        WHERE id=? AND agency_id=? AND client_id=? AND encounter_status='scheduled'
+          AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.source'))='note_aid_todo_import'
+          AND JSON_UNQUOTE(JSON_EXTRACT(metadata_json,'$.serviceDate')) <= ?`,
+      [note.clinical_session_id,note.agency_id,note.client_id,new Intl.DateTimeFormat('en-CA',{timeZone:'America/Denver',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())]);
+    }
     const terminationTodo = await completeNoteAidSigningWorkflow({ ...note, provider_signed_at: signedAtIso, metadata_json: meta });
     if (!nonBillable) await draftClaimAfterSignature(req, note);
     return res.json({ ok: true, noteId, contentHash: hash, signedAt: signedAtIso, terminationTodo });
