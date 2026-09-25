@@ -1,6 +1,6 @@
 <template>
   <section class="cost-planner" aria-labelledby="billing-cost-title">
-    <header><span class="eyebrow">PLANNING</span><h2 id="billing-cost-title">Verification &amp; processing costs</h2><p>Compare frequencies using the same client population. Enter totals across every company using one Claim.MD account; its included allowance is shared.</p></header>
+    <header><span class="eyebrow">PLANNING</span><h2 id="billing-cost-title">Verification &amp; processing costs</h2><p>Basic is selected for account 31985. Compare frequencies using the same client population. Enter totals across every company using one Claim.MD account; its included allowance is shared.</p></header>
     <p class="notice">Estimates only. This does not enable background checks, set agency prices, or charge anyone. Figures reset when you leave this page.</p>
     <form @submit.prevent>
       <fieldset><legend>Claim.MD account totals</legend><div class="fields">
@@ -30,7 +30,7 @@
 <script setup>
 import { computed, reactive } from 'vue';
 import { claimMdPlans, estimateBillingCosts } from '../../utils/billingCostEstimate';
-const form = reactive({ plan:'', clients:0, secondaryClients:0, visits:0, secondaryVisits:0, claims:0, eras:0, extraChecks:0, taxIdFeeDollars:0,
+const form = reactive({ plan:'basic', clients:0, secondaryClients:0, visits:0, secondaryVisits:0, claims:0, eras:0, extraChecks:0, taxIdFeeDollars:0,
   cardDollars:0, cardTransactions:0, processorPercent:2.9, processorFixedCents:30, markupPercent:0, otherProcessorDollars:0 });
 const coverageFields = [
   {key:'clients',label:'Active insured clients',max:1000000}, {key:'secondaryClients',label:'Clients with secondary coverage',max:1000000},

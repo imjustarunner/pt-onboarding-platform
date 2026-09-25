@@ -65,6 +65,11 @@ export async function fetchEraList({ accountKey, page = '1', taxId }) {
   });
 }
 
+// Call only after an agency-scoped ERA directory lookup verifies its ownership.
+export async function fetchEraData({ accountKey, eraId }) {
+  return postForm('/eradata/', { AccountKey: accountKey, eraid: eraId });
+}
+
 export async function requestEligibilityJson({ accountKey, payload }) {
   return postForm('/eligdata/', {
     ...(payload && typeof payload === 'object' ? payload : {}),

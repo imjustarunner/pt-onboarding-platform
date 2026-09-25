@@ -1,3 +1,4 @@
+import { getBankFeeds, createBankSession, finishBankSession, removeBankFeed, importBankFeed, verifyEraDeposit } from '../controllers/bankFeed.controller.js';
 import {getMedicalServiceFees,saveMedicalServiceFees} from '../controllers/medicalServiceFees.controller.js';
 import {getEligibilityAutomation,saveEligibilitySettings,enrollEligibilityRoster} from '../controllers/eligibilityAutomation.controller.js';
 import { getEft, saveEft, getEftHistory } from '../controllers/payerEft.controller.js';
@@ -100,6 +101,12 @@ router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, l
 router.get('/supervised-provider-readiness', requireMedicalBillingFinancialAccess, supervisedProviderReadiness);
 router.post('/supervised-payer-policies', requireMedicalBillingFinancialAccess, saveSupervisedPayerPolicy);
 router.get('/service-fees', ...masterGate, requireMedicalBillingFinancialAccess, getMedicalServiceFees);
+router.get('/bank-feeds', ...masterGate, requireMedicalBillingFinancialAccess, getBankFeeds);
+router.post('/bank-feeds/sessions', ...masterGate, requireMedicalBillingFinancialAccess, createBankSession);
+router.post('/bank-feeds/sessions/complete', ...masterGate, requireMedicalBillingFinancialAccess, finishBankSession);
+router.post('/bank-feeds/:id/disconnect', ...masterGate, requireMedicalBillingFinancialAccess, removeBankFeed);
+router.post('/bank-feeds/:id/verify-era', ...masterGate, requireMedicalBillingFinancialAccess, verifyEraDeposit);
+router.post('/bank-feeds/:id/sync', ...masterGate, requireMedicalBillingFinancialAccess, importBankFeed);
 router.put('/service-fees', ...masterGate, requireMedicalBillingFinancialAccess, saveMedicalServiceFees);
 router.get('/eligibility-automation', ...masterGate, requireMedicalBillingFinancialAccess, getEligibilityAutomation);
 router.put('/eligibility-automation', ...masterGate, requireMedicalBillingFinancialAccess, saveEligibilitySettings);

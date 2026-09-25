@@ -2407,6 +2407,18 @@ if (process.env.FAMILY_BILLING_AUTOMATION_ENABLED === 'true') {
   familyBillingTimer.unref();
 }
 
+if (process.env.BANK_FEEDS_ENABLED === 'true') {
+  let bankFeedTickRunning = false;
+  const timer = setInterval(async () => {
+    if (bankFeedTickRunning) return;
+    bankFeedTickRunning = true;
+    try { const { runBankFeedSync } = await import('./services/bankFeed.service.js'); await runBankFeedSync(); }
+    catch { console.warn('[bank feeds] Worker needs configuration or migration review'); }
+    finally { bankFeedTickRunning = false; }
+  }, 5 * 60 * 1000);
+  timer.unref();
+}
+
 // Requests are persisted and budgeted before transmission; replicas share quotas.
 if (process.env.CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED === 'true') {
   let eligibilityTickRunning=false;

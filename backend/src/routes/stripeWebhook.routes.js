@@ -24,6 +24,11 @@ const router = express.Router();
 // ── Shared event handler ─────────────────────────────────────────────────────
 
 async function handleStripeEvent(event) {
+  if (event.type.startsWith('financial_connections.account.')) {
+    const { bankFeedWebhook } = await import('../services/bankFeed.service.js');
+    await bankFeedWebhook(event);
+    return;
+  }
   // `event.account` is present on Connect events — tells us which agency it belongs to
   const connectedAccountId = event.account || null;
 

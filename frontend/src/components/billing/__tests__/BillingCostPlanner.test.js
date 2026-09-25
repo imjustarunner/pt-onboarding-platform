@@ -2,9 +2,10 @@ import { mount } from '@vue/test-utils';
 import { describe, it, expect } from 'vitest';
 import BillingCostPlanner from '../BillingCostPlanner.vue';
 describe('billing cost planner', () => {
-  it('requires an explicit plan and recalculates both policies without activating billing', async () => {
+  it('starts with the confirmed Basic plan and compares both policies without activating billing', async () => {
     const w=mount(BillingCostPlanner);
-    expect(w.find('table').exists()).toBe(false);
+    expect(w.find('select').element.value).toBe('basic');
+    expect(w.find('tbody tr').text()).toContain('$30.00');
     expect(w.text()).toContain('does not enable background checks');
     await w.find('select').setValue('unlimited');
     const field=label=>w.findAll('label').find(l=>l.text().startsWith(label)).find('input');
