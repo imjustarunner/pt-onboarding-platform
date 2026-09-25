@@ -13,6 +13,7 @@
         <span class="ccn-sign">{{ signStatusLabel }}</span>
         <button
           type="button"
+          v-if="canOpenClaim"
           class="ccn-claim-link"
           :class="{ 'is-disabled': !claimLinkActive }"
           :disabled="!claimLinkActive"
@@ -269,7 +270,7 @@
       </dl>
     </section>
 
-    <section v-if="!compact" class="ccn-block ccn-audit" aria-label="Signature and claim audit">
+    <section v-if="!compact && canOpenClaim" class="ccn-block ccn-audit" aria-label="Signature and claim audit">
       <h4 class="ccn-block-title">Signature & claim data</h4>
       <dl class="ccn-facts-grid">
         <div>
@@ -343,6 +344,7 @@
 </template>
 
 <script setup>
+import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
 import { computed, ref } from 'vue';
 import api from '../../services/api.js';
 import { MSE_DOMAINS } from '../../utils/noteAidSessionQueue.js';
@@ -393,12 +395,8 @@ const structuredChart = computed(() =>
 );
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
-const canAmendBilling = computed(() =>
-  ['admin', 'super_admin', 'support', 'billing'].includes(roleNorm.value)
-);
-const canOpenClaim = computed(() =>
-  ['super_admin', 'admin', 'support', 'billing'].includes(roleNorm.value)
-);
+const canAmendBilling = computed(() => canAccessMedicalBilling(authStore.user, props.note?.agencyId || props.note?.agency_id));
+const canOpenClaim = canAmendBilling;
 
 const claimStatusLabel = computed(() => {
   if (props.note?.linkedClaim?.statusLabel) return props.note.linkedClaim.statusLabel;

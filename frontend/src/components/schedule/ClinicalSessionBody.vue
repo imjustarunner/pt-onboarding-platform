@@ -172,7 +172,7 @@
       <button type="button" class="btn btn-secondary btn-sm" :disabled="!clinicalNoteId && !clinicalSessionId" @click="emit('open-note')">
         Open clinical note
       </button>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="!claimId && !clinicalSessionId" @click="emit('open-claim')">
+      <button v-if="showBillingTools" type="button" class="btn btn-secondary btn-sm" :disabled="!claimId && !clinicalSessionId" @click="emit('open-claim')">
         {{ claimId ? 'View billing claim' : 'Billing / claim' }}
       </button>
       <button
@@ -238,6 +238,7 @@ const props = defineProps({
   clinicalSessionId: { type: [Number, String], default: 0 },
   clinicalNoteId: { type: [Number, String], default: 0 },
   claimId: { type: [Number, String], default: 0 },
+  showBillingTools: { type: Boolean, default: false },
   notes: { type: String, default: '' },
   packageEntitlementId: { type: Number, default: 0 },
   packageEntitlements: { type: Array, default: () => [] },

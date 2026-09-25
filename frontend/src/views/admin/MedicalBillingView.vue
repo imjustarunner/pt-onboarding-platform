@@ -1,8 +1,8 @@
 <template>
-  <div class="mb-page">
+  <div v-if="canRunBillingReports" class="mb-page">
     <header class="mb-header">
       <h1>Medical Billing</h1>
-      <router-link v-if="canRunBillingReports" :to="{name: 'FamilyBillingDesk',params:{organizationSlug:agencyStore.currentAgency?.slug},query:{agencyId}}">Family balances, payment setup & collections →</router-link>
+      <router-link v-if="canRunBillingReports" :to="{name: 'FamilyBillingDesk',params:{organizationSlug:billingAgencySlug || agencyStore.currentAgency?.slug},query:{agencyId}}">Family balances, payment setup & collections →</router-link>
       <p class="muted">
         Chart, signing, claims, and Claim.MD — only available when Medical Billing flags are enabled for this organization.
       </p>
@@ -268,8 +268,10 @@
               v-if="claimMd.configured"
               type="button"
               class="mb-btn mb-btn--small"
-              @click="submitClaim(c.id)"
-            >Submit to Claim.MD</button>
+              @click="claimMdWorkspace?.reviewClaim(c.id)"
+            >Review and approve</button>
+            <button type="button" class="mb-btn mb-btn--small" @click="claimMdWorkspace?.showHistory(c.id)">History &amp; follow-up</button>
+            <button v-if="['draft','ready','rejected'].includes(c.claim_lifecycle)" type="button" class="mb-btn mb-btn--small" @click="claimMdWorkspace?.editClaim(c.id)">Edit billing fields</button>
             <button
               type="button"
               class="mb-btn mb-btn--small"
@@ -353,16 +355,18 @@
         </ul>
       </section>
 
+      <ClaimMdWorkspace v-if="canRunBillingReports" ref="claimMdWorkspace" :key="agencyId" :agency-id="agencyId" :connection="claimMd" @updated="loadClaims" />
+
       <section v-if="canRunBillingReports" class="mb-card">
         <h2>Claim.MD credentials</h2>
+        <p v-if="claimMd.source === 'secret_manager'">This agency uses the management company’s server-side secret. Credentials are managed in Google Cloud.</p>
         <p class="muted">AccountKey is encrypted at rest. BAA required before production use.</p>
         <div class="mb-row">
-          <input v-model="accountId" class="mb-input" placeholder="Account ID (optional)" />
-          <input v-model="accountKey" class="mb-input" type="password" placeholder="AccountKey" />
-          <button type="button" class="mb-btn" @click="saveCredentials">Save</button>
+          <input v-if="canManageCredentials && claimMd.source !== 'secret_manager'" v-model="accountId" class="mb-input" placeholder="Account ID (optional)" />
+          <input v-if="canManageCredentials && claimMd.source !== 'secret_manager'" v-model="accountKey" class="mb-input" type="password" placeholder="AccountKey" />
+          <button type="button" class="mb-btn" v-if="canManageCredentials && claimMd.source !== 'secret_manager'" @click="saveCredentials">Save</button>
         </div>
         <div class="mb-row" style="margin-top: 0.75rem;">
-          <button type="button" class="mb-btn" @click="refreshResponses">Pull responses</button>
           <button type="button" class="mb-btn" @click="loadEras">List ERAs</button>
         </div>
         <pre v-if="claimMdLog" class="mb-log">{{ claimMdLog }}</pre>
@@ -373,18 +377,21 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, watch, ref } from 'vue';
+import ClaimMdWorkspace from '../../components/admin/ClaimMdWorkspace.vue';
+import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import MedicalBillingReportsPanel from '../../components/admin/MedicalBillingReportsPanel.vue';
 
+const props = defineProps({ billingAgencyId: { type: Number, default: null }, billingAgencySlug: { type: String, default: '' } });
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
-const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0));
-const canRunBillingReports = computed(() => ['admin', 'super_admin'].includes(
-  String(authStore.user?.role || '').toLowerCase()
-) || (authStore.user?.billingAgencyIds || []).map(Number).includes(agencyId.value));
+const agencyId = computed(() => Number(props.billingAgencyId || agencyStore.currentAgency?.id || 0));
+const canRunBillingReports = computed(() => canAccessMedicalBilling(authStore.user, agencyId.value));
+const canManageCredentials = computed(() => ['admin', 'super_admin'].includes(authStore.user?.role));
+const claimMdWorkspace = ref(null);
 
 const loading = ref(true);
 const error = ref('');
@@ -762,11 +769,13 @@ const checkSessionReadiness = async (session) => {
 };
 
 const loadStatus = async () => {
+  const statusAgencyId = agencyId.value;
   if (!agencyId.value) return;
   loading.value = true;
   error.value = '';
   try {
     const res = await api.get('/medical-billing/status', { params: { agencyId: agencyId.value } });
+    if (statusAgencyId !== agencyId.value) return;
     flags.value = res?.data?.flags || flags.value;
     claimMd.value = res?.data?.claimMd || { configured: false };
   } catch (e) {
@@ -801,12 +810,15 @@ const cosignNote = async (noteId) => {
 };
 
 const loadClaims = async () => {
-  if (!agencyId.value || !flags.value.medicalBillingEnabled) return;
+  if (!agencyId.value || !flags.value.medicalBillingEnabled || !canRunBillingReports.value) return;
+  const requestedAgency = agencyId.value;
   claimsLoading.value = true;
   try {
     const res = await api.get('/medical-billing/claims', { params: { agencyId: agencyId.value } });
+    if (requestedAgency !== agencyId.value) return;
     claims.value = res?.data?.claims || [];
     const fee = await api.get('/medical-billing/fee-schedule', { params: { agencyId: agencyId.value } });
+    if (requestedAgency !== agencyId.value) return;
     feeItems.value = fee?.data?.items || [];
     await loadClaimOverrides();
   } catch (e) {
@@ -893,29 +905,6 @@ const saveCredentials = async () => {
   }
 };
 
-const submitClaim = async (claimId) => {
-  try {
-    const res = await api.post(`/medical-billing/claimmd/claims/${claimId}/submit`, {
-      agencyId: agencyId.value
-    });
-    claimMdLog.value = JSON.stringify(res?.data, null, 2);
-    await loadClaims();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Submit failed';
-  }
-};
-
-const refreshResponses = async () => {
-  try {
-    const res = await api.get('/medical-billing/claimmd/responses', {
-      params: { agencyId: agencyId.value, responseId: '0' }
-    });
-    claimMdLog.value = JSON.stringify(res?.data, null, 2);
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Response pull failed';
-  }
-};
-
 const loadEras = async () => {
   try {
     const res = await api.get('/medical-billing/claimmd/eras', { params: { agencyId: agencyId.value } });
@@ -925,10 +914,16 @@ const loadEras = async () => {
   }
 };
 
-onMounted(async () => {
+watch(agencyId, async () => {
+  claims.value = []; feeItems.value = []; claimOverrides.value = []; claimMdLog.value = ''; chart.value = null;
+  claimMd.value = { configured: false }; flags.value = { medicalBillingEnabled: false }; error.value = '';
+  if (!canRunBillingReports.value) { loading.value = false; return; }
+  const id = agencyId.value;
   await loadStatus();
-  await Promise.all([loadSigningNotes(), ...(canRunBillingReports.value ? [loadClaims()] : []), loadServiceCodes(), loadServiceLocations()]);
-});
+  if (id !== agencyId.value) return;
+  await Promise.all([loadSigningNotes(), loadClaims(), loadServiceCodes(), loadServiceLocations()]);
+}, { immediate: true });
+
 </script>
 
 <style scoped>

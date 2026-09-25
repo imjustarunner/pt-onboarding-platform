@@ -2324,6 +2324,7 @@
           </template>
 
           <ClinicalSessionBody
+            :show-billing-tools="editorShowBillingTab"
             v-if="editorIsClinical"
             v-model:modality="editorModality"
             v-model:tenant-service-id="editorTenantServiceId"
@@ -2441,7 +2442,7 @@
           </p>
         </AppointmentEditorShell>
 
-          <div v-show="editorWorkspaceTab === 'billing'" class="appt-workspace-panel appt-workspace-panel--flush">
+          <div v-if="editorShowBillingTab" v-show="editorWorkspaceTab === 'billing'" class="appt-workspace-panel appt-workspace-panel--flush">
             <AppointmentBillingPanel
               v-if="editorIsClinical && editorPracticeCategory === 'mental_health'"
               v-model:primary-service-code="bookingServiceCode"
@@ -13852,6 +13853,9 @@ const bookingPreSessionAddonOptions = computed(() => {
 });
 
 const editorShowBillingTab = computed(() => {
+  const role = String(authStore.user?.role || '').toLowerCase();
+  const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
+  if (['provider', 'provider_plus'].includes(role) || (!['admin', 'super_admin'].includes(role) && !(authStore.user?.billingAgencyIds || []).map(Number).includes(aid))) return false;
   if (!editorIsClinical.value) return false;
   if (String(editorPracticeCategory.value || '') === 'mental_health') return true;
   // Coaching / tutoring / consulting: package settlement (not claims)
@@ -15340,7 +15344,7 @@ async function openEditorClinicalNote() {
 function openEditorClinicalClaim() {
   const role = String(authStore.user?.role || '').toLowerCase();
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
-  if (!['admin', 'super_admin'].includes(role) && !(authStore.user?.billingAgencyIds || []).map(Number).includes(aid)) {
+  if (['provider', 'provider_plus'].includes(role) || (!['admin', 'super_admin'].includes(role) && !(authStore.user?.billingAgencyIds || []).map(Number).includes(aid))) {
     modalError.value = 'Billing access is required to open the billing desk. You can sign the note and prepare its claim in Note Aid.';
     return;
   }

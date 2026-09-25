@@ -1,3 +1,6 @@
+import { resolveClaimMdConnection, claimMdConnectionMeta, requireClaimMdTransmission } from '../services/claimMdConnection.service.js';
+import { prepareClaimReview } from './claimMdWorkflow.controller.js';
+import { recordClaimEvent, syncClaimMdResponses, asList } from '../services/claimMdWorkflow.service.js';
 import { loadRenewalPolicy, renewalStatus } from '../services/treatmentPlanRenewal.service.js';
 import { hasSchedulingBillingAccess, schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
 import Agency from '../models/Agency.model.js';
@@ -31,14 +34,12 @@ import ClinicalEligibilityService from '../services/clinicalEligibility.service.
 import { collectChartScope } from '../utils/noteAidClientAgency.js';
 import { getMedicalBillingFlags } from '../services/medicalBillingFlags.service.js';
 import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
-import { encryptChatText, decryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
+import { encryptChatText, isChatEncryptionConfigured } from '../services/chatEncryption.service.js';
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import {
   uploadClaims,
-  fetchResponses,
   fetchEraList,
-  requestEligibilityJson,
-  buildClaimMdJsonClaim
+  requestEligibilityJson
 } from '../services/claimMd.service.js';
 import pool from '../config/database.js';
 import { recordSignedTermination, validateTermination, validateTerminationContent } from '../services/noteAidTermination.service.js';
@@ -259,7 +260,7 @@ export const getMedicalBillingStatus = async (req, res, next) => {
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     const agency = await loadAgencyFlags(agencyId);
     const flags = getMedicalBillingFlags(agency);
-    const claimMd = flags.claimMdEnabled ? await AgencyClaimMdCredentials.publicMeta(agencyId) : { configured: false };
+    const claimMd = flags.claimMdEnabled && await hasSchedulingBillingAccess(req.user, agencyId) ? await claimMdConnectionMeta(agencyId) : { configured: false };
     return res.json({ flags, claimMd });
   } catch (e) {
     next(e);
@@ -1483,19 +1484,13 @@ export const getClinicalNoteById = async (req, res, next) => {
       }
     }
 
+    const billingAccess = await hasSchedulingBillingAccess(req.user, note.agency_id);
     let linkedClaim = null;
     try {
-      const encounters = await listBillingEncountersForClient({
-        agencyId: note.agency_id,
-        clientId: note.client_id,
-        limit: 50
-      });
-      const dos = metadata?.dateOfService ? String(metadata.dateOfService).slice(0, 10) : null;
-      const claimRow = (encounters || []).find((e) => {
-        if (Number(e.clinical_note_id || 0) === Number(note.id)) return true;
-        if (dos && String(e.service_date || '').slice(0, 10) === dos) return true;
-        return false;
-      }) || null;
+      const [claimRows] = billingAccess ? await clinicalPool.execute(`SELECT id, claim_lifecycle AS claim_status, billing_npi, rendering_npi
+        FROM clinical_claims WHERE clinical_note_id = ? AND agency_id = ? AND is_deleted = 0 ORDER BY id DESC LIMIT 1`,
+        [note.id, note.agency_id]) : [[]];
+      const claimRow = claimRows[0] || null;
       if (claimRow) {
         const raw = String(
           claimRow.claim_status || claimRow.claim_md_status || claimRow.billing_status || claimRow.status || ''
@@ -1503,7 +1498,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         let statusKey = 'waiting';
         if (/submit|sent|transmit/.test(raw)) statusKey = 'submitted';
         else if (/reject|deny|denied/.test(raw)) statusKey = 'rejected';
-        else if (/complete|paid|accept|adjudicat/.test(raw)) statusKey = 'complete';
+        else if (/paid/.test(raw)) statusKey = 'complete';
         else if (/pend|wait|draft|ready|queue/.test(raw)) statusKey = 'waiting';
         linkedClaim = {
           id: claimRow.id,
@@ -1522,12 +1517,12 @@ export const getClinicalNoteById = async (req, res, next) => {
     }
 
     let clientPayer = null;
-    if (note.client_id) {
+    if (billingAccess && note.client_id) {
       const insurance = await readClientInsurance(note.client_id, note.agency_id);
       if (insurance) clientPayer = { name: insurance.primary?.insurerName || null, memberId: insurance.primary?.memberId || null };
     }
 
-    return res.json({
+    return res.json(await schedulingResponseForUser(req.user, note.agency_id, {
       note: {
         id: note.id,
         agencyId: note.agency_id,
@@ -1595,7 +1590,7 @@ export const getClinicalNoteById = async (req, res, next) => {
         })),
         billingAmendments: []
       }
-    });
+    }));
   } catch (e) {
     next(e);
   }
@@ -1718,6 +1713,21 @@ export const attachTreatmentSummaryPrintUpload = async (req, res, next) => {
     next(e);
   }
 };
+
+async function draftClaimAfterSignature(req, note) {
+  // Derive lines from the saved clinical record, not a second browser request.
+  // Failed drafts remain visible in the billing desk's missing-claim queue.
+  if (!note.clinical_session_id || !note.service_code) return;
+  let code = 200;
+  const response = { status(value) { code = value; return this; }, json() { return this; } };
+  try {
+    await createMedicalClaim({ ...req, body: { agencyId: note.agency_id, clientId: note.client_id,
+      clinicalSessionId: note.clinical_session_id, clinicalNoteId: note.id } }, response, error => { throw error; });
+    if (code >= 400) console.warn('[claim-draft] Signed note awaits billing preparation', { noteId: note.id, status: code });
+  } catch {
+    console.warn('[claim-draft] Signed note awaits billing preparation', { noteId: note.id });
+  }
+}
 
 export const signClinicalNote = async (req, res, next) => {
   try {
@@ -1940,6 +1950,7 @@ export const signClinicalNote = async (req, res, next) => {
       console.warn('[signClinicalNote] objective rating link failed', linkErr?.message || linkErr);
     }
     const terminationTodo = await completeNoteAidSigningWorkflow({ ...note, provider_signed_at: signedAtIso, metadata_json: meta });
+    if (!nonBillable) await draftClaimAfterSignature(req, note);
     return res.json({ ok: true, noteId, contentHash: hash, signedAt: signedAtIso, terminationTodo });
   } catch (e) {
     next(e);
@@ -2189,11 +2200,9 @@ export const createMedicalClaim = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only the session provider or billing team can prepare this claim' } });
     }
     if (!billingAccess) {
-      delete req.body.billingNpi;
-      delete req.body.renderingNpi;
-      delete req.body.claimNumber;
-      if (Array.isArray(req.body.lines)) req.body.lines = req.body.lines.map((line) => ({ ...line, chargeCents: 0 }));
+      req.body = { agencyId, clientId, clinicalSessionId: sessionId, clinicalNoteId: noteId };
     }
+
     const agency = await loadAgencyFlags(agencyId);
     const flags = getMedicalBillingFlags(agency);
     const readiness = await evaluateClaimReadiness({
@@ -2204,6 +2213,7 @@ export const createMedicalClaim = async (req, res, next) => {
       requireSignedNote: !!flags.clinicalNoteSigningEnabled
     });
     if (!noteId && readiness.noteId) noteId = readiness.noteId;
+    if (!noteId) return res.status(409).json({ error: { message: 'A claim must be linked to a clinical note' } });
 
     if (noteId) {
       const [nRows] = await clinicalPool.execute(
@@ -2227,8 +2237,8 @@ export const createMedicalClaim = async (req, res, next) => {
            FROM clinical_claims
            WHERE agency_id = ?
              AND clinical_session_id = ?
-             AND (clinical_note_id = ? OR clinical_note_id IS NULL)
-             AND UPPER(COALESCE(claim_status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED', 'DENIED')
+             AND clinical_note_id = ?
+             AND UPPER(COALESCE(claim_status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')
              AND COALESCE(is_deleted, 0) = 0
            ORDER BY (clinical_note_id = ?) DESC, id DESC
            LIMIT 1`,
@@ -2300,25 +2310,11 @@ export const createMedicalClaim = async (req, res, next) => {
       }
     }
 
-    // Prefer credentialed office practice NPI when session bills under an office
-    if (!resolvedBillingNpi) {
-      try {
-        const [offRows] = await clinicalPool.execute(
-          `SELECT billing_office_location_id FROM clinical_sessions WHERE id = ? LIMIT 1`,
-          [sessionId]
-        );
-        const oid = Number(offRows?.[0]?.billing_office_location_id || 0);
-        if (oid) {
-          const [ol] = await pool.execute(
-            `SELECT practice_npi FROM office_locations WHERE id = ? LIMIT 1`,
-            [oid]
-          );
-          if (ol?.[0]?.practice_npi) resolvedBillingNpi = String(ol[0].practice_npi).trim();
-        }
-      } catch {
-        // practice_npi column may be missing until migration 1406
-      }
-    }
+    // A selected office supplies the group billing identity. Rendering/provider
+    // defaults must not silently replace it with an individual's NPI.
+    const { resolveClaimMdBillingProfile } = await import('../services/claimMdBillingProfile.service.js');
+    const claimBillingProfile = await resolveClaimMdBillingProfile(agencyId, sessionId, { required: false, requireComplete: false });
+    if (!req.body.billingNpi && claimBillingProfile) resolvedBillingNpi = claimBillingProfile.billingNpi || null;
 
     let lines = Array.isArray(req.body.lines) ? req.body.lines : [];
     let sessionRow = null;
@@ -2500,7 +2496,18 @@ export const createMedicalClaim = async (req, res, next) => {
     }
 
     const amountCents = lines.reduce((s, l) => s + Number(l.chargeCents || 0), 0);
-    const claim = await ClinicalClaim.create({
+    let claim;
+    const draftDb = await clinicalPool.getConnection();
+    const claimLifecycle = readiness.ready && noteId ? 'ready' : 'draft';
+    try {
+      await draftDb.beginTransaction();
+      await draftDb.execute('SELECT id FROM clinical_sessions WHERE id = ? AND agency_id = ? FOR UPDATE', [sessionId, agencyId]);
+      const [duplicates] = await draftDb.execute(`SELECT id FROM clinical_claims WHERE agency_id = ? AND clinical_session_id = ? AND clinical_note_id = ? AND is_deleted = 0 AND claim_lifecycle NOT IN ('void','cancelled')`, [agencyId, sessionId, noteId]);
+      if (duplicates.length) {
+        await draftDb.rollback();
+        return res.json(billingAccess ? { claim: duplicates[0], alreadyExists: true } : { documentationQueued: true });
+      }
+      claim = await ClinicalClaim.create({
       clinicalSessionId: sessionId,
       agencyId,
       clientId,
@@ -2526,14 +2533,11 @@ export const createMedicalClaim = async (req, res, next) => {
           planId: readiness.planId
         }
       },
-      createdByUserId: req.user.id
+      createdByUserId: req.user.id, db: draftDb
     });
 
-    const claimLifecycle = readiness.ready && noteId ? 'ready' : 'draft';
-
-    // Best-effort lifecycle columns (requires migration 002)
-    try {
-      await clinicalPool.execute(
+    // Claim header and service lines must commit together.
+      await draftDb.execute(
         `UPDATE clinical_claims SET
            clinical_note_id = ?,
            payer_name = ?,
@@ -2563,7 +2567,7 @@ export const createMedicalClaim = async (req, res, next) => {
       );
       let lineNum = 1;
       for (const l of lines) {
-        await clinicalPool.execute(
+        await draftDb.execute(
           `INSERT INTO clinical_claim_lines
            (clinical_claim_id, line_number, procedure_code, modifiers_json, units, charge_cents, diagnosis_pointers, clinical_note_id, service_date)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -2580,9 +2584,11 @@ export const createMedicalClaim = async (req, res, next) => {
           ]
         );
       }
-    } catch (schemaErr) {
-      console.warn('[medicalBilling] claim line insert skipped (run clinical migration 002):', schemaErr?.message);
-    }
+      await draftDb.commit();
+    } catch (error) {
+      await draftDb.rollback();
+      throw error;
+    } finally { draftDb.release(); }
 
     return res.status(201).json(await schedulingResponseForUser(req.user, agencyId, {
       claim: { ...claim, claim_lifecycle: claimLifecycle, date_of_service: dateOfService, clinical_note_id: noteId },
@@ -2710,100 +2716,58 @@ export const saveClaimMdCredentials = async (req, res, next) => {
 };
 
 async function resolveClaimMdAccountKey(agencyId) {
-  const row = await AgencyClaimMdCredentials.findByAgencyId(agencyId);
-  if (!row?.account_key_enc) {
-    const err = new Error('Claim.MD credentials are not configured for this agency');
-    err.status = 400;
-    throw err;
-  }
-  const parsed = JSON.parse(row.account_key_enc);
-  return decryptChatText({
-    ciphertextB64: parsed.ciphertext,
-    ivB64: parsed.iv,
-    authTagB64: parsed.tag,
-    keyId: parsed.keyId
-  });
+  return (await resolveClaimMdConnection(agencyId)).accountKey;
 }
 
 export const submitClaimToClaimMd = async (req, res, next) => {
   try {
     const agencyId = parseIntValue(req.body.agencyId);
-    const claimId = parseIntValue(req.params.claimId || req.body.claimId);
-    if (!agencyId || !claimId) {
-      return res.status(400).json({ error: { message: 'agencyId and claimId are required' } });
+    const claimId = parseIntValue(req.params.claimId);
+    if (!agencyId || !claimId || req.body.approved !== true || !/^[a-f0-9]{64}$/.test(req.body.reviewHash || '')) {
+      return res.status(400).json({ error: { message: 'Review and explicitly approve this claim before submitting' } });
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
-    const accountKey = await resolveClaimMdAccountKey(agencyId);
-
-    const [cRows] = await clinicalPool.execute(
-      `SELECT * FROM clinical_claims WHERE id = ? AND agency_id = ? LIMIT 1`,
-      [claimId, agencyId]
-    );
-    const claim = cRows?.[0];
-    if (!claim) return res.status(404).json({ error: { message: 'Claim not found' } });
-
+    const connection = await resolveClaimMdConnection(agencyId);
+    requireClaimMdTransmission(connection);
+    if (req.body.accountMode !== connection.mode) return res.status(409).json({ error: { message: 'The connection mode changed. Review the account mode again.' } });
+    const { claim, readiness, insurance, payload, reviewHash } = await prepareClaimReview(agencyId, claimId);
+    if (!['ready', 'draft', 'rejected'].includes(claim.claim_lifecycle)) return res.status(409).json({ error: { message: 'This claim is already submitted, in progress, or needs reconciliation' } });
+    if (claim.claimmd_connection_id && claim.claimmd_connection_id !== connection.connectionId) return res.status(409).json({ error: { message: 'Reconcile the claim in its original Claim.MD account before changing accounts' } });
+    if (!readiness.ready) return res.status(409).json({ error: { message: 'Clinical documentation is not ready for submission' }, readiness });
+    if (reviewHash !== req.body.reviewHash) return res.status(409).json({ error: { message: 'Claim data changed since review. Review the updated claim before submitting.' } });
+    const attemptId = crypto.randomUUID();
+    const db = await clinicalPool.getConnection();
     try {
-      const { applyBillingClaimOverrides } = await import('../services/applyBillingClaimOverrides.service.js');
-      const ov = await applyBillingClaimOverrides({
-        agencyId,
-        clientId: claim.client_id,
-        claimId,
-        placeOfService: claim.place_of_service,
-        billingNpi: claim.billing_npi,
-        payerName: claim.payer_name
-      });
-      const sets = [];
-      const vals = [];
-      if (ov?.placeOfService && ov.placeOfService !== claim.place_of_service) {
-        claim.place_of_service = ov.placeOfService;
-        sets.push('place_of_service = ?');
-        vals.push(ov.placeOfService);
-      }
-      if (ov?.billingNpi && ov.billingNpi !== claim.billing_npi) {
-        claim.billing_npi = ov.billingNpi;
-        sets.push('billing_npi = ?');
-        vals.push(ov.billingNpi);
-      }
-      if (sets.length) {
-        vals.push(claimId);
-        await clinicalPool.execute(
-          `UPDATE clinical_claims SET ${sets.join(', ')} WHERE id = ?`,
-          vals
-        );
-      }
-    } catch (ovErr) {
-      console.warn('[submitClaimToClaimMd] override apply skipped', ovErr?.message || ovErr);
-    }
-
-    const [lines] = await clinicalPool.execute(
-      `SELECT * FROM clinical_claim_lines WHERE clinical_claim_id = ? ORDER BY line_number ASC`,
-      [claimId]
-    );
-    if (!['ready', 'draft'].includes(String(claim.claim_lifecycle || ''))) return res.status(409).json({ error: { message: 'This claim is already submitted, in progress, or needs reconciliation' } });
-    const readiness = await evaluateClaimReadiness({agencyId,clientId:claim.client_id,clinicalSessionId:claim.clinical_session_id,clinicalNoteId:claim.clinical_note_id,requireSignedNote:!!getMedicalBillingFlags(await loadAgencyFlags(agencyId)).clinicalNoteSigningEnabled});
-    if(!readiness.ready)return res.status(409).json({error:{message:'Clinical documentation is not ready for claim submission'},readiness});
-    const insurance = await readClientInsurance(claim.client_id, agencyId);
-    const practice = await Agency.findById(agencyId);
-    const payload = buildClaimMdJsonClaim(claim, lines || [], { insurance, practice });
-    const [queued] = await clinicalPool.execute(`UPDATE clinical_claims SET claim_lifecycle = 'queued', member_id = NULL, insurance_payload = ? WHERE id = ? AND agency_id = ? AND claim_lifecycle IN ('ready','draft')`, [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), claimId, agencyId]);
-    if (!queued.affectedRows) return res.status(409).json({ error: { message: 'This claim is already being submitted' } });
-    // Queued remains non-retryable on ambiguous transport failure. Reconcile
-    // with Claim.MD instead of risking a second submission.
-    const result = await uploadClaims({ accountKey, fileContents: JSON.stringify({ claim: [payload] }), filename: `claim-${claimId}.json` });
-    const acknowledgement = (Array.isArray(result?.claim) ? result.claim : [result?.claim]).find(row => String(row?.remote_claimid || row?.pcn || '') === String(claimId) || String(row?.pcn || '') === String(payload.pcn));
-    if (!acknowledgement?.claimid && !acknowledgement?.claimmd_id) return res.status(502).json({ error: { message: 'Claim.MD did not acknowledge this claim. Review the clearinghouse before retrying.' } });
-    const accepted = acknowledgement.status === 'A';
-    await clinicalPool.execute(`UPDATE clinical_claims SET claim_lifecycle = ?, claim_status = ?, claimmd_last_status = ?, claimmd_submitted_at = NOW(), claimmd_claim_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND agency_id = ?`, [accepted ? 'submitted' : 'rejected', accepted ? 'SUBMITTED' : 'PENDING', String(acknowledgement.status || 'unknown'), String(acknowledgement.claimmd_id || acknowledgement.claimid), claimId, agencyId]);
-    await auditBilling({ agencyId, userId: req.user.id, clientId: claim.client_id, action: 'claimmd_submission', objectId: claimId });
-
-    return res.json({
-      ok: true,
-      message: accepted ? 'Acknowledged by Claim.MD; payer transmission may require portal approval' : 'Claim.MD rejected the claim; review it in the clearinghouse',
-      accepted
-    });
-  } catch (e) {
-    next(e);
-  }
+      await db.beginTransaction();
+      const [queued] = await db.execute(`UPDATE clinical_claims SET claim_lifecycle = 'queued', member_id = NULL,
+        insurance_payload = ?, claimmd_connection_id = ? WHERE id = ? AND agency_id = ? AND is_deleted = 0
+        AND claim_lifecycle IN ('ready','draft','rejected') AND billing_revision = ?`,
+        [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connection.connectionId, claimId, agencyId, claim.billing_revision]);
+      if (!queued.affectedRows) throw Object.assign(new Error('This claim changed or is already being submitted. Refresh its review.'), { status: 409 });
+      await recordClaimEvent({ agencyId, claimId, connectionId: connection.connectionId, eventKey: `submission:${attemptId}`,
+        eventType: 'approved_submission', actorUserId: req.user.id, payload: { reviewHash, mode: connection.mode, payload } }, db);
+      await db.commit();
+    } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
+    // A transport failure stays queued: never automatically repeat a possibly successful upload.
+    const result = await uploadClaims({ accountKey: connection.accountKey, fileContents: JSON.stringify({ claim: [payload] }), filename: `claim-${claimId}.json` });
+    const ack = asList(result.claim).find(row => String(row.remote_claimid || '') === String(payload.remote_claimid));
+    if (!ack?.claimmd_id && !ack?.claimid) throw Object.assign(new Error('Claim.MD did not acknowledge this claim. Reconcile its status before retrying.'), { status: 502 });
+    const accepted = ack.status === 'A';
+    const lifecycle = accepted ? 'submitted' : ack.status === 'R' ? 'rejected' : 'queued';
+    const ackDb = await clinicalPool.getConnection();
+    try {
+      await ackDb.beginTransaction();
+      await recordClaimEvent({ agencyId, claimId, connectionId: connection.connectionId, eventKey: `ack:${attemptId}`,
+        eventType: 'acknowledgement', status: ack.status || null, payload: { messages: asList(ack.messages), claimMdId: String(ack.claimmd_id || ack.claimid) } }, ackDb);
+      await ackDb.execute(`UPDATE clinical_claims SET claim_lifecycle = ?, claim_status = ?, claimmd_last_status = ?,
+        claimmd_submitted_at = NOW(), claimmd_claim_id = ? WHERE id = ? AND agency_id = ? AND claim_lifecycle = 'queued'`,
+        [lifecycle, accepted ? 'SUBMITTED' : 'PENDING', String(ack.status || 'unknown'), String(ack.claimmd_id || ack.claimid), claimId, agencyId]);
+      await ackDb.commit();
+    } catch (e) { await ackDb.rollback(); throw e; } finally { ackDb.release(); }
+    return res.json({ ok: true, accepted, message: accepted
+      ? 'Acknowledged by Claim.MD. Payer transmission may still require approval in the Claim.MD portal.'
+      : 'Claim.MD returned an issue. Review the claim history before taking further action.' });
+  } catch (e) { next(e); }
 };
 
 export const refreshClaimMdResponses = async (req, res, next) => {
@@ -2811,13 +2775,9 @@ export const refreshClaimMdResponses = async (req, res, next) => {
     const agencyId = parseIntValue(req.query.agencyId || req.body.agencyId);
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
-    const accountKey = await resolveClaimMdAccountKey(agencyId);
-    const responseId = String(req.query.responseId || req.body.responseId || '0');
-    const result = await fetchResponses({ accountKey, responseId });
-    return res.json({ result });
-  } catch (e) {
-    next(e);
-  }
+    const connection = await resolveClaimMdConnection(agencyId);
+    return res.json(await syncClaimMdResponses({ agencyId, connection }));
+  } catch (e) { next(e); }
 };
 
 export const listClaimMdEras = async (req, res, next) => {
@@ -2826,8 +2786,14 @@ export const listClaimMdEras = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     const accountKey = await resolveClaimMdAccountKey(agencyId);
-    const result = await fetchEraList({ accountKey, page: req.query.page || '1' });
-    return res.json({ result });
+    const practice = await Agency.findById(agencyId);
+    const taxId = String(practice.tax_id || '').replace(/\D/g, '');
+    if (taxId.length !== 9) return res.status(409).json({ error: { message: 'Configure the agency tax ID first' } });
+    const { assertExclusiveClaimMdTaxId } = await import('../services/claimMdBillingProfile.service.js');
+    await assertExclusiveClaimMdTaxId(agencyId, taxId);
+    const result = await fetchEraList({ accountKey, page: req.query.page || '1', taxId });
+    const eras = asList(result.era).filter(row => taxId.length === 9 && String(row.prov_taxid || '').replace(/\D/g, '') === taxId);
+    return res.json({ eras });
   } catch (e) {
     next(e);
   }
@@ -2991,7 +2957,7 @@ export const listMedicalServiceCodes = async (req, res, next) => {
     const items = await AgencyMedicalServiceCode.listByAgency(agencyId, {
       includeInactive: String(req.query.includeInactive || '') === '1'
     });
-    return res.json({ items });
+    return res.json(await schedulingResponseForUser(req.user, agencyId, { items }));
   } catch (e) {
     next(e);
   }
@@ -3313,6 +3279,7 @@ export const applyEncounterBilling = async (req, res, next) => {
     const session = await ClinicalSession.findById(sessionId);
     if (!session) return res.status(404).json({ error: { message: 'Clinical session not found' } });
     const aid = agencyId || Number(session.agency_id);
+    if (Number(session.agency_id) !== aid) return res.status(404).json({ error: { message: 'Clinical session not found for this agency' } });
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: aid });
 
     const serviceCode = String(req.body.serviceCode || session.service_code || '').trim().toUpperCase();

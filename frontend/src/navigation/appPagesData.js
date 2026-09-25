@@ -201,11 +201,11 @@ export const APP_PAGES = [
     desc: 'Track outstanding receivables and balances.'
   },
   {
-    title: 'Medical Billing',
+    title: 'Billing Workspace',
     section: 'Workforce Ops › Billing & Revenue',
     path: '/admin/medical-billing',
-    keywords: ['medical billing', 'medical', 'billing', 'claims'],
-    desc: 'Medical billing tools and claim management.'
+    keywords: ['medical billing', 'medical', 'billing', 'claims', 'payers', 'ERA', 'payments'],
+    desc: 'Work billing queues, payer enrollment, and reports across authorized companies.'
   },
   {
     title: 'Psychotherapy Compliance',

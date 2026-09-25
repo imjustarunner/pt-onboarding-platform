@@ -6346,59 +6346,8 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       }
     }
 
-    let claimDraftMsg = '';
-    const shouldQueueClaim =
-      shouldAutosign
-      && noteId
-      && sessionId
-      && !isReviewOnlyAid.value
-      && !isTreatmentSummaryAid.value
-      && !isClientChartAid.value
-      && serviceCodeForMetadata;
-    if (shouldQueueClaim) {
-      try {
-        const primary = String(serviceCodeForMetadata).toUpperCase();
-        const claimLines = [
-          {
-            procedureCode: primary,
-            units: Number(billingPrimaryUnits.value || 1) || 1,
-            chargeCents: 0,
-            diagnosisPointers: '1',
-            serviceDate: dos
-          },
-          ...(billingAddons.value || [])
-            .map((a) => ({
-              procedureCode: String(a.code || '').toUpperCase(),
-              units: Number(a.units || 1) || 1,
-              chargeCents: 0,
-              diagnosisPointers: '1',
-              serviceDate: dos
-            }))
-            .filter((l) => l.procedureCode && l.procedureCode !== primary)
-        ];
-        const claimRes = await api.post(
-          '/medical-billing/claims',
-          {
-            agencyId: Number(noteAidAgencyId.value || currentAgencyId.value || 0),
-            clientId: Number(effectiveClientId.value || selectedClientId.value || 0),
-            clinicalSessionId: sessionId,
-            clinicalNoteId: noteId,
-            dateOfService: dos,
-            primaryProcedureCode: primary,
-            lines: claimLines
-          },
-          { skipGlobalLoading: true }
-        );
-        if (claimRes?.data?.alreadyExists) {
-          claimDraftMsg = ' Claim already in billing queue.';
-        } else if (claimRes?.data?.claim?.id) {
-          claimDraftMsg = ' Claim drafted for billing.';
-        }
-      } catch (claimErr) {
-        console.warn('[NoteAid] claim queue draft failed', claimErr?.response?.data?.error?.message || claimErr?.message || claimErr);
-        claimDraftMsg = ' Note signed — claim draft skipped (billing can create it).';
-      }
-    }
+    // Claim drafts are prepared server-side from the signed note.
+    const claimDraftMsg = '';
 
     if (isTreatmentSummaryAid.value && noteId) {
       treatmentSummaryNoteId.value = noteId;

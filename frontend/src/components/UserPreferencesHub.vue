@@ -479,12 +479,12 @@
       <div class="section-header">
         <h2>Note Aid</h2>
         <p class="section-description">
-          Manual writing, Colorado-style autosign after content Review, and default claim billing NPI scenario.
+          Manual writing and autosign after content review.
         </p>
       </div>
       <div class="section-content">
         <div class="prefs-grid">
-          <div class="card">
+          <div v-if="canSeeClaimBillingPreferences" class="card">
             <h3 class="card-title">Claim billing default (all payers)</h3>
             <label class="field">
               <span>Bill claims under</span>
@@ -899,6 +899,8 @@
 </template>
 
 <script setup>
+import { canAccessMedicalBilling } from '../config/medicalBillingAccess.js';
+const canSeeClaimBillingPreferences = computed(() => canAccessMedicalBilling(authStore.user, agencyStore.currentAgency?.id));
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
@@ -1701,6 +1703,7 @@ const loadClubSummitContext = async () => {
 };
 
 const loadClaimBillingMode = async () => {
+  if (!canSeeClaimBillingPreferences.value) return;
   claimBillingModeMessage.value = '';
   claimBillingSupervisors.value = [];
   const agencyId = Number(agencyStore.currentAgency?.id || 0);
@@ -1720,6 +1723,7 @@ const loadClaimBillingMode = async () => {
 };
 
 const saveClaimBillingMode = async () => {
+  if (!canSeeClaimBillingPreferences.value) return;
   claimBillingModeMessage.value = '';
   const agencyId = Number(agencyStore.currentAgency?.id || 0);
   if (!agencyId) {

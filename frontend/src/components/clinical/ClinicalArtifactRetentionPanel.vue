@@ -34,7 +34,7 @@
     <div class="create-row">
       <select v-model="createType" class="input small">
         <option value="note">Note</option>
-        <option value="claim">Claim</option>
+        <option v-if="canSeeBilling" value="claim">Claim</option>
         <option value="document">Document</option>
       </select>
       <input v-model="createTitle" class="input" :placeholder="createType === 'claim' ? 'Claim number or title' : 'Title'" />
@@ -57,7 +57,7 @@
           </div>
         </div>
       </div>
-      <div class="col">
+      <div v-if="canSeeBilling" class="col">
         <h4>Claims</h4>
         <div v-for="x in artifacts.claims" :key="`c-${x.id}`" class="row-item">
           <div><strong>{{ x.claim_number || `Claim ${x.id}` }}</strong></div>
@@ -90,6 +90,10 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
+import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
+const authStore = useAuthStore();
+const canSeeBilling = computed(() => canAccessMedicalBilling(authStore.user, agencyIdLocal.value));
 
 const props = defineProps({
   agencyId: { type: Number, default: null },

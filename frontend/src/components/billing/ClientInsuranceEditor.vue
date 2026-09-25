@@ -1,5 +1,5 @@
 <template>
-  <section class="client-insurance-editor">
+  <section v-if="canSeeBilling" class="client-insurance-editor">
     <h4>Insurance and claim identity</h4>
     <button v-if="!opened" class="btn btn-secondary" type="button" @click="load">Review private insurance details</button>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
@@ -18,7 +18,11 @@
   </section>
 </template>
 <script setup>
-import {ref,watch} from 'vue';
+import {ref,watch,computed} from 'vue';
+import { useAuthStore } from '../../store/auth';
+import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
+const authStore = useAuthStore();
+const canSeeBilling = computed(() => canAccessMedicalBilling(authStore.user, props.agencyId));
 import api from '../../services/api';
 import InsurancePolicyFields from './InsurancePolicyFields.vue';
 const props=defineProps({clientId:[String,Number],agencyId:[String,Number]});

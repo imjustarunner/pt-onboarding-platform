@@ -2,6 +2,8 @@ import { listTreatmentFrequencies, addTreatmentFrequency, suggestObjectiveInterv
 import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '../controllers/medicalBilling.controller.js';
 import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
 import express from 'express';
+import { getBillingWorkspace } from '../controllers/claimMdWorkspace.controller.js';
+import { reviewClaim, claimHistory, claimDraft, listUndraftedNotes, correctClaim, searchClaimMdPayers, startClaimMdEnrollment, listClaimMdEnrollments, listClaimMdOffices } from '../controllers/claimMdWorkflow.controller.js';
 import { body, param, query } from 'express-validator';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import {
@@ -16,7 +18,7 @@ import {
 } from '../middleware/medicalBilling.middleware.js';
 
 const claimsGate = [requireMedicalClaims, requireMedicalBillingActorAccess];
-const claimMdGate = [requireClaimMd, requireMedicalBillingActorAccess, requireMedicalBillingFinancialAccess];
+const claimMdGate = [requireClaimMd, requireMedicalBillingFinancialAccess];
 const masterGate = [requireMedicalBillingMaster, requireMedicalBillingActorAccess];
 const reportsGate = [...masterGate, requireMedicalBillingReportAccess];
 import {
@@ -85,8 +87,9 @@ import {
 const router = express.Router();
 
 router.use(authenticate, requireActiveStatus, (req,res,next)=>{res.set('Cache-Control','no-store');next();});
-router.get('/clients/:clientId/insurance', ...masterGate, getClientInsurance);
-router.put('/clients/:clientId/insurance', ...masterGate, saveClientInsurance);
+router.get('/workspace', getBillingWorkspace);
+router.get('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, getClientInsurance);
+router.put('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, saveClientInsurance);
 
 router.get(
   '/status',
@@ -131,6 +134,7 @@ router.post(
 router.get(
   '/claim-billing-mode',
   requireMedicalBillingActorAccess,
+  requireMedicalBillingFinancialAccess,
   [query('agencyId').isInt({ min: 1 })],
   getClaimBillingMode
 );
@@ -138,6 +142,7 @@ router.get(
 router.patch(
   '/claim-billing-mode',
   requireMedicalBillingActorAccess,
+  requireMedicalBillingFinancialAccess,
   [
     body('agencyId').isInt({ min: 1 }),
     body('mode').isIn(['self', 'billing_supervisor']),
@@ -499,6 +504,7 @@ router.post(
 router.get(
   '/sessions/:sessionId/claim-readiness',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [
     param('sessionId').isInt({ min: 1 }),
     query('agencyId').isInt({ min: 1 }),
@@ -510,6 +516,7 @@ router.get(
 router.post(
   '/claims',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [
     body('agencyId').isInt({ min: 1 }),
     body('clientId').isInt({ min: 1 }),
@@ -521,6 +528,7 @@ router.post(
 router.post(
   '/claimmd/credentials',
   ...claimMdGate,
+  (req, res, next) => ['admin', 'super_admin'].includes(req.user?.role) ? next() : res.status(403).json({ error: { message: 'Only administrators can change Claim.MD credentials' } }),
   [
     body('agencyId').isInt({ min: 1 }),
     body('accountKey').isString().isLength({ min: 8 })
@@ -538,12 +546,16 @@ router.post(
   submitClaimToClaimMd
 );
 
-router.get(
-  '/claimmd/responses',
-  ...claimMdGate,
-  [query('agencyId').isInt({ min: 1 })],
-  refreshClaimMdResponses
-);
+router.post('/claimmd/responses/sync', ...claimMdGate, refreshClaimMdResponses);
+router.get('/claims/undrafted-notes', ...claimMdGate, listUndraftedNotes);
+router.get('/claimmd/claims/:claimId/review', ...claimMdGate, reviewClaim);
+router.get('/claimmd/claims/:claimId/history', ...claimMdGate, claimHistory);
+router.get('/claimmd/claims/:claimId/draft', ...claimMdGate, claimDraft);
+router.patch('/claimmd/claims/:claimId', ...claimMdGate, correctClaim);
+router.get('/claimmd/payers', ...claimMdGate, searchClaimMdPayers);
+router.get('/claimmd/billing-offices', ...claimMdGate, listClaimMdOffices);
+router.get('/claimmd/enrollments', ...claimMdGate, listClaimMdEnrollments);
+router.post('/claimmd/enrollments', ...claimMdGate, startClaimMdEnrollment);
 
 router.get(
   '/claimmd/eras',
@@ -598,6 +610,7 @@ router.get(
 router.post(
   '/service-codes',
   ...masterGate,
+  requireMedicalBillingFinancialAccess,
   [
     body('agencyId').isInt({ min: 1 }),
     body('serviceCode').isString().isLength({ min: 1, max: 32 })
@@ -657,6 +670,7 @@ router.patch(
 router.post(
   '/sessions/:sessionId/apply-billing',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [
     param('sessionId').isInt({ min: 1 }),
     body('agencyId').isInt({ min: 1 })

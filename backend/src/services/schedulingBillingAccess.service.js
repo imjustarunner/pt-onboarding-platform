@@ -5,6 +5,7 @@ import { isIndependentPracticeOwner } from '../utils/independentPracticeOwner.js
 export async function hasSchedulingBillingAccess(user, agencyId) {
   if (!user?.id || !Number(agencyId)) return false;
   const role = String(user.role || user.effectiveRole || '').toLowerCase();
+  if (['provider', 'provider_plus'].includes(role)) return false;
   if (role === 'super_admin') return true;
   const agencies = await User.getAgencies(user.id);
   if (!(agencies || []).some((a) => Number(a.id) === Number(agencyId))) return false;
@@ -20,7 +21,8 @@ export function stripSchedulingFinancials(value) {
   return Object.fromEntries(Object.entries(value)
     .filter(([key, item]) => item !== undefined && !/(amount|price|fee|cost|charge)(Cents|_|$)|(^|_)rate($|_)|Rate(Cents|$)|financial|claimPayload|claim_payload|insurance_payload/i.test(key)
       && !(/balance/i.test(key) && (item === null || typeof item !== 'object'))
-      && !['billingNotes', 'billing_notes', 'raw_json', 'payload_json', 'insurance_outstanding', 'insurance_paid'].includes(key))
+      && !['billingNotes', 'billing_notes', 'raw_json', 'payload_json', 'insurance_outstanding', 'insurance_paid', 'claims', 'claim', 'linkedClaim', 'linked_claim', 'clientPayer', 'billing', 'billingNpi', 'billing_npi', 'billingEncounters', 'familyResponsibility'].includes(key)
+      && !/^claim(md|_|[A-Z])/.test(key))
     .map(([key, item]) => [key, stripSchedulingFinancials(key === 'billing' && item ? { ...item, notes: undefined } : item)]));
 }
 
