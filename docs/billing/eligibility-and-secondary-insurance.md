@@ -24,6 +24,10 @@ Use the separate **Eligibility payer ID (if different)** field when needed. It d
 
 The Claim.MD key belongs in the server's Google Cloud Secret Manager configuration. A GitHub secret is needed only if a deployment workflow explicitly requires it; copying the production key into CI is unnecessary for this feature.
 
+## EFT / direct deposit
+
+The owner confirmed on September 25, 2026 that TISI already receives CCHA direct deposits. Preserve that enrollment; verify ERA routing separately. See the [EFT setup and tracking guide](eft-direct-deposit.md).
+
 ## In-app workflow
 
 Billing staff open the client's insurance editor, save any changes, choose the service date and billing office, and check primary and secondary separately. Responses and manual reviews are encrypted with client/agency-bound encryption contexts. No arbitrary patient payload is accepted from the browser. Reusing the same request key cannot issue a second vendor request.

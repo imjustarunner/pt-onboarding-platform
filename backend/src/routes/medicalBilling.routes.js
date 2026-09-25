@@ -1,3 +1,4 @@
+import { getEft, saveEft, getEftHistory } from '../controllers/payerEft.controller.js';
 import { listTreatmentFrequencies, addTreatmentFrequency, suggestObjectiveInterventions } from '../controllers/treatmentPlanOptions.controller.js';
 import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '../controllers/medicalBilling.controller.js';
 import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
@@ -96,6 +97,9 @@ router.get('/workspace', getBillingWorkspace);
 router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, listSupervisedPayerPolicies);
 router.get('/supervised-provider-readiness', requireMedicalBillingFinancialAccess, supervisedProviderReadiness);
 router.post('/supervised-payer-policies', requireMedicalBillingFinancialAccess, saveSupervisedPayerPolicy);
+router.get('/payer-eft', ...masterGate, requireMedicalBillingFinancialAccess, getEft);
+router.post('/payer-eft', ...masterGate, requireMedicalBillingFinancialAccess, saveEft);
+router.get('/payer-eft/:id/history', ...masterGate, requireMedicalBillingFinancialAccess, getEftHistory);
 router.get('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, getClientInsurance);
 router.put('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, saveClientInsurance);
 router.get('/clients/:clientId/coverage', ...masterGate, requireMedicalBillingFinancialAccess, getCoverageEvidence);

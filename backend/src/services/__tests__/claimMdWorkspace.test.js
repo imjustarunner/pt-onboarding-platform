@@ -4,6 +4,7 @@ import { billingWorkspace } from '../claimMdWorkspace.service.js';
 const agency = id => ({ id, name: `Company ${id}`, feature_flags: { medicalBillingEnabled: true } });
 function fixture() {
   const deps = {
+    eftList: vi.fn(async () => ({items:[]})),
     main: { execute: vi.fn(async () => [[agency(1), agency(2), agency(3)]]) },
     memberships: vi.fn(async () => [agency(1), agency(2), agency(3)]),
     canAccess: vi.fn(async (_, id) => id !== 2),
@@ -22,6 +23,7 @@ describe('cross-company billing scope', () => {
   it('queries and returns only organizations with server-authorized billing access', async () => {
     const deps = fixture(); const data = await billingWorkspace(user, {}, deps);
     expect(data.organizations.map(a => a.id)).toEqual([1, 3]);
+    expect(deps.eftList.mock.calls.map(([id])=>id)).toEqual([1,3]);
     for (const [sql, params] of deps.clinical.execute.mock.calls) { expect(sql).toContain('agency_id IN (?,?)'); expect(params.slice(0, 2)).toEqual([1, 3]); }
     expect(data.organizations[0].enrollments.map(e => e.payerId)).toEqual(['COCHA']);
     expect(data.capabilities.paymentPosting).toBe(false);

@@ -1,3 +1,4 @@
+import { listPayerEft } from './payerEft.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import User from '../models/User.model.js';
@@ -7,7 +8,7 @@ import { claimMdConnectionMeta } from './claimMdConnection.service.js';
 
 const denied = () => Object.assign(new Error('Billing access is required for this organization.'), { status: 403 });
 const missingSchema = e => ['ER_NO_SUCH_TABLE', 'ER_BAD_FIELD_ERROR'].includes(e?.code);
-const dependencies = { main: pool, clinical: clinicalPool, memberships: id => User.getAgencies(id), canAccess: hasSchedulingBillingAccess, connectionMeta: claimMdConnectionMeta };
+const dependencies = { main: pool, clinical: clinicalPool, memberships: id => User.getAgencies(id), canAccess: hasSchedulingBillingAccess, connectionMeta: claimMdConnectionMeta, eftList: listPayerEft };
 const pendingChangeSql="EXISTS (SELECT 1 FROM clinical_claim_change_requests ch WHERE ch.agency_id=clinical_claims.agency_id AND ch.clinical_session_id=clinical_claims.clinical_session_id AND ch.status IN ('pending','reconciliation_required'))";
 
 // Resolve scope on the server. Never accept a client-supplied list of agencies.
@@ -29,7 +30,7 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
   if (requested !== null && (!Number.isSafeInteger(requested) || !organizations.some(a => a.id === requested))) throw denied();
   const scope = requested ? organizations.filter(a => a.id === requested) : organizations;
   const result = { organizations, claims: [], total: 0, page: Math.max(1, Math.min(100000, Number.parseInt(query.page, 10) || 1)), pageSize: 30,
-    capabilities: { claims: true, enrollments: true, paymentPosting: false, scheduledReports: false }, updatedAt: new Date().toISOString() };
+    capabilities: { claims: true, enrollments: true, paymentPosting: false, scheduledReports: false, eft: true }, updatedAt: new Date().toISOString() };
   if (!organizations.length) return result;
   const allIds = organizations.map(a => a.id), allMarks = allIds.map(() => '?').join(',');
   let counts = [], enrollments = [];
@@ -42,6 +43,8 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
       FROM claimmd_enrollments WHERE agency_id IN (${allMarks})`, allIds);
   } catch (e) { if (!missingSchema(e)) throw e; result.capabilities.enrollments = false; }
   for (const organization of organizations) {
+    try { const eft=await deps.eftList(organization.id); organization.eft=eft.items.map(({id,officeId,payerId,payerName,providerNpi,status,identityCurrent,updatedAt})=>({id,officeId,payerId,payerName,providerNpi,status,identityCurrent,updatedAt})); organization.eftHasMore=eft.hasMore; }
+    catch(e){if(!missingSchema(e))throw e;result.capabilities.eft=false;organization.eft=null;}
     organization.counts = result.capabilities.claims ? Object.fromEntries(counts.filter(r => Number(r.agency_id) === organization.id).map(r => [r.claim_lifecycle || 'unknown', Number(r.count)])) : null;
     if(organization.counts)organization.counts.service_changes=counts.filter(r=>Number(r.agency_id)===organization.id).reduce((n,r)=>n+Number(r.additional_attention||0),0);
     try { organization.connection = await deps.connectionMeta(organization.id); }
