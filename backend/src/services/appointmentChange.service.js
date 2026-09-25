@@ -3,6 +3,8 @@
  * Provider reports facts; system classifies late/miss, consequence, and writes the note.
  */
 import pool from '../config/database.js';
+import { readClientInsurance } from './clientInsurance.service.js';
+import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
 import Appointment from '../models/Appointment.model.js';
 import ClientMedicaidAttendanceStrike from '../models/ClientMedicaidAttendanceStrike.model.js';
 import User from '../models/User.model.js';
@@ -113,20 +115,21 @@ async function resolveBillingClientId(appointmentId) {
   );
 }
 
-async function loadClientPayerHint(clientId) {
+async function loadClientPayerHint(clientId, agencyId) {
   const cid = safeInt(clientId);
-  if (!cid) return { insuranceType: null, isMedicaid: false };
+  if (!cid) return { insuranceType: null, isMedicaid: false, coverageUnknown: true };
   try {
     const [rows] = await pool.execute(
-      `SELECT insurance_type, insurance_type_other, primary_insurance_name
-       FROM clients WHERE id = ? LIMIT 1`,
-      [cid]
+      `SELECT c.primary_insurer_name, it.label AS insurance_type
+       FROM clients c LEFT JOIN insurance_types it ON it.id=c.insurance_type_id WHERE c.id = ? AND c.agency_id = ? LIMIT 1`,
+      [cid, agencyId]
     );
     const r = rows?.[0] || {};
-    const insuranceType = r.insurance_type || r.insurance_type_other || r.primary_insurance_name || null;
-    return { insuranceType, isMedicaid: isMedicaidPayer(insuranceType) };
+    const insurance = await readClientInsurance(cid,agencyId);
+    const insuranceType = insurance?.primary?.insurerName || r.insurance_type || r.primary_insurer_name || null;
+    return { insuranceType, isMedicaid: hasMedicaidCoverage(insurance) || isMedicaidPayer(insuranceType), coverageUnknown: !insuranceType };
   } catch {
-    return { insuranceType: null, isMedicaid: false };
+    return { insuranceType: null, isMedicaid: false, coverageUnknown: true };
   }
 }
 
@@ -633,7 +636,7 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     initiator: facts.initiator
   });
 
-  const payer = await loadClientPayerHint(clientId);
+  const payer = await loadClientPayerHint(clientId,bundle.agencyId);
   const strikePolicyEnabled = await loadAgencyStrikePolicyEnabled(bundle.agencyId);
   const packageBalance = bundle.clinicalSessionId && !bundle.packageEntitlementId ? null : await loadPackageBalanceHint({
     agencyId: bundle.agencyId,
@@ -650,6 +653,9 @@ export async function previewAppointmentChange(appointmentId, facts = {}, { acto
     evaluation,
     initiator: facts.initiator
   });
+  if (bundle.clinicalSessionId && payer.coverageUnknown && isMissed) {
+    consequence = { model: 'none', label: 'Coverage needs billing review — no missed-appointment fee assessed', feeCents: 0, packageAction: 'release' };
+  }
 
   let strikePreview = null;
   if (consequence.model === 'medicaid_strike' && clientId) {

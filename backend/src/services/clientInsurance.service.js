@@ -3,7 +3,7 @@ import { encryptFamilyBilling, decryptFamilyBilling } from './familyBillingEncry
 import { billingError } from './familyBillingPolicy.service.js';
 import { hasMedicaidCoverage, policyIsMedicaid } from '../utils/insurancePaymentPolicy.js';
 
-export const POLICY_TEXT_FIELDS = ['insurerName', 'payerId', 'memberId', 'groupNumber', 'patientSuffix', 'subscriberName', 'subscriberFirstName', 'subscriberLastName', 'subscriberDob', 'subscriberSex', 'relationshipToSubscriber', 'subscriberAddressLine1', 'subscriberAddressLine2', 'subscriberCity', 'subscriberState', 'subscriberPostalCode', 'planType', 'effectiveDate', 'terminationDate', 'claimsPhone'];
+export const POLICY_TEXT_FIELDS = ['insurerName', 'payerId', 'eligibilityPayerId', 'memberId', 'groupNumber', 'patientSuffix', 'subscriberName', 'subscriberFirstName', 'subscriberLastName', 'subscriberDob', 'subscriberSex', 'relationshipToSubscriber', 'subscriberAddressLine1', 'subscriberAddressLine2', 'subscriberCity', 'subscriberState', 'subscriberPostalCode', 'planType', 'effectiveDate', 'terminationDate', 'claimsPhone'];
 export function normalizePolicy(value = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw billingError(400, 'Insurance policy must be an object');
   const out = {};

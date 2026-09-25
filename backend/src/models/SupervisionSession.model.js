@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import Notification from './Notification.model.js';
 import { generateJoinToken } from '../utils/joinToken.js';
 import { resolveArtifactPlainFields } from '../services/supervisionArtifactEncryption.service.js';
+import { withSupervisorTimeLock, assertNoReviewTimeOverlap } from '../services/supervisionReviewTime.service.js';
 
 function normalizeInviteScopeValue(raw) {
   const scope = String(raw || 'invited_only').trim().toLowerCase();
@@ -11,7 +12,14 @@ function normalizeInviteScopeValue(raw) {
 }
 
 class SupervisionSession {
-  static async create({
+  static async create(input) {
+    const ids=[input.supervisorUserId,input.coFacilitatorUserId,input.superviseeUserId];
+    return withSupervisorTimeLock(ids,async db=>{
+      await assertNoReviewTimeOverlap(db,ids,input.startAt,input.endAt,0,true);
+      return this.createWithReviewTimeChecked(input);
+    });
+  }
+  static async createWithReviewTimeChecked({
     agencyId,
     supervisorUserId,
     coFacilitatorUserId = null,
@@ -260,6 +268,17 @@ class SupervisionSession {
   }
 
   static async upsertAttendees(sessionId, attendees = []) {
+    if(!Array.isArray(attendees)||!attendees.length)return;
+    const session=await this.findById(sessionId);
+    if(!session)return;
+    const ids=[session.supervisor_user_id,session.co_facilitator_user_id,...attendees.map(a=>a.userId)];
+    return withSupervisorTimeLock(ids,async db=>{
+      const current=await this.findById(sessionId);
+      await assertNoReviewTimeOverlap(db,ids,current.start_at,current.end_at,0,true);
+      return this.upsertAttendeesWithReviewTimeChecked(sessionId,attendees);
+    });
+  }
+  static async upsertAttendeesWithReviewTimeChecked(sessionId, attendees = []) {
     const sid = parseInt(sessionId, 10);
     if (!sid || !Array.isArray(attendees) || !attendees.length) return;
 
@@ -522,6 +541,18 @@ class SupervisionSession {
   }
 
   static async setStatus(id, status, extras = {}) {
+    if (['CANCELLED','CANCELED','MISSED','RESCHEDULED'].includes(String(status).toUpperCase())) return this.setStatusWithReviewTimeChecked(id,status,extras);
+    const row=await this.findById(id);
+    if(!row)return null;
+    const [attendees]=await pool.execute('SELECT user_id FROM supervision_session_attendees WHERE session_id = ? UNION SELECT user_id FROM supervision_session_presenters WHERE session_id = ?',[id,id]);
+    const ids=[row.supervisor_user_id,row.co_facilitator_user_id,row.supervisee_user_id,...attendees.map(a=>a.user_id)];
+    return withSupervisorTimeLock(ids,async db=>{
+      const latest=await this.findById(id);
+      await assertNoReviewTimeOverlap(db,ids,latest.start_at,latest.end_at,0,true);
+      return this.setStatusWithReviewTimeChecked(id,status,extras);
+    });
+  }
+  static async setStatusWithReviewTimeChecked(id, status, extras = {}) {
     const sid = parseInt(id, 10);
     if (!sid) return null;
     const nextStatus = String(status || '').trim().toUpperCase();
@@ -644,7 +675,17 @@ class SupervisionSession {
     return rows || [];
   }
 
-  static async setPresenters({
+  static async setPresenters(input) {
+    const row=await this.findById(input.sessionId);
+    if(!row)return;
+    const ids=[row.supervisor_user_id,...(input.presenterUserIds || [])];
+    return withSupervisorTimeLock(ids,async db=>{
+      const latest=await this.findById(input.sessionId);
+      await assertNoReviewTimeOverlap(db,ids,latest.start_at,latest.end_at,0,true);
+      return this.setPresentersWithReviewTimeChecked(input);
+    });
+  }
+  static async setPresentersWithReviewTimeChecked({
     sessionId,
     presenterUserIds = [],
     assignedByUserId = null,
@@ -882,7 +923,19 @@ class SupervisionSession {
     return this.findById(sid);
   }
 
-  static async updateById(id, {
+  static async updateById(id, patch) {
+    if(patch.startAt===undefined && patch.endAt===undefined && patch.coFacilitatorUserId===undefined) return this.updateWithReviewTimeChecked(id,patch);
+    const row=await this.findById(id);
+    if(!row)return null;
+    const [attendees]=await pool.execute('SELECT user_id FROM supervision_session_attendees WHERE session_id = ? UNION SELECT user_id FROM supervision_session_presenters WHERE session_id = ?',[id,id]);
+    const ids=[row.supervisor_user_id,row.co_facilitator_user_id,patch.coFacilitatorUserId,row.supervisee_user_id,...attendees.map(a=>a.user_id)];
+    return withSupervisorTimeLock(ids,async db=>{
+      const latest=await this.findById(id);
+      await assertNoReviewTimeOverlap(db,ids,patch.startAt??latest.start_at,patch.endAt??latest.end_at,0,true);
+      return this.updateWithReviewTimeChecked(id,patch);
+    });
+  }
+  static async updateWithReviewTimeChecked(id, {
     startAt,
     endAt,
     sessionType,
@@ -1539,4 +1592,3 @@ class SupervisionSession {
 }
 
 export default SupervisionSession;
-

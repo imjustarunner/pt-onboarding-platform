@@ -259,6 +259,7 @@ import stravaRoutes from './routes/strava.routes.js';
 import garminRoutes from './routes/garmin.routes.js';
 import clinicalDataRoutes from './routes/clinicalData.routes.js';
 import medicalBillingRoutes from './routes/medicalBilling.routes.js';
+import claimMdWebhookRoutes from './routes/claimMdWebhook.routes.js';
 import tenantServicesRoutes from './routes/tenantServices.routes.js';
 import appointmentRoutes from './routes/appointment.routes.js';
 import providerMyRoomRoutes from './routes/providerMyRoom.routes.js';
@@ -348,6 +349,7 @@ app.use(cookieParser());
 // Stripe's signature verification requires the exact raw bytes.
 // Handles both /api/stripe/webhook (direct) and /api/stripe/connect-webhook (Connect).
 app.use('/api/stripe', stripeWebhookRoutes);
+app.use('/api/claimmd/webhook', claimMdWebhookRoutes);
 
 // Body-parser limits.
 // The default express.json() limit is 100kb, which is not enough for the

@@ -1,4 +1,6 @@
-import test from 'node:test';import assert from 'node:assert/strict';
+import test, {after} from 'node:test';import assert from 'node:assert/strict';
+import pool from '../../config/database.js';import clinicalPool from '../../config/clinicalDatabase.js';
+after(async()=>{await pool.end();await clinicalPool.end();});
 import {allocateCents,dateOnly,cents,normalizeShares} from '../familyLedger/policy.js';
 import {effectiveClinicalAccess} from '../guardianClinicalAccess.service.js';
 import {agingFor} from '../familyLedger/collections.js';

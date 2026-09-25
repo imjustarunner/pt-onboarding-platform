@@ -1,4 +1,7 @@
 import pool from '../../config/database.js';
+import clinicalPool from '../../config/clinicalDatabase.js';
+import { readClientInsurance } from '../clientInsurance.service.js';
+import { insuranceFingerprint } from './readiness.js';
 import { billingError, auditBilling, requireResponsiblePayer, positiveId } from '../familyBillingPolicy.service.js';
 import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { cents, dateOnly, today, transaction, normalizeShares, allocateCents, assertSharesAuthorized, requireClient, parseJson, assertCollectible } from './policy.js';
@@ -41,13 +44,15 @@ export async function createReceivable(input, connection = null) {
     }
   }
   if (shares) await assertSharesAuthorized(agencyId, clientId, shares, db);
-  const proposed = { agency_id: agencyId, client_id: clientId, service_domain: domain, status: 'open', insurance_reviewed: input.insuranceReviewed === true, disputed_at: null, hold_reason: null };
+  const fingerprint = input.insuranceReviewed === true ? insuranceFingerprint(await readClientInsurance(clientId, agencyId, db)) : null;
+  const proposed = { agency_id: agencyId, client_id: clientId, service_domain: domain, status: 'open', insurance_reviewed: input.insuranceReviewed === true, insurance_fingerprint: fingerprint, disputed_at: null, hold_reason: null };
   let status = input.reviewRequired || !shares ? 'review' : amount === 0 ? 'paid' : 'open';
   let hold = input.reviewRequired ? 'staff_review' : !shares ? 'payer_assignment' : null;
   try { await assertCollectible(proposed, db); } catch (e) { if (e.status !== 409) throw e; status = 'review'; hold = 'insurance_review'; }
   const [result] = await db.execute(`INSERT INTO family_receivables (agency_id,client_id,source_type,source_key,service_domain,service_label,service_date,amount_cents,currency,due_date,status,insurance_reviewed,hold_reason,source_payload,created_by_user_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [agencyId, clientId, source, sourceKey, domain, String(input.serviceLabel || 'Services').slice(0,120), input.serviceDate ? dateOnly(input.serviceDate) : null, amount, 'USD', dateOnly(input.dueDate || today()), status, input.insuranceReviewed === true ? 1 : 0, hold, input.payload ? encryptFamilyBilling(input.payload, `receivable:${agencyId}:${clientId}`) : null, input.actorUserId || null]);
   const id = result.insertId;
+  if (fingerprint) await db.execute('UPDATE family_receivables SET insurance_fingerprint=? WHERE id=?', [fingerprint, id]);
   const allocated = shares ? allocateCents(amount, shares) : [{ payerUserId: null, amountCents: amount }];
   for (const row of allocated) await db.execute('INSERT INTO family_receivable_allocations (agency_id,receivable_id,payer_user_id,amount_cents) VALUES (?,?,?,?)', [agencyId, id, row.payerUserId, row.amountCents]);
   await auditBilling({ agencyId, clientId, userId: input.actorUserId, action: 'receivable_created', objectId: id }, db);
@@ -83,15 +88,27 @@ export async function allocateBalance({ agencyId, receivableId, shares, actorUse
   if(reason)await db.execute('UPDATE family_receivables SET source_payload=? WHERE id=?',[encryptFamilyBilling({...sourcePayload(row),allocationReview:{reason:String(reason).slice(0,2000),shares,actorUserId,at:new Date().toISOString()}},`receivable:${agencyId}:${row.client_id}`),row.id]);
   await auditBilling({agencyId,clientId:row.client_id,userId:actorUserId,action:'payer_shares_updated',objectId:row.id},db);
 }
-export async function updateBalanceReview({ agencyId, receivableId, actorUserId, reason, disputed, release, insuranceReviewed }) {
+export async function updateBalanceReview({ agencyId, receivableId, actorUserId, reason, disputed, release, insuranceReviewed, verificationBasis }) {
   if(!String(reason||'').trim()) throw billingError(400,'Document the reason for this change');
+  if(verificationBasis!==undefined&&!['benefit','era'].includes(verificationBasis))throw billingError(400,'Select a valid responsibility verification basis');
   return transaction(async db=>{
     const row=await findReceivable(agencyId,receivableId,db,true);
     if(row.status==='void') throw billingError(409,'This balance is void');
     const updates={...row,insurance_reviewed:insuranceReviewed===true?1:row.insurance_reviewed,disputed_at:disputed===true?new Date():disputed===false?null:row.disputed_at};
+    if (insuranceReviewed === true) updates.insurance_fingerprint = insuranceFingerprint(await readClientInsurance(row.client_id,agencyId,db));
+    let claimReview={};
+    if(insuranceReviewed===true&&row.source_type==='claim_responsibility'){
+      const [changes]=await clinicalPool.execute('SELECT COALESCE(MAX(cr.id),0) AS latestId FROM clinical_claim_change_requests cr JOIN clinical_claims c ON c.clinical_session_id=cr.clinical_session_id AND c.agency_id=cr.agency_id WHERE c.id=? AND c.agency_id=?',[row.source_key,agencyId]);
+      claimReview={verifiedClaimChangeId:Number(changes[0].latestId)};
+      updates.source_payload=encryptFamilyBilling({...sourcePayload(row),...claimReview},`receivable:${agencyId}:${row.client_id}`);
+      // A reviewer cannot pre-approve responsibility while a correction is pending.
+      await assertCollectible({...updates,status:'open',hold_reason:null,disputed_at:null},db);
+    }
     if(release) { updates.status='open'; updates.hold_reason=null; await assertCollectible(updates,db); const allocations=await allocationsFor(row.id,db); if(allocations.every(a=>Number(a.amount_cents)===Number(a.paid_cents)))updates.status='paid'; if(allocations.some(a=>!a.payer_user_id&&Number(a.amount_cents)>0))throw billingError(409,'Assign responsible payers first'); }
-    await db.execute('UPDATE family_receivables SET status=?,insurance_reviewed=?,disputed_at=?,hold_reason=?,source_payload=? WHERE id=?',[release?updates.status:row.status,updates.insurance_reviewed,updates.disputed_at,release?null:row.hold_reason,encryptFamilyBilling({...sourcePayload(row),reviewReason:String(reason).slice(0,2000),reviewedBy:actorUserId},`receivable:${agencyId}:${row.client_id}`),row.id]);
+    if(verificationBasis&&!insuranceReviewed)throw billingError(400,'Verify patient responsibility before changing the remittance basis');
+    await db.execute('UPDATE family_receivables SET status=?,insurance_reviewed=?,disputed_at=?,hold_reason=?,source_payload=? WHERE id=?',[release?updates.status:row.status,updates.insurance_reviewed,updates.disputed_at,release?null:row.hold_reason,encryptFamilyBilling({...sourcePayload(row),...claimReview,...(verificationBasis?{verificationBasis}:{}),reviewReason:String(reason).slice(0,2000),reviewedBy:actorUserId},`receivable:${agencyId}:${row.client_id}`),row.id]);
     await auditBilling({agencyId,clientId:row.client_id,userId:actorUserId,action:'balance_reviewed',objectId:row.id},db);
+    if (insuranceReviewed === true) await db.execute('UPDATE family_receivables SET insurance_fingerprint=? WHERE id=?',[updates.insurance_fingerprint,row.id]);
   });
 }
 

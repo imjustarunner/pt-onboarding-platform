@@ -1,7 +1,15 @@
+import { getEft, saveEft, getEftHistory } from '../controllers/payerEft.controller.js';
 import { listTreatmentFrequencies, addTreatmentFrequency, suggestObjectiveInterventions } from '../controllers/treatmentPlanOptions.controller.js';
 import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '../controllers/medicalBilling.controller.js';
 import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
+import { getCoverageEvidence, checkClientCoverage, reviewClientCoverage } from '../controllers/coverageVerification.controller.js';
+import { createSecondaryClaim } from '../controllers/claimMdWorkflow.controller.js';
 import express from 'express';
+import { listSupervisedPayerPolicies, saveSupervisedPayerPolicy, supervisedProviderReadiness } from '../controllers/supervisedBilling.controller.js';
+import { runClaimAiReview, resolveClaimAiFinding } from '../controllers/claimMdWorkflow.controller.js';
+import { getBillingWorkspace } from '../controllers/claimMdWorkspace.controller.js';
+import { reviewClaim, claimHistory, claimDraft, listUndraftedNotes, correctClaim, searchClaimMdPayers, startClaimMdEnrollment, listClaimMdEnrollments, listClaimMdOffices } from '../controllers/claimMdWorkflow.controller.js';
+import { getClaimServiceChanges,resolveClaimServiceChange } from '../controllers/claimMdWorkflow.controller.js';
 import { body, param, query } from 'express-validator';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import {
@@ -16,7 +24,7 @@ import {
 } from '../middleware/medicalBilling.middleware.js';
 
 const claimsGate = [requireMedicalClaims, requireMedicalBillingActorAccess];
-const claimMdGate = [requireClaimMd, requireMedicalBillingActorAccess, requireMedicalBillingFinancialAccess];
+const claimMdGate = [requireClaimMd, requireMedicalBillingFinancialAccess];
 const masterGate = [requireMedicalBillingMaster, requireMedicalBillingActorAccess];
 const reportsGate = [...masterGate, requireMedicalBillingReportAccess];
 import {
@@ -85,8 +93,19 @@ import {
 const router = express.Router();
 
 router.use(authenticate, requireActiveStatus, (req,res,next)=>{res.set('Cache-Control','no-store');next();});
-router.get('/clients/:clientId/insurance', ...masterGate, getClientInsurance);
-router.put('/clients/:clientId/insurance', ...masterGate, saveClientInsurance);
+router.get('/workspace', getBillingWorkspace);
+router.get('/supervised-payer-policies', requireMedicalBillingFinancialAccess, listSupervisedPayerPolicies);
+router.get('/supervised-provider-readiness', requireMedicalBillingFinancialAccess, supervisedProviderReadiness);
+router.post('/supervised-payer-policies', requireMedicalBillingFinancialAccess, saveSupervisedPayerPolicy);
+router.get('/payer-eft', ...masterGate, requireMedicalBillingFinancialAccess, getEft);
+router.post('/payer-eft', ...masterGate, requireMedicalBillingFinancialAccess, saveEft);
+router.get('/payer-eft/:id/history', ...masterGate, requireMedicalBillingFinancialAccess, getEftHistory);
+router.get('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, getClientInsurance);
+router.put('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, saveClientInsurance);
+router.get('/clients/:clientId/coverage', ...masterGate, requireMedicalBillingFinancialAccess, getCoverageEvidence);
+router.post('/clients/:clientId/coverage/check', ...claimMdGate, checkClientCoverage);
+router.post('/clients/:clientId/coverage/review', ...masterGate, requireMedicalBillingFinancialAccess, reviewClientCoverage);
+router.post('/claims/:claimId/secondary', ...claimMdGate, createSecondaryClaim);
 
 router.get(
   '/status',
@@ -131,6 +150,7 @@ router.post(
 router.get(
   '/claim-billing-mode',
   requireMedicalBillingActorAccess,
+  requireMedicalBillingFinancialAccess,
   [query('agencyId').isInt({ min: 1 })],
   getClaimBillingMode
 );
@@ -138,6 +158,7 @@ router.get(
 router.patch(
   '/claim-billing-mode',
   requireMedicalBillingActorAccess,
+  requireMedicalBillingFinancialAccess,
   [
     body('agencyId').isInt({ min: 1 }),
     body('mode').isIn(['self', 'billing_supervisor']),
@@ -385,7 +406,10 @@ router.post(
   [
     param('noteId').isInt({ min: 1 }),
     body('body').optional().isString().isLength({ min: 1, max: 20000 }),
-    body('addendum').optional().isString().isLength({ min: 1, max: 20000 })
+    body('addendum').optional().isString().isLength({ min: 1, max: 20000 }),
+    body('entryKind').isIn(['addendum', 'correction', 'late_entry']),
+    body('reason').isString().isLength({ min: 1, max: 2000 }),
+    body('authorAttested').equals('true')
   ],
   createClinicalNoteAddendum
 );
@@ -499,6 +523,7 @@ router.post(
 router.get(
   '/sessions/:sessionId/claim-readiness',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [
     param('sessionId').isInt({ min: 1 }),
     query('agencyId').isInt({ min: 1 }),
@@ -510,6 +535,7 @@ router.get(
 router.post(
   '/claims',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [
     body('agencyId').isInt({ min: 1 }),
     body('clientId').isInt({ min: 1 }),
@@ -521,6 +547,7 @@ router.post(
 router.post(
   '/claimmd/credentials',
   ...claimMdGate,
+  (req, res, next) => ['admin', 'super_admin'].includes(req.user?.role) ? next() : res.status(403).json({ error: { message: 'Only administrators can change Claim.MD credentials' } }),
   [
     body('agencyId').isInt({ min: 1 }),
     body('accountKey').isString().isLength({ min: 8 })
@@ -538,12 +565,20 @@ router.post(
   submitClaimToClaimMd
 );
 
-router.get(
-  '/claimmd/responses',
-  ...claimMdGate,
-  [query('agencyId').isInt({ min: 1 })],
-  refreshClaimMdResponses
-);
+router.post('/claimmd/responses/sync', ...claimMdGate, refreshClaimMdResponses);
+router.get('/claims/undrafted-notes', ...claimMdGate, listUndraftedNotes);
+router.get('/claimmd/claims/:claimId/review', ...claimMdGate, reviewClaim);
+router.post('/claimmd/claims/:claimId/ai-review', ...claimMdGate, runClaimAiReview);
+router.post('/claimmd/claims/:claimId/ai-findings/resolve', ...claimMdGate, resolveClaimAiFinding);
+router.get('/claimmd/claims/:claimId/history', ...claimMdGate, claimHistory);
+router.get('/claimmd/claims/:claimId/service-changes', ...claimMdGate,getClaimServiceChanges);
+router.post('/claimmd/claims/:claimId/service-changes/:requestId/resolve', ...claimMdGate,resolveClaimServiceChange);
+router.get('/claimmd/claims/:claimId/draft', ...claimMdGate, claimDraft);
+router.patch('/claimmd/claims/:claimId', ...claimMdGate, correctClaim);
+router.get('/claimmd/payers', ...claimMdGate, searchClaimMdPayers);
+router.get('/claimmd/billing-offices', ...claimMdGate, listClaimMdOffices);
+router.get('/claimmd/enrollments', ...claimMdGate, listClaimMdEnrollments);
+router.post('/claimmd/enrollments', ...claimMdGate, startClaimMdEnrollment);
 
 router.get(
   '/claimmd/eras',
@@ -598,6 +633,7 @@ router.get(
 router.post(
   '/service-codes',
   ...masterGate,
+  requireMedicalBillingFinancialAccess,
   [
     body('agencyId').isInt({ min: 1 }),
     body('serviceCode').isString().isLength({ min: 1, max: 32 })
@@ -657,6 +693,7 @@ router.patch(
 router.post(
   '/sessions/:sessionId/apply-billing',
   ...claimsGate,
+  requireMedicalBillingFinancialAccess,
   [
     param('sessionId').isInt({ min: 1 }),
     body('agencyId').isInt({ min: 1 })

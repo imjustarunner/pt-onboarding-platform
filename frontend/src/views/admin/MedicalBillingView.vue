@@ -1,8 +1,8 @@
 <template>
-  <div class="mb-page">
+  <div v-if="canRunBillingReports" class="mb-page">
     <header class="mb-header">
       <h1>Medical Billing</h1>
-      <router-link v-if="canRunBillingReports" :to="{name: 'FamilyBillingDesk',params:{organizationSlug:agencyStore.currentAgency?.slug},query:{agencyId}}">Family balances, payment setup & collections →</router-link>
+      <router-link v-if="canRunBillingReports" :to="{name: 'FamilyBillingDesk',params:{organizationSlug:billingAgencySlug || agencyStore.currentAgency?.slug},query:{agencyId}}">Family balances, payment setup & collections →</router-link>
       <p class="muted">
         Chart, signing, claims, and Claim.MD — only available when Medical Billing flags are enabled for this organization.
       </p>
@@ -98,7 +98,7 @@
         <ul v-if="signingNotes.length" class="mb-list">
           <li v-for="n in signingNotes" :key="n.id">
             #{{ n.id }} — {{ n.title }}
-            <button type="button" class="mb-btn mb-btn--small" @click="cosignNote(n.id)">Cosign</button>
+            <ClinicalNoteCosignReview :note-id="n.id" :agency-id="agencyId" :provider-id="n.created_by_user_id" @signed="loadSigningNotes" />
           </li>
         </ul>
         <p v-else class="muted">No notes waiting for cosign.</p>
@@ -268,8 +268,10 @@
               v-if="claimMd.configured"
               type="button"
               class="mb-btn mb-btn--small"
-              @click="submitClaim(c.id)"
-            >Submit to Claim.MD</button>
+              @click="claimMdWorkspace?.reviewClaim(c.id)"
+            >Review and approve</button>
+            <button type="button" class="mb-btn mb-btn--small" @click="claimMdWorkspace?.showHistory(c.id)">History &amp; follow-up</button>
+            <button v-if="['draft','ready','rejected'].includes(c.claim_lifecycle)" type="button" class="mb-btn mb-btn--small" @click="claimMdWorkspace?.editClaim(c.id)">Edit billing fields</button>
             <button
               type="button"
               class="mb-btn mb-btn--small"
@@ -281,8 +283,7 @@
 
         <h3 style="margin-top: 1.25rem;">Billing overrides (claim-side)</h3>
         <p class="muted">
-          Remap place of service, billing NPI, taxonomy, or modifiers on claims only
-          (e.g. Medicaid → NPI 1215615711). Providers still see the real service location on schedule/notes.
+          Correct claim fields with a documented reason, policy reference, and effective dates. The claim must accurately represent the service. Clinical corrections require an addendum to the signed note.
         </p>
         <div class="mb-row">
           <select v-model="overrideForm.scope" class="mb-input">
@@ -298,9 +299,9 @@
           </select>
           <input
             v-if="overrideForm.scope === 'payer'"
-            v-model="overrideForm.payerName"
+            v-model="overrideForm.payerId"
             class="mb-input"
-            placeholder="Payer / insurer name"
+            placeholder="Exact payer ID"
           />
           <input
             v-if="overrideForm.scope === 'client'"
@@ -328,7 +329,14 @@
             :placeholder="overrideForm.fieldKey === 'billing_npi' ? 'To NPI' : (overrideForm.fieldKey === 'place_of_service' ? 'To POS' : 'To value')"
             :maxlength="overrideForm.fieldKey === 'place_of_service' ? 2 : 32"
           />
-          <button type="button" class="mb-btn" @click="saveOverride">Save override</button>
+          <input v-if="overrideForm.scope === 'payer'" v-model="overrideForm.planType" class="mb-input" placeholder="Exact insurance plan type" aria-label="Insurance plan type" />
+          <label>Effective from<input v-model="overrideForm.effectiveFrom" type="date" class="mb-input" /></label>
+          <label>Effective through<input v-model="overrideForm.effectiveThrough" type="date" class="mb-input" /></label>
+          <input v-model="overrideForm.policyReference" class="mb-input mb-input--wide" placeholder="Payer policy reference or documented instruction" aria-label="Policy reference" maxlength="1000" />
+          <textarea v-model="overrideForm.reason" class="mb-input mb-input--wide" placeholder="Why is this correction appropriate for the actual service?" aria-label="Override reason" maxlength="1000" />
+          <label v-if="overrideForm.id"><input v-model="overrideForm.isActive" type="checkbox" /> Keep replacement active</label>
+          <button type="button" class="mb-btn" :disabled="overrideSaving" @click="saveOverride">Save audited override</button>
+          <button type="button" class="mb-btn" :disabled="overrideSaving" @click="overrideForm = emptyOverride()">New override / cancel edit</button>
         </div>
         <ul class="mb-list">
           <li v-for="o in claimOverrides" :key="o.id">
@@ -337,7 +345,9 @@
             <template v-if="o.client_id"> · client {{ o.client_id }}</template>
             <template v-if="o.claim_id"> · claim {{ o.claim_id }}</template>
             · {{ o.from_value || '*' }} → {{ o.to_value }}
+            <small>{{ o.notes || 'Legacy rule: needs documented review' }} · {{ o.policy_reference || 'Policy reference missing' }} · {{ o.effective_from || 'Dates missing' }} – {{ o.effective_through || '—' }}</small>
             <span v-if="!o.is_active" class="muted"> (inactive)</span>
+            <button v-else type="button" class="mb-btn" @click="editOverride(o)">Replace / retire</button>
           </li>
         </ul>
         <p v-if="!claimOverrides.length" class="muted">No claim overrides yet.</p>
@@ -353,16 +363,18 @@
         </ul>
       </section>
 
+      <ClaimMdWorkspace v-if="canRunBillingReports" ref="claimMdWorkspace" :key="agencyId" :agency-id="agencyId" :connection="claimMd" @updated="loadClaims" />
+
       <section v-if="canRunBillingReports" class="mb-card">
         <h2>Claim.MD credentials</h2>
+        <p v-if="claimMd.source === 'secret_manager'">This agency uses the management company’s server-side secret. Credentials are managed in Google Cloud.</p>
         <p class="muted">AccountKey is encrypted at rest. BAA required before production use.</p>
         <div class="mb-row">
-          <input v-model="accountId" class="mb-input" placeholder="Account ID (optional)" />
-          <input v-model="accountKey" class="mb-input" type="password" placeholder="AccountKey" />
-          <button type="button" class="mb-btn" @click="saveCredentials">Save</button>
+          <input v-if="canManageCredentials && claimMd.source !== 'secret_manager'" v-model="accountId" class="mb-input" placeholder="Account ID (optional)" />
+          <input v-if="canManageCredentials && claimMd.source !== 'secret_manager'" v-model="accountKey" class="mb-input" type="password" placeholder="AccountKey" />
+          <button type="button" class="mb-btn" v-if="canManageCredentials && claimMd.source !== 'secret_manager'" @click="saveCredentials">Save</button>
         </div>
         <div class="mb-row" style="margin-top: 0.75rem;">
-          <button type="button" class="mb-btn" @click="refreshResponses">Pull responses</button>
           <button type="button" class="mb-btn" @click="loadEras">List ERAs</button>
         </div>
         <pre v-if="claimMdLog" class="mb-log">{{ claimMdLog }}</pre>
@@ -373,18 +385,22 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import ClinicalNoteCosignReview from '../../components/clinical/ClinicalNoteCosignReview.vue';
+import { computed, watch, ref } from 'vue';
+import ClaimMdWorkspace from '../../components/admin/ClaimMdWorkspace.vue';
+import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import MedicalBillingReportsPanel from '../../components/admin/MedicalBillingReportsPanel.vue';
 
+const props = defineProps({ billingAgencyId: { type: Number, default: null }, billingAgencySlug: { type: String, default: '' } });
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
-const agencyId = computed(() => Number(agencyStore.currentAgency?.id || 0));
-const canRunBillingReports = computed(() => ['admin', 'super_admin'].includes(
-  String(authStore.user?.role || '').toLowerCase()
-) || (authStore.user?.billingAgencyIds || []).map(Number).includes(agencyId.value));
+const agencyId = computed(() => Number(props.billingAgencyId || agencyStore.currentAgency?.id || 0));
+const canRunBillingReports = computed(() => canAccessMedicalBilling(authStore.user, agencyId.value));
+const canManageCredentials = computed(() => ['admin', 'super_admin'].includes(authStore.user?.role));
+const claimMdWorkspace = ref(null);
 
 const loading = ref(true);
 const error = ref('');
@@ -401,15 +417,19 @@ const signingLoading = ref(false);
 const claims = ref([]);
 const claimsLoading = ref(false);
 const claimOverrides = ref([]);
-const overrideForm = ref({
+const overrideSaving = ref(false);
+const emptyOverride = () => ({
+  id: null, isActive: true,
   scope: 'payer',
   fieldKey: 'place_of_service',
-  payerName: '',
+  payerId: '', planType: '', effectiveFrom: '', effectiveThrough: '', reason: '', policyReference: '',
   clientId: null,
   claimId: null,
-  fromValue: '03',
-  toValue: '12'
+  fromValue: '',
+  toValue: ''
 });
+const overrideForm = ref(emptyOverride());
+const editOverride = o => { overrideForm.value = { id:o.id,isActive:true,scope:o.scope,fieldKey:o.field_key,payerId:o.payer_id || '',planType:o.plan_type || '',clientId:o.client_id,claimId:o.claim_id,fromValue:o.from_value || '',toValue:o.to_value,reason:'',policyReference:o.policy_reference || '',effectiveFrom:String(o.effective_from || '').slice(0,10),effectiveThrough:String(o.effective_through || '').slice(0,10) }; };
 const feeItems = ref([]);
 const feeCode = ref('');
 const feeCents = ref(0);
@@ -762,11 +782,13 @@ const checkSessionReadiness = async (session) => {
 };
 
 const loadStatus = async () => {
+  const statusAgencyId = agencyId.value;
   if (!agencyId.value) return;
   loading.value = true;
   error.value = '';
   try {
     const res = await api.get('/medical-billing/status', { params: { agencyId: agencyId.value } });
+    if (statusAgencyId !== agencyId.value) return;
     flags.value = res?.data?.flags || flags.value;
     claimMd.value = res?.data?.claimMd || { configured: false };
   } catch (e) {
@@ -791,22 +813,16 @@ const loadSigningNotes = async () => {
   }
 };
 
-const cosignNote = async (noteId) => {
-  try {
-    await api.post(`/medical-billing/notes/${noteId}/cosign`, { agencyId: agencyId.value });
-    await loadSigningNotes();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Cosign failed';
-  }
-};
-
 const loadClaims = async () => {
-  if (!agencyId.value || !flags.value.medicalBillingEnabled) return;
+  if (!agencyId.value || !flags.value.medicalBillingEnabled || !canRunBillingReports.value) return;
+  const requestedAgency = agencyId.value;
   claimsLoading.value = true;
   try {
     const res = await api.get('/medical-billing/claims', { params: { agencyId: agencyId.value } });
+    if (requestedAgency !== agencyId.value) return;
     claims.value = res?.data?.claims || [];
     const fee = await api.get('/medical-billing/fee-schedule', { params: { agencyId: agencyId.value } });
+    if (requestedAgency !== agencyId.value) return;
     feeItems.value = fee?.data?.items || [];
     await loadClaimOverrides();
   } catch (e) {
@@ -830,11 +846,13 @@ const loadClaimOverrides = async () => {
 };
 
 const saveOverride = async () => {
+  if (overrideSaving.value) return;
+  overrideSaving.value = true;
   try {
     await api.post('/medical-billing/claim-overrides', {
+      ...overrideForm.value,
       agencyId: agencyId.value,
       scope: overrideForm.value.scope,
-      payerName: overrideForm.value.scope === 'payer' ? overrideForm.value.payerName : null,
       clientId: overrideForm.value.scope === 'client' ? overrideForm.value.clientId : null,
       claimId: overrideForm.value.scope === 'claim' ? overrideForm.value.claimId : null,
       fromValue: overrideForm.value.fromValue || null,
@@ -842,25 +860,25 @@ const saveOverride = async () => {
       fieldKey: overrideForm.value.fieldKey || 'place_of_service'
     });
     await loadClaimOverrides();
+    overrideForm.value = emptyOverride();
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to save override';
-  }
+  } finally { overrideSaving.value = false; }
 };
 
 const quickClaimPosOverride = async (claim) => {
-  const from = String(claim?.place_of_service || '03').padStart(2, '0').slice(-2);
-  const to = window.prompt(`Remap POS for claim #${claim.id} (from ${from}) to:`, '12');
-  if (!to) return;
+  const from = String(claim?.place_of_service || '');
   overrideForm.value = {
     scope: 'claim',
     fieldKey: 'place_of_service',
-    payerName: '',
+    payerId: '', planType: '', reason: '', policyReference: '',
+    effectiveFrom: String(claim.date_of_service || '').slice(0,10), effectiveThrough: String(claim.date_of_service || '').slice(0,10),
     clientId: null,
     claimId: Number(claim.id),
     fromValue: from,
-    toValue: String(to).padStart(2, '0').slice(-2)
+    toValue: ''
   };
-  await saveOverride();
+  document.querySelector('[aria-label="Override reason"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 };
 
 const addFeeItem = async () => {
@@ -893,29 +911,6 @@ const saveCredentials = async () => {
   }
 };
 
-const submitClaim = async (claimId) => {
-  try {
-    const res = await api.post(`/medical-billing/claimmd/claims/${claimId}/submit`, {
-      agencyId: agencyId.value
-    });
-    claimMdLog.value = JSON.stringify(res?.data, null, 2);
-    await loadClaims();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Submit failed';
-  }
-};
-
-const refreshResponses = async () => {
-  try {
-    const res = await api.get('/medical-billing/claimmd/responses', {
-      params: { agencyId: agencyId.value, responseId: '0' }
-    });
-    claimMdLog.value = JSON.stringify(res?.data, null, 2);
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Response pull failed';
-  }
-};
-
 const loadEras = async () => {
   try {
     const res = await api.get('/medical-billing/claimmd/eras', { params: { agencyId: agencyId.value } });
@@ -925,10 +920,17 @@ const loadEras = async () => {
   }
 };
 
-onMounted(async () => {
+watch(agencyId, async () => {
+  overrideForm.value = emptyOverride();
+  claims.value = []; feeItems.value = []; claimOverrides.value = []; claimMdLog.value = ''; chart.value = null;
+  claimMd.value = { configured: false }; flags.value = { medicalBillingEnabled: false }; error.value = '';
+  if (!canRunBillingReports.value) { loading.value = false; return; }
+  const id = agencyId.value;
   await loadStatus();
-  await Promise.all([loadSigningNotes(), ...(canRunBillingReports.value ? [loadClaims()] : []), loadServiceCodes(), loadServiceLocations()]);
-});
+  if (id !== agencyId.value) return;
+  await Promise.all([loadSigningNotes(), loadClaims(), loadServiceCodes(), loadServiceLocations()]);
+}, { immediate: true });
+
 </script>
 
 <style scoped>

@@ -6,7 +6,8 @@ import { billingError, requireResponsiblePayer, auditBilling } from '../familyBi
 import { encryptFamilyBilling, decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { verifyPaymentResult } from '../familyBillingPayment.service.js';
 import { cents, key, transaction, assertCollectible, allocationDue, dateOnly, today } from './policy.js';
-import { findReceivable, allocationsFor } from './receivables.js';
+import { findReceivable, allocationsFor, sourcePayload } from './receivables.js';
+import { responsibilityLabels } from './presentation.js';
 
 const context = (agencyId, allocationId) => `ledger-payment:${agencyId}:${allocationId}`;
 export async function lockAllocation(agencyId, allocationId, db) {
@@ -52,7 +53,11 @@ export async function payAllocation({agencyId,userId,allocationId,amountCents,id
       let paid=Math.max(0,Number(allocation.paid_cents)-Number(plan.paid_before_cents)),due=0;
       for(const installment of installments){const applied=Math.min(paid,Number(installment.amount_cents));paid-=applied;if(!due&&dateOnly(installment.due_date)<=today())due=Number(installment.amount_cents)-applied;}
       if(!due||amount!==due)throw billingError(409,'The installment balance changed; refresh the schedule');
-    } else if(automatic)await assertRecurring({agencyId,userId,clientId:receivable.client_id,payer,card,amount},db);
+    } else if(automatic){
+      const {assertAutomaticCopay}=await import('./copays.js');
+      await assertAutomaticCopay(receivable,allocation,db);
+      await assertRecurring({agencyId,userId,clientId:receivable.client_id,payer,card,amount},db);
+    }
     const [inflight]=await db.execute("SELECT * FROM family_ledger_payments WHERE allocation_id=? AND status IN ('pending','requires_action','unknown') ORDER BY id DESC LIMIT 1 FOR UPDATE",[allocationId]);
     let previous=inflight[0]||same[0];
     if(previous) {
@@ -95,15 +100,17 @@ export async function payAllocation({agencyId,userId,allocationId,amountCents,id
   if(authentication&&!automatic)return {paid:false,requiresAction:true,clientSecret:intent.client_secret,paymentMethodId:snapshot.paymentMethodId,connectedAccountId:snapshot.accountId,publishableKey:getStripePublishableKey(),paymentId:attempt.id};
   throw billingError(409,authentication?'Sign in to complete bank authentication':intent.status==='requires_payment_method'?'The card was declined. Verify another card and retry.':'Payment is processing; refresh before retrying');
 }
-async function receiptSnapshot(payment,receivable,snapshot,db,receivedAt) {
+async function receiptSnapshot(payment,receivable,allocation,snapshot,db,receivedAt) {
   const [agencies]=await db.execute('SELECT name FROM agencies WHERE id=?',[payment.agency_id]);
   const [payers]=await db.execute('SELECT first_name,last_name FROM users WHERE id=?',[payment.payer_user_id]);
-  return {receiptNumber:`R-${payment.agency_id}-${payment.id}`,agencyName:agencies[0]?.name||'Organization',payerName:[payers[0]?.first_name,payers[0]?.last_name].filter(Boolean).join(' '),service:['mental_health','clinical','unknown'].includes(receivable.service_domain)?'Services':`${receivable.service_domain} services`,amountCents:Number(payment.amount_cents),currency:payment.currency,receivedAt:new Date(receivedAt).toISOString(),method:payment.processor==='CASH'?'Cash':payment.processor==='LEGACY'?'Previously recorded payment':`${snapshot.brand||'Card'} ending in ${snapshot.last4||'••••'}`};
+  const [clients]=await db.execute('SELECT full_name,initials FROM clients WHERE id=? AND agency_id=?',[receivable.client_id,payment.agency_id]);
+  const responsibility=sourcePayload(receivable),type=responsibilityLabels[responsibility.responsibilityType]||'Service payment';
+  return {clientName:clients[0]?.full_name||clients[0]?.initials||null,receiptNumber:`R-${payment.agency_id}-${payment.id}`,agencyName:agencies[0]?.name||'Organization',payerName:[payers[0]?.first_name,payers[0]?.last_name].filter(Boolean).join(' '),service:['mental_health','clinical','unknown'].includes(receivable.service_domain)?'Services':`${receivable.service_domain} services`,serviceDate:receivable.service_date?dateOnly(receivable.service_date):null,balanceReference:receivable.id,responsibilityType:type,verificationBasis:responsibility.verificationBasis==='era'?'Payer remittance':responsibility.responsibilityType==='copay'?'Verified visit copay, subject to payer determination':'Verified patient responsibility / agreed service terms',shareCents:Number(allocation.amount_cents),previouslyPaidCents:Number(allocation.paid_cents),remainingAtPaymentCents:allocationDue(allocation)-Number(payment.amount_cents),amountCents:Number(payment.amount_cents),currency:payment.currency,receivedAt:new Date(receivedAt).toISOString(),method:payment.processor==='CASH'?'Cash':payment.processor==='LEGACY'?'Previously recorded payment':`${snapshot.brand||'Card'} ending in ${snapshot.last4||'••••'}`};
 }
 async function postCapture(payment,receivable,allocation,snapshot,db,receivedAt=new Date()) {
   if(payment.status==='succeeded')return;
   if(Number(payment.amount_cents)>allocationDue(allocation))throw billingError(409,'Payment exceeds the remaining share; reconciliation is required');
-  const receipt=await receiptSnapshot(payment,receivable,snapshot,db,receivedAt);
+  const receipt=await receiptSnapshot(payment,receivable,allocation,snapshot,db,receivedAt);
   await db.execute('UPDATE family_receivable_allocations SET paid_cents=paid_cents+? WHERE id=?',[payment.amount_cents,allocation.id]);
   await db.execute("UPDATE family_ledger_payments SET status='succeeded',received_at=?,receipt_number=?,receipt_encrypted=? WHERE id=?",[new Date(receivedAt),receipt.receiptNumber,encryptFamilyBilling(receipt,`receipt:${payment.agency_id}:${payment.payer_user_id}`),payment.id]);
   const [remaining]=await db.execute('SELECT SUM(amount_cents-paid_cents) AS remaining FROM family_receivable_allocations WHERE receivable_id=?',[receivable.id]);
@@ -130,6 +137,17 @@ export async function finalizePayment(paymentId,agencyId,intent,accountId) {
 export async function reconcileLedgerPayment(intent,accountId) {
   if(!intent.metadata?.family_ledger_payment_id)return false;
   await finalizePayment(Number(intent.metadata.family_ledger_payment_id),Number(intent.metadata.agency_id),intent,accountId); return true;
+}
+/** Read-only processor lookup followed by idempotent local posting; never charges. */
+export async function reconcileSavedPayment({agencyId,paymentId}) {
+  const [rows]=await pool.execute("SELECT * FROM family_ledger_payments WHERE agency_id=? AND id=? AND processor='STRIPE'",[agencyId,paymentId]);
+  const payment=rows[0];
+  if(!payment)throw billingError(404,'Payment not found');
+  if(!payment.processor_intent_id)throw billingError(409,'The processor reference is missing. Reconcile this attempt in Stripe before another charge');
+  const snapshot=decryptFamilyBilling(payment.snapshot_encrypted,context(agencyId,payment.allocation_id));
+  const intent=await Stripe.retrievePaymentIntent(payment.processor_intent_id,snapshot.accountId);
+  if(intent.status!=='succeeded')return {paid:false,message:'Stripe has not confirmed a successful payment. No new charge was attempted.'};
+  return finalizePayment(payment.id,agencyId,intent,snapshot.accountId);
 }
 export async function recordCash({agencyId,allocationId,payerUserId,amountCents,receivedAt,idempotencyKey,actorUserId,note}) {
   const amount=cents(amountCents), requestKey=key(idempotencyKey), received=new Date(receivedAt||Date.now());

@@ -4,6 +4,7 @@ test('source-linked cash settles claim copays and sessions and activates package
  const {default:pool}=await import('../../config/database.js');const {default:clinical}=await import('../../config/clinicalDatabase.js');
  const {createPackageOrder,createEventOrder,setClaimResponsibility,importSessionCharge,fulfillPaidBalances}=await import('../familyLedger/sources.js');
  const {allocationsFor,updateBalanceReview,setBillingRule}=await import('../familyLedger/receivables.js');const {recordCash}=await import('../familyLedger/payments.js');const {payFamilyCharge}=await import('../familyBillingPayment.service.js');
+ const {saveReadiness}=await import('../familyLedger/readiness.js');const {writeClientInsurance}=await import('../clientInsurance.service.js');
  async function settle(row){for(const a of await allocationsFor(row.id))if(Number(a.amount_cents)>Number(a.paid_cents))await recordCash({agencyId:1,allocationId:a.id,payerUserId:a.payer_user_id,amountCents:Number(a.amount_cents)-Number(a.paid_cents),idempotencyKey:`source-test:${a.id}`,actorUserId:99,note:'Synthetic cash received'});await fulfillPaidBalances({agencyId:1});}
  try{
   await pool.execute('UPDATE clients SET billing_insurance_payload=NULL');
@@ -12,7 +13,10 @@ test('source-linked cash settles claim copays and sessions and activates package
   const session=await importSessionCharge({agencyId:1,chargeId:70,actorUserId:99});assert.equal(session.service_domain,'coaching');
   await assert.rejects(payFamilyCharge({agencyId:1,chargeId:70,userId:10,expectedAmountCents:2500}),e=>e.status===409&&e.message.includes('assigned payer'));
   await settle(session);const [[charge]]=await pool.execute('SELECT charge_status FROM learning_session_charges WHERE id=70');assert.equal(charge.charge_status,'CAPTURED');
-  await clinical.execute('INSERT INTO clinical_claims(id,agency_id,client_id) VALUES(70,1,102)');
+  await writeClientInsurance({agencyId:1,clientId:102,primary:{insurerName:'Synthetic commercial',memberId:'SYNTHETIC'}});
+  await saveReadiness({agencyId:1,clientId:102,coverageMode:'insured',setupStatus:'ready',collectionPolicy:'manual',reason:'Verified synthetic copay',actorUserId:99});
+  await clinical.execute("INSERT INTO clinical_sessions(id,agency_id,client_id,scheduled_start_at,encounter_status) VALUES(70,1,102,'2026-01-01','completed')");
+  await clinical.execute('INSERT INTO clinical_claims(id,agency_id,client_id,clinical_session_id) VALUES(70,1,102,70)');
   const copay=await setClaimResponsibility({agencyId:1,claimId:70,amountCents:1500,responsibilityType:'copay',reason:'Verified benefit copay',actorUserId:99});await settle(copay);assert.equal(copay.source_key,'70');
   await assert.rejects(setClaimResponsibility({agencyId:2,claimId:70,amountCents:1000,responsibilityType:'copay',reason:'Other tenant',actorUserId:99}),e=>e.status===404);
   const order=await createPackageOrder({agencyId:1,clientId:102,packageId:91,payerUserId:10,actorUserId:99,idempotencyKey:'synthetic-package-order'});

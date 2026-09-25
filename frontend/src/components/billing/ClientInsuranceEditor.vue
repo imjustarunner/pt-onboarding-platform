@@ -1,5 +1,5 @@
 <template>
-  <section class="client-insurance-editor">
+  <section v-if="canSeeBilling" class="client-insurance-editor">
     <h4>Insurance and claim identity</h4>
     <button v-if="!opened" class="btn btn-secondary" type="button" @click="load">Review private insurance details</button>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
@@ -15,12 +15,18 @@
       <label><input v-model="verified" type="checkbox" /> I reviewed this client’s identity and subscriber details against the policy and verified coverage for claim preparation.</label>
       <div><button class="btn btn-primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save insurance' }}</button> <button class="btn btn-secondary" type="button" @click="opened=false;draft=null">Close private details</button></div>
     </form>
+    <ClientCoverageVerification v-if="opened" :client-id="clientId" :agency-id="agencyId" />
   </section>
 </template>
 <script setup>
-import {ref,watch} from 'vue';
+import {ref,watch,computed} from 'vue';
+import { useAuthStore } from '../../store/auth';
+import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
+const authStore = useAuthStore();
+const canSeeBilling = computed(() => canAccessMedicalBilling(authStore.user, props.agencyId));
 import api from '../../services/api';
 import InsurancePolicyFields from './InsurancePolicyFields.vue';
+import ClientCoverageVerification from './ClientCoverageVerification.vue';
 const props=defineProps({clientId:[String,Number],agencyId:[String,Number]});
 const opened=ref(false),draft=ref(null),hasSecondary=ref(false),verified=ref(false),busy=ref(false),error=ref(''),notice=ref(''),issues=ref([]);
 const patientFields=[{key:'firstName',label:'Legal first name'},{key:'lastName',label:'Legal last name'},{key:'dateOfBirth',label:'Date of birth',type:'date'},{key:'sex',label:'Sex on claim (M/F/U)'},{key:'addressLine1',label:'Address'},{key:'addressLine2',label:'Apartment/suite'},{key:'city',label:'City'},{key:'state',label:'State'},{key:'postalCode',label:'ZIP code'}];

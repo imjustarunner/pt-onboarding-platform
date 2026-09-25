@@ -245,9 +245,10 @@ export const listSessionArtifacts = async (req, res, next) => {
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
     await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
 
+    const billingAccess = await hasSchedulingBillingAccess(req.user, session.agency_id);
     const [notes, claims, documents, refs] = await Promise.all([
       ClinicalNote.listBySession({ clinicalSessionId: session.id, includeDeleted }),
-      ClinicalClaim.listBySession({ clinicalSessionId: session.id, includeDeleted }),
+      billingAccess ? ClinicalClaim.listBySession({ clinicalSessionId: session.id, includeDeleted }) : [],
       ClinicalDocument.listBySession({ clinicalSessionId: session.id, includeDeleted }),
       ClinicalRecordRef.listForSession({
         agencyId: session.agency_id,
@@ -262,7 +263,7 @@ export const listSessionArtifacts = async (req, res, next) => {
       ok: true,
       session,
       artifacts: { notes, claims, documents },
-      refs
+      refs: billingAccess ? refs : refs.filter(ref => String(ref.record_type || ref.recordType || '').toLowerCase() !== 'claim')
     }));
   } catch (error) {
     if (handleSchemaError(error, res)) return;
@@ -658,6 +659,10 @@ async function getRecordForMutation(req, res) {
   }
   await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: session.agency_id });
   await ClinicalEligibilityService.assertAgencyHasClinicalOrg(session.agency_id);
+  if (recordType === 'claim' && !(await hasSchedulingBillingAccess(req.user, session.agency_id))) {
+    res.status(403).json({ error: { message: 'Billing access is required to change claims' } });
+    return null;
+  }
   return { model, record, session, recordType };
 }
 

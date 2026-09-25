@@ -1,4 +1,5 @@
 import { isLoginEntryRoute, getSsoArrivalRoute } from '../utils/loginHandoff';
+import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { createRouter, createWebHistory } from 'vue-router';
 import { publicDomainHistory, publicSupportSlugFromHost } from '../utils/publicDomainRouting.js';
@@ -1732,20 +1733,14 @@ const routes = [
   {
     path: '/:organizationSlug/admin/medical-billing',
     name: 'OrganizationMedicalBilling',
-    component: () => import('../views/admin/MedicalBillingView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresRole: [
-        'admin',
-        'super_admin',
-        'clinical_practice_assistant',
-        'provider_plus',
-        'provider',
-        'support',
-        'staff'
-      ],
-      organizationSlug: true
-    }
+    component: () => import('../views/admin/BillingWorkspaceView.vue'),
+    meta: { requiresAuth: true, requiresBillingWorkspace: true, organizationSlug: true }
+  },
+  {
+    path: '/admin/medical-billing',
+    name: 'BillingWorkspace',
+    component: () => import('../views/admin/BillingWorkspaceView.vue'),
+    meta: { requiresAuth: true, requiresBillingWorkspace: true }
   },
   {
     path: '/:organizationSlug/preferences',
@@ -5698,6 +5693,8 @@ router.beforeEach(async (to, from, next) => {
       query: redirectPath && redirectPath !== '/' ? { redirect: redirectPath } : {},
       replace: true
     });
+  } else if (to.meta.requiresBillingWorkspace && !canAccessBillingWorkspace(authStore.user)) {
+    next({ path: getDashboardRoute(), replace: true });
   } else if (to.meta.requiresProviderMobileAccess) {
     if (hasProviderMobileAccess(authStore.user)) {
       next();

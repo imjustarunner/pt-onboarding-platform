@@ -29,7 +29,10 @@ async function postForm(path, fields = {}) {
     err.status = resp.status >= 400 && resp.status < 600 ? resp.status : 502;
     throw err;
   }
-  return json != null ? json : { raw: text };
+  if (!json || typeof json !== 'object' || json.error || json.errors) {
+    throw Object.assign(new Error('Claim.MD returned an error or an invalid response. Check the account configuration in Claim.MD.'), { status: 502 });
+  }
+  return json;
 }
 
 /**
@@ -55,18 +58,29 @@ export async function fetchResponses({ accountKey, responseId = '0' }) {
   });
 }
 
-export async function fetchEraList({ accountKey, page = '1' }) {
+export async function fetchEraList({ accountKey, page = '1', taxId }) {
   return postForm('/eralist/', {
     AccountKey: accountKey,
-    Page: String(page)
+    Page: String(page), TaxID: taxId, NewOnly: '0'
   });
 }
 
 export async function requestEligibilityJson({ accountKey, payload }) {
   return postForm('/eligdata/', {
-    AccountKey: accountKey,
-    ...(payload && typeof payload === 'object' ? payload : {})
+    ...(payload && typeof payload === 'object' ? payload : {}),
+    AccountKey: accountKey
   });
+}
+
+export function fetchPayers({ accountKey, payerId, payerName }) {
+  return postForm('/payerlist/', { AccountKey: accountKey, payerid: payerId, payer_name: payerName });
+}
+
+export function requestEnrollment({ accountKey, payerId, enrollmentType, practice, npi, contact }) {
+  return postForm('/enroll/', { AccountKey: accountKey, payerid: payerId, enroll_type: enrollmentType,
+    prov_taxid: String(practice.tax_id || '').replace(/\D/g, ''), prov_npi: npi,
+    prov_name_l: practice.name, contact, prov_addr_1: practice.street_address,
+    prov_city: practice.city, prov_state: practice.state, prov_zip: practice.postal_code });
 }
 
 /** Professional-claim fields per Claim.MD's published JSON example.
@@ -102,6 +116,7 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
   const date = value => value instanceof Date ? value.toISOString().slice(0,10) : String(value || '').slice(0,10);
   const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value;
   if(!validDate(patient.dateOfBirth) || !validDate(primary.subscriberDob)) throw Object.assign(new Error('Patient or subscriber birth date is invalid'),{status:409});
+  if (!/^\d{2}$/.test(String(claim.place_of_service || ''))) throw Object.assign(new Error('A two-digit place of service is required'), {status:409});
   const charge = lines.map(line => {
     let mods = line.modifiers_json || []; if(typeof mods==='string') {try{mods=JSON.parse(mods);}catch{mods=null;}}
     if(!Array.isArray(mods) || mods.length>4 || mods.some(mod=>! /^[A-Z0-9]{2}$/.test(mod))) throw Object.assign(new Error('Service modifiers are invalid'),{status:409});
@@ -110,14 +125,18 @@ export function buildClaimMdJsonClaim(claim, lines = [], { insurance, practice =
     const references=String(line.diagnosis_pointers || '1').split(/[,\s]+/).map(Number);
     if(references.length>8 || references.some(p=>!Number.isInteger(p) || p<1 || p>diagnoses.length)) throw Object.assign(new Error('Service diagnosis references are invalid'),{status:409});
     const pointers=references.map(p=>String.fromCharCode(64+p)).join('');
-    return {proc_code:line.procedure_code,charge:(Number(line.charge_cents)/100).toFixed(2),units:String(line.units),from_date:fdos,thru_date:fdos,place_of_service:claim.place_of_service,diag_ref:pointers,charge_record_type:'UN',...Object.fromEntries(mods.slice(0,4).map((mod,i)=>[`mod${i+1}`,mod]))};
+    const supervisor=claim.supervising_provider;
+    if(supervisor && (!/^\d{10}$/.test(supervisor.npi || '') || !supervisor.firstName || !supervisor.lastName || supervisor.npi===claim.rendering_npi))throw Object.assign(new Error('Supervising provider identity is incomplete or duplicates the rendering provider'),{status:409});
+    return {...(line.id ? {remote_chgid:String(line.id)} : {}),proc_code:line.procedure_code,charge:(Number(line.charge_cents)/100).toFixed(2),units:String(line.units),from_date:fdos,thru_date:fdos,place_of_service:claim.place_of_service,diag_ref:pointers,charge_record_type:'UN',...Object.fromEntries(mods.slice(0,4).map((mod,i)=>[`mod${i+1}`,mod])),
+      ...(supervisor?{chg_supv_prov_npi:supervisor.npi,chg_supv_prov_name_f:supervisor.firstName,chg_supv_prov_name_l:supervisor.lastName}:{})};
   });
   if (!/^\d{10}$/.test(required.bill_npi) || !/^\d{10}$/.test(required.prov_npi) || !/^\d{9}$/.test(required.bill_taxid)) throw Object.assign(new Error('Billing NPI, rendering NPI, or tax ID is invalid'), {status:409});
   const secondary = insurance.secondary;
-  const payload = {...required, ...(secondary ? {other_ins_number:secondary.memberId, other_ins_name_f:secondary.subscriberFirstName, other_ins_name_l:secondary.subscriberLastName, other_ins_dob:secondary.subscriberDob, other_ins_sex:secondary.subscriberSex, other_payerid:secondary.payerId, other_payer_name:secondary.insurerName, other_pat_rel:({self:'18',spouse:'01',child:'19',other:'G8'})[secondary.relationshipToSubscriber]} : {}), accept_assign:insurance.acceptAssignment ? 'Y' : 'N', bill_addr_2:practice.street_address_2 || '', remote_claimid:String(claim.id), pcn:claim.claim_number || String(claim.id),claim_form:'1500',
+  const payload = {...required, ...(secondary ? {other_ins_number:secondary.memberId, other_ins_name_f:secondary.subscriberFirstName, other_ins_name_l:secondary.subscriberLastName, other_ins_dob:secondary.subscriberDob, other_ins_sex:secondary.subscriberSex, other_payerid:secondary.payerId, other_payer_name:secondary.insurerName, other_pat_rel:({self:'18',spouse:'01',child:'19',other:'G8'})[secondary.relationshipToSubscriber]} : {}), accept_assign:insurance.acceptAssignment ? 'Y' : 'N', bill_addr_2:practice.street_address_2 || '', remote_claimid:claim.agency_id ? `PT-${claim.agency_id}-${claim.id}` : String(claim.id), pcn:claim.claim_number || String(claim.id),claim_form:'1500',
     payer_name:primary.insurerName,payer_order:'Primary',ins_group:primary.groupNumber || '',
     ins_addr_2:primary.subscriberAddressLine2 || '',pat_addr_2:patient.addressLine2 || '',
     bill_taxid_type:practice.tax_id_type==='ssn'?'S':'E',prov_taxonomy:claim.taxonomy_code || '',
+    ...(claim.rendering_first_name?{prov_name_f:claim.rendering_first_name}:{}),...(claim.rendering_last_name?{prov_name_l:claim.rendering_last_name}:{}),
     total_charge:(charge.reduce((sum,c)=>sum+Math.round(Number(c.charge)*100),0)/100).toFixed(2),
     ...Object.fromEntries(diagnoses.map((d,i)=>[`diag_${i+1}`,d])),charge};
   const limits={payerid:32,payer_name:64,pcn:32,pat_name_l:35,pat_name_f:25,pat_addr_1:55,pat_addr_2:55,pat_city:30,pat_state:2,pat_zip:15,ins_number:32,bill_name:32,bill_addr_1:128,bill_addr_2:128,bill_city:32,bill_state:2,bill_zip:12,bill_phone:16};

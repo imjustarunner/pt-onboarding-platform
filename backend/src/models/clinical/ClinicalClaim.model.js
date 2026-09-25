@@ -1,7 +1,18 @@
 import clinicalPool from '../../config/clinicalDatabase.js';
 
 class ClinicalClaim {
-  static async create({
+  static async create(args) {
+    const own=!args.db,db=args.db||await clinicalPool.getConnection();
+    try {
+      if(own)await db.beginTransaction();
+      await db.execute('SELECT id FROM clinical_sessions WHERE id=? AND agency_id=? FOR UPDATE',[args.clinicalSessionId,args.agencyId]);
+      const [[existing]]=await db.execute('SELECT id FROM clinical_claims WHERE clinical_session_id=? AND agency_id=? LIMIT 1',[args.clinicalSessionId,args.agencyId]);
+      if(existing)throw Object.assign(new Error('An original claim already exists for this encounter. Review it for correction; deletion, voiding or a new note does not authorize a second original.'),{status:409});
+      const claim=await this.insertOriginal({...args,db});
+      if(own)await db.commit();return claim;
+    }catch(e){if(own)await db.rollback();throw e;}finally{if(own)db.release();}
+  }
+  static async insertOriginal({
     clinicalSessionId,
     agencyId,
     clientId,
@@ -11,9 +22,10 @@ class ClinicalClaim {
     currencyCode = 'USD',
     claimPayload = null,
     metadataJson = null,
-    createdByUserId
+    createdByUserId,
+    db = clinicalPool
   }) {
-    const [result] = await clinicalPool.execute(
+    const [result] = await db.execute(
       `INSERT INTO clinical_claims
        (clinical_session_id, agency_id, client_id, claim_number, claim_status, amount_cents, currency_code, claim_payload, metadata_json, created_by_user_id)
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM clinical_sessions s
@@ -34,7 +46,8 @@ class ClinicalClaim {
       ]
     );
     if (!result.affectedRows) throw Object.assign(new Error('Claim creation is blocked for this session or client'), { status: 409 });
-    return this.findById(result.insertId);
+    const [rows] = await db.execute('SELECT * FROM clinical_claims WHERE id = ?', [result.insertId]);
+    return rows[0];
   }
 
   static async findById(id) {
@@ -128,4 +141,3 @@ class ClinicalClaim {
 }
 
 export default ClinicalClaim;
-

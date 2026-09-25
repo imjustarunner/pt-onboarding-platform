@@ -2313,7 +2313,7 @@ import {
   workspaceNavContextFromStores
 } from './utils/workspaceNavAccess.js';
 import { buildFormUrl } from './utils/publicIntakeUrl.js';
-import { isMedicalBillingEnabled, parseAgencyFeatureFlags } from './config/medicalBillingAccess.js';
+import { isMedicalBillingEnabled, parseAgencyFeatureFlags, canAccessBillingWorkspace } from './config/medicalBillingAccess.js';
 import {
   canUseSessionRecordingRole,
   isSessionRecordingEnabledForAgencyFlags
@@ -4686,21 +4686,7 @@ const canSeePayrollManagement = computed(() => {
   return ids.includes(currentAgencyId.value);
 });
 
-const canSeeMedicalBilling = computed(() => {
-  if (!isMedicalBillingEnabled(agencyStore.currentAgency?.feature_flags)) return false;
-  const role = String(user.value?.role || '').toLowerCase();
-  if (['admin', 'super_admin', 'provider', 'provider_plus', 'clinical_practice_assistant'].includes(role)) {
-    return true;
-  }
-  if (role === 'support' || role === 'staff') {
-    const caps = user.value?.capabilities || {};
-    if (!caps.canManageMedicalBilling) return false;
-    const ids = Array.isArray(user.value?.billingAgencyIds) ? user.value.billingAgencyIds : [];
-    if (!currentAgencyId.value) return false;
-    return ids.map(Number).includes(Number(currentAgencyId.value));
-  }
-  return false;
-});
+const canSeeMedicalBilling = computed(() => canAccessBillingWorkspace(user.value));
 
 const canSeeAvailabilityIntake = computed(() => {
   if (isSscSstcTenant.value) return false;

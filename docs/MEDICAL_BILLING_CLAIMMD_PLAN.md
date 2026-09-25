@@ -1,5 +1,7 @@
 # Medical Billing + Claim.MD (Gated)
 
+Implementation and launch status: [Claim.MD rollout](billing/claimmd-rollout.md).
+
 Living architecture for the opt-in medical billing stack. See also the Cursor plan “Gated Medical Billing”.
 
 ## Feature flags (`agencies.feature_flags`)

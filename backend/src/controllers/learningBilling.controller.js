@@ -1,6 +1,8 @@
 import { getFamilyBillingSummary } from '../services/familyBilling.service.js';
 import { requireResponsiblePayer } from '../services/familyBillingPolicy.service.js';
 import { payFamilyCharge } from '../services/familyBillingPayment.service.js';
+import { readClientInsurance } from '../services/clientInsurance.service.js';
+import { hasMedicaidCoverage } from '../utils/insurancePaymentPolicy.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
@@ -32,12 +34,12 @@ import { encryptBillingSecret } from '../services/billingEncryption.service.js';
 
 const canManageLearningBilling = (role) => {
   const r = String(role || '').toLowerCase();
-  return r === 'super_admin' || r === 'admin' || r === 'staff' || r === 'support' || r === 'clinical_practice_assistant' || r === 'provider_plus';
+  return r === 'super_admin' || r === 'admin' || r === 'staff' || r === 'support' || r === 'clinical_practice_assistant';
 };
 
 async function userHasAgencyAccess(userId, agencyId, role) {
   if (String(role || '').toLowerCase() === 'super_admin') return true;
-  if (['staff','support'].includes(String(role || '').toLowerCase()) && !(await User.listBillingAgencyIds(userId)).map(Number).includes(Number(agencyId))) return false;
+  if (['staff','support','clinical_practice_assistant'].includes(String(role || '').toLowerCase()) && !(await User.listBillingAgencyIds(userId)).map(Number).includes(Number(agencyId))) return false;
   const agencies = await User.getAgencies(userId);
   return (agencies || []).some((a) => Number(a.id) === Number(agencyId));
 }
@@ -172,7 +174,17 @@ export const getClientBillingLedger = async (req, res, next) => {
     }
 
     const ledger = await LearningSessionCharge.listLedgerForClient({ agencyId, clientId, limit: 300 });
-    return res.json({ ok: true, agencyId, clientId, ledger: role === 'client_guardian' ? ledger.map(row => Object.fromEntries(['id','total_cents','currency','charge_status','charge_type','created_at','scheduled_start_at','captured_at'].map(key => [key, row[key]]))) : ledger });
+    if(role==='client_guardian'){
+      const medicaid=hasMedicaidCoverage(await readClientInsurance(clientId,agencyId));
+      const visible=ledger.filter(row=>!Number(row.uses_family_ledger)).map(row=>{
+        const value=Object.fromEntries(['id','total_cents','currency','charge_status','charge_type','created_at','scheduled_start_at','captured_at'].map(key=>[key,row[key]]));
+        const nonclinical=['tutoring','coaching','life_coach','consulting','consultant','mentorship'].includes(String(row.service_type||'').toLowerCase());
+        if(!['CAPTURED','VOIDED','REFUNDED'].includes(row.charge_status)&&(!nonclinical||medicaid)){value.total_cents=null;value.charge_status='BILLING_REVIEW';}
+        return value;
+      });
+      return res.json({ok:true,agencyId,clientId,ledger:visible});
+    }
+    return res.json({ok:true,agencyId,clientId,ledger});
   } catch (e) {
     next(e);
   }

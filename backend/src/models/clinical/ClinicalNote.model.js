@@ -24,6 +24,9 @@ class ClinicalNote {
     metadataJson = null,
     createdByUserId
   }) {
+    if (metadataJson?.amendmentOfNoteId) {
+      throw Object.assign(new Error('Add a signed amendment/correction to the original note using Addenda and amendments; do not create a separate note copy.'), { status: 409 });
+    }
     const [result] = await clinicalPool.execute(
       `INSERT INTO clinical_notes
        (clinical_session_id, agency_id, client_id, title, note_payload, metadata_json, created_by_user_id)
@@ -75,7 +78,10 @@ class ClinicalNote {
     }
   }
 
-  static async updatePayload({ noteId, title = null, notePayload = null, metadataJson = null }) {
+  static async updatePayload({ noteId, title = undefined, notePayload = undefined, metadataJson = undefined }) {
+    if (metadataJson?.amendmentOfNoteId && (notePayload !== undefined || title != null)) {
+      throw Object.assign(new Error('Add a signed amendment/correction to the original note using Addenda and amendments; do not replace an amendment draft.'), { status: 409 });
+    }
     const nid = Number(noteId || 0);
     if (!nid) return null;
     const updates = [];
@@ -94,10 +100,12 @@ class ClinicalNote {
     }
     if (!updates.length) return this.findById(nid);
     values.push(nid);
-    await clinicalPool.execute(
-      `UPDATE clinical_notes SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    const changesContent=notePayload!==undefined||title!=null;
+    const [result]=await clinicalPool.execute(
+      `UPDATE clinical_notes SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? ${changesContent?'AND provider_signed_at IS NULL':''}`,
       values
     );
+    if(changesContent&&!result.affectedRows)throw Object.assign(new Error('Signed notes must be changed through an amendment/addendum'),{status:409});
     return this.findById(nid);
   }
 
@@ -178,4 +186,3 @@ class ClinicalNote {
 }
 
 export default ClinicalNote;
-

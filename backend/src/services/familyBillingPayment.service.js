@@ -28,6 +28,11 @@ export async function payFamilyCharge({ agencyId, userId, chargeId, expectedAmou
     if (hasMedicaidCoverage(insurance)) throw billingError(409, 'Medicaid coverage is recorded. Billing must review this charge before collecting a patient payment.');
     const [familyBalance] = await db.execute("SELECT id FROM family_receivables WHERE agency_id=? AND source_type='learning_charge' AND source_key=?", [agencyId, String(chargeId)]);
     if (familyBalance.length) throw billingError(409, 'This charge uses assigned payer shares. Pay it under Balances and payment tasks.');
+    // Legacy session checkout has no verified patient-responsibility record.
+    // Do not infer self-pay from a missing insurance policy or charge full fees.
+    const [classification]=await db.execute('SELECT ls.service_type FROM learning_program_sessions s JOIN learning_services ls ON ls.id=s.learning_service_id AND ls.agency_id=s.agency_id WHERE s.id=? AND s.agency_id=?',[charge.learning_program_session_id,agencyId]);
+    const domain=String(classification[0]?.service_type||'').toLowerCase();
+    if(!['tutoring','coaching','life_coach','consulting','consultant','mentorship'].includes(domain))throw billingError(409,'Clinical charges require verified patient responsibility. Billing must review this under Balances and payment tasks.');
     const cards = await GuardianPaymentCard.findActiveByGuardian(userId, agencyId, db);
     const card = cards.find(c => Number(c.id) === Number(payer.payment_card_id));
     if (!card?.stripe_payment_method_id || !card?.connected_account_id) throw billingError(409, 'Assign your own verified card to this client first');

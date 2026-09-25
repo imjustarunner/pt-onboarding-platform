@@ -1,0 +1,9 @@
+{
+  "project": "ptonboard-dev",
+  "service": "onboarding-backend",
+  "region": "us-west3",
+  "accountId": "31985",
+  "agencyIds": [377],
+  "secret": "CLAIM_MD_ACCOUNT_KEY",
+  "version": "1"
+}

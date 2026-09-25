@@ -7,7 +7,7 @@
     <template v-if="!loading && access">
       <p v-if="!ledger.length">No charges on file.</p>
       <article v-for="charge in ledger" :key="charge.id" class="charge">
-        <div><strong>{{ money(charge.total_cents) }}</strong><p>{{ charge.charge_type?.replaceAll('_',' ') || 'Session charge' }} · {{ charge.charge_status }}</p><small v-if="charge.created_at">{{ new Date(charge.created_at).toLocaleDateString() }}</small></div>
+        <div><strong>{{ charge.total_cents == null ? 'Under review — nothing due' : money(charge.total_cents) }}</strong><p>{{ charge.charge_type?.replaceAll('_',' ') || 'Session charge' }} · {{ charge.charge_status }}</p><small v-if="charge.created_at">{{ new Date(charge.created_at).toLocaleDateString() }}</small></div>
         <button v-if="['PENDING','AUTHORIZED','FAILED'].includes(charge.charge_status)" class="btn btn-primary" :disabled="!!paying" @click="pay(charge)">{{ paying === charge.id ? 'Processing…' : `Pay ${money(charge.total_cents)} with my assigned card` }}</button>
       </article>
       <section aria-label="Session credits and subscriptions">

@@ -124,7 +124,7 @@
               <select v-model="newAssignment.supervisorType" style="width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px;">
                 <option v-for="t in SUPERVISOR_TYPES" :key="t" :value="t">{{ supervisorTypeLabel(t) }}</option>
               </select>
-              <small style="color: var(--text-secondary); font-size: 12px;">One person per type (clinical, manager, billing). Same person may hold multiple types.</small>
+              <small style="color: var(--text-secondary); font-size: 12px;">Assign clinical and billing supervisors separately, or assign the same person to both types. The billing supervisor owns note cosign; clinical supervision retains case and treatment-plan review. Neither assignment grants financial access.</small>
               <small class="supervisor-eligibility-hint">{{ supervisorTypeHint }}</small>
             </div>
             <div v-if="tenantOptions.length > 1">
@@ -263,7 +263,7 @@ const supervisorEligibilityHint = computed(() => {
 
 const supervisorTypeHint = computed(() => {
   if (requiresLicensedSupervisor.value) {
-    return `Requires a licensed provider credential: ${CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT}.`;
+    return `Requires a licensed provider credential: ${CLINICAL_BILLING_SUPERVISOR_LICENSE_HINT}. Licensure supervision has additional profession-specific requirements; social-work licensure generally requires an LCSW. Verify credentials and any Board-approved exception.`;
   }
   return 'Typically CPA, Provider Plus, or admin for now (disclaimer — not hard-enforced).';
 });

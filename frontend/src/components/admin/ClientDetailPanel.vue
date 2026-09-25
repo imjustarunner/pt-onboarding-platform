@@ -693,6 +693,7 @@
               </header>
               <div class="ov-card-body">
                 <ClientInsuranceEditor v-if="canViewClientBillingImport" :client-id="client.id" :agency-id="client.agency_id" />
+                <ClientCareCoverageSummary v-if="roleNorm !== 'school_staff'" :client-id="client.id" />
                 <div v-if="false" class="ov-row">
                   <div class="ov-row-label">Ongoing paperwork</div>
                   <div class="ov-row-value">
@@ -2737,6 +2738,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import ClientInsuranceEditor from '../billing/ClientInsuranceEditor.vue';
+import ClientCareCoverageSummary from '../billing/ClientCareCoverageSummary.vue';
 import ClientSchoolRoiAccessTab from './ClientSchoolRoiAccessTab.vue';
 import ClientRenewalPushModal from './ClientRenewalPushModal.vue';
 import ClientCommunicationsTab from './ClientCommunicationsTab.vue';

@@ -1,3 +1,7 @@
+import { encryptFamilyBilling } from '../familyBillingEncryption.service.js';
+import { insuranceFingerprint } from './readiness.js';
+import { auditBilling } from '../familyBillingPolicy.service.js';
+import { readClientInsurance } from '../clientInsurance.service.js';
 import {quoteBookingPackage} from '../bookingPackagePricing.service.js';
 import pool from '../../config/database.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
@@ -20,11 +24,32 @@ export async function syncSessionBalances({agencyId,actorUserId,clientId=null}){
   const [rows]=await pool.execute("SELECT c.id FROM learning_session_charges c WHERE c.agency_id=? AND c.charge_status IN ('PENDING','FAILED','AUTHORIZED') AND c.total_cents>0"+(clientId?' AND c.client_id=?':'')+" AND NOT EXISTS(SELECT 1 FROM family_receivables r WHERE r.agency_id=c.agency_id AND r.source_type='learning_charge' AND r.source_key=CAST(c.id AS CHAR)) ORDER BY c.id LIMIT 200",clientId?[agencyId,clientId]:[agencyId]);
   const results=[];for(const row of rows){try{const r=await importSessionCharge({agencyId,actorUserId,chargeId:row.id});results.push({chargeId:row.id,receivableId:r.id});}catch(e){if(e.status!==409)throw e;results.push({chargeId:row.id,review:e.message});}}return results;
 }
-export async function setClaimResponsibility({agencyId,claimId,clientId,amountCents,responsibilityType,reason,actorUserId,dueDate}){
+export async function setClaimResponsibility({agencyId,claimId,clientId,amountCents,responsibilityType,verificationBasis='benefit',reason,actorUserId,dueDate}){
   if(!['copay','deductible','coinsurance','patient_balance'].includes(responsibilityType)||!String(reason||'').trim())throw billingError(400,'Select the patient responsibility type and document verification');
-  const [claims]=await clinicalPool.execute('SELECT id,agency_id,client_id FROM clinical_claims WHERE id=? AND agency_id=? AND is_deleted=0',[positiveId(claimId),agencyId]);if(!claims.length)throw billingError(404,'Claim not found in this organization');if(clientId&&Number(clientId)!==Number(claims[0].client_id))throw billingError(409,'The claim belongs to a different client');
-  // A single claim balance prevents a copay being charged again under a second label.
-  return createReceivable({agencyId,clientId:claims[0].client_id,sourceType:'claim_responsibility',sourceKey:String(claimId),serviceDomain:'mental_health',amountCents:cents(amountCents,{allowZero:true}),insuranceReviewed:true,dueDate,actorUserId,payload:{claimId,responsibilityType,verificationReason:String(reason).slice(0,2000),verifiedBy:actorUserId}});
+  if(!['benefit','era'].includes(verificationBasis)|| (verificationBasis!=='era'&&responsibilityType!=='copay'))throw billingError(400,'Deductible, coinsurance and final patient balances require a verified payer remittance');
+  const [claims]=await clinicalPool.execute('SELECT c.id,c.parent_claim_id,c.payer_sequence,c.destination_payer_id,c.claimmd_submitted_at,c.claim_lifecycle,c.claim_status,c.agency_id,c.client_id,s.scheduled_start_at,s.encounter_status FROM clinical_claims c JOIN clinical_sessions s ON s.id=c.clinical_session_id AND s.agency_id=c.agency_id AND s.client_id=c.client_id WHERE c.id=? AND c.agency_id=? AND c.is_deleted=0',[positiveId(claimId),agencyId]);if(!claims.length)throw billingError(404,'Claim not found in this organization');if(clientId&&Number(clientId)!==Number(claims[0].client_id))throw billingError(409,'The claim belongs to a different client');
+  if(claims[0].claim_lifecycle==='void'||['VOID','VOIDED','CANCELLED','CANCELED'].includes(String(claims[0].claim_status).toUpperCase()))throw billingError(409,'Reconcile the voided claim before posting responsibility');
+  const serviceDate=claims[0].scheduled_start_at?dateOnly(claims[0].scheduled_start_at):null;
+  if(claims[0].encounter_status!=='completed'||!serviceDate||serviceDate>new Date().toISOString().slice(0,10))throw billingError(409,'Patient responsibility can be posted only for a completed visit');
+  const [changes]=await clinicalPool.execute("SELECT COALESCE(MAX(cr.id),0) AS latestId,COALESCE(SUM(cr.status IN ('pending','reconciliation_required')),0) AS pending FROM clinical_claim_change_requests cr JOIN clinical_claims c ON c.clinical_session_id=cr.clinical_session_id AND c.agency_id=cr.agency_id WHERE c.id=? AND c.agency_id=?",[claimId,agencyId]);
+  if(Number(changes[0].pending))throw billingError(409,'Review the claim amendment before posting patient responsibility');
+  const insurance=await readClientInsurance(claims[0].client_id,agencyId);
+  if(insurance?.secondary&&(verificationBasis!=='era'||Number(claims[0].payer_sequence)!==2||claims[0].destination_payer_id!==insurance.secondary.payerId||!claims[0].claimmd_submitted_at))throw billingError(409,'Review the final secondary ERA/EOB and use its secondary claim before assigning patient responsibility');
+  const balanceClaimId=claims[0].parent_claim_id||claimId;
+  // Primary and secondary share one patient balance; an earlier copay is never billed again.
+
+  const input={agencyId,clientId:claims[0].client_id,sourceType:'claim_responsibility',sourceKey:String(balanceClaimId),serviceDomain:'mental_health',serviceDate,serviceLabel:'Visit patient responsibility',amountCents:cents(amountCents,{allowZero:true}),insuranceReviewed:true,dueDate,actorUserId,payload:{claimId:balanceClaimId,finalAdjudicationClaimId:claimId,finalPayerId:claims[0].destination_payer_id||insurance?.primary?.payerId,responsibilityType,verificationBasis,serviceCompleted:true,verifiedClaimChangeId:Number(changes[0].latestId),verificationReason:String(reason).slice(0,2000),verifiedBy:actorUserId}};
+  return transaction(async db=>{
+    // Creation is idempotent by the primary claim. Never reset allocations, payments or holds.
+    const found=await createReceivable(input,db);
+    const row=await findReceivable(agencyId,found.id,db,true);
+    if(row.status==='void')throw billingError(409,'Reconcile the voided visit balance before posting responsibility');
+    const previous=sourcePayload(row);
+    const payload={...previous,...input.payload,responsibilityReviews:[...(previous.responsibilityReviews||[]),{previous:{verificationBasis:previous.verificationBasis,finalAdjudicationClaimId:previous.finalAdjudicationClaimId,finalPayerId:previous.finalPayerId},...input.payload,at:new Date().toISOString()}]};
+    await db.execute('UPDATE family_receivables SET source_payload=?,insurance_reviewed=1,insurance_fingerprint=? WHERE id=? AND agency_id=?',[encryptFamilyBilling(payload,`receivable:${agencyId}:${row.client_id}`),insuranceFingerprint(insurance),row.id,agencyId]);
+    await auditBilling({agencyId,clientId:row.client_id,userId:actorUserId,action:'claim_responsibility_verified',objectId:row.id},db);
+    return findReceivable(agencyId,row.id,db);
+  });
 }
 export async function createPackageOrder({agencyId,clientId,packageId,payerUserId,actorUserId,idempotencyKey,providerId,tenantServiceId}){
   const requestKey=key(idempotencyKey),pkg=await BookingPackage.findById(positiveId(packageId),agencyId);if(!pkg?.isActive)throw billingError(404,'Package not available');

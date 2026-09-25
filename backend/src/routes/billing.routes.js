@@ -1,3 +1,4 @@
+import { requireMedicalBillingFinancialAccess } from '../middleware/medicalBilling.middleware.js';
 import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin, requireSuperAdmin } from '../middleware/auth.middleware.js';
 import stripeConnectRoutes from './stripeConnect.routes.js';
@@ -73,15 +74,15 @@ router.get('/:agencyId/addons', authenticate, requireAgencyAccess, getAgencyAddo
 router.get('/:agencyId/estimate', authenticate, requireAgencyAccess, getAgencyBillingEstimate);
 
 // Billing settings
-router.get('/:agencyId/settings', authenticate, requireAgencyAccess, getBillingSettings);
+router.get('/:agencyId/settings', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, getBillingSettings);
 router.put('/:agencyId/settings', authenticate, requireAgencyAdmin, billingSettingsValidators, updateBillingSettings);
 router.get('/:agencyId/payment-methods/setup', authenticate, requireAgencyAdmin, getAgencyBillingPaymentMethodSetup);
-router.get('/:agencyId/payment-methods', authenticate, requireAgencyAccess, listAgencyBillingPaymentMethods);
+router.get('/:agencyId/payment-methods', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, listAgencyBillingPaymentMethods);
 router.post('/:agencyId/payment-methods', authenticate, requireAgencyAdmin, createAgencyBillingPaymentMethod);
 router.post('/:agencyId/payment-methods/:paymentMethodId/default', authenticate, requireAgencyAdmin, setAgencyBillingPaymentMethodDefault);
 
 // Per-agency pricing (readable by agency access; writable by superadmin)
-router.get('/:agencyId/pricing', authenticate, requireAgencyAccess, getAgencyPricing);
+router.get('/:agencyId/pricing', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, getAgencyPricing);
 router.put('/:agencyId/pricing', authenticate, requireSuperAdmin, agencyPricingOverrideValidators, updateAgencyPricingOverride);
 
 // Invoices
@@ -93,7 +94,7 @@ router.post('/:agencyId/invoices/:invoiceId/send', authenticate, requireAgencyAd
 
 // QuickBooks Online (per-agency OAuth when merchant mode is agency-managed)
 router.get('/:agencyId/quickbooks/connect', authenticate, requireAgencyAdmin, getQuickBooksConnectUrl);
-router.get('/:agencyId/quickbooks/status', authenticate, requireAgencyAccess, getQuickBooksStatus);
+router.get('/:agencyId/quickbooks/status', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, getQuickBooksStatus);
 router.post('/:agencyId/quickbooks/disconnect', authenticate, requireAgencyAdmin, disconnectQuickBooks);
 
 // OAuth callback from Intuit (public, verified via signed state)
@@ -107,7 +108,7 @@ router.get('/:agencyId/features', authenticate, requireAgencyAccess, listAgencyF
 router.post('/:agencyId/features/tenant', authenticate, requireSuperAdmin, setTenantFeatureToggle);
 router.get('/:agencyId/features/:featureKey/users', authenticate, requireAgencyAccess, listFeatureEntitledUsers);
 router.post('/:agencyId/features/users/:userId', authenticate, requireAgencyAdmin, setUserFeatureToggle);
-router.get('/:agencyId/features/billing-preview', authenticate, requireAgencyAccess, getFeatureBillingPreview);
+router.get('/:agencyId/features/billing-preview', authenticate, requireAgencyAccess, requireMedicalBillingFinancialAccess, getFeatureBillingPreview);
 
 // Audit log views (super admin).
 router.get('/audit/tenant', authenticate, requireSuperAdmin, auditTenantEvents);

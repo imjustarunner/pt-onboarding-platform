@@ -86,9 +86,12 @@ class LearningSessionCharge {
               s.scheduled_start_at,
               s.scheduled_end_at,
               s.session_status,
-              s.office_event_id
+              s.office_event_id,
+              ls.service_type,
+              EXISTS(SELECT 1 FROM family_receivables r WHERE r.agency_id=c.agency_id AND r.source_type='learning_charge' AND r.source_key=CAST(c.id AS CHAR)) AS uses_family_ledger
        FROM learning_session_charges c
        LEFT JOIN learning_program_sessions s ON s.id = c.learning_program_session_id
+       LEFT JOIN learning_services ls ON ls.id=s.learning_service_id AND ls.agency_id=c.agency_id
        WHERE c.agency_id = ?
          AND c.client_id = ?
        ORDER BY c.created_at DESC

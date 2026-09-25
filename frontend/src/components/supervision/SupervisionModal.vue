@@ -125,6 +125,7 @@
               </div>
             </section>
             <section class="supervision-detail-section">
+              <SupervisionDocumentationPanel v-if="selectedSuperviseeAgencyId" :key="`${selectedSuperviseeAgencyId}-${selectedSupervisee.supervisee_id}`" :agency-id="Number(selectedSuperviseeAgencyId)" :provider-id="Number(selectedSupervisee.supervisee_id)" />
               <h3>School / program portals</h3>
               <p class="supervision-placeholder" style="margin-bottom: 0.5rem;">You have read-only access to each school or program this supervisee is affiliated with.</p>
               <div v-if="affiliatedPortalsLoading" class="supervision-placeholder">Loading…</div>
@@ -773,6 +774,7 @@
 </template>
 
 <script setup>
+import SupervisionDocumentationPanel from './SupervisionDocumentationPanel.vue';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
