@@ -170,6 +170,22 @@ try{
   await page.screenshot({path:'/tmp/family-pocket-desktop.png',fullPage:true});
   await page.setViewport({width:390,height:844,deviceScaleFactor:1});
   await clickText('.fcc-sidebar nav button','Home');
+  // The prominent picture browser changes artwork without changing the event type.
+  await clickText('.fcc-top-actions button','Add event');
+  await page.waitForSelector('.fcc-modal input[placeholder="Give it a name"]');
+  await page.type('.fcc-modal input[placeholder="Give it a name"]','Scheels');
+  assert.equal(await page.$eval('.event-picture-picker .fcc-art-preview',el=>el.getAttribute('src')),'/assets/family-events/scheels-shopping.jpg');
+  assert.equal(await page.$$eval('.image-library-grid img',els=>els.length),0);
+  await page.click('.picture-heading button');
+  await page.type('.image-library input[type=search]','rooftop');
+  await page.waitForFunction(()=>document.querySelectorAll('.image-library-grid button').length===1);
+  await page.click('.image-library-grid button');
+  assert.equal(await page.$eval('.event-type-picker > label select',el=>el.value),'scheels-shopping');
+  assert.equal(await page.$eval('.fcc-art-preview',el=>el.getAttribute('src')),'/assets/family-events/camping-tundra-rooftop.jpg');
+  await page.screenshot({path:'/tmp/fcc-picture-search-mobile.png',fullPage:true});
+  await page.click('.fcc-modal .fcc-primary');
+  await page.waitForFunction(()=>!document.querySelector('.fcc-modal'));
+  assert.equal(fixture.entries.find(e=>e.title==='Scheels')?.metadata.artworkType,'camping');
   await clickText('.fcc-top-actions button','Add event');
   await page.waitForSelector('.event-type-picker input');
   await page.type('.event-type-picker input','softball');

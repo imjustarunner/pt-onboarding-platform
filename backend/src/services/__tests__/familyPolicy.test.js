@@ -59,3 +59,9 @@ it('preserves automatic title matching while allowing explicit event themes',()=
   expect(validateEntry({...base,metadata:{eventType:'camping',autoTheme:false}}).metadata.autoTheme).toBe(false);
   expect(validateEntry(base).metadata.autoTheme).toBe(true);
 });
+
+it('retains an independent library picture through event validation',()=>{
+ const body={kind:'event',title:'Scheels',startAt:'2026-09-26T16:00:00Z',endAt:'2026-09-26T18:00:00Z',metadata:{eventType:'scheels-shopping',artworkType:'camping',artworkVariant:'camping-green-tent'}};
+ expect(validateEntry(body).metadata).toMatchObject(body.metadata);
+ for(const artworkType of ['../image','https://example.com',{},42])expect(validateEntry({...body,metadata:{artworkType}}).metadata.artworkType).toBeNull();
+});

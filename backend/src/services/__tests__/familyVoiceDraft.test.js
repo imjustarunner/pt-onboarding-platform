@@ -3,7 +3,7 @@ const mocks=vi.hoisted(()=>({execute:vi.fn(),benefit:vi.fn(),household:vi.fn(),g
 vi.mock('../../config/database.js',()=>({default:{execute:mocks.execute}}));
 vi.mock('../familyAuth.service.js',()=>({assertFamilyBenefit:mocks.benefit,requireHousehold:mocks.household}));
 vi.mock('../geminiText.service.js',()=>({callGeminiText:mocks.generate}));
-import {normalizeFamilyVoiceDraft,draftFamilyVoiceEvent} from '../familyVoiceDraft.service.js';
+import {normalizeFamilyVoiceDraft,draftFamilyVoiceEvent,spokenDurationMinutes} from '../familyVoiceDraft.service.js';
 const members=[{user_id:1,display_name:'Dad',first_name:'Michael'},{user_id:3,display_name:'Emma'}];
 const session={userId:1,agencyId:9};
 const event={title:'Emma soccer practice',memberUserId:3,startDate:'2026-09-26',startTime:'17:00',endDate:'2026-09-26',endTime:'18:30',address:'Riverside Park',equipment:'Water, cleats',pickup:'Dad',reminderMinutes:30};
@@ -50,4 +50,21 @@ describe('family-only voice event drafts',()=>{
    for(const response of [{text:'not JSON'},{text:'null'},{text:JSON.stringify(event),finishReason:'MAX_TOKENS'}]){mocks.generate.mockResolvedValueOnce(response);await expect(draftFamilyVoiceEvent(session,7,{transcript:'Soccer'})).rejects.toMatchObject({status:503});}
    mocks.generate.mockRejectedValueOnce(new Error('Offline'));await expect(draftFamilyVoiceEvent(session,7,{transcript:'Soccer'})).rejects.toMatchObject({status:503});
  });
+});
+
+it.each(['for 2 hours','for two hours','for 120 minutes'])('calculates noon for a 10 AM Scheels draft %s when AI omits the end',async phrase=>{
+  mocks.generate.mockResolvedValueOnce({text:JSON.stringify({title:'Scheels',startDate:'2026-09-26',startTime:'10:00'})});
+  const result=await draftFamilyVoiceEvent(session,7,{transcript:`Scheels tomorrow at 10am ${phrase}`});
+  expect(result.draft.endAt).toBe('2026-09-26T12:00');
+});
+it('uses structured durations, handles midnight and DST, and preserves explicit ends',()=>{
+  const raw={title:'Scheels',startDate:'2026-09-26',startTime:'23:00',durationMinutes:120};
+  expect(normalizeFamilyVoiceDraft(raw,members).draft.endAt).toBe('2026-09-27T01:00');
+  expect(normalizeFamilyVoiceDraft({...raw,startDate:'2026-03-08',startTime:'01:00'},members,{timeZone:'America/Denver'}).draft.endAt).toBe('2026-03-08T04:00');
+  expect(normalizeFamilyVoiceDraft({...raw,endTime:'23:30'},members).draft.endAt).toBe('2026-09-26T23:30');
+  for(const durationMinutes of [-1,0,'120',Infinity,10081])expect(normalizeFamilyVoiceDraft({...raw,durationMinutes},members).draft.endAt).toBe('');
+  expect(normalizeFamilyVoiceDraft({...raw,startDate:null},members).draft.endAt).toBe('');
+});
+it.each([['for an hour and a half',90],['for 1 hour and 30 minutes',90],['for 1.5 hours',90],['for half an hour',null],['at 10am',null],['for 1 hour, actually for 2 hours',null]])('reads only unambiguous fallback duration: %s',(transcript,minutes)=>{
+  expect(spokenDurationMinutes(transcript)).toBe(minutes);
 });
