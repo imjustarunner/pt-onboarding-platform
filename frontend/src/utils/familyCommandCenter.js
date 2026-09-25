@@ -49,7 +49,7 @@ export function inferFamilyEventType(title) {
     for (const phrase of phrases) {
       const normalized = normalizeEventTitle(phrase);
       if (normalized.length < 3 || !text.includes(` ${normalized} `)) continue;
-      const generic = ['family', 'pickup', 'drop-off', 'travel', 'trip', 'drive', 'park', 'work', 'appointment'].includes(type.id);
+      const generic = ['family', 'pickup', 'drop-off', 'travel', 'trip', 'drive', 'park', 'work', 'appointment', 'practice', 'sports-practice', 'sports-game-competition', 'competition', 'lesson', 'class'].includes(type.id);
       const score = (generic ? 0 : 100) + normalized.length;
       if (score > bestScore) { best = type; bestScore = score; }
     }

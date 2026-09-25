@@ -1,7 +1,8 @@
+import { personalMessagePreferences, validatePersonalMessagePatch } from '../utils/personalMessagePreferences.js';
 import pool from '../config/database.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import { getAgencyEmailSettings } from './emailSettings.service.js';
-import { messageReminderDueAt, isMessageReminderWindow } from '../utils/messageReminderTiming.js';
+import { personalMessageDueAt, isMessageReminderWindow } from '../utils/messageReminderTiming.js';
 import { resolveAvailabilitySchedule } from './availabilityWindow.service.js';
 import { messageReminderRecipient } from './messageReminderRecipient.service.js';
 const DEFAULT_DIGEST_HOURS = 24;
@@ -24,7 +25,7 @@ function mapPrefsRow(row, userId) {
   if (!row) {
     return {
       userId,
-      personalEmailNotify: true,
+      ...personalMessagePreferences(),
       digestHours: DEFAULT_DIGEST_HOURS,
       digestBusinessHours: null,
       availabilityHoursEnabled: true,
@@ -39,7 +40,7 @@ function mapPrefsRow(row, userId) {
   }
   return {
     userId,
-    personalEmailNotify: !!row.personal_email_notify,
+    ...personalMessagePreferences(row),
     digestHours: normalizeDigestHours(row.digest_hours),
     digestBusinessHours:
       row.digest_business_hours != null ? normalizeDigestHours(row.digest_business_hours) : null,
@@ -90,6 +91,7 @@ export async function getCommunicationPrefs(userId) {
 }
 
 export async function updateCommunicationPrefs(userId, patch = {}) {
+  validatePersonalMessagePatch(patch);
   const current = await getCommunicationPrefs(userId);
   const personalEmailNotify =
     patch.personalEmailNotify !== undefined ? !!patch.personalEmailNotify : current.personalEmailNotify;
@@ -130,12 +132,16 @@ export async function updateCommunicationPrefs(userId, patch = {}) {
     await pool.execute(
       `INSERT INTO user_communication_prefs
         (user_id, personal_email_notify, digest_hours, digest_business_hours,
+         personal_email_delivery_mode, personal_email_delay_mode, personal_email_delay_hours,
          availability_hours_enabled, meeting_reminder_bypass_availability,
          send_delay_email_seconds, send_delay_secure_seconds,
          send_delay_internal_seconds, send_delay_sms_seconds)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          personal_email_notify = VALUES(personal_email_notify),
+         personal_email_delivery_mode = VALUES(personal_email_delivery_mode),
+         personal_email_delay_mode = VALUES(personal_email_delay_mode),
+         personal_email_delay_hours = VALUES(personal_email_delay_hours),
          digest_hours = VALUES(digest_hours),
          digest_business_hours = VALUES(digest_business_hours),
          availability_hours_enabled = VALUES(availability_hours_enabled),
@@ -149,6 +155,9 @@ export async function updateCommunicationPrefs(userId, patch = {}) {
         personalEmailNotify ? 1 : 0,
         digestHours,
         digestBusinessHours,
+        patch.personalEmailDeliveryMode ?? current.personalEmailDeliveryMode,
+        patch.personalEmailDelayMode ?? current.personalEmailDelayMode,
+        patch.personalEmailDelayHours ?? current.personalEmailDelayHours,
         availabilityHoursEnabled ? 1 : 0,
         meetingReminderBypassAvailability ? 1 : 0,
         sendDelayEmailSeconds,
@@ -162,10 +171,14 @@ export async function updateCommunicationPrefs(userId, patch = {}) {
     await pool.execute(
       `INSERT INTO user_communication_prefs
         (user_id, personal_email_notify, digest_hours, digest_business_hours,
+         personal_email_delivery_mode, personal_email_delay_mode, personal_email_delay_hours,
          availability_hours_enabled, meeting_reminder_bypass_availability)
-       VALUES (?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          personal_email_notify = VALUES(personal_email_notify),
+         personal_email_delivery_mode = VALUES(personal_email_delivery_mode),
+         personal_email_delay_mode = VALUES(personal_email_delay_mode),
+         personal_email_delay_hours = VALUES(personal_email_delay_hours),
          digest_hours = VALUES(digest_hours),
          digest_business_hours = VALUES(digest_business_hours),
          availability_hours_enabled = VALUES(availability_hours_enabled),
@@ -175,6 +188,9 @@ export async function updateCommunicationPrefs(userId, patch = {}) {
         personalEmailNotify ? 1 : 0,
         digestHours,
         digestBusinessHours,
+        patch.personalEmailDeliveryMode ?? current.personalEmailDeliveryMode,
+        patch.personalEmailDelayMode ?? current.personalEmailDelayMode,
+        patch.personalEmailDelayHours ?? current.personalEmailDelayHours,
         availabilityHoursEnabled ? 1 : 0,
         meetingReminderBypassAvailability ? 1 : 0
       ]
@@ -196,7 +212,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     `SELECT u.id AS user_id, u.email, u.work_email, u.personal_email, u.first_name, u.role, u.has_provider_access,
             u.sso_password_override, u.login_is_group_email, u.is_demo, p.personal_email_notify,
             COALESCE(p.digest_hours, ?) AS digest_hours,
-            p.digest_business_hours,
+            p.digest_business_hours, p.personal_email_delivery_mode, p.personal_email_delay_mode, p.personal_email_delay_hours,
             p.last_inbox_digest_at,
             (
               SELECT ua.agency_id FROM user_agencies ua
@@ -205,8 +221,8 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
             ) AS agency_id
      FROM users u
      LEFT JOIN user_communication_prefs p ON p.user_id = u.id
-     WHERE UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE')
-       AND COALESCE(u.is_active,1)=1
+     WHERE UPPER(u.status) IN ('ACTIVE','ACTIVE_EMPLOYEE','ONBOARDING')
+       AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
        AND COALESCE(u.is_demo,0)=0
        AND u.role NOT IN ('client','client_guardian','guardian','kiosk')
        AND (
@@ -236,14 +252,10 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
       row.digest_business_hours ?? row.digest_hours ?? DEFAULT_DIGEST_HOURS
     );
 
-    if (row.last_inbox_digest_at) {
-      const last = new Date(row.last_inbox_digest_at);
-      if (now - last < businessHours * 60 * 60 * 1000 * 0.5) continue;
-    }
-
+    const reminderPreferences = personalMessagePreferences(row);
     // Unread chat messages in threads the user belongs to
     const [unread] = await pool.execute(
-      `SELECT t.id AS thread_id, MIN(m.created_at) AS oldest_unread_at, COUNT(*) AS unread_count
+      `SELECT t.id AS thread_id, MIN(m.created_at) AS oldest_unread_at, MAX(m.id) AS message_id, COUNT(*) AS unread_count
        FROM chat_thread_participants p
        JOIN chat_threads t ON t.id = p.thread_id
        JOIN chat_messages m ON m.thread_id = t.id
@@ -253,6 +265,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
          AND m.sender_user_id <> ?
          AND (r.last_read_message_id IS NULL OR m.id > r.last_read_message_id)
          AND m.created_at <= ?
+         AND m.id > COALESCE((SELECT MAX(n.message_id) FROM user_chat_email_reminders n WHERE n.user_id=p.user_id AND n.thread_id=t.id),0)
        GROUP BY t.id
        HAVING unread_count > 0
        ORDER BY oldest_unread_at ASC
@@ -263,11 +276,17 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     const eligible = [];
     for (const u of unread || []) {
       const started = new Date(u.oldest_unread_at || now);
-      const eligibleAt = messageReminderDueAt(started, { schedule, timeZone: agency?.timezone, delayHours: businessHours });
+      const eligibleAt = personalMessageDueAt(started, { schedule, timeZone: agency?.timezone, preferences: reminderPreferences });
       if (eligibleAt <= now) eligible.push(u);
     }
     if (!eligible.length) continue;
 
+    const claimed=[];
+    for(const thread of eligible){
+      const [claim]=await pool.execute('INSERT IGNORE INTO user_chat_email_reminders (user_id,thread_id,message_id,claimed_at) VALUES (?,?,?,?)',[row.user_id,thread.thread_id,thread.message_id,now]);
+      if(claim.affectedRows)claimed.push(thread);
+    }
+    if(!claimed.length)continue;
     const tenantName = agency?.name || 'Your care team';
     const slug = agency?.slug || '';
     const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(
@@ -276,7 +295,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     );
     const messagesUrl = `${baseUrl}/${slug}/messages`;
 
-    const count = eligible.reduce((n, x) => n + Number(x.unread_count || 0), 0);
+    const count = claimed.reduce((n, x) => n + Number(x.unread_count || 0), 0);
     const { buildBrandedMessageEmailHtml } = await import('./hubBrandedEmail.service.js');
     const html = buildBrandedMessageEmailHtml({
       agencyName: tenantName,
@@ -295,12 +314,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
         `INSERT IGNORE INTO user_communication_prefs (user_id, personal_email_notify, digest_hours) VALUES (?, 1, ?)`,
         [row.user_id, businessHours]
       );
-      const [claim] = await pool.execute(
-        `UPDATE user_communication_prefs SET last_inbox_digest_at=?
-         WHERE user_id=? AND (last_inbox_digest_at IS NULL OR last_inbox_digest_at <= ?)`,
-        [now, row.user_id, new Date(now.getTime() - businessHours * 60 * 60 * 1000 * 0.5)]
-      );
-      if (!claim.affectedRows) continue;
+      await pool.execute('UPDATE user_communication_prefs SET last_inbox_digest_at=? WHERE user_id=?',[now,row.user_id]);
       let result;
       const { ensureTenantMessageMailboxes } = await import('./tenantMessageMailboxes.service.js');
       const mailboxes = await ensureTenantMessageMailboxes(agencyId).catch(() => null);
@@ -329,8 +343,11 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
           source: 'auto'
         });
       }
-      if (result?.id && !result.blocked && !result.skipped && !result.pendingApproval && !result.queued) sent += 1;
+      const delivered=result?.id && !result.blocked && !result.skipped && !result.pendingApproval && !result.queued;
+      for(const thread of claimed)await pool.execute('UPDATE user_chat_email_reminders SET delivery_status=? WHERE user_id=? AND message_id=?',[delivered?'sent':'held',row.user_id,thread.message_id]);
+      if(delivered)sent++;
     } catch (e) {
+      for(const thread of claimed)await pool.execute("UPDATE user_chat_email_reminders SET delivery_status='review' WHERE user_id=? AND message_id=?",[row.user_id,thread.message_id]).catch(()=>{});
       console.warn('[hubSecureDigest] send failed for user', row.user_id, e?.message || e);
     }
   }

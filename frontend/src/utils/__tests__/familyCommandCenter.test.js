@@ -92,7 +92,7 @@ describe('family calendar and routing',()=>{
 });
 
 describe('automatic personal event themes',()=>{
-  it.each([['Pick up Sam from airport','airport'],['Going to zoo','zoo'],['School pickup','school-pickup'],['Camping at the lake','camping'],['Visit Yellowstone National Park','np-yellowstone'],['Parking permit renewal','family']])('matches %s to %s',(title,id)=>{expect(inferFamilyEventType(title).id).toBe(id);});
+  it.each([['Emma soccer practice','soccer'],['Baseball competition','baseball'],['Tennis lesson','tennis'],['Pick up Sam from airport','airport'],['Going to zoo','zoo'],['School pickup','school-pickup'],['Camping at the lake','camping'],['Visit Yellowstone National Park','np-yellowstone'],['Parking permit renewal','family']])('matches %s to %s',(title,id)=>{expect(inferFamilyEventType(title).id).toBe(id);});
   it('uses distinct zoo and airport pictures rather than generic covers',()=>{
     expect(eventArtwork(familyEventMetadata('Going to zoo'))).toBe('/assets/family-events/zoo.jpg');
     expect(eventArtwork(familyEventMetadata('Pick up Sam from airport'))).toBe('/assets/family-events/airport.jpg');

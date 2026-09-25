@@ -16,6 +16,7 @@
       <div class="panel-header">
         <div class="org-header">
           <div class="title">Messages</div>
+          <button v-if="!isSchoolStaffViewer" type="button" class="btn btn-secondary" @click="personalDeliveryOpen = true">Email reminders</button>
           <div class="subtitle">{{ panelSubtitle }}</div><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a>
         </div>
         <label
@@ -1174,6 +1175,12 @@
       </div>
     </div>
   </div>
+  <div v-if="personalDeliveryOpen" class="mw-modal-overlay" @click.self="personalDeliveryOpen = false" @keydown.esc="personalDeliveryOpen = false">
+    <div class="mw-modal" role="dialog" aria-modal="true" aria-label="Personal email reminders" style="max-height:90vh;overflow:auto">
+      <button type="button" class="btn btn-secondary" @click="personalDeliveryOpen = false">Close</button>
+      <PersonalMessageDeliverySettings />
+    </div>
+  </div>
   <div v-if="actionToast" class="mw-toast">{{ actionToast }}</div>
 </template>
 
@@ -1186,6 +1193,8 @@ import { useAuthStore } from '../../store/auth';
 import { usePresenceSessionStore } from '../../store/presenceSession';
 import CommunicationsHubView from '../../views/admin/CommunicationsHubView.vue';
 import AskAssistantPanel from '../assistant/AskAssistantPanel.vue';
+import PersonalMessageDeliverySettings from './PersonalMessageDeliverySettings.vue';
+const personalDeliveryOpen = ref(false);
 import PeerTenantMark from './PeerTenantMark.vue';
 import { useBrandingStore } from '../../store/branding';
 import {

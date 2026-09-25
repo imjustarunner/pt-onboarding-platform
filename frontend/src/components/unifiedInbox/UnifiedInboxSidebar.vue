@@ -1,5 +1,7 @@
 <script setup>
-import { computed } from 'vue';
+import PersonalMessageDeliverySettings from '../messages/PersonalMessageDeliverySettings.vue';
+import { computed, ref } from 'vue';
+const showPersonalDelivery = ref(false);
 
 const props = defineProps({
   inboxes: { type: Array, default: () => [] },
@@ -57,14 +59,6 @@ function onInboxChange(e) {
   else emit('update:selectedInboxId', parseInt(v, 10));
 }
 
-function onNotifyToggle(e) {
-  emit('update:prefs', { personalEmailNotify: e.target.checked });
-}
-
-function onDigestHours(e) {
-  const n = Number(e.target.value);
-  emit('update:prefs', { digestHours: n, digestBusinessHours: n });
-}
 </script>
 
 <template>
@@ -92,23 +86,8 @@ function onDigestHours(e) {
     </p>
 
     <div class="uc-prefs">
-      <p class="uc-section">App-only provider alerts</p>
-      <label class="uc-pref-row">
-        <input type="checkbox" :checked="!!prefs.personalEmailNotify" @change="onNotifyToggle" />
-        <span>Allow personal reminders if I receive email only in the app</span>
-      </label>
-      <label class="uc-pref-row digest">
-        <span>Remind after</span>
-        <select
-          :value="prefs.digestBusinessHours || prefs.digestHours || 24"
-          :disabled="!prefs.personalEmailNotify"
-          @change="onDigestHours"
-        >
-          <option :value="24">1 business day</option>
-          <option :value="48">2 business days</option>
-        </select>
-      </label>
-      <p class="uc-pref-hint">SSO users never receive these personal-email reminders. Eligible app-only providers receive a sign-in link during their availability hours; original subjects and message bodies are not included. Mail received at or after 5 p.m. starts its response window at the next opening.</p>
+      <button type="button" @click="showPersonalDelivery = !showPersonalDelivery">Personal email reminders</button>
+      <PersonalMessageDeliverySettings v-if="showPersonalDelivery" />
     </div>
 
     <div class="uc-smart">

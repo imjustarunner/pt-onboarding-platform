@@ -7,7 +7,7 @@ import { sendEmailFromIdentity, sendNotificationEmail } from '../unifiedEmail/un
 
 it('rejects personal reminder recipients in both send paths before contacting Gmail', async () => {
   for (const send of [sendEmailFromIdentity, sendNotificationEmail]) {
-    for (const templateType of ['personal_thread_reminder', 'hub_secure_unread_digest', 'hub_sms_unread_digest']) {
+    for (const templateType of ['personal_thread_forward', 'personal_thread_reminder', 'hub_secure_unread_digest', 'hub_sms_unread_digest']) {
       await expect(send({ userId: 5, to: 'private@example.org', templateType, existingCommunicationId: 123 })).rejects.toMatchObject({ code: 'REMINDER_RECIPIENT_POLICY' });
     }
   }

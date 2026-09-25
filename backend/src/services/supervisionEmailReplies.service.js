@@ -67,12 +67,17 @@ export async function forwardUnreadSupervisionReplies(now=new Date()) {
  for(const row of rows){
   const [claim]=await pool.execute("UPDATE supervision_reply_forwards SET delivery_status='sending' WHERE message_id=? AND host_user_id=? AND delivery_status='pending'",[row.message_id,row.host_user_id]);if(!claim.affectedRows)continue;
   try{
+   const personalRecipient=await messageReminderRecipient(row);
+   if(personalRecipient && personalRecipient.toLowerCase()===String(row.personal_email||'').toLowerCase()) {
+     await pool.execute("UPDATE supervision_reply_forwards SET delivery_status='inbox_reminder' WHERE message_id=? AND host_user_id=?",[row.message_id,row.host_user_id]);
+     continue;
+   }
    const mailbox=await ensureTenantMessageMailboxes(row.agency_id);
    const recipient=await resolveMeetingRecipient({agencyId:row.agency_id,user:{...row,id:row.host_user_id}});
    const sender=typeof row.from_json==='string'?JSON.parse(row.from_json):row.from_json;
    const label=row.meeting_type==='huddle'?'Meeting reply':'Supervision reply';
    const text=`An unread ${label.toLowerCase()} is waiting in your app inbox.\n\nFrom: ${sender.email}\n\n${row.body_text}`;
-   const result=await sendEmailFromIdentity({senderIdentityId:mailbox.notifications.id,to:await messageReminderRecipient(row)||recipient.email,replyToOverride:sender.email,subject:`${label}: ${row.subject||'Session attendance'}`,text,html:`<h2>${label}</h2><p>From: ${esc(sender.email)}</p><p>${esc(row.body_text).replace(/\n/g,'<br>')}</p><p>This reply is also saved in your app inbox. Reply here to answer the participant.</p>`,source:'auto',userId:row.host_user_id,templateType:'meeting_reply_forward'});
+   const result=await sendEmailFromIdentity({senderIdentityId:mailbox.notifications.id,to:recipient.email,replyToOverride:sender.email,subject:`${label}: ${row.subject||'Session attendance'}`,text,html:`<h2>${label}</h2><p>From: ${esc(sender.email)}</p><p>${esc(row.body_text).replace(/\n/g,'<br>')}</p><p>This reply is also saved in your app inbox. Reply here to answer the participant.</p>`,source:'auto',userId:row.host_user_id,templateType:'meeting_reply_forward'});
    await pool.execute('UPDATE supervision_reply_forwards SET delivery_status=?,communication_id=? WHERE message_id=? AND host_user_id=?',[result.id&&!result.redirected?'sent':result.pendingApproval?'approval':'held',result.communicationId||null,row.message_id,row.host_user_id]);
   }catch(error){await pool.execute("UPDATE supervision_reply_forwards SET delivery_status='review' WHERE message_id=? AND host_user_id=?",[row.message_id,row.host_user_id]);console.warn('[supervision reply] Forward needs review',row.message_id,error.code||'send_failed');}
  }

@@ -63,3 +63,17 @@ export function messageReminderDueAt(receivedAt, { schedule, timeZone, delayHour
   if (!Number.isFinite(d.getTime())) return d;
   return zonedWallTimeToUtc({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(), hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: d.getUTCSeconds(), timeZone: p.timeZone });
 }
+
+/** Explicit immediate/hour settings use elapsed time, then the next availability
+ * window. The default retains the agreed next-business-day response window. */
+export function personalMessageDueAt(receivedAt, { preferences = {}, schedule, timeZone } = {}) {
+  const received = new Date(receivedAt);
+  if (receivedAt == null || !Number.isFinite(received.getTime())) return new Date(NaN);
+  const mode = preferences.personalEmailDelayMode || 'business_day';
+  if (mode === 'business_day') return messageReminderDueAt(received, { schedule, timeZone, delayHours: preferences.personalEmailDelayHours ?? 24 });
+  const delay = mode === 'immediate' ? 0 : Number(preferences.personalEmailDelayHours ?? 24);
+  if (!Number.isFinite(delay) || delay < 0 || delay > 168) return new Date(NaN);
+  const p = policy(schedule, timeZone);
+  const d = nextWindow(local(new Date(received.getTime() + delay * 3600000), p.timeZone), p);
+  return zonedWallTimeToUtc({ year:d.getUTCFullYear(), month:d.getUTCMonth()+1, day:d.getUTCDate(), hour:d.getUTCHours(), minute:d.getUTCMinutes(), second:d.getUTCSeconds(), timeZone:p.timeZone });
+}

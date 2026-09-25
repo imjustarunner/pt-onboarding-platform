@@ -502,9 +502,14 @@ async function deliverOutboundEmail({
   html,
   attachments,
   inReplyTo,
-  referencesHeader = null
+  referencesHeader = null,
+  personalReminderId = null
 }) {
-  const mailbox = await resolveEmailSendMailbox({ agencyId: conv.agency_id || inbox?.agency_id, userId, inbox });
+  let mailbox = await resolveEmailSendMailbox({ agencyId: conv.agency_id || inbox?.agency_id, userId, inbox });
+  if(personalReminderId) {
+    const {personalReplySendMailbox}=await import('./personalThreadReminder.service.js');
+    mailbox=await personalReplySendMailbox({reminderId:personalReminderId,conversationId:conv.id,inbox,userId,to,cc,bcc});
+  }
   let fromDisplayName = mailbox.displayName;
   try {
     const [senderRows] = await pool.execute(
@@ -661,7 +666,8 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         html: row.body_html,
         attachments,
         inReplyTo: row.in_reply_to,
-        referencesHeader: row.references_header
+        referencesHeader: row.references_header,
+        personalReminderId: row.personal_reply_reminder_id
       });
       if (sendResult?.threadId) await CommunicationConversation.update(conv.id, { externalThreadId: sendResult.threadId });
       await CommunicationConversation.updateMessage(row.id, {
