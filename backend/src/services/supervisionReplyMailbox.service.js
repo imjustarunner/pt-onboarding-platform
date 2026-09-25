@@ -27,8 +27,17 @@ export async function ensureSupervisionReplyMailbox(agencyId, { replyEmail = nul
       await Directory.createGroup({ email: groupEmail, name: 'Meeting replies', description: 'App-managed meeting replies; delivery only to the app mailbox.' });
     }
     const members = await Directory.listGroupMembers(groupEmail);
+    // The list response can omit delivery_settings. Read the individual member
+    // before checking privacy; missing data must never be treated as NONE.
+    for (const member of members) {
+      if (String(member.email).toLowerCase() === memberEmail || member.delivery_settings) continue;
+      const admin = await Directory.getClient();
+      const { data } = await admin.members.get({ groupKey: groupEmail, memberKey: member.id || member.email });
+      member.delivery_settings = data?.delivery_settings;
+      member.role = data?.role;
+    }
     if (members.some(member => String(member.email).toLowerCase() !== memberEmail && (member.role !== 'MEMBER' || member.delivery_settings !== 'NONE'))) {
-      throw new Error('Meeting reply Group has unexpected delivery members; refusing to expose replies');
+      throw Object.assign(new Error('Meeting reply Group has unexpected delivery members; refusing to expose replies'), { code: 'MEETING_REPLY_GROUP_UNSAFE' });
     }
     await Directory.applyGroupAccessSettings({ groupEmail, whoCanJoin: 'INVITED_CAN_JOIN', whoCanViewMembership: 'ALL_MANAGERS_CAN_VIEW', whoCanViewGroup: 'ALL_MANAGERS_CAN_VIEW', whoCanPostMessage: 'ALL_MEMBERS_CAN_POST', includeInGlobalAddressList: false, isArchived: false });
     await Directory.addGroupMember({ groupEmail, memberEmail });
