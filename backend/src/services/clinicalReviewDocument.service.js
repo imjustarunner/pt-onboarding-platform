@@ -4,7 +4,20 @@ import { maybeDecryptNotePayload } from './clinicalNoteCrypto.service.js';
 import ClinicalTreatmentPlan from '../models/clinical/ClinicalTreatmentPlan.model.js';
 import { policyError, parseObject } from './supervisedBillingPolicy.service.js';
 import { sharedNotePredicate } from './sharedClinicalChart.service.js';
-export const noteReviewContent = (payload,addenda) => JSON.stringify({note:maybeDecryptNotePayload(payload),addenda:addenda.map(a=>({id:a.id,body:maybeDecryptNotePayload(a.body),created_at:a.created_at}))});
+// Preserve historical review hashes when an old entry has no typed attestation.
+export const noteReviewContent = (payload,addenda) => JSON.stringify({note:maybeDecryptNotePayload(payload),addenda:addenda.map(a=>({
+  id:a.id,body:maybeDecryptNotePayload(a.body),created_at:a.created_at,
+  ...(a.entry_kind ? {entry_kind:a.entry_kind,entry_reason:a.entry_reason,author_signed_at:a.author_signed_at,created_by_user_id:a.created_by_user_id} : {})
+}))});
+export function formatNoteEntriesForExport(entries) {
+  return entries.map(entry => [
+    ({addendum:'Addendum',correction:'Amendment / correction',late_entry:'Late entry'})[entry.entry_kind] || 'Historical entry',
+    maybeDecryptNotePayload(entry.body),
+    ...(entry.entry_reason ? [`Reason: ${entry.entry_reason}`] : []),
+    `Entered: ${entry.created_at instanceof Date ? entry.created_at.toISOString() : entry.created_at} · user #${entry.created_by_user_id}`,
+    ...(entry.author_signed_at ? [`Author signed: ${entry.author_signed_at instanceof Date ? entry.author_signed_at.toISOString() : entry.author_signed_at}`] : [])
+  ].join('\n')).join('\n\n');
+}
 export async function loadReviewDocument(s,type,id, db = clinicalPool) {
   const table=type==='treatment_plan'?'clinical_treatment_plans':'clinical_notes';
   const authorScope=type==='treatment_plan'
@@ -16,7 +29,7 @@ export async function loadReviewDocument(s,type,id, db = clinicalPool) {
   if([meta.privatePsychotherapyNote,meta.restricted].some(v=>v===true||v==='true'))throw policyError(403,'Restricted records require a separate authorized disclosure workflow');
   let content;
   if(type==='note') {
-    const [addenda]=await db.execute('SELECT id,body,created_at FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? ORDER BY id',[id,s.agencyId]);
+    const [addenda]=await db.execute('SELECT id,body,created_at,entry_kind,entry_reason,author_signed_at,created_by_user_id FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? ORDER BY id',[id,s.agencyId]);
     row.latest_addendum_at=addenda.at(-1)?.created_at || null;
     row.addendum_count=addenda.length;
     content=noteReviewContent(row.note_payload,addenda);

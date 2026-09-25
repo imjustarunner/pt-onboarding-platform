@@ -10,6 +10,11 @@ import { buildClaimMdJsonClaim } from '../claimMd.service.js';
 const rule=()=>({effectiveFrom:'2024-09-15',effectiveThrough:'2026-12-31',providerMapping:'supervisor_rendering',mappingVerified:true,deferredCosignAllowed:true,reference:'Verified payer manual section 4',requiredReviewTypes:[]});
 const input=()=>({policy:{billingMode:'billing_supervisor',supervisorUserId:2,version:1,cosignTiming:'after_submission',cosignDueDays:7},payerPolicy:{coloradoMedicaid:true,version:1,rules:[rule()]},dateOfService:'2026-09-24',claimDate:'2026-09-24',serviceProvider:{id:1,npi:'1234567893'},supervisor:{id:2,npi:'1306688650'},note:{note_type:'PROGRESS',provider_signed_at:'2026-09-24T12:00:00Z'}});
 describe('supervised billing policy',()=>{
+  it('also requires review for historical amendment copies regardless of note type or deferred cosign',()=>{
+    const v=input();v.note.metadata_json={amendmentOfNoteId:8};
+    expect(evaluateSupervisedBilling(v).blockers.join()).toMatch(/Every amendment/);
+    expect(documentReviewRequirement({...v.note,note_type:'CONTACT_NOTE'},{nonBillableReview:'none',noteTypes:[]})).toEqual({mandatoryReview:true,reviewRequested:true});
+  });
   it('allows independent discretionary review for every non-service note type',()=>{
     for (const selected of NONBILLABLE_TYPES) {
       const policy=normalizeSupervisionPolicy({cosignTiming:'after_submission',cosignDueDays:7,nonBillableReview:'selected',noteTypes:[selected]});

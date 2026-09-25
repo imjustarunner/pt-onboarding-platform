@@ -64,7 +64,7 @@ import {
 import { listBillingEncountersForClient } from '../services/billingReportIngest.service.js';
 import SupervisorAssignment from '../models/SupervisorAssignment.model.js';
 import { resolveDocumentationPolicy, isNonBillableDocument, normalizeNoteType, requiredDocumentReviewTypes, hasCurrentSupervisorCosign, hasClinicalAmendments, documentReviewRequirement } from '../services/supervisedBillingPolicy.service.js';
-import { loadReviewDocument } from '../services/clinicalReviewDocument.service.js';
+import { loadReviewDocument, formatNoteEntriesForExport } from '../services/clinicalReviewDocument.service.js';
 
 async function completeNoteAidSigningWorkflow(note) {
   await recordSignedTermination(note);
@@ -149,7 +149,7 @@ async function loadTreatmentPlanMaxAgeDays(agencyId) {
 async function listNoteAddenda(noteId) {
   try {
     const [rows] = await clinicalPool.execute(
-      `SELECT id, clinical_note_id, agency_id, client_id, body, created_by_user_id, created_at
+      `SELECT id, clinical_note_id, agency_id, client_id, body, created_by_user_id, created_at, entry_kind, entry_reason, author_signed_at
        FROM clinical_note_addenda
        WHERE clinical_note_id = ?
        ORDER BY created_at ASC, id ASC`,
@@ -1588,6 +1588,9 @@ export const getClinicalNoteById = async (req, res, next) => {
         addenda: (await listNoteAddenda(note.id)).map((a) => ({
           id: a.id,
           body: a.body,
+          entryKind: a.entry_kind,
+          reason: a.entry_reason,
+          authorSignedAt: a.author_signed_at,
           createdByUserId: a.created_by_user_id,
           createdAt: a.created_at
         })),
@@ -1647,9 +1650,10 @@ export const downloadTreatmentSummaryPdf = async (req, res, next) => {
       // names optional
     }
 
+    const entriesText = formatNoteEntriesForExport(await listNoteAddenda(note.id));
     const pdf = await generateTreatmentSummaryPdf({
       agencyId: note.agency_id,
-      bodyText: extractNotePayloadText(note),
+      bodyText: [extractNotePayloadText(note), entriesText].filter(Boolean).join('\n\n'),
       title: note.title || 'Treatment Summary',
       clientInitials: meta?.structuredChart?.clientInitials || meta?.initials || '',
       dateOfService: meta?.dateOfService || null,
@@ -1880,7 +1884,7 @@ export const signClinicalNote = async (req, res, next) => {
     const documentationPolicy = await resolveDocumentationPolicy(note.agency_id, req.user.id);
     const nonBillable = isNonBillableDocument(note);
     const mandatoryTypes = nonBillable ? await requiredDocumentReviewTypes(note.agency_id, note.client_id, note.created_at) : [];
-    const wantsReview = !nonBillable || mandatoryTypes.includes(normalizeNoteType(note.note_type || meta.noteType)) || documentationPolicy.nonBillableReview === 'all'
+    const wantsReview = hasClinicalAmendments(note) || !nonBillable || mandatoryTypes.includes(normalizeNoteType(note.note_type || meta.noteType)) || documentationPolicy.nonBillableReview === 'all'
       || (documentationPolicy.nonBillableReview === 'selected' && documentationPolicy.noteTypes.includes(normalizeNoteType(note.note_type || meta.noteType)));
     const supervisor = wantsReview && documentationPolicy.supervisorUserId ? { supervisor_id: documentationPolicy.supervisorUserId } : null;
     // Billability describes the service. Submission timing is evaluated separately for each payer.
@@ -3554,7 +3558,9 @@ export const createClinicalNoteAddendum = async (req, res, next) => {
     const { appendClinicalNoteAmendment } = await import('../services/clinicalNoteAmendment.service.js');
     if(req.body.serviceLines!==undefined && isNonBillableDocument(note))return res.status(400).json({error:{message:'Non-service notes remain non-billable. Request a code correction on the signed service note.'}});
     if(req.body.serviceLines!==undefined && req.body.serviceChangeAttested!==true) return res.status(400).json({error:{message:'Attest that the corrected service codes and units accurately describe the care delivered'}});
-    await appendClinicalNoteAmendment({ noteId, agencyId: note.agency_id, body: bodyText, actorUserId: req.user.id, serviceLines:req.body.serviceLines, requestSignoff: async () => {
+    await appendClinicalNoteAmendment({ noteId, agencyId: note.agency_id, body: bodyText, actorUserId: req.user.id,
+      entryKind: req.body.entryKind, reason: req.body.reason, authorAttested: req.body.authorAttested,
+      serviceLines:req.body.serviceLines, requestSignoff: async () => {
       if (!policy.supervisorUserId) return;
       await pool.execute(`INSERT INTO clinical_note_signoffs (agency_id,clinical_note_id,provider_user_id,supervisor_user_id,provider_signed_at,status)
         VALUES (?,?,?,?,?,'awaiting_supervisor') ON DUPLICATE KEY UPDATE status='awaiting_supervisor',supervisor_signed_at=NULL`,
@@ -3564,7 +3570,7 @@ export const createClinicalNoteAddendum = async (req, res, next) => {
       userId: req.user.id,
       agencyId: note.agency_id,
       actionType: 'clinical_note_addendum_added',
-      metadata: { noteId, clientId: note.client_id }
+      metadata: { noteId, clientId: note.client_id, entryKind: req.body.entryKind }
     }, req);
     return res.status(201).json({ addenda: await listNoteAddenda(noteId), supervisorSignoffRequired: true, supervisorAssignmentRequired: !policy.supervisorUserId,serviceChangePending:req.body.serviceLines!==undefined,claimTransmitted:false });
   } catch (e) {

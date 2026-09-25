@@ -396,7 +396,10 @@ router.post(
   [
     param('noteId').isInt({ min: 1 }),
     body('body').optional().isString().isLength({ min: 1, max: 20000 }),
-    body('addendum').optional().isString().isLength({ min: 1, max: 20000 })
+    body('addendum').optional().isString().isLength({ min: 1, max: 20000 }),
+    body('entryKind').isIn(['addendum', 'correction', 'late_entry']),
+    body('reason').isString().isLength({ min: 1, max: 2000 }),
+    body('authorAttested').equals('true')
   ],
   createClinicalNoteAddendum
 );

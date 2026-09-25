@@ -7,6 +7,13 @@ import { callGeminiText } from '../geminiText.service.js';
 const input=()=>({agencyId:1,claimId:2,sourceHash:'a'.repeat(64),actorUserId:9,documentation:{note:{id:3,provider_signed_at:'2026-09-24'},narrative:'Synthetic clinical content',addenda:[]},payload:{pat_name_f:'PRIVATE NAME',ins_number:'PRIVATE MEMBER',charge:[{proc_code:'90834',units:'1',place_of_service:'11',mod1:'95',pat_name:'NO LEAK'}]},insurance:{patient:{firstName:'PRIVATE NAME'}}});
 beforeEach(()=>vi.restoreAllMocks());
 describe('server-attested AI content review',()=>{
+  it('privacy-processes entry reasons along with text before any model call',async()=>{
+    const args=input();args.documentation.addenda=[{entry_kind:'correction',body:'Corrected location',entry_reason:'PRIVATE REASON'}];
+    const redact=vi.fn().mockResolvedValue('SAFE'),model=vi.fn().mockResolvedValue({text:'{"complete":true,"findings":[]}',finishReason:'STOP'}),db={execute:vi.fn().mockResolvedValue([{insertId:4}])};
+    await runClaimContentReview(args,{redact,model,db});
+    expect(redact.mock.calls[0][0]).toContain('correction: Corrected location\nReason: PRIVATE REASON');
+    expect(model.mock.calls[0][0].prompt).not.toContain('PRIVATE REASON');
+  });
   it('sends only privacy-reviewed narrative and whitelisted claim fields to the restricted model',async()=>{
     const redact=vi.fn().mockResolvedValue('REDACTED CONTENT'),model=vi.fn().mockResolvedValue({text:'{"complete":true,"findings":[]}',finishReason:'STOP',modelName:'test-model'}),db={execute:vi.fn().mockResolvedValue([{insertId:4}])};
     const result=await runClaimContentReview(input(),{redact,model,db});

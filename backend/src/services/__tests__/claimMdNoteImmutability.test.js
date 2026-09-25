@@ -4,6 +4,11 @@ vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute}}));
 import ClinicalNote from '../../models/clinical/ClinicalNote.model.js';
 beforeEach(()=>vi.clearAllMocks());
 describe('signed content survives metadata and correction workflows',()=>{
+  it('rejects the former separate-copy amendment path before writing',async()=>{
+    await expect(ClinicalNote.create({metadataJson:{amendmentOfNoteId:4}})).rejects.toMatchObject({status:409});
+    await expect(ClinicalNote.updatePayload({noteId:6,notePayload:'Copy',metadataJson:{amendmentOfNoteId:4}})).rejects.toMatchObject({status:409});
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('does not erase note content when attaching metadata such as a print-upload reference',async()=>{
     execute.mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([[{id:4,note_payload:'Original signed content'}]]);
     expect(await ClinicalNote.updatePayload({noteId:4,metadataJson:{printUpload:{phiDocumentId:9}}})).toMatchObject({note_payload:'Original signed content'});

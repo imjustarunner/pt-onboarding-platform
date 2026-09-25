@@ -999,7 +999,7 @@
             Service code changed after the last generate — regenerate to replace the note with the new tool format before signing.
           </small>
           <small v-if="amendmentParentNoteId" class="hint na-generate-hint">
-            Editing a signed note: regenerating and signing will save the new format as an addendum. If a claim was already submitted, mark it for resubmit after the addendum is signed.
+            This older amendment draft must be added to original note #{{ amendmentParentNoteId }} using its Addenda and amendments form. Open the signed note, describe the correction, and sign the new entry for supervisor approval.
           </small>
           <small v-if="billingRulesBanner" class="hint na-generate-hint">{{ billingRulesBanner }}</small>
           <small v-if="generateError" class="error">{{ generateError }}</small>
@@ -1049,12 +1049,12 @@
               <span class="na-ready-badge na-ready-badge--signed">Signed · read only</span>
             </div>
             <button type="button" class="na-btn-outline" @click="beginAmendmentFromSignedNote">
-              Create amendment
+              Add entry or correction
             </button>
           </div>
           <p class="na-field-hint">
-            Every signed copy is kept forever — nothing is overwritten. Attach an addendum to this note for extra
-            session information, or create an amendment to produce a new signed note while the original stays on file.
+            The original signed note remains on file. Use an addendum for new information, an amendment/correction
+            for an error, or a late entry for omitted information. Each post-signature entry needs its own author signature and supervisor approval.
           </p>
           <p v-if="approvalError" class="na-delete-err">{{ approvalError }}</p>
           <ClinicalNoteDetailFetcher
@@ -3913,14 +3913,9 @@ const libraryUserId = computed(() => authStore.user?.id || null);
 
 async function beginAmendmentFromSignedNote() {
   if (!signedNoteViewerId.value) return;
-  amendmentParentNoteId.value = signedNoteViewerId.value;
-  signedNoteViewerId.value = null;
-  signedNoteViewerAgencyId.value = null;
-  viewingChartNote.value = null;
-  noteWizardStep.value = 2;
-  collapseSidebarsForNote();
-  approvalMessage.value = `Amendment draft — original note #${amendmentParentNoteId.value} stays on file forever. Save and sign to create a new signed copy (both versions are retained).`;
-  await saveDraftNow();
+  const section = document.getElementById(`post-signature-entries-${signedNoteViewerId.value}`);
+  section?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  section?.querySelector('select')?.focus({ preventScroll: true });
 }
 const showInteractiveComplexityOption = computed(() => {
   if (!aidAllowsInteractiveComplexity(selectedAid.value)) return false;
@@ -6274,7 +6269,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
         questionnaireInstruments: Array.isArray(outputObj.value?.meta?.questionnaireInstruments)
           ? outputObj.value.meta.questionnaireInstruments
           : undefined,
-        claimResubmittable: !!amendmentParentNoteId.value,
+        claimResubmittable: false,
         approvedAt: new Date().toISOString(),
         primaryDiagnosisId: isClientChartAid.value ? null : (primaryChartDiagnosis.value?.id || null),
         dateOfService: dos,

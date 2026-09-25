@@ -4,7 +4,12 @@ import { normalizeClinicalServiceLines,queueServiceChange } from './claimService
 
 // Use the same note lock as claim submission and cosign so neither can approve
 // an old version while an amendment is being appended.
-export async function appendClinicalNoteAmendment({ noteId, agencyId, body, actorUserId, requestSignoff, serviceLines }, source = clinicalPool) {
+export async function appendClinicalNoteAmendment({ noteId, agencyId, body, actorUserId, requestSignoff, serviceLines, entryKind, reason, authorAttested }, source = clinicalPool) {
+  if (!['addendum', 'correction', 'late_entry'].includes(entryKind)) throw policyError(400, 'Choose addendum, amendment/correction, or late entry');
+  if (typeof body !== 'string' || !body.trim() || body.length > 20000) throw policyError(400, 'Entry text must contain 1–20,000 characters');
+  if (typeof reason !== 'string' || !reason.trim() || reason.length > 2000) throw policyError(400, 'A reason of 1–2,000 characters is required');
+  if (authorAttested !== true || !Number.isSafeInteger(Number(actorUserId)) || Number(actorUserId) <= 0) throw policyError(400, 'The entry author must attest and sign this new entry');
+  if (serviceLines !== undefined && entryKind !== 'correction') throw policyError(400, 'Service code or unit changes require an amendment/correction');
   const correctedLines=serviceLines===undefined?null:normalizeClinicalServiceLines(serviceLines);
   const db = await source.getConnection();
   try {
@@ -24,8 +29,8 @@ export async function appendClinicalNoteAmendment({ noteId, agencyId, body, acto
       delete meta.supervisorCosign;
     }
     const amendmentBody=correctedLines?`${body}\n\nAttested service correction (complete service list):\n${correctedLines.map(l=>`${l.procedureCode}: ${l.units} unit(s)`).join('\n')}\nRequested by user #${actorUserId}. Requires supervisor approval and separate billing review; does not transmit a claim.`:body;
-    const [added]=await db.execute(`INSERT INTO clinical_note_addenda (clinical_note_id,agency_id,client_id,body,created_by_user_id) VALUES (?,?,?,?,?)`,
-      [noteId,agencyId,note.client_id,amendmentBody,actorUserId]);
+    const [added]=await db.execute(`INSERT INTO clinical_note_addenda (clinical_note_id,agency_id,client_id,body,created_by_user_id,entry_kind,entry_reason,author_signed_at) VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP(6))`,
+      [noteId,agencyId,note.client_id,amendmentBody,actorUserId,entryKind,reason.trim()]);
     if(correctedLines)await queueServiceChange(db,note,added.insertId,correctedLines,actorUserId);
     await db.execute(`UPDATE clinical_notes SET supervisor_cosigned_at=NULL,supervisor_cosigned_by_user_id=NULL,metadata_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=?`,
       [JSON.stringify(meta),noteId,agencyId]);

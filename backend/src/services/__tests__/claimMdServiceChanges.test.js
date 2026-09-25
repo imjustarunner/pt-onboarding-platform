@@ -63,12 +63,12 @@ describe('amendments never create duplicate original claims',()=>{
     const db={execute:vi.fn().mockResolvedValue([[{id:1}]])};await expect(assertOriginalTransmissionAllowed({id:7,agency_id:1,claim_lifecycle:'draft'},db)).rejects.toMatchObject({status:409});
   });
   it('plain narrative addenda touch the note/signature only, never claims or service-change requests',async()=>{
-    const {db,source}=setup();await appendClinicalNoteAmendment({noteId:4,agencyId:1,body:'Additional context only',actorUserId:5},source);
+    const {db,source}=setup();await appendClinicalNoteAmendment({noteId:4,agencyId:1,body:'Additional context only',actorUserId:5,entryKind:'addendum',reason:'New information',authorAttested:true},source);
     expect(db.execute.mock.calls.some(([sql])=>sql.includes('clinical_claim'))).toBe(false);expect(db.commit).toHaveBeenCalled();
   });
   it('atomically records attested code corrections with the addendum, no new claim',async()=>{
     const {db,source}=setup();const base=db.execute.getMockImplementation();db.execute.mockImplementation(async(sql,...rest)=>sql.startsWith('SELECT clinical_session_id')?[[{clinical_session_id:2}]]:base(sql,...rest));
-    await appendClinicalNoteAmendment({noteId:4,agencyId:1,body:'Correct duration',actorUserId:5,serviceLines:[{procedureCode:'90834',units:1}]},source);
+    await appendClinicalNoteAmendment({noteId:4,agencyId:1,body:'Correct duration',actorUserId:5,entryKind:'correction',reason:'Duration documented incorrectly',authorAttested:true,serviceLines:[{procedureCode:'90834',units:1}]},source);
     expect(db.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO clinical_note_addenda'),expect.arrayContaining([expect.stringContaining('90834: 1 unit(s)')]));
     expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO clinical_claim_change_requests'))).toBe(true);expect(db.execute.mock.calls.some(([sql])=>/^INSERT INTO clinical_claims\b/.test(sql))).toBe(false);expect(db.commit).toHaveBeenCalled();
   });

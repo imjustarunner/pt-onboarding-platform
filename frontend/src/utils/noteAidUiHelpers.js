@@ -717,6 +717,16 @@ export function formatChartClinicalNoteCopy({
     lines.push('');
   }
 
+  for (const entry of note.addenda || []) {
+    const kind = entry.entryKind || entry.entry_kind;
+    lines.push(({addendum:'Addendum',correction:'Amendment / correction',late_entry:'Late entry'})[kind] || 'Historical entry');
+    lines.push(String(entry.body || ''));
+    if (entry.reason || entry.entry_reason) lines.push(`Reason: ${entry.reason || entry.entry_reason}`);
+    lines.push(`Entered: ${entry.createdAt || entry.created_at || 'Not recorded'} · user #${entry.createdByUserId || entry.created_by_user_id || 'Not recorded'}`);
+    if (entry.authorSignedAt || entry.author_signed_at) lines.push(`Author signed: ${entry.authorSignedAt || entry.author_signed_at}`);
+    lines.push('');
+  }
+  if (note.needsSupervisorCosign) lines.push('Supervisor approval pending.');
   return lines.join('\n').trim();
 }
 

@@ -24,7 +24,7 @@ export function isNonBillableDocument(note) {
   return NONBILLABLE_TYPES.includes(normalizeNoteType(note.note_type || meta.noteType)) || meta.documentationFlow === 'review' || meta.nonBillable === true;
 }
 export function hasClinicalAmendments(note) {
-  return !!note.latest_addendum_at || Number(note.addendum_count || 0) > 0;
+  return !!note.latest_addendum_at || Number(note.addendum_count || 0) > 0 || !!parseObject(note.metadata_json).amendmentOfNoteId;
 }
 export function hasCurrentSupervisorCosign(note, supervisorUserId, contentHash = note.review_content_hash) {
   if (!supervisorUserId || !note.supervisor_cosigned_at || Number(note.supervisor_cosigned_by_user_id) !== Number(supervisorUserId)) return false;

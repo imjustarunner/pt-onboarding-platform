@@ -312,17 +312,29 @@
       </dl>
     </section>
 
-    <section v-if="!compact" class="ccn-block" aria-label="Addenda">
-      <h4 class="ccn-block-title">Addenda</h4>
-      <p class="ccn-field-hint">Each addendum is saved on this signed note; the original narrative is never replaced. Every amendment and addendum requires fresh supervisor sign-off, even when review for this note type is off.</p>
+    <section v-if="!compact" :id="`post-signature-entries-${note.id}`" class="ccn-block" aria-label="Addenda and amendments">
+      <h4 class="ccn-block-title">Addenda and amendments</h4>
+      <p class="ccn-field-hint">The original signed note stays unchanged. Each new entry is signed and dated separately and requires fresh supervisor approval, even when review for this note type is off.</p>
       <article v-for="item in addenda" :key="item.id" class="ccn-addendum">
+        <strong>{{ entryLabel(item.entryKind) }}</strong>
         <p>{{ item.body }}</p>
+        <p v-if="item.reason">Reason: {{ item.reason }}</p>
         <small>{{ formatTimestamp(item.createdAt) }} · user #{{ item.createdByUserId }}</small>
+        <small v-if="item.authorSignedAt"> · Author signed {{ formatTimestamp(item.authorSignedAt) }}</small>
       </article>
-      <p v-if="!addenda.length" class="ccn-muted">No addenda yet.</p>
-      <textarea v-model="addendumDraft" class="ccn-addendum-input" rows="3" placeholder="Add addendum text…" />
-      <p class="ccn-field-hint">A narrative addendum does not create or resend a claim. Select service correction only when the documented codes or units need to change.</p>
-      <label><input v-model="serviceCorrection" type="checkbox" /> Correct service codes / units</label>
+      <p v-if="!addenda.length" class="ccn-muted">No post-signature entries yet.</p>
+      <label>Entry type
+        <select v-model="entryKind" data-testid="entry-kind">
+          <option value="addendum">Addendum — additional information</option>
+          <option value="correction">Amendment / correction — correct existing information</option>
+          <option value="late_entry">Late entry — previously omitted information</option>
+        </select>
+      </label>
+      <p class="ccn-field-hint">{{ entryHint }}</p>
+      <label>Reason for this entry <input v-model="entryReason" data-testid="entry-reason" class="ccn-addendum-input" maxlength="2000" /></label>
+      <label>Entry text <textarea v-model="addendumDraft" class="ccn-addendum-input" rows="3" maxlength="20000" :placeholder="entryKind === 'correction' ? 'Identify the original error and document the corrected information…' : 'Document the additional information…'" /></label>
+      <p class="ccn-field-hint">Saving an entry does not create or resend a claim. Use an amendment/correction for changes to documented codes or units.</p>
+      <label v-if="entryKind === 'correction'"><input v-model="serviceCorrection" data-testid="service-correction" type="checkbox" /> Correct service codes / units</label>
       <div v-if="serviceCorrection">
         <p>List every service line for this encounter, including unchanged lines. Supervisor approval and billing review are required; nothing is transmitted automatically.</p>
         <div v-for="(line,i) in correctedServices" :key="i">
@@ -330,12 +342,13 @@
           <button type="button" :disabled="correctedServices.length===1" @click="correctedServices.splice(i,1)">Remove service</button>
         </div>
         <button type="button" :disabled="correctedServices.length>=50" @click="correctedServices.push({procedureCode:'',units:1})">Add service</button>
-        <label><input v-model="serviceChangeAttested" type="checkbox" /> I attest that this complete corrected service list accurately describes the care delivered.</label>
+        <label><input v-model="serviceChangeAttested" data-testid="service-attestation" type="checkbox" /> I attest that this complete corrected service list accurately describes the care delivered.</label>
       </div>
-      <button type="button" class="ccn-copy-btn ccn-copy-btn--primary" :disabled="savingAddendum || !addendumDraft.trim() || (serviceCorrection && !serviceChangeAttested)" @click="saveAddendum">
-        {{ savingAddendum ? 'Saving…' : 'Attach addendum' }}
+      <label><input v-model="authorAttested" data-testid="author-attestation" type="checkbox" /> I authored and reviewed this entry and electronically sign it as accurate. It will be dated now and sent for supervisor approval.</label>
+      <button type="button" data-testid="sign-entry" class="ccn-copy-btn ccn-copy-btn--primary" :disabled="savingAddendum || !addendumDraft.trim() || !entryReason.trim() || !authorAttested || (serviceCorrection && !serviceChangeAttested)" @click="saveAddendum">
+        {{ savingAddendum ? 'Saving…' : 'Sign and send for approval' }}
       </button>
-      <p v-if="amendmentPending" role="status">Addendum saved; supervisor approval is required. No claim was created or transmitted. Service corrections await a separate billing decision.</p>
+      <p v-if="amendmentPending" role="status">Entry signed; supervisor approval is required. No claim was created or transmitted. Service corrections await a separate billing decision.</p>
       <p v-if="addendumError" class="ccn-error">{{ addendumError }}</p>
     </section>
 
@@ -376,8 +389,23 @@ const copiedFull = ref(false);
 const showProviderSigMeta = ref(false);
 const showSupervisorSigMeta = ref(false);
 const addendumDraft = ref('');
+const entryKind = ref('addendum');
+const entryReason = ref('');
+const authorAttested = ref(false);
+const entryLabel = kind => ({ addendum: 'Addendum', correction: 'Amendment / correction', late_entry: 'Late entry' }[kind] || 'Historical entry');
+const entryHint = computed(() => ({
+  addendum: 'Add information that became available after the original entry. Explain what is being added and why.',
+  correction: 'Identify what was incorrect and provide the corrected information. The original remains visible.',
+  late_entry: 'Document information you recall from the encounter that was omitted originally. Explain the delay; the entry will not be backdated.'
+}[entryKind.value]));
 const serviceCorrection=ref(false),serviceChangeAttested=ref(false),correctedServices=ref([{procedureCode:'',units:1}]);
-watch(()=>props.note?.id,()=>{serviceCorrection.value=false;serviceChangeAttested.value=false;correctedServices.value=[{procedureCode:'',units:1}];});
+watch(entryKind,()=>{ serviceCorrection.value=false; serviceChangeAttested.value=false; });
+watch([addendumDraft,entryReason,entryKind,serviceCorrection,correctedServices],()=>{authorAttested.value=false;},{deep:true});
+watch(correctedServices,()=>{serviceChangeAttested.value=false;},{deep:true});
+watch(()=>props.note?.id,()=>{
+  addendumDraft.value='';entryKind.value='addendum';entryReason.value='';authorAttested.value=false;addendumError.value='';
+  serviceCorrection.value=false;serviceChangeAttested.value=false;correctedServices.value=[{procedureCode:'',units:1}];
+});
 const savingAddendum = ref(false);
 const addendumError = ref('');
 const amendedNoteId = ref(null);
@@ -625,27 +653,35 @@ const signStatusLabel = computed(() => {
 async function saveAddendum() {
   const body = String(addendumDraft.value || '').trim();
   const noteId = Number(props.note?.id || 0);
-  if (!body || !noteId || savingAddendum.value) return;
+  if (!body || !noteId || !entryReason.value.trim() || !authorAttested.value || (serviceCorrection.value && !serviceChangeAttested.value) || savingAddendum.value) return;
   savingAddendum.value = true;
   addendumError.value = '';
   try {
     const res = await api.post(`/medical-billing/notes/${noteId}/addenda`, {
       agencyId: props.note?.agencyId || undefined,
       body,
+      entryKind: entryKind.value,
+      reason: entryReason.value.trim(),
+      authorAttested: authorAttested.value,
       ...(serviceCorrection.value?{serviceLines:correctedServices.value,serviceChangeAttested:serviceChangeAttested.value}:{})
     });
+    if (Number(props.note?.id) !== noteId) return;
     const rows = Array.isArray(res?.data?.addenda) ? res.data.addenda : [];
     localAddenda.value = rows.map((a) => ({
       id: a.id,
       body: a.body,
+      entryKind: a.entry_kind || a.entryKind,
+      reason: a.entry_reason || a.reason,
+      authorSignedAt: a.author_signed_at || a.authorSignedAt,
       createdByUserId: a.created_by_user_id || a.createdByUserId,
       createdAt: a.created_at || a.createdAt
     }));
     amendedNoteId.value = noteId;
     addendumDraft.value = '';
+    entryReason.value='';authorAttested.value=false;
     serviceCorrection.value=false;serviceChangeAttested.value=false;correctedServices.value=[{procedureCode:'',units:1}];
   } catch (e) {
-    addendumError.value = e.response?.data?.error?.message || e.message || 'Could not save addendum';
+    if (Number(props.note?.id) === noteId) addendumError.value = e.response?.data?.error?.message || e.message || 'Could not save entry';
   } finally {
     savingAddendum.value = false;
   }
@@ -704,7 +740,7 @@ async function copyText(text, key) {
 
 async function copyFullNote() {
   const text = formatChartClinicalNoteCopy({
-    note: props.note,
+    note: { ...props.note, addenda: addenda.value, ...(amendmentPending.value ? { supervisorCosign: null, needsSupervisorCosign: true } : {}) },
     panels: panels.value,
     mseDomains: MSE_DOMAINS
   });
