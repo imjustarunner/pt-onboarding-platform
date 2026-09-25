@@ -41,6 +41,7 @@ export async function payAllocation({agencyId,userId,allocationId,amountCents,id
       if(Number(same[0].allocation_id)!==Number(allocationId)||Number(same[0].payer_user_id)!==Number(userId)||Number(same[0].amount_cents)!==amount)throw billingError(409,'This request key belongs to a different payment');
       if(same[0].status==='succeeded')return same[0];
     }
+    if(automatic){const {externallyManaged}=await import('./collectionHandoff.js');if(await externallyManaged(allocationId,db))throw billingError(409,'This balance is managed by collections; agency automatic payment is paused');}
     await assertCollectible(receivable,db);
     if(amount>allocationDue(allocation))throw billingError(409,'The amount exceeds your current unpaid share; refresh the balance');
     const {payer,card}=await activeCard(agencyId,receivable.client_id,userId,db);

@@ -28,6 +28,7 @@ export async function listBalances({agencyId,userId,clientId=null,staff=false,ov
       receivables.set(row.receivableId,{collectible,collectionIssue,responsibility:sourcePayload(source)});
     }
     const value=presentBalance({...row,payerName:[row.payerFirst,row.payerLast].filter(Boolean).join(' ')},{...receivables.get(row.receivableId),own:Number(row.payerUserId)===Number(userId),staff});
+    if(staff){const {externallyManaged}=await import('./collectionHandoff.js');value.externallyManaged=await externallyManaged(row.allocationId);}
     if(staff&&receivables.get(row.receivableId).collectionIssue)value.explanation=receivables.get(row.receivableId).collectionIssue;
     delete value.payerFirst;delete value.payerLast;
     if(!staff){if(value.fulfillmentError)value.fulfillmentError='Your payment is recorded. The office is reviewing service activation.';delete value.sourceKey;delete value.sourceType;value.serviceDomain=['clinical','mental_health','unknown'].includes(value.serviceDomain)?'Services':value.serviceDomain;}

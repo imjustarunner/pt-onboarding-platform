@@ -6,6 +6,7 @@ import { findReceivable } from './receivables.js';
 import { assertCollectible, dateOnly, today, key, transaction, parseJson } from './policy.js';
 import { requireReadySender } from './senders.js';
 import { sendNotificationEmail } from '../unifiedEmail/unifiedEmailSender.service.js';
+import { externallyManaged } from './collectionHandoff.js';
 export function agingFor(row,asOf=today()){
   const installments=row.plan?.status==='active'?row.plan.installments:null;
   const entries=installments?installments.filter(i=>Number(i.balanceCents)>0).map(i=>({amountCents:Number(i.balanceCents),dueDate:dateOnly(i.dueDate)})):[{amountCents:Number(row.balanceCents),dueDate:dateOnly(row.dueDate)}];
@@ -14,6 +15,7 @@ export function agingFor(row,asOf=today()){
 export async function aging({agencyId,userId,payerUserId=null}){
   const rows=await listBalances({agencyId,userId,staff:true}),result=[];
   for(const row of rows){if(!row.payerUserId||(payerUserId&&Number(row.payerUserId)!==Number(payerUserId))||row.status!=='open'||row.holdReason||row.disputedAt)continue;
+    if(await externallyManaged(row.allocationId))continue;
     try{await requireResponsiblePayer(row.payerUserId,row.clientId,agencyId);await assertCollectible(await findReceivable(agencyId,row.receivableId));}catch(e){if([403,409].includes(e.status))continue;throw e;}
     const pastDue=agingFor(row);if(pastDue.length)result.push({...row,pastDueCents:pastDue.reduce((n,e)=>n+e.amountCents,0),daysPastDue:Math.max(...pastDue.map(e=>e.daysPastDue)),pastDue});
   }return result;

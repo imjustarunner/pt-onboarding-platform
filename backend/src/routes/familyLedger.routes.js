@@ -18,6 +18,7 @@ import { setStatementSharing,requestSplit,respondToSplit,listSplitRequests } fro
 import { createPaymentTask,getPaymentTask,listPaymentTasks,authorizePaymentTask,completePaymentTask,cancelPaymentTask } from '../services/familyLedger/tasks.js';
 import { aging,draftNotice,listNotices,previewNotice,sendNotice } from '../services/familyLedger/collections.js';
 import { seedBillingSenders,provisionBillingSenders } from '../services/familyLedger/senders.js';
+import { handoffWorkspace,transferToCollections,collectionCaseDetail } from '../services/familyLedger/collectionHandoff.js';
 const router=express.Router();router.use(authenticate,requireActiveStatus,(req,res,next)=>{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'});next();});
 const context=req=>({agencyId:positiveId(req.body?.agencyId||req.query.agencyId),userId:positiveId(req.user.id),actorUserId:positiveId(req.user.id),ip:req.ip,userAgent:req.get('user-agent')});
 const run=fn=>async(req,res,next)=>{try{await fn(req,res);}catch(e){next(e);}};
@@ -43,6 +44,9 @@ router.get('/clinical-access',run(async(req,res)=>{const c=context(req),[links]=
 router.post('/clinical-access/:clientId/:guardianUserId/restrict',run(async(req,res)=>res.json(await revokeClinicalGrant({...req.body,...context(req),clientId:positiveId(req.params.clientId),guardianUserId:positiveId(req.params.guardianUserId)}))));
 router.post('/clinical-access/:clientId/:guardianUserId',run(async(req,res)=>{const c=context(req);await requireClinicalAccessManager(req.user,c.agencyId);res.json(await setClinicalGrant({...req.body,...c,clientId:positiveId(req.params.clientId),guardianUserId:positiveId(req.params.guardianUserId)}));}));
 router.use('/staff',staffOnly);
+router.get('/staff/collection-handoff',run(async(req,res)=>res.json(await handoffWorkspace({user:req.user,agencyId:context(req).agencyId}))));
+router.post('/staff/collection-handoff',limited,run(async(req,res)=>res.json(await transferToCollections({...req.body,user:req.user,agencyId:context(req).agencyId}))));
+router.get('/staff/collection-handoff/:id',run(async(req,res)=>res.json(await collectionCaseDetail({user:req.user,agencyId:context(req).agencyId,caseId:positiveId(req.params.id)}))));
 router.post('/staff/clients/:id/readiness',run(async(req,res)=>res.json(await saveReadiness({...req.body,...context(req),clientId:positiveId(req.params.id)}))));
 router.get('/staff/readiness',run(async(req,res)=>{const [profiles]=await pool.execute('SELECT client_id AS clientId,coverage_mode AS coverageMode,setup_status AS setupStatus,collection_policy AS collectionPolicy,automatic_from AS automaticFrom FROM client_billing_readiness WHERE agency_id=?',[context(req).agencyId]);res.json({profiles});}));
 router.post('/staff/copays/collect-due',limited,run(async(req,res)=>res.json({results:await runDueCopays(context(req))})));

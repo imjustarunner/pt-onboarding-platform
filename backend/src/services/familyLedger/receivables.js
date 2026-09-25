@@ -76,6 +76,8 @@ export async function setBillingRule({ agencyId, clientId, kind, shares, actorUs
 export async function allocateBalance({ agencyId, receivableId, shares, actorUserId, reason }, db) {
   const row = await findReceivable(agencyId, receivableId, db, true), existing = await allocationsFor(row.id, db, true);
   if (row.status === 'void') throw billingError(409,'Voided balances cannot be reassigned');
+  const {externallyManaged}=await import('./collectionHandoff.js');
+  for(const allocation of existing)if(await externallyManaged(allocation.id,db))throw billingError(409,'Reconcile the collection case before changing responsible payers');
   await assertSharesAuthorized(agencyId,row.client_id,shares,db);
   const [pending] = await db.execute("SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status IN ('pending','requires_action','unknown') LIMIT 1",[row.id]);
   const [plans] = await db.execute("SELECT p.id FROM family_payment_plans p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status IN ('proposed','active') LIMIT 1",[row.id]);
