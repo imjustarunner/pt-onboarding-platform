@@ -70,11 +70,13 @@ export function resolveClientDisplayLabel(client, clientId = null) {
 }
 
 async function loadClientForLifecycleTask(clientId) {
+  // Clients store full_name; yearly clearance comes from getDisposition below.
+  // Neither split names nor agency_clearance_json are columns on clients.
   const [rows] = await pool.execute(
     `SELECT c.id, c.agency_id, c.organization_id, c.client_type, c.initials, c.identifier_code,
-            c.full_name, c.first_name, c.last_name, c.provider_id, c.service_day,
+            c.full_name, c.provider_id, c.service_day,
             c.services_started_at, c.first_service_at, c.school_year, c.created_at, c.submission_date,
-            c.agency_intake_json, c.agency_clearance_json, c.continuation_services_json,
+            c.agency_intake_json, c.continuation_services_json,
             c.disclosure_required, cs.status_key AS client_status_key
      FROM clients c
      LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
