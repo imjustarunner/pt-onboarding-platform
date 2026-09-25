@@ -58,6 +58,7 @@ try{
         const body=JSON.parse(req.postData());assert.equal(body.passcode,'123456');assert.equal(body.agencyId,undefined);authenticated=true;unlocks++;data={ok:true};
       }
       else if(url.pathname==='/api/family/households/1')data=fixture;
+      else if(url.pathname==='/api/family/households/1/voice/event-draft'){assert.equal(JSON.parse(req.postData()).transcript,'Emma soccer tomorrow from 5 to 6 PM at Riverside Park. Bring cleats.');data={draft:{kind:'event',title:'Emma soccer practice',memberUserId:3,startAt:'2026-10-05T17:00',endAt:'2026-10-05T18:00',metadata:{autoTheme:true,allDay:false,address:'Riverside Park',equipment:'Cleats',reminderMinutes:0}},review:[]};}
       else if(url.pathname==='/api/family/households/1/pocket')data={...buildFamilySummary(fixture),emailAddress:'app@example.com',accountEmail:'alex@example.com',sendEmailAvailable:true,recipients:[{userId:1,name:'Alex',email:'alex@example.com'},{userId:2,name:'Jordan',email:'jordan@example.com'}]};
       else if(url.pathname==='/api/family/households/1/pocket/email'){const body=JSON.parse(req.postData());emailRequests.push(body);assert.match(body.requestId,/^[a-f0-9-]{36}$/);data={sent:true,to:body.to,sections:body.sections};}
       else if(url.pathname==='/api/family/households/1/pocket/items'){
@@ -103,6 +104,25 @@ try{
   await page.setViewport({width:1194,height:834,deviceScaleFactor:1});
   await page.screenshot({path:'/tmp/family-calendar-ipad.png',fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Calendar fits iPad');
+  const beforeVoice=fixture.entries.length;
+  await page.click('.fcc-voice-launch');
+  await page.waitForSelector('.family-voice textarea');
+  await page.type('.family-voice textarea','Emma soccer tomorrow from 5 to 6 PM at Riverside Park. Bring cleats.');
+  await page.click('.voice-fill');
+  await page.waitForFunction(()=>document.querySelector('.fcc-modal input[placeholder="Give it a name"]')?.value==='Emma soccer practice');
+  assert.equal(fixture.entries.length,beforeVoice,'Voice drafting must not create an event');
+  assert.equal(await page.$eval('.fcc-modal select',el=>el.value),'3','Matched child is selected');
+  assert.deepEqual(await page.$$eval('.fcc-modal input[type="datetime-local"]',els=>els.map(el=>el.value)),['2026-10-05T17:00','2026-10-05T18:00']);
+  assert.equal(await page.$eval('.fcc-modal input[placeholder="Where are we headed?"]',el=>el.value),'Riverside Park');
+  assert.equal(await page.$eval('.fcc-art-preview',el=>el.getAttribute('src')),'/assets/family-events/sports.jpg');
+  await page.screenshot({path:'/tmp/fcc-voice-draft-ipad.png',fullPage:true});
+  await page.setViewport({width:390,height:844,deviceScaleFactor:1});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'Voice draft fits a phone');
+  await page.screenshot({path:'/tmp/fcc-voice-draft-mobile.png',fullPage:true});
+  await page.click('.fcc-modal-close');
+  assert.equal(fixture.entries.length,beforeVoice,'Dismissing a draft leaves the calendar untouched');
+  await page.setViewport({width:1194,height:834,deviceScaleFactor:1});
+
   await page.evaluate(()=>[...document.querySelectorAll('.fcc-sidebar nav button')].find(b=>b.textContent.includes('Home')).click());
   await page.waitForSelector('.fcc-upnext');
   assert.equal(await page.$eval('.fcc-hero-copy h2',el=>el.textContent),'Soccer practice');
@@ -250,11 +270,12 @@ try{
   await page.waitForSelector('.family-photo-frame');
   await page.click('.family-photo-frame');
   await page.waitForFunction(()=>!document.querySelector('.family-photo-frame'));
-  await clickText('.calendar-connection button','Find my shared');
+  await clickText('.calendar-connection button','Find my Google calendars');
   await page.waitForSelector('.calendar-connection select');
   await page.select('.calendar-connection select','family-shared');
   await clickText('.calendar-connection button','Connect calendar');
   await page.waitForSelector('.google-events article');
+  await page.click('.calendar-connection .calendar-actions input[type=checkbox]');
   await page.select('.calendar-connection .event-type-picker > label select','camping');
   await clickText('.calendar-connection .artwork-options button','Backyard green tent');
   await clickText('.google-events button','Add to family');

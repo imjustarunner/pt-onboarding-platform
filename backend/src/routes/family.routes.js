@@ -1,3 +1,4 @@
+import { draftFamilyVoiceEvent } from '../services/familyVoiceDraft.service.js';
 import { createGooglePublication } from '../services/calendarPublication.service.js';
 import { familyCalendarView } from '../services/familyCalendarView.service.js';
 import express from 'express';
@@ -70,6 +71,8 @@ router.post('/logout', wrap(async (req, res) => {
   res.clearCookie('fcc_session', { ...familyCookieOptions, maxAge: undefined }).json({ ok: true });
 }));
 router.use(requireFamilySession);
+const voiceDraftLimiter = rateLimit({ windowMs:60*60*1000, max:30, keyGenerator:req=>String(req.family.userId), standardHeaders:true, legacyHeaders:false, message:{error:{message:'You’ve reached 30 voice drafts this hour. You can still add an event using the form.'}} });
+router.post('/households/:id/voice/event-draft', voiceDraftLimiter, wrap(async(req,res)=>res.json(await draftFamilyVoiceEvent(req.family,req.params.id,req.body))));
 router.get('/focus-music/catalog', wrap(familyFocusMusicCatalog));
 router.get('/focus-music/stream/:slug', wrap(familyFocusMusicStream));
 router.get('/households/:id/calendar-view', wrap(async(req,res)=>res.json(await familyCalendarView(req.family,req.params.id,req.query))));
