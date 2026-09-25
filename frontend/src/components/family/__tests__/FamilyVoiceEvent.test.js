@@ -6,7 +6,7 @@ function render(extra={}){
  const http=Object.assign(()=>{}, {post:vi.fn().mockResolvedValue({data:{draft:{kind:'event',title:'Soccer'},review:['Add end time.']}})});
  const wrapper=mount(Voice,{props:{http,householdId:7,timezone:'America/Denver',initiallyOpen:true,...extra}});wrappers.push(wrapper);return {wrapper,http};
 }
-afterEach(()=>{wrappers.splice(0).forEach(w=>w.unmount());delete window.SpeechRecognition;delete window.webkitSpeechRecognition;vi.useRealTimers();});
+afterEach(()=>{wrappers.splice(0).forEach(w=>w.unmount());delete window.SpeechRecognition;delete window.webkitSpeechRecognition;delete navigator.maxTouchPoints;vi.useRealTimers();vi.restoreAllMocks();});
 describe('family voice event review flow',()=>{
  it('supports typing/dictation without SpeechRecognition and only requests a draft',async()=>{
   const {wrapper,http}=render();expect(wrapper.text()).toContain('keyboard’s dictation');expect(wrapper.find('.voice-fill').attributes('disabled')).toBeDefined();
@@ -43,6 +43,30 @@ describe('family voice event review flow',()=>{
  });
  it('releases the microphone on unmount and limits one capture to a minute',async()=>{
   vi.useFakeTimers();let rec;window.SpeechRecognition=class{constructor(){rec=this;}start(){}stop=vi.fn();abort=vi.fn();};
-  const {wrapper}=render();await wrapper.find('.voice-mic').trigger('click');await vi.advanceTimersByTimeAsync(60000);expect(rec.stop).toHaveBeenCalled();wrapper.unmount();expect(rec.abort).toHaveBeenCalled();
+  const {wrapper}=render();await wrapper.find('.voice-mic').trigger('click');rec.onstart();rec.onresult({results:[[{transcript:'A plan'}]]});await vi.advanceTimersByTimeAsync(60000);expect(rec.stop).toHaveBeenCalled();wrapper.unmount();expect(rec.abort).toHaveBeenCalled();
  });
+ it('unlocks the form when the speech service never starts or never produces words',async()=>{
+  vi.useFakeTimers();let rec;window.SpeechRecognition=class{constructor(){rec=this;}start(){}abort=vi.fn();};
+  const {wrapper}=render();await wrapper.find('.voice-mic').trigger('click');await vi.advanceTimersByTimeAsync(8000);
+  expect(rec.abort).toHaveBeenCalled();expect(wrapper.find('textarea').attributes('disabled')).toBeUndefined();expect(wrapper.text()).toContain('microphone did not start');
+  await wrapper.find('.voice-mic').trigger('click');rec.onstart();await vi.advanceTimersByTimeAsync(15000);
+  expect(wrapper.find('textarea').attributes('disabled')).toBeUndefined();expect(wrapper.text()).toContain('No words came through');
+ });
+ it('uses keyboard dictation on an iPad in desktop mode without constructing WebKit speech',async()=>{
+  vi.spyOn(navigator,'platform','get').mockReturnValue('MacIntel');
+  Object.defineProperty(navigator,'maxTouchPoints',{value:5,configurable:true});
+  window.webkitSpeechRecognition=vi.fn();const {wrapper,http}=render();
+  expect(wrapper.find('.voice-mic').exists()).toBe(false);expect(wrapper.find('.voice-dictation').exists()).toBe(true);
+  await wrapper.find('.voice-dictation').trigger('click');expect(window.webkitSpeechRecognition).not.toHaveBeenCalled();
+  await wrapper.find('textarea').setValue('A dictated plan');await wrapper.find('.voice-fill').trigger('click');await flushPromises();
+  expect(http.post.mock.calls[0][1]).toEqual({transcript:'A dictated plan'});
+ });
+ it('immediately cancels pending AI work for manual entry and ignores a late response',async()=>{
+  let resolve;const {wrapper,http}=render();http.post.mockImplementation(()=>new Promise(r=>resolve=r));
+  await wrapper.find('textarea').setValue('Plan');await wrapper.find('.voice-fill').trigger('click');
+  await wrapper.find('.voice-manual').trigger('click');expect(wrapper.find('textarea').attributes('disabled')).toBeUndefined();
+  expect(http.post.mock.calls[0][2].signal.aborted).toBe(true);
+  resolve({data:{draft:{title:'Late draft'}}});await flushPromises();expect(wrapper.emitted('draft')).toBeUndefined();
+ });
+
 });

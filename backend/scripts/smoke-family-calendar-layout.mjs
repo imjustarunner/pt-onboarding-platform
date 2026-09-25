@@ -7,7 +7,7 @@ const rows=[];let failNextSave=false;
 // A small silent WAV lets the browser exercise real playback without external requests.
 const audioFixture=Buffer.alloc(44+8000*2*5);audioFixture.write('RIFF',0);audioFixture.writeUInt32LE(audioFixture.length-8,4);audioFixture.write('WAVEfmt ',8);audioFixture.writeUInt32LE(16,16);audioFixture.writeUInt16LE(1,20);audioFixture.writeUInt16LE(1,22);audioFixture.writeUInt32LE(8000,24);audioFixture.writeUInt32LE(16000,28);audioFixture.writeUInt16LE(2,32);audioFixture.writeUInt16LE(16,34);audioFixture.write('data',36);audioFixture.writeUInt32LE(audioFixture.length-44,40);
 const at=(day,hour)=>new Date(`2026-09-${day}T${hour}:00-06:00`).toISOString();
-function add(day,start,end,title,memberId,type,color,extra={}){rows.push({id:rows.length+1,key:`family:${rows.length+1}`,title,memberId,memberName:members.find(m=>m.user_id===memberId)?.display_name,start:at(day,start),end:at(day,end),color:members.find(m=>m.user_id===memberId)?.color,metadata:{eventType:type,color},...extra});}
+function add(day,start,end,title,memberId,type,color,extra={}){rows.push({id:rows.length+1,key:`family:1:${rows.length+1}`,title,memberId,memberName:members.find(m=>m.user_id===memberId)?.display_name,start:at(day,start),end:at(day,end),color:members.find(m=>m.user_id===memberId)?.color,metadata:{eventType:type,color},...extra});}
 for(let day=21;day<=25;day++)add(day,'07:30','08:00','School drop-off',1,'drop-off','#167bc2');
 for(let day=21;day<=25;day++)add(day,'08:30','12:00','Emma · School',3,'school','#8042c6');
 for(let day=21;day<=24;day++)add(day,'12:00','17:00','Work',2,'work','#c42e70',{key:`work:${day}`,work:true});
@@ -40,7 +40,7 @@ try{
   else if(u.pathname.endsWith('/tools'))data={preferences:{},photos:[],cuisines:[]};
   else if(u.pathname==='/api/family/calendar-sharing/family/1')data={enabled:false,readers:[]};
   else if(u.pathname.endsWith('/members/1')&&req.method()==='PATCH'){members[0].color=JSON.parse(req.postData()).color;data={ok:true};}
-  else if(u.pathname.endsWith('/entries')&&req.method()==='POST'){const body=JSON.parse(req.postData()),id=rows.length+1;rows.push({id,key:`family:${id}`,title:body.title,start:body.startAt,end:body.endAt,memberId:body.memberUserId,metadata:body.metadata});fixture.entries.push({id,kind:body.kind,title:body.title,start_at:body.startAt,end_at:body.endAt,member_user_id:body.memberUserId,metadata:body.metadata});data={id};}
+  else if(u.pathname.endsWith('/entries')&&req.method()==='POST'){const body=JSON.parse(req.postData()),id=rows.length+1;rows.push({id,key:`family:1:${id}`,title:body.title,start:body.startAt,end:body.endAt,memberId:body.memberUserId,metadata:body.metadata});fixture.entries.push({id,kind:body.kind,title:body.title,start_at:body.startAt,end_at:body.endAt,member_user_id:body.memberUserId,metadata:body.metadata});data={id};}
   else if(/\/entries\/\d+$/.test(u.pathname)&&req.method()==='PUT'){if(failNextSave){failNextSave=false;return req.respond({status:500,contentType:'application/json',body:JSON.stringify({error:{message:'Simulated save failure'}})});}const id=Number(u.pathname.split('/').at(-1)),body=JSON.parse(req.postData());Object.assign(rows.find(e=>e.id===id),{metadata:body.metadata,title:body.title,start:body.startAt,end:body.endAt});Object.assign(fixture.entries.find(e=>e.id===id),{metadata:body.metadata,title:body.title,start_at:body.startAt,end_at:body.endAt});data={id};}
   return req.respond({status:200,contentType:'application/json',body:JSON.stringify(data)});
  });
@@ -110,7 +110,29 @@ try{
  await page.waitForFunction(()=>document.querySelector('.family-focus-music audio')?.paused===false);
  await page.click('[aria-label="Close focus music"]');
  await page.waitForSelector('.music-mini');
- await clickText('.music-mini button','Pause music');
+ // Desktop-mode iPad must use keyboard dictation, even if WebKit advertises SpeechRecognition.
+ await page.evaluate(()=>{
+   Object.defineProperty(navigator,'platform',{value:'MacIntel',configurable:true});
+   Object.defineProperty(navigator,'maxTouchPoints',{value:5,configurable:true});
+   window.webkitSpeechRecognition=class{constructor(){throw new Error('iPad must not start browser speech');}};
+ });
+ await page.click('.fcc-voice-launch');await page.waitForSelector('.voice-dictation');
+ assert.equal(await page.$('.voice-mic'),null);
+ assert.equal(await page.$$eval('.picture-grid img',els=>els.length),0,'Closed editor gallery mounts no images');
+ await page.click('.voice-dictation');
+ assert.equal(await page.$eval('.family-voice textarea',el=>document.activeElement===el),true,'Dictation button focuses editable text');
+ await page.waitForFunction(()=>document.querySelector('.family-focus-music audio')?.paused===true);
+ await page.type('.family-voice textarea','Plan typed after dictation');
+ await page.click('.picture-library summary');await page.waitForSelector('.picture-grid img');
+ assert.equal(await page.$$eval('.picture-grid img',els=>els.length),24,'Gallery is bounded on iPad');
+ await closeEditor();
+ await page.evaluate(()=>{delete navigator.platform;delete navigator.maxTouchPoints;delete window.webkitSpeechRecognition;});
+ await page.evaluate(()=>[...document.querySelectorAll('.fcc-top-actions button')].find(b=>b.textContent.includes('Add event')).click());
+ await page.waitForSelector('.fcc-modal');
+ await page.type('.fcc-modal input[placeholder="Give it a name"]','Manual event after voice');
+ await page.click('.fcc-modal .fcc-primary');await page.waitForFunction(()=>!document.querySelector('.fcc-modal'));
+ assert.ok(rows.some(e=>e.title==='Manual event after voice'),'Manual save still works after dictation closes');
+ assert.equal(await page.$eval('.fcc-notice',el=>getComputedStyle(el).pointerEvents),'none','Saved notice must not intercept calendar taps');
  await page.waitForFunction(()=>document.querySelector('.family-focus-music audio')?.paused===true);
  await page.screenshot({path:'/tmp/family-calendar-populated.png',fullPage:true});
  for(const width of [1194,1024,820]){
@@ -120,6 +142,7 @@ try{
   if(width===1194)await page.screenshot({path:'/tmp/family-calendar-ipad-populated.png',fullPage:false});
  }
  await page.click('.fcc-member-filters button[aria-label="Show Emma’s calendar"]');
+ await page.waitForFunction(()=>![...document.querySelectorAll('.calendar-event')].some(n=>n.textContent.includes('School drop-off')));
  assert.equal(await page.$$eval('.calendar-event',nodes=>nodes.some(n=>n.textContent.includes('School drop-off'))),false,'Other members filtered');
  assert.equal(await page.$$eval('.calendar-event',nodes=>nodes.some(n=>n.textContent.includes('Family dinner'))),true,'Household plans retained');
  await page.click('.fcc-member-filters button:last-child');
