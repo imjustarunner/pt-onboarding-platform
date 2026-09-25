@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {runMeteredCoverageCheck} from '../services/eligibilityUsage.service.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { positiveId } from '../services/familyBillingPolicy.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
@@ -13,5 +14,5 @@ async function scope(req){
  return {agencyId,clientId,actorUserId:req.user.id};
 }
 export async function getCoverageEvidence(req,res,next){try{const s=await scope(req),insurance=await readClientInsurance(s.clientId,s.agencyId),evidence=await listCoverageEvidence({...s,serviceDate:req.query.serviceDate});res.json({...evidence,blockers:coverageReviewBlockers({insurance,...evidence})});}catch(e){next(e);}}
-export async function checkClientCoverage(req,res,next){try{const s=await scope(req),profile=await getClaimMdBillingProfile(s.agencyId,req.body.billingOfficeId),connection=await resolveClaimMdConnection(s.agencyId);res.json(await runCoverageCheck({...s,slot:req.body.slot,serviceDate:req.body.serviceDate,requestKey:req.body.requestKey,profile,accountKey:connection.accountKey}));}catch(e){next(e);}}
+export async function checkClientCoverage(req,res,next){try{const s=await scope(req),profile=await getClaimMdBillingProfile(s.agencyId,req.body.billingOfficeId),connection=await resolveClaimMdConnection(s.agencyId);res.json(await runMeteredCoverageCheck({...s,slot:req.body.slot,serviceDate:req.body.serviceDate,requestKey:req.body.requestKey,profile,connection}));}catch(e){next(e);}}
 export async function reviewClientCoverage(req,res,next){try{const s=await scope(req);res.status(201).json(await saveCoverageReview({...req.body,...s}));}catch(e){next(e);}}

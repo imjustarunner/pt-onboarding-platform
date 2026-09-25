@@ -49,9 +49,10 @@ export async function listCoverageEvidence({agencyId,clientId,serviceDate},db=po
  const [[latestReview]]=await db.execute('SELECT id,status FROM client_coverage_reviews WHERE agency_id=? AND client_id=? ORDER BY id DESC LIMIT 1',[agencyId,clientId]);
  return {latestReview,latestCheckId:Number(latest.latest_check_id),checks:checks.map(row=>({...row,evidence:decryptFamilyBilling(row.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined})),review:review?{...review,evidence:decryptFamilyBilling(review.evidence_encrypted,context(agencyId,clientId)),evidence_encrypted:undefined}:null};
 }
-export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,requestKey,actorUserId,profile,accountKey},deps={}) {
+export async function runCoverageCheck({agencyId,clientId,slot,serviceDate,requestKey,actorUserId,profile,accountKey,expectedFingerprint},deps={}) {
  const db=deps.db||pool,date=coverageDate(serviceDate),insurance=await (deps.readInsurance||readClientInsurance)(clientId,agencyId,db);
  const payload=buildEligibilityRequest({insurance,slot,serviceDate:date,profile}),fingerprint=coverageFingerprint(insurance);
+ if(expectedFingerprint&&expectedFingerprint!==fingerprint)throw billingError(409,'Insurance changed; refresh the verification request');
  if(!/^[a-zA-Z0-9:_-]{8,100}$/.test(requestKey||''))throw billingError(400,'An eligibility request key is required');
  assertFamilyBillingEncryption();
  let id;

@@ -2,7 +2,7 @@
 
 Status, September 25, 2026: the Billing Workspace Settings cost planner is implemented. It is a calculator, not an invoice or live automation. It uses entered account-wide volumes, counts secondary policies separately, compares monthly/weekly/before-visit checks, and separates processor cost from proposed platform revenue. No settings are persisted and no payment or eligibility request is made by the planner.
 
-Existing foundations: manual Claim.MD eligibility requests and dated coverage reviews; EFT evidence tracking; Stripe Connect payment methods supporting application fees; agency subscription invoices. Background eligibility scheduling, a metered clearinghouse usage ledger, applying medical-billing service fees to tenant invoices, bank-feed ingestion and automatic bank/ERA reconciliation are **not yet implemented**. Existing application-fee support does not mean fees have been configured across all app transactions.
+Existing foundations: manual Claim.MD eligibility requests and dated coverage reviews; EFT evidence tracking; Stripe Connect payment methods supporting application fees; agency subscription invoices. Background eligibility scheduling and a durable eligibility-request usage ledger are now implemented (migration 1488; activation below). Applying medical-billing service fees to tenant invoices, claim/ERA usage metering, bank-feed ingestion and automatic bank/ERA reconciliation are **not yet implemented**. Existing application-fee support does not mean fees have been configured across all app transactions.
 
 ## Account and pricing setup
 
@@ -40,3 +40,15 @@ Implementation requirements:
 - For TISI/CCHA, preserve the existing direct-deposit setup. Bank-feed access does not require replacing EnrollSafe instructions or re-enrolling EFT.
 
 Pending owner information: what was added, Chase account ownership/shared-versus-separate structure, actual Claim.MD plan, and monthly client/visit/card volumes. No live bank feed, recurring eligibility checks or new service fees were activated by this change.
+
+## Eligibility worker deployment (migration 1488)
+
+Apply `1488_eligibility_automation.sql` before deploying the metered client verification endpoint. Set `CLAIM_MD_ELIGIBILITY_ACCOUNT_LIMITS_JSON` to an explicit map such as `{"account:31985":1000}` only after confirming the desired limit; 1,000 is an example, not an activated setting. Shared-account limits count all recorded attempts across agencies, including uncertain outcomes. Limits and usage months use UTC. A zero account limit blocks all checks; an absent account limit blocks automation but permits metered manual checks. Agency limits cover both manual and automated checks, even while its schedule is paused.
+
+Set `CLAIM_MD_ELIGIBILITY_AUTOMATION_ENABLED=true` only after configuration is reviewed. The server then ticks every five minutes. On Cloud Run with request-based CPU or scale-to-zero, use a scheduled Cloud Run Job running `node src/scripts/runEligibilityAutomation.js` instead, or explicitly configure continuously available CPU. The job honors the same flag. Multiple workers share persisted request reservations; they cannot spend the same reserved allowance twice. Runtime activation is not part of the code push.
+
+In Billing Workspace → Settings, select an agency, choose cadence/limit, document payer eligibility readiness and save. The saving biller is the responsible reviewer. Enroll selected clients under their billing office. Current/active clients with insurance are eligible; inactive or archived clients are skipped. Monthly/weekly checks use the run date. Before-visit checks look ahead 24 hours in persisted clinical sessions, use the session timezone and resolve its actual billing-office mapping. Visits not yet represented as clinical sessions cannot be checked by this worker. It scans 25 enrolled clients per agency per tick with a persisted cursor; size the schedule for the roster.
+
+Changed insurance or billing identity produces a distinct request key. All attempts are reserved before transmission. Network uncertainty remains charged against the safety limit; it is not proof of a vendor fee and is not automatically billed to the agency. No automatic blind retry or positive coverage attestation occurs. Returned evidence uses the existing client insurance review and patient-collection holds. Monthly checks alone do not satisfy verification requirements for later service dates. The original Claim.MD account mode must also permit transmission.
+
+Validation: unit tests cover period boundaries, deduplication, changed identity, revoked reviewer access, pause, both policies and unknown outcomes; isolated MySQL tests cover concurrent shared quotas, cross-account agency limits and month rollover. No real payer requests were made.
