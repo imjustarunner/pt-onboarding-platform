@@ -7,10 +7,11 @@ import { loadReviewDocument } from '../services/clinicalReviewDocument.service.j
 import { recordClaimEvent } from '../services/claimMdWorkflow.service.js';
 import { resolveDocumentationPolicy, normalizeSupervisionPolicy, normalizePayerPolicy, policyError, parseObject, normalizeNoteType, nonBillableReviewTypes, requiredDocumentReviewTypes, validNpi, isNonBillableDocument, hasCurrentSupervisorCosign, documentReviewRequirement } from '../services/supervisedBillingPolicy.service.js';
 import { withSupervisorTimeLock, reviewInterval, assertNoReviewTimeOverlap, assertNoMeetingOverlap } from '../services/supervisionReviewTime.service.js';
+import { clinicalReviewContent, sharedNotePredicate } from '../services/supervisionCaseReview.service.js';
 
 const mysqlTime=v=>v instanceof Date?v.toISOString().slice(0,19).replace('T',' '):String(v);
 
-async function scope(req, { write = false, supervisorOnly = false } = {}) {
+export async function documentationScope(req, { write = false, supervisorOnly = false, reviewerOnly = false } = {}) {
   const agencyId = Number(req.body?.agencyId || req.query?.agencyId), providerUserId = Number(req.params.providerId);
   if (!Number.isSafeInteger(agencyId) || agencyId < 1 || !Number.isSafeInteger(providerUserId) || providerUserId < 1) throw policyError(400, 'Agency and provider are required');
   await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
@@ -18,16 +19,17 @@ async function scope(req, { write = false, supervisorOnly = false } = {}) {
   if (!member) throw policyError(404, 'Provider is not in this agency');
   const policy = await resolveDocumentationPolicy(agencyId, providerUserId);
   const assigned = Number(req.user.id) === policy.supervisorUserId;
+  const reviewer = assigned || (policy.reviewSupervisorIds || []).includes(Number(req.user.id));
   const admin = ['admin','super_admin'].includes(req.user.role);
-  if (supervisorOnly ? !assigned : write ? !(assigned || admin) : !(assigned || admin || Number(req.user.id) === providerUserId)) throw policyError(403, 'Assigned supervisor or agency administrator access required');
-  return { agencyId, providerUserId, policy, canManage: assigned || admin, canAttest: assigned };
+  if (supervisorOnly ? !assigned : reviewerOnly ? !reviewer : write ? !(assigned || admin) : !(reviewer || admin || Number(req.user.id) === providerUserId)) throw policyError(403, 'Assigned supervisor or agency administrator access required');
+  return { agencyId, providerUserId, policy, canManage: assigned || admin, canAttest: assigned, canReview: reviewer };
 }
 export async function getSupervisionDocumentationPolicy(req, res, next) {
-  try { const s = await scope(req); res.json({ policy: s.policy, canManage: s.canManage, canAttest: s.canAttest, noteTypes: await nonBillableReviewTypes(s.agencyId) }); } catch(e) { next(e); }
+  try { const s = await documentationScope(req); res.json({ policy: s.policy, canManage: s.canManage, canAttest: s.canAttest, canReview: s.canReview, noteTypes: await nonBillableReviewTypes(s.agencyId) }); } catch(e) { next(e); }
 }
 export async function saveSupervisionDocumentationPolicy(req, res, next) {
   try {
-    const s = await scope(req, { write: true });
+    const s = await documentationScope(req, { write: true });
     if (!s.policy.supervisorUserId) throw policyError(409, 'Assign a clinical or billing supervisor first');
     const reason = String(req.body.reason || '').trim();
     if (!reason || reason.length > 1000) throw policyError(400, 'A policy change reason is required');
@@ -81,12 +83,13 @@ export async function saveSupervisedPayerPolicy(req,res,next) {
   } catch(e) { if(db) await db.rollback();next(e); } finally {db?.release();}
 }
 export async function listDocumentationReviewTime(req,res,next) {
-  try { const s=await scope(req); const [items]=await pool.execute('SELECT * FROM supervision_review_time WHERE agency_id = ? AND supervisee_user_id = ? ORDER BY start_at DESC LIMIT 200',[s.agencyId,s.providerUserId]); res.json({items}); } catch(e) {next(e);}
+  try { const s=await documentationScope(req); const [items]=await pool.execute('SELECT * FROM supervision_review_time WHERE agency_id = ? AND supervisee_user_id = ? AND supervisor_user_id = ? ORDER BY start_at DESC LIMIT 200',[s.agencyId,s.providerUserId,req.user.id]); res.json({items}); } catch(e) {next(e);}
 }
 export async function saveDocumentationReviewTime(req,res,next) {
   try {
-    const s=await scope(req,{supervisorOnly:true}), interval=reviewInterval(req.body), requestId=String(req.body.requestId || '');
+    const s=await documentationScope(req,{reviewerOnly:true}), interval=reviewInterval(req.body), requestId=String(req.body.requestId || '');
     if (!/^[a-zA-Z0-9-]{8,64}$/.test(requestId) || !['documentation_review','rendering_provider_oversight'].includes(req.body.activityType)) throw policyError(400,'Activity and request ID are required');
+    if(req.body.activityType==='rendering_provider_oversight' && !s.canAttest) throw policyError(403,'Rendering provider oversight must be recorded by the responsible oversight supervisor');
     const refs=req.body.documents || [];
     if (!Array.isArray(refs) || refs.length>100 || refs.some(r=>!['note','treatment_plan'].includes(r.type) || !Number.isSafeInteger(r.id) || r.id<1)) throw policyError(400,'Invalid document references');
     for (const ref of refs) await loadReviewDocument(s,ref.type,ref.id);
@@ -106,7 +109,7 @@ export async function saveDocumentationReviewTime(req,res,next) {
 }
 export async function changeDocumentationReviewTime(req,res,next) {
   try {
-    const s=await scope(req,{supervisorOnly:true}), id=Number(req.params.timeId);
+    const s=await documentationScope(req,{reviewerOnly:true}), id=Number(req.params.timeId);
     await withSupervisorTimeLock([req.user.id],async db=>{
       const [[item]]=await db.execute('SELECT * FROM supervision_review_time WHERE id = ? AND agency_id = ? AND supervisee_user_id = ? AND supervisor_user_id = ?',[id,s.agencyId,s.providerUserId,req.user.id]);
       if(!item) throw policyError(404,'Review time not found');
@@ -114,6 +117,7 @@ export async function changeDocumentationReviewTime(req,res,next) {
         const reason=String(req.body.reason || '').trim();if(!reason || reason.length>1000)throw policyError(400,'A void reason is required');
         await db.execute("UPDATE supervision_review_time SET status = 'void', voided_at = UTC_TIMESTAMP(), void_reason = ? WHERE id = ? AND status <> 'void'",[reason,id]);
       } else if(req.body.action==='attest' && req.body.attested===true && item.status==='planned') {
+        if(item.activity_type==='rendering_provider_oversight' && !s.canAttest) throw policyError(403,'Only the responsible oversight supervisor can attest this RPO entry');
         const end = item.end_at instanceof Date ? item.end_at : new Date(`${String(item.end_at).replace(' ','T')}Z`);
         if(end>new Date())throw policyError(400,'Cannot attest future work');
         await assertNoReviewTimeOverlap(db,[req.user.id],item.start_at,item.end_at,id);
@@ -125,18 +129,29 @@ export async function changeDocumentationReviewTime(req,res,next) {
 }
 export async function getSuperviseeReviewDocument(req,res,next) {
   try {
-    const s=await scope(req);
+    const s=await documentationScope(req);
     if(!['note','treatment_plan'].includes(req.params.type))throw policyError(400,'Invalid document type');
     const d=await loadReviewDocument(s,req.params.type,Number(req.params.documentId));
     const cosignCurrent=hasCurrentSupervisorCosign(d.row,s.policy.supervisorUserId,d.hash);
-    res.json({content:d.content,contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:Number(d.row.addendum_count || 0)>0});
+    await pool.execute(`INSERT INTO supervision_case_review_events (agency_id,provider_user_id,reviewer_user_id,client_id,event_type,content_hash) VALUES (?,?,?,?,'view',?)`,[s.agencyId,s.providerUserId,req.user.id,d.row.client_id,d.hash]);
+    res.json({content:clinicalReviewContent(d.content),contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:Number(d.row.addendum_count || 0)>0});
   }catch(e){next(e);}
 }
 export async function listSuperviseeDocumentReviews(req,res,next) {
   try {
-    const s=await scope(req), [notes]=await clinicalPool.execute(`SELECT n.*, (SELECT COUNT(*) FROM clinical_note_addenda a WHERE a.clinical_note_id=n.id AND a.agency_id=n.agency_id) AS addendum_count FROM clinical_notes n WHERE n.agency_id = ? AND n.created_by_user_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL ORDER BY n.updated_at DESC, n.id DESC LIMIT 100`,[s.agencyId,s.providerUserId]);
-    const [plans]=await clinicalPool.execute(`SELECT id,client_id,title,status,created_at FROM clinical_treatment_plans WHERE agency_id = ? AND created_by_user_id = ? AND status IN ('active','final') ORDER BY id DESC LIMIT 100`,[s.agencyId,s.providerUserId]);
-    const [reviews]=await pool.execute('SELECT id,document_type,document_id,outcome,created_at,content_hash,feedback_encrypted FROM clinical_document_reviews WHERE agency_id = ? AND provider_user_id = ? ORDER BY id DESC LIMIT 300',[s.agencyId,s.providerUserId]);
+    const s=await documentationScope(req), page=Number(req.query.page || 1), clientId=Number(req.query.clientId || 0);
+    if(!Number.isSafeInteger(page)||page<1||page>10000||!Number.isSafeInteger(clientId)||clientId<0)throw policyError(400,'Invalid document page or client');
+    const values=[s.agencyId,s.providerUserId,...(clientId?[clientId]:[])], offset=(page-1)*100;
+    const [notes]=await clinicalPool.execute(`SELECT n.*, (SELECT COUNT(*) FROM clinical_note_addenda a WHERE a.clinical_note_id=n.id AND a.agency_id=n.agency_id) AS addendum_count FROM clinical_notes n WHERE n.agency_id = ? AND n.created_by_user_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')} ${clientId?'AND n.client_id=?':''} ORDER BY n.updated_at DESC, n.id DESC LIMIT 100 OFFSET ${offset}`,values);
+    const [plans]=await clinicalPool.execute(`SELECT p.id,p.client_id,p.title,p.status,p.created_at FROM clinical_treatment_plans p WHERE p.agency_id = ? AND (p.created_by_user_id = ? OR EXISTS (SELECT 1 FROM clinical_notes n WHERE n.agency_id=p.agency_id AND n.client_id=p.client_id AND n.created_by_user_id=? AND n.is_deleted=0 AND n.provider_signed_at IS NOT NULL AND ${sharedNotePredicate('n')})) AND p.status IN ('active','final') ${clientId?'AND p.client_id=?':''} ORDER BY p.id DESC LIMIT 100 OFFSET ${offset}`,[s.agencyId,s.providerUserId,s.providerUserId,...(clientId?[clientId]:[])]);
+    const reviewFilters=[], reviewIds=[];
+    for(const [type,rows] of [['note',notes],['treatment_plan',plans]]) if(rows.length) {
+      reviewFilters.push(`(r.document_type=? AND r.document_id IN (${rows.map(()=>'?').join(',')}))`);
+      reviewIds.push(type,...rows.map(r=>r.id));
+    }
+    const [reviews]=reviewFilters.length ? await pool.execute(`SELECT r.id,r.document_type,r.document_id,r.outcome,r.created_at,r.content_hash,r.feedback_encrypted FROM clinical_document_reviews r
+      WHERE r.agency_id=? AND r.provider_user_id=? AND (${reviewFilters.join(' OR ')})
+      AND NOT EXISTS (SELECT 1 FROM clinical_document_reviews newer WHERE newer.agency_id=r.agency_id AND newer.provider_user_id=r.provider_user_id AND newer.document_type=r.document_type AND newer.document_id=r.document_id AND newer.id>r.id)`,[s.agencyId,s.providerUserId,...reviewIds]) : [[]];
     const documents=[...notes.map(n=>({id:n.id,nonBillable:isNonBillableDocument(n),clientId:n.client_id,createdAt:n.created_at,type:'note',noteType:normalizeNoteType(n.note_type || parseObject(n.metadata_json).noteType),title:n.title,signedAt:n.provider_signed_at,cosignedAt:null,amendmentSignoffRequired:Number(n.addendum_count || 0)>0,cosignDueAt:n.provider_signed_at ? new Date(new Date(n.provider_signed_at).getTime()+Number(parseObject(n.metadata_json).supervisionPolicyAtSignature?.cosignDueDays || s.policy.cosignDueDays)*86400000).toISOString():null})),...plans.map(p=>({id:p.id,nonBillable:true,clientId:p.client_id,createdAt:p.created_at,type:'treatment_plan',noteType:'TREATMENT_PLAN',title:p.title}))];
     const cache=new Map();
     for(const d of documents) {
@@ -152,12 +167,12 @@ export async function listSuperviseeDocumentReviews(req,res,next) {
           feedback:decryptFamilyBilling(d.latestReview.feedback_encrypted,`document-review:${s.agencyId}:${d.type}:${d.id}`)?.feedback || ''};
       }
     }
-    res.json({documents});
+    res.json({documents,page,hasMore:notes.length===100||plans.length===100});
   }catch(e){next(e);}
 }
 export async function recordSuperviseeDocumentReview(req,res,next) {
   try {
-    const s=await scope(req,{supervisorOnly:true}), type=req.body.documentType,id=Number(req.body.documentId);
+    const s=await documentationScope(req,{reviewerOnly:true}), type=req.body.documentType,id=Number(req.body.documentId);
     if(!['note','treatment_plan'].includes(type)||!['approved','changes_requested'].includes(req.body.outcome)||req.body.attested!==true)throw policyError(400,'Document, outcome and review attestation are required');
     const {hash}=await loadReviewDocument(s,type,id), feedback=String(req.body.feedback || '').trim();
     if(req.body.contentHash!==hash)throw policyError(409,'Document changed or was not opened. Read the latest version before attesting.');

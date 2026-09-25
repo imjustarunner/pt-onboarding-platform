@@ -69,19 +69,28 @@ export function normalizePayerPolicy(input) {
   return { payerId: input.payerId, planType: input.planType.trim(), coloradoMedicaid: input.coloradoMedicaid === true, rules };
 }
 export const DEFAULT_SUPERVISION_POLICY = { cosignTiming: 'before_submission', nonBillableReview: 'all', noteTypes: [], cosignDueDays: 7 };
+export function supervisionResponsibilities(assignments, providerUserId, prefs = {}) {
+  const eligible = assignments.filter(a => ['clinical','billing'].includes(a.supervisor_type || 'clinical') && Number(a.supervisor_id)>0 && Number(a.supervisor_id)!==Number(providerUserId));
+  const clinical = eligible.filter(a=>(a.supervisor_type || 'clinical')==='clinical');
+  const billing = eligible.find(a=>a.supervisor_type==='billing');
+  const selected = prefs.mode==='billing_supervisor' ? eligible.find(a=>Number(a.supervisor_id)===Number(prefs.billingSupervisorUserId)) : null;
+  const signer = billing || selected || clinical.find(a=>Number(a.is_primary)===1) || clinical[0];
+  return { supervisorUserId:Number(signer?.supervisor_id)||null,
+    clinicalSupervisorIds:[...new Set(clinical.map(a=>Number(a.supervisor_id)))],
+    reviewSupervisorIds:[...new Set(eligible.map(a=>Number(a.supervisor_id)))],
+    supervisors:eligible.map(a=>({id:Number(a.supervisor_id),type:a.supervisor_type || 'clinical',name:[a.supervisor_first_name,a.supervisor_last_name].filter(Boolean).join(' ')})) };
+}
 export async function resolveDocumentationPolicy(agencyId, providerUserId, db = pool) {
   const assignments = await SupervisorAssignment.findBySupervisee(providerUserId, agencyId);
   const prefs = await getProviderClaimBillingMode({ agencyId, providerUserId });
-  const supervisor = prefs.mode === 'billing_supervisor'
-    ? assignments.find(a => Number(a.supervisor_id) === Number(prefs.billingSupervisorUserId) && Number(a.supervisor_id) !== Number(providerUserId))
-    : SupervisorAssignment.pickClinicalCosignSupervisor(assignments, providerUserId);
+  const responsibilities = supervisionResponsibilities(assignments, providerUserId, prefs);
   let rows;
   try { [rows] = await db.execute('SELECT * FROM clinical_supervision_policies WHERE agency_id = ? AND provider_user_id = ? ORDER BY id DESC LIMIT 1', [agencyId, providerUserId]); }
   catch (e) { if (e.code !== 'ER_NO_SUCH_TABLE') throw e; rows = []; }
   const saved = rows[0];
-  const matching = saved && Number(saved.supervisor_user_id) === Number(supervisor?.supervisor_id);
+  const matching = saved && Number(saved.supervisor_user_id) === responsibilities.supervisorUserId;
   return { ...DEFAULT_SUPERVISION_POLICY, ...(matching ? parseObject(saved.policy_json) : {}), version: saved?.id || 0,
-    supervisorUserId: Number(supervisor?.supervisor_id) || null, billingMode: prefs.mode };
+    ...responsibilities, billingMode: prefs.mode };
 }
 export async function loadPayerPolicy(agencyId, payerId, planType, db = pool) {
   const [[row]] = await db.execute('SELECT * FROM billing_payer_policy_versions WHERE agency_id = ? AND payer_id = ? AND plan_type = ? ORDER BY id DESC LIMIT 1', [agencyId, payerId || '', planType || '']);

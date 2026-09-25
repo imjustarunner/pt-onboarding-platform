@@ -3,14 +3,36 @@ const m=vi.hoisted(()=>({execute:vi.fn(),clinical:vi.fn(),access:vi.fn(),billing
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.connection},onTableWrite:vi.fn()}));
 vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:m.clinical}}));
 vi.mock('../clinicalEligibility.service.js',()=>({default:{ensureAgencyAccess:m.access}}));
-vi.mock('../schedulingBillingAccess.service.js',()=>({hasSchedulingBillingAccess:m.billing}));
+vi.mock('../schedulingBillingAccess.service.js',async original=>({...await original(),hasSchedulingBillingAccess:m.billing}));
 vi.mock('../supervisedBillingPolicy.service.js',async original=>({...await original(),resolveDocumentationPolicy:m.policy,requiredDocumentReviewTypes:vi.fn().mockResolvedValue([])}));
 vi.mock('../clinicalReviewDocument.service.js',()=>({loadReviewDocument:m.document}));
-import { listSuperviseeDocumentReviews, getSupervisionDocumentationPolicy,saveSupervisionDocumentationPolicy,saveDocumentationReviewTime,getSuperviseeReviewDocument,saveSupervisedPayerPolicy,listSupervisedPayerPolicies } from '../../controllers/supervisedBilling.controller.js';
+import { documentationScope,listSuperviseeDocumentReviews, getSupervisionDocumentationPolicy,saveSupervisionDocumentationPolicy,saveDocumentationReviewTime,getSuperviseeReviewDocument,saveSupervisedPayerPolicy,listSupervisedPayerPolicies } from '../../controllers/supervisedBilling.controller.js';
 const req=()=>({user:{id:5,role:'provider'},params:{providerId:'7'},body:{agencyId:1},query:{}});
 const res=()=>({json:vi.fn(),status:vi.fn().mockReturnThis()});
 beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[{user_id:7}]]);m.clinical.mockResolvedValue([[]]);m.access.mockResolvedValue();m.policy.mockResolvedValue({supervisorUserId:9,version:0,cosignTiming:'before_submission'});m.billing.mockResolvedValue(false);});
 describe('clinical oversight and financial permission separation',()=>{
+  it('does not let a separate clinical supervisor record RPO as the billing overseer',async()=>{
+    m.policy.mockResolvedValue({supervisorUserId:9,reviewSupervisorIds:[5,9]});
+    const r=req();r.body={agencyId:1,activityType:'rendering_provider_oversight',startAt:'2026-09-20T10:00:00Z',endAt:'2026-09-20T10:30:00Z',timezone:'UTC',requestId:'review-123',attested:true};
+    const next=vi.fn();await saveDocumentationReviewTime(r,res(),next);expect(next.mock.calls[0][0].status).toBe(403);expect(m.connection).not.toHaveBeenCalled();
+  });
+  it('lets a separate clinical supervisor review but reserves policy and cosign for the billing supervisor',async()=>{
+    m.policy.mockResolvedValue({supervisorUserId:9,reviewSupervisorIds:[5,9],clinicalSupervisorIds:[5]});
+    expect(await documentationScope(req(),{reviewerOnly:true})).toMatchObject({canReview:true,canManage:false,canAttest:false});
+    await expect(documentationScope(req(),{write:true})).rejects.toMatchObject({status:403});
+    await expect(documentationScope(req(),{supervisorOnly:true})).rejects.toMatchObject({status:403});
+    const r=req();r.user.id=9;
+    expect(await documentationScope(r,{supervisorOnly:true})).toMatchObject({canReview:true,canManage:true,canAttest:true});
+  });
+  it('audits a clinical supervisor document read and removes financial fields even inside serialized notes',async()=>{
+    m.policy.mockResolvedValue({supervisorUserId:9,reviewSupervisorIds:[5,9]});
+    m.document.mockResolvedValue({row:{client_id:3},hash:'source-hash',content:JSON.stringify({note:JSON.stringify({assessment:'Clinical progress',billing:{amount:800},claimPayload:{payer:'secret'}}),addenda:[]})});
+    const r=req();r.params={...r.params,type:'note',documentId:'4'};const response=res();
+    await getSuperviseeReviewDocument(r,response,e=>{throw e;});
+    expect(JSON.parse(response.json.mock.calls[0][0].content)).toEqual({note:{assessment:'Clinical progress'},addenda:[]});
+    expect(response.json.mock.calls[0][0].contentHash).toBe('source-hash');
+    expect(m.execute).toHaveBeenLastCalledWith(expect.stringContaining('supervision_case_review_events'),[1,7,5,3,'source-hash']);
+  });
   it('includes tenant-specific non-service types in review settings',async()=>{
     m.clinical.mockResolvedValue([[{note_type:'CARE_COORDINATION'}]]);
     const r=req();r.user.id=9;const response=res();await getSupervisionDocumentationPolicy(r,response,e=>{throw e;});

@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireActiveStatus } from '../middleware/auth.middleware.js';
 import { getSuperviseeReviewDocument } from '../controllers/supervisedBilling.controller.js';
+import { getSupervisionCases, getSupervisionCaseOverview, acknowledgeSupervisionCase } from '../controllers/supervisionCaseReview.controller.js';
 import { getSupervisionDocumentationPolicy, saveSupervisionDocumentationPolicy, listDocumentationReviewTime, saveDocumentationReviewTime, changeDocumentationReviewTime, listSuperviseeDocumentReviews, recordSuperviseeDocumentReview } from '../controllers/supervisedBilling.controller.js';
 import {
   listSupervisionProviderCandidates,
@@ -79,6 +80,9 @@ router.post('/sessions/:id/join-presence', postSupervisionJoinPresence);
 
 router.use(authenticate);
 const documentationGate=[requireActiveStatus,(req,res,next)=>{res.set('Cache-Control','no-store');next();}];
+router.get('/supervisee/:providerId/cases',...documentationGate,getSupervisionCases);
+router.get('/supervisee/:providerId/cases/:clientId/overview',...documentationGate,getSupervisionCaseOverview);
+router.post('/supervisee/:providerId/cases/:clientId/acknowledgement',...documentationGate,acknowledgeSupervisionCase);
 router.get('/supervisee/:providerId/documentation-policy',...documentationGate,getSupervisionDocumentationPolicy);
 router.put('/supervisee/:providerId/documentation-policy',...documentationGate,saveSupervisionDocumentationPolicy);
 router.get('/supervisee/:providerId/review-time',...documentationGate,listDocumentationReviewTime);

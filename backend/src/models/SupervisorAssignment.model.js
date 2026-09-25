@@ -50,9 +50,13 @@ class SupervisorAssignment {
     const seen = new Set();
     for (const row of rows || []) {
       const type = String(row.supervisor_type || 'clinical').toLowerCase();
-      if (type === 'manager') continue;
+      if (!['clinical', 'billing'].includes(type)) continue;
       const id = Number(row.supervisor_id || 0);
-      if (!id || seen.has(id)) continue;
+      if (!id || id === sv) continue;
+      if (seen.has(id)) {
+        if (type === 'billing') out.find(o => o.id === id).supervisorType = 'billing';
+        continue;
+      }
       seen.add(id);
       const first = String(row.supervisor_first_name || '').trim();
       const last = String(row.supervisor_last_name || '').trim();
@@ -77,16 +81,16 @@ class SupervisorAssignment {
 
   /**
    * Resolve which supervisor NPI to use for claims.
-   * Prefer explicit preferredUserId when they are an assigned clinical/billing supervisor;
-   * else billing-type assignment; else primary clinical; else first clinical.
+   * Prefer the billing-type assignment; otherwise an explicitly selected clinical
+   * supervisor also performs billing oversight, then primary/first clinical.
    */
   static async resolveClaimBillingSupervisorId(superviseeId, agencyId, preferredUserId = null) {
     const options = await this.listClaimBillingSupervisorOptions(superviseeId, agencyId);
     if (!options.length) return null;
     const preferred = Number(preferredUserId || 0);
-    if (preferred > 0 && options.some((o) => o.id === preferred)) return preferred;
     const billingTyped = options.find((o) => o.supervisorType === 'billing');
     if (billingTyped) return billingTyped.id;
+    if (preferred > 0 && options.some((o) => o.id === preferred)) return preferred;
     const primary = options.find((o) => o.isPrimary);
     if (primary) return primary.id;
     return options[0].id;
@@ -291,18 +295,19 @@ class SupervisorAssignment {
 
   /**
    * Supervisor who must cosign this provider's clinical notes.
-   * Billing/manager assignments and self-assignments do not create a pending cosign.
+   * Billing assignment owns cosign when present. Otherwise use clinical.
+   * Manager assignments and self-assignments never confer clinical signing authority.
    */
   static pickClinicalCosignSupervisor(assignments = [], providerUserId = null) {
     const pid = Number(providerUserId || 0);
     const eligible = (assignments || []).filter((s) => {
       const type = String(s.supervisor_type || 'clinical').toLowerCase();
-      if (type === 'billing' || type === 'manager') return false;
+      if (!['clinical', 'billing'].includes(type)) return false;
       const sid = Number(s.supervisor_id || 0);
       return sid > 0 && sid !== pid;
     });
     if (!eligible.length) return null;
-    return eligible.find((s) => Number(s.is_primary) === 1) || eligible[0];
+    return eligible.find((s) => s.supervisor_type === 'billing') || eligible.find((s) => Number(s.is_primary) === 1) || eligible[0];
   }
 
   /**

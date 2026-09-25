@@ -6,6 +6,13 @@ vi.mock('../../../services/api',()=>({default:{get:vi.fn(),put:vi.fn(),post:vi.f
 const settings={policy:{version:2,cosignTiming:'before_submission',cosignDueDays:7,nonBillableReview:'all',noteTypes:[]},canManage:true,canAttest:true,noteTypes:['TERMINATION','TREATMENT_PLAN']};
 beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue({data:structuredClone(settings)});api.put.mockResolvedValue({data:{ok:true}});});
 describe('supervisee documentation controls',()=>{
+  it('lets the separate clinical supervisor review notes but not cosign or change the billing supervisor policy',async()=>{
+    api.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/documentation-policy')?{...settings,canManage:false,canAttest:false,canReview:true,policy:{...settings.policy,supervisorUserId:9,supervisors:[{id:9,name:'Billing Supervisor'}]}}:url.endsWith('/document-reviews')?{documents:[{id:4,type:'note',title:'Progress',noteType:'PROGRESS'}]}:{content:'Shared clinical content',contentHash:'source'}}));
+    const w=mount(SupervisionDocumentationPanel,{props:{agencyId:1,providerId:7}});await flushPromises();
+    expect(w.text()).toContain('Billing Supervisor');expect(w.find('fieldset').attributes('disabled')).toBeDefined();expect(w.text()).not.toContain('Save supervision policy');
+    await w.findAll('button').find(b=>b.text()==='Refresh documents').trigger('click');await flushPromises();await w.findAll('button').find(b=>b.text()==='Open').trigger('click');await flushPromises();
+    expect(w.text()).toContain('Shared clinical content');expect(w.text()).toContain('Record clinical review');expect(w.text()).not.toContain('Cosign this note');expect(w.find('option[value="rendering_provider_oversight"]').exists()).toBe(false);w.unmount();
+  });
   it('turns individual non-service types off without changing other types or mandatory amendments',async()=>{
     api.get.mockResolvedValue({data:{...structuredClone(settings),noteTypes:['TERMINATION','CONTACT_NOTE','TREATMENT_PLAN']}});
     const w=mount(SupervisionDocumentationPanel,{props:{agencyId:1,providerId:7}});await flushPromises();
