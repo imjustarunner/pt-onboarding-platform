@@ -57,6 +57,11 @@ server {
  ${redirects}
  location ~ ^/providers/[a-z0-9-]+-[1-9][0-9]*$ { add_header Cache-Control "no-cache"; add_header X-Robots-Tag "noindex" always; try_files /_public-sites/itsco/providers.html =404; }
  ${locations.join('\n')}
+ location = /assets/itsco/ITSCO-School-Partnership-Guide.pdf {
+  default_type application/pdf;
+  expires 1h;
+  try_files $uri =404;
+ }
  location = /sitemap.xml { default_type application/xml; try_files /_public-sites/itsco/sitemap.xml =404; }
  location = /robots.txt { default_type text/plain; try_files /_public-sites/itsco/robots.txt =404; }
  location ~ ^/(.+)/$ { return 301 ${ITSCO_ORIGIN}/$1$is_args$args; }

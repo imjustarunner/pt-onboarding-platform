@@ -13,3 +13,14 @@ describe('public website analytics privacy and identity',()=>{
  it('uses expiring browser identifiers and tolerates disabled storage',()=>{const storage={getItem:vi.fn(),setItem:vi.fn()};const crypto={randomUUID:()=> '12345678-1234-1234-1234-123456789abc'};const id=anonymousWebsiteVisitor(storage,crypto,100);expect(storage.setItem).toHaveBeenCalled();storage.getItem.mockReturnValue(JSON.stringify({id,expires:200}));expect(anonymousWebsiteVisitor(storage,crypto,150)).toBe(id);const blocked={getItem(){throw Error();},setItem(){throw Error();}};expect(anonymousWebsiteVisitor(blocked,crypto)).toBe(id);});
  it('exports a real CSV with spreadsheet formula protection and groups referrers without URLs',()=>{const csv=analyticsCsv([{pagePath:'/p/itsco',label:' =HYPERLINK("bad")',kind:'click',count:2,visitors:1,lastSeen:'2026-09-12'}]);expect(csv).toContain("' =HYPERLINK");expect(csv).toContain('""bad""');expect(websiteSource('https://www.google.com/search?q=private','https://app.test')).toBe('search');expect(websiteSource('https://app.test/private?token=abc','https://app.test')).toBe('internal');});
 });
+
+it('counts document actions separately, only on activation, and respects staff exclusion',()=>{
+ document.querySelector('.itsco-site').innerHTML='<h1>For Schools</h1><section data-analytics-id="school-partnership-guide"><h2>School Partnership Guide</h2><a href="/assets/itsco/guide.pdf" data-analytics-id="view-guide" data-analytics-kind="document_view">View guide</a><a href="/assets/itsco/guide.pdf" download data-analytics-id="download-guide" data-analytics-kind="document_download">Download PDF</a></section>';
+ let guest=true;const emit=vi.fn();const tracker=createWebsiteTracker({document,window,pagePath:'/p/itsco/schools',canTrack:()=>guest,emit,onTargets:vi.fn()});
+ expect(emit.mock.calls.map(([e])=>e.kind)).toEqual(['page_view']);
+ for(const link of document.querySelectorAll('a')){link.addEventListener('click',e=>e.preventDefault());link.click();}
+ expect(emit.mock.calls.map(([e])=>e.kind)).toEqual(['page_view','document_view','document_download']);
+ expect(emit.mock.calls[1][0].targetKey).toBe('page/school-partnership-guide/view-guide');
+ expect(emit.mock.calls[2][0].targetKey).toBe('page/school-partnership-guide/download-guide');
+ guest=false;document.querySelector('a').click();expect(emit).toHaveBeenCalledTimes(3);tracker.stop();
+});

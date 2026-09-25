@@ -54,7 +54,7 @@ export function createWebsiteTracker({document,window,pagePath,canTrack,emit,onT
   }
   function queueScan(){if(scanTimer||disposed)return;scanTimer=window.setTimeout(()=>{scanTimer=null;scan();},150);}
   function click(event){const el=event.target.closest('a,button,summary');if(!el||!allowed(el))return;const meta=describe(el);const explicit=el.getAttribute('data-analytics-kind');const href=el.getAttribute('href')||'';
-    const kind=explicit==='filter_use'||el.matches('button[aria-pressed],button[aria-selected],[role=tab]')?'filter_use':explicit==='profile_open'||/[?&]provider=|\/providers?\//.test(href)?'profile_open':'click';send(kind==='profile_open'&&el.tagName==='SUMMARY'&&el.parentElement?.open?'click':kind,meta);}
+    const kind=['document_view','document_download'].includes(explicit)?explicit:explicit==='filter_use'||el.matches('button[aria-pressed],button[aria-selected],[role=tab]')?'filter_use':explicit==='profile_open'||/[?&]provider=|\/providers?\//.test(href)?'profile_open':'click';send(kind==='profile_open'&&el.tagName==='SUMMARY'&&el.parentElement?.open?'click':kind,meta);}
   function change(event){const el=event.target;if(el.matches('select')&&allowed(el))send('filter_use',describe(el));}
   // Search usage, not individual keystrokes or the submitted search text.
   function search(event){const el=event.target;if(el.matches('input[type="search"]')&&allowed(el))send('search',describe(el));}

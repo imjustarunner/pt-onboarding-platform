@@ -16,3 +16,10 @@ describe('provider profile analytics paths',()=>{
   const [sql,args]=execute.mock.calls[1];expect(sql).toContain('target_key REGEXP ?');expect(args.slice(-3)).toEqual([profile,'/p/itsco/providers','(^|/)profile-496(/|$)']);
  });
 });
+
+it('accepts document actions while stripping destination URLs and unknown payload fields',()=>{
+ const events=['document_view','document_download'].map(kind=>({eventId:uuid,pagePath:'/p/itsco/schools',kind,targetKey:'page/school-partnership-guide/'+kind,url:'private',privateField:'private'}));
+ const normalized=normalizeAnalyticsEvents('itsco',{visitorId:uuid,events});
+ expect(normalized.map(e=>e.kind)).toEqual(['document_view','document_download']);expect(JSON.stringify(normalized)).not.toContain('private');
+ expect(()=>normalizeAnalyticsEvents('itsco',{visitorId:uuid,events:[{...events[0],kind:'document_save_complete'}]})).toThrow('Invalid analytics event');
+});

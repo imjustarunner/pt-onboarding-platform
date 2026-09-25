@@ -21,6 +21,7 @@
       <template v-if="report && !error && !loading">
        <div class="wa-metrics"><div v-for="[key,label] in metrics" :key="key"><strong>{{ number(report.totals[key]) }}</strong><span>{{ label }}</span></div></div>
        <p class="wa-note">Anonymous browsers are estimates using a first-party identifier that resets after 30 days. Logged-in visits and known bots are excluded. Section views require at least one second of visibility.</p>
+       <p class="wa-note">Document views count clicks to open a document. Download requests count clicks on its download button, not completed saves. Direct PDF visits and saves from the PDF viewer’s toolbar are not recorded.</p>
        <p v-if="!report.rows.length" class="wa-empty">No recorded activity for this selection. Tracking begins after deployment; earlier traffic is not reconstructed.</p>
        <details v-if="report.daily.length" open><summary>Activity by day</summary><div class="wa-chart" role="img" aria-label="Daily anonymous browser activity"><div v-for="day in report.daily" :key="day.day" :title="`${day.day}: ${day.visitors} browsers, ${day.views} views, ${day.clicks} clicks`"><span :style="{height: `${Math.max(3, Number(day.visitors)/dailyMax*70)}px`}"></span><small>{{ day.day.slice(5) }}</small></div></div></details>
        <h3>All recorded activity <small>{{ filteredRows.length }}</small></h3>
@@ -53,8 +54,8 @@ const report=shallowRef(null),baseReport=shallowRef(null),targets=shallowRef([])
 const today=new Date().toISOString().slice(0,10),end=ref(today),start=ref(new Date(Date.now()-29*86400000).toISOString().slice(0,10));
 const selectedPage=ref(route.path),areaKey=ref(''),areaLabel=ref(''),search=ref(''),sort=ref('count'),kind=ref(''),rowPage=ref(1);
 const presets=[[1,'Today'],[7,'Last 7 days'],[30,'Last 30 days']];
-const metrics=[['views','Page views'],['visitors','Anonymous browsers'],['clicks','Button & link clicks'],['impressions','Section & card views'],['profileOpens','Profile opens'],['filters','Filter uses'],['searches','Searches']];
-const kinds={page_view:'Page view',section_view:'Section view',click:'Click',profile_open:'Profile open',filter_use:'Filter use',search:'Search',scroll_depth:'Scroll depth'};
+const metrics=[['views','Page views'],['visitors','Anonymous browsers'],['clicks','Button & link clicks'],['impressions','Section & card views'],['profileOpens','Profile opens'],['filters','Filter uses'],['searches','Searches'],['documentViews','Document views'],['documentDownloads','Download requests']];
+const kinds={page_view:'Page view',section_view:'Section view',click:'Click',profile_open:'Profile open',filter_use:'Filter use',search:'Search',scroll_depth:'Scroll depth',document_view:'Document view',document_download:'Download request'};
 const options={skipAuthRedirect:true,skipGlobalLoading:true};
 const number=value=>Number(value||0).toLocaleString();
 const dateLabel=value=>value?new Date(value).toLocaleString():'';
@@ -117,7 +118,7 @@ function dialogKeys(event){if(event.key==='Escape'){event.preventDefault();close
 function scheduleBadges(){if(frame)return;frame=requestAnimationFrame(()=>{frame=null;positionBadges();});}
 function positionBadges(){
  if(!allowed.value||!mode.value||panel.value){badges.value=[];return;}
- const counts=new Map();for(const row of baseReport.value?.rows||[]){const entry=counts.get(row.targetKey)||{views:0,clicks:0};if(row.kind==='section_view')entry.views+=row.count;else if(['click','profile_open','filter_use','search'].includes(row.kind))entry.clicks+=row.count;counts.set(row.targetKey,entry);}
+ const counts=new Map();for(const row of baseReport.value?.rows||[]){const entry=counts.get(row.targetKey)||{views:0,clicks:0};if(row.kind==='section_view')entry.views+=row.count;else if(['click','profile_open','filter_use','search','document_view','document_download'].includes(row.kind))entry.clicks+=row.count;counts.set(row.targetKey,entry);}
  const placed=[];
  const obstacles=[...targets.value.filter(t=>!t.area).map(t=>t.element),...document.querySelectorAll('.wa-toolbar, .public-translate-widget, .its-support-launcher')].map(el=>el.getBoundingClientRect()).filter(r=>r.width&&r.height&&r.bottom>0&&r.top<window.innerHeight);
  const overlaps=(x,y,width,height,r)=>x<r.right+2&&x+width>r.left-2&&y<r.bottom+2&&y+height>r.top-2;

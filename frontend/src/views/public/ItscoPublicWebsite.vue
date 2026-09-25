@@ -19,6 +19,7 @@
 
     <section v-if="section==='providers'" class="its-section its-wrap"><ItscoProviderDirectory :providers="data.providers" :directory-loading="!hasData" :schools="schools" :offices="data.offices||[]" :agency-id="data.agency.id" :availability="availability" :availability-loading="availabilityLoading" :availability-error="availabilityError" @refresh="refreshData" @retry-availability="loadAvailability"/></section>
 
+    <ItscoSchoolPartnershipGuide v-if="section==='schools'"/>
     <section v-if="section==='schools'" class="its-section its-wrap"><ItscoSchoolPartners :districts="data.districts"/></section>
     <ItscoServiceMap v-if="!section" :offices="data.offices||[]"/>
     <section v-if="!section" class="its-school-roots"><img data-website-image="asset:students-hero.png" :src="asset('students-hero.png')" alt="Students at school" loading="lazy"/><div><p class="its-eyebrow" data-website-field="copy:where-our-story-began">{{content("copy:where-our-story-began","Where our story began")}}</p><h2 data-website-field="copy:our-roots-in-school-based-mental-health">{{content("copy:our-roots-in-school-based-mental-health","Our roots in school-based mental health.")}}</h2><p data-website-field="copy:we-work-alongside-school-communities-to-bring-support-closer-to-studen">{{content("copy:we-work-alongside-school-communities-to-bring-support-closer-to-studen","We work alongside school communities to bring support closer to students and families. Explore our school partners and the providers who serve them.")}}</p><router-link class="its-button its-outline" :to="path('schools')">Learn about school services →</router-link></div><p class="its-handwritten">Healthy students.<br/>Stronger schools.<br/>Brighter futures.</p></section>
@@ -59,6 +60,7 @@ import {readPublicWebsite,getCachedPublicWebsite} from '../../services/publicWeb
 import ItscoProfilePlaceholders from '../../components/itsco/ItscoProfilePlaceholders.vue';
 import Icon from '../../components/rise/RiseIcon.vue';
 import ItscoProviderDirectory from '../../components/itsco/ItscoProviderDirectory.vue';
+import ItscoSchoolPartnershipGuide from '../../components/itsco/ItscoSchoolPartnershipGuide.vue';
 import ItscoSchoolPartners from '../../components/itsco/ItscoSchoolPartners.vue';
 import ItscoSupportForm from '../../components/itsco/ItscoSupportForm.vue';
 import PublicProviderProfileEditor from '../../components/publicServices/PublicProviderProfileEditor.vue';

@@ -60,3 +60,24 @@ docker stop pt-analytics-test
 ```
 
 The integration suite checks migration idempotency, tenant and role isolation, mixed-source authorization, published-page gating, deduplication, aggregate totals, date validation, literal area-prefix matching, payload validation, and retention. Browser verification covers all six branded websites, guest collection, unauthorized-client exclusion, staff reports, area drill-downs, search/sort/filter/export, and layouts from 320 to 2048 pixels with synthetic API responses.
+
+## ITSCO school partnership guide
+
+The **For Schools** page (`/p/itsco/schools` in the app, `/schools` on
+`www.itsco.health`) offers the four-page **School Partnership Guide** at
+`/assets/itsco/ITSCO-School-Partnership-Guide.pdf`. This is the partnership
+introduction, not the separate At a Glance fact sheet.
+
+Authorized ITSCO admins/support and platform admins can sign in on the app
+host, open **For Schools → Analytics mode → Page stats**, and select the date
+range. **Document views** counts uses of **View the guide**; **Download requests**
+counts uses of **Download PDF**. These actions also contribute to button/link
+click totals. Filter activity type or select the guide's area badge to isolate
+this document; filtered reports can be exported as CSV.
+
+These are button activations, not proof of reading or completed file saves.
+Direct PDF URLs, browser context-menu actions, and the PDF viewer's own save
+button bypass website tracking. Existing guest-only collection, access controls,
+anonymous browser estimates, deduplication, and retention rules also apply.
+No historical document counts are reconstructed. Migration 1491 adds the two
+explicit event kinds (`document_view`, `document_download`) to the existing enum.

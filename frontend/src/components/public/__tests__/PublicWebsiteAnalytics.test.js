@@ -20,3 +20,14 @@ describe('authorized public analytics reports',()=>{
  it('reports load failures without inventing zero traffic',async()=>{state.auth.user={id:1,role:'super_admin'};api.get.mockImplementation(url=>url.endsWith('/access')?Promise.resolve({data:{allowed:true}}):Promise.reject(new Error('offline')));mountIt();await flushPromises();await wrapper.find('.wa-toolbar button').trigger('click');await flushPromises();await wrapper.findAll('.wa-toolbar button')[1].trigger('click');await flushPromises();expect(wrapper.find('[role=alert]').text()).toContain('Unable to load');expect(wrapper.find('.wa-metrics').exists()).toBe(false);});
  it('removes a previously authorized report immediately when the user signs out',async()=>{state.auth.user={id:1,role:'super_admin'};mountIt();await flushPromises();await wrapper.find('.wa-toolbar button').trigger('click');await flushPromises();expect(wrapper.find('.wa-toolbar').exists()).toBe(true);state.auth.user=null;await flushPromises();expect(wrapper.find('.wa-toolbar').exists()).toBe(false);});
 });
+
+it('shows separate document totals and filters download requests',async()=>{
+ state.auth.user={id:1,role:'super_admin'};
+ const docs={...result,totals:{...result.totals,documentViews:12,documentDownloads:5},rows:[
+ {pagePath:'/p/itsco/schools',targetKey:'page/school-partnership-guide/view-guide',label:'View School Partnership Guide',kind:'document_view',count:12,visitors:9},
+ {pagePath:'/p/itsco/schools',targetKey:'page/school-partnership-guide/download-guide',label:'Download School Partnership Guide',kind:'document_download',count:5,visitors:4}]};
+ api.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/access')?{allowed:true}:docs}));
+ mountIt();await flushPromises();await wrapper.find('.wa-toolbar button').trigger('click');await flushPromises();await wrapper.findAll('.wa-toolbar button')[1].trigger('click');await flushPromises();
+ expect(wrapper.find('.wa-metrics').text()).toContain('12Document views');expect(wrapper.find('.wa-metrics').text()).toContain('5Download requests');
+ await wrapper.find('[aria-label="Activity type"]').setValue('document_download');expect(wrapper.findAll('tbody tr')).toHaveLength(1);expect(wrapper.find('tbody tr').text()).toContain('Download School Partnership Guide');
+});

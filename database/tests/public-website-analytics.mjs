@@ -23,6 +23,7 @@ try{
  INSERT INTO users VALUES(2,'admin',1,0),(3,'admin',1,0),(4,'support',1,0),(5,'client',1,0),(6,'admin',1,0),(7,'admin',1,1);
  INSERT INTO user_agencies VALUES(2,1,NULL,1),(3,2,NULL,1),(4,11,NULL,1),(5,1,NULL,1),(6,1,'provider',1),(7,1,NULL,1);`);
  const migration=await readFile(new URL('../migrations/1433_public_website_analytics.sql',import.meta.url),'utf8');await db.query(migration);await db.query(migration);
+ const documentMigration=await readFile(new URL('../migrations/1491_public_website_document_analytics.sql',import.meta.url),'utf8');await db.query(documentMigration);await db.query(documentMigration);
  assert.equal((await service.authorize(admin,'range')).id,3);
  assert.equal((await service.authorize({id:2,role:'admin'},'itsco')).id,1);
  for(const actor of [null,{id:3,role:'admin'},{id:4,role:'support'},{id:5,role:'client'},{id:6,role:'admin'},{id:7,role:'admin'},{...admin,demoMode:true}])await assert.rejects(()=>service.report(actor,'itsco'),e=>e.status===403);
@@ -48,5 +49,11 @@ try{
  await service.ingest('itsco',{visitorId,events:[event('filter_use','page/hero_a/select'),event('filter_use','page/heroxa/select')]});
  assert.equal((await service.report(admin,'itsco',{target:'page/hero_a'})).totals.filters,1,'underscore is literal, not SQL wildcard');
  const [[old]]=await db.query("SELECT COUNT(*) n FROM public_website_analytics_events WHERE event_kind='search'");assert.equal(old.n,0);
- console.log('PASS: migration, role and tenant isolation, mixed-source authorization, event deduplication, scoped browser counts, actual reports, area matching, input exclusion, validation, and retention.');
+ const docEvents=[event('document_view','page/school-partnership-guide/view-guide',{pagePath:'/p/itsco/schools'}),event('document_download','page/school-partnership-guide/download-guide',{pagePath:'/p/itsco/schools'})];
+ await service.ingest('itsco',{visitorId,events:docEvents});await service.ingest('itsco',{visitorId,events:docEvents});
+ const docs=await service.report(admin,'itsco',{page:'/p/itsco/schools',target:'page/school-partnership-guide'});
+ assert.equal(docs.totals.documentViews,1);assert.equal(docs.totals.documentDownloads,1);assert.equal(docs.totals.clicks,2);assert.equal(docs.totals.views,0);assert.equal(docs.rows.length,2);assert.equal(Number(docs.daily[0].clicks),2);
+ assert.equal((await service.report(admin,'itsco',{page:'/p/itsco/team'})).totals.documentViews,0);
+ assert.equal((await service.report(admin,'other')).totals.documentDownloads,0);
+ console.log('PASS: document migrations, document counts and retry deduplication, migration, role and tenant isolation, mixed-source authorization, event deduplication, scoped browser counts, actual reports, area matching, input exclusion, validation, and retention.');
 }finally{await db.end();}
