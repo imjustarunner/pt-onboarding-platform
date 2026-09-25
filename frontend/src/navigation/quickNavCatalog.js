@@ -784,7 +784,7 @@ function buildAppEntries() {
       id: 'admin-credentialing',
       routeName: 'AgencyCredentialing',
       label: 'Credentialing',
-      description: 'Agency group NPIs and provider credentialing — licenses, payers, and CSV export.',
+      description: 'Credentialing across authorized agencies — providers, group NPIs, payer connections, and follow-ups.',
       group: 'admin',
       keywords: ['credentialing', 'credentialling', 'credentials', 'licenses', 'npi', 'payer credentialing'],
       kind: 'path',

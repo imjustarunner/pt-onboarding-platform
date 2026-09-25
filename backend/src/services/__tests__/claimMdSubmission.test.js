@@ -75,6 +75,12 @@ describe('reviewed claim transmission', () => {
     expect(res.body.accepted).toBe(true); expect(res.body.message).toContain('portal');
     expect(mocks.execute.mock.calls.find(([sql]) => sql.includes('SET claim_lifecycle = ?'))[1][0]).toBe('submitted'); expect(mocks.commit).toHaveBeenCalledTimes(2);
   });
+  it('links the submission to the reviewed electronic destination payer', async () => {
+    mocks.prepare.mockResolvedValue({...prepared(),payload:{...prepared().payload,payerid:'SYNTH'}});
+    await submitClaimToClaimMd(request(),response(),e=>{throw e;});
+    const [sql,params]=mocks.execute.mock.calls.find(([sql])=>sql.includes('destination_payer_id = ?'));
+    expect(sql).toContain('agency_id = ?');expect(params.slice(-4)).toEqual(['SYNTH',11,1,0]);
+  });
   it('rejects an acknowledgement for a different claim and leaves this claim queued', async () => {
     mocks.upload.mockResolvedValue({ claim: [{ remote_claimid: '99', claimmd_id: '800', status: 'A' }] });
     const next = vi.fn(); await submitClaimToClaimMd(request(), response(), next);

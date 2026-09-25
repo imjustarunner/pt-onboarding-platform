@@ -5464,8 +5464,7 @@ const canSeeCredentialing = computed(() => {
   const caps = user.value?.capabilities || {};
   if (!caps.canManageCredentialing) return false;
   const ids = Array.isArray(user.value?.credentialingAgencyIds) ? user.value.credentialingAgencyIds : [];
-  if (!currentAgencyId.value) return false;
-  return ids.includes(currentAgencyId.value);
+  return ['admin', 'staff', 'support'].includes(user.value?.role) && ids.length > 0;
 });
 
 const canSeeApplicantsTopNavLink = computed(() => {

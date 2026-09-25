@@ -1,6 +1,7 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
+import {getCredentialingOrganizations,getCredentialingWorkspace,updateCredentialingWorkflow,getCredentialingWorkflowHistory} from '../controllers/credentialingWorkspace.controller.js';
 import {
   listAgencyProvidersCredentialing,
   patchAgencyProvidersCredentialing,
@@ -48,6 +49,10 @@ import {
 } from '../controllers/agencyGroupNpi.controller.js';
 
 const router = express.Router();
+router.get('/credentialing/organizations',authenticate,requireActiveStatus,getCredentialingOrganizations);
+router.get('/credentialing/workspace',authenticate,requireActiveStatus,getCredentialingWorkspace);
+router.patch('/:agencyId/credentialing/workflow/:kind/:id',authenticate,requireActiveStatus,updateCredentialingWorkflow);
+router.get('/:agencyId/credentialing/workflow/:kind/:id/history',authenticate,requireActiveStatus,getCredentialingWorkflowHistory);
 
 const validatePatch = [
   body('updates').isArray().withMessage('updates must be an array'),
@@ -151,4 +156,3 @@ router.post(
 router.get('/:agencyId/credentialing/timeline', authenticate, listCredentialingTimeline);
 
 export default router;
-

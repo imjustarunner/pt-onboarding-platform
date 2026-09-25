@@ -2582,6 +2582,7 @@ export const createMedicalClaim = async (req, res, next) => {
         `UPDATE clinical_claims SET
            clinical_note_id = ?,
            payer_name = ?,
+           destination_payer_id = ?,
            member_id = NULL,
            insurance_payload = ?,
            billing_npi = ?,
@@ -2595,6 +2596,7 @@ export const createMedicalClaim = async (req, res, next) => {
         [
           noteId,
           payerName,
+          insuranceSnapshot?.primary?.payerId || null,
           insuranceSnapshot ? encryptFamilyBilling(insuranceSnapshot, `claim-insurance:${agencyId}:${claim.id}`) : null,
           resolvedBillingNpi,
           resolvedRenderingNpi,
@@ -2788,9 +2790,9 @@ export const submitClaimToClaimMd = async (req, res, next) => {
       if (!latestReview.readiness.ready || latestReview.reviewHash !== reviewHash) throw Object.assign(new Error('Documentation or billing policy changed. Review this claim again.'),{status:409});
       await assertOriginalTransmissionAllowed({...latestReview.claim,agency_id:agencyId},db);
       const [queued] = await db.execute(`UPDATE clinical_claims SET claim_lifecycle = 'queued', member_id = NULL,
-        insurance_payload = ?, claimmd_connection_id = ?, rendering_npi = ? WHERE id = ? AND agency_id = ? AND is_deleted = 0
+        insurance_payload = ?, claimmd_connection_id = ?, rendering_npi = ?, destination_payer_id = ? WHERE id = ? AND agency_id = ? AND is_deleted = 0
         AND claim_lifecycle IN ('ready','draft','rejected') AND billing_revision = ?`,
-        [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connection.connectionId, payload.prov_npi || null, claimId, agencyId, claim.billing_revision]);
+        [encryptFamilyBilling(insurance, `claim-insurance:${agencyId}:${claimId}`), connection.connectionId, payload.prov_npi || null, payload.payerid || null, claimId, agencyId, claim.billing_revision]);
       if (!queued.affectedRows) throw Object.assign(new Error('This claim changed or is already being submitted. Refresh its review.'), { status: 409 });
       await recordClaimEvent({ agencyId, claimId, connectionId: connection.connectionId, eventKey: `submission:${attemptId}`,
         eventType: 'approved_submission', actorUserId: req.user.id, payload: { reviewHash, mode: connection.mode, payload,

@@ -2882,9 +2882,16 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/admin/credentialing/records',
+    name: 'OrganizationAgencyCredentialingRecords',
+    component: () => import('../views/admin/AgencyCredentialingView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing', organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/admin/credentialing',
     name: 'OrganizationAgencyCredentialing',
-    component: () => import('../views/admin/AgencyCredentialingView.vue'),
+    component: () => import('../views/admin/CredentialingWorkspaceView.vue'),
+    beforeEnter: to => to.query.panel ? ({ path: to.path + '/records', query: to.query }) : true,
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing', organizationSlug: true }
   },
   {
@@ -4440,9 +4447,16 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
+    path: '/admin/credentialing/records',
+    name: 'AgencyCredentialingRecords',
+    component: () => import('../views/admin/AgencyCredentialingView.vue'),
+    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing' }
+  },
+  {
     path: '/admin/credentialing',
     name: 'AgencyCredentialing',
-    component: () => import('../views/admin/AgencyCredentialingView.vue'),
+    component: () => import('../views/admin/CredentialingWorkspaceView.vue'),
+    beforeEnter: to => to.query.panel ? ({ path: to.path + '/records', query: to.query }) : true,
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing' }
   },
   {

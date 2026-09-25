@@ -2,7 +2,7 @@
   <div class="container credentialing-page">
     <div class="page-header">
       <div>
-        <router-link :to="orgTo('/admin')" class="back-link">← Back to Admin Dashboard</router-link>
+        <router-link :to="orgTo('/admin/credentialing')" class="back-link">← Back to Credentialing Management</router-link>
         <h1>Agency Credentialing</h1>
         <div class="muted" style="margin-top: 6px;">
           Agency group NPIs and provider credentialing — edit deliberately, upload licenses, and export CSV.
@@ -643,9 +643,7 @@ const orgTo = (path) => {
   return path;
 };
 
-const agencies = computed(() =>
-  (agencyStore.userAgencies || []).filter((a) => String(a?.organization_type || 'agency').toLowerCase() === 'agency')
-);
+const agencies = ref([]);
 
 function resolveDefaultCredentialingAgencyId() {
   const list = agencies.value || [];
@@ -1395,7 +1393,14 @@ watch(
 );
 
 onMounted(async () => {
-  await agencyStore.fetchUserAgencies();
+  try {
+    const response = await api.get('/agencies/credentialing/organizations');
+    agencies.value = response.data.organizations || [];
+  } catch (e) {
+    agencies.value = [];
+    error.value = e.response?.data?.error?.message || 'Credentialing agencies could not be loaded.';
+    return;
+  }
   if (!selectedAgencyId.value && agencies.value.length) {
     selectedAgencyId.value = resolveDefaultCredentialingAgencyId();
   }
