@@ -13,3 +13,10 @@ it('rejects personal reminder recipients in both send paths before contacting Gm
   }
   expect(getGmailClient).not.toHaveBeenCalled();
 });
+
+it('does not replay an old after-hours reply without original recipient eligibility context', async () => {
+  for (const send of [sendEmailFromIdentity, sendNotificationEmail]) {
+    await expect(send({ generatedByUserId: 5, to: 'staff@itsco.health', templateType: 'client_ooo_auto_reply' })).resolves.toMatchObject({ skipped: true, reason: 'after_hours_reply_not_allowed' });
+  }
+  expect(getGmailClient).not.toHaveBeenCalled();
+});

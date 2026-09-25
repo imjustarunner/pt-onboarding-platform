@@ -5,6 +5,7 @@
  * Personal / limited agency contacts do NOT make a sender known for other staff.
  */
 import pool from '../config/database.js';
+import { verifiedAppOnlyProvider } from './afterHoursEmailPolicy.service.js';
 import UserCommunicationContact from '../models/UserCommunicationContact.model.js';
 import { getAgencyEmailSettings } from './emailSettings.service.js';
 import {
@@ -296,11 +297,10 @@ export async function classifyInboundSender({
     }
   }
 
-  // Availability hold for staff/school mail
+  // Store mail immediately; only verified app-only providers wait for availability.
   const settings = await getAgencyEmailSettings(aid);
   const holdEnabled = settings.holdStaffSchoolOutsideAvailability !== false;
-  const isHoldClass = ['staff', 'school_staff', 'school_contact'].includes(result.trust);
-  if (holdEnabled && isHoldClass && oid) {
+  if (holdEnabled && oid && await verifiedAppOnlyProvider(oid)) {
     const { available, schedule } = await isUserAvailable(oid, now, { agencyId: aid });
     if (!available && schedule?.enabled) {
       result.holdForAvailability = true;

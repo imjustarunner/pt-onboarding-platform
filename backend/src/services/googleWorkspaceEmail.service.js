@@ -1,3 +1,4 @@
+import { assertVerifiedGmailSender } from './unifiedEmail/verifiedSender.js';
 import { protectOutboundEmail } from './activityProtection.service.js';
 import { google } from 'googleapis';
 import { getWorkspaceClientsForEmployee, logGoogleUnauthorizedHint } from './googleWorkspaceAuth.service.js';
@@ -116,6 +117,7 @@ class GoogleWorkspaceEmailService {
     const raw = base64UrlEncode(mime);
 
     await protectOutboundEmail({ to, cc, bcc });
+    await assertVerifiedGmailSender(gmail, fromEmail);
     const result = await gmail.users.messages.send({
       userId: 'me',
       requestBody: { raw }

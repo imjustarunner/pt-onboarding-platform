@@ -18,3 +18,15 @@ The handler now creates an encrypted ticket under a transaction with a conversat
 The email agent now reports `inboxDeliveries` separately from `draftedToTickets`; multiple recipient inbox copies can exceed the scanned Gmail-message count without creating tickets. Missing-author contact-note warnings refer to a skipped chart-note mirror, not failed email delivery. The logged database connection/server startup succeeded, the punycode message is a deprecation warning, and the overlapping-tick message is the scheduler's overlap guard.
 
 Validation: all 134 messaging tests passed; the 13 SUPPORT/agent tests passed again after the counter change. No live tickets or emails were created in verification. Previously ingested messages are not replayed automatically by this code change.
+
+## Follow-up: staff/group auto-replies and the AI From address
+
+Read-only inspection matched the four screenshots to SSO staff inboxes. The sender's work address matched an old guardian testing record (confirmed by the user); that record was left unchanged. The prior OOO handler checked the sender classification and availability but never verified that the inbox owner was an app-only provider.
+
+The new policy permits an OOO reply only for an active, positively verified app-only provider receiving a direct, single-recipient external client/guardian email. Staff, managed-organization addresses, shared inboxes, group/multi-recipient emails, SSO owners, and missing original-recipient context are excluded. Both outbound sender entry points recheck the policy, so old queued OOO messages cannot bypass it. Normal SSO app delivery is immediate; app-only inbox mail is stored immediately and can remain held until the owner's availability window. External client behavior is preserved within the existing agency setting.
+
+The app Gmail transport's primary account is `ai@plottwistco.com`. Its send-as list did not contain any of the four staff From addresses shown in the screenshots. A database sender-identity row alone is insufficient. Outbound Gmail paths now verify the exact accepted send-as address before sending, and reject visible `ai@` senders. Unverified staff aliases must be configured before the app can send from them; incoming email and normal Gmail sending are unaffected. No verification emails or test messages were sent.
+
+A proposed global settings shutdown was rejected by automatic approval review because it would affect unrelated client workflows. It was not executed; the fix uses the narrower eligibility checks above. No global live email settings or account roles were changed.
+
+Validation: 153 messaging tests passed, including SSO and group suppression, guardian-test-record handling, app-only availability holds, preserved external client replies, missing/pending/mismatched Gmail aliases, and old queued OOO suppression. The updated settings component passed Vue parsing.

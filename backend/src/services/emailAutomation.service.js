@@ -3,6 +3,7 @@
  * and cancellation/termination intent → support ticket review.
  */
 import pool from '../config/database.js';
+import { eligibleClientAfterHoursReply } from './afterHoursEmailPolicy.service.js';
 import { handleSupportKeywordReply } from './emailSupportKeyword.service.js';
 export { handleSupportKeywordReply };
 import { getAgencyEmailSettings } from './emailSettings.service.js';
@@ -16,7 +17,6 @@ import {
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
-import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 
 const DEFAULT_OOO = `Thank you for emailing {provider_name} at {agency_name}. I am currently outside my Availability Hours and will return {return_at}.
@@ -59,7 +59,8 @@ export async function maybeSendClientOooAutoReply({
   messageId = null,
   fromEmail,
   subject,
-  bodyText
+  bodyText,
+  recipientEmails = []
 }) {
   const settings = await getAgencyEmailSettings(agencyId);
   if (!settings.clientOooAutoReplyEnabled) return { sent: false, reason: 'disabled' };
@@ -76,12 +77,16 @@ export async function maybeSendClientOooAutoReply({
     return { sent: false, reason: 'not_client' };
   }
 
+  const inbox = conv.inbox_id ? await CommunicationInbox.findById(conv.inbox_id) : null;
+  const afterHoursReplyContext = { agencyId, ownerUserId, inbox, recipientEmails, senderTrust: conv.sender_trust, fromEmail };
+  const provider = await eligibleClientAfterHoursReply(afterHoursReplyContext);
+  if (!provider) return { sent: false, reason: 'after_hours_reply_not_allowed' };
+
   const now = new Date();
   const { available, schedule } = await isUserAvailable(ownerUserId, now, { agencyId });
   if (available || !schedule?.enabled) return { sent: false, reason: 'available' };
 
   const returnAt = nextAvailableAt(schedule, now);
-  const provider = await User.findById(ownerUserId);
   const agency = await Agency.findById(agencyId);
   const providerName = [provider?.first_name, provider?.last_name].filter(Boolean).join(' ') || 'your provider';
   const agencyName = agency?.name || 'our team';
@@ -93,20 +98,22 @@ export async function maybeSendClientOooAutoReply({
     support_keyword: keyword
   });
 
-  const inbox = conv.inbox_id ? await CommunicationInbox.findById(conv.inbox_id) : null;
   if (!inbox?.sender_identity_id) return { sent: false, reason: 'no_identity' };
 
   try {
     const sendResult = await sendEmailFromIdentity({
       senderIdentityId: inbox.sender_identity_id,
       to: fromEmail,
-      subject: `Re: ${subject || '(no subject)'}`,
+      subject: /^re:/i.test(subject || '') ? subject : `Re: ${subject || '(no subject)'}`,
       text,
       html: `<p>${text.replace(/\n/g, '<br/>')}</p>`,
       source: 'auto',
       generatedByUserId: ownerUserId,
-      templateType: 'client_ooo_auto_reply'
+      templateType: 'client_ooo_auto_reply',
+      afterHoursReplyContext
     });
+
+    if (!sendResult?.id || sendResult.blocked || sendResult.skipped || sendResult.queued || sendResult.pendingApproval) return { sent: false, reason: sendResult?.reason || 'not_delivered' };
 
     await CommunicationConversation.addMessage({
       conversationId,
@@ -115,7 +122,7 @@ export async function maybeSendClientOooAutoReply({
       authorUserId: ownerUserId,
       from: { email: inbox.from_email, name: inbox.display_name },
       to: [{ email: fromEmail }],
-      subject: `Re: ${subject || '(no subject)'}`,
+      subject: /^re:/i.test(subject || '') ? subject : `Re: ${subject || '(no subject)'}`,
       bodyText: text,
       bodyHtml: `<p>${text.replace(/\n/g, '<br/>')}</p>`,
       sendStatus: 'sent',

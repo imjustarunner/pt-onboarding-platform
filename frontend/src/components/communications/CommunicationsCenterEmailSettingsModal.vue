@@ -140,7 +140,7 @@
             <p class="hint">Reminders use each provider’s Availability Hours (default weekdays 7 AM–7 PM). Mail arriving at or after 5 PM starts its response window at the next opening. SSO users receive secure-message reminders at their work address.</p>
             <label class="cc-toggle-row">
               <input v-model="form.holdStaffSchoolOutsideAvailability" type="checkbox" />
-              <span>Hold school/staff mail until employee is available (still stored immediately)</span>
+              <span>Hold app-only providers’ inbox mail until available (still stored immediately)</span>
             </label>
             <label class="cc-toggle-row">
               <input v-model="form.unknownSenderBoxEnabled" type="checkbox" />
@@ -148,8 +148,9 @@
             </label>
             <label class="cc-toggle-row">
               <input v-model="form.clientOooAutoReplyEnabled" type="checkbox" />
-              <span>Client OOO auto-reply outside Availability Hours</span>
+              <span>External client replies for verified app-only providers outside Availability Hours</span>
             </label>
+            <p class="hint">SSO inboxes, staff-to-staff messages, and group emails never receive these automatic replies.</p>
             <div class="cc-settings-row">
               <span>Support keyword</span>
               <input v-model="form.clientOooSupportKeyword" type="text" class="cc-select" maxlength="40" />

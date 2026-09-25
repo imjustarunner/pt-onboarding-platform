@@ -524,6 +524,7 @@ export async function ingestPersonalMailboxInbound({
       fromEmail,
       subject,
       bodyText: bodyText || '',
+      recipientEmails: [...to, ...cc],
       allowAutomation: allowAutomation && !result.duplicate
     });
   } catch (e) {

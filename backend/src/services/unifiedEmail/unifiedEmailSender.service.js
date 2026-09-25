@@ -1,3 +1,5 @@
+import { assertVerifiedGmailSender } from './verifiedSender.js';
+import { eligibleClientAfterHoursReply } from '../afterHoursEmailPolicy.service.js';
 import { priorityEventEmailRecipient, savePriorityEventInboxCopy, PRIORITY_EVENT_EMAILS } from '../priorityEventEmail.service.js';
 import { protectOutboundEmail } from '../activityProtection.service.js';
 import { assertMessageReminderRecipient } from '../messageReminderRecipient.service.js';
@@ -560,8 +562,10 @@ export async function sendNotificationEmail({
   templateId = null,
   source = 'auto',
   senderIdentityId = null,
-  replyToOverride = null
+  replyToOverride = null,
+  afterHoursReplyContext = null
 }) {
+  if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
   const eventDelivery = await priorityEventEmailRecipient({agencyId,userId,templateType:templateType || triggerKey,to,subject});
   to=eventDelivery.to; subject=eventDelivery.subject;
   await assertMessageReminderRecipient({ templateType, userId, to });
@@ -843,11 +847,12 @@ export async function sendNotificationEmail({
     replyTo,
     attachments
   });
-  const raw = base64UrlEncode(mime);
+  const raw = base64UrlEncode((templateType === 'client_ooo_auto_reply' ? 'Auto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\n' : '') + mime);
 
   let result;
   try {
     await protectOutboundEmail({ to: redirected.to, actorUserId: generatedByUserId });
+    await assertVerifiedGmailSender(gmail, identity.from_email);
     result = await gmail.users.messages.send({
       userId: 'me',
       requestBody: { raw }
@@ -952,8 +957,10 @@ export async function sendEmailFromIdentity({
   replyToOverride = null,
   /** Optional identity whose signature image is used when the From mailbox has none. */
   signatureIdentityId = null,
-  internetMessageIdOverride = null
+  internetMessageIdOverride = null,
+  afterHoursReplyContext = null
 }) {
+  if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
   await assertMessageReminderRecipient({ templateType, userId, to, cc, bcc });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
@@ -1273,12 +1280,13 @@ export async function sendEmailFromIdentity({
     references,
     attachments
   });
-  const raw = base64UrlEncode(mime);
+  const raw = base64UrlEncode((templateType === 'client_ooo_auto_reply' ? 'Auto-Submitted: auto-replied\r\nX-Auto-Response-Suppress: All\r\n' : '') + mime);
 
   const requestBody = threadId ? { raw, threadId } : { raw };
   let result;
   try {
     await protectOutboundEmail({ to: redirected.to, cc: redirected.cc, bcc: redirected.bcc, actorUserId: generatedByUserId });
+    await assertVerifiedGmailSender(gmail, identity.from_email);
     result = await gmail.users.messages.send({ userId: 'me', requestBody });
   } catch (sendErr) {
     const agencyIdForFail = identity?.agency_id || null;

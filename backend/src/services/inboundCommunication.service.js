@@ -56,7 +56,8 @@ export async function processInboundCommunicationEvent({
   subject = '',
   bodyText = '',
   ownerUserId = null,
-  allowAutomation = true
+  allowAutomation = true,
+  recipientEmails = []
 }) {
   const aid = Number(agencyId || 0);
   const cid = Number(conversationId || 0);
@@ -112,7 +113,8 @@ export async function processInboundCommunicationEvent({
         messageId,
         fromEmail: email,
         subject,
-        bodyText
+        bodyText,
+        recipientEmails
       });
     } catch (e) {
       console.warn('[inboundCommunication] OOO failed:', e?.message || e);
