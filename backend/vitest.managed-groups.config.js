@@ -1,0 +1,1 @@
+export default {root:new URL('.',import.meta.url).pathname,test:{environment:'node',include:['src/**/__tests__/messaging.*.test.js','src/services/__tests__/meetingInvitations.test.js','src/services/__tests__/hire.interviewWorkspace.test.js'],restoreMocks:true}};

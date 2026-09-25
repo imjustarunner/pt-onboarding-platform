@@ -6249,6 +6249,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
         .filter((n) => n > 0))
     );
     if (invitedGroupIds.length && ['TEAM_MEETING', 'HUDDLE'].includes(kind)) {
+      const { assertManagedMeetingInvite } = await import('../services/managedWorkspaceGroupAccess.service.js');
+      await assertManagedMeetingInvite(invitedGroupIds,req.user.id);
       try {
         const { collectMemberUserIds } = await import('../services/meetingInviteGroupSync.service.js');
         const fromGroups = await collectMemberUserIds(invitedGroupIds);
@@ -6901,6 +6903,8 @@ export const updateUserScheduleEvent = async (req, res, next) => {
         return res.status(400).json({ error: { message: `${kind} requires at least one coworker attendee.` } });
       }
       if (invitedGroupIds?.length) {
+        const { assertManagedMeetingInvite } = await import('../services/managedWorkspaceGroupAccess.service.js');
+        await assertManagedMeetingInvite(invitedGroupIds,req.user.id);
         try {
           const { collectMemberUserIds } = await import('../services/meetingInviteGroupSync.service.js');
           const fromGroups = await collectMemberUserIds(invitedGroupIds);
@@ -7866,6 +7870,8 @@ export const updateUserMeetingInviteGroupMembers = async (req, res, next) => {
       validIds = (memberRows || []).map((r) => Number(r.id || 0)).filter((n) => n > 0);
     }
 
+    const { assertManagedMeetingGroupEditable } = await import('../services/managedWorkspaceGroupAccess.service.js');
+    await assertManagedMeetingGroupEditable(groupId);
     const { replaceGroupMembersWithSync } = await import('../services/meetingInviteGroupSync.service.js');
     const result = await replaceGroupMembersWithSync(groupId, validIds);
     if (!result?.ok) return res.status(404).json({ error: { message: 'Group not found' } });

@@ -1,3 +1,4 @@
+import { managedGroupEnvelope } from '../managedWorkspaceGroupAccess.service.js';
 import { assertVerifiedGmailSender } from './verifiedSender.js';
 import { eligibleClientAfterHoursReply } from '../afterHoursEmailPolicy.service.js';
 import { priorityEventEmailRecipient, savePriorityEventInboxCopy, PRIORITY_EVENT_EMAILS } from '../priorityEventEmail.service.js';
@@ -569,6 +570,7 @@ export async function sendNotificationEmail({
   const eventDelivery = await priorityEventEmailRecipient({agencyId,userId,templateType:templateType || triggerKey,to,subject});
   to=eventDelivery.to; subject=eventDelivery.subject;
   await assertMessageReminderRecipient({ templateType, userId, to });
+  await managedGroupEnvelope({ to, actorUserId: generatedByUserId });
   const gate = await canSendEmail({ source, agencyId });
   if (!gate.allowed) {
     // Gate blocked — write a visible audit row so admins can see that a send
@@ -838,8 +840,11 @@ export async function sendNotificationEmail({
   }
 
   const gmail = await getGmailClient();
+  const groupEnvelope = await managedGroupEnvelope({ to: redirected.to, cc: redirected.cc, bcc: redirected.bcc, actorUserId: generatedByUserId });
   const mime = buildMimeMessage({
-    to: redirected.to,
+    to: groupEnvelope.to,
+    cc: groupEnvelope.cc,
+    bcc: groupEnvelope.bcc,
     subject: redirected.subject,
     text: signedContent.text,
     html: htmlWithPixel,
@@ -851,7 +856,7 @@ export async function sendNotificationEmail({
 
   let result;
   try {
-    await protectOutboundEmail({ to: redirected.to, actorUserId: generatedByUserId });
+    await protectOutboundEmail({ ...groupEnvelope, actorUserId: generatedByUserId });
     await assertVerifiedGmailSender(gmail, identity.from_email);
     result = await gmail.users.messages.send({
       userId: 'me',
@@ -962,6 +967,7 @@ export async function sendEmailFromIdentity({
 }) {
   if (templateType === 'client_ooo_auto_reply' && (!afterHoursReplyContext || !await eligibleClientAfterHoursReply({ ...afterHoursReplyContext, ownerUserId: generatedByUserId, fromEmail: to }))) return { skipped: true, reason: 'after_hours_reply_not_allowed' };
   await assertMessageReminderRecipient({ templateType, userId, to, cc, bcc });
+  await managedGroupEnvelope({ to, cc, bcc, actorUserId: generatedByUserId });
   const identity = await EmailSenderIdentity.findById(senderIdentityId);
   if (!identity) throw new Error('Sender identity not found');
   const eventDelivery=await priorityEventEmailRecipient({agencyId:identity.agency_id,userId,templateType,to,subject});
@@ -1266,16 +1272,17 @@ export async function sendEmailFromIdentity({
   const gmail = await getGmailClient();
   if (internetMessageIdOverride && !/^<[^<>\s]+@[^<>\s]+>$/.test(internetMessageIdOverride)) throw new Error('Invalid RFC Message-ID');
   let internetMessageId = internetMessageIdOverride || `<${randomUUID()}@${String(identity.from_email).split('@').pop()}>`;
+  const groupEnvelope = await managedGroupEnvelope({ to: redirected.to, cc: redirected.cc, bcc: redirected.bcc, actorUserId: generatedByUserId });
   const mime = buildMimeMessage({
     messageId: internetMessageId,
-    to: redirected.to,
+    to: groupEnvelope.to,
     subject: redirected.subject,
     text: signedContent.text,
     html: htmlWithPixel,
     from,
     replyTo,
-    cc: redirected.cc,
-    bcc: redirected.bcc,
+    cc: groupEnvelope.cc,
+    bcc: groupEnvelope.bcc,
     inReplyTo,
     references,
     attachments
@@ -1285,7 +1292,7 @@ export async function sendEmailFromIdentity({
   const requestBody = threadId ? { raw, threadId } : { raw };
   let result;
   try {
-    await protectOutboundEmail({ to: redirected.to, cc: redirected.cc, bcc: redirected.bcc, actorUserId: generatedByUserId });
+    await protectOutboundEmail({ ...groupEnvelope, actorUserId: generatedByUserId });
     await assertVerifiedGmailSender(gmail, identity.from_email);
     result = await gmail.users.messages.send({ userId: 'me', requestBody });
   } catch (sendErr) {

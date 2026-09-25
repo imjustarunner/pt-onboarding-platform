@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+vi.mock('../tenantMessageMailboxes.service.js', () => ({ resolveMessagesSendMailbox: async () => ({ identity: { id: 99 }, fromEmail: 'messages@itsco.health', displayName: 'Messages' }) }));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../emailSettings.service.js', () => ({ getAgencyEmailSettings: async () => ({ clientOooAutoReplyEnabled: true }) }));
 vi.mock('../afterHoursEmailPolicy.service.js', () => ({ eligibleClientAfterHoursReply: vi.fn() }));
@@ -21,6 +22,8 @@ it('does not send or mark the conversation replied when the policy excludes the 
 });
 it('carries the original recipient context to the send boundary and does not double-prefix Re', async () => {
  expect(await maybeSendClientOooAutoReply(input)).toMatchObject({ sent: true });
+ expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({ senderIdentityId: 99, replyToOverride: 'provider@itsco.health' }));
+ expect(Conversation.addMessage).toHaveBeenCalledWith(expect.objectContaining({ from: { email: 'messages@itsco.health', name: 'Messages' } }));
  expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({ subject: 'Re: Appointment', afterHoursReplyContext: expect.objectContaining({ recipientEmails: input.recipientEmails, senderTrust: 'guardian', ownerUserId: 5 }) }));
 });
 it('does not record a failed or blocked sender as a delivered auto-reply', async () => {

@@ -665,10 +665,11 @@ export const openChannel = async (req, res, next) => {
       await ensureParticipant(threadId, req.user.id); // clears hide-for-me
     }
 
+    const { managedChatPostingAllowed } = await import('../services/managedWorkspaceGroupAccess.service.js');
     res.json({
       threadId,
       agencyId: Number(t.agency_id),
-      channel: mapChannelRow(t, { isMember: true })
+      channel: { ...mapChannelRow(t, { isMember: true }), can_post: await managedChatPostingAllowed(threadId,req.user.id) }
     });
   } catch (e) {
     next(e);

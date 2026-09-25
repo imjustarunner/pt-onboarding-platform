@@ -1514,6 +1514,12 @@
             </template>
           </div>
 
+          <div v-if="activeTab === 'features' && authStore.user?.role === 'super_admin'" class="form-group">
+            <label>PlotTwist manages Workspace staff groups</label>
+            <ToggleSwitch v-model="agencyForm.featureFlags.managedWorkspaceGroupsEnabled" compact />
+            <small class="hint">Maintain staff, credential, supervisor, and location groups from current staff records. Enable only for organizations whose Workspace is managed by PlotTwist.</small>
+            <input v-if="agencyForm.featureFlags.managedWorkspaceGroupsEnabled" v-model="agencyForm.featureFlags.workspaceEmailDomain" placeholder="Tenant Workspace domain, without @" />
+          </div>
           <div v-if="activeTab === 'features' && isFeatureAvailable('workspaceProvisioningEnabled')" class="form-group" style="margin-top: 16px;">
             <label>Workspace account provisioning</label>
             <ToggleSwitch v-model="agencyForm.featureFlags.workspaceProvisioningEnabled" compact />
@@ -8425,8 +8431,9 @@ const editAgency = async (agency) => {
         ? featureFlags.googleSsoAllowedDomains
         : [],
 
+      managedWorkspaceGroupsEnabled: featureFlags.managedWorkspaceGroupsEnabled === true,
       workspaceProvisioningEnabled: featureFlags.workspaceProvisioningEnabled === true,
-      workspaceEmailDomain: String(featureFlags.workspaceEmailDomain || ''),
+      workspaceEmailDomain: String(featureFlags.workspaceEmailDomain || ({ plottwistco: 'plottwistco.com', itsco: 'itsco.health', nlu: 'nextleveluplcc.com', tisi: 'innerstrengthin.com', mh4kidz: 'mh4kidz.com' }[agency.slug]) || ''),
       workspaceEmailFormat: String(featureFlags.workspaceEmailFormat || ''),
       smsAutoProvisionOnPrehire: featureFlags.smsAutoProvisionOnPrehire === true,
       tenantFeatureProfileKey: String(featureFlags.tenantFeatureProfileKey || 'essential_baseline').trim().toLowerCase() || 'essential_baseline',

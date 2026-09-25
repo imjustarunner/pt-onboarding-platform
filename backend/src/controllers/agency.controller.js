@@ -883,6 +883,13 @@ export const updateAgency = async (req, res, next) => {
       }
     }
 
+    // Workspace management enrollment is controlled by the platform operator.
+    if (formattedFeatureFlags && !isSuperAdmin) {
+      if (previousFeatureFlags.managedWorkspaceGroupsEnabled === undefined) delete formattedFeatureFlags.managedWorkspaceGroupsEnabled;
+      else formattedFeatureFlags.managedWorkspaceGroupsEnabled = previousFeatureFlags.managedWorkspaceGroupsEnabled;
+      if (previousFeatureFlags.managedWorkspaceGroupsEnabled === true) formattedFeatureFlags.workspaceEmailDomain = previousFeatureFlags.workspaceEmailDomain;
+    }
+
     const agency = await Agency.update(id, { 
       name, 
       officialName,

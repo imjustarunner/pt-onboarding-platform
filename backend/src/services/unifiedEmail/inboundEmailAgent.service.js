@@ -980,7 +980,10 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       personalRecipients = await resolvePersonalMailRecipients([
         ...routed.to, ...routed.cc, ...routed.deliveredTo,
         ...extractEmails(hdrs.get('x-original-to')), ...extractEmails(hdrs.get('envelope-to'))
-      ]);
+      ], {
+        sentFromEmail: (full.data?.labelIds || []).includes('SENT') ? rawFromEmail : null,
+        bccAddresses: (full.data?.labelIds || []).includes('SENT') ? extractEmails(hdrs.get('bcc')) : []
+      });
       for (const recipient of personalRecipients) {
         const result = await ingestPersonalMailboxInbound({
           gmail, gmailMessageId: id, gmailPayload: payload, agencyId: recipient.agency_id,

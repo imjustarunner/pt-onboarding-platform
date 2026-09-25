@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { reconcileManagedWorkspaceGroups } from './managedWorkspaceGroups.service.js';
 import { withMessagingJobLock } from './messagingJobLock.service.js';
 import Directory from './googleWorkspaceDirectory.service.js';
 import { isPersonalMailboxEligibleRole, ensurePersonalMailboxForAddress } from './personalMailbox.service.js';
@@ -20,10 +21,12 @@ export async function reconcileStaffMailGroup({ apply = false } = {}) {
   const groupEmail = 'staff@itsco.health';
   if (!Directory.isConfigured()) return { skipped: 'directory_not_configured' };
   const [rows] = await pool.execute(`SELECT u.id,u.email,u.work_email,u.role,u.status,u.is_active,u.is_archived,
-    ua.agency_id,ua.is_active AS membership_active,i.from_email AS mailbox_email
+    ua.agency_id,ua.is_active AS membership_active,i.from_email AS mailbox_email,a.feature_flags
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id
     JOIN agencies a ON a.id=ua.agency_id AND a.slug='itsco'
     LEFT JOIN communication_inboxes i ON i.owner_user_id=u.id AND i.agency_id=ua.agency_id AND i.kind='personal'`);
+  const flags = typeof rows[0]?.feature_flags === 'string' ? JSON.parse(rows[0].feature_flags || '{}') : rows[0]?.feature_flags || {};
+  if (flags.managedWorkspaceGroupsEnabled === true) return { skipped: 'managed_workspace_sync_enrolled' };
   if (!rows.length || !await Directory.getGroup({ groupEmail })) return { skipped: 'staff_group_or_roster_missing' };
   const members = await Directory.listGroupMembers(groupEmail, { maxResults: 10000 });
   let ownerCount=members.filter(m=>m.role==='OWNER').length;
@@ -73,6 +76,13 @@ let running = false;
 export async function tickStaffMailGroup() {
   if (running || Date.now() < nextRun) return;
   running = true;
-  try { const result = await withMessagingJobLock('staff-membership', () => reconcileStaffMailGroup({ apply: true })); nextRun = Date.now() + 5 * 60_000; return result; }
+  try { const result = await withMessagingJobLock('staff-membership', async () => {
+    await reconcileStaffMailGroup({ apply: true });
+    // New tenant-wide reconciliation requires explicit platform enrollment.
+    // Existing tenants are audited/seeded by the CLI before enrollment.
+    const reports=await reconcileManagedWorkspaceGroups({ apply:true, enrolledOnly:true });
+    for(const r of Array.isArray(reports)?reports:[]) if(r.error || r.groups.some(g=>g.error)) console.warn('[managed-workspace-groups] Needs review',r.agencyId,r.error || r.groups.filter(g=>g.error).map(g=>({email:g.email,error:g.error})));
+    return reports;
+  }); nextRun = Date.now() + 5 * 60_000; return result; }
   finally { running = false; }
 }

@@ -18,6 +18,7 @@ import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
 import Agency from '../models/Agency.model.js';
+import { resolveMessagesSendMailbox } from './tenantMessageMailboxes.service.js';
 
 const DEFAULT_OOO = `Thank you for emailing {provider_name} at {agency_name}. I am currently outside my Availability Hours and will return {return_at}.
 
@@ -101,8 +102,11 @@ export async function maybeSendClientOooAutoReply({
   if (!inbox?.sender_identity_id) return { sent: false, reason: 'no_identity' };
 
   try {
+    const mailbox = await resolveMessagesSendMailbox(agencyId);
     const sendResult = await sendEmailFromIdentity({
-      senderIdentityId: inbox.sender_identity_id,
+      senderIdentityId: mailbox.identity.id,
+      fromDisplayNameOverride: `${agencyName} Messages`,
+      replyToOverride: inbox.from_email,
       to: fromEmail,
       subject: /^re:/i.test(subject || '') ? subject : `Re: ${subject || '(no subject)'}`,
       text,
@@ -120,7 +124,7 @@ export async function maybeSendClientOooAutoReply({
       channel: 'email',
       direction: 'outbound',
       authorUserId: ownerUserId,
-      from: { email: inbox.from_email, name: inbox.display_name },
+      from: { email: mailbox.fromEmail, name: mailbox.displayName },
       to: [{ email: fromEmail }],
       subject: /^re:/i.test(subject || '') ? subject : `Re: ${subject || '(no subject)'}`,
       bodyText: text,

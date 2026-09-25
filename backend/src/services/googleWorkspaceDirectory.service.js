@@ -83,10 +83,10 @@ class GoogleWorkspaceDirectoryService {
   /**
    * List members of a Google Group (paginated).
    */
-  static async listGroupMembers(groupEmail, { maxResults = 500 } = {}) {
+  static async listGroupMembers(groupEmail, { maxResults = 500, client = null } = {}) {
     const groupKey = String(groupEmail || '').trim().toLowerCase();
     if (!groupKey) throw new Error('groupEmail is required');
-    const admin = await this.getClient();
+    const admin = client || await this.getClient();
     const members = [];
     let pageToken = undefined;
     try {
@@ -232,6 +232,7 @@ class GoogleWorkspaceDirectoryService {
     try {
       const result = await groupssettings.groups.patch({
         groupUniqueId: email,
+        alt: 'json',
         requestBody: {
           email,
           allowExternalMembers: bool(allowExternalMembers),
@@ -305,15 +306,15 @@ class GoogleWorkspaceDirectoryService {
    * Add a member to a Google Group. role: MEMBER | OWNER | MANAGER
    * Nested Google Groups can only be added as type GROUP / role MEMBER via the API.
    */
-  static async addGroupMember({ groupEmail, memberEmail, role = 'MEMBER' }) {
+  static async addGroupMember({ groupEmail, memberEmail, role = 'MEMBER', client = null, memberType = null }) {
     const groupKey = String(groupEmail || '').trim().toLowerCase();
     const email = String(memberEmail || '').trim().toLowerCase();
     if (!groupKey) throw new Error('groupEmail is required');
     if (!email) throw new Error('memberEmail is required');
-    const admin = await this.getClient();
+    const admin = client || await this.getClient();
     const requestedRole = String(role || 'MEMBER').toUpperCase();
 
-    const nestedGroup = await this.getGroup({ groupEmail: email });
+    const nestedGroup = memberType === 'GROUP' ? true : memberType === 'USER' ? null : await this.getGroup({ groupEmail: email });
     const effectiveRole = nestedGroup && requestedRole !== 'MEMBER' ? 'MEMBER' : requestedRole;
 
     try {
@@ -350,12 +351,12 @@ class GoogleWorkspaceDirectoryService {
   /**
    * Remove a member from a Google Group. No-ops (returns null) when not a member.
    */
-  static async removeGroupMember({ groupEmail, memberEmail }) {
+  static async removeGroupMember({ groupEmail, memberEmail, client = null }) {
     const groupKey = String(groupEmail || '').trim().toLowerCase();
     const email = String(memberEmail || '').trim().toLowerCase();
     if (!groupKey) throw new Error('groupEmail is required');
     if (!email) throw new Error('memberEmail is required');
-    const admin = await this.getClient();
+    const admin = client || await this.getClient();
     try {
       await admin.members.delete({ groupKey, memberKey: email });
       return { email, removed: true };
@@ -374,14 +375,15 @@ class GoogleWorkspaceDirectoryService {
   static async setGroupMemberDeliverySettings({
     groupEmail,
     memberEmail,
-    deliverySettings = 'NONE'
+    deliverySettings = 'NONE',
+    client = null
   }) {
     const groupKey = String(groupEmail || '').trim().toLowerCase();
     const email = String(memberEmail || '').trim().toLowerCase();
     const settings = String(deliverySettings || 'NONE').trim().toUpperCase() || 'NONE';
     if (!groupKey) throw new Error('groupEmail is required');
     if (!email) throw new Error('memberEmail is required');
-    const admin = await this.getClient();
+    const admin = client || await this.getClient();
     try {
       const result = await admin.members.patch({
         groupKey,

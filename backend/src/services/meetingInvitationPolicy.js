@@ -28,7 +28,7 @@ export function meetingInvitationContent({ events, joinUrl, hostName, participan
   const when = `${recurring ? `${frequency}. First scheduled date: ` : ''}${dateLabel(first)} (${tz}).`;
   const instructions = guest ? 'Use your interview link and wait for the host to admit you.' : 'This is your personal invitation. Sign in with your invited account. Your attendance is recorded under your account only when attendance tracking is enabled. The waiting-room rules still apply.';
   const seriesNote = recurring ? 'Use this same personal link for the current or next scheduled occurrence. All dates are in My Schedule; reminders are sent separately for each date when enabled.' : '';
-  const roster = participants.length ? `Participants: ${participants.map(p=>`${p.name}${p.email ? ` <${p.email}>` : ''} (${p.rsvp === 'accepted' ? 'confirmed' : p.rsvp || 'pending'}${p.is_required != null ? p.is_required ? ', mandatory' : ', optional' : ''}${p.isHost ? ', host' : p.is_cohost ? ', cohost' : ''})`).join(', ')}` : '';
+  const roster = participants.length ? `Attendees: ${participants.map(p => p.name || p.email || 'Guest').join(', ')}` : '';
   const rsvpEnabled = first.meeting_type !== 'supervision';
   const rsvpUrl = guest ? joinUrl.replace('/join/team-meeting/','/interview-rsvp/') : `${joinUrl}?rsvp=1&eventId=${first.id}`;
   return {

@@ -1359,6 +1359,8 @@ export const sendMessage = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'body or attachments required' } });
     }
     await assertThreadAccess(req.user.id, threadId);
+    const { assertManagedChatPost } = await import('../services/managedWorkspaceGroupAccess.service.js');
+    await assertManagedChatPost(threadId, req.user.id);
 
     // Resolve agency + participants
     const [[t]] = await pool.execute(

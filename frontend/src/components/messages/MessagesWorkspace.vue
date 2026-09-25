@@ -1027,7 +1027,8 @@
               </div>
             </div>
 
-            <div class="chat-composer">
+            <p v-if="activeChannel?.can_post === false" class="muted">Only group managers can send to this group.</p>
+            <div v-else class="chat-composer">
               <div class="composer-main">
                 <div v-if="replyRoot" class="reply-composer-banner">
                   Replying to {{ replyRoot.sender_first_name }} {{ replyRoot.sender_last_name }}
