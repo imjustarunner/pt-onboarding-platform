@@ -10,7 +10,7 @@ UPDATE clients SET date_of_birth='2017-01-01';
 CREATE TABLE learning_services(id INT PRIMARY KEY,agency_id INT,service_type VARCHAR(40));
 CREATE TABLE learning_program_sessions(id INT PRIMARY KEY,agency_id INT,learning_service_id INT,payment_mode VARCHAR(40));
 ALTER TABLE learning_session_charges ADD COLUMN due_at DATETIME, ADD COLUMN service_date DATE;
-ALTER TABLE clinical_claims ADD COLUMN client_id INT, ADD COLUMN is_deleted TINYINT DEFAULT 0, ADD COLUMN clinical_session_id BIGINT, ADD COLUMN claim_status VARCHAR(40) DEFAULT 'READY';
+ALTER TABLE clinical_claims ADD COLUMN client_id INT, ADD COLUMN is_deleted TINYINT DEFAULT 0, ADD COLUMN clinical_session_id BIGINT, ADD COLUMN claim_status VARCHAR(40) DEFAULT 'READY', ADD COLUMN claimmd_submitted_at DATETIME, ADD COLUMN claim_lifecycle VARCHAR(40) DEFAULT 'draft';
 CREATE TABLE clinical_sessions(id BIGINT PRIMARY KEY,agency_id INT,client_id INT,scheduled_start_at DATETIME,encounter_status VARCHAR(40));
 ALTER TABLE learning_session_charges MODIFY learning_program_session_id BIGINT NOT NULL DEFAULT 80;
 CREATE TABLE learning_program_classes(id INT PRIMARY KEY,agency_id INT,class_name VARCHAR(200));

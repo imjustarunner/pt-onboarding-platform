@@ -1,6 +1,8 @@
 import { listTreatmentFrequencies, addTreatmentFrequency, suggestObjectiveInterventions } from '../controllers/treatmentPlanOptions.controller.js';
 import { getTreatmentPlanRenewalPolicy, saveTreatmentPlanRenewalPolicy } from '../controllers/medicalBilling.controller.js';
 import { getClientInsurance, saveClientInsurance } from '../controllers/clientInsurance.controller.js';
+import { getCoverageEvidence, checkClientCoverage, reviewClientCoverage } from '../controllers/coverageVerification.controller.js';
+import { createSecondaryClaim } from '../controllers/claimMdWorkflow.controller.js';
 import express from 'express';
 import { listSupervisedPayerPolicies, saveSupervisedPayerPolicy, supervisedProviderReadiness } from '../controllers/supervisedBilling.controller.js';
 import { runClaimAiReview, resolveClaimAiFinding } from '../controllers/claimMdWorkflow.controller.js';
@@ -96,6 +98,10 @@ router.get('/supervised-provider-readiness', requireMedicalBillingFinancialAcces
 router.post('/supervised-payer-policies', requireMedicalBillingFinancialAccess, saveSupervisedPayerPolicy);
 router.get('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, getClientInsurance);
 router.put('/clients/:clientId/insurance', ...masterGate, requireMedicalBillingFinancialAccess, saveClientInsurance);
+router.get('/clients/:clientId/coverage', ...masterGate, requireMedicalBillingFinancialAccess, getCoverageEvidence);
+router.post('/clients/:clientId/coverage/check', ...claimMdGate, checkClientCoverage);
+router.post('/clients/:clientId/coverage/review', ...masterGate, requireMedicalBillingFinancialAccess, reviewClientCoverage);
+router.post('/claims/:claimId/secondary', ...claimMdGate, createSecondaryClaim);
 
 router.get(
   '/status',

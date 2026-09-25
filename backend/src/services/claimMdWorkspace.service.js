@@ -62,7 +62,7 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
   if (search) { where += ' AND (claim_number LIKE ? OR payer_name LIKE ? OR CAST(id AS CHAR) = ? OR CAST(client_id AS CHAR) = ?)'; params.push(`%${search}%`, `%${search}%`, search, search); }
   const [[totalRows], [rows]] = await Promise.all([
     deps.clinical.execute(`SELECT COUNT(*) AS count FROM clinical_claims WHERE ${where}`, params),
-    deps.clinical.execute(`SELECT id, agency_id, clinical_note_id, clinical_session_id, client_id, claim_number, payer_name,
+    deps.clinical.execute(`SELECT id, parent_claim_id, payer_sequence, agency_id, clinical_note_id, clinical_session_id, client_id, claim_number, payer_name,
       claim_lifecycle, claimmd_last_status, amount_cents, currency_code, date_of_service, updated_at, ${pendingChangeSql} AS service_change_pending
       FROM clinical_claims WHERE ${where} ORDER BY service_change_pending DESC, CASE claim_lifecycle WHEN 'rejected' THEN 0 WHEN 'denied' THEN 1
       WHEN 'ready' THEN 2 WHEN 'draft' THEN 3 ELSE 4 END, updated_at DESC, id DESC LIMIT 30 OFFSET ${(result.page - 1) * 30}`, params)

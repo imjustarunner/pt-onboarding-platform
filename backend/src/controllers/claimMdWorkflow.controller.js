@@ -9,6 +9,7 @@ import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { evaluateClaimReadiness } from '../services/clinicalClaimReadiness.service.js';
 import { resolveClaimMdConnection, requireClaimMdTransmission } from '../services/claimMdConnection.service.js';
 import { buildClaimMdJsonClaim, fetchPayers, requestEnrollment } from '../services/claimMd.service.js';
+import { secondaryInsurance, readSecondaryAdjudication, applySecondaryAdjudication, prepareSecondaryClaim } from '../services/secondaryClaim.service.js';
 import { asList, claimReviewHash, claimEventHistory, safeEnrollmentUrl, taxIdHash, recordClaimEvent } from '../services/claimMdWorkflow.service.js';
 import { applyBillingClaimOverrides } from '../services/applyBillingClaimOverrides.service.js';
 import { listClaimMdBillingProfiles, getClaimMdBillingProfile, resolveClaimMdBillingProfile, assertClaimBillingNpi } from '../services/claimMdBillingProfile.service.js';
@@ -28,7 +29,17 @@ export async function prepareClaimReview(agencyId, claimId) {
   const [lines] = await clinicalPool.execute('SELECT * FROM clinical_claim_lines WHERE clinical_claim_id = ? ORDER BY line_number', [claimId]);
   const readiness = await evaluateClaimReadiness({ agencyId, clientId: claim.client_id, clinicalSessionId: claim.clinical_session_id, clinicalNoteId: claim.clinical_note_id, requireSignedNote: true });
   if (!claim.clinical_note_id || lines.some(line => Number(line.clinical_note_id) !== Number(claim.clinical_note_id))) throw fail(409, 'Every service line must be linked to this claim’s signed note');
-  const insurance = await readClientInsurance(claim.client_id, agencyId);
+  const sourceInsurance = await readClientInsurance(claim.client_id, agencyId);
+  const secondary = Number(claim.payer_sequence || 1) === 2;
+  const cob = secondary ? readSecondaryAdjudication(claim, sourceInsurance) : null;
+  if (secondary) {
+    const [[parent]] = await clinicalPool.execute('SELECT id,client_id,clinical_session_id,billing_revision,is_deleted,claim_lifecycle FROM clinical_claims WHERE id=? AND agency_id=?',[claim.parent_claim_id,agencyId]);
+    if (!parent || parent.is_deleted || parent.claim_lifecycle==='void' || Number(parent.client_id)!==Number(claim.client_id) || Number(parent.clinical_session_id)!==Number(claim.clinical_session_id) || Number(parent.billing_revision)!==cob.parentBillingRevision) throw fail(409,'The primary claim changed. Reconcile it and review the secondary adjudication again');
+  }
+  const insurance = secondary ? secondaryInsurance(sourceInsurance) : sourceInsurance;
+  const { listCoverageEvidence, coverageReviewBlockers } = await import('../services/coverageVerification.service.js');
+  const coverageEvidence = await listCoverageEvidence({agencyId,clientId:claim.client_id,serviceDate:claim.date_of_service});
+  readiness.blockers.push(...coverageReviewBlockers({insurance:sourceInsurance,...coverageEvidence}));
   const documentation = await claimDocumentation(agencyId, claim);
   documentation.note.latest_addendum_at = documentation.addenda.at(-1)?.created_at || null;
   const [[session]] = await clinicalPool.execute('SELECT provider_user_id, rendering_provider_user_id FROM clinical_sessions WHERE id = ? AND agency_id = ?', [claim.clinical_session_id,agencyId]);
@@ -52,7 +63,8 @@ export async function prepareClaimReview(agencyId, claimId) {
     place_of_service: overrides?.placeOfService || claim.place_of_service, billing_npi: overrides?.billingNpi || claim.billing_npi, taxonomy_code: overrides?.taxonomyCode || claim.taxonomy_code };
   assertClaimBillingNpi(billingProfile, effective.billing_npi);
   const effectiveLines = overrides?.modifiers ? lines.map(line => ({ ...line, modifiers_json: String(overrides.modifiers).split(/[,\s]+/).filter(Boolean) })) : lines;
-  const payload = buildClaimMdJsonClaim(effective, effectiveLines, { insurance, practice });
+  const basePayload = buildClaimMdJsonClaim(effective, effectiveLines, { insurance, practice });
+  const payload = secondary ? applySecondaryAdjudication(basePayload,cob) : basePayload;
   const sourceHash = reviewSourceHash({ documentation, payload, supervision, overrides: overrides?.applied || [], revision:claim.billing_revision });
   const aiReview = await currentClaimContentReview(agencyId,claimId,sourceHash);
   const history = aiReview.id ? await claimEventHistory(agencyId,claimId) : [];
@@ -70,7 +82,12 @@ export async function prepareClaimReview(agencyId, claimId) {
   readiness.warnings.push(...supervision.warnings,...aiReview.findings.filter(f=>f.severity==='warning').map(f=>f.message));
   readiness.ready=readiness.blockers.length===0;
   return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, appliedOverrides:overrides?.applied || [],
-    billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
+    billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,coverageReviewId:coverageEvidence.review?.id||null,aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
+}
+
+export async function createSecondaryClaim(req,res,next) {
+  try { const agencyId=await agencyFor(req);res.status(201).json(await prepareSecondaryClaim({agencyId,parentClaimId:Number(req.params.claimId),actorUserId:req.user.id,adjudication:req.body.adjudication})); }
+  catch(e){next(e);}
 }
 
 export async function getClaimServiceChanges(req,res,next) {
@@ -189,7 +206,7 @@ export async function listClaimMdOffices(req, res, next) {
 export async function claimDraft(req, res, next) {
   try {
     const agencyId = await agencyFor(req);
-    const [[claim]] = await clinicalPool.execute(`SELECT id, clinical_note_id, clinical_session_id, place_of_service, billing_npi, rendering_npi, taxonomy_code, billing_revision, claim_lifecycle
+    const [[claim]] = await clinicalPool.execute(`SELECT id, parent_claim_id, payer_sequence, clinical_note_id, clinical_session_id, place_of_service, billing_npi, rendering_npi, taxonomy_code, billing_revision, claim_lifecycle
       FROM clinical_claims WHERE id = ? AND agency_id = ? AND is_deleted = 0`, [req.params.claimId, agencyId]);
     if (!claim) throw fail(404, 'Claim not found');
     const [lines] = await clinicalPool.execute('SELECT id, procedure_code, units, modifiers_json, charge_cents FROM clinical_claim_lines WHERE clinical_claim_id = ? ORDER BY line_number', [claim.id]);

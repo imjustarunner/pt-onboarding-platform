@@ -1,4 +1,5 @@
 import express from 'express';
+import { getClientCareBillingSummary } from '../controllers/clientCareBillingSummary.controller.js';
 import { body } from 'express-validator';
 import {
   getClients,
@@ -230,6 +231,7 @@ router.get('/:id/clinical-responses', getClientClinicalResponses);
 router.put('/:id/clinical-responses', updateClientClinicalResponses);
 
 // Insurance card images from intake (provider/admin) — streamed (decrypts if encrypted)
+router.get('/:id/care-billing-summary', getClientCareBillingSummary);
 router.get('/:id/insurance-card', getClientInsuranceCard);
 
 // Demographics from profile + latest intake (backfills legacy data)

@@ -10,6 +10,8 @@ vi.mock('../appointmentCalendarMaintenance.service.js', () => ({ releaseAppointm
 vi.mock('../appointmentReminder.service.js', () => ({ cancelPendingReminders: vi.fn() }));
 vi.mock('../bookingCancellationPolicy.service.js', () => ({ evaluateCancel: vi.fn() }));
 vi.mock('../practitionerPackage.service.js', () => ({ applyMissedSessionPolicy: vi.fn() }));
+vi.mock('../clientInsurance.service.js',()=>({readClientInsurance:vi.fn()}));
+import {readClientInsurance} from '../clientInsurance.service.js';
 import pool from '../../config/database.js';
 import Appointment from '../../models/Appointment.model.js';
 import BookingPackage from '../../models/BookingPackage.model.js';
@@ -23,7 +25,7 @@ const actor = { actorUserId: 9, actorRole: 'provider' };
 const canceled = { eventType: 'canceled', clientId: 3, initiator: 'client', reasons: ['illness'], signatureConfirmed: true };
 let appointment, packageRow;
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks();readClientInsurance.mockResolvedValue(null);
   appointment = { id: 1, agencyId: 2, providerUserId: 9, providerScheduleEventId: 10, startAt: '2026-01-01 17:00:00', status: 'confirmed', clinicalSessionId: 4 };
   packageRow = null;
   getAppointmentBundle.mockImplementation(async () => appointment); Appointment.findById.mockImplementation(async () => appointment);
@@ -40,6 +42,17 @@ beforeEach(() => {
   runSignedAppointmentChange.mockImplementation(async (id, facts, who, { previewChange, applyChange }) => applyChange(id, facts, who, await previewChange(id, facts, who)));
 });
 describe('appointment change consequences and completion', () => {
+  it('prevents missed-appointment fees when Medicaid is secondary',async()=>{
+    readClientInsurance.mockResolvedValue({primary:{insurerName:'Commercial'},secondary:{insurerName:'Health First Colorado',isMedicaid:true}});
+    const result=await previewAppointmentChange(1,{...canceled,eventType:'no_show'},actor);
+    expect(result.consequence).toMatchObject({model:'none',feeCents:0});
+    expect(result.waiverOptions.showFeeActions).toBe(false);
+  });
+  it('holds a clinical missed fee when encrypted coverage cannot be read',async()=>{
+    readClientInsurance.mockRejectedValue(new Error('Encryption unavailable'));
+    const result=await previewAppointmentChange(1,{...canceled,eventType:'no_show'},actor);
+    expect(result.consequence).toMatchObject({model:'none',feeCents:0});
+  });
   it('never offers a secondary claim and keeps amounts out of provider narratives', async () => {
     const preview = await previewAppointmentChange(1, canceled, actor);
     expect(preview.insuranceClaim).toMatchObject({ willCreatePrimarySessionClaim: false, willCreateSecondaryClaim: false });

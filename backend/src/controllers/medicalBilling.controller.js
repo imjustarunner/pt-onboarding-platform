@@ -39,8 +39,7 @@ import { encryptChatText, isChatEncryptionConfigured } from '../services/chatEnc
 import { getClientIpAddress } from '../utils/ipAddress.util.js';
 import {
   uploadClaims,
-  fetchEraList,
-  requestEligibilityJson
+  fetchEraList
 } from '../services/claimMd.service.js';
 import pool from '../config/database.js';
 import { recordSignedTermination, validateTermination, validateTerminationContent } from '../services/noteAidTermination.service.js';
@@ -2838,17 +2837,8 @@ export const listClaimMdEras = async (req, res, next) => {
   }
 };
 
-export const checkClaimMdEligibility = async (req, res, next) => {
-  try {
-    const agencyId = parseIntValue(req.body.agencyId);
-    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
-    await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
-    const accountKey = await resolveClaimMdAccountKey(agencyId);
-    const result = await requestEligibilityJson({ accountKey, payload: req.body.eligibility || {} });
-    return res.json({ result });
-  } catch (e) {
-    next(e);
-  }
+export const checkClaimMdEligibility = async (req, res) => {
+  return res.status(410).json({ error: { message: 'Use the client insurance verification screen so eligibility evidence is scoped and saved to the client and date of service.' } });
 };
 
 /** Parse Note Aid panels into goals array for saveTreatmentPlanToChart. */

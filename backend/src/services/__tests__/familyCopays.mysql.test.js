@@ -110,8 +110,8 @@ test('copay readiness, portal balances, automatic collection and reconciliation 
     await t.test('secondary Medicaid blocks collection even with commercial copay and signed authorization',async()=>{
       await writeClientInsurance({...c,primary,secondary:{memberId:'SYNTHETIC-MEDICAID',insurerName:'Health First Colorado',isMedicaid:true}});
       await assert.rejects(setup(),/Medicaid/);
-      await setup({collectionPolicy:'manual'});await visit(8104);const r=await copay(8104);assert.equal(r.status,'review');
-      const [a]=await allocationsFor(r.id);await assert.rejects(payAllocation({agencyId:1,userId:10,allocationId:a.id,amountCents:2500,idempotencyKey:'medicaid-copay-test'}),e=>e.status===409);assert.equal(calls,2);
+      await setup({collectionPolicy:'manual'});await visit(8104);await assert.rejects(copay(8104),/final secondary ERA/);
+      await assert.rejects(payAllocation({agencyId:1,userId:10,allocationId:paidAllocation.id,amountCents:2500,idempotencyKey:'medicaid-copay-test'}),e=>e.status===409);assert.equal(calls,2);
     });
   }finally{await pool.end();await clinical.end();}
 });
