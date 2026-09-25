@@ -4,6 +4,8 @@ Status: implemented locally; not deployed. On 2026-09-24 the production key in S
 
 ## Billing workspace UI
 
+**Supervised-billing launch gate:** the workspace does not yet implement configurable deferred cosigning, mandatory server-verifiable AI content review, or attested documentation-review time. Supervisor rendering/group identity and payer-specific exceptions need further work. See [supervised billing requirements and audit](./supervised-billing-and-documentation-review.md) before enabling these workflows for live claims.
+
 The billing entry page is now a branded operations workspace at `/admin/medical-billing` and `/:organizationSlug/admin/medical-billing`. It starts with **All Companies** limited to server-authorized agencies with medical billing enabled. Providers/provider-plus are denied even if a stale billing-access flag exists. The login organization does not grant access to other companies; the server resolves permissions independently for every agency in the aggregate.
 
 - Organization scope, searchable company overview, a company detail drawer, and an actionable cross-company queue. The queue has claim filters and payer/ERA activity, with server-side claim search and pagination.
