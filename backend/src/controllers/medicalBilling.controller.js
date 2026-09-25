@@ -1,3 +1,4 @@
+import {assertNoSelfPayBalance} from '../services/familyLedger/serviceCharges.js';
 import {reserveMedicalServiceUsage,completeMedicalServiceUsage} from '../services/medicalServiceFees.service.js';
 import { resolveClaimMdConnection, claimMdConnectionMeta, requireClaimMdTransmission } from '../services/claimMdConnection.service.js';
 import { prepareClaimReview } from './claimMdWorkflow.controller.js';
@@ -2783,6 +2784,8 @@ export const submitClaimToClaimMd = async (req, res, next) => {
     const db = await clinicalPool.getConnection();
     try {
       await db.beginTransaction();
+      await db.execute('SELECT id FROM clinical_sessions WHERE id=? AND agency_id=? FOR UPDATE',[claim.clinical_session_id,agencyId]);
+      await assertNoSelfPayBalance(agencyId,claim.clinical_session_id);
       await db.execute('SELECT id FROM clinical_claims WHERE id = ? AND agency_id = ? FOR UPDATE',[claimId,agencyId]);
       await db.execute('SELECT id FROM clinical_notes WHERE id = ? AND agency_id = ? FOR UPDATE',[claim.clinical_note_id || null,agencyId]);
       await db.execute('SELECT id FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? FOR UPDATE',[claim.clinical_note_id || null,agencyId]);

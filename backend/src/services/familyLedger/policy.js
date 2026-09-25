@@ -60,6 +60,7 @@ export async function assertSharesAuthorized(agencyId, clientId, shares, db = po
 export async function assertCollectible(receivable, db = pool) {
   if (receivable.status !== 'open' || receivable.disputed_at || receivable.hold_reason) throw billingError(409, 'This balance is settled or on hold and cannot be collected');
   await assertLedgerIntegrity(receivable,db);
+  if(receivable.source_type==='clinical_self_pay'){const {assertSelfPayVisit}=await import('./serviceCharges.js');await assertSelfPayVisit(receivable);}
   if(receivable.source_type==='claim_responsibility') {
     const [claims]=await clinicalPool.execute(`SELECT c.id,s.encounter_status,c.claim_status,c.claim_lifecycle,
       (SELECT COALESCE(MAX(cr.id),0) FROM clinical_claim_change_requests cr WHERE cr.agency_id=c.agency_id AND cr.clinical_session_id=c.clinical_session_id) AS latest_change_id,

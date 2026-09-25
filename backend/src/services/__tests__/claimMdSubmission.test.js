@@ -1,5 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ prepare: vi.fn(), upload: vi.fn(), event: vi.fn(), connection: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }));
+const mocks = vi.hoisted(() => ({ selfPayCheck: vi.fn(), prepare: vi.fn(), upload: vi.fn(), event: vi.fn(), connection: vi.fn(), execute: vi.fn(), begin: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() }));
+vi.mock('../familyLedger/serviceCharges.js',()=>({assertNoSelfPayBalance:mocks.selfPayCheck}));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: mocks.execute, getConnection: async () => ({ execute: mocks.execute, beginTransaction: mocks.begin, commit: mocks.commit, rollback: mocks.rollback, release: mocks.release }) } }));
 vi.mock('../../controllers/claimMdWorkflow.controller.js', () => ({ prepareClaimReview: mocks.prepare }));
 vi.mock('../claimMdConnection.service.js', () => ({ resolveClaimMdConnection: mocks.connection, claimMdConnectionMeta: vi.fn(), requireClaimMdTransmission: c => { if (!['test','live'].includes(c.mode)) throw Object.assign(new Error('disabled'), { status: 409 }); } }));
@@ -10,14 +11,20 @@ vi.mock('../familyBillingEncryption.service.js', () => ({ encryptFamilyBilling: 
 import { submitClaimToClaimMd } from '../../controllers/medicalBilling.controller.js';
 const response = () => ({ code: 200, body: null, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } });
 const request = () => ({ user: { id: 9, role: 'admin' }, params: { claimId: '11' }, body: { agencyId: 1, approved: true, reviewHash: 'a'.repeat(64), accountMode: 'test' } });
-const prepared = () => ({ claim: { id: 11, client_id: 7, claim_lifecycle: 'ready', billing_revision: 0 }, readiness: { ready: true }, insurance: {}, payload: { remote_claimid: '11' }, reviewHash: 'a'.repeat(64) });
+const prepared = () => ({ claim: { id: 11, client_id: 7, clinical_session_id: 71, claim_lifecycle: 'ready', billing_revision: 0 }, readiness: { ready: true }, insurance: {}, payload: { remote_claimid: '11' }, reviewHash: 'a'.repeat(64) });
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.prepare.mockResolvedValue(prepared());
+  vi.clearAllMocks(); mocks.selfPayCheck.mockResolvedValue(undefined); mocks.prepare.mockResolvedValue(prepared());
   mocks.connection.mockResolvedValue({ accountKey: 'synthetic', mode: 'test', connectionId: 'account:100' });
   mocks.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
   mocks.upload.mockResolvedValue({ claim: [{ remote_claimid: '11', claimmd_id: '800', status: 'A' }] });
 });
 describe('reviewed claim transmission', () => {
+  it('holds insurance submission for an existing self-pay balance under the visit lock',async()=>{
+    mocks.selfPayCheck.mockRejectedValueOnce(Object.assign(new Error('Reconcile self-pay'),{status:409}));
+    const next=vi.fn();await submitClaimToClaimMd(request(),response(),next);
+    expect(mocks.selfPayCheck).toHaveBeenCalledWith(1,71);expect(next.mock.calls[0][0].status).toBe(409);expect(mocks.upload).not.toHaveBeenCalled();expect(mocks.rollback).toHaveBeenCalled();
+    expect(mocks.execute.mock.calls[0][0]).toContain('clinical_sessions');expect(mocks.execute.mock.calls[0][0]).toContain('FOR UPDATE');
+  });
   it('blocks another original even when a previously transmitted claim is rejected or reset to ready',async()=>{
     for(const lifecycle of ['rejected','ready']) {
       mocks.prepare.mockResolvedValue({...prepared(),claim:{...prepared().claim,claim_lifecycle:lifecycle,claimmd_claim_id:'800'}});
@@ -33,7 +40,7 @@ describe('reviewed claim transmission', () => {
     mocks.prepare.mockResolvedValueOnce(prepared()).mockResolvedValueOnce({...prepared(),reviewHash:'b'.repeat(64)});
     const next=vi.fn();await submitClaimToClaimMd(request(),response(),next);
     expect(next.mock.calls[0][0].status).toBe(409);expect(mocks.rollback).toHaveBeenCalled();expect(mocks.upload).not.toHaveBeenCalled();
-    expect(mocks.execute.mock.calls.filter(([sql])=>sql.includes('FOR UPDATE'))).toHaveLength(3);
+    expect(mocks.execute.mock.calls.filter(([sql])=>sql.includes('FOR UPDATE'))).toHaveLength(4);
     expect(mocks.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE clinical_claims'))).toBe(false);
   });
   it('requires explicit approval before resolving credentials or transmitting', async () => {

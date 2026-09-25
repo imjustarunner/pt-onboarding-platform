@@ -83,6 +83,7 @@ export async function renderReceiptPdf(receipt) {
     ...(receipt.balanceReference?[`Balance reference: ${receipt.balanceReference}`]:[]),
     ...(receipt.responsibilityType?[`Charge type: ${receipt.responsibilityType}`,`Basis: ${receipt.verificationBasis}`]:[]),
     ...(receipt.shareCents!=null?[`Assigned share: ${money(receipt.shareCents)}`,`Previously paid: ${money(receipt.previouslyPaidCents)}`]:[]),
+    ...(receipt.serviceCode?[`Service code: ${receipt.serviceCode}`,`Agreed price: ${money(receipt.unitAmountCents)} per ${receipt.priceBasis}${receipt.priceBasis==='unit'?` x ${receipt.serviceUnits} units`:''}`]:[]),
     `Amount received: ${money(receipt.amountCents)}`,
     ...(receipt.remainingAtPaymentCents!=null?[`Remaining at time of payment: ${money(receipt.remainingAtPaymentCents)}`]:[]),
     ...(receipt.method?[`Payment method: ${receipt.method}`]:[]),

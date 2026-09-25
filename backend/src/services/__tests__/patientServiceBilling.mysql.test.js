@@ -1,0 +1,70 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+test('service authorizations: signed prices, tenant isolation, coverage holds and one balance per visit', {skip:process.env.PATIENT_SERVICE_MYSQL_TEST!=='1'}, async()=>{
+  for(const prefix of ['DB','CLINICAL_DB']) {
+    assert.equal(process.env[`${prefix}_HOST`],'127.0.0.1');assert.equal(process.env[`${prefix}_PORT`],'33316');
+    assert.equal(process.env[`${prefix}_NAME`],'patient_service_test');assert.equal(process.env[`${prefix}_USER`],'patient_service_test');
+  }
+  const {default:pool}=await import('../../config/database.js');
+  const {default:clinical}=await import('../../config/clinicalDatabase.js');
+  const {saveServiceRate,snapshotServiceTerms,serviceTotal}=await import('../familyLedger/serviceRates.js');
+  const {createPaymentTask,completePaymentTask,getPaymentTask,listPaymentTasks}=await import('../familyLedger/tasks.js');
+  const {postSignedService,assertNoSelfPayBalance,listSignedServiceVisits}=await import('../familyLedger/serviceCharges.js');
+  const {saveReadiness}=await import('../familyLedger/readiness.js');
+  const {assertCollectible,requireBillingStaff}=await import('../familyLedger/policy.js');
+  const {writeClientInsurance}=await import('../clientInsurance.service.js');
+  const {BILLING_TERMS_VERSION}=await import('../familyBillingPolicy.service.js');
+  const consent={accepted:true,waiverAccepted:true,version:BILLING_TERMS_VERSION,signatureName:'Synthetic payer'};
+  const term={clientId:102,serviceCode:'90834',paymentBasis:'self_pay',rateRevision:1,units:2,effectiveFrom:'2026-01-01',effectiveThrough:'2027-01-01',evidence:'Synthetic agreed self-pay price'};
+  const save=(overrides={})=>saveServiceRate({agencyId:1,serviceCode:'90834',amountCents:7500,priceBasis:'unit',revision:0,reason:'Synthetic price',actorUserId:99,...overrides});
+  try {
+    await assert.rejects(requireBillingStaff({id:99,role:'provider'},1),e=>e.status===403);
+    await assert.rejects(requireBillingStaff({id:99,role:'staff'},2),e=>e.status===403);
+    await save();assert.equal(serviceTotal(7500,'unit',2),15000);assert.equal(serviceTotal(11000,'visit',2),11000);
+    await assert.rejects(save(),e=>e.status===409);
+    await assert.rejects(snapshotServiceTerms({agencyId:2,clientIds:[102],serviceTerms:[term]}),e=>e.status===409);
+    await assert.rejects(snapshotServiceTerms({agencyId:1,clientIds:[101],serviceTerms:[term]}),e=>e.status===400);
+    const task=await createPaymentTask({agencyId:1,guardianUserId:10,clientIds:[102],actorUserId:99,requireCard:false,serviceTerms:[term]});
+    await assert.rejects(getPaymentTask({agencyId:1,userId:20,taskId:task.taskId}),e=>e.status===404);
+    await assert.rejects(postSignedService({agencyId:1,clientId:102,taskId:task.taskId,sessionId:301,serviceCode:'90834',actorUserId:99}),e=>e.status===409);
+    await save({amountCents:9000,revision:1});
+    await completePaymentTask({agencyId:1,userId:10,taskId:task.taskId,consent});
+    const signed=await getPaymentTask({agencyId:1,userId:10,taskId:task.taskId});assert.equal(signed.waiver.serviceTerms[0].totalCents,15000);
+    const tasks=await listPaymentTasks({agencyId:1,userId:10});assert.equal(tasks[0].serviceTerms[0].totalCents,15000);assert.equal(tasks[0].serviceTerms[0].insuranceFingerprint,undefined);
+    await clinical.execute("INSERT INTO clinical_sessions(id,agency_id,client_id,scheduled_start_at,encounter_status,service_code,billed_units) VALUES(301,1,102,'2026-02-01','completed','90834',2),(302,1,102,'2026-02-02','completed','90834',1),(303,1,102,'2026-02-03','completed','90834',2)");
+    const post={agencyId:1,clientId:102,taskId:task.taskId,sessionId:301,serviceCode:'90834',actorUserId:99};
+    await assert.rejects(postSignedService(post),e=>e.status===409&&e.message.includes('incomplete'));
+    await saveReadiness({agencyId:1,clientId:102,coverageMode:'self_pay',setupStatus:'ready',collectionPolicy:'manual',reason:'Synthetic signed terms',actorUserId:99});
+    const [first,second]=await Promise.all([postSignedService(post),postSignedService(post)]);assert.equal(first.id,second.id);assert.equal(Number(first.amount_cents),15000);assert.equal(first.status,'open');
+    const [[count]]=await pool.execute("SELECT COUNT(*) n FROM family_receivables WHERE source_type='clinical_self_pay'");assert.equal(count.n,1);
+    await assertCollectible(first);
+    const visits=await listSignedServiceVisits(post);assert.deepEqual(visits.map(v=>Number(v.sessionId)).sort(),[301,303]);
+    await assert.rejects(assertNoSelfPayBalance(1,301),e=>e.status===409);await assertNoSelfPayBalance(2,301);
+    await assert.rejects(postSignedService({...post,sessionId:302}),e=>e.status===409&&e.message.includes('units'));
+    await clinical.execute('INSERT INTO clinical_claims(id,agency_id,client_id,clinical_session_id) VALUES(303,1,102,303)');
+    await assert.rejects(postSignedService({...post,sessionId:303}),e=>e.status===409&&e.message.includes('insurance claim'));
+    await clinical.execute("UPDATE clinical_sessions SET service_code='90837' WHERE id=301");
+    await assert.rejects(assertCollectible(first),e=>e.status===409);
+    await clinical.execute("UPDATE clinical_sessions SET service_code='90834' WHERE id=301");
+    await writeClientInsurance({agencyId:1,clientId:102,primary:{insurerName:'Synthetic commercial',memberId:'FAKE-1'}});
+    await assert.rejects(postSignedService(post),e=>e.status===409&&e.message.includes('Coverage changed'));
+    await assert.rejects(assertCollectible(first),e=>e.status===409);
+    const copay={...term,paymentBasis:'copay',amountCents:2500};
+    assert.equal((await snapshotServiceTerms({agencyId:1,clientIds:[102],serviceTerms:[copay]}))[0].totalCents,2500);
+    const staleTask=await createPaymentTask({agencyId:1,guardianUserId:10,clientIds:[102],actorUserId:99,requireCard:false,serviceTerms:[copay]});
+    await writeClientInsurance({agencyId:1,clientId:102,primary:{insurerName:'Synthetic Medicaid',memberId:'FAKE-M',isMedicaid:true}});
+    await assert.rejects(snapshotServiceTerms({agencyId:1,clientIds:[102],serviceTerms:[copay]}),e=>e.status===409&&e.message.includes('Medicaid'));
+    await assert.rejects(completePaymentTask({agencyId:1,userId:10,taskId:staleTask.taskId,consent}),e=>e.status===409);
+    await writeClientInsurance({agencyId:1,clientId:101,primary:{insurerName:'Synthetic commercial',memberId:'FAKE-2'}});
+    const copayTask=await createPaymentTask({agencyId:1,guardianUserId:20,clientIds:[101],actorUserId:99,requireCard:false,serviceTerms:[{...copay,clientId:101,serviceCode:'90837'}]});
+    await completePaymentTask({agencyId:1,userId:20,taskId:copayTask.taskId,consent});
+    await saveReadiness({agencyId:1,clientId:101,coverageMode:'insured',setupStatus:'ready',collectionPolicy:'manual',reason:'Verified benefits',actorUserId:99});
+    await clinical.execute("INSERT INTO clinical_sessions(id,agency_id,client_id,scheduled_start_at,encounter_status,service_code,billed_units) VALUES(401,1,101,'2026-02-01','completed','90837',1)");
+    await clinical.execute('INSERT INTO clinical_claims(id,agency_id,client_id,clinical_session_id) VALUES(401,1,101,401)');
+    const copayPost={agencyId:1,clientId:101,taskId:copayTask.taskId,claimId:401,serviceCode:'90837',actorUserId:99};
+    const copayBalance=await postSignedService(copayPost);assert.equal(Number(copayBalance.amount_cents),2500);
+    assert.equal((await postSignedService(copayPost)).id,copayBalance.id);
+    assert.equal((await listSignedServiceVisits(copayPost))[0].claimId,401);
+  } finally {await pool.end();await clinical.end();}
+});

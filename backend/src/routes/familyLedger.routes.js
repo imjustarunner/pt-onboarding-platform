@@ -1,3 +1,5 @@
+import {postSignedService,listSignedServiceVisits} from '../services/familyLedger/serviceCharges.js';
+import {listServiceRates,saveServiceRate} from '../services/familyLedger/serviceRates.js';
 import BookingPackage from '../models/BookingPackage.model.js';
 import {clinicalAccess,setClinicalGrant,revokeClinicalGrant,requireClinicalAccessManager} from '../services/guardianClinicalAccess.service.js';
 import {syncSessionBalances,setClaimResponsibility,createPackageOrder,createEventOrder,fulfillPaidBalances} from '../services/familyLedger/sources.js';
@@ -44,6 +46,10 @@ router.get('/clinical-access',run(async(req,res)=>{const c=context(req),[links]=
 router.post('/clinical-access/:clientId/:guardianUserId/restrict',run(async(req,res)=>res.json(await revokeClinicalGrant({...req.body,...context(req),clientId:positiveId(req.params.clientId),guardianUserId:positiveId(req.params.guardianUserId)}))));
 router.post('/clinical-access/:clientId/:guardianUserId',run(async(req,res)=>{const c=context(req);await requireClinicalAccessManager(req.user,c.agencyId);res.json(await setClinicalGrant({...req.body,...c,clientId:positiveId(req.params.clientId),guardianUserId:positiveId(req.params.guardianUserId)}));}));
 router.use('/staff',staffOnly);
+router.get('/staff/service-visits',run(async(req,res)=>res.json({visits:await listSignedServiceVisits({...req.query,...context(req)})})));
+router.post('/staff/service-charges',run(async(req,res)=>res.json(await postSignedService({...req.body,...context(req)}))));
+router.get('/staff/service-rates',run(async(req,res)=>res.json({rates:await listServiceRates(context(req).agencyId)})));
+router.put('/staff/service-rates/:code',run(async(req,res)=>res.json(await saveServiceRate({...req.body,...context(req),serviceCode:req.params.code}))));
 router.get('/staff/collection-handoff',run(async(req,res)=>res.json(await handoffWorkspace({user:req.user,agencyId:context(req).agencyId}))));
 router.post('/staff/collection-handoff',limited,run(async(req,res)=>res.json(await transferToCollections({...req.body,user:req.user,agencyId:context(req).agencyId}))));
 router.get('/staff/collection-handoff/:id',run(async(req,res)=>res.json(await collectionCaseDetail({user:req.user,agencyId:context(req).agencyId,caseId:positiveId(req.params.id)}))));

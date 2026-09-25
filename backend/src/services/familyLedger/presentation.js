@@ -1,4 +1,4 @@
-export const responsibilityLabels = { copay: 'Copay', deductible: 'Deductible', coinsurance: 'Coinsurance', patient_balance: 'Patient responsibility' };
+export const responsibilityLabels = { self_pay: 'Self-pay', copay: 'Copay', deductible: 'Deductible', coinsurance: 'Coinsurance', patient_balance: 'Patient responsibility' };
 
 export function presentBalance(row, { collectible, own, staff = false, responsibility = {} }) {
   const net = Math.max(0, Number(row.amountCents) - Number(row.paidCents));
@@ -16,7 +16,8 @@ export function presentBalance(row, { collectible, own, staff = false, responsib
     ...(!staff && !collectible && !settled ? {amountCents:null,totalCents:null} : {}),
     canPay: !staff && own && due > 0,
     billingState: noResponsibility ? 'closed' : settled ? 'paid' : row.status === 'void' ? 'void' : due > 0 ? 'due' : 'review',
+    ...(responsibility.serviceTerm ? {serviceCode:responsibility.serviceTerm.serviceCode,serviceUnits:responsibility.serviceTerm.units,unitAmountCents:responsibility.serviceTerm.amountCents,priceBasis:responsibility.serviceTerm.priceBasis} : {}),
     description: label === 'Services' ? 'Services' : `Visit · ${label}`,
-    explanation: noResponsibility ? (refundReviewCents > 0 ? 'Your final patient responsibility is $0. Nothing is due. The office is reviewing your prior payment for a refund.' : 'Your final patient responsibility is $0. This balance is closed; nothing is due.') : settled ? 'Payment recorded. Nothing remains due for this share.' : row.status === 'void' ? 'Cancelled. Nothing is due.' : due === 0 ? 'Under review. Nothing is due while billing verifies your responsibility.' : responsibility.verificationBasis === 'era' ? 'Your share verified against the payer’s remittance, less payments already recorded.' : responsibility.responsibilityType === 'copay' ? 'Copay verified for this visit. The payer’s final determination may change your responsibility; prior payments will be applied.' : 'Your verified share, less payments already recorded.'
+    explanation: noResponsibility ? (refundReviewCents > 0 ? 'Your final patient responsibility is $0. Nothing is due. The office is reviewing your prior payment for a refund.' : 'Your final patient responsibility is $0. This balance is closed; nothing is due.') : settled ? 'Payment recorded. Nothing remains due for this share.' : row.status === 'void' ? 'Cancelled. Nothing is due.' : due === 0 ? 'Under review. Nothing is due while billing verifies your responsibility.' : responsibility.verificationBasis === 'era' ? 'Your share verified against the payer’s remittance, less payments already recorded.' : responsibility.responsibilityType === 'copay' ? 'Copay verified for this visit. The payer’s final determination may change your responsibility; prior payments will be applied.' : responsibility.responsibilityType === 'self_pay' ? 'Your agreed self-pay price for this completed visit, less payments already recorded.' : 'Your verified share, less payments already recorded.'
   };
 }

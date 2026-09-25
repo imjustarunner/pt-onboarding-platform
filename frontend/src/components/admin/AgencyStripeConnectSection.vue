@@ -8,12 +8,11 @@
         <h4>Stripe Connect — Client Payments</h4>
       </div>
       <p class="stripe-connect-desc">
-        Connect your agency's Stripe account so parents and guardians can pay for classes, tutoring,
-        and sessions directly into your bank account. Stripe handles all card processing and
-        compliance — no card numbers ever touch our servers.
+        Set up this organization’s payment account so clients and guardians can pay verified copays and self-pay balances. Stripe collects the legal business details, owners, statement descriptor, and payout bank account securely.
       </p>
     </div>
 
+    <p v-if="!loading && !canManageConnection" class="stripe-status-hint">An organization administrator can complete or update this payment account.</p>
     <!-- Loading -->
     <div v-if="loading" class="stripe-status-row">
       <span class="spinner" /> Checking Stripe connection…
@@ -31,7 +30,7 @@
         </span>
       </div>
       <div class="stripe-actions">
-        <button class="btn btn-primary" :disabled="connecting" @click="connectStripe">
+        <button class="btn btn-primary" :disabled="connecting || !canManageConnection" @click="connectStripe">
           <span v-if="connecting" class="spinner spinner--btn" />
           {{ connecting ? 'Redirecting to Stripe…' : 'Connect Stripe Account' }}
         </button>
@@ -47,7 +46,7 @@
         </span>
       </div>
       <div class="stripe-actions">
-        <button class="btn btn-primary" :disabled="connecting" @click="connectStripe">
+        <button class="btn btn-primary" :disabled="connecting || !canManageConnection" @click="connectStripe">
           <span v-if="connecting" class="spinner spinner--btn" />
           {{ connecting ? 'Redirecting to Stripe…' : 'Continue Stripe Setup' }}
         </button>
@@ -78,11 +77,11 @@
         </div>
       </div>
       <div class="stripe-actions">
-        <button class="btn" :disabled="openingDashboard" @click="openDashboard">
+        <button class="btn" :disabled="openingDashboard || !canManageConnection" @click="openDashboard">
           <span v-if="openingDashboard" class="spinner spinner--btn" />
           {{ openingDashboard ? 'Opening…' : 'Open Stripe Dashboard' }}
         </button>
-        <button class="btn btn-outline btn-danger-outline" :disabled="disconnecting" @click="confirmDisconnect">
+        <button class="btn btn-outline btn-danger-outline" :disabled="disconnecting || !canManageConnection" @click="confirmDisconnect">
           {{ disconnecting ? 'Disconnecting…' : 'Disconnect' }}
         </button>
       </div>
@@ -122,6 +121,7 @@ const payoutsEnabled = ref(null);
 const accountDisplayName = ref('');
 const connecting = ref(false);
 const disconnecting = ref(false);
+const canManageConnection = ref(false);
 const openingDashboard = ref(false);
 const refreshing = ref(false);
 const showDisconnectConfirm = ref(false);
@@ -131,6 +131,7 @@ async function loadStatus() {
   if (!props.agencyId) return;
   try {
     const res = await api.get(`/billing/${props.agencyId}/stripe/status`);
+    canManageConnection.value = res.data?.canManageConnection === true;
     status.value = res.data?.status || 'not_connected';
     chargesEnabled.value = res.data?.chargesEnabled ?? null;
     payoutsEnabled.value = res.data?.payoutsEnabled ?? null;

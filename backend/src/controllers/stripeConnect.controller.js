@@ -88,8 +88,9 @@ export const startConnect = async (req, res, next) => {
     }
 
     // Generate a fresh account link (links expire after a few minutes)
-    const returnUrl = process.env.STRIPE_CONNECT_RETURN_URL || `${process.env.FRONTEND_URL || ''}/billing?stripe=connected&agencyId=${agencyId}`;
-    const refreshUrl = process.env.STRIPE_CONNECT_REFRESH_URL || `${process.env.FRONTEND_URL || ''}/billing?stripe=refresh&agencyId=${agencyId}`;
+    const portalPath = `/${encodeURIComponent(agency.slug)}/admin/family-billing?tab=setup&agencyId=${agencyId}`;
+    const returnUrl = process.env.STRIPE_CONNECT_RETURN_URL || `${process.env.FRONTEND_URL || ''}${portalPath}&stripe=connected`;
+    const refreshUrl = process.env.STRIPE_CONNECT_REFRESH_URL || `${process.env.FRONTEND_URL || ''}${portalPath}&stripe=refresh`;
 
     const accountLink = await StripePaymentsService.createAccountLink({
       connectedAccountId: stripeAccountId,
@@ -116,8 +117,9 @@ export const startConnect = async (req, res, next) => {
  */
 export const getStripeStatus = async (req, res, next) => {
   try {
+    const canManageConnection=['admin','agency_admin','super_admin','backoffice_admin'].includes(req.user.role);
     if (!isStripeConfigured()) {
-      return res.json({ status: 'not_connected', chargesEnabled: false, stripeAccountId: null });
+      return res.json({ status: 'not_connected', chargesEnabled: false, stripeAccountId: null, canManageConnection });
     }
 
     const agencyId = parseInt(req.params.agencyId, 10);
@@ -127,7 +129,7 @@ export const getStripeStatus = async (req, res, next) => {
     const stripeAccountId = billingAccount?.stripe_connect_account_id || null;
 
     if (!stripeAccountId) {
-      return res.json({ status: 'not_connected', chargesEnabled: false, stripeAccountId: null });
+      return res.json({ status: 'not_connected', chargesEnabled: false, stripeAccountId: null, canManageConnection });
     }
 
     // Retrieve live status from Stripe
@@ -138,7 +140,7 @@ export const getStripeStatus = async (req, res, next) => {
       // Account may have been deleted on Stripe's end
       if (stripeErr?.code === 'account_invalid' || stripeErr?.statusCode === 404) {
         await saveConnectAccount(agencyId, { accountId: null, status: 'not_connected' });
-        return res.json({ status: 'not_connected', chargesEnabled: false, stripeAccountId: null });
+        return res.json({ status: 'not_connected', chargesEnabled: false, stripeAccountId: null, canManageConnection });
       }
       throw stripeErr;
     }
@@ -152,6 +154,7 @@ export const getStripeStatus = async (req, res, next) => {
     }
 
     res.json({
+      canManageConnection,
       status: newStatus,
       chargesEnabled,
       stripeAccountId,
