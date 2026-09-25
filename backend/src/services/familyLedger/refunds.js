@@ -30,6 +30,7 @@ export async function refundPayment({agencyId,paymentId,amountCents,idempotencyK
   if(prepared.payment.processor==='CASH') { await finalizeRefund(prepared.refund.id,agencyId,null,null); return {refunded:true,refundId:prepared.refund.id}; }
   if(prepared.payment.processor!=='STRIPE')throw billingError(409,'Reconcile imported payments through the original payment system');
   const snapshot=decryptFamilyBilling(prepared.payment.snapshot_encrypted,`ledger-payment:${agencyId}:${prepared.payment.allocation_id}`);
+  if(!prepared.refund.processor_refund_id&&prepared.refund.created_at&&Date.now()-new Date(prepared.refund.created_at).getTime()>23*3600000)throw billingError(409,'This refund needs processor reconciliation before retrying; its idempotency window may have expired');
   let result;
   try { result=prepared.refund.processor_refund_id?await Stripe.retrieveRefund(prepared.refund.processor_refund_id,snapshot.accountId):await Stripe.refundPaymentIntent({paymentIntentId:prepared.payment.processor_intent_id,amountCents:prepared.refund.amount_cents,connectedAccountId:snapshot.accountId,idempotencyKey:`family-refund:${agencyId}:${prepared.refund.id}`,metadata:{family_ledger_refund_id:String(prepared.refund.id),agency_id:String(agencyId)}}); }
   catch {await pool.execute("UPDATE family_payment_refunds SET status='unknown' WHERE id=? AND status<>'succeeded'",[prepared.refund.id]);throw billingError(409,'Refund confirmation is pending; retry this same refund reference');}

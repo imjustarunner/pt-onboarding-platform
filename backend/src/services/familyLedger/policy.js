@@ -1,7 +1,11 @@
 import pool from '../../config/database.js';
+import clinicalPool from '../../config/clinicalDatabase.js';
 import { billingError, positiveId, requireResponsiblePayer } from '../familyBillingPolicy.service.js';
 import { readClientInsurance } from '../clientInsurance.service.js';
 import { hasMedicaidCoverage, isNonClinicalPaymentChannel } from '../../utils/insurancePaymentPolicy.js';
+import { getReadiness, assertReady, insuranceFingerprint } from './readiness.js';
+import { assertLedgerIntegrity } from './integrity.js';
+import { decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 
 export function cents(value, { allowZero = false } = {}) {
   const n = Number(value);
@@ -25,6 +29,7 @@ export function parseJson(value, fallback = null) {
 }
 export async function requireBillingStaff(user, agencyId, db = pool) {
   const aid = positiveId(agencyId), uid = positiveId(user?.id);
+  if (['provider', 'provider_plus'].includes(user.role)) throw billingError(403, 'Billing staff access is required for this organization');
   if (['super_admin', 'superadmin'].includes(user.role)) {
     const [agency] = await db.execute('SELECT id FROM agencies WHERE id = ?', [aid]);
     if (agency.length) return;
@@ -53,14 +58,31 @@ export async function assertSharesAuthorized(agencyId, clientId, shares, db = po
   for (const s of normalizeShares(shares)) await requireResponsiblePayer(s.payerUserId, clientId, agencyId, db);
 }
 export async function assertCollectible(receivable, db = pool) {
-  if (!['open', 'paid'].includes(receivable.status) || receivable.disputed_at || receivable.hold_reason) throw billingError(409, 'This balance is on hold and cannot be collected');
+  if (receivable.status !== 'open' || receivable.disputed_at || receivable.hold_reason) throw billingError(409, 'This balance is settled or on hold and cannot be collected');
+  await assertLedgerIntegrity(receivable,db);
+  if(receivable.source_type==='claim_responsibility') {
+    const [claims]=await clinicalPool.execute(`SELECT c.id,s.encounter_status,c.claim_status,
+      (SELECT COALESCE(MAX(cr.id),0) FROM clinical_claim_change_requests cr WHERE cr.agency_id=c.agency_id AND cr.clinical_session_id=c.clinical_session_id) AS latest_change_id,
+      EXISTS(SELECT 1 FROM clinical_claim_change_requests cr WHERE cr.agency_id=c.agency_id AND cr.clinical_session_id=c.clinical_session_id AND cr.status IN ('pending','reconciliation_required')) AS correction_pending
+      FROM clinical_claims c JOIN clinical_sessions s ON s.id=c.clinical_session_id AND s.agency_id=c.agency_id AND s.client_id=c.client_id
+      WHERE c.id=? AND c.agency_id=? AND c.client_id=? AND c.is_deleted=0`,[receivable.source_key,receivable.agency_id,receivable.client_id]);
+    const claim=claims[0];
+    if(!claim||claim.encounter_status!=='completed'||['VOID','VOIDED','CANCELLED','CANCELED'].includes(String(claim.claim_status).toUpperCase())||Number(claim.correction_pending))throw billingError(409,'The visit or claim needs review before collecting patient responsibility');
+    const payload=receivable.source_payload?decryptFamilyBilling(receivable.source_payload,`receivable:${receivable.agency_id}:${receivable.client_id}`):{};
+    if(Number(payload.verifiedClaimChangeId||0)!==Number(claim.latest_change_id))throw billingError(409,'The claim changed. Reverify patient responsibility before collection');
+  }
   if(receivable.source_type==='learning_charge'){
     const [charges]=await db.execute('SELECT total_cents,charge_status FROM learning_session_charges WHERE id=? AND agency_id=?',[receivable.source_key,receivable.agency_id]);
-    if(!charges.length||Number(charges[0].total_cents)!==Number(receivable.amount_cents)||['VOIDED','REFUNDED'].includes(charges[0].charge_status))throw billingError(409,'The source charge changed. Reconcile this balance before collection.');
+    if(!charges.length||Number(charges[0].total_cents)!==Number(receivable.amount_cents)||['CAPTURED','VOIDED','REFUNDED'].includes(charges[0].charge_status))throw billingError(409,'The source charge changed or was settled. Reconcile this balance before collection.');
+    const [otherPayments]=await db.execute("SELECT id FROM learning_payments WHERE agency_id=? AND learning_session_charge_id=? AND payment_status NOT IN ('VOIDED','REFUNDED','FAILED') LIMIT 1",[receivable.agency_id,receivable.source_key]);
+    if(otherPayments.length)throw billingError(409,'Another payment exists for this service; reconcile it before collection');
   }
   const insurance = await readClientInsurance(receivable.client_id, receivable.agency_id, db);
   if (hasMedicaidCoverage(insurance) && !isNonClinicalPaymentChannel(receivable.service_domain)) throw billingError(409, 'Medicaid-protected services cannot be collected from the family');
-  if (['mental_health', 'clinical', 'unknown'].includes(receivable.service_domain) && (insurance?.primary?.memberId || insurance?.secondary?.memberId) && !receivable.insurance_reviewed) throw billingError(409, 'Insurance patient responsibility must be reviewed first');
+  if (!isNonClinicalPaymentChannel(receivable.service_domain)) {
+    assertReady(await getReadiness(receivable.agency_id, receivable.client_id, db), insurance);
+    if (!receivable.insurance_reviewed || receivable.insurance_fingerprint !== insuranceFingerprint(insurance)) throw billingError(409, 'Patient responsibility must be verified against current coverage or agreed self-pay terms first');
+  }
 }
 export async function transaction(work) {
   const db = await pool.getConnection();

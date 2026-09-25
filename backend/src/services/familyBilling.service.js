@@ -6,14 +6,14 @@ import { normalizePolicy, applySubmittedClientInsurance, readClientInsurance, cl
 import { getStripePublishableKey } from './stripePayments.service.js';
 
 export async function getFamilyBillingSummary(userId, agencyId) {
-  const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, cg.access_enabled, cg.relationship_type, cg.permissions_json
+  const [clients] = await pool.execute(`SELECT c.id, c.full_name, c.initials, c.date_of_birth, cg.access_enabled, cg.relationship_type, cg.permissions_json
     FROM client_guardians cg JOIN clients c ON c.id = cg.client_id WHERE cg.guardian_user_id = ? AND c.agency_id = ? AND cg.access_enabled = 1 ORDER BY c.full_name`, [userId, agencyId]);
   const items = [];
   for (const c of clients) {
     const [payers] = await pool.execute(`SELECT p.guardian_user_id, p.payment_card_id, p.consent_id, p.recurring_limit_cents, u.first_name, u.last_name
       FROM client_billing_payers p JOIN users u ON u.id = p.guardian_user_id
       JOIN client_guardians cg ON cg.client_id = p.client_id AND cg.guardian_user_id = p.guardian_user_id
-      WHERE p.agency_id = ? AND p.client_id = ? AND p.status = 'active' AND cg.access_enabled = 1 AND cg.relationship_type <> 'self'`, [agencyId, c.id]);
+      WHERE p.agency_id = ? AND p.client_id = ? AND p.status = 'active' AND cg.access_enabled = 1`, [agencyId, c.id]);
     const own = linkAllowsBilling(c) ? payers.find(p => Number(p.guardian_user_id) === Number(userId)) : null;
     items.push({ clientId: c.id, clientName: c.full_name || c.initials, responsiblePayers: payers.map(p => ({ name: [p.first_name, p.last_name].filter(Boolean).join(' ') || 'Responsible payer' })), canAcceptResponsibility: linkAllowsBilling(c), canManageBilling: !!own,
       ...(own ? { paymentCardId: own.payment_card_id, recurringEnabled: !!own.consent_id, recurringLimitCents: own.recurring_limit_cents, paymentOnFileRequired: !own.payment_card_id } : {}) });

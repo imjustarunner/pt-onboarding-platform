@@ -2,7 +2,9 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import pool from '../../config/database.js';
 import { billingError, requireResponsiblePayer, linkAllowsBilling, auditBilling } from '../familyBillingPolicy.service.js';
 import { decryptFamilyBilling } from '../familyBillingEncryption.service.js';
-import { parseJson, today } from './policy.js';
+import { parseJson, today, assertCollectible } from './policy.js';
+import { findReceivable, sourcePayload } from './receivables.js';
+import { presentBalance } from './presentation.js';
 
 export async function listBalances({agencyId,userId,clientId=null,staff=false,overdueOnly=false}) {
   const args=[agencyId];
@@ -12,17 +14,28 @@ export async function listBalances({agencyId,userId,clientId=null,staff=false,ov
   if(overdueOnly)filter+=" AND r.status='open' AND r.due_date<CURRENT_DATE AND r.disputed_at IS NULL AND r.hold_reason IS NULL AND a.amount_cents>a.paid_cents";
   const [rows]=await pool.execute(`SELECT r.id AS receivableId,r.client_id AS clientId,r.source_type AS sourceType,r.source_key AS sourceKey,r.service_domain AS serviceDomain,r.service_date AS serviceDate,r.amount_cents AS totalCents,r.due_date AS dueDate,r.currency,r.status,j.status AS fulfillmentStatus,j.last_error AS fulfillmentError,r.hold_reason AS holdReason,r.disputed_at AS disputedAt,a.id AS allocationId,a.payer_user_id AS payerUserId,a.amount_cents AS amountCents,a.paid_cents AS paidCents,u.first_name AS payerFirst,u.last_name AS payerLast FROM family_receivables r JOIN family_receivable_allocations a ON a.receivable_id=r.id LEFT JOIN users u ON u.id=a.payer_user_id LEFT JOIN family_fulfillment_jobs j ON j.receivable_id=r.id WHERE r.agency_id=?${filter} ORDER BY r.due_date,r.id,a.id LIMIT 500`,args);
   const allowed=new Map();
+  const receivables=new Map();
   const result=[];
   for(const row of rows){
     if(!staff){
       if(!allowed.has(row.clientId)) {try{await requireResponsiblePayer(userId,row.clientId,agencyId);allowed.set(row.clientId,true);}catch(e){if(e.status!==403)throw e;allowed.set(row.clientId,false);}}
       if(!allowed.get(row.clientId))continue;
     }
-    const value={...row,payerName:[row.payerFirst,row.payerLast].filter(Boolean).join(' '),balanceCents:Number(row.amountCents)-Number(row.paidCents),canPay:!staff&&Number(row.payerUserId)===Number(userId)&&row.status==='open'&&!row.holdReason&&!row.disputedAt};
+    if(!receivables.has(row.receivableId)) {
+      const source=await findReceivable(agencyId,row.receivableId);
+      let collectible=false,collectionIssue=null;
+      if(source.status==='open')try{await assertCollectible(source);collectible=true;}catch(e){if(e.status!==409)throw e;collectionIssue=e.message;}
+      receivables.set(row.receivableId,{collectible,collectionIssue,responsibility:sourcePayload(source)});
+    }
+    const value=presentBalance({...row,payerName:[row.payerFirst,row.payerLast].filter(Boolean).join(' ')},{...receivables.get(row.receivableId),own:Number(row.payerUserId)===Number(userId),staff});
+    if(staff&&receivables.get(row.receivableId).collectionIssue)value.explanation=receivables.get(row.receivableId).collectionIssue;
     delete value.payerFirst;delete value.payerLast;
-    if(!staff){if(value.fulfillmentError)value.fulfillmentError='Your payment is recorded. The office is reviewing service activation.';delete value.sourceKey;delete value.sourceType;delete value.serviceDate;value.serviceDomain=['clinical','mental_health','unknown'].includes(value.serviceDomain)?'Services':value.serviceDomain;}
+    if(!staff){if(value.fulfillmentError)value.fulfillmentError='Your payment is recorded. The office is reviewing service activation.';delete value.sourceKey;delete value.sourceType;value.serviceDomain=['clinical','mental_health','unknown'].includes(value.serviceDomain)?'Services':value.serviceDomain;}
     const [plans]=await pool.execute("SELECT id,status,amount_cents AS amountCents,paid_before_cents AS paidBeforeCents,auto_pay AS autoPay FROM family_payment_plans WHERE allocation_id=? AND status IN ('proposed','active') ORDER BY id DESC LIMIT 1",[row.allocationId]);
     if(plans.length){value.plan=plans[0];const [installments]=await pool.execute('SELECT id,sequence_number AS sequenceNumber,amount_cents AS amountCents,due_date AS dueDate FROM family_plan_installments WHERE plan_id=? ORDER BY sequence_number',[value.plan.id]);let paid=Math.max(0,Number(row.paidCents)-Number(value.plan.paidBeforeCents));value.plan.installments=installments.map(i=>{const applied=Math.min(Number(i.amountCents),paid);paid-=applied;return {...i,paidCents:applied,balanceCents:Number(i.amountCents)-applied};});}
+    if(!staff && value.billingState==='review')delete value.plan;
+    const [attempts]=await pool.execute("SELECT id,status FROM family_ledger_payments WHERE allocation_id=? AND status IN ('pending','requires_action','unknown') ORDER BY id DESC LIMIT 1",[row.allocationId]);
+    if(attempts.length){value.paymentStatus=attempts[0].status;if(staff)value.pendingPaymentId=attempts[0].id;value.explanation='Payment confirmation is pending. Do not make a second payment; refresh or contact billing.';}
     result.push(value);
   }
   return result;
@@ -59,4 +72,20 @@ export async function renderPrivatePdf({title,agencyName,lines}) {
   draw(agencyName,16,bold);draw(title,20,bold);y-=12;for(const line of lines)draw(line);
   return Buffer.from(await pdf.save());
 }
-export async function renderReceiptPdf(receipt){const money=v=>new Intl.NumberFormat('en-US',{style:'currency',currency:receipt.currency||'USD'}).format(Number(v)/100);return renderPrivatePdf({title:'Payment receipt',agencyName:receipt.agencyName,lines:[`Receipt: ${receipt.receiptNumber}`,`Received: ${String(receipt.receivedAt).slice(0,10)}`,`Responsible payer: ${receipt.payerName}`,`Service: ${receipt.service}`,`Amount received: ${money(receipt.amountCents)}`,...(receipt.method?[`Payment method: ${receipt.method}`]:[]),...(receipt.refundedCents?[`Refunded: ${money(receipt.refundedCents)}`,`Net paid: ${money(receipt.netPaidCents)}`]:[]),'This receipt confirms a recorded payment. It does not disclose clinical records.']});}
+export async function renderReceiptPdf(receipt) {
+  const money=v=>new Intl.NumberFormat('en-US',{style:'currency',currency:receipt.currency||'USD'}).format(Number(v)/100);
+  return renderPrivatePdf({title:'Payment receipt',agencyName:receipt.agencyName,lines:[
+    `Receipt: ${receipt.receiptNumber}`, `Received: ${String(receipt.receivedAt).slice(0,10)}`,
+    `Responsible payer: ${receipt.payerName}`, `Service: ${receipt.service}`,
+    ...(receipt.clientName?[`Client: ${receipt.clientName}`]:[]),
+    ...(receipt.serviceDate?[`Service date: ${receipt.serviceDate}`]:[]),
+    ...(receipt.balanceReference?[`Balance reference: ${receipt.balanceReference}`]:[]),
+    ...(receipt.responsibilityType?[`Charge type: ${receipt.responsibilityType}`,`Basis: ${receipt.verificationBasis}`]:[]),
+    ...(receipt.shareCents!=null?[`Assigned share: ${money(receipt.shareCents)}`,`Previously paid: ${money(receipt.previouslyPaidCents)}`]:[]),
+    `Amount received: ${money(receipt.amountCents)}`,
+    ...(receipt.remainingAtPaymentCents!=null?[`Remaining at time of payment: ${money(receipt.remainingAtPaymentCents)}`]:[]),
+    ...(receipt.method?[`Payment method: ${receipt.method}`]:[]),
+    ...(receipt.refundedCents?[`Refunded: ${money(receipt.refundedCents)}`,`Net paid: ${money(receipt.netPaidCents)}`]:[]),
+    'This is a payment receipt, not a new bill or a superbill. See your portal for the current balance. Clinical notes and diagnoses are not included.'
+  ]});
+}

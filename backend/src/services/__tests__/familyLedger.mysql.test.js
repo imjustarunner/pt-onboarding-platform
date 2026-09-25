@@ -68,5 +68,5 @@ test('shared ledger: integer splits, private receipts, cash/card retries, refund
   await revokeClinicalGrant({agencyId:1,clientId:101,guardianUserId:10,userId:30,reason:'Restrict goals only',scopes:['treatment_plan','approve_goals']});
   const restricted=await clinicalAccess({agencyId:1,clientId:101,userId:10});assert.equal(restricted.level,'restricted');assert.equal(restricted.scopes.includes('treatment_plan'),false);assert.equal(restricted.scopes.includes('safety_plan'),true);
   await revokeClinicalGrant({agencyId:1,clientId:101,guardianUserId:10,userId:30,reason:'Request privacy'});assert.equal((await clinicalAccess({agencyId:1,clientId:101,userId:10})).scopes.length,0);
- }finally{await pool.end();}
+ }finally{await pool.end();const {default:clinicalPool}=await import('../../config/clinicalDatabase.js');await clinicalPool.end();}
 });
