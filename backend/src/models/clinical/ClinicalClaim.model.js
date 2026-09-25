@@ -1,7 +1,18 @@
 import clinicalPool from '../../config/clinicalDatabase.js';
 
 class ClinicalClaim {
-  static async create({
+  static async create(args) {
+    const own=!args.db,db=args.db||await clinicalPool.getConnection();
+    try {
+      if(own)await db.beginTransaction();
+      await db.execute('SELECT id FROM clinical_sessions WHERE id=? AND agency_id=? FOR UPDATE',[args.clinicalSessionId,args.agencyId]);
+      const [[existing]]=await db.execute('SELECT id FROM clinical_claims WHERE clinical_session_id=? AND agency_id=? LIMIT 1',[args.clinicalSessionId,args.agencyId]);
+      if(existing)throw Object.assign(new Error('An original claim already exists for this encounter. Review it for correction; deletion, voiding or a new note does not authorize a second original.'),{status:409});
+      const claim=await this.insertOriginal({...args,db});
+      if(own)await db.commit();return claim;
+    }catch(e){if(own)await db.rollback();throw e;}finally{if(own)db.release();}
+  }
+  static async insertOriginal({
     clinicalSessionId,
     agencyId,
     clientId,

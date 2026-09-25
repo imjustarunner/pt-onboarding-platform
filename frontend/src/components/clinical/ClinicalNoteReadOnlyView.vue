@@ -321,25 +321,27 @@
       </article>
       <p v-if="!addenda.length" class="ccn-muted">No addenda yet.</p>
       <textarea v-model="addendumDraft" class="ccn-addendum-input" rows="3" placeholder="Add addendum text…" />
-      <button type="button" class="ccn-copy-btn ccn-copy-btn--primary" :disabled="savingAddendum || !addendumDraft.trim()" @click="saveAddendum">
+      <p class="ccn-field-hint">A narrative addendum does not create or resend a claim. Select service correction only when the documented codes or units need to change.</p>
+      <label><input v-model="serviceCorrection" type="checkbox" /> Correct service codes / units</label>
+      <div v-if="serviceCorrection">
+        <p>List every service line for this encounter, including unchanged lines. Supervisor approval and billing review are required; nothing is transmitted automatically.</p>
+        <div v-for="(line,i) in correctedServices" :key="i">
+          <label>Service code <input v-model="line.procedureCode" maxlength="5" /></label><label>Units <input v-model.number="line.units" type="number" min="1" max="999" /></label>
+          <button type="button" :disabled="correctedServices.length===1" @click="correctedServices.splice(i,1)">Remove service</button>
+        </div>
+        <button type="button" :disabled="correctedServices.length>=50" @click="correctedServices.push({procedureCode:'',units:1})">Add service</button>
+        <label><input v-model="serviceChangeAttested" type="checkbox" /> I attest that this complete corrected service list accurately describes the care delivered.</label>
+      </div>
+      <button type="button" class="ccn-copy-btn ccn-copy-btn--primary" :disabled="savingAddendum || !addendumDraft.trim() || (serviceCorrection && !serviceChangeAttested)" @click="saveAddendum">
         {{ savingAddendum ? 'Saving…' : 'Attach addendum' }}
       </button>
-      <p v-if="amendmentPending" role="status">Addendum saved. Supervisor sign-off is required before claim submission or resubmission.</p>
+      <p v-if="amendmentPending" role="status">Addendum saved; supervisor approval is required. No claim was created or transmitted. Service corrections await a separate billing decision.</p>
       <p v-if="addendumError" class="ccn-error">{{ addendumError }}</p>
     </section>
 
     <section v-if="!compact && canAmendBilling && note.clinicalSessionId" class="ccn-block" aria-label="Billing amendment">
-      <h4 class="ccn-block-title">Billing amendment</h4>
-      <p class="ccn-field-hint">Change service code, POS, or location after sign. Who, what, and when are logged on the note.</p>
-      <div class="ccn-facts-grid">
-        <label>Service code <input v-model="billingDraft.serviceCode" class="ccn-addendum-input" /></label>
-        <label>Place of service <input v-model="billingDraft.placeOfService" class="ccn-addendum-input" maxlength="2" /></label>
-      </div>
-      <label>Reason <input v-model="billingDraft.reason" class="ccn-addendum-input" placeholder="Why this billing field is changing" /></label>
-      <button type="button" class="ccn-copy-btn" :disabled="savingBilling" @click="saveBillingAmendment">
-        {{ savingBilling ? 'Saving…' : 'Save billing change' }}
-      </button>
-      <p v-if="billingError" class="ccn-error">{{ billingError }}</p>
+      <h4 class="ccn-block-title">Claim corrections</h4>
+      <p class="ccn-field-hint">Request clinical service corrections above. Billing staff review claim-only POS, modifier and charge corrections in the Billing Workspace, with a documented reason.</p>
     </section>
   </div>
 </template>
@@ -374,6 +376,8 @@ const copiedFull = ref(false);
 const showProviderSigMeta = ref(false);
 const showSupervisorSigMeta = ref(false);
 const addendumDraft = ref('');
+const serviceCorrection=ref(false),serviceChangeAttested=ref(false),correctedServices=ref([{procedureCode:'',units:1}]);
+watch(()=>props.note?.id,()=>{serviceCorrection.value=false;serviceChangeAttested.value=false;correctedServices.value=[{procedureCode:'',units:1}];});
 const savingAddendum = ref(false);
 const addendumError = ref('');
 const amendedNoteId = ref(null);
@@ -381,13 +385,6 @@ const amendmentPending = computed(() => amendedNoteId.value === Number(props.not
 const localAddenda = ref([]);
 watch(() => props.note?.id, () => { localAddenda.value = []; amendedNoteId.value = null; });
 watch(() => props.note?.supervisorCosignedAt, value => { if (value) amendedNoteId.value = null; });
-const billingDraft = ref({
-  serviceCode: '',
-  placeOfService: '',
-  reason: ''
-});
-const savingBilling = ref(false);
-const billingError = ref('');
 let copiedTimer = null;
 
 const addenda = computed(() => {
@@ -634,7 +631,8 @@ async function saveAddendum() {
   try {
     const res = await api.post(`/medical-billing/notes/${noteId}/addenda`, {
       agencyId: props.note?.agencyId || undefined,
-      body
+      body,
+      ...(serviceCorrection.value?{serviceLines:correctedServices.value,serviceChangeAttested:serviceChangeAttested.value}:{})
     });
     const rows = Array.isArray(res?.data?.addenda) ? res.data.addenda : [];
     localAddenda.value = rows.map((a) => ({
@@ -645,6 +643,7 @@ async function saveAddendum() {
     }));
     amendedNoteId.value = noteId;
     addendumDraft.value = '';
+    serviceCorrection.value=false;serviceChangeAttested.value=false;correctedServices.value=[{procedureCode:'',units:1}];
   } catch (e) {
     addendumError.value = e.response?.data?.error?.message || e.message || 'Could not save addendum';
   } finally {
@@ -652,26 +651,6 @@ async function saveAddendum() {
   }
 }
 
-async function saveBillingAmendment() {
-  const sessionId = Number(props.note?.clinicalSessionId || 0);
-  if (!sessionId || savingBilling.value) return;
-  savingBilling.value = true;
-  billingError.value = '';
-  try {
-    await api.post(`/medical-billing/sessions/${sessionId}/apply-billing`, {
-      agencyId: props.note?.agencyId,
-      clinicalNoteId: props.note?.id,
-      serviceCode: billingDraft.value.serviceCode || undefined,
-      placeOfService: billingDraft.value.placeOfService || undefined,
-      reason: billingDraft.value.reason || 'Billing correction'
-    });
-    billingDraft.value.reason = '';
-  } catch (e) {
-    billingError.value = e.response?.data?.error?.message || e.message || 'Could not save billing change';
-  } finally {
-    savingBilling.value = false;
-  }
-}
 
 function formatDos(raw) {
   return String(raw || '').slice(0, 10);

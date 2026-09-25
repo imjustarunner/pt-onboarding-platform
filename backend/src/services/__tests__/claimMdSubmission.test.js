@@ -14,10 +14,21 @@ const prepared = () => ({ claim: { id: 11, client_id: 7, claim_lifecycle: 'ready
 beforeEach(() => {
   vi.clearAllMocks(); mocks.prepare.mockResolvedValue(prepared());
   mocks.connection.mockResolvedValue({ accountKey: 'synthetic', mode: 'test', connectionId: 'account:100' });
-  mocks.execute.mockResolvedValue([{ affectedRows: 1 }]);
+  mocks.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
   mocks.upload.mockResolvedValue({ claim: [{ remote_claimid: '11', claimmd_id: '800', status: 'A' }] });
 });
 describe('reviewed claim transmission', () => {
+  it('blocks another original even when a previously transmitted claim is rejected or reset to ready',async()=>{
+    for(const lifecycle of ['rejected','ready']) {
+      mocks.prepare.mockResolvedValue({...prepared(),claim:{...prepared().claim,claim_lifecycle:lifecycle,claimmd_claim_id:'800'}});
+      const next=vi.fn();await submitClaimToClaimMd(request(),response(),next);expect(next.mock.calls[0][0].status).toBe(409);
+    }
+    expect(mocks.upload).not.toHaveBeenCalled();
+  });
+  it('blocks upload under the note lock for a pending service correction',async()=>{
+    mocks.execute.mockImplementation(async sql=>sql.includes('clinical_claim_change_requests')?[[{id:12}]]:sql.startsWith('SELECT')?[[]]:[{affectedRows:1}]);
+    const next=vi.fn();await submitClaimToClaimMd(request(),response(),next);expect(next.mock.calls[0][0].status).toBe(409);expect(mocks.upload).not.toHaveBeenCalled();expect(mocks.rollback).toHaveBeenCalled();
+  });
   it('rechecks review freshness under the claim and documentation locks before upload', async () => {
     mocks.prepare.mockResolvedValueOnce(prepared()).mockResolvedValueOnce({...prepared(),reviewHash:'b'.repeat(64)});
     const next=vi.fn();await submitClaimToClaimMd(request(),response(),next);
@@ -40,7 +51,7 @@ describe('reviewed claim transmission', () => {
     expect(mocks.upload).not.toHaveBeenCalled();
   });
   it('blocks concurrent submission when the atomic state transition fails', async () => {
-    mocks.execute.mockResolvedValue([{ affectedRows: 0 }]); const next = vi.fn();
+    mocks.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:0}]); const next = vi.fn();
     await submitClaimToClaimMd(request(), response(), next);
     expect(next.mock.calls[0][0].status).toBe(409); expect(mocks.rollback).toHaveBeenCalled(); expect(mocks.upload).not.toHaveBeenCalled();
   });

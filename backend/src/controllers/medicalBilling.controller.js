@@ -1,5 +1,6 @@
 import { resolveClaimMdConnection, claimMdConnectionMeta, requireClaimMdTransmission } from '../services/claimMdConnection.service.js';
 import { prepareClaimReview } from './claimMdWorkflow.controller.js';
+import { assertOriginalTransmissionAllowed } from '../services/claimServiceChanges.service.js';
 import { recordClaimEvent, syncClaimMdResponses, asList } from '../services/claimMdWorkflow.service.js';
 import { loadRenewalPolicy, renewalStatus } from '../services/treatmentPlanRenewal.service.js';
 import { hasSchedulingBillingAccess, schedulingResponseForUser } from '../services/schedulingBillingAccess.service.js';
@@ -2260,19 +2261,16 @@ export const createMedicalClaim = async (req, res, next) => {
         // Pending supervisor notes may enter the billing queue as drafts; submission rechecks readiness.
       }
 
-      // Idempotent: return existing non-void claim for this note/session.
+      // One original per encounter, even after a new note version, void or deletion.
       try {
         const [existing] = await clinicalPool.execute(
           `SELECT id, claim_status, claim_lifecycle, clinical_note_id, clinical_session_id, amount_cents
            FROM clinical_claims
            WHERE agency_id = ?
              AND clinical_session_id = ?
-             AND clinical_note_id = ?
-             AND UPPER(COALESCE(claim_status, '')) NOT IN ('VOID', 'CANCELLED', 'CANCELED')
-             AND COALESCE(is_deleted, 0) = 0
            ORDER BY (clinical_note_id = ?) DESC, id DESC
            LIMIT 1`,
-          [agencyId, sessionId, noteId, noteId]
+          [agencyId, sessionId, noteId]
         );
         if (existing?.[0]?.id) {
           return res.json(await schedulingResponseForUser(req.user, agencyId, {
@@ -2532,7 +2530,7 @@ export const createMedicalClaim = async (req, res, next) => {
     try {
       await draftDb.beginTransaction();
       await draftDb.execute('SELECT id FROM clinical_sessions WHERE id = ? AND agency_id = ? FOR UPDATE', [sessionId, agencyId]);
-      const [duplicates] = await draftDb.execute(`SELECT id FROM clinical_claims WHERE agency_id = ? AND clinical_session_id = ? AND clinical_note_id = ? AND is_deleted = 0 AND claim_lifecycle NOT IN ('void','cancelled')`, [agencyId, sessionId, noteId]);
+      const [duplicates] = await draftDb.execute(`SELECT id FROM clinical_claims WHERE agency_id = ? AND clinical_session_id = ?`, [agencyId, sessionId]);
       if (duplicates.length) {
         await draftDb.rollback();
         return res.json(billingAccess ? { claim: duplicates[0], alreadyExists: true } : { documentationQueued: true });
@@ -2774,6 +2772,7 @@ export const submitClaimToClaimMd = async (req, res, next) => {
       await db.execute('SELECT id FROM clinical_note_addenda WHERE clinical_note_id = ? AND agency_id = ? FOR UPDATE',[claim.clinical_note_id || null,agencyId]);
       const latestReview = await prepareClaimReview(agencyId,claimId);
       if (!latestReview.readiness.ready || latestReview.reviewHash !== reviewHash) throw Object.assign(new Error('Documentation or billing policy changed. Review this claim again.'),{status:409});
+      await assertOriginalTransmissionAllowed({...latestReview.claim,agency_id:agencyId},db);
       const [queued] = await db.execute(`UPDATE clinical_claims SET claim_lifecycle = 'queued', member_id = NULL,
         insurance_payload = ?, claimmd_connection_id = ?, rendering_npi = ? WHERE id = ? AND agency_id = ? AND is_deleted = 0
         AND claim_lifecycle IN ('ready','draft','rejected') AND billing_revision = ?`,
@@ -3319,6 +3318,8 @@ export const applyEncounterBilling = async (req, res, next) => {
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId: aid });
 
     const serviceCode = String(req.body.serviceCode || session.service_code || '').trim().toUpperCase();
+    const [[signedSource]]=await clinicalPool.execute('SELECT id FROM clinical_notes WHERE clinical_session_id=? AND agency_id=? AND provider_signed_at IS NOT NULL LIMIT 1',[sessionId,aid]);
+    if(signedSource) return res.status(409).json({error:{message:'For a signed encounter, request service-code/unit changes through a signed note amendment. Use the claim billing editor for supported claim-only POS/modifier corrections.'}});
     const minutes = Number(req.body.durationMinutes ?? session.duration_minutes ?? 0);
     const serviceLocationId = parseIntValue(req.body.serviceLocationId) || session.service_location_id || null;
     let billingOfficeLocationId =
@@ -3551,7 +3552,9 @@ export const createClinicalNoteAddendum = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Only the note author or assigned supervisor can add a clinical amendment.' } });
     }
     const { appendClinicalNoteAmendment } = await import('../services/clinicalNoteAmendment.service.js');
-    await appendClinicalNoteAmendment({ noteId, agencyId: note.agency_id, body: bodyText, actorUserId: req.user.id, requestSignoff: async () => {
+    if(req.body.serviceLines!==undefined && isNonBillableDocument(note))return res.status(400).json({error:{message:'Non-service notes remain non-billable. Request a code correction on the signed service note.'}});
+    if(req.body.serviceLines!==undefined && req.body.serviceChangeAttested!==true) return res.status(400).json({error:{message:'Attest that the corrected service codes and units accurately describe the care delivered'}});
+    await appendClinicalNoteAmendment({ noteId, agencyId: note.agency_id, body: bodyText, actorUserId: req.user.id, serviceLines:req.body.serviceLines, requestSignoff: async () => {
       if (!policy.supervisorUserId) return;
       await pool.execute(`INSERT INTO clinical_note_signoffs (agency_id,clinical_note_id,provider_user_id,supervisor_user_id,provider_signed_at,status)
         VALUES (?,?,?,?,?,'awaiting_supervisor') ON DUPLICATE KEY UPDATE status='awaiting_supervisor',supervisor_signed_at=NULL`,
@@ -3563,7 +3566,7 @@ export const createClinicalNoteAddendum = async (req, res, next) => {
       actionType: 'clinical_note_addendum_added',
       metadata: { noteId, clientId: note.client_id }
     }, req);
-    return res.status(201).json({ addenda: await listNoteAddenda(noteId), supervisorSignoffRequired: true, supervisorAssignmentRequired: !policy.supervisorUserId });
+    return res.status(201).json({ addenda: await listNoteAddenda(noteId), supervisorSignoffRequired: true, supervisorAssignmentRequired: !policy.supervisorUserId,serviceChangePending:req.body.serviceLines!==undefined,claimTransmitted:false });
   } catch (e) {
     next(e);
   }

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { hasPendingClaimChange,previouslyTransmitted,claimChangeRequests,resolveServiceChange } from '../services/claimServiceChanges.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import pool from '../config/database.js';
 import { resolveDocumentationPolicy, loadPayerPolicy, evaluateSupervisedBilling, isNonBillableDocument } from '../services/supervisedBillingPolicy.service.js';
@@ -64,10 +65,24 @@ export async function prepareClaimReview(agencyId, claimId) {
   const [[clinicalReview]] = await pool.execute("SELECT outcome FROM clinical_document_reviews WHERE agency_id = ? AND document_type = 'note' AND document_id = ? ORDER BY id DESC LIMIT 1",[agencyId,claim.clinical_note_id]);
   if(clinicalReview?.outcome==='changes_requested')readiness.blockers.push('Supervisor requested documentation changes; obtain review after the amendment');
   readiness.blockers.push(...supervision.blockers);
+  if(await hasPendingClaimChange(claim))readiness.blockers.push('Service-code changes await supervisor approval and billing review. Claim transmission is paused.');
+  if(previouslyTransmitted(claim))readiness.blockers.push('Previously transmitted claim: reconcile payer status and use the payer-specific correction workflow; do not send another original.');
   readiness.warnings.push(...supervision.warnings,...aiReview.findings.filter(f=>f.severity==='warning').map(f=>f.message));
   readiness.ready=readiness.blockers.length===0;
   return { claim, lines, readiness, insurance, payload, documentation, supervision, aiReview, sourceHash, appliedOverrides:overrides?.applied || [],
     billingOffice: { id: billingProfile.officeId, name: billingProfile.officeName }, reviewHash: claimReviewHash({payload,sourceHash,aiReviewId:aiReview.id || null,resolutions:resolutions.map(r=>r.id)}) };
+}
+
+export async function getClaimServiceChanges(req,res,next) {
+  try {
+    const agencyId=await agencyFor(req);
+    const [[claim]]=await clinicalPool.execute('SELECT * FROM clinical_claims WHERE id=? AND agency_id=? AND is_deleted=0',[req.params.claimId,agencyId]);
+    if(!claim)throw fail(404,'Claim not found');
+    res.json({changes:await claimChangeRequests(claim),revision:claim.billing_revision,lifecycle:claim.claim_lifecycle,previouslyTransmitted:previouslyTransmitted(claim)});
+  }catch(e){next(e);}
+}
+export async function resolveClaimServiceChange(req,res,next) {
+  try {const agencyId=await agencyFor(req);if(req.body.attested!==true)throw fail(400,'Attest to review of the amendment, claim and payment history');res.json(await resolveServiceChange({agencyId,claimId:Number(req.params.claimId),requestId:Number(req.params.requestId),actorUserId:req.user.id,action:req.body.action,reason:req.body.reason,reference:req.body.reference,charges:req.body.charges,lineDetails:req.body.lineDetails,revision:req.body.revision}));}catch(e){next(e);}
 }
 
 export async function reviewClaim(req, res, next) {
@@ -190,7 +205,7 @@ export async function listUndraftedNotes(req, res, next) {
       WHERE n.agency_id = ? AND n.is_deleted = 0 AND n.provider_signed_at IS NOT NULL AND n.is_billable = 1
       AND s.encounter_status NOT IN ('no_show','cancelled','canceled','voided','rescheduled')
       AND (s.claim_blocked_reason IS NULL OR s.claim_blocked_reason = '')
-      AND NOT EXISTS (SELECT 1 FROM clinical_claims c WHERE c.agency_id = n.agency_id AND c.clinical_note_id = n.id AND c.is_deleted = 0)
+      AND NOT EXISTS (SELECT 1 FROM clinical_claims c WHERE c.agency_id = n.agency_id AND c.clinical_session_id = n.clinical_session_id)
       ORDER BY n.provider_signed_at DESC LIMIT 200`, [agencyId]);
     res.json({ notes });
   } catch (e) { next(e); }
@@ -212,6 +227,7 @@ export async function correctClaim(req, res, next) {
     const [[claim]] = await db.execute('SELECT * FROM clinical_claims WHERE id = ? AND agency_id = ? AND is_deleted = 0 FOR UPDATE', [claimId, agencyId]);
     if (!claim) throw fail(404, 'Claim not found');
     if (!['draft', 'ready', 'rejected'].includes(claim.claim_lifecycle)) throw fail(409, 'This claim cannot be edited until its clearinghouse status is reconciled');
+    if(previouslyTransmitted(claim))throw fail(409,'Preserve the original submitted claim. Use payer follow-up for corrections instead of editing its submitted fields.');
     if (Number(req.body.revision) !== claim.billing_revision) throw fail(409, 'Someone changed this claim. Reload before saving.');
     const [originalLines] = await db.execute('SELECT id, charge_cents, modifiers_json FROM clinical_claim_lines WHERE clinical_claim_id = ? FOR UPDATE', [claimId]);
     if (lines.length !== originalLines.length || new Set(lines.map(l => l.id)).size !== lines.length || lines.some(l => !originalLines.some(o => Number(o.id) === l.id))) throw fail(409, 'Service lines changed. Reload the claim.');

@@ -6,6 +6,7 @@ import { listSupervisedPayerPolicies, saveSupervisedPayerPolicy, supervisedProvi
 import { runClaimAiReview, resolveClaimAiFinding } from '../controllers/claimMdWorkflow.controller.js';
 import { getBillingWorkspace } from '../controllers/claimMdWorkspace.controller.js';
 import { reviewClaim, claimHistory, claimDraft, listUndraftedNotes, correctClaim, searchClaimMdPayers, startClaimMdEnrollment, listClaimMdEnrollments, listClaimMdOffices } from '../controllers/claimMdWorkflow.controller.js';
+import { getClaimServiceChanges,resolveClaimServiceChange } from '../controllers/claimMdWorkflow.controller.js';
 import { body, param, query } from 'express-validator';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import {
@@ -557,6 +558,8 @@ router.get('/claimmd/claims/:claimId/review', ...claimMdGate, reviewClaim);
 router.post('/claimmd/claims/:claimId/ai-review', ...claimMdGate, runClaimAiReview);
 router.post('/claimmd/claims/:claimId/ai-findings/resolve', ...claimMdGate, resolveClaimAiFinding);
 router.get('/claimmd/claims/:claimId/history', ...claimMdGate, claimHistory);
+router.get('/claimmd/claims/:claimId/service-changes', ...claimMdGate,getClaimServiceChanges);
+router.post('/claimmd/claims/:claimId/service-changes/:requestId/resolve', ...claimMdGate,resolveClaimServiceChange);
 router.get('/claimmd/claims/:claimId/draft', ...claimMdGate, claimDraft);
 router.patch('/claimmd/claims/:claimId', ...claimMdGate, correctClaim);
 router.get('/claimmd/payers', ...claimMdGate, searchClaimMdPayers);

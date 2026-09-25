@@ -2,6 +2,8 @@
 
 Status: implemented locally, September 24, 2026; **not deployed or verified with a live payer**. This release extends the Claim.MD workspace on `codex/claimmd-billing-workspace`.
 
+Follow-up: [amendments and claim corrections](claim-amendments-and-corrections.md) adds clinical migration `020`, persistent service-change review holds, same-draft application, and duplicate-original protection. Narrative amendments never automatically create or resend claims. Previously uploaded claims, including rejections, require payer reconciliation rather than another original upload.
+
 ## Implemented
 
 - Versioned supervisor policies per agency/supervisee, with before-submission cosign as the default. Deferred cosign additionally requires a dated, verified payer/product rule. Clinical note billability is independent of cosign timing.

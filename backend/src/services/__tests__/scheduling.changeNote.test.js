@@ -51,9 +51,10 @@ describe('appointment change session note', () => {
     expect(clinicalPool.execute).toHaveBeenCalledOnce();
   });
   it('blocks explicit claim creation when the session did not occur', async () => {
-    clinicalPool.execute.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    conn.execute.mockImplementation(async sql=>sql.startsWith('SELECT')?[[]]:[{affectedRows:0}]);
     await expect(ClinicalClaim.create({ clinicalSessionId: 3, agencyId: 2, clientId: 5, createdByUserId: 8 })).rejects.toThrow('Claim creation is blocked');
-    const [sql, values] = clinicalPool.execute.mock.calls[0];
+    const [sql, values] = conn.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO clinical_claims'));
     expect(sql).toContain("'no_show', 'cancelled', 'canceled', 'voided', 'rescheduled'"); expect(values.slice(-3)).toEqual([3, 2, 5]);
+    expect(conn.rollback).toHaveBeenCalled();
   });
 });

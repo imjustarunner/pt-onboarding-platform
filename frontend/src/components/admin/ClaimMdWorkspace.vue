@@ -13,6 +13,7 @@
     </template>
     <p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <ClaimServiceChangesPanel v-if="historyClaimId || review?.claimId || draft?.claim?.id" :agency-id="agencyId" :claim-id="Number(historyClaimId || review?.claimId || draft?.claim?.id)" @updated="review=null; approved=false; emit('updated')" />
 
     <template v-if="['all', 'claims'].includes(section)">
     <h3>Signed notes awaiting a claim</h3>
@@ -126,6 +127,7 @@
 </template>
 
 <script setup>
+import ClaimServiceChangesPanel from './ClaimServiceChangesPanel.vue';
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 const props = defineProps({ agencyId: { type: Number, required: true }, connection: { type: Object, required: true }, section: { type: String, default: 'all' } });

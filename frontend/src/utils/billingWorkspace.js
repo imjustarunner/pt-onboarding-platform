@@ -3,7 +3,7 @@ export const claimStatusTone = status => ['rejected', 'denied'].includes(status)
 export function billingTotals(organizations) {
   if (organizations.some(o => o.counts === null)) return null;
   const sum = statuses => organizations.reduce((n, o) => n + statuses.reduce((s, status) => s + Number(o.counts?.[status] || 0), 0), 0);
-  return { active: sum(['draft', 'ready', 'queued', 'submitted', 'rejected', 'denied']), ready: sum(['ready']), drafts: sum(['draft']), progress: sum(['queued', 'submitted']), attention: sum(['rejected', 'denied']), paid: sum(['paid']) };
+  return { active: sum(['draft', 'ready', 'queued', 'submitted', 'rejected', 'denied']), ready: sum(['ready']), drafts: sum(['draft']), progress: sum(['queued', 'submitted']), attention: sum(['rejected', 'denied','service_changes']), paid: sum(['paid']) };
 }
 export function billingBrand(organization) {
   let colors = organization?.colors;
