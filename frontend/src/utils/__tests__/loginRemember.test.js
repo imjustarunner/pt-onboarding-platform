@@ -3,6 +3,13 @@ import { getPortalLoginMemory, getRememberedGoogleLogin, setRememberedGoogleLogi
 
 beforeEach(() => localStorage.clear());
 describe('returning login accounts', () => {
+  it('preserves verified Google details when the same username is restored', () => {
+    setRememberedGoogleLogin({ username: 'alias', orgSlug: 'itsco', displayName: 'Example Member', loginHint: 'work@example.test', title: 'Coordinator' });
+    setRememberedGoogleLogin({ username: 'alias', orgSlug: 'itsco' });
+    expect(getRememberedGoogleLogin()).toMatchObject({ displayName: 'Example Member', loginHint: 'work@example.test', title: 'Coordinator' });
+    setRememberedGoogleLogin({ username: 'different', orgSlug: 'itsco' });
+    expect(getRememberedGoogleLogin()).toMatchObject({ displayName: '', loginHint: 'different', title: '' });
+  });
   it.each(['itsco', 'nlu', 'tisi', 'sstc'])('restores a username on the %s portal', orgSlug => {
     setRememberedLogin({ username: ' visitor@example.test ', orgSlug });
     expect(getPortalLoginMemory(orgSlug)).toMatchObject({ username: 'visitor@example.test', remembered: true, google: null });

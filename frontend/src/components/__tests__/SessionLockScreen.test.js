@@ -1,16 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
-const mocks = vi.hoisted(() => ({ resume: vi.fn() }));
-vi.mock('../../utils/activityTracker', () => ({ resumeSession: mocks.resume }));
+const mocks = vi.hoisted(() => ({ resume: vi.fn(), refresh: vi.fn() }));
+vi.mock('../../utils/activityTracker', () => ({ resumeSession: mocks.resume, refetchSessionLockConfig: mocks.refresh }));
 vi.mock('../../store/branding', () => ({ useBrandingStore: () => ({ displayLogoUrl: null }) }));
 vi.mock('../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { slug: 'itsco' } }) }));
 vi.mock('../../utils/loginRedirect', () => ({ getCurrentPortalSlugFromHostCache: () => '', getCurrentPortalSlugFromPath: () => '' }));
 import SessionLockScreen from '../SessionLockScreen.vue';
 import { useSessionLockStore } from '../../store/sessionLock';
 let wrapper;
-beforeEach(() => { setActivePinia(createPinia()); mocks.resume.mockReset(); useSessionLockStore().setLockConfig({ pinRequired: true, pinLength: 6, useLockScreen: true }); });
-afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); });
+beforeEach(() => { setActivePinia(createPinia()); mocks.resume.mockReset(); mocks.refresh.mockReset(); useSessionLockStore().setLockConfig({ pinRequired: true, pinLength: 6, useLockScreen: true }); });
+afterEach(() => { wrapper?.unmount(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('Quick View unlock screen', () => {
   it('uses the existing mobile session background while retaining the PIN form', () => {
     vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
@@ -28,12 +28,54 @@ describe('Quick View unlock screen', () => {
   it('does not label initial verification as a lock or show a fake zero countdown', () => {
     useSessionLockStore().setLockConfig(null);
     wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });
-    expect(wrapper.text()).toContain('Checking sign-in');
+    expect(wrapper.text()).toContain('Opening your workspace');
     expect(wrapper.text()).not.toContain('Session Locked');
     expect(wrapper.text()).not.toContain('Automatic logout');
     expect(wrapper.find('video').exists()).toBe(false);
     expect(wrapper.find('.session-lock-background').exists()).toBe(false);
     expect(wrapper.find('.session-checking').exists()).toBe(true);
+    expect(wrapper.find('button').exists()).toBe(false);
+    expect(wrapper.get('.session-checking').attributes('aria-busy')).toBe('true');
+  });
+  it('keeps the initial recovery deadline out of the loading presentation', async () => {
+    vi.useFakeTimers();
+    const store = useSessionLockStore();
+    store.setLockConfig(null);
+    store.verificationFailed = true;
+    store.warningActive = true;
+    store.warningSecondsLeft = 55;
+    wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(wrapper.text()).toContain('taking a little longer');
+    expect(wrapper.text()).not.toContain('Automatic logout');
+    expect(wrapper.find('button').exists()).toBe(false);
+    await vi.advanceTimersByTimeAsync(7000);
+    expect(wrapper.text()).toContain('trouble connecting');
+    expect(wrapper.text()).not.toContain('Automatic logout');
+    expect(wrapper.get('.session-checking').attributes('role')).toBe('dialog');
+    mocks.refresh.mockResolvedValue();
+    await wrapper.get('.session-recovery-actions .btn').trigger('click');
+    await flushPromises();
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+  });
+  it('does not show failure controls just because a successful request is slow', async () => {
+    vi.useFakeTimers();
+    useSessionLockStore().setLockConfig(null);
+    wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });
+    await vi.advanceTimersByTimeAsync(16000);
+    expect(wrapper.text()).toContain('Opening your workspace');
+    expect(wrapper.find('button').exists()).toBe(false);
+  });
+  it('clears delayed recovery UI when verification succeeds', async () => {
+    vi.useFakeTimers();
+    const store = useSessionLockStore(); store.setLockConfig(null); store.verificationFailed = true;
+    wrapper = mount(SessionLockScreen, { props: { isLocked: true }, global: { stubs: { teleport: true, BrandingLogo: true } } });
+    await vi.advanceTimersByTimeAsync(16000);
+    expect(wrapper.text()).toContain('Try again');
+    store.verificationFailed = false;
+    await wrapper.setProps({ isLocked: false });
+    await vi.advanceTimersByTimeAsync(16000);
+    expect(wrapper.find('.session-lock-overlay').exists()).toBe(false);
   });
   it('shows the countdown only when a real warning deadline exists', () => {
     const store=useSessionLockStore();store.warningActive=true;store.warningSecondsLeft=90;

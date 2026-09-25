@@ -3,9 +3,9 @@
     <AccountSecurityNotice v-if="isAuthenticated" />
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
-      <div id="app" :inert="sessionLockStore.isLocked || sessionLockStore.warningActive" :aria-hidden="sessionLockStore.isLocked || sessionLockStore.warningActive ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell }">
+      <div id="app" :inert="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell }">
       <div
-        v-if="pageLoading"
+        v-if="pageLoading && !isLoginEntry"
         class="agency-loading-overlay"
         :class="{
           'agency-loading-overlay--platform': isPlatformLevelLoader,
@@ -2003,7 +2003,7 @@
         v-if="sideChatRailEnabled && isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
       />
       <SessionLockScreen
-        v-if="isAuthenticated"
+        v-if="authStore.isAuthenticated && (!isLoginEntry || sessionLockStore.lockConfig)"
         :is-locked="sessionLockStore.isLocked"
         @unlock="onSessionUnlock"
         @logout="onSessionLockLogout"
@@ -2011,7 +2011,7 @@
       <!-- Branded 10‑min Timedown stays visible for everyone. Privileged roles also get
            StatusPromptModal on top (Away / Meal / stay signed in up to 2h). -->
       <InactivityWarningModal
-        v-if="isAuthenticated || sessionLockStore.warningActive"
+        v-if="isAuthenticated || (sessionLockStore.warningActive && (!isLoginEntry || sessionLockStore.lockConfig))"
         :suppress-actions="statusPromptOpenForActions || sessionLockStore.isLocked"
       />
       <NoteAidClockInPromptModal v-if="isAuthenticated" />
@@ -2302,6 +2302,7 @@ import { isSchoolOnboardingDemoRoute } from './utils/schoolOnboardingDemoContext
 import { resolveHostImpliedPortalSlug } from './utils/orgScopedPath.js';
 import { resolvePreferredAgencySlug } from './utils/demoTenant.js';
 import AppVersionReloadBanner from './components/AppVersionReloadBanner.vue';
+import { isLoginEntryRoute } from './utils/loginHandoff';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import { canSeeClientExchangeNav } from './utils/clientExchangeNav.js';
@@ -4020,7 +4021,8 @@ const navTitleText = computed(() => {
   return title;
 });
 
-const isAuthenticated = computed(() => authStore.isAuthenticated);
+const isLoginEntry = computed(() => isLoginEntryRoute(route));
+const isAuthenticated = computed(() => authStore.isAuthenticated && !isLoginEntry.value);
 
 const passwordExpiryBannerDismissed = ref(false);
 const showPasswordExpiryBanner = computed(() =>

@@ -195,7 +195,7 @@ api.interceptors.request.use(
         (typeof config.headers?.get === 'function'
           ? config.headers.get('Authorization') || config.headers.get('authorization')
           : null);
-      if (!existingAuth) {
+      if (!existingAuth && !config.cookieAuthOnly) {
         const demoToken = sessionStorage.getItem('__pt_demo_window_token__');
         const storedToken = demoToken || localStorage.getItem('authToken');
         if (storedToken) {
@@ -213,7 +213,7 @@ api.interceptors.request.use(
       const raw = demoAgencyRaw || localStorage.getItem('currentAgency');
       const currentAgency = raw ? JSON.parse(raw) : null;
       const id = Number.parseInt(String(currentAgency?.id ?? ''), 10);
-      if (Number.isFinite(id) && id > 0) {
+      if (!config.cookieAuthOnly && Number.isFinite(id) && id > 0) {
         config.headers['X-Agency-Id'] = String(id);
       }
     } catch {

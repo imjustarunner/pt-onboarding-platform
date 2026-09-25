@@ -56,19 +56,29 @@ export function getRememberedGoogleLogin() {
     const orgSlug = normalizeOrgSlug(parsed?.orgSlug);
     if (!username || !orgSlug) return null;
     const parentOrgSlug = normalizeOrgSlug(parsed?.parentOrgSlug) || null;
-    return { username, orgSlug, parentOrgSlug, displayName: String(parsed?.displayName || '').trim().slice(0, 160), loginHint: String(parsed?.loginHint || username).trim().slice(0, 254) };
+    return { username, orgSlug, parentOrgSlug, displayName: String(parsed?.displayName || '').trim().slice(0, 160), loginHint: String(parsed?.loginHint || username).trim().slice(0, 254), organizationName: String(parsed?.organizationName || '').trim().slice(0, 160), title: String(parsed?.title || '').trim().slice(0, 160) };
   } catch {
     return null;
   }
 }
 
-export function setRememberedGoogleLogin({ username, orgSlug, parentOrgSlug = null, displayName = '', loginHint = '' } = {}) {
+export function setRememberedGoogleLogin({ username, orgSlug, parentOrgSlug = null, displayName = '', loginHint = '', organizationName = '', title = '' } = {}) {
   try {
     const u = normalizeUsername(username);
     const s = normalizeOrgSlug(orgSlug);
     if (!u || !s) return;
     const parent = normalizeOrgSlug(parentOrgSlug) || null;
-    const payload = { username: u, orgSlug: s, displayName: String(displayName || '').trim().slice(0, 160), loginHint: String(loginHint || u).trim().slice(0, 254), ts: Date.now() };
+    const previous = getRememberedGoogleLogin();
+    const sameAccount = previous?.orgSlug === s && previous.username.toLowerCase() === u.toLowerCase();
+    const saved = sameAccount ? previous : {};
+    const payload = {
+      username: u, orgSlug: s,
+      displayName: String(displayName || saved.displayName || '').trim().slice(0, 160),
+      loginHint: String(loginHint || saved.loginHint || u).trim().slice(0, 254),
+      organizationName: String(organizationName || saved.organizationName || '').trim().slice(0, 160),
+      title: String(title || saved.title || '').trim().slice(0, 160),
+      ts: Date.now()
+    };
     if (parent) payload.parentOrgSlug = parent;
     localStorage.setItem(GOOGLE_SSO_STORAGE_KEY, JSON.stringify(payload));
     // Keep the canonical Google account in sync with the username shortcut;
@@ -144,4 +154,17 @@ export function getPortalLoginMemory(orgSlug, { username = '', allowGoogle = tru
     remembered: Boolean(matches(login) && restored.toLowerCase() === login.username.toLowerCase()),
     google: matches(google) && restored.toLowerCase() === google.username.toLowerCase() ? google : null
   };
+}
+
+// A per-tab choice survives Google's full-page redirect. No credential is stored here.
+const SSO_PREFERENCE_KEY = '__pt_sso_remember_choice__';
+export function setSsoRememberChoice(remember, orgSlug) {
+  try { sessionStorage.setItem(SSO_PREFERENCE_KEY, JSON.stringify({ remember: !!remember, orgSlug: normalizeOrgSlug(orgSlug), at: Date.now() })); } catch { /* optional */ }
+}
+export function shouldRememberSso(orgSlug) {
+  try {
+    const choice = JSON.parse(sessionStorage.getItem(SSO_PREFERENCE_KEY) || 'null');
+    if (choice?.orgSlug === normalizeOrgSlug(orgSlug) && Date.now() - choice.at < 3600000) return choice.remember !== false;
+  } catch { /* external/legacy SSO entry defaults to remembering the shortcut */ }
+  return true;
 }

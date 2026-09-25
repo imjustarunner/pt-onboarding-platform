@@ -33,17 +33,38 @@ beforeEach(() => {
 });
 afterEach(() => { stopActivityTracking(); vi.useRealTimers(); });
 describe('shared activity tracking', () => {
+  it('reuses the authenticated login response without another policy request', async () => {
+    await startActivityTracking({ bootstrap: { ...serverData(), userId: 7, sessionId: 'login-one' } });
+    expect(mocks.get).not.toHaveBeenCalled();
+    expect(useSessionLockStore().isLocked).toBe(false);
+    expect(useSessionLockStore().lockConfig).toEqual(policy);
+  });
+  it('does not accept bootstrap data belonging to another session', async () => {
+    await startActivityTracking({ bootstrap: { ...serverData(), userId: 7, sessionId: 'old-login' } });
+    expect(mocks.get).toHaveBeenCalledOnce();
+  });
+  it('keeps a real lock from the bootstrap response', async () => {
+    policy.useLockScreen = true;
+    serverSession.lockAt = Date.now() - 1000;
+    serverSession.phase = 'timedown';
+    await startActivityTracking({ bootstrap: { ...serverData(), userId: 7, sessionId: 'login-one' } });
+    expect(useSessionLockStore().isLocked).toBe(true);
+    expect(useSessionLockStore().warningActive).toBe(true);
+    expect(mocks.get).not.toHaveBeenCalled();
+  });
   it('recovers from a failed initial session check without focus changes or renewing activity', async () => {
     localStorage.setItem(sessionStorageKey(7, 'login-one'), JSON.stringify(serverSession));
     mocks.get.mockRejectedValueOnce(new Error('Network error'));
     await startActivityTracking();
     expect(useSessionLockStore().isLocked).toBe(true);
     expect(useSessionLockStore().warningSecondsLeft).toBe(60);
+    expect(useSessionLockStore().verificationFailed).toBe(true);
     expect(mocks.post).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(5000);
     expect(mocks.get).toHaveBeenCalledTimes(2);
     expect(useSessionLockStore().isLocked).toBe(false);
     expect(useSessionLockStore().warningActive).toBe(false);
+    expect(useSessionLockStore().verificationFailed).toBe(false);
     expect(mocks.post.mock.calls.some(([url]) => url === '/auth/session-activity')).toBe(false);
     expect(mocks.logout).not.toHaveBeenCalled();
   });

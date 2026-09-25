@@ -56,6 +56,7 @@ function applyServer(data, { broadcast = true } = {}) {
   // Older requests may finish after a successful unlock in another tab.
   if (initialized && !isNewerSession(next, state)) return;
   initialized = true;
+  useSessionLockStore().verificationFailed = false;
   clearTimeout(verificationRetry);
   verificationRetry = null;
   if (data?.policy) useSessionLockStore().setLockConfig(data.policy);
@@ -163,6 +164,7 @@ async function refresh() {
     if (!localSessionState(response.data?.session)) throw new Error('Session verification is unavailable.');
     applyServer({ policy: response.data, session: response.data.session });
   }).catch(error => {
+    if (currentGeneration === generation && isTracking && !initialized) useSessionLockStore().verificationFailed = true;
     if (currentGeneration === generation && error.response?.data?.session) applyServer(error.response.data);
     if (currentGeneration === generation && error.response?.data?.error?.code === 'SESSION_EXPIRED' && !error.response.data.session) void handleTimeout();
     throw error;
@@ -229,7 +231,7 @@ function onFocusIn(event) {
   const allowed = store.isLocked ? '.session-lock-overlay' : '.iw-overlay, [data-pt-status-prompt]';
   if (!event.target?.closest?.(allowed)) document.querySelector(`${store.isLocked ? '.session-lock-overlay' : '.iw-overlay'} input, ${store.isLocked ? '.session-lock-overlay' : '.iw-overlay'} button`)?.focus();
 }
-export async function startActivityTracking({ force = false } = {}) {
+export async function startActivityTracking({ force = false, bootstrap = null } = {}) {
   const sessionId = localStorage.getItem('sessionId');
   const userId = useAuthStore().user?.id;
   if (isTracking && trackedSessionId === sessionId && trackedUserId === userId) {
@@ -249,6 +251,7 @@ export async function startActivityTracking({ force = false } = {}) {
   // A cached deadline cannot authorize access or revoke a fresh cookie login.
   // Keep the screen covered until the server confirms this session.
   useSessionLockStore().setLockConfig(null);
+  useSessionLockStore().verificationFailed = false;
   useSessionLockStore().lock();
   EVENTS.forEach(event => document.addEventListener(event, markActivity, true));
   document.addEventListener('visibilitychange', onVisibility);
@@ -258,7 +261,13 @@ export async function startActivityTracking({ force = false } = {}) {
   window.addEventListener('storage', onStorage);
   window.addEventListener('pt:session-security', onSecurityResponse);
   scheduler = setInterval(tick, 1000);
-  try { await refresh(); } catch {
+  try {
+    if (bootstrap && bootstrap.userId === userId && bootstrap.sessionId === sessionId && bootstrap.policy && localSessionState(bootstrap.session)) {
+      applyServer(bootstrap);
+    } else {
+      await refresh();
+    }
+  } catch {
     // Retry transient failures without requiring a tab switch, and never extend
     // this deadline or count verification requests as user activity.
     if (currentGeneration === generation && !initialized && isTracking && !timeoutInFlight) {

@@ -306,18 +306,28 @@ export const getCurrentUser = async (req, res, next) => {
     const isDemoMode = req.user?.demoMode === true;
     const effectiveRole = isDemoMode ? String(req.user?.role || user.role || '').toLowerCase() : user.role;
     // Keep agency-scoped caps (payroll / budget / credentialing) aligned with login.
-    const agencyAccessCaps = await buildAgencyAccessCaps(user, { effectiveRole });
-
-    // Pure Workspace SSO users must never be forced to change an app password.
-    const ssoStateForMe = await getSsoStateForUser(user).catch(() => ({
-      ssoRequired: false
-    }));
+    const loginBootstrap = req.query.loginBootstrap === '1';
+    const [agencyAccessCaps, ssoStateForMe, loginAgencies] = await Promise.all([
+      buildAgencyAccessCaps(user, { effectiveRole }),
+      getSsoStateForUser(user).catch(() => ({ ssoRequired: false })),
+      loginBootstrap ? User.getAgencies(user.id) : Promise.resolve(null)
+    ]);
     const pw = resolveRequiresPasswordChange(user, {
       ssoRequired: !!ssoStateForMe?.ssoRequired
     });
 
+    // The bootstrap is private and only uses the session verified by middleware.
+    res.set('Cache-Control', 'no-store');
     // Return user in same format as login response + capabilities
     res.json({
+      ...(loginBootstrap ? {
+        loginBootstrap: {
+          sessionId: req.authClaims?.sessionId || null,
+          authMethod: req.authClaims?.authMethod || null,
+          agencies: loginAgencies,
+          security: req.sessionSecurity ? { policy: req.sessionSecurity.policy, session: req.sessionSecurity.state } : null
+        }
+      } : {}),
       id: user.id,
       email: user.email,
       role: effectiveRole,

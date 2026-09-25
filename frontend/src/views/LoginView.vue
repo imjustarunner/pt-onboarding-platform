@@ -439,9 +439,17 @@
           </div>
         </section>
 
+        <LoginWorkspaceProgress
+          v-if="workspacePreparing"
+          :busy="workspaceBusy"
+          :error="workspaceError"
+          @retry="retryWorkspace"
+          @switch="leaveWorkspaceLogin"
+        />
         <RememberedGoogleAccount
-          v-if="showRememberedGoogleButton && !isIOSNative"
+          v-if="!workspacePreparing && showRememberedGoogleButton && !isIOSNative"
           :account="rememberedGoogleLogin"
+          :glass="showTenantLoginVideo"
           :busy="loading || verifying"
           @continue="startRememberedGoogleLogin"
           @switch="resetToUsernameStep"
@@ -449,7 +457,7 @@
         />
 
         <!-- Biometric login button (native only, when token is saved) -->
-        <div v-if="showBiometricButton" class="biometric-login-wrap">
+        <div v-if="showBiometricButton && !workspacePreparing" class="biometric-login-wrap">
           <button
             type="button"
             class="btn biometric-btn"
@@ -469,7 +477,7 @@
           <div class="biometric-divider"><span>or use password</span></div>
         </div>
 
-        <div :class="{ 'app-auth-panel': isAppLike, 'ipad-auth-panel': isIpadPreviewMode }">
+        <div v-if="!workspacePreparing" :class="{ 'app-auth-panel': isAppLike, 'ipad-auth-panel': isIpadPreviewMode }">
           <form v-if="!showRememberedGoogleButton" @submit.prevent="handleSubmit" class="login-form">
             <div
               class="login-credentials-wrap"
@@ -548,7 +556,7 @@
             <div v-if="!needsOrgChoice" class="remember-row">
               <label class="remember-me">
                 <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" @change="saveRememberPreference" />
-                Remember username
+                Remember me on this browser
               </label>
             </div>
             
@@ -801,6 +809,12 @@ const isIOSNative = (() => {
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
 import RememberedGoogleAccount from '../components/RememberedGoogleAccount.vue';
+import LoginWorkspaceProgress from '../components/LoginWorkspaceProgress.vue';
+import { completeGoogleLogin } from '../utils/completeGoogleLogin';
+import { safeLoginDestination } from '../utils/loginHandoff';
+import { startActivityTracking } from '../utils/activityTracker';
+import { useSessionLockStore } from '../store/sessionLock';
+import { signalFreshLogin } from '../composables/useReminderSnooze';
 import api from '../services/api';
 import { getBackendBaseUrl } from '../utils/uploadsUrl';
 import { getDashboardRoute } from '../utils/router';
@@ -810,7 +824,7 @@ import {
   clearRememberedLogin,
   getPortalLoginMemory,
   clearRememberedGoogleLogin,
-  setRememberedGoogleLogin,
+  setSsoRememberChoice,
   getRememberedSchoolStaffPasswordLogin,
   setRememberedSchoolStaffPasswordLogin,
   clearRememberedSchoolStaffPasswordLogin
@@ -1370,6 +1384,20 @@ const fetchLoginTheme = async (portalUrl) => {
 
 // Ensure branding is loaded before rendering
 onMounted(async () => {
+  if (String(route.query?.sso || '') === '1') {
+    const orgSlug = String(route.query.ssoOrg || effectiveLoginSlug.value || '').trim().toLowerCase();
+    await runWorkspaceTransition(async () => {
+      const [, user] = await Promise.all([
+        fetchLoginTheme(orgSlug),
+        completeGoogleLogin({ api, authStore, agencyStore, orgSlug, startActivityTracking })
+      ]);
+      requireVerifiedSession();
+      signalFreshLogin();
+      const destination = safeLoginDestination(route.query.redirect) || getDashboardRoute();
+      await router.replace(user.requiresPasswordChange ? '/change-password' : destination);
+    });
+    return;
+  }
   // Check biometric availability on native platforms
   if (isNativePlatform()) {
     const [{ available, biometryType }, hasToken] = await Promise.all([
@@ -1601,6 +1629,35 @@ const password = ref('');
 const error = ref('');
 const verifiedSuccess = ref('');
 const loading = ref(false);
+const workspacePreparing = ref(String(route.query?.sso || '') === '1');
+const workspaceBusy = ref(workspacePreparing.value);
+const workspaceError = ref('');
+let workspaceContinuation = null;
+const sessionLockStore = useSessionLockStore();
+function requireVerifiedSession() {
+  if (!sessionLockStore.lockConfig || sessionLockStore.isLocked || sessionLockStore.warningActive) {
+    throw new Error('We couldn’t finish opening your workspace. Please try again.');
+  }
+}
+async function runWorkspaceTransition(action) {
+  workspaceContinuation = action;
+  workspacePreparing.value = true;
+  workspaceBusy.value = true;
+  workspaceError.value = '';
+  try { await action(); }
+  catch (failure) {
+    workspaceError.value = failure?.response?.data?.error?.message || failure?.message || 'We couldn’t connect. Please try again.';
+  } finally { workspaceBusy.value = false; }
+}
+const retryWorkspace = () => workspaceContinuation && runWorkspaceTransition(workspaceContinuation);
+const leaveWorkspaceLogin = async () => {
+  // End the actual session before allowing a different account, including after a failed handoff.
+  const destination = route.path;
+  if (String(route.query?.sso || '') === '1') {
+    try { localStorage.removeItem('authToken'); } catch { /* cookie logout */ }
+  }
+  await authStore.logout('manual', { skipStatusPrompt: true, redirectTo: destination });
+};
 const verifying = ref(false);
 const passwordVisible = ref(false);
 const showPassword = ref(false);
@@ -1608,7 +1665,7 @@ const identifyPasswordPolicy = ref(null);
 const needsOrgChoice = ref(false);
 const orgOptions = ref([]);
 const selectedOrgSlug = ref('');
-const rememberLogin = ref(false);
+const rememberLogin = ref(true);
 const rememberedGoogleLogin = ref(null);
 const sstcClubBranding = ref(null); // populated after identify on Summit-family logins when we know the club context
 const identifiedLoginMethod = ref('password');
@@ -1910,6 +1967,8 @@ const continueWithGoogle = () => {
   const slug = effectiveLoginSlug.value;
   if (!slug) return;
   const base = getBackendBaseUrl();
+  setSsoRememberChoice(rememberLogin.value, slug);
+  loading.value = true;
   window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(slug)}${ssoNextParam()}`;
 };
 
@@ -1918,6 +1977,8 @@ const startRememberedGoogleLogin = () => {
   const rememberedOrg = String(rememberedGoogleLogin.value?.orgSlug || '').trim().toLowerCase();
   if (!rememberedOrg) return;
   const base = getBackendBaseUrl();
+  setSsoRememberChoice(rememberLogin.value, rememberedOrg);
+  loading.value = true;
   window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(rememberedOrg)}&loginHint=${encodeURIComponent(rememberedGoogleLogin.value.loginHint || rememberedGoogleLogin.value.username)}${ssoNextParam()}`;
 };
 
@@ -1956,16 +2017,11 @@ const resetToUsernameStep = () => {
   sstcClubBranding.value = null;
   rememberedGoogleLogin.value = null;
   error.value = '';
-  if (!rememberLogin.value) {
-    clearRememberedLogin();
-    try {
-      sessionStorage.removeItem('__pt_login_pending_username__');
-      sessionStorage.removeItem('__pt_login_pending_verify__');
-      sessionStorage.removeItem('__pt_login_pending_remember__');
-    } catch {
-      /* ignore */
-    }
+  if (!rememberLogin.value) clearRememberedLogin();
+  for (const key of ['username', 'verify', 'remember']) {
+    try { sessionStorage.removeItem(`__pt_login_pending_${key}__`); } catch { /* optional */ }
   }
+  nextTick(() => document.getElementById('username')?.focus());
 };
 
 const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) => {
@@ -2160,22 +2216,19 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       // immediately bouncing to Google before the user sees the login screen.
       const slugForRemember = effectiveLoginSlug.value || resolvedSlug;
       if (slugForRemember && (reason === 'remembered' || reason === 'remembered_school_staff' || reason === 'pending_route')) {
-        rememberedGoogleLogin.value = {
+        rememberedGoogleLogin.value = getPortalLoginMemory(slugForRemember, { username: u }).google || {
           username: u,
           orgSlug: slugForRemember,
           parentOrgSlug: resolveParentForNestedLogin(slugForRemember)
         };
-        setRememberedGoogleLogin({
-          username: u,
-          orgSlug: slugForRemember,
-          parentOrgSlug: resolveParentForNestedLogin(slugForRemember)
-        });
         showPassword.value = false;
         return;
       }
       const path = withSsoNext(String(data?.login?.googleStartUrl || '').trim());
       if (path) {
         const base = getBackendBaseUrl();
+        setSsoRememberChoice(rememberLogin.value, slugForRemember);
+        loading.value = true;
         window.location.href = `${base}${path.startsWith('/') ? '' : '/'}${path}`;
         return;
       }
@@ -2228,108 +2281,114 @@ const handleLogin = async () => {
   const result = await authStore.login(username.value, password.value, loginSlug.value);
   
   if (result.success) {
-    const currentOrgSlug = String(effectiveLoginSlug.value || '').trim().toLowerCase();
-    saveRememberPreference();
-    const roleNorm = String(authStore.user?.role || '').toLowerCase();
-    const verifiedMethod = String(identifiedLoginMethod.value || 'password').toLowerCase();
-
-    // Kiosk users go to kiosk app (no agency fetch)
-    if (authStore.user?.role?.toLowerCase() === 'kiosk') {
-      router.push('/kiosk/app');
-      loading.value = false;
-      return;
-    }
-    // Prefer agencies from login payload (already fetched server-side). Fall back to a dedicated fetch.
-    if (authStore.user.role !== 'super_admin') {
-      const loginAgencies = Array.isArray(result.agencies) ? result.agencies : [];
-      if (loginAgencies.length > 0 && authStore.user.type !== 'approved_employee') {
-        agencyStore.applyLoginAgencies(loginAgencies);
-      } else {
-        await agencyStore.fetchUserAgencies();
+    await runWorkspaceTransition(async () => {
+      if (String(authStore.user?.role || '').toLowerCase() !== 'kiosk') {
+        await startActivityTracking({ force: true });
+        requireVerifiedSession();
       }
-    } else if (Array.isArray(result.agencies) && result.agencies.length) {
-      // Super-admin: seed membership list without blocking on the full /agencies catalog.
-      agencyStore.applyLoginAgencies(result.agencies);
-    }
+      const currentOrgSlug = String(effectiveLoginSlug.value || '').trim().toLowerCase();
+      saveRememberPreference();
+      const roleNorm = String(authStore.user?.role || '').toLowerCase();
+      const verifiedMethod = String(identifiedLoginMethod.value || 'password').toLowerCase();
 
-    const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
-    const agencyList = Array.isArray(agencies) ? agencies : [];
-    const schoolStaffSlug = roleNorm === 'school_staff' ? getPrimarySchoolStaffPortalSlug(agencyList) : null;
-
-    if (roleNorm === 'school_staff' && schoolStaffSlug) {
-      const parentForSchool = resolveParentForNestedLogin(schoolStaffSlug);
-      if (rememberLogin.value) {
-        setRememberedLogin({
-          username: String(username.value || '').trim(),
-          orgSlug: schoolStaffSlug,
-          parentOrgSlug: parentForSchool
-        });
+      // Kiosk users go to kiosk app (no agency fetch)
+      if (authStore.user?.role?.toLowerCase() === 'kiosk') {
+        await router.push('/kiosk/app');
+        loading.value = false;
+        return;
       }
-      if (verifiedMethod === 'password') {
+      // Prefer agencies from login payload (already fetched server-side). Fall back to a dedicated fetch.
+      if (authStore.user.role !== 'super_admin') {
+        const loginAgencies = Array.isArray(result.agencies) ? result.agencies : [];
+        if (loginAgencies.length > 0 && authStore.user.type !== 'approved_employee') {
+          agencyStore.applyLoginAgencies(loginAgencies);
+        } else {
+          await agencyStore.fetchUserAgencies();
+        }
+      } else if (Array.isArray(result.agencies) && result.agencies.length) {
+        // Super-admin: seed membership list without blocking on the full /agencies catalog.
+        agencyStore.applyLoginAgencies(result.agencies);
+      }
+
+      const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
+      const agencyList = Array.isArray(agencies) ? agencies : [];
+      const schoolStaffSlug = roleNorm === 'school_staff' ? getPrimarySchoolStaffPortalSlug(agencyList) : null;
+
+      if (roleNorm === 'school_staff' && schoolStaffSlug) {
+        const parentForSchool = resolveParentForNestedLogin(schoolStaffSlug);
         if (rememberLogin.value) {
-          setRememberedSchoolStaffPasswordLogin({
+          setRememberedLogin({
             username: String(username.value || '').trim(),
             orgSlug: schoolStaffSlug,
             parentOrgSlug: parentForSchool
           });
-        } else {
-          clearRememberedSchoolStaffPasswordLogin(currentOrgSlug);
         }
+        if (verifiedMethod === 'password') {
+          if (rememberLogin.value) {
+            setRememberedSchoolStaffPasswordLogin({
+              username: String(username.value || '').trim(),
+              orgSlug: schoolStaffSlug,
+              parentOrgSlug: parentForSchool
+            });
+          } else {
+            clearRememberedSchoolStaffPasswordLogin(currentOrgSlug);
+          }
+        }
+      } else if (roleNorm === 'school_staff' && verifiedMethod === 'password' && rememberLogin.value && currentOrgSlug) {
+        setRememberedSchoolStaffPasswordLogin({
+          username: String(username.value || '').trim(),
+          orgSlug: currentOrgSlug,
+          parentOrgSlug: parentOrgSlug.value || null
+        });
+      } else if (roleNorm === 'school_staff' && verifiedMethod === 'password' && !rememberLogin.value) {
+        clearRememberedSchoolStaffPasswordLogin(currentOrgSlug);
       }
-    } else if (roleNorm === 'school_staff' && verifiedMethod === 'password' && rememberLogin.value && currentOrgSlug) {
-      setRememberedSchoolStaffPasswordLogin({
-        username: String(username.value || '').trim(),
-        orgSlug: currentOrgSlug,
-        parentOrgSlug: parentOrgSlug.value || null
-      });
-    } else if (roleNorm === 'school_staff' && verifiedMethod === 'password' && !rememberLogin.value) {
-      clearRememberedSchoolStaffPasswordLogin(currentOrgSlug);
-    }
 
-    if (authStore.user?.requiresPasswordChange) {
+      if (authStore.user?.requiresPasswordChange) {
+        if (roleNorm === 'school_staff' && schoolStaffSlug) {
+          await router.push(`/${schoolStaffSlug}/change-password`);
+        } else {
+          await router.push('/change-password');
+        }
+        loading.value = false;
+        return;
+      }
+
+      const redirectPath = route.query?.redirect;
+      if (redirectPath && typeof redirectPath === 'string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//') && !redirectPath.includes('\\')) {
+        await router.replace(redirectPath);
+        loading.value = false;
+        return;
+      }
+
+      const summitDestination = summitPostLoginDestination(currentOrgSlug, authStore.user?.role);
+      if (summitDestination) {
+        await router.replace(summitDestination);
+        loading.value = false;
+        return;
+      }
+
+      // Club managers (admin with no agencies) go to Admin - their main interface for creating/managing club
+      const hasNoAgencies = !Array.isArray(agencyList) || agencyList.length === 0;
+      const isAdmin = String(authStore.user?.role || '').toLowerCase() === 'admin';
+      if (isAdmin && hasNoAgencies && loginSlug.value) {
+        // On app.itsco.health, /itsco/admin is stripped to /admin — push flat to avoid login↔admin ping-pong.
+        const slug = String(loginSlug.value || '').trim().toLowerCase();
+        const hostImplied = resolveHostImpliedPortalSlug(brandingStore);
+        const adminPath = hostImplied && hostImplied === slug ? '/admin' : `/${slug}/admin`;
+        await router.replace(adminPath);
+        loading.value = false;
+        return;
+      }
+
       if (roleNorm === 'school_staff' && schoolStaffSlug) {
-        router.push(`/${schoolStaffSlug}/change-password`);
-      } else {
-        router.push('/change-password');
+        await router.replace(`/${schoolStaffSlug}/dashboard`);
+        loading.value = false;
+        return;
       }
-      loading.value = false;
-      return;
-    }
 
-    const redirectPath = route.query?.redirect;
-    if (redirectPath && typeof redirectPath === 'string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//') && !redirectPath.includes('\\')) {
-      router.replace(redirectPath);
-      loading.value = false;
-      return;
-    }
-
-    const summitDestination = summitPostLoginDestination(currentOrgSlug, authStore.user?.role);
-    if (summitDestination) {
-      router.replace(summitDestination);
-      loading.value = false;
-      return;
-    }
-
-    // Club managers (admin with no agencies) go to Admin - their main interface for creating/managing club
-    const hasNoAgencies = !Array.isArray(agencyList) || agencyList.length === 0;
-    const isAdmin = String(authStore.user?.role || '').toLowerCase() === 'admin';
-    if (isAdmin && hasNoAgencies && loginSlug.value) {
-      // On app.itsco.health, /itsco/admin is stripped to /admin — push flat to avoid login↔admin ping-pong.
-      const slug = String(loginSlug.value || '').trim().toLowerCase();
-      const hostImplied = resolveHostImpliedPortalSlug(brandingStore);
-      const adminPath = hostImplied && hostImplied === slug ? '/admin' : `/${slug}/admin`;
-      router.replace(adminPath);
-      loading.value = false;
-      return;
-    }
-
-    if (roleNorm === 'school_staff' && schoolStaffSlug) {
-      router.replace(`/${schoolStaffSlug}/dashboard`);
-      loading.value = false;
-      return;
-    }
-
-    router.replace(getDashboardRoute());
+      await router.replace(getDashboardRoute());
+    });
   } else {
     error.value = result.error;
     lastErrorCode.value = result.code || null;
@@ -4200,7 +4259,7 @@ const handleLogoError = (event) => {
 .login-page--video-auth :deep(.legal-title),
 .login-page--video-auth :deep(.legal-link),
 .login-page--video-auth :deep(.legal-sep) {
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .login-page--video-auth :deep(.legal-link:hover) {
@@ -4303,7 +4362,11 @@ const handleLogoError = (event) => {
 
 .login-page--video-auth .help-link,
 .login-page--video-auth .help-link-button {
-  color: color-mix(in srgb, var(--va-accent) 72%, white);
+  color: var(--va-white);
+}
+
+.login-page--video-auth :deep(.workspace-progress) {
+  color: var(--va-white);
 }
 
 .login-page--video-auth .help-link:hover,

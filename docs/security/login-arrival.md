@@ -1,0 +1,11 @@
+# Login arrival and remembered Google accounts
+
+Google callbacks first open the matching branded login. The public login stays visible while the new cookie is verified and the destination loads. Password sign-in also waits for session verification on the login page. The authenticated shell, welcome briefings and background widgets mount after navigation. Reloading an authenticated page still uses the opaque session-check screen; actual inactivity locks keep their PIN and expiry behavior.
+
+`GET /users/me?loginBootstrap=1` returns the current user plus agency memberships, the signed session ID/authentication method, and the session policy/state already verified by authentication middleware. Independent profile permission and SSO-policy reads run concurrently. The frontend uses that response to initialize tracking without a second initial policy request. It never restores access from a browser-cached policy. Deploy the API change before or alongside the frontend; no database migration is needed for this login change.
+
+The callback request explicitly uses the new HttpOnly cookie without an old bearer token or tenant header. Only a successful Google-authenticated response replaces the user/session and saves the account shortcut. The shortcut stores display details and a Google login hint, never a password, Quick View code or authentication proof. Google still authenticates every continuation and may require interaction when its session has expired.
+
+“Remember me on this browser” defaults on, can be unchecked, and carries that choice through the OAuth redirect in session storage. “Forget this account” removes the shortcut. “Sign in with username instead” clears the current form and pending username handoff without erasing the saved shortcut. Username identification, school branding redirects, password changes and post-login meeting destinations continue through their existing flows.
+
+Regression checks cover stale-user Google callbacks, correct session IDs, remembered identity metadata, opt-out, tenant isolation, bootstrap session binding, actual locks, school routes, and safe post-login destinations. Browser checks use synthetic API responses; production Google/network latency is not measured by these tests.

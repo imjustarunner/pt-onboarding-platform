@@ -1,6 +1,33 @@
 <template>
   <Teleport to="body">
-    <div v-if="isLocked" :class="{ 'session-checking': !sessionLockStore.lockConfig }" class="session-lock-overlay" role="dialog" aria-modal="true" aria-labelledby="session-lock-title">
+    <div
+      v-if="isLocked"
+      :class="{ 'session-checking': isChecking }"
+      class="session-lock-overlay"
+      :style="cardStyle"
+      :role="isChecking && !showRecovery ? 'status' : 'dialog'"
+      :aria-modal="!isChecking || showRecovery ? 'true' : undefined"
+      :aria-busy="isChecking && !showRecovery ? 'true' : undefined"
+      aria-labelledby="session-lock-title"
+    >
+      <div v-if="isChecking" class="session-arrival" :class="{ 'session-arrival--recovery': showRecovery }">
+        <BrandingLogo :logo-url="agencyLogoUrl" size="large" class="session-arrival-logo" />
+        <template v-if="!showRecovery">
+          <span class="session-arrival-spinner" aria-hidden="true" />
+          <h1 id="session-lock-title" class="session-arrival-title">Opening your workspace</h1>
+          <p class="session-arrival-message">{{ takingLonger ? 'This is taking a little longer. We’re still getting things ready.' : 'Getting everything ready for you…' }}</p>
+        </template>
+        <template v-else>
+          <h1 id="session-lock-title" class="session-arrival-title">We’re having trouble connecting</h1>
+          <p class="session-arrival-message">Your information is protected. We’ll keep trying to open your workspace.</p>
+          <p v-if="error" class="session-lock-error" role="alert">{{ error }}</p>
+          <div class="session-recovery-actions">
+            <button type="button" class="btn btn-primary" :disabled="verifying" @click="retryVerification">{{ verifying ? 'Trying again…' : 'Try again' }}</button>
+            <button type="button" class="session-lock-logout" @click="logoutInstead">Sign out</button>
+          </div>
+        </template>
+      </div>
+      <template v-else>
       <video
         v-if="sessionLockStore.lockConfig && showTenantVideo && !videoFailed"
         :key="tenantKey"
@@ -17,8 +44,8 @@
           size="large"
           class="session-lock-logo"
         />
-        <h1 id="session-lock-title" class="session-lock-title">{{ sessionLockStore.lockConfig ? 'Session Locked' : 'Checking sign-in' }}</h1>
-        <p class="session-lock-message">{{ !sessionLockStore.lockConfig ? 'Please wait while we verify your connection.' : sessionLockStore.lockConfig.pinRequired ? 'Enter your 6-digit Quick View passcode to continue' : 'Enter your 4-digit session PIN to continue' }}</p>
+        <h1 id="session-lock-title" class="session-lock-title">Session Locked</h1>
+        <p class="session-lock-message">{{ sessionLockStore.lockConfig.pinRequired ? 'Enter your 6-digit Quick View passcode to continue' : 'Enter your 4-digit session PIN to continue' }}</p>
         <p v-if="sessionLockStore.warningActive && sessionLockStore.warningSecondsLeft > 0" class="session-lock-message" role="status">Automatic logout in {{ countdown }}.</p>
         <form v-if="sessionLockStore.lockConfig?.useLockScreen" @submit.prevent="submitPin" class="session-lock-form">
           <input
@@ -42,11 +69,11 @@
             {{ verifying ? 'Verifying…' : 'Unlock' }}
           </button>
         </form>
-        <template v-if="!sessionLockStore.lockConfig"><p v-if="error" class="session-lock-error" role="alert">{{ error }}</p><button type="button" class="btn btn-secondary" :disabled="verifying" @click="retryVerification">{{ verifying ? 'Checking…' : 'Retry sign-in check' }}</button></template>
         <button type="button" class="session-lock-logout" @click="logoutInstead">
           Log out instead
         </button>
       </div>
+      </template>
     </div>
   </Teleport>
 </template>
@@ -70,6 +97,27 @@ const emit = defineEmits(['unlock', 'logout']);
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
 const sessionLockStore = useSessionLockStore();
+const isChecking = computed(() => !sessionLockStore.lockConfig);
+const takingLonger = ref(false);
+const recoveryDelayElapsed = ref(false);
+const showRecovery = computed(() => isChecking.value && sessionLockStore.verificationFailed && recoveryDelayElapsed.value);
+let slowLoadingTimer;
+let recoveryTimer;
+function clearLoadingTimers() {
+  clearTimeout(slowLoadingTimer);
+  clearTimeout(recoveryTimer);
+}
+watch(() => props.isLocked && isChecking.value, (checking) => {
+  clearLoadingTimers();
+  takingLonger.value = false;
+  recoveryDelayElapsed.value = false;
+  if (checking) {
+    slowLoadingTimer = setTimeout(() => { takingLonger.value = true; }, 8000);
+    recoveryTimer = setTimeout(() => { recoveryDelayElapsed.value = true; }, 15000);
+  }
+}, { immediate: true });
+onUnmounted(clearLoadingTimers);
+
 const mobileQuery = window.matchMedia?.('(max-width: 640px)');
 const isMobile = ref(mobileQuery?.matches ?? false);
 const videoFailed = ref(false);
@@ -128,8 +176,16 @@ async function submitPin() {
 }
 
 async function retryVerification() {
-  verifying.value=true;error.value='';
-  try { await refetchSessionLockConfig(); } catch { error.value='The session check could not reach the server. Check your connection and retry.'; } finally { verifying.value=false; }
+  if (verifying.value) return;
+  verifying.value = true;
+  error.value = '';
+  try {
+    await refetchSessionLockConfig();
+  } catch {
+    error.value = 'We still can’t connect. Please check your internet connection and try again.';
+  } finally {
+    verifying.value = false;
+  }
 }
 function logoutInstead() {
   emit('logout');
@@ -181,8 +237,39 @@ watch(() => props.isLocked, (locked) => {
   .session-lock-overlay { justify-content: flex-end; padding: clamp(24px, 5vw, 80px); }
 }
 
-.session-lock-overlay.session-checking { background: #f4f8f7; justify-content: center; }
-.session-checking .session-lock-card { box-shadow: 0 8px 36px rgba(20, 60, 50, .1); border: 1px solid #dae5df; }
+.session-lock-overlay.session-checking {
+  background: var(--bg, #f4f8f7);
+  justify-content: center;
+  padding: 24px;
+}
+.session-arrival {
+  width: min(100%, 420px);
+  text-align: center;
+  color: var(--text-primary, #1a1a1a);
+  animation: arrival-reveal 180ms ease-out 150ms both;
+}
+.session-arrival-logo { margin: 0 auto 28px; }
+.session-arrival-spinner {
+  display: block;
+  width: 24px;
+  height: 24px;
+  margin: 0 auto 20px;
+  border: 2px solid var(--border, #dae5df);
+  border-top-color: var(--lock-accent);
+  border-radius: 50%;
+  animation: arrival-spin 900ms linear infinite;
+}
+.session-arrival-title { font-size: 1.35rem; font-weight: 600; line-height: 1.4; margin: 0 0 10px; }
+.session-arrival-message { color: var(--text-secondary, #666); line-height: 1.6; margin: 0; text-wrap: balance; }
+.session-recovery-actions { display: flex; flex-direction: column; align-items: center; gap: 16px; margin-top: 28px; }
+.session-recovery-actions .btn { min-width: 160px; min-height: 44px; }
+.session-recovery-actions .session-lock-logout { margin: 0; min-height: 44px; }
+.session-arrival--recovery .session-lock-error { margin-top: 16px; }
+@keyframes arrival-spin { to { transform: rotate(360deg); } }
+@keyframes arrival-reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .session-arrival, .session-arrival-spinner { animation: none; }
+}
 
 .session-lock-logo {
   margin-bottom: 24px;

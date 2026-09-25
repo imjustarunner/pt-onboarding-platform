@@ -4,6 +4,7 @@ import { defineStore } from 'pinia';
 export const useSessionLockStore = defineStore('sessionLock', () => {
   const isLocked = ref(false);
   const lockConfig = ref(null);
+  const verificationFailed = ref(false);
 
   // Inactivity warning state (shown 10 min before Session Ended / logout)
   const warningActive = ref(false);
@@ -84,6 +85,7 @@ export const useSessionLockStore = defineStore('sessionLock', () => {
   return {
     isLocked,
     lockConfig,
+    verificationFailed,
     useLockScreen,
     effectiveTimeoutMs,
     warningActive,

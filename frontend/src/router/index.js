@@ -1,3 +1,4 @@
+import { isLoginEntryRoute, getSsoArrivalRoute } from '../utils/loginHandoff';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { createRouter, createWebHistory } from 'vue-router';
 import { publicDomainHistory, publicSupportSlugFromHost } from '../utils/publicDomainRouting.js';
@@ -4791,6 +4792,14 @@ router.beforeEach(async (to, from, next) => {
   if (isQuickViewHost() && !to.meta?.publicQuickView) {
     next({ name: 'QuickViewLauncher', replace: true });
     return;
+  }
+
+  // SSO must hydrate the NEW cookie, even when localStorage still contains a user.
+  // Mount the public login first so its branding/loading remains visible throughout.
+  if (String(to.query?.sso || '') === '1') {
+    if (isLoginEntryRoute(to)) { next(); return; }
+    const arrival = getSsoArrivalRoute(to, brandingStore.portalHostPortalUrl || getCurrentPortalSlugFromHostCache());
+    if (arrival) { next(arrival); return; }
   }
 
   // Superadmin cross-host brand switch: consume one-time `bs` handoff before auth guards.
