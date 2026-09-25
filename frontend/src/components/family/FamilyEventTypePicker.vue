@@ -8,16 +8,17 @@
       <option v-if="!selectedVisible" :value="modelValue">{{ selected.icon }} {{ selected.label }} (current)</option>
       <optgroup v-for="g in groups" :key="g.label" :label="g.label"><option v-for="type in g.types" :key="type.id" :value="type.id">{{ type.icon }} {{ type.label }}</option></optgroup>
     </select></label>
-    <details class="picture-library"><summary>Browse matching pictures</summary><div class="picture-grid"><button v-for="type in matchingTypes" :key="type.id" type="button" :aria-pressed="modelValue===type.id" @click="select(type.id)"><img :src="type.artwork" alt="" loading="lazy" width="180" height="120" /><span>{{ type.icon }} {{ type.label }}</span></button></div></details>
+    <details class="picture-library" @toggle="picturesOpen=$event.target.open"><summary>Browse matching pictures</summary><div v-if="picturesOpen" class="picture-grid"><button v-for="type in matchingTypes.slice(0,pictureLimit)" :key="type.id" type="button" :aria-pressed="modelValue===type.id" @click="select(type.id)"><img :src="type.artwork" alt="" loading="lazy" decoding="async" width="180" height="120" /><span>{{ type.icon }} {{ type.label }}</span></button></div><button v-if="picturesOpen && matchingTypes.length>pictureLimit" type="button" class="more-pictures" @click="pictureLimit+=24">Show more pictures</button></details>
     <p role="status">{{ count ? count+' matching types' : 'No matches. Try another search or category.' }}</p>
   </div>
 </template>
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { eventType, familyEventCategories, searchFamilyEventGroups } from '../../utils/familyCommandCenter';
 const props=defineProps({modelValue:{type:String,default:'family'},label:{type:String,default:'Event type'}});
 const emit=defineEmits(['update:modelValue','change']);
-const query=ref(''),category=ref('');
+const query=ref(''),category=ref(''),picturesOpen=ref(false),pictureLimit=ref(24);
+watch([query,category,picturesOpen],()=>{pictureLimit.value=24;});
 const selected=computed(()=>eventType(props.modelValue));
 const groups=computed(()=>searchFamilyEventGroups(query.value,category.value));
 const ids=computed(()=>new Set(groups.value.flatMap(g=>g.types.map(t=>t.id))));

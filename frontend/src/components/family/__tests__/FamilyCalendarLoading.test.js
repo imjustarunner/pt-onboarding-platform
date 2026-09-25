@@ -16,4 +16,19 @@ describe('calendar updates while Google is slow',()=>{
    resolve({data:{events:[],warnings:[]}});await flushPromises();
    expect(wrapper.text()).toContain('Get Vince');expect(http.get).toHaveBeenCalledTimes(initial+1);
  });
+ it('allows touch entry during a stalled refresh and recovers from lost pointer capture',async()=>{
+   const http={get:vi.fn(()=>new Promise(()=>{}))};
+   wrapper=mount(Calendar,{props:{http,householdId:7,now:new Date('2026-09-24T17:45:00Z')}});await flushPromises();
+   const pointer=async(target,type,props)=>{const e=new Event(type,{bubbles:true,cancelable:true});Object.assign(e,props);target.element.dispatchEvent(e);await flushPromises();};
+   const column=wrapper.find('.day-column'),scroller=wrapper.find('.calendar-scroll');
+   column.element.getBoundingClientRect=()=>({left:0,right:100,top:0,bottom:1100,width:100,height:1100});
+   column.element.setPointerCapture=vi.fn();column.element.hasPointerCapture=()=>{throw new Error('Capture already released');};
+   await pointer(column,'pointerdown',{pointerId:1,pointerType:'touch',button:0,isPrimary:true,clientX:50,clientY:350});
+   await pointer(scroller,'pointerup',{pointerId:1});expect(wrapper.emitted('create')).toHaveLength(1);
+   await pointer(column,'pointerdown',{pointerId:2,pointerType:'touch',button:0,isPrimary:true,clientX:50,clientY:350});
+   await pointer(scroller,'lostpointercapture',{pointerId:2});
+   await pointer(column,'pointerdown',{pointerId:3,pointerType:'touch',button:0,isPrimary:true,clientX:50,clientY:400});
+   await pointer(scroller,'pointerup',{pointerId:3});expect(wrapper.emitted('create')).toHaveLength(2);
+ });
+
 });

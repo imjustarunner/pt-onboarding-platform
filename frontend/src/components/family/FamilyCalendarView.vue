@@ -31,13 +31,13 @@
     <p class="calendar-gesture-hint">Tap a time to add · Drag to choose a duration · Use an event’s move grip or bottom edge to reschedule. <span v-if="touchEdit">Touch editing is on. Turn it off to swipe-scroll.</span><span v-else>Swipe to scroll, or turn on Touch edit to draw a time range.</span></p>
     <p v-if="changeMessage" class="calendar-change" role="status">{{ changeMessage }} <button v-if="undoChange" :disabled="saving||changing" @click="undoLastChange">Undo</button></p>
     <p v-if="error" class="calendar-message" role="alert">{{ error }} <button @click="load">Try again</button></p><p v-for="warning in warnings" :key="warning" class="calendar-message" role="status">{{ warning }}</p>
-    <div class="calendar-scroll" ref="scroll" :style="calendarHeight ? {height:calendarHeight+'px'} : undefined" :aria-busy="loading||saving||changing" @pointermove="moveGesture" @pointerup="endGesture" @pointercancel="cancelGesture" tabindex="0" aria-label="Schedule; scroll to see earlier or later hours">
+    <div class="calendar-scroll" ref="scroll" :style="calendarHeight ? {height:calendarHeight+'px'} : undefined" :aria-busy="loading||saving||changing" @pointermove="moveGesture" @pointerup="endGesture" @pointercancel="cancelGesture" @lostpointercapture="cancelGesture" tabindex="0" aria-label="Schedule; scroll to see earlier or later hours">
       <div class="calendar-grid" :style="{gridTemplateColumns:`48px repeat(${days.length},minmax(0,1fr))`,minWidth:mode==='week'?'680px':'0','--hour-height':`${hourHeight}px`}">
         <div class="day-heading time-heading"><span v-if="loading" role="status">•••</span><span v-else>{{ mode==='week' ? 'Week' : 'Day' }}</span></div><div v-for="d in days" :key="d" class="day-heading" :class="{current:d===todayKey}">{{ weekday(d) }} <span>{{ Number(d.slice(-2)) }}</span></div>
-        <template v-if="days.length"><div class="all-day-label">All day</div><div v-for="d in days" :key="`all-${d}`" class="all-day"><button class="all-day-add" :aria-label="'Add all-day event on '+d" @click="createAllDay(d)">＋</button><button v-for="e in allDay(d)" :key="e.key" class="calendar-event all-day-event" :style="eventStyle(e)" @click="showEvent(e)">{{ icon(e) }} {{ e.title }}</button></div></template>
+        <template v-if="days.length"><div class="all-day-label">All day</div><div v-for="d in days" :key="`all-${d}`" class="all-day"><button class="all-day-add" :aria-label="'Add all-day event on '+d" @click="createAllDay(d)">＋</button><button v-for="e in allDayRows.get(d)" :key="e.key" class="calendar-event all-day-event" :style="eventStyle(e)" @click="showEvent(e)">{{ icon(e) }} {{ e.title }}</button></div></template>
         <div class="hours"><span v-for="hour in 24" :key="hour" :style="{top:`${(hour-1)*hourHeight}px`}">{{ hourLabel(hour-1) }}</span></div>
         <div v-for="d in days" :key="`hours-${d}`" class="day-column" :data-day="d" :class="{'today-column':d===todayKey}" tabindex="0" :aria-label="heading(d)+', tap a time or press Enter to add an event'" @keydown.enter.self.prevent="createAt(d,540)" @pointerdown="beginGesture($event,d)">
-          <button v-for="e in timed(d)" :key="e.key" class="calendar-event" :style="e.style" :class="{editable:canEdit(e)}" @pointerdown.stop="beginGesture($event,d,e)" :aria-label="`${e.title}, ${time(e.start)} to ${time(e.end)}${e.memberName?', '+e.memberName:''}`" @click="eventClick(e)">
+          <button v-for="e in timedRows.get(d)" :key="e.key" class="calendar-event" :style="e.style" :class="{editable:canEdit(e)}" @pointerdown.stop="beginGesture($event,d,e)" :aria-label="`${e.title}, ${time(e.start)} to ${time(e.end)}${e.memberName?', '+e.memberName:''}`" @click="eventClick(e)">
             <span v-if="canEdit(e)" class="event-move-handle" title="Drag to move this event" aria-hidden="true" @pointerdown.stop="beginGesture($event,d,e,'move')">⠿</span><strong><span aria-hidden="true">{{ icon(e) }}</span> {{ e.title }}</strong><span class="event-time">{{ time(e.start) }} – {{ time(e.end) }}</span><small v-if="e.memberName" class="event-person"><img v-if="e.photo" :src="e.photo" alt="" />{{ e.memberName }}</small>
             <span v-if="canEdit(e)&&localDay(new Date(new Date(e.end)-1))===d" class="event-resize-handle" title="Drag to change the end time" aria-hidden="true" @pointerdown.stop="beginGesture($event,d,e,'resize')" />
           </button>
@@ -72,7 +72,10 @@ function preferenceKey(){return `family-calendar-display:${props.householdId}`;}
 function restorePreferences(){try{const saved=JSON.parse(localStorage.getItem(preferenceKey())||'{}');colorMode.value=saved.colorMode==='person'?'person':'activity';weekStartsOn.value=saved.weekStartsOn===0?0:1;showWeekends.value=saved.showWeekends!==false;}catch{colorMode.value='activity';weekStartsOn.value=1;showWeekends.value=true;}}
 restorePreferences();
 watch([colorMode,weekStartsOn,showWeekends],()=>{try{localStorage.setItem(preferenceKey(),JSON.stringify({colorMode:colorMode.value,weekStartsOn:weekStartsOn.value,showWeekends:showWeekends.value}));}catch{/* storage may be unavailable on shared devices */}});
-function localDay(value){return new Intl.DateTimeFormat('en-CA',{timeZone:props.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));}
+const dayFormatter=computed(()=>new Intl.DateTimeFormat('en-CA',{timeZone:props.timezone,year:'numeric',month:'2-digit',day:'2-digit'}));
+const timeFormatter=computed(()=>new Intl.DateTimeFormat('en-US',{timeZone:props.timezone,hour:'numeric',minute:'2-digit'}));
+const minuteFormatter=computed(()=>new Intl.DateTimeFormat('en-US',{timeZone:props.timezone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}));
+function localDay(value){return dayFormatter.value.format(new Date(value));}
 function shift(day,n){const d=new Date(`${day}T12:00:00Z`);d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
 const todayKey=computed(()=>localDay(props.now));
 function today(){date.value=todayKey.value;}
@@ -88,11 +91,11 @@ const inVisibleDays=e=>days.value.some(d=>touchesDay(e,d));
 function move(n){date.value=shift(date.value,n*(mode.value==='week'?7:1));}
 function heading(d){return new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US',{timeZone:'UTC',month:'short',day:'numeric'});}
 function weekday(d){return new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US',{timeZone:'UTC',weekday:'short'});}
-const time=value=>new Date(value).toLocaleTimeString('en-US',{timeZone:props.timezone,hour:'numeric',minute:'2-digit'});
+const time=value=>timeFormatter.value.format(new Date(value));
 const hourLabel=h=>`${h%12||12} ${h<12?'AM':'PM'}`;
 const eventStyle=e=>calendarEventStyle(e,colorMode.value,props.members);
 const icon=e=>e.work?'▣':eventType(e.metadata?.eventType).icon;
-function minutes(value){const parts=new Intl.DateTimeFormat('en-US',{timeZone:props.timezone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(value));return Number(parts.find(p=>p.type==='hour').value)*60+Number(parts.find(p=>p.type==='minute').value);}
+function minutes(value){const parts=minuteFormatter.value.formatToParts(new Date(value));return Number(parts.find(p=>p.type==='hour').value)*60+Number(parts.find(p=>p.type==='minute').value);}
 function allDay(day){return visibleEvents.value.filter(e=>e.startDate&&touchesDay(e,day));}
 function timed(day){
   const rows=visibleEvents.value.filter(e=>!e.startDate&&touchesDay(e,day)).map(e=>({...e,top:(localDay(e.start)<day?0:minutes(e.start))*hourHeight/60,bottom:(localDay(e.end)>day?1440:minutes(e.end))*hourHeight/60})).sort((a,b)=>a.top-b.top || b.bottom-a.bottom);
@@ -100,6 +103,9 @@ function timed(day){
   for(const e of rows){e.bottom=Math.max(e.top+30,e.bottom);if(group.length&&e.top>=until){groups.push(group);group=[];until=0;}group.push(e);until=Math.max(until,e.bottom);}if(group.length)groups.push(group);
   return groups.flatMap(items=>{const lanes=[];for(const e of items){let lane=lanes.findIndex(end=>end<=e.top);if(lane<0)lane=lanes.length;lanes[lane]=e.bottom;e.lane=lane;}return items.map(e=>({...e,style:{...eventStyle(e),top:`${e.top}px`,height:`${e.bottom-e.top-2}px`,left:`calc(${e.lane/lanes.length*100}% + 2px)`,width:`calc(${100/lanes.length}% - 4px)`}}));});
 }
+// Layout is independent of pointer movement, the clock tick, and opening an editor.
+const timedRows=computed(()=>new Map(days.value.map(day=>[day,timed(day)])));
+const allDayRows=computed(()=>new Map(days.value.map(day=>[day,allDay(day)])));
 async function showEvent(event){selected.value=event;await nextTick();eventDialog.value?.showModal();}
 function closeEvent(){eventDialog.value?.close();}
 function closeOutside(event){if(event.target===eventDialog.value){const r=eventDialog.value.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)closeEvent();}}
@@ -115,7 +121,7 @@ function slotAt(clientX,clientY,fallbackDay){
   return {day:column.dataset.day,minute:Math.max(0,Math.min(1425,Math.floor((clientY-rect.top)/hourHeight*60/15)*15))};
 }
 function beginGesture(e,day,event=null,action=null){
-  if(e.button!==0||!e.isPrimary||props.saving||changing.value||loading.value||gesture.value)return;
+  if(e.button!==0||!e.isPrimary||props.saving||changing.value||gesture.value)return;
   if(event&&(!canEdit(event)||event.startDate))return;
   if(event&&e.pointerType==='touch'&&!action&&!touchEdit.value)return;
   const anchor=slotAt(e.clientX,e.clientY,day);if(!anchor)return;
@@ -147,7 +153,7 @@ function autoScrollGesture(){
   const dx=g.lastX<r.left+25?-8:g.lastX>r.right-25?8:0;
   if(dy||dx){scroll.value.scrollBy(dx,dy);g.current=slotAt(g.lastX,g.lastY,g.current.day)||g.current;updatePreview(g);scrollFrame=requestAnimationFrame(autoScrollGesture);}
 }
-function cancelGesture(){const g=gesture.value;gesture.value=null;cancelAnimationFrame(scrollFrame);scrollFrame=null;if(g?.target.hasPointerCapture(g.pointerId))g.target.releasePointerCapture(g.pointerId);}
+function cancelGesture(){const g=gesture.value;gesture.value=null;cancelAnimationFrame(scrollFrame);scrollFrame=null;try{if(g?.target.hasPointerCapture(g.pointerId))g.target.releasePointerCapture(g.pointerId);}catch{/* Safari may already have released capture when a modal opens. */}}
 function gestureKeydown(e){if(e.key==='Escape'&&gesture.value){e.preventDefault();ignoreClickUntil=performance.now()+500;cancelGesture();}}
 async function endGesture(e){
   const g=gesture.value;if(!g||e.pointerId!==g.pointerId)return;
@@ -176,7 +182,7 @@ async function load(){
   if(loading.value && range===activeRange){refreshQueued=true;return;}
   activeRange=range;refreshQueued=false;
   const current=++request;loading.value=true;error.value='';
-  const fetchRange=(from,to)=>props.http.get(`/households/${props.householdId}/calendar-view`,{params:{from:`${shift(from,-1)}T00:00:00Z`,to:`${shift(to,2)}T00:00:00Z`,work:work.value}});
+  const fetchRange=(from,to)=>props.http.get(`/households/${props.householdId}/calendar-view`,{params:{from:`${shift(from,-1)}T00:00:00Z`,to:`${shift(to,2)}T00:00:00Z`,work:work.value},timeout:20000});
   // Keep today's context accurate even when browsing another week. Merge into one request when nearby.
   const contextEnd=shift(todayKey.value,6),from=[days.value[0],todayKey.value].sort()[0],to=[days.value.at(-1),contextEnd].sort().at(-1);
   const combined=(new Date(to)-new Date(from))/86400000<=30;

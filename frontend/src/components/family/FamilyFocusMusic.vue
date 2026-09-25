@@ -22,6 +22,8 @@ async function play(){if(!current.value||!audio.value)return;error.value='';try{
 function toggle(){if(playing.value)audio.value.pause();else play();}
 async function chooseTrack(){const resume=playing.value;await nextTick();audio.value?.load();if(resume)play();}
 async function step(direction){if(!tracks.value.length)return;const index=tracks.value.findIndex(t=>t.id===trackId.value);const offset=shuffle.value&&tracks.value.length>1?1+Math.floor(Math.random()*(tracks.value.length-1)):direction;trackId.value=tracks.value[(index+offset+tracks.value.length)%tracks.value.length].id;await nextTick();audio.value?.load();play();}
+function pause(){audio.value?.pause();}
+defineExpose({pause});
 function stop(){if(audio.value){audio.value.pause();audio.value.currentTime=0;}}
 function playbackError(){if(current.value)error.value='This track could not play. Try another track or refresh the library.';}
 watch(()=>props.open,open=>{if(open&&!tracks.value.length)load();},{immediate:true});
