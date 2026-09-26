@@ -1,6 +1,9 @@
 export function formatEncounterDate(value) {
   if (!value) return '—';
-  const d = new Date(value);
+  // A service date is a calendar date, not midnight UTC.
+  const raw = String(value);
+  const day = /^(\d{4})-(\d{2})-(\d{2})(?:$|T00:00:00(?:\.000)?Z$)/.exec(raw);
+  const d = day ? new Date(Number(day[1]), Number(day[2])-1, Number(day[3]), 12) : new Date(value);
   if (!Number.isFinite(d.getTime())) return String(value);
   return d.toLocaleDateString();
 }
@@ -21,8 +24,8 @@ export function formatEncounterProvider(row) {
 export function formatPlaceOfService(pos) {
   const code = String(pos || '').trim();
   if (!code) return '—';
-  if (code === '03') return 'In school (03)';
-  return `In office (${code})`;
+  const labels = {'02':'Telehealth outside patient’s home','10':'Telehealth in patient’s home','03':'School','11':'Office','12':'Home','99':'Other location'};
+  return `${labels[code] || 'Place of service'} (${code})`;
 }
 
 export function noteStatusLabel(row) {
@@ -36,7 +39,7 @@ export function noteStatusLabel(row) {
 export function noteActionLabel(row) {
   const s = String(row?.note_status || 'none');
   if (s === 'signed' || s === 'draft') return 'Open note';
-  if (s === 'planned' || String(row?.display_state || '') === 'planned') return 'Open draft';
+  if (s === 'planned' || String(row?.display_state || '') === 'planned') return 'Prepare note';
   return 'Start note';
 }
 

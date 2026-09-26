@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import { decodeInsuranceProfile } from '../models/GuardianInsuranceProfile.model.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
-import { readClientInsurance, writeClientInsurance, claimInsuranceIssues } from '../services/clientInsurance.service.js';
+import { readClientInsurance, writeClientInsurance, claimInsuranceIssues, insuranceDemographics } from '../services/clientInsurance.service.js';
 import { positiveId, auditBilling } from '../services/familyBillingPolicy.service.js';
 
 async function authorize(req) {
@@ -15,10 +15,11 @@ export async function getClientInsurance(req,res,next) {
   try {
     const c = await authorize(req);
     const insurance = await readClientInsurance(c.clientId,c.agencyId);
+    const demographics = await insuranceDemographics(c.clientId,c.agencyId);
     const [submitted]=await pool.execute(`SELECT DISTINCT p.*, u.first_name, u.last_name FROM guardian_insurance_profiles p JOIN users u ON u.id=p.guardian_user_id LEFT JOIN guardian_insurance_clients gic ON gic.profile_id=p.id AND gic.agency_id=p.agency_id WHERE p.agency_id=? AND (p.client_id=? OR gic.client_id=?) ORDER BY p.collected_at DESC`,[c.agencyId,c.clientId,c.clientId]);
     const policies=submitted.map(row=>{const value=decodeInsuranceProfile(row);return{id:row.id,submittedBy:[row.first_name,row.last_name].filter(Boolean).join(' '),primary:value.primary || {},secondary:value.secondary || null,hasCardEvidence:!!value.primary_card_front_url};});
     await auditBilling({...c,userId:req.user.id,action:'staff_view_insurance'});
-    res.set('Cache-Control','no-store').json({insurance,policies,missingClaimFields:claimInsuranceIssues(insurance?.primary)});
+    res.set('Cache-Control','no-store').json({insurance,policies,demographics,missingClaimFields:claimInsuranceIssues(insurance?.primary)});
   } catch(e){next(e);}
 }
 export async function saveClientInsurance(req,res,next) {

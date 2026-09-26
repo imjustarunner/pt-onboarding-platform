@@ -1,3 +1,4 @@
+import {plannedBillingServices} from '../services/plannedBillingServices.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
@@ -16,14 +17,7 @@ export async function getPlannedBillingServices(req,res,next) {
   try {
     const agencyId=Number(req.query.agencyId);
     await ClinicalEligibilityService.ensureAgencyAccess({reqUser:req.user,agencyId});
-    const [items]=await clinicalPool.execute(`SELECT s.id AS sessionId,s.client_id AS clientId,s.service_code AS serviceCode,
-      JSON_UNQUOTE(JSON_EXTRACT(s.metadata_json,'$.serviceDate')) AS serviceDate,
-      MAX(n.id) AS noteId,MAX(n.provider_signed_at) AS signedAt
-      FROM clinical_sessions s JOIN note_aid_planned_services p ON p.clinical_session_id=s.id AND p.agency_id=s.agency_id
-      LEFT JOIN clinical_notes n ON n.clinical_session_id=s.id AND n.agency_id=s.agency_id AND n.is_deleted=0
-      WHERE s.agency_id=? AND NOT EXISTS (SELECT 1 FROM clinical_claims c WHERE c.clinical_session_id=s.id AND c.agency_id=s.agency_id)
-      GROUP BY s.id ORDER BY s.id DESC LIMIT 200`,[agencyId]);
-    res.json({items});
+    res.set('Cache-Control','no-store').json(await plannedBillingServices(agencyId));
   }catch(error){next(error);}
 }
 

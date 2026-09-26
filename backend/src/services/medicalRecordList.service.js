@@ -16,6 +16,9 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
   const inList = agencyIds.map(() => '?').join(',');
   const clientIn = clientIds.map(() => '?').join(',');
 
+  const [[agency]] = await pool.execute('SELECT timezone FROM agencies WHERE id=?', [aid]);
+  const timeZone = agency?.timezone || 'America/Denver';
+
   let billing = [];
   try {
     billing = await listBillingEncountersForClient({
@@ -129,6 +132,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
     const [rows] = await pool.execute(
       `SELECT a.id,
               a.start_at,
+              a.source_timezone,
               a.end_at,
               a.service_code,
               a.status,
@@ -232,6 +236,7 @@ export async function listClientMedicalRecordRows({ agencyId, clientId, limit = 
   }
 
   return mergeMedicalRecordSources({
+    timeZone,
     billing,
     sessions,
     officeEvents,

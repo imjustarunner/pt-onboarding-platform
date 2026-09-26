@@ -61,6 +61,7 @@
     <div v-else-if="loading" class="hint" style="margin-top: 10px;">Loading…</div>
     <div v-else-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
 
+    <div v-else-if="layout==='day'"><label>Day <select v-model="dayIndex"><option v-for="(day,index) in orderedDays" :key="day" :value="index">{{ day }} · {{ dayDateLabel(day) }}</option></select></label><ProviderDaySchedule :user-ids="userIds" :user-labels="userLabelById || {}" :summaries="summariesByUserId" :date="addDaysYmd(effectiveWeekStart,dayIndex)" :detail-level="detailLevel" @open-user="id => emit('open-user',{userId:id})" /></div>
     <div v-else class="sched-grid" :style="gridStyle">
       <div class="sched-head-cell"></div>
       <div v-for="d in orderedDays" :key="d" class="sched-head-cell" :class="{ 'sched-head-today': isTodayDay(d) }">
@@ -106,10 +107,12 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import ProviderDaySchedule from './ProviderDaySchedule.vue';
 import { parseScheduleUtcInstant } from '../../utils/scheduleEventInstants.js';
 
 const props = defineProps({
   userIds: { type: Array, required: true },
+  layout: { type:String, default:'week' },
   agencyIds: { type: Array, default: null },
   weekStartYmd: { type: String, default: null },
   weekStartsOn: { type: String, default: 'monday' },
@@ -121,6 +124,7 @@ const props = defineProps({
 });
 const emit = defineEmits(['update:weekStartYmd', 'open-user']);
 
+const dayIndex=ref(0);
 const ALL_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const SUNDAY_FIRST_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const orderedDays = computed(() => (String(props.weekStartsOn || '').toLowerCase() === 'sunday' ? SUNDAY_FIRST_DAYS : ALL_DAYS));

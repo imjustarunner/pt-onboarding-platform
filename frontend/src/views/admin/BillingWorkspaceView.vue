@@ -13,6 +13,7 @@
         <div class="scope-context"><strong>{{ scopeId === 'all' ? 'Your authorized billing organizations' : scopedOrganization?.name }}</strong><span>Signed in as {{ signedInName }} · Billing for {{ scopeId === 'all' ? 'multiple organizations' : scopedOrganization?.name }}</span></div>
         <span v-if="updatedAt" class="timestamp">Updated {{ clockTime(updatedAt) }}</span>
       </section>
+      <p v-if="scopedOrganization && ['admin','super_admin'].includes(authStore.user?.role)" class="panel-note"><button class="text-button" @click="openBillingIdentity">Billing identity setup: tax ID and practice profile →</button></p>
       <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
       <p v-if="loading && !organizations.length" class="empty-state" role="status">Loading your billing organizations…</p>
       <p v-else-if="!organizations.length && !error" class="empty-state">No organizations with medical billing access are available for your account.</p>
@@ -95,6 +96,10 @@ import MedicalBillingView from './MedicalBillingView.vue';
 import SupervisedPayerPolicies from '../../components/admin/SupervisedPayerPolicies.vue';
 
 const agencyStore = useAgencyStore(), authStore = useAuthStore(), route = useRoute(), router = useRouter();
+function openBillingIdentity() {
+  const slug = scopedOrganization.value?.slug || route.params.organizationSlug;
+  router.push({path: slug ? `/${slug}/admin/settings` : '/admin/settings', query: {agencyId: String(scopedOrganization.value.id), category: 'general', item: 'business-details', agencyTab: 'contact'}});
+}
 const navigation = [
   { id: 'workspace', label: 'Billing Workspace', icon: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z' },
   { id: 'claims', label: 'Claims', icon: 'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7' },

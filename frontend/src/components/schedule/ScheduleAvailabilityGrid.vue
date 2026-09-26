@@ -5331,7 +5331,8 @@
                   </div>
                 </div>
               </div>
-              <div v-if="item.therapyNoteAid" class="stack-details-actions" style="margin-top: 8px;">
+              <p v-if="item.therapyNoteAid" class="muted">External calendar entry. Viewing this does not start a session or create a claim. Use the linked app appointment for clinical documentation.</p>
+              <div v-if="item.therapyNoteAid && !isViewingOtherUserSchedule" class="stack-details-actions" style="margin-top: 8px;">
                 <button type="button" class="btn btn-primary btn-sm" @click.stop="openTherapyNoteAid(item)">
                   Open Note Aid
                 </button>
@@ -5862,6 +5863,7 @@ import {
   wallDatetimeFromParts,
   wallDatetimeLocalToSummaryIso
 } from '../../utils/scheduleEventInstants.js';
+import {appointmentOfficeId,officesForAgency,defaultAppointmentServiceLocation} from '../../utils/appointmentOfficeSelection.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { familyScheduleProjection } from '../../utils/familyScheduleVisibility';
@@ -14837,6 +14839,7 @@ function onEditorOfficeLocationId(id) {
   const next = Number(id || 0);
   editorOfficeLocationId.value = next;
   editorPreferredRoomId.value = 0;
+  preferDefaultServiceLocation({force:true});
   if (next > 0) {
     void loadOfficeRooms(next);
     void loadEditorOpenRoomsForWindow();
@@ -15014,7 +15017,9 @@ function mapOpenRoomRow(r) {
   };
 }
 
+let editorRoomsRequest=0;
 async function loadEditorOpenRoomsForWindow() {
+  const request=++editorRoomsRequest;
   const locationId = Number(editorOfficeLocationId.value || 0);
   if (!locationId) {
     editorOpenRooms.value = [];
@@ -15053,6 +15058,7 @@ async function loadEditorOpenRoomsForWindow() {
     if (!resp) {
       resp = await api.get('/office-schedule/admin/available-rooms-for-slot', { params }).catch(() => null);
     }
+    if(request!==editorRoomsRequest)return;
     const rooms = Array.isArray(resp?.data?.rooms) ? resp.data.rooms : [];
     const checked = Number(resp?.data?.checkedOccurrences || 1) || 1;
     if (rooms.length) {
@@ -15083,7 +15089,7 @@ async function loadEditorOpenRoomsForWindow() {
     const fallback = fromGrid.length
       ? fromGrid.map(mapOpenRoomRow)
       : catalog.map(mapOpenRoomRow);
-    if (fallback.length) {
+    if (!resp && fallback.length) {
       editorOpenRooms.value = mergeEditorRoomOptionsWithBookings(fallback.map(mapOpenRoomRow));
       editorPreferredRoomsHint.value = fromGrid.length
         ? `${fallback.length} requestable room${fallback.length === 1 ? '' : 's'} from the office grid for this window.`
@@ -15101,9 +15107,11 @@ async function loadEditorOpenRoomsForWindow() {
       ? 'No rooms are open for this location and time window.'
       : 'No rooms are open for every occurrence in this series (conflicts on one or more dates).';
   } catch {
+    if(request!==editorRoomsRequest)return;
     editorOpenRooms.value = [];
     editorPreferredRoomsHint.value = 'Could not load open rooms for this window.';
   } finally {
+    if(request!==editorRoomsRequest)return;
     editorOpenRoomsLoading.value = false;
     editorOfficeSeriesRechecking.value = false;
   }
@@ -15534,20 +15542,14 @@ async function loadEditorOfficeLocations() {
         rows = officeLocations.value;
       }
     }
-    if (aid > 0) {
-      const filtered = rows.filter((o) => {
-        const ids = Array.isArray(o?.agencyIds) ? o.agencyIds.map(Number) : [];
-        if (!ids.length) return true;
-        return ids.includes(aid);
-      });
-      if (filtered.length) rows = filtered;
-    }
+    rows = officesForAgency(rows, aid);
+    if (!rows.some(o=>Number(o.id)===Number(editorOfficeLocationId.value))) editorOfficeLocationId.value=0;
     editorOfficeLocations.value = rows;
     if (!Number(editorOfficeLocationId.value || 0)) {
       const booked = findProviderOfficeBookingsForEditorWindow()[0];
-      if (booked?.buildingId) {
+      if (booked?.buildingId && rows.some(o=>Number(o.id)===Number(booked.buildingId))) {
         editorOfficeLocationId.value = Number(booked.buildingId);
-      } else if (Number(selectedOfficeLocationId.value || 0) > 0) {
+      } else if (rows.some(o=>Number(o.id)===Number(selectedOfficeLocationId.value))) {
         editorOfficeLocationId.value = Number(selectedOfficeLocationId.value);
       } else if (rows.length === 1) {
         editorOfficeLocationId.value = Number(rows[0]?.id || 0);
@@ -15611,7 +15613,7 @@ const requestSubmitBlockedReason = computed(() => {
   }
   if (t === 'individual_session') {
     const modality = String(bookingModality.value || '').toUpperCase();
-    const hasOffice = Number(selectedOfficeLocationId.value || 0) > 0;
+    const hasOffice = appointmentOfficeId(editorOfficeLocationId.value, selectedOfficeLocationId.value) > 0;
     if (!modality) return 'Choose Virtual or In-person.';
     if (!effectiveAgencyId.value) return 'Select an agency for this session.';
     if (!primarySessionClientId.value) return 'Select a client for this individual session.';
@@ -15622,7 +15624,7 @@ const requestSubmitBlockedReason = computed(() => {
           && (l.isSchool || Number(l.schoolOrganizationId) > 0 || String(l.placeOfService) === '03');
       });
     if (modality === 'IN_PERSON' && !hasOffice && !hasSchoolSite) {
-      return 'In-person sessions need an office selected in the toolbar (or a school location).';
+      return 'Choose an office in this appointment’s Office request section, or select the actual school service location.';
     }
     if (modality === 'TELEHEALTH') {
       if (bookingMetadataLoading.value) return 'Loading booking options…';
@@ -15949,35 +15951,15 @@ const normalizeBookingSelectionPayload = () => {
 };
 
 const preferDefaultServiceLocation = ({ force = false } = {}) => {
-  if (!force && Number(bookingServiceLocationId.value || editorServiceLocationId.value || 0) > 0) return;
   const locs = (editorServiceLocationOptions.value?.length
     ? editorServiceLocationOptions.value
     : bookingServiceLocationOptions.value) || [];
-  if (!locs.length) return;
+  const currentId = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
+  if (!force && currentId > 0 && locs.some(location => Number(location.id) === currentId)) return;
   const modality = String(editorModality.value || bookingModality.value || '').toUpperCase();
-  // Virtual + office room is still telehealth for billing — do not force POS 11 from room.
-  if (modality === 'TELEHEALTH') {
-    const hit = locs.find((l) => ['02', '10'].includes(String(l.placeOfService || '')))
-      || locs.find((l) => String(l.placeOfService) === '02')
-      || locs[0];
-    if (hit?.id) {
-      bookingServiceLocationId.value = Number(hit.id);
-      editorServiceLocationId.value = Number(hit.id);
-    }
-    return;
-  }
-  // In-person + booked office room → prefer office POS 11
-  const hasOfficeRoom = editorAttachOfficeRequest.value
-    || Number(editorPreferredRoomId.value || editorRoomId.value || 0) > 0
-    || Number(editorOfficeLocationId.value || 0) > 0;
-  const preferPos = hasOfficeRoom ? '11' : '11';
-  const hit = locs.find((l) => String(l.placeOfService) === preferPos)
-    || locs.find((l) => !['02', '10'].includes(String(l.placeOfService || '')))
-    || locs[0];
-  if (hit?.id) {
-    bookingServiceLocationId.value = Number(hit.id);
-    editorServiceLocationId.value = Number(hit.id);
-  }
+  const hit=defaultAppointmentServiceLocation(locs,modality,appointmentOfficeId(editorOfficeLocationId.value,selectedOfficeLocationId.value));
+  bookingServiceLocationId.value=Number(hit?.id || 0);
+  editorServiceLocationId.value=Number(hit?.id || 0);
 };
 
 const refreshBookingUnitPreview = async () => {
@@ -16039,7 +16021,9 @@ const refreshBookingUnitPreview = async () => {
   }
 };
 
+let bookingMetadataRequest = 0;
 const loadBookingMetadataForProvider = async () => {
+  const requestId = ++bookingMetadataRequest;
   const rt = String(requestType.value || '');
   const allowUnifiedClinical = showAppointmentEditorShell.value && editorIsClinical.value;
   if (!allowUnifiedClinical) {
@@ -16062,6 +16046,7 @@ const loadBookingMetadataForProvider = async () => {
         agencyId: Number(editorAgencyId.value || effectiveAgencyId.value || 0) || undefined
       }
     });
+    if (requestId !== bookingMetadataRequest) return;
     bookingMetadata.value = {
       appointmentTypes: Array.isArray(resp?.data?.appointmentTypes) ? resp.data.appointmentTypes : [],
       appointmentSubtypes: Array.isArray(resp?.data?.appointmentSubtypes) ? resp.data.appointmentSubtypes : [],
@@ -16075,10 +16060,13 @@ const loadBookingMetadataForProvider = async () => {
       editorServiceLocationId.value = Number(bookingServiceLocationId.value);
     }
   } catch (e) {
+    if (requestId !== bookingMetadataRequest) return;
     bookingMetadata.value = { appointmentTypes: [], appointmentSubtypes: [], serviceCodes: [], serviceLocations: [] };
+    bookingServiceLocationId.value = 0;
+    editorServiceLocationId.value = 0;
     bookingMetadataError.value = e?.response?.data?.error?.message || 'Could not load booking metadata for this provider.';
   } finally {
-    bookingMetadataLoading.value = false;
+    if (requestId === bookingMetadataRequest) bookingMetadataLoading.value = false;
   }
 };
 
@@ -16508,13 +16496,14 @@ const isTelehealthModality = computed(
 );
 const officeBookingValid = computed(() => {
   if (!['office', 'individual_session', 'group_session'].includes(String(requestType.value || ''))) return true;
-  const endH = Number(modalEndHour.value);
-  const startH = Number(modalHour.value);
+  const endH = Number(modalEndHour.value)*60+Number(modalEndMinute.value || 0);
+  const startH = Number(effectiveModalStartHour.value ?? modalHour.value)*60+Number(modalStartMinute.value || 0);
   if (!(endH > startH)) return false;
   // Virtual individual sessions do not require an office.
   if (String(requestType.value) === 'individual_session' && isTelehealthModality.value) return true;
-  const officeId = Number(selectedOfficeLocationId.value || 0);
+  const officeId = appointmentOfficeId(editorOfficeLocationId.value, selectedOfficeLocationId.value);
   if (!officeId) return false;
+  if (editorAttachOfficeRequest.value) return true; // Server rechecks availability on submission.
   // In Open Finder, room picker is intentionally hidden and booking uses any open room.
   if (viewMode.value !== 'office_layout') return true;
   // If a specific room is picked, it must be requestable in the options list.
@@ -17590,7 +17579,7 @@ const virtualSessionSummaryTypeLabel = computed(() => {
 });
 const showSessionOfficeBookingPanel = computed(() => {
   const t = String(requestType.value || '');
-  const hasOffice = Number(selectedOfficeLocationId.value || 0) > 0;
+  const hasOffice = appointmentOfficeId(editorOfficeLocationId.value, selectedOfficeLocationId.value) > 0;
   const modality = String(bookingModality.value || '').toUpperCase();
   // Pure virtual sessions are not office bookings — only show room UI when the user opts in.
   if (t === 'individual_session' && modality === 'TELEHEALTH') {
@@ -20656,7 +20645,7 @@ const toProviderSessionRecordingPath = () => {
 };
 
 const openTherapyNoteAid = (item) => {
-  if (!item?.therapyNoteAid) return;
+  if (!item?.therapyNoteAid || isViewingOtherUserSchedule.value) return;
   const q = new URLSearchParams();
   if (item.therapyStartAt) q.set('therapyStartAt', String(item.therapyStartAt));
   if (item.therapyEndAt) q.set('therapyEndAt', String(item.therapyEndAt));
@@ -21648,7 +21637,7 @@ const submitRequest = async () => {
         needsOfficeRefresh = true;
       }
     } else if (requestType.value === 'individual_session' || requestType.value === 'group_session') {
-      const officeId = Number(selectedOfficeLocationId.value || 0);
+      const officeId = appointmentOfficeId(editorOfficeLocationId.value, selectedOfficeLocationId.value);
       const modality = String(bookingModality.value || '').toUpperCase();
       const isVirtualIndividual = requestType.value === 'individual_session' && modality === 'TELEHEALTH';
 
@@ -21672,7 +21661,7 @@ const submitRequest = async () => {
         }
         : null);
       if (requestType.value === 'individual_session' && modality === 'IN_PERSON' && !officeId && !schoolLoc) {
-        throw new Error('In-person sessions need an office selected in the toolbar (or a school location).');
+        throw new Error('Choose an office in this appointment’s Office request section, or select the actual school service location.');
       }
       if (requestType.value === 'group_session' && !officeId) {
         throw new Error('Select an office first.');
@@ -21826,10 +21815,10 @@ const submitRequest = async () => {
       const roomId = viewMode.value === 'office_layout'
         ? (Number(selectedOfficeRoomId.value || 0) || null)
         : null;
-      const recurrence = String(officeBookingRecurrence.value || 'ONCE');
+      const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE');
       const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
-        ? Math.min(104, Math.max(1, Number(officeBookingOccurrenceCount.value) || 7))
+        ? Math.min(104, Math.max(1, Number(scheduleEventOccurrenceCount.value || officeBookingOccurrenceCount.value) || 7))
         : null;
       const targets = sortedSelectedActionSlots().length ? sortedSelectedActionSlots() : [{
         dateYmd: addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
@@ -21837,8 +21826,8 @@ const submitRequest = async () => {
       }];
       await withdrawEditorPriorOfficeRequests();
       for (const t of targets) {
-        const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:00:00`;
-        const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + Math.max(1, endH - h), 22))}:00:00`;
+        const startAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Number(t.hour || h))}:${pad2(startMinute)}:00`;
+        const endAt = `${String(t.dateYmd).slice(0, 10)}T${pad2(Math.min(Number(t.hour || h) + (endH - h), 23))}:${pad2(endMinute)}:00`;
         const preferred = Number(editorPreferredRoomId.value || roomId || 0) || roomId;
         // eslint-disable-next-line no-await-in-loop
         const r = await api.post('/office-schedule/booking-requests', {
@@ -26274,7 +26263,7 @@ const buildStackDetailsForBlock = (block, dayName, hour, minute = 0) => {
       const events = externalIcsEventsInCell(dayName, hour, minute);
       if (events.length >= 1) {
         return {
-          title: `Therapy session — ${dayName} ${timeSuffix}`,
+          title: `External calendar session — ${formatRangeFromRaw(events[0].startAt, events[0].endAt)}`,
           items: events.map((ev, idx) => ({
             id: `eics-${idx}`,
             label: String(ev.summary || '').trim() || ev.calendarLabel || 'Therapy session',

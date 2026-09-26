@@ -42,7 +42,7 @@ export async function writeClientInsurance({ clientId, agencyId, primary, second
   const previous = await readClientInsurance(clientId, agencyId, db);
   const patientFields = ['firstName','lastName','dateOfBirth','sex','addressLine1','addressLine2','city','state','postalCode'];
   const patientValue = patient && typeof patient === 'object' ? Object.fromEntries(patientFields.map(key => [key, String(patient[key] || '').trim().slice(0,255)])) : (previous?.patient || {});
-  const value = { acceptAssignment, patient: patientValue, verifiedForClaims: verifiedForClaims === true, primary: normalizePolicy(primary), secondary: secondary ? normalizePolicy(secondary) : null, profileId, confirmedBy, updatedAt: new Date().toISOString() };
+  const value = { acceptAssignment, patient: patientValue, verifiedForClaims: verifiedForClaims === true, primary: normalizePolicy(selfSubscriberPolicy(primary,patientValue)), secondary: secondary ? normalizePolicy(selfSubscriberPolicy(secondary,patientValue)) : null, profileId, confirmedBy, updatedAt: new Date().toISOString() };
   const encrypted = encryptFamilyBilling(value, `client-insurance:${agencyId}:${clientId}`);
   const [result] = await db.execute(`UPDATE clients SET billing_insurance_payload = ?, primary_insurer_name = ?, insurance_member_id = NULL, insurance_group_number = NULL, insurance_subscriber_name = NULL WHERE id = ? AND agency_id = ?`, [encrypted, value.primary.insurerName || null, clientId, agencyId]);
   if (!result.affectedRows) throw billingError(404, 'Client not found in agency');
@@ -65,4 +65,25 @@ export async function applySubmittedClientInsurance(input, connection = null) {
   const previous=await readClientInsurance(input.clientId,input.agencyId,connection);
   if(previous && (!input.profileId || Number(previous.profileId)!==Number(input.profileId))) return false;
   await writeClientInsurance(input,connection);return true;
+}
+
+
+/** Patient defaults come from the same tenant's chart and remain reviewable. */
+export function patientFromDemographics(row = {}) {
+  const full = String(row.full_name || '').trim();
+  const comma = full.split(',').map(s => s.trim());
+  const words = full.split(/\s+/).filter(Boolean);
+  const dob = row.date_of_birth instanceof Date ? row.date_of_birth.toISOString().slice(0,10) : String(row.date_of_birth || '').slice(0,10);
+  const sex = ({male:'M',female:'F',m:'M',f:'F',unknown:'U',u:'U'})[String(row.gender || '').toLowerCase()] || '';
+  return {firstName:comma.length===2?comma[1]:(words.length>1?words[0]:''),lastName:comma.length===2?comma[0]:(words.length>1?words.slice(1).join(' '):''),dateOfBirth:dob,sex,
+    addressLine1:row.address_street || '',addressLine2:row.address_apt || '',city:row.address_city || '',state:row.address_state || '',postalCode:row.address_zip || ''};
+}
+export async function insuranceDemographics(clientId,agencyId,db=pool) {
+  const [[row]] = await db.execute('SELECT full_name, date_of_birth, gender, address_street, address_apt, address_city, address_state, address_zip FROM clients WHERE id=? AND agency_id=?',[clientId,agencyId]);
+  return patientFromDemographics(row || {});
+}
+export function selfSubscriberPolicy(policy, patient) {
+  if(!policy || policy.relationshipToSubscriber!=='self' || !patient || !Object.keys(patient).length)return policy;
+  return {...policy,subscriberFirstName:patient.firstName,subscriberLastName:patient.lastName,subscriberDob:patient.dateOfBirth,subscriberSex:patient.sex,
+    subscriberAddressLine1:patient.addressLine1,subscriberAddressLine2:patient.addressLine2,subscriberCity:patient.city,subscriberState:patient.state,subscriberPostalCode:patient.postalCode};
 }

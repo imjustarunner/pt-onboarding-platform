@@ -6,7 +6,7 @@
         <div class="subtitle">
           {{ isBusyOnlyViewer
             ? 'Overlay busy blocks for coworkers in your agencies (no client or event details).'
-            : 'Overlay selected providers on one grid to coordinate availability. Switch to stacked for full detail on one person at a time.' }}
+            : 'Compare providers side by side for the day, or use the weekly overlay to coordinate availability. Appointment types and calendar sources are labeled.' }}
         </div>
       </div>
       <div class="header-right" data-tour="sched-compare-controls">
@@ -23,6 +23,7 @@
           style="min-width: 180px;"
           data-tour="sched-compare-view-mode"
         >
+          <option value="day">Day by provider</option>
           <option value="overlay">Overlay (coordinate)</option>
           <option value="stacked" :disabled="selectedUserIds.length >= 2">Detailed (stacked)</option>
         </select>
@@ -109,9 +110,10 @@
         <div v-if="loading" class="muted">Loading users…</div>
         <div v-else-if="!selectedUserIds.length" class="muted">Select people to compare schedules.</div>
 
-        <div v-else-if="effectiveViewMode === 'overlay'" class="overlay-card" data-tour="sched-compare-overlay">
+        <div v-else-if="['overlay','day'].includes(effectiveViewMode)" class="overlay-card" data-tour="sched-compare-overlay">
           <ScheduleMultiUserOverlayGrid
             :key="overlayGridKey"
+            :layout="effectiveViewMode==='day'?'day':'week'"
             :user-ids="selectedUserIds"
             :agency-ids="agencyIdsForSchedule"
             :week-start-ymd="weekStartYmd"
@@ -182,7 +184,7 @@ const search = ref('');
 
 const maxSelected = 6;
 const selectedUserIds = ref([]);
-const viewMode = ref('overlay'); // stacked | overlay
+const viewMode = ref('day'); // stacked | overlay
 const availabilityByUserId = ref({});
 const overlayLoadGeneration = ref(0);
 
@@ -194,6 +196,7 @@ const canLoadDirectoryUsers = computed(() => [
 const canUseFullAgencyCatalog = computed(() => ['super_admin', 'superadmin'].includes(actorRole.value));
 const overlayDetailLevel = computed(() => (isBusyOnlyViewer.value ? 'typed' : 'full'));
 const effectiveViewMode = computed(() => {
+  if (viewMode.value==='day') return 'day';
   if (isBusyOnlyViewer.value) return 'overlay';
   // Two or more people → always overlay so schedules can be coordinated side-by-side.
   if ((selectedUserIds.value || []).length >= 2) return 'overlay';
@@ -436,7 +439,7 @@ const toggleUser = (id) => {
   if (cur.length >= maxSelected) return;
   const next = [...cur, uid];
   selectedUserIds.value = next;
-  if (next.length >= 2) viewMode.value = 'overlay';
+  if (next.length >= 2 && viewMode.value==='stacked') viewMode.value = 'day';
 };
 
 const openUserFromOverlay = (payload = {}) => {
@@ -474,7 +477,7 @@ const selectNone = () => {
 const selectFirstTwo = () => {
   const firstTwo = (filteredProviders.value || []).slice(0, 2).map((u) => Number(u.id));
   selectedUserIds.value = firstTwo;
-  viewMode.value = 'overlay';
+  viewMode.value = 'day';
 };
 
 const loadUsers = async () => {
@@ -607,7 +610,7 @@ onMounted(async () => {
 });
 
 watch(selectedUserIds, (ids) => {
-  if ((ids || []).length >= 2 && viewMode.value !== 'overlay') {
+  if ((ids || []).length >= 2 && viewMode.value === 'stacked') {
     viewMode.value = 'overlay';
   }
 }, { deep: true });

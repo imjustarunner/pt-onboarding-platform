@@ -14,6 +14,15 @@ function ymd(value) {
   return d.toISOString().slice(0, 10);
 }
 
+function scheduledDate(value, timeZone) {
+  if (!value) return '';
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const raw = value instanceof Date ? value.toISOString() : String(value).replace(' ', 'T');
+  const instant = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw) ? raw : `${raw}Z`);
+  if (!Number.isFinite(instant.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', { timeZone: timeZone || 'America/Denver', year: 'numeric', month: '2-digit', day: '2-digit' }).format(instant);
+}
+
 function codeKey(code) {
   return String(code || '').trim().toUpperCase();
 }
@@ -64,7 +73,8 @@ export function mergeMedicalRecordSources({
   appointments = [],
   scheduleEvents = [],
   signedNotes = [],
-  claims = []
+  claims = [],
+  timeZone = 'America/Denver'
 } = {}) {
   const byKey = new Map();
 
@@ -102,7 +112,7 @@ export function mergeMedicalRecordSources({
   for (const cs of sessions || []) {
     const sid = Number(cs.id || 0);
     if (!sid) continue;
-    const date = ymd(cs.scheduled_start_at);
+    const date = scheduledDate(cs.scheduled_start_at, cs.source_timezone || timeZone);
     const code = codeKey(cs.service_code || cs.effective_service_code) || 'SESSION';
     const beId = Number(cs.billing_encounter_id || 0);
     const oeId = Number(cs.office_event_id || 0);
@@ -149,7 +159,7 @@ export function mergeMedicalRecordSources({
   for (const oe of officeEvents || []) {
     const eid = Number(oe.id || oe.office_event_id || 0);
     if (!eid) continue;
-    const date = ymd(oe.start_at || oe.scheduled_start_at);
+    const date = scheduledDate(oe.start_at || oe.scheduled_start_at, oe.source_timezone || timeZone);
     const code = codeKey(oe.service_code) || 'SESSION';
     if (!date) continue;
     const csid = Number(oe.clinical_session_id || 0);
@@ -194,7 +204,7 @@ export function mergeMedicalRecordSources({
   for (const appt of appointments || []) {
     const aid = Number(appt.id || 0);
     if (!aid) continue;
-    const date = ymd(appt.start_at);
+    const date = scheduledDate(appt.start_at, appt.source_timezone || timeZone);
     const code = codeKey(appt.service_code) || 'SESSION';
     if (!date) continue;
     const oeId = Number(appt.office_event_id || 0);
@@ -251,7 +261,7 @@ export function mergeMedicalRecordSources({
   for (const pse of scheduleEvents || []) {
     const pid = Number(pse.id || 0);
     if (!pid) continue;
-    const date = ymd(pse.start_at);
+    const date = scheduledDate(pse.start_at, pse.source_timezone || timeZone);
     if (!date) continue;
     const code = codeKey(pse.service_code) || 'SESSION';
     let existing = byKey.get(`pse:${pid}`)
@@ -308,7 +318,7 @@ export function mergeMedicalRecordSources({
     const nid = Number(note.id || 0);
     if (!nid || !note.provider_signed_at) continue;
     const sid = Number(note.clinical_session_id || 0);
-    const date = ymd(note.service_date || note.provider_signed_at || note.created_at);
+    const date = note.service_date ? ymd(note.service_date) : scheduledDate(note.provider_signed_at || note.created_at, timeZone);
     const code = codeKey(note.service_code || note.session_service_code || note.note_type) || 'DOC';
     if (sid) {
       const existing = byKey.get(`cs:${sid}`);

@@ -1,3 +1,4 @@
+import {officeAvailabilityWindows} from '../services/officeAvailabilityWindow.service.js';
 import {officeBookingNeedsSession} from '../utils/officeBookingSessionLink.js';
 import { bookOfficeForAppointmentRequest } from '../services/officeAppointmentBinding.service.js';
 import pool from '../config/database.js';
@@ -4011,29 +4012,6 @@ export const cleanupInactiveProviderBookings = async (req, res, next) => {
   }
 };
 
-function parseTimePartFromDateTime(value) {
-  const s = String(value || '').trim();
-  const m = s.match(/(?:T|\s)(\d{2}):(\d{2})(?::(\d{2}))?/);
-  if (!m) return { hh: '00', mm: '00', ss: '00' };
-  return { hh: m[1], mm: m[2], ss: m[3] || '00' };
-}
-
-function buildOccurrenceWindows(startAt, endAt, recurrence, occurrenceCount) {
-  const startYmd = String(startAt || '').slice(0, 10);
-  const startT = parseTimePartFromDateTime(startAt);
-  const endT = parseTimePartFromDateTime(endAt);
-  const dates = generateOccurrenceDates({
-    startDate: startYmd,
-    recurrence,
-    occurrenceCount
-  });
-  return (dates || []).map((ymd) => ({
-    dateYmd: ymd,
-    startAt: `${ymd}T${startT.hh}:${startT.mm}:${startT.ss}`,
-    endAt: `${ymd}T${endT.hh}:${endT.mm}:${endT.ss}`
-  }));
-}
-
 export const availableRoomsForSlot = async (req, res, next) => {
   try {
     // Any authenticated staff can check open rooms when requesting office space.
@@ -4045,17 +4023,18 @@ export const availableRoomsForSlot = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'locationId, startAt and endAt are required' } });
     }
     const locId = Number(locationId);
+    const office = await OfficeLocation.findById(locId);
+    if(!office)return res.status(404).json({error:{message:'Office location not found'}});
+    if(req.user.role!=='super_admin'){
+      const agencies=await User.getAgencies(req.user.id);
+      if(!await OfficeLocationAgency.userHasAccess({officeLocationId:locId,agencyIds:agencies.map(a=>a.id)}))return res.status(403).json({error:{message:'Office access required'}});
+    }
     const excludeId = excludeRoomId ? Number(excludeRoomId) : null;
     const recurrenceInfo = normalizeOfficeRequestRecurrence({
       recurrenceRaw: req.query?.recurrence || req.query?.frequency || 'ONCE',
       occurrenceCountRaw: req.query?.occurrenceCount ?? req.query?.bookedOccurrenceCount ?? null
     });
-    const windows = buildOccurrenceWindows(
-      startAt,
-      endAt,
-      recurrenceInfo.recurrence,
-      recurrenceInfo.occurrenceCount
-    );
+    const windows = officeAvailabilityWindows(startAt,endAt,recurrenceInfo.recurrence,recurrenceInfo.occurrenceCount,office.timezone || 'America/Denver');
     if (!windows.length) {
       return res.status(400).json({ error: { message: 'Could not build occurrence windows' } });
     }
@@ -4080,7 +4059,8 @@ export const availableRoomsForSlot = async (req, res, next) => {
                  AND e.room_id IS NOT NULL
                  AND e.start_at < ?
                  AND e.end_at > ?
-                 AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+                 AND UPPER(COALESCE(e.status,'')) NOT IN ('CANCELLED','CANCELED','RELEASED')
+                 AND (UPPER(COALESCE(e.status,''))='BOOKED' OR UPPER(COALESCE(e.slot_state,'')) IN ('ASSIGNED_BOOKED','COMPANY_HOLD'))
              )
            ORDER BY (r.room_number IS NULL) ASC, r.room_number ASC, r.name ASC`,
           params
@@ -4101,7 +4081,8 @@ export const availableRoomsForSlot = async (req, res, next) => {
                  AND e.room_id IS NOT NULL
                  AND e.start_at < ?
                  AND e.end_at > ?
-                 AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
+                 AND UPPER(COALESCE(e.status,'')) NOT IN ('CANCELLED','CANCELED','RELEASED')
+                 AND (UPPER(COALESCE(e.status,''))='BOOKED' OR UPPER(COALESCE(e.slot_state,'')) IN ('ASSIGNED_BOOKED','COMPANY_HOLD'))
              )
            ORDER BY (r.room_number IS NULL) ASC, r.room_number ASC, r.name ASC`,
           params
@@ -4109,8 +4090,7 @@ export const availableRoomsForSlot = async (req, res, next) => {
         rooms = rows;
       }
       // Still apply standing/soft-hold checks for the single window.
-      const loc = await OfficeLocation.findById(locId);
-      const tz = loc?.timezone || 'America/New_York';
+      const tz = office.timezone || 'America/Denver';
       const open = [];
       for (const r of rooms || []) {
         // eslint-disable-next-line no-await-in-loop
@@ -4141,9 +4121,7 @@ export const availableRoomsForSlot = async (req, res, next) => {
       });
     }
 
-    const loc = await OfficeLocation.findById(locId);
-    if (!loc) return res.status(404).json({ error: { message: 'Office location not found' } });
-    const tz = loc.timezone || 'America/New_York';
+    const tz = office.timezone || 'America/Denver';
     const catalog = await OfficeRoom.findByLocation(locId);
     const openRooms = [];
     for (const r of catalog || []) {

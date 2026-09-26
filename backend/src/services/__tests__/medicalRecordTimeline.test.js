@@ -108,3 +108,13 @@ describe('mergeMedicalRecordSources', () => {
     assert.equal(rows[0].provider_schedule_event_id, 224);
   });
 });
+
+it('keeps an evening appointment on the local service date and attaches date-only billing', () => {
+  const rows = mergeMedicalRecordSources({
+    appointments: [{id: 9, client_id: 5, agency_id: 2, service_code: '90837', start_at: '2026-10-02 02:00:00', source_timezone: 'America/Denver'}],
+    billing: [{id: 10, client_id: 5, service_date: '2026-10-01', service_code: '90837'}]
+  });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].service_date, '2026-10-01');
+  assert.equal(rows[0].appointment_id, 9);
+});
