@@ -3,6 +3,30 @@ import { getPortalLoginMemory, getRememberedGoogleLogin, setRememberedGoogleLogi
 
 beforeEach(() => localStorage.clear());
 describe('returning login accounts', () => {
+  it('keeps Google shortcuts for multiple tenants and forgets only the selected one', () => {
+    setRememberedGoogleLogin({ username: 'itsco-alias', orgSlug: 'itsco', displayName: 'ITSCO Member', loginHint: 'itsco@example.test' });
+    setRememberedGoogleLogin({ username: 'nlu@example.test', orgSlug: 'nlu', displayName: 'NLU Member' });
+    expect(getPortalLoginMemory('itsco').google?.displayName).toBe('ITSCO Member');
+    expect(getPortalLoginMemory('nlu').google?.displayName).toBe('NLU Member');
+    clearRememberedGoogleLogin('itsco'); clearRememberedLogin('itsco');
+    expect(getPortalLoginMemory('itsco').google).toBeNull();
+    expect(getPortalLoginMemory('nlu').google?.displayName).toBe('NLU Member');
+  });
+  it('migrates the old saved account when another tenant is remembered', () => {
+    localStorage.setItem('__pt_google_sso_remember__', JSON.stringify({ username: 'first@example.test', orgSlug: 'itsco' }));
+    setRememberedGoogleLogin({ username: 'second@example.test', orgSlug: 'nlu' });
+    expect(getPortalLoginMemory('itsco').google?.username).toBe('first@example.test');
+  });
+  it('recognizes a saved Google email even when the app username is an alias', () => {
+    setRememberedGoogleLogin({ username: 'alias', loginHint: 'work@example.test', orgSlug: 'itsco' });
+    expect(getPortalLoginMemory('itsco', { username: 'WORK@example.test' }).google?.username).toBe('alias');
+  });
+  it('keeps password logins as username-only shortcuts per portal', () => {
+    setRememberedLogin({ username: 'first@example.test', orgSlug: 'itsco' });
+    setRememberedLogin({ username: 'second@example.test', orgSlug: 'nlu' });
+    expect(getPortalLoginMemory('itsco')).toMatchObject({ username: 'first@example.test', google: null });
+    expect(getPortalLoginMemory('nlu')).toMatchObject({ username: 'second@example.test', google: null });
+  });
   it('preserves verified Google details when the same username is restored', () => {
     setRememberedGoogleLogin({ username: 'alias', orgSlug: 'itsco', displayName: 'Example Member', loginHint: 'work@example.test', title: 'Coordinator' });
     setRememberedGoogleLogin({ username: 'alias', orgSlug: 'itsco' });

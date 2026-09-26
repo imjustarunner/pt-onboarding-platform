@@ -10,11 +10,39 @@ function normalizeOrgSlug(value) {
   return String(value || '').trim().toLowerCase();
 }
 
-export function getRememberedLogin() {
+// Keep each portal's shortcut independently. The legacy key remains the most
+// recent account for the unscoped platform login and older app versions.
+function readRecord(key, orgSlug = '') {
+  const slug = normalizeOrgSlug(orgSlug);
+  if (slug) {
+    const records = JSON.parse(localStorage.getItem(`${key}:portals`) || '{}');
+    if (Object.hasOwn(records, slug)) return records[slug];
+  }
+  const latest = JSON.parse(localStorage.getItem(key) || 'null');
+  return !slug || normalizeOrgSlug(latest?.orgSlug) === slug ? latest : null;
+}
+function writeRecord(key, payload) {
+  let records = {};
+  try { records = JSON.parse(localStorage.getItem(`${key}:portals`) || '{}') || {}; } catch { /* repair malformed storage */ }
+  let previous;
+  try { previous = JSON.parse(localStorage.getItem(key) || 'null'); } catch { /* optional legacy record */ }
+  if (previous?.orgSlug) records = { ...records, [previous.orgSlug]: previous };
+  localStorage.setItem(`${key}:portals`, JSON.stringify({ ...records, [payload.orgSlug]: payload }));
+  localStorage.setItem(key, JSON.stringify(payload));
+}
+function clearRecord(key, orgSlug = '') {
+  const slug = normalizeOrgSlug(orgSlug);
+  if (!slug) { localStorage.removeItem(key); localStorage.removeItem(`${key}:portals`); return; }
+  const records = JSON.parse(localStorage.getItem(`${key}:portals`) || '{}');
+  delete records[slug];
+  localStorage.setItem(`${key}:portals`, JSON.stringify(records));
+  const latest = JSON.parse(localStorage.getItem(key) || 'null');
+  if (normalizeOrgSlug(latest?.orgSlug) === slug) localStorage.removeItem(key);
+}
+
+export function getRememberedLogin(portalSlug = '') {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
+    const parsed = readRecord(STORAGE_KEY, portalSlug);
     const username = normalizeUsername(parsed?.username);
     const orgSlug = normalizeOrgSlug(parsed?.orgSlug);
     if (!username || !orgSlug) return null;
@@ -33,25 +61,23 @@ export function setRememberedLogin({ username, orgSlug, parentOrgSlug = null } =
     const parent = normalizeOrgSlug(parentOrgSlug) || null;
     const payload = { username: u, orgSlug: s, ts: Date.now() };
     if (parent) payload.parentOrgSlug = parent;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    writeRecord(STORAGE_KEY, payload);
   } catch {
     // ignore
   }
 }
 
-export function clearRememberedLogin() {
+export function clearRememberedLogin(orgSlug = '') {
   try {
-    localStorage.removeItem(STORAGE_KEY);
+    clearRecord(STORAGE_KEY, orgSlug);
   } catch {
     // ignore
   }
 }
 
-export function getRememberedGoogleLogin() {
+export function getRememberedGoogleLogin(portalSlug = '') {
   try {
-    const raw = localStorage.getItem(GOOGLE_SSO_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
+    const parsed = readRecord(GOOGLE_SSO_STORAGE_KEY, portalSlug);
     const username = normalizeUsername(parsed?.username);
     const orgSlug = normalizeOrgSlug(parsed?.orgSlug);
     if (!username || !orgSlug) return null;
@@ -68,7 +94,7 @@ export function setRememberedGoogleLogin({ username, orgSlug, parentOrgSlug = nu
     const s = normalizeOrgSlug(orgSlug);
     if (!u || !s) return;
     const parent = normalizeOrgSlug(parentOrgSlug) || null;
-    const previous = getRememberedGoogleLogin();
+    const previous = getRememberedGoogleLogin(s);
     const sameAccount = previous?.orgSlug === s && previous.username.toLowerCase() === u.toLowerCase();
     const saved = sameAccount ? previous : {};
     const payload = {
@@ -80,7 +106,7 @@ export function setRememberedGoogleLogin({ username, orgSlug, parentOrgSlug = nu
       ts: Date.now()
     };
     if (parent) payload.parentOrgSlug = parent;
-    localStorage.setItem(GOOGLE_SSO_STORAGE_KEY, JSON.stringify(payload));
+    writeRecord(GOOGLE_SSO_STORAGE_KEY, payload);
     // Keep the canonical Google account in sync with the username shortcut;
     // an older typed alias must not hide the most recently remembered SSO account.
     setRememberedLogin({ username: u, orgSlug: s, parentOrgSlug: parent });
@@ -136,23 +162,21 @@ export function clearRememberedSchoolStaffPasswordLogin(orgSlug = null) {
 
 export function clearRememberedGoogleLogin(orgSlug = null) {
   try {
-    if (!orgSlug || getRememberedGoogleLogin()?.orgSlug === normalizeOrgSlug(orgSlug)) {
-      localStorage.removeItem(GOOGLE_SSO_STORAGE_KEY);
-    }
+    clearRecord(GOOGLE_SSO_STORAGE_KEY, orgSlug);
   } catch { /* Storage may be disabled. */ }
 }
 
 // A branded portal must never display another agency's saved account.
 export function getPortalLoginMemory(orgSlug, { username = '', allowGoogle = true } = {}) {
   const slug = normalizeOrgSlug(orgSlug);
-  const login = getRememberedLogin();
-  const google = allowGoogle ? getRememberedGoogleLogin() : null;
+  const login = getRememberedLogin(slug);
+  const google = allowGoogle ? getRememberedGoogleLogin(slug) : null;
   const matches = value => value && (!slug || value.orgSlug === slug);
   const restored = normalizeUsername(username) || (matches(login) ? login.username : '') || (matches(google) ? google.username : '');
   return {
     username: restored,
     remembered: Boolean(matches(login) && restored.toLowerCase() === login.username.toLowerCase()),
-    google: matches(google) && restored.toLowerCase() === google.username.toLowerCase() ? google : null
+    google: matches(google) && [google.username, google.loginHint].some(value => value?.toLowerCase() === restored.toLowerCase()) ? google : null
   };
 }
 

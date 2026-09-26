@@ -1,3 +1,5 @@
+import { PLATFORM_BRAND } from '../config/platformBrand.js';
+
 const PRIVILEGED_LOGIN_ROLES = new Set(['admin', 'support', 'super_admin', 'superadmin']);
 const INACTIVE_ACCOUNT_STATUSES = new Set(['INACTIVE', 'INACTIVE_EMPLOYEE', 'ARCHIVED']);
 
@@ -99,7 +101,7 @@ export function isLivePrivilegedPresence(row) {
 }
 
 export const SUPERADMIN_BRIEFING_PALETTE = Object.freeze({
-  primary: '#8b5cf6',
-  secondary: '#070b14',
-  accent: '#38bdf8'
+  primary: PLATFORM_BRAND.primary,
+  secondary: PLATFORM_BRAND.secondary,
+  accent: PLATFORM_BRAND.accent
 });

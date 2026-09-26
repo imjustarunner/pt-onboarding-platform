@@ -758,6 +758,7 @@
 <script setup>
 import AppearanceSelect from '../components/AppearanceSelect.vue';
 import { PLATFORM_BRAND } from '../config/platformBrand.js';
+import { tenantFaviconUrl } from '../utils/tenantBrandAssets.js';
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
@@ -1066,12 +1067,9 @@ const printablePdfDownloading = ref({ en: false, es: false });
 // Logo and title for agency login
 const displayLogoUrl = computed(() => {
   if (isPlatformLogin.value) return PLATFORM_BRAND.logo;
-  if (isOrgLogin.value && loginTheme.value?.agency?.logoUrl) {
-    return loginTheme.value.agency.logoUrl;
-  }
-  // IMPORTANT: don't fall back to PlotTwistCo on the regular login page.
-  // If branding hasn't loaded yet, show nothing instead of flashing the wrong logo.
-  return brandingStore.displayLogoUrl;
+  // Both /:slug/login and custom-domain /login use the fetched login identity.
+  // A previous user's Platform selection is never a tenant login fallback.
+  return loginTheme.value?.agency?.logoUrl || tenantFaviconUrl(effectiveLoginSlug.value) || null;
 });
 
 const SCHOOL_PORTAL_ORG_TYPES = ['school', 'program', 'learning'];
@@ -1086,7 +1084,7 @@ const schoolPortalCredentialsRow = computed(
 );
 
 const displayTitle = computed(() => {
-  if (isOrgLogin.value && loginTheme.value?.agency?.name) {
+  if (loginTheme.value?.agency?.name) {
     if (isSchoolPortalOrg.value) {
       return `${loginTheme.value.agency.name} — School Portal`;
     }
@@ -1138,7 +1136,7 @@ const sstcClubDisplayName = computed(() => {
 const sstcClubInitials = computed(() => buildInitials(sstcClubDisplayName.value, 'CL'));
 
 const loginBackground = computed(() => {
-  if (isOrgLogin.value && loginTheme.value?.agency?.themeSettings?.loginBackground) {
+  if (loginTheme.value?.agency?.themeSettings?.loginBackground) {
     return loginTheme.value.agency.themeSettings.loginBackground;
   }
   return brandingStore.loginBackground;
@@ -1165,6 +1163,7 @@ const platformOrgName = computed(() => {
 const _platformHostname = getPlatformAppHostname(); // 'plottwisthq.com'
 const _currentHostname = String(window.location.hostname || '').toLowerCase().trim();
 const _isOnPlatformHost =
+  ['plottwistco.com', 'www.plottwistco.com', 'app.plottwistco.com', 'app.plottwisthq.com'].includes(_currentHostname) ||
   _currentHostname === _platformHostname ||
   _currentHostname === `www.${_platformHostname}` ||
   _currentHostname === 'localhost' ||
@@ -1175,10 +1174,9 @@ const isPlatformLogin = computed(() => {
   // is always a tenant login — never show platform branding.
   if (!_isOnPlatformHost) return false;
   return (
-    !isOrgLogin.value &&
+    (!effectiveLoginSlug.value || effectiveLoginSlug.value === 'plottwistco') &&
     !isSSTCLogin.value &&
-    !isAppLike.value &&
-    !String(brandingStore.portalHostPortalUrl || '').trim()
+    !isAppLike.value
   );
 });
 
@@ -1270,12 +1268,24 @@ const tenantLoginPosterWide = computed(() => activeTenantLoginVideos.value?.post
 const tenantLoginPosterNarrow = computed(() => activeTenantLoginVideos.value?.posterNarrow || '');
 
 const tenantLoginPageStyle = computed(() => {
+  if (isPlatformLogin.value) return {};
+  const palette = loginTheme.value?.agency?.colorPalette || {};
+  const primary = palette.primary || '#334155';
+  const secondary = palette.secondary || '#1D2633';
+  const accent = palette.accent || primary;
+  const colors = {
+    '--primary': primary, '--primary-color': primary, '--agency-primary-color': primary,
+    '--secondary': secondary, '--secondary-color': secondary, '--agency-secondary-color': secondary,
+    '--accent': accent, '--accent-color': accent, '--agency-accent-color': accent,
+    '--va-primary': primary, '--va-accent': accent
+  };
   const videos = activeTenantLoginVideos.value;
-  if (!showTenantLoginVideo.value || !videos) return {};
+  if (!showTenantLoginVideo.value || !videos) return colors;
   const fallbackBg = videos.fallbackBg || '#070b1a';
   const posterWide = videos.posterWide || '';
   const posterNarrow = videos.posterNarrow || posterWide;
   return {
+    ...colors,
     '--tenant-login-fallback-bg': fallbackBg,
     '--tenant-login-poster-wide': posterWide ? `url('${posterWide}')` : 'none',
     '--tenant-login-poster-narrow': posterNarrow ? `url('${posterNarrow}')` : 'none',
@@ -1372,6 +1382,7 @@ onMounted(async () => {
     });
     return;
   }
+  restoreLoginMemory();
   // Check biometric availability on native platforms
   if (isNativePlatform()) {
     const [{ available, biometryType }, hasToken] = await Promise.all([
@@ -1563,10 +1574,7 @@ onMounted(async () => {
 
   // Restore both password and Google accounts on every matching branded portal,
   // including custom-domain /login. An explicit username always takes priority.
-  const memory = getPortalLoginMemory(effectiveLoginSlug.value, { username: username.value, allowGoogle: !isIOSNative });
-  username.value = memory.username;
-  rememberedGoogleLogin.value = memory.google;
-  if (memory.remembered || memory.google) rememberLogin.value = true;
+  const memory = restoreLoginMemory();
 
   if (memory.remembered && !memory.google && username.value && !showPassword.value) {
     await verifyUsername({ reason: 'remembered' });
@@ -1643,6 +1651,25 @@ const rememberLogin = ref(true);
 const rememberedGoogleLogin = ref(null);
 const sstcClubBranding = ref(null); // populated after identify on Summit-family logins when we know the club context
 const identifiedLoginMethod = ref('password');
+function restoreLoginMemory() {
+  // Wait for unknown custom hosts rather than briefly showing another tenant's account.
+  if (!effectiveLoginSlug.value && !_isOnPlatformHost) return { remembered: false, google: null };
+  const memory = getPortalLoginMemory(effectiveLoginSlug.value, {
+    username: String(route.query?.u || username.value || ''), allowGoogle: !isIOSNative
+  });
+  username.value = memory.username;
+  rememberedGoogleLogin.value = memory.google;
+  if (memory.remembered || memory.google) rememberLogin.value = true;
+  return memory;
+}
+watch(effectiveLoginSlug, () => {
+  if (String(route.query?.sso || '') === '1' || workspacePreparing.value) return;
+  username.value = '';
+  showPassword.value = false;
+  needsOrgChoice.value = false;
+  rememberedGoogleLogin.value = null;
+  restoreLoginMemory();
+});
 const lastVerifiedUsername = ref('');
 const lastUsernameInputAt = ref(0);
 const showForgotPasswordMessage = ref(false);
@@ -1961,7 +1988,7 @@ const saveRememberPreference = () => {
   if (rememberLogin.value) {
     if (slug && username.value.trim()) setRememberedLogin({ username: username.value, orgSlug: slug, parentOrgSlug: resolveParentForNestedLogin(slug) });
   } else {
-    clearRememberedLogin();
+    clearRememberedLogin(slug || null);
     clearRememberedGoogleLogin(slug || null);
     clearRememberedSchoolStaffPasswordLogin(slug || null);
     for (const key of ['username', 'verify', 'remember']) {

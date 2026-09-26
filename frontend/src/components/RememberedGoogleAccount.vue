@@ -29,23 +29,23 @@ const initials = computed(() => {
 </script>
 
 <style scoped>
-.remembered-account { box-sizing: border-box; width: 100%; padding: 28px; border-radius: 20px; border: 1px solid #cfdfd8; background: #ffffffed; color: #173f35; text-align: center; box-shadow: 0 12px 40px #08282114; }
-.remembered-account--glass { background: #084d3c38; color: #fff; border-color: #ffffff55; backdrop-filter: blur(16px); }
-.account-avatar { display: grid; place-items: center; width: 76px; height: 76px; margin: 0 auto 18px; border-radius: 50%; background: linear-gradient(135deg, #f4fcff, #cde9f1); color: #146451; font-weight: 750; font-size: 27px; }
+.remembered-account { box-sizing: border-box; width: 100%; padding: 28px; border-radius: 20px; border: 1px solid var(--border, #cfdfd8); background: var(--bg-card, #ffffffed); color: var(--text-primary, #173f35); text-align: center; box-shadow: 0 12px 40px #08282114; }
+.remembered-account--glass { background: color-mix(in srgb, var(--primary) 22%, transparent); color: #fff; border-color: #ffffff55; backdrop-filter: blur(16px); }
+.account-avatar { display: grid; place-items: center; width: 76px; height: 76px; margin: 0 auto 18px; border-radius: 50%; background: color-mix(in srgb, var(--primary) 14%, var(--bg-card, white)); color: var(--text-primary); font-weight: 750; font-size: 27px; }
 .account-details h3 { margin: 0 0 6px; color: inherit; font-size: 23px; line-height: 1.3; overflow-wrap: anywhere; }
 .account-details p { margin: 0; color: inherit; font-size: 15px; overflow-wrap: anywhere; }
 .account-details .account-context { margin-top: 12px; font-size: 13px; line-height: 1.6; }
-.account-continue { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 56px; margin-top: 28px; padding: 14px 18px; border: 1px solid #d5e5df; border-radius: 12px; background: white; color: #20352e; font-family: inherit; font-weight: 600; font-size: 16px; cursor: pointer; }
+.account-continue { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 56px; margin-top: 28px; padding: 14px 18px; border: 1px solid var(--border, #d5e5df); border-radius: 12px; background: var(--bg-card, white); color: var(--text-primary, #20352e); font-family: inherit; font-weight: 600; font-size: 16px; cursor: pointer; }
 .account-continue > span:not(.account-arrow) { flex: 1; overflow-wrap: anywhere; }
 .account-google { width: 24px; height: 24px; flex-shrink: 0; }
 .account-arrow { font-size: 24px; }
-.account-continue:hover { background: #f0faf5; }
+.account-continue:hover { background: var(--bg-muted, #f0faf5); }
 .account-divider { display: flex; align-items: center; gap: 16px; margin: 24px 0; font-size: 12px; text-transform: uppercase; opacity: .7; }
 .account-divider::before, .account-divider::after { content: ''; flex: 1; border-top: 1px solid currentColor; opacity: .5; }
 .account-switch, .account-forget { display: block; margin: 0 auto; padding: 8px; background: transparent; border: 0; color: inherit; font-family: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .account-switch { font-size: 15px; }
 .account-forget { font-size: 12px; margin-top: 12px; }
-button:focus-visible { outline: 3px solid #deb849; outline-offset: 4px; }
+button:focus-visible { outline: 3px solid var(--primary); outline-offset: 4px; }
 button:disabled { opacity: .6; cursor: wait; }
 @media (max-width: 480px) { .remembered-account { padding: 22px 18px; } .account-details h3 { font-size: 21px; } }
 </style>

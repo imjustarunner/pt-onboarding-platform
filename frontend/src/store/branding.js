@@ -791,6 +791,12 @@ export const useBrandingStore = defineStore('branding', () => {
   };
 
   const _resolveActivePalette = () => {
+    // Dedicated hosts use /login without an activeRouteSlug. Guest portal identity
+    // must win over a saved Platform selection or another tenant.
+    if (shouldApplyPortalAgencyThemeFirst() && !settingsTenantPickerBrandingActive.value) {
+      const palette = portalAgency.value?.colorPalette || portalTheme.value?.colorPalette;
+      if (palette && Object.keys(palette).length) return { palette, source: 'portal' };
+    }
     if (authStore.isAuthenticated && agencyStore.platformMode && !agencyStore.currentAgency && !activeRouteSlug.value) {
       return { palette: { primary: PLATFORM_BRAND.primary, secondary: PLATFORM_BRAND.secondary, accent: PLATFORM_BRAND.accent }, source: 'platform' };
     }
@@ -1101,7 +1107,10 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Display logo URL (portal → selected org → platform template / login)
   const displayLogoUrl = computed(() => {
-    if ((settingsTenantPickerBrandingActive.value || agencyStore.platformMode) && !agencyStore.currentAgency) return PLATFORM_BRAND.logo;
+    if (shouldApplyPortalAgencyThemeFirst() && !settingsTenantPickerBrandingActive.value && portalAgency.value?.logoUrl) {
+      return addCacheBuster(portalAgency.value.logoUrl);
+    }
+    if (authStore.isAuthenticated && (settingsTenantPickerBrandingActive.value || agencyStore.platformMode) && !agencyStore.currentAgency) return PLATFORM_BRAND.logo;
     if (!authStore.isAuthenticated && !activeRouteSlug.value && !portalAgency.value) return PLATFORM_BRAND.logo;
     if (settingsTenantPickerBrandingActive.value) {
       const agency = agencyStore.currentAgency;

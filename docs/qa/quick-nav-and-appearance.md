@@ -36,3 +36,11 @@ This is a navigation and presentation check with mocked API data. It does not va
 ## Theme implementation
 
 Component colors use semantic `--app-*` dark tokens with their existing light colors as fallbacks. Scope selectors to the intended component, especially in Vue `:global(...)` rules. Do not invert images or documents. Hub variables need sufficient selector specificity to survive later-loaded scoped styles. New components should use shared background, text, and border tokens directly.
+
+## Login branding and remembered accounts
+
+Run `node frontend/scripts/verify-login-branding.cjs` with the same local Vite and Playwright setup. This serves virtual tenant hosts from local Vite and intercepts every API request with fictional data. It verifies the custom-domain timeout login, a simulated Google callback through the actual login view, a remembered account's direct Google start link, username-only password memory, platform/tenant logo separation, and the welcome briefing's light/dark preference before and after reload. It does not authenticate with Google or access a real user's session.
+
+Login branding comes from the login portal, including on flat custom-domain `/login` paths. A persisted Platform workspace selection must not replace it. Configured tenant logos win; known tenant marks provide a fallback when a login response omits its logo. The platform briefing uses Plot Twist Co identity and shared Appearance surfaces.
+
+Remembered usernames and Google account display details are stored per portal in the browser, with migration from the previous single-account keys. Passwords and Google credentials are not stored. Remembered accounts remain specific to the browser origin; a different domain or browser needs its own successful Google sign-in. A saved app username or email alias must still resolve to the same remembered Google account. Forgetting one portal's account must not remove another portal's shortcut.

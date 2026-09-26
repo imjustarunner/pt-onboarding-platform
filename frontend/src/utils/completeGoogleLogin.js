@@ -23,12 +23,12 @@ export async function completeGoogleLogin({ api, authStore, agencyStore, orgSlug
     const agency = agencies.find(a => [a.slug, a.portal_url, a.portalUrl].includes(orgSlug));
     setRememberedGoogleLogin({
       username: user.username || user.email, orgSlug,
-      displayName: [user.firstName, user.lastName].filter(Boolean).join(' '),
+      displayName: [user.firstName || user.first_name, user.lastName || user.last_name].filter(Boolean).join(' '),
       loginHint: user.email, organizationName: agency?.name || '', title: user.title || ''
     });
   } else {
     clearRememberedGoogleLogin(orgSlug);
-    clearRememberedLogin();
+    clearRememberedLogin(orgSlug);
   }
   await startActivityTracking({
     bootstrap: { ...loginBootstrap.security, userId: user.id, sessionId: loginBootstrap.sessionId }
