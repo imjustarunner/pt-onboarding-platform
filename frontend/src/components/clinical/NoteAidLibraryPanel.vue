@@ -503,12 +503,12 @@ function pick(aid) {
   .nal { grid-template-columns: 1fr; }
   .nal-nav { border-right: 0; border-bottom: 1px solid #e2e8f0; }
 }
-:global([data-theme="dark"]) .nal { background: #1a1d21; border-color: #334155; }
-:global([data-theme="dark"]) .nal-nav,
-:global([data-theme="dark"]) .nal-card { background: #25282c; border-color: #334155; }
-:global([data-theme="dark"]) .nal-head h1,
-:global([data-theme="dark"]) .nal-nav-title,
-:global([data-theme="dark"]) .nal-card-copy strong,
-:global([data-theme="dark"]) .nal-mini-btn { color: #e2e8f0; }
-:global([data-theme="dark"]) .nal-pill { background: #25282c; color: #cbd5e1; }
+[data-theme="dark"] .nal { background: #1a1d21; border-color: #334155; }
+[data-theme="dark"] .nal-nav,
+[data-theme="dark"] .nal-card { background: #25282c; border-color: #334155; }
+[data-theme="dark"] .nal-head h1,
+[data-theme="dark"] .nal-nav-title,
+[data-theme="dark"] .nal-card-copy strong,
+[data-theme="dark"] .nal-mini-btn { color: #e2e8f0; }
+[data-theme="dark"] .nal-pill { background: #25282c; color: #cbd5e1; }
 </style>

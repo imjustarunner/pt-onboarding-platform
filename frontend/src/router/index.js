@@ -325,7 +325,8 @@ const routes = [
   { path: '/privacy-review', name: 'PrivacyReview', component: () => import('../components/ActivityProtectionPanel.vue'), props: { review: true }, meta: { requiresAuth: true, accountSecurity: true } },
   { path: '/account-security', name: 'AccountSecurity', component: () => import('../components/AccountSecurityPanel.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
-  {path:'/:organizationSlug/admin/family-billing',name:'FamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},
+  {path:'/:organizationSlug/admin/family-billing',name:'FamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresBillingWorkspace:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},
+  {path:'/admin/family-billing',name:'PlatformFamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresBillingWorkspace:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},
   // Public school finder (no auth). Must be before "/:organizationSlug".
   {
     path: '/schools',

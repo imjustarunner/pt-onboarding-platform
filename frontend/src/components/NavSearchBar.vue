@@ -39,10 +39,10 @@ function openNav() {
   gap: 6px;
   height: 36px;
   padding: 0 12px 0 10px;
-  border: 1px solid rgba(13, 148, 136, 0.35);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: rgba(240, 253, 250, 0.85);
-  color: #0f766e;
+  background: var(--bg-card);
+  color: var(--link-color);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -50,8 +50,8 @@ function openNav() {
   white-space: nowrap;
 }
 .nsb-trigger:hover {
-  background: #f0fdfa;
-  border-color: #0d9488;
+  background: var(--brand-tint);
+  border-color: var(--link-color);
   box-shadow: 0 2px 8px rgba(13, 148, 136, 0.15);
 }
 .nsb-ic { width: 15px; height: 15px; flex-shrink: 0; }

@@ -1,0 +1,40 @@
+/* Shared application surfaces. Theme variables also cover dialogs teleported to body. */
+:root { --surface-raised: var(--bg-card); }
+:focus-visible { outline: 2px solid var(--link-color); outline-offset: 3px; }
+.settings-page { max-width: 1600px; margin-inline: auto; }
+.settings-page .page-header { padding: 12px 4px; align-items: center; }
+.settings-page .settings-page-body { border-color: var(--border); box-shadow: none; }
+.settings-page .tenant-logo-strip { display: flex; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 12px; }
+.settings-page .tenant-logo-chip { flex: 0 0 116px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); min-height: 94px; }
+.settings-page .tenant-logo-chip-active { border: 2px solid var(--primary); background: color-mix(in srgb, var(--primary) 7%, var(--bg-card)); }
+.settings-page .hub-card { border: 1px solid var(--border); border-radius: 16px; padding: 22px; transition: box-shadow .15s, border-color .15s; }
+.settings-page .hub-card:hover { border-color: var(--primary); box-shadow: var(--shadow); }
+.settings-page .hub-title { color: var(--text-primary); }
+.settings-page .hub-section-title { letter-spacing: .07em; }
+.billing-desk { color: var(--text-primary); }
+.billing-desk > header { background: var(--bg-card); border: 1px solid var(--border); border-radius: 18px; padding: 24px; }
+.billing-desk > nav { padding: 8px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); }
+.billing-desk > nav button[aria-pressed="true"] { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* Use actual dark surfaces, never an inversion filter on logos, media, or charts. */
+[data-theme="dark"] :is(.modal, .modal-content, .modal-body, .modal-header, .modal-footer, .settings-modal, .settings-content, .settings-sidebar, .settings-search-dropdown, .settings-search-bar, .drawer, .drawer-content, .dropdown-menu, .nav-dropdown-menu, .panel, .panel-body, .panel-header, .table-wrap, .table-container, .table-wrapper, .empty-state, .loading-state, .form-section, .section-card, .summary-card, .stat-card, .metric-card, .filter-bar, .filters, .toolbar, .pagination, .tabs, .tab-content, .popover, .tooltip-content) {
+  background-color: var(--bg-card) !important; color: var(--text-primary); border-color: var(--border) !important;
+}
+[data-theme="dark"] :is(.settings-embedded, .settings-modal-embedded, .billing-desk, .billing-workspace, .finance-workspace, .settings-page) { background-color: var(--bg) !important; color: var(--text-primary); }
+[data-theme="dark"] :is(table, tbody, tr, td, th) { border-color: var(--border) !important; }
+[data-theme="dark"] :is(thead, th) { background: var(--bg-muted) !important; color: var(--text-primary) !important; }
+[data-theme="dark"] tbody tr { background: var(--bg-card); color: var(--text-primary); }
+[data-theme="dark"] tbody tr:nth-child(even) { background: var(--bg-alt); }
+[data-theme="dark"] tbody tr:hover { background: var(--surface-hover) !important; }
+[data-theme="dark"] :is(.hub-card, .tenant-logo-chip, .tenant-logo-wrap, .settings-search-option, .settings-item, .nav-item, .tab-button, .filter-chip, .btn-secondary, .btn-outline) { background-color: var(--bg-card); color: var(--text-primary); border-color: var(--border); }
+[data-theme="dark"] :is(.settings-search-option:hover, .settings-search-option.on, .settings-item:hover, .tab-button:hover, .tenant-logo-chip:hover) { background-color: var(--surface-hover) !important; }
+[data-theme="dark"] :is(.hub-title, .hub-card-label, .page-title, .section-title, .modal-title, .card-title) { color: var(--text-primary); }
+[data-theme="dark"] :is(.hub-subtitle, .hub-card-desc, .subtitle, .muted, .help-text, .description) { color: var(--text-secondary); }
+[data-theme="dark"] a:not(.btn):not([class*="nav"]):not([class*="button"]) { color: var(--link-color); }
+[data-theme="dark"] :is(.modal-overlay, .settings-modal-overlay) { background: rgba(0,0,0,.72); }
+[data-theme="dark"] .billing-desk button:not([aria-pressed="true"]) { background: var(--bg-card); color: var(--text-primary); border-color: var(--border); }
+[data-theme="dark"] .login-security-guidance { background: var(--bg-card); color: var(--text-primary); border-color: var(--border); }
+@media(max-width:700px) { .settings-page .page-header { flex-direction: column; align-items: stretch; } .settings-page .page-actions { display: flex; } .settings-page .hub-cards { grid-template-columns: 1fr; } .appearance-select > span { display: none; } }
+@media(prefers-reduced-motion:reduce) { .settings-page .hub-card { transition: none; } }
+
+.mobile-appearance { padding: 14px 20px; }

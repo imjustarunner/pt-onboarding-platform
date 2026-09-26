@@ -708,7 +708,7 @@ watch(
 .sticky-name { left: 36px; min-width: 180px; box-shadow: 2px 0 0 var(--border); }
 .col-check { left: 0; width: 36px; min-width: 36px; z-index: 4; }
 .roster-table thead .sticky-col { z-index: 5; }
-.roster-table tr.selected td { background: color-mix(in srgb, var(--primary, #C69A2B) 12%, var(--bg)); }
+.roster-table tr.selected td { background: color-mix(in srgb, var(--primary, #B80016) 12%, var(--bg)); }
 .name-link { font-weight: 700; color: var(--text-primary); text-decoration: none; }
 .name-sub { font-size: 11px; }
 .cell-input {

@@ -51,8 +51,8 @@
         <div class="form-group">
           <label>Tagline</label>
           <select v-model="platformForm.tagline" class="form-select">
-            <option value="The gold standard for behavioral health workflows.">
-              The gold standard for behavioral health workflows.
+            <option value="People, services, and operations. Connected.">
+              People, services, and operations. Connected.
             </option>
             <option value="Care, clearly connected.">
               Care, clearly connected.
@@ -67,13 +67,13 @@
         </div>
         <div class="colors-grid">
           <div class="color-input-item">
-            <label>Primary Color (Auric Gold)</label>
+            <label>Primary Color (Phoenix Crimson)</label>
             <div class="color-input-group">
               <label class="color-swatch-label" :for="'primaryColorInput'">
                 <div class="color-swatch" :style="{ backgroundColor: platformForm.primaryColor }"></div>
               </label>
               <input :id="'primaryColorInput'" v-model="platformForm.primaryColor" type="color" class="color-picker" />
-              <input v-model="platformForm.primaryColor" type="text" class="color-hex" placeholder="#C69A2B" />
+              <input v-model="platformForm.primaryColor" type="text" class="color-hex" placeholder="#B80016" />
             </div>
           </div>
           <div class="color-input-item">
@@ -93,7 +93,7 @@
                 <div class="color-swatch" :style="{ backgroundColor: platformForm.accentColor }"></div>
               </label>
               <input :id="'accentColorInput'" v-model="platformForm.accentColor" type="color" class="color-picker" />
-              <input v-model="platformForm.accentColor" type="text" class="color-hex" placeholder="#3A4C6B" />
+              <input v-model="platformForm.accentColor" type="text" class="color-hex" placeholder="#B80016" />
             </div>
           </div>
           <div class="color-input-item">
@@ -2652,10 +2652,10 @@ const selectedAgencyForAdmin = ref(null);
 const userAgencies = computed(() => agencyStore.userAgencies.length > 0 ? agencyStore.userAgencies : (agencyStore.agencies.length > 0 ? agencyStore.agencies : []));
 
 const platformForm = ref({
-  tagline: 'The gold standard for behavioral health workflows.',
-  primaryColor: '#C69A2B',
+  tagline: 'People, services, and operations. Connected.',
+  primaryColor: '#B80016',
   secondaryColor: '#1D2633',
-  accentColor: '#3A4C6B',
+  accentColor: '#B80016',
   successColor: '#2F8F83',
   backgroundColor: '#F3F6FA',
   errorColor: '#CC3D3D',
@@ -4103,10 +4103,10 @@ const savePlatformBranding = async () => {
     
     // Include all required fields that the backend expects
     const brandingData = {
-      tagline: platformForm.value.tagline || 'The gold standard for behavioral health workflows.',
-      primaryColor: platformForm.value.primaryColor || '#C69A2B',
+      tagline: platformForm.value.tagline || 'People, services, and operations. Connected.',
+      primaryColor: platformForm.value.primaryColor || '#B80016',
       secondaryColor: platformForm.value.secondaryColor || '#1D2633',
-      accentColor: platformForm.value.accentColor || '#3A4C6B',
+      accentColor: platformForm.value.accentColor || '#B80016',
       successColor: platformForm.value.successColor || '#2F8F83',
       backgroundColor: platformForm.value.backgroundColor || '#F3F6FA',
       errorColor: platformForm.value.errorColor || '#CC3D3D',

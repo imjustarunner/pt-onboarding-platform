@@ -9448,11 +9448,11 @@ onBeforeUnmount(() => {
   opacity: 0.55;
 }
 
-:global([data-theme="dark"]) .na-topbar-counts {
+[data-theme="dark"] .na-topbar-counts {
   color: #94a3b8;
 }
 
-:global([data-theme="dark"]) .na-topbar-counts strong {
+[data-theme="dark"] .na-topbar-counts strong {
   color: #e2e8f0;
 }
 

@@ -2,9 +2,9 @@
   <div v-if="usePlatformShell" class="pthq-tickets" :class="{ 'pthq-tickets--focus': hasTicketFocus }">
     <header v-if="!hasTicketFocus" class="pthq-tickets-top">
       <div class="pthq-tickets-brand">
-        <div class="pthq-tickets-mark" aria-hidden="true">PT</div>
+        <img class="pthq-tickets-mark" src="/assets/ptco/logo-flat.webp" alt="" />
         <div>
-          <div class="pthq-tickets-brand-name">Plot Twist HQ</div>
+          <div class="pthq-tickets-brand-name">Plot Twist Co</div>
           <div class="pthq-tickets-brand-sub">Support tickets</div>
         </div>
       </div>
@@ -54,7 +54,7 @@ const usePlatformShell = computed(() => {
   // Org-scoped tickets, or a tenant selected in the brand switcher → tenant chrome.
   if (String(route.params?.organizationSlug || '').trim()) return false;
   if (agencyStore.currentAgency?.id) return false;
-  // Unscoped /tickets with no tenant = Plot Twist HQ.
+  // Unscoped /tickets with no tenant = Plot Twist Co.
   return true;
 });
 </script>
@@ -76,17 +76,17 @@ const usePlatformShell = computed(() => {
 }
 
 .pthq-tickets {
-  --bg: #070b14;
-  --panel: #0f172a;
-  --line: rgba(148, 163, 184, 0.18);
-  --text: #e5e7eb;
-  --muted: #94a3b8;
+  --bg: var(--bg-primary);
+  --panel: var(--bg-card);
+  --line: var(--border);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(1200px 500px at 10% -10%, rgba(139, 92, 246, 0.22), transparent 55%),
-    radial-gradient(900px 400px at 90% 0%, rgba(56, 189, 248, 0.12), transparent 50%),
+    radial-gradient(1200px 500px at 10% -10%, var(--brand-tint), transparent 55%),
+    radial-gradient(900px 400px at 90% 0%, var(--brand-tint), transparent 50%),
     var(--bg);
   color: var(--text);
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
@@ -123,7 +123,7 @@ const usePlatformShell = computed(() => {
   place-items: center;
   font-weight: 800;
   font-size: 0.78rem;
-  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  background: linear-gradient(135deg, #B80016, #B80016);
   color: #fff;
 }
 
@@ -144,18 +144,18 @@ const usePlatformShell = computed(() => {
 }
 
 .pthq-tickets-link {
-  color: #c4b5fd;
+  color: var(--link-color);
   text-decoration: none;
   font-size: 0.88rem;
   font-weight: 600;
   padding: 0.4rem 0.7rem;
   border-radius: 8px;
-  border: 1px solid rgba(139, 92, 246, 0.35);
-  background: rgba(139, 92, 246, 0.1);
+  border: 1px solid var(--brand-tint);
+  background: var(--brand-tint);
 }
 
 .pthq-tickets-link:hover {
-  background: rgba(139, 92, 246, 0.2);
+  background: var(--brand-tint);
   color: #ede9fe;
 }
 
@@ -179,4 +179,6 @@ const usePlatformShell = computed(() => {
   height: 100%;
   max-height: none;
 }
+
+.pthq-mark, .pthq-tickets-mark { object-fit:contain; background:transparent; }
 </style>

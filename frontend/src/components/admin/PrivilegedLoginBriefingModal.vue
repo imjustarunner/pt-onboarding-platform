@@ -274,7 +274,7 @@ const firstName = computed(() => String(
 function isGoldFlash(value) {
   const s = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
   if (!s) return false;
-  if (/^#c69a2b$/i.test(s)) return true;
+  if (/^#B80016$/i.test(s)) return true;
   if (s.includes('198,154,43')) return true;
   return false;
 }
@@ -315,7 +315,7 @@ const brandedAgencies = computed(() => {
       id: 'platform',
       slug: 'platform',
       name,
-      logo: brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl || '/logos/plottwistco-logo.svg',
+      logo: brandingStore.displayLogoUrl || brandingStore.plotTwistCoLogoUrl || '/assets/ptco/logo-flat.png',
       initials: initialsFor(name),
       ...SUPERADMIN_BRIEFING_PALETTE
     }];

@@ -242,7 +242,7 @@ onMounted(async () => {
 
 .stripe-connect-desc {
   font-size: 13px;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary);
   margin: 0;
   line-height: 1.5;
 }
@@ -256,7 +256,7 @@ onMounted(async () => {
 
 .stripe-status-hint {
   font-size: 13px;
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary);
 }
 
 .stripe-account-name {
@@ -278,7 +278,7 @@ onMounted(async () => {
 }
 
 .stripe-detail-item .label {
-  color: var(--text-secondary, #64748b);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
@@ -324,7 +324,7 @@ onMounted(async () => {
   font-weight: 600;
 }
 .pill-on  { background: #dcfce7; color: #166534; }
-.pill-off { background: #f1f5f9; color: #64748b; }
+.pill-off { background: var(--bg-muted); color: var(--text-secondary); }
 .pill-warn { background: #fef3c7; color: #92400e; }
 
 /* Spinner */
@@ -332,7 +332,7 @@ onMounted(async () => {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid var(--border, #e2e8f0);
+  border: 2px solid var(--border);
   border-top-color: var(--primary, #0f766e);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;

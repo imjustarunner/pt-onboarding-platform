@@ -426,31 +426,31 @@ defineExpose({ load });
 .muted { color: #64748b; margin: 0; font-size: 0.85rem; }
 
 /* Dark-context overrides — used inside the dark meeting workspace */
-:global([data-theme="dark"]) .map__live-only {
+[data-theme="dark"] .map__live-only {
   background: rgba(59, 130, 246, 0.15);
   color: #93c5fd;
 }
-:global([data-theme="dark"]) .map__status--away {
+[data-theme="dark"] .map__status--away {
   color: #94a3b8;
   background: rgba(148, 163, 184, 0.15);
 }
-:global([data-theme="dark"]) .map__status--left {
+[data-theme="dark"] .map__status--left {
   color: #fca5a5;
   background: rgba(239, 68, 68, 0.12);
 }
-:global([data-theme="dark"]) .map__required {
+[data-theme="dark"] .map__required {
   color: #fbbf24;
   background: rgba(251, 191, 36, 0.12);
 }
-:global([data-theme="dark"]) .map__optional {
+[data-theme="dark"] .map__optional {
   color: #94a3b8;
   background: rgba(148, 163, 184, 0.12);
 }
-:global([data-theme="dark"]) .map__invited-toggle {
+[data-theme="dark"] .map__invited-toggle {
   color: #94a3b8;
 }
-:global([data-theme="dark"]) .map__invited-toggle:hover { color: #93c5fd; }
-:global([data-theme="dark"]) .muted { color: #94a3b8; }
+[data-theme="dark"] .map__invited-toggle:hover { color: #93c5fd; }
+[data-theme="dark"] .muted { color: #94a3b8; }
 
 /* Meeting workspace dark context (workspace panel has dark background but not data-theme="dark") */
 .map--dark .map__live-only {

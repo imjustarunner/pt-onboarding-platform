@@ -825,7 +825,7 @@ const runClientFind = async () => {
   margin-top: 8px;
   font-size: 13px;
   font-weight: 700;
-  color: var(--primary, #C69A2B);
+  color: var(--primary, #B80016);
 }
 .badges {
   margin-top: 8px;

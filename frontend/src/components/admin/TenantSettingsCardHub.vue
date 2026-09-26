@@ -127,8 +127,9 @@ const primarySections = computed(() => {
   sections.push({
     id: 'setup',
     title: 'Business journey & settings',
-    hint: 'PlotTwistCo manages your business. PlotTwistHQ connects the people, tools, and day-to-day work.',
+    hint: 'Manage this organization’s setup, people, services, and payments.',
     items: [
+      { category: 'general', item: 'payment-setup', label: 'Stripe & client payment setup', fallbackIcon: '💳', description: 'Connect the agency’s Stripe account and bank, set self-pay prices, send payment authorizations, and review client balances.' },
       { category: 'general', item: 'business-journey', label: 'Business journey', fallbackIcon: '🧭', description: 'A step-by-step path from interview and agreement through setup, training, launch, management, and exit.' },
       { category: 'general', item: 'business-commercial', label: 'Agreement & pricing', fallbackIcon: '🧾', description: 'Signed terms, à-la-carte services, contracted revenue share, monthly reconciliation, and the billing transition.' },
       {
@@ -162,9 +163,9 @@ const primarySections = computed(() => {
       {
         category: 'general',
         item: 'billing',
-        label: 'Billing',
+        label: 'Platform subscription & invoices',
         fallbackIcon: '💳',
-        description: `Charges, invoices, receipts, payment methods, and billing history for this ${noun}.`
+        description: `Manage what this ${noun} pays Plot Twist Co for platform services.`
       }
     ]
   });
@@ -237,7 +238,7 @@ const iconFor = (itemId) => {
 
 <style scoped>
 .tenant-settings-card-hub {
-  max-width: 960px;
+  max-width: 1400px;
 }
 
 .hub-header {

@@ -19,54 +19,54 @@ const TENANTS = {
   },
   'app.mh4kidz.com': {
     name: 'MH4Kidz',
-    image: '/branding/plottwisthq-platform-bg.png',
+    image: '/assets/ptco/logo-flat.png',
     description: 'Care, scheduling, and support.'
   },
   'app.plottwistco.com': {
     name: 'Plot Twist Co',
-    image: '/branding/plottwisthq-platform-bg.png',
+    image: '/assets/ptco/logo-flat.png',
     description: 'Care, scheduling, and support.'
   },
   'app.mentalrange.org': {
     name: 'Mental Range',
-    image: '/branding/plottwisthq-platform-bg.png',
+    image: '/assets/ptco/logo-flat.png',
     description: 'Care, scheduling, and support.'
   },
   'app.rockymountainmentors.org': {
     name: 'Rocky Mountain Mentors',
-    image: '/branding/plottwisthq-platform-bg.png',
+    image: '/assets/ptco/logo-flat.png',
     description: 'Mentoring, programs, and support.'
   },
   'app.rmmentors.com': {
     name: 'Rocky Mountain Mentors',
-    image: '/branding/plottwisthq-platform-bg.png',
+    image: '/assets/ptco/logo-flat.png',
     description: 'Mentoring, programs, and support.'
   },
   'app.risereviveco.com': {
     name: 'Rise Revive Co',
-    image: '/branding/plottwisthq-platform-bg.png',
+    image: '/assets/ptco/logo-flat.png',
     description: 'Care, scheduling, and support.'
   },
   'app.theinnerstrengthinstitute.com': {
     name: 'The Inner Strength Institute',
-    image: '/branding/plottwisthq-platform-bg.png',
+    image: '/assets/ptco/logo-flat.png',
     description: 'Care, scheduling, and support.'
   },
   'plottwisthq.com': {
-    name: 'PlotTwist HQ',
-    image: '/branding/plottwisthq-platform-bg.png',
+    name: 'Plot Twist Co',
+    image: '/assets/ptco/logo-flat.png',
     description: 'People operations, care, and programs.'
   },
   'www.plottwisthq.com': {
-    name: 'PlotTwist HQ',
-    image: '/branding/plottwisthq-platform-bg.png',
+    name: 'Plot Twist Co',
+    image: '/assets/ptco/logo-flat.png',
     description: 'People operations, care, and programs.'
   }
 };
 
 const PUBLIC_WEBSITES = {"kimi": {"name":"Kimi Cain Life Coaching","image":"/assets/kimi/kimisms.png","description":"Certified life coaching for clarity, goals, life transitions, and personal growth. Explore coaching packages or book a free consultation."},"nlu": {"name":"Next Level Up | Learning and Counseling Centers","image":"/assets/nlu/family.png"},"itsco": {"name": "ITSCO | In The School Counselors", "image": "/assets/SMSAssets/itscosmsnew.png"}, "tisi": {"name": "The Inner Strength Institute", "image": "/assets/SMSAssets/innerstrengthwebsite.png"}, "range": {"name": "Mental Range Collective", "image": "/assets/SMSAssets/mentalrangewebsite.png"}, "mh4kidz": {"name": "MH4Kidz", "image": "/assets/SMSAssets/mh4kizqwebsite.png"}, "ptco": {"name": "Plot Twist Co.", "image": "/assets/SMSAssets/plottwistcowebsite.png"}, "rise": {"name": "Rise Revive", "image": "/assets/SMSAssets/riserevivewebsite.png"}};
 
-const DEFAULT_IMAGE = '/branding/plottwisthq-platform-bg.png';
+const DEFAULT_IMAGE = '/assets/ptco/logo-flat.png';
 const DEFAULT_DESC = 'Care, scheduling, billing, and support.';
 
 /** When host is plottwisthq.com, resolve tenant from path slug (/join/nlu/…, /careers/nlu). */
@@ -157,7 +157,7 @@ function guessTenantName(host) {
   if (parts[0] === 'app' && parts[1] && parts[1] !== 'www') {
     return parts[1].replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
-  return 'PlotTwist HQ';
+  return 'Plot Twist Co';
 }
 
 export function buildShareMeta({ host, path, proto = 'https' } = {}) {

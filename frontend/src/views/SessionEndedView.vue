@@ -1,6 +1,7 @@
 <template>
   <div
     class="se-page"
+    :class="{ 'se-page--platform': isPlatformBrand }"
     role="main"
     tabindex="0"
     :aria-label="isMobile ? 'Session timed out' : 'Session timed out. Click anywhere to log back in.'"
@@ -11,12 +12,12 @@
     <!-- Background image -->
     <div
       class="se-stage"
-      :style="{ backgroundImage: `url(${bgUrl})` }"
+      :style="{ backgroundImage: bgUrl ? `url(${bgUrl})` : 'none' }"
     />
 
     <!-- Mobile: visible card with message + button -->
-    <div v-if="isMobile" class="se-mobile-card">
-      <div class="se-mobile-icon" aria-hidden="true">🔒</div>
+    <div v-if="isMobile || isPlatformBrand" class="se-mobile-card">
+      <img v-if="isPlatformBrand" class="se-platform-logo" src="/assets/ptco/logo-flat.webp" alt="Plot Twist Co" /><div v-else class="se-mobile-icon" aria-hidden="true">🔒</div>
       <h1 class="se-mobile-title">You've Been Logged Out</h1>
       <p class="se-mobile-body">
         To keep your information safe, your session ended due to inactivity.
@@ -75,8 +76,9 @@ const tenantKey = computed(() => {
   });
 });
 
+const isPlatformBrand = computed(() => ['Platform', 'PlotTwistCo'].includes(tenantKey.value));
 const bgUrl = computed(() =>
-  isMobile.value
+  isPlatformBrand.value ? null : isMobile.value
     ? getMobileTimedownBgUrl()
     : getSessionEndedImageUrl(tenantKey.value)
 );
@@ -187,4 +189,10 @@ function blockBack(e) {
 .se-mobile-btn:active {
   transform: scale(0.97);
 }
+
+.se-page--platform, .se-page--platform .se-stage, .se-page--platform .se-mobile-card { background:var(--bg); }
+.se-page--platform .se-mobile-title { color:var(--text-primary); }
+.se-page--platform .se-mobile-body { color:var(--text-secondary); }
+.se-page--platform .se-mobile-btn { background:#B80016; color:#fff; border:0; }
+.se-platform-logo { width:72px; height:96px; object-fit:contain; margin-bottom:24px; }
 </style>

@@ -9,8 +9,8 @@ self.addEventListener('push', (event) => {
   }
   const options = {
     body: payload.body,
-    icon: '/logos/plottwistco-logo.svg',
-    badge: '/logos/plottwistco-logo.svg',
+    icon: '/assets/ptco/logo-flat.png',
+    badge: '/assets/ptco/logo-flat.png',
     tag: payload.tag || 'notification',
     data: { url: payload.url || '/notifications' },
     requireInteraction: false

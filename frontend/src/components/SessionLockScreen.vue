@@ -37,7 +37,7 @@
         aria-hidden="true"
         @error="videoFailed = true"
       ><source :src="videoUrl" type="video/mp4" @error="videoFailed = true" /></video>
-      <img v-else-if="sessionLockStore.lockConfig" class="session-lock-background" :src="showTenantVideo ? posterUrl : mobileBackgroundUrl" alt="" />
+      <img v-else-if="sessionLockStore.lockConfig && !isPlatformBrand" class="session-lock-background" :src="showTenantVideo ? posterUrl : mobileBackgroundUrl" alt="" />
       <div class="session-lock-card" :style="cardStyle">
         <BrandingLogo
           :logo-url="agencyLogoUrl"
@@ -127,7 +127,8 @@ const tenantKey = computed(() => {
 });
 // Initial verification is not an inactivity timeout; use the neutral branded
 // background until a real lock policy is known instead of the timeout artwork.
-const showTenantVideo = computed(() => !isMobile.value && !!sessionLockStore.lockConfig);
+const isPlatformBrand = computed(() => !agencyStore.currentAgency && (!brandingStore.activeRouteSlug || agencyStore.platformMode));
+const showTenantVideo = computed(() => !isPlatformBrand.value && !isMobile.value && !!sessionLockStore.lockConfig);
 const posterUrl = computed(() => getTimedownPosterUrl(tenantKey.value));
 const videoUrl = computed(() => getTimedownVideoUrl(tenantKey.value));
 const mobileBackgroundUrl = getMobileTimedownBgUrl();
@@ -146,7 +147,7 @@ const pinInputRef = ref(null);
 const agencyLogoUrl = computed(() => brandingStore.displayLogoUrl || null);
 
 const cardStyle = computed(() => {
-  const primary = brandingStore.effectivePrimaryColor || '#C69A2B';
+  const primary = brandingStore.effectivePrimaryColor || '#B80016';
   return {
     '--lock-accent': primary
   };
@@ -205,7 +206,7 @@ watch(() => props.isLocked, (locked) => {
   position: fixed;
   inset: 0;
   z-index: 2147483000;
-  background: #101820;
+  background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -215,7 +216,8 @@ watch(() => props.isLocked, (locked) => {
 .session-lock-card {
   position: relative;
   z-index: 1;
-  background: rgba(255, 255, 255, .96);
+  background: var(--bg-card);
+  color: var(--text-primary);
   border-radius: 16px;
   padding: 40px;
   max-width: 400px;
@@ -307,7 +309,7 @@ watch(() => props.isLocked, (locked) => {
 
 .session-lock-pin-input:focus {
   outline: none;
-  border-color: var(--lock-accent, var(--primary, #C69A2B));
+  border-color: var(--lock-accent, var(--primary, #B80016));
 }
 
 .session-lock-error {

@@ -139,6 +139,7 @@ export function setStoredThemePreference(userId, preference) {
     }
     setStorage(THEME_FALLBACK_KEY, pref);
     setStorage(FALLBACK_KEY, String(resolvedDark));
+    window.dispatchEvent(new CustomEvent('appearance-change'));
   } catch {
     /* ignore */
   }

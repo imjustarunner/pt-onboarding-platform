@@ -201,7 +201,7 @@ const hostPortalSlug = computed(() => resolveHostImpliedPortalSlug(brandingStore
 function isGoldFlash(value) {
   const s = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
   if (!s) return false;
-  if (/^#c69a2b$/i.test(s)) return true;
+  if (/^#B80016$/i.test(s)) return true;
   if (s.includes('198,154,43')) return true;
   return false;
 }

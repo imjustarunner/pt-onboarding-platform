@@ -219,7 +219,7 @@ const brandingStyles = computed(() => {
     brandingStore.primaryColor.replace(/#([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})([0-9A-Fa-f]{2})/, (_, r, g, b) => {
       const lighten = (hex) => Math.min(255, parseInt(hex, 16) + 40).toString(16).padStart(2, '0');
       return `#${lighten(r)}${lighten(g)}${lighten(b)}`;
-    }) : '#D4B04A';
+    }) : '#D32D42';
 
   const styles = {
     '--primary-color': brandingStore.primaryColor,
@@ -243,17 +243,17 @@ const brandingStyles = computed(() => {
   };
   // Dark mode: pin surface tokens on this wrapper so agency light palettes cannot leak through.
   if (dark) {
-    styles['--bg'] = '#1a1d21';
-    styles['--bg-primary'] = '#1a1d21';
-    styles['--bg-alt'] = '#25282c';
-    styles['--bg-secondary'] = '#25282c';
-    styles['--bg-card'] = '#25282c';
-    styles['--bg-muted'] = '#2e3236';
-    styles['--surface-primary'] = '#25282c';
-    styles['--text-primary'] = '#cbd5e1';
-    styles['--text-secondary'] = '#94a3b8';
-    styles['--text-muted'] = '#94a3b8';
-    styles['--border'] = '#475569';
+    styles['--bg'] = '#11151B';
+    styles['--bg-primary'] = '#11151B';
+    styles['--bg-alt'] = '#1B2028';
+    styles['--bg-secondary'] = '#1B2028';
+    styles['--bg-card'] = '#1B2028';
+    styles['--bg-muted'] = '#242B35';
+    styles['--surface-primary'] = '#1B2028';
+    styles['--text-primary'] = '#E7EBF0';
+    styles['--text-secondary'] = '#A8B3C2';
+    styles['--text-muted'] = '#A8B3C2';
+    styles['--border'] = '#364150';
   } else {
     styles['--bg-primary'] = brandingStore.backgroundColor;
     styles['--bg-alt'] = brandingStore.backgroundColor;
@@ -263,7 +263,7 @@ const brandingStyles = computed(() => {
     styles['--text-primary'] = brandingStore.textPrimaryColor;
     styles['--text-secondary'] = brandingStore.textSecondaryColor;
     styles['--text-muted'] = brandingStore.textMutedColor;
-    styles['--border'] = brandingStore.accentColor;
+    styles['--border'] = brandingStore.dividerColor;
   }
   return styles;
 });

@@ -3,7 +3,7 @@
     <img
       v-if="logoUrl"
       :src="logoUrl"
-      :alt="altText"
+      :alt="finalAltText"
       class="logo-image"
       @error="handleImageError"
       @load="handleImageLoad"
@@ -49,11 +49,7 @@ const displayName = computed(() => brandingStore.displayName);
 const sizeClass = computed(() => `logo-${props.size}`);
 
 const defaultAltText = computed(() => {
-  const orgName = brandingStore.platformBranding?.organization_name || displayName.value || 'Platform';
-  if (brandingStore.isSuperAdmin) {
-    return orgName ? `${orgName} Logo` : 'Platform Logo';
-  }
-  return `${displayName.value || orgName || 'Platform'} Logo`;
+  return `${displayName.value || 'Plot Twist Co'} Logo`;
 });
 
 const finalAltText = computed(() => props.altText || defaultAltText.value);

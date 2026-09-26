@@ -4,56 +4,13 @@
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell }">
-      <div
-        v-if="pageLoading && !isLoginEntry"
-        class="agency-loading-overlay"
-        :class="{
-          'agency-loading-overlay--platform': isPlatformLevelLoader,
-          'agency-loading-overlay--platform-fullscreen': showPlatformFullscreenVideo
-        }"
-        aria-label="Loading"
-      >
-        <video
-          v-if="showPlatformFullscreenVideo"
-          class="agency-loading-fullscreen-video"
-          autoplay
-          muted
-          loop
-          playsinline
-          disablepictureinpicture
-          aria-hidden="true"
-        >
-          <source :src="platformFullscreenVideoUrl" type="video/mp4" />
-        </video>
-        <div
-          v-else
-          class="agency-loading-card"
-          :class="{
-            'agency-loading-card--platform': isPlatformLevelLoader,
-            'agency-loading-card--platform-video': showPlatformSmallLoadVideo
-          }"
-        >
-          <video
-            v-if="showPlatformSmallLoadVideo"
-            class="agency-loading-small-video"
-            autoplay
-            muted
-            loop
-            playsinline
-            disablepictureinpicture
-            aria-hidden="true"
-          >
-            <source :src="platformSmallLoadVideoUrl" type="video/mp4" />
-          </video>
-          <template v-else>
-            <div class="agency-loading-logo">
-              <BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" />
-            </div>
-            <div class="agency-loading-text">{{ loadingText }}</div>
-          </template>
+      <div v-if="pageLoading && !isLoginEntry" class="agency-loading-overlay" aria-label="Loading">
+        <div class="agency-loading-card">
+          <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
+          <div class="agency-loading-text">{{ loadingText }}</div>
         </div>
       </div>
-      <nav v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute" class="navbar">
+      <nav v-if="isAuthenticated && !hideGlobalNavForSchoolStaff && !isImmersiveJoinRoute" class="navbar" :class="{ 'navbar--platform': isPlatformContext }">
         <div class="container">
           <div class="nav-content">
             <button class="mobile-menu-toggle" @click="mobileMenuOpen = !mobileMenuOpen" aria-label="Toggle menu">
@@ -793,7 +750,7 @@
                       v-if="canSeeManagementSettingsNav && showManagementContentAboveSettings"
                     />
 
-                    <router-link :to="orgTo('/admin/settings')" v-if="canSeeManagementSettingsNav" >Settings</router-link>
+                    <router-link :to="settingsNavTo" v-if="canSeeManagementSettingsNav" >Settings</router-link>
                   </div>
                 </div>
 
@@ -1078,6 +1035,7 @@
                 </button>
                 <NavSearchBar v-if="isAuthenticated && canSeeFullPortalNav" />
                 <AskAssistantLauncher v-if="isAuthenticated" />
+                <AppearanceSelect />
                 <WeatherChip />
                 <router-link
                   v-if="canShowScheduleIcon && !isSscSstcTenant"
@@ -1091,7 +1049,7 @@
                 </router-link>
                 <router-link
                   v-if="canShowSettingsIcon"
-                  :to="orgTo('/admin/settings')"
+                  :to="settingsNavTo"
                   class="nav-icon-btn"
                   title="Settings"
                   aria-label="Settings"
@@ -1175,6 +1133,7 @@
             Assistant
           </button>
           <div class="mobile-nav-links">
+            <AppearanceSelect class="mobile-appearance" />
             <div v-if="showSstcSurfaceSwitcher" class="mobile-surface-switcher">
               <label class="mobile-surface-switcher-label" for="sstc-surface-select-mobile">View</label>
               <select
@@ -1859,7 +1818,7 @@
                     v-if="canSeeManagementSettingsNav && showManagementContentAboveSettings"
                     class="mobile-nav-sep"
                   />
-                  <router-link :to="orgTo('/admin/settings')" v-if="canSeeManagementSettingsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Settings</router-link>
+                  <router-link :to="settingsNavTo" v-if="canSeeManagementSettingsNav" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Settings</router-link>
                 </template>
               </div>
 
@@ -2286,6 +2245,9 @@
 
 <script setup>
 import DashboardMeetings from './components/meetings/DashboardMeetings.vue';
+import AppearanceSelect from './components/AppearanceSelect.vue';
+import { PLATFORM_BRAND } from './config/platformBrand.js';
+import { settingsLocationForAgency } from './navigation/settingsDestinations.js';
 import { ref, computed, watch, onMounted, onUnmounted, unref, nextTick, provide } from 'vue';
 import { Capacitor } from '@capacitor/core';
 const isNative = Capacitor.isNativePlatform();
@@ -2668,10 +2630,6 @@ const LOADER_MIN_VISIBLE_MS = 150;
 let loaderShowTimer = null;
 let loaderHideTimer = null;
 
-/** Static HQ load videos (Assets icon library is image-only; these live under /branding). */
-const PLATFORM_FULLSCREEN_LOAD_VIDEO = '/branding/fullscreenloadplatform.mp4';
-const PLATFORM_SMALL_LOAD_VIDEO = '/branding/platformload.mp4';
-
 const isVideoUrl = (url) => /\.mp4($|\?)/i.test(String(url || ''));
 
 /** True Plot Twist HQ context: no tenant selected (Platform chip). Never while a tenant is active. */
@@ -2693,7 +2651,7 @@ const isPlatformHqShell = computed(() => {
 });
 
 /** True only while swapping between Plot Twist HQ surfaces (tickets ↔ command center, etc.). */
-const preferPlatformFullscreenLoad = ref(false);
+const preferPlatformNavigationLoad = ref(false);
 
 function isPlatformHqRoute(r) {
   if (!r) return false;
@@ -2704,43 +2662,9 @@ function isPlatformHqRoute(r) {
   return false;
 }
 
-const platformFullscreenVideoUrl = computed(() => {
-  const fromStore = brandingStore.displayPlatformFullscreenLoadIconUrl;
-  if (fromStore && isVideoUrl(fromStore)) return fromStore;
-  return PLATFORM_FULLSCREEN_LOAD_VIDEO;
-});
-
-/** SmallLoad.mp4 for the platform loading square (non-fullscreen). */
-const platformSmallLoadVideoUrl = computed(() => {
-  if (!isPlatformLevelLoader.value) return null;
-  const fromStore = brandingStore.displayPlatformLoadIconUrl;
-  if (fromStore && isVideoUrl(fromStore)) return fromStore;
-  if (!fromStore) return PLATFORM_SMALL_LOAD_VIDEO;
-  return null;
-});
-
-const showPlatformFullscreenVideo = computed(
-  () =>
-    isPlatformLevelLoader.value &&
-    preferPlatformFullscreenLoad.value &&
-    !!platformFullscreenVideoUrl.value
-);
-
-const showPlatformSmallLoadVideo = computed(
-  () =>
-    isPlatformLevelLoader.value &&
-    !showPlatformFullscreenVideo.value &&
-    !!platformSmallLoadVideoUrl.value
-);
-
-// Prefer the selected agency icon for the loader even before authStore hydrates.
-// At platform level, SmallLoad.mp4 is used via showPlatformSmallLoadVideo; image assets still win if wired.
-// Falls back through: chrome icon → club logo → portal-agency logo → platform branding logo.
+// Loading follows the active organization identity and appearance.
 const loaderLogoUrl = computed(() => {
-  if (isPlatformLevelLoader.value) {
-    const platformLoad = brandingStore.displayPlatformLoadIconUrl;
-    if (platformLoad && !isVideoUrl(platformLoad)) return platformLoad;
-  }
+  if (isPlatformLevelLoader.value) return PLATFORM_BRAND.logo;
   const chrome = brandingStore.displayChromeIconUrl;
   if (chrome) return chrome;
   const a = agencyStore.currentAgency;
@@ -2859,7 +2783,7 @@ function syncPageLoading(isOn) {
         loaderHideTimer = null;
       }
       if (pageLoading.value || loaderShowTimer) return;
-      const showDelay = preferPlatformFullscreenLoad.value
+      const showDelay = preferPlatformNavigationLoad.value
         ? PLATFORM_LOADER_SHOW_DELAY_MS
         : LOADER_SHOW_DELAY_MS;
       loaderShowTimer = window.setTimeout(() => {
@@ -2886,7 +2810,7 @@ function syncPageLoading(isOn) {
       try {
         if (!globalLoading.value) {
           pageLoading.value = false;
-          preferPlatformFullscreenLoad.value = false;
+          preferPlatformNavigationLoad.value = false;
         }
       } catch {
         /* ignore — can race logout teardown */
@@ -2904,8 +2828,7 @@ watch(isPublicIntakeRoute, (active) => {
   if (active) suppressPublicIntakeFullscreenLoader();
 });
 
-// HQ surface swaps (tickets ↔ command center): use fullscreenloadplatform.mp4.
-// Other platform loads keep the small SmallLoad.mp4 square.
+// Keep the branded loading indicator visible during platform navigation.
 let hqNavLoadId = null;
 router.beforeEach((to, from) => {
   try {
@@ -2917,7 +2840,7 @@ router.beforeEach((to, from) => {
       isPlatformHqRoute(to) &&
       isPlatformHqRoute(from)
     ) {
-      preferPlatformFullscreenLoad.value = true;
+      preferPlatformNavigationLoad.value = true;
       if (hqNavLoadId) {
         endLoading(hqNavLoadId);
         hqNavLoadId = null;
@@ -5743,6 +5666,10 @@ const navBucketSlug = computed(() => {
   return null;
 });
 
+const settingsNavTo = computed(() => settingsLocationForAgency(agencyStore.currentAgency, {
+  platform: agencyStore.platformMode && !agencyStore.currentAgency
+}));
+
 const orgTo = (path) => {
   const slug = navBucketSlug.value;
   if (!slug) return path;
@@ -6857,8 +6784,8 @@ onMounted(async () => {
     }
   }
 
-  // Super admin default: Platform context unless we're on a branded (slug) route
-  // or a dedicated app host (app.itsco.health already implies ITSCO).
+  // Default to Platform only when no agency was selected or requested.
+  // Reloading flat Settings or billing URLs must retain the current organization.
   // Uses setPlatformMode() so subsequent fetchUserAgencies calls don't snap back to a tenant.
   try {
     const role = String(authStore.user?.role || '').toLowerCase();
@@ -6868,6 +6795,8 @@ onMounted(async () => {
       role === 'super_admin'
       && !(typeof slugFromRoute === 'string' && slugFromRoute)
       && !hostSlug
+      && !agencyStore.currentAgency?.id
+      && !route.query.agencyId
     ) {
       agencyStore.setPlatformMode();
     }
@@ -6976,28 +6905,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.98));
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
   backdrop-filter: blur(4px);
-}
-
-.agency-loading-overlay--platform {
-  background: rgba(7, 11, 20, 0.72);
-  backdrop-filter: blur(6px);
-}
-
-.agency-loading-overlay--platform-fullscreen {
-  background: #070b14;
-  backdrop-filter: none;
-  overflow: hidden;
-}
-
-.agency-loading-fullscreen-video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  pointer-events: none;
 }
 
 .agency-loading-card {
@@ -7009,49 +6918,13 @@ onUnmounted(() => {
   gap: 14px;
   padding: 22px 22px 18px;
   border-radius: 16px;
-  background: white;
+  background: var(--bg-card);
+  color: var(--text-primary);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-lg);
   min-width: min(420px, 90vw);
   /* Clip logos during 360° spin (diagonal exceeds unrotated width/height). */
   overflow: hidden;
-}
-
-.agency-loading-card--platform {
-  background: rgba(15, 23, 42, 0.92);
-  border-color: rgba(148, 163, 184, 0.22);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
-  color: #e5e7eb;
-}
-
-/* SmallLoad.mp4 already includes the loading copy — fill the rounded square. */
-.agency-loading-card--platform-video {
-  padding: 0;
-  gap: 0;
-  width: clamp(12rem, 30vw, 15.5rem);
-  height: clamp(12rem, 30vw, 15.5rem);
-  min-width: 0;
-  aspect-ratio: 1;
-}
-
-.agency-loading-small-video {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: fill; /* slight stretch to fill the rounded square */
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.agency-loading-overlay--platform .agency-loading-text {
-  color: #e5e7eb;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agency-loading-fullscreen-video,
-  .agency-loading-small-video {
-    display: none;
-  }
 }
 
 .agency-loading-logo {
@@ -7110,7 +6983,7 @@ onUnmounted(() => {
   height: 100vh;
   max-height: 100vh;
   overflow-y: auto;
-  background: white;
+  background: var(--bg-card);
 }
 
 /* In preview frames, keep drawer/overlay constrained to the frame canvas. */
@@ -7180,6 +7053,8 @@ onUnmounted(() => {
   overflow-y: visible;
   box-sizing: border-box;
 }
+.navbar.navbar--platform { background: #1D2633; }
+.navbar.navbar--platform::after { background: #B80016; }
 .navbar::before {
   content: '';
   position: absolute;
@@ -7291,7 +7166,7 @@ onUnmounted(() => {
   top: calc(100% + 10px);
   left: 0;
   min-width: 220px;
-  background: white;
+  background: var(--bg-card);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -7359,7 +7234,7 @@ onUnmounted(() => {
   /* Show full menu height; parent nav row reserves space via .nav-menus-open */
   max-height: none;
   overflow-y: visible;
-  background: white;
+  background: var(--bg-card);
   color: var(--text-primary);
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -7543,7 +7418,7 @@ onUnmounted(() => {
 }
 .nav-tools-item-actions button {
   border: 1px solid #e2e8f0;
-  background: #fff;
+  background: var(--bg-card);
   border-radius: 8px;
   padding: 3px 6px;
   font-size: 0.68rem;
@@ -7685,7 +7560,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  background: #fff;
+  background: var(--bg-card);
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
 }
 
@@ -8066,6 +7941,8 @@ button.nav-dropdown-button-link:hover {
   right: 0;
   background: linear-gradient(270deg, color-mix(in srgb, var(--primary) 92%, #0f172a 8%), transparent);
 }
+.navbar--platform .nav-links-wrapper::before { background: linear-gradient(90deg, #1D2633, transparent); }
+.navbar--platform .nav-links-wrapper::after { background: linear-gradient(270deg, #1D2633, transparent); }
 .nav-links-wrapper.nav-links-fade-start::before,
 .nav-links-wrapper.nav-links-fade-end::after {
   opacity: 1;
@@ -8150,7 +8027,7 @@ button.nav-dropdown-button-link:hover {
   right: 0;
   top: calc(100% + 8px);
   width: min(420px, 75vw);
-  background: white;
+  background: var(--bg-card);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
   border-radius: 12px;
@@ -8189,7 +8066,7 @@ button.nav-dropdown-button-link:hover {
   width: 18px;
   left: 3px;
   bottom: 2px;
-  background-color: white;
+  background-color: var(--bg-card);
   transition: .2s;
   border-radius: 50%;
   box-shadow: 0 1px 2px rgba(0,0,0,0.18);
@@ -8384,7 +8261,7 @@ button.nav-dropdown-button-link:hover {
 }
 
 .notifications-alert-card {
-  background: white;
+  background: var(--bg-card);
   border-radius: 16px;
   border: 1px solid var(--border);
   box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
@@ -8444,7 +8321,7 @@ button.nav-dropdown-button-link:hover {
   padding: 10px 14px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: white;
+  background: var(--bg-card);
   color: var(--text-primary);
   box-shadow: 0 16px 30px rgba(15, 23, 42, 0.2);
   cursor: pointer;
@@ -8503,7 +8380,7 @@ button.nav-dropdown-button-link:hover {
   max-width: min(420px, calc(100vw - 40px));
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: white;
+  background: var(--bg-card);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
   overflow: hidden;
   animation: newNotificationToastIn 0.3s ease-out;
@@ -8763,7 +8640,7 @@ button.nav-dropdown-button-link:hover {
   padding: 12px 18px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: white;
+  background: var(--bg-card);
   color: var(--text-primary);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
   font-size: 14px;
@@ -8973,7 +8850,7 @@ button.nav-dropdown-button-link:hover {
 .hamburger-line {
   width: 100%;
   height: 3px;
-  background-color: white;
+  background-color: #fff;
   border-radius: 2px;
   transition: all 0.3s ease;
   transform-origin: center;
@@ -9524,10 +9401,10 @@ main.main-no-global-chrome {
   color: var(--text-primary, inherit);
 }
 
-/* Keep HQ shell dark during route remounts (tickets ↔ command center) — Platform only. */
+/* Preserve the selected appearance during platform route remounts. */
 #app.is-platform-hq {
-  background: #070b14;
-  color: #e5e7eb;
+  background: var(--bg);
+  color: var(--text-primary);
 }
 
 /* ── Native app (Capacitor) nav layout ───────────────────────────────

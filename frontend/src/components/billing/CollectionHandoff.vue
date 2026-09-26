@@ -125,5 +125,5 @@ onMounted(async () => { try { await refresh(); } catch { error.value = 'Manageme
 label { display: grid; gap: 8px; margin: 16px 0; max-width: 680px; }
 select, textarea { font: inherit; padding: 10px; border: 1px solid #a9bace; border-radius: 6px; }
 .item { display: flex; align-items: center; }.case-row { border-top: 1px solid #d9e2ef; padding: 16px 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.case-detail { background: white; padding: 20px; border: 1px solid #d9e2ef; border-radius: 8px; }.address { white-space: pre-line; }[role=alert] { color: #b42318; }
+.case-detail { background: var(--bg-card); padding: 20px; border: 1px solid #d9e2ef; border-radius: 8px; }.address { white-space: pre-line; }[role=alert] { color: #b42318; }
 </style>

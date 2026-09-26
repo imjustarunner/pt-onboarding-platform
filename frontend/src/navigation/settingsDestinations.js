@@ -6,3 +6,13 @@ export function normalizeSettingsDestination({ category, item, agencyTab } = {})
   if (item === 'company-profile' && !agencyTab) return { category: 'platform', item: 'tenant-ws-home' };
   return { category: 'general', item: 'business-details', agencyTab: agencyTab || 'general' };
 }
+
+/** Preserve explicit agency scope, including flat routes on dedicated agency hosts. */
+export function settingsLocationForAgency(agency, { platform = false } = {}) {
+  const slug = String(agency?.slug || agency?.portal_url || '').trim();
+  if (platform || !agency?.id) return { path: '/admin/settings', query: { scope: 'platform', category: 'platform', item: 'platform-ws-home' } };
+  return {
+    path: slug ? `/${encodeURIComponent(slug)}/admin/settings` : '/admin/settings',
+    query: { agencyId: String(agency.id), category: 'platform', item: 'tenant-ws-home' }
+  };
+}

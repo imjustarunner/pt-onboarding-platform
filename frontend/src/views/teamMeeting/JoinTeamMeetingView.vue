@@ -2843,28 +2843,28 @@ onUnmounted(() => {
 }
 
 /* Global dark mode — override light-colored modal and add-attendee surfaces */
-:global([data-theme="dark"]) .join-modal {
+[data-theme="dark"] .join-modal {
   background: #1e2430;
   color: #e2e8f0;
   border: 1px solid rgba(255,255,255,0.12);
 }
-:global([data-theme="dark"]) .join-modal p { color: #94a3b8; }
-:global([data-theme="dark"]) .join-tools__menu {
+[data-theme="dark"] .join-modal p { color: #94a3b8; }
+[data-theme="dark"] .join-tools__menu {
   background: #1e2430;
   border-color: rgba(255,255,255,0.12);
 }
-:global([data-theme="dark"]) .join-tools__item {
+[data-theme="dark"] .join-tools__item {
   color: #e2e8f0;
 }
-:global([data-theme="dark"]) .join-tools__item:hover { background: rgba(255,255,255,0.08); }
-:global([data-theme="dark"]) .join-add-attendee-item {
+[data-theme="dark"] .join-tools__item:hover { background: rgba(255,255,255,0.08); }
+[data-theme="dark"] .join-add-attendee-item {
   color: #e2e8f0;
   border-bottom-color: rgba(255,255,255,0.08);
 }
-:global([data-theme="dark"]) .join-add-attendee-item:hover:not(:disabled) {
+[data-theme="dark"] .join-add-attendee-item:hover:not(:disabled) {
   background: rgba(255,255,255,0.06);
 }
-:global([data-theme="dark"]) .join-add-attendee-list {
+[data-theme="dark"] .join-add-attendee-list {
   border-top-color: rgba(255,255,255,0.12);
 }
 

@@ -1533,7 +1533,7 @@ watch(
 }
 .pt-link a {
   font-weight: 700;
-  color: var(--primary, #C69A2B);
+  color: var(--primary, #B80016);
 }
 label {
   display: block;

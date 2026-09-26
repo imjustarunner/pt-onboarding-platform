@@ -172,10 +172,10 @@ function exportedToUpdatePayload(data) {
 
 const DEFAULT_BRANDING = {
   id: null,
-  tagline: 'The gold standard for behavioral health workflows.',
-  primary_color: '#C69A2B',
+  tagline: 'People, services, and operations. Connected.',
+  primary_color: '#B80016',
   secondary_color: '#1D2633',
-  accent_color: '#3A4C6B',
+  accent_color: '#B80016',
   success_color: '#2F8F83',
   background_color: '#F3F6FA',
   error_color: '#CC3D3D',

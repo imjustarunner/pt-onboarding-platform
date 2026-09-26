@@ -2781,7 +2781,7 @@
             <input 
               v-model="agencyForm.themeSettings.loginBackground" 
               type="text" 
-              placeholder="linear-gradient(135deg, #C69A2B 0%, #D4B04A 100%) or URL to image"
+              placeholder="linear-gradient(135deg, #B80016 0%, #D32D42 100%) or URL to image"
             />
             <small>CSS gradient or image URL for login page background</small>
           </div>

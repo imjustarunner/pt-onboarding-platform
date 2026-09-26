@@ -518,8 +518,8 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
 }
 
-:global([data-theme="dark"]) .my-docs-header h2,
-:global([data-theme="dark"]) .waiver-title {
+[data-theme="dark"] .my-docs-header h2,
+[data-theme="dark"] .waiver-title {
   color: #e2e8f0;
 }
 </style>

@@ -150,9 +150,9 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-btn.is-active {
-  background: var(--primary, #C69A2B);
+  background: var(--primary, #B80016);
   color: #fff;
-  border-color: var(--primary, #C69A2B);
+  border-color: var(--primary, #B80016);
 }
 
 .editor-content {

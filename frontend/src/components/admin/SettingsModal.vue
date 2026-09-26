@@ -73,8 +73,8 @@
               v-model="tenantPickerSearch"
               type="search"
               class="tenant-picker-search"
-              :placeholder="isSuperAdmin ? 'Search tenants…' : 'Search organizations…'"
-              :aria-label="isSuperAdmin ? 'Search tenants' : 'Search organizations'"
+              placeholder="Search organizations…"
+              aria-label="Search organizations"
             />
             <div v-if="agencyStore.currentAgency" class="tenant-picker-active-pill">
               <div
@@ -97,34 +97,11 @@
               </div>
             </div>
             <p v-else-if="isSuperAdmin && agencyStore.platformMode" class="tenant-picker-hint muted">
-              Platform mode — tenant-scoped items will ask you to select a tenant first.
+              Platform settings apply across organizations. Select an organization below for its own settings and payments.
             </p>
             <p v-else-if="!agencyStore.currentAgency" class="tenant-picker-hint muted">
               Select {{ isSuperAdmin ? 'a tenant' : 'an organization' }} below for its business journey, settings, and billing.
             </p>
-          </div>
-          <div v-if="showTenantPickerShell && isSuperAdmin && !platformSettingsCardHubActive" class="tenant-mode-toggle-row" role="group" aria-label="Workspace mode">
-            <button
-              type="button"
-              class="tenant-mode-toggle-btn"
-              :class="{ 'tenant-mode-toggle-btn--active': agencyStore.platformMode && !agencyStore.currentAgency }"
-              @click="enterPlatformToolsOnly"
-            >
-              {{ globalToolsLabel }}
-            </button>
-            <button
-              type="button"
-              class="tenant-mode-toggle-btn"
-              :class="{ 'tenant-mode-toggle-btn--active': !!agencyStore.currentAgency }"
-              :disabled="!agencyStore.currentAgency"
-              @click="agencyStore.currentAgency && selectItem('platform', 'tenant-ws-home')"
-            >
-              {{
-                agencyStore.currentAgency
-                  ? `Tenant: ${agencyStore.currentAgency.name}`
-                  : 'Tenant workspace'
-              }}
-            </button>
           </div>
           <div
             v-if="showTenantPickerShell && tenantSettingsCardHubActive"
@@ -150,13 +127,12 @@
               Platform-wide defaults
             </button>
           </div>
-          <div class="tenant-logo-scroller" role="list">
+          <div class="tenant-logo-scroller" role="group" aria-label="Settings organization">
             <button
               v-if="isSuperAdmin"
               type="button"
               class="tenant-logo-chip"
               :class="{ 'tenant-logo-chip-active': agencyStore.platformMode && !agencyStore.currentAgency }"
-              role="listitem"
               @click="enterPlatformToolsOnly"
             >
               <div class="tenant-logo-wrap tenant-logo-wrap-sm tenant-logo-fallback">
@@ -176,7 +152,6 @@
               type="button"
               class="tenant-logo-chip"
               :class="{ 'tenant-logo-chip-active': isPickerTenantActive(a) }"
-              role="listitem"
               :style="{ '--tenant-chip-tint': `hsl(${tenantHueFromId(a.id)} 40% 44%)` }"
               @click="selectTenantFromPicker(a)"
             >
@@ -426,6 +401,7 @@ import TenantSupportSettingsPanel from './TenantSupportSettingsPanel.vue';
 // Import placeholder components
 import TeamRolesManagement from './TeamRolesManagement.vue';
 import BillingManagement from './BillingManagement.vue';
+import AgencyPaymentSettings from './AgencyPaymentSettings.vue';
 import TenantFeaturesManagement from './TenantFeaturesManagement.vue';
 import IntegrationsManagement from './IntegrationsManagement.vue';
 
@@ -659,8 +635,13 @@ const allCategories = [
         excludeSupervisor: true
       },
       {
+        id: 'payment-setup', label: 'Stripe & client payment setup', icon: '💳',
+        component: 'AgencyPaymentSettings', requiresAgency: true,
+        roles: ['super_admin', 'admin'], excludeRoles: ['support', 'clinical_practice_assistant'], excludeSupervisor: true
+      },
+      {
         id: 'billing',
-        label: 'Billing',
+        label: 'Platform subscription & invoices',
         icon: '💳',
         component: 'BillingManagement',
         roles: ['super_admin', 'admin'],
@@ -1003,7 +984,7 @@ const allCategories = [
 const isSuperAdmin = computed(() => authStore.user?.role === 'super_admin');
 
 const contextNoun = computed(() => (isSuperAdmin.value ? 'tenant' : 'organization'));
-const contextNounTitle = computed(() => (isSuperAdmin.value ? 'Tenant' : 'Organization'));
+const contextNounTitle = computed(() => 'Organization');
 const contextPlural = computed(() => (isSuperAdmin.value ? 'tenants' : 'organizations'));
 
 /** Full sidebar tree for the signed-in user; tenant workspace hub items are excluded here so they only appear in the slim hub sidebar. */
@@ -1114,8 +1095,7 @@ const settingsScopedAgencyId = computed(() => {
 });
 
 const globalToolsLabel = computed(() => {
-  const n = String(brandingStore.platformBranding?.organization_name || '').trim();
-  return n ? `Global (${n})` : 'Global tools';
+  return 'Platform settings';
 });
 
 const tenantHubSidebarCategory = computed(() => {
@@ -1243,7 +1223,7 @@ const tenantHubSecondaryBlocks = computed(() => {
     if (supportItem) {
       blocks.push({
         title: 'Support',
-        hint: 'Organization help desk and Plot Twist HQ platform tickets.',
+        hint: 'Organization help desk and Plot Twist Co platform tickets.',
         items: mapItems([supportItem], 'system')
       });
     }
@@ -1287,7 +1267,7 @@ const HUB_CARD_DESC = computed(() => ({
   'note-aid-kb': `Note Aid knowledge base — ${contextNoun.value} with Note Aid enabled.`,
   'note-aid-catalog': `Enable/disable Note Aids, custom aids, people scope, and session/claim attach flags.`,
   'tenant-support':
-    `Contact organization support or Plot Twist HQ platform support for this ${contextNoun.value}.`,
+    `Contact organization support or Plot Twist Co platform support for this ${contextNoun.value}.`,
   communications: 'Transactional email templates.',
   'sms-numbers': `Texting numbers — ${contextNoun.value}-scoped.`,
   'email-settings': 'SMTP and platform email defaults.',
@@ -1528,6 +1508,7 @@ const componentMap = {
   SmsNumbersManagement,
   TeamRolesManagement,
   BillingManagement,
+  AgencyPaymentSettings,
   TenantFeaturesManagement,
   IntegrationsManagement,
   IntakeLinksView,
@@ -1716,7 +1697,7 @@ const showTenantEntryGate = computed(() => {
 const resolveTenantAssetUrl = (raw) => {
   const s = String(raw || '').trim();
   if (!s) return null;
-  if (s.startsWith('http://') || s.startsWith('https://')) return s;
+  if (/^(https?:\/\/|\/assets\/|\/branding\/|\/logos\/)/.test(s)) return s;
   return toUploadsUrl(s);
 };
 
@@ -1815,6 +1796,7 @@ const buildSettingsLocation = ({ org = null, category = 'platform', item = null 
   const slug = pickOrgSettingsSlug(org);
   const path = slug ? `/${slug}/admin/settings` : '/admin/settings';
   const params = new URLSearchParams();
+  if (!org?.id) params.set('scope', 'platform');
   if (category) params.set('category', String(category));
   if (item) params.set('item', String(item));
   if (org?.id) params.set('agencyId', String(org.id));
@@ -1835,7 +1817,7 @@ const syncAgencyIdToRoute = () => {
   if (props.disableRouteSync || !showTenantContextUi.value) return;
   const q = { ...route.query };
   const raw = String(selectedAgencyId.value || '').trim();
-  if (raw) q.agencyId = raw;
+  if (raw) { q.agencyId = raw; delete q.scope; }
   else delete q.agencyId;
   router.replace({ query: q });
 };
@@ -1861,7 +1843,7 @@ const syncAgencyContextFromRouteSlug = async () => {
       return;
     }
     const routeItem = String(route.query?.item || '');
-    if (agencyStore.currentAgency?.id && TENANT_SETTINGS_ROUTE_ITEMS.has(routeItem)) {
+    if (agencyStore.currentAgency?.id && route.query?.scope !== 'platform' && !PLATFORM_SOLO_ROUTE_ITEMS.has(routeItem)) {
       selectedAgencyId.value = String(agencyStore.currentAgency.id);
       brandingStore.syncDocumentThemeFromSelectedAgency({ skipRouteSlugGuard: true });
       return;
@@ -2032,8 +2014,10 @@ const PLATFORM_SOLO_ROUTE_ITEMS = new Set(['platform-ws-home', 'platform-setting
 
 const buildSettingsReplaceQuery = (categoryId, itemId, { agencyTab = null } = {}) => {
   const q = { ...route.query, category: categoryId, item: itemId };
+  if (agencyStore.currentAgency?.id) delete q.scope;
   if (categoryId === 'platform' && PLATFORM_SOLO_ROUTE_ITEMS.has(itemId)) {
     delete q.agencyId;
+    q.scope = 'platform';
   }
   // After choosing Platform chip, route.query can still contain agencyId for a tick — always strip while platform-only.
   if (isSuperAdmin.value && agencyStore.platformMode && !agencyStore.currentAgency?.id) {
@@ -2488,7 +2472,7 @@ const prefetchSettingsSidebarIcons = async () => {
 }
 
 .settings-modal {
-  background: white;
+  background: var(--bg-card);
   border-radius: 12px;
   width: 95%;
   max-width: 1400px;
@@ -2708,7 +2692,7 @@ const prefetchSettingsSidebarIcons = async () => {
 }
 
 .settings-main-row--solo-hub .settings-content {
-  background: var(--bg-alt, #f8fafc);
+  background: var(--bg-alt);
 }
 
 .settings-main-row--no-sidebar .settings-content {
@@ -2759,7 +2743,7 @@ const prefetchSettingsSidebarIcons = async () => {
   padding: 16px 12px;
   border: 2px solid var(--tenant-chip-tint, var(--border));
   border-radius: 14px;
-  background: #fff;
+  background: var(--bg-card);
   cursor: pointer;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
   font: inherit;
@@ -2899,7 +2883,7 @@ const prefetchSettingsSidebarIcons = async () => {
   padding: 6px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--bg-card);
 }
 
 .tenant-picker-active-logo {
@@ -2956,7 +2940,7 @@ const prefetchSettingsSidebarIcons = async () => {
   padding: 10px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--bg-alt, #f8fafc);
+  background: var(--bg-alt);
   font: inherit;
   font-weight: 600;
   font-size: 13px;
@@ -2972,7 +2956,7 @@ const prefetchSettingsSidebarIcons = async () => {
 .tenant-mode-toggle-btn--active {
   border-color: var(--primary);
   box-shadow: 0 0 0 1px var(--primary);
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .tenant-mode-toggle-btn:disabled {
@@ -2995,9 +2979,9 @@ const prefetchSettingsSidebarIcons = async () => {
   justify-content: center;
   min-height: 40px;
   padding: 8px 14px !important;
-  border: 1px solid color-mix(in srgb, var(--primary) 35%, #ffffff 65%);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--bg-card) 65%);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--primary) 6%, #ffffff 94%);
+  background: color-mix(in srgb, var(--primary) 6%, var(--bg-card) 94%);
   color: var(--primary) !important;
   font-size: 15px;
   font-weight: 700;
@@ -3008,8 +2992,8 @@ const prefetchSettingsSidebarIcons = async () => {
 .tenant-quick-link:hover,
 .tenant-quick-link:focus-visible {
   border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 12%, #ffffff 88%);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 20%, #ffffff 80%);
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-card) 88%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 20%, var(--bg-card) 80%);
 }
 
 .tenant-chip-platform-icon,
@@ -3041,7 +3025,7 @@ const prefetchSettingsSidebarIcons = async () => {
   padding: 8px 6px;
   border: 2px solid var(--tenant-chip-tint, var(--border));
   border-radius: 12px;
-  background: #fff;
+  background: var(--bg-card);
   cursor: pointer;
   font: inherit;
   color: inherit;
@@ -3054,7 +3038,7 @@ const prefetchSettingsSidebarIcons = async () => {
 
 .tenant-logo-chip-active {
   border-color: var(--text-primary);
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--bg-card);
 }
 
 .tenant-chip-label {
@@ -3091,18 +3075,18 @@ const prefetchSettingsSidebarIcons = async () => {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--bg-card);
   cursor: pointer;
   transition: background 0.15s, transform 0.15s;
   text-align: left;
 }
 
 .category-header:hover {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--bg-card);
 }
 
 .category-header.open {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--bg-card);
 }
 
 .category-header .category-label {
@@ -3165,7 +3149,7 @@ const prefetchSettingsSidebarIcons = async () => {
 }
 
 .category-item.active {
-  background: white;
+  background: var(--bg-card);
   color: var(--primary);
   font-weight: 600;
   border-right: 3px solid var(--primary);
@@ -3208,7 +3192,7 @@ const prefetchSettingsSidebarIcons = async () => {
   flex: 1;
   overflow-y: auto;
   padding: 32px;
-  background: white;
+  background: var(--bg-card);
 }
 
 .settings-content--solo-hub {
@@ -3225,7 +3209,7 @@ const prefetchSettingsSidebarIcons = async () => {
 }
 
 .agency-context-bar {
-  background: #ffffff;
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px 14px;
@@ -3250,7 +3234,7 @@ const prefetchSettingsSidebarIcons = async () => {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: white;
+  background: var(--bg-card);
   font-size: 14px;
 }
 
@@ -3258,7 +3242,7 @@ const prefetchSettingsSidebarIcons = async () => {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--bg-alt);
   font-weight: 700;
 }
 

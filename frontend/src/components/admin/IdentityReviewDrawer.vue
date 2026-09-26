@@ -384,6 +384,6 @@ onMounted(load);
 }
 .ih-reason { display: block; font-size: 0.72rem; color: #64748b; font-weight: 600; }
 .ih-merge-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-:global([data-theme="dark"]) .ih-drawer,
-:global([data-theme="dark"]) .ih-merge-card { background: #25282c; color: #e2e8f0; }
+[data-theme="dark"] .ih-drawer,
+[data-theme="dark"] .ih-merge-card { background: #25282c; color: #e2e8f0; }
 </style>

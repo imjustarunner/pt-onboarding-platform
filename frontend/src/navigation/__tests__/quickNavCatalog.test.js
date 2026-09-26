@@ -183,3 +183,17 @@ describe('quickNavCatalog', () => {
     expect(flat.some((r) => /receivables/i.test(r.label) || /receivables/i.test(r.path || ''))).toBe(true);
   });
 });
+
+describe('client billing discovery', () => {
+  it('finds family billing and Stripe setup for administrators', () => {
+    const ctx = buildQuickNavContext({ user: { role: 'super_admin' } });
+    expect(searchQuickNav('family', ctx).flat.some(e => e.path === '/admin/family-billing')).toBe(true);
+    expect(searchQuickNav('stripe', ctx).flat.some(e => e.path === '/admin/family-billing?tab=setup')).toBe(true);
+  });
+  it('requires billing access for staff and excludes clinical providers', () => {
+    for (const user of [{ role: 'staff' }, { role: 'provider', billingAgencyIds: [377] }]) {
+      expect(searchQuickNav('stripe', buildQuickNavContext({ user })).flat.some(e => e.path?.includes('family-billing'))).toBe(false);
+    }
+    expect(searchQuickNav('stripe', buildQuickNavContext({ user: { role: 'staff', billingAgencyIds: [377] } })).flat.some(e => e.path?.includes('family-billing'))).toBe(true);
+  });
+});

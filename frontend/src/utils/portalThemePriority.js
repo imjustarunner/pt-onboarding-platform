@@ -1,10 +1,4 @@
-/**
- * When portalAgency theme should win over currentAgency / platform gold.
- *
- * Dedicated app hosts (app.itsco.health) stay on that portal's branding even if
- * the super-admin Platform chip is selected, as long as the URL has no other
- * tenant slug.
- */
+/** Explicit platform selection wins on an agency host; agency routes and guest logins retain their identity. */
 export function shouldApplyPortalAgencyThemeFirst({
   hasPortalAgency = false,
   isAuthenticated = false,
@@ -24,6 +18,8 @@ export function shouldApplyPortalAgencyThemeFirst({
   if (route) {
     return !!(portal && route === portal);
   }
+
+  if (platformMode && !currentAgency) return false;
 
   if (host && portal && host === portal) {
     return true;

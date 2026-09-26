@@ -2,10 +2,12 @@
   <div class="settings-page">
     <div class="page-header">
       <div class="page-title">
-        <h1>Settings</h1>
-        <div class="subtitle">Manage platform and organization settings.</div>
+        <p class="scope-label">{{ agency ? "Organization settings" : "Plot Twist Co · Platform settings" }}</p><h1>{{ agency?.name || "Platform settings" }}</h1>
+        <div class="subtitle">{{ agency ? "Manage this agency’s people, services, branding, and payments." : "Manage shared platform defaults and organizations." }}</div>
       </div>
       <div class="page-actions">
+        <AppearanceSelect />
+        <router-link v-if="agency && canBill" class="btn btn-primary" :to="{ path: agency.slug ? `/${agency.slug}/admin/family-billing` : '/admin/family-billing', query: { tab: 'setup', agencyId: String(agency.id) } }">Stripe & payment setup</router-link>
         <button @click="goBack" class="btn btn-secondary">Back</button>
       </div>
     </div>
@@ -24,10 +26,18 @@
 
 <script setup>
 import { computed, watch } from 'vue';
+import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
+import { canAccessMedicalBilling } from '../../config/medicalBillingAccess.js';
 import { useRouter, useRoute } from 'vue-router';
 import SettingsModal from './SettingsModal.vue';
+import AppearanceSelect from '../AppearanceSelect.vue';
 import { normalizeSettingsDestination } from '../../navigation/settingsDestinations';
 
+const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
+const agency = computed(() => agencyStore.currentAgency);
+const canBill = computed(() => canAccessMedicalBilling(authStore.user, agency.value?.id));
 const router = useRouter();
 const route = useRoute();
 
@@ -50,6 +60,9 @@ const goBack = () => {
 </script>
 
 <style scoped>
+.scope-label { font-size: .78rem; text-transform:uppercase; letter-spacing:.1em; color:var(--link-color); font-weight:700; margin-bottom:8px; }
+.page-actions { display:flex; flex-wrap:wrap; gap:10px; }
+
 .settings-page {
   padding: 18px;
   width: 100%;

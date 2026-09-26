@@ -269,19 +269,19 @@ onMounted(async () => {
   flex-direction: column;
   overflow: hidden;
 }
-:global([data-theme='dark']) .chats-view {
-  color: #e2e8f0;
+[data-theme='dark'] .chats-view {
+  color: var(--text-primary);
 }
-:global([data-theme='dark']) .agency-picker {
-  color: #94a3b8;
+[data-theme='dark'] .agency-picker {
+  color: var(--text-secondary);
 }
-:global([data-theme='dark']) .agency-picker select {
+[data-theme='dark'] .agency-picker select {
   background: #0f172a;
-  color: #e2e8f0;
+  color: var(--text-primary);
   border-color: #334155;
 }
-:global([data-theme='dark']) .subtitle {
-  color: #94a3b8;
+[data-theme='dark'] .subtitle {
+  color: var(--text-secondary);
 }
 @media (max-width: 700px) {
   .chats-view {
@@ -290,4 +290,6 @@ onMounted(async () => {
     padding: 6px 10px 4px;
   }
 }
+
+.pthq-mark, .pthq-tickets-mark { object-fit:contain; background:transparent; }
 </style>

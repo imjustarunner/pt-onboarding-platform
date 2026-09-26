@@ -2,13 +2,14 @@
   <div class="pthq">
     <aside class="pthq-sidebar">
       <div class="pthq-brand">
-        <div class="pthq-mark">PT</div>
+        <img class="pthq-mark" src="/assets/ptco/logo-flat.webp" alt="Plot Twist Co" />
         <div>
-          <div class="pthq-brand-name">Plot Twist HQ</div>
+          <div class="pthq-brand-name">Plot Twist Co</div>
           <div class="pthq-brand-sub">Platform Control</div>
         </div>
       </div>
 
+      <AppearanceSelect />
       <nav class="pthq-nav">
         <div class="pthq-nav-section">Workspace</div>
         <button
@@ -35,14 +36,14 @@
         <button type="button" class="pthq-nav-item" :class="{ active: panel === 'overview' }" @click="setPanel('overview')">Overview</button>
         <button type="button" class="pthq-nav-item" :class="{ active: panel === 'tenants' }" @click="setPanel('tenants')">Organizations</button>
         <button type="button" class="pthq-nav-item" :class="{ active: panel === 'individuals' }" @click="setPanel('individuals')">Individuals</button>
-        <router-link class="pthq-nav-item" to="/admin/settings?tab=agencies">Manage Organizations</router-link>
+        <router-link class="pthq-nav-item" to="/admin/settings?scope=platform&amp;category=platform&amp;item=platform-all-agencies">Manage Organizations</router-link>
 
         <div class="pthq-nav-section">User Management</div>
         <router-link class="pthq-nav-item" to="/admin/users">Users</router-link>
         <router-link class="pthq-nav-item" to="/tickets?mine=1&status=open">Support Tickets</router-link>
 
         <div class="pthq-nav-section">System</div>
-        <router-link class="pthq-nav-item" to="/admin/settings">Platform Settings</router-link>
+        <router-link class="pthq-nav-item" to="/admin/settings?scope=platform&amp;category=platform&amp;item=platform-ws-home">Platform Settings</router-link>
         <router-link class="pthq-nav-item" to="/admin/audit-center">Audit Center</router-link>
         <router-link class="pthq-nav-item" to="/admin/usage-analytics">Usage Analytics</router-link>
         <router-link class="pthq-nav-item" to="/admin/modules">Modules</router-link>
@@ -275,7 +276,7 @@
                 <div class="pthq-qa-grid">
                   <button type="button" @click="setPanel('schedule')">Schedule</button>
                   <button type="button" @click="setPanel('messages')">Messages</button>
-                  <router-link to="/admin/settings?tab=agencies">Add Tenant</router-link>
+                  <router-link to="/admin/settings?scope=platform&amp;category=platform&amp;item=platform-all-agencies">Add Tenant</router-link>
                   <button type="button" @click="setPanel('testing')">Impersonate / Demo</button>
                   <router-link to="/admin/settings">Feature Flags</router-link>
                   <router-link to="/admin/audit-center">Audit Logs</router-link>
@@ -355,6 +356,7 @@
 </template>
 
 <script setup>
+import AppearanceSelect from '../../components/AppearanceSelect.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -543,7 +545,7 @@ const ROOT_DIST_COLORS = {
   agency: '#a78bfa',
   learning: '#fbbf24',
   life_coach: '#6ee7b7',
-  consultant: '#c4b5fd',
+  consultant: 'var(--link-color)',
   clubwebapp: '#94a3b8',
   other: '#64748b'
 };
@@ -743,19 +745,19 @@ onMounted(fetchAll);
 
 <style scoped>
 .pthq {
-  --bg: #070b14;
-  --panel: #0f172a;
-  --card: #111827;
-  --line: rgba(148, 163, 184, 0.18);
-  --text: #e5e7eb;
-  --muted: #94a3b8;
-  --accent: #8b5cf6;
-  --accent-2: #38bdf8;
-  --ok: #34d399;
+  --bg: var(--bg-primary);
+  --panel: var(--bg-card);
+  --card: var(--bg-card);
+  --line: var(--border);
+  --text: var(--text-primary);
+  --muted: var(--text-secondary);
+  --accent: var(--link-color);
+  --accent-2: #D32D42;
+  --ok: var(--success);
   min-height: 100vh;
   display: flex;
-  background: radial-gradient(1200px 500px at 10% -10%, rgba(139, 92, 246, 0.22), transparent 55%),
-    radial-gradient(900px 400px at 90% 0%, rgba(56, 189, 248, 0.12), transparent 50%),
+  background: radial-gradient(1200px 500px at 10% -10%, var(--brand-tint), transparent 55%),
+    radial-gradient(900px 400px at 90% 0%, var(--brand-tint), transparent 50%),
     var(--bg);
   color: var(--text);
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
@@ -764,7 +766,7 @@ onMounted(fetchAll);
 .pthq-sidebar {
   width: 250px;
   flex-shrink: 0;
-  background: rgba(8, 12, 22, 0.92);
+  background: var(--bg-card);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
@@ -787,7 +789,7 @@ onMounted(fetchAll);
   place-items: center;
   font-weight: 800;
   font-size: 0.78rem;
-  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  background: linear-gradient(135deg, #B80016, #B80016);
 }
 .pthq-brand-name {
   font-weight: 700;
@@ -812,7 +814,7 @@ onMounted(fetchAll);
   font-size: 0.65rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #64748b;
+  color: var(--text-secondary);
   font-weight: 700;
 }
 .pthq-nav-item {
@@ -823,7 +825,7 @@ onMounted(fetchAll);
   text-align: left;
   border: 0;
   background: transparent;
-  color: #cbd5e1;
+  color: var(--text-primary);
   text-decoration: none;
   padding: 0.55rem 0.7rem;
   border-radius: 10px;
@@ -832,14 +834,14 @@ onMounted(fetchAll);
 }
 .pthq-nav-item:hover,
 .pthq-nav-item.active {
-  background: rgba(139, 92, 246, 0.18);
-  color: #fff;
+  background: var(--brand-tint);
+  color: var(--link-color);
 }
 .pthq-new {
   font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.06em;
-  background: linear-gradient(135deg, #7c3aed, #db2777);
+  background: linear-gradient(135deg, #B80016, #B80016);
   color: #fff;
   border-radius: 999px;
   padding: 0.12rem 0.4rem;
@@ -849,7 +851,7 @@ onMounted(fetchAll);
   height: 1.25rem;
   padding: 0 0.35rem;
   border-radius: 999px;
-  background: #8b5cf6;
+  background: #B80016;
   color: #fff;
   font-size: 0.68rem;
   font-weight: 700;
@@ -871,10 +873,11 @@ onMounted(fetchAll);
   margin-bottom: 0.65rem;
 }
 .pthq-avatar {
+  color: #fff;
   width: 34px;
   height: 34px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  background: linear-gradient(135deg, #B80016, #B80016);
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -900,8 +903,8 @@ onMounted(fetchAll);
 .pthq-logout {
   width: 100%;
   border: 1px solid rgba(248, 113, 113, 0.32);
-  background: rgba(127, 29, 29, 0.16);
-  color: #fca5a5;
+  background: var(--brand-tint);
+  color: var(--link-color);
   border-radius: 9px;
   padding: 0.45rem;
   cursor: pointer;
@@ -922,9 +925,9 @@ onMounted(fetchAll);
   stroke-width: 1.8;
 }
 .pthq-logout:hover:not(:disabled) {
-  background: rgba(153, 27, 27, 0.3);
-  border-color: rgba(248, 113, 113, 0.55);
-  color: #fecaca;
+  background: var(--brand-tint);
+  border-color: var(--link-color);
+  color: var(--link-color);
 }
 .pthq-logout:disabled {
   cursor: wait;
@@ -958,16 +961,16 @@ onMounted(fetchAll);
   padding: 0.4rem 0.75rem;
   border-radius: 999px;
   border: 1px solid var(--line);
-  background: rgba(15, 23, 42, 0.65);
-  color: #c4b5fd;
+  background: var(--bg-card);
+  color: var(--link-color);
   font-size: 0.78rem;
   font-weight: 600;
   text-decoration: none;
 }
 .pthq-top-link:hover {
-  border-color: rgba(167, 139, 250, 0.45);
-  color: #e9d5ff;
-  background: rgba(139, 92, 246, 0.16);
+  border-color: var(--brand-tint);
+  color: var(--link-color);
+  background: var(--brand-tint);
 }
 .pthq-panel--schedule,
 .pthq-panel--messages {
@@ -979,8 +982,8 @@ onMounted(fetchAll);
   min-height: min(78vh, 860px);
 }
 .pthq-schedule-shell {
-  background: rgba(17, 24, 39, 0.55);
-  color: #e5e7eb;
+  background: var(--bg-card);
+  color: var(--text-primary);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px 14px 18px;
@@ -988,24 +991,24 @@ onMounted(fetchAll);
 }
 .pthq-schedule-shell :deep(.work-hours__title),
 .pthq-schedule-shell :deep(.work-hours__summary .muted) {
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 .pthq-schedule-shell :deep(.work-hours[open]) {
   border-color: rgba(148, 163, 184, 0.22);
-  background: rgba(15, 23, 42, 0.72);
+  background: var(--bg-card);
 }
 .pthq-schedule-shell :deep(.work-hours[open] .work-hours__title) {
-  color: #e5e7eb;
+  color: var(--text-primary);
 }
 .pthq-schedule-shell :deep(.work-hours__help),
 .pthq-schedule-shell :deep(.work-hours .muted) {
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 .pthq-schedule-hint {
   margin: 0;
   max-width: 36rem;
   font-size: 0.82rem;
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 .pthq-schedule-toolbar {
   display: flex;
@@ -1022,9 +1025,9 @@ onMounted(fetchAll);
   min-width: 220px;
   padding: 0.55rem 0.85rem;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.7);
+  background: var(--bg-card);
   border: 1px solid var(--line);
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 0.82rem;
 }
 .pthq-pill {
@@ -1033,9 +1036,9 @@ onMounted(fetchAll);
   letter-spacing: 0.08em;
   padding: 0.35rem 0.6rem;
   border-radius: 999px;
-  background: rgba(139, 92, 246, 0.2);
-  color: #c4b5fd;
-  border: 1px solid rgba(167, 139, 250, 0.35);
+  background: var(--brand-tint);
+  color: var(--link-color);
+  border: 1px solid var(--brand-tint);
 }
 
 .pthq-loading, .pthq-error { color: var(--muted); padding: 2rem 0; }
@@ -1048,7 +1051,7 @@ onMounted(fetchAll);
   margin-bottom: 0.9rem;
 }
 .pthq-kpi, .pthq-card {
-  background: rgba(17, 24, 39, 0.88);
+  background: var(--bg-card);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 1rem 1.05rem;
@@ -1121,19 +1124,19 @@ onMounted(fetchAll);
 .dist-footnote {
   margin: 0.85rem 0 0;
   font-size: 0.72rem;
-  color: #64748b;
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 .suborg-pill {
   font-size: 0.8rem;
-  color: #cbd5e1;
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
 .launch-card {
   background:
-    radial-gradient(500px 180px at 100% 0%, rgba(139, 92, 246, 0.35), transparent 60%),
-    rgba(17, 24, 39, 0.92);
+    radial-gradient(500px 180px at 100% 0%, var(--brand-tint), transparent 60%),
+    var(--bg-card);
 }
 .launch-card p {
   color: var(--muted);
@@ -1148,19 +1151,19 @@ onMounted(fetchAll);
   font-weight: 700;
   cursor: pointer;
   color: #fff;
-  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  background: linear-gradient(135deg, #B80016, #B80016);
 }
 .pthq-ghost {
   border: 1px solid var(--line);
   background: transparent;
-  color: #cbd5e1;
+  color: var(--text-primary);
   border-radius: 9px;
   padding: 0.45rem 0.75rem;
   cursor: pointer;
 }
 
 .pthq-inline-search {
-  background: rgba(2, 6, 23, 0.45);
+  background: var(--bg-card);
   border: 1px solid var(--line);
   color: var(--text);
   border-radius: 9px;
@@ -1191,8 +1194,8 @@ onMounted(fetchAll);
   border: 0;
   border-radius: 8px;
   padding: 0.35rem 0.55rem;
-  background: rgba(139, 92, 246, 0.2);
-  color: #ddd6fe;
+  background: var(--brand-tint);
+  color: var(--link-color);
   cursor: pointer;
   font-size: 0.75rem;
   font-weight: 600;
@@ -1200,7 +1203,7 @@ onMounted(fetchAll);
 .pthq-mini-btn.ghost {
   background: transparent;
   border: 1px solid rgba(148, 163, 184, 0.25);
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 .pthq-open-btns {
   display: flex;
@@ -1218,8 +1221,8 @@ onMounted(fetchAll);
 .pthq-qa-grid button {
   text-decoration: none;
   border: 1px solid var(--line);
-  background: rgba(2, 6, 23, 0.35);
-  color: #e2e8f0;
+  background: var(--bg-card);
+  color: var(--text-primary);
   border-radius: 10px;
   padding: 0.65rem 0.55rem;
   font-size: 0.78rem;
@@ -1249,7 +1252,7 @@ onMounted(fetchAll);
   gap: 0.85rem;
 }
 .pthq-tenant-card {
-  background: rgba(17, 24, 39, 0.88);
+  background: var(--bg-card);
   border: 1px solid var(--line);
   border-radius: 14px;
   padding: 1rem;
@@ -1284,13 +1287,13 @@ onMounted(fetchAll);
   border-radius: 999px;
 }
 .seg.individual { background: rgba(52, 211, 153, 0.15); color: #6ee7b7; }
-.seg.organization { background: rgba(167, 139, 250, 0.15); color: #c4b5fd; }
+.seg.organization { background: var(--brand-tint); color: var(--link-color); }
 .seg.sandbox { background: rgba(251, 191, 36, 0.15); color: #fcd34d; }
-.seg.type { background: rgba(148, 163, 184, 0.12); color: #94a3b8; }
+.seg.type { background: rgba(148, 163, 184, 0.12); color: var(--text-secondary); }
 .t-hint {
   margin: 0 0 0.65rem;
   font-size: 0.72rem;
-  color: #64748b;
+  color: var(--text-secondary);
   line-height: 1.35;
 }
 
@@ -1304,4 +1307,6 @@ onMounted(fetchAll);
     grid-template-columns: 1fr;
   }
 }
+
+.pthq-mark, .pthq-tickets-mark { object-fit:contain; background:transparent; }
 </style>

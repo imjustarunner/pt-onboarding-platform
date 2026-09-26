@@ -40,7 +40,7 @@ const brandingStyles = computed(() => {
   }
   
   // Use agency colors if available, otherwise fall back to platform
-  const primaryColor = colorPalette.primary || platform?.primary_color || '#C69A2B';
+  const primaryColor = colorPalette.primary || platform?.primary_color || '#B80016';
   const secondaryColor = colorPalette.secondary || platform?.secondary_color || '#1D2633';
   const accentColor = colorPalette.accent || platform?.accent_color || '#3A4C6B';
   

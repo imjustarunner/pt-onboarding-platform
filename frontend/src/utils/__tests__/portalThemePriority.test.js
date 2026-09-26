@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { shouldApplyPortalAgencyThemeFirst } from '../portalThemePriority.js';
 
 describe('shouldApplyPortalAgencyThemeFirst', () => {
-  it('keeps ITSCO branding on the dedicated host even in platform mode', () => {
+  it('uses platform branding after an explicit platform selection on a tenant host', () => {
     expect(shouldApplyPortalAgencyThemeFirst({
       hasPortalAgency: true,
       isAuthenticated: true,
@@ -11,7 +11,7 @@ describe('shouldApplyPortalAgencyThemeFirst', () => {
       routeSlug: '',
       portalSlug: 'itsco',
       hostImpliedSlug: 'itsco'
-    })).toBe(true);
+    })).toBe(false);
   });
 
   it('uses the route slug when touring another tenant', () => {
@@ -26,7 +26,7 @@ describe('shouldApplyPortalAgencyThemeFirst', () => {
     })).toBe(false);
   });
 
-  it('lets platform gold win on the main platform host with no slug', () => {
+  it('lets platform branding win on the main platform host with no slug', () => {
     expect(shouldApplyPortalAgencyThemeFirst({
       hasPortalAgency: true,
       isAuthenticated: true,

@@ -1,3 +1,4 @@
+import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 /**
  * Shared quick-nav catalog for Overview typeahead and Ask Assistant navigateTo.
  *
@@ -1020,7 +1021,7 @@ function appPageVisibleForRole(path, role) {
 function appPagesAsQuickNavEntries(ctx) {
   const role = ctx?.role;
   return (APP_PAGES || [])
-    .filter((page) => page?.path && appPageVisibleForRole(page.path, role))
+    .filter((page) => page?.path && (page.requiresBilling ? canAccessBillingWorkspace(ctx.user) : appPageVisibleForRole(page.path, role)))
     .map((page) => ({
       id: `app-page-${String(page.path).replace(/[^\w]+/g, '-')}`,
       routeName: null,

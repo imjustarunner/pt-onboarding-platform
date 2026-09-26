@@ -141,7 +141,7 @@ const schoolBrand = ref(null);
 
 const loginBackground = computed(() => brandingStore.loginBackground);
 const pageStyle = computed(() => ({
-  background: loginBackground.value || 'linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)'
+  background: loginBackground.value || 'var(--bg)'
 }));
 const loginTo = computed(() => {
   const slug = route.params.organizationSlug || tenantBrand.value?.slug;
@@ -249,7 +249,7 @@ onMounted(async () => {
   align-items: center;
 }
 .reset-card {
-  background: #fff;
+  background: var(--bg-card);
   padding: 36px 32px 32px;
   border-radius: 16px;
   box-shadow: 0 18px 50px rgba(15, 23, 42, 0.16);
@@ -263,7 +263,7 @@ onMounted(async () => {
   font-weight: 700;
 }
 .subtitle {
-  color: #64748b;
+  color: var(--text-secondary);
   margin-bottom: 24px;
   font-size: 14px;
   line-height: 1.45;
@@ -271,7 +271,7 @@ onMounted(async () => {
 .muted.tiny {
   display: block;
   margin-top: 6px;
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 400;
 }
@@ -282,7 +282,7 @@ onMounted(async () => {
 .form-group label {
   display: block;
   margin-bottom: 8px;
-  color: #0f172a;
+  color: var(--text-primary);
   font-weight: 600;
 }
 .input-wrap {
@@ -310,7 +310,7 @@ onMounted(async () => {
   padding: 4px 6px;
   border-radius: 4px;
 }
-.toggle-vis:hover { background: #f0fdfa; }
+.toggle-vis:hover { background: var(--surface-hover); }
 .error-message {
   color: var(--error, #ef4444);
   font-size: 14px;

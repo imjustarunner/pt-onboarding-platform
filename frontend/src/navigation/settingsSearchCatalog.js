@@ -31,6 +31,7 @@ export const SETTINGS_DISPLAY_LABELS = {
 
 /** Short descriptions used for search + hub cards. */
 export const SETTINGS_SEARCH_DESCRIPTIONS = {
+  'payment-setup': 'Stripe, bank account, client payments, family billing, copay, self-pay, service prices, receipts, and payment authorizations.',
   'business-journey': 'Step-by-step interview, agreement, setup, onboarding, training, launch, management, organizational interventions, and exit.',
   'business-commercial': 'Signed management terms, services, à-la-carte prices, revenue share, revenue reconciliation, and final service month.',
   'business-details': 'Business identity, contact information, address, sites, branding, notifications, and preferences.',
@@ -79,7 +80,7 @@ export const SETTINGS_SEARCH_DESCRIPTIONS = {
   'branding-templates': 'Email and document templates.',
   assets: 'Icons, fonts, and shared creative assets.',
   'note-aid-kb': 'Note Aid knowledge base.',
-  'tenant-support': 'Organization help desk and Plot Twist HQ platform tickets.',
+  'tenant-support': 'Organization help desk and Plot Twist Co platform tickets.',
   communications: 'Transactional email templates.',
   'sms-numbers': 'Texting numbers — tenant-scoped.',
   'email-settings': 'SMTP and platform email defaults.',

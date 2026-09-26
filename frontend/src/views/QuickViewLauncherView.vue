@@ -127,7 +127,7 @@ async function resolveTenant() {
         origin,
         name,
         theme,
-        icon: agencyLogoUrl.value || '/branding/plottwisthq-platform-bg.png'
+        icon: agencyLogoUrl.value || '/assets/ptco/logo-flat.png'
       }).toString();
     let link = document.querySelector('link[rel="manifest"]');
     if (!link) {

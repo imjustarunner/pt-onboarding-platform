@@ -35,7 +35,7 @@ export function createMockAgencyData(agencyId, agencyData = {}) {
     slug: agencyData.slug || 'preview-agency',
     portal_url: agencyData.portal_url || 'preview',
     color_palette: agencyData.color_palette || {
-      primary: '#C69A2B',
+      primary: '#B80016',
       secondary: '#1D2633',
       accent: '#3A4C6B'
     },

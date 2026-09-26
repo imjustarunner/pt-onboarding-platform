@@ -64,5 +64,5 @@ onMounted(initialize);
 onBeforeUnmount(() => { disposed = true; card?.destroy(); });
 </script>
 <style scoped>
-.secure-card { display:grid; gap:14px; max-width:700px; } label { display:grid; gap:6px; } input:not([type=checkbox]) { padding:10px; border:1px solid #94a3b8; border-radius:6px; } .check { display:flex; align-items:flex-start; gap:10px; } .card-host { padding:16px; border:1px solid #94a3b8; border-radius:8px; min-height:52px; background:white; } p { margin:0; line-height:1.5; } details { padding:12px; background:#f1f5f9; border-radius:8px; } details p { padding-top:10px; } .error { color:#b91c1c; }
+.secure-card { display:grid; gap:14px; max-width:700px; } label { display:grid; gap:6px; } input:not([type=checkbox]) { padding:10px; border:1px solid #94a3b8; border-radius:6px; } .check { display:flex; align-items:flex-start; gap:10px; } .card-host { padding:16px; border:1px solid #94a3b8; border-radius:8px; min-height:52px; background:var(--bg-card); } p { margin:0; line-height:1.5; } details { padding:12px; background:var(--bg-muted); border-radius:8px; } details p { padding-top:10px; } .error { color:#b91c1c; }
 </style>

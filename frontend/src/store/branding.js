@@ -1,3 +1,4 @@
+import { PLATFORM_BRAND, normalizePlatformBranding } from '../config/platformBrand.js';
 import { defineStore } from 'pinia';
 import { ref, computed, reactive } from 'vue';
 import { useAgencyStore } from './agency';
@@ -169,8 +170,8 @@ export const useBrandingStore = defineStore('branding', () => {
 
   /**
    * Returns true when portalAgency's theme should override currentAgency.
-   * Dedicated app hosts (app.itsco.health) keep host branding even in Platform
-   * chip mode, so Workforce Ops does not flash platform gold on ITSCO.
+   * Dedicated app hosts retain their branding unless an authenticated user
+   * explicitly selects Platform context.
    */
   const shouldApplyPortalAgencyThemeFirst = () => {
     return resolvePortalThemePriority({
@@ -193,7 +194,7 @@ export const useBrandingStore = defineStore('branding', () => {
       const response = await (await import('../services/api')).default.get('/platform-branding', { params, skipGlobalLoading: true });
       // Prevent stale/slow responses from clobbering newer platformBranding (race condition).
       if (seq !== platformBrandingFetchSeq.value) return;
-      platformBranding.value = response.data;
+      platformBranding.value = normalizePlatformBranding(response.data);
       // Update branding version to force logo refresh
       brandingVersion.value = Date.now();
 
@@ -226,14 +227,14 @@ export const useBrandingStore = defineStore('branding', () => {
       if (!platformBranding.value) {
         // Use defaults only if we have nothing at all.
         platformBranding.value = {
-          primary_color: '#C69A2B',
+          primary_color: PLATFORM_BRAND.primary,
           secondary_color: '#1D2633',
-          accent_color: '#3A4C6B',
+          accent_color: PLATFORM_BRAND.accent,
           success_color: '#2F8F83',
           background_color: '#F3F6FA',
           error_color: '#CC3D3D',
           warning_color: '#E6A700',
-          tagline: 'The gold standard for behavioral health workflows.'
+          tagline: 'People, services, and operations. Connected.'
         };
       }
     }
@@ -562,9 +563,9 @@ export const useBrandingStore = defineStore('branding', () => {
     if (!pb) return;
     applyTheme({
       colorPalette: {
-        primary: pb.primary_color || '#C69A2B',
+        primary: pb.primary_color || PLATFORM_BRAND.primary,
         secondary: pb.secondary_color || '#1D2633',
-        accent: pb.accent_color || pb.primary_color || '#3A4C6B'
+        accent: pb.accent_color || pb.primary_color || PLATFORM_BRAND.accent
       },
       themeSettings: {},
       brandingAgencyId: null,
@@ -790,6 +791,9 @@ export const useBrandingStore = defineStore('branding', () => {
   };
 
   const _resolveActivePalette = () => {
+    if (authStore.isAuthenticated && agencyStore.platformMode && !agencyStore.currentAgency && !activeRouteSlug.value) {
+      return { palette: { primary: PLATFORM_BRAND.primary, secondary: PLATFORM_BRAND.secondary, accent: PLATFORM_BRAND.accent }, source: 'platform' };
+    }
     if (settingsTenantPickerBrandingActive.value) {
       const fromAgency = _parseAgencyColorPalette(agencyStore.currentAgency);
       if (fromAgency) return { palette: fromAgency, source: 'currentAgency' };
@@ -797,9 +801,9 @@ export const useBrandingStore = defineStore('branding', () => {
       if (pb) {
         return {
           palette: {
-            primary: pb.primary_color || '#C69A2B',
+            primary: pb.primary_color || PLATFORM_BRAND.primary,
             secondary: pb.secondary_color || '#1D2633',
-            accent: pb.accent_color || pb.primary_color || '#3A4C6B'
+            accent: pb.accent_color || pb.primary_color || PLATFORM_BRAND.accent
           },
           source: 'platform'
         };
@@ -808,7 +812,7 @@ export const useBrandingStore = defineStore('branding', () => {
     }
 
     // Hogwarts school-onboarding demo: always use affiliated tenant (ITSCO) palette.
-    // BrandingProvider binds --primary from this computed; without this, platform gold wins
+    // BrandingProvider binds --primary from this computed; without this, platform colors win
     // even when applyTheme() already wrote ITSCO green onto :root.
     if (isSchoolOnboardingDemoActive()) {
       const demoSlug = String(activeRouteSlug.value || portalAgency.value?.slug || 'itsco').trim().toLowerCase();
@@ -893,7 +897,7 @@ export const useBrandingStore = defineStore('branding', () => {
   // Primary color based on branding mode
   const primaryColor = computed(() => {
     const { palette } = _resolveActivePalette();
-    return palette?.primary || platformBranding.value?.primary_color || '#C69A2B';
+    return palette?.primary || platformBranding.value?.primary_color || PLATFORM_BRAND.primary;
   });
 
   // Secondary color based on branding mode
@@ -905,7 +909,7 @@ export const useBrandingStore = defineStore('branding', () => {
   // Accent color based on branding mode
   const accentColor = computed(() => {
     const { palette } = _resolveActivePalette();
-    return palette?.accent || palette?.primary || platformBranding.value?.accent_color || '#3A4C6B';
+    return palette?.accent || palette?.primary || platformBranding.value?.accent_color || PLATFORM_BRAND.accent;
   });
 
   // Helper: get parsed palette from agency or portal (agency/portal overrides platform)
@@ -988,7 +992,7 @@ export const useBrandingStore = defineStore('branding', () => {
       const v = p?.textSecondary || p?.text_secondary;
       if (v) return v;
     }
-    return accentColor.value; // current behavior: text-secondary uses accent
+    return '#526174'; // Body copy stays neutral; accent is reserved for actions.
   });
 
   const textMutedColor = computed(() => {
@@ -1004,7 +1008,7 @@ export const useBrandingStore = defineStore('branding', () => {
   const betaFeedbackEnabled = computed(() => !!platformBranding.value?.beta_feedback_enabled);
 
   const tagline = computed(() => {
-    return platformBranding.value?.tagline || 'The gold standard for behavioral health workflows.';
+    return platformBranding.value?.tagline || 'People, services, and operations. Connected.';
   });
 
   // Logo URL: Portal (when applicable), then selected org, then platform template for super_admin
@@ -1097,6 +1101,8 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Display logo URL (portal → selected org → platform template / login)
   const displayLogoUrl = computed(() => {
+    if ((settingsTenantPickerBrandingActive.value || agencyStore.platformMode) && !agencyStore.currentAgency) return PLATFORM_BRAND.logo;
+    if (!authStore.isAuthenticated && !activeRouteSlug.value && !portalAgency.value) return PLATFORM_BRAND.logo;
     if (settingsTenantPickerBrandingActive.value) {
       const agency = agencyStore.currentAgency;
       if (agency?.logo_path) {
@@ -1214,6 +1220,8 @@ export const useBrandingStore = defineStore('branding', () => {
 
   /** Master organization icon for compact chrome (nav, favicon) — prefers icon over wide logo. */
   const displayChromeIconUrl = computed(() => {
+    if ((settingsTenantPickerBrandingActive.value || agencyStore.platformMode) && !agencyStore.currentAgency) return PLATFORM_BRAND.logo;
+    if (!authStore.isAuthenticated && !activeRouteSlug.value && !portalAgency.value) return PLATFORM_BRAND.logo;
     if (settingsTenantPickerBrandingActive.value) {
       const agency = agencyStore.currentAgency;
       if (agency?.icon_file_path) {
@@ -1227,6 +1235,7 @@ export const useBrandingStore = defineStore('branding', () => {
       if (agency?.logo_path) {
         return addCacheBuster(toUploadsUrl(agency.logo_path));
       }
+      if (agency?.logo_url || agency?.logoUrl) return addCacheBuster(agency.logo_url || agency.logoUrl);
       const pb = platformBranding.value;
       if (pb?.organization_logo_icon_path) {
         return addCacheBuster(toUploadsUrl(String(pb.organization_logo_icon_path)));
@@ -1277,6 +1286,8 @@ export const useBrandingStore = defineStore('branding', () => {
       const u = iconUrlById(iconId);
       if (u) return addCacheBuster(u);
     }
+    if (agency?.logo_path) return addCacheBuster(toUploadsUrl(agency.logo_path));
+    if (agency?.logo_url || agency?.logoUrl) return addCacheBuster(agency.logo_url || agency.logoUrl);
     if (isSuperAdmin.value || !authStore.isAuthenticated) {
       if (platformBranding.value?.organization_logo_icon_path) {
         return addCacheBuster(toUploadsUrl(String(platformBranding.value.organization_logo_icon_path)));

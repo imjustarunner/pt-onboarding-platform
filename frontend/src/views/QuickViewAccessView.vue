@@ -1147,7 +1147,7 @@ function installQuickViewManifest() {
   if (typeof document === 'undefined') return;
   const origin = window.location.origin;
   const name = agencyName.value ? `${agencyName.value} Quick View` : 'Quick View';
-  const iconSrc = agencyLogoUrl.value || '/branding/plottwisthq-platform-bg.png';
+  const iconSrc = agencyLogoUrl.value || '/assets/ptco/logo-flat.png';
   const theme = agencyPrimaryColor.value || colorPalette.value?.primary || '#166534';
   // Server-served manifest so iOS "Open as Web App" uses this origin's root — not plottwisthq /
   const href =

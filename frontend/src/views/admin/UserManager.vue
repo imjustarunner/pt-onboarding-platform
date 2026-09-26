@@ -5124,8 +5124,8 @@ onUnmounted(() => window.removeEventListener('click', closeActionsMenus));
 }
 
 .type-filter-btn.active {
-  border-color: var(--primary, #C69A2B);
-  color: var(--primary, #C69A2B);
+  border-color: var(--primary, #B80016);
+  color: var(--primary, #B80016);
   background: rgba(198, 154, 43, 0.08);
 }
 
@@ -5365,12 +5365,12 @@ onUnmounted(() => window.removeEventListener('click', closeActionsMenus));
 }
 
 .sort-controls select:hover {
-  border-color: var(--primary, #C69A2B);
+  border-color: var(--primary, #B80016);
 }
 
 .sort-controls select:focus {
   outline: none;
-  border-color: var(--primary, #C69A2B);
+  border-color: var(--primary, #B80016);
   box-shadow: 0 0 0 2px rgba(198, 154, 43, 0.2);
 }
 
@@ -5390,7 +5390,7 @@ onUnmounted(() => window.removeEventListener('click', closeActionsMenus));
 }
 
 .users-table-toolbar .btn.active {
-  border-color: var(--primary, #C69A2B);
+  border-color: var(--primary, #B80016);
   background: var(--bg);
 }
 

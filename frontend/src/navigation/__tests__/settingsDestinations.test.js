@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeSettingsDestination } from '../settingsDestinations';
+import { normalizeSettingsDestination, settingsLocationForAgency } from '../settingsDestinations';
 import { buildSettingsSearchTargets, filterSettingsSearchTargets, settingsCardMatchesQuery } from '../settingsSearchCatalog';
 describe('unified business settings', () => {
   it('keeps old bookmarks working through one settings home', () => {
@@ -18,5 +18,22 @@ describe('unified business settings', () => {
     expect(targets.find(h => h.id === 'cp-tab-payroll').itemId).toBe('payroll-schedule');
     expect(settingsCardMatchesQuery('pto policy', { item: 'business-details' })).toBe(false);
     expect(settingsCardMatchesQuery('pto policy', { item: 'payroll-schedule' })).toBe(true);
+  });
+});
+
+describe('settings scope', () => {
+  it('retains the selected agency on ordinary Settings links', () => {
+    expect(settingsLocationForAgency({ id: 377, slug: 'tisi' })).toEqual({ path: '/tisi/admin/settings', query: { agencyId: '377', category: 'platform', item: 'tenant-ws-home' } });
+    expect(settingsLocationForAgency({ id: 377 }).query.agencyId).toBe('377');
+  });
+  it('makes platform administration an explicit destination', () => {
+    const destination = settingsLocationForAgency(null, { platform: true });
+    expect(destination.path).toBe('/admin/settings');
+    expect(destination.query.scope).toBe('platform');
+    expect(destination.query.agencyId).toBeUndefined();
+  });
+  it('finds client payment setup without confusing it with subscription billing', () => {
+    const targets = buildSettingsSearchTargets({ catalogItems: [{ id: 'payment-setup', label: 'Stripe & client payment setup', categoryId: 'general' }] });
+    for (const query of ['stripe', 'copay', 'family billing', 'payment authorizations']) expect(filterSettingsSearchTargets(query, targets).some(h => h.itemId === 'payment-setup')).toBe(true);
   });
 });

@@ -1965,7 +1965,7 @@ onUnmounted(() => stopTick());
   overflow: hidden;
   min-height: 100%;
 }
-:global([data-theme="dark"]) .itl {
+[data-theme="dark"] .itl {
   --itl-bg: var(--bg-alt, #25282c);
   --itl-border: #475569;
   --itl-muted: #94a3b8;

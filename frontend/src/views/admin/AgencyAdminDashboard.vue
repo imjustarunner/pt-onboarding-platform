@@ -1721,13 +1721,13 @@ onMounted(loadMyOpenTickets);
   white-space: nowrap;
 }
 
-:global([data-theme="dark"]) .stat-card,
-:global([data-theme="dark"]) .agencies-overview,
-:global([data-theme="dark"]) .agency-card.active {
+[data-theme="dark"] .stat-card,
+[data-theme="dark"] .agencies-overview,
+[data-theme="dark"] .agency-card.active {
   background: var(--bg-card, #25282c);
   color: var(--text-primary, #cbd5e1);
 }
-:global([data-theme="dark"]) .create-club-verify {
+[data-theme="dark"] .create-club-verify {
   background: #3f3a1a;
   border-color: #854d0e;
 }

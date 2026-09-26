@@ -1789,13 +1789,13 @@ onMounted(load);
   opacity: 0.8;
 }
 
-:global([data-theme="dark"]) .public-docs :is(h2, h3, strong, th, label) {
+[data-theme="dark"] .public-docs :is(h2, h3, strong, th, label) {
   color: #e2e8f0;
 }
-:global([data-theme="dark"]) .public-docs .muted {
+[data-theme="dark"] .public-docs .muted {
   color: #94a3b8;
 }
-:global([data-theme="dark"]) .public-docs .digital-form-row {
+[data-theme="dark"] .public-docs .digital-form-row {
   background: var(--bg-alt, #1f2937);
   border-color: var(--border, #334155);
 }

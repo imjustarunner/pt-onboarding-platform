@@ -3,8 +3,8 @@
     <header class="hub-header">
       <h2 class="hub-title">Platform</h2>
       <p class="hub-subtitle">
-        Operate the platform here (defaults, catalog, all orgs). Pick a tenant in the bar above to run that
-        organization’s Company setup hub — profile, booking types, features, team, and billing.
+        Manage Plot Twist Co’s shared settings and services. Choose an organization above to manage
+        its people, branding, services, and client payments.
       </p>
     </header>
 
@@ -62,7 +62,7 @@ const primarySections = [
   {
     id: 'governance',
     title: 'Platform operators',
-    hint: 'Global defaults, pricing, and the full tenant directory — manage every company from here.',
+    hint: 'Global defaults, pricing, and the organization directory — manage every company from here.',
     items: [
       {
         category: 'platform',
@@ -123,9 +123,16 @@ const primarySections = [
   },
   {
     id: 'general-billing',
-    title: 'Open with a tenant selected',
-    hint: 'These screens need a company context — pick a tenant in the bar above (recommended), or open and choose in-page.',
+    title: 'Organization settings',
+    hint: 'Choose an organization above to manage its setup and payments.',
     items: [
+      {
+        category: 'general',
+        item: 'payment-setup',
+        label: 'Stripe & client payment setup',
+        fallbackIcon: '💳',
+        description: SETTINGS_SEARCH_DESCRIPTIONS['payment-setup']
+      },
       {
         category: 'general',
         item: 'business-details',
@@ -157,7 +164,7 @@ const primarySections = [
       {
         category: 'general',
         item: 'billing',
-        label: 'Billing',
+        label: 'Platform subscription & invoices',
         fallbackIcon: '💳',
         description: SETTINGS_SEARCH_DESCRIPTIONS.billing
       }
@@ -206,7 +213,7 @@ const iconFor = (itemId) => {
 
 <style scoped>
 .platform-settings-card-hub {
-  max-width: 1100px;
+  max-width: 1400px;
 }
 
 .hub-header {
@@ -318,7 +325,7 @@ const iconFor = (itemId) => {
 }
 
 .hub-card--superadmin-only {
-  border-color: color-mix(in srgb, var(--accent, var(--primary)) 50%, var(--border));
+  border-color: color-mix(in srgb, var(--accent, var(--primary)) 20%, var(--border));
   background: color-mix(in srgb, var(--accent, var(--primary)) 8%, var(--bg-primary, #fff));
 }
 

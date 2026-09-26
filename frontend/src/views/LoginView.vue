@@ -5,32 +5,6 @@
     :style="tenantLoginPageStyle"
   >
     <video
-      v-if="isPlatformLogin"
-      class="login-bg-video login-bg-video--wide login-bg-video--platform"
-      autoplay
-      muted
-      loop
-      playsinline
-      disablepictureinpicture
-      aria-hidden="true"
-      poster="/branding/plottwisthq-platform-bg.png"
-    >
-      <source src="/branding/webandipad.mp4" type="video/mp4" />
-    </video>
-    <video
-      v-if="isPlatformLogin"
-      class="login-bg-video login-bg-video--narrow login-bg-video--platform"
-      autoplay
-      muted
-      loop
-      playsinline
-      disablepictureinpicture
-      aria-hidden="true"
-      poster="/branding/plottwisthq-platform-bg.png"
-    >
-      <source src="/branding/plottwisthq-login-bg-mobile.mp4" type="video/mp4" />
-    </video>
-    <video
       v-if="tenantLoginVideoWideSrc"
       ref="tenantLoginVideoWideRef"
       class="login-bg-video login-bg-video--wide login-bg-video--tenant"
@@ -60,6 +34,7 @@
     >
       <source :src="tenantLoginVideoNarrowSrc" type="video/mp4" />
     </video>
+    <div v-if="isPlatformLogin" class="platform-appearance"><AppearanceSelect /></div>
     <div v-if="showAppPreviewToggle" class="app-preview-toggle-group" aria-label="Local preview mode">
       <button
         type="button"
@@ -100,11 +75,10 @@
             @error="handleLogoError"
           />
           <span v-else class="platform-hero__wordmark">{{ platformBrandName }}</span>
-          <!-- Mobile-only wordmark treatment: the mobile splash background already
-               carries the logo mark, so we render the PLOTTWIST / HQ wordmark beneath it. -->
+          <!-- Plot Twist Co wordmark paired with the phoenix on every screen size. -->
           <div class="platform-hero__wordmark-stack" aria-hidden="true">
-            <span class="platform-hero__wordmark-main">PLOTTWIST</span>
-            <span class="platform-hero__wordmark-sub">HQ</span>
+            <span class="platform-hero__wordmark-main">PLOT TWIST</span>
+            <span class="platform-hero__wordmark-sub">CO</span>
           </div>
         </div>
         <div class="platform-hero__content">
@@ -123,14 +97,14 @@
                   <stop offset="1" stop-color="#f7f6fe" />
                 </linearGradient>
                 <linearGradient id="pltBar" x1="0" y1="1" x2="0" y2="0">
-                  <stop offset="0" stop-color="#8f79f8" />
-                  <stop offset="1" stop-color="#6c4df6" />
+                  <stop offset="0" stop-color="#F36B7A" />
+                  <stop offset="1" stop-color="#B80016" />
                 </linearGradient>
               </defs>
               <rect x="40" y="44" width="400" height="236" rx="20" fill="url(#pltCard)"
                 stroke="#eceafc" />
               <rect x="40" y="44" width="64" height="236" rx="20" fill="#f2f0fe" />
-              <circle cx="72" cy="82" r="9" fill="#6c4df6" />
+              <circle cx="72" cy="82" r="9" fill="#B80016" />
               <circle cx="72" cy="120" r="7" fill="#c7bdf9" />
               <circle cx="72" cy="152" r="7" fill="#c7bdf9" />
               <circle cx="72" cy="184" r="7" fill="#c7bdf9" />
@@ -138,18 +112,18 @@
               <rect x="132" y="72" width="150" height="12" rx="6" fill="#e7e4f8" />
               <rect x="132" y="94" width="96" height="8" rx="4" fill="#efedfa" />
               <circle cx="372" cy="104" r="34" fill="none" stroke="#eee9fd" stroke-width="12" />
-              <path d="M372 70 a34 34 0 0 1 29 51" fill="none" stroke="#6c4df6"
+              <path d="M372 70 a34 34 0 0 1 29 51" fill="none" stroke="#B80016"
                 stroke-width="12" stroke-linecap="round" />
               <rect x="132" y="150" width="26" height="90" rx="6" fill="#e9e5fb" />
               <rect x="168" y="176" width="26" height="64" rx="6" fill="url(#pltBar)" />
               <rect x="204" y="140" width="26" height="100" rx="6" fill="#e9e5fb" />
               <rect x="240" y="196" width="26" height="44" rx="6" fill="url(#pltBar)" />
               <polyline points="300,232 330,206 356,220 384,180 410,196"
-                fill="none" stroke="#6c4df6" stroke-width="4" stroke-linecap="round"
+                fill="none" stroke="#B80016" stroke-width="4" stroke-linecap="round"
                 stroke-linejoin="round" />
-              <circle cx="300" cy="232" r="4.5" fill="#6c4df6" />
-              <circle cx="356" cy="220" r="4.5" fill="#6c4df6" />
-              <circle cx="410" cy="196" r="4.5" fill="#6c4df6" />
+              <circle cx="300" cy="232" r="4.5" fill="#B80016" />
+              <circle cx="356" cy="220" r="4.5" fill="#B80016" />
+              <circle cx="410" cy="196" r="4.5" fill="#B80016" />
             </svg>
           </div>
         </div>
@@ -782,6 +756,8 @@
 </template>
 
 <script setup>
+import AppearanceSelect from '../components/AppearanceSelect.vue';
+import { PLATFORM_BRAND } from '../config/platformBrand.js';
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
@@ -1089,6 +1065,7 @@ const printablePdfDownloading = ref({ en: false, es: false });
 
 // Logo and title for agency login
 const displayLogoUrl = computed(() => {
+  if (isPlatformLogin.value) return PLATFORM_BRAND.logo;
   if (isOrgLogin.value && loginTheme.value?.agency?.logoUrl) {
     return loginTheme.value.agency.logoUrl;
   }
@@ -1335,10 +1312,7 @@ const tenantVideoAuthSubtitle = computed(() => {
   return 'Sign in to continue';
 });
 
-const platformBrandName = computed(() => {
-  const n = String(brandingStore.platformBranding?.organization_name || '').trim();
-  return n && n.toLowerCase() !== 'plottwistco' ? n : 'PlottwistHQ';
-});
+const platformBrandName = computed(() => PLATFORM_BRAND.name);
 const currentYear = new Date().getFullYear();
 
 // Fetch agency-specific login theme
@@ -2717,7 +2691,7 @@ const handleLogoError = (event) => {
   align-items: center;
   flex: 1;
   /* Use dynamic background from theme */
-  background: var(--agency-login-background, linear-gradient(135deg, #C69A2B 0%, #D4B04A 100%));
+  background: var(--agency-login-background, linear-gradient(135deg, #B80016 0%, #D32D42 100%));
   transition: background 0.3s ease;
 }
 
@@ -2731,7 +2705,7 @@ const handleLogoError = (event) => {
   padding: 36px 26px 24px;
 }
 
-:global(html[data-pt-app-preview="1"]) .login-page {
+html[data-pt-app-preview="1"] .login-page {
   max-width: 430px;
   margin: 0 auto;
   min-height: 100dvh;
@@ -2739,7 +2713,7 @@ const handleLogoError = (event) => {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 8px 30px rgba(0, 0, 0, 0.35);
 }
 
-:global(html[data-pt-app-preview-mode="ipad"]) .login-page {
+html[data-pt-app-preview-mode="ipad"] .login-page {
   width: min(1024px, 96vw);
   height: min(768px, 88vh);
   min-height: 0;
@@ -2752,7 +2726,7 @@ const handleLogoError = (event) => {
   box-shadow: 0 20px 44px rgba(2, 6, 23, 0.35);
 }
 
-:global(html.is-standalone-pwa) .login-page {
+html.is-standalone-pwa .login-page {
   max-width: 430px;
   margin: 0 auto;
   min-height: 100dvh;
@@ -2760,13 +2734,13 @@ const handleLogoError = (event) => {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 8px 30px rgba(0, 0, 0, 0.35);
 }
 
-:global(html[data-pt-app-preview="1"]) .login-container {
+html[data-pt-app-preview="1"] .login-container {
   align-items: flex-start;
   padding: 20px 12px 10px;
   background: transparent !important;
 }
 
-:global(html[data-pt-app-preview-mode="ipad"]) .login-container {
+html[data-pt-app-preview-mode="ipad"] .login-container {
   height: 100%;
   padding: 22px 28px;
   justify-content: center !important;
@@ -2774,13 +2748,13 @@ const handleLogoError = (event) => {
   background: radial-gradient(120% 140% at 0% 0%, #0f4e95 0%, #0b2f62 42%, #071a3b 100%) !important;
 }
 
-:global(html.is-standalone-pwa) .login-container {
+html.is-standalone-pwa .login-container {
   align-items: flex-start;
   padding: 20px 12px 10px;
   background: transparent !important;
 }
 
-:global(html[data-pt-app-preview="1"]) .login-card {
+html[data-pt-app-preview="1"] .login-card {
   border-radius: 22px;
   padding: 22px 18px 14px;
   margin-top: 10px;
@@ -2788,7 +2762,7 @@ const handleLogoError = (event) => {
   box-shadow: 0 22px 46px rgba(2, 6, 23, 0.4);
 }
 
-:global(html[data-pt-app-preview-mode="ipad"]) .login-card {
+html[data-pt-app-preview-mode="ipad"] .login-card {
   width: min(92%, 860px);
   max-width: 860px;
   padding: 0 0 0;
@@ -2800,7 +2774,7 @@ const handleLogoError = (event) => {
   box-shadow: none;
 }
 
-:global(html.is-standalone-pwa) .login-card {
+html.is-standalone-pwa .login-card {
   border-radius: 22px;
   padding: 22px 18px 14px;
   margin-top: 10px;
@@ -2808,45 +2782,45 @@ const handleLogoError = (event) => {
   box-shadow: 0 22px 46px rgba(2, 6, 23, 0.4);
 }
 
-:global(html[data-pt-app-preview="1"]) .login-logo .logo-image,
-:global(html.is-standalone-pwa) .login-logo .logo-image {
+html[data-pt-app-preview="1"] .login-logo .logo-image,
+html.is-standalone-pwa .login-logo .logo-image {
   height: 128px;
   max-height: 128px;
 }
 
-:global(html[data-pt-app-preview-mode="ipad"]) .login-logo .logo-image {
+html[data-pt-app-preview-mode="ipad"] .login-logo .logo-image {
   height: 168px;
   max-height: 168px;
 }
 
-:global(html[data-pt-app-preview="1"]) .login-card h2,
-:global(html.is-standalone-pwa) .login-card h2 {
+html[data-pt-app-preview="1"] .login-card h2,
+html.is-standalone-pwa .login-card h2 {
   font-size: 31px;
   line-height: 1.1;
   margin-bottom: 6px;
 }
 
-:global(html[data-pt-app-preview-mode="ipad"]) .login-card h2 {
+html[data-pt-app-preview-mode="ipad"] .login-card h2 {
   font-size: 40px;
 }
 
-:global(html[data-pt-app-preview="1"]) .subtitle,
-:global(html.is-standalone-pwa) .subtitle {
+html[data-pt-app-preview="1"] .subtitle,
+html.is-standalone-pwa .subtitle {
   font-size: 20px;
   margin-bottom: 16px;
 }
 
-:global(html[data-pt-app-preview-mode="ipad"]) .subtitle {
+html[data-pt-app-preview-mode="ipad"] .subtitle {
   font-size: 22px;
   margin-bottom: 20px;
 }
 
-:global(html[data-pt-app-preview="1"]) .login-help,
-:global(html.is-standalone-pwa) .login-help {
+html[data-pt-app-preview="1"] .login-help,
+html.is-standalone-pwa .login-help {
   margin-top: 14px;
 }
 
-:global(html[data-pt-app-preview-mode="ipad"]) .login-help {
+html[data-pt-app-preview-mode="ipad"] .login-help {
   margin-top: 18px;
 }
 
@@ -3451,7 +3425,7 @@ const handleLogoError = (event) => {
 }
 
 @media (max-height: 760px) {
-  :global(html[data-pt-app-preview-mode="ipad"]) .login-page {
+  html[data-pt-app-preview-mode="ipad"] .login-page {
     height: min(700px, 92vh);
   }
 }
@@ -3476,7 +3450,7 @@ const handleLogoError = (event) => {
   text-align: center;
   margin-bottom: 6px;
   margin-top: 0;
-  color: var(--primary-color, var(--primary, #C69A2B));
+  color: var(--primary-color, var(--primary, #B80016));
   font-weight: 700;
   letter-spacing: -0.02em;
   font-size: 24px;
@@ -3714,7 +3688,7 @@ const handleLogoError = (event) => {
 }
 
 .help-link {
-  color: var(--primary-color, var(--primary, #C69A2B));
+  color: var(--primary-color, var(--primary, #B80016));
   text-decoration: none;
   cursor: pointer;
   transition: color 0.2s;
@@ -3735,7 +3709,7 @@ const handleLogoError = (event) => {
   margin-top: 15px;
   padding: 15px;
   background-color: var(--bg-alt);
-  border-left: 4px solid var(--primary-color, var(--primary, #C69A2B));
+  border-left: 4px solid var(--primary-color, var(--primary, #B80016));
   border-radius: 4px;
   font-size: 14px;
   color: var(--text-primary);
@@ -3748,7 +3722,7 @@ const handleLogoError = (event) => {
 .btn-close-help {
   background: none;
   border: none;
-  color: var(--primary-color, var(--primary, #C69A2B));
+  color: var(--primary-color, var(--primary, #B80016));
   cursor: pointer;
   font-size: 12px;
   text-decoration: underline;
@@ -3896,8 +3870,8 @@ const handleLogoError = (event) => {
 
 /* ── Shared design tokens ── */
 .login-page--video-auth {
-  --va-primary: var(--primary, #6c4df6);
-  --va-accent: var(--accent, #8B6BFF);
+  --va-primary: var(--primary, #B80016);
+  --va-accent: var(--accent, #D32D42);
   --va-white: #ffffff;
   --va-muted: rgba(255, 255, 255, 0.72);
   --va-subtle: rgba(255, 255, 255, 0.45);
@@ -3910,10 +3884,10 @@ const handleLogoError = (event) => {
 }
 
 .login-page--platform {
-  --va-primary: #6c4df6;
-  --va-accent: #8B6BFF;
+  --va-primary: #B80016;
+  --va-accent: #D32D42;
   /* PNG fallback while the video loads, and on reduced-motion */
-  background: #08081a url('/branding/plottwisthq-platform-bg.png') no-repeat center center / cover;
+  background: radial-gradient(ellipse at 15% 15%, var(--brand-tint), transparent 55%), var(--bg-alt);
 }
 
 /* Full-bleed looping background video — wide (web/iPad) vs narrow (phone) */
@@ -4294,7 +4268,7 @@ const handleLogoError = (event) => {
 
 .login-page--video-auth .login-credentials-username input {
   padding-left: 46px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23a99cff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23b80016' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: 16px center;
   background-size: 18px 18px;
@@ -4562,7 +4536,7 @@ const handleLogoError = (event) => {
 }
 
 .login-page--platform .platform-footer__link:hover {
-  color: #b9a6ff;
+  color: #B80016;
   text-decoration: underline;
 }
 
@@ -4597,6 +4571,7 @@ const handleLogoError = (event) => {
     height: clamp(56px, 16vw, 88px);
   }
 }
+
 </style>
 
 <style scoped>
@@ -4615,4 +4590,22 @@ const handleLogoError = (event) => {
 .login-security-footer { margin-top: .75rem; text-align: center; }
 .login-security-guidance { margin: .6rem 0 0; padding: .85rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; font-size: .85rem; line-height: 1.5; text-align: left; }
 .login-security-guidance p { margin: .35rem 0 0; }
+
+/* Platform login follows appearance; tenant video experiences retain their own identity. */
+.login-page--platform { --va-primary:#B80016; --va-accent:var(--link-color); --va-white:var(--text-primary); --va-muted:var(--text-secondary); --va-subtle:var(--text-secondary); --va-border:var(--border); --va-field-bg:var(--bg-card); }
+.login-page--platform > .platform-appearance { position:absolute; top:20px; right:24px; z-index:4; color:var(--text-primary); }
+.login-page--platform .login-card { background:var(--bg-card) !important; border:1px solid var(--border) !important; border-radius:24px; padding:28px; box-shadow:var(--shadow-lg); }
+.login-page--platform .login-credentials-username input { background-image:none; padding-left:16px; }
+.login-page--platform .login-submit-btn, .login-page--platform .btn-primary { background:#B80016; color:#fff; }
+.login-page--platform .platform-hero__brand { gap:12px; }
+.login-page--platform .platform-footer__link { color:var(--link-color); }
+.login-page--platform .platform-hero { padding-top:70px; }
+
+.login-page--platform .login-form .form-group label { color:var(--text-primary); }
+.login-page--platform .remember-me, .login-page--platform .platform-footer { color:var(--text-secondary); }
+.login-page--platform .login-form .btn-primary { background:var(--va-primary); color:#fff; box-shadow:none; }
+.login-page--platform .login-form .form-group input::placeholder { color:var(--text-secondary); }
+.login-page--platform .platform-footer__sep { color:var(--border); }
+.login-page--platform .login-container { padding-top:76px !important; }
+@media(max-width:600px) { .login-page--platform > .platform-appearance { top:12px; right:16px; } .login-page--platform .login-card { padding:22px; } }
 </style>

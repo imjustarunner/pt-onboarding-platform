@@ -615,7 +615,7 @@ onMounted(async () => {
 }
 
 .header-actions .btn.active {
-  border-color: var(--primary, #C69A2B);
+  border-color: var(--primary, #B80016);
 }
 
 .filters-row {

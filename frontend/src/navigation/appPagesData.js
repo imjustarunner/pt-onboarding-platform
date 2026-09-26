@@ -5,6 +5,12 @@
  */
 
 export const APP_PAGES = [
+  { title: 'Family Billing', section: 'Billing & Payments', path: '/admin/family-billing', requiresBilling: true,
+    keywords: ['family', 'client billing', 'copays', 'self pay', 'balances', 'receipts', 'payment authorization'],
+    desc: 'Review client balances, payments, and signed billing authorizations.' },
+  { title: 'Stripe & Payment Setup', section: 'Billing & Payments', path: '/admin/family-billing?tab=setup', requiresBilling: true,
+    keywords: ['stripe', 'connect', 'bank account', 'payout', 'payment setup', 'family'],
+    desc: 'Connect your agency’s Stripe account and payout bank.' },
   // ─── Workforce Operations Hub ────────────────────────────────────────────────
   {
     title: 'Workforce Operations',
@@ -203,7 +209,7 @@ export const APP_PAGES = [
   {
     title: 'Billing Workspace',
     section: 'Workforce Ops › Billing & Revenue',
-    path: '/admin/medical-billing',
+    path: '/admin/medical-billing', requiresBilling: true,
     keywords: ['medical billing', 'medical', 'billing', 'claims', 'payers', 'ERA', 'payments'],
     desc: 'Work billing queues, payer enrollment, and reports across authorized companies.'
   },

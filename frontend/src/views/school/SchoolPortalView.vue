@@ -7793,35 +7793,35 @@ watch(() => store.selectedWeekday, async (weekday) => {
   }
 }
 
-:global([data-theme="dark"]) .school-portal {
+[data-theme="dark"] .school-portal {
   background: var(--bg-alt, #0f172a);
 }
-:global([data-theme="dark"]) .school-portal .portal-content {
+[data-theme="dark"] .school-portal .portal-content {
   --text-primary: #e2e8f0;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
   color: var(--text-primary);
 }
-:global([data-theme="dark"]) .school-portal .portal-content,
-:global([data-theme="dark"]) .school-portal .portal-content.is-home .top-row,
-:global([data-theme="dark"]) .home-metric,
-:global([data-theme="dark"]) .dash-card,
-:global([data-theme="dark"]) .sp-user-chip,
-:global([data-theme="dark"]) .home-greeting-card,
-:global([data-theme="dark"]) .home-roster {
+[data-theme="dark"] .school-portal .portal-content,
+[data-theme="dark"] .school-portal .portal-content.is-home .top-row,
+[data-theme="dark"] .home-metric,
+[data-theme="dark"] .dash-card,
+[data-theme="dark"] .sp-user-chip,
+[data-theme="dark"] .home-greeting-card,
+[data-theme="dark"] .home-roster {
   background: var(--card-bg, #111827);
   border-color: var(--border, #334155);
 }
-:global([data-theme="dark"]) .portal-content.is-home {
+[data-theme="dark"] .portal-content.is-home {
   background: transparent;
   border: none;
   box-shadow: none;
 }
-:global([data-theme="dark"]) .sp-mobile-menu-btn {
+[data-theme="dark"] .sp-mobile-menu-btn {
   background: var(--card-bg, #111827);
   color: var(--text-primary, #e2e8f0);
 }
-:global([data-theme="dark"]) .school-selector-wrap .school-selector {
+[data-theme="dark"] .school-selector-wrap .school-selector {
   background: var(--card-bg, #111827);
   color: var(--text-primary, #e2e8f0);
 }

@@ -1,3 +1,4 @@
+import { PLATFORM_BRAND } from './config/platformBrand.js';
 import { publicBrowserBranding, legacyTisiPublicDestination } from './utils/publicBrowserBranding.js';
 import { createApp, watchEffect } from 'vue';
 import { createPinia } from 'pinia';
@@ -5,6 +6,7 @@ import App from './App.vue';
 import router from './router';
 import './style.css';
 import './styles/data-surfaces.css';
+import './styles/application-appearance.css';
 import 'driver.js/dist/driver.css';
 
 import { useAgencyStore } from './store/agency';
@@ -17,7 +19,7 @@ import { i18n } from './i18n';
 
 const CHUNK_RELOAD_KEY = '__pt_chunk_reload__';
 /** Bump when shell assets change materially (forces one reload so users pick up new schedule UI). */
-const APP_SHELL_VERSION = '2026-07-15-virtual-session-clients';
+const APP_SHELL_VERSION = '2026-09-25-plot-twist-brand-settings';
 
 let pendingChunkReloadPath = null;
 
@@ -222,8 +224,9 @@ async function bootstrap() {
           ? String(router.currentRoute.value.params.organizationSlug).trim()
           : '';
 
+      const platformSelected = agencyStore.platformMode && !agencyStore.currentAgency && !slug;
       const base =
-        portalName ||
+        (platformSelected ? PLATFORM_BRAND.name : agencyStore.currentAgency?.name || portalName) ||
         platformName ||
         (slug ? slug.toUpperCase() : '') ||
         'Portal';
@@ -281,7 +284,8 @@ async function bootstrap() {
       tenantFaviconUrl(brandingStore.portalAgency?.slug || brandingStore.portalAgency?.portal_url) ||
       tenantFaviconUrl(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url);
     // Favicon: tenant mark, else organization master icon, else full logo.
-    const mark = tenantFav || brandingStore.displayChromeIconUrl || brandingStore.displayLogoUrl;
+    const platformSelected = agencyStore.platformMode && !agencyStore.currentAgency && !brandingStore.activeRouteSlug;
+    const mark = (platformSelected ? PLATFORM_BRAND.logo : tenantFav) || brandingStore.displayChromeIconUrl || brandingStore.displayLogoUrl;
     if (mark) setFavicon(mark);
   };
 
