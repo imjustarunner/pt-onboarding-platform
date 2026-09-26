@@ -37,21 +37,28 @@
           <td><button :disabled="busy || !connection.configured" @click="reviewPayerRequest(request)">Review route</button><small>{{ request.review_note || 'Select the correct plan and billing office.' }}</small><small v-if="request.directory_checked_at">Directory checked {{ String(request.directory_checked_at).slice(0,10) }}</small></td>
         </tr>
       </tbody></table></div>
-      <form class="actions" @submit.prevent="addPayerRequest"><label>Request another payer <input v-model="requestedPayer" required minlength="2" maxlength="120" /></label><button :disabled="busy">Add to setup list</button></form>
+      <details><summary>Payer not in the directory? Request manual setup</summary><form class="actions" @submit.prevent="addPayerRequest"><label>Payer name <input v-model="requestedPayer" required minlength="2" maxlength="120" /></label><button :disabled="busy">Request manual setup</button></form></details>
       <p>Being on this list does not establish contracting, electronic enrollment or active coverage. Enrollment progress appears below.</p>
     </section>
-    <p>Use this agency’s billing NPI. Claim.MD uses the agency tax ID from Company Profile. Enrollment may require a verification call to the phone number listed in NPPES.</p>
+    <h4>Add a payer from Claim.MD’s directory</h4>
+    <p>Find the exact plan, add its electronic route to this agency, then open enrollment for the selected billing group. Claims, ERA and eligibility have separate requirements.</p>
     <form class="actions" data-testid="payer-directory-search" @submit.prevent="searchPayers">
-      <label>Payer name <input v-model="search" minlength="2" maxlength="64" required /></label>
+      <label>Search by <select v-model="searchBy"><option value="name">Payer name</option><option value="id">Electronic payer ID</option></select></label>
+      <label>{{ searchBy === 'id' ? 'Payer ID' : 'Payer name' }} <input v-model="search" :minlength="searchBy === 'id' ? 1 : 2" maxlength="64" required /></label>
       <button :disabled="busy || !connection.configured">Find payers</button>
     </form>
     <label>Billing office / group
       <select v-model="billingOfficeId" data-testid="billing-office">
         <option value="">Select a billing office</option>
-        <option v-for="office in billingOffices" :key="office.id" :value="office.id">{{ office.name }} · {{ office.practice_name }} · NPI {{ office.practice_npi || 'missing' }}</option>
+        <optgroup v-for="group in billingGroups" :key="group.npi" :label="`Group NPI ${group.npi || 'missing'}`"><option v-for="office in group.offices" :key="office.id" :value="office.id">{{ office.name }} · {{ office.practice_name }}</option></optgroup>
       </select>
     </label>
-    <p v-if="selectedOffice">{{ selectedOffice.street_address }}, {{ selectedOffice.city }}, {{ selectedOffice.state }} {{ selectedOffice.postal_code }}</p>
+    <section v-if="selectedOffice" class="review" aria-label="Enrollment prefill">
+      <strong>{{ selectedOffice.practice_name }} · NPI {{ selectedOffice.practice_npi }}</strong>
+      <p>{{ selectedOffice.street_address }}, {{ selectedOffice.city }}, {{ selectedOffice.state }} {{ selectedOffice.postal_code }}</p>
+      <p>The form uses this billing address, the agency’s saved tax ID, and your contact details. Review the completed fields in Claim.MD. Provider validation or an authorized signature may still be required.</p>
+      <p v-if="sameGroupOfficeCount > 1">{{ sameGroupOfficeCount }} offices share this group NPI. Review existing enrollment before starting another request; only enroll locations separately when the payer requires it.</p>
+    </section>
     <p>Enrollment applies to this agency’s Tax ID and selected group NPI. Complete payer contracting separately; an electronic enrollment update does not establish network participation.</p>
     <label>Transaction
       <select v-model="enrollmentType"><option value="1500">Professional claims</option><option value="era">ERA / remittance</option><option value="elig">Eligibility</option></select>
@@ -61,7 +68,11 @@
       <li v-for="payer in payers" :key="payer.payerid">
         <strong>{{ payer.payer_name }}</strong> · {{ payer.payerid }}
         <span> · Claims: {{ payer['1500_claims'] }} · ERA: {{ payer.era }} · Eligibility: {{ payer.eligibility }}</span>
-        <button :disabled="busy || !canEnroll" @click="enroll(payer.payerid)">Open enrollment</button>
+        <button :disabled="busy" @click="addDirectoryPayer(payer)">{{ isAgencyPayer(payer) ? 'Refresh directory details' : 'Add to agency' }}</button>
+        <button :disabled="busy || !canEnroll || transactionUnavailable(payer)" @click="openPayerEnrollment(payer)">{{ existingEnrollment(payer) ? 'Continue enrollment' : 'Open enrollment' }}</button>
+        <small v-if="existingEnrollment(payer)">Existing form uses {{ billingOffices.find(o=>Number(o.id)===Number(existingEnrollment(payer).billing_office_location_id))?.name || 'its saved billing office' }}. Continue opens that billing identity.</small>
+        <small v-if="transactionUnavailable(payer)">The directory does not support this transaction. Use the payer’s manual process.</small>
+        <small v-else-if="transactionAvailable(payer)">The directory lists this transaction as available. The form shows any remaining provider requirements.</small>
       </li>
     </ul>
     <table v-if="enrollments.length">
@@ -162,10 +173,27 @@ function reviewPayerRequest(request) {
 }
 const loadPayerRequests=async()=>{const {data}=await api.get('/medical-billing/payer-setup-requests',{params:{agencyId:props.agencyId}});if(active)payerRequests.value=data.items || [];};
 const addPayerRequest=()=>run(async()=>{const {data}=await api.post('/medical-billing/payer-setup-requests',{agencyId:props.agencyId,payerName:requestedPayer.value});if(active){payerRequests.value=data.items || [];requestedPayer.value='';}});
-const search = ref(''), billingOfficeId = ref(''), billingOffices = ref([]), enrollmentType = ref('1500'), acknowledgeEraRouting = ref(false);
+const isAgencyPayer = payer => payerRequests.value.some(r => r.claimmd_payer_id === payer.payerid && r.directory_status === 'id_match');
+const addDirectoryPayer = payer => run(async () => {
+  const {data} = await api.post('/medical-billing/payer-setup-requests',{agencyId:props.agencyId,payerId:payer.payerid});
+  if (active) { payerRequests.value=data.items || []; notice.value='Payer route saved for this agency. Open enrollment to complete any provider requirements.'; }
+});
+const search = ref(''), searchBy = ref('name'), billingOfficeId = ref(''), billingOffices = ref([]), enrollmentType = ref('1500'), acknowledgeEraRouting = ref(false);
 const selectedOffice = computed(() => billingOffices.value.find(o => Number(o.id) === Number(billingOfficeId.value)));
-const enrollmentStatus = status => ({ requested: 'Requested — open enrollment to continue', started: 'Form issued — complete steps in Claim.MD' })[status] || status;
+const billingGroups = computed(() => [...new Set(billingOffices.value.map(o=>o.practice_npi))].map(npi=>({npi,offices:billingOffices.value.filter(o=>o.practice_npi===npi)})));
+const sameGroupOfficeCount = computed(() => billingOffices.value.filter(o=>o.practice_npi===selectedOffice.value?.practice_npi).length);
+const enrollmentStatus = status => ({ requested: 'Requested — open enrollment to continue', started: 'Form issued — complete steps in Claim.MD', provider_validation_required: 'Action needed — NPPES phone validation' })[status] || status;
 const payers = ref([]), enrollments = ref([]), review = ref(null), approved = ref(false), history = ref([]), historyClaimId = ref(null);
+const transactionCapability = payer => payer[{'1500':'1500_claims',era:'era',elig:'eligibility'}[enrollmentType.value]];
+const transactionUnavailable = payer => transactionCapability(payer) === 'no';
+const transactionAvailable = payer => transactionCapability(payer) === 'yes';
+const existingEnrollment = payer => enrollments.value.find(e=>e.payer_id===payer.payerid && e.provider_npi===selectedOffice.value?.practice_npi && e.enrollment_type===enrollmentType.value);
+function openPayerEnrollment(payer) {
+  if (transactionUnavailable(payer)) return;
+  const existing = existingEnrollment(payer);
+  if (existing) reopenEnrollment(existing);
+  else enroll(payer.payerid);
+}
 const draft = ref(null), correctionReason = ref('');
 const undrafted = ref([]);
 const exceptionFinding = ref(null), exceptionReason = ref(''), exceptionReference = ref('');
@@ -198,7 +226,7 @@ const createDraft = note => run(async () => {
   if (active) { emit('updated'); notice.value = 'Claim prepared for billing review.'; await fetchUndrafted(); }
 });
 const searchPayers = payerId => run(async () => {
-  const params = { agencyId: props.agencyId, ...(typeof payerId === 'string' && payerId ? {payerId} : {search: search.value}) };
+  const params = { agencyId: props.agencyId, ...(typeof payerId === 'string' && payerId ? {payerId} : searchBy.value === 'id' ? {payerId:search.value.trim()} : {search: search.value}) };
   const { data } = await api.get('/medical-billing/claimmd/payers', { params });
   if (active) { payers.value = data.payers || []; if (!payers.value.length) notice.value = 'No matching payers.'; }
 });

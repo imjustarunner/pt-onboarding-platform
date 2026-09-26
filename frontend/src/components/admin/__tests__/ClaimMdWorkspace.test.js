@@ -87,3 +87,32 @@ it('shows payer setup capabilities without calling them connected and searches t
   expect(button(w,'Open enrollment').attributes('disabled')).toBeUndefined();
   expect(api.post).not.toHaveBeenCalled();w.unmount();
 });
+
+it('adds the selected directory ID to the current agency without starting enrollment',async()=>{
+ api.get.mockImplementation(async url=>({data:url.endsWith('/payers')?{payers:[{payerid:'00050',payer_name:'CO BCBS'}]}:{items:[]}}));
+ api.post.mockResolvedValue({data:{items:[{id:1,payer_name:'CO BCBS',claimmd_payer_id:'00050',directory_status:'id_match'}]}});
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'payers'}});await flushPromises();
+ await w.find('[data-testid="payer-directory-search"] select').setValue('id');
+ await w.find('[data-testid="payer-directory-search"] input').setValue('00050');
+ await w.find('[data-testid="payer-directory-search"]').trigger('submit');await flushPromises();
+ expect(api.get).toHaveBeenCalledWith('/medical-billing/claimmd/payers',{params:{agencyId:1,payerId:'00050'}});
+ await button(w,'Add to agency').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledExactlyOnceWith('/medical-billing/payer-setup-requests',{agencyId:1,payerId:'00050'});
+ expect(w.text()).toContain('Open enrollment to complete');w.unmount();
+});
+it('continues the existing group enrollment across offices and blocks unsupported transactions',async()=>{
+ const offices=[{id:8,name:'First',practice_npi:'1306688650'},{id:9,name:'Second',practice_npi:'1306688650'}];
+ api.get.mockImplementation(async url=>({data:url.endsWith('/billing-offices')?{items:offices}:url.endsWith('/enrollments')?{items:[{id:1,billing_office_location_id:8,provider_npi:'1306688650',payer_id:'COCHA',enrollment_type:'1500',status:'started'}]}:url.endsWith('/payers')?{payers:[{payerid:'COCHA',payer_name:'CCHA','1500_claims':'enrollment',era:'no'}]}:{items:[]}}));
+ const popup={location:{replace:vi.fn()},close:vi.fn()};const open=vi.spyOn(window,'open').mockReturnValue(popup);
+ api.post.mockResolvedValue({data:{url:'https://www.claim.md/enroll/example/'}});
+ const w=mount(ClaimMdWorkspace,{props:{...props,section:'payers'}});await flushPromises();
+ await w.find('[data-testid="payer-directory-search"] input').setValue('CCHA');await w.find('[data-testid="payer-directory-search"]').trigger('submit');await flushPromises();
+ await w.find('[data-testid="billing-office"]').setValue(9);
+ expect(w.text()).toContain('2 offices share this group NPI');
+ await button(w,'Continue enrollment').trigger('click');await flushPromises();
+ expect(api.post).toHaveBeenCalledWith('/medical-billing/claimmd/enrollments',expect.objectContaining({billingOfficeLocationId:8}));
+ const transaction=w.findAll('select').find(s=>s.find('option[value="era"]').exists());await transaction.setValue('era');
+ await w.find('input[type="checkbox"]').setValue(true);
+ expect(button(w,'Open enrollment').attributes('disabled')).toBeDefined();
+ w.unmount();open.mockRestore();
+});

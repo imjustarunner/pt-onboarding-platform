@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import mysql from 'mysql2/promise';
-import {importPayerSetupCatalog,listPayerSetupRequests} from '../payerSetupCatalog.service.js';
+import {importPayerSetupCatalog,listPayerSetupRequests,saveDirectoryPayer} from '../payerSetupCatalog.service.js';
 test('payer imports are scoped, repeatable and do not create enrollment or claim records',{skip:process.env.PAYER_CATALOG_MYSQL_TEST!=='1'},async()=>{
  const db=await mysql.createConnection({host:'127.0.0.1',port:33316,user:'root',database:'mysql'});
  const schema=`payer_catalog_test_${randomUUID().replaceAll('-','')}`;
@@ -24,6 +24,16 @@ test('payer imports are scoped, repeatable and do not create enrollment or claim
   assert.equal((await listPayerSetupRequests(99,db)).length,0);
   const [[[count]]]=await Promise.all([db.query('SELECT COUNT(*) AS n FROM medical_payer_setup_details')]);assert.equal(count.n,108);
   await assert.rejects(importPayerSetupCatalog({...input,apply:true,agencies:[{...catalog.agencies[0],slug:'other'}]},db),/identity mismatch/);
+  const verified={payerid:'00050',payer_name:'Blue Cross Blue Shield of Colorado','1500_claims':'yes',era:'enrollment'};
+  const original=(await listPayerSetupRequests(377,db)).find(r=>r.claimmd_payer_id==='00050').id;
+  assert.equal(await saveDirectoryPayer({agencyId:377,payer:verified,actorUserId:9},db),original);
+  assert.equal(await saveDirectoryPayer({agencyId:377,payer:verified,actorUserId:9},db),original);
+  assert.equal((await listPayerSetupRequests(377,db)).length,36);
+  const added=await saveDirectoryPayer({agencyId:377,payer:{...verified,payerid:'TEST01',payer_name:'Synthetic Payer'},actorUserId:9},db);
+  await assert.rejects(saveDirectoryPayer({agencyId:377,payer:{...verified,payerid:'DIFFERENT',payer_name:'Synthetic Payer'},actorUserId:9},db),/different electronic route/);
+  assert.ok(added); assert.equal((await listPayerSetupRequests(377,db)).length,37);
+  assert.equal((await listPayerSetupRequests(2,db)).length,36);
+  assert.equal((await listPayerSetupRequests(377,db)).find(r=>r.id===original).directory_status,'id_match');
   const [tables]=await db.query('SHOW TABLES');assert.equal(tables.length,4);
  }finally{await db.query(`DROP DATABASE IF EXISTS ${schema}`);await db.end();}
 });

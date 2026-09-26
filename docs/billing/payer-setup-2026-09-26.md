@@ -34,3 +34,19 @@ Setup records do not establish network participation. Payer signatures, provider
 - Claim submission regression tests preserve explicit approval and transmission controls.
 - UI tests cover route-ID searches, separate transaction capabilities and no automatic enrollment calls.
 - Validation completed: 34 automated tests passed and the production frontend build succeeded. A local browser preview using public payer fixtures rendered all 36 records, searched the SX141 alias, reviewed its candidate route, and fit a 390-pixel viewport without page overflow or browser errors.
+
+## Enrollment work completed September 26
+
+CCHA (`COCHA`, professional claims `1500`) enrollment was initiated through the app's controller for TISI/Windchime (377/8), ITSCO/Windchime (2/1), and NLU/Windchime (6/5). Claim.MD returned enrollment forms for all three. Their provider profiles were completed using the saved Windchime addresses, normalized nine-digit ZIP+4 and saved contact telephone numbers. Claim.MD's initial NPPES-prefilled profiles had ZIP+4 errors even though the app profiles were complete.
+
+All three now display **Provider Validation Required** in Claim.MD. The portal specifically requires a call to an NPPES-listed phone number to authorize Plot Twist Co to manage each NPI before claims enrollment, ERA or eligibility can proceed. No validation call, signature, ERA redirection or claim transmission was performed. Form issuance is not submission to the payer or approval. Additional payer forms remain pending this provider-level validation.
+
+Manual continuation: in this app select the agency, open **Billing → Payers & ERA**, and use **View / continue** for CCHA. Alternatively, sign into Claim.MD and open **Provider Enrollment**, select the corresponding billing NPI and complete **Provider Validation**. Be ready to answer the selected NPPES number. Complete payer-specific steps afterward. ERA routing requires a separate decision because redirecting it can stop delivery to the previous clearinghouse.
+
+The payer picker now searches the live directory by name or exact ID and adds the selected route to the current agency. The backend verifies that ID again against Claim.MD; caller-supplied names/capabilities are not trusted. Repeated additions reuse an existing verified route, preserving imported aliases. Directory selection does not enroll the provider or change network participation.
+
+Enrollment prefills the selected office identity, agency tax ID, authenticated user's name/email and saved phone. Offices are grouped by group NPI; the UI continues an existing enrollment for the same NPI/payer/transaction rather than opening another merely because a second office is selected. Different group NPIs require separate provider identities; additional location requirements remain payer-specific. No unprovided NPI is invented, and ITSCO's Denver office was not separately enrolled.
+
+References: [Claim.MD enrollment API](https://api.claim.md/) and [provider enrollment/validation instructions](https://docs.claim.md/docs/add-provider).
+
+Validation for this enrollment update: 25 backend tests, 10 frontend tests and one disposable MySQL integration test passed. Production frontend build passed; desktop/mobile browser preview had no browser errors or page overflow. The three observed provider-validation blockers were saved with audit entries identifying the portal review as their source, rather than a vendor webhook.

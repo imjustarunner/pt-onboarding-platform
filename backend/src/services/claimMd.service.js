@@ -81,11 +81,12 @@ export function fetchPayers({ accountKey, payerId, payerName }) {
   return postForm('/payerlist/', { AccountKey: accountKey, payerid: payerId, payer_name: payerName });
 }
 
-export function requestEnrollment({ accountKey, payerId, enrollmentType, practice, npi, contact }) {
+export function requestEnrollment({ accountKey, payerId, enrollmentType, practice, npi, contact, contactEmail }) {
   return postForm('/enroll/', { AccountKey: accountKey, payerid: payerId, enroll_type: enrollmentType,
     prov_taxid: String(practice.tax_id || '').replace(/\D/g, ''), prov_npi: npi,
-    prov_name_l: practice.name, contact, prov_addr_1: practice.street_address,
-    prov_city: practice.city, prov_state: practice.state, prov_zip: practice.postal_code });
+    prov_name_l: practice.name, contact, contact_email: contactEmail, contact_phone: practice.phone_number,
+    prov_addr_1: practice.street_address,
+    prov_city: practice.city, prov_state: practice.state, prov_zip: String(practice.postal_code || '').replace(/\D/g, '') });
 }
 
 /** Professional-claim fields per Claim.MD's published JSON example.

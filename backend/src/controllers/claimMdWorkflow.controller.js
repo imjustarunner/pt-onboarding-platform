@@ -178,7 +178,7 @@ export async function startClaimMdEnrollment(req, res, next) {
       (agency_id, connection_id, billing_office_location_id, payer_id, enrollment_type, provider_npi, tax_id_hash, created_by_user_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
       [agencyId, connection.connectionId, profile.officeId, payerId, enrollmentType, npi, taxIdHash(practice.tax_id), req.user.id]);
-    const result = await requestEnrollment({ accountKey: connection.accountKey, payerId, enrollmentType, practice, npi, contact: `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim() });
+    const result = await requestEnrollment({ accountKey: connection.accountKey, payerId, enrollmentType, practice, npi, contact: `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim(), contactEmail: req.user.email });
     const url = safeEnrollmentUrl(result);
     await clinicalPool.execute(`UPDATE claimmd_enrollments SET status = 'started'
       WHERE agency_id = ? AND connection_id = ? AND billing_office_location_id = ? AND payer_id = ? AND enrollment_type = ?

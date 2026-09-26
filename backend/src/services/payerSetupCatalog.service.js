@@ -1,6 +1,39 @@
 const asList = value => Array.isArray(value) ? value : value ? [value] : [];
 const normalizedId = value => String(value || '').trim().toUpperCase();
 
+// Called only with an exact, freshly verified directory result. Adding a payer
+// records its route; it never changes contracting, enrollment, or claim status.
+export async function saveDirectoryPayer({agencyId,payer,actorUserId}, db) {
+  await db.beginTransaction();
+  try {
+    const [[agency]] = await db.execute('SELECT id FROM agencies WHERE id=? FOR UPDATE',[agencyId]);
+    if (!agency) throw new Error('Agency not found');
+    const [[existing]] = await db.execute(`SELECT r.id FROM medical_payer_setup_requests r
+      JOIN medical_payer_setup_details d ON d.request_id=r.id
+      WHERE r.agency_id=? AND d.claimmd_payer_id=? AND d.directory_status='id_match' ORDER BY r.id LIMIT 1`,[agencyId,payer.payerid]);
+    let requestId = existing?.id;
+    if (!requestId) {
+      const name = String(payer.payer_name).slice(0,120);
+      await db.execute('INSERT IGNORE INTO medical_payer_setup_requests (agency_id,payer_name,created_by_user_id) VALUES (?,?,?)',[agencyId,name,actorUserId]);
+      const [[request]] = await db.execute(`SELECT r.id,d.claimmd_payer_id FROM medical_payer_setup_requests r
+        LEFT JOIN medical_payer_setup_details d ON d.request_id=r.id WHERE r.agency_id=? AND r.payer_name=?`,[agencyId,name]);
+      if (request.claimmd_payer_id && normalizedId(request.claimmd_payer_id) !== normalizedId(payer.payerid)) {
+        throw Object.assign(new Error('This payer name already has a different electronic route. Review the existing payer before changing its ID.'),{status:409});
+      }
+      requestId = request.id;
+    }
+    const capabilities = Object.fromEntries(['1500_claims','era','eligibility','secondary_support'].map(k=>[k,payer[k] || 'unknown']));
+    await db.execute(`INSERT INTO medical_payer_setup_details
+      (request_id,claimmd_payer_id,directory_name,directory_status,directory_snapshot_json,directory_checked_at)
+      VALUES (?,?,?,'id_match',?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE
+      claimmd_payer_id=VALUES(claimmd_payer_id),directory_name=VALUES(directory_name),directory_status='id_match',
+      directory_snapshot_json=VALUES(directory_snapshot_json),directory_checked_at=UTC_TIMESTAMP()`,
+      [requestId,payer.payerid,payer.payer_name,JSON.stringify(capabilities)]);
+    await db.commit();
+    return requestId;
+  } catch(error) { await db.rollback(); throw error; }
+}
+
 export function matchPayerDirectory(source, directory) {
   const id = normalizedId(source.sourcePayerId);
   const exact = id ? directory.filter(p => normalizedId(p.payerid) === id) : [];
