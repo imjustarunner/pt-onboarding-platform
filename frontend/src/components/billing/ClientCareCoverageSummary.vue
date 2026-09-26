@@ -7,4 +7,4 @@ const ages={'1_30_days':'1–30 days overdue','31_60_days':'31–60 days overdue
 async function load(){const g=++generation;summary.value=null;error.value='';try{const r=await api.get(`/clients/${props.clientId}/care-billing-summary`);if(g===generation)summary.value=r.data;}catch(e){if(g===generation)error.value='Coverage and billing status could not be loaded.';}}
 watch(()=>props.clientId,load);onMounted(load);onBeforeUnmount(()=>{generation++;});
 </script>
-<style scoped>section{padding:12px;border:1px solid var(--border);border-radius:8px;margin:12px 0}button{display:block;margin-top:10px}[role=alert]{color:#a32121}</style>
+<style scoped>section{padding:12px;border:1px solid var(--border);border-radius:8px;margin:12px 0}button{display:block;margin-top:10px}[role=alert]{color:var(--app-text-red, #a32121)}</style>

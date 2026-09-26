@@ -133,8 +133,8 @@ function clear() {
 .filter-select {
   padding: 6px 10px;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--app-surface, #fff);
   font-size: 12px;
 }
 </style>

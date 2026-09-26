@@ -222,7 +222,7 @@ onMounted(load);
 
 <style scoped>
 .subtitle { margin: 6px 0 0; color: var(--text-secondary); }
-.card { margin-top: 10px; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.card { margin-top: 10px; background: var(--app-surface, #fff); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
 .row { margin: 0 0 10px; }
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
 .field { border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
@@ -235,9 +235,9 @@ onMounted(load);
 .right { text-align: right; }
 .muted { color: var(--text-secondary); }
 .hint { margin-top: 10px; font-size: 12px; color: var(--text-secondary); }
-.error-box { background: #ffecec; border: 1px solid #ffb5b5; padding: 10px 12px; border-radius: 10px; margin: 10px 0; }
+.error-box { background: var(--app-surface-muted, #ffecec); border: 1px solid var(--app-line, #ffb5b5); padding: 10px 12px; border-radius: 10px; margin: 10px 0; }
 .rate-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 10px; }
-.rate-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #fff; }
+.rate-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--app-surface, #fff); }
 .rate-code { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rate-value { font-variant-numeric: tabular-nums; text-align: right; }
 .health-card { margin-top: 14px; }

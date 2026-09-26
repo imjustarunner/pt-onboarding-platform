@@ -340,7 +340,7 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
-  background: white;
+  background: var(--app-surface, white);
 }
 
 .tasks {
@@ -350,7 +350,7 @@ onMounted(async () => {
 }
 
 .task-card {
-  background: white;
+  background: var(--app-surface, white);
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow);
@@ -388,7 +388,7 @@ onMounted(async () => {
 .task-subtasks {
   margin: 12px 0;
   padding: 12px;
-  background: #f9fafb;
+  background: var(--app-surface-muted, #f9fafb);
   border-radius: 8px;
 }
 
@@ -444,23 +444,23 @@ onMounted(async () => {
 }
 
 .urgency-high {
-  background: #fecaca;
-  color: #991b1b;
+  background: var(--app-tint-red, #fecaca);
+  color: var(--app-text-red, #991b1b);
 }
 
 .urgency-low {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--app-tint-green, #d1fae5);
+  color: var(--app-text-green, #065f46);
 }
 
 .task-list-badge {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
 }
 
 .recurring-badge {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
 }
 
 .task-type {
@@ -485,7 +485,7 @@ onMounted(async () => {
 }
 
 .pending-kudos-section {
-  background: white;
+  background: var(--app-surface, white);
   border-radius: 12px;
   padding: 20px 24px;
   box-shadow: var(--shadow);
@@ -523,7 +523,7 @@ onMounted(async () => {
 }
 
 .edit-task-modal {
-  background: white;
+  background: var(--app-surface, white);
   border-radius: 12px;
   padding: 20px;
   max-width: 360px;
@@ -548,7 +548,7 @@ onMounted(async () => {
 .edit-task-form .form-control {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-line, #e5e7eb);
   border-radius: 8px;
 }
 

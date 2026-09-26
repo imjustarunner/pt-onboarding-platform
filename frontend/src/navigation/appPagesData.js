@@ -5,6 +5,24 @@
  */
 
 export const APP_PAGES = [
+  { title: 'Finance Operations', section: 'Finance', path: '/finance-operations',
+    keywords: ['finance', 'financial operations', 'nonprofit', 'fiscal sponsorship', 'portfolio'],
+    desc: 'Budgets, grants, funds, expenses, payments, and financial oversight.' },
+  ...[
+    ['budgets', 'Program Budgets', ['budget', 'planning', 'forecast']],
+    ['funds', 'Funds', ['restricted funds', 'funding']],
+    ['allocations', 'Allocations', ['allocate', 'program funding']],
+    ['grants', 'Grants & Fiscal Sponsorship', ['grant', 'sponsored organizations']],
+    ['expenses', 'Expense Requests', ['expense', 'reimbursement', 'receipts']],
+    ['approvals', 'Financial Approvals', ['approve', 'financial review']],
+    ['payments', 'Payments & Disbursements', ['payment', 'scholarships']],
+    ['bank', 'Bank & Reconciliation', ['chase', 'bank account', 'financial connections', 'reconcile']],
+    ['reports', 'Financial Reports', ['statements', 'grant reporting']],
+    ['documents', 'Financial Documents', ['financial files', 'grant documents']],
+    ['partners', 'Financial People & Partners', ['grantors', 'vendors']],
+    ['events', 'Funded Events & Trips', ['mentoring', 'training', 'trips']]
+  ].map(([area, title, keywords]) => ({ title, section: 'Finance', path: `/finance-operations?area=${area}`,
+    keywords, desc: `Open ${title.toLowerCase()} in Finance Operations.` })),
   { title: 'Family Billing', section: 'Billing & Payments', path: '/admin/family-billing', requiresBilling: true,
     keywords: ['family', 'client billing', 'copays', 'self pay', 'balances', 'receipts', 'payment authorization'],
     desc: 'Review client balances, payments, and signed billing authorizations.' },
@@ -148,7 +166,7 @@ export const APP_PAGES = [
   {
     title: 'Staff Schedule Compare',
     section: 'Workforce Ops › Staff & Scheduling',
-    path: '/admin/staff-schedule-compare',
+    path: '/schedule/staff',
     keywords: ['schedule compare', 'staff compare', 'scheduling comparison'],
     desc: 'Compare staff schedules side by side.'
   },
@@ -246,14 +264,14 @@ export const APP_PAGES = [
   {
     title: 'Buildings Master Grid',
     section: 'Workforce Ops › Office & Buildings',
-    path: '/admin/buildings',
+    path: '/buildings/schedule',
     keywords: ['buildings', 'offices', 'rooms', 'facilities', 'master grid'],
     desc: 'Building-centric room schedule and facilities management.'
   },
   {
     title: 'Office Requests',
     section: 'Workforce Ops › Office & Buildings',
-    path: '/admin/office-requests',
+    path: '/buildings/review',
     keywords: ['office requests', 'room requests', 'booking', 'space requests'],
     desc: 'Review and manage office space requests.'
   },
@@ -786,14 +804,14 @@ export const APP_PAGES = [
   {
     title: 'Agency Admin Dashboard',
     section: 'Management',
-    path: '/admin/dashboard',
+    path: '/admin',
     keywords: ['dashboard', 'admin dashboard', 'overview', 'agency dashboard'],
     desc: 'Agency admin overview and dashboard.'
   },
   {
     title: 'Superadmin Platform Dashboard',
     section: 'Management',
-    path: '/admin/superadmin',
+    path: '/admin?panel=overview', scope: 'platform', rolesAny: ['super_admin'],
     keywords: ['superadmin', 'platform dashboard', 'super admin', 'platform admin'],
     desc: 'Platform-level superadmin dashboard.'
   },
@@ -832,14 +850,14 @@ export const APP_PAGES = [
   {
     title: 'School Portal',
     section: 'School Portal',
-    path: '/school',
+    path: '/admin/school-portals',
     keywords: ['school portal', 'school view', 'portal', 'school page'],
     desc: 'School-facing portal view.'
   },
   {
     title: 'School Portal Settings',
     section: 'School Portal',
-    path: '/school?sp=settings',
+    path: '/admin/school-portals-hub',
     keywords: ['school portal settings', 'group email', 'subscription', 'no email', 'digest', 'notification settings', 'school staff settings'],
     desc: 'Change school group email subscription and portal notification settings.'
   },

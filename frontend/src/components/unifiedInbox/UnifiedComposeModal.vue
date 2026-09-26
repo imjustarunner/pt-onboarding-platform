@@ -269,7 +269,7 @@ async function send({ skipConfirm = false } = {}) {
 }
 .uc-modal {
   width: min(560px, 100%);
-  background: #fff;
+  background: var(--app-surface, #fff);
   border-radius: 14px;
   padding: 18px;
   box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
@@ -287,8 +287,8 @@ async function send({ skipConfirm = false } = {}) {
   flex-wrap: wrap;
 }
 .uc-channel-switch button {
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
+  border: 1px solid var(--app-line, #cbd5e1);
+  background: var(--app-surface-muted, #f8fafc);
   border-radius: 999px;
   padding: 6px 12px;
   font-size: 0.8rem;
@@ -299,14 +299,14 @@ async function send({ skipConfirm = false } = {}) {
   border-color: #166534;
   color: #fff;
 }
-.uc-modal h3 { margin: 0; color: #166534; }
+.uc-modal h3 { margin: 0; color: var(--app-text-green, #166534); }
 .uc-x {
   border: none;
   background: transparent;
   font-size: 1.5rem;
   line-height: 1;
   cursor: pointer;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
 }
 .uc-row {
   display: grid;
@@ -315,13 +315,13 @@ async function send({ skipConfirm = false } = {}) {
   align-items: center;
   margin-bottom: 10px;
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
 }
 .uc-row input,
 .uc-row select,
 .uc-modal textarea {
   width: 100%;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--app-line, #cbd5e1);
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 0.9rem;
@@ -329,18 +329,18 @@ async function send({ skipConfirm = false } = {}) {
   box-sizing: border-box;
 }
 .uc-modal textarea { margin-top: 4px; resize: vertical; }
-.uc-hint { font-size: 0.75rem; color: #94a3b8; margin: -4px 0 10px 82px; }
+.uc-hint { font-size: 0.75rem; color: var(--app-muted, #94a3b8); margin: -4px 0 10px 82px; }
 .uc-link {
   border: none;
   background: none;
-  color: #166534;
+  color: var(--app-text-green, #166534);
   font-size: 0.8rem;
   cursor: pointer;
   margin: 0 0 10px 82px;
   padding: 0;
   text-decoration: underline;
 }
-.uc-err { color: #b91c1c; font-size: 0.85rem; }
+.uc-err { color: var(--app-text-red, #b91c1c); font-size: 0.85rem; }
 .uc-modal footer {
   display: flex;
   justify-content: flex-end;
@@ -354,19 +354,19 @@ async function send({ skipConfirm = false } = {}) {
   cursor: pointer;
   font-size: 0.9rem;
 }
-.uc-cancel { border: 1px solid #cbd5e1; background: #fff; }
+.uc-cancel { border: 1px solid var(--app-line, #cbd5e1); background: var(--app-surface, #fff); }
 .uc-send { border: none; background: #166534; color: #fff; }
 .uc-send:disabled { opacity: 0.6; }
 .uc-confirm {
   position: absolute;
   width: min(420px, 92vw);
-  background: #fff;
+  background: var(--app-surface, #fff);
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.3);
-  border: 1px solid #fde68a;
+  border: 1px solid var(--app-line, #fde68a);
 }
-.uc-confirm h4 { margin: 0 0 8px; color: #92400e; }
-.uc-confirm ul { margin: 0 0 12px; padding-left: 18px; font-size: 0.88rem; color: #334155; }
+.uc-confirm h4 { margin: 0 0 8px; color: var(--app-text-red, #92400e); }
+.uc-confirm ul { margin: 0 0 12px; padding-left: 18px; font-size: 0.88rem; color: var(--app-ink, #334155); }
 .uc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
 </style>

@@ -520,6 +520,7 @@
 </template>
 
 <script setup>
+import { getRegisteredQuickNavEntries, resolveRegisteredQuickNav, canDiscoverQuickNavRoute } from '../../navigation/quickNavRuntime';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -535,10 +536,8 @@ import { getMyDashboardPath, resolveAssistantNavigationPath } from '../../utils/
 import {
   buildQuickNavContext,
   getAccessibleQuickNavEntries,
-  resolveQuickNavRoute,
   searchQuickNav
 } from '../../navigation/quickNavCatalog.js';
-import { searchNav as searchHubNav } from '../../utils/navSearchIndex.js';
 import { canUseSchoolPortalQuickNav, searchSchoolPortalQuickNav } from '../../utils/schoolPortalQuickNav.js';
 import { resolveCommandSurface } from '../../utils/resolveCommandSurface.js';
 
@@ -1095,9 +1094,12 @@ const quickNavCtx = computed(() => {
   });
 });
 
-const quickNavSearch = computed(() =>
-  searchQuickNav(prompt.value, quickNavCtx.value, { limit: 8, surface: commandSurface.value })
-);
+const quickNavigationOptions = computed(() => ({
+  currentPath: route.path, orgSlug: orgSlugForNavigation(), dashboardPath: dashboardPathForQuickNav(),
+  user: authStore.user, agency: agencyStore.currentAgency || {}, platformBranding: brandingStore.platformBranding || {}
+}));
+const registeredNavEntries = computed(() => getRegisteredQuickNavEntries(router, quickNavCtx.value, quickNavigationOptions.value));
+const quickNavSearch = computed(() => searchQuickNav(prompt.value, quickNavCtx.value, { limit: 12, surface: commandSurface.value, entries: registeredNavEntries.value }));
 
 /**
  * Returns true when the query looks like a conversational question rather than
@@ -1115,41 +1117,13 @@ function looksLikeQuestion(q) {
   return false;
 }
 
-/** Admin hub pages merged from navSearchIndex — shown only when user is admin-like. */
-const hubNavResults = computed(() => {
-  if (effectiveSurfaceMode.value === 'ask') return [];
-  if (!isAdminLike.value) return [];
-  const q = String(prompt.value || '').trim();
-  if (q.length < 2) return [];
-  // Don't surface page results for conversational / question-type queries
-  if (looksLikeQuestion(q)) return [];
-  const orgSlug = route.params?.organizationSlug || null;
-  // Require a meaningful score so loose substring matches (e.g. "schedule" in
-  // "whats halle's schedule tomorrow") don't crowd out the conversational path.
-  return searchHubNav(q, { orgSlug, surface: commandSurface.value })
-    .filter((item) => item.score >= 50)
-    .slice(0, 5)
-    .map((item) => ({
-      id: `hub-${item.path}`,
-      label: item.title,
-      description: item.section,
-      group: 'hub',
-      groupLabel: 'Pages',
-      kind: 'path',
-      path: item.path,
-      score: item.score
-    }));
-});
-
 const quickNavGroups = computed(() => {
   if (effectiveSurfaceMode.value === 'ask') return [];
   const q = String(prompt.value || '').trim();
   if (looksLikeQuestion(q)) return [];
   const base = quickNavSearch.value.groups;
-  const hub = hubNavResults.value;
   const schools = schoolPortalNavResults.value;
   const groups = [];
-  if (hub.length) groups.push({ group: 'hub', label: 'Pages', items: hub });
   if (schools.length) groups.push({ group: 'school-portal', label: 'School Portals', items: schools });
   return [...groups, ...base];
 });
@@ -1159,9 +1133,8 @@ const quickNavFlat = computed(() => {
   const q = String(prompt.value || '').trim();
   if (looksLikeQuestion(q)) return [];
   const base = quickNavSearch.value.flat;
-  const hub = hubNavResults.value;
   const schools = schoolPortalNavResults.value;
-  return [...hub, ...schools, ...base];
+  return [...schools, ...base];
 });
 
 const quickNavPanelOpen = computed(
@@ -1211,24 +1184,24 @@ function orgSlugForNavigation() {
 }
 
 async function goQuickNav(item) {
-  if (!item || busy.value) return;
-  // Prefer agency slug when the current route is not org-scoped (e.g. /messages).
-  const orgSlug = orgSlugForNavigation();
-  const loc = resolveQuickNavRoute(item, {
-    currentPath: route.path,
-    orgSlug,
-    currentQuery: route.query,
-    dashboardPath: dashboardPathForQuickNav()
-  });
-  if (!loc) return;
-  prompt.value = '';
-  quickNavActiveId.value = null;
-  markEngaged();
+  if (!item) return;
+  error.value = '';
+  const loc = item.destination
+    ? resolveRegisteredQuickNav({ kind: 'path', path: item.destination, scope: 'platform' }, router, quickNavigationOptions.value)
+    : resolveRegisteredQuickNav(item, router, quickNavigationOptions.value);
+  if (!loc || !canDiscoverQuickNavRoute(loc, quickNavigationOptions.value)) {
+    error.value = 'This page is unavailable in your current workspace.';
+    return;
+  }
   try {
-    await router.push(loc);
-    if (!isEmbedded.value) emit('close');
-  } catch (e) {
-    console.warn('[AskAssistantPanel] quick-nav failed', e?.message);
+    await router.push(loc.fullPath);
+    if (router.currentRoute.value.fullPath !== loc.fullPath) {
+      error.value = 'This page could not open. Check your access or organization.';
+      return;
+    }
+    prompt.value = ''; quickNavActiveId.value = null; markEngaged(); if (!isEmbedded.value) emit('close');
+  } catch {
+    error.value = 'The page could not load. Check your connection and select it again to retry.';
   }
 }
 

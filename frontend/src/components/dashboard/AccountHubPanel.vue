@@ -131,10 +131,10 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 <style scoped>
 .acct-hub {
   --hub-green: #166534;
-  --hub-border: #e5e7eb;
-  --hub-muted: #6b7280;
+  --hub-border: var(--app-line, #e5e7eb);
+  --hub-muted: var(--app-muted, #6b7280);
   font-family: var(--font-body, 'Inter', system-ui, sans-serif);
-  color: #111827;
+  color: var(--app-ink, #111827);
 }
 
 .acct-hub__header {
@@ -150,7 +150,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 
 .acct-hub__title-icon {
   display: flex;
-  color: var(--hub-green);
+  color: var(--app-text-green, var(--hub-green));
 }
 
 .acct-hub__title {
@@ -180,8 +180,8 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  background: #dcfce7;
-  color: var(--hub-green);
+  background: var(--app-tint-green, #dcfce7);
+  color: var(--app-text-green, var(--hub-green));
   font-size: 13px;
   font-weight: 700;
   display: flex;
@@ -277,7 +277,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
   width: 100%;
   padding: 12px 14px;
   text-align: left;
-  background: #fff;
+  background: var(--app-surface, #fff);
   border: 1px solid var(--hub-border);
   border-radius: 10px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
@@ -288,8 +288,8 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 }
 
 .acct-hub__stat:hover {
-  border-color: #86efac;
-  background: #fafafa;
+  border-color: var(--app-line, #86efac);
+  background: var(--app-surface-muted, #fafafa);
   box-shadow: 0 2px 8px rgba(22, 101, 52, 0.06);
 }
 
@@ -299,7 +299,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 }
 
 .acct-hub__stat--active {
-  border-color: #86efac;
+  border-color: var(--app-line, #86efac);
   box-shadow: 0 2px 8px rgba(22, 101, 52, 0.08);
 }
 
@@ -326,7 +326,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 .acct-hub__stat-label {
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: var(--app-ink, #374151);
   margin-top: 2px;
 }
 
@@ -342,10 +342,10 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
   gap: 12px;
   padding: 14px 16px;
   margin-bottom: 20px;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
+  background: var(--app-surface-muted, #ecfdf5);
+  border: 1px solid var(--app-line, #a7f3d0);
   border-radius: 10px;
-  color: #166534;
+  color: var(--app-text-green, #166534);
   font-size: 14px;
   line-height: 1.5;
 }
@@ -359,7 +359,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
   background: none;
   border: none;
   font-size: 20px;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
   cursor: pointer;
 }
 
@@ -396,7 +396,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
   width: 100%;
   padding: 12px 14px;
   text-align: left;
-  background: #fff;
+  background: var(--app-surface, #fff);
   border: 1px solid var(--hub-border);
   border-left: 3px solid transparent;
   border-radius: 10px;
@@ -412,13 +412,13 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 }
 
 .acct-hub__nav-item:hover {
-  border-color: #d1d5db;
-  background: #fafafa;
+  border-color: var(--app-line, #d1d5db);
+  background: var(--app-surface-muted, #fafafa);
 }
 
 .acct-hub__nav-item--active {
   border-left-color: var(--cat-accent, var(--hub-green));
-  background: color-mix(in srgb, var(--cat-icon-bg, #ecfdf5) 40%, #fff);
+  background: color-mix(in srgb, var(--cat-icon-bg, #ecfdf5) 40%, var(--app-surface, #fff));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
@@ -429,8 +429,8 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--app-surface-muted, #f3f4f6);
+  color: var(--app-ink, #374151);
   flex-shrink: 0;
 }
 
@@ -449,7 +449,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 .acct-hub__nav-label {
   font-size: 14px;
   font-weight: 700;
-  color: #111827;
+  color: var(--app-ink, #111827);
 }
 
 .acct-hub__nav-desc {
@@ -465,7 +465,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
 }
 
 .acct-hub__main {
-  background: #fff;
+  background: var(--app-surface, #fff);
   border: 1px solid var(--hub-border);
   border-radius: 10px;
   overflow: hidden;
@@ -479,7 +479,7 @@ const sectionIcon = (name) => ICONS[name] || ICONS.user;
   gap: 12px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--hub-border);
-  background: color-mix(in srgb, var(--cat-icon-bg, #fafafa) 50%, #fff);
+  background: color-mix(in srgb, var(--cat-icon-bg, #fafafa) 50%, var(--app-surface, #fff));
   border-left: 4px solid var(--cat-accent, var(--hub-green));
 }
 

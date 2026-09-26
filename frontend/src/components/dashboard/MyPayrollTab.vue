@@ -5685,21 +5685,21 @@ watch(
   margin-bottom: 12px;
   padding: 10px 14px;
   border-radius: 10px;
-  border: 1px solid #bbf7d0;
-  background: #f0fdf4;
+  border: 1px solid var(--app-line, #bbf7d0);
+  background: var(--app-surface-muted, #f0fdf4);
   font-size: 13px;
-  color: #166534;
+  color: var(--app-text-green, #166534);
 }
 .pay-tier-banner strong { font-size: 14px; }
 .pay-tier-banner--grace {
-  border-color: #fde68a;
-  background: #fffbeb;
-  color: #92400e;
+  border-color: var(--app-line, #fde68a);
+  background: var(--app-surface-muted, #fffbeb);
+  color: var(--app-text-red, #92400e);
 }
 .pay-tier-banner--ooc {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: #991b1b;
+  border-color: var(--app-line, #fecaca);
+  background: var(--app-surface-muted, #fef2f2);
+  color: var(--app-text-red, #991b1b);
 }
 .table-wrap {
   overflow: auto;
@@ -5719,13 +5719,13 @@ watch(
   border-bottom: 1px solid var(--border);
 }
 .mileage-row-submitted {
-  background: #e8f4fc;
+  background: var(--app-surface-muted, #e8f4fc);
 }
 .mileage-row-approved {
-  background: #d4edda;
+  background: var(--app-tint-green, #d4edda);
 }
 .mileage-row-returned {
-  background: #ffe4cc;
+  background: var(--app-tint-red, #ffe4cc);
 }
 .right {
   text-align: right;
@@ -5763,31 +5763,31 @@ watch(
   color: var(--text-secondary);
 }
 .warn-box {
-  border: 1px solid #ffe58f;
-  background: #fffbe6;
+  border: 1px solid var(--app-line, #ffe58f);
+  background: var(--app-tint-amber, #fffbe6);
   border-radius: 10px;
   padding: 10px 12px;
 }
 .current-unpaid-notes {
-  border: 1px solid #ffd8a8;
-  background: #fff4e6;
+  border: 1px solid var(--app-line, #ffd8a8);
+  background: var(--app-tint-amber, #fff4e6);
 }
 .current-unpaid-notes strong {
-  color: #b45309;
+  color: var(--app-text-red, #b45309);
 }
 .old-notes-alert {
-  border: 1px solid #ffb5b5;
-  background: #ffecec;
+  border: 1px solid var(--app-line, #ffb5b5);
+  background: var(--app-surface-muted, #ffecec);
 }
 .old-notes-alert strong {
-  color: #b42318;
+  color: var(--app-text-red, #b42318);
   font-weight: 800;
 }
 .clickable {
   cursor: pointer;
 }
 .clickable:hover td {
-  background: #f9fafb;
+  background: var(--app-surface-muted, #f9fafb);
 }
 .period-title {
   display: flex;
@@ -5818,7 +5818,7 @@ select {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--app-surface, #fff);
 }
 .badge {
   display: inline-block;
@@ -5888,22 +5888,22 @@ select {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: white;
+  background: var(--app-surface, white);
   margin-top: 10px;
   cursor: pointer;
 }
 .period-row.shade-a {
-  background: #ffffff;
+  background: var(--app-surface, #ffffff);
 }
 .period-row.shade-b {
-  background: #f8fafc;
+  background: var(--app-surface-muted, #f8fafc);
 }
 .period-row:hover {
-  background: #f9fafb;
+  background: var(--app-surface-muted, #f9fafb);
 }
 .period-row.active {
   border-color: #166534;
-  background: #f0fdf4;
+  background: var(--app-surface-muted, #f0fdf4);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
 }
@@ -5947,7 +5947,7 @@ select {
 }
 .card {
   margin-top: 12px;
-  background: white;
+  background: var(--app-surface, white);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;
@@ -6012,8 +6012,8 @@ select {
   border-top: 1px solid var(--border);
 }
 .error-box {
-  background: #ffecec;
-  border: 1px solid #ffb5b5;
+  background: var(--app-surface-muted, #ffecec);
+  border: 1px solid var(--app-line, #ffb5b5);
   padding: 10px 12px;
   border-radius: 10px;
   margin: 10px 0;
@@ -6025,8 +6025,8 @@ select {
   gap: 10px;
   align-items: flex-end;
   padding: 14px 16px;
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--app-surface, #fff);
+  border: 1px solid var(--app-line, #e5e7eb);
   border-radius: 10px;
   margin-bottom: 14px;
 }
@@ -6037,7 +6037,7 @@ select {
   gap: 4px;
   font-size: 12px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
 }
 
 .pay-hub-filters__field--grow {
@@ -6048,10 +6048,10 @@ select {
 .pay-hub-filters__select,
 .pay-hub-filters__input {
   padding: 10px 12px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-line, #e5e7eb);
   border-radius: 8px;
   font-size: 14px;
-  background: #fff;
+  background: var(--app-surface, #fff);
 }
 
 .pay-stub-breakdown {
@@ -6063,7 +6063,7 @@ select {
   border: 1px solid #166534;
   border-top: none;
   border-radius: 0 0 12px 12px;
-  background: #f0fdf4;
+  background: var(--app-surface-muted, #f0fdf4);
   padding: 14px 16px 16px;
   min-width: 0;
   max-width: 100%;
@@ -6081,15 +6081,15 @@ select {
 .pay-stub-breakdown__title {
   font-size: 14px;
   font-weight: 700;
-  color: #166534;
+  color: var(--app-text-green, #166534);
 }
 
 .pay-stub-breakdown__close {
   flex-shrink: 0;
   background: none;
-  border: 1px solid #bbf7d0;
+  border: 1px solid var(--app-line, #bbf7d0);
   border-radius: 6px;
-  color: #166534;
+  color: var(--app-text-green, #166534);
   font-size: 18px;
   line-height: 1;
   padding: 2px 8px;
@@ -6097,7 +6097,7 @@ select {
   transition: background 0.15s;
 }
 .pay-stub-breakdown__close:hover {
-  background: #dcfce7;
+  background: var(--app-tint-green, #dcfce7);
 }
 
 :deep(.pay-hub__btn--primary) {
@@ -6109,9 +6109,9 @@ select {
   background: #14532d;
 }
 :deep(.pay-hub__btn--ghost) {
-  background: #fff;
-  color: #374151;
-  border: 1px solid #e5e7eb;
+  background: var(--app-surface, #fff);
+  color: var(--app-ink, #374151);
+  border: 1px solid var(--app-line, #e5e7eb);
 }
 
 :deep(.pay-hub__inline-check) {
@@ -6135,7 +6135,7 @@ select {
   z-index: 50;
 }
 .modal {
-  background: white;
+  background: var(--app-surface, white);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;
@@ -6172,14 +6172,14 @@ textarea {
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: white;
+  background: var(--app-surface, white);
   color: var(--text-primary);
 }
 .btn {
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: white;
+  background: var(--app-surface, white);
   color: var(--text-primary);
   cursor: pointer;
 }
@@ -6189,7 +6189,7 @@ textarea {
   border-color: #111827;
 }
 .btn.btn-secondary {
-  background: #f9fafb;
+  background: var(--app-surface-muted, #f9fafb);
 }
 .btn.btn-sm {
   padding: 6px 8px;

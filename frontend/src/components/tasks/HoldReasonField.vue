@@ -81,7 +81,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 .hold-reason-label {
   font-size: 11px;
   font-weight: 700;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -94,18 +94,18 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   gap: 8px;
   min-height: 38px;
   padding: 8px 12px;
-  border: 1px solid #bbf7d0;
+  border: 1px solid var(--app-line, #bbf7d0);
   border-radius: 10px;
-  background: #fff;
-  color: #14532d;
+  background: var(--app-surface, #fff);
+  color: var(--app-ink, #14532d);
   font: inherit;
   font-weight: 700;
   font-size: 13px;
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
-.hold-reason-trigger:hover { background: #f0fdf4; }
-.hold-reason-chev { color: #16a34a; font-size: 11px; }
+.hold-reason-trigger:hover { background: var(--app-surface-muted, #f0fdf4); }
+.hold-reason-chev { color: var(--app-text-green, #16a34a); font-size: 11px; }
 .hold-reason-menu {
   position: absolute;
   z-index: 20;
@@ -115,8 +115,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   margin: 0;
   padding: 6px;
   list-style: none;
-  background: #fff;
-  border: 1px solid #dcfce7;
+  background: var(--app-surface, #fff);
+  border: 1px solid var(--app-line, #dcfce7);
   border-radius: 12px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
   max-height: 220px;
@@ -132,19 +132,19 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   font: inherit;
   font-size: 13px;
   font-weight: 600;
-  color: #334155;
+  color: var(--app-ink, #334155);
   cursor: pointer;
 }
 .hold-reason-option:hover,
 .hold-reason-option.on {
-  background: #ecfdf5;
-  color: #14532d;
+  background: var(--app-surface-muted, #ecfdf5);
+  color: var(--app-ink, #14532d);
 }
 .hold-reason-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .hold-reason-chip {
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #334155;
+  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--app-surface-muted, #f8fafc);
+  color: var(--app-ink, #334155);
   border-radius: 999px;
   padding: 5px 10px;
   font-size: 11px;
@@ -152,8 +152,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   cursor: pointer;
 }
 .hold-reason-chip.on {
-  background: #dcfce7;
-  border-color: #86efac;
-  color: #166534;
+  background: var(--app-tint-green, #dcfce7);
+  border-color: var(--app-line, #86efac);
+  color: var(--app-text-green, #166534);
 }
 </style>

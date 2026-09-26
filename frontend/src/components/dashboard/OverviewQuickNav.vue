@@ -41,6 +41,7 @@
           <kbd v-else class="ov-qnav-hint" aria-hidden="true">{{ modHint }}</kbd>
     </div>
 
+    <p v-if="navigationError" role="alert" class="ov-qnav-error">{{ navigationError }}</p>
     <div
       v-if="panelOpen"
       id="ov-quick-nav-listbox"
@@ -79,14 +80,15 @@
 </template>
 
 <script setup>
+import { getRegisteredQuickNavEntries, resolveRegisteredQuickNav, canDiscoverQuickNavRoute } from '../../navigation/quickNavRuntime';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
 import { getMyDashboardPath } from '../../utils/router';
 import {
   buildQuickNavContext,
-  resolveQuickNavRoute,
   searchQuickNav
 } from '../../navigation/quickNavCatalog';
 
@@ -105,6 +107,7 @@ const emit = defineEmits(['navigated']);
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
 const router = useRouter();
 const route = useRoute();
 
@@ -123,6 +126,7 @@ function dashboardPathForQuickNav() {
 
 const inputRef = ref(null);
 const query = ref('');
+const navigationError = ref('');
 const focused = ref(false);
 const panelForcedOpen = ref(false);
 const activeId = ref(null);
@@ -145,7 +149,12 @@ const ctx = computed(() =>
   })
 );
 
-const searchResult = computed(() => searchQuickNav(query.value, ctx.value));
+const quickNavigationOptions = computed(() => ({
+  currentPath: route.path, orgSlug: orgSlugForNavigation(), dashboardPath: dashboardPathForQuickNav(),
+  user: authStore.user, agency: agencyStore.currentAgency || {}, platformBranding: brandingStore.platformBranding || {}
+}));
+const registeredNavEntries = computed(() => getRegisteredQuickNavEntries(router, ctx.value, quickNavigationOptions.value));
+const searchResult = computed(() => searchQuickNav(query.value, ctx.value, { entries: registeredNavEntries.value }));
 const groups = computed(() => searchResult.value.groups);
 const flat = computed(() => searchResult.value.flat);
 
@@ -207,21 +216,23 @@ function moveActive(delta) {
 
 async function go(item) {
   if (!item) return;
-  const loc = resolveQuickNavRoute(item, {
-    currentPath: route.path,
-    orgSlug: orgSlugForNavigation(),
-    currentQuery: route.query,
-    dashboardPath: dashboardPathForQuickNav()
-  });
-  if (!loc) return;
-  query.value = '';
-  activeId.value = null;
-  panelForcedOpen.value = false;
+  navigationError.value = '';
+  const loc = item.destination
+    ? resolveRegisteredQuickNav({ kind: 'path', path: item.destination, scope: 'platform' }, router, quickNavigationOptions.value)
+    : resolveRegisteredQuickNav(item, router, quickNavigationOptions.value);
+  if (!loc || !canDiscoverQuickNavRoute(loc, quickNavigationOptions.value)) {
+    navigationError.value = 'This page is unavailable in your current workspace.';
+    return;
+  }
   try {
-    await router.push(loc);
-    emit('navigated', item);
-  } catch (e) {
-    console.warn('[OverviewQuickNav] navigation failed', e?.message);
+    await router.push(loc.fullPath);
+    if (router.currentRoute.value.fullPath !== loc.fullPath) {
+      navigationError.value = 'This page could not open. Check your access or organization.';
+      return;
+    }
+    query.value = ''; activeId.value = null; panelForcedOpen.value = false; emit('navigated', item);
+  } catch {
+    navigationError.value = 'The page could not load. Check your connection and select it again to retry.';
   }
 }
 
@@ -293,6 +304,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.ov-qnav-error { color: var(--danger); padding: 8px; }
 .ov-qnav {
   position: relative;
   width: 100%;

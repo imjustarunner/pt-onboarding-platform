@@ -1438,10 +1438,10 @@ watch(viewMode, (mode) => {
 .credentialing-page {
   font-family: var(--agency-font-family, var(--font-body));
   font-size: 1rem;
-  --cred-border: #e5e7eb;
-  --cred-muted: #6b7280;
-  --cred-surface: #ffffff;
-  --cred-bg: #f3f4f6;
+  --cred-border: var(--app-line, #e5e7eb);
+  --cred-muted: var(--app-muted, #6b7280);
+  --cred-surface: var(--app-surface, #ffffff);
+  --cred-bg: var(--app-surface-muted, #f3f4f6);
 }
 .page-header {
   display: flex;
@@ -1506,13 +1506,13 @@ watch(viewMode, (mode) => {
   transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
 }
 .stat-card:hover {
-  border-color: #99f6e4;
+  border-color: var(--app-line, #99f6e4);
   box-shadow: 0 4px 12px rgba(15, 118, 110, 0.08);
 }
 .stat-card.active {
   border-color: #0f766e;
   box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
-  background: #f0fdf4;
+  background: var(--app-surface-muted, #f0fdf4);
 }
 .smart-search-wrap {
   position: relative;
@@ -1528,7 +1528,7 @@ watch(viewMode, (mode) => {
   transform: translateY(-50%);
   border: none;
   background: transparent;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
   font-size: 18px;
   cursor: pointer;
   line-height: 1;
@@ -1543,21 +1543,21 @@ watch(viewMode, (mode) => {
 .quick-label {
   font-size: 12px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
   margin-right: 2px;
 }
 .chip {
-  border: 1px solid #e5e7eb;
-  background: #fff;
+  border: 1px solid var(--app-line, #e5e7eb);
+  background: var(--app-surface, #fff);
   border-radius: 999px;
   padding: 5px 12px;
   font-size: 12px;
   font-weight: 600;
-  color: #374151;
+  color: var(--app-ink, #374151);
   cursor: pointer;
 }
 .chip:hover {
-  border-color: #99f6e4;
+  border-color: var(--app-line, #99f6e4);
 }
 .chip.active {
   background: #0f766e;
@@ -1570,12 +1570,12 @@ watch(viewMode, (mode) => {
 .chip-progress.active { background: #6d28d9; border-color: #6d28d9; }
 .chip-clear {
   border-style: dashed;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
 }
 .filter-pill {
   margin-top: 4px;
   font-size: 12px;
-  color: #0f766e;
+  color: var(--app-text-green, #0f766e);
   font-weight: 600;
 }
 .sortable {
@@ -1584,7 +1584,7 @@ watch(viewMode, (mode) => {
   white-space: nowrap;
 }
 .sortable:hover {
-  color: #0f766e;
+  color: var(--app-text-green, #0f766e);
 }
 .sort-ind {
   font-size: 11px;
@@ -1603,11 +1603,11 @@ watch(viewMode, (mode) => {
   width: 20px;
   height: 20px;
 }
-.stat-icon.total { background: #dcfce7; color: #15803d; }
-.stat-icon.active { background: #dbeafe; color: #1d4ed8; }
-.stat-icon.soon { background: #ffedd5; color: #c2410c; }
-.stat-icon.expired { background: #fee2e2; color: #b91c1c; }
-.stat-icon.progress { background: #ede9fe; color: #6d28d9; }
+.stat-icon.total { background: var(--app-tint-green, #dcfce7); color: var(--app-text-green, #15803d); }
+.stat-icon.active { background: var(--app-tint-blue, #dbeafe); color: var(--app-text-blue, #1d4ed8); }
+.stat-icon.soon { background: var(--app-tint-red, #ffedd5); color: var(--app-text-red, #c2410c); }
+.stat-icon.expired { background: var(--app-tint-red, #fee2e2); color: var(--app-text-red, #b91c1c); }
+.stat-icon.progress { background: var(--app-surface-muted, #ede9fe); color: var(--app-text-violet, #6d28d9); }
 .stat-label {
   font-size: 12px;
   color: var(--cred-muted);
@@ -1616,7 +1616,7 @@ watch(viewMode, (mode) => {
   font-size: 24px;
   font-weight: 700;
   line-height: 1.1;
-  color: #111827;
+  color: var(--app-ink, #111827);
 }
 .table-toolbar {
   display: flex;
@@ -1637,18 +1637,18 @@ watch(viewMode, (mode) => {
   align-items: center;
   gap: 6px;
   border: 1px solid var(--cred-border);
-  background: #fff;
+  background: var(--app-surface, #fff);
   border-radius: 8px;
   padding: 6px 10px;
   cursor: pointer;
-  color: #374151;
+  color: var(--app-ink, #374151);
 }
 .column-menu {
   position: absolute;
   right: 0;
   top: calc(100% + 6px);
   z-index: 20;
-  background: #fff;
+  background: var(--app-surface, #fff);
   border: 1px solid var(--cred-border);
   border-radius: 10px;
   padding: 10px;
@@ -1669,7 +1669,7 @@ watch(viewMode, (mode) => {
   border-collapse: separate;
   border-spacing: 0;
   min-width: 1400px;
-  background: #fff;
+  background: var(--app-surface, #fff);
 }
 .cred-table th,
 .cred-table td {
@@ -1681,29 +1681,29 @@ watch(viewMode, (mode) => {
   white-space: nowrap;
 }
 .cred-table th {
-  background: #f9fafb;
-  color: #6b7280;
+  background: var(--app-surface-muted, #f9fafb);
+  color: var(--app-muted, #6b7280);
   font-weight: 600;
   position: sticky;
   top: 0;
   z-index: 2;
 }
 .cred-table tbody tr:hover {
-  background: #fafafa;
+  background: var(--app-surface-muted, #fafafa);
 }
 .cred-table tr.row-editing {
-  background: #f0fdf4;
+  background: var(--app-surface-muted, #f0fdf4);
 }
 .sticky-name {
   position: sticky;
   left: 0;
-  background: #fff;
+  background: var(--app-surface, #fff);
   z-index: 1;
   min-width: 240px;
 }
 .cred-table th.sticky-name {
   z-index: 3;
-  background: #f9fafb;
+  background: var(--app-surface-muted, #f9fafb);
 }
 .provider-identity {
   display: flex;
@@ -1726,47 +1726,47 @@ watch(viewMode, (mode) => {
 }
 .provider-name {
   font-weight: 600;
-  color: #111827;
+  color: var(--app-ink, #111827);
   text-decoration: none;
 }
 .provider-name:hover {
   text-decoration: underline;
 }
 .cell-text {
-  color: #111827;
+  color: var(--app-ink, #111827);
   user-select: text;
 }
 .cell-input {
   width: 100%;
   min-width: 110px;
-  border: 1px solid #86efac;
+  border: 1px solid var(--app-line, #86efac);
   border-radius: 8px;
   padding: 6px 8px;
-  background: #fff;
+  background: var(--app-surface, #fff);
 }
 .cell-missing {
-  color: #b91c1c;
+  color: var(--app-text-red, #b91c1c);
   font-weight: 600;
 }
 .cell-alert {
-  background: #fef2f2 !important;
+  background: var(--app-surface-muted, #fef2f2) !important;
 }
 .cell-alert .cell-text {
-  color: #b91c1c;
+  color: var(--app-text-red, #b91c1c);
   font-weight: 700;
 }
 .cell-expired {
-  background: #fef2f2 !important;
+  background: var(--app-surface-muted, #fef2f2) !important;
 }
 .cell-expired .cell-text {
-  color: #b91c1c;
+  color: var(--app-text-red, #b91c1c);
   font-weight: 700;
 }
 .cell-soon {
-  background: #fffbeb !important;
+  background: var(--app-surface-muted, #fffbeb) !important;
 }
 .cell-soon .cell-text {
-  color: #b45309;
+  color: var(--app-text-red, #b45309);
   font-weight: 700;
 }
 .license-actions {
@@ -1777,7 +1777,7 @@ watch(viewMode, (mode) => {
 .link-btn {
   border: none;
   background: none;
-  color: #0f766e;
+  color: var(--app-text-green, #0f766e);
   font-weight: 600;
   cursor: pointer;
   padding: 0;
@@ -1797,8 +1797,8 @@ watch(viewMode, (mode) => {
   align-items: center;
   padding: 2px 8px;
   border-radius: 999px;
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--app-tint-red, #fee2e2);
+  color: var(--app-text-red, #b91c1c);
   font-weight: 700;
   font-size: 11px;
 }
@@ -1811,20 +1811,20 @@ watch(viewMode, (mode) => {
   font-weight: 700;
 }
 .status-pill.active {
-  background: #dcfce7;
-  color: #15803d;
+  background: var(--app-tint-green, #dcfce7);
+  color: var(--app-text-green, #15803d);
 }
 .status-pill.soon {
-  background: #ffedd5;
-  color: #c2410c;
+  background: var(--app-tint-red, #ffedd5);
+  color: var(--app-text-red, #c2410c);
 }
 .status-pill.expired {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--app-tint-red, #fee2e2);
+  color: var(--app-text-red, #b91c1c);
 }
 .status-pill.progress {
-  background: #ede9fe;
-  color: #6d28d9;
+  background: var(--app-surface-muted, #ede9fe);
+  color: var(--app-text-violet, #6d28d9);
 }
 .actions-cell {
   white-space: nowrap;
@@ -1851,15 +1851,15 @@ watch(viewMode, (mode) => {
   padding: 0 5px;
 }
 .expand-row td {
-  background: #f8fafc;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--app-surface-muted, #f8fafc);
+  border-bottom: 1px solid var(--app-line, #e5e7eb);
 }
 .expand-cell {
   padding: 12px 14px !important;
   white-space: normal !important;
 }
 .row-expanded {
-  background: #f0fdf4;
+  background: var(--app-surface-muted, #f0fdf4);
 }
 .payer-defs-hint {
   margin: 8px 0 12px;
@@ -1883,7 +1883,7 @@ watch(viewMode, (mode) => {
   height: 32px;
   border-radius: 8px;
   border: 1px solid var(--cred-border);
-  background: #fff;
+  background: var(--app-surface, #fff);
   cursor: pointer;
 }
 .page-btn.active {
@@ -1899,7 +1899,7 @@ watch(viewMode, (mode) => {
   border: 1px solid var(--cred-border);
   border-radius: 8px;
   padding: 6px 8px;
-  background: #fff;
+  background: var(--app-surface, #fff);
 }
 .in-network-badges {
   display: flex;

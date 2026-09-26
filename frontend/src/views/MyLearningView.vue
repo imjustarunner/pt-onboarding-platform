@@ -621,7 +621,7 @@ onMounted(load);
 }
 .metric.alert {
   border-color: color-mix(in srgb, var(--danger, #c0392b) 40%, var(--border));
-  background: color-mix(in srgb, var(--danger, #c0392b) 6%, white);
+  background: color-mix(in srgb, var(--danger, #c0392b) 6%, var(--app-surface, white));
 }
 .metric-value { font-size: 1.7rem; font-weight: 700; color: var(--secondary); line-height: 1.1; }
 .metric-value.cert { color: var(--success); }
@@ -774,7 +774,7 @@ onMounted(load);
   box-shadow: var(--shadow);
 }
 .aside-card.highlight {
-  background: color-mix(in srgb, var(--primary) 8%, white);
+  background: color-mix(in srgb, var(--primary) 8%, var(--app-surface, white));
   border-color: color-mix(in srgb, var(--primary) 28%, var(--border));
 }
 .aside-card h3 { margin: 0 0 8px; font-size: 0.95rem; }

@@ -95,7 +95,7 @@ onUnmounted(() => clearTimeout(debounce));
 .uc-dir { position: relative; width: 100%; }
 .uc-dir input {
   width: 100%;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--app-line, #cbd5e1);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 0.85rem;
@@ -110,8 +110,8 @@ onUnmounted(() => clearTimeout(debounce));
   margin: 0;
   padding: 4px;
   list-style: none;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--app-surface, #fff);
+  border: 1px solid var(--app-line, #e2e8f0);
   border-radius: 8px;
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
   max-height: 220px;
@@ -126,9 +126,9 @@ onUnmounted(() => clearTimeout(debounce));
   cursor: pointer;
   font-size: 0.82rem;
 }
-.uc-dir-list li:hover { background: #f0fdf4; }
-.uc-dir-list strong { color: #0f172a; }
-.uc-dir-list span { color: #166534; }
-.uc-dir-list em { font-style: normal; color: #94a3b8; font-size: 0.72rem; }
-.uc-dir-hint { margin: 4px 0 0; font-size: 0.72rem; color: #94a3b8; }
+.uc-dir-list li:hover { background: var(--app-surface-muted, #f0fdf4); }
+.uc-dir-list strong { color: var(--app-ink, #0f172a); }
+.uc-dir-list span { color: var(--app-text-green, #166534); }
+.uc-dir-list em { font-style: normal; color: var(--app-muted, #94a3b8); font-size: 0.72rem; }
+.uc-dir-hint { margin: 4px 0 0; font-size: 0.72rem; color: var(--app-muted, #94a3b8); }
 </style>

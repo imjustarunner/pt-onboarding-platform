@@ -1550,14 +1550,14 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
-  background: white;
+  background: var(--app-surface, white);
   color: var(--text-primary);
   min-width: 180px;
 }
 
 .filter-select option {
   color: var(--text-primary);
-  background: white;
+  background: var(--app-surface, white);
 }
 
 .pagination-info {
@@ -1620,7 +1620,7 @@ onMounted(async () => {
 
 .html-preview {
   padding: 24px;
-  background: #f8f9fa;
+  background: var(--app-surface-muted, #f8f9fa);
   border-radius: 8px;
   line-height: 1.6;
 }
@@ -1645,7 +1645,7 @@ onMounted(async () => {
 .documents-table {
   width: 100%;
   border-collapse: collapse;
-  background: white;
+  background: var(--app-surface, white);
   border-radius: 8px;
   overflow: hidden;
   box-shadow: var(--shadow);
@@ -1801,7 +1801,7 @@ onMounted(async () => {
 }
 
 .modal-content {
-  background: white;
+  background: var(--app-surface, white);
   padding: 32px;
   border-radius: 12px;
   max-width: 600px;
@@ -1837,7 +1837,7 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 14px;
-  background: white;
+  background: var(--app-surface, white);
   color: var(--text-primary);
 }
 
@@ -1866,7 +1866,7 @@ onMounted(async () => {
   padding: 12px 16px;
   border: 2px solid var(--border, #ddd);
   border-radius: 8px;
-  background: white;
+  background: var(--app-surface, white);
   color: var(--text-primary, #333);
   font-size: 14px;
   font-weight: 500;
@@ -1876,7 +1876,7 @@ onMounted(async () => {
 
 .action-btn:hover {
   border-color: var(--primary-color, #007bff);
-  background: #f8f9fa;
+  background: var(--app-surface-muted, #f8f9fa);
 }
 
 .action-btn.active {
@@ -1896,7 +1896,7 @@ onMounted(async () => {
   padding: 12px 14px;
   border: 2px solid var(--border, #ddd);
   border-radius: 10px;
-  background: white;
+  background: var(--app-surface, white);
   color: var(--text-primary, #333);
   font-size: 14px;
   font-weight: 600;
@@ -1906,7 +1906,7 @@ onMounted(async () => {
 
 .scope-btn:hover:not(:disabled) {
   border-color: var(--primary-color, #007bff);
-  background: #f8f9fa;
+  background: var(--app-surface-muted, #f8f9fa);
 }
 
 .scope-btn.active {

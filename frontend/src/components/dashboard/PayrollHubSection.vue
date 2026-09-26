@@ -66,8 +66,8 @@ const iconSvg = computed(() => SECTION_ICONS[meta.value.icon] || SECTION_ICONS.w
 
 <style scoped>
 .pay-hub__section {
-  background: #fff;
-  border: 1px solid #e5e7eb;
+  background: var(--app-surface, #fff);
+  border: 1px solid var(--app-line, #e5e7eb);
   border-left: 4px solid var(--cat-accent, #0d9488);
   border-radius: 10px;
   margin-bottom: 14px;
@@ -82,16 +82,16 @@ const iconSvg = computed(() => SECTION_ICONS[meta.value.icon] || SECTION_ICONS.w
   align-items: center;
   gap: 10px;
   padding: 14px 18px;
-  background: color-mix(in srgb, var(--cat-icon-bg, #fafafa) 55%, #fff);
+  background: color-mix(in srgb, var(--cat-icon-bg, #fafafa) 55%, var(--app-surface, #fff));
   border: none;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--app-line, #e5e7eb);
   cursor: pointer;
   text-align: left;
 }
 
 .pay-hub__chevron {
   display: flex;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
   transition: transform 0.2s;
 }
 .pay-hub__chevron.open {
@@ -113,7 +113,7 @@ const iconSvg = computed(() => SECTION_ICONS[meta.value.icon] || SECTION_ICONS.w
 .pay-hub__section-title {
   font-size: 15px;
   font-weight: 700;
-  color: #111827;
+  color: var(--app-ink, #111827);
 }
 
 .pay-hub__section-tag {
@@ -133,7 +133,7 @@ const iconSvg = computed(() => SECTION_ICONS[meta.value.icon] || SECTION_ICONS.w
 .pay-hub__section-count {
   margin-left: auto;
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
   font-weight: 500;
 }
 
@@ -163,14 +163,14 @@ const iconSvg = computed(() => SECTION_ICONS[meta.value.icon] || SECTION_ICONS.w
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #6b7280;
-  background: #fafafa;
-  border-bottom: 1px solid #e5e7eb;
+  color: var(--app-muted, #6b7280);
+  background: var(--app-surface-muted, #fafafa);
+  border-bottom: 1px solid var(--app-line, #e5e7eb);
 }
 
 .pay-hub__section-body :deep(.table td) {
   padding: 12px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--app-line, #f3f4f6);
   vertical-align: middle;
 }
 

@@ -690,7 +690,7 @@ watch([selectedUserIds, agencyIdsForSchedule, weekStartYmd, effectiveViewMode], 
 .overlay-card, .stack-card {
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: #fff;
+  background: var(--app-surface, #fff);
   padding: 10px;
   margin-bottom: 12px;
 }
@@ -698,7 +698,7 @@ watch([selectedUserIds, agencyIdsForSchedule, weekStartYmd, effectiveViewMode], 
 .stack-title { font-weight: 800; }
 .stack-actions { display: inline-flex; gap: 6px; }
 .row { display: flex; align-items: center; }
-.error { color: #b00020; margin-bottom: 8px; }
+.error { color: var(--app-text-red, #b00020); margin-bottom: 8px; }
 .muted { color: var(--text-secondary); }
 @media (max-width: 900px) {
   .layout { grid-template-columns: 1fr; }

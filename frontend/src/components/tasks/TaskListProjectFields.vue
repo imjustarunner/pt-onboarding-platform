@@ -298,20 +298,20 @@ watch(
 }
 
 .list-project-notice--info {
-  background: #eff6ff;
-  color: #1e40af;
-  border: 1px solid #bfdbfe;
+  background: var(--app-surface-muted, #eff6ff);
+  color: var(--app-text-blue, #1e40af);
+  border: 1px solid var(--app-line, #bfdbfe);
 }
 
 .list-project-notice--warn {
-  background: #fffbeb;
-  color: #92400e;
-  border: 1px solid #fde68a;
+  background: var(--app-surface-muted, #fffbeb);
+  color: var(--app-text-red, #92400e);
+  border: 1px solid var(--app-line, #fde68a);
 }
 
 .list-project-notice--hint {
-  background: #f0fdf4;
-  color: #166534;
-  border: 1px solid #bbf7d0;
+  background: var(--app-surface-muted, #f0fdf4);
+  color: var(--app-text-green, #166534);
+  border: 1px solid var(--app-line, #bbf7d0);
 }
 </style>

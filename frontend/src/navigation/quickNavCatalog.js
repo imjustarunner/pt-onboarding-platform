@@ -9,7 +9,6 @@ import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 
 import { ACCOUNT_SECTIONS } from '../config/accountDisplaySections.js';
 import { isSupervisor } from '../utils/helpers.js';
-import { resolveOrgSlugForNavigation } from '../utils/router.js';
 import { surfaceBoostForQuickNavEntry } from '../utils/resolveCommandSurface.js';
 import { APP_PAGES } from './appPagesData.js';
 
@@ -812,7 +811,7 @@ function buildAppEntries() {
       group: 'admin',
       keywords: ['provider directory', 'providers', 'provider list'],
       kind: 'path',
-      path: '/admin/provider-directory',
+      path: '/admin/providers',
       rolesAny: ['admin', 'support', 'staff', 'super_admin']
     }
   ];
@@ -1018,10 +1017,10 @@ function appPageVisibleForRole(path, role) {
  * covers hubs/reports that are not hand-listed yet. Curated entries win on
  * duplicate paths (better routeName / role gates).
  */
-function appPagesAsQuickNavEntries(ctx) {
+export function appPagesAsQuickNavEntries(ctx, { routeAware = false } = {}) {
   const role = ctx?.role;
   return (APP_PAGES || [])
-    .filter((page) => page?.path && (page.requiresBilling ? canAccessBillingWorkspace(ctx.user) : appPageVisibleForRole(page.path, role)))
+    .filter((page) => page?.path && (page.requiresBilling ? canAccessBillingWorkspace(ctx.user) : routeAware || appPageVisibleForRole(page.path, role)))
     .map((page) => ({
       id: `app-page-${String(page.path).replace(/[^\w]+/g, '-')}`,
       routeName: null,
@@ -1035,8 +1034,19 @@ function appPagesAsQuickNavEntries(ctx) {
       ].filter(Boolean),
       kind: 'path',
       path: page.path,
+      publicPath: page.publicPath,
+      scope: page.scope,
+      rolesAny: page.rolesAny,
+      requiresBilling: page.requiresBilling,
       fromAppPages: true
     }));
+}
+
+/** Keep query-specific shortcuts; they open different tabs on the same page. */
+export function getAllQuickNavEntries(ctx, opts = {}) {
+  const curated = getAccessibleQuickNavEntries(ctx);
+  const paths = new Set(curated.map(e => e.path).filter(Boolean));
+  return [...curated, ...appPagesAsQuickNavEntries(ctx, opts).filter(e => !paths.has(e.path))];
 }
 
 /**
@@ -1045,19 +1055,8 @@ function appPagesAsQuickNavEntries(ctx) {
  * @param {object} [opts.surface] – active command surface (boosts matching groups/keywords)
  * @returns {{ flat: Array, groups: Array<{ group, label, items }> }}
  */
-export function searchQuickNav(query, ctx, { limit = 24, surface = null } = {}) {
-  const curated = getAccessibleQuickNavEntries(ctx);
-  const curatedPathBases = new Set(
-    curated
-      .map((e) => String(e.path || '').split('?')[0])
-      .filter(Boolean)
-  );
-  // Prefer curated destinations when the same path exists in APP_PAGES.
-  const supplemental = appPagesAsQuickNavEntries(ctx).filter((e) => {
-    const base = String(e.path || '').split('?')[0];
-    return base && !curatedPathBases.has(base);
-  });
-  const accessible = [...curated, ...supplemental];
+export function searchQuickNav(query, ctx, { limit = 24, surface = null, entries = null } = {}) {
+  const accessible = entries || getAllQuickNavEntries(ctx);
   const q = String(query || '').trim();
   if (!q) {
     return { flat: [], groups: [] };
@@ -1099,40 +1098,34 @@ export function searchQuickNav(query, ctx, { limit = 24, surface = null } = {}) 
 
 /**
  * Resolve a catalog entry to a vue-router location.
- * Dashboard destinations keep the current path and merge tab/my into query.
+ * Dashboard destinations preserve the account tab and use a dashboard path.
  * Pass `dashboardPath` when jumping from a non-dashboard surface (e.g. Ask Assistant).
  */
-export function resolveQuickNavLocation(entry, { currentPath, orgSlug, currentQuery, dashboardPath } = {}) {
+export function resolveQuickNavLocation(entry, { currentPath, orgSlug, dashboardPath } = {}) {
   if (!entry) return null;
-
+  const slug = String(orgSlug || '').trim();
   if (entry.kind === 'dashboard') {
     const query = { tab: entry.tab };
     if (entry.my) query.my = entry.my;
-    const basePath = String(dashboardPath || currentPath || '/dashboard').trim() || '/dashboard';
-    return {
-      path: basePath,
-      query
-    };
+    const base = dashboardPath || (/\/dashboard$/.test(currentPath || '') ? currentPath : `${slug ? '/' + slug : ''}/dashboard`);
+    return { path: base, query };
   }
-
   if (entry.kind === 'path' && entry.path) {
+    // Use URL parsing so query strings, repeated keys and hashes survive navigation.
     const raw = String(entry.path);
-    const [pathname, search = ''] = raw.split('?');
-    const adminPath = pathname.startsWith('/admin');
-    const routeSlug = String(orgSlug || '').trim();
-    let slug = routeSlug;
-    if (adminPath) {
-      slug = resolveOrgSlugForNavigation({
-        orgSlug: routeSlug || undefined,
-        preferNonDemo: true
-      });
+    if (!raw.startsWith('/') || raw.startsWith('//')) return null;
+    const url = new URL(raw, 'https://navigation.invalid');
+    let path = url.pathname;
+    if (entry.publicPath && slug) path = `/${entry.publicPath}/${encodeURIComponent(slug)}`;
+    else if (slug && entry.scope !== 'platform' && !path.startsWith(`/${slug}/`) && path !== `/${slug}`) path = `/${slug}${path}`;
+    const query = { ...entry.query };
+    for (const key of new Set(url.searchParams.keys())) {
+      const values = url.searchParams.getAll(key);
+      query[key] = values.length > 1 ? values : values[0];
     }
-    const path = slug ? `/${slug}${pathname}` : pathname;
-    if (!search) return path;
-    const query = Object.fromEntries(new URLSearchParams(search));
-    return { path, query };
+    const hash = entry.hash || url.hash;
+    return Object.keys(query).length || hash ? { path, query, ...(hash ? { hash } : {}) } : path;
   }
-
   return null;
 }
 
@@ -1143,13 +1136,17 @@ export function resolveQuickNavRoute(entry, opts = {}) {
   const name = String(entry?.routeName || '').trim();
   if (!name) return null;
   const slug = String(opts.orgSlug || '').trim();
+  const extra = {
+    ...(entry.query ? { query: entry.query } : {}),
+    ...(entry.hash ? { hash: entry.hash } : {})
+  };
   if (name === 'OrganizationTasks') {
     return slug
-      ? { name, params: { organizationSlug: slug } }
-      : { name: 'Tasks' };
+      ? { name, params: { ...entry.params, organizationSlug: slug }, ...extra }
+      : { name: 'Tasks', ...extra };
   }
   if (slug && name.startsWith('Organization')) {
-    return { name, params: { organizationSlug: slug } };
+    return { name, params: { ...entry.params, organizationSlug: slug }, ...extra };
   }
-  return { name };
+  return { name, ...(entry.params ? { params: entry.params } : {}), ...extra };
 }

@@ -237,7 +237,7 @@ function onStatus(ev) {
   background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
-.bulk-bar__field select option { color: #0f172a; }
+.bulk-bar__field select option { color: var(--app-ink, #0f172a); }
 .bulk-bar__field input[type="date"] { color-scheme: dark; }
 
 .bulk-bar__field--menu { position: relative; }
@@ -264,9 +264,9 @@ function onStatus(ev) {
   overflow: auto;
   padding: 8px;
   border-radius: 10px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #0f172a;
+  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--app-surface, #fff);
+  color: var(--app-ink, #0f172a);
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.24);
 }
 .bulk-bar__category-head {
@@ -276,7 +276,7 @@ function onStatus(ev) {
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--app-muted, #94a3b8);
 }
 .bulk-bar__category-option {
   display: flex;
@@ -288,14 +288,14 @@ function onStatus(ev) {
   cursor: pointer;
 }
 .bulk-bar__category-option:hover,
-.bulk-bar__category-option.on { background: #eef2ff; color: #3730a3; }
+.bulk-bar__category-option.on { background: var(--app-surface-muted, #eef2ff); color: var(--app-text-blue, #3730a3); }
 .bulk-bar__category-option input { margin: 0; }
 .bulk-bar__category-actions {
   display: flex;
   gap: 6px;
   margin-top: 8px;
   padding-top: 8px;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--app-line, #f1f5f9);
 }
 .bulk-bar__category-apply,
 .bulk-bar__category-cancel {
@@ -314,10 +314,10 @@ function onStatus(ev) {
 .bulk-bar__category-apply:hover:not(:disabled) { background: #0d9488; }
 .bulk-bar__category-apply:disabled { opacity: 0.6; cursor: default; }
 .bulk-bar__category-cancel {
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--app-surface-muted, #f1f5f9);
+  color: var(--app-muted, #475569);
 }
-.bulk-bar__category-cancel:hover { background: #e2e8f0; }
+.bulk-bar__category-cancel:hover { background: var(--app-surface-muted, #e2e8f0); }
 
 .bulk-bar__clear {
   font-size: 12px;

@@ -50,8 +50,8 @@ const cards = computed(() => [
   text-align: left;
   padding: 8px 12px;
   border-radius: 10px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--app-surface, #fff);
   cursor: pointer;
   font: inherit;
   color: inherit;
@@ -64,18 +64,18 @@ const cards = computed(() => [
 .status-card__label {
   font-size: 12px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
 }
 .status-card__value {
   font-size: 1.1rem;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--app-ink, #0f172a);
   line-height: 1;
 }
-.tone-pending .status-card__value { color: #c2410c; }
-.tone-progress .status-card__value { color: #1d4ed8; }
-.tone-done .status-card__value { color: #15803d; }
-.tone-overdue .status-card__value { color: #b91c1c; }
+.tone-pending .status-card__value { color: var(--app-text-red, #c2410c); }
+.tone-progress .status-card__value { color: var(--app-text-blue, #1d4ed8); }
+.tone-done .status-card__value { color: var(--app-text-green, #15803d); }
+.tone-overdue .status-card__value { color: var(--app-text-red, #b91c1c); }
 @media (max-width: 800px) {
   .tasks-status-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }

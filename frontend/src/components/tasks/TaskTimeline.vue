@@ -919,9 +919,9 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 .task-timeline {
   width: 380px;
   flex: 0 0 380px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--app-line, #e2e8f0);
   border-radius: 12px;
-  background: #fff;
+  background: var(--app-surface, #fff);
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 160px);
@@ -929,27 +929,27 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 }
 .task-timeline__title-row {
   padding: 12px 12px 8px;
-  border-bottom: 1px solid #e2e8f0;
-  background: linear-gradient(180deg, #f0fdf4 0%, #fff 100%);
+  border-bottom: 1px solid var(--app-line, #e2e8f0);
+  background: linear-gradient(180deg, var(--app-surface-muted, #f0fdf4) 0%, var(--app-surface, #fff) 100%);
 }
 .task-timeline__title {
   margin: 0;
   font-size: 14px;
   font-weight: 800;
-  color: #14532d;
+  color: var(--app-ink, #14532d);
   letter-spacing: 0.01em;
 }
 .task-timeline__subtitle {
   margin: 2px 0 0;
   font-size: 11px;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
 }
 .task-timeline__head {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 10px;
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--app-line, #e2e8f0);
 }
 .task-timeline__date {
   flex: 1;
@@ -957,8 +957,8 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   font-size: 13px;
 }
 .nav-btn, .today-btn {
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--app-surface-muted, #f8fafc);
   border-radius: 6px;
   padding: 2px 8px;
   cursor: pointer;
@@ -970,15 +970,15 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: #f5f3ff;
-  border-bottom: 1px solid #ddd6fe;
+  background: var(--app-surface-muted, #f5f3ff);
+  border-bottom: 1px solid var(--app-line, #ddd6fe);
   font-size: 11px;
-  color: #5b21b6;
+  color: var(--app-text-violet, #5b21b6);
 }
 .linkish {
   border: 0;
   background: transparent;
-  color: #5b21b6;
+  color: var(--app-text-violet, #5b21b6);
   font-weight: 700;
   cursor: pointer;
   font-size: 11px;
@@ -986,7 +986,7 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 .task-timeline__state {
   padding: 16px;
   font-size: 13px;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
 }
 .task-timeline__axis {
   position: relative;
@@ -1012,20 +1012,20 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 }
 .hour-label {
   font-size: 10px;
-  color: #94a3b8;
+  color: var(--app-muted, #94a3b8);
   text-align: right;
   padding-right: 6px;
   transform: translateY(-5px);
 }
 .hour-track {
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--app-line, #f1f5f9);
 }
 .other-event {
   position: absolute;
   left: 52px;
   right: 8px;
-  background: #f1f5f9;
-  border: 1px dashed #cbd5e1;
+  background: var(--app-surface-muted, #f1f5f9);
+  border: 1px dashed var(--app-line, #cbd5e1);
   border-radius: 6px;
   padding: 4px 6px;
   opacity: 0.72;
@@ -1036,7 +1036,7 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 .other-event__title {
   font-size: 10px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1045,8 +1045,8 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   position: absolute;
   left: 52px;
   right: 8px;
-  background: #ecfdf5;
-  border: 1px solid #86efac;
+  background: var(--app-surface-muted, #ecfdf5);
+  border: 1px solid var(--app-line, #86efac);
   border-left: 4px solid #16a34a;
   border-radius: 8px;
   padding: 6px 8px;
@@ -1060,11 +1060,11 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 .block:hover {
   box-shadow: 0 2px 8px rgba(22,163,74,0.18);
 }
-.block--focus { border-left-color: #7c3aed; background: #f5f3ff; }
+.block--focus { border-left-color: #7c3aed; background: var(--app-surface-muted, #f5f3ff); }
 .block--focus:hover { box-shadow: 0 2px 8px rgba(124,58,237,0.18); }
 .block--drop {
   outline: 2px dashed #166534;
-  background: #dcfce7;
+  background: var(--app-tint-green, #dcfce7);
 }
 .block--dragging {
   opacity: 0.35;
@@ -1131,7 +1131,7 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 .block-landing-preview__time {
   font-size: 11px;
   font-weight: 700;
-  color: #16a34a;
+  color: var(--app-text-green, #16a34a);
   background: rgba(255,255,255,0.7);
   padding: 1px 6px;
   border-radius: 4px;
@@ -1139,9 +1139,9 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 
 /* Nav day shift indicator during drag */
 .nav-btn--drag-target {
-  background: #dcfce7;
-  border-color: #86efac;
-  color: #14532d;
+  background: var(--app-tint-green, #dcfce7);
+  border-color: var(--app-line, #86efac);
+  color: var(--app-ink, #14532d);
   animation: nav-pulse 1s ease-in-out infinite;
 }
 @keyframes nav-pulse {
@@ -1151,9 +1151,9 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 .drag-day-badge {
   font-size: 10px;
   font-weight: 700;
-  color: #7c3aed;
-  background: #f5f3ff;
-  border: 1px solid #ddd6fe;
+  color: var(--app-text-violet, #7c3aed);
+  background: var(--app-surface-muted, #f5f3ff);
+  border: 1px solid var(--app-line, #ddd6fe);
   border-radius: 4px;
   padding: 1px 5px;
   margin-left: 4px;
@@ -1162,10 +1162,10 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 
 /* Move / resize confirmation */
 .move-confirm {
-  background: #f0fdf4;
-  border-top: 2px solid #bbf7d0;
+  background: var(--app-surface-muted, #f0fdf4);
+  border-top: 2px solid var(--app-line, #bbf7d0);
 }
-.move-confirm h3 { color: #14532d; }
+.move-confirm h3 { color: var(--app-ink, #14532d); }
 .move-confirm__range {
   display: flex;
   align-items: center;
@@ -1173,24 +1173,24 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   gap: 4px;
   font-size: 12px;
   margin: 4px 0 10px;
-  color: #334155;
+  color: var(--app-ink, #334155);
 }
 .move-confirm__arrow {
-  color: #64748b;
+  color: var(--app-muted, #64748b);
   flex-shrink: 0;
 }
 .move-confirm__day {
-  color: #7c3aed;
+  color: var(--app-text-violet, #7c3aed);
   font-weight: 600;
 }
-.block__title { font-size: 12px; font-weight: 700; color: #0f172a; }
-.block__meta { font-size: 11px; color: #64748b; }
+.block__title { font-size: 12px; font-weight: 700; color: var(--app-ink, #0f172a); }
+.block__meta { font-size: 11px; color: var(--app-muted, #64748b); }
 .block__tasks {
   list-style: none;
   margin: 2px 0 0;
   padding: 0;
   font-size: 10px;
-  color: #475569;
+  color: var(--app-muted, #475569);
 }
 .block__tasks li {
   white-space: nowrap;
@@ -1199,8 +1199,8 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 }
 .block__drop-hint {
   font-size: 10px;
-  color: #94a3b8;
-  border-top: 1px dashed #cbd5e1;
+  color: var(--app-muted, #94a3b8);
+  border-top: 1px dashed var(--app-line, #cbd5e1);
   margin-top: 4px;
   padding-top: 2px;
 }
@@ -1214,7 +1214,7 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   padding: 6px 8px;
   font-size: 11px;
   font-weight: 700;
-  color: #5b21b6;
+  color: var(--app-text-violet, #5b21b6);
   z-index: 4;
   pointer-events: none;
   display: flex;
@@ -1253,9 +1253,9 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   border-radius: 4px;
 }
 .create-sheet {
-  border-top: 1px solid #dcfce7;
+  border-top: 1px solid var(--app-line, #dcfce7);
   padding: 14px;
-  background: linear-gradient(180deg, #f0fdf4 0%, #f8fafc 100%);
+  background: linear-gradient(180deg, var(--app-surface-muted, #f0fdf4) 0%, var(--app-surface-muted, #f8fafc) 100%);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1264,7 +1264,7 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   margin: 0 0 2px;
   font-size: 14px;
   font-weight: 800;
-  color: #14532d;
+  color: var(--app-ink, #14532d);
 }
 .create-sheet__row {
   display: flex;
@@ -1276,26 +1276,26 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   margin: 0;
   white-space: nowrap;
   font-weight: 700;
-  color: #166534;
+  color: var(--app-text-green, #166534);
 }
 .assign-pick__grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 4px;
 }
-.muted { color: #64748b; font-size: 12px; margin: 0 0 10px; }
+.muted { color: var(--app-muted, #64748b); font-size: 12px; margin: 0 0 10px; }
 .field { display: block; margin-bottom: 8px; }
 .field > span {
   display: block;
   font-size: 11px;
   font-weight: 700;
-  color: #94a3b8;
+  color: var(--app-muted, #94a3b8);
   margin-bottom: 3px;
 }
 .form-control {
   width: 100%;
   padding: 7px 9px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--app-line, #e2e8f0);
   border-radius: 8px;
   font: inherit;
 }
@@ -1312,19 +1312,19 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   overflow-y: auto;
   margin: 8px 0;
   padding: 6px;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--app-line, #e2e8f0);
   border-radius: 8px;
-  background: #fff;
+  background: var(--app-surface, #fff);
 }
 .assign-pick__label {
   display: block;
   font-size: 11px;
   font-weight: 700;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
   margin-bottom: 4px;
 }
 .create-sheet__actions { display: flex; gap: 8px; margin-top: 8px; }
-.error { color: #b91c1c; font-size: 12px; margin: 6px 0 0; }
+.error { color: var(--app-text-red, #b91c1c); font-size: 12px; margin: 6px 0 0; }
 .btn-primary {
   border: 0;
   background: #166534;
@@ -1338,19 +1338,19 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
 .btn-ghost {
   border: 0;
   background: transparent;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
   font-size: 12px;
   cursor: pointer;
 }
 .task-timeline__foot {
   padding: 10px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--app-line, #e2e8f0);
 }
 .btn-add-block {
   width: 100%;
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--app-line, #e2e8f0);
   background: transparent;
-  color: #14532d;
+  color: var(--app-ink, #14532d);
   border-radius: 8px;
   padding: 7px 10px;
   font-size: 12px;
@@ -1358,8 +1358,8 @@ defineExpose({ refresh: fetchBlocks, dayYmd, startBooking: addBlockAtNow, assign
   cursor: pointer;
 }
 .btn-add-block:hover {
-  background: #f0fdf4;
-  border-color: #86efac;
+  background: var(--app-surface-muted, #f0fdf4);
+  border-color: var(--app-line, #86efac);
 }
 @media (max-width: 900px) {
   .task-timeline {

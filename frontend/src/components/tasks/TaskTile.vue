@@ -32,7 +32,7 @@ defineProps({
 <style scoped>
 .task-tile {
   display: block;
-  background: white;
+  background: var(--app-surface, white);
   border-radius: 12px;
   padding: 32px;
   text-decoration: none;

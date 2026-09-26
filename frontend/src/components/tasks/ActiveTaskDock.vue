@@ -140,7 +140,7 @@ onMounted(() => {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.22);
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--app-line, #e2e8f0);
 }
 
 .atd-expanded :deep(.side-panel) {
@@ -228,7 +228,7 @@ onMounted(() => {
   max-width: 100px;
   flex-shrink: 0;
 }
-.atd-bar__select option { color: #0f172a; }
+.atd-bar__select option { color: var(--app-ink, #0f172a); }
 
 .atd-bar__complete {
   display: inline-flex;
@@ -236,8 +236,8 @@ onMounted(() => {
   gap: 4px;
   font-size: 11px;
   font-weight: 700;
-  color: #14532d;
-  background: #fff;
+  color: var(--app-ink, #14532d);
+  background: var(--app-surface, #fff);
   border: none;
   border-radius: 6px;
   padding: 5px 10px;
@@ -245,7 +245,7 @@ onMounted(() => {
   white-space: nowrap;
 }
 .atd-bar__complete svg { width: 11px; height: 11px; }
-.atd-bar__complete:hover { background: #dcfce7; }
+.atd-bar__complete:hover { background: var(--app-tint-green, #dcfce7); }
 .atd-bar__complete:disabled { opacity: 0.6; cursor: default; }
 
 .atd-bar__close {
@@ -263,8 +263,8 @@ onMounted(() => {
 .atd-error {
   margin: 4px 0 0;
   font-size: 11px;
-  color: #dc2626;
-  background: #fff;
+  color: var(--app-text-red, #dc2626);
+  background: var(--app-surface, #fff);
   padding: 4px 10px;
   border-radius: 6px;
 }

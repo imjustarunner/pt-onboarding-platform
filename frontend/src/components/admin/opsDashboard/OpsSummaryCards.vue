@@ -157,8 +157,8 @@ defineEmits(['navigate']);
   .ops-summary { grid-template-columns: 1fr; }
 }
 .panel {
-  background: #fff;
-  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);
+  background: var(--app-surface, #fff);
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, var(--app-line, #e2e8f0));
   border-radius: 16px;
   padding: 16px 18px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
@@ -201,13 +201,13 @@ defineEmits(['navigate']);
   align-items: center;
   gap: 10px;
   font-size: 13px;
-  color: #475569;
+  color: var(--app-muted, #475569);
 }
 .stat-row strong {
   font-size: 15px;
-  color: #0f172a;
+  color: var(--app-ink, #0f172a);
 }
-.stat-row strong.danger { color: #b91c1c; }
+.stat-row strong.danger { color: var(--app-text-red, #b91c1c); }
 .cta-row {
   display: flex;
   flex-wrap: wrap;
@@ -216,8 +216,8 @@ defineEmits(['navigate']);
   padding-top: 12px;
 }
 .mini-btn {
-  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 30%, #e2e8f0);
-  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 30%, var(--app-line, #e2e8f0));
+  background: var(--app-surface, #fff);
   color: var(--ops-primary, #1f6b4a);
   border-radius: 999px;
   padding: 5px 10px;
@@ -227,11 +227,11 @@ defineEmits(['navigate']);
   white-space: nowrap;
 }
 .mini-btn:hover {
-  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, var(--app-surface, #fff));
 }
 .empty {
   font-size: 13px;
-  color: #94a3b8;
+  color: var(--app-muted, #94a3b8);
   padding: 8px 0;
 }
 .schedule-list {
@@ -248,7 +248,7 @@ defineEmits(['navigate']);
   gap: 10px;
   cursor: pointer;
   padding: 6px 0;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--app-line, #f1f5f9);
 }
 .schedule-row:last-child { border-bottom: none; }
 .slot-time {
@@ -265,11 +265,11 @@ defineEmits(['navigate']);
 }
 .slot-info strong {
   font-size: 13px;
-  color: #0f172a;
+  color: var(--app-ink, #0f172a);
 }
 .slot-info span {
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

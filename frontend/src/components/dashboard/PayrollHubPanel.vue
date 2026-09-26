@@ -184,10 +184,10 @@ const fmtNum = (n) => {
 .pay-hub {
   --hub-green: #166534;
   --hub-green-dark: #14532d;
-  --hub-border: #e5e7eb;
-  --hub-muted: #6b7280;
+  --hub-border: var(--app-line, #e5e7eb);
+  --hub-muted: var(--app-muted, #6b7280);
   font-family: var(--font-body, 'Inter', system-ui, sans-serif);
-  color: #111827;
+  color: var(--app-ink, #111827);
   overflow-x: hidden;
   min-width: 0;
 }
@@ -257,12 +257,12 @@ const fmtNum = (n) => {
 }
 
 .pay-hub__btn--ghost {
-  background: #fff;
-  color: #374151;
+  background: var(--app-surface, #fff);
+  color: var(--app-ink, #374151);
   border: 1px solid var(--hub-border);
 }
 .pay-hub__btn--ghost:hover {
-  background: #f9fafb;
+  background: var(--app-surface-muted, #f9fafb);
 }
 
 .pay-hub__btn--sm {
@@ -294,7 +294,7 @@ const fmtNum = (n) => {
   gap: 14px;
   align-items: flex-start;
   padding: 18px 20px;
-  background: #fff;
+  background: var(--app-surface, #fff);
   border: 1px solid var(--hub-border);
   border-radius: 10px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
@@ -310,20 +310,20 @@ const fmtNum = (n) => {
   flex-shrink: 0;
 }
 .pay-hub__stat-icon--teal {
-  background: #ccfbf1;
-  color: #0f766e;
+  background: var(--app-tint-green, #ccfbf1);
+  color: var(--app-text-green, #0f766e);
 }
 .pay-hub__stat-icon--orange {
-  background: #ffedd5;
-  color: #c2410c;
+  background: var(--app-tint-red, #ffedd5);
+  color: var(--app-text-red, #c2410c);
 }
 .pay-hub__stat-icon--green {
-  background: #dcfce7;
+  background: var(--app-tint-green, #dcfce7);
   color: var(--hub-green);
 }
 .pay-hub__stat-icon--purple {
-  background: #f3e8ff;
-  color: #7c3aed;
+  background: var(--app-surface-muted, #f3e8ff);
+  color: var(--app-text-violet, #7c3aed);
 }
 
 .pay-hub__stat-value {
@@ -335,7 +335,7 @@ const fmtNum = (n) => {
 .pay-hub__stat-label {
   font-size: 13px;
   font-weight: 600;
-  color: #374151;
+  color: var(--app-ink, #374151);
   margin-top: 2px;
 }
 
@@ -348,8 +348,8 @@ const fmtNum = (n) => {
 .pay-hub__action-required {
   margin-bottom: 16px;
   padding: 14px 16px;
-  background: linear-gradient(135deg, #fffbeb 0%, #fff7ed 100%);
-  border: 1px solid #fcd34d;
+  background: linear-gradient(135deg, var(--app-surface-muted, #fffbeb) 0%, var(--app-surface-muted, #fff7ed) 100%);
+  border: 1px solid var(--app-line, #fcd34d);
   border-radius: 10px;
 }
 
@@ -358,7 +358,7 @@ const fmtNum = (n) => {
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
-  color: #92400e;
+  color: var(--app-text-red, #92400e);
   font-size: 14px;
 }
 
@@ -366,8 +366,8 @@ const fmtNum = (n) => {
   margin-left: auto;
   font-size: 12px;
   font-weight: 600;
-  color: #b45309;
-  background: #fef3c7;
+  color: var(--app-text-red, #b45309);
+  background: var(--app-tint-amber, #fef3c7);
   padding: 2px 8px;
   border-radius: 999px;
 }
@@ -387,8 +387,8 @@ const fmtNum = (n) => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  background: #fff;
-  border: 1px solid #fde68a;
+  background: var(--app-surface, #fff);
+  border: 1px solid var(--app-line, #fde68a);
   border-radius: 8px;
 }
 
@@ -405,10 +405,10 @@ const fmtNum = (n) => {
   gap: 12px;
   padding: 14px 16px;
   margin-bottom: 20px;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
+  background: var(--app-surface-muted, #ecfdf5);
+  border: 1px solid var(--app-line, #a7f3d0);
   border-radius: 10px;
-  color: #166534;
+  color: var(--app-text-green, #166534);
   font-size: 14px;
 }
 
@@ -421,7 +421,7 @@ const fmtNum = (n) => {
   background: none;
   border: none;
   font-size: 20px;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
   cursor: pointer;
 }
 
@@ -433,16 +433,16 @@ const fmtNum = (n) => {
 }
 
 .pay-hub__error {
-  color: #dc2626;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--app-text-red, #dc2626);
+  background: var(--app-surface-muted, #fef2f2);
+  border: 1px solid var(--app-line, #fecaca);
   border-radius: 10px;
 }
 
 .pay-hub__spinner {
   width: 36px;
   height: 36px;
-  border: 3px solid #e5e7eb;
+  border: 3px solid var(--app-line, #e5e7eb);
   border-top-color: var(--hub-green);
   border-radius: 50%;
   animation: pay-hub-spin 0.8s linear infinite;
@@ -481,7 +481,7 @@ const fmtNum = (n) => {
 }
 
 .pay-hub__widget {
-  background: #fff;
+  background: var(--app-surface, #fff);
   border: 1px solid var(--hub-border);
   border-radius: 10px;
   padding: 16px 18px;
@@ -524,7 +524,7 @@ const fmtNum = (n) => {
   justify-content: space-between;
   padding: 6px 0;
   font-size: 13px;
-  border-bottom: 1px solid #f3f4f6;
+  border-bottom: 1px solid var(--app-line, #f3f4f6);
 }
 
 .pay-hub__mini-list li:last-child {
@@ -532,15 +532,15 @@ const fmtNum = (n) => {
 }
 
 .pay-hub__widget--alert {
-  border-color: #fcd34d;
-  background: #fffbeb;
+  border-color: var(--app-line, #fcd34d);
+  background: var(--app-surface-muted, #fffbeb);
 }
 
 .pay-hub__widget-alert {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #92400e;
+  color: var(--app-text-red, #92400e);
 }
 
 :deep(.hub-pill) {
@@ -556,19 +556,19 @@ const fmtNum = (n) => {
   padding: 2px 8px;
 }
 :deep(.hub-pill--success) {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--app-tint-green, #dcfce7);
+  color: var(--app-text-green, #166534);
 }
 :deep(.hub-pill--warning) {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--app-tint-amber, #fef3c7);
+  color: var(--app-text-red, #92400e);
 }
 :deep(.hub-pill--danger) {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: var(--app-tint-red, #fee2e2);
+  color: var(--app-text-red, #b91c1c);
 }
 :deep(.hub-pill--muted) {
-  background: #f3f4f6;
-  color: #4b5563;
+  background: var(--app-surface-muted, #f3f4f6);
+  color: var(--app-muted, #4b5563);
 }
 </style>

@@ -38,3 +38,62 @@
 @media(prefers-reduced-motion:reduce) { .settings-page .hub-card { transition: none; } }
 
 .mobile-appearance { padding: 14px 20px; }
+
+/* Application surface tokens. Literal fallbacks in components retain each light palette.
+   Print output, document previews, logos and chart data colors remain independent. */
+[data-theme="dark"] {
+  --surface-muted: var(--bg-muted);
+  --card-bg: var(--bg-card);
+  --app-surface: var(--bg-card);
+  --app-surface-muted: var(--bg-alt);
+  --app-ink: var(--text-primary);
+  --app-muted: var(--text-secondary);
+  --app-line: var(--border);
+  --app-tint-red: #3d232b;
+  --app-tint-green: #193b32;
+  --app-tint-blue: #20344b;
+  --app-tint-violet: #322c47;
+  --app-tint-amber: #3e3322;
+  --app-text-red: #ff9ca8;
+  --app-text-green: #86dcc2;
+  --app-text-blue: #9ccaff;
+  --app-text-violet: #cbb8ff;
+  --app-text-amber: #f0ce88;
+}
+/* Scoped hub declarations otherwise win by stylesheet load order. */
+[data-theme="dark"] .wo-hub.wo-hub {
+  --hub-bg: var(--bg);
+  --hub-panel: var(--bg-card);
+  --hub-ink: var(--text-primary);
+  --hub-muted: var(--text-secondary);
+  --hub-line: var(--border);
+}
+[data-theme="dark"] .finance-shell {
+  --finance-ink: var(--text-primary);
+  --finance-muted: var(--text-secondary);
+  --finance-line: var(--border);
+  background: var(--bg);
+}
+[data-theme="dark"] .finance-shell :is(.finance-hub, .finance-orbit-ring) { background: none; box-shadow: none; }
+[data-theme="dark"] .finance-shell :is(.finance-nav, .finance-scope, .finance-hub-hint) { background: var(--bg-alt); }
+[data-theme="dark"] .finance-shell .finance-callout { color: var(--app-text-green) !important; }
+[data-theme="dark"] .finance-shell button:not(.primary):not(.finance-orbit-node),
+[data-theme="dark"] .finance-shell :is(.finance-eyebrow, .finance-node-link) { color: var(--text-primary); }
+[data-theme="dark"] .admin-tools-bar { background: var(--bg-alt) !important; }
+
+[data-theme="dark"] .pr-page.pr-page {
+  --pr-mint: var(--app-tint-green);
+  --pr-mint-border: var(--border);
+}
+
+[data-theme="dark"] .wo-hub .hub-title { color: var(--text-primary); }
+[data-theme="dark"] .pay-hub__section .pay-hub__section-head { background: var(--bg-muted); }
+[data-theme="dark"] .pay-hub__section :is(.pay-hub__section-icon, .pay-hub__section-tag) {
+  background: var(--bg-muted); color: var(--text-primary);
+}
+[data-theme="dark"] .acct-hub :is(.acct-hub__main-head, .acct-hub__nav-item--active) { background: var(--bg-muted); }
+[data-theme="dark"] .acct-hub :is(.acct-hub__nav-icon, .acct-hub__main-icon, .acct-hub__main-tag, .acct-hub__stat-icon) {
+  background: color-mix(in srgb, var(--cat-accent, var(--primary)) 20%, var(--bg-card)) !important;
+  color: var(--text-primary) !important;
+}
+[data-theme="dark"] :is(.cm-view-tab.active, .ocm-hub-switcher-btn.is-active) { color: var(--text-primary); }

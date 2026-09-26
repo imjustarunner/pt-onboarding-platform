@@ -133,8 +133,8 @@ function onInboxChange(e) {
 
 <style scoped>
 .uc-side {
-  background: #f8fafc;
-  border-right: 1px solid #e2e8f0;
+  background: var(--app-surface-muted, #f8fafc);
+  border-right: 1px solid var(--app-line, #e2e8f0);
   padding: 14px 12px;
   overflow-y: auto;
 }
@@ -157,28 +157,28 @@ function onInboxChange(e) {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
 }
 .uc-inbox-select {
   width: 100%;
   margin-top: 6px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--app-line, #cbd5e1);
   border-radius: 8px;
   padding: 8px;
   font-size: 0.85rem;
-  background: #fff;
+  background: var(--app-surface, #fff);
 }
 .uc-inbox-help {
   margin: 6px 0 0;
   font-size: 11px;
   line-height: 1.4;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
 }
 .uc-prefs {
   margin-top: 12px;
   padding: 10px;
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--app-surface, #fff);
+  border: 1px solid var(--app-line, #e2e8f0);
   border-radius: 10px;
 }
 .uc-prefs .uc-section { margin-top: 0; }
@@ -187,14 +187,14 @@ function onInboxChange(e) {
   align-items: center;
   gap: 8px;
   font-size: 0.8rem;
-  color: #334155;
+  color: var(--app-ink, #334155);
   margin-top: 6px;
 }
 .uc-pref-row.digest {
   justify-content: space-between;
 }
 .uc-pref-row select {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--app-line, #cbd5e1);
   border-radius: 6px;
   padding: 4px 6px;
   font-size: 0.78rem;
@@ -202,7 +202,7 @@ function onInboxChange(e) {
 .uc-pref-hint {
   margin: 8px 0 0;
   font-size: 0.7rem;
-  color: #94a3b8;
+  color: var(--app-muted, #94a3b8);
   line-height: 1.35;
 }
 .uc-smart {
@@ -221,10 +221,10 @@ function onInboxChange(e) {
   border-radius: 8px;
   font-size: 0.82rem;
   cursor: pointer;
-  color: #334155;
+  color: var(--app-ink, #334155);
   text-align: left;
 }
-.uc-smart button:hover { background: #e2e8f0; }
+.uc-smart button:hover { background: var(--app-surface-muted, #e2e8f0); }
 .uc-smart em {
   font-style: normal;
   background: #166534;
@@ -240,7 +240,7 @@ function onInboxChange(e) {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
 }
 .uc-channels {
   display: flex;
@@ -258,7 +258,7 @@ function onInboxChange(e) {
   border-radius: 8px;
   font-size: 0.82rem;
   cursor: pointer;
-  color: #334155;
+  color: var(--app-ink, #334155);
   text-align: left;
 }
 .uc-channels.compact button {
@@ -266,13 +266,13 @@ function onInboxChange(e) {
 }
 .uc-channels button.on,
 .uc-channels button:hover {
-  background: #dcfce7;
-  color: #14532d;
+  background: var(--app-tint-green, #dcfce7);
+  color: var(--app-ink, #14532d);
 }
 .uc-ch-icon { opacity: 0.85; }
 .uc-channels em {
   font-style: normal;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
   font-size: 0.75rem;
 }
 </style>

@@ -16,6 +16,6 @@ import TasksHub from '../components/tasks/TasksHub.vue';
   padding: 12px 20px 24px;
   box-sizing: border-box;
   min-height: calc(100vh - 72px);
-  background: #f8fafc;
+  background: var(--app-surface-muted, #f8fafc);
 }
 </style>

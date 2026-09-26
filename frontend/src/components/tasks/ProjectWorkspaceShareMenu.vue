@@ -189,9 +189,9 @@ onBeforeUnmount(() => {
   right: 0;
   top: calc(100% + 8px);
   min-width: 280px;
-  background: #fff;
-  color: #0f172a;
-  border: 1px solid #e2e8f0;
+  background: var(--app-surface, #fff);
+  color: var(--app-ink, #0f172a);
+  border: 1px solid var(--app-line, #e2e8f0);
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(15, 23, 42, 0.18);
   padding: 6px;
@@ -209,11 +209,11 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   cursor: pointer;
 }
-.pw-share__item:hover { background: #f8fafc; }
-.pw-share__item strong { display: block; font-size: 13px; color: #0f172a; }
-.pw-share__item small { display: block; margin-top: 2px; font-size: 11px; color: #64748b; line-height: 1.35; }
+.pw-share__item:hover { background: var(--app-surface-muted, #f8fafc); }
+.pw-share__item strong { display: block; font-size: 13px; color: var(--app-ink, #0f172a); }
+.pw-share__item small { display: block; margin-top: 2px; font-size: 11px; color: var(--app-muted, #64748b); line-height: 1.35; }
 .pw-share__icon { font-size: 16px; line-height: 1; margin-top: 1px; }
-.pw-share__divider { height: 1px; background: #e2e8f0; margin: 4px 8px; }
+.pw-share__divider { height: 1px; background: var(--app-surface-muted, #e2e8f0); margin: 4px 8px; }
 </style>
 
 <style>
@@ -229,7 +229,7 @@ onBeforeUnmount(() => {
 }
 .pw-print-modal {
   width: min(480px, 100%);
-  background: #fff;
+  background: var(--app-surface, #fff);
   border-radius: 14px;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
   padding: 20px 22px 22px;
@@ -243,22 +243,22 @@ onBeforeUnmount(() => {
 .pw-print-modal__head h2 {
   margin: 0;
   font-size: 1.1rem;
-  color: #0f172a;
+  color: var(--app-ink, #0f172a);
 }
 .pw-print-modal__close {
   border: 0;
-  background: #f1f5f9;
+  background: var(--app-surface-muted, #f1f5f9);
   width: 32px;
   height: 32px;
   border-radius: 8px;
   cursor: pointer;
-  color: #475569;
+  color: var(--app-muted, #475569);
   font-size: 14px;
 }
 .pw-print-modal__sub {
   margin: 8px 0 16px;
   font-size: 13px;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
 }
 .pw-print-modal__options { display: flex; flex-direction: column; gap: 10px; }
 .pw-print-option {
@@ -266,16 +266,16 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
+  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--app-surface, #fff);
   border-radius: 10px;
   padding: 14px 16px;
   cursor: pointer;
   text-align: left;
 }
-.pw-print-option strong { font-size: 14px; color: #0f172a; }
-.pw-print-option span { font-size: 12px; color: #64748b; line-height: 1.4; }
-.pw-print-option:hover { border-color: #86efac; background: #f0fdf4; }
-.pw-print-option--primary { border-color: #14532d; background: #f0fdf4; }
-.pw-print-option--primary:hover { background: #dcfce7; }
+.pw-print-option strong { font-size: 14px; color: var(--app-ink, #0f172a); }
+.pw-print-option span { font-size: 12px; color: var(--app-muted, #64748b); line-height: 1.4; }
+.pw-print-option:hover { border-color: var(--app-line, #86efac); background: var(--app-surface-muted, #f0fdf4); }
+.pw-print-option--primary { border-color: #14532d; background: var(--app-surface-muted, #f0fdf4); }
+.pw-print-option--primary:hover { background: var(--app-tint-green, #dcfce7); }
 </style>

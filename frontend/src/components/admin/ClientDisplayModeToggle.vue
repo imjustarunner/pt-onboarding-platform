@@ -44,7 +44,7 @@ const { displayMode, canToggleDisplayMode } = useClientDisplayMode();
   border-radius: 8px;
   overflow: hidden;
   flex-shrink: 0;
-  background: #fff;
+  background: var(--app-surface, #fff);
 }
 
 .client-display-mode-btn {

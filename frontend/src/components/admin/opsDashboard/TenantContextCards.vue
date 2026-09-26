@@ -205,8 +205,8 @@ const eventGlyph = (kind) => {
   grid-template-columns: 1fr;
 }
 .panel {
-  background: #fff;
-  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, #e2e8f0);
+  background: var(--app-surface, #fff);
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 14%, var(--app-line, #e2e8f0));
   border-radius: 16px;
   padding: 16px 18px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--ops-primary, #1f6b4a) 5%, transparent);
@@ -235,7 +235,7 @@ const eventGlyph = (kind) => {
 .panel-blurb {
   margin: 0 0 10px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
   flex-shrink: 0;
 }
 .feed-body {
@@ -261,7 +261,7 @@ const eventGlyph = (kind) => {
   align-items: flex-start;
   gap: 10px;
   font-size: 13px;
-  color: #94a3b8;
+  color: var(--app-muted, #94a3b8);
   padding: 8px 0;
   flex: 1;
 }
@@ -282,7 +282,7 @@ const eventGlyph = (kind) => {
   width: 32px;
   height: 32px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 16%, #fff);
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 16%, var(--app-surface, #fff));
   color: var(--ops-primary, #1f6b4a);
   display: flex;
   align-items: center;
@@ -292,28 +292,28 @@ const eventGlyph = (kind) => {
   flex-shrink: 0;
 }
 .avatar.waitlist {
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--app-surface-muted, #fef2f2);
+  color: var(--app-text-red, #b91c1c);
 }
 .avatar.capacity, .avatar.full {
-  background: #ecfdf5;
-  color: #047857;
+  background: var(--app-surface-muted, #ecfdf5);
+  color: var(--app-text-green, #047857);
 }
 .avatar.caseload {
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--app-surface-muted, #eff6ff);
+  color: var(--app-text-blue, #1d4ed8);
 }
 .avatar.staff {
-  background: #fffbeb;
-  color: #b45309;
+  background: var(--app-surface-muted, #fffbeb);
+  color: var(--app-text-red, #b45309);
 }
 .avatar.program {
-  background: #f5f3ff;
-  color: #6d28d9;
+  background: var(--app-surface-muted, #f5f3ff);
+  color: var(--app-text-violet, #6d28d9);
 }
 .avatar.school {
-  background: #ecfeff;
-  color: #0e7490;
+  background: var(--app-surface-muted, #ecfeff);
+  color: var(--app-text-blue, #0e7490);
 }
 .item-meta {
   flex: 1;
@@ -325,7 +325,7 @@ const eventGlyph = (kind) => {
 .item-name {
   font-size: 13px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--app-ink, #0f172a);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -337,7 +337,7 @@ const eventGlyph = (kind) => {
 }
 .item-sub {
   font-size: 12px;
-  color: #475569;
+  color: var(--app-muted, #475569);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -345,12 +345,12 @@ const eventGlyph = (kind) => {
 }
 .item-meta-line {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--app-muted, #94a3b8);
   font-weight: 600;
 }
 .mini-btn {
-  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 30%, #e2e8f0);
-  background: #fff;
+  border: 1px solid color-mix(in srgb, var(--ops-primary, #1f6b4a) 30%, var(--app-line, #e2e8f0));
+  background: var(--app-surface, #fff);
   color: var(--ops-primary, #1f6b4a);
   border-radius: 999px;
   padding: 5px 10px;
@@ -361,7 +361,7 @@ const eventGlyph = (kind) => {
   flex-shrink: 0;
 }
 .mini-btn:hover {
-  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, #fff);
+  background: color-mix(in srgb, var(--ops-primary, #1f6b4a) 8%, var(--app-surface, #fff));
 }
 .more-row {
   display: flex;
@@ -369,7 +369,7 @@ const eventGlyph = (kind) => {
   gap: 12px;
   margin-top: 10px;
   padding-top: 10px;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--app-line, #f1f5f9);
   flex-shrink: 0;
 }
 </style>

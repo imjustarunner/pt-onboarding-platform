@@ -142,7 +142,7 @@ const handleSubmit = async () => {
 }
 
 .modal-content {
-  background: white;
+  background: var(--app-surface, white);
   padding: 32px;
   border-radius: 12px;
   max-width: 600px;

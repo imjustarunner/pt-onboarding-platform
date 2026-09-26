@@ -532,8 +532,8 @@ watch(() => props.draftRates, () => {
 
 <style scoped>
 .pay-calc {
-  background: #fff;
-  border: 1px solid #dbeafe;
+  background: var(--app-surface, #fff);
+  border: 1px solid var(--app-line, #dbeafe);
   border-radius: 10px;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   margin-bottom: 14px;
@@ -545,7 +545,7 @@ watch(() => props.draftRates, () => {
   align-items: center;
   gap: 12px;
   padding: 12px 14px;
-  background: linear-gradient(90deg, #eff6ff 0%, #f0fdf4 100%);
+  background: linear-gradient(90deg, var(--app-surface-muted, #eff6ff) 0%, var(--app-surface-muted, #f0fdf4) 100%);
   border: none;
   cursor: pointer;
   text-align: left;
@@ -567,21 +567,21 @@ watch(() => props.draftRates, () => {
   display: block;
   font-size: 14px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--app-ink, #0f172a);
 }
 .pay-calc__sub {
   display: block;
   font-size: 12px;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
   margin-top: 2px;
 }
-.pay-calc__chevron { color: #64748b; font-size: 14px; }
+.pay-calc__chevron { color: var(--app-muted, #64748b); font-size: 14px; }
 .pay-calc__body { padding: 14px; }
-.pay-calc__muted { font-size: 13px; color: #64748b; }
+.pay-calc__muted { font-size: 13px; color: var(--app-muted, #64748b); }
 .pay-calc__error {
-  background: #fef2f2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
+  background: var(--app-surface-muted, #fef2f2);
+  color: var(--app-text-red, #b91c1c);
+  border: 1px solid var(--app-line, #fecaca);
   border-radius: 6px;
   padding: 8px 10px;
   font-size: 13px;
@@ -598,16 +598,16 @@ watch(() => props.draftRates, () => {
   display: inline-block;
   padding: 3px 10px;
   border-radius: 999px;
-  background: #f1f5f9;
-  color: #334155;
+  background: var(--app-surface-muted, #f1f5f9);
+  color: var(--app-ink, #334155);
   font-size: 11px;
   font-weight: 600;
 }
-.pay-calc__chip--blue { background: #dbeafe; color: #1e40af; }
+.pay-calc__chip--blue { background: var(--app-tint-blue, #dbeafe); color: var(--app-text-blue, #1e40af); }
 .pay-calc__swap {
   border: 1px solid #166534;
-  background: #fff;
-  color: #166534;
+  background: var(--app-surface, #fff);
+  color: var(--app-text-green, #166534);
   border-radius: 999px;
   padding: 4px 12px;
   font-size: 12px;
@@ -625,12 +625,12 @@ watch(() => props.draftRates, () => {
   display: block;
   font-size: 11px;
   font-weight: 700;
-  color: #374151;
+  color: var(--app-ink, #374151);
   margin-bottom: 4px;
 }
 .pay-calc__scenario select {
   padding: 6px 8px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--app-line, #d1d5db);
   border-radius: 6px;
   font-size: 13px;
 }
@@ -639,14 +639,14 @@ watch(() => props.draftRates, () => {
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: #374151;
+  color: var(--app-ink, #374151);
   padding-bottom: 4px;
 }
 .pay-calc__label {
   display: block;
   font-size: 12px;
   font-weight: 700;
-  color: #374151;
+  color: var(--app-ink, #374151);
   margin-bottom: 6px;
 }
 .pay-calc__tiers {
@@ -660,20 +660,20 @@ watch(() => props.draftRates, () => {
   align-items: flex-start;
   gap: 2px;
   padding: 8px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--app-line, #e5e7eb);
   border-radius: 8px;
-  background: #fff;
+  background: var(--app-surface, #fff);
   cursor: pointer;
   text-align: left;
 }
-.pay-calc__tier strong { font-size: 13px; color: #0f172a; }
-.pay-calc__tier span { font-size: 11px; color: #64748b; }
+.pay-calc__tier strong { font-size: 13px; color: var(--app-ink, #0f172a); }
+.pay-calc__tier span { font-size: 11px; color: var(--app-muted, #64748b); }
 .pay-calc__tier--active {
   border-color: #166534;
-  background: #f0fdf4;
+  background: var(--app-surface-muted, #f0fdf4);
   box-shadow: 0 0 0 1px #166534 inset;
 }
-.pay-calc__hint { margin: 8px 0 0; font-size: 12px; color: #64748b; }
+.pay-calc__hint { margin: 8px 0 0; font-size: 12px; color: var(--app-muted, #64748b); }
 .pay-calc__lines { margin-top: 14px; }
 .pay-calc__lines-head {
   display: flex;
@@ -685,7 +685,7 @@ watch(() => props.draftRates, () => {
 .pay-calc__link {
   background: none;
   border: none;
-  color: #166534;
+  color: var(--app-text-green, #166534);
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -701,15 +701,15 @@ watch(() => props.draftRates, () => {
 .pay-calc__select,
 .pay-calc__qty {
   padding: 6px 8px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--app-line, #d1d5db);
   border-radius: 6px;
   font-size: 13px;
   width: 100%;
 }
 .pay-calc__remove {
   border: none;
-  background: #fef2f2;
-  color: #b91c1c;
+  background: var(--app-surface-muted, #fef2f2);
+  color: var(--app-text-red, #b91c1c);
   border-radius: 6px;
   width: 28px;
   height: 28px;
@@ -723,33 +723,33 @@ watch(() => props.draftRates, () => {
 }
 .pay-calc__table th,
 .pay-calc__table td {
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--app-line, #e5e7eb);
   padding: 8px 6px;
   text-align: left;
   vertical-align: top;
 }
 .pay-calc__table .right { text-align: right; }
-.muted { color: #9ca3af; }
+.muted { color: var(--app-muted, #9ca3af); }
 .pay-calc__summary {
   margin-top: 14px;
   padding: 12px;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--app-surface-muted, #f8fafc);
+  border: 1px solid var(--app-line, #e2e8f0);
   border-radius: 8px;
 }
 .pay-calc__sum-row {
   display: flex;
   justify-content: space-between;
   font-size: 13px;
-  color: #334155;
+  color: var(--app-ink, #334155);
   padding: 3px 0;
 }
 .pay-calc__sum-row--total {
   margin-top: 6px;
   padding-top: 8px;
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid var(--app-line, #e2e8f0);
   font-size: 15px;
-  color: #0f172a;
+  color: var(--app-ink, #0f172a);
 }
 @media (max-width: 720px) {
   .pay-calc__tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); }

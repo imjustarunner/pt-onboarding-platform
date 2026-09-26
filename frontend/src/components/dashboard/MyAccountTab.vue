@@ -144,7 +144,7 @@ const userRoleLabel = computed(() => {
 .acct-hub__pane--payroll {
   margin: -12px -16px -8px;
   padding: 12px 16px 8px;
-  background: #f3f4f6;
+  background: var(--app-surface-muted, #f3f4f6);
   border-radius: 8px;
 }
 
@@ -158,7 +158,7 @@ const userRoleLabel = computed(() => {
 
 .acct-hub__empty {
   margin: 0;
-  color: #6b7280;
+  color: var(--app-muted, #6b7280);
   font-size: 14px;
 }
 </style>

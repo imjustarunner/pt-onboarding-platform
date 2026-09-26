@@ -1286,7 +1286,7 @@ onMounted(fetchAll);
   padding: 0.15rem 0.4rem;
   border-radius: 999px;
 }
-.seg.individual { background: rgba(52, 211, 153, 0.15); color: #6ee7b7; }
+.seg.individual { background: rgba(52, 211, 153, 0.15); color: var(--app-text-green, #6ee7b7); }
 .seg.organization { background: var(--brand-tint); color: var(--link-color); }
 .seg.sandbox { background: rgba(251, 191, 36, 0.15); color: #fcd34d; }
 .seg.type { background: rgba(148, 163, 184, 0.12); color: var(--text-secondary); }

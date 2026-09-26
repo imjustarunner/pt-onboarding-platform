@@ -10,8 +10,8 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  background: #f1f5f9;
-  border: 1px solid #e2e8f0;
+  background: var(--app-surface-muted, #f1f5f9);
+  border: 1px solid var(--app-line, #e2e8f0);
   border-radius: 12px;
   padding: 3px;
   flex-wrap: wrap;
@@ -24,7 +24,7 @@
   border-radius: 9px;
   font-size: 12.5px;
   font-weight: 600;
-  color: #64748b;
+  color: var(--app-muted, #64748b);
   text-decoration: none;
   white-space: nowrap;
   transition: background 0.15s, color 0.15s;
@@ -34,12 +34,12 @@
   font: inherit;
 }
 .ocm-hub-switcher-btn:hover {
-  background: #fff;
-  color: #1e293b;
+  background: var(--app-surface, #fff);
+  color: var(--app-ink, #1e293b);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 .ocm-hub-switcher-btn.is-active {
-  background: #fff;
+  background: var(--app-surface, #fff);
   color: var(--primary, #1f6b4a);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
   font-weight: 700;
@@ -51,16 +51,16 @@
   gap: 8px;
   padding: 10px 14px;
   border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #fff;
-  color: #0f172a;
+  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--app-surface, #fff);
+  color: var(--app-ink, #0f172a);
   text-decoration: none;
   font-weight: 700;
   font-size: 13px;
   cursor: pointer;
 }
 .ocm-hub-action-btn:hover {
-  background: #f8fafc;
+  background: var(--app-surface-muted, #f8fafc);
 }
 .ocm-hub-action-btn--primary {
   background: #1e4d3b;

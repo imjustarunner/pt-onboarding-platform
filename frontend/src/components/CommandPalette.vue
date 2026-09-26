@@ -104,6 +104,8 @@
 
             <div class="cp-body">
               <!-- Nav: live results -->
+              <p v-if="navigationError" class="cp-navigation-error" role="alert">{{ navigationError }}</p>
+              <p v-if="navigating" class="cp-navigation-status" role="status">Opening page…</p>
               <ul v-if="mode === 'nav' && navResults.length" class="cp-results" role="listbox">
                 <li
                   v-for="(item, idx) in navResults"
@@ -111,6 +113,7 @@
                   class="cp-result"
                   :class="{ active: activeIndex === idx }"
                   role="option"
+                  :aria-selected="activeIndex === idx"
                   @mouseenter="activeIndex = idx"
                   @click="goNav(item)"
                 >
@@ -204,23 +207,19 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter, isNavigationFailure, NavigationFailureType } from 'vue-router';
 import { useCommandPalette } from '../composables/useCommandPalette';
 import { useAskAssistant } from '../composables/useAskAssistant';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { useBrandingStore } from '../store/branding';
 import { useSchoolPortalQuickNavCache } from '../composables/useSchoolPortalQuickNavCache';
-import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
-import { listNavForSurface, searchNav } from '../utils/navSearchIndex';
 import { canUseSchoolPortalQuickNav, searchSchoolPortalQuickNav } from '../utils/schoolPortalQuickNav';
 import {
   buildQuickNavContext,
-  getAccessibleQuickNavEntries,
-  resolveQuickNavRoute,
   searchQuickNav
 } from '../navigation/quickNavCatalog';
-import { getMyDashboardPath, resolveAssistantNavigationPath } from '../utils/router';
+import { getRegisteredQuickNavEntries, resolveRegisteredQuickNav, canDiscoverQuickNavRoute } from '../navigation/quickNavRuntime';
 import { isSupervisor } from '../utils/helpers';
 import { resolveCommandSurface } from '../utils/resolveCommandSurface';
 import {
@@ -247,9 +246,13 @@ const query = ref('');
 const activeIndex = ref(0);
 const pickerFocus = ref(0);
 const inputRef = ref(null);
+const navigationError = ref('');
+const navigating = ref(false);
 
 const orgSlug = computed(() =>
-  typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null
+  typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug
+    : route.query.scope === 'platform' ? null
+    : agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || null
 );
 
 const commandSurface = computed(() =>
@@ -310,123 +313,50 @@ const quickNavCtx = computed(() => {
   });
 });
 
+const navigationOptions = computed(() => ({
+  currentPath: route.path,
+  orgSlug: orgSlug.value,
+  dashboardPath: `${orgSlug.value ? '/' + orgSlug.value : ''}/dashboard`,
+  agency: agencyStore.currentAgency || {},
+  platformBranding: brandingStore.platformBranding || {},
+  user: authStore.user
+}));
+const registeredEntries = computed(() => getRegisteredQuickNavEntries(router, quickNavCtx.value, navigationOptions.value));
 const navResults = computed(() => {
   const q = String(query.value || '').trim();
   if (!q) return [];
-  const surface = commandSurface.value;
-  const items = [];
-  // Unscoped hub/searchNav ignores roles — only admins may use it.
-  // Providers and other roles rely on role-aware searchQuickNav / school portal search.
-  if (isAdminLike.value) {
-    const hub = searchNav(q, { orgSlug: orgSlug.value, surface, limit: 8 }).filter(item => !item.requiresBilling || canAccessBillingWorkspace(authStore.user)).map((item) => ({
-      id: `hub-${item.fullPath}`,
-      label: item.title,
-      description: item.section,
-      groupLabel: surface && item.score >= 80 ? `On ${surface.label}` : 'Page',
-      kind: 'path',
-      path: item.fullPath,
-      score: item.score
-    }));
-    items.push(...hub);
-  }
-  const qn = searchQuickNav(q, quickNavCtx.value, { limit: 10, surface }).flat.map((item) => ({
-    id: item.id,
-    label: item.label,
-    description: item.description,
-    groupLabel: item.groupLabel,
-    kind: item.kind,
-    routeName: item.routeName,
-    path: item.path,
-    query: item.query,
-    hash: item.hash,
-    score: item.score
-  }));
-  for (const item of qn) {
-    if (!items.some((x) => x.id === item.id)) items.push(item);
-  }
-  for (const item of schoolPortalNavResults.value) {
-    if (!items.some((x) => x.id === item.id)) items.push(item);
+  const items = searchQuickNav(q, quickNavCtx.value, {
+    limit: 20, surface: commandSurface.value, entries: registeredEntries.value
+  }).flat;
+  for (const entry of schoolPortalNavResults.value) {
+    const resolved = resolveRegisteredQuickNav(entry, router, { ...navigationOptions.value, orgSlug: '' });
+    if (resolved && canDiscoverQuickNavRoute(resolved, navigationOptions.value)) {
+      items.push({ ...entry, scope: 'platform', destination: resolved.fullPath });
+    }
   }
   const seen = new Set();
   return items.sort((a, b) => (b.score || 0) - (a.score || 0)).filter(item => {
-    if (item.kind !== 'path') return true;
-    const location = resolveQuickNavRoute(item, { currentPath: route.path, orgSlug: orgSlug.value, currentQuery: route.query });
-    if (!location) return true;
-    const key = router.resolve(location).href;
-    if (seen.has(key)) return false;
-    seen.add(key);
+    if (seen.has(item.destination)) return false;
+    seen.add(item.destination);
     return true;
   }).slice(0, 14);
 });
-
 watch(navResults, () => { activeIndex.value = 0; });
-
-const accessibleNavPathSet = computed(() => {
-  const paths = new Set();
-  const opts = {
-    currentPath: route.path,
-    orgSlug: orgSlug.value,
-    currentQuery: route.query,
-    dashboardPath: getMyDashboardPath({ preferNonDemo: true })
-  };
-  for (const entry of getAccessibleQuickNavEntries(quickNavCtx.value)) {
-    if (entry.path) {
-      const base = String(entry.path).split('?')[0];
-      if (base) paths.add(base);
-      paths.add(String(entry.path));
-    }
-    const loc = resolveQuickNavRoute(entry, opts);
-    if (!loc) continue;
-    if (typeof loc === 'string') {
-      paths.add(loc.split('?')[0]);
-      paths.add(loc);
-    } else if (loc.path) {
-      paths.add(String(loc.path).split('?')[0]);
-      paths.add(String(loc.path));
-    }
-  }
-  return paths;
-});
 
 function isAccessibleHistoryPath(path) {
   if (!path) return false;
-  if (isAdminLike.value) return true;
-  const raw = String(path);
-  const base = raw.split('?')[0];
-  if (accessibleNavPathSet.value.has(raw) || accessibleNavPathSet.value.has(base)) return true;
-  // Allow school-portal destinations for eligible users
-  if (schoolPortalQuickNavEligible.value && /\/school-portal\//.test(base)) return true;
-  // Match accessible entries whose path is a prefix (e.g. dashboard tabs)
-  for (const allowed of accessibleNavPathSet.value) {
-    if (!allowed) continue;
-    if (raw === allowed || base === allowed) return true;
-    if (raw.startsWith(allowed) || allowed.startsWith(base)) return true;
-  }
-  return false;
+  const resolved = resolveRegisteredQuickNav({ kind: 'path', path, scope: 'platform' }, router, navigationOptions.value);
+  if (!resolved || !canDiscoverQuickNavRoute(resolved, navigationOptions.value)) return false;
+  const destinationOrg = resolved.params.organizationSlug;
+  if (destinationOrg && destinationOrg !== orgSlug.value) return false;
+  // Account tab visibility and tenant feature choices also apply to saved history.
+  return registeredEntries.value.some(entry => entry.destination === resolved.fullPath)
+    || (schoolPortalQuickNavEligible.value && /\/school-portal\//.test(resolved.path));
 }
 
 const popularNavEntries = computed(() => {
-  const surface = commandSurface.value;
-  if (surface) {
-    if (isAdminLike.value) {
-      const fromIndex = listNavForSurface(surface, { orgSlug: orgSlug.value, limit: 8 }).filter(item => !item.requiresBilling || canAccessBillingWorkspace(authStore.user)).map((item) => ({
-        id: `surf-${item.path}`,
-        label: item.title,
-        description: item.section,
-        group: 'surface',
-        kind: 'path',
-        path: item.fullPath
-      }));
-      if (fromIndex.length) return fromIndex;
-    }
-    const groups = surface.quickNavGroups || [];
-    return getAccessibleQuickNavEntries(quickNavCtx.value)
-      .filter((e) => groups.includes(e.group))
-      .slice(0, 10);
-  }
-  return getAccessibleQuickNavEntries(quickNavCtx.value)
-    .filter((e) => ['schedule', 'account', 'workspace', 'clients'].includes(e.group))
-    .slice(0, 10);
+  const groups = commandSurface.value?.quickNavGroups || ['schedule', 'account', 'workspace', 'clients'];
+  return registeredEntries.value.filter(e => groups.includes(e.group)).slice(0, 10);
 });
 
 const askExamples = computed(() => {
@@ -485,6 +415,7 @@ watch(open, async (isOpen) => {
     const agencyId = agencyStore.currentAgency?.id;
     if (agencyId) ensureSchoolPortalQuickNavCache(agencyId);
   }
+  navigationError.value = '';
   if (seedQuery.value) query.value = seedQuery.value;
   await nextTick();
   inputRef.value?.focus();
@@ -508,60 +439,42 @@ function backToPicker() {
   query.value = '';
 }
 
-function dashboardPath() {
-  return getMyDashboardPath({ preferNonDemo: true });
-}
-
 async function goNav(item) {
-  if (!item) return;
-  let path = item.path;
-  if (!path && item.kind !== 'path') {
-    const loc = resolveQuickNavRoute(item, {
-      currentPath: route.path,
-      orgSlug: orgSlug.value,
-      currentQuery: route.query,
-      dashboardPath: dashboardPath()
-    });
-    if (!loc) return;
-    path = typeof loc === 'string' ? loc : loc.path;
-    if (typeof loc === 'object' && loc.path) {
-      closePalette();
-      const target = {
-        ...loc,
-        path: resolveAssistantNavigationPath(loc.path, { orgSlug: orgSlug.value || undefined })
-      };
-      await router.push(target);
-      recordNavSelection({ path: target.path, title: item.label, section: item.description });
+  if (!item || navigating.value) return;
+  navigationError.value = '';
+  const target = item.destination
+    ? resolveRegisteredQuickNav({ kind: 'path', path: item.destination, scope: 'platform' }, router, navigationOptions.value)
+    : resolveRegisteredQuickNav(item, router, navigationOptions.value);
+  if (!target || !canDiscoverQuickNavRoute(target, navigationOptions.value)) {
+    navigationError.value = 'This page is unavailable in your current workspace. Search again or switch organizations.';
+    return;
+  }
+  navigating.value = true;
+  try {
+    const failure = await router.push(target.fullPath);
+    if (failure && !isNavigationFailure(failure, NavigationFailureType.duplicated)) {
+      navigationError.value = 'Navigation was interrupted. Select the page again to retry.';
       return;
     }
+    // Guards can redirect without throwing. Do not record a shortcut as successful in that case.
+    if (router.currentRoute.value.fullPath !== target.fullPath) {
+      navigationError.value = 'This page could not open in your current workspace. Check your access or organization.';
+      return;
+    }
+    recordNavSelection({ path: target.fullPath, title: item.label || item.title, section: item.description || item.groupLabel });
+    closePalette();
+  } catch {
+    navigationError.value = 'The page could not load. Check your connection and select it again to retry.';
+  } finally {
+    navigating.value = false;
   }
-  if (!path) return;
-  closePalette();
-  const resolvedPath = resolveAssistantNavigationPath(path, { orgSlug: orgSlug.value || undefined });
-  await router.push(resolvedPath);
-  recordNavSelection({ path: resolvedPath, title: item.label, section: item.description || item.groupLabel });
 }
 
 function goNavRecent(item) {
-  if (!item?.path) return;
-  closePalette();
-  router.push(item.path);
-  recordNavSelection(item);
+  if (isAccessibleHistoryPath(item?.path)) void goNav({ ...item, kind: 'path', scope: 'platform', label: item.title });
 }
 
-function goNavExample(entry) {
-  void goNav({
-    id: entry.id,
-    label: entry.label,
-    description: entry.description,
-    groupLabel: entry.group,
-    kind: entry.kind,
-    routeName: entry.routeName,
-    path: entry.path,
-    query: entry.query,
-    hash: entry.hash
-  });
-}
+function goNavExample(entry) { void goNav(entry); }
 
 function submitAsk(text) {
   const prompt = String(text || query.value || '').trim();
@@ -642,6 +555,8 @@ defineExpose({ openPalette });
 </script>
 
 <style scoped>
+.cp-navigation-error { padding: 12px 20px; color: var(--danger, #b91c1c); background: var(--bg-card); }
+.cp-navigation-status { padding: 8px 20px; color: var(--text-secondary); }
 .cp-overlay {
   position: fixed;
   inset: 0;
