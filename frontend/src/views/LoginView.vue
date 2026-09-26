@@ -1984,7 +1984,7 @@ const startRememberedGoogleLogin = () => {
 };
 
 const saveRememberPreference = () => {
-  const slug = effectiveLoginSlug.value;
+  const slug = effectiveLoginSlug.value || rememberedGoogleLogin.value?.orgSlug;
   if (rememberLogin.value) {
     if (slug && username.value.trim()) setRememberedLogin({ username: username.value, orgSlug: slug, parentOrgSlug: resolveParentForNestedLogin(slug) });
   } else {
@@ -2008,6 +2008,7 @@ const onUsernameInput = () => {
 };
 
 const resetToUsernameStep = () => {
+  const rememberedSlug = effectiveLoginSlug.value || rememberedGoogleLogin.value?.orgSlug;
   showPassword.value = false;
   needsOrgChoice.value = false;
   password.value = '';
@@ -2018,7 +2019,7 @@ const resetToUsernameStep = () => {
   sstcClubBranding.value = null;
   rememberedGoogleLogin.value = null;
   error.value = '';
-  if (!rememberLogin.value) clearRememberedLogin();
+  if (!rememberLogin.value && rememberedSlug) clearRememberedLogin(rememberedSlug);
   for (const key of ['username', 'verify', 'remember']) {
     try { sessionStorage.removeItem(`__pt_login_pending_${key}__`); } catch { /* optional */ }
   }
@@ -2187,7 +2188,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
         parentOrgSlug: resolveParentForNestedLogin(slugToStore)
       });
     } else if (!rememberLogin.value) {
-      clearRememberedLogin();
+      if (resolvedSlug || effectiveLoginSlug.value) clearRememberedLogin(resolvedSlug || effectiveLoginSlug.value);
       try {
         sessionStorage.removeItem('__pt_login_pending_username__');
         sessionStorage.removeItem('__pt_login_pending_verify__');

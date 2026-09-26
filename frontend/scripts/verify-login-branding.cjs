@@ -102,6 +102,13 @@ const assert = (condition, message) => { if (!condition) throw Error(message); }
   await page.getByRole('button', { name: 'Continue as Sample' }).click();
   await page.waitForURL('**/auth/google/start?**');
   assert(googleStart?.orgSlug === 'itsco' && googleStart.loginHint === 'sample@example.test', 'Saved button did not go directly to Google start with correct identity');
+  await page.goto('https://app.itsco.health/login');
+  await page.getByRole('button', { name: 'Forget this account' }).click();
+  const remaining = await page.evaluate(async () => {
+   const m = await import('/src/utils/loginRemember.js');
+   return { here: m.getRememberedGoogleLogin('itsco'), other: m.getRememberedLogin('nlu'), otherGoogle: m.getRememberedGoogleLogin('nlu') };
+  });
+  assert(!remaining.here && remaining.other?.username === 'other@example.test' && remaining.otherGoogle?.username === 'other@example.test', 'Forgetting one account removed another portal memory');
   // Password-only memory must not turn into a Google account card.
   await page.goto('https://app.itsco.health/login');
   await page.evaluate(async () => { const m = await import('/src/utils/loginRemember.js'); m.clearRememberedGoogleLogin(); m.setRememberedLogin({ username: 'password@example.test', orgSlug: 'itsco' }); });
