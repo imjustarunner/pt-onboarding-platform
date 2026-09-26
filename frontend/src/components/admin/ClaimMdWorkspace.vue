@@ -182,7 +182,7 @@ const search = ref(''), searchBy = ref('name'), billingOfficeId = ref(''), billi
 const selectedOffice = computed(() => billingOffices.value.find(o => Number(o.id) === Number(billingOfficeId.value)));
 const billingGroups = computed(() => [...new Set(billingOffices.value.map(o=>o.practice_npi))].map(npi=>({npi,offices:billingOffices.value.filter(o=>o.practice_npi===npi)})));
 const sameGroupOfficeCount = computed(() => billingOffices.value.filter(o=>o.practice_npi===selectedOffice.value?.practice_npi).length);
-const enrollmentStatus = status => ({ requested: 'Requested — open enrollment to continue', started: 'Form issued — complete steps in Claim.MD', provider_validation_required: 'Action needed — NPPES phone validation' })[status] || status;
+const enrollmentStatus = status => ({ requested: 'Requested — open enrollment to continue', started: 'Form issued — complete steps in Claim.MD', provider_validation_required: 'Action needed — NPPES phone validation', era_receiver_conflict: 'Action needed — release or transfer ERA enrollment from the current receiving account' })[status] || status;
 const payers = ref([]), enrollments = ref([]), review = ref(null), approved = ref(false), history = ref([]), historyClaimId = ref(null);
 const transactionCapability = payer => payer[{'1500':'1500_claims',era:'era',elig:'eligibility'}[enrollmentType.value]];
 const transactionUnavailable = payer => transactionCapability(payer) === 'no';

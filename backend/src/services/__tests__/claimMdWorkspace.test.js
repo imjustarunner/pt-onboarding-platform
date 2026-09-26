@@ -10,6 +10,7 @@ function fixture() {
     canAccess: vi.fn(async (_, id) => id !== 2),
     connectionMeta: vi.fn(async () => ({ configured: true, accountId: '100', mode: 'disabled' })),
     clinical: { execute: vi.fn(async (sql, params) => {
+      if (sql.includes('FROM claimmd_payment_postings')) return [[{agency_id:1,posting_count:2,paid_cents:16000}]];
       if (sql.includes('GROUP BY')) return [[{ agency_id: 1, claim_lifecycle: 'ready', count: 2 }]];
       if (sql.includes('FROM claimmd_enrollments')) return [[{ agency_id: 1, connection_id: 'account:100', payer_id: 'COCHA', enrollment_type: 'era', status: 'requested' }, { agency_id: 1, connection_id: 'account:OLD', payer_id: 'OLD', enrollment_type: 'era', status: 'approved' }]];
       if (sql.startsWith('SELECT COUNT')) return [[{ count: 1 }]];
@@ -27,6 +28,7 @@ describe('cross-company billing scope', () => {
     for (const [sql, params] of deps.clinical.execute.mock.calls) { expect(sql).toContain('agency_id IN (?,?)'); expect(params.slice(0, 2)).toEqual([1, 3]); }
     expect(data.organizations[0].enrollments.map(e => e.payerId)).toEqual(['COCHA']);
     expect(data.capabilities.paymentPosting).toBe(true);
+    expect(data.organizations[0].payments).toEqual({postingCount:2,paidCents:16000});
   });
   it('denies providers before fetching any data, even if delegated access would return true', async () => {
     const deps = fixture(); deps.canAccess.mockResolvedValue(true);
@@ -47,6 +49,7 @@ describe('cross-company billing scope', () => {
   it('reports unavailable schemas instead of inventing zero balances or connected payers', async () => {
     const deps = fixture(); deps.clinical.execute.mockRejectedValue({ code: 'ER_NO_SUCH_TABLE' });
     const data = await billingWorkspace(user, {}, deps);
+    expect(data.capabilities.paymentPosting).toBe(false); expect(data.organizations[0].payments).toBeNull();
     expect(data.capabilities.claims).toBe(false); expect(data.capabilities.enrollments).toBe(false);
     expect(data.organizations[0].counts).toBeNull(); expect(data.claims).toEqual([]);
   });

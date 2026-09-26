@@ -26,3 +26,7 @@ The patient ledger is updated through a durable outbox. Primary and secondary sh
 Validation: Node domain tests; MySQL tests for concurrent imports/posting, agency isolation, changed-source holds, copay preservation, zero closure, pending-payment blocks and outbox retries; existing submission, secondary-claim and workspace permission suites; frontend production build and real-component desktop/mobile browser checks.
 
 Reference: https://api.claim.md/ (ERA list and ERA details). ERA import uses polling; enrollment callbacks are not ERA delivery callbacks.
+
+Live portal check on 2026-09-26: TISI / COCHA ERA enrollment returned an existing-receiver conflict. Claim.MD instructs the current receiving account to remove/stop its enrollment, or the account holder to open a Claim.MD support request. No transfer occurred; the first live directory check returned zero TISI ERAs. This is separate from CCHA professional claims, which require no electronic enrollment.
+
+Provisioning: `node scripts/provision-claimmd-sync.mjs` previews the job; `--apply` creates/updates it and its 15-minute scheduler using the serving backend image and only the necessary billing/database/encryption configuration. Re-run after backend changes affecting this job or credential rotation. Its transmission mode is always disabled, and its agency allowlist is 377.

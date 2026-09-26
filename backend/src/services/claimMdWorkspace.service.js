@@ -33,7 +33,7 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
     capabilities: { claims: true, enrollments: true, paymentPosting: true, scheduledReports: false, eft: true }, updatedAt: new Date().toISOString() };
   if (!organizations.length) return result;
   const allIds = organizations.map(a => a.id), allMarks = allIds.map(() => '?').join(',');
-  let counts = [], enrollments = [];
+  let counts = [], enrollments = [], payments = [];
   try {
     [counts] = await deps.clinical.execute(`SELECT agency_id, claim_lifecycle, COUNT(*) AS count, SUM(CASE WHEN claim_lifecycle NOT IN ('rejected','denied') AND ${pendingChangeSql} THEN 1 ELSE 0 END) AS additional_attention FROM clinical_claims
       WHERE agency_id IN (${allMarks}) AND is_deleted = 0 GROUP BY agency_id, claim_lifecycle`, allIds);
@@ -42,7 +42,12 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
     [enrollments] = await deps.clinical.execute(`SELECT agency_id, connection_id, billing_office_location_id, provider_npi, payer_id, enrollment_type, status, last_event_at
       FROM claimmd_enrollments WHERE agency_id IN (${allMarks})`, allIds);
   } catch (e) { if (!missingSchema(e)) throw e; result.capabilities.enrollments = false; }
+  try {
+    [payments] = await deps.clinical.execute(`SELECT agency_id, COUNT(*) AS posting_count, SUM(paid_cents) AS paid_cents FROM claimmd_payment_postings WHERE agency_id IN (${allMarks}) GROUP BY agency_id`,allIds);
+  } catch(e) { if(!missingSchema(e))throw e;result.capabilities.paymentPosting=false; }
   for (const organization of organizations) {
+    const payment=payments.find(p=>Number(p.agency_id)===organization.id);
+    organization.payments=result.capabilities.paymentPosting?{postingCount:Number(payment?.posting_count||0),paidCents:Number(payment?.paid_cents||0)}:null;
     try { const eft=await deps.eftList(organization.id); organization.eft=eft.items.map(({id,officeId,payerId,payerName,providerNpi,status,identityCurrent,updatedAt})=>({id,officeId,payerId,payerName,providerNpi,status,identityCurrent,updatedAt})); organization.eftHasMore=eft.hasMore; }
     catch(e){if(!missingSchema(e))throw e;result.capabilities.eft=false;organization.eft=null;}
     organization.counts = result.capabilities.claims ? Object.fromEntries(counts.filter(r => Number(r.agency_id) === organization.id).map(r => [r.claim_lifecycle || 'unknown', Number(r.count)])) : null;
