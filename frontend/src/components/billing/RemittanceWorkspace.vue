@@ -34,7 +34,7 @@ const props=defineProps({agencyId:{type:Number,required:true},agencyName:{type:S
 const data=ref(null),detail=ref(null),error=ref(''),notice=ref(''),busy=ref(false),before=ref(0),matches=ref({}),reasons=ref({}),approvals=ref({});
 let generation=0;
 const money=cents=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(cents||0)/100);
-const label=value=>({review:'Needs review',matched:'Matched — awaiting approval',unmatched:'Needs matching',posted:'Posted',partially_posted:'Partially posted',source_changed:'Source changed — review required',pending:'Pending',completed:'Updated'}[value]||String(value).replaceAll('_',' '));
+const label=value=>({review:'Needs review',matched:'Matched — awaiting approval',unmatched:'Needs matching',posted:'Posted',partially_posted:'Partially posted',source_changed:'Source changed — review required',pending:'Pending',completed:'Updated',superseded:'Replaced by final secondary adjudication'}[value]||String(value).replaceAll('_',' '));
 async function action(fn){const version=generation;busy.value=true;error.value='';try{await fn(version);}catch(e){if(version===generation)error.value=e.response?.data?.error?.message||'This action could not finish. Refresh to check its status before retrying.';}finally{if(version===generation)busy.value=false;}}
 async function refresh(version,cursor=before.value){const result=await api.get('/medical-billing/claimmd/remittances',{params:{agencyId:props.agencyId,...(cursor?{before:cursor}:{})}});if(version===generation){data.value=result.data;before.value=cursor;}}
 async function load(cursor=0){return action(v=>refresh(v,cursor));}

@@ -88,7 +88,7 @@ export async function syncRemittances({agencyId,maxDownloads=10}) {
 export async function listRemittances(agencyId,{before=0}={}) {
  const [rows]=await clinicalPool.execute(`SELECT * FROM claimmd_remittances WHERE agency_id=? ${before?'AND id<?':''} ORDER BY id DESC LIMIT 51`,before?[agencyId,before]:[agencyId]);
  const [totals]=await clinicalPool.execute('SELECT COUNT(*) AS count,COALESCE(SUM(paid_cents),0) AS paidCents,COALESCE(SUM(adjustment_cents-responsibility_cents),0) AS adjustmentCents FROM claimmd_payment_postings WHERE agency_id=?',[agencyId]);
- const [jobs]=await clinicalPool.execute("SELECT COUNT(*) AS count FROM claimmd_responsibility_jobs WHERE agency_id=? AND status<>'completed'",[agencyId]);
+ const [jobs]=await clinicalPool.execute("SELECT COUNT(*) AS count FROM claimmd_responsibility_jobs WHERE agency_id=? AND status NOT IN ('completed','superseded')",[agencyId]);
  const [sync]=await clinicalPool.execute('SELECT MAX(last_success_at) AS lastSyncAt FROM claimmd_era_sync_state WHERE agency_id=?',[agencyId]);
  return {rows:rows.slice(0,50).map(r=>{const {era}=decode(r);return {id:r.id,eraId:era.eraId,payerName:era.payerName,paidDate:era.paidDate,paidCents:era.paidCents,status:r.status,claimCount:era.items.length};}),nextBefore:rows.length>50?rows[49].id:null,totals:totals[0],pendingBalances:Number(jobs[0].count),lastSyncAt:sync[0].lastSyncAt};
 }
@@ -150,10 +150,14 @@ export async function applyResponsibilityJobs(agencyId) {
    const [[source]]=await clinicalPool.execute(`SELECT r.status FROM claimmd_payment_postings p JOIN claimmd_remittance_items i ON i.id=p.remittance_item_id JOIN claimmd_remittances r ON r.id=i.remittance_id WHERE p.id=? AND p.agency_id=?`,[job.posting_id,agencyId]);
    if(!source||source.status==='source_changed')throw fail(409,'Remittance source changed; reconcile the original posting before updating patient balances');
    if(job.action!=='set')throw fail(409,'Forwarded to another payer; review its final ERA before patient billing');
-   const [[claim]]=await clinicalPool.execute('SELECT client_id FROM clinical_claims WHERE id=? AND agency_id=?',[job.clinical_claim_id,agencyId]);
+   const [[claim]]=await clinicalPool.execute('SELECT client_id,parent_claim_id,payer_sequence FROM clinical_claims WHERE id=? AND agency_id=?',[job.clinical_claim_id,agencyId]);
    if(!claim)throw fail(409,'Claim unavailable for balance reconciliation');
    await setClaimResponsibility({agencyId,claimId:job.clinical_claim_id,amountCents:Number(job.amount_cents),verificationBasis:'era',reason:`Claim.MD remittance posting ${job.posting_id}`,actorUserId:job.actor_user_id,remittancePostingId:job.posting_id});
-   await clinicalPool.execute("UPDATE claimmd_responsibility_jobs SET status='completed',error_message=NULL WHERE id=?",[job.id]);results.push({id:job.id,status:'completed'});
+   await transaction(async db=>{
+    await db.execute("UPDATE claimmd_responsibility_jobs SET status='completed',error_message=NULL WHERE id=?",[job.id]);
+    if(Number(claim.payer_sequence)===2&&claim.parent_claim_id)await db.execute("UPDATE claimmd_responsibility_jobs SET status='superseded',error_message='Replaced by verified final secondary adjudication' WHERE agency_id=? AND clinical_claim_id=? AND id<? AND status IN ('pending','review')",[agencyId,claim.parent_claim_id,job.id]);
+   });
+   results.push({id:job.id,status:'completed'});
   }catch(e){
    const message=e.status===409?e.message:'Patient balance update needs review; retry after resolving its setup';
    await clinicalPool.execute("UPDATE claimmd_responsibility_jobs SET status='review',error_message=? WHERE id=?",[String(message).slice(0,1000),job.id]);results.push({id:job.id,status:'review'});

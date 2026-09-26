@@ -60,7 +60,7 @@ test('ERA import/post concurrency, tenant isolation and final copay adjustments 
   await pool.query("INSERT INTO family_ledger_payments VALUES(2,1,100,'pending')");await assert.rejects(tx(async db=>applyFinalClaimResponsibility(await findReceivable(377,1,db,true),4000,{verificationReason:'Blocked'},99,db)),/pending payment/);
 
   // Exercise the actual cross-database outbox retry against the actual family ledger.
-  main.execute=pool.execute.bind(pool);main.getConnection=pool.getConnection.bind(pool);clinical.execute=pool.execute.bind(pool);
+  main.execute=pool.execute.bind(pool);main.getConnection=pool.getConnection.bind(pool);clinical.execute=pool.execute.bind(pool);clinical.getConnection=pool.getConnection.bind(pool);
   await pool.query('ALTER TABLE clinical_claims ADD client_id INT DEFAULT 1,ADD clinical_session_id INT DEFAULT 1,ADD parent_claim_id BIGINT,ADD payer_sequence INT DEFAULT 1,ADD destination_payer_id VARCHAR(32),ADD claim_status VARCHAR(30)');
   await pool.query('CREATE TABLE clinical_sessions(id BIGINT PRIMARY KEY,agency_id INT,client_id INT,scheduled_start_at DATETIME,encounter_status VARCHAR(30))');
   await pool.query("INSERT INTO clinical_sessions VALUES(1,377,1,'2026-01-01','completed')");
@@ -77,5 +77,16 @@ test('ERA import/post concurrency, tenant isolation and final copay adjustments 
   delivery=await applyResponsibilityJobs(377);assert.equal(delivery[0].status,'completed');
   [[audits]]=await pool.query('SELECT COUNT(*) AS n FROM family_billing_audit');assert.equal(audits.n,beforeRetry);
   balance=await findReceivable(377,1,pool);assert.equal(sourcePayload(balance).remittancePostingId,job.posting_id);assert.equal(balance.status,'paid');
+
+  await pool.query("UPDATE claimmd_responsibility_jobs SET status='review' WHERE id=1");
+  await pool.execute('UPDATE clients SET billing_insurance_payload=? WHERE id=1',[encrypt({primary:{payerId:'TEST'},secondary:{payerId:'SECOND'}},'client-insurance:377:1')]);
+  await pool.query("INSERT INTO clinical_claims(id,agency_id,claim_number,claimmd_connection_id,claimmd_submitted_at,claim_lifecycle,parent_claim_id,payer_sequence,destination_payer_id) VALUES(103,377,'103','account:synthetic',NOW(),'submitted',101,2,'SECOND')");
+  const secondaryRaw=structuredClone(raw);secondaryRaw.eraid='103';secondaryRaw.payerid='SECOND';secondaryRaw.claim[0].pcn='103';secondaryRaw.claim[0].status_code='2';
+  await pool.execute("INSERT INTO claimmd_claim_events(agency_id,clinical_claim_id,connection_id,event_key,event_type,payload_encrypted) VALUES(377,103,'account:synthetic','submission:secondary','approved_submission',?)",[encrypt({payload:{...sent,pcn:'103',payerid:'SECOND'}},'claimmd:377:103:submission:secondary')]);
+  const secondaryEra=await importRemittance({agencyId:377,connection,raw:secondaryRaw,identity,pool});
+  const [[secondaryItem]]=await pool.execute('SELECT * FROM claimmd_remittance_items WHERE remittance_id=?',[secondaryEra.id]);const [[secondaryHeader]]=await pool.execute('SELECT * FROM claimmd_remittances WHERE id=?',[secondaryEra.id]);
+  await postRemittanceItem({...args,id:secondaryEra.id,itemId:secondaryItem.id,reviewHash:secondaryHeader.payload_hash});
+  delivery=await applyResponsibilityJobs(377);assert.equal(delivery.at(-1).status,'completed');
+  const [[primaryJob]]=await pool.execute('SELECT status FROM claimmd_responsibility_jobs WHERE id=?',[job.id]);assert.equal(primaryJob.status,'superseded');
  }finally{await pool.end();await admin.query(`DROP DATABASE ${schema}`);await admin.end();await main.end();await clinical.end();}
 });
