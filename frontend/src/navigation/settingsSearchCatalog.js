@@ -1,3 +1,4 @@
+import { SETTINGS_FIELD_TARGETS } from './settingsFieldTargets';
 /**
  * In-settings search jump targets (SettingsModal + hub card filter).
  * Pure data + helpers — keep Vue-free.
@@ -257,6 +258,7 @@ export const SETTINGS_SEARCH_ALIASES = {
  * prefersStandaloneId: when set, standalone screen should outrank this for overlapping queries
  */
 export const COMPANY_PROFILE_SEARCH_TARGETS = [
+  ...SETTINGS_FIELD_TARGETS,
   // —— Tabs ——
   {
     id: 'cp-tab-general',
@@ -649,6 +651,8 @@ export const COMPANY_PROFILE_SEARCH_TARGETS = [
   }
 ];
 
+const searchText = value => String(value || '').trim().toLowerCase().replace(/[-_]/g, ' ').replace(/\s+/g, ' ');
+
 const HUB_SHELL_ITEM_IDS = new Set(['platform-ws-home', 'tenant-ws-home']);
 
 function escapeRegExp(s) {
@@ -696,8 +700,9 @@ export function enrichCompanyProfileSearchTarget(target) {
     label: target.label.replace(/ \(legacy tab\)/g, ''),
     description: standalone ? SETTINGS_SEARCH_DESCRIPTIONS[standalone.itemId] : (target.description || '').replace(/Company Profile/gi, 'Business details'),
     aliases: target.aliases || [],
+    field: target.field || null,
     agencyTab: standalone ? (target.agencyTab === 'features' ? 'features' : null) : target.agencyTab || 'general',
-    kind: target.kind === 'section' ? 'company-profile-section' : 'company-profile-tab',
+    kind: target.kind === 'field' ? 'company-profile-field' : target.kind === 'section' ? 'company-profile-section' : 'company-profile-tab',
     prefersStandaloneId: target.prefersStandaloneId || null,
     superadminOnly: !!target.superadminOnly
   };
@@ -750,12 +755,12 @@ export function buildSettingsSearchTargets({
  * Rank a settings search hit. Higher score = better.
  */
 export function scoreSettingsSearchTarget(query, target) {
-  const q = String(query || '').trim().toLowerCase();
+  const q = searchText(query);
   if (!q || !target) return 0;
-  const label = String(target.label || '').toLowerCase();
-  const description = String(target.description || '').toLowerCase();
-  const pathLabel = String(target.pathLabel || '').toLowerCase();
-  const aliases = (target.aliases || []).map((a) => String(a).toLowerCase());
+  const label = searchText(target.label);
+  const description = searchText(target.description);
+  const pathLabel = searchText(target.pathLabel);
+  const aliases = (target.aliases || []).map(searchText);
   const hay = [
     label,
     description,
@@ -789,6 +794,7 @@ export function scoreSettingsSearchTarget(query, target) {
   if (target.kind === 'standalone') score += 18;
   if (target.kind === 'company-profile-tab') score += 24;
   if (target.kind === 'company-profile-section') score += 32;
+  if (target.kind === 'company-profile-field') score += 48;
 
   // Penalty when a dedicated screen is the preferred home for this concept (mid-migration)
   if (target.prefersStandaloneId) score -= 28;
@@ -807,7 +813,7 @@ export function scoreSettingsSearchTarget(query, target) {
  * @param {number} [limit=14]
  */
 export function filterSettingsSearchTargets(query, targets = [], limit = 14) {
-  const q = String(query || '').trim().toLowerCase();
+  const q = searchText(query);
   if (!q) return [];
   return (targets || [])
     .map((t) => ({ ...t, score: scoreSettingsSearchTarget(q, t) }))
@@ -818,7 +824,7 @@ export function filterSettingsSearchTargets(query, targets = [], limit = 14) {
 
 /** True when a hub card/item should remain visible under an active filter query. */
 export function settingsCardMatchesQuery(query, card) {
-  const q = String(query || '').trim().toLowerCase();
+  const q = searchText(query);
   if (!q) return true;
   const itemId = card.item || card.id || card.itemId;
   const target = enrichSettingsSearchTarget({

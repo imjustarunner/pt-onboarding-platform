@@ -241,17 +241,21 @@
           </div>
 
     <div v-if="showCreateModal || editingAgency" class="detail-editor">
-      <div class="detail-editor-card">
+      <div ref="settingsEditorRoot" class="detail-editor-card">
         <h3>{{ workspaceMode ? (visibleEditorTabs.find(t => t.id === activeTab)?.label || 'Business details') : editingAgency ? (isPracticeTenant ? 'Edit Practice' : 'Edit Organization') : (isPracticeTenant ? 'Create Practice' : 'Create Organization') }}</h3>
+        <p v-if="workspaceMode && editingAgency" class="hint">Editing settings for <strong>{{ editingAgency.name }}</strong></p>
         <div v-if="error" class="error-modal">
           <strong>Error:</strong> {{ error }}
         </div>
         
         <!-- Tab Navigation -->
         <nav v-if="workspaceMode && !singleSection" class="workspace-settings-navigation" aria-label="Business settings">
-          <label>Find a business setting<input v-model="workspaceSearch" type="search" placeholder="Contact, branding, notifications…"></label>
+          <label>Find a business setting<input v-model="workspaceSearch" type="search" placeholder="Tax ID, timezone, address, notifications…"></label>
           <div class="workspace-settings-groups"><section v-for="group in workspaceTabGroups" :key="group.title"><h4>{{ group.title }}</h4><div><button v-for="tab in group.tabs" :key="tab.id" type="button" :aria-pressed="activeTab === tab.id" @click="goToAgencyTab(tab.id)">{{ tab.label }}</button></div></section></div>
-          <p v-if="!workspaceTabGroups.length">No business settings match your search.</p>
+          <div v-if="workspaceSearch.trim()" class="workspace-field-results" aria-label="Matching business settings">
+            <button v-for="hit in workspaceSearchResults" :key="hit.id" type="button" @click="openWorkspaceSetting(hit)"><strong>{{ hit.label }}</strong><small>{{ hit.pathLabel }}</small></button>
+            <p v-if="!workspaceSearchResults.length">No settings found. Try a field name such as EIN, timezone, or address.</p>
+          </div>
         </nav>
         <div v-else-if="!singleSection" class="modal-tabs">
           <button
@@ -413,7 +417,7 @@
             <small class="pricing-note">Unit price estimate; actual billing depends on current plan usage and included counts.</small>
           </div>
           <template v-if="!isOfficeType">
-            <div class="form-group">
+            <div class="form-group" data-setting-field="business-name">
               <label>Name *</label>
               <input v-model="agencyForm.name" type="text" required />
             </div>
@@ -1586,7 +1590,7 @@
             </small>
           </div>
 
-          <div class="form-group">
+          <div class="form-group" data-setting-field="timezone">
             <label>Timezone</label>
             <select v-model="agencyForm.timezone" class="select">
               <option value="">Select timezone…</option>
@@ -1595,7 +1599,7 @@
             <small>Canonical timezone for this {{ isPracticeTenant ? 'practice' : 'organization' }} (schedules, claims DOS labels, events).</small>
           </div>
 
-          <div class="form-group">
+          <div class="form-group" data-setting-field="account-owner">
             <label>Account owner</label>
             <select v-model.number="agencyForm.accountOwnerUserId" class="select" :disabled="!editingAgency?.id || practiceOwnerUsersLoading">
               <option :value="0">{{ practiceOwnerUsersLoading ? 'Loading users…' : 'Select account owner…' }}</option>
@@ -1606,14 +1610,14 @@
             <small>Primary owner for this tenant{{ isPracticeTenant ? ' / practice' : '' }}.</small>
           </div>
 
-          <div class="form-group">
+          <div class="form-group" data-setting-field="website">
             <label>{{ isPracticeTenant ? 'Practice website' : 'Website' }}</label>
             <input v-model="agencyForm.websiteUrl" type="url" placeholder="https://example.com" />
             <small>Public web address for the {{ isPracticeTenant ? 'practice' : 'organization' }}.</small>
           </div>
 
           <div class="form-grid" style="margin-bottom: 12px;">
-            <div class="form-group">
+            <div class="form-group" data-setting-field="tax-id-type">
               <label>Tax ID type</label>
               <select v-model="agencyForm.taxIdType" class="select">
                 <option value="">Select…</option>
@@ -1621,14 +1625,10 @@
                 <option value="ssn">SSN (sole proprietor)</option>
               </select>
             </div>
-            <div class="form-group">
-              <label>{{ agencyForm.taxIdType === 'ssn' ? 'SSN' : 'EIN' }}</label>
-              <input
-                v-model="agencyForm.taxId"
-                type="text"
-                autocomplete="off"
-                :placeholder="agencyForm.taxIdType === 'ssn' ? 'XXX-XX-XXXX' : 'XX-XXXXXXX'"
-              />
+            <div class="form-group" data-setting-field="tax-id">
+              <label for="agency-tax-id">Tax ID · {{ agencyForm.taxIdType === 'ssn' ? 'SSN' : 'EIN' }}</label>
+              <TaxIdInput id="agency-tax-id" v-model="agencyForm.taxId" :type="agencyForm.taxIdType || 'ein'" />
+              <small class="hint">Enter nine digits; dashes are added automatically.</small>
               <small v-if="editingAgency?.tax_id_last4" class="hint">On file ending in {{ editingAgency.tax_id_last4 }}</small>
             </div>
           </div>
@@ -1643,7 +1643,7 @@
             <small>Email address for the onboarding team</small>
           </div>
 
-          <div class="form-group">
+          <div class="form-group" data-setting-field="support-email">
             <label>Support Team Email</label>
             <input
               v-model="agencyForm.supportTeamEmail"
@@ -1663,7 +1663,7 @@
             <small>Default “from” address for system/AI emails (identity key: <code>notifications</code>).</small>
           </div>
 
-          <div class="form-group">
+          <div class="form-group" data-setting-field="intake-sender">
             <label>Intake Link Sender</label>
             <input
               v-model="agencyForm.intakeSenderEmail"
@@ -1683,7 +1683,7 @@
             <small>Sender for school intake link emails (identity key: <code>school_intake</code>).</small>
           </div>
           
-          <div class="form-group">
+          <div class="form-group" data-setting-field="phone">
             <label>Phone Number</label>
             <input 
               v-model="agencyForm.phoneNumber" 
@@ -1964,7 +1964,7 @@
             </div>
           </div>
 
-          <div class="form-group">
+          <div class="form-group" data-setting-field="street-address">
             <label>Street Address</label>
             <input v-model="agencyForm.streetAddress" type="text" placeholder="123 Main St" />
           </div>
@@ -1976,7 +1976,7 @@
             <label>State</label>
             <input v-model="agencyForm.state" type="text" placeholder="State" />
           </div>
-          <div class="form-group">
+          <div class="form-group" data-setting-field="postal-code">
             <label>Postal Code</label>
             <input v-model="agencyForm.postalCode" type="text" placeholder="ZIP" />
           </div>
@@ -4229,6 +4229,9 @@
 </template>
 
 <script setup>
+import TaxIdInput from '../forms/TaxIdInput.vue';
+import { SETTINGS_FIELD_TARGETS, focusSettingsField } from '../../navigation/settingsFieldTargets';
+import { COMPANY_PROFILE_SEARCH_TARGETS, enrichCompanyProfileSearchTarget, filterSettingsSearchTargets } from '../../navigation/settingsSearchCatalog';
 import TreatmentPlanRenewalSettings from './TreatmentPlanRenewalSettings.vue';
 import { isRootTenant } from '../../navigation/organizationKinds';
 import { ref, onMounted, computed, watch, nextTick } from 'vue';
@@ -4309,6 +4312,7 @@ const props = defineProps({
   // Embedded single-organization mode (used by School Portal settings).
   // When set, the UI loads and opens ONLY this organization (no left list).
   embeddedOrgId: { type: [Number, String], default: null },
+  embeddedField: { type: String, default: '' },
   embeddedTab: { type: String, default: 'general' }, // 'general' | 'branding' | 'features' | ...
   /** When set (e.g. Settings → Tenant organizations), lock the list to this tenant + affiliated orgs only. */
   organizationDirectoryTenantId: { type: [Number, String], default: null }
@@ -4337,13 +4341,6 @@ const loadTenantCapabilities = async (agencyId) => {
   }
 };
 
-watch(
-  () => Number(agencyForm.value?.id || editingAgency.value?.id || 0),
-  (aid) => {
-    void loadTenantCapabilities(aid);
-  },
-  { immediate: true }
-);
 
 // Platform default + optional per-tenant override (superadmin organization Overview / API)
 // Vertical modules also require a matching enabled business type once types are configured.
@@ -4735,13 +4732,38 @@ const tabAvailable = (tabId) => {
 };
 
 const workspaceSearch = ref('');
+const settingsEditorRoot = ref(null);
+const requestedSettingField = ref(props.embeddedField);
+const workspaceSearchResults = computed(() => filterSettingsSearchTargets(workspaceSearch.value,
+  COMPANY_PROFILE_SEARCH_TARGETS.filter(target => (!target.superadminOnly || userRole.value === 'super_admin') && visibleEditorTabs.value.some(tab => tab.id === target.agencyTab)).map(enrichCompanyProfileSearchTarget)));
+async function focusSetting(field) {
+  const target = SETTINGS_FIELD_TARGETS.find(target => target.field === field);
+  if (!target || !tabAvailable(target.agencyTab)) return;
+  requestedSettingField.value = field;
+  goToAgencyTab(target.agencyTab);
+  await nextTick();
+  focusSettingsField(settingsEditorRoot.value, field);
+}
+defineExpose({ focusSetting });
+async function openWorkspaceSetting(hit) {
+  requestedSettingField.value = hit.field || '';
+  goToAgencyTab(hit.agencyTab);
+  workspaceSearch.value = '';
+  await nextTick();
+  focusSettingsField(settingsEditorRoot.value, requestedSettingField.value);
+}
+watch(() => props.embeddedField, field => { requestedSettingField.value = field; });
+watch([requestedSettingField, activeTab, settingsEditorRoot, () => editingAgency.value?.id], async () => {
+  await nextTick();
+  focusSettingsField(settingsEditorRoot.value, requestedSettingField.value);
+}, { flush: 'post' });
 const visibleEditorTabs = computed(() => EDITOR_TAB_DEFS.filter((x) => tabAvailable(x.id) && (!props.workspaceMode || props.singleSection || !['features', 'payroll'].includes(x.id))));
 
 const workspaceTabGroups = computed(() => [
   { title: 'Business identity', ids: ['general','contact','address','sites'] },
   { title: 'Brand & experience', ids: ['branding','theme','terminology','icons','features'] },
   { title: 'Team & communication', ids: ['notifications','announcements','company_events','social_links','social_feeds','kudos','payroll','school_providers','school_staff'] }
-].map(group => ({title:group.title,tabs:visibleEditorTabs.value.filter(tab => group.ids.includes(tab.id) && `${group.title} ${tab.label}`.toLowerCase().includes(workspaceSearch.value.toLowerCase().trim()))})).filter(group => group.tabs.length));
+].map(group => ({title:group.title,tabs:visibleEditorTabs.value.filter(tab => group.ids.includes(tab.id) && (!workspaceSearch.value.trim() || workspaceSearchResults.value.some(hit => hit.agencyTab === tab.id)))})).filter(group => group.tabs.length));
 
 const superadminQuickTabs = computed(() => {
   const base = [
@@ -6986,6 +7008,16 @@ const sessionPinRoleOptions = [
 
 const agencyForm = ref(defaultAgencyForm());
 
+// Register after the form exists: immediate watchers evaluate their source synchronously.
+watch(
+  () => Number(agencyForm.value?.id || editingAgency.value?.id || 0),
+  (aid) => {
+    void loadTenantCapabilities(aid);
+  },
+  { immediate: true }
+);
+
+
 const googleSsoAllowedDomainsText = computed({
   get() {
     const list = agencyForm.value?.featureFlags?.googleSsoAllowedDomains;
@@ -8109,6 +8141,12 @@ const loadSenderIdentityOptionsForAgency = async (agencyId) => {
   }
 };
 
+const clampNumber = (raw, min, max, fallback) => {
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, num));
+};
+
 const editAgency = async (agency) => {
   // Buildings (office_locations) are managed in the Buildings module, not in this agency editor.
   const orgTypeEarly = String(agency?.organization_type || agency?.organizationType || '').toLowerCase();
@@ -9108,11 +9146,6 @@ const saveAgency = async () => {
       return /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex.toUpperCase() : '#000000';
     };
     
-    const clampNumber = (raw, min, max, fallback) => {
-      const num = Number(raw);
-      if (!Number.isFinite(num)) return fallback;
-      return Math.min(max, Math.max(min, num));
-    };
 
     let colorPalette = {
       primary: validateColor(agencyForm.value.primaryColor),
@@ -9881,6 +9914,11 @@ watch(
 </script>
 
 <style scoped>
+.setting-search-highlight { outline: 2px solid var(--primary, #24688b); outline-offset: 8px; border-radius: 4px; scroll-margin: 100px; }
+.workspace-field-results { display:grid; gap:8px; margin-top:12px; }
+.workspace-field-results button { padding:12px; text-align:left; border:1px solid var(--border, #d6dfe8); background:var(--bg-primary, white); color:var(--text-primary); border-radius:8px; cursor:pointer; }
+.workspace-field-results small { display:block; margin-top:4px; }
+
 .link-btn {
   background: none;
   border: none;

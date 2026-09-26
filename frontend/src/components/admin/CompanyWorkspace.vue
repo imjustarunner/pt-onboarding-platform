@@ -7,7 +7,7 @@
     <template v-else>
       <h2>{{ company.name }} · Business details</h2>
       <p>Identity, contact information, branding, and communication preferences. Use Settings search to jump directly to an area.</p>
-      <AgencyManagement :key="company.id" :embedded-org-id="company.id" :embedded-tab="embeddedTab" workspace-mode />
+      <AgencyManagement ref="editor" :key="company.id" :embedded-org-id="company.id" :embedded-tab="embeddedTab" :embedded-field="embeddedField" workspace-mode />
     </template>
   </section>
 </template>
@@ -17,7 +17,9 @@ import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import AgencyManagement from './AgencyManagement.vue';
 import { isRootTenant, organizationKindLabel } from '../../navigation/organizationKinds';
-const props = defineProps({ embeddedOrgId: { type: [Number, String], default: null }, embeddedTab: { type: String, default: 'general' }, scopedAgencyId: { type: [Number, String], default: null } });
+const props = defineProps({ embeddedOrgId: { type: [Number, String], default: null }, embeddedTab: { type: String, default: 'general' }, embeddedField: { type: String, default: '' }, scopedAgencyId: { type: [Number, String], default: null } });
+const editor = ref(null);
+defineExpose({ focusSetting: field => editor.value?.focusSetting(field) });
 const store = useAgencyStore(), company = ref(null), loading = ref(false), error = ref('');
 const id = computed(() => Number(props.embeddedOrgId || props.scopedAgencyId || store.currentAgency?.id) || null);
 let request = 0;

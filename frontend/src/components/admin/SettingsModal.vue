@@ -172,8 +172,13 @@
             v-model="settingsSearchQuery"
             type="search"
             class="settings-search-input"
-            placeholder="Search settings, features, and sections…"
+            placeholder="Find a setting: Tax ID, EIN, timezone, billing…"
             aria-label="Search settings"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="settings-search-results"
+            :aria-expanded="settingsSearchOpen && settingsSearchResults.length > 0"
+            :aria-activedescendant="settingsSearchOpen && settingsSearchResults.length ? `settings-hit-${settingsSearchHighlight}` : undefined"
             autocomplete="off"
             @focus="settingsSearchOpen = true"
             @keydown.down.prevent="settingsSearchMove(1)"
@@ -184,7 +189,9 @@
           <div
             v-if="settingsSearchOpen && settingsSearchResults.length"
             class="settings-search-dropdown"
+            id="settings-search-results"
             role="listbox"
+            aria-label="Matching settings"
           >
             <button
               v-for="(hit, idx) in settingsSearchResults"
@@ -193,7 +200,9 @@
               class="settings-search-option"
               :class="{ on: idx === settingsSearchHighlight }"
               role="option"
-              @mousedown.prevent="jumpToSettingsHit(hit)"
+              :id="`settings-hit-${idx}`"
+              :aria-selected="idx === settingsSearchHighlight"
+              @click="jumpToSettingsHit(hit)"
             >
               <span class="settings-search-option-main">
                 <span class="settings-search-option-label">{{ hit.label }}</span>
@@ -321,7 +330,7 @@
               ref="settingsContentRef"
               :is="selectedComponent"
               v-bind="componentProps"
-              :key="`${selectedCategory}-${selectedItem}-${route.query.agencyTab || ''}`"
+              :key="`${selectedCategory}-${selectedItem}-${selectedItem === 'business-details' ? '' : route.query.agencyTab || ''}`"
             />
           </div>
           <div v-else class="empty-state">
@@ -1372,7 +1381,7 @@ const settingsSearchTargets = computed(() => {
   return buildSettingsSearchTargets({
     catalogItems,
     isSuperAdmin: isSuperAdmin.value,
-    includeCompanyProfile: true
+    includeCompanyProfile: catalogItems.some(item => ['business-details', 'company-profile'].includes(item.id))
   });
 });
 
@@ -1430,17 +1439,18 @@ function jumpToSettingsHit(hit) {
   settingsSearchQuery.value = '';
   closeSettingsSearch();
   const agencyTab = hit.agencyTab || null;
+  const settingField = hit.field || null;
   // Company Profile nested jumps need a tenant when possible.
   if (hit.itemId === 'business-details' && agencyStore.currentAgency?.id) {
-    openTenantHubArea({ category: 'general', item: 'business-details', agencyTab });
+    openTenantHubArea({ category: 'general', item: 'business-details', agencyTab, settingField });
     return;
   }
   if (platformSettingsCardHubActive.value) {
-    openPlatformHubArea({ category: hit.categoryId, item: hit.itemId, agencyTab });
+    openPlatformHubArea({ category: hit.categoryId, item: hit.itemId, agencyTab, settingField });
   } else if (tenantSettingsCardHubActive.value) {
-    openTenantHubArea({ category: hit.categoryId, item: hit.itemId, agencyTab });
+    openTenantHubArea({ category: hit.categoryId, item: hit.itemId, agencyTab, settingField });
   } else {
-    selectItem(hit.categoryId, hit.itemId, { agencyTab });
+    selectItem(hit.categoryId, hit.itemId, { agencyTab, settingField });
   }
 }
 
@@ -1613,7 +1623,7 @@ const componentProps = computed(() => {
         : route.query.agencyId || agencyStore.currentAgency?.id;
     const agencyTab = route.query.agencyTab || 'general';
     if (agencyId) {
-      return withScoped({ ...base, embeddedOrgId: agencyId, embeddedTab: agencyTab });
+      return withScoped({ ...base, embeddedOrgId: agencyId, embeddedTab: agencyTab, embeddedField: String(route.query.settingField || '') });
     }
   }
   return withScoped({ ...base });
@@ -2012,7 +2022,7 @@ const handleAgencySelection = async () => {
 /** Platform settings screens that are never scoped to a tenant — URL must not carry agencyId or the route watch will restore the tenant and break platform mode + branding. */
 const PLATFORM_SOLO_ROUTE_ITEMS = new Set(['platform-ws-home', 'platform-settings', 'platform-billing', 'platform-feature-catalog', 'platform-feature-audit', 'platform-all-agencies']);
 
-const buildSettingsReplaceQuery = (categoryId, itemId, { agencyTab = null } = {}) => {
+const buildSettingsReplaceQuery = (categoryId, itemId, { agencyTab = null, settingField = null } = {}) => {
   const q = { ...route.query, category: categoryId, item: itemId };
   if (agencyStore.currentAgency?.id) delete q.scope;
   if (categoryId === 'platform' && PLATFORM_SOLO_ROUTE_ITEMS.has(itemId)) {
@@ -2025,10 +2035,12 @@ const buildSettingsReplaceQuery = (categoryId, itemId, { agencyTab = null } = {}
   }
   if (agencyTab) q.agencyTab = agencyTab;
   else delete q.agencyTab;
+  if (settingField) q.settingField = settingField;
+  else delete q.settingField;
   return q;
 };
 
-const selectItem = async (categoryId, itemId, { agencyTab = null } = {}) => {
+const selectItem = async (categoryId, itemId, { agencyTab = null, settingField = null } = {}) => {
   if (!(await prepareSettingsNavigation())) return;
   // Two-phase update: clear first, then set new selection on next tick.
   // Avoids Vue patch race (emitsOptions / __vnode errors when switching dynamic components).
@@ -2036,8 +2048,16 @@ const selectItem = async (categoryId, itemId, { agencyTab = null } = {}) => {
   const prevItem = selectedItem.value;
   const prevTab = route.query.agencyTab || null;
   const nextTab = agencyTab || null;
-  const sameSelection = prevCategory === categoryId && prevItem === itemId && String(prevTab || '') === String(nextTab || '');
-  if (sameSelection) return;
+  const sameSurface = prevCategory === categoryId && prevItem === itemId;
+  if (sameSurface && itemId === 'business-details') {
+    // Keep unsaved edits when search moves between fields in the same company.
+    if (!props.disableRouteSync && showTenantContextUi.value) {
+      await router.replace({ query: buildSettingsReplaceQuery(categoryId, itemId, { agencyTab: nextTab, settingField }) });
+    }
+    if (settingField) await settingsContentRef.value?.focusSetting?.(settingField);
+    return;
+  }
+  if (sameSurface && String(prevTab || '') === String(nextTab || '')) return;
 
   selectedCategory.value = null;
   selectedItem.value = null;
@@ -2048,7 +2068,7 @@ const selectItem = async (categoryId, itemId, { agencyTab = null } = {}) => {
     expandedCategoryIds.value = new Set([String(categoryId)]);
     if (!props.disableRouteSync && showTenantContextUi.value) {
       router.replace({
-        query: buildSettingsReplaceQuery(categoryId, itemId, { agencyTab: nextTab })
+        query: buildSettingsReplaceQuery(categoryId, itemId, { agencyTab: nextTab, settingField })
       });
     }
   });
@@ -2118,30 +2138,34 @@ const applyDefaultSelection = () => {
   }
 };
 
-const openTenantHubArea = async ({ category, item, agencyTab }) => {
+const openTenantHubArea = async ({ category, item, agencyTab, settingField }) => {
   if (!(await prepareSettingsNavigation())) return;
   const id = agencyStore.currentAgency?.id;
   if (!id) return;
   const q = { ...route.query, category, item, agencyId: String(id) };
   if (agencyTab) q.agencyTab = agencyTab;
   else delete q.agencyTab;
+  if (settingField) q.settingField = settingField;
+  else delete q.settingField;
   if (!props.disableRouteSync && showTenantContextUi.value) {
     router.replace({ query: q });
   }
-  selectItem(category, item, { agencyTab: agencyTab || null });
+  selectItem(category, item, { agencyTab: agencyTab || null, settingField });
 };
 
 /** Platform hub navigation: no tenant in context — clear agencyId from the URL when jumping between areas. */
-const openPlatformHubArea = async ({ category, item, agencyTab }) => {
+const openPlatformHubArea = async ({ category, item, agencyTab, settingField }) => {
   if (!(await prepareSettingsNavigation())) return;
   const q = { ...route.query, category, item };
   delete q.agencyId;
   if (agencyTab) q.agencyTab = agencyTab;
   else delete q.agencyTab;
+  if (settingField) q.settingField = settingField;
+  else delete q.settingField;
   if (!props.disableRouteSync && showTenantContextUi.value) {
     router.replace({ query: q });
   }
-  selectItem(category, item, { agencyTab: agencyTab || null });
+  selectItem(category, item, { agencyTab: agencyTab || null, settingField });
 };
 
 const closeModal = async () => {
