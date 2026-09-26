@@ -3,7 +3,11 @@ import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import { getPublicNoteAidTools, getNoteAidToolById } from '../config/noteAidTools.js';
-import { getKnowledgeBaseContext, getKnowledgeBaseStatus } from '../services/clinicalKnowledgeBase.service.js';
+import {
+  getKnowledgeBaseContext,
+  getKnowledgeBaseStatus,
+  noteAidKnowledgeBaseOptions
+} from '../services/clinicalKnowledgeBase.service.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import { CLINICAL_NOTE_AGENT_TOOLS } from '../config/clinicalNoteAgentTools.js';
 import StorageService from '../services/storage.service.js';
@@ -156,11 +160,12 @@ export const executeNoteAidTool = async (req, res, next) => {
     let prompt = buildPrompt({ tool, inputText });
     if (tool?.includeKnowledgeBase) {
       try {
-        const kbContext = await getKnowledgeBaseContext({
-          query: inputText,
-          maxChars: 4000,
-          folders: getKbFoldersForTool(tool, flags)
-        });
+        const kbContext = await getKnowledgeBaseContext(
+          noteAidKnowledgeBaseOptions({
+            query: inputText,
+            folders: getKbFoldersForTool(tool, flags)
+          })
+        );
         if (kbContext) {
           prompt = [
             prompt,
@@ -168,7 +173,7 @@ export const executeNoteAidTool = async (req, res, next) => {
             'Knowledge Base Context (read-only):',
             kbContext,
             '',
-            'Use the context only if relevant and do not invent facts.'
+            'Use the knowledge base for clinical phrasing, tone, and this aid\'s section style. Clinically interpret what occurred from the clinician input; do not invent unsupported facts.'
           ].join('\n');
         }
       } catch {
