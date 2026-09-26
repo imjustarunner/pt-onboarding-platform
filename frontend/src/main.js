@@ -284,29 +284,30 @@ async function bootstrap() {
       tenantFaviconUrl(brandingStore.portalAgency?.slug || brandingStore.portalAgency?.portal_url) ||
       tenantFaviconUrl(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url);
     // Favicon: tenant mark, else organization master icon, else full logo.
-    const platformSelected = agencyStore.platformMode && !agencyStore.currentAgency && !brandingStore.activeRouteSlug;
+    const platformSelected = authStore.isAuthenticated && agencyStore.platformMode && !agencyStore.currentAgency && !brandingStore.activeRouteSlug;
     const mark = (platformSelected ? PLATFORM_BRAND.logo : tenantFav) || brandingStore.displayChromeIconUrl || brandingStore.displayLogoUrl;
     if (mark) setFavicon(mark);
   };
 
-  watchEffect(setBrandingChrome);
   const authStore = useAuthStore(pinia);
+  watchEffect(setBrandingChrome);
 
-  // Re-apply dark mode from localStorage on every navigation (safety net – prevents reset)
-  // Only apply when we have a valid userId – avoids applying stale fallback key on route transitions
+  const applySavedAppearance = () => {
+    const uid = authStore.user?.id;
+    // The signed-in user's preference wins; login pages use the browser's choice.
+    if (!uid || !applyStoredDarkMode(uid)) applyStoredDarkMode();
+  };
+
+  // Restore the saved appearance on navigation, including timeout and login pages.
   router.afterEach(() => {
     setTitle();
-    const uid = authStore.user?.id;
-    if (uid) applyStoredDarkMode(uid);
+    applySavedAppearance();
   });
 
   await router.isReady();
 
   // Apply dark mode from localStorage before first paint (user preference)
-  const userId = authStore.user?.id;
-  if (userId) {
-    applyStoredDarkMode(userId);
-  }
+  applySavedAppearance();
 
   // Register service worker for push notifications (best-effort)
   if ('serviceWorker' in navigator) {
@@ -321,4 +322,3 @@ async function bootstrap() {
 const legacyPublicDestination = legacyTisiPublicDestination(window.location.href);
 if (legacyPublicDestination) window.location.replace(legacyPublicDestination);
 else bootstrap();
-

@@ -39,7 +39,7 @@ Component colors use semantic `--app-*` dark tokens with their existing light co
 
 ## Login branding and remembered accounts
 
-Run `node frontend/scripts/verify-login-branding.cjs` with the same local Vite and Playwright setup. This serves virtual tenant hosts from local Vite and intercepts every API request with fictional data. It verifies the custom-domain timeout login, a simulated Google callback through the actual login view, a remembered account's direct Google start link, username-only password memory, platform/tenant logo separation, and the welcome briefing's light/dark preference before and after reload. It does not authenticate with Google or access a real user's session.
+Run `node frontend/scripts/verify-login-branding.cjs` with the same local Vite and Playwright setup. This serves virtual tenant hosts from local Vite and intercepts every API request with fictional data. It verifies the custom-domain timeout login, a simulated Google callback through the actual login view, a remembered account's direct Google start link, username-only password memory, scoped account forgetting, platform/tenant logo separation, and saved light/dark preferences after reload for both the logged-out page and welcome briefing. It does not authenticate with Google or access a real user's session.
 
 Login branding comes from the login portal, including on flat custom-domain `/login` paths. A persisted Platform workspace selection must not replace it. Configured tenant logos win; known tenant marks provide a fallback when a login response omits its logo. The platform briefing uses Plot Twist Co identity and shared Appearance surfaces.
 

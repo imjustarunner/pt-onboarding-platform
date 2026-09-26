@@ -122,6 +122,11 @@ const assert = (condition, message) => { if (!condition) throw Error(message); }
    const imgs = await page.locator('.video-auth-hero__logo, .platform-hero__logo').evaluateAll(xs => xs.map(x => x.getAttribute('src')));
    assert(imgs.some(src => src.includes(mark)), `Incorrect branding on ${url}`);
   }
+  for (const theme of ['light', 'dark']) {
+   await page.getByLabel('Appearance', { exact: true }).selectOption(theme);
+   await page.reload(); await page.getByLabel('Appearance', { exact: true }).waitFor();
+   assert((await page.locator('html').getAttribute('data-theme') === 'dark') === (theme === 'dark'), `Logged-out ${theme} preference was ignored after reload`);
+  }
   assert(errors.length === 0, errors.join('\n'));
   console.log(JSON.stringify({ status: 'passed', checks: ['ITSCO timeout branding', 'verified Google callback memory', 'briefing light and dark', 'per-tenant Google shortcut', 'direct Google start click', 'password username only', 'peer tenant and platform branding'], artifacts }, null, 2));
  } finally { await browser.close(); }
