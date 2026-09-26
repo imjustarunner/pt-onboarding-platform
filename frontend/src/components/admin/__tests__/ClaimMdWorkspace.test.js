@@ -72,3 +72,18 @@ describe('Claim.MD billing desk', () => {
     expect(popup.opener).toBeNull(); w.unmount(); open.mockRestore();
   });
 });
+
+it('shows payer setup capabilities without calling them connected and searches the exact ID', async () => {
+  api.get.mockImplementation(async url => ({data: url.endsWith('/payer-setup-requests') ? {items:[{
+    id:5,payer_name:'CO BCBS',claimmd_payer_id:'00050',source_payer_id:'00050',directory_name:'CO BCBS',directory_status:'id_match',
+    source_names_json:['CO BCBS','Blue Cross Blue Shield of Colorado'],directory_snapshot_json:{'1500_claims':'yes',era:'enrollment',eligibility:'no'}
+  }]} : url.endsWith('/billing-offices') ? {items:[{id:8,name:'Office',practice_npi:'1306688650'}]} : url.endsWith('/payers') ? {payers:[{payerid:'00050',payer_name:'CO BCBS'}]} : {items:[]}}));
+  const w=mount(ClaimMdWorkspace,{props:{...props,section:'payers',connection:{configured:true,mode:'disabled'}}});await flushPromises();
+  expect(w.text()).toContain('Directory availability is not enrollment');
+  expect(w.text()).toContain('Enrollment required');expect(w.text()).toContain('Not available');expect(w.text()).toContain('Blue Cross Blue Shield of Colorado');
+  await button(w,'Review route').trigger('click');await flushPromises();
+  expect(api.get).toHaveBeenCalledWith('/medical-billing/claimmd/payers',{params:{agencyId:1,payerId:'00050'}});
+  await w.find('[data-testid="billing-office"]').setValue(8);
+  expect(button(w,'Open enrollment').attributes('disabled')).toBeUndefined();
+  expect(api.post).not.toHaveBeenCalled();w.unmount();
+});

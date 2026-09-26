@@ -4,6 +4,7 @@
     <h2>Claim.MD connection</h2>
     <p><strong>{{ connection.configured ? 'Connected configuration' : 'Not configured' }}</strong>
       · {{ connection.mode === 'live' ? 'LIVE ACCOUNT' : connection.mode === 'test' ? 'TEST ACCOUNT' : 'Transmission disabled' }}</p>
+    <p v-if="connection.configured && connection.mode === 'disabled'">Payer enrollment setup is available. Claim transmission stays disabled until launch checks are complete.</p>
     <p>Claims require your review here. Keep “Transmit Approval Required” enabled in Claim.MD during initial submissions; portal approval may also be required.</p>
     <div class="actions">
       <button :disabled="busy || !connection.configured" @click="sync">Sync claim responses</button>
@@ -26,7 +27,16 @@
     <section aria-label="Requested payer setup">
       <h4>Agency payer setup list</h4>
       <p>Confirm the exact plan and electronic payer ID from the member card and payer directory. Claims, ERA and eligibility are enrolled separately for the selected billing group.</p>
-      <ul><li v-for="request in payerRequests" :key="request.id">{{ request.payer_name }} <button :disabled="busy || !connection.configured" @click="search = request.payer_name; searchPayers()">Find in payer directory</button></li></ul>
+      <label>Search agency payers <input v-model="setupSearch" placeholder="Payer name, alias, or ID" /></label>
+      <p>{{ filteredPayerRequests.length }} of {{ payerRequests.length }} payer setup records. Directory availability is not enrollment, network participation, or verified member coverage.</p>
+      <div class="payer-catalog"><table v-if="payerRequests.length"><thead><tr><th>Payer / aliases</th><th>Electronic route</th><th>Claims</th><th>ERA</th><th>Eligibility</th><th>Next step</th></tr></thead><tbody>
+        <tr v-for="request in filteredPayerRequests" :key="request.id">
+          <td><strong>{{ request.payer_name }}</strong><small v-if="sourceAliases(request).length">Also listed as {{ sourceAliases(request).join(', ') }}</small></td>
+          <td>{{ request.claimmd_payer_id || 'Needs review' }}<small v-if="request.directory_name">{{ request.directory_name }}</small><small v-if="request.source_payer_id && request.source_payer_id !== request.claimmd_payer_id">Previous EHR ID: {{ request.source_payer_id }}</small><small>{{ directoryStatusLabel(request.directory_status) }}</small></td>
+          <td>{{ capabilityLabel(request,'1500_claims') }}</td><td>{{ capabilityLabel(request,'era') }}</td><td>{{ capabilityLabel(request,'eligibility') }}</td>
+          <td><button :disabled="busy || !connection.configured" @click="reviewPayerRequest(request)">Review route</button><small>{{ request.review_note || 'Select the correct plan and billing office.' }}</small><small v-if="request.directory_checked_at">Directory checked {{ String(request.directory_checked_at).slice(0,10) }}</small></td>
+        </tr>
+      </tbody></table></div>
       <form class="actions" @submit.prevent="addPayerRequest"><label>Request another payer <input v-model="requestedPayer" required minlength="2" maxlength="120" /></label><button :disabled="busy">Add to setup list</button></form>
       <p>Being on this list does not establish contracting, electronic enrollment or active coverage. Enrollment progress appears below.</p>
     </section>
@@ -140,7 +150,16 @@ import api from '../../services/api';
 const props = defineProps({ agencyId: { type: Number, required: true }, connection: { type: Object, required: true }, section: { type: String, default: 'all' } });
 const emit = defineEmits(['updated']);
 const busy = ref(false), error = ref(''), notice = ref('');
-const payerRequests=ref([]), requestedPayer=ref('');
+const payerRequests=ref([]), requestedPayer=ref(''), setupSearch=ref('');
+const decoded = (value, fallback) => { if (typeof value !== 'string') return value || fallback; try { return JSON.parse(value) || fallback; } catch { return fallback; } };
+const sourceAliases = request => decoded(request.source_names_json, []).filter(name => name !== request.payer_name);
+const filteredPayerRequests = computed(() => payerRequests.value.filter(request => [request.payer_name,request.directory_name,request.source_payer_id,request.claimmd_payer_id,...sourceAliases(request)].join(' ').toLowerCase().includes(setupSearch.value.trim().toLowerCase())));
+const capabilityLabel = (request, type) => ({yes:'Available',enrollment:'Enrollment required',no:'Not available'})[decoded(request.directory_snapshot_json, {})[type]] || 'Needs review';
+const directoryStatusLabel = value => ({id_match:'ID found in directory',alias_review:'Legacy ID — review required',not_found:'Route not found',manual_review:'Manual setup review'})[value] || 'Not checked';
+function reviewPayerRequest(request) {
+  search.value = request.directory_name || request.payer_name;
+  searchPayers(request.claimmd_payer_id || undefined);
+}
 const loadPayerRequests=async()=>{const {data}=await api.get('/medical-billing/payer-setup-requests',{params:{agencyId:props.agencyId}});if(active)payerRequests.value=data.items || [];};
 const addPayerRequest=()=>run(async()=>{const {data}=await api.post('/medical-billing/payer-setup-requests',{agencyId:props.agencyId,payerName:requestedPayer.value});if(active){payerRequests.value=data.items || [];requestedPayer.value='';}});
 const search = ref(''), billingOfficeId = ref(''), billingOffices = ref([]), enrollmentType = ref('1500'), acknowledgeEraRouting = ref(false);
@@ -153,7 +172,7 @@ const exceptionFinding = ref(null), exceptionReason = ref(''), exceptionReferenc
 const providerLabel = p => p ? `${p.firstName || ''} ${p.lastName || ''} · NPI ${p.npi || 'missing'}` : 'Not configured';
 let active = true;
 onBeforeUnmount(() => { active = false; });
-const canEnroll = computed(() => /^\d{10}$/.test(selectedOffice.value?.practice_npi || '') && ['test', 'live'].includes(props.connection.mode) && (enrollmentType.value !== 'era' || acknowledgeEraRouting.value));
+const canEnroll = computed(() => /^\d{10}$/.test(selectedOffice.value?.practice_npi || '') && props.connection.configured && (enrollmentType.value !== 'era' || acknowledgeEraRouting.value));
 async function run(task) {
   if (busy.value) return;
   busy.value = true; error.value = ''; notice.value = '';
@@ -178,8 +197,9 @@ const createDraft = note => run(async () => {
   await api.post('/medical-billing/claims', { agencyId: props.agencyId, clientId: note.client_id, clinicalSessionId: note.clinical_session_id, clinicalNoteId: note.id });
   if (active) { emit('updated'); notice.value = 'Claim prepared for billing review.'; await fetchUndrafted(); }
 });
-const searchPayers = () => run(async () => {
-  const { data } = await api.get('/medical-billing/claimmd/payers', { params: { agencyId: props.agencyId, search: search.value } });
+const searchPayers = payerId => run(async () => {
+  const params = { agencyId: props.agencyId, ...(typeof payerId === 'string' && payerId ? {payerId} : {search: search.value}) };
+  const { data } = await api.get('/medical-billing/claimmd/payers', { params });
   if (active) { payers.value = data.payers || []; if (!payers.value.length) notice.value = 'No matching payers.'; }
 });
 function enroll(payerId) {
@@ -262,6 +282,8 @@ defineExpose({ reviewClaim, showHistory, editClaim });
 .claimmd-workspace { border: 1px solid #d6dfeb; padding: 1.25rem; border-radius: 12px; background: white; margin: 1rem 0; }
 .actions { display:flex; flex-wrap:wrap; align-items:center; gap:.75rem; margin:.75rem 0; }
 label { display:block; margin:.75rem 0; } input, select, button { padding:.5rem; } button { cursor:pointer; } button:disabled { cursor:default; opacity:.55; }
+input, select { max-width:100%; box-sizing:border-box; } .actions > label { min-width:0; max-width:100%; }
 table { width:100%; border-collapse:collapse; margin:1rem 0; } th, td { padding:.6rem; border-bottom:1px solid #e2e8f0; text-align:left; }
 .review { margin-top:1.5rem; padding:1rem; border:1px solid #d6dfeb; border-radius:8px; } .error { color:#a32121; } pre { white-space:pre-wrap; overflow-wrap:anywhere; } article { padding:.75rem 0; border-bottom:1px solid #e2e8f0; }
+.payer-catalog{overflow:auto;max-height:480px}.payer-catalog table{min-width:860px}.payer-catalog small{display:block;max-width:300px;margin-top:6px;color:var(--text-secondary,#536579);font-size:.8rem;line-height:1.4}.payer-catalog th{position:sticky;top:0;background:var(--bg-secondary,#eff4fa)}
 </style>

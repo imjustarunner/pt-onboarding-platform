@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { listPayerSetupRequests } from '../services/payerSetupCatalog.service.js';
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 
 export async function payerSetupRequests(req,res,next) {
@@ -11,7 +12,7 @@ export async function payerSetupRequests(req,res,next) {
       if(name.length<2 || name.length>120) return res.status(400).json({error:{message:'Enter a payer name between 2 and 120 characters'}});
       await pool.execute('INSERT IGNORE INTO medical_payer_setup_requests (agency_id,payer_name,created_by_user_id) VALUES (?,?,?)',[agencyId,name,req.user.id]);
     }
-    const [items]=await pool.execute('SELECT id,payer_name,created_at FROM medical_payer_setup_requests WHERE agency_id=? ORDER BY id',[agencyId]);
+    const items=await listPayerSetupRequests(agencyId,pool);
     res.json({items});
   }catch(error){next(error);}
 }

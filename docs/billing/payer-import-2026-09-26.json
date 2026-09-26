@@ -1,0 +1,252 @@
+{
+  "source": "Owner-provided EHR payer screenshots, September 25, 2026",
+  "agencies": [
+    {
+      "id": 2,
+      "slug": "itsco",
+      "npi": "1972246940"
+    },
+    {
+      "id": 6,
+      "slug": "nlu",
+      "npi": "1942945316"
+    },
+    {
+      "id": 377,
+      "slug": "tisi",
+      "npi": "1306688650"
+    }
+  ],
+  "payers": [
+    {
+      "name": "Aetna",
+      "sourcePayerId": "60054",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Aetna Better Health of Kentucky",
+      "sourcePayerId": "128KY",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Allied Benefit Systems",
+      "sourcePayerId": "37308",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "AmeriBen Solutions Inc.",
+      "sourcePayerId": "75137",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Anthem Blue Cross",
+      "sourcePayerId": "47198",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "ANTHEM BLUE CROSS AND BLUE SHIELD HP",
+      "sourcePayerId": "45302",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Beacon Health Options",
+      "sourcePayerId": "43324",
+      "aliases": [],
+      "reviewNote": "43324 is listed as Beacon Health Strategies / Carelon Behavioral Health. Verify that the member plan uses this route."
+    },
+    {
+      "name": "CO BCBS",
+      "sourcePayerId": "00050",
+      "aliases": [
+        "Blue Cross Blue Shield of Colorado"
+      ],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Blue Cross Blue Shield of Massachusetts",
+      "sourcePayerId": "00200",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Blue Shield of California",
+      "sourcePayerId": "94036",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "CHAMPVA - HAC",
+      "sourcePayerId": "84146",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "CIGNA",
+      "sourcePayerId": "62308",
+      "aliases": [
+        "Cigna Health Plans"
+      ],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "CIGNA Medicare Advantage PFFS",
+      "sourcePayerId": "86033",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "CO Kaiser Foundation Health Plan",
+      "sourcePayerId": "91617",
+      "aliases": [
+        "Kaiser Foundation Health Plan of Colorado"
+      ],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "color",
+      "sourcePayerId": null,
+      "aliases": [],
+      "reviewNote": "The source name is incomplete; identify the organization before selecting an electronic route."
+    },
+    {
+      "name": "Colorado Access",
+      "sourcePayerId": "84129",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Colorado Community Health Alliance",
+      "sourcePayerId": "COCHA",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Colorado Medicaid",
+      "sourcePayerId": "SKCO0",
+      "aliases": [
+        "CO Medicaid"
+      ],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "CO Medicare Part B",
+      "sourcePayerId": "04102",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Complementary Healthcare Plan (CHP)",
+      "sourcePayerId": "CHP01",
+      "aliases": [],
+      "reviewNote": "Claim.MD lists CHP01 as an alternate ID under HRYA1 (Heraya Health). Verify the member plan and current payer instructions before using this candidate route."
+    },
+    {
+      "name": "Continental Benefits",
+      "sourcePayerId": "35245",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Cox Health Plan",
+      "sourcePayerId": "00019",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Curative",
+      "sourcePayerId": "CURTV",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Denver Health Medical Plan",
+      "sourcePayerId": "84135",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "District 11",
+      "sourcePayerId": null,
+      "aliases": [],
+      "reviewNote": "No electronic payer ID supplied. Track the school funding or invoicing arrangement separately until confirmed."
+    },
+    {
+      "name": "EMPLOYERS HEALTH NETWORK",
+      "sourcePayerId": "IHS07",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Health First Health Plans",
+      "sourcePayerId": "95019",
+      "aliases": [
+        "Health First Health Plan"
+      ],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Kaiser PPO",
+      "sourcePayerId": "94320",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "Quantum health",
+      "sourcePayerId": null,
+      "aliases": [],
+      "reviewNote": "No electronic payer ID supplied. Confirm the claim administrator and member-card instructions."
+    },
+    {
+      "name": "Rocky Mountain Health Plan- Grand Junction",
+      "sourcePayerId": "SX141",
+      "aliases": [],
+      "reviewNote": "Claim.MD lists SX141 as an alternate ID under 87726 (United Health Care). Verify this plan and service date before using the candidate route; do not substitute Rocky Mountain PACE."
+    },
+    {
+      "name": "Second Wind Funds",
+      "sourcePayerId": null,
+      "aliases": [],
+      "reviewNote": "Source method is External. Keep the funding/invoicing workflow separate from insurance enrollment."
+    },
+    {
+      "name": "Tricare East Region",
+      "sourcePayerId": "TREST",
+      "aliases": [],
+      "reviewNote": "Claim.MD lists legacy TREST under 99727 for dates of service January 1, 2025 and later. Verify service date and current payer instructions before use."
+    },
+    {
+      "name": "Tricare West",
+      "sourcePayerId": "99726",
+      "aliases": [
+        "Tricare West Region"
+      ],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "UMR",
+      "sourcePayerId": "39026",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "UnitedHealthcare",
+      "sourcePayerId": "87726",
+      "aliases": [
+        "United Health Care"
+      ],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    },
+    {
+      "name": "UnitedHealthcare West",
+      "sourcePayerId": "95959",
+      "aliases": [],
+      "reviewNote": "Verify the member plan and agency participation before enrollment or claim submission."
+    }
+  ]
+}

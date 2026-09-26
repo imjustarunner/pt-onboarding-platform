@@ -29,13 +29,19 @@ describe('office-specific payer enrollment', () => {
     await startClaimMdEnrollment(req(), { json: vi.fn() }, next);
     expect(mocks.execute).toHaveBeenCalledTimes(1); expect(next).toHaveBeenCalled();
   });
-  it('does not contact Claim.MD for an unavailable billing office or disabled connection', async () => {
+  it('does not contact Claim.MD for an unavailable billing office or missing connection', async () => {
     mocks.profile.mockRejectedValue(new Error('other agency'));
     await startClaimMdEnrollment(req(), { json: vi.fn() }, vi.fn());
     expect(mocks.enroll).not.toHaveBeenCalled(); expect(mocks.execute).not.toHaveBeenCalled();
     mocks.connection.mockResolvedValue({ mode: 'disabled' });
     await startClaimMdEnrollment(req(), { json: vi.fn() }, vi.fn());
     expect(mocks.enroll).not.toHaveBeenCalled();
+  });
+  it('allows enrollment setup while live claim transmission remains disabled', async () => {
+    mocks.connection.mockResolvedValue({ connectionId: 'account:100', accountKey: 'synthetic', mode: 'disabled' });
+    const next = vi.fn();
+    await startClaimMdEnrollment(req(), {json:vi.fn()}, next);
+    expect(next).not.toHaveBeenCalled(); expect(mocks.enroll).toHaveBeenCalledTimes(1);
   });
   it('requires acknowledgement before requesting ERA routing changes', async () => {
     const r = req(); r.body.enrollmentType = 'era'; const next = vi.fn();

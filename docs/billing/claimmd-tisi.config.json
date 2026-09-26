@@ -3,7 +3,11 @@
   "service": "onboarding-backend",
   "region": "us-west3",
   "accountId": "31985",
-  "agencyIds": [377],
+  "agencyIds": [
+    2,
+    6,
+    377
+  ],
   "secret": "CLAIM_MD_ACCOUNT_KEY",
   "version": "1"
 }

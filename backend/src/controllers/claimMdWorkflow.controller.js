@@ -7,7 +7,7 @@ import { claimDocumentation, reviewSourceHash, currentClaimContentReview, runCla
 import ClinicalEligibilityService from '../services/clinicalEligibility.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { evaluateClaimReadiness } from '../services/clinicalClaimReadiness.service.js';
-import { resolveClaimMdConnection, requireClaimMdTransmission } from '../services/claimMdConnection.service.js';
+import { resolveClaimMdConnection } from '../services/claimMdConnection.service.js';
 import { buildClaimMdJsonClaim, fetchPayers, requestEnrollment } from '../services/claimMd.service.js';
 import { secondaryInsurance, readSecondaryAdjudication, applySecondaryAdjudication, prepareSecondaryClaim } from '../services/secondaryClaim.service.js';
 import { asList, claimReviewHash, claimEventHistory, safeEnrollmentUrl, taxIdHash, recordClaimEvent } from '../services/claimMdWorkflow.service.js';
@@ -152,8 +152,9 @@ export async function searchClaimMdPayers(req, res, next) {
     const agencyId = await agencyFor(req);
     const connection = await resolveClaimMdConnection(agencyId);
     const query = String(req.query.search || '').trim();
-    if (query.length < 2 || query.length > 64) throw fail(400, 'Enter 2–64 characters of a payer name');
-    const result = await fetchPayers({ accountKey: connection.accountKey, payerName: query });
+    const payerId = String(req.query.payerId || '').trim();
+    if (payerId ? !/^[A-Za-z0-9_-]{1,32}$/.test(payerId) : query.length < 2 || query.length > 64) throw fail(400, 'Enter a payer ID or 2–64 characters of a payer name');
+    const result = await fetchPayers({ accountKey: connection.accountKey, ...(payerId ? {payerId} : {payerName: query}) });
     res.json({ payers: asList(result.payer).slice(0, 100) });
   } catch (e) { next(e); }
 }
@@ -162,7 +163,8 @@ export async function startClaimMdEnrollment(req, res, next) {
   try {
     const agencyId = await agencyFor(req);
     const connection = await resolveClaimMdConnection(agencyId);
-    requireClaimMdTransmission(connection);
+    // Enrollment setup must remain possible before live claim transmission is enabled.
+    if (!connection.accountKey || !connection.connectionId) throw fail(409, 'Configure the agency Claim.MD connection first');
     const payerId = String(req.body.payerId || '').trim();
     const enrollmentType = String(req.body.enrollmentType || '');
     const profile = await getClaimMdBillingProfile(agencyId, req.body.billingOfficeLocationId);
