@@ -7,7 +7,10 @@ import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
 import { deriveCredentialTier, eligibleServiceCodesForTier, assertServiceCodeAllowed } from '../utils/clinicalServiceCodeEligibility.js';
 import { classifyHcbsCategory } from '../utils/credentialNormalization.js';
 import { getNoteAidToolById } from '../config/noteAidTools.js';
-import { getKnowledgeBaseContext } from '../services/clinicalKnowledgeBase.service.js';
+import {
+  getKnowledgeBaseContext,
+  noteAidKnowledgeBaseOptions
+} from '../services/clinicalKnowledgeBase.service.js';
 import { listEligiblePolicyServiceCodes, resolvePolicyRuleForServiceCode } from '../services/billingPolicy.service.js';
 import { callGeminiText } from '../services/geminiText.service.js';
 import { isTreatmentPlanToolId, isProgressNoteToolId, isCsNoteBuildToolId, shouldUseGeminiPro, TRANSCRIPT_FIDELITY_INSTRUCTIONS } from '../config/clinicalNotePlanOutput.js';
@@ -1468,18 +1471,19 @@ export const generateClinicalNote = async (req, res, next) => {
           ...getKbFoldersForTool(tool, featureFlags),
           ...customFolders
         ]);
-        const kbContext = await getKnowledgeBaseContext({
-          query: inputText,
-          maxChars: 4000,
-          folders,
-          codeHints,
-          titleHints: [
-            tool?.name || '',
-            tool?.description || '',
-            programLabel || '',
-            customAidRow?.title || ''
-          ]
-        });
+        const kbContext = await getKnowledgeBaseContext(
+          noteAidKnowledgeBaseOptions({
+            query: inputText,
+            folders,
+            codeHints,
+            titleHints: [
+              tool?.name || '',
+              tool?.description || '',
+              programLabel || '',
+              customAidRow?.title || ''
+            ]
+          })
+        );
         if (kbContext) {
           prompt = [
             prompt,
@@ -1487,7 +1491,7 @@ export const generateClinicalNote = async (req, res, next) => {
             'Knowledge Base Context (read-only):',
             kbContext,
             '',
-            'Use the knowledge base only for tone and required section style. Do not invent facts and do not replace or shrink the clinician transcript.',
+            'Use the knowledge base for clinical phrasing, tone, and this aid\'s required section style. Clinical interpretation of what occurred in the clinician transcript is required; inventing unsupported facts is not. Do not replace or shrink the transcript.',
           ].join('\n');
         }
       } catch {

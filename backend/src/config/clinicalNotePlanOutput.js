@@ -45,7 +45,9 @@ export const TRANSCRIPT_FIDELITY_INSTRUCTIONS = [
   'The clinician transcript under "User input" is the source of truth.',
   'Retain the substance of what was said: names of topics, specific examples, quotes, sequence of discussion, affect, and interventions implied by the transcript.',
   'Do not compress a long transcript into two or three generic sentences. If the clinician provided many details, the note sections must be correspondingly detailed.',
-  'Paraphrase into clinical language, but do not drop content. Knowledge-base examples are style-only and must not replace or shrink the transcript.'
+  'Clinical language (required): rewrite the provided session content into professional clinical documentation language. Interpreting and clinically explaining what occurred—based only on the clinician input—is expected.',
+  'Do not invent events, symptoms, diagnoses, interventions, quotes, ratings, or outcomes that are not supported by the clinician input. Clinical phrasing is not fabrication.',
+  'Knowledge-base examples and guides teach phrasing, structure, and tone only. They must not replace, shrink, or overwrite the clinician transcript, and must not introduce facts absent from it.'
 ].join('\n');
 
 /** Machine-enforced SOIP section contract (90837 / H0004 / family / H2014 / TPT). */

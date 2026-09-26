@@ -3,7 +3,10 @@ import StorageService from './storage.service.js';
 import { extractResumeTextFromUpload } from './resumeTextExtraction.service.js';
 import { callGeminiText } from './geminiText.service.js';
 import { getNoteAidToolById } from '../config/noteAidTools.js';
-import { getKnowledgeBaseContext } from './clinicalKnowledgeBase.service.js';
+import {
+  getKnowledgeBaseContext,
+  noteAidKnowledgeBaseOptions
+} from './clinicalKnowledgeBase.service.js';
 import { encryptSbClinicalPayload, decryptSbClinicalPayload } from '../utils/skillBuildersClinicalCrypto.js';
 import Agency from '../models/Agency.model.js';
 
@@ -291,11 +294,12 @@ export async function generateH2014SessionClinicalNote({
   if (tool?.includeKnowledgeBase) {
     try {
       const folders = uniqueFolders([...(Array.isArray(tool.kbFolders) ? tool.kbFolders : [])]);
-      const kbContext = await getKnowledgeBaseContext({
-        query: inputText,
-        maxChars: 4000,
-        folders
-      });
+      const kbContext = await getKnowledgeBaseContext(
+        noteAidKnowledgeBaseOptions({
+          query: inputText,
+          folders
+        })
+      );
       if (kbContext) {
         prompt = [
           prompt,
@@ -303,7 +307,7 @@ export async function generateH2014SessionClinicalNote({
           'Knowledge Base Context (read-only):',
           kbContext,
           '',
-          'Use the context only if relevant and do not invent facts.'
+          'Use the knowledge base for clinical phrasing, tone, and this aid\'s section style. Clinically interpret what occurred from the clinician input; do not invent unsupported facts.'
         ].join('\n');
       }
     } catch {
