@@ -6,7 +6,7 @@ export function sharedClaimMdConnection(agencyId, env = process.env) {
   if (!ids.includes(Number(agencyId)) || !env.CLAIM_MD_ACCOUNT_KEY) return null;
   const accountId = String(env.CLAIM_MD_ACCOUNT_ID || '').trim();
   if (!accountId) throw Object.assign(new Error('Set CLAIM_MD_ACCOUNT_ID before using the shared connection'), { status: 409 });
-  return { accountKey: env.CLAIM_MD_ACCOUNT_KEY, accountId, mode: env.CLAIM_MD_MODE || 'disabled', source: 'secret_manager', connectionId: `account:${accountId}` };
+  return { accountKey: env.CLAIM_MD_ACCOUNT_KEY, accountId, mode: env[`CLAIM_MD_MODE_${agencyId}`] || env.CLAIM_MD_MODE || 'disabled', source: 'secret_manager', connectionId: `account:${accountId}` };
 }
 
 export async function resolveClaimMdConnection(agencyId) {

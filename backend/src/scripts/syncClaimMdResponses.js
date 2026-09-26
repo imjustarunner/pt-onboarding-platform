@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import {syncRemittances,applyResponsibilityJobs} from '../services/remittances/store.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import Agency from '../models/Agency.model.js';
@@ -16,7 +17,9 @@ try {
       if (!agency || !getMedicalBillingFlags(agency).claimMdEnabled) continue;
       const connection = await resolveClaimMdConnection(agencyId);
       const result = await syncClaimMdResponses({ agencyId, connection });
-      console.log(JSON.stringify({ agencyId, updated: result.updated, moreAvailable: result.moreAvailable }));
+      const eras=await syncRemittances({agencyId,maxDownloads:25});
+      await applyResponsibilityJobs(agencyId);
+      console.log(JSON.stringify({ agencyId, updated: result.updated, moreAvailable: result.moreAvailable,erasImported:eras.imported,moreEras:eras.moreAvailable }));
     } catch {
       // Do not write payer responses, credentials, or clinical content to job logs.
       console.error(JSON.stringify({ agencyId, error: 'Claim.MD synchronization failed; inspect the billing workspace.' }));

@@ -143,6 +143,8 @@ export async function adjustBalance({agencyId,receivableId,amountCents,reason,sh
 // Keep already-received money in its original allocations until it is refunded.
 export async function closeZeroClaimResponsibility(row, payload, actorUserId, db) {
   const allocations = await allocationsFor(row.id, db, true);
+  const {externallyManaged}=await import('./collectionHandoff.js');
+  for(const allocation of allocations)if(await externallyManaged(allocation.id,db))throw billingError(409,'Reconcile the collection case before closing patient responsibility');
   await assertLedgerIntegrity(row, db);
   const [pending] = await db.execute("SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status IN ('pending','requires_action','unknown')", [row.id]);
   if (pending.length) throw billingError(409, 'Reconcile the pending payment before closing patient responsibility');
@@ -153,4 +155,31 @@ export async function closeZeroClaimResponsibility(row, payload, actorUserId, db
   if (!payload.zeroResponsibilityClosed) updated.adjustments = [...(payload.adjustments || []), { fromCents: Number(row.amount_cents), toCents: 0, reason: payload.verificationReason, actorUserId, at: new Date().toISOString() }];
   await db.execute("UPDATE family_receivables SET amount_cents=?,status='paid',hold_reason=NULL,disputed_at=NULL,source_payload=? WHERE id=? AND agency_id=?", [paid, encryptFamilyBilling(updated, `receivable:${row.agency_id}:${row.client_id}`), row.id, row.agency_id]);
   await auditBilling({ agencyId: row.agency_id, clientId: row.client_id, userId: actorUserId, action: paid ? 'zero_responsibility_refund_review' : 'zero_responsibility_closed', objectId: row.id }, db);
+}
+
+// Apply the final liability to the existing visit, retaining every payment.
+// A lower adjudicated amount becomes a refund-review credit, never a second charge.
+export async function applyFinalClaimResponsibility(row, amount, payload, actorUserId, db) {
+  const allocations=await allocationsFor(row.id,db,true);
+  await assertLedgerIntegrity(row,db);
+  const {externallyManaged}=await import('./collectionHandoff.js');
+  for(const allocation of allocations)if(await externallyManaged(allocation.id,db))throw billingError(409,'Reconcile the collection case before changing patient responsibility');
+  const [pending]=await db.execute("SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id WHERE a.receivable_id=? AND p.status IN ('pending','requires_action','unknown')",[row.id]);
+  if(pending.length)throw billingError(409,'Reconcile the pending payment before changing patient responsibility');
+  const original=allocations.reduce((n,a)=>n+Number(a.amount_cents),0);
+  if(!allocations.length||(!original&&allocations.length>1))throw billingError(409,'Review responsible payer shares before changing this balance');
+  let assigned=0,refundReviewCents=0,effective=0,paid=0;
+  for(let index=0;index<allocations.length;index++){
+    const a=allocations[index],target=index===allocations.length-1?amount-assigned:Math.floor(amount*Number(a.amount_cents)/original);
+    assigned+=target;const received=Number(a.paid_cents),next=Math.max(received,target);
+    effective+=next;paid+=received;refundReviewCents+=Math.max(0,received-target);
+    await db.execute('UPDATE family_receivable_allocations SET amount_cents=? WHERE id=?',[next,a.id]);
+  }
+  await db.execute("UPDATE family_payment_plans p JOIN family_receivable_allocations a ON a.id=p.allocation_id SET p.status='cancelled',p.auto_pay=0 WHERE a.receivable_id=? AND p.status IN ('proposed','active')",[row.id]);
+  const revised={...payload,finalPatientResponsibilityCents:amount,refundReviewCents,adjustments:[...(payload.adjustments||[]),{fromCents:Number(row.amount_cents),toCents:amount,reason:payload.verificationReason,actorUserId,at:new Date().toISOString()}]};
+  // Outstanding revised balances require the existing billing review/release action.
+  // Settled balances close immediately; no prior copay is collected twice.
+  await db.execute('UPDATE family_receivables SET amount_cents=?,status=?,hold_reason=?,source_payload=? WHERE id=? AND agency_id=?',[effective,effective===paid?'paid':'review',effective===paid?null:'era_balance_review',encryptFamilyBilling(revised,`receivable:${row.agency_id}:${row.client_id}`),row.id,row.agency_id]);
+  await auditBilling({agencyId:row.agency_id,clientId:row.client_id,userId:actorUserId,action:'era_liability_adjusted',objectId:row.id},db);
+  await assertLedgerIntegrity(await findReceivable(row.agency_id,row.id,db),db);
 }

@@ -30,7 +30,7 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
   if (requested !== null && (!Number.isSafeInteger(requested) || !organizations.some(a => a.id === requested))) throw denied();
   const scope = requested ? organizations.filter(a => a.id === requested) : organizations;
   const result = { organizations, claims: [], total: 0, page: Math.max(1, Math.min(100000, Number.parseInt(query.page, 10) || 1)), pageSize: 30,
-    capabilities: { claims: true, enrollments: true, paymentPosting: false, scheduledReports: false, eft: true }, updatedAt: new Date().toISOString() };
+    capabilities: { claims: true, enrollments: true, paymentPosting: true, scheduledReports: false, eft: true }, updatedAt: new Date().toISOString() };
   if (!organizations.length) return result;
   const allIds = organizations.map(a => a.id), allMarks = allIds.map(() => '?').join(',');
   let counts = [], enrollments = [];

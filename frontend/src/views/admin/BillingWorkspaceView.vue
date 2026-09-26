@@ -57,7 +57,8 @@
         <ClaimMdWorkspace v-if="section === 'payers' && scopedOrganization" :key="`payers-${scopeId}`" :agency-id="scopedOrganization.id" :connection="scopedOrganization.connection || {}" section="payers" @updated="reload" />
 
         <template v-if="section === 'payments'"><BankFeedPanel v-if="scopedOrganization && ['admin', 'super_admin'].includes(authStore.user?.role)" :key="`bank-${scopeId}`" :agency-id="scopedOrganization.id" :agency-name="scopedOrganization.name" />
-          <section class="panel"><div class="panel-heading"><div><h2>Remittance reconciliation</h2><p>Follow each ERA from receipt through matching, review, and posting.</p></div><a href="https://www.claim.md/" target="_blank" rel="noopener noreferrer" class="secondary">Open Claim.MD ↗</a></div><div class="reconciliation-steps"><div v-for="(step, index) in ['ERA received', 'Match to claim', 'Review adjustments', 'Post payment']" :key="step"><b>{{ index + 1 }}</b><h3>{{ step }}</h3><span class="badge neutral">{{ index === 0 ? 'Directory lookup available' : 'Not yet available' }}</span></div></div><div class="empty-state"><h3>Payment posting is not enabled yet</h3><p>ERA matching, adjustments, reversals, denials, and patient responsibility need reconciliation before they can be posted. No payment totals are inferred from accepted claims.</p></div><div class="panel-toolbar"><label>Company <select v-model="scopeId"><option value="all">Select a company</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></label><button class="primary" :disabled="!scopedOrganization?.connection?.configured || eraLoading" @click="loadEras">{{ eraLoading ? 'Checking…' : 'Check ERA directory' }}</button></div><p v-if="eraError" class="error-banner" role="alert">{{ eraError }}</p><p v-if="eraChecked && !eraRows.length" class="empty-state">No remittances returned for this company’s Tax ID.</p><div v-if="eraRows.length" class="table-scroll"><table><thead><tr><th>ERA ID</th><th>Payer</th><th>Received / payment date</th><th>Reconciliation</th></tr></thead><tbody><tr v-for="(era, index) in eraRows" :key="era.eraid || index"><td>{{ era.eraid || '—' }}</td><td>{{ era.payer_name || era.payerid || '—' }}</td><td>{{ date(era.received_date || era.check_date) }}</td><td><span class="badge warning">Review in Claim.MD</span></td></tr></tbody></table></div><p class="panel-note">ERA directory results are not posted payments. Shared Tax IDs may require claim-level matching before remittances can be shown safely.</p></section>
+          <RemittanceWorkspace v-if="scopedOrganization" :key="`era-${scopeId}`" :agency-id="scopedOrganization.id" :agency-name="scopedOrganization.name" />
+          <section v-else class="panel empty-state"><h2>Select an organization</h2><p>Select a company above to import and reconcile its remittances and patient balances.</p></section>
         </template>
 
         <template v-if="section === 'reports'">
@@ -77,6 +78,7 @@
 
 <script setup>
 import PlannedBillingServices from '../../components/admin/PlannedBillingServices.vue';
+import RemittanceWorkspace from '../../components/billing/RemittanceWorkspace.vue';
 import BankFeedPanel from '../../components/billing/BankFeedPanel.vue';
 import PayerEftPanel from '../../components/billing/PayerEftPanel.vue';
 import BillingCostPlanner from '../../components/billing/BillingCostPlanner.vue';

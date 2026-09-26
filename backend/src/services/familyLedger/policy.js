@@ -70,6 +70,14 @@ export async function assertCollectible(receivable, db = pool) {
     const claim=claims[0];
     if(!claim||claim.claim_lifecycle==='void'||claim.encounter_status!=='completed'||['VOID','VOIDED','CANCELLED','CANCELED'].includes(String(claim.claim_status).toUpperCase())||Number(claim.correction_pending))throw billingError(409,'The visit or claim needs review before collecting patient responsibility');
     const payload=receivable.source_payload?decryptFamilyBilling(receivable.source_payload,`receivable:${receivable.agency_id}:${receivable.client_id}`):{};
+    if(['paid','adjusted','denied'].includes(claim.claim_lifecycle)) {
+      const [pendingEras]=await clinicalPool.execute(`SELECT j.id FROM claimmd_responsibility_jobs j JOIN clinical_claims c ON c.id=j.clinical_claim_id AND c.agency_id=j.agency_id
+        WHERE j.agency_id=? AND (c.id=? OR c.parent_claim_id=?) AND j.status<>'completed' LIMIT 1`,[receivable.agency_id,claim.id,claim.id]);
+      const [changedEras]=await clinicalPool.execute(`SELECT i.id FROM claimmd_remittance_items i JOIN claimmd_remittances r ON r.id=i.remittance_id JOIN clinical_claims c ON c.id=i.clinical_claim_id AND c.agency_id=i.agency_id
+        WHERE i.agency_id=? AND (c.id=? OR c.parent_claim_id=?) AND (r.status='source_changed' OR i.status<>'posted') LIMIT 1`,[receivable.agency_id,claim.id,claim.id]);
+      if(changedEras.length)throw billingError(409,'An additional or changed remittance needs reconciliation before collection');
+      if(pendingEras.length)throw billingError(409,'Reconcile the payer remittance before collecting patient responsibility');
+    }
     if(Number(payload.verifiedClaimChangeId||0)!==Number(claim.latest_change_id))throw billingError(409,'The claim changed. Reverify patient responsibility before collection');
   }
   if(receivable.source_type==='learning_charge'){

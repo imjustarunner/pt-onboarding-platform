@@ -21,6 +21,13 @@ test('management key is scoped to an explicit agency allowlist and defaults to d
   assert.doesNotThrow(() => requireClaimMdTransmission({ mode: 'test' }));
   assert.equal(sharedClaimMdConnection(2, env).connectionId, 'account:100');
 });
+test('shared account transmission can be enabled for TISI independently', () => {
+ const env={CLAIM_MD_ACCOUNT_KEY:'synthetic',CLAIM_MD_ACCOUNT_ID:'31985',CLAIM_MD_AGENCY_IDS:'2,6,377',CLAIM_MD_MODE:'disabled',CLAIM_MD_MODE_377:'live'};
+ assert.equal(sharedClaimMdConnection(377,env).mode,'live');
+ for(const id of [2,6])assert.throws(()=>requireClaimMdTransmission(sharedClaimMdConnection(id,env)),/disabled/);
+ assert.equal(sharedClaimMdConnection(2,{...env,CLAIM_MD_MODE:'live',CLAIM_MD_MODE_2:'disabled'}).mode,'disabled');
+ assert.throws(()=>requireClaimMdTransmission(sharedClaimMdConnection(377,{...env,CLAIM_MD_MODE_377:'typo'})),/disabled/);
+});
 test('approval digest changes with patient, charge, modifier, or identifier changes', () => {
   const payload = { pat_name_f: 'Test', bill_npi: '1234567893', charge: [{ charge: '12.34', mod1: 'GT' }] };
   for (const update of [{ pat_name_f: 'Changed' }, { bill_npi: '9876543210' }, { charge: [{ charge: '13.00' }] }]) assert.notEqual(claimReviewHash(payload), claimReviewHash({ ...payload, ...update }));

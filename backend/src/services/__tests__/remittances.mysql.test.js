@@ -1,0 +1,81 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
+
+test('ERA import/post concurrency, tenant isolation and final copay adjustments in MySQL',{skip:process.env.REMITTANCE_MYSQL_TEST!=='1'},async()=>{
+ process.env.SKIP_DB_CONNECT='1';process.env.NODE_ENV='test';process.env.FAMILY_BILLING_ENCRYPTION_KEY_BASE64=Buffer.alloc(32,4).toString('base64');
+ const mysql=await import('mysql2/promise');
+ const admin=await mysql.createConnection({host:'127.0.0.1',port:33316,user:'root',password:''});
+ const schema=`remittance_test_${crypto.randomBytes(5).toString('hex')}`;
+ await admin.query(`CREATE DATABASE ${schema}`);
+ const pool=mysql.createPool({host:'127.0.0.1',port:33316,user:'root',password:'',database:schema,connectionLimit:5});
+ const {default:main}=await import('../../config/database.js'),{default:clinical}=await import('../../config/clinicalDatabase.js');
+ const {importRemittance,postRemittanceItem,applyResponsibilityJobs}=await import('../remittances/store.js');
+ const {applyFinalClaimResponsibility,closeZeroClaimResponsibility,findReceivable,sourcePayload}=await import('../familyLedger/receivables.js');
+ const {encryptFamilyBilling:encrypt}=await import('../familyBillingEncryption.service.js');
+ const raw={eraid:'100',prov_taxid:'123456789',prov_npi:'1234567893',payerid:'TEST',paid_date:'2026-01-03',paid_amount:'80',claim:[{pcn:'101',ins_number:'SYNTHETIC',status_code:'1',total_charge:'100',total_paid:'80',charge:[{proc_code:'90837',from_dos:'20260101',units:'1',charge:'100',paid:'80',adjustment:[{group:'CO',code:'45',amount:'20'}]}]}]};
+ const sent={pcn:'101',ins_number:'SYNTHETIC',bill_npi:'1234567893',payerid:'TEST',total_charge:'100',charge:[{proc_code:'90837',from_date:'2026-01-01',units:'1',charge:'100'}]};
+ const connection={connectionId:'account:synthetic'},identity={taxId:'123456789',npis:['1234567893']};
+ const tx=async fn=>{const db=await pool.getConnection();try{await db.beginTransaction();const value=await fn(db);await db.commit();return value;}catch(e){await db.rollback();throw e;}finally{db.release();}};
+ try{
+  for(const sql of (await fs.readFile(new URL('../../../../database/clinical_migrations/024_claimmd_remittances.sql',import.meta.url),'utf8')).replace(/^--.*$/gm,'').split(';').filter(s=>s.trim()))await pool.query(sql);
+  await pool.query('CREATE TABLE clinical_claims(id BIGINT PRIMARY KEY,agency_id INT,claim_number VARCHAR(80),claimmd_connection_id VARCHAR(120),claimmd_submitted_at DATETIME,claim_lifecycle VARCHAR(40),is_deleted INT DEFAULT 0)');
+  await pool.query('CREATE TABLE claimmd_claim_events(id BIGINT PRIMARY KEY AUTO_INCREMENT,agency_id INT,clinical_claim_id BIGINT,connection_id VARCHAR(120),event_key VARCHAR(100),event_type VARCHAR(40),status VARCHAR(40),payload_encrypted LONGTEXT,actor_user_id INT,UNIQUE KEY(agency_id,connection_id,event_key))');
+  await pool.execute("INSERT INTO clinical_claims VALUES(101,377,'101','account:synthetic',NOW(),'submitted',0)");
+  await pool.execute("INSERT INTO claimmd_claim_events(agency_id,clinical_claim_id,connection_id,event_key,event_type,payload_encrypted) VALUES(377,101,'account:synthetic','submission:test','approved_submission',?)",[encrypt({payload:sent},'claimmd:377:101:submission:test')]);
+  const imported=await Promise.all(Array.from({length:4},()=>importRemittance({agencyId:377,connection,raw,identity,pool})));
+  assert.equal(new Set(imported.map(x=>x.id)).size,1);
+  const [[item]]=await pool.query('SELECT * FROM claimmd_remittance_items');assert.equal(item.status,'matched');assert.equal(item.clinical_claim_id,101);assert.ok(!item.payload_encrypted.includes('SYNTHETIC'));
+  const [[era]]=await pool.query('SELECT * FROM claimmd_remittances');
+  const args={agencyId:377,id:era.id,itemId:item.id,reviewHash:era.payload_hash,actorUserId:99,approved:true,pool};
+  await assert.rejects(postRemittanceItem({...args,agencyId:2}),e=>e.status===404);
+  await assert.rejects(postRemittanceItem({...args,reviewHash:'stale'}),e=>e.status===409);
+  await assert.rejects(postRemittanceItem({...args,approved:false}),e=>e.status===400);
+  const posted=await Promise.all(Array.from({length:4},()=>postRemittanceItem(args)));assert.equal(posted.filter(p=>!p.existing).length,1);
+  const [[count]]=await pool.query('SELECT COUNT(*) AS n FROM claimmd_payment_postings');assert.equal(count.n,1);
+  const [[job]]=await pool.query('SELECT * FROM claimmd_responsibility_jobs');assert.equal(job.amount_cents,0);assert.equal(job.status,'pending');
+  const second=await importRemittance({agencyId:377,connection,raw:{...raw,eraid:'101'},identity,pool});const [[secondItem]]=await pool.execute('SELECT * FROM claimmd_remittance_items WHERE remittance_id=?',[second.id]);const [[secondEra]]=await pool.execute('SELECT * FROM claimmd_remittances WHERE id=?',[second.id]);
+  await assert.rejects(postRemittanceItem({...args,id:second.id,itemId:secondItem.id,reviewHash:secondEra.payload_hash}),/already has an adjudication/);
+  const legacy=structuredClone(raw);legacy.eraid='102';legacy.claim[0].pcn='OLD-EHR';const old=await importRemittance({agencyId:377,connection,raw:legacy,identity,pool});const [[oldItem]]=await pool.execute('SELECT * FROM claimmd_remittance_items WHERE remittance_id=?',[old.id]);assert.equal(oldItem.status,'unmatched');assert.equal(oldItem.clinical_claim_id,null);
+  const changed=await importRemittance({agencyId:377,connection,raw:{...raw,check_number:'changed'},identity,pool});assert.equal(changed.status,'source_changed');await assert.rejects(postRemittanceItem(args),/changed/);
+  await assert.rejects(importRemittance({agencyId:2,connection,raw,identity:{...identity,taxId:'999999999'},pool}),/identity/);
+
+  await pool.query('CREATE TABLE family_receivables(id BIGINT PRIMARY KEY,agency_id INT,client_id INT,amount_cents BIGINT,status VARCHAR(30),hold_reason VARCHAR(80),disputed_at DATETIME,source_payload LONGTEXT)');
+  await pool.query('CREATE TABLE family_receivable_allocations(id BIGINT PRIMARY KEY,agency_id INT,receivable_id BIGINT,amount_cents BIGINT,paid_cents BIGINT)');
+  await pool.query('CREATE TABLE family_ledger_payments(id BIGINT PRIMARY KEY,allocation_id BIGINT,amount_cents BIGINT,status VARCHAR(30))');
+  await pool.query('CREATE TABLE family_payment_refunds(id BIGINT PRIMARY KEY,payment_id BIGINT,amount_cents BIGINT,status VARCHAR(30))');
+  await pool.query('CREATE TABLE family_payment_plans(id BIGINT PRIMARY KEY,allocation_id BIGINT,status VARCHAR(30),auto_pay INT)');
+  await pool.query('CREATE TABLE family_billing_audit(id BIGINT PRIMARY KEY AUTO_INCREMENT,agency_id INT,actor_user_id INT,client_id INT,action VARCHAR(100),object_id BIGINT)');
+  await pool.query('CREATE TABLE family_fulfillment_jobs(id BIGINT PRIMARY KEY AUTO_INCREMENT,agency_id INT,receivable_id BIGINT,UNIQUE KEY(agency_id,receivable_id))');
+  await pool.query("INSERT INTO family_receivables VALUES(1,377,1,3000,'paid',NULL,NULL,NULL)");await pool.query('INSERT INTO family_receivable_allocations VALUES(1,377,1,3000,3000)');await pool.query("INSERT INTO family_ledger_payments VALUES(1,1,3000,'succeeded')");
+  await tx(async db=>applyFinalClaimResponsibility(await findReceivable(377,1,db,true),3000,{verificationReason:'ERA reviewed'},99,db));
+  let balance=await findReceivable(377,1,pool);assert.equal(balance.status,'paid');assert.equal(balance.amount_cents,3000);
+  await tx(async db=>applyFinalClaimResponsibility(await findReceivable(377,1,db,true),1000,{verificationReason:'ERA reviewed'},99,db));
+  balance=await findReceivable(377,1,pool);assert.equal(balance.status,'paid');assert.equal(balance.amount_cents,3000);assert.equal(sourcePayload(balance).refundReviewCents,2000);
+  await tx(async db=>applyFinalClaimResponsibility(await findReceivable(377,1,db,true),4000,{verificationReason:'ERA reviewed'},99,db));
+  balance=await findReceivable(377,1,pool);assert.equal(balance.status,'review');assert.equal(balance.amount_cents,4000);
+  await tx(async db=>closeZeroClaimResponsibility(await findReceivable(377,1,db,true),{verificationReason:'Final zero'},99,db));
+  balance=await findReceivable(377,1,pool);assert.equal(balance.status,'paid');assert.equal(balance.amount_cents,3000);assert.equal(sourcePayload(balance).finalPatientResponsibilityCents,0);assert.equal(sourcePayload(balance).refundReviewCents,3000);
+  await pool.query("INSERT INTO family_ledger_payments VALUES(2,1,100,'pending')");await assert.rejects(tx(async db=>applyFinalClaimResponsibility(await findReceivable(377,1,db,true),4000,{verificationReason:'Blocked'},99,db)),/pending payment/);
+
+  // Exercise the actual cross-database outbox retry against the actual family ledger.
+  main.execute=pool.execute.bind(pool);main.getConnection=pool.getConnection.bind(pool);clinical.execute=pool.execute.bind(pool);
+  await pool.query('ALTER TABLE clinical_claims ADD client_id INT DEFAULT 1,ADD clinical_session_id INT DEFAULT 1,ADD parent_claim_id BIGINT,ADD payer_sequence INT DEFAULT 1,ADD destination_payer_id VARCHAR(32),ADD claim_status VARCHAR(30)');
+  await pool.query('CREATE TABLE clinical_sessions(id BIGINT PRIMARY KEY,agency_id INT,client_id INT,scheduled_start_at DATETIME,encounter_status VARCHAR(30))');
+  await pool.query("INSERT INTO clinical_sessions VALUES(1,377,1,'2026-01-01','completed')");
+  await pool.query('CREATE TABLE clinical_claim_change_requests(id BIGINT PRIMARY KEY,clinical_session_id BIGINT,agency_id INT,status VARCHAR(40))');
+  await pool.query('CREATE TABLE clients(id BIGINT PRIMARY KEY,agency_id INT,billing_insurance_payload LONGTEXT)');await pool.query('INSERT INTO clients VALUES(1,377,NULL)');
+  await pool.query('ALTER TABLE family_receivables ADD source_type VARCHAR(40),ADD source_key VARCHAR(100),ADD insurance_reviewed INT DEFAULT 0,ADD insurance_fingerprint VARCHAR(64)');
+  await pool.query("UPDATE family_receivables SET source_type='claim_responsibility',source_key='101'");
+  await pool.query('DELETE FROM family_ledger_payments WHERE id=2');
+  let delivery=await applyResponsibilityJobs(377);assert.equal(delivery[0].status,'review');
+  await pool.execute("UPDATE claimmd_remittances SET status='posted' WHERE id=?",[era.id]);
+  delivery=await applyResponsibilityJobs(377);assert.equal(delivery[0].status,'completed');
+  let [[audits]]=await pool.query('SELECT COUNT(*) AS n FROM family_billing_audit');const beforeRetry=audits.n;
+  await pool.query("UPDATE claimmd_responsibility_jobs SET status='pending'");
+  delivery=await applyResponsibilityJobs(377);assert.equal(delivery[0].status,'completed');
+  [[audits]]=await pool.query('SELECT COUNT(*) AS n FROM family_billing_audit');assert.equal(audits.n,beforeRetry);
+  balance=await findReceivable(377,1,pool);assert.equal(sourcePayload(balance).remittancePostingId,job.posting_id);assert.equal(balance.status,'paid');
+ }finally{await pool.end();await admin.query(`DROP DATABASE ${schema}`);await admin.end();await main.end();await clinical.end();}
+});

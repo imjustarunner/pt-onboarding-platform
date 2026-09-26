@@ -7,7 +7,7 @@ import pool from '../../config/database.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import BookingPackage from '../../models/BookingPackage.model.js';
 import { billingError, requireResponsiblePayer, positiveId } from '../familyBillingPolicy.service.js';
-import { createReceivable,findReceivable,sourcePayload,closeZeroClaimResponsibility } from './receivables.js';
+import { createReceivable,findReceivable,sourcePayload,closeZeroClaimResponsibility,applyFinalClaimResponsibility } from './receivables.js';
 import { transaction,parseJson,dateOnly,key,requireClient,cents } from './policy.js';
 export function sourceDomain(type){let value=String(type||'').toLowerCase();value=({life_coach:'coaching',consultant:'consulting',therapy:'mental_health'})[value]||value;return ['tutoring','coaching','consulting','mentorship','mental_health','clinical'].includes(value)?value:'unknown';}
 export async function importSessionCharge({agencyId,chargeId,actorUserId}){
@@ -24,7 +24,7 @@ export async function syncSessionBalances({agencyId,actorUserId,clientId=null}){
   const [rows]=await pool.execute("SELECT c.id FROM learning_session_charges c WHERE c.agency_id=? AND c.charge_status IN ('PENDING','FAILED','AUTHORIZED') AND c.total_cents>0"+(clientId?' AND c.client_id=?':'')+" AND NOT EXISTS(SELECT 1 FROM family_receivables r WHERE r.agency_id=c.agency_id AND r.source_type='learning_charge' AND r.source_key=CAST(c.id AS CHAR)) ORDER BY c.id LIMIT 200",clientId?[agencyId,clientId]:[agencyId]);
   const results=[];for(const row of rows){try{const r=await importSessionCharge({agencyId,actorUserId,chargeId:row.id});results.push({chargeId:row.id,receivableId:r.id});}catch(e){if(e.status!==409)throw e;results.push({chargeId:row.id,review:e.message});}}return results;
 }
-export async function setClaimResponsibility({agencyId,claimId,clientId,amountCents,responsibilityType,verificationBasis='benefit',reason,actorUserId,dueDate}){
+export async function setClaimResponsibility({agencyId,claimId,clientId,amountCents,responsibilityType,verificationBasis='benefit',reason,actorUserId,dueDate,remittancePostingId=null}){
   // The verified final-posting form defaults an empty responsibility to zero.
   if (verificationBasis === 'era') { amountCents = amountCents ?? 0; responsibilityType ||= 'patient_balance'; }
   if(!['copay','deductible','coinsurance','patient_balance'].includes(responsibilityType)||!String(reason||'').trim())throw billingError(400,'Select the patient responsibility type and document verification');
@@ -45,16 +45,18 @@ export async function setClaimResponsibility({agencyId,claimId,clientId,amountCe
     // Primary and secondary use one balance; final zero closes it through an audited adjustment.
     const finalZero = verificationBasis === 'era' && input.amountCents === 0;
     await db.execute('SELECT id FROM clients WHERE id=? AND agency_id=? FOR UPDATE',[input.clientId,agencyId]);
-    const [existing] = finalZero ? await db.execute("SELECT * FROM family_receivables WHERE agency_id=? AND source_type='claim_responsibility' AND source_key=?",[agencyId,input.sourceKey]) : [[]];
+    const [existing] = verificationBasis === 'era' ? await db.execute("SELECT * FROM family_receivables WHERE agency_id=? AND source_type='claim_responsibility' AND source_key=?",[agencyId,input.sourceKey]) : [[]];
     const found = existing[0] || await createReceivable(input,db);
     const row=await findReceivable(agencyId,found.id,db,true);
     if(Number(row.client_id)!==Number(input.clientId))throw billingError(409,'The existing balance belongs to a different client');
     if(row.status==='void')throw billingError(409,'Reconcile the voided visit balance before posting responsibility');
     const previous=sourcePayload(row);
-    const payload={...previous,...input.payload,responsibilityReviews:[...(previous.responsibilityReviews||[]),{previous:{verificationBasis:previous.verificationBasis,finalAdjudicationClaimId:previous.finalAdjudicationClaimId,finalPayerId:previous.finalPayerId},...input.payload,at:new Date().toISOString()}]};
+    if(remittancePostingId && previous.remittancePostingId === Number(remittancePostingId)) return row;
+    const payload={...previous,...input.payload,...(remittancePostingId?{remittancePostingId:Number(remittancePostingId)}:{}),responsibilityReviews:[...(previous.responsibilityReviews||[]),{previous:{verificationBasis:previous.verificationBasis,finalAdjudicationClaimId:previous.finalAdjudicationClaimId,finalPayerId:previous.finalPayerId},...input.payload,at:new Date().toISOString()}]};
     if(input.amountCents>0){delete payload.zeroResponsibilityClosed;delete payload.finalPatientResponsibilityCents;delete payload.refundReviewCents;}
     await db.execute('UPDATE family_receivables SET source_payload=?,insurance_reviewed=1,insurance_fingerprint=? WHERE id=? AND agency_id=?',[encryptFamilyBilling(payload,`receivable:${agencyId}:${row.client_id}`),insuranceFingerprint(insurance),row.id,agencyId]);
     if(finalZero)await closeZeroClaimResponsibility(row,payload,actorUserId,db);
+    else if(verificationBasis==='era')await applyFinalClaimResponsibility(row,input.amountCents,payload,actorUserId,db);
     await auditBilling({agencyId,clientId:row.client_id,userId:actorUserId,action:'claim_responsibility_verified',objectId:row.id},db);
     return findReceivable(agencyId,row.id,db);
   });

@@ -26,7 +26,7 @@ describe('cross-company billing scope', () => {
     expect(deps.eftList.mock.calls.map(([id])=>id)).toEqual([1,3]);
     for (const [sql, params] of deps.clinical.execute.mock.calls) { expect(sql).toContain('agency_id IN (?,?)'); expect(params.slice(0, 2)).toEqual([1, 3]); }
     expect(data.organizations[0].enrollments.map(e => e.payerId)).toEqual(['COCHA']);
-    expect(data.capabilities.paymentPosting).toBe(false);
+    expect(data.capabilities.paymentPosting).toBe(true);
   });
   it('denies providers before fetching any data, even if delegated access would return true', async () => {
     const deps = fixture(); deps.canAccess.mockResolvedValue(true);

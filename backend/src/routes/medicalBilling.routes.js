@@ -1,3 +1,4 @@
+import {indexRemittances,getRemittance,syncEras,retryBalances,matchEra,postEra} from '../controllers/remittance.controller.js';
 import { getBankFeeds, createBankSession, finishBankSession, removeBankFeed, importBankFeed, verifyEraDeposit } from '../controllers/bankFeed.controller.js';
 import {getMedicalServiceFees,saveMedicalServiceFees} from '../controllers/medicalServiceFees.controller.js';
 import {getEligibilityAutomation,saveEligibilitySettings,enrollEligibilityRoster} from '../controllers/eligibilityAutomation.controller.js';
@@ -595,6 +596,12 @@ router.get('/claimmd/claims/:claimId/service-changes', ...claimMdGate,getClaimSe
 router.post('/claimmd/claims/:claimId/service-changes/:requestId/resolve', ...claimMdGate,resolveClaimServiceChange);
 router.get('/claimmd/claims/:claimId/draft', ...claimMdGate, claimDraft);
 router.patch('/claimmd/claims/:claimId', ...claimMdGate, correctClaim);
+router.get('/claimmd/remittances', ...claimMdGate, indexRemittances);
+router.post('/claimmd/remittances/sync', ...claimMdGate, syncEras);
+router.post('/claimmd/remittances/retry-balances', ...claimMdGate, retryBalances);
+router.get('/claimmd/remittances/:id', ...claimMdGate, getRemittance);
+router.post('/claimmd/remittances/:id/items/:itemId/match', ...claimMdGate, matchEra);
+router.post('/claimmd/remittances/:id/items/:itemId/post', ...claimMdGate, postEra);
 router.get('/claimmd/payers', ...claimMdGate, searchClaimMdPayers);
 router.get('/claimmd/billing-offices', ...claimMdGate, listClaimMdOffices);
 router.get('/claimmd/enrollments', ...claimMdGate, listClaimMdEnrollments);
