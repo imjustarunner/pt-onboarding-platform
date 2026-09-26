@@ -2,6 +2,7 @@ import { routeRequiresSchoolPortalsFeature, routeRequiresProgramOverviewDashboar
 import { isLoginEntryRoute, getSsoArrivalRoute } from '../utils/loginHandoff';
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
+import { rememberVerifiedGoogleAccount } from '../utils/googleAccountMemory';
 import { createRouter, createWebHistory } from 'vue-router';
 import { publicDomainHistory, publicSupportSlugFromHost } from '../utils/publicDomainRouting.js';
 import { updateItscoDocumentMeta } from '../utils/itscoPublicSeo.js';
@@ -4821,6 +4822,12 @@ router.beforeEach(async (to, from, next) => {
               data.user.agencyIds = data.agencies;
             }
             authStore.setAuth(data.token || null, data.user, data.sessionId || null);
+            const portalSlug = brandingStore.portalHostPortalUrl || getCurrentPortalSlugFromHostCache()
+              || to.params?.organizationSlug || (data.agencies || []).find(a => Number(a.id) === Number(data.agencyId))?.portal_url;
+            rememberVerifiedGoogleAccount({
+              user: data.user, orgSlug: portalSlug, agencies: data.agencies,
+              authMethod: data.loginMemory?.authMethod, remember: data.loginMemory?.rememberGoogle === true
+            });
             try {
               sessionStorage.setItem('justLoggedIn', 'true');
               sessionStorage.setItem('justLoggedInAt', String(Date.now()));

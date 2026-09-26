@@ -182,13 +182,22 @@ export function getPortalLoginMemory(orgSlug, { username = '', allowGoogle = tru
 
 // A per-tab choice survives Google's full-page redirect. No credential is stored here.
 const SSO_PREFERENCE_KEY = '__pt_sso_remember_choice__';
+const SSO_PERSISTENT_CHOICE_KEY = '__pt_sso_remember_preferences__';
 export function setSsoRememberChoice(remember, orgSlug) {
   try { sessionStorage.setItem(SSO_PREFERENCE_KEY, JSON.stringify({ remember: !!remember, orgSlug: normalizeOrgSlug(orgSlug), at: Date.now() })); } catch { /* optional */ }
+  try {
+    const choices = JSON.parse(localStorage.getItem(SSO_PERSISTENT_CHOICE_KEY) || '{}');
+    localStorage.setItem(SSO_PERSISTENT_CHOICE_KEY, JSON.stringify({ ...choices, [normalizeOrgSlug(orgSlug)]: !!remember }));
+  } catch { /* optional */ }
 }
 export function shouldRememberSso(orgSlug) {
   try {
     const choice = JSON.parse(sessionStorage.getItem(SSO_PREFERENCE_KEY) || 'null');
     if (choice?.orgSlug === normalizeOrgSlug(orgSlug) && Date.now() - choice.at < 3600000) return choice.remember !== false;
   } catch { /* external/legacy SSO entry defaults to remembering the shortcut */ }
+  try {
+    const choices = JSON.parse(localStorage.getItem(SSO_PERSISTENT_CHOICE_KEY) || '{}');
+    if (choices?.[normalizeOrgSlug(orgSlug)] === false) return false;
+  } catch { /* optional */ }
   return true;
 }

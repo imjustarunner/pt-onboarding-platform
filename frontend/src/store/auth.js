@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
+import { rememberVerifiedGoogleAccount } from '../utils/googleAccountMemory';
 // loginRedirect is NOT statically imported here to avoid a circular-import TDZ with router/index.js.
 // Use inline localStorage ops or dynamic imports for the two helpers we need.
 function _storeUserAgencies(agencies) {
@@ -295,6 +296,14 @@ export const useAuthStore = defineStore('auth', () => {
         }
         user.value = merged;
         localStorage.setItem('user', JSON.stringify(merged));
+        if (next.authMethod === 'google' && !isDemoWindowSession()) {
+          // Existing Google sessions (including a reload without sso=1) must also
+          // establish the account card before a later logout/timeout clears user.
+          const { useBrandingStore } = await import('./branding');
+          const branding = useBrandingStore();
+          const orgSlug = branding.activeRouteSlug || branding.portalHostPortalUrl;
+          rememberVerifiedGoogleAccount({ user: next, authMethod: next.authMethod, orgSlug, remember: next.rememberGoogle !== false, agencies: branding.portalAgency ? [branding.portalAgency] : [] });
+        }
         console.log('User data refreshed. New role:', merged.role);
       }
     } catch (err) {
@@ -445,4 +454,3 @@ export const useAuthStore = defineStore('auth', () => {
     refreshUser
   };
 });
-

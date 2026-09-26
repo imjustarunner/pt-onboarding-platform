@@ -1,4 +1,5 @@
-import { setRememberedGoogleLogin, shouldRememberSso, clearRememberedGoogleLogin, clearRememberedLogin } from './loginRemember';
+import { shouldRememberSso, clearRememberedGoogleLogin, clearRememberedLogin } from './loginRemember';
+import { rememberVerifiedGoogleAccount } from './googleAccountMemory';
 
 /** Fetch identity from the new HttpOnly cookie, never the previous user's bearer token. */
 export async function completeGoogleLogin({ api, authStore, agencyStore, orgSlug, startActivityTracking }) {
@@ -20,12 +21,7 @@ export async function completeGoogleLogin({ api, authStore, agencyStore, orgSlug
     try { sessionStorage.removeItem(`__pt_login_pending_${key}__`); } catch { /* optional */ }
   }
   if (shouldRememberSso(orgSlug)) {
-    const agency = agencies.find(a => [a.slug, a.portal_url, a.portalUrl].includes(orgSlug));
-    setRememberedGoogleLogin({
-      username: user.username || user.email, orgSlug,
-      displayName: [user.firstName || user.first_name, user.lastName || user.last_name].filter(Boolean).join(' '),
-      loginHint: user.email, organizationName: agency?.name || '', title: user.title || ''
-    });
+    rememberVerifiedGoogleAccount({ user, authMethod: loginBootstrap.authMethod, orgSlug, agencies });
   } else {
     clearRememberedGoogleLogin(orgSlug);
     clearRememberedLogin(orgSlug);

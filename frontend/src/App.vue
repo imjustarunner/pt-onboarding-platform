@@ -2267,6 +2267,7 @@ import { resolveHostImpliedPortalSlug } from './utils/orgScopedPath.js';
 import { resolvePreferredAgencySlug } from './utils/demoTenant.js';
 import AppVersionReloadBanner from './components/AppVersionReloadBanner.vue';
 import { isLoginEntryRoute } from './utils/loginHandoff';
+import { hasRememberedGoogleAccount } from './utils/googleAccountMemory';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import { canSeeClientExchangeNav } from './utils/clientExchangeNav.js';
@@ -3696,7 +3697,7 @@ const selectAgencyBrand = async (a) => {
           if (targetHost) {
             const { data } = await api.post(
               '/auth/brand-switch/handoff',
-              { targetHost, agencyId: Number(full.id) || undefined },
+              { targetHost, agencyId: Number(full.id) || undefined, rememberGoogle: hasRememberedGoogleAccount(authStore.user) },
               { skipGlobalLoading: true }
             );
             if (data?.handoffToken) {
@@ -3776,7 +3777,7 @@ const selectPlatformBrand = async () => {
           const targetHost = getPlatformAppHostname();
           const { data } = await api.post(
             '/auth/brand-switch/handoff',
-            { targetHost },
+            { targetHost, rememberGoogle: hasRememberedGoogleAccount(authStore.user) },
             { skipGlobalLoading: true }
           );
           if (data?.handoffToken) {

@@ -5,6 +5,7 @@ import { changeSessionSecurity, loadSessionPolicy, finalizeExpiredSession } from
 import { isHirePortalOnly } from '../utils/hirePortalToken.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { signBrandSwitchMemory, readBrandSwitchMemory } from '../utils/brandSwitchLoginMemory.js';
 import { validationResult } from 'express-validator';
 import User from '../models/User.model.js';
 import UserActivityLog from '../models/UserActivityLog.model.js';
@@ -5150,7 +5151,7 @@ export const createBrandSwitchHandoff = async (req, res, next) => {
     }
 
     return res.json({
-      handoffToken: jti,
+      handoffToken: signBrandSwitchMemory({ jti, authMethod: req.authClaims?.authMethod || req.authClaims?.loginMethod, rememberGoogle: req.body?.rememberGoogle }, config.jwt.secret),
       expiresInSeconds: 60,
       targetHost,
       agencyId
@@ -5175,6 +5176,10 @@ export const consumeBrandSwitchHandoff = async (req, res, next) => {
       req.body?.targetHost || req.body?.target_host || req.headers['x-forwarded-host'] || req.hostname || ''
     );
 
+    let loginMemory;
+    try { loginMemory = readBrandSwitchMemory(handoffToken, config.jwt.secret); }
+    catch { return res.status(401).json({ error: { message: 'Invalid or expired brand switch token' } }); }
+
     let rows;
     try {
       [rows] = await pool.execute(
@@ -5182,7 +5187,7 @@ export const consumeBrandSwitchHandoff = async (req, res, next) => {
          FROM auth_brand_switch_handoffs
          WHERE jti = ?
          LIMIT 1`,
-        [handoffToken]
+        [loginMemory.jti]
       );
     } catch (err) {
       if (err?.code === 'ER_NO_SUCH_TABLE') {
@@ -5229,7 +5234,9 @@ export const consumeBrandSwitchHandoff = async (req, res, next) => {
 
     const sessionId = crypto.randomUUID();
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: user.role, sessionId, brandSwitch: true },
+      // loginMethod is display provenance only. Do not claim a fresh Google
+      // authentication here: account-security reauthentication uses authMethod/iat.
+      { id: user.id, email: user.email, role: user.role, sessionId, brandSwitch: true, loginMethod: loginMemory.authMethod, rememberGoogle: loginMemory.rememberGoogle },
       config.jwt.secret,
       { expiresIn: config.jwt.expiresIn }
     );
@@ -5277,6 +5284,7 @@ export const consumeBrandSwitchHandoff = async (req, res, next) => {
       sessionId,
       agencyId: row.agency_id || null,
       agencies,
+      loginMemory: { authMethod: loginMemory.authMethod, rememberGoogle: loginMemory.rememberGoogle },
       user: {
         id: user.id,
         email: user.email,
@@ -5285,6 +5293,7 @@ export const consumeBrandSwitchHandoff = async (req, res, next) => {
         firstName: user.first_name,
         lastName: user.last_name,
         preferredName: user.preferred_name || null,
+        title: user.title || '',
         username: user.username || user.email,
         capabilities: { ...baseCaps, ...payrollCaps }
       }

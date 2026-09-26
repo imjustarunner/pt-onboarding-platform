@@ -139,7 +139,7 @@
           />
         </div>
         <div class="video-auth-hero__content">
-          <h1 class="video-auth-hero__title">Welcome back</h1>
+          <h1 class="video-auth-hero__title">{{ returningAccountGreeting }}</h1>
           <p class="video-auth-hero__subtitle">{{ tenantVideoAuthSubtitle }}</p>
         </div>
       </aside>
@@ -231,7 +231,7 @@
                 stroke-linejoin="round" />
             </svg>
           </span>
-          <h2 class="platform-cardhead__title">Welcome back</h2>
+          <h2 class="platform-cardhead__title">{{ returningAccountGreeting }}</h2>
           <p class="platform-cardhead__subtitle">Log in to your {{ platformBrandName }} account</p>
         </div>
 
@@ -759,6 +759,7 @@
 import AppearanceSelect from '../components/AppearanceSelect.vue';
 import { PLATFORM_BRAND } from '../config/platformBrand.js';
 import { tenantFaviconUrl } from '../utils/tenantBrandAssets.js';
+import { resolveLoginPalette } from '../utils/loginPalette.js';
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
@@ -1269,7 +1270,7 @@ const tenantLoginPosterNarrow = computed(() => activeTenantLoginVideos.value?.po
 
 const tenantLoginPageStyle = computed(() => {
   if (isPlatformLogin.value) return {};
-  const palette = loginTheme.value?.agency?.colorPalette || {};
+  const palette = resolveLoginPalette(effectiveLoginSlug.value, loginTheme.value?.agency?.colorPalette || {});
   const primary = palette.primary || '#334155';
   const secondary = palette.secondary || '#1D2633';
   const accent = palette.accent || primary;
@@ -1723,6 +1724,10 @@ const showRememberedGoogleButton = computed(() => {
   if (showPassword.value || needsOrgChoice.value) return false;
   return !!rememberedGoogleLogin.value?.orgSlug;
 });
+const returningAccountGreeting = computed(() => {
+  const name = showRememberedGoogleButton.value && rememberedGoogleLogin.value?.displayName?.trim().split(/\s+/)[0];
+  return name ? `Welcome back, ${name}` : 'Welcome back';
+});
 
 const showChangeUsernameButton = computed(() =>
   !needsOrgChoice.value && (showPassword.value || showRememberedGoogleButton.value)
@@ -1985,6 +1990,7 @@ const startRememberedGoogleLogin = () => {
 
 const saveRememberPreference = () => {
   const slug = effectiveLoginSlug.value || rememberedGoogleLogin.value?.orgSlug;
+  if (slug) setSsoRememberChoice(rememberLogin.value, slug);
   if (rememberLogin.value) {
     if (slug && username.value.trim()) setRememberedLogin({ username: username.value, orgSlug: slug, parentOrgSlug: resolveParentForNestedLogin(slug) });
   } else {
@@ -2041,7 +2047,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     const slug =
       orgSlugOverride ||
-      (isOrgLogin.value && loginSlug.value ? String(loginSlug.value).trim().toLowerCase() : null) ||
+      effectiveLoginSlug.value ||
       (selectedOrgSlug.value ? String(selectedOrgSlug.value).trim().toLowerCase() : null);
 
     const resp = await api.post(
@@ -2087,7 +2093,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     const resolvedSlug = String(ro?.portal_url || ro?.portalUrl || ro?.slug || '').trim().toLowerCase();
     const resolvedOrgType = String(ro?.organization_type || ro?.organizationType || '').toLowerCase();
 
-    const current = isOrgLogin.value && loginSlug.value ? String(loginSlug.value).trim().toLowerCase() : '';
+    const current = effectiveLoginSlug.value || '';
     const isSummitLogin = isSummitTenantSlug(current);
 
     // School staff must sign in on their school's branded login — not a sibling school URL.

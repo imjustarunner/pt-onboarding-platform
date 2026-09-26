@@ -329,6 +329,8 @@ export const getCurrentUser = async (req, res, next) => {
         }
       } : {}),
       id: user.id,
+      authMethod: req.authClaims?.authMethod || req.authClaims?.loginMethod || null,
+      rememberGoogle: req.authClaims?.rememberGoogle !== false,
       email: user.email,
       role: effectiveRole,
       status: user.status,
