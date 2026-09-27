@@ -72,8 +72,13 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
     }
     return true;
   });
-  /** @deprecated Use canUseLogTime — kept for callers that still check hourly. */
-  const isHourlyWorker = canUseLogTime;
+  /** Hourly-specific prompts use the employment flag, not general Log Time access. */
+  const isHourlyWorker = computed(() => {
+    if (!canUseLogTime.value) return false;
+    const user = useAuthStore().user;
+    const flag = user?.isHourlyWorker ?? user?.is_hourly_worker;
+    return flag === true || flag === 1 || flag === '1';
+  });
 
   const agencyId = computed(() => {
     const a = useAgencyStore().currentAgency;
