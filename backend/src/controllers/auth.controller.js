@@ -1977,8 +1977,8 @@ export const googleOAuthCallback = async (req, res, next) => {
       url.searchParams.set('sso', '1');
       if (orgSlug) url.searchParams.set('ssoOrg', orgSlug);
     } else if (userRole === 'super_admin' || userRole === 'superadmin') {
-      // Super admins should land on the platform command center (same as password login → /admin),
-      // not a tenant personal dashboard. Pass ssoOrg so the frontend can still remember quick-login.
+      // /admin resolves to the host's workspace: tenant dashboard on a tenant domain, HQ on HQ.
+      // Pass ssoOrg for remembered login; it must not override the destination workspace.
       url.pathname = '/admin';
       url.searchParams.set('sso', '1');
       if (orgSlug) url.searchParams.set('ssoOrg', orgSlug);

@@ -7,6 +7,10 @@
       </div>
     </div>
 
+    <div v-else-if="!hasTenantContext && !isPlatformHost" class="container" role="status">
+      Loading workspace...
+    </div>
+
     <!-- Platform superadmin HQ only when not inside a tenant URL / selected tenant -->
     <SuperadminPlatformDashboard
       v-else-if="isSuperAdmin && !hasTenantContext && !isSuperadminPreview && !useClassicPlatform"
@@ -47,6 +51,8 @@ import { computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
+import { useBrandingStore } from '../../store/branding';
+import { isPlatformWorkspaceHost, isLocalWorkspaceHost } from '../../utils/workspaceDestination';
 import { useSuperadminPlatformPreview } from '../../composables/useSuperadminPlatformPreview';
 import { isSupervisor } from '../../utils/helpers.js';
 import { setRememberedGoogleLogin } from '../../utils/loginRemember';
@@ -58,10 +64,11 @@ import TenantAdminDashboard from './TenantAdminDashboard.vue';
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
 const route = useRoute();
 const router = useRouter();
+const isPlatformHost = isPlatformWorkspaceHost(window.location.hostname) || isLocalWorkspaceHost(window.location.hostname);
 const user = computed(() => authStore.user);
-const currentAgency = computed(() => agencyStore.currentAgency);
 const { isSuperadminPreview } = useSuperadminPlatformPreview({ route, authStore, agencyStore });
 
 const isSuperAdmin = computed(() => {
@@ -69,11 +76,11 @@ const isSuperAdmin = computed(() => {
   return role === 'super_admin' || role === 'superadmin';
 });
 
-/** Org-scoped /:slug/admin (or a selected tenant) — never treat as platform HQ. */
+/** Workspace identity comes from the address, not a persisted tenant selection. */
 const hasTenantContext = computed(() => {
   const slug = route.params?.organizationSlug;
   if (typeof slug === 'string' && slug.trim()) return true;
-  return !!currentAgency.value;
+  return !!brandingStore.portalHostPortalUrl;
 });
 
 const useClassicPlatform = computed(() => String(route.query.classic || '') === '1');
@@ -92,19 +99,17 @@ const isTenantAdminRole = computed(() => {
 });
 
 onMounted(() => {
-  // Fresh Google SSO (or any hit with sso=1): enter platform mode so a sticky
-  // localStorage tenant does not hide the full Plot Twist HQ dashboard.
+  // Remember SSO without changing the workspace chosen by the URL.
   if (isSuperAdmin.value && String(route.query?.sso || '') === '1') {
     const ssoOrg = String(route.query?.ssoOrg || '').trim().toLowerCase();
     const username = String(authStore.user?.username || authStore.user?.email || '').trim();
     if (ssoOrg && username) {
       setRememberedGoogleLogin({ username, orgSlug: ssoOrg, displayName: [authStore.user?.firstName || authStore.user?.first_name, authStore.user?.lastName || authStore.user?.last_name].filter(Boolean).join(' '), loginHint: authStore.user?.email || username });
     }
-    agencyStore.setPlatformMode();
     const nextQuery = { ...route.query };
     delete nextQuery.sso;
     delete nextQuery.ssoOrg;
-    router.replace({ path: '/admin', query: nextQuery }).catch(() => {});
+    router.replace({ path: route.path, query: nextQuery, hash: route.hash }).catch(() => {});
   }
 
   const role = String(user.value?.role || '').toLowerCase();

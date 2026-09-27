@@ -443,6 +443,9 @@
                     <span class="brand-caret">▾</span>
                   </button>
                   <div v-if="directoryMenuOpen" class="nav-dropdown-menu nav-dropdown-menu-wide">
+                    <button v-if="isSuperAdminUser" type="button" class="nav-dropdown-trigger" @click="selectPlatformBrand">
+                      Superadmin Dashboard
+                    </button>
                     <div
                       v-if="canSeeEventsProgramsNavGroup && !isAffiliationContext"
                       class="nav-dropdown-group nav-dropdown-group-collapsible nav-dropdown-group-flyout"
@@ -1554,6 +1557,7 @@
                   <span class="mobile-nav-group-caret" :class="{ open: mobileDirectoryExpanded }" aria-hidden="true">▸</span>
                 </button>
                 <template v-if="mobileDirectoryExpanded">
+                  <button v-if="isSuperAdminUser" type="button" class="mobile-nav-link" @click="selectPlatformBrand">Superadmin Dashboard</button>
               <div v-if="canSeeEventsProgramsNavGroup && !isAffiliationContext" class="mobile-nav-group mobile-nav-group-collapsible">
                 <button
                   type="button"
@@ -2390,14 +2394,7 @@ import {
   clearLegacyGoogleTranslateCookie
 } from './utils/publicTranslateWidget.js';
 import { toUploadsUrl } from './utils/uploadsUrl';
-import {
-  buildSuperadminAgencyBrandUrl,
-  buildSuperadminPlatformBrandUrl,
-  getAgencyAppHostname,
-  getPlatformAppHostname,
-  normalizeHostname,
-  appendBrandSwitchHandoff
-} from './utils/brandSwitchUrl';
+import { openTenantWorkspace, openPlatformWorkspace } from './services/workspaceNavigation';
 import { begin as beginLoading, end as endLoading, isLoading as globalLoading, getLoadingTextRef } from './utils/pageLoader';
 import { isSchoolPortalShellActive } from './utils/schoolPortalShell.js';
 import { useSummitStatsChallengeChrome } from './composables/useSummitStatsChallengeChrome';
@@ -3723,26 +3720,20 @@ const selectAgencyBrand = async (a) => {
   try {
     closeBrandMenu();
     if (!a) return;
-    let full = a;
     if (brandingStore.isSuperAdmin) {
-      const hydrated = await agencyStore.hydrateAgencyById(a.id);
-      if (hydrated) full = hydrated;
+      await openTenantWorkspace(a, router);
+      return;
     }
+    let full = a;
     const slug = full.slug || full.portal_url;
     if (!slug) return;
     const slugNorm = String(slug).trim().toLowerCase();
     const currentSlug = typeof route.params.organizationSlug === 'string'
       ? String(route.params.organizationSlug).trim().toLowerCase()
       : '';
-    const targetHost = getAgencyAppHostname(full);
-    const hereHost = normalizeHostname(
-      typeof window !== 'undefined' ? window.location.hostname : ''
-    );
-    const hostMismatch = Boolean(targetHost && hereHost && targetHost !== hereHost);
     const alreadyThisTenant =
       Number(agencyStore.currentAgency?.id) === Number(full.id)
-      && (!currentSlug || currentSlug === slugNorm)
-      && !hostMismatch;
+      && (!currentSlug || currentSlug === slugNorm);
 
     agencyStore.setCurrentAgency(full);
 
@@ -3755,34 +3746,6 @@ const selectAgencyBrand = async (a) => {
       brandingStore.fetchAgencyTheme(slugNorm).catch(() => {});
     } catch {
       // ignore
-    }
-
-    // Superadmin: always leave a dedicated host (e.g. app.itsco.health → app.nextleveluplcc.com)
-    // when the target tenant has a different custom_domain — even on deep admin pages.
-    // Otherwise logo/store update while the URL and host-scoped data stay on the old tenant.
-    // Cookie/localStorage are host-scoped, so mint a one-time handoff (`bs`) for the destination.
-    if (brandingStore.isSuperAdmin) {
-      const jump = buildSuperadminAgencyBrandUrl(full, route);
-      if (jump) {
-        let dest = jump;
-        try {
-          const targetHost = getAgencyAppHostname(full);
-          if (targetHost) {
-            const { data } = await api.post(
-              '/auth/brand-switch/handoff',
-              { targetHost, agencyId: Number(full.id) || undefined },
-              { skipGlobalLoading: true }
-            );
-            if (data?.handoffToken) {
-              dest = appendBrandSwitchHandoff(jump, data.handoffToken) || jump;
-            }
-          }
-        } catch {
-          // Destination may still require login if handoff fails.
-        }
-        window.location.assign(dest);
-        return;
-      }
     }
 
     // Re-selecting the active tenant while already on its surface: no navigation.
@@ -3810,78 +3773,17 @@ const selectAgencyBrand = async (a) => {
       return;
     }
 
-    // Superadmin selecting a tenant from shallow surfaces goes to that tenant's admin.
-    if (brandingStore.isSuperAdmin) {
-      router.push(`/${slugNorm}/admin`);
-      return;
-    }
     pushWithSlug(slugNorm);
-  } catch {
-    // ignore
+  } catch (error) {
+    window.alert(error?.message || 'Could not open the tenant workspace.');
   }
 };
 
 const selectPlatformBrand = async () => {
   closeBrandMenu();
-  agencyStore.setPlatformMode();
-
-  // Drop route-slug theme authority and force platform palette onto :root
-  // (otherwise ITSCO host portal colors stick after choosing Platform).
-  try {
-    brandingStore.setActiveRouteSlug('');
-  } catch {
-    // ignore
-  }
-  try {
-    await brandingStore.syncDocumentThemeFromPlatformBranding();
-  } catch {
-    // ignore
-  }
-
-  // Ensure super admins still have agency options after returning to Platform.
-  if (brandingStore.isSuperAdmin) {
-    // Leave dedicated tenant hosts (app.itsco.health, etc.) for the platform app host.
-    // Pass session via one-time handoff — cookies do not survive the host change.
-    try {
-      const jump = buildSuperadminPlatformBrandUrl(route);
-      if (jump) {
-        let dest = jump;
-        try {
-          const targetHost = getPlatformAppHostname();
-          const { data } = await api.post(
-            '/auth/brand-switch/handoff',
-            { targetHost },
-            { skipGlobalLoading: true }
-          );
-          if (data?.handoffToken) {
-            dest = appendBrandSwitchHandoff(jump, data.handoffToken) || jump;
-          }
-        } catch {
-          // Destination may still require login if handoff fails.
-        }
-        window.location.assign(dest);
-        return;
-      }
-    } catch {
-      // ignore
-    }
-    try {
-      await agencyStore.fetchAgencies();
-    } catch {
-      // ignore
-    }
-    // Deep work surfaces: stay put (drop org slug). Don't yank course builder → /admin.
-    if (isPreservableWorkSurfacePath(route.path)) {
-      if (route.params.organizationSlug) stripSlug();
-      return;
-    }
-    // Shallow surfaces: platform admin home.
-    router.push('/admin');
-    return;
-  }
-
-  // Non-superadmin: strip the slug from the current path.
-  stripSlug();
+  closeAllNavMenus();
+  closeMobileMenu();
+  if (brandingStore.isSuperAdmin) await openPlatformWorkspace(router);
 };
 
 const switchDemoView = async (nextRole) => {
@@ -5546,13 +5448,6 @@ const isOnTenantAdminDashboard = computed(() => {
   return /\/admin-dashboard(\/|$)/i.test(p) || /\/[^/]+\/admin(\/|$)/i.test(p) && !/\/admin\//i.test(p);
 });
 
-const isOnPlatformAdminDashboard = computed(() => {
-  const p = String(route.path || '');
-  const slug = String(route.params?.organizationSlug || '').trim();
-  if (slug) return false;
-  return p === '/admin' || p === '/admin-dashboard' || route.meta?.platformCommandCenter === true;
-});
-
 /** Summit club managers (and assistant managers) use a dedicated route (not global /admin). */
 const adminDashboardNavTo = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -5561,7 +5456,6 @@ const adminDashboardNavTo = computed(() => {
   }
   // In a tenant URL (or selected tenant), always land on the org-scoped management dashboard —
   // not unscoped /admin-dashboard (that clears tenant + hides global nav for superadmin).
-  // Do not use orgTo() here: navBucketSlug is null for super_admin.
   const routeSlug = String(route.params?.organizationSlug || '').trim();
   const agencySlug = String(
     agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url || ''
@@ -5576,11 +5470,7 @@ const adminDashboardNavTo = computed(() => {
 const adminDashboardIconTitle = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   const isSuper = role === 'super_admin' || role === 'superadmin';
-  if (isSuper && (isOnTenantAdminDashboard.value || isOnPlatformAdminDashboard.value)) {
-    return isOnPlatformAdminDashboard.value
-      ? 'Open tenant admin dashboard'
-      : 'Open superadmin dashboard';
-  }
+  if (isSuper) return 'Admin dashboard';
   if (!isSuper && isOnTenantAdminDashboard.value) {
     return 'Switch to next tenant dashboard';
   }
@@ -5619,27 +5509,6 @@ async function onAdminDashboardIconClick() {
   const isSuper = role === 'super_admin' || role === 'superadmin';
 
   if (isSuper) {
-    // On tenant admin → platform superadmin HQ.
-    if (isOnTenantAdminDashboard.value && !isOnPlatformAdminDashboard.value) {
-      try {
-        agencyStore.setPlatformMode();
-        brandingStore.setActiveRouteSlug('');
-        await brandingStore.syncDocumentThemeFromPlatformBranding();
-      } catch { /* ignore */ }
-      await router.push('/admin').catch(() => {});
-      return;
-    }
-    // From platform HQ (or elsewhere) → that tenant's admin dashboard.
-    const current = agencyStore.currentAgency;
-    if (current?.id && agencySlugOf(current)) {
-      await goToTenantAdminDashboard(current);
-      return;
-    }
-    const tenants = cycleableTenantAgencies();
-    if (tenants[0]) {
-      await goToTenantAdminDashboard(tenants[0]);
-      return;
-    }
     await router.push(adminDashboardNavTo.value).catch(() => {});
     return;
   }
@@ -5679,7 +5548,9 @@ const adminDashboardIconUrl = computed(() => {
  */
 const navBucketSlug = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  if (role === 'super_admin') return null;
+  if (role === 'super_admin' || role === 'superadmin') {
+    return route.params.organizationSlug || brandingStore.portalHostPortalUrl || null;
+  }
 
   const slugFromRoute = typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';
   const agency = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
@@ -5865,7 +5736,7 @@ const myDashboardTo = computed(() => {
   }
 
   // "My Dashboard" should always land on the user's personal dashboard, not admin.
-  if (role === 'super_admin' || role === 'superadmin') return '/dashboard';
+  if (role === 'super_admin' || role === 'superadmin') return orgTo('/dashboard');
   if (isProviderPlusExperienceRole) return orgTo('/dashboard');
   if (role === 'admin' || role === 'support' || role === 'staff' || role === 'provider' || isSupervisor(u)) {
     return orgTo('/dashboard');
@@ -6848,24 +6719,6 @@ onMounted(async () => {
     } catch {
       // best effort
     }
-  }
-
-  // Super admin default: Platform context unless we're on a branded (slug) route
-  // or a dedicated app host (app.itsco.health already implies ITSCO).
-  // Uses setPlatformMode() so subsequent fetchUserAgencies calls don't snap back to a tenant.
-  try {
-    const role = String(authStore.user?.role || '').toLowerCase();
-    const slugFromRoute = route.params.organizationSlug;
-    const hostSlug = resolveHostImpliedPortalSlug(brandingStore);
-    if (
-      role === 'super_admin'
-      && !(typeof slugFromRoute === 'string' && slugFromRoute)
-      && !hostSlug
-    ) {
-      agencyStore.setPlatformMode();
-    }
-  } catch {
-    // ignore
   }
 
   // Do not hold the global loader on agency catalog / prefs / refreshUser.

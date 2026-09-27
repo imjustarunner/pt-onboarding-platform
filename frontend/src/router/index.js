@@ -25,6 +25,11 @@ import {
   isSchoolOnboardingDemoRoute
 } from '../utils/schoolOnboardingDemoContext.js';
 import api from '../services/api';
+import { navigateWorkspace } from '../services/workspaceNavigation';
+import {
+  isSuperadminRole, isPlatformWorkspaceHost, isLocalWorkspaceHost,
+  tenantWorkspaceDestination
+} from '../utils/workspaceDestination';
 import { isSummitPlatformRouteSlug, NATIVE_APP_ORG_SLUG } from '../utils/summitPlatformSlugs.js';
 import { userChoseWorkOverSummitFromStores } from '../utils/sstcSurfaceChoice.js';
 import { isSstcTenantSlug } from '../config/tenantAppProfiles.js';
@@ -295,6 +300,26 @@ const isPortalHostSlugRedundantInPath = (brandingStore, segmentSlug) => {
   const h = resolveHostPortalSlug(brandingStore);
   const s = String(segmentSlug || '').trim().toLowerCase();
   return Boolean(h && s && h === s);
+};
+
+const getAgencyPortalKey = (agency) =>
+  String(agency?.slug || agency?.portal_url || agency?.portalUrl || '').trim().toLowerCase();
+
+const findKnownAgencyByPortalKey = (portalKey, agencyStore, authStore) => {
+  const key = String(portalKey || '').trim().toLowerCase();
+  if (!key) return null;
+  const lists = [
+    agencyStore.currentAgency ? [agencyStore.currentAgency] : [],
+    Array.isArray(agencyStore.userAgencies) ? agencyStore.userAgencies : [],
+    Array.isArray(agencyStore.agencies) ? agencyStore.agencies : [],
+    Array.isArray(authStore.user?.agencies) ? authStore.user.agencies : [],
+    getStoredUserAgencies()
+  ];
+  for (const list of lists) {
+    const match = list.find((agency) => getAgencyPortalKey(agency) === key);
+    if (match) return match;
+  }
+  return null;
 };
 
 /** Strip /{hostPortal} prefix on dedicated app hosts (app.itsco.health → flat /dashboard). */
@@ -4657,6 +4682,7 @@ const routes = [
       if (isQuickViewHost()) return { name: 'QuickViewLauncher' };
       const authStore = useAuthStore();
       if (authStore.isAuthenticated) return getDashboardRoute();
+      if (isPlatformWorkspaceHost(window.location.hostname)) return '/login';
       const slug = getDefaultOrganizationSlug();
       return slug ? `/${slug}/dashboard` : '/login';
     }
@@ -4775,6 +4801,32 @@ router.beforeEach(async (to, from, next) => {
   const agencyStore = useAgencyStore();
   const organizationStore = useOrganizationStore();
 
+  let cookieBootstrapAttempted = false;
+  const tryBootstrapAuthFromCookie = async () => {
+    if (cookieBootstrapAttempted) return authStore.isAuthenticated;
+    if (authStore.isAuthenticated && String(to.query?.sso || '') !== '1') return true;
+    cookieBootstrapAttempted = true;
+    try {
+      const resp = await api.get('/users/me', { skipGlobalLoading: true, skipAuthRedirect: true });
+      const u = resp?.data || null;
+      if (!u || (!u.id && !u.email)) return false;
+      authStore.setAuth(null, u, localStorage.getItem('sessionId') || null);
+      if (String(to.query?.sso || '') === '1') {
+        signalFreshLogin();
+        const orgSlug = String(to.query?.ssoOrg || to.params?.organizationSlug || '').trim().toLowerCase();
+        if (orgSlug) setRememberedGoogleLogin({
+          username: u.username || u.email,
+          orgSlug,
+          displayName: [u.firstName || u.first_name, u.lastName || u.last_name].filter(Boolean).join(' '),
+          loginHint: u.email || u.username
+        });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   if (isFamilyHost() && !to.meta?.familyCommandCenter) {
     next({ name: 'FamilyCommandCenter', query: to.query, hash: to.hash, replace: true });
     return;
@@ -4796,7 +4848,8 @@ router.beforeEach(async (to, from, next) => {
       const nextQuery = { ...to.query };
       delete nextQuery.bs;
       try {
-        if (!authStore.isAuthenticated) {
+        {
+          // A handoff represents the source session even if this host has an older login.
           const host =
             typeof window !== 'undefined'
               ? String(window.location.hostname || '').toLowerCase()
@@ -4991,7 +5044,57 @@ router.beforeEach(async (to, from, next) => {
 
   // Custom domain / subdomain portals: never keep /{portalSlug}/… in the path (host is already the bucket).
   // Use resolveHostPortalSlug so app.itsco.health ≡ itsco even when /agencies/resolve returns null.
+  // Resolve cookie/SSO identity before workspace, branding, and role guards run.
+  if (to.meta.requiresAuth) await tryBootstrapAuthFromCookie();
   const hostPortalEarly = resolveHostPortalSlug(brandingStore);
+  const workspaceHost = window.location.hostname;
+  const platformHost = isPlatformWorkspaceHost(workspaceHost) || isLocalWorkspaceHost(workspaceHost);
+  const routeWorkspaceSlug = String(to.params.organizationSlug || '').trim().toLowerCase();
+
+  if (authStore.isAuthenticated && isSuperadminRole(authStore.user?.role) &&
+      ['Settings', 'OrganizationSettings'].includes(String(to.name)) && Number(to.query.agencyId) > 0) {
+    const selected = await agencyStore.hydrateAgencyById(Number(to.query.agencyId));
+    const selectedSlug = getAgencyPortalKey(selected);
+    if (selectedSlug && selectedSlug !== (routeWorkspaceSlug || hostPortalEarly)) {
+      await navigateWorkspace(tenantWorkspaceDestination({
+        agency: selected, role: authStore.user.role, hostname: workspaceHost,
+        hostPortalSlug: hostPortalEarly, path: '/admin/settings', query: to.query, hash: to.hash
+      }), router, { agencyId: Number(selected.id), replace: true });
+      next(false);
+      return;
+    }
+  }
+
+  // Canonicalize tenant entries before applying any tenant state or branding.
+  // Child portals (schools/programs) remain under their existing parent navigation.
+  if (authStore.isAuthenticated && to.meta.requiresAuth && routeWorkspaceSlug && (
+    (hostPortalEarly && routeWorkspaceSlug !== hostPortalEarly) ||
+    (isPlatformWorkspaceHost(workspaceHost) && !isSuperadminRole(authStore.user?.role))
+  )) {
+    const target = findKnownAgencyByPortalKey(routeWorkspaceSlug, agencyStore, authStore)
+      || await organizationStore.fetchBySlug(routeWorkspaceSlug);
+    if (target && isTenantOrganizationType(target)) {
+      const prefix = `/${routeWorkspaceSlug}`;
+      const path = to.path.startsWith(`${prefix}/`) ? to.path.slice(prefix.length) : '/admin';
+      const destination = tenantWorkspaceDestination({
+        agency: target, role: authStore.user?.role, hostname: workspaceHost,
+        hostPortalSlug: hostPortalEarly, path, query: to.query, hash: to.hash
+      });
+      if (destination.hostname !== workspaceHost) {
+        await navigateWorkspace(destination, router, { agencyId: Number(target.id), replace: true });
+        next(false);
+        return;
+      }
+    }
+  }
+
+  if (platformHost && !hostPortalEarly && authStore.isAuthenticated && to.meta.requiresAuth &&
+      !routeWorkspaceSlug && isSuperadminRole(authStore.user?.role)) {
+    agencyStore.setPlatformMode();
+    organizationStore.clearOrganization();
+    brandingStore.setActiveRouteSlug('');
+    brandingStore.clearPortalTheme();
+  }
   if (hostPortalEarly) {
     // Keep branding store aligned so other checks (redundant slug, login paths) agree.
     if (!brandingStore.portalHostPortalUrl) {
@@ -5018,6 +5121,35 @@ router.beforeEach(async (to, from, next) => {
     }
   }
 
+  // Dedicated tenant hosts own flat authenticated routes. If a superadmin previously
+  // selected another tenant, flat pages like app.itsco.health/note-aid must not keep
+  // sending X-Agency-Id for that old tenant or rendering its shell.
+  if (
+    hostPortalEarly &&
+    authStore.isAuthenticated &&
+    to.meta.requiresAuth &&
+    !to.meta.organizationSlug
+  ) {
+    const currentKey = getAgencyPortalKey(agencyStore.currentAgency);
+    if (currentKey !== hostPortalEarly) {
+      try {
+        let hostAgency = findKnownAgencyByPortalKey(hostPortalEarly, agencyStore, authStore);
+        if (!hostAgency) {
+          hostAgency = await organizationStore.fetchBySlug(hostPortalEarly);
+        }
+        if (hostAgency && isTenantOrganizationType(hostAgency)) {
+          agencyStore.setCurrentAgency(hostAgency);
+          organizationStore.setCurrentOrganization(hostAgency);
+          if (!brandingStore.portalAgency || String(brandingStore.portalAgency?.slug || '').trim().toLowerCase() !== hostPortalEarly) {
+            await brandingStore.fetchAgencyTheme(hostPortalEarly);
+          }
+        }
+      } catch {
+        // Best effort; route role/API guards still enforce access server-side.
+      }
+    }
+  }
+
   const userStatus = authStore.user?.status;
   const isPending = userStatus === 'pending';
   const isReadyForReview = userStatus === 'ready_for_review';
@@ -5036,33 +5168,6 @@ router.beforeEach(async (to, from, next) => {
     'InitialSetup',
     'NewAccount'
   ]);
-
-  const tryBootstrapAuthFromCookie = async () => {
-    if (authStore.isAuthenticated && String(to.query?.sso || '') !== '1') return true;
-    try {
-      // OAuth callback sets HttpOnly cookie server-side; hydrate SPA user from cookie-backed /users/me.
-      const resp = await api.get('/users/me', { skipGlobalLoading: true, skipAuthRedirect: true });
-      const u = resp?.data || null;
-      if (!u || (!u.id && !u.email)) return false;
-      authStore.setAuth(null, u, localStorage.getItem('sessionId') || null);
-      // Google OAuth returns with an HttpOnly cookie instead of going through
-      // authStore.login(). Preserve the same fresh-login signal used by password,
-      // passwordless, and biometric flows so privileged briefings open reliably.
-      if (String(to.query?.sso || '') === '1') {
-        signalFreshLogin();
-        const orgSlug = String(to.query?.ssoOrg || to.params?.organizationSlug || '').trim().toLowerCase();
-        if (orgSlug) setRememberedGoogleLogin({
-          username: u.username || u.email,
-          orgSlug,
-          displayName: [u.firstName || u.first_name, u.lastName || u.last_name].filter(Boolean).join(' '),
-          loginHint: u.email || u.username
-        });
-      }
-      return true;
-    } catch {
-      return false;
-    }
-  };
 
   // Kiosk users: restrict to /kiosk/* routes only
   const isKioskUser = String(authStore.user?.role || '').toLowerCase() === 'kiosk';
@@ -5106,10 +5211,8 @@ router.beforeEach(async (to, from, next) => {
     brandingStore.setActiveRouteSlug('');
   }
 
-  // Settings modal: tenant picker (and Platform chip) must drive nav chrome, not the URL prefix slug.
-  brandingStore.setSettingsTenantPickerBrandingActive(
-    to.name === 'Settings' || to.name === 'OrganizationSettings'
-  );
+  // Workspace URLs own the shell; settings selections must not override their branding.
+  brandingStore.setSettingsTenantPickerBrandingActive(false);
 
   // Prevent stale org branding “flash” when leaving a branded portal.
   if (!to.meta.organizationSlug && from.meta.organizationSlug) {

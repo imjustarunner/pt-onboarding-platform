@@ -93,6 +93,13 @@ export function getDashboardRoute() {
   }
   
   const userRole = String(user.role || '').toLowerCase();
+  // Superadmin landing follows the login address, never stored memberships.
+  if (userRole === 'super_admin' || userRole === 'superadmin') {
+    const hostSlug = hostImpliedPortalSlug();
+    if (hostSlug) return '/admin';
+    const routeSlug = useBrandingStore().activeRouteSlug;
+    return routeSlug ? `/${routeSlug}/admin` : '/admin';
+  }
   const isProviderPlusExperienceRole =
     userRole === 'provider_plus' || userRole === 'clinical_practice_assistant';
   const orgs = Array.isArray(user.agencies) && user.agencies.length

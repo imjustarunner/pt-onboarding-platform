@@ -16,6 +16,7 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { parseScheduleUtcInstant } from '../../utils/scheduleEventInstants.js';
 const emit = defineEmits(['navigate']);
+const props = defineProps({ includeAllAgencies: { type: Boolean, default: true } });
 function notifyNavigation(event) {
   // RouterLink already prevents the native click's default action. Notify the
   // enclosing briefing on same-tab navigation, including a repeated route.
@@ -30,7 +31,7 @@ const formatTime=ms=>new Date(ms).toLocaleString([],{weekday:'short',month:'shor
 function scheduleLink(m){return {path:`${route.params.organizationSlug?`/${route.params.organizationSlug}`:''}/my-schedule`,query:{eventId:m.id,eventKind:m.kind,weekStart:m.weekStart}};}
 async function load(){try{const userId=auth.user?.id;if(!userId)return;const agencyId=agencies.currentAgency?.id||agencies.userAgencies?.[0]?.id||agencies.agencies?.[0]?.id;if(!agencyId)return;
  const d=new Date();d.setDate(d.getDate()-((d.getDay()+6)%7));const ymd=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
- const {data}=await api.get(`/users/${userId}/schedule-summary`,{params:{agencyId,weekStart:ymd,includeAllAgencies:1,skipOfficeMaterialize:true,includeGoogleBusy:false},skipGlobalLoading:true});
+ const {data}=await api.get(`/users/${userId}/schedule-summary`,{params:{agencyId,weekStart:ymd,includeAllAgencies:props.includeAllAgencies?1:0,skipOfficeMaterialize:true,includeGoogleBusy:false},skipGlobalLoading:true});
  rows.value=[...(data.scheduleEvents||[]),...(data.supervisionSessions||[]).map(e=>({...e,kind:'SUPERVISION'}))].filter(e=>!e.meetingCompletedAt&&!e.liveEndedAt&&!['CANCELLED','CANCELED'].includes(String(e.status||'').toUpperCase())).map(e=>({key:`${e.kind}:${e.id}`,id:e.id,kind:e.kind,title:e.title||'Supervision',start:parseScheduleUtcInstant(e.startAt)?.getTime(),end:parseScheduleUtcInstant(e.endAt)?.getTime(),url:e.appJoinUrl||e.participantJoinUrl||e.joinUrl||e.meetLink||e.googleMeetLink||'',weekStart:ymd})).filter(e=>e.start&&e.end&&(['TEAM_MEETING','HUDDLE','SUPERVISION'].includes(e.kind)||e.url));
 }catch{rows.value=[];}}
 onMounted(()=>{void load();timer=setInterval(()=>{now.value=Date.now();void load();},30000);});onUnmounted(()=>clearInterval(timer));

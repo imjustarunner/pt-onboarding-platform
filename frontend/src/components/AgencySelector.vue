@@ -72,6 +72,7 @@
 </template>
 
 <script setup>
+import { openTenantWorkspace } from '../services/workspaceNavigation';
 import { ref, computed, onMounted, watch } from 'vue';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
@@ -208,6 +209,7 @@ const isPortalCardActive = (card) => {
 
 const navigateToTenantOrganization = (agency) => {
   if (!agency) return;
+  if (roleNorm.value === 'super_admin') return openTenantWorkspace(agency, router);
   agencyStore.setCurrentAgency(agency);
 
   const slug = getOrgSlug(agency);
