@@ -243,7 +243,7 @@
                   <p>
                     Pick an available address at @{{ accountDomain || 'your organization' }}.
                     This becomes your app username and Google Group mailbox.
-                    You will set your password when onboarding begins — recovery always uses your personal email.
+                    You will set your password after completing the required onboarding steps — recovery always uses your personal email.
                   </p>
                 </div>
               </div>
@@ -276,9 +276,9 @@
             </section>
 
 </template></template>
-        <template #account><div class="portal-link-card"><h3>Your account</h3><p><strong>Username:</strong> {{ candidate.workEmail || 'People Operations will confirm your login.' }}</p><p><strong>Supervisor:</strong> {{ portalData.workflow?.supervisor?.name || 'To be confirmed' }}</p><p v-if="candidate.passwordFinalized" class="cred-ok">Your password is set. People Operations will activate your account after onboarding review.</p><p v-else-if="hireAccountMode !== 'group_password'">Your organization manages login access. People Operations will provide your sign-in instructions.</p></div><template v-if="hireAccountMode === 'group_password' && !candidate.passwordFinalized && !processClosed">            <section
+        <template #account><div class="portal-link-card"><h3>Your account</h3><p><strong>Username:</strong> {{ candidate.workEmail || 'People Operations will confirm your login.' }}</p><p><strong>Supervisor:</strong> {{ portalData.workflow?.supervisor?.name || 'To be confirmed' }}</p><p v-if="candidate.passwordFinalized" class="cred-ok">Your password is set. People Operations will activate your account after onboarding review.</p><p v-else-if="hireAccountMode === 'group_password' && !candidate.canFinalizeLogin">Complete all required onboarding steps first. Password setup is the final step before submitting for review.</p><p v-else-if="hireAccountMode !== 'group_password'">Your organization manages login access. People Operations will provide your sign-in instructions.</p></div><template v-if="hireAccountMode === 'group_password' && candidate.canFinalizeLogin && !processClosed">            <section
               class="portal-account-setup"
-              aria-label="Set password and activate account"
+              aria-label="Prepare your employee password"
             >
               <div class="portal-tasks-head">
                 <div>
@@ -1011,7 +1011,7 @@ const finalizePassword = async () => {
     accountForm.value.password = '';
     accountForm.value.confirmPassword = '';
   } catch (e) {
-    accountError.value = e?.response?.data?.error?.message || 'Could not activate account';
+    accountError.value = e?.response?.data?.error?.message || 'Could not save your password';
   } finally {
     finalizingPassword.value = false;
   }

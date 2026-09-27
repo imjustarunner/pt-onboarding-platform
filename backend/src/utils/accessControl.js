@@ -1,3 +1,5 @@
+import { requiresHireActivation } from './hirePortalToken.js';
+
 /**
  * Access Control Helper
  * Determines what a user can access based on their status and permission attributes
@@ -233,7 +235,7 @@ export function checkAccess(user, { effectiveRole } = {}) {
  * @returns {boolean} Whether user can login
  */
 export function canLogin(user) {
-  if (!user) return false;
+  if (!user || requiresHireActivation(user)) return false;
 
   const status = user.status;
   const userRole = user.role;

@@ -1,9 +1,11 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-const mocks=vi.hoisted(()=>({execute:vi.fn()}));
+const mocks=vi.hoisted(()=>({execute:vi.fn(),assertAccess:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:mocks.execute}}));
-import { touchSession, verifyPasscodeForTenantAndStartSession } from '../quickViewAuth.service.js';
+vi.mock('../hireStaffAccess.service.js',()=>({assertHireStaffAccess:mocks.assertAccess}));
+vi.mock('bcrypt',()=>({default:{compare:vi.fn(async()=>true)}}));
+import { touchSession, verifyPasscodeForTenantAndStartSession, verifyPasscodeAndStartSession } from '../quickViewAuth.service.js';
 const row={id:1,user_id:4,agency_id:2,expires_at:'2026-09-24T18:10:00Z'};
-beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2026-09-24T18:05:00Z'));mocks.execute.mockReset();mocks.execute.mockResolvedValue([[row]]);});
+beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2026-09-24T18:05:00Z'));mocks.assertAccess.mockReset();mocks.assertAccess.mockResolvedValue();mocks.execute.mockReset();mocks.execute.mockResolvedValue([[row]]);});
 afterEach(()=>vi.useRealTimers());
 describe('Quick View expiry',()=>{
   it('does not renew the deadline when data or heartbeat polls verify the session',async()=>{
@@ -29,4 +31,17 @@ describe('Quick View expiry',()=>{
     expect(mocks.execute.mock.calls[0][0]).toContain('LOWER(u.email)=?');
     expect(mocks.execute.mock.calls[0][1]).toEqual(['parent@example.com',2,2]);
   });
+});
+
+it('blocks an existing Quick View session while staff activation is pending', async () => {
+  mocks.assertAccess.mockRejectedValue(Object.assign(new Error('Waiting for activation'), { code: 'HIRE_ACTIVATION_REQUIRED' }));
+  await expect(touchSession('test', { activity: true })).rejects.toMatchObject({ code: 'HIRE_ACTIVATION_REQUIRED' });
+  expect(mocks.assertAccess).toHaveBeenCalledWith({ id: 4 });
+  expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('UPDATE quick_view_sessions'))).toBe(false);
+});
+it('does not issue a Quick View session to an unactivated hire with a valid PIN', async () => {
+  mocks.execute.mockResolvedValue([[{ user_id: 4, passcode_hash: 'fixture', failed_passcode_attempts: 0 }]]);
+  mocks.assertAccess.mockRejectedValue(Object.assign(new Error('Waiting for activation'), { code: 'HIRE_ACTIVATION_REQUIRED' }));
+  await expect(verifyPasscodeAndStartSession({ rawToken: 'test', passcode: '123456' })).rejects.toMatchObject({ code: 'HIRE_ACTIVATION_REQUIRED' });
+  expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('INSERT INTO quick_view_sessions'))).toBe(false);
 });

@@ -1,3 +1,4 @@
+import { assertHireStaffAccess } from '../services/hireStaffAccess.service.js';
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
 import pool from '../config/database.js';
@@ -224,6 +225,7 @@ export const authenticate = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, config.jwt.secret);
+    await assertHireStaffAccess(decoded);
     req.authClaims = decoded;
     await req.auditIdentify?.(decoded);
     res.set('Cache-Control', 'no-store');
@@ -291,6 +293,7 @@ export const authenticate = async (req, res, next) => {
     await req.auditIdentify?.(req.user);
     return enforceAccountSecurity(req, res, next);
   } catch (error) {
+    if (error.code === 'HIRE_ACTIVATION_REQUIRED') return res.status(403).json({ error: { code: error.code, message: error.message, usePortalLink: true } });
     if (error.code?.startsWith('SESSION_')) return res.status(error.status || 503).json({ error: { code: error.code, message: error.message } });
     if (!['TokenExpiredError', 'JsonWebTokenError', 'NotBeforeError'].includes(error.name)) return next(error);
     if (error.name === 'TokenExpiredError') {
@@ -375,6 +378,7 @@ export const authenticateOptional = async (req, res, next) => {
     for (const token of candidates) {
       try {
         const decoded = jwt.verify(token, config.jwt.secret);
+        await assertHireStaffAccess(decoded);
         if (applyOptionalUserFromDecoded(req, decoded)) {
           await req.auditIdentify?.(decoded);
           req.sessionSecurity = await getSessionSecurity(decoded, token);

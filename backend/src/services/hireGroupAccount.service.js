@@ -4,7 +4,7 @@
  *
  * Flow:
  * 1) Pre-hire: provisionHireGroupUsername — pick @ work username / Google Group only
- * 2) End of onboarding: finalizeHireGroupPassword — set password, SSO override, activate login
+ * 2) End of onboarding: finalizeHireGroupPassword — prepare password; People Operations activates app login after review
  *
  * SMS 2FA (DEFERRED — do not implement until in-app text/SMS verification exists):
  * - Applies to sso_password_override / login_is_group_email password accounts (no Google MFA).
@@ -515,7 +515,7 @@ export async function provisionHireGroupUsername({
 
 /**
  * End of onboarding: set lasting app password + SSO password override.
- * Caller activates ACTIVE_EMPLOYEE and expires the portal token.
+ * Requires completed onboarding prerequisites. Staff activation remains separate.
  */
 export async function finalizeHireGroupPassword({ user, agency = null, password } = {}) {
   if (!user?.id) throw new Error('User is required');
@@ -545,6 +545,10 @@ export async function finalizeHireGroupPassword({ user, agency = null, password 
 
   const pwd = String(password || '');
   if (pwd.length < 8) throw new Error('Password must be at least 8 characters');
+
+  const { assertOnboardingPasswordReady } = await import('./hirePortalWorkflow.service.js');
+  if (!agency?.id) throw new Error('The onboarding organization is required.');
+  await assertOnboardingPasswordReady(user.id, agency.id);
 
   await User.changePassword(user.id, pwd);
 

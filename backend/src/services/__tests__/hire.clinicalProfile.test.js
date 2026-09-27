@@ -31,7 +31,7 @@ describe('clinical profile onboarding', () => {
   it('only includes the step in clinical staff onboarding', async () => {
     const workflow = await manifest({ role: 'provider' });
     expect(workflow.steps.pre_hire.map(s => s.kind)).not.toContain('clinical-profile');
-    expect(workflow.steps.onboarding[1].kind).toBe('clinical-profile');
+    expect(workflow.steps.onboarding[0].kind).toBe('clinical-profile');
     expect(requiredSubmissionKeys(workflow.steps.onboarding)).toContain('clinical-profile');
     expect(needsClinicalProfile({ role: 'provider', sees_clients: 0 })).toBe(false);
     expect(needsClinicalProfile({ role: 'admin' })).toBe(false);

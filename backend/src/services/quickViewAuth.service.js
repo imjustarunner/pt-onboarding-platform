@@ -6,6 +6,7 @@
  * - Passcode lockout: 3 failed guesses → locked until passcode reset (login required)
  */
 import crypto from 'crypto';
+import { assertHireStaffAccess } from './hireStaffAccess.service.js';
 import bcrypt from 'bcrypt';
 import pool from '../config/database.js';
 
@@ -307,6 +308,8 @@ export async function verifyPasscodeAndStartSession({
     };
   }
 
+  await assertHireStaffAccess({ id: cred.user_id });
+
   await pool.execute(
     `UPDATE user_quick_view_credentials
      SET failed_passcode_attempts = 0,
@@ -489,6 +492,8 @@ async function startSessionForCredential(cred, {
   ipHash = null,
   userAgent = null
 } = {}) {
+  await assertHireStaffAccess({ id: cred.user_id });
+
   await pool.execute(
     `UPDATE user_quick_view_credentials
      SET failed_passcode_attempts = 0,
@@ -583,6 +588,8 @@ export async function touchSession(rawSessionToken, { meetingEndsAt = null, acti
     });
     return null;
   }
+
+  await assertHireStaffAccess({ id: session.user_id });
 
   // Read/poll requests verify the absolute deadline without renewing it.
   if (!activity && !meetingEndsAt) return {

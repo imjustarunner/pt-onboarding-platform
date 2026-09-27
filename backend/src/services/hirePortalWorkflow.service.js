@@ -3,7 +3,7 @@ import pool from '../config/database.js';
 import { CLINICAL_PROFILE_FIELDS, needsClinicalProfile, clinicalProfileForm } from '../utils/hireClinicalProfile.js';
 import { listClinicalFacetsForUser } from './providerClinicalFacets.service.js';
 import { encryptGuardianIntake, decryptGuardianIntake } from './guardianIntakeEncryption.service.js';
-import { PREEMPLOYMENT_FIELDS, composeWorkflow, jsonObject, summarizeSteps, validatePreemployment } from '../utils/hirePortalWorkflow.js';
+import { PREEMPLOYMENT_FIELDS, composeWorkflow, jsonObject, summarizeSteps, validatePreemployment, onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
 
 export async function portalPacket(userId, agencyId) {
   const [[saved]] = await pool.execute('SELECT config_json FROM hire_portal_packets WHERE user_id = ? AND agency_id = ?', [userId, agencyId]);
@@ -121,7 +121,6 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
     add('pre_hire', { key: `doc-${doc.id}`, kind: 'document', title: doc.title, doc, required: doc.kind !== 'reference' && doc.kind !== 'print_only', complete: !!doc.signed });
   }
   for (const task of pTasks || []) if (!contract.includes(task)) add('pre_hire', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });
-  add('onboarding', { key: 'account', kind: 'account', title: 'Account setup', required: hireAccountMode === 'group_password', complete: [true, 1, '1'].includes(user.sso_password_override), instructions: 'Set your password and review your login and supervisor.' });
   if ((needsClinicalProfile(user) && !onboardingClosed) || stored('onboarding', 'clinical-profile')) {
     const saved = stored('onboarding', 'clinical-profile');
     const form = clinicalProfileForm(await listClinicalFacetsForUser(user.id, { agencyId }));
@@ -140,6 +139,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
     const saved = stored(resource.phase, resource.id);
     add(resource.phase, { ...resource, key: resource.id, complete: !!saved?.completedAt, submission: saved?.value || null });
   }
+  add('onboarding', { key: 'account', kind: 'account', title: 'Set your password', required: hireAccountMode === 'group_password', complete: [true, 1, '1'].includes(user.sso_password_override), instructions: 'Complete your required onboarding steps, then prepare your password. App access begins after People Operations activates your account.' });
   for (const phase of ['pre_hire', 'onboarding']) {
     add(phase, { key: 'review', kind: 'review', title: 'Final review', required: false, complete: phase === 'pre_hire' ? prehireClosed : onboardingClosed });
   }
@@ -154,3 +154,20 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
 }
 
 export { validatePreemployment };
+
+/** Enforce the same persisted checklist used by the portal, not a client flag. */
+export async function assertOnboardingPasswordReady(userId, agencyId) {
+  const User = (await import('../models/User.model.js')).default;
+  const { getJourney, journeyTasks } = await import('./hireJourney.service.js');
+  const user = await User.findById(userId);
+  if (!user || user.status !== 'ONBOARDING' || !agencyId) throw Object.assign(new Error('Onboarding is not open for password setup.'), { code: 'ONBOARDING_INCOMPLETE', status: 409 });
+  const journey = await getJourney(userId) || {};
+  const tasks = await journeyTasks(userId, user?.status);
+  const workflow = await buildPortalWorkflow({ user, agencyId,
+    tasks: tasks.filter(t => t.phase === 'onboarding'), prehireTasks: tasks.filter(t => t.phase === 'pre_hire'),
+    extras: {}, backgroundCheck: {}, hireAccountMode: 'group_password', journey });
+  if (!onboardingPasswordReady(user, workflow, journey)) throw Object.assign(
+    new Error('Complete every required onboarding step before setting your password.'),
+    { code: 'ONBOARDING_INCOMPLETE', status: 409 }
+  );
+}

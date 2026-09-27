@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), findUser: vi.fn(), journeyTasks: vi.fn(), getJourney: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks }));
-import { composeWorkflow, sanitizeWorkflow, validatePreemployment, summarizeSteps } from '../../utils/hirePortalWorkflow.js';
-import { portalPacket, buildPortalWorkflow, savePortalStep, requiredSubmissionKeys, assertPortalStepCompletion } from '../hirePortalWorkflow.service.js';
+vi.mock('../../models/User.model.js', () => ({ default: { findById: mocks.findUser } }));
+vi.mock('../hireJourney.service.js', () => ({ journeyTasks: mocks.journeyTasks, getJourney: mocks.getJourney }));
+import { composeWorkflow, sanitizeWorkflow, validatePreemployment, summarizeSteps, onboardingPasswordReady } from '../../utils/hirePortalWorkflow.js';
+import { portalPacket, buildPortalWorkflow, savePortalStep, requiredSubmissionKeys, assertPortalStepCompletion, assertOnboardingPasswordReady } from '../hirePortalWorkflow.service.js';
 import { encryptGuardianIntake } from '../guardianIntakeEncryption.service.js';
 process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
 const db = { execute: mocks.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
@@ -53,7 +55,8 @@ describe('phase manifest', () => {
     expect(manifest.steps.pre_hire[0].kind).toBe('background');
     expect(manifest.steps.pre_hire.map(s => s.kind)).toEqual(expect.arrayContaining(['profile', 'headshot', 'work-email', 'handbook']));
     expect(manifest.steps.onboarding.map(s => s.kind)).not.toContain('profile');
-    expect(manifest.steps.onboarding[0]).toMatchObject({ kind: 'account', complete: false });
+    expect(manifest.steps.onboarding.at(-2)).toMatchObject({ kind: 'account', complete: false });
+    expect(manifest.steps.onboarding.at(-1).kind).toBe('review');
     expect(manifest.progress.pre_hire.allDone).toBe(false);
   });
   it('does not reopen a legacy completed prehire to collect new profile requirements', async () => {
@@ -102,4 +105,41 @@ describe('persistent step writes', () => {
     await expect(savePortalStep({ userId: 1, agencyId: 2, phase: 'pre_hire', key: 'profile', value: {}, profile: true })).rejects.toThrow('database unavailable');
     expect(db.rollback).toHaveBeenCalled(); expect(db.commit).not.toHaveBeenCalled();
   });
+});
+
+describe('final onboarding password step', () => {
+  const user = { status: 'ONBOARDING' };
+  const steps = [
+    { kind: 'task', required: true, complete: true },
+    { kind: 'clinical-profile', complete: true },
+    { kind: 'handbook', complete: true },
+    { kind: 'account', complete: false },
+    { kind: 'review', complete: false }
+  ];
+  it('requires all non-account steps, including configured resources and clinical profile', () => {
+    expect(onboardingPasswordReady(user, { steps: { onboarding: steps } })).toBe(true);
+    for (const kind of ['task', 'clinical-profile', 'handbook']) {
+      expect(onboardingPasswordReady(user, { steps: { onboarding: steps.map(s => s.kind === kind ? { ...s, complete: false } : s) } })).toBe(false);
+    }
+    expect(onboardingPasswordReady(user, { steps: { onboarding: [...steps, { kind: 'video', complete: false }] } })).toBe(false);
+    expect(onboardingPasswordReady(user, { steps: { onboarding: [...steps, { kind: 'video', required: false, complete: false }] } })).toBe(true);
+  });
+  it('never opens password setup for an empty, closed, or unstarted process', () => {
+    expect(onboardingPasswordReady(user, { steps: { onboarding: [] } })).toBe(false);
+    expect(onboardingPasswordReady(user, { steps: { onboarding: steps } }, { onboardingCompletedAt: '2026-09-26' })).toBe(false);
+    expect(onboardingPasswordReady({ status: 'PREHIRE_OPEN' }, { steps: { onboarding: steps } })).toBe(false);
+  });
+});
+
+it('checks saved onboarding tasks and acknowledgements before password preparation', async () => {
+  mocks.findUser.mockResolvedValue({ id: 1, status: 'ONBOARDING', role: 'staff' });
+  mocks.getJourney.mockResolvedValue({ prehireCompletedAt: '2026-09-01' });
+  mocks.journeyTasks.mockResolvedValue([{ id: 9, phase: 'onboarding', isRequired: true, status: 'pending' }]);
+  mocks.execute.mockImplementation(async sql => sql.includes('FROM hire_portal_submissions')
+    ? [[{ phase: 'onboarding', step_key: 'handbook', encrypted_value: encryptGuardianIntake('{}'), completed_at: '2026-09-26' }]] : [[]]);
+  await expect(assertOnboardingPasswordReady(1, 2)).rejects.toMatchObject({ code: 'ONBOARDING_INCOMPLETE' });
+  mocks.journeyTasks.mockResolvedValue([{ id: 9, phase: 'onboarding', isRequired: true, status: 'completed' }]);
+  await expect(assertOnboardingPasswordReady(1, 2)).resolves.toBeUndefined();
+  mocks.execute.mockResolvedValue([[]]);
+  await expect(assertOnboardingPasswordReady(1, 2)).rejects.toMatchObject({ code: 'ONBOARDING_INCOMPLETE' });
 });

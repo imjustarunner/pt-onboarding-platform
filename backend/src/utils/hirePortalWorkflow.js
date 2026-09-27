@@ -76,3 +76,10 @@ export function summarizeSteps(steps) {
   const completed = required.filter((s) => s.complete).length;
   return { total: required.length, completed, percent: required.length ? Math.round(completed * 100 / required.length) : 0, allDone: required.length > 0 && completed === required.length };
 }
+
+/** Password preparation is the last required step, before submission/review. */
+export function onboardingPasswordReady(user, workflow, journey = {}) {
+  if (String(user?.status || '').toUpperCase() !== 'ONBOARDING' || journey?.onboardingCompletedAt) return false;
+  const prerequisites = (workflow?.steps?.onboarding || []).filter(step => step.kind !== 'account' && step.kind !== 'review' && step.required !== false);
+  return prerequisites.length > 0 && prerequisites.every(step => step.complete === true);
+}

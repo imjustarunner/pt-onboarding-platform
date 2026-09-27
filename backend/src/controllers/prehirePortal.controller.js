@@ -1,3 +1,4 @@
+import { onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
 import { buildPortalWorkflow, portalPacket, portalStepSubmissions, requiredSubmissionKeys, assertPortalStepCompletion } from '../services/hirePortalWorkflow.service.js';
 import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
 /**
@@ -245,7 +246,8 @@ export const getPortal = async (req, res, next) => {
     })();
     const workflow = await buildPortalWorkflow({ user, agencyId: agencyRaw.id, tasks,
       prehireTasks: allTasks.filter((t) => t.phase === 'pre_hire'), extras, backgroundCheck, hireAccountMode, journey });
-    if (journey?.onboardingCompletedAt && status === 'ONBOARDING') portalPhase = 'onboarding_review';
+    const canFinalizeLogin = hireAccountMode === 'group_password' && usernameChosen && !passwordFinalized && onboardingPasswordReady(user, workflow, journey);
+    if (status === 'ONBOARDING') portalPhase = journey?.onboardingCompletedAt ? 'onboarding_review' : canFinalizeLogin ? 'finalize_login' : 'onboarding';
 
     res.json({
       candidate: {
@@ -261,7 +263,7 @@ export const getPortal = async (req, res, next) => {
         accountSetupComplete,
         usernameChosen,
         passwordFinalized,
-        canFinalizeLogin: status === 'ONBOARDING' && !journey.onboardingCompletedAt && !passwordFinalized
+        canFinalizeLogin
       },
       agency,
       supportTeam,

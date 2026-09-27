@@ -2,7 +2,7 @@ import { getPasswordRecoverySsoState, passwordRecoveryRequiresSupport, PASSWORD_
 import { accountPasswordLocked, recordPasswordResult } from '../middleware/loginProtection.middleware.js';
 import bcrypt from 'bcrypt';
 import { changeSessionSecurity, loadSessionPolicy, finalizeExpiredSession } from '../services/sessionSecurity.service.js';
-import { isHirePortalOnly } from '../utils/hirePortalToken.js';
+import { isHirePortalOnly, requiresHireActivation, HIRE_ACTIVATION_MESSAGE } from '../utils/hirePortalToken.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { signBrandSwitchMemory, readBrandSwitchMemory } from '../utils/brandSwitchLoginMemory.js';
@@ -656,28 +656,14 @@ export const login = async (req, res, next) => {
       });
     }
 
-    // Group-password hires: username exists during pre-hire/onboarding, but app login waits until
-    // they set a password at end of onboarding (sso_password_override). Portal token only until then.
-    const hireStatusesNeedingPortal = new Set([
-      'PENDING_SETUP',
-      'PREHIRE_OPEN',
-      'PREHIRE_REVIEW',
-      'ONBOARDING'
-    ]);
-    const isGroupHirePendingPassword =
-      hireStatusesNeedingPortal.has(String(userStatus || '').toUpperCase())
-      && (user.login_is_group_email === 1 || user.login_is_group_email === true || user.login_is_group_email === '1')
-      && !(user.sso_password_override === 1 || user.sso_password_override === true || user.sso_password_override === '1');
-    if (isGroupHirePendingPassword) {
-      return res.status(403).json({
-        error: {
-          message: 'Your employee login is not active yet. Finish onboarding on your personal portal link, then set your password there to activate your account.',
-          requiresPortalPassword: true,
-          usePortalLink: true
-        }
-      });
+    // Keep hires in their personal portal until staff activate employment,
+    // including hires who have already prepared their password for final review.
+    if (requiresHireActivation(user)) {
+      return res.status(403).json({ error: {
+        code: 'HIRE_ACTIVATION_REQUIRED', message: HIRE_ACTIVATION_MESSAGE, usePortalLink: true
+      } });
     }
-    
+
     // Check if access has expired (for TERMINATED_PENDING users)
     if (isAccessExpired(user)) {
       return res.status(403).json({ 
