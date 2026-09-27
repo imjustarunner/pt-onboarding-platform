@@ -1,4 +1,4 @@
-/** Explicit platform selection wins on an agency host; agency routes and guest logins retain their identity. */
+/** URL identity wins; platform selection takes effect only after navigation to HQ. */
 export function shouldApplyPortalAgencyThemeFirst({
   hasPortalAgency = false,
   isAuthenticated = false,
@@ -18,8 +18,6 @@ export function shouldApplyPortalAgencyThemeFirst({
   if (route) {
     return !!(portal && route === portal);
   }
-
-  if (platformMode && !currentAgency) return false;
 
   if (host && portal && host === portal) {
     return true;

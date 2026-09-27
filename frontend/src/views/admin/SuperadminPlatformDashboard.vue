@@ -363,6 +363,7 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import api from '../../services/api';
+import { openTenantWorkspace } from '../../services/workspaceNavigation';
 import SuperadminDemoTestingLab from '../../components/admin/SuperadminDemoTestingLab.vue';
 import ScheduleAvailabilityGrid from '../../components/schedule/ScheduleAvailabilityGrid.vue';
 import WorkHoursEditor from '../../components/schedule/WorkHoursEditor.vue';
@@ -708,20 +709,13 @@ const fetchAll = async () => {
 
 const openTenant = (tenant) => {
   if (!tenant) return;
-  // Enter that tenant's admin context with full superadmin privileges.
-  agencyStore.setCurrentAgency(tenant);
-  const slug = String(tenant.slug || tenant.portal_url || '').toLowerCase().trim();
-  if (!slug) return;
-  router.push(`/${slug}/admin`);
+  return openTenantWorkspace(tenant, router);
 };
 
 const openTenantSettings = (tenant) => {
   if (!tenant) return;
-  agencyStore.setCurrentAgency(tenant);
-  const slug = String(tenant.slug || tenant.portal_url || '').toLowerCase().trim();
-  if (!slug) return;
-  router.push({
-    path: `/${slug}/admin/settings`,
+  return openTenantWorkspace(tenant, router, {
+    path: '/admin/settings',
     query: { agencyId: String(tenant.id) }
   });
 };

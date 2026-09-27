@@ -2,10 +2,10 @@
   <div class="tenant-admin-dashboard" :style="brandVars">
     <header class="top-bar">
       <div class="top-bar-left">
-        <BrandingLogo size="medium" :logo-url="agencyStore.currentAgency?.logo_url" />
+        <BrandingLogo size="medium" :logo-url="brandingStore.displayLogoUrl" />
         <div class="org-name">
           <h1>{{ agencyStore.currentAgency?.name || 'Admin Dashboard' }}</h1>
-          <span class="role-badge">{{ userRoleLabel }}</span>
+          <span class="role-badge">Tenant administration</span>
         </div>
       </div>
 

@@ -12,6 +12,8 @@ import { trackPromise } from '../utils/pageLoader';
 import { preloadImages } from '../utils/preloadImages';
 import { isSchoolOnboardingDemoActive } from '../utils/schoolOnboardingDemoContext.js';
 import { shouldApplyPortalAgencyThemeFirst as resolvePortalThemePriority } from '../utils/portalThemePriority.js';
+import { guessPortalSlugFromHostname } from '../utils/orgScopedPath.js';
+import { tenantFaviconUrl } from '../utils/tenantBrandAssets.js';
 
 // In-flight deduplication + short TTL cache for fetchAgencyTheme.
 // Prevents duplicate HTTP requests on redirect-chain navigations (/:slug → /:slug/login).
@@ -130,7 +132,8 @@ export const useBrandingStore = defineStore('branding', () => {
 
   // Portal agency (detected from subdomain)
   // For BYOD/custom domains we resolve the portal identifier from the request host via backend.
-  const portalHostPortalUrl = ref(null); // e.g., "agency2" (portal_url or slug)
+  // Known tenant hosts have an identity before any asynchronous theme request completes.
+  const portalHostPortalUrl = ref(guessPortalSlugFromHostname() || getPortalUrl() || null);
   const portalAgency = ref(null);
 
   // Theme settings from portal agency
@@ -142,6 +145,7 @@ export const useBrandingStore = defineStore('branding', () => {
    * Using window.location.pathname is NOT reactive — that's why colors only changed once.
    */
   const activeRouteSlug = ref('');
+  const activeWorkspaceSlug = computed(() => activeRouteSlug.value || portalHostPortalUrl.value || '');
   const setActiveRouteSlug = (slug) => {
     activeRouteSlug.value = String(slug || '').trim().toLowerCase();
   };
@@ -166,7 +170,39 @@ export const useBrandingStore = defineStore('branding', () => {
   const _palettesBySlug = reactive({});  // slug → colorPalette
   const _logosBySlug = reactive({});     // slug → logoUrl
   const _iconsBySlug = reactive({});     // slug → organization icon URL (favicon / nav mark)
+  const _namesBySlug = reactive({});     // slug → agency display name
   const _themeSettingsBySlug = reactive({}); // slug → themeSettings (parallel to slug theme fetch)
+
+  const normalizePortalKey = (value) => String(value || '').trim().toLowerCase();
+  const agencyPortalKey = (agency) => normalizePortalKey(agency?.slug || agency?.portal_url || agency?.portalUrl);
+
+  const flatHostPortalSlug = () => {
+    const hostSlug = normalizePortalKey(portalHostPortalUrl.value);
+    if (!hostSlug || activeRouteSlug.value) return '';
+    return hostSlug;
+  };
+
+  const portalAgencyMatchesSlug = (slug) => {
+    const s = normalizePortalKey(slug);
+    if (!s) return false;
+    return normalizePortalKey(portalAgency.value?.slug || portalAgency.value?.portal_url || portalAgency.value?.portalUrl) === s;
+  };
+
+  const currentAgencyMatchesSlug = (slug) => {
+    const s = normalizePortalKey(slug);
+    if (!s) return false;
+    return agencyPortalKey(agencyStore.currentAgency) === s;
+  };
+
+  const activePortalDisplayName = () => {
+    if (settingsTenantPickerBrandingActive.value) return '';
+    const slug = normalizePortalKey(activeWorkspaceSlug.value);
+    if (!slug) return '';
+    return _namesBySlug[slug]
+      || (portalAgencyMatchesSlug(slug) && portalAgency.value?.name)
+      || (currentAgencyMatchesSlug(slug) && agencyStore.currentAgency?.name)
+      || slug.toUpperCase();
+  };
 
   /**
    * Returns true when portalAgency's theme should override currentAgency.
@@ -345,6 +381,9 @@ export const useBrandingStore = defineStore('branding', () => {
       }
       if (data.logoUrl) {
         _logosBySlug[slugKey] = data.logoUrl;
+      }
+      if (data.agencyName) {
+        _namesBySlug[slugKey] = data.agencyName;
       }
       if (data.iconUrl) {
         _iconsBySlug[slugKey] = data.iconUrl;
@@ -606,6 +645,9 @@ export const useBrandingStore = defineStore('branding', () => {
       if (themeData.logoUrl) {
         _logosBySlug[slugKey] = themeData.logoUrl;
       }
+      if (themeData.agencyName || themeData.name) {
+        _namesBySlug[slugKey] = themeData.agencyName || themeData.name;
+      }
       if (themeData.iconUrl) {
         _iconsBySlug[slugKey] = themeData.iconUrl;
       } else {
@@ -742,7 +784,6 @@ export const useBrandingStore = defineStore('branding', () => {
         let portal = resolved;
         if (!portal) {
           try {
-            const { guessPortalSlugFromHostname } = await import('../utils/orgScopedPath.js');
             portal = String(guessPortalSlugFromHostname(host) || '').trim();
           } catch {
             portal = '';
@@ -797,7 +838,7 @@ export const useBrandingStore = defineStore('branding', () => {
       const palette = portalAgency.value?.colorPalette || portalTheme.value?.colorPalette;
       if (palette && Object.keys(palette).length) return { palette, source: 'portal' };
     }
-    if (authStore.isAuthenticated && agencyStore.platformMode && !agencyStore.currentAgency && !activeRouteSlug.value) {
+    if (authStore.isAuthenticated && agencyStore.platformMode && !agencyStore.currentAgency && !activeWorkspaceSlug.value) {
       return { palette: { primary: PLATFORM_BRAND.primary, secondary: PLATFORM_BRAND.secondary, accent: PLATFORM_BRAND.accent }, source: 'platform' };
     }
     if (settingsTenantPickerBrandingActive.value) {
@@ -847,9 +888,26 @@ export const useBrandingStore = defineStore('branding', () => {
       }
     }
 
+    const hostSlug = flatHostPortalSlug();
+    if (hostSlug) {
+      const cached = _palettesBySlug[hostSlug];
+      if (cached && typeof cached === 'object' && Object.keys(cached).length > 0) {
+        return { palette: cached, source: 'portal' };
+      }
+      if (portalAgencyMatchesSlug(hostSlug)) {
+        const portalCp = portalAgency.value?.colorPalette;
+        if (portalCp && typeof portalCp === 'object' && Object.keys(portalCp).length > 0) {
+          return { palette: portalCp, source: 'portal' };
+        }
+      }
+    }
+
     // 2. currentAgency palette — available immediately after selectAgencyBrand hydrates.
     //    API may return color_palette (snake) OR colorPalette (camel) depending on endpoint.
     const agency = agencyStore.currentAgency;
+    if (activeWorkspaceSlug.value && !currentAgencyMatchesSlug(activeWorkspaceSlug.value)) {
+      return { palette: null, source: 'workspace-pending' };
+    }
     const pAg = _parseAgencyColorPalette(agency);
     if (pAg) return { palette: pAg, source: 'currentAgency' };
 
@@ -880,7 +938,16 @@ export const useBrandingStore = defineStore('branding', () => {
       const cached = _themeSettingsBySlug[routeSlug];
       if (cached && typeof cached === 'object') return cached;
     }
+    const hostSlug = flatHostPortalSlug();
+    if (hostSlug) {
+      const cached = _themeSettingsBySlug[hostSlug];
+      if (cached && typeof cached === 'object') return cached;
+      if (portalAgencyMatchesSlug(hostSlug) && portalAgency.value?.themeSettings) {
+        return portalAgency.value.themeSettings || {};
+      }
+    }
     const agency = agencyStore.currentAgency;
+    if (activeWorkspaceSlug.value && !currentAgencyMatchesSlug(activeWorkspaceSlug.value)) return {};
     if (agency) {
       const raw = agency.theme_settings ?? agency.themeSettings;
       if (raw) {
@@ -903,19 +970,19 @@ export const useBrandingStore = defineStore('branding', () => {
   // Primary color based on branding mode
   const primaryColor = computed(() => {
     const { palette } = _resolveActivePalette();
-    return palette?.primary || platformBranding.value?.primary_color || PLATFORM_BRAND.primary;
+    return palette?.primary || (activeWorkspaceSlug.value ? '#333333' : platformBranding.value?.primary_color || PLATFORM_BRAND.primary);
   });
 
   // Secondary color based on branding mode
   const secondaryColor = computed(() => {
     const { palette } = _resolveActivePalette();
-    return palette?.secondary || platformBranding.value?.secondary_color || '#1D2633';
+    return palette?.secondary || (activeWorkspaceSlug.value ? '#555555' : platformBranding.value?.secondary_color || '#1D2633');
   });
   
   // Accent color based on branding mode
   const accentColor = computed(() => {
     const { palette } = _resolveActivePalette();
-    return palette?.accent || palette?.primary || platformBranding.value?.accent_color || PLATFORM_BRAND.accent;
+    return palette?.accent || palette?.primary || (activeWorkspaceSlug.value ? '#333333' : platformBranding.value?.accent_color || PLATFORM_BRAND.accent);
   });
 
   // Helper: get parsed palette from agency or portal (agency/portal overrides platform)
@@ -1105,222 +1172,44 @@ export const useBrandingStore = defineStore('branding', () => {
     return url;
   };
 
-  // Display logo URL (portal → selected org → platform template / login)
-  const displayLogoUrl = computed(() => {
-    if (shouldApplyPortalAgencyThemeFirst() && !settingsTenantPickerBrandingActive.value && portalAgency.value?.logoUrl) {
-      return addCacheBuster(portalAgency.value.logoUrl);
-    }
-    if (authStore.isAuthenticated && (settingsTenantPickerBrandingActive.value || agencyStore.platformMode) && !agencyStore.currentAgency) return PLATFORM_BRAND.logo;
-    if (!authStore.isAuthenticated && !activeRouteSlug.value && !portalAgency.value) return PLATFORM_BRAND.logo;
-    if (settingsTenantPickerBrandingActive.value) {
-      const agency = agencyStore.currentAgency;
-      if (agency?.logo_path) {
-        return addCacheBuster(toUploadsUrl(agency.logo_path));
-      }
-      if (agency?.icon_file_path) {
-        return addCacheBuster(toUploadsUrl(agency.icon_file_path));
-      }
-      if (agency?.logo_url) {
-        if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
-          return addCacheBuster(agency.logo_url);
-        }
-        if (agency.logo_url.startsWith('/assets/')) {
-          return addCacheBuster(agency.logo_url);
-        }
-        const apiBase = getBackendBaseUrl();
-        const fullUrl = `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
-        return addCacheBuster(fullUrl);
-      }
-      const pb = platformBranding.value;
-      if (pb?.organization_logo_url) return addCacheBuster(pb.organization_logo_url);
-      if (pb?.organization_logo_path) {
-        const u = toUploadsUrl(pb.organization_logo_path);
-        if (u) return addCacheBuster(u);
-      }
-      if (pb?.organization_logo_icon_path) {
-        return addCacheBuster(toUploadsUrl(String(pb.organization_logo_icon_path)));
-      }
-      if (pb?.organization_logo_icon_id) {
-        const url = iconUrlById(pb.organization_logo_icon_id);
-        if (url) return addCacheBuster(url);
-      }
-      return null;
-    }
-    const routeSlug = activeRouteSlug.value;
-    // _logosBySlug is reactive() so reading [routeSlug] here creates a dep automatically.
-    if (routeSlug && _logosBySlug[routeSlug]) {
-      return addCacheBuster(_logosBySlug[routeSlug]);
-    }
-    // Flat host routes (e.g. app.itsco.health/admin): prefer host / current tenant caches.
-    // Never trust a drifted portalAgency from a prior soft-switch (e.g. NLU brain sticking on ITSCO).
-    if (!routeSlug) {
-      const hostSlug = String(portalHostPortalUrl.value || '').trim().toLowerCase();
-      if (hostSlug && _logosBySlug[hostSlug]) {
-        return addCacheBuster(_logosBySlug[hostSlug]);
-      }
-      const agency = agencyStore.currentAgency;
-      const agencySlug = String(agency?.slug || agency?.portal_url || agency?.portalUrl || '')
-        .trim()
-        .toLowerCase();
-      if (agencySlug && _logosBySlug[agencySlug]) {
-        return addCacheBuster(_logosBySlug[agencySlug]);
-      }
-      const portalSlug = String(portalAgency.value?.slug || '').trim().toLowerCase();
-      const portalMatches =
-        portalAgency.value?.logoUrl &&
-        ((hostSlug && portalSlug === hostSlug) || (agencySlug && portalSlug === agencySlug));
-      if (portalMatches) {
-        return addCacheBuster(portalAgency.value.logoUrl);
-      }
-    } else if (portalAgency.value?.logoUrl) {
-      const portalSlug = String(portalAgency.value?.slug || '').trim().toLowerCase();
-      if (portalSlug === routeSlug) {
-        return addCacheBuster(portalAgency.value.logoUrl);
-      }
-    }
-    const agency = agencyStore.currentAgency;
-    if (agency?.logo_path) {
-      return addCacheBuster(toUploadsUrl(agency.logo_path));
-    }
-    if (agency?.icon_file_path) {
-      return addCacheBuster(toUploadsUrl(agency.icon_file_path));
-    }
-    if (agency?.logo_url) {
-      if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
-        return addCacheBuster(agency.logo_url);
-      }
-      if (agency.logo_url.startsWith('/assets/')) {
-        return addCacheBuster(agency.logo_url);
-      }
-      const apiBase = getBackendBaseUrl();
-      const fullUrl = `${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`;
-      return addCacheBuster(fullUrl);
-    }
-    if (isSuperAdmin.value || !authStore.isAuthenticated) {
-      if (platformBranding.value?.organization_logo_url) {
-        if (import.meta.env.DEV) {
-          console.log('[Branding] Using organization_logo_url for displayLogoUrl:', platformBranding.value.organization_logo_url);
-        }
-        return addCacheBuster(platformBranding.value.organization_logo_url);
-      }
-      if (platformBranding.value?.organization_logo_path) {
-        const u = toUploadsUrl(platformBranding.value.organization_logo_path);
-        if (import.meta.env.DEV) {
-          console.log('[Branding] Constructed displayLogoUrl from path:', {
-            originalPath: platformBranding.value.organization_logo_path,
-            finalUrl: u
-          });
-        }
-        return addCacheBuster(u);
-      }
-      if (platformBranding.value?.organization_logo_icon_path) {
-        return addCacheBuster(toUploadsUrl(String(platformBranding.value.organization_logo_icon_path)));
-      }
-      if (platformBranding.value?.organization_logo_icon_id) {
-        const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
-        if (url) return addCacheBuster(url);
-      }
-      // A platform logo is optional. Consumers already fall back to the
-      // configured brand name/default chrome when no image is available.
-      return null;
-    }
-    return null;
-  });
+  const agencyBrandAsset = (agency, compact) => {
+    if (!agency) return null;
+    const icon = agency.icon_file_path ? toUploadsUrl(agency.icon_file_path)
+      : iconUrlById(agency.icon_id ?? agency.iconId);
+    const rawLogo = agency.logo_url || agency.logoUrl;
+    const logo = agency.logo_path ? toUploadsUrl(agency.logo_path)
+      : rawLogo ? (/^(https?:|\/assets\/|\/logos\/)/.test(rawLogo) ? rawLogo : toUploadsUrl(rawLogo)) : null;
+    return compact ? icon || logo : logo || icon;
+  };
 
-  /** Master organization icon for compact chrome (nav, favicon) — prefers icon over wide logo. */
-  const displayChromeIconUrl = computed(() => {
-    if ((settingsTenantPickerBrandingActive.value || agencyStore.platformMode) && !agencyStore.currentAgency) return PLATFORM_BRAND.logo;
-    if (!authStore.isAuthenticated && !activeRouteSlug.value && !portalAgency.value) return PLATFORM_BRAND.logo;
-    if (settingsTenantPickerBrandingActive.value) {
-      const agency = agencyStore.currentAgency;
-      if (agency?.icon_file_path) {
-        return addCacheBuster(toUploadsUrl(agency.icon_file_path));
-      }
-      const iconId = agency?.icon_id ?? agency?.iconId;
-      if (iconId) {
-        const u = iconUrlById(iconId);
-        if (u) return addCacheBuster(u);
-      }
-      if (agency?.logo_path) {
-        return addCacheBuster(toUploadsUrl(agency.logo_path));
-      }
-      if (agency?.logo_url || agency?.logoUrl) return addCacheBuster(agency.logo_url || agency.logoUrl);
-      const pb = platformBranding.value;
-      if (pb?.organization_logo_icon_path) {
-        return addCacheBuster(toUploadsUrl(String(pb.organization_logo_icon_path)));
-      }
-      if (pb?.organization_logo_icon_id) {
-        const url = iconUrlById(pb.organization_logo_icon_id);
-        if (url) return addCacheBuster(url);
-      }
-      if (pb?.organization_logo_url) return addCacheBuster(pb.organization_logo_url);
-      return null;
+  // A tenant workspace may use only its own resolved assets. Missing compact icons
+  // fall back to the tenant logo, never the platform mark or another selected tenant.
+  const resolvedBrandAsset = (compact) => {
+    const slug = settingsTenantPickerBrandingActive.value ? '' : normalizePortalKey(activeWorkspaceSlug.value);
+    if (slug) {
+      const portal = portalAgencyMatchesSlug(slug) ? portalAgency.value : null;
+      const agency = currentAgencyMatchesSlug(slug) ? agencyStore.currentAgency : null;
+      const logo = _logosBySlug[slug] || portal?.logoUrl;
+      const icon = _iconsBySlug[slug] || portal?.iconUrl;
+      return addCacheBuster(
+        (compact ? icon || logo : logo || icon)
+        || agencyBrandAsset(agency, compact)
+        || tenantFaviconUrl(slug)
+        || null
+      );
     }
-    const routeSlug = activeRouteSlug.value;
-    if (routeSlug) {
-      const cachedIcon = _iconsBySlug[routeSlug];
-      if (cachedIcon) return addCacheBuster(cachedIcon);
-      const pSlug = String(portalAgency.value?.slug || '').trim().toLowerCase();
-      if (pSlug === routeSlug && portalAgency.value?.iconUrl) {
-        return addCacheBuster(portalAgency.value.iconUrl);
-      }
-    } else {
-      // Flat host routes: prefer host / current-tenant icon caches over a drifted portalAgency
-      // (switching NLU → ITSCO on app.itsco.health left the NLU brain stuck in nav).
-      const hostSlug = String(portalHostPortalUrl.value || '').trim().toLowerCase();
-      if (hostSlug && _iconsBySlug[hostSlug]) {
-        return addCacheBuster(_iconsBySlug[hostSlug]);
-      }
-      const agencyEarly = agencyStore.currentAgency;
-      const agencySlug = String(agencyEarly?.slug || agencyEarly?.portal_url || agencyEarly?.portalUrl || '')
-        .trim()
-        .toLowerCase();
-      if (agencySlug && _iconsBySlug[agencySlug]) {
-        return addCacheBuster(_iconsBySlug[agencySlug]);
-      }
-      const portalSlug = String(portalAgency.value?.slug || '').trim().toLowerCase();
-      const portalMatches =
-        portalAgency.value?.iconUrl &&
-        ((hostSlug && portalSlug === hostSlug) || (agencySlug && portalSlug === agencySlug));
-      if (portalMatches) {
-        return addCacheBuster(portalAgency.value.iconUrl);
-      }
-    }
-    const agency = agencyStore.currentAgency;
-    if (agency?.icon_file_path) {
-      return addCacheBuster(toUploadsUrl(agency.icon_file_path));
-    }
-    const iconId = agency?.icon_id ?? agency?.iconId;
-    if (iconId) {
-      const u = iconUrlById(iconId);
-      if (u) return addCacheBuster(u);
-    }
-    if (agency?.logo_path) return addCacheBuster(toUploadsUrl(agency.logo_path));
-    if (agency?.logo_url || agency?.logoUrl) return addCacheBuster(agency.logo_url || agency.logoUrl);
-    if (isSuperAdmin.value || !authStore.isAuthenticated) {
-      if (platformBranding.value?.organization_logo_icon_path) {
-        return addCacheBuster(toUploadsUrl(String(platformBranding.value.organization_logo_icon_path)));
-      }
-      if (platformBranding.value?.organization_logo_icon_id) {
-        const url = iconUrlById(platformBranding.value.organization_logo_icon_id);
-        if (url) return addCacheBuster(url);
-      }
-    }
-    if (agency?.logo_path) {
-      return addCacheBuster(toUploadsUrl(agency.logo_path));
-    }
-    if (agency?.logo_url) {
-      if (agency.logo_url.startsWith('http://') || agency.logo_url.startsWith('https://')) {
-        return addCacheBuster(agency.logo_url);
-      }
-      if (agency.logo_url.startsWith('/assets/')) {
-        return addCacheBuster(agency.logo_url);
-      }
-      const apiBase = getBackendBaseUrl();
-      return addCacheBuster(`${apiBase}${agency.logo_url.startsWith('/') ? '' : '/'}${agency.logo_url}`);
-    }
-    return null;
-  });
+    const selectedAsset = agencyBrandAsset(agencyStore.currentAgency, compact);
+    if (selectedAsset) return addCacheBuster(selectedAsset);
+    const pb = platformBranding.value || {};
+    const icon = pb.organization_logo_icon_path ? toUploadsUrl(pb.organization_logo_icon_path)
+      : iconUrlById(pb.organization_logo_icon_id);
+    const logo = pb.organization_logo_url
+      || (pb.organization_logo_path ? toUploadsUrl(pb.organization_logo_path) : null);
+    return addCacheBuster(compact ? icon || logo || PLATFORM_BRAND.logo : logo || icon || PLATFORM_BRAND.logo);
+  };
+
+  const displayLogoUrl = computed(() => resolvedBrandAsset(false));
+  const displayChromeIconUrl = computed(() => resolvedBrandAsset(true));
 
   /** Dedicated mark for the small platform-level loading overlay (Assets: platformload). */
   const displayPlatformLoadIconUrl = computed(() => {
@@ -1390,11 +1279,15 @@ export const useBrandingStore = defineStore('branding', () => {
   });
 
   const agencyName = computed(() => {
+    const portalName = activePortalDisplayName();
+    if (portalName) return portalName;
     return agencyStore.currentAgency?.name || platformBranding.value?.organization_name || '';
   });
   
   // Display name for branding
   const displayName = computed(() => {
+    const portalName = activePortalDisplayName();
+    if (portalName) return portalName;
     if (isSuperAdmin.value) {
       return (
         agencyStore.currentAgency?.name ||
@@ -1855,6 +1748,7 @@ export const useBrandingStore = defineStore('branding', () => {
     portalAgency,
     portalTheme,
     portalHostPortalUrl,
+    activeWorkspaceSlug,
     themeSettings,
     loginBackground,
     fontFamily,

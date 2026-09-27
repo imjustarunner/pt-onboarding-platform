@@ -1,8 +1,10 @@
 <template>
-  <div
+  <component
+    :is="isPlatformLogin ? HqLoginShell : 'div'"
     class="login-page"
     :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo, 'login-page--tisi-video': showTisiLoginVideo, 'login-page--nlu-video': showNluLoginVideo, 'login-page--video-auth': useVideoAuthLayout }"
     :style="tenantLoginPageStyle"
+    @security="openLoginSecurity"
   >
     <video
       v-if="tenantLoginVideoWideSrc"
@@ -34,8 +36,7 @@
     >
       <source :src="tenantLoginVideoNarrowSrc" type="video/mp4" />
     </video>
-    <div v-if="isPlatformLogin" class="platform-appearance"><AppearanceSelect /></div>
-    <div v-if="showAppPreviewToggle" class="app-preview-toggle-group" aria-label="Local preview mode">
+    <div v-if="showAppPreviewToggle && !isPlatformLogin" class="app-preview-toggle-group" aria-label="Local preview mode">
       <button
         type="button"
         class="app-preview-toggle"
@@ -65,70 +66,7 @@
       </button>
     </div>
     <div class="login-container" :class="{ 'login-container--app': isAppLike, 'login-container--ipad': isIpadPreviewMode }" :style="loginContainerStyle">
-      <aside v-if="isPlatformLogin" class="platform-hero" aria-hidden="true">
-        <div class="platform-hero__brand">
-          <img
-            v-if="displayLogoUrl"
-            :src="displayLogoUrl"
-            :alt="platformBrandName"
-            class="platform-hero__logo"
-            @error="handleLogoError"
-          />
-          <span v-else class="platform-hero__wordmark">{{ platformBrandName }}</span>
-          <!-- Plot Twist Co wordmark paired with the phoenix on every screen size. -->
-          <div class="platform-hero__wordmark-stack" aria-hidden="true">
-            <span class="platform-hero__wordmark-main">PLOT TWIST</span>
-            <span class="platform-hero__wordmark-sub">CO</span>
-          </div>
-        </div>
-        <div class="platform-hero__content">
-          <h1 class="platform-hero__title">
-            One Platform.<br />
-            <span class="platform-hero__title-accent">Infinite Organizations.</span>
-          </h1>
-          <p class="platform-hero__subtitle">
-            The command center for your teams,<br />companies, and growth.
-          </p>
-          <div class="platform-hero__art">
-            <svg viewBox="0 0 480 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img">
-              <defs>
-                <linearGradient id="pltCard" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0" stop-color="#ffffff" />
-                  <stop offset="1" stop-color="#f7f6fe" />
-                </linearGradient>
-                <linearGradient id="pltBar" x1="0" y1="1" x2="0" y2="0">
-                  <stop offset="0" stop-color="#F36B7A" />
-                  <stop offset="1" stop-color="#B80016" />
-                </linearGradient>
-              </defs>
-              <rect x="40" y="44" width="400" height="236" rx="20" fill="url(#pltCard)"
-                stroke="#eceafc" />
-              <rect x="40" y="44" width="64" height="236" rx="20" fill="#f2f0fe" />
-              <circle cx="72" cy="82" r="9" fill="#B80016" />
-              <circle cx="72" cy="120" r="7" fill="#c7bdf9" />
-              <circle cx="72" cy="152" r="7" fill="#c7bdf9" />
-              <circle cx="72" cy="184" r="7" fill="#c7bdf9" />
-              <circle cx="72" cy="216" r="7" fill="#c7bdf9" />
-              <rect x="132" y="72" width="150" height="12" rx="6" fill="#e7e4f8" />
-              <rect x="132" y="94" width="96" height="8" rx="4" fill="#efedfa" />
-              <circle cx="372" cy="104" r="34" fill="none" stroke="#eee9fd" stroke-width="12" />
-              <path d="M372 70 a34 34 0 0 1 29 51" fill="none" stroke="#B80016"
-                stroke-width="12" stroke-linecap="round" />
-              <rect x="132" y="150" width="26" height="90" rx="6" fill="#e9e5fb" />
-              <rect x="168" y="176" width="26" height="64" rx="6" fill="url(#pltBar)" />
-              <rect x="204" y="140" width="26" height="100" rx="6" fill="#e9e5fb" />
-              <rect x="240" y="196" width="26" height="44" rx="6" fill="url(#pltBar)" />
-              <polyline points="300,232 330,206 356,220 384,180 410,196"
-                fill="none" stroke="#B80016" stroke-width="4" stroke-linecap="round"
-                stroke-linejoin="round" />
-              <circle cx="300" cy="232" r="4.5" fill="#B80016" />
-              <circle cx="356" cy="220" r="4.5" fill="#B80016" />
-              <circle cx="410" cy="196" r="4.5" fill="#B80016" />
-            </svg>
-          </div>
-        </div>
-      </aside>
-      <aside v-else-if="showTenantVideoHero" class="video-auth-hero">
+      <aside v-if="showTenantVideoHero" class="video-auth-hero">
         <div class="video-auth-hero__brand">
           <img
             v-if="displayLogoUrl"
@@ -221,18 +159,10 @@
           </div>
         </div>
 
-        <div v-if="isPlatformLogin" class="platform-cardhead">
-          <span class="platform-cardhead__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M3 10.5 12 3l9 7.5" stroke="currentColor" stroke-width="1.8"
-                stroke-linecap="round" stroke-linejoin="round" />
-              <path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5"
-                stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                stroke-linejoin="round" />
-            </svg>
-          </span>
-          <h2 class="platform-cardhead__title">{{ returningAccountGreeting }}</h2>
-          <p class="platform-cardhead__subtitle">Log in to your {{ platformBrandName }} account</p>
+        <div v-if="isPlatformLogin" class="hq-cardhead">
+          <img src="/assets/ptco/logo-flat.webp" alt="" width="90" height="112" />
+          <h2>PlotTwist<span>HQ</span></h2>
+          <p>Sign in to your account</p>
         </div>
 
         <div v-else-if="!isIpadPreviewMode && !isPlatformLogin && !showTenantVideoHero" class="login-logo">
@@ -498,7 +428,7 @@
                 <span>{{ passwordExpiryBanner.body }}</span>
               </div>
 
-              <div v-if="showPassword && !needsOrgChoice" class="form-group login-credentials-password">
+              <div v-if="(showPassword || isPlatformLogin) && !needsOrgChoice" class="form-group login-credentials-password">
                 <label for="password">Password</label>
                 <div class="password-input-wrap">
                   <input
@@ -519,9 +449,11 @@
                     type="button"
                     class="password-toggle-btn"
                     :aria-label="passwordVisible ? 'Hide password' : 'Show password'"
+                    :title="passwordVisible ? 'Hide password' : 'Show password'"
                     @click="passwordVisible = !passwordVisible"
                   >
-                    {{ passwordVisible ? 'Hide' : 'Show' }}
+                    <component v-if="isPlatformLogin" :is="passwordVisible ? EyeOff : Eye" :size="20" aria-hidden="true" />
+                    <template v-else>{{ passwordVisible ? 'Hide' : 'Show' }}</template>
                   </button>
                 </div>
               </div>
@@ -532,6 +464,7 @@
                 <input type="checkbox" v-model="rememberLogin" :disabled="verifying || loading" @change="saveRememberPreference" />
                 Remember me on this browser
               </label>
+              <a v-if="isPlatformLogin" href="#" @click.prevent="showForgotPassword" class="help-link">Forgot password?</a>
             </div>
             
             <button v-if="needsOrgChoice" type="submit" class="btn btn-primary" :disabled="verifying || loading || !selectedOrgSlug">
@@ -539,7 +472,7 @@
             </button>
 
             <button v-else-if="!showPassword" type="submit" class="btn btn-primary" :disabled="verifying || loading || !username.trim()">
-              {{ verifying ? 'Verifying…' : 'Verify' }}
+              {{ verifying ? 'Verifying…' : isPlatformLogin ? 'Sign In' : 'Verify' }}
             </button>
 
             <button v-else type="submit" class="btn btn-primary" :disabled="loading">
@@ -547,7 +480,7 @@
             </button>
 
             <button
-              v-if="showChangeUsernameButton"
+              v-if="showChangeUsernameButton && !isPlatformLogin"
               type="button"
               class="btn btn-secondary"
               :disabled="loading || verifying"
@@ -557,7 +490,13 @@
             </button>
           </form>
           
-          <div class="login-help">
+          <template v-if="isPlatformLogin && !isIOSNative && !showRememberedGoogleButton">
+            <div class="hq-divider">OR CONTINUE WITH</div>
+            <button type="button" class="hq-google" :disabled="loading || verifying" @click="identifyGoogleAccount">
+              <img src="/branding/google-g.png" alt="" width="22" height="22" /> Continue with Google
+            </button>
+          </template>
+          <div v-if="!isPlatformLogin" class="login-help">
             <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
             <span class="help-separator">|</span>
             <a href="#" @click.prevent="showForgotUsername" class="help-link">Forgot Username?</a>
@@ -595,11 +534,13 @@
             aria-controls="login-security-guidance"
             @click="showLoginSecurity = !showLoginSecurity"
           >Security</button>
-          <aside v-if="showLoginSecurity" id="login-security-guidance" class="login-security-guidance" aria-label="Sign-in safety">
+          <aside v-if="showLoginSecurity" id="login-security-guidance" class="login-security-guidance" aria-label="Sign-in safety" tabindex="-1">
             <strong>Keep your sign-in secure</strong>
             <p>Use your saved work bookmark to sign in. If an unexpected document asks you to log in, close it and open your bookmark instead. Keep your password and authenticator codes private.</p>
           </aside>
         </div>
+
+        <p v-if="isPlatformLogin" class="hq-powered">Powered by <a href="https://plottwistco.com/">PlotTwistCo</a></p>
 
         <!-- Forgot Password Modal -->
         <div v-if="showForgotPasswordMessage" class="modal-overlay" @click.self="closeRecoveryModals">
@@ -745,18 +686,10 @@
       </div>
     </div>
     <PoweredByFooter v-if="!isAppLike && !isPlatformLogin" />
-    <footer v-if="isPlatformLogin" class="platform-footer">
-      <span class="platform-footer__copy">© {{ currentYear }} {{ platformBrandName }}. All rights reserved.</span>
-      <span class="platform-footer__sep" aria-hidden="true">|</span>
-      <router-link to="/privacypolicy" class="platform-footer__link">Privacy Policy</router-link>
-      <span class="platform-footer__sep" aria-hidden="true">|</span>
-      <router-link to="/terms" class="platform-footer__link">Terms of Service</router-link>
-    </footer>
-  </div>
+  </component>
 </template>
 
 <script setup>
-import AppearanceSelect from '../components/AppearanceSelect.vue';
 import { PLATFORM_BRAND } from '../config/platformBrand.js';
 import { tenantFaviconUrl } from '../utils/tenantBrandAssets.js';
 import { resolveLoginPalette } from '../utils/loginPalette.js';
@@ -793,6 +726,8 @@ import { safeLoginDestination } from '../utils/loginHandoff';
 import { startActivityTracking } from '../utils/activityTracker';
 import { useSessionLockStore } from '../store/sessionLock';
 import { signalFreshLogin } from '../composables/useReminderSnooze';
+import HqLoginShell from '../components/HqLoginShell.vue';
+import { Eye, EyeOff } from '@lucide/vue';
 import api from '../services/api';
 import { getBackendBaseUrl } from '../utils/uploadsUrl';
 import { getDashboardRoute } from '../utils/router';
@@ -1038,9 +973,9 @@ const loginContainerStyle = computed(() => {
   }
   return { background: loginBackground.value };
 });
-const usernameFieldLabel = computed(() => (isSSTCLogin.value ? 'Email, username, or phone number' : 'Username'));
+const usernameFieldLabel = computed(() => (isPlatformLogin.value ? 'Work email' : isSSTCLogin.value ? 'Email, username, or phone number' : 'Username'));
 const usernameFieldPlaceholder = computed(() =>
-  isSSTCLogin.value ? 'Email, username, or phone (e.g. 555-867-5309)' : 'Enter your username'
+  isPlatformLogin.value ? 'you@yourcompany.com' : isSSTCLogin.value ? 'Email, username, or phone (e.g. 555-867-5309)' : 'Enter your username'
 );
 
 // Agency login theme data
@@ -1164,7 +1099,6 @@ const platformOrgName = computed(() => {
 const _platformHostname = getPlatformAppHostname(); // 'plottwisthq.com'
 const _currentHostname = String(window.location.hostname || '').toLowerCase().trim();
 const _isOnPlatformHost =
-  ['plottwistco.com', 'www.plottwistco.com', 'app.plottwistco.com', 'app.plottwisthq.com'].includes(_currentHostname) ||
   _currentHostname === _platformHostname ||
   _currentHostname === `www.${_platformHostname}` ||
   _currentHostname === 'localhost' ||
@@ -1175,9 +1109,10 @@ const isPlatformLogin = computed(() => {
   // is always a tenant login — never show platform branding.
   if (!_isOnPlatformHost) return false;
   return (
-    (!effectiveLoginSlug.value || effectiveLoginSlug.value === 'plottwistco') &&
+    !isOrgLogin.value &&
     !isSSTCLogin.value &&
-    !isAppLike.value
+    !isAppLike.value &&
+    !String(brandingStore.portalHostPortalUrl || '').trim()
   );
 });
 
@@ -1307,7 +1242,7 @@ const playTenantLoginBgVideos = async () => {
   }
 };
 
-const useVideoAuthLayout = computed(() => isPlatformLogin.value || showTenantLoginVideo.value);
+const useVideoAuthLayout = computed(() => showTenantLoginVideo.value);
 
 const showTenantVideoHero = computed(
   () =>
@@ -1322,9 +1257,6 @@ const tenantVideoAuthSubtitle = computed(() => {
   if (name) return `Log in to your ${name} account`;
   return 'Sign in to continue';
 });
-
-const platformBrandName = computed(() => PLATFORM_BRAND.name);
-const currentYear = new Date().getFullYear();
 
 // Fetch agency-specific login theme
 const fetchLoginTheme = async (portalUrl) => {
@@ -1978,6 +1910,24 @@ const continueWithGoogle = () => {
   window.location.href = `${base}/auth/google/start?orgSlug=${encodeURIComponent(slug)}${ssoNextParam()}`;
 };
 
+const identifyGoogleAccount = async () => {
+  if (!username.value.trim()) {
+    error.value = 'Enter your work email to continue with Google.';
+    document.getElementById('username')?.focus();
+    return;
+  }
+  await verifyUsername({ reason: 'user' });
+  if (!error.value && identifiedLoginMethod.value === 'password' && showPassword.value) {
+    error.value = 'This account uses a password. Sign in with your password to continue.';
+  }
+};
+
+const openLoginSecurity = async () => {
+  showLoginSecurity.value = true;
+  await nextTick();
+  document.getElementById('login-security-guidance')?.focus();
+};
+
 const startRememberedGoogleLogin = () => {
   if (isIOSNative) return;
   const rememberedOrg = String(rememberedGoogleLogin.value?.orgSlug || '').trim().toLowerCase();
@@ -2269,6 +2219,25 @@ const maybeVerify = async () => {
 };
 
 const handleSubmit = async () => {
+  if (isPlatformLogin.value) {
+    if (verifying.value || loading.value) return;
+    const email = username.value.trim().toLowerCase();
+    if (!email) {
+      document.getElementById('username')?.focus();
+      return;
+    }
+    // Preserve account-specific SSO routing before sending password credentials.
+    if (!showPassword.value || lastVerifiedUsername.value !== email) {
+      await verifyUsername({ reason: 'submit' });
+      if (!isPlatformLogin.value || !showPassword.value || error.value || identifiedLoginMethod.value !== 'password') return;
+    }
+    if (!password.value) {
+      document.getElementById('password')?.focus();
+      return;
+    }
+    await handleLogin();
+    return;
+  }
   if (needsOrgChoice.value) {
     if (!selectedOrgSlug.value) return;
     await verifyUsername({ orgSlugOverride: selectedOrgSlug.value, reason: 'org_choice' });
@@ -3915,13 +3884,6 @@ html[data-pt-app-preview-mode="ipad"] .login-help {
   position: relative;
   min-height: 100vh;
   min-height: 100dvh;
-}
-
-.login-page--platform {
-  --va-primary: #B80016;
-  --va-accent: #D32D42;
-  /* PNG fallback while the video loads, and on reduced-motion */
-  background: radial-gradient(ellipse at 15% 15%, var(--brand-tint), transparent 55%), var(--bg-alt);
 }
 
 /* Full-bleed looping background video — wide (web/iPad) vs narrow (phone) */

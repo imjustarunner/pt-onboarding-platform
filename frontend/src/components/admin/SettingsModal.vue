@@ -352,6 +352,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useOrganizationStore } from '../../store/organization';
 import { isSupervisor } from '../../utils/helpers.js';
 import api from '../../services/api';
+import { openTenantWorkspace, openPlatformWorkspace } from '../../services/workspaceNavigation';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { trackPromise } from '../../utils/pageLoader';
 import { preloadImages } from '../../utils/preloadImages';
@@ -439,7 +440,7 @@ const organizationStore = useOrganizationStore();
 const normalizeSettingsSlug = (value) => String(value || '').trim().toLowerCase();
 // Prefer canonical route slug; portal_url can differ or be empty on list rows.
 const pickOrgSettingsSlug = (org) => normalizeSettingsSlug(org?.slug || org?.portal_url || org?.portalUrl || '');
-const currentRouteSettingsSlug = computed(() => normalizeSettingsSlug(route.params?.organizationSlug));
+const currentRouteSettingsSlug = computed(() => normalizeSettingsSlug(route.params?.organizationSlug || brandingStore.portalHostPortalUrl));
 
 const showTenantContextUi = computed(() => {
   if (props.lockAgencyContext) return false;
@@ -1815,6 +1816,10 @@ const buildSettingsLocation = ({ org = null, category = 'platform', item = null 
 };
 
 const navigateToSettingsLocation = ({ org = null, category = 'platform', item = null } = {}) => {
+  if (isSuperAdmin.value) {
+    const options = { path: '/admin/settings', query: { category, ...(item ? { item } : {}), ...(org?.id ? { agencyId: String(org.id) } : {}) } };
+    return org ? openTenantWorkspace(org, router, options) : openPlatformWorkspace(router, options);
+  }
   const target = buildSettingsLocation({ org, category, item });
   if (typeof window !== 'undefined' && window.location?.assign) {
     window.location.assign(target);
@@ -1894,6 +1899,9 @@ const navigateToTenantWorkspaceAfterPick = () => {
 const selectTenantFromPicker = async (a) => {
   if (!a?.id) return;
   if (!(await prepareSettingsNavigation())) return;
+  if (isSuperAdmin.value && !props.disableRouteSync) {
+    return navigateToSettingsLocation({ org: a, category: 'platform', item: 'tenant-ws-home' });
+  }
   const pickId = Number(a.id);
   let org = a;
   if (isSuperAdmin.value) {
@@ -1967,10 +1975,7 @@ const enterPlatformToolsOnly = async ({ item = 'platform-ws-home' } = {}) => {
     !props.disableRouteSync &&
     isSuperAdmin.value;
   if (shouldHardNavigate) {
-    agencyStore.setPlatformMode();
-    void brandingStore.syncDocumentThemeFromPlatformBranding();
-    navigateToSettingsLocation({ org: null, category: 'platform', item });
-    return;
+    return navigateToSettingsLocation({ org: null, category: 'platform', item });
   }
 
   agencyStore.setPlatformMode();

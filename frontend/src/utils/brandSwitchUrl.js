@@ -1,7 +1,6 @@
 /**
- * Superadmin "Switch Brand" — full host navigation so the browser URL, cookies, and
- * portal resolution match the selected agency (or platform), instead of only
- * swapping Pinia state on the current host.
+ * Canonical app host lookup and one-time authentication handoff URL support.
+ * Workspace navigation policy lives in workspaceDestination.js.
  */
 
 import {
@@ -52,54 +51,6 @@ export function getPlatformAppHostname() {
   return 'plottwisthq.com';
 }
 
-function serializeQuery(query) {
-  if (!query || typeof query !== 'object') return '';
-  const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(query)) {
-    if (v === undefined || v === null) continue;
-    if (Array.isArray(v)) v.forEach((x) => sp.append(k, String(x)));
-    else sp.append(k, String(v));
-  }
-  const s = sp.toString();
-  return s ? `?${s}` : '';
-}
-
-/**
- * Strip /:parentOrgSlug and /:organizationSlug prefixes so paths work on a
- * dedicated agency hostname (flat) or on the platform host.
- */
-export function pathWithoutOrgSlugParams(route) {
-  let p = route.path || '/';
-  const pslug = route.params?.parentOrgSlug;
-  const slug = route.params?.organizationSlug;
-  if (pslug && typeof pslug === 'string') {
-    const pref = `/${pslug}`;
-    if (p === pref) p = '/';
-    else if (p.startsWith(`${pref}/`)) p = p.slice(pref.length) || '/';
-  }
-  if (slug && typeof slug === 'string') {
-    const pref = `/${slug}`;
-    if (p === pref) p = '/';
-    else if (p.startsWith(`${pref}/`)) p = p.slice(pref.length) || '/';
-  }
-  if (p === '') p = '/';
-  return p;
-}
-
-function protocolForHost(host) {
-  const h = normalizeHostname(host);
-  if (h === 'localhost' || h.startsWith('127.')) return typeof window !== 'undefined' ? window.location.protocol : 'http:';
-  return 'https:';
-}
-
-export function shouldHardRedirectBrandSwitch() {
-  if (import.meta.env.VITE_DISABLE_BRAND_HARD_REDIRECT === '1') return false;
-  if (typeof window === 'undefined') return false;
-  const hn = window.location.hostname;
-  if (hn === 'localhost' || hn === '127.0.0.1') return false;
-  return true;
-}
-
 /** Append one-time brand-switch handoff token (`bs`) to a full URL. */
 export function appendBrandSwitchHandoff(url, handoffToken) {
   const raw = String(url || '').trim();
@@ -113,35 +64,4 @@ export function appendBrandSwitchHandoff(url, handoffToken) {
     const join = raw.includes('?') ? '&' : '?';
     return `${raw}${join}bs=${encodeURIComponent(token)}`;
   }
-}
-
-/**
- * @returns {string|null} full URL to assign, or null to keep in-app router navigation
- */
-export function buildSuperadminAgencyBrandUrl(agency, route) {
-  if (!agency || !shouldHardRedirectBrandSwitch()) return null;
-  const targetHost = getAgencyAppHostname(agency);
-  if (!targetHost) return null;
-  const here = normalizeHostname(typeof window !== 'undefined' ? window.location.hostname : '');
-  if (targetHost === here) return null;
-
-  const path = pathWithoutOrgSlugParams(route);
-  const qs = serializeQuery(route.query);
-  const proto = protocolForHost(targetHost);
-  return `${proto}//${targetHost}${path}${qs}`;
-}
-
-/**
- * @returns {string|null}
- */
-export function buildSuperadminPlatformBrandUrl(route) {
-  if (!shouldHardRedirectBrandSwitch()) return null;
-  const targetHost = getPlatformAppHostname();
-  const here = normalizeHostname(typeof window !== 'undefined' ? window.location.hostname : '');
-  if (targetHost === here) return null;
-
-  const path = pathWithoutOrgSlugParams(route);
-  const qs = serializeQuery(route.query);
-  const proto = protocolForHost(targetHost);
-  return `${proto}//${targetHost}${path}${qs}`;
 }

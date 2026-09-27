@@ -49,7 +49,7 @@ const displayName = computed(() => brandingStore.displayName);
 const sizeClass = computed(() => `logo-${props.size}`);
 
 const defaultAltText = computed(() => {
-  return `${displayName.value || 'Plot Twist Co'} Logo`;
+  return `${displayName.value || 'Organization'} Logo`;
 });
 
 const finalAltText = computed(() => props.altText || defaultAltText.value);
@@ -146,4 +146,3 @@ const handleImageError = (event) => {
   /* Remove any text/spacing when logo only */
 }
 </style>
-

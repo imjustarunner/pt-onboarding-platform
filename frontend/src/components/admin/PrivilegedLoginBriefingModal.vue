@@ -10,7 +10,7 @@
         <section
           class="briefing-modal"
           :class="{
-            'briefing-modal--platform': isSuperadmin,
+            'briefing-modal--platform': isPlatformBriefing,
             'briefing-modal--multi': brandedAgencies.length > 1
           }"
           :style="brandVars"
@@ -40,7 +40,7 @@
 
           <header class="briefing-header">
             <div>
-              <div class="briefing-eyebrow">{{ isSuperadmin ? 'Platform command center' : tenantContextLabel }}</div>
+              <div class="briefing-eyebrow">{{ isPlatformBriefing ? 'Platform command center' : `${tenantContextLabel} command center` }}</div>
               <h1 id="privileged-briefing-title">Welcome back, {{ firstName }}</h1>
               <p>Here’s what needs your attention across your organization{{ brandedAgencies.length === 1 ? '' : 's' }} today.</p>
             </div>
@@ -72,7 +72,7 @@
 
             <div class="briefing-layout">
               <div class="briefing-main">
-                <DashboardMeetings @navigate="dismiss" />
+                <DashboardMeetings :include-all-agencies="!workspaceSlug" @navigate="dismiss" />
                 <div v-if="sections.length" class="briefing-card-grid">
                   <article
                     v-for="section in sections"
@@ -135,19 +135,19 @@
                     :key="person.id"
                     type="button"
                     class="presence-person"
-                    @click="navigate('/admin/presence')"
+                    @click="navigate(`${prefix}/admin/presence`)"
                   >
                     <img v-if="person.profile_photo_url" :src="person.profile_photo_url" alt="" />
                     <span v-else class="person-avatar">{{ person.initials }}</span>
                     <span class="person-copy">
                       <strong>{{ person.name }}{{ Number(person.id) === Number(userId) ? ' (You)' : '' }}</strong>
-                      <small>{{ person.agency_names || roleLabel(person.role) }}</small>
+                      <small>{{ workspaceSlug ? tenantContextLabel : (person.agency_names || roleLabel(person.role)) }}</small>
                     </span>
                     <span class="person-status" :class="`person-status--${person.availability_band || 'available'}`">
                       {{ presenceBandLabel(person) }}
                     </span>
                   </button>
-                  <button class="card-link" type="button" @click="navigate('/admin/presence')">
+                  <button class="card-link" type="button" @click="navigate(`${prefix}/admin/presence`)">
                     View Team Board <span aria-hidden="true">→</span>
                   </button>
                 </section>
@@ -222,6 +222,7 @@ import { tenantFaviconUrl } from '../../utils/tenantBrandAssets.js';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
+import { openTenantWorkspace } from '../../services/workspaceNavigation';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
@@ -269,12 +270,21 @@ const BRIEFING_SECONDARY_TIMEOUT_MS = 8000;
 const userId = computed(() => authStore.user?.id || null);
 const role = computed(() => String(authStore.user?.role || '').toLowerCase());
 const isSuperadmin = computed(() => role.value === 'super_admin' || role.value === 'superadmin');
+const workspaceSlug = computed(() => String(brandingStore.activeWorkspaceSlug || '').trim().toLowerCase());
+const isPlatformBriefing = computed(() => isSuperadmin.value && !workspaceSlug.value);
+const workspaceAgency = computed(() => {
+  const slug = workspaceSlug.value;
+  if (!slug) return null;
+  const rows = [agencyStore.currentAgency, ...(agencyStore.userAgencies || []), ...(affiliationRows.value || [])];
+  return rows.find((agency) => agency && [agency.slug, agency.portal_url, agency.portalUrl]
+    .some((value) => String(value || '').trim().toLowerCase() === slug)) || null;
+});
 const firstName = computed(() => String(
   authStore.user?.preferredName || authStore.user?.preferred_name || authStore.user?.firstName || authStore.user?.first_name || 'Admin'
 ).trim().split(/\s+/)[0] || 'Admin');
 
 const platformPalette = computed(() => {
-  if (isSuperadmin.value) return SUPERADMIN_BRIEFING_PALETTE;
+  if (isPlatformBriefing.value) return SUPERADMIN_BRIEFING_PALETTE;
   const pb = brandingStore.platformBranding || {};
   const primary = pb.primary_color || PLATFORM_BRAND.primary;
   return {
@@ -301,7 +311,19 @@ function initialsFor(value) {
 }
 
 const brandedAgencies = computed(() => {
-  if (isSuperadmin.value) {
+  if (workspaceSlug.value) {
+    const agency = workspaceAgency.value || {};
+    const name = brandingStore.displayName || agency.name || workspaceSlug.value.toUpperCase();
+    return [{
+      ...agency, slug: workspaceSlug.value, name,
+      logo: brandingStore.displayLogoUrl,
+      initials: initialsFor(name),
+      primary: brandingStore.primaryColor,
+      secondary: brandingStore.secondaryColor,
+      accent: brandingStore.accentColor
+    }];
+  }
+  if (isPlatformBriefing.value) {
     const pb = brandingStore.platformBranding || {};
     const name = pb.organization_name || 'Plot Twist Co.';
     return [{
@@ -359,7 +381,9 @@ const weekdayLabel = now.toLocaleDateString([], { weekday: 'long' });
 const prefix = computed(() => {
   // Multi-tenant briefings navigate to the flat/global workspaces so the selected
   // destination preserves the same combined scope represented by this modal.
-  if (isSuperadmin.value || brandedAgencies.value.length !== 1) return '';
+  if (brandingStore.portalHostPortalUrl === workspaceSlug.value && !router.currentRoute.value.params?.organizationSlug) return '';
+  if (workspaceSlug.value) return `/${workspaceSlug.value}`;
+  if (isPlatformBriefing.value || brandedAgencies.value.length !== 1) return '';
   const slug = String(router.currentRoute.value.params?.organizationSlug || '').trim();
   if (slug) return `/${slug}`;
   const preferred = brandedAgencies.value.find((agency) => agency.slug || agency.portal_url);
@@ -370,6 +394,7 @@ const prefix = computed(() => {
 const sections = computed(() => activeBriefingSections(briefing.value));
 const activePeople = computed(() => activePeopleRaw.value
   .filter(isLivePrivilegedPresence)
+  .filter((person) => !workspaceAgency.value?.id || String(person.agency_ids || '').split(',').map(Number).includes(Number(workspaceAgency.value.id)))
   .map((person) => ({
     ...person,
     name: [person.preferred_name || person.first_name, person.last_name].filter(Boolean).join(' ') || person.email || 'Team member',
@@ -387,7 +412,7 @@ const urgentDestination = computed(() => briefing.value.escalations?.count
   : `${prefix.value}/tickets?mine=true`);
 
 const glanceMetrics = computed(() => [
-  { value: isSuperadmin.value ? 'Platform' : brandedAgencies.value.length, label: isSuperadmin.value ? 'Scope' : 'Tenant affiliations' },
+  { value: workspaceSlug.value ? tenantContextLabel.value : (isPlatformBriefing.value ? 'Platform' : brandedAgencies.value.length), label: workspaceSlug.value || isPlatformBriefing.value ? 'Scope' : 'Tenant affiliations' },
   { value: sections.value.reduce((sum, section) => sum + Number(section.count || 0), 0), label: 'Items needing attention' },
   { value: activePeople.value.length, label: 'Privileged sessions', hint: 'Active or away' },
   { value: Number(briefing.value.calendar?.count || 0), label: 'Calendar today' }
@@ -515,6 +540,8 @@ function baseSection({ title, icon, tone, count, countLabel, items, action, to }
 }
 
 function resolvePrimaryAgencyId() {
+  if (workspaceSlug.value) return Number(workspaceAgency.value?.id) || null;
+  if (isPlatformBriefing.value) return null;
   const current = agencyStore.currentAgency?.value || agencyStore.currentAgency || null;
   const currentId = Number(current?.id || 0);
   if (currentId > 0 && isAgencyTenantOrg(current)) return currentId;
@@ -608,6 +635,10 @@ async function loadBriefing() {
     }
 
     const primaryAgencyId = resolvePrimaryAgencyId();
+    if (workspaceSlug.value && !primaryAgencyId) {
+      loadError.value = true;
+      return;
+    }
     const notificationParams = {
       isRead: false,
       isResolved: false,
@@ -639,10 +670,10 @@ async function loadBriefing() {
       const read = item._is_read_for_viewer ?? item.is_read;
       return !read && !item.is_resolved;
     });
-    const notificationCount = Math.max(
-      Object.values(notificationCounts || {}).reduce((sum, count) => sum + Number(count || 0), 0),
-      unreadNotifications.length
-    );
+    const scopedCount = primaryAgencyId
+      ? Number(notificationCounts[primaryAgencyId] || 0)
+      : Number(notificationCounts._total ?? Object.values(notificationCounts).reduce((sum, count) => sum + Number(count || 0), 0));
+    const notificationCount = Math.max(scopedCount, unreadNotifications.length);
     applyNotificationSections(unreadNotifications, notificationCount);
 
     const messageData = phase1[2].status === 'fulfilled' ? (phase1[2].value?.data || {}) : {};
@@ -680,7 +711,7 @@ async function loadBriefing() {
         ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
       }),
       api.get('/tasks', {
-        params: ticketParams,
+        params: { ...ticketParams, ...(primaryAgencyId ? { tenantId: primaryAgencyId } : {}) },
         ...apiOpts(BRIEFING_SECONDARY_TIMEOUT_MS)
       }),
       api.get('/support-tickets', {
@@ -799,21 +830,15 @@ async function navigate(to) {
 
 async function navigateToTenant(agency) {
   incrementVisitCount(agency.id);
-  agencyStore.setCurrentAgency(agency);
-  const slug = String(agency?.portal_url || agency?.slug || '').trim().toLowerCase();
   dismiss();
   await nextTick();
-  if (slug) {
-    await router.push(`/${slug}/admin`).catch(() => router.push(`/${slug}`));
-  } else {
-    await router.push('/admin');
-  }
+  await openTenantWorkspace(agency, router);
 }
 
 watch(
-  () => [authStore.user?.id, props.loginTrigger],
+  () => [authStore.user?.id, props.loginTrigger, router.currentRoute.value.meta?.requiresAuth, workspaceSlug.value, workspaceAgency.value?.id],
   ([nextUserId, trigger]) => {
-    if (!nextUserId || !isPrivilegedLoginBriefingUser(authStore.user) || isDisabled()) {
+    if (!nextUserId || !router.currentRoute.value.meta?.requiresAuth || !isPrivilegedLoginBriefingUser(authStore.user) || isDisabled()) {
       visible.value = false;
       return;
     }
@@ -834,7 +859,7 @@ onBeforeUnmount(() => {
 .briefing-overlay {
   position: fixed;
   inset: 0;
-  z-index: 10050;
+  z-index: 10200;
   display: grid;
   place-items: center;
   padding: 22px;

@@ -3,7 +3,6 @@ import { createPinia, setActivePinia } from 'pinia';
 import { useBrandingStore } from '../branding';
 import { useAgencyStore } from '../agency';
 import { useAuthStore } from '../auth';
-import { PLATFORM_BRAND } from '../../config/platformBrand';
 vi.mock('../../services/api', () => ({ default: { get: vi.fn(async () => ({ data: [] })) } }));
 beforeEach(() => { localStorage.clear(); sessionStorage.clear(); setActivePinia(createPinia()); });
 describe('tenant login branding isolation', () => {
@@ -17,8 +16,8 @@ describe('tenant login branding isolation', () => {
       expect(branding.primaryColor).toBe('#246348');
       expect(branding.accentColor).toBe('#468563');
       auth.user = { id: 1, role: 'super_admin' };
-      expect(branding.primaryColor).toBe(PLATFORM_BRAND.primary);
-      expect(branding.displayLogoUrl).toBe(PLATFORM_BRAND.logo);
+      expect(branding.primaryColor).toBe('#246348');
+      expect(branding.displayLogoUrl).toContain(`/assets/${slug}/logo.png`);
     });
   }
 });

@@ -226,7 +226,7 @@ async function bootstrap() {
 
       const platformSelected = agencyStore.platformMode && !agencyStore.currentAgency && !slug;
       const base =
-        (platformSelected ? PLATFORM_BRAND.name : agencyStore.currentAgency?.name || portalName) ||
+        brandingStore.displayName || (platformSelected ? PLATFORM_BRAND.name : portalName) ||
         platformName ||
         (slug ? slug.toUpperCase() : '') ||
         'Portal';
@@ -276,11 +276,13 @@ async function bootstrap() {
   const setBrandingChrome = () => {
     setTitle();
     // Prefer tenant printing-asset marks for browser tabs (e.g. NLU watermark).
+    // Explicit route-slug tours (/:tenant/...) win over the hostname. Flat routes
+    // on dedicated tenant hosts then fall back to the host portal/hostname.
     const tenantFav =
       publicBrowserBranding(window.location.hostname, router.currentRoute.value?.path)?.favicon ||
-      tenantFaviconUrl(typeof window !== 'undefined' ? window.location.hostname : '') ||
-      tenantFaviconUrl(brandingStore.portalHostPortalUrl) ||
       tenantFaviconUrl(brandingStore.activeRouteSlug) ||
+      tenantFaviconUrl(brandingStore.portalHostPortalUrl) ||
+      tenantFaviconUrl(typeof window !== 'undefined' ? window.location.hostname : '') ||
       tenantFaviconUrl(brandingStore.portalAgency?.slug || brandingStore.portalAgency?.portal_url) ||
       tenantFaviconUrl(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url);
     // Favicon: tenant mark, else organization master icon, else full logo.
