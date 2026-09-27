@@ -34,4 +34,19 @@ Billing staff can request additional payer names per agency and search the Claim
 
 Apply main migration `1494_payer_setup_requests.sql` and clinical migration `023_note_aid_planned_claims.sql` before using these features. The migration seeds only agency 377 whose name contains “strength”; it does not change another tenant. No production migration, live enrollment, eligibility request, claim submission or card charge was run during this change.
 
-Verification includes provider financial redaction and client/agency authorization tests, lifecycle/correction tests, UI permission and stale-scope tests, existing Claim.MD/supervision/amendment regression tests, and a disposable MySQL test of actual migrations and five concurrent imports. The MySQL test also verifies repeat payer migrations are idempotent and tenant-scoped. Run that test only against a freshly reset `127.0.0.1:33316/family_billing_test` database with `PLANNED_CLAIM_MYSQL_TEST=1`; payer calls are not involved.
+Verification includes provider financial redaction and client/agency authorization tests, lifecycle/correction tests, UI permission and stale-scope tests, existing Claim.MD/supervision/amendment regression tests, and a disposable MySQL test of actual migrations and five concurrent imports. The MySQL test also verifies repeat payer migrations are idempotent and tenant-scoped. Run that test against the isolated local MySQL server at `127.0.0.1:33316` with `PLANNED_CLAIM_MYSQL_TEST=1`, `DB_HOST=127.0.0.1` and `DB_PORT=33316`. It uses the local synthetic root account, creates a unique temporary schema, and drops only that schema afterward. Payer calls are not involved.
+
+
+## Production import repair — September 27, 2026
+
+The Note Aid POST `/api/clinical-notes/work-queue` failed before appending items because `note_aid_planned_services` did not exist in the clinical database. Clinical migration **023_note_aid_planned_claims** was absent from the migration log. Applying that existing additive migration restored the permanent planned-service identity table; the production migration log and all clinical columns used by this importer were verified afterward. No claim was transmitted or client task manufactured during the repair. A retry of the owner's original import is still needed to confirm the full live request.
+
+The MySQL regression now reproduces the missing-table error before applying migration 023, applies the migration twice, and checks five concurrent imports plus a later retry produce one planned session. A different ambiguous service time is still held for review, and no note or submitted claim is fabricated.
+
+Before enabling this import on another clinical database, apply migration 023 and verify the table exists; deploying application code alone does not run clinical migrations. Targeted verification:
+
+```sh
+SKIP_DB_CONNECT=1 NODE_ENV=test DB_HOST=127.0.0.1 DB_PORT=33316 PLANNED_CLAIM_MYSQL_TEST=1 \
+  node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.claimmd.config.js \
+  src/services/__tests__/noteAidPlannedClaim.test.js src/services/__tests__/noteAidPlannedClaim.mysql.test.js
+```
