@@ -110,7 +110,7 @@
           @input="$emit('update:locationLabel', $event.target.value)"
         />
         <strong v-else>{{ locationLabel || '—' }}</strong>
-        <span v-if="editable && locationLabel" class="detail">{{ locationChoices.find((loc) => loc.value === locationLabel)?.label || locationLabel }}</span>
+        <span v-if="editable && locationLabel" class="detail">{{ locationChoices.find((loc) => loc.value === locationLabel)?.detail || locationLabel }}</span>
       </div>
       <div class="na-quick-session__cell">
         <span class="lbl">Start</span>

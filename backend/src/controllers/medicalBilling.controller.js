@@ -1,3 +1,5 @@
+import { buildNoteAidLocationChoices } from '../services/noteAidLocations.service.js';
+import { listUserOfficeIds } from '../services/officeBillingSites.service.js';
 import {assertNoSelfPayBalance} from '../services/familyLedger/serviceCharges.js';
 import {reserveMedicalServiceUsage,completeMedicalServiceUsage} from '../services/medicalServiceFees.service.js';
 import { resolveClaimMdConnection, claimMdConnectionMeta, requireClaimMdTransmission } from '../services/claimMdConnection.service.js';
@@ -983,24 +985,14 @@ export const createObjectiveRating = async (req, res, next) => {
         : objective.scale_target != null
           ? Number(objective.scale_target)
           : null;
-    const previousValue =
-      req.body.previousScaleValue != null
-        ? Number(req.body.previousScaleValue)
-        : objective.scale_current != null
-          ? Number(objective.scale_current)
-          : null;
-
-    const progressLabel =
-      disposition === 'rated'
-        ? computeProgressLabel({
-            previousValue,
-            newValue: scaleValue,
-            target
-          })
-        : null;
-
     const raterKind = req.body.raterKind || req.body.rater_kind || 'clinician';
     const dateOfService = req.body.dateOfService ? String(req.body.dateOfService).slice(0, 10) : null;
+    const previous = await ClinicalTreatmentObjectiveRating.findPreviousSession({
+      objectiveId, raterKind, dateOfService, raterLabel: req.body.raterLabel || req.body.rater_label || null
+    });
+    const progressLabel = disposition === 'rated'
+      ? computeProgressLabel({ previousValue: previous?.scale_value ?? null, newValue: scaleValue, target }) : null;
+
     const existing = await ClinicalTreatmentObjectiveRating.findLatestForDedupe({
       objectiveId,
       raterKind,
@@ -3163,6 +3155,10 @@ export const listServiceLocations = async (req, res, next) => {
     const offices = await OfficeLocation.findByAgencyMembership(agencyId, { includeInactive: false }).catch(() =>
       OfficeLocation.findByAgency(agencyId, { includeInactive: false })
     );
+    if (String(req.query.forNoteAid || '') === '1') {
+      const officeIds = await listUserOfficeIds(req.user.id);
+      return res.json({ choices: buildNoteAidLocationChoices({ locations: items, offices: offices || [], officeIds }) });
+    }
     const affiliated = await OrganizationAffiliation.listActiveOrganizationsForAgency(agencyId).catch(() => []);
     const schools = (affiliated || []).filter((org) => {
       const t = String(org.organization_type || '').toLowerCase();

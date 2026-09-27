@@ -53,6 +53,30 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     return { wrapper, state };
   }
 
+  it('loads provider-scoped billing locations and preserves their IDs in the draft context', async () => {
+    const { wrapper, state } = await workspace();
+    state.sessionLocationLabel = 'Office';
+    vi.mocked(api.get).mockResolvedValue({ data: { choices: [{ value: 'service:25', label: 'Assigned office (POS 11) — 100 Test St', aliases: ['Office'], serviceLocationId: 25, billingOfficeLocationId: 6, placeOfService: '11', address: '100 Test St' }] } });
+    await state.loadSessionLocationChoices(7);
+    expect(api.get).toHaveBeenLastCalledWith('/medical-billing/service-locations', { params: { agencyId: 7, forNoteAid: 1 }, skipGlobalLoading: true });
+    expect(state.sessionLocationLabel).toBe('Assigned office (POS 11) — 100 Test St');
+    expect(state.sessionLocationMetadata()).toMatchObject({ serviceLocationId: 25, billingOfficeLocationId: 6, placeOfService: '11', serviceAddress: '100 Test St' });
+    wrapper.unmount();
+  });
+
+  it('ignores stale location responses after switching tenants', async () => {
+    const { wrapper, state } = await workspace();
+    let resolveOld;
+    vi.mocked(api.get).mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockResolvedValueOnce({ data: { choices: [{ label: 'New tenant office', serviceLocationId: 42 }] } });
+    const old = state.loadSessionLocationChoices(7);
+    await state.loadSessionLocationChoices(8);
+    resolveOld({ data: { choices: [{ label: 'Old tenant office' }] } });
+    await old;
+    expect(state.sessionLocationChoices.map(c => c.label)).toEqual(['New tenant office']);
+    wrapper.unmount();
+  });
+
   it('edits projected time with a dropdown and synchronizes only that goal’s objective deadlines', async () => {
     const { wrapper, state } = await workspace('90791_intake_plan');
     state.initials = 'TEST';

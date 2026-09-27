@@ -2250,70 +2250,38 @@ function ensureSessionEndFromDuration() {
   syncEndFromStartAndDuration();
 }
 
+let sessionLocationRequest = 0;
+function sessionLocationMetadata() {
+  const choice = sessionLocationChoices.value.find(c => c.value === sessionLocationLabel.value);
+  return choice ? {
+    serviceLocationId: choice.serviceLocationId || null,
+    billingOfficeLocationId: choice.billingOfficeLocationId || null,
+    placeOfService: choice.placeOfService || null,
+    serviceAddress: choice.address || null,
+    billingAddress: choice.billingAddress || null,
+    defaultModifiers: choice.defaultModifiers || null
+  } : {};
+}
 async function loadSessionLocationChoices(agencyId = null) {
+  const request = ++sessionLocationRequest;
   const aid = Number(agencyId || noteAidAgencyId.value || currentAgencyId.value || 0);
-  if (!aid) {
-    sessionLocationChoices.value = [];
-    return;
-  }
+  sessionLocationChoices.value = [];
+  if (!aid) return;
   try {
     const res = await api.get('/medical-billing/service-locations', {
-      params: { agencyId: aid },
-      skipGlobalLoading: true
+      params: { agencyId: aid, forNoteAid: 1 }, skipGlobalLoading: true
     });
-    const items = Array.isArray(res?.data?.items) ? res.data.items : [];
-    const offices = Array.isArray(res?.data?.billingOffices) ? res.data.billingOffices : [];
-    const choices = [];
-    const seen = new Set();
-    for (const loc of items) {
-      const name = String(loc?.name || '').trim();
-      if (!name) continue;
-      const pos = String(loc?.place_of_service || loc?.placeOfService || '').trim();
-      const value = name;
-      if (seen.has(value.toLowerCase())) continue;
-      seen.add(value.toLowerCase());
-      choices.push({
-        value,
-        label: pos ? `${name} (POS ${pos})` : name,
-        placeOfService: pos || null,
-        sortKey: /main\s*office/i.test(name) ? 0 : 1
-      });
-    }
-    for (const o of offices) {
-      const name = String(o?.name || '').trim();
-      if (!name) continue;
-      if (seen.has(name.toLowerCase())) continue;
-      seen.add(name.toLowerCase());
-      const pos = String(
-        o?.default_place_of_service || o?.defaultPlaceOfService || o?.place_of_service || '11'
-      ).trim();
-      choices.push({
-        value: name,
-        label: pos ? `${name} (POS ${pos})` : name,
-        placeOfService: pos || null,
-        sortKey: /main\s*office/i.test(name) ? 0 : 1
-      });
-    }
-    choices.sort((a, b) => a.sortKey - b.sortKey || a.label.localeCompare(b.label));
-    // Keep a free-text / queue location visible in the select even if it is not in billing locations.
+    if (request !== sessionLocationRequest) return;
+    const choices = (Array.isArray(res?.data?.choices) ? res.data.choices : []).map(c => ({ ...c, value: c.label }));
     const current = String(sessionLocationLabel.value || '').trim();
-    if (current && !choices.some((c) => c.value.toLowerCase() === current.toLowerCase())) {
-      choices.unshift({
-        value: current,
-        label: current,
-        placeOfService: null,
-        sortKey: -1
-      });
+    if (current && !choices.some(c => c.value === current)) {
+      const matches = choices.filter(c => (c.aliases || []).some(alias => String(alias).toLowerCase() === current.toLowerCase()));
+      if (matches.length === 1) sessionLocationLabel.value = matches[0].value;
+      else choices.unshift({ value: current, label: `${current} — saved session location`, detail: 'Saved location; select a configured location to confirm its billing details.' });
     }
     sessionLocationChoices.value = choices;
-    if (!sessionLocationLabel.value && choices.length === 1) {
-      sessionLocationLabel.value = choices[0].value;
-    } else if (!sessionLocationLabel.value) {
-      const main = choices.find((c) => /main\s*office/i.test(c.value));
-      if (main) sessionLocationLabel.value = main.value;
-    }
   } catch {
-    sessionLocationChoices.value = [];
+    if (request === sessionLocationRequest) sessionLocationChoices.value = [];
   }
 }
 /** Clinician confirmed client-only despite a soft presence hint (no re-check until participants changes). */
@@ -4982,6 +4950,7 @@ const autosave = async () => {
   const linkedClientId = resolveDraftClientIdForSave();
   const sessionContext = {
     locationLabel: sessionLocationLabel.value || null,
+    ...sessionLocationMetadata(),
     durationMinutes: sessionDurationMinutes.value != null ? Number(sessionDurationMinutes.value) : null,
     startTimeLocal: sessionStartTimeLocal.value || null,
     endTimeLocal: sessionEndTimeLocal.value || null,
@@ -6239,6 +6208,7 @@ const approveNoteOutput = async ({ silent = false, afterSign = 'queue' } = {}) =
       startTime: sessionStartTimeLocal.value || null,
       endTime: sessionEndTimeLocal.value || null,
       locationLabel: sessionLocationLabel.value || null,
+      ...sessionLocationMetadata(),
       treatmentRecommendation: noteTreatmentRecommendation.value || 'continue',
       prescribedFrequency: !isTerminationAid.value && noteTreatmentRecommendation.value !== 'terminate' ? (String(notePrescribedFrequency.value || '').trim() || null) : null,
       skippedMseReason: skipMentalStatusExam.value

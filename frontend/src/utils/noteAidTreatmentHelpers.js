@@ -28,6 +28,34 @@ export function computeProgressLabel({ previousValue, newValue, target }) {
   return 'unchanged';
 }
 
+/** A prior session is determined by service date, never by when documentation was entered. */
+export function priorObjectiveRating(ratings, { objectiveId, raterKind = 'clinician', raterLabel = '', dateOfService }) {
+  const day = String(dateOfService || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
+  return (ratings || []).filter(r => {
+    const dos = String(r.date_of_service || r.dateOfService || '').slice(0, 10);
+    const value = r.scale_value ?? r.scaleValue;
+    return Number(r.objective_id ?? r.objectiveId) === Number(objectiveId)
+      && (r.rater_kind || r.raterKind || 'clinician') === raterKind
+      && (raterKind !== 'other' || String(r.rater_label || r.raterLabel || '').trim().toLowerCase() === raterLabel.trim().toLowerCase())
+      && (!r.disposition || r.disposition === 'rated')
+      && value != null && value !== '' && Number(value) >= 1 && Number(value) <= 10
+      && /^\d{4}-\d{2}-\d{2}$/.test(dos) && dos < day;
+  }).sort((a, b) => String(b.date_of_service || b.dateOfService).slice(0, 10).localeCompare(String(a.date_of_service || a.dateOfService).slice(0, 10))
+    || String(b.rated_at || '').localeCompare(String(a.rated_at || '')) || Number(b.id || 0) - Number(a.id || 0))[0] || null;
+}
+
+export function objectiveComparisonCopy({ previousValue, newValue, target, startValue, previousDate }) {
+  const describe = (from, basis) => {
+    if (from == null || from === '') return '';
+    const label = computeProgressLabel({ previousValue: from, newValue, target });
+    const text = { improved: 'At goal', progressing: 'Closer to goal', regressed: 'Farther from goal', unchanged: 'Unchanged' }[label];
+    return text ? `${text} ${basis} (${from} → ${newValue})` : '';
+  };
+  return [describe(previousValue, `since previous session${previousDate ? ` on ${previousDate}` : ''}`) || 'No earlier session rating',
+    describe(startValue, 'since treatment started')].filter(Boolean).join(' · ');
+}
+
 export function kioskPromptForObjective(obj = {}) {
   const custom = String(obj.kiosk_prompt || obj.kioskPrompt || '').trim();
   if (custom) return custom;
@@ -52,8 +80,10 @@ export function kioskPromptOtherForObjective(obj = {}, clientName = 'the client'
 }
 
 export function startScaleValue(obj = {}) {
-  const n = Number(obj.scale_start ?? obj.scaleStart);
-  return Number.isFinite(n) ? n : null;
+  const value = obj.scale_start ?? obj.scaleStart;
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 1 && n <= 10 ? n : null;
 }
 
 /** Strip duplicated "Objective 1.1" / "Treatment Goal 2" prefixes from body copy. */
@@ -175,7 +205,9 @@ export function buildObjectiveRatingsContextText(entries = []) {
       const scale = e.scaleValue ?? e.scale_value;
       const target = e.scaleTarget ?? e.scale_target_at_rating ?? e.scale_target;
       const label = e.progressLabel || e.progress_label;
-      const labelBit = label ? ` (${label})` : '';
+      const comparison = Object.prototype.hasOwnProperty.call(e, 'previousScaleValue') || e.scaleStart != null
+        ? objectiveComparisonCopy({ previousValue: e.previousScaleValue, newValue: scale, target, startValue: e.scaleStart, previousDate: e.previousDateOfService }) : '';
+      const labelBit = comparison ? ` (${comparison})` : label ? ` (${label}; comparison with previous session, not treatment baseline)` : '';
       const rater = e.raterLabel || e.raterKind || e.rater_kind || 'clinical observation';
       const raterBit = String(rater) === 'clinician' ? 'clinical observation' : String(rater);
       lines.push(

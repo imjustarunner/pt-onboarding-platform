@@ -5,8 +5,8 @@
         <h3>Treatment goals / objectives</h3>
         <p v-if="!sectionCollapsed">
           <span class="na-swatch na-swatch--start" /> Start
-          <span class="na-swatch na-swatch--prev" /> Previous
-          <span class="na-swatch na-swatch--now" /> Today
+          <span class="na-swatch na-swatch--prev" /> Previous session
+          <span class="na-swatch na-swatch--now" /> This session
           <span class="na-swatch na-swatch--goal" /> Goal
         </p>
         <ul v-else-if="compactLines.length" class="na-obj-compact-list">
@@ -98,6 +98,7 @@
             @click="rate(obj, goal, n)"
           >
             {{ n }}
+            <span v-if="Number(obj.scale_target) === n" class="na-scale-goal-label">Goal</span>
           </button>
         </div>
 
@@ -108,7 +109,7 @@
         </div>
 
         <p v-if="entry(obj.id)?.progressLabel" class="na-obj-progress" :class="entry(obj.id).progressLabel">
-          {{ progressCopy(entry(obj.id).progressLabel) }}
+          {{ comparisonCopy(obj) }}
         </p>
         <p v-else-if="isNonNumeric(obj.id)" class="na-obj-progress muted">
           {{ dispositionCopy(entry(obj.id)?.disposition) }}
@@ -129,7 +130,8 @@ import {
   computeProgressLabel,
   kioskPromptForObjective,
   kioskPromptOtherForObjective,
-  progressLabelCopy,
+  objectiveComparisonCopy,
+  priorObjectiveRating,
   startScaleValue,
   stripPlanHeadingPrefix
 } from '../../utils/noteAidTreatmentHelpers.js';
@@ -213,7 +215,7 @@ function collapsedParts(obj, goal) {
   const val = e.scaleValue != null ? `${e.scaleValue}/10` : '—';
   const target = e.scaleTarget != null ? ` (goal ${e.scaleTarget})` : '';
   const progressRaw = e.progressLabel ? String(e.progressLabel) : '';
-  const progressShort = progressRaw ? progressRaw.replace(/_/g, ' ') : '';
+  const progressShort = comparisonCopy(obj);
   return {
     prefix: prefix ? `${prefix} ` : '',
     text: `${text}: `,
@@ -251,25 +253,17 @@ function entry(objectiveId) {
   return byObjective[entryKey(objectiveId)] || null;
 }
 
-function ratingDos(r) {
-  return String(r.date_of_service || r.dateOfService || '').slice(0, 10);
+function priorRating(obj, kind = raterKind.value, label = otherLabel.value) {
+  return priorObjectiveRating(props.previousRatings, { objectiveId: obj.id, raterKind: kind, raterLabel: label, dateOfService: props.dateOfService });
 }
-
 function previousRated(obj) {
-  const kind = raterKind.value;
-  const today = String(props.dateOfService || '').slice(0, 10);
-  const hist = (props.previousRatings || [])
-    .filter((r) => Number(r.objective_id || r.objectiveId) === Number(obj.id)
-      && String(r.rater_kind || r.raterKind || 'clinician') === kind
-      && r.scale_value != null && r.scale_value !== '')
-    .sort((a, b) => String(b.rated_at || b.date_of_service || '').localeCompare(String(a.rated_at || a.date_of_service || '')));
-  const prior = hist.filter((r) => !today || ratingDos(r) !== today);
-  if (prior[0]?.scale_value != null) return Number(prior[0].scale_value);
-  const latestDos = hist[0] ? ratingDos(hist[0]) : '';
-  if (today && latestDos === today) return null;
-  if (entry(obj.id)?.disposition === 'rated') return null;
-  if (kind === 'clinician' && obj.scale_current != null) return Number(obj.scale_current);
-  return null;
+  const prior = priorRating(obj);
+  return prior ? Number(prior.scale_value ?? prior.scaleValue) : null;
+}
+function comparisonCopy(obj) {
+  const e = entry(obj.id);
+  return e ? objectiveComparisonCopy({ previousValue: e.previousScaleValue, newValue: e.scaleValue,
+    target: e.scaleTarget, startValue: startValue(obj), previousDate: e.previousDateOfService }) : '';
 }
 
 function startValue(obj) {
@@ -292,7 +286,7 @@ function scaleTitle(obj, n) {
   if (Number(obj.scale_target) === n) bits.push('goal');
   if (previousRated(obj) === n) bits.push('previous session');
   if (entry(obj.id)?.disposition === 'rated' && Number(entry(obj.id)?.scaleValue) === n) {
-    bits.push('today');
+    bits.push('this session');
   }
   return bits.join(' · ');
 }
@@ -300,10 +294,6 @@ function scaleTitle(obj, n) {
 function isNonNumeric(objectiveId) {
   const d = entry(objectiveId)?.disposition;
   return d && d !== 'rated';
-}
-
-function progressCopy(label) {
-  return progressLabelCopy(label);
 }
 
 function dispositionCopy(d) {
@@ -337,6 +327,8 @@ function rate(obj, goal, n) {
     scaleValue: n,
     scaleTarget: target,
     previousScaleValue: previous,
+    previousDateOfService: priorRating(obj)?.date_of_service || priorRating(obj)?.dateOfService || null,
+    scaleStart: startValue(obj),
     disposition: 'rated',
     progressLabel,
     raterKind: raterKind.value,
@@ -361,6 +353,8 @@ function setDisposition(obj, goal, disposition) {
     scaleValue: null,
     scaleTarget: obj.scale_target != null ? Number(obj.scale_target) : null,
     previousScaleValue: previous,
+    previousDateOfService: priorRating(obj)?.date_of_service || priorRating(obj)?.dateOfService || null,
+    scaleStart: startValue(obj),
     disposition,
     progressLabel: null,
     raterKind: raterKind.value,
@@ -415,6 +409,17 @@ watch(
   },
   { deep: true }
 );
+
+// Refresh comparison evidence when history or the note's service date changes.
+watch([() => props.previousRatings, () => props.dateOfService], () => {
+  for (const e of Object.values(byObjective)) {
+    const prior = priorRating({ id: e.objectiveId }, e.raterKind, e.raterLabel);
+    e.previousScaleValue = prior ? Number(prior.scale_value ?? prior.scaleValue) : null;
+    e.previousDateOfService = prior?.date_of_service || prior?.dateOfService || null;
+    e.progressLabel = e.disposition === 'rated' ? computeProgressLabel({ previousValue: e.previousScaleValue, newValue: e.scaleValue, target: e.scaleTarget }) : null;
+  }
+  emitAll();
+}, { deep: true });
 
 defineExpose({
   getRatings: () => Object.values(byObjective).filter(Boolean),
@@ -606,7 +611,19 @@ defineExpose({
   border-color: #475569;
   color: #fff;
 }
+.na-scale-goal-label {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  color: #15803d;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
 .na-scale-btn.goal {
+  position: relative;
+  margin-bottom: 18px;
+  border-color: #16a34a;
   box-shadow: inset 0 0 0 2px #16a34a;
 }
 .na-scale-btn.prev:not(.selected) {

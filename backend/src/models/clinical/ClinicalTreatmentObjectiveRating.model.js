@@ -200,6 +200,20 @@ class ClinicalTreatmentObjectiveRating {
     return map;
   }
 
+  /** Compare only with an earlier service date from the same rater category. */
+  static async findPreviousSession({ objectiveId, raterKind = 'clinician', raterLabel = null, dateOfService }) {
+    if (!safeInt(objectiveId) || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateOfService || ''))) return null;
+    const [rows] = await clinicalPool.execute(
+      `SELECT * FROM clinical_treatment_objective_ratings
+       WHERE objective_id = ? AND COALESCE(rater_kind, 'clinician') = ?
+         AND (? <> 'other' OR LOWER(TRIM(COALESCE(rater_label, ''))) = LOWER(TRIM(?)))
+         AND date_of_service < ? AND disposition = 'rated' AND scale_value BETWEEN 1 AND 10
+       ORDER BY date_of_service DESC, rated_at DESC, id DESC LIMIT 1`,
+      [Number(objectiveId), raterKind, raterKind, raterLabel || '', dateOfService]
+    );
+    return rows?.[0] || null;
+  }
+
   /** Latest rating for objective + rater + date of service (dedupe key). */
   static async findLatestForDedupe({
     objectiveId,
