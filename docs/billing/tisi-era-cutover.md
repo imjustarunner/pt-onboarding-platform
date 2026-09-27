@@ -30,3 +30,18 @@ Reference: https://api.claim.md/ (ERA list and ERA details). ERA import uses pol
 Live portal check on 2026-09-26: TISI / COCHA ERA enrollment returned an existing-receiver conflict. Claim.MD instructs the current receiving account to remove/stop its enrollment, or the account holder to open a Claim.MD support request. No transfer occurred; the first live directory check returned zero TISI ERAs. This is separate from CCHA professional claims, which require no electronic enrollment.
 
 Provisioning: `node scripts/provision-claimmd-sync.mjs` previews the job; `--apply` creates/updates it and its 15-minute scheduler using the serving backend image and only the necessary billing/database/encryption configuration. Re-run after backend changes affecting this job or credential rotation. Its transmission mode is always disabled, and its agency allowlist is 377.
+
+## BCBS and UnitedHealthcare enrollment update — September 26, 2026
+
+The owner stopped TISI's old-account ERA enrollments for CO BCBS (00050) and UnitedHealthcare (87726), confirmed by screenshots dated September 26. Stopping delivery in the old account alone did not redirect ERAs to the new account.
+
+| Payer | New account 31985 status | Evidence and next step |
+| --- | --- | --- |
+| CO BCBS — 00050 | Enrollment received; activation unverified | Quick Enroll submitted through the live portal, which displayed `ERA ENROLLMENT RECEIVED 09/26/26`. Await activation and verify actual ERA delivery. |
+| UnitedHealthcare — 87726 | Enrollment received; activation unverified | The owner completed the Change of Vendor form. The confirmation screenshot at 9:57 PM displayed `ERA ENROLLMENT RECEIVED 09/26/26`. The app tracker was updated from signature required using that evidence. |
+
+The owner confirmed that TISI already receives UnitedHealthcare payments through Optum Pay by direct deposit. No bank details or EFT instructions were changed. UHC's enrollment page advises allowing 45 business days for approval and the payment cycle before opening a missing-ERA ticket with the requested EOB evidence; this is guidance, not a guaranteed activation date.
+
+Live Claim.MD directory checks confirmed professional claims and eligibility support for both payer IDs. No actual member eligibility request or claim was submitted during enrollment. The owner confirmed that the first two intended claims have never been submitted; they still require the app's original-claim review and approval. Verify a real eligibility response, claim acknowledgments and the first ERA before treating the migration as complete.
+
+Both ERA tracker entries are `enrollment_received`. Audit records distinguish direct portal observation for BCBS from the owner's confirmation screenshot for UHC; neither is represented as a webhook or proof of activation. The earlier CCHA receiver conflict remains a separate outstanding item. These updates do not move ITSCO or NLU ERA delivery.
