@@ -413,9 +413,9 @@ function heatStyle(actionId) {
   if (level === 0) return {};
   const def = HEAT_LEVELS[level];
   return {
-    background: def.bg,
-    borderColor: def.border,
-    color: def.text,
+    '--action-heat-bg': def.bg,
+    '--action-heat-border': def.border,
+    '--action-heat-text': def.text,
   };
 }
 
@@ -468,7 +468,7 @@ defineExpose({ openCustomizer });
   padding: 6px 12px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: white;
+  background: var(--bg-card, white);
   color: var(--text-primary);
   cursor: pointer;
   font-weight: 700;
@@ -538,14 +538,14 @@ defineExpose({ openCustomizer });
 }
 
 .action-card {
-  background: white;
+  background: var(--action-heat-bg, var(--bg-card, white));
   padding: 32px;
   border-radius: 12px;
   box-shadow: var(--shadow);
   text-decoration: none;
-  color: inherit;
+  color: var(--action-heat-text, inherit);
   transition: all 0.2s;
-  border: 1px solid var(--border);
+  border: 1px solid var(--action-heat-border, var(--border));
   display: flex;
   align-items: center;
   gap: 20px;
@@ -930,5 +930,9 @@ defineExpose({ openCustomizer });
   display: flex;
   justify-content: flex-end;
 }
+[data-theme="dark"] .action-card {
+  background: color-mix(in srgb, var(--action-heat-bg, var(--bg-card)) 15%, var(--bg-card));
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--action-heat-border, var(--border)) 40%, var(--border));
+}
 </style>
-

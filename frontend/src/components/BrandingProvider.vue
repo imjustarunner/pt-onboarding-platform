@@ -230,6 +230,7 @@ const brandingStyles = computed(() => {
     '--primary-hover': brandingStore.primaryHover,
     '--secondary': brandingStore.secondaryColor,
     '--accent': brandingStore.accentColor,
+    '--link-color': dark ? `color-mix(in srgb, ${brandingStore.primaryColor} 35%, white)` : brandingStore.primaryColor,
     '--success': brandingStore.successColor,
     '--error': platform?.error_color || '#CC3D3D',
     '--warning': platform?.warning_color || '#E6A700',
@@ -278,4 +279,3 @@ const brandingStyles = computed(() => {
   background-color: var(--secondary-color);
 }
 </style>
-

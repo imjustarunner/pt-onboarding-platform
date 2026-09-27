@@ -71,6 +71,7 @@ try {
     for (const scheme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: scheme });
       assert.equal(await background(), scheme === 'dark' ? 'rgb(9, 11, 15)' : 'rgb(250, 251, 252)');
+      assert.equal(await page.locator('.login-card').evaluate(el => getComputedStyle(el).backgroundColor), scheme === 'dark' ? 'rgb(17, 19, 24)' : 'rgb(255, 255, 255)');
       assert.equal(await page.locator('#username').evaluate(el => getComputedStyle(el).backgroundColor), scheme === 'dark' ? 'rgb(17, 19, 24)' : 'rgb(255, 255, 255)');
       await page.waitForFunction(expected => document.querySelector('meta[name="theme-color"]').content === expected, scheme === 'dark' ? '#090b0f' : '#fafbfc');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), `${name} overflow`);
@@ -106,6 +107,32 @@ try {
   await page.goto('https://plottwisthq.com/');
   await page.locator('.hq-login').waitFor();
   assert.equal(new URL(page.url()).pathname, '/login');
+
+  // Saved dashboard appearance must not split the device-themed login into a
+  // dark heading and a white card, including the separate Google shortcut view.
+  for (const stored of ['light', 'dark']) {
+    await page.evaluate(stored => {
+      localStorage.setItem('prefs:theme:current', stored);
+      localStorage.setItem('__pt_google_sso_remember__', JSON.stringify({ username: 'test@example.invalid', loginHint: 'test@example.invalid', orgSlug: 'plottwistco', displayName: 'Test Admin', organizationName: 'PlotTwistCo', title: 'Administrator' }));
+      localStorage.setItem('__pt_login_remember__', JSON.stringify({ username: 'test@example.invalid', orgSlug: 'plottwistco' }));
+    }, stored);
+    for (const scheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.reload();
+      await page.locator('.account-details h3').waitFor();
+      const expectedSurface = scheme === 'dark' ? 'rgb(17, 19, 24)' : 'rgb(255, 255, 255)';
+      const expectedText = scheme === 'dark' ? 'rgb(247, 248, 250)' : 'rgb(21, 23, 27)';
+      assert.equal(await page.locator('.login-card').evaluate(el => getComputedStyle(el).backgroundColor), expectedSurface);
+      for (const selector of ['.hq-cardhead h2', '.account-details h3', '.account-details p', '.account-switch', '.account-forget', '.account-continue']) {
+        assert.equal(await page.locator(selector).first().evaluate(el => getComputedStyle(el).color), expectedText, `${selector}: ${stored} preference, ${scheme} device`);
+      }
+      await page.screenshot({ path: `${output}/remembered-${stored}-preference-${scheme}-device.png`, fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      await page.screenshot({ path: `${output}/remembered-mobile-${stored}-${scheme}.png`, fullPage: true });
+      await page.setViewportSize({ width: 1440, height: 1000 });
+    }
+  }
   assert.deepEqual(errors, []);
   console.log('PASS: device themes, 5 viewport sizes, loaded assets, account identification before password submission, Google routing without password submission, password toggle, recovery, security, tenant isolation.');
   console.log(`Screenshots: ${output}`);

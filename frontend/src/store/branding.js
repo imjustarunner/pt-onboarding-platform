@@ -1,5 +1,6 @@
 import { PLATFORM_BRAND, normalizePlatformBranding } from '../config/platformBrand.js';
 import { defineStore } from 'pinia';
+import { resolveTenantPalette } from '../utils/tenantPalette';
 import { ref, computed, reactive } from 'vue';
 import { useAgencyStore } from './agency';
 import { useAuthStore } from './auth';
@@ -395,7 +396,7 @@ export const useBrandingStore = defineStore('branding', () => {
         : {};
     }
 
-    applyTheme(data);
+    applyTheme({ ...data, slug: portalUrl });
     const portalNorm = String(portalUrl || '').trim().toLowerCase();
     if (authStore.isAuthenticated && agencyStore.currentAgency && !shouldApplyPortalAgencyThemeFirst()) {
       const ag = agencyStore.currentAgency;
@@ -446,7 +447,7 @@ export const useBrandingStore = defineStore('branding', () => {
   // Apply theme to CSS variables
   const applyTheme = (themeData) => {
     const root = document.documentElement;
-    const colorPalette = themeData.colorPalette || {};
+    const colorPalette = resolveTenantPalette(themeData.slug ?? activeWorkspaceSlug.value, themeData.colorPalette);
     const themeSettings = themeData.themeSettings || {};
     const brandingAgencyId = themeData.brandingAgencyId || themeData.agencyId || null;
     
@@ -565,6 +566,7 @@ export const useBrandingStore = defineStore('branding', () => {
     } catch {
       themeSettings = {};
     }
+    colorPalette = resolveTenantPalette(a.slug || a.portal_url || a.portalUrl, colorPalette);
     const pb = platformBranding.value || {};
     const mergedPalette = {
       ...colorPalette,
@@ -586,6 +588,7 @@ export const useBrandingStore = defineStore('branding', () => {
       (orgType === 'affiliation' || orgType === 'clubwebapp') && parentTenantId ? parentTenantId : a.id;
     applyTheme({
       colorPalette: mergedPalette,
+      slug: a.slug || a.portal_url || a.portalUrl || '',
       themeSettings: mergedThemeSettings,
       brandingAgencyId: fontBrandingAgencyId,
       agencyId: a.id
@@ -601,6 +604,7 @@ export const useBrandingStore = defineStore('branding', () => {
     const pb = platformBranding.value;
     if (!pb) return;
     applyTheme({
+      slug: '',
       colorPalette: {
         primary: pb.primary_color || PLATFORM_BRAND.primary,
         secondary: pb.secondary_color || '#1D2633',
@@ -831,7 +835,7 @@ export const useBrandingStore = defineStore('branding', () => {
     return null;
   };
 
-  const _resolveActivePalette = () => {
+  const _resolveStoredPalette = () => {
     // Dedicated hosts use /login without an activeRouteSlug. Guest portal identity
     // must win over a saved Platform selection or another tenant.
     if (shouldApplyPortalAgencyThemeFirst() && !settingsTenantPickerBrandingActive.value) {
@@ -914,10 +918,16 @@ export const useBrandingStore = defineStore('branding', () => {
     return { palette: null, source: 'platform' };
   };
 
-  /**
-   * Theme settings for the active branding context (route slug cache, else current agency).
-   * Used for flags like useExtendedBrandingColors without extra fetches.
-   */
+  const _resolveActivePalette = () => {
+    const result = _resolveStoredPalette();
+    const agency = agencyStore.currentAgency;
+    const slug = settingsTenantPickerBrandingActive.value
+      ? agency?.slug || agency?.portal_url || agency?.portalUrl
+      : activeWorkspaceSlug.value || (result.source === 'currentAgency' ? agency?.slug || agency?.portal_url || agency?.portalUrl : '');
+    return { ...result, palette: resolveTenantPalette(slug, result.palette) };
+  };
+
+  /** Theme settings from the same workspace, including extended-color opt-in. */
   const _resolveActiveThemeSettings = () => {
     if (settingsTenantPickerBrandingActive.value) {
       const agency = agencyStore.currentAgency;

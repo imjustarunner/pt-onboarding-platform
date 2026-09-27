@@ -4587,21 +4587,5 @@ html[data-pt-app-preview-mode="ipad"] .login-help {
 .login-security-guidance { margin: .6rem 0 0; padding: .85rem; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; font-size: .85rem; line-height: 1.5; text-align: left; }
 .login-security-guidance p { margin: .35rem 0 0; }
 
-/* Platform login follows appearance; tenant video experiences retain their own identity. */
-.login-page--platform { --va-primary:#B80016; --va-accent:var(--link-color); --va-white:var(--text-primary); --va-muted:var(--text-secondary); --va-subtle:var(--text-secondary); --va-border:var(--border); --va-field-bg:var(--bg-card); }
-.login-page--platform > .platform-appearance { position:absolute; top:20px; right:24px; z-index:4; color:var(--text-primary); }
-.login-page--platform .login-card { background:var(--bg-card) !important; border:1px solid var(--border) !important; border-radius:24px; padding:28px; box-shadow:var(--shadow-lg); }
-.login-page--platform .login-credentials-username input { background-image:none; padding-left:16px; }
-.login-page--platform .login-submit-btn, .login-page--platform .btn-primary { background:#B80016; color:#fff; }
-.login-page--platform .platform-hero__brand { gap:12px; }
-.login-page--platform .platform-footer__link { color:var(--link-color); }
-.login-page--platform .platform-hero { padding-top:70px; }
-
-.login-page--platform .login-form .form-group label { color:var(--text-primary); }
-.login-page--platform .remember-me, .login-page--platform .platform-footer { color:var(--text-secondary); }
-.login-page--platform .login-form .btn-primary { background:var(--va-primary); color:#fff; box-shadow:none; }
-.login-page--platform .login-form .form-group input::placeholder { color:var(--text-secondary); }
-.login-page--platform .platform-footer__sep { color:var(--border); }
-.login-page--platform .login-container { padding-top:76px !important; }
-@media(max-width:600px) { .login-page--platform > .platform-appearance { top:12px; right:16px; } .login-page--platform .login-card { padding:22px; } }
+/* HqLoginShell owns platform appearance, including remembered-account login. */
 </style>

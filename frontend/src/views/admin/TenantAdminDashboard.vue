@@ -810,8 +810,8 @@ const brandVars = computed(() => {
   return {
     '--ops-primary': primary,
     '--ops-sidebar': `color-mix(in srgb, ${primary} 78%, #041a12)`,
-    '--ops-ink': '#0f172a',
-    '--ops-muted': '#64748b'
+    '--ops-ink': 'var(--text-primary)',
+    '--ops-muted': 'var(--text-secondary)'
   };
 });
 
@@ -2971,6 +2971,10 @@ const logout = () => {
 }
 [data-theme="dark"] .page-header h1 {
   color: var(--text-primary, #e2e8f0);
+}
+[data-theme="dark"] .tenant-admin-dashboard :deep(h2),
+[data-theme="dark"] .tenant-admin-dashboard :deep(h3) {
+  color: var(--text-primary);
 }
 [data-theme="dark"] .subtitle,
 [data-theme="dark"] .datetime,

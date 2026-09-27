@@ -22,8 +22,8 @@ describe('platform identity and agency isolation', () => {
     agency.platformMode = true; agency.currentAgency = null;
     branding.portalAgency = { slug: 'itsco', name: 'ITSCO', logoUrl: '/itsco.png', colorPalette: { primary: '#00AA00' } };
     branding.activeRouteSlug = null;
-    expect(branding.displayLogoUrl).toBe(PLATFORM_BRAND.logo);
-    expect(branding.displayChromeIconUrl).toBe(PLATFORM_BRAND.logo);
+    expect(new URL(branding.displayLogoUrl, 'https://example.test').pathname).toBe(PLATFORM_BRAND.logo);
+    expect(new URL(branding.displayChromeIconUrl, 'https://example.test').pathname).toBe(PLATFORM_BRAND.logo);
     expect(branding.primaryColor).toBe(PLATFORM_BRAND.primary);
   });
   it('preserves the selected agency identity in Settings', () => {

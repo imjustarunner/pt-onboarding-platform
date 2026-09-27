@@ -1,4 +1,5 @@
 import { PLATFORM_BRAND } from '../config/platformBrand.js';
+import { resolveTenantPalette } from './tenantPalette';
 
 const PRIVILEGED_LOGIN_ROLES = new Set(['admin', 'support', 'super_admin', 'superadmin']);
 const INACTIVE_ACCOUNT_STATUSES = new Set(['INACTIVE', 'INACTIVE_EMPLOYEE', 'ARCHIVED']);
@@ -64,7 +65,13 @@ export function parseBrandPalette(agency, fallback = {}) {
       raw = {};
     }
   }
-  const palette = raw && typeof raw === 'object' ? raw : {};
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const palette = resolveTenantPalette(agency?.slug || agency?.portal_url || agency?.portalUrl, {
+    ...source,
+    primary: source.primary || source.primaryColor,
+    secondary: source.secondary || source.secondaryColor,
+    accent: source.accent || source.accentColor
+  });
   const primary = palette.primary || palette.primaryColor || fallback.primary || '#1f6b4a';
   const secondary = palette.secondary || palette.secondaryColor || fallback.secondary || '#0f2f27';
   const accent = palette.accent || palette.accentColor || primary;
@@ -82,7 +89,7 @@ export function activeBriefingSections(source = {}) {
 
 export function buildTenantBlend(agencies = [], fallback = {}) {
   const colors = agencies
-    .map((agency) => parseBrandPalette(agency, fallback).primary)
+    .map((agency) => agency.primary || parseBrandPalette(agency, fallback).primary)
     .filter(Boolean);
   if (!colors.length) return fallback.primary || '#1f6b4a';
   if (colors.length === 1) return colors[0];

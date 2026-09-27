@@ -205,9 +205,14 @@
               <span v-if="tenantLaunchers.length > 12" class="tenant-launchers__overflow">+{{ tenantLaunchers.length - 12 }} more</span>
             </div>
 
-            <button class="enter-dashboard" type="button" @click="dismiss">
-              <span aria-hidden="true">&#x25A3;</span> Enter Dashboard
-            </button>
+            <div class="briefing-dashboard-actions">
+              <button v-if="isSuperadmin" class="superadmin-dashboard" type="button" @click="navigateToPlatform">
+                <LayoutDashboard :size="16" aria-hidden="true" /> Superadmin Dashboard
+              </button>
+              <button class="enter-dashboard" type="button" @click="dismiss">
+                <span aria-hidden="true">&#x25A3;</span> Enter Dashboard
+              </button>
+            </div>
           </footer>
         </section>
       </div>
@@ -222,7 +227,8 @@ import { tenantFaviconUrl } from '../../utils/tenantBrandAssets.js';
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
-import { openTenantWorkspace } from '../../services/workspaceNavigation';
+import { openTenantWorkspace, openPlatformWorkspace } from '../../services/workspaceNavigation';
+import { LayoutDashboard } from '@lucide/vue';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
@@ -835,6 +841,13 @@ async function navigateToTenant(agency) {
   await openTenantWorkspace(agency, router);
 }
 
+async function navigateToPlatform() {
+  if (!isSuperadmin.value) return;
+  dismiss();
+  await nextTick();
+  await openPlatformWorkspace(router);
+}
+
 watch(
   () => [authStore.user?.id, props.loginTrigger, router.currentRoute.value.meta?.requiresAuth, workspaceSlug.value, workspaceAgency.value?.id],
   ([nextUserId, trigger]) => {
@@ -1007,10 +1020,13 @@ onBeforeUnmount(() => {
 .security-card { display: flex; gap: 12px; font-size: 12px; }
 .security-card > span { color: var(--brief-link); font-size: 22px; }
 .security-card p { margin: 7px 0 0; color: var(--text-secondary, #526078); font-size: 11px; line-height: 1.55; }
-.briefing-footer { position: sticky; bottom: 0; z-index: 2; min-height: 66px; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 28px 10px 126px; border-top: 1px solid rgba(203, 213, 225, .35); border-radius: 0 0 19px 19px; background: var(--bg-alt, #f1f5f9); color: var(--text-primary); }
+.briefing-footer { position: sticky; bottom: 0; z-index: 2; min-height: 66px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 28px 10px 126px; border-top: 1px solid rgba(203, 213, 225, .35); border-radius: 0 0 19px 19px; background: var(--bg-alt, #f1f5f9); color: var(--text-primary); }
 .dont-show-label { display: flex; align-items: center; gap: 9px; font-size: 11px; cursor: pointer; }
 .dont-show-label input { width: 16px; height: 16px; accent-color: var(--brief-link); }
-.enter-dashboard { min-width: 245px; padding: 12px 20px; border: 1px solid rgba(255,255,255,.15); border-radius: 7px; background: var(--brief-blend); color: #fff; font-size: 13px; font-weight: 800; cursor: pointer; }
+.briefing-dashboard-actions { display: flex; flex-wrap: wrap; gap: 8px; flex-shrink: 0; }
+.enter-dashboard, .superadmin-dashboard { min-height: 44px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 7px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.enter-dashboard { background: var(--brief-blend); color: #fff; }
+.superadmin-dashboard { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--bg-card); color: var(--text-primary); }
 
 /* Tenant quick-launch icons in footer */
 .tenant-launchers {
@@ -1108,7 +1124,9 @@ onBeforeUnmount(() => {
   .briefing-card-grid { grid-template-columns: 1fr; }
   .briefing-card { min-height: 210px; }
   .briefing-side { margin-top: 14px; }
-  .briefing-footer { position: fixed; left: 0; right: 0; padding: 10px 14px; border-radius: 0; }
+  .briefing-footer { position: static; padding: 10px 14px; border-radius: 0; }
+  .briefing-dashboard-actions { width: 100%; flex-direction: column; }
+  .tenant-launchers { flex-basis: 100%; max-height: none; }
   .dont-show-label span { max-width: 150px; }
   .enter-dashboard { min-width: 155px; }
 }

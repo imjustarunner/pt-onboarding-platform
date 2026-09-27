@@ -21,6 +21,28 @@ afterEach(() => {
 });
 
 describe('dedicated host branding', () => {
+  it('changes all palette tokens together on HQ tenant switches and preserves customization', () => {
+    setActivePinia(createPinia());
+    const branding = useBrandingStore();
+    const agency = useAgencyStore();
+    useAuthStore().setAuth(null, { id: 7, role: 'super_admin' });
+    const legacy = { primary: '#0F172A', secondary: '#1E40AF', accent: '#F97316' };
+    for (const [slug, primary, secondary, accent] of [
+      ['itsco', '#086653', '#064C41', '#46D6B5'],
+      ['nlu', '#092E58', '#008591', '#008591'],
+      ['tisi', '#12364B', '#2F6B3A', '#2F6B3A']
+    ]) {
+      branding.setActiveRouteSlug(slug);
+      agency.setCurrentAgency({ id: 2, slug, color_palette: legacy });
+      branding.setPortalThemeData({ slug, colorPalette: legacy });
+      branding.syncDocumentThemeFromSelectedAgency();
+      expect([branding.primaryColor, branding.secondaryColor, branding.accentColor]).toEqual([primary, secondary, accent]);
+      expect(document.documentElement.style.getPropertyValue('--primary')).toBe(primary);
+      expect(document.documentElement.style.getPropertyValue('--accent')).toBe(accent);
+    }
+    branding.setPortalThemeData({ slug: 'tisi', colorPalette: { primary: '#234567', secondary: '#345678', accent: '#456789' } });
+    expect(branding.primaryColor).toBe('#234567');
+  });
   it('uses bundled ITSCO assets when the fetched host theme has no logo or icon', () => {
     setActivePinia(createPinia());
     const branding = useBrandingStore();
@@ -39,7 +61,8 @@ describe('dedicated host branding', () => {
     expect(branding.displayName).toBe('ITSCO');
     expect(branding.displayLogoUrl).toContain('/assets/itsco/logo.png');
     expect(branding.displayChromeIconUrl).toContain('/assets/itsco/logo.png');
-    expect(branding.primaryColor).toBe('#0F172A');
+    expect(branding.primaryColor).toBe('#086653');
+    expect(document.documentElement.style.getPropertyValue('--primary')).toBe('#086653');
   });
 
   it('uses the tenant logo for compact chrome when a separate tenant icon is missing', () => {

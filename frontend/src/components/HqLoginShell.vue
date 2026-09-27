@@ -81,10 +81,16 @@ const highlights = [
   --hq-red: #cf0023;
   --hq-soft: #fff0f2;
   --bg: var(--hq-surface);
+  --bg-card: var(--hq-surface);
+  --bg-alt: var(--hq-surface);
+  --bg-muted: var(--hq-soft);
   --border: var(--hq-line);
+  --link-color: var(--hq-red);
   --text-primary: var(--hq-text);
   --text-secondary: var(--hq-muted);
   --primary: var(--hq-red);
+  --primary-color: var(--hq-red);
+  --secondary-color: var(--hq-red);
   --accent: var(--hq-red);
   color-scheme: light;
   position: relative;
@@ -104,6 +110,7 @@ const highlights = [
 .hq-wordmark img { object-fit: contain; }
 .hq-wordmark b, h1 span { color: var(--hq-red); }
 .hq-login a { color: inherit; text-decoration: none; }
+.hq-login .hq-header a.hq-wordmark { color: var(--hq-text); }
 .hq-login a:hover, .hq-header button:hover { color: var(--hq-red); }
 .hq-login a:focus-visible, .hq-header button:focus-visible { outline: 2px solid var(--hq-red); outline-offset: 5px; }
 .hq-header nav, .hq-footer nav { display: flex; align-items: center; gap: 28px; font-size: 14px; }

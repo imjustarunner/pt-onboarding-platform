@@ -7,12 +7,13 @@ import { useAuthStore } from '../../../store/auth';
 import { useAgencyStore } from '../../../store/agency';
 import { useBrandingStore } from '../../../store/branding';
 import api from '../../../services/api';
+import { openPlatformWorkspace } from '../../../services/workspaceNavigation';
 
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 vi.mock('../../../utils/fontLoader', () => ({ loadFont: vi.fn().mockResolvedValue() }));
 vi.mock('../../../utils/preloadImages', () => ({ preloadImages: vi.fn().mockResolvedValue() }));
 vi.mock('../../../utils/pageLoader', () => ({ trackPromise: (promise) => promise }));
-vi.mock('../../../services/workspaceNavigation', () => ({ openTenantWorkspace: vi.fn().mockResolvedValue() }));
+vi.mock('../../../services/workspaceNavigation', () => ({ openTenantWorkspace: vi.fn().mockResolvedValue(), openPlatformWorkspace: vi.fn().mockResolvedValue() }));
 vi.mock('../../meetings/DashboardMeetings.vue', () => ({ default: { props: ['includeAllAgencies'], template: '<div />' } }));
 
 const itsco = { id: 1, slug: 'itsco', name: 'ITSCO', logo_url: '/assets/itsco/logo.png', organization_type: 'agency' };
@@ -52,6 +53,21 @@ const render = () => {
 };
 
 describe('superadmin welcome briefing follows the workspace', () => {
+  it('opens the HQ workspace from the explicit superadmin dashboard button', async () => {
+    render();
+    await flushPromises();
+    document.querySelector('.superadmin-dashboard').click();
+    await flushPromises();
+    expect(openPlatformWorkspace).toHaveBeenCalledWith(router);
+    expect(document.querySelector('.briefing-modal')).toBeNull();
+  });
+
+  it('does not expose a superadmin dashboard button to tenant administrators', async () => {
+    useAuthStore().setAuth(null, { id: 8, role: 'admin', firstName: 'Test' });
+    render();
+    await flushPromises();
+    expect(document.querySelector('.superadmin-dashboard')).toBeNull();
+  });
   it('shows ITSCO branding immediately, scopes requests, and retains tenant shortcuts', async () => {
     render();
     expect(document.querySelector('.briefing-eyebrow').textContent).toBe('ITSCO command center');
