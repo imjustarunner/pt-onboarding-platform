@@ -6644,9 +6644,17 @@ const fieldValuesByTemplate = reactive({});
 const sessionToken = ref(String(route.query?.session || '').trim());
 provide('intakeSessionToken', sessionToken);
 const submissionStorageKey = computed(() =>
-  sessionToken.value ? `public_intake_submission_${publicKey}_${sessionToken.value}` : `public_intake_submission_${publicKey}`
+  sessionToken.value
+    ? `public_intake_submission_${publicKey}_${sessionToken.value}`
+    : `public_intake_submission_${publicKey}`
 );
-const draftStorageKey = computed(() => `public_intake_draft_${publicKey}`);
+// Always scope drafts to the resume token when present so two parents on the
+// same school link never share browser draft storage.
+const draftStorageKey = computed(() =>
+  sessionToken.value
+    ? `public_intake_draft_${publicKey}_${sessionToken.value}`
+    : `public_intake_draft_${publicKey}`
+);
 const DRAFT_STORAGE_VERSION = 1;
 const DRAFT_TTL_MS = 60 * 60 * 1000;
 const isRestoringDraft = ref(false);
@@ -7656,6 +7664,11 @@ const clearPersistedDraft = () => {
   try {
     localStorage.removeItem(submissionStorageKey.value);
     localStorage.removeItem(draftStorageKey.value);
+    // Purge legacy unscoped keys (pre-session draft isolation) for this link.
+    if (sessionToken.value) {
+      localStorage.removeItem(`public_intake_draft_${publicKey}`);
+      localStorage.removeItem(`public_intake_submission_${publicKey}`);
+    }
   } catch {
     // ignore browser storage errors
   }
@@ -8014,6 +8027,9 @@ const restoreServerProgress = async () => {
           clients: Array.isArray(intakeData.clients) ? intakeData.clients : [],
           intakeResponses: intakeData.responses || null
         };
+    // Hard stop: never paint another session's snapshot into this resume URL.
+    const snapTok = String(snapshot?.sessionToken || '').trim();
+    if (snapTok && snapTok !== token) return false;
     if (!hasMeaningfulDraftSnapshot(snapshot)) return false;
     return applyDraftSnapshot(snapshot);
   } catch {

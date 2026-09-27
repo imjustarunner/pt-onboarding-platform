@@ -39,9 +39,12 @@ export function normalizeContinuationWeekday(value) {
 
 /** Date of created_at / submission_date as YYYY-MM-DD, or null. */
 export function clientAnchorYmd(client) {
-  const sub = client?.submission_date ? String(client.submission_date).slice(0, 10) : '';
+  const ymd = (value) => value instanceof Date && Number.isFinite(value.getTime())
+    ? value.toISOString().slice(0, 10)
+    : String(value || '').slice(0, 10);
+  const sub = ymd(client?.submission_date);
   if (/^\d{4}-\d{2}-\d{2}$/.test(sub)) return sub;
-  const created = client?.created_at ? String(client.created_at).slice(0, 10) : '';
+  const created = ymd(client?.created_at);
   if (/^\d{4}-\d{2}-\d{2}$/.test(created)) return created;
   return null;
 }
@@ -52,7 +55,8 @@ export function isSchoolClientRow(client) {
 
 /**
  * Returning school client for the current fall season:
- * staff already completed, prior school year, or created/submitted before this July 1.
+ * Prior onboarding/intake history or a prior school year establishes a returner.
+ * Completing staff onboarding for a new intake does not make it a returner.
  */
 export function isReturningSchoolClient(client, now = new Date()) {
   if (!isSchoolClientRow(client)) return false;
@@ -60,15 +64,23 @@ export function isReturningSchoolClient(client, now = new Date()) {
   if (statusKey === 'terminated' || statusKey === 'waitlist') return false;
   if (String(client?.status || '').toUpperCase() === 'ARCHIVED') return false;
 
-  if (client?.staff_onboarding_completed_at) return true;
-  if (['onboarded', 'current'].includes(statusKey)) return true;
-
   const currentYear = computeCurrentSchoolYearLabel(now);
   const clientYear = normalizeSchoolYearLabel(client?.school_year);
   if (clientYear && clientYear !== currentYear) return true;
 
+  const cutoff = julyCutoffYmd(now);
+  const completedAt = client?.staff_onboarding_completed_at;
+  const completedYmd = completedAt instanceof Date && Number.isFinite(completedAt.getTime())
+    ? completedAt.toISOString().slice(0, 10)
+    : String(completedAt || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(completedYmd) && completedYmd < cutoff) return true;
+
   const anchor = clientAnchorYmd(client);
-  if (anchor && anchor < julyCutoffYmd(now)) return true;
+  if (anchor) return anchor < cutoff;
+
+  // Preserve legacy rows without intake dates; a current-year intake anchor above
+  // takes precedence over the legacy Onboarded/Current catalog labels.
+  if (['onboarded', 'current'].includes(statusKey)) return true;
 
   return false;
 }

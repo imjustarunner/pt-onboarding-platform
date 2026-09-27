@@ -73,7 +73,7 @@ async function loadClientForLifecycleTask(clientId) {
   // Clients store full_name; yearly clearance comes from getDisposition below.
   // Neither split names nor agency_clearance_json are columns on clients.
   const [rows] = await pool.execute(
-    `SELECT c.id, c.agency_id, c.organization_id, c.client_type, c.initials, c.identifier_code,
+    `SELECT c.id, c.agency_id, c.organization_id, c.client_type, c.status, c.staff_onboarding_completed_at, c.initials, c.identifier_code,
             c.full_name, c.provider_id, c.service_day,
             c.services_started_at, c.first_service_at, c.school_year, c.created_at, c.submission_date,
             c.agency_intake_json, c.continuation_services_json,
@@ -117,7 +117,9 @@ async function findOpenLifecycleTasks(providerUserId, clientId) {
       try { meta = JSON.parse(meta); } catch { meta = null; }
     }
     const source = String(meta?.source || '');
-    return LIFECYCLE_SOURCES.has(source) || meta?.actionKey || meta?.clientId != null;
+    return LIFECYCLE_SOURCES.has(source)
+      || TASKABLE_ACTION_KEYS.has(String(meta?.actionKey || ''))
+      || /^New client on your caseload:/i.test(String(row.title || ''));
   }).map((row) => {
     let meta = row.metadata;
     if (typeof meta === 'string') {
@@ -265,13 +267,26 @@ export async function syncClientProviderLifecycleTasks({
     disposition = null;
   }
 
+  const activeProviders = await loadActiveProviderIds(cid);
+  // Legacy provider_id is a fallback only when no active assignment exists.
+  if (!activeProviders.length && Number(client.provider_id) > 0) {
+    activeProviders.push(Number(client.provider_id));
+  }
   const providers = Array.isArray(providerUserIds) && providerUserIds.length
     ? providerUserIds.map(Number).filter((n) => n > 0)
-    : await loadActiveProviderIds(cid);
-
-  // Include legacy single provider_id if assignments are empty
-  if (!providers.length && Number(client.provider_id) > 0) {
-    providers.push(Number(client.provider_id));
+    : [...activeProviders];
+  if (!Array.isArray(providerUserIds) || !providerUserIds.length) {
+    // A reassignment must also retire tasks held by a previous provider.
+    const [taskOwners] = await pool.execute(
+      `SELECT DISTINCT assigned_to_user_id FROM tasks
+       WHERE task_type = 'custom' AND status NOT IN ('completed', 'overridden')
+         AND JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.clientId')) = ?`,
+      [String(cid)]
+    );
+    for (const row of taskOwners || []) {
+      const uid = Number(row.assigned_to_user_id);
+      if (uid > 0 && !providers.includes(uid)) providers.push(uid);
+    }
   }
 
   const label = resolveClientDisplayLabel(client, cid);
@@ -286,6 +301,12 @@ export async function syncClientProviderLifecycleTasks({
   }
 
   for (const providerUserId of providers) {
+    if (!activeProviders.includes(providerUserId)
+      || String(client.status || '').toUpperCase() === 'ARCHIVED'
+      || ['archived', 'terminated'].includes(String(client.client_status_key || '').toLowerCase())) {
+      await completeOpenLifecycleTasks(providerUserId, cid, actorUserId);
+      continue;
+    }
     const shaped = {
       ...client,
       provider_id: providerUserId,
@@ -301,6 +322,7 @@ export async function syncClientProviderLifecycleTasks({
       const [dayRows] = await pool.execute(
         `SELECT service_day FROM client_provider_assignments
          WHERE client_id = ? AND provider_user_id = ? AND is_active = TRUE
+         ORDER BY CASE WHEN service_day IN ('Monday','Tuesday','Wednesday','Thursday','Friday') THEN 0 ELSE 1 END
          LIMIT 1`,
         [cid, providerUserId]
       );

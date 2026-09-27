@@ -158,6 +158,30 @@ describe('hasCompletedFallContinuation', () => {
 describe('isReturningSchoolClient / computeFallReadinessSummary', () => {
   const now = new Date('2026-08-12T12:00:00Z');
 
+  it('keeps a current-year intake new after staff onboarding is completed', () => {
+    for (const status of ['ready_to_schedule', 'scheduled', 'onboarded', 'being_seen']) {
+      assert.equal(isReturningSchoolClient({
+        client_type: 'school', client_status_key: status, school_year: '2026-2027',
+        created_at: '2026-08-01', submission_date: '2026-08-01', staff_onboarding_completed_at: '2026-08-05'
+      }, now), false, status);
+    }
+  });
+
+  it('preserves returning history when this year has a new submission', () => {
+    assert.equal(isReturningSchoolClient({
+      client_type: 'school', client_status_key: 'scheduled', school_year: '2026-2027',
+      submission_date: '2026-08-01', staff_onboarding_completed_at: new Date('2026-04-01T12:00:00Z')
+    }, now), true);
+  });
+
+  it('recognizes current-year intake dates returned as database Date objects', () => {
+    assert.equal(isReturningSchoolClient({
+      client_type: 'school', client_status_key: 'onboarded', school_year: '2026-2027',
+      submission_date: new Date('2026-08-01T00:00:00Z'),
+      staff_onboarding_completed_at: new Date('2026-08-05T12:00:00Z')
+    }, now), false);
+  });
+
   it('detects pre-July school clients as returning', () => {
     assert.equal(
       isReturningSchoolClient(

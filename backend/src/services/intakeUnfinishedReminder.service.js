@@ -52,6 +52,15 @@ export function isEnrollmentDraftEligible(submission) {
   return true;
 }
 
+/** Live gate used before each reminder send — completed packets never get another email. */
+export function isEnrollmentReminderSendEligible(submission, { now = Date.now() } = {}) {
+  if (!isEnrollmentDraftEligible(submission)) return false;
+  if (String(submission.reminder_consent_status || '') !== 'agreed') return false;
+  if (!String(submission.session_token || '').trim()) return false;
+  if (submission.draft_expires_at && new Date(submission.draft_expires_at).getTime() <= now) return false;
+  return true;
+}
+
 export async function buildEnrollmentSessionUrl(agency, publicKey, sessionToken) {
   const base = buildPublicPortalBaseUrl(agency);
   const key = String(publicKey || '').trim();
@@ -71,7 +80,8 @@ async function resolveAgencyForSubmission(submissionId) {
   const [rows] = await pool.execute(
     `SELECT a.*, il.public_key, il.scope_type, il.organization_id AS link_organization_id,
             il.title AS link_title, il.inherits_office_master, il.inherits_school_master,
-            school.name AS school_name
+            school.name AS school_name,
+            school.official_name AS school_official_name
      FROM intake_submissions s
      INNER JOIN intake_links il ON il.id = s.intake_link_id
      LEFT JOIN agencies a ON a.id = (
@@ -235,8 +245,9 @@ export async function purgeUnfinishedEnrollmentDraft({
   }
 
   if (notifyAdmins && agencyId && reason === 'user_opt_out') {
-    const schoolBit = scopeType === 'school' && ctx?.school_name
-      ? ` for ${ctx.school_name}`
+    const schoolLabel = String(ctx?.school_official_name || ctx?.school_name || '').trim();
+    const schoolBit = scopeType === 'school' && schoolLabel
+      ? ` for ${schoolLabel}`
       : (scopeType === 'school' ? ' for a school' : ' for an office enrollment packet');
     await createNotificationAndDispatch({
       type: 'unfinished_form_data_deleted',
@@ -303,9 +314,9 @@ async function sendSlotReminder({ row, slotKey, identity }) {
   if (!email) return { ok: false, skipped: true, reason: 'no_email' };
 
   const agency = await Agency.findById(row.agency_id);
-  const agencyName = String(agency?.name || agency?.official_name || 'Our team').trim();
+  const agencyName = String(agency?.official_name || agency?.name || 'Our team').trim();
   const firstName = String(row.reminder_first_name || row.signer_name || '').trim().split(/\s+/)[0] || 'there';
-  const schoolName = String(row.school_name || '').trim();
+  const schoolName = String(row.school_official_name || row.school_name || '').trim();
   const resumeUrl = await buildEnrollmentSessionUrl(agency, row.public_key, row.session_token);
 
   // Mint a fresh deletion token for the email so old links stay valid until expiry.
@@ -438,7 +449,8 @@ export async function listPendingReminderRows({ limit = 200 } = {}) {
                 ORDER BY af.id ASC LIMIT 1
               ) END
             ) AS agency_id,
-            school.name AS school_name
+            school.name AS school_name,
+            school.official_name AS school_official_name
      FROM intake_submissions s
      INNER JOIN intake_links il ON il.id = s.intake_link_id
      LEFT JOIN agencies school ON school.id = COALESCE(
@@ -505,10 +517,7 @@ export async function runUnfinishedEnrollmentReminderTick() {
     // Re-check live status before each send
     // eslint-disable-next-line no-await-in-loop
     const live = await IntakeSubmission.findById(row.id);
-    if (!live || String(live.status || '').toLowerCase() === 'submitted') continue;
-    if (live.reminder_opt_out_at) continue;
-    if (String(live.reminder_consent_status || '') !== 'agreed') continue;
-    if (live.draft_expires_at && new Date(live.draft_expires_at).getTime() <= now) continue;
+    if (!isEnrollmentReminderSendEligible(live, { now })) continue;
 
     // eslint-disable-next-line no-await-in-loop
     const identity = await resolvePreferredSenderIdentityForAgency({
@@ -539,6 +548,8 @@ export default {
   purgeByDeletionToken,
   runUnfinishedEnrollmentReminderTick,
   draftExpiryForConsent,
+  isEnrollmentDraftEligible,
+  isEnrollmentReminderSendEligible,
   REMINDER_AGREE_TTL_MS,
   REMINDER_DECLINE_TTL_MS
 };

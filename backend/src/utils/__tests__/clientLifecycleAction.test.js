@@ -156,6 +156,17 @@ describe('deriveLifecycleAction', () => {
     assert.equal(action?.actionKey, 'provider_intake');
   });
 
+  it('keeps a newly onboarded intake on provider steps and clears it after first service', () => {
+    const client = {
+      client_type: 'school', client_status_key: 'onboarded', school_year: '2026-2027',
+      created_at: '2026-09-01', submission_date: '2026-09-01', staff_onboarding_completed_at: '2026-09-02',
+      has_provider: true, has_weekday: true, service_day: 'Monday'
+    };
+    const now = new Date('2026-09-25T12:00:00Z');
+    assert.equal(deriveLifecycleAction({ client, viewerRole: 'provider', now })?.actionKey, 'provider_intake');
+    assert.equal(deriveLifecycleAction({ client: { ...client, first_service_at: '2026-09-24' }, viewerRole: 'provider', now }), null);
+  });
+
   it('gives returners a Being Seen action once scheduled even if last year had first service', () => {
     const action = deriveLifecycleAction({
       client: {

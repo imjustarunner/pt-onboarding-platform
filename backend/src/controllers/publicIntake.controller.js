@@ -6602,10 +6602,24 @@ const loadProgressSubmission = async (publicKey, sessionToken) => {
   return { link, submission };
 };
 
+/**
+ * Reject progress payloads whose embedded snapshot sessionToken does not match
+ * the authenticated resume token. Prevents accidental cross-session draft merges.
+ */
+function assertProgressSnapshotBelongsToSession(intakeData, sessionToken) {
+  const snap = intakeData?.progressSnapshot;
+  if (!snap || typeof snap !== 'object') return null;
+  const embedded = String(snap.sessionToken || '').trim();
+  if (!embedded) return null;
+  if (embedded === String(sessionToken || '').trim()) return null;
+  return { status: 403, message: 'Progress snapshot does not match this intake session.' };
+}
+
 export const savePublicIntakeProgress = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
-    const loaded = await loadProgressSubmission(publicKey, req.body?.sessionToken);
+    const sessionToken = String(req.body?.sessionToken || '').trim();
+    const loaded = await loadProgressSubmission(publicKey, sessionToken);
     if (loaded.error) {
       return res.status(loaded.error.status).json({ error: { message: loaded.error.message } });
     }
@@ -6616,6 +6630,10 @@ export const savePublicIntakeProgress = async (req, res, next) => {
     const incoming = req.body?.intakeData && typeof req.body.intakeData === 'object'
       ? req.body.intakeData
       : {};
+    const snapshotMismatch = assertProgressSnapshotBelongsToSession(incoming, sessionToken);
+    if (snapshotMismatch) {
+      return res.status(snapshotMismatch.status).json({ error: { message: snapshotMismatch.message } });
+    }
     const existing = submission.intake_data && typeof submission.intake_data === 'object'
       ? submission.intake_data
       : {};
@@ -6624,10 +6642,20 @@ export const savePublicIntakeProgress = async (req, res, next) => {
       ...incoming,
       progressStep: req.body?.step ?? existing.progressStep ?? null
     };
-    const updated = await IntakeSubmission.updateById(submission.id, {
+    // Keep reminder contact identity aligned with the form the parent is filling
+    // (e.g. Dev Fill / edits after consent) so emails and resume data stay in sync.
+    const updates = {
       intake_data: JSON.stringify(merged),
       intake_data_hash: hashIntakeData(merged)
-    });
+    };
+    if (String(submission.reminder_consent_status || '') === 'agreed') {
+      const g = merged.guardian && typeof merged.guardian === 'object' ? merged.guardian : {};
+      const email = String(g.email || '').trim().toLowerCase();
+      const first = String(g.firstName || '').trim().slice(0, 120);
+      if (email && email.includes('@')) updates.signer_email = email;
+      if (first) updates.reminder_first_name = first;
+    }
+    const updated = await IntakeSubmission.updateById(submission.id, updates);
     res.json({ ok: true, submissionId: updated?.id || submission.id });
   } catch (error) {
     next(error);
@@ -6637,7 +6665,8 @@ export const savePublicIntakeProgress = async (req, res, next) => {
 export const getPublicIntakeProgress = async (req, res, next) => {
   try {
     const publicKey = String(req.params.publicKey || '').trim();
-    const loaded = await loadProgressSubmission(publicKey, req.query?.sessionToken);
+    const sessionToken = String(req.query?.sessionToken || '').trim();
+    const loaded = await loadProgressSubmission(publicKey, sessionToken);
     if (loaded.error) {
       return res.status(loaded.error.status).json({ error: { message: loaded.error.message } });
     }
@@ -6650,10 +6679,19 @@ export const getPublicIntakeProgress = async (req, res, next) => {
         intakeData: null
       });
     }
+    let intakeData = submission.intake_data || null;
+    // Never return a progress snapshot that claims a different session token.
+    if (intakeData && typeof intakeData === 'object') {
+      const snap = intakeData.progressSnapshot;
+      const embedded = snap && typeof snap === 'object' ? String(snap.sessionToken || '').trim() : '';
+      if (embedded && embedded !== sessionToken) {
+        intakeData = null;
+      }
+    }
     res.json({
       submissionId: submission.id,
       status: submission.status,
-      intakeData: submission.intake_data || null,
+      intakeData,
       reminderConsentStatus: submission.reminder_consent_status || null,
       draftExpiresAt: submission.draft_expires_at
         ? new Date(submission.draft_expires_at).toISOString()

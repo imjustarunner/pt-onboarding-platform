@@ -41,6 +41,15 @@ export const LIFECYCLE_STATUS_KEYS = {
 
 const TERMINAL = new Set(['terminated', 'archived']);
 
+async function syncProviderTasks(clientId, actorUserId) {
+  try {
+    const { syncClientProviderLifecycleTasks } = await import('./clientOnboardingTask.service.js');
+    await syncClientProviderLifecycleTasks({ clientId, actorUserId });
+  } catch (err) {
+    console.error('[clientLifecycleStatus] provider lifecycle task sync failed', err?.message || err);
+  }
+}
+
 function parseJson(raw) {
   if (!raw) return null;
   if (typeof raw === 'object') return raw;
@@ -121,6 +130,10 @@ export async function setClientLifecycleStatus({
       const { queueSchoolClientStatusEmails } = await import('./schoolClientStatusEmail.service.js');
       await queueSchoolClientStatusEmails(pool, { clientId: cid });
     }
+    // Reconfirming this year's services can clear a task even when the stored
+    // status already says Being Seen. Also reconcile a retry after an earlier
+    // task-sync failure without creating another status-history transition.
+    await syncProviderTasks(cid, actorUserId);
     return { changed: false, statusKey: key, statusId };
   }
 
@@ -180,12 +193,7 @@ export async function setClientLifecycleStatus({
   }
 
   // Keep provider Tasks Hub items in sync with Clients Action / Next Step
-  try {
-    const { syncClientProviderLifecycleTasks } = await import('./clientOnboardingTask.service.js');
-    await syncClientProviderLifecycleTasks({ clientId: cid, actorUserId });
-  } catch (err) {
-    console.error('[clientLifecycleStatus] provider lifecycle task sync failed', err?.message || err);
-  }
+  await syncProviderTasks(cid, actorUserId);
 
   return { changed: true, statusKey: key, statusId };
 }

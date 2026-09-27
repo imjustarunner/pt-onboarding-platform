@@ -233,7 +233,7 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
       if (hasWeekday) return null;
       return { role: 'provider', actionKey: 'fall_confirmation', label: 'Fall confirmation – Action Needed' };
     }
-    if (!fallDone && ['returning', 'current', 'pending', 'onboarded', 'confirmed_returning'].includes(statusKey)) {
+    if (!fallDone && returning && ['returning', 'current', 'pending', 'onboarded', 'confirmed_returning'].includes(statusKey)) {
       if (!hasProvider || hasWeekday) return null;
       return { role: 'provider', actionKey: 'fall_confirmation', label: 'Fall confirmation – Action Needed' };
     }
@@ -254,7 +254,7 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
       return null;
     }
     // New clients: Being Seen comes from the new-client checklist, including after they are Scheduled.
-    if (!returning && ['ready_to_schedule', 'scheduled'].includes(statusKey) && !beingSeenConfirmed) {
+    if (!returning && ['ready_to_schedule', 'scheduled', 'onboarded'].includes(statusKey) && !beingSeenConfirmed) {
       if (statusKey === 'scheduled' && client?.first_service_at) return null;
       return { role: 'provider', actionKey: 'provider_intake', label: 'New Client – Action Needed' };
     }
