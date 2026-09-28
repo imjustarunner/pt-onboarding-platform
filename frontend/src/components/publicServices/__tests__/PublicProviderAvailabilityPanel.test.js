@@ -10,6 +10,10 @@ const summary={timeZone:'America/Denver',onlineScheduling:false,waitlistEnabled:
 const render=()=>mount(Panel,{props:{provider,agencySlug:'test'},global:{stubs:{RouterLink:{props:['to'],template:'<a :href="to"><slot/></a>'},PublicProviderSlotPicker:true}}});
 beforeEach(()=>{vi.resetAllMocks();api.get.mockImplementation(async url=>({data:url.endsWith('schedule-summary')?summary:{recaptchaRequired:false}}));});
 describe('public availability and waitlist',()=>{
+ it('groups all local-date times together across UTC midnight and keeps the next week separate',async()=>{
+  api.get.mockResolvedValue({data:{...summary,slots:[{format:'VIRTUAL',startAt:'2030-01-03T02:00:00Z'},{format:'VIRTUAL',startAt:'2030-01-02T16:00:00Z'},{format:'VIRTUAL',startAt:'2030-01-09T16:00:00Z'}]}});
+  const w=render();await flushPromises();const days=w.findAll('.format-virtual .next-openings>div');expect(days).toHaveLength(2);expect(days[0].findAll('.day-time')).toHaveLength(2);expect(days[0].findAll('strong')).toHaveLength(1);expect(days[1].findAll('.day-time')).toHaveLength(1);w.unmount();
+ });
  it('shows only profile-selected typical hours while schedule loading is pending',async()=>{
   api.get.mockImplementation(()=>new Promise(()=>{}));
   const w=render();await flushPromises();

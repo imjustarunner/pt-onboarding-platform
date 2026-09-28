@@ -17,13 +17,14 @@ export async function readProviderServices(providerId, agencyId, database = pool
   }) };
 }
 
-export async function saveProviderServices(providerId, agencyId, selected) {
+export async function saveProviderServices(providerId, agencyId, selected, onlineScheduling) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     await connection.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [providerId]);
     const current = await readProviderServices(providerId, agencyId, connection);
     const services = validateProviderServices(selected, current.services.map(s => s.serviceType));
+    const online = onlineScheduling === undefined ? null : validateProviderServices(onlineScheduling, services);
     // Update only this tenant's choices; never overwrite the rest of the public profile.
     await connection.execute(`INSERT INTO provider_public_profiles (user_id,public_details_json)
       VALUES (?,CAST(? AS JSON))
@@ -32,6 +33,11 @@ export async function saveProviderServices(providerId, agencyId, selected) {
     // Turning a service off also disables its booking enrollment. Turning it on never enables booking.
     for (const service of current.services) if (!services.includes(service.serviceType)) {
       await connection.execute('UPDATE provider_public_service_enrollments SET is_active=0 WHERE user_id=? AND agency_id=? AND service_type=?', [providerId, agencyId, service.serviceType]);
+    }
+    if (online !== null) for (const service of current.services) {
+      await connection.execute(`INSERT INTO provider_public_service_enrollments (agency_id,user_id,service_type,is_active)
+       VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE is_active=VALUES(is_active),updated_at=CURRENT_TIMESTAMP`,
+       [agencyId,providerId,service.serviceType,online.includes(service.serviceType)?1:0]);
     }
     const result = await readProviderServices(providerId, agencyId, connection);
     await connection.commit();

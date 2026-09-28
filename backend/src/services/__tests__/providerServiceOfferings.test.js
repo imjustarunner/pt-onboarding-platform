@@ -12,12 +12,19 @@ beforeEach(()=>{
   if(sql.startsWith('SELECT service_type,is_active'))return [enrollments];
   if(sql.includes('FROM users u JOIN user_agencies'))return [[person]];
   if(sql.startsWith('INSERT INTO provider_public_profiles')){person.public_details_json.serviceOfferingsByAgency={...person.public_details_json.serviceOfferingsByAgency,...JSON.parse(args[1]).serviceOfferingsByAgency};return [{}];}
+  if(sql.startsWith('INSERT INTO provider_public_service_enrollments')) {enrollments.push({service_type:args[2],is_active:args[3]});return [{}];}
   if(sql.startsWith('SELECT id')||sql.startsWith('UPDATE provider_public_service_enrollments'))return [[]];
   throw Error(sql);
  }),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};
  pool.getConnection.mockResolvedValue(conn);pool.execute.mockImplementation(conn.execute);
 });
 describe('service offerings',()=>{
+ it('enables online requests only for explicitly selected services in the current agency',async()=>{
+  const result=await saveProviderServices(9,2,['counseling','tutoring'],['counseling']);
+  expect(result.services.map(s=>s.onlineScheduling)).toEqual([true,false]);
+  expect(conn.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO provider_public_service_enrollments')).map(([,args])=>args)).toEqual([[2,9,'counseling',1],[2,9,'tutoring',0]]);
+ });
+ it('rejects online scheduling for services the provider does not offer',async()=>{await expect(saveProviderServices(9,2,['counseling'],['tutoring'])).rejects.toMatchObject({status:400});expect(conn.commit).not.toHaveBeenCalled();});
  it('preserves legacy counseling discovery and active service enrollments',()=>{
   expect(offersProviderService({},2,'counseling',{counselingEligible:true})).toBe(true);
   expect(offersProviderService({},2,'tutoring',{counselingEligible:true})).toBe(false);

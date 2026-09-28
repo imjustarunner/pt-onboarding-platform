@@ -46,4 +46,4 @@ export async function getMyReminders(req,res,next){try{
 }catch(e){next(e);}}
 
 export async function getServices(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json(await readProviderServices(ids.providerId,ids.agencyId));}catch(e){next(e);}}
-export async function putServices(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json(await saveProviderServices(ids.providerId,ids.agencyId,req.body.services));}catch(e){if(e.status===400)return res.status(400).json({error:{message:e.message}});next(e);}}
+export async function putServices(req,res,next){try{const ids=await authorize(req,res);if(!ids)return;res.json(await saveProviderServices(ids.providerId,ids.agencyId,req.body.services,req.body.onlineScheduling));}catch(e){if(e.status===400)return res.status(400).json({error:{message:e.message}});next(e);}}

@@ -1,7 +1,7 @@
 <template>
  <ProviderServiceOfferings :provider-id="providerId" :agency-id="agencyId" @updated="$emit('updated', {kind: 'services', ...$event})" />
  <section class="availability-settings" aria-label="New client availability">
-  <h3>New client availability</h3><p>Choose whether you are taking new clients and the formats you offer. Choose settings for this agency, or apply the same choices to all your agencies. A hold or appointment blocks the time everywhere. Closing an agency hides its new-client openings without changing your other agencies or existing appointments.</p>
+  <h3>New client availability</h3><p>Choose whether this provider is taking new clients and which formats they offer. Choose settings for this agency, or apply the same choices to all your agencies. A hold or appointment blocks the time everywhere. Closing an agency hides its new-client openings without changing your other agencies or existing appointments.</p>
   <p v-if="loading" role="status">Loading availability settings…</p>
   <template v-else-if="loaded"><p><strong>{{context.agencyName||'Selected agency'}}</strong></p><div class="choices">
    <label v-if="context.canApplyToAll&&context.agencies?.length>1"><input v-model="applyToAll" type="checkbox" :disabled="busy"/> Apply these settings and this schedule to all my agencies</label>

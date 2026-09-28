@@ -62,7 +62,8 @@
       <div v-else-if="loading" class="loading">Loading…</div>
 
       <div v-else>
-        <div v-if="tab === 'school_requests'" class="school-requests-wrap">
+        <ProviderAvailabilityWorkspace v-if="tab === 'openings'" :agency-id="Number(agencyId)" />
+        <div v-else-if="tab === 'school_requests'" class="school-requests-wrap">
           <div class="school-requests-banner">
             <strong>Additional school daytime hours</strong>
             <p class="muted">
@@ -778,6 +779,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { useBrandingStore } from '../../store/branding';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import ProviderAvailabilityWorkspace from '../../components/availability/ProviderAvailabilityWorkspace.vue';
 import AvailabilityIntakeManagement from '../../components/admin/AvailabilityIntakeManagement.vue';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
 
@@ -811,7 +813,7 @@ const agencies = computed(() => {
 
 const loading = ref(false);
 const error = ref('');
-const tab = ref('school'); // school | office | virtual | school_requests | tracker | kudos | hourly_direct | unpaid_notes
+const tab = ref(authStore.user?.role === 'schedule_manager' ? 'school' : 'openings'); // school | office | virtual | school_requests | tracker | kudos | hourly_direct | unpaid_notes
 
 const data = ref({
   providers: [],
@@ -851,6 +853,7 @@ const kudosEligibleRecipients = computed(() =>
 const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const PM_TABS = [
+  ...(authStore.user?.role === 'schedule_manager' ? [] : [{ id: 'openings', label: 'Openings & preferences' }]),
   { id: 'school', label: 'School slots', tour: 'avail-tab-school' },
   { id: 'office', label: 'Office availability', tour: 'avail-tab-office' },
   { id: 'virtual', label: 'Virtual availability', tour: 'avail-tab-virtual' },
