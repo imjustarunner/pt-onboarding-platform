@@ -46,7 +46,7 @@ class Client {
    * @param {number} clientData.created_by_user_id - User who created the client
    * @returns {Promise<Object>} Created client object
    */
-  static async create(clientData) {
+  static async create(clientData, { executor = pool, hydrate = true } = {}) {
     const {
       organization_id,
       agency_id,
@@ -145,8 +145,8 @@ class Client {
     const placeholders = fields.map(() => '?').join(', ');
     const query = `INSERT INTO clients (${fields.join(', ')}) VALUES (${placeholders})`;
 
-    const [result] = await pool.execute(query, values);
-    return this.findById(result.insertId);
+    const [result] = await executor.execute(query, values);
+    return hydrate ? this.findById(result.insertId) : { id: result.insertId };
   }
 
   /**

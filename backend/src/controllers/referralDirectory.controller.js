@@ -24,6 +24,7 @@ function assertReferralDirectoryViewer(req, res) {
 }
 
 const resolveAgencyId = (req) => {
+  if (req.referralAgencyId) return req.referralAgencyId;
   const fromUser = Number(req.user?.agencyId);
   if (fromUser && Number.isFinite(fromUser)) return fromUser;
   const fromQuery = Number(req.query?.agencyId || req.body?.agencyId);

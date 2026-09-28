@@ -49,6 +49,8 @@
           </label>
         </div>
 
+        <label class="rdm-field"><span class="rdm-label">Fax</span><input v-model="form.fax" maxlength="40" /></label>
+        <label class="rdm-field"><span class="rdm-label">Public source URL</span><input v-model="form.source_url" type="url" maxlength="500" /></label>
         <label class="rdm-field">
           <span class="rdm-label">Website</span>
           <input v-model="form.website" type="url" maxlength="300" placeholder="https://…" />
@@ -107,6 +109,8 @@ const makeEmpty = () => ({
   category_id: null,
   organization_name: '',
   phone: '',
+  fax: '',
+  source_url: '',
   email: '',
   website: '',
   address: '',
@@ -135,6 +139,8 @@ watch(() => [props.open, props.entry, props.mode], () => {
       category_id: props.entry.category_id || null,
       organization_name: props.entry.organization_name || '',
       phone: props.entry.phone || '',
+      fax: props.entry.fax || '',
+      source_url: props.entry.source_url || '',
       email: props.entry.email || '',
       website: props.entry.website || '',
       address: props.entry.address || '',
@@ -161,6 +167,8 @@ async function submit() {
       category_id: form.category_id || null,
       organization_name: form.organization_name?.trim() || null,
       phone: form.phone?.trim() || null,
+      fax: form.fax?.trim() || null,
+      source_url: form.source_url?.trim() || null,
       email: form.email?.trim() || null,
       website: form.website?.trim() || null,
       address: form.address?.trim() || null,

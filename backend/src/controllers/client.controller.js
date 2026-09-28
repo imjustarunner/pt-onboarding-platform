@@ -1,3 +1,5 @@
+import { validateFaxFields } from '../services/faxExtraction.service.js';
+import { createClientFromFax, getFaxDraft } from '../services/faxIntake.service.js';
 import { readClientInsurance } from '../services/clientInsurance.service.js';
 import { decodeInsuranceProfile } from '../models/GuardianInsuranceProfile.model.js';
 import { auditBilling } from '../services/familyBillingPolicy.service.js';
@@ -761,6 +763,14 @@ export const getClients = async (req, res, next) => {
       }
     }
 
+    if (req.query.referral_entry_id) {
+      const [referrals] = await pool.execute(`SELECT client_id FROM client_referral_links
+        WHERE entry_id = ? AND direction = ?`, [Number(req.query.referral_entry_id) || 0,
+        req.query.referral_direction === 'outgoing' ? 'outgoing' : 'incoming']);
+      const linkedIds = new Set(referrals.map(row => Number(row.client_id)));
+      out = out.filter(client => linkedIds.has(Number(client.id)));
+    }
+
     const shouldPaginate = userRole === 'super_admin' && paginateRequested;
 
     const SORT_FIELD_MAP = {
@@ -1186,6 +1196,10 @@ export const getClientById = async (req, res, next) => {
  */
 export const createClient = async (req, res, next) => {
   try {
+    if (req.body?.faxIntake) {
+      const fields = validateFaxFields(req.body.faxIntake.fields);
+      req.body.full_name = fields.client_full_name;
+    }
     const {
       organization_id,
       agency_id,
@@ -1223,6 +1237,15 @@ export const createClient = async (req, res, next) => {
       return res.status(403).json({ 
         error: { message: 'You do not have permission to create clients' } 
       });
+    }
+
+    if (req.body?.faxIntake?.draftId) {
+      const draft = await getFaxDraft(req.body.faxIntake.draftId, userId);
+      if (draft.client_id) {
+        const access = await resolveClientRecordAccess({ userId, role: userRole, clientId: draft.client_id });
+        if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
+        return res.json(access.client);
+      }
     }
 
     // Validate required fields
@@ -1725,7 +1748,9 @@ export const createClient = async (req, res, next) => {
       }
     }
 
-    const client = await Client.create(clientCreatePayload);
+    const client = req.body?.faxIntake
+      ? await createClientFromFax({ payload: clientCreatePayload, fax: req.body.faxIntake, userId })
+      : await Client.create(clientCreatePayload);
 
     // Seed multi-agency affiliation table so access control works immediately.
     // Best-effort only: table may not exist in older environments.
@@ -1817,6 +1842,7 @@ export const createClient = async (req, res, next) => {
     logClientAccess(req, client.id, 'client_created').catch(() => {});
     res.status(201).json(warnings.length ? { ...client, warnings, warningMeta } : client);
   } catch (error) {
+    if (req.body?.faxIntake) return res.status(error.safe ? error.status : 503).json({ error: { message: error.safe ? error.message : 'Fax intake could not be completed. Retry to check its saved status.' } });
     console.error('Create client error:', error);
     next(error);
   }

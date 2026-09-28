@@ -1,3 +1,5 @@
+import faxIntakeRoutes from './routes/faxIntake.routes.js';
+import clientReferralLinksRoutes from './routes/clientReferralLinks.routes.js';
 import {publicRouter as publicWebsiteChatRoutes,staffRouter as websiteChatStaffRoutes} from './routes/publicWebsiteChat.routes.js';
 import {redactPrivateBillingUrl} from './utils/sanitizeRequest.js';
 import familyLedgerRoutes from './routes/familyLedger.routes.js';
@@ -937,6 +939,8 @@ app.use('/api/marketing-splashes', agencyMarketingSplashDashboardRoutes); // Reg
 app.use('/api/agency-marketing-splashes', agencyMarketingSplashManagerRoutes);
 app.use('/api/referrals', referralRoutes); // Referral pipeline routes
 app.use('/api/referral-directory', referralDirectoryRoutes); // External referral source catalog (migrations 735-737)
+app.use('/api/fax-intake', faxIntakeRoutes);
+app.use('/api/client-referral-links', clientReferralLinksRoutes);
 app.use('/api/clients', clientRoutes); // Client management routes
 app.use('/api/guardian-portal', guardianPortalRoutes); // Guardian portal routes
 app.use('/api/bulk-import', bulkImportRoutes); // Bulk import routes (legacy migration tool)
@@ -2002,6 +2006,15 @@ if (!isBootstrap) {
   };
   scheduleHiringReferenceReminders();
   setInterval(scheduleHiringReferenceReminders, 60 * 60 * 1000);
+
+  const purgeFaxDrafts = async () => {
+    try {
+      const { purgeExpiredFaxDrafts } = await import('./services/faxIntake.service.js');
+      await purgeExpiredFaxDrafts();
+    } catch { console.warn('[faxIntake] Draft cleanup unavailable; check migration 1495.'); }
+  };
+  purgeFaxDrafts();
+  setInterval(purgeFaxDrafts, 60 * 60 * 1000).unref();
 
   // Unfinished enrollment form reminders + draft expiry purge (hourly)
   const scheduleUnfinishedEnrollmentReminders = async () => {
