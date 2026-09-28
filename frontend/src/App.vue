@@ -2276,6 +2276,7 @@ import { isSupervisor } from './utils/helpers.js';
 import { canSeeClientExchangeNav } from './utils/clientExchangeNav.js';
 import {
   canAccessPeopleOperationsHub,
+  canAccessFinanceOperationsHub,
   getNextOpsCycleDestination,
   isOpsCycleNavRole,
   workspaceNavContextFromStores
@@ -5113,7 +5114,13 @@ const canSeeScheduleBuildingsDirectoryNav = computed(() => {
 
 const canSeeWorkforceOperationsNav = computed(() => canSeeScheduleBuildingsDirectoryNav.value);
 
-const canSeeFinanceOperationsNav = computed(() => user.value?.role === 'super_admin' || !!user.value?.capabilities?.canAccessFinanceOperations);
+const canSeeFinanceOperationsNav = computed(() => canAccessFinanceOperationsHub({
+  role: user.value?.role,
+  user: user.value,
+  agencyFeatureFlags: currentAgencyFeatureFlags.value,
+  isSscSstcTenant: isSscSstcTenant.value,
+  isAffiliationContext: isAffiliationContext.value
+}));
 
 const canSeePeopleOperationsNav = computed(() =>
   canAccessPeopleOperationsHub({

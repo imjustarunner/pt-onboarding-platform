@@ -1,4 +1,4 @@
-import { canAccessSchoolPortalsSurfaces } from './schoolPortalsAccess.js';
+import { canAccessSchoolPortalsSurfaces, parseFeatureFlags, isTruthyFeatureFlag } from './schoolPortalsAccess.js';
 import { isSummitPlatformRouteSlug } from './summitPlatformSlugs.js';
 import { hubPathPrefix } from './orgScopedPath.js';
 
@@ -172,6 +172,16 @@ export function managementDashboardPath(prefix, opts = {}) {
   return `${prefix}/admin-dashboard`;
 }
 
+/** Finance is opt-in for the current tenant; account-wide access can belong to another org. */
+export function canAccessFinanceOperationsHub(opts = {}) {
+  if (opts.isSscSstcTenant || opts.isAffiliationContext) return false;
+  const role = normRole(opts.role);
+  if (role === 'super_admin') return true;
+  const flags = parseFeatureFlags(opts.agencyFeatureFlags);
+  return isTruthyFeatureFlag(flags.financeOperationsEnabled)
+    && (role === 'admin' || hasCapability(opts.user, 'canAccessFinanceOperations'));
+}
+
 export function resolveWorkspaceAccess(opts = {}) {
   return {
     management: canAccessManagementDashboard(opts),
@@ -179,7 +189,7 @@ export function resolveWorkspaceAccess(opts = {}) {
     workforce: canAccessWorkforceOperationsHub(opts),
     school: canAccessSchoolOperationsHub(opts),
     people: canAccessPeopleOperationsHub(opts),
-    finance: hasCapability(opts.user, 'canAccessFinanceOperations') || ['admin','super_admin'].includes(normRole(opts.role)) && (normRole(opts.role)==='super_admin'||isTruthyFlag(opts.agencyFeatureFlags?.financeOperationsEnabled))
+    finance: canAccessFinanceOperationsHub(opts)
   };
 }
 
