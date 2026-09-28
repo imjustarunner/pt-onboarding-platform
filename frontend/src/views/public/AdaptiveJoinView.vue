@@ -89,10 +89,7 @@
           </template>
         </template>
         <button v-if="canDevFill" type="button" @click="devFillQuick">Dev Fill</button>
-        <label v-if="isCounselingJoin && canEditLanding" class="ai-join-choose-toggle">
-          <input type="checkbox" :checked="showChooseProvider" :disabled="savingChooseToggle" @change="toggleChooseProvider" />
-          Show Choose a provider
-        </label>
+
         <div v-if="isCounselingJoin && canEditLanding" class="ai-join-subjects-edit" role="group" aria-label="Who-for enrollment options">
           <span class="ai-join-subjects-label">Who can enroll</span>
           <label
@@ -469,7 +466,7 @@
       </div>
 
       <!-- Step: preferences -->
-      <div v-else-if="quickStep === 2" class="ai-join-form"><LearningEnrollmentQuestions v-if="resolvedServiceType==='tutoring'" v-model="learningForm" :agency-slug="agencySlug" :provider-id="form.preferredProviderUserId"/>
+      <div v-else-if="quickStep === 2" class="ai-join-form"><LearningEnrollmentQuestions v-if="resolvedServiceType==='tutoring'" v-model="learningForm" :agency-slug="agencySlug" />
         <h1 class="ai-page-title">Preferences & availability</h1>
         <p class="ai-page-lead">Optional — helps us match format and timing.</p>
         <div class="field-row">
@@ -497,27 +494,6 @@
           v-model="form.preferences.insuranceOrPayment"
           label="Insurance or payment (optional)"
         />
-      </div>
-
-      <!-- Step: Choose a provider -->
-      <div v-else-if="quickStep === 3" class="ai-join-form">
-        <ChooseProviderDirectory
-          v-if="showChooseProvider"
-          mode="join"
-          title="Choose a provider"
-          lead="If you have a preference, choose someone below. Or let the team choose based on fit and availability."
-          :providers="providers"
-          :loading="providersLoading"
-          :error="providersError"
-          :selected-id="form.preferredProviderUserId"
-          @update:selected-id="selectPreferredProvider($event)"
-          @skip="selectPreferredProvider(null, true)"
-        />
-        <div v-else class="df-banner">
-          Choose a provider is turned off for this join. Continue to consent, or turn it back on above.
-        </div>
-        <aside v-if="selectedLearningPackage" class="ai-help-card"><h3>{{selectedLearningPackage.name}}</h3><p>{{selectedLearningPackage.totalCents==null?'Contact our team to confirm package pricing.':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(selectedLearningPackage.totalCents/100)+' package total'}}</p><p>This is a package request. Our team confirms participating providers, availability, and payment before services begin.</p></aside><p v-if="providerSelectionError" role="alert">{{ providerSelectionError }}</p>
-        <PublicProviderSlotPicker v-if="showChooseProvider && form.preferredProviderUserId && !(resolvedServiceType==='tutoring' && learningForm.format==='small-group')" :agency-slug="agencySlug" :provider-id="Number(form.preferredProviderUserId)" :service-type="serviceType || 'counseling'" />
       </div>
 
       <!-- Step: consent / contact permission -->
@@ -592,10 +568,7 @@
           <p v-if="form.preferences.insuranceOrPayment">
             <strong>Insurance / payment:</strong> {{ form.preferences.insuranceOrPayment }}
           </p>
-          <p>
-            <strong>Provider:</strong>
-            {{ preferredProviderLabel }}
-          </p>
+          <p>You can request a provider when completing the full enrollment packet.</p>
           <div v-if="form.consentGiven" class="ai-review-ack">
             <strong>You acknowledged:</strong>
             <ul>
@@ -831,11 +804,8 @@ const providersError = ref('');
 const savingChooseToggle = ref(false);
 
 const isCounselingJoin = computed(() => resolvedServiceType.value === 'counseling');
-const showChooseProvider = computed(() => {
-  // Off until explicitly enabled (agency toggle on counseling join).
-  const flag = config.value?.copy?.showChooseProvider;
-  return flag === true || flag === 1 || flag === '1' || flag === 'true';
-});
+// Provider choice belongs to the full enrollment packet.
+const showChooseProvider = computed(() => false);
 
 const form = reactive({
   whoFor: 'myself',
@@ -1751,8 +1721,6 @@ async function submitQuick() {
       concerns: form.concerns,
       accomplishGoal: form.accomplishGoal.trim() || null,
       notes: form.notes,
-      preferredProviderUserId: form.preferredProviderUserId,
-      providerHoldToken: readProviderHoldToken(),
       preferences: {
         learning: resolvedServiceType.value==='tutoring'?learningForm.value:undefined,
         preferredModality: form.preferences.preferredModality || null,

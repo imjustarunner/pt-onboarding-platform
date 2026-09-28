@@ -1,3 +1,4 @@
+import {withoutQuickProviderSelection} from '../utils/intakeProviderPreference.js';
 import {resolveLearningInquiry,validateLearningProviderSelection} from './learningEnrollment.service.js';
 import { hashHoldToken, createPublicProviderHoldService } from './publicProviderHold.service.js';
 import pool from '../config/database.js';
@@ -910,6 +911,7 @@ async function provisionQuickProspectiveAccess({
 }
 
 export async function submitQuickProspective({ agencySlugOrId, payload = {}, req }) {
+  payload=withoutQuickProviderSelection(payload);
   const agencyRow = await loadAgencyRow(agencySlugOrId);
   if (!agencyRow) throw new Error('Organization not found');
 

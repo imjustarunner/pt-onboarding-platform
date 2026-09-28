@@ -1,3 +1,5 @@
+import {randomUUID} from 'node:crypto';
+import {careTypes as normalizeCareTypes} from '../utils/availabilityCareTypes.js';
 import pool from '../config/database.js';
 import Virtual from '../models/ProviderVirtualSlotAvailability.model.js';
 import InPerson from '../models/ProviderInPersonSlotAvailability.model.js';
@@ -13,7 +15,7 @@ export function officePublicationMatches(event,anchor,frequency,timeZone) {
   && +utc(event.end_at)-+utc(event.start_at)===+utc(anchor.end_at)-+utc(anchor.start_at);
 }
 // Publish only real, assigned room reservations. Cadence never manufactures a room or a client appointment.
-export async function publishOfficeAvailability({event,agencyId,providerId,frequency='ONCE',purpose='INTAKE',format,availableForIntake=true,availableForSession=false,actorId}) {
+export async function publishOfficeAvailability({event,agencyId,providerId,frequency='ONCE',purpose='INTAKE',format,availableForIntake=true,availableForSession=false,careTypes=null,actorId}) {
  if(!['ONCE','WEEKLY','BIWEEKLY','EVERY_3_WEEKS','EVERY_4_WEEKS'].includes(frequency))throw Object.assign(new Error('Choose once, weekly, every 2 weeks, or every 4 weeks.'),{status:400});
  purpose=frequency==='ONCE'?(purpose==='MEETING'?'MEETING':'INTAKE'):'ONGOING';
  const conn=await pool.getConnection();
@@ -26,7 +28,8 @@ export async function publishOfficeAvailability({event,agencyId,providerId,frequ
   const candidates=events.filter(e=>officePublicationMatches(e,event,frequency,timeZone));
   const open=candidates.filter(e=>!e.client_id&&!e.clinical_session_id&&!e.billing_context_id&&!Number(e.has_appointment));
   if(!open.some(e=>Number(e.id)===Number(event.id)))throw Object.assign(new Error('This reservation is no longer available to publish.'),{status:409});
-  for(const e of open)await (format==='VIRTUAL'?Virtual:InPerson).upsertSlot({database:conn,agencyId,providerId,officeLocationId:e.office_location_id,roomId:e.room_id,startAt:e.start_at,endAt:e.end_at,availableForIntake,availableForSession,frequency,purpose,sourceEventId:e.id,createdByUserId:actorId});
+  const seriesId=frequency==='ONCE'?null:randomUUID();
+  for(const e of open)await (format==='VIRTUAL'?Virtual:InPerson).upsertSlot({database:conn,agencyId,providerId,officeLocationId:e.office_location_id,roomId:e.room_id,startAt:e.start_at,endAt:e.end_at,availableForIntake,availableForSession,frequency,purpose,seriesId,careTypes:normalizeCareTypes(careTypes),sourceEventId:e.id,createdByUserId:actorId});
   await conn.commit();return {publishedCount:open.length,skippedAppointments:candidates.length-open.length,publishedThrough:open.at(-1)?.start_at,frequency,purpose};
  }catch(e){await conn.rollback();throw e;}finally{conn.release();}
 }

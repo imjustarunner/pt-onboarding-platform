@@ -11,19 +11,20 @@
 
       <div class="vwh-table" style="margin-top:12px;">
         <div v-for="(r, idx) in rows" :key="idx" class="vwh-row">
-          <label>Day<select class="select" v-model="r.dayOfWeek">
+          <label>Day<select class="select" v-model="r.dayOfWeek" :disabled="!!r.id">
             <option v-for="d in dayOptions" :key="d" :value="d">{{ d }}</option>
           </select></label>
-          <label>First date<input class="input" type="date" v-model="r.startDate" @change="syncDay(r)" /></label>
-          <label>Last date (optional)<input class="input" type="date" v-model="r.endDate" /></label>
-          <label>Start<input class="input" type="time" v-model="r.startTime" /></label>
-          <label>End<input class="input" type="time" v-model="r.endTime" /></label>
+          <label>First date<input class="input" type="date" v-model="r.startDate" :disabled="!!r.id" @change="syncDay(r)" /></label>
+          <label>Last date (optional)<input class="input" type="date" v-model="r.endDate" :disabled="!!r.id" /></label>
+          <label>Start<input class="input" type="time" v-model="r.startTime" :disabled="!!r.id" /></label>
+          <label>End<input class="input" type="time" v-model="r.endTime" :disabled="!!r.id" /></label>
           <label class="check-inline"><input type="checkbox" v-model="r.sessionEnabled"/> Current clients</label>
           <label class="check-inline">
             <input type="checkbox" v-model="r.intakeEnabled" />
             <span>New clients</span>
           </label>
-          <label>Repeats<select class="select" v-model="r.frequency">
+<fieldset><legend>Care types</legend><label v-for="type in careOptions" :key="type"><input type="checkbox" v-model="r.careTypes" :value="type"/> {{type}}</label></fieldset>
+          <label>Repeats<select class="select" v-model="r.frequency" :disabled="!!r.id">
             <option value="ONCE">Once — intake or meeting</option>
             <option value="WEEKLY">Weekly</option>
             <option value="BIWEEKLY">Every 2 weeks</option>
@@ -32,6 +33,7 @@
 
           </select></label>
           <label v-if="r.frequency==='ONCE'">Purpose<select class="select" v-model="r.purpose"><option value="INTAKE">Single intake session</option><option value="MEETING">One-time meeting</option></select></label>
+          <button v-if="r.id" type="button" class="btn btn-secondary btn-sm" @click="publicationEdit={row:{...r,kind:'weekly',agencyId},action:'move'}">Move occurrence / series</button>
           <button type="button" class="btn btn-secondary btn-sm" @click="removeRow(idx)" :disabled="saving || !loaded">Remove</button>
         </div>
 
@@ -47,13 +49,15 @@
 
       <p v-if="notice" role="status">{{notice}}</p>
       <div class="muted" style="margin-top:10px;">
-        Rows are always virtual availability. Turn on "New clients" to display openings publicly. Current-client-only openings stay private for rescheduling. Every 4 weeks repeats after 28 days, on the same weekday.
+        Use Move occurrence / series to change existing dates or times. Audience and care-type changes apply to the displayed availability window. Rows are always virtual availability. Turn on "New clients" to display openings publicly. Current-client-only openings stay private for rescheduling. Every 4 weeks repeats after 28 days, on the same weekday.
       </div>
     </div>
+    <AvailabilityPublicationEdit v-if="publicationEdit" :row="publicationEdit.row" :action="publicationEdit.action" :provider-id="providerId||selfProviderId" @close="publicationEdit=null" @saved="publicationEdit=null;load();emit('updated')"/>
   </div>
 </template>
 
 <script setup>
+import AvailabilityPublicationEdit from './AvailabilityPublicationEdit.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 
@@ -63,22 +67,25 @@ const props = defineProps({
 });
 
 const emit=defineEmits(['updated']);
+const publicationEdit=ref(null);
 const endpoint=computed(()=>`/availability/${props.providerId?'providers/'+props.providerId:'me'}/virtual-working-hours`);
 const loading = ref(false);
 const notice=ref('');
-const loaded=ref(false);
+const loaded=ref(false),selfProviderId=ref(null);
 let generation=0;
 const saving = ref(false);
 const error = ref('');
 const rows = ref([]);
 
+const careOptions=['INDIVIDUAL','COUPLES','FAMILY'];
 const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const syncDay = r => { if(r.startDate) r.dayOfWeek=dayOptions[(new Date(r.startDate+'T12:00:00Z').getUTCDay()+6)%7]; };
 const addRow = () => {
-  rows.value.push({ dayOfWeek: 'Monday', startTime: '09:00', endTime: '10:00', intakeEnabled: true, sessionEnabled: false, frequency: 'WEEKLY', startDate:'', endDate:'', purpose:'INTAKE' });
+  rows.value.push({ dayOfWeek: 'Monday', startTime: '09:00', endTime: '10:00', intakeEnabled: true, sessionEnabled: false, frequency: 'WEEKLY', startDate:'', endDate:'', purpose:'INTAKE', careTypes:[...careOptions],excludedDates:[] });
 };
 const removeRow = (idx) => {
+  const row=rows.value[idx];if(row.id){publicationEdit.value={row:{...row,kind:'weekly',agencyId:props.agencyId},action:'delete'};return;}
   rows.value.splice(idx, 1);
 };
 
@@ -91,6 +98,7 @@ const load = async () => {
     const resp = await api.get(endpoint.value, { params: { agencyId: props.agencyId } });
     if(g!==generation)return;
     rows.value = (resp.data?.rows || []).map((r) => ({
+      id:r.id, excludedDates:r.excludedDates||[], careTypes:r.careTypes||[...careOptions],
       dayOfWeek: r.dayOfWeek || 'Monday',
       startTime: r.startTime || '09:00',
       endTime: r.endTime || '10:00',
@@ -99,6 +107,7 @@ const load = async () => {
       startDate:r.startDate||'', endDate:r.endDate||'', purpose:r.purpose==='MEETING'?'MEETING':'INTAKE',
       frequency: r.frequency || 'WEEKLY'
     }));
+    selfProviderId.value=resp.data?.providerId||null;
     loaded.value=true;
   } catch (e) {
     if(g===generation)error.value = e.response?.data?.error?.message || 'Failed to load virtual working hours';
@@ -114,10 +123,12 @@ const save = async () => {
     error.value = '';
     if(rows.value.some(r=>!['WEEKLY','EITHER'].includes(r.frequency)&&!r.startDate))throw new Error('Choose the first date for one-time or alternating-week availability.');
     if(rows.value.some(r=>!r.startTime||!r.endTime||r.endTime<=r.startTime))throw new Error('Each window needs an end time later than its start time.');
+    if(rows.value.some(r=>!r.careTypes.length))throw new Error('Choose at least one care type for each opening.');
     if(rows.value.some(r=>!r.intakeEnabled&&!r.sessionEnabled))throw new Error('Choose new clients, current clients, or both for each window.');
     await api.put(endpoint.value, {
       agencyId: props.agencyId,
       rows: rows.value.map((r) => ({
+        excludedDates:r.excludedDates, careTypes:r.careTypes,
         dayOfWeek: r.dayOfWeek,
         startTime: r.startTime,
         endTime: r.endTime,

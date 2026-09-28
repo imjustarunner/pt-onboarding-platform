@@ -4,7 +4,8 @@
       Publish availability for this provider. Link an existing office reservation to offer virtual visits, in-person visits, or both at that office.
     </p>
 
-    <fieldset class="osorb-panel">
+    <fieldset class="osorb-panel"><legend>Care types for this opening</legend><label v-for="type in ['INDIVIDUAL','COUPLES','FAMILY']" :key="type" class="osorb-check"><input type="checkbox" :checked="careTypes.includes(type)" @change="emit('update:careTypes',$event.target.checked?[...careTypes,type]:careTypes.filter(t=>t!==type))"/> {{type}}</label><p class="osorb-help muted">Select all that apply. The provider must also offer the selected service.</p></fieldset>
+    <fieldset class="osorb-panel" data-testid="appointment-format">
       <legend>Appointment format</legend>
       <p v-if="canLinkOffice &amp;&amp; frequency!=='ONCE'" class="osorb-help muted">For office-linked recurring openings, we publish matching existing room reservations over the next year. Dates with client appointments are skipped; future unreserved rooms are not published.</p>
     <label v-if="frequency==='ONCE'" class="osorb-check">One-time opening
@@ -84,6 +85,7 @@ import { computed } from 'vue';
 import { openSlotAvailabilityLabels } from '../../utils/openSlotAvailabilityLabels.js';
 
 const props = defineProps({
+  careTypes:{type:Array,default:()=>['INDIVIDUAL','COUPLES','FAMILY']},
   frequency:{type:String,default:'WEEKLY'},
   purpose:{type:String,default:'INTAKE'},
   virtualEnabled: { type: Boolean, default: true },
@@ -99,7 +101,7 @@ const props = defineProps({
   disabled: { type: Boolean, default: false }
 });
 
-const emit = defineEmits([
+const emit = defineEmits(['update:careTypes',
   'update:purpose',
   'update:virtualEnabled',
   'update:inPersonEnabled',

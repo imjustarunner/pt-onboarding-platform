@@ -1527,7 +1527,7 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
       }
 
       const publication = await publishOfficeAvailability({event:ev,agencyId,providerId,format:'VIRTUAL',
-        frequency:String(req.body?.frequency||'ONCE').toUpperCase(),purpose:req.body?.purpose,
+        frequency:String(req.body?.frequency||'ONCE').toUpperCase(),careTypes:req.body?.careTypes,purpose:req.body?.purpose,
         availableForIntake:req.body?.availableForIntake!==false,availableForSession:req.body?.availableForSession===true,actorId:req.user.id});
       return res.json({ok:true,enabled,agencyId,providerId,startAt,endAt,...publication});
     } else {
@@ -1616,7 +1616,7 @@ export const setEventInPersonIntakeAvailability = async (req, res, next) => {
       }
 
       const publication = await publishOfficeAvailability({event:ev,agencyId,providerId,format:'IN_PERSON',
-        frequency:String(req.body?.frequency||'ONCE').toUpperCase(),purpose:req.body?.purpose,
+        frequency:String(req.body?.frequency||'ONCE').toUpperCase(),careTypes:req.body?.careTypes,purpose:req.body?.purpose,
         availableForIntake:req.body?.availableForIntake!==false,availableForSession:req.body?.availableForSession===true,actorId:req.user.id});
       return res.json({ok:true,enabled,agencyId,providerId,startAt,endAt,...publication});
     } else {

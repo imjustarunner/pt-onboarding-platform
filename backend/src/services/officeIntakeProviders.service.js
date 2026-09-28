@@ -1,3 +1,5 @@
+import Profile from '../models/ProviderPublicProfile.model.js';
+import {agencyFormatAllowed} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
 import { ageYearsFromDob } from '../utils/intakeShowIf.js';
 import { providerServesAgeBucket } from '../utils/ageMatch.util.js';
@@ -52,7 +54,7 @@ function mapProviderRow(row = {}, { ageYears = null, slots = [], waitlistCount =
     slots,
     frequencies,
     slotPreferenceNote:
-      'Choosing a slot is a preference, not a booking. Slots are first come, first served and are not held. Expect a callback within 24–48 hours from support and/or the provider. Goodness of fit still applies.'
+      'Requesting a provider is a preference, not a confirmed appointment. If you select a bookable opening, that time stays held until released or assigned. Our team confirms placement and fit.'
   };
 }
 
@@ -273,7 +275,7 @@ function providerSupportsServiceMode(populations = [], serviceMode = '') {
   const mode = String(serviceMode || '').trim().toLowerCase();
   if (!mode || mode === 'individual' || mode === 'self' || mode === 'myself') return true;
   const pops = Array.isArray(populations) ? populations : [];
-  if (!pops.length) return true; // no facet data → do not hard-exclude
+  if (!pops.length) return false;
   if (mode === 'couple' || mode === 'couples' || mode === 'couples_therapy') {
     return pops.some((p) => /couple/.test(p));
   }
@@ -293,13 +295,11 @@ function providerSupportsServiceMode(populations = [], serviceMode = '') {
  * @param {{ ages?: number[], includeNotAccepting?: boolean, serviceMode?: string }} opts
  * serviceMode: individual | couple | family | child — filters on provider groups/focus when set.
  */
-export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNotAccepting = true, serviceMode = '' } = {}) {
+export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNotAccepting = true, serviceMode = '', programType='ALL', includeWaitlist=false } = {}) {
   const aid = Number(agencyId || 0);
   if (!aid) return [];
   const ageYears = youngestAge(ages);
-  const acceptingClause = includeNotAccepting
-    ? '1=1'
-    : 'COALESCE(u.provider_accepting_new_clients, 1) = 1';
+  const acceptingClause = '1=1';
 
   const queries = [
     `SELECT u.id, u.first_name, u.last_name, u.title, u.credential,
@@ -446,10 +446,21 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
   if (mode === 'couple' || mode === 'couples' || mode === 'couples_therapy'
     || mode === 'family' || mode === 'family_therapy') {
     const filtered = mapped.filter((p) => p.supportsServiceMode);
-    // Prefer strict match; if no one has the facet, keep full list rather than empty directory.
-    if (filtered.length) mapped = filtered;
+    mapped = filtered;
   }
 
+  const scoped=[];
+  for(const person of mapped){
+   const profile=await Profile.getForProvider({providerUserId:person.id,agencyId:aid}),policy=profile?.agencyAvailability,details=profile?.details||{};
+   const format=String(programType||'ALL').toUpperCase().replace(/[ -]/g,'_');
+   const supports=f=>policy?agencyFormatAllowed(policy,f,{intake:false}):f==='IN_PERSON'?(details.inPersonEnabled!==false&&(person.inOfficeAvailable||details.inPersonEnabled||person.openOfficeSlots>0)):details.virtualEnabled!==false&&(details.virtualEnabled||person.openVirtualSlots>0||(details.sessionFormats||[]).some(v=>/virtual/i.test(v)));
+   const accepting=policy?policy.seesClients&&policy.acceptingNewClients:person.acceptingNewClients;
+   const waitlist=policy?policy.seesClients&&policy.waitlistEnabled:details.waitlistEnabled===true;
+   if(!includeNotAccepting&&!accepting&&!(includeWaitlist&&waitlist))continue;
+   if(format==='IN_PERSON'&&!supports('IN_PERSON')||format==='VIRTUAL'&&!supports('VIRTUAL'))continue;
+   scoped.push({...person,acceptingNewClients:accepting,waitlist:!accepting,inOfficeAvailable:!!supports('IN_PERSON')});
+  }
+  mapped=scoped;
   mapped.sort((a, b) => {
     if (a.waitlist !== b.waitlist) return a.waitlist ? 1 : -1;
     if (a.supportsServiceMode !== b.supportsServiceMode) return a.supportsServiceMode ? -1 : 1;

@@ -1861,7 +1861,7 @@
           </button>
         </div>
 
-        <div v-if="currentFlowStep?.type === 'provider_match'" class="provider-match-step">
+        <div v-if="isOfficeInDepthIntake && currentFlowStep?.type === 'provider_match'" class="provider-match-step">
           <div v-if="providerMatchOnClinicalHold" class="clinical-review-hold">
             <DigitalFormNotice
               variant="warn"
@@ -1881,7 +1881,7 @@
             @update:selected-ids="setSelectedOfficeProviderIds"
           />
           <p v-if="providerHoldChangeError" role="alert">{{ providerHoldChangeError }}</p>
-          <PublicProviderSlotPicker v-if="!providerMatchOnClinicalHold && selectedOfficeProviderIds.length === 1 && !hasBridgeLearning()" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" :service-type="link?.master_channel==='tutoring'?'tutoring':'counseling'" @hold="saveOpeningPreference" />
+          <PublicProviderSlotPicker v-if="!providerMatchOnClinicalHold && selectedOfficeProviderIds.length === 1 && !hasBridgeLearning()" :agency-slug="referralAgencySlug || agencyInfo?.portal_url || agencyInfo?.slug || ''" :provider-id="Number(selectedOfficeProviderIds[0])" :care-type="serviceSubject==='couple'?'COUPLES':serviceSubject==='family'?'FAMILY':'INDIVIDUAL'" :service-type="link?.master_channel==='tutoring'?'tutoring':'counseling'" @hold="saveOpeningPreference" />
         </div>
 
         <div v-if="currentFlowStep?.type === 'family_roster'" class="family-roster-step intake-interview-page">
@@ -4708,7 +4708,7 @@ function saveOpeningPreference(hold) {
   if (!intakeResponses.submission) intakeResponses.submission = {};
   intakeResponses.submission.requested_opening_preference = hold ? {
     providerId: hold.providerId, startAt: hold.startAt, endAt: hold.endAt, modality: hold.modality,
-    recurring: true, timeZone: hold.timeZone, status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION'
+    recurring:hold.recurring!==false,frequency:hold.frequency,purpose:hold.purpose,timeZone: hold.timeZone, status: 'PREFERENCE_ONLY_REQUIRES_STAFF_CONFIRMATION'
   } : null;
 }
 const providerHoldChangeError=ref('');
@@ -4726,7 +4726,7 @@ async function setSelectedOfficeProviderIds(ids) {
       await api.post(`/public/agency-services/${encodeURIComponent(slug)}/release-hold`,{token:held.token},{skipAuthRedirect:true});
       sessionStorage.removeItem(key);saveOpeningPreference(null);
     }
-  }catch{providerHoldChangeError.value='Could not release the previous weekly hold. Please try again before changing providers.';return;}
+  }catch{providerHoldChangeError.value='Could not release the previous held opening. Please try again before changing providers.';return;}
   finally{changingOfficeProvider=false;}
   intakeResponses.submission.preferred_office_provider_ids = cur;
   const selected = (officeProviders.value || []).filter((p) => cur.includes(String(p.id)));
@@ -4750,7 +4750,7 @@ function toggleOfficeProvider(row) {
   setSelectedOfficeProviderIds(cur);
 }
 async function loadOfficeIntakeProviders() {
-  if (!publicKey || officeProvidersLoading.value) return;
+  if (!publicKey || officeProvidersLoading.value || !isOfficeInDepthIntake.value) return;
   officeProvidersLoading.value = true;
   try {
     const ages = (clients.value || [])
@@ -4759,7 +4759,7 @@ async function loadOfficeIntakeProviders() {
     const clientLearning = intakeResponses.clients.map(client => client?.learning).filter(Boolean);
     const requests = link.value?.master_channel === 'tutoring' && clientLearning.length ? clientLearning : [intakeResponses.submission.learning || {}];
     const results = await Promise.all(requests.map(learning => api.get(`/public-intake/${encodeURIComponent(publicKey)}/available-providers`, {
-      params: {...(ages.length ? {ages: ages.join(',')} : {}), learningProgram: learning.program || route.query.program, learningFormat: learning.format, gradeLevel: learning.grade, subject: learning.subject, programType: learning.format === 'in-person' ? 'IN_PERSON' : 'VIRTUAL'},
+      params: {serviceMode:serviceSubject.value,...(ages.length ? {ages: ages.join(',')} : {}), learningProgram: learning.program || route.query.program, learningFormat: learning.format, gradeLevel: learning.grade, subject: learning.subject, programType: link.value?.master_channel==='tutoring'?(learning.format === 'in-person' ? 'IN_PERSON' : 'VIRTUAL'):(intakeResponses.submission.preferred_service_format||intakeResponses.submission.preferredModality||intakeResponses.submission.preferred_modality||'ALL')},
       skipGlobalLoading: true
     })));
     // The shared preference must fit every student in a multi-student packet.
@@ -7244,6 +7244,7 @@ function chooseServiceSubject(subject) {
   const next = String(subject || '').trim().toLowerCase();
   if (!isEnrollmentOptionEnabled(next)) return;
   serviceSubject.value = next;
+  intakeResponses.submission.serviceSubject = next;
   intakeForSelf.value = next === 'self';
   whoForError.value = '';
   if ((next === 'dependent' || next === 'family') && !clients.value.length) {

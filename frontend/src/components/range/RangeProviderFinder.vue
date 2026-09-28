@@ -46,6 +46,7 @@
  </section>
 </template>
 <script setup>
+import {slotAllowsCare} from '../../utils/availabilityCareTypes';
 import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {useRoute,useRouter} from 'vue-router';
 import api from '../../services/api';
@@ -79,7 +80,7 @@ const candidates=computed(()=>rows.value.filter(p=>{
  (f.setting==='office'?p.inPerson:f.setting==='virtual'?p.virtual:f.setting==='school'?p.school&&p.schools?.length:true)&&
  (!q||[p.name,p.title,p.credential,p.agencyName,p.bio,...p.specialties,...(p.modalities||[]),...p.populations,...p.subjects,...p.languages,...p.ages,...p.schools.map(s=>s.name)].join(' ').toLowerCase().includes(q));
 }));
-function slots(p){const f=filters.value;if(f.school)return [];return (calendars.value[key(p)]?.slots||[]).filter(s=>slotMatchesTime(s,f,'America/Denver')&&
+function slots(p){const f=filters.value;if(f.school)return [];return (calendars.value[key(p)]?.slots||[]).filter(s=>Date.parse(s.startAt)>Date.now()&&slotAllowsCare(s,f.care)).filter(s=>slotMatchesTime(s,f,'America/Denver')&&
  (f.setting==='office'?s.format==='IN_PERSON':f.setting==='virtual'?s.format==='VIRTUAL':f.setting==='school'?false:true)&&
  (!f.city||s.format==='VIRTUAL'||p.locations.some(o=>Number(o.id)===Number(s.buildingId)&&equal([o.city,o.state].filter(Boolean).join(', '),f.city))));}
 function hasOpenings(p){const c=calendars.value[key(p)];return slots(p).length>0||(!hasTimePreference(filters.value)&&['all','school',''].includes(filters.value.setting)&&

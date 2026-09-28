@@ -15,7 +15,7 @@
   <template v-else>
    <div class="its-provider-modes" role="group" aria-label="Provider setting"><button v-for="[value,label] in modes" :key="value" :aria-pressed="mode===value" @click="setMode(value)"><Icon :name="value==='virtual'?'screen':value==='school'?'school':value==='office'?'pin':'people'"/>{{label}}</button></div>
    <p v-if="mode!=='school'" class="its-collective-link"><a :href="networkSearchUrl">Need more options? Find providers across our partner network →</a></p>
-   <PublicOfficeLocations v-if="mode==='office'" :offices="officeLocations" :model-value="officeId" required @update:model-value="chooseOffice"/>
+   <PublicOfficeLocations v-if="mode==='office'" :offices="officeLocations" :model-value="officeId" @update:model-value="chooseOffice"/>
    <ItscoSchoolProviderSearch v-if="mode==='school'" v-model="school" :schools="schools" :providers="providers" :loading="directoryLoading"/>
    <template v-else-if="!needsOffice">
     <div class="its-search-row"><label class="its-search">Search<input v-model="search" type="search" placeholder="Name, specialty, language…"/></label><button class="its-filter-toggle" :aria-expanded="moreFilters" aria-controls="provider-search-filters" @click="moreFilters=!moreFilters">Filters {{filterCount?'('+filterCount+')':''}} <span aria-hidden="true">{{moreFilters?'−':'+'}}</span></button></div>
@@ -64,6 +64,7 @@ import {providerProfilePath,providerIdFromRoute} from '../../utils/providerProfi
 
 import {computed,ref,watch} from 'vue';
 import {uniquePublicFacets,sortClientAges} from '../../utils/publicProviderFacets';
+import {slotAllowsCare} from '../../utils/availabilityCareTypes';
 import {providerStatuses,officeVirtualProviderStatus,statusLabel} from '../../utils/providerDirectoryStatus';
 import {useRoute,useRouter} from 'vue-router';
 import PublicOfficeLocations from '../publicServices/PublicOfficeLocations.vue';
@@ -80,7 +81,7 @@ watch([officeId,mode,school,search,age,specialty,insurance,accepting,openings,ge
 watch(()=>[route.query.care,route.query.city,route.query.insurance],([c,l,i])=>{care.value=String(c||'');city.value=String(l||'');insurance.value=String(i||'');},{immediate:true});
 const selected=computed(()=>props.providers.find(p=>String(p.id)===providerIdFromRoute(route)));
 const officeLocations=computed(()=>[...new Map([...props.offices,...props.providers.flatMap(p=>p.officeLocations||[])].map(o=>[o.id,o])).values()].sort((a,b)=>a.name.localeCompare(b.name)));
-const needsOffice=computed(()=>mode.value==='office'&&!officeLocations.value.some(o=>String(o.id)===officeId.value));
+const needsOffice=computed(()=>false);
 const directoryQuery=computed(()=>({...desiredTime.value,state:state.value||undefined,search:search.value||undefined,age:age.value||undefined,specialty:specialty.value||undefined,accepting:accepting.value||undefined,openings:openings.value||undefined,gender:gender.value||undefined,setting:mode.value,care:care.value||undefined,city:city.value||undefined,insurance:insurance.value||undefined,...(school.value?{school:school.value}:{}),...(mode.value==='office'?{officeId:officeId.value||undefined}:{})}));
 // Keep searches shareable and intact when returning from the collective or an inquiry.
 watch(directoryQuery,q=>{if(selected.value)return;const next={...route.query};for(const key of [...networkSearchKeys,'officeId']){if(q[key])next[key]=q[key];else delete next[key];}const stable=value=>JSON.stringify(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)));if(stable(next)!==stable(route.query))router.replace({query:next});});
@@ -100,7 +101,7 @@ const currentStatus=p=>mode.value==='school'?schoolStatus(p):mode.value==='all'?
 const isAccepting=p=>currentStatus(p)==='accepting';
 function offeredFormats(p){const a=availability(p);return [['In person',p.officeLocations?.length||p.office||p.details?.inPersonEnabled||['accepting','waitlist'].includes(p.details?.officeAvailability)||a.inPerson?.hasPublishedOpenings],['Virtual',p.details?.virtualEnabled||['accepting','waitlist'].includes(p.details?.virtualAvailability)||(p.details?.sessionFormats||[]).some(v=>/virtual|telehealth|online/i.test(v))||a.virtual?.hasPublishedOpenings],['School-based',p.schools.length]].filter(([,yes])=>yes).map(([label])=>label);}
 function acceptanceLabel(p){return statusLabel(currentStatus(p));}
-const hasOpenings=p=>{if(hasTimePreference(desiredTime.value))return openingSlots(p).length>0;const a=availability(p);return mode.value==='office'?Boolean(a.inPerson?.hasPublishedOpenings):mode.value==='virtual'?Boolean(a.virtual?.hasPublishedOpenings):mode.value==='school'||school.value?Boolean(school.value?p.schools.find(s=>String(s.id)===school.value)?.hasOpenings:p.schoolOpenings):Boolean(a.inPerson?.hasPublishedOpenings||a.inPerson?.nextAvailableAt||a.virtual?.hasPublishedOpenings||a.virtual?.nextAvailableAt);};
+const hasOpenings=p=>{if(care.value||hasTimePreference(desiredTime.value))return openingSlots(p).length>0;const a=availability(p);return mode.value==='office'?Boolean(a.inPerson?.hasPublishedOpenings):mode.value==='virtual'?Boolean(a.virtual?.hasPublishedOpenings):mode.value==='school'||school.value?Boolean(school.value?p.schools.find(s=>String(s.id)===school.value)?.hasOpenings:p.schoolOpenings):Boolean(a.inPerson?.hasPublishedOpenings||a.inPerson?.nextAvailableAt||a.virtual?.hasPublishedOpenings||a.virtual?.nextAvailableAt);};
 const filtered=computed(()=>props.providers.filter(p=>
  (!needsOffice.value)&&(!officeId.value||mode.value!=='office'||(p.officeLocations||[]).some(o=>String(o.id)===officeId.value))&&
  (mode.value==='all'?offeredFormats(p).some(f=>f==='In person'||f==='Virtual'):(mode.value==='office'?offeredFormats(p).includes('In person'):mode.value==='virtual'?offeredFormats(p).includes('Virtual'):p.schools.length))&&
@@ -116,13 +117,13 @@ const filtered=computed(()=>props.providers.filter(p=>
  (['recommended','soonest'].includes(sort.value)?String(nextOpening(a)||'9999').localeCompare(String(nextOpening(b)||'9999')):0)||a.displayName.localeCompare(b.displayName)));
 const providerGroups=computed(()=>providerOpeningGroups(filtered.value,hasOpenings,{loading:props.availabilityLoading,error:props.availabilityError}));
 const profileFacets=computed(()=>selected.value?[['Specialties',selected.value.specialties],['Client ages',sortClientAges(selected.value.ageGroups)],['Populations served',selected.value.populations],['Therapy approaches',selected.value.modalities],['Languages',selected.value.details?.languages||[]],['Insurance',selected.value.insurances.map(i=>i.name)]]:[]);
-function nextOpening(p){if(hasTimePreference(desiredTime.value))return openingSlots(p)[0]?.startAt;const a=availability(p);return mode.value==='office'?a.inPerson?.nextAvailableAt:mode.value==='virtual'?a.virtual?.nextAvailableAt:[a.inPerson?.nextAvailableAt,a.virtual?.nextAvailableAt].filter(Boolean).sort()[0];}
+function nextOpening(p){if(care.value||hasTimePreference(desiredTime.value))return openingSlots(p)[0]?.startAt;const a=availability(p);return mode.value==='office'?a.inPerson?.nextAvailableAt:mode.value==='virtual'?a.virtual?.nextAvailableAt:[a.inPerson?.nextAvailableAt,a.virtual?.nextAvailableAt].filter(Boolean).sort()[0];}
 function availabilityText(p){const at=nextOpening(p);if(at)return `Next opening: ${new Date(at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'})}`;if(props.availabilityLoading)return 'Checking appointment times…';if(props.availabilityError)return 'Appointment availability could not be checked';return currentStatus(p)==='waitlist'?'Join this provider’s waitlist':currentStatus(p)==='unavailable'?'Closed to new clients · inquire with our team':'Accepting new clients · we’ll work with you directly to find a time';}
 function clear(){officeId.value='';router.replace({query:{}});mode.value='all';school.value='';search.value='';age.value='';specialty.value='';insurance.value='';accepting.value='';openings.value='';gender.value='';care.value='';city.value='';state.value='';desiredTime.value={};limit.value=12;}
 function initials(name){return name.split(' ').map(s=>s[0]).slice(0,2).join('');}
 
 function profileLink(p){return {path:providerProfilePath(p),query:directoryQuery.value};}
-function openingSlots(p){const a=availability(p);const groups=mode.value==='office'?[a.inPerson]:mode.value==='virtual'?[a.virtual]:mode.value==='school'||school.value?[]:[a.inPerson,a.virtual];return groups.flatMap(g=>{const slots=g?.slots||[];return !slots.length&&g?.nextAvailableAt?[{startAt:g.nextAvailableAt}]:slots;}).filter(s=>slotMatchesTime(s,desiredTime.value,'America/Denver')).sort((a,b)=>a.startAt.localeCompare(b.startAt));}
+function openingSlots(p){const a=availability(p);const groups=mode.value==='office'?[a.inPerson]:mode.value==='virtual'?[a.virtual]:mode.value==='school'||school.value?[]:[a.inPerson,a.virtual];return groups.flatMap(g=>{const slots=g?.slots||[];return !slots.length&&g?.nextAvailableAt?[{startAt:g.nextAvailableAt}]:slots;}).filter(s=>Date.parse(s.startAt)>Date.now()&&slotAllowsCare(s,care.value)).filter(s=>slotMatchesTime(s,desiredTime.value,'America/Denver')).sort((a,b)=>a.startAt.localeCompare(b.startAt));}
 function inquiryLink(p){return {path:'/p/itsco/contact',query:{provider:String(p.id),providerName:p.displayName,category:'provider',setting:mode.value,officeId:officeId.value||undefined}};}
 const virtualStates=computed(()=>[...new Set(props.providers.flatMap(publicVirtualStates))].sort());
 

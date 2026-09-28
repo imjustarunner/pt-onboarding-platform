@@ -1,3 +1,4 @@
+import {normalizeCareType,slotAllowsCare} from '../../utils/availabilityCareTypes.js';
 import { uniquePublicFacets, restrictPublicInsurances, publicLanguages } from '../../utils/publicProviderPresentation.js';
 import {offersProviderService} from '../../utils/providerServiceOfferings.js';
 import { addDaysYmd } from '../../utils/scheduleRecurrence.js';
@@ -15,7 +16,7 @@ export function isAvailabilitySearch(query, history=[]) {
   if (/\b(availability|openings?|available|free)\b/i.test(q) && /\b(who|provider|clinician|therapist|find|show|anyone)\b/i.test(q)) return true;
   if (/\b(match|preferences?|satisfies|suits?)\b/i.test(q) && /\bclient\b/i.test(q)) return true;
   if(/^\d{1,2}$/.test(q.trim())&&history.some(t=>t.role==='user'&&/kids|children|availability/i.test(t.text||'')))return true;
-  return history.some(t=>t.role==='user' && /\b(availability|openings?|available)\b/i.test(t.text||'')) && /\b(adhd|anxiety|depression|trauma|autism|kids|child|children|teen|age|year.old|virtual|person|instead|those|them|weekly|biweekly|monthly|weeks|am|pm|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(q);
+  return history.some(t=>t.role==='user' && /\b(availability|openings?|available)\b/i.test(t.text||'')) && /\b(couples|couple|family|families|individual|adhd|anxiety|depression|trauma|autism|kids|child|children|teen|age|year.old|virtual|person|instead|those|them|weekly|biweekly|monthly|weeks|am|pm|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(q);
 }
 function timeValue(hour,minute,meridiem) {
   let h=Number(hour),m=Number(minute||0);
@@ -59,6 +60,7 @@ export function parseAvailabilitySearch({query,previousQueries=[],timeZone='Amer
     if(/\b(biweekly|every (?:two|2) weeks)\b/i.test(q))filters.frequency='BIWEEKLY';
     else if(/\b(monthly|every (?:four|4) weeks)\b/i.test(q))filters.frequency='EVERY_4_WEEKS';
     else if(/\bweekly\b/i.test(q))filters.frequency='WEEKLY';
+    const care=q.match(/\b(couples?|famil(?:y|ies)|individuals?)\b/i);if(care)filters.care=normalizeCareType(care[1]);
     const specialty=q.match(/\b(ADHD|anxiety|depression|trauma|autism)\b/i);if(specialty)filters.specialty=specialty[1];
     if(/\bintake\b/i.test(q))filters.purpose='INTAKE';
     if(/\bmeeting\b/i.test(q))filters.purpose='MEETING';
@@ -74,7 +76,7 @@ export function parseAvailabilitySearch({query,previousQueries=[],timeZone='Amer
 // Convert quarter-hour free segments into complete one-hour appointment choices.
 // A gap, format, room, purpose, or recurrence boundary must not be bridged.
 export function appointmentWindows(rows) {
- const groups=new Map();for(const row of rows){const key=[row.buildingId,row.roomId,row.frequency,row.purpose].join(':');if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);}
+ const groups=new Map();for(const row of rows){const key=[row.buildingId,row.roomId,row.frequency,row.purpose,JSON.stringify(row.careTypes)].join(':');if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);}
  const result=[];
  for(const values of groups.values()){
   const sorted=[...new Map(values.map(r=>[r.startAt,r])).values()].sort((a,b)=>Date.parse(a.startAt)-Date.parse(b.startAt));
@@ -84,6 +86,7 @@ export function appointmentWindows(rows) {
 }
 export function slotMatchesSearch(slot,filters,timeZone) {
   const start=new Date(slot.startAt),end=new Date(slot.endAt),day=localDate(start,timeZone),time=localTime(start,timeZone);
+  if(!slotAllowsCare(slot,filters.care))return false;
   if(day<filters.dateFrom||day>filters.dateTo)return false;
   if(filters.exactTime&&time!==filters.exactTime)return false;
   if(filters.timeFrom&&time<filters.timeFrom||filters.timeTo&&localTime(end,timeZone)>filters.timeTo)return false;
@@ -102,12 +105,12 @@ function applyPreferences(filters,prefs,client,now) {
   const unverified=[];
   const days=prefs.preferredDays||prefs.preferred_days;
   if(Array.isArray(days)&&days.length)filters.days=days.map(d=>weekdays.find(w=>w.toLowerCase().startsWith(String(d).toLowerCase().slice(0,3)))?.toLowerCase()).filter(Boolean);
-  const modality=String(prefs.preferredModality||prefs.preferred_modality||'').toLowerCase();
+  const modality=String(prefs.preferred_service_format||prefs.preferredModality||prefs.preferred_modality||'').toLowerCase();
   if(modality==='virtual')filters.modality='VIRTUAL';if(['in_person','in person'].includes(modality))filters.modality='IN_PERSON';
   const period=String(prefs.preferredTimeOfDay||prefs.preferred_time_of_day||'').toLowerCase();
   if(!filters.exactTime&&!filters.timeFrom&&!filters.timeTo){if(period.includes('morning')){filters.timeFrom='06:00';filters.timeTo='12:00';}else if(period.includes('afternoon')){filters.timeFrom='12:00';filters.timeTo='17:00';}else if(period.includes('evening')){filters.timeFrom='17:00';filters.timeTo='23:59';}else if(period&&!/flexible|any/i.test(period))unverified.push('Time preference: '+period);}
   if(prefs.preferredLocation&&!/flexible|any|either/i.test(String(prefs.preferredLocation)))filters.location=String(prefs.preferredLocation);
-  filters.serviceType=prefs.serviceType||null;
+  filters.serviceType=prefs.serviceType||null;filters.care=normalizeCareType(prefs.service_subject||prefs.serviceSubject||prefs.whoFor)||filters.care;
   filters.insurance=prefs.insuranceOrPayment||prefs.insurance_or_payment||null;
   filters.language=prefs.preferredLanguage||prefs.preferred_language||null;
   const dob=String(client.date_of_birth||prefs.birthdate||'').slice(0,10);
@@ -137,7 +140,7 @@ export async function findProviderAvailability({agencyId,actor,query,previousQue
    AND COALESCE(u.status,'') NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING')
    AND (u.role IN ('provider','provider_plus','supervisor','clinical_practice_assistant') OR u.has_provider_access=1)
    ORDER BY u.last_name,u.first_name`,[agencyId]);
-  const [facets]=await db.execute(`SELECT user_id,field_key,value_option FROM provider_search_index WHERE agency_id=? AND field_key IN ('age_specialty','provider_marketing_age_specialty','modality','pt_specialties_max25','specialties_general','mental_health','other_issues')`,[agencyId]);
+  const [facets]=await db.execute(`SELECT user_id,field_key,value_option FROM provider_search_index WHERE agency_id=? AND field_key IN ('age_specialty','provider_marketing_age_specialty','modality','groups','provider_marketing_groups','pt_specialties_max25','specialties_general','mental_health','other_issues')`,[agencyId]);
   const [enrollments]=filters.serviceType?await db.execute('SELECT user_id,service_type,is_active FROM provider_public_service_enrollments WHERE agency_id=? AND service_type=?',[agencyId,filters.serviceType]):[[]];
   const weeks=new Set();for(let day=filters.dateFrom;day<=filters.dateTo;day=addDaysYmd(day,1)){const dow=new Date(day+'T12:00:00Z').getUTCDay();weeks.add(addDaysYmd(day,-(dow+6)%7));}
   const results=[],failed=[],unknownAge=[];const queue=[...providers];
@@ -145,6 +148,7 @@ export async function findProviderAvailability({agencyId,actor,query,previousQue
     const evidence=ageEvidence(facets.filter(f=>Number(f.user_id)===Number(p.id)),filters);
     if(!evidence.matches){if(!evidence.ages.length)unknownAge.push(Number(p.id));continue;}
     const personFacets=facets.filter(f=>Number(f.user_id)===Number(p.id));
+    if(filters.care&&!personFacets.some(f=>['modality','groups','provider_marketing_groups'].includes(f.field_key)&&normalizeCareType(f.value_option)===filters.care))continue;
     if(filters.specialty&&!personFacets.some(f=>String(f.value_option||'').toLowerCase().includes(filters.specialty.toLowerCase())))continue;
     const review=[];const profile=parseJson(p.public_details_json);
     if(filters.serviceType){const enrollment=enrollments.find(e=>Number(e.user_id)===Number(p.id));if(!offersProviderService(profile,agencyId,filters.serviceType,{enrolled:!!enrollment?.is_active,hasEnrollment:!!enrollment,counselingEligible:true}))continue;}

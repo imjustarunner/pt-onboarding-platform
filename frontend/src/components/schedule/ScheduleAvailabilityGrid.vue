@@ -2037,7 +2037,7 @@
           :show-others-present="editorShowOthersPresent"
           :others-present-names="editorOthersPresentNames"
           :admin-catalog-links="editorAdminCatalogLinks"
-          :recurrence-frequency-options="RECURRENCE_OPTIONS.filter(o => o.value !== 'MONTHLY' || o.value === editorRecurrenceFrequency)"
+          :recurrence-frequency-options="RECURRENCE_OPTIONS.filter(o => editingOpenSlot?.virtualHoursId ? o.value === editingOpenSlot.frequency : o.value !== 'MONTHLY' || o.value === editorRecurrenceFrequency)"
           @update:dateYmd="onEditorDateYmd"
           @update:startTime="onEditorStartTime"
           @update:endTime="onEditorEndTime"
@@ -2423,6 +2423,8 @@
             :disabled="submitting || scheduleEventSaving"
           />
 
+          <button v-if="editingOpenSlot?.virtualHoursId" type="button" class="btn btn-secondary" @click="removingOpenPublication={...editingOpenSlot,id:editingOpenSlot.virtualHoursId,kind:'weekly',dayOfWeek:['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][new Date(editingOpenSlot.startAt).getDay()]}">Remove published opening…</button>
+          <AvailabilityPublicationEdit v-if="removingOpenPublication" :row="removingOpenPublication" action="delete" :provider-id="Number(scheduleActorUserId)" @close="removingOpenPublication=null" @saved="removingOpenPublication=null;showRequestModal=false;load({forceRefresh:true})"/>
           <OpenSlotPlusOfficeRequestBody
             v-if="editorIsOpenSlot || requestType === 'attach_open_for_booking'"
             v-model:virtual-enabled="editorOpenVirtual"
@@ -2430,6 +2432,7 @@
             :can-link-office="editorCanLinkOpenOffice"
             :frequency="scheduleEventRecurrence"
             v-model:purpose="editorOpenPurpose"
+            v-model:care-types="editorCareTypes"
             v-model:available-for-intake="editorAvailableForIntake"
             v-model:available-for-session="editorAvailableForSession"
             v-model:attach-office-request="editorAttachOfficeRequest"
@@ -5922,6 +5925,7 @@ import MeetingNotesPanel from '../meetings/MeetingNotesPanel.vue';
 import SupervisionSuperviseePanel from './SupervisionSuperviseePanel.vue';
 import SupervisionPresenterCasePanel from './SupervisionPresenterCasePanel.vue';
 import { availabilityOccursOn } from '../../utils/availabilityRecurrence.js';
+import AvailabilityPublicationEdit from '../availability/AvailabilityPublicationEdit.vue';
 import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import { useAppointmentChange } from '../../composables/useAppointmentChange.js';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
@@ -11508,6 +11512,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       startTime: row?.startTime || null,
       endTime: row?.endTime || null,
       virtualHoursId: vwhId,
+      excludedDates:row?.excludedDates,dayOfWeek:dayName,startDate:row?.startDate,endDate:row?.endDate,careTypes:row?.careTypes,
       frequency: row?.frequency || 'WEEKLY',
       officeTied: portalOfficeTied,
       startAt,
@@ -13585,6 +13590,7 @@ const editorSupervisionIsVirtual = ref(true);
 const editorSupervisionWaitingRoomEnabled = ref(true);
 const editorOpenSlotEnabled = ref(true);
 const editorOpenPurpose = ref('INTAKE');
+const editorCareTypes=ref(['INDIVIDUAL','COUPLES','FAMILY']);
 const editorAvailableForIntake = ref(true);
 const editorAvailableForSession = ref(false);
 const editorAcceptingNewClientsHint = computed(() => {
@@ -15463,6 +15469,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
     : [];
   editorServiceLocationId.value = Number(defaults.serviceLocationId || bookingServiceLocationId.value || 0) || 0;
   editorAttachOfficeRequest.value = !!defaults.attachOfficeRequest;
+  editorCareTypes.value=defaults.careTypes||['INDIVIDUAL','COUPLES','FAMILY'];
   editorOpenPurpose.value=defaults.purpose==='MEETING'?'MEETING':'INTAKE';
   editorOpenSlotEnabled.value = defaults.openSlotEnabled !== false;
   editorAvailableForIntake.value = defaults.availableForIntake !== false;
@@ -18448,6 +18455,7 @@ const maybeAutoOpenSelectionActions = (opts = {}) => {
 };
 
 const editingOpenSlot = ref(null);
+const removingOpenPublication=ref(null);
 const openSlotActionModal = async ({
   dayName,
   hour,
@@ -18677,6 +18685,7 @@ const openSlotActionModal = async ({
     const end=String(sourceOpenSlot.endTime || '').split(':').map(Number);
     if(start.length>=2){modalHour.value=start[0];modalStartHour.value=start[0];modalStartMinute.value=start[1];}
     if(end.length>=2){modalEndHour.value=end[0];modalEndMinute.value=end[1];}
+    editorCareTypes.value=sourceOpenSlot.careTypes||['INDIVIDUAL','COUPLES','FAMILY'];
     editorOpenPurpose.value=sourceOpenSlot.purpose==='MEETING'?'MEETING':'INTAKE';
     scheduleEventRecurrence.value=sourceOpenSlot.frequency || 'WEEKLY';
     officeBookingRecurrence.value=scheduleEventRecurrence.value;
@@ -20728,7 +20737,9 @@ const ensureVirtualWorkingHoursForRange = async ({
   if (!agencyId) return;
   if (editingOpenSlot.value?.virtualHoursId) {
     if (agencyId !== Number(editingOpenSlot.value.agencyId)) throw new Error('This weekly series belongs to its original agency. Create a new open slot to publish for another agency.');
-    await api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${editingOpenSlot.value.virtualHoursId}`, {agencyId,dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,frequency:scheduleEventRecurrence.value,startDate:addDaysYmd(weekStart.value,dayIdxFromWeekStartMonday(dayName)),purpose:editorOpenPurpose.value});
+    const edit=editingOpenSlot.value;
+    const apply=scope=>api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${edit.virtualHoursId}`, {agencyId,scope,occurrenceDate:String(edit.startAt).slice(0,10),dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,startDate:addDaysYmd(weekStart.value,dayIdxFromWeekStartMonday(dayName)),purpose:editorOpenPurpose.value,careTypes:editorCareTypes.value});
+    if(edit.frequency==='ONCE')await apply('single');else if(!await askSeriesEditScope({title:'Update published opening',run:apply}))throw new Error('No availability changes were saved.');
     return;
   }
   const day = String(dayName || '');
@@ -20757,7 +20768,7 @@ const ensureVirtualWorkingHoursForRange = async ({
 
   const targetStartMin = minuteFromTime(targetStart);
   const targetEndMin = minuteFromTime(targetEnd);
-  const sameDay = normalized.filter((r) => r.dayOfWeek === day && r.frequency === frequency && r.startDate === startDate && (r.purpose||'ONGOING') === purpose);
+  const sameDay = normalized.filter((r) => !(r.excludedDates||[]).length && JSON.stringify(r.careTypes)===JSON.stringify(editorCareTypes.value) && r.dayOfWeek === day && r.frequency === frequency && r.startDate === startDate && (r.purpose||'ONGOING') === purpose);
   const overlaps = sameDay.filter((r) => {
     const s = minuteFromTime(r.startTime);
     const e = minuteFromTime(r.endTime);
@@ -20788,7 +20799,7 @@ const ensureVirtualWorkingHoursForRange = async ({
     sessionType: mergedIntake && mergedSession ? 'BOTH' : (mergedIntake ? 'INTAKE' : 'REGULAR'),
     availableForIntake: mergedIntake,
     availableForSession: mergedSession,
-    frequency, startDate, endDate: null, purpose
+    frequency, startDate, endDate: null, purpose,careTypes:editorCareTypes.value,excludedDates:[]
   };
   const nextRows = [...rowsWithoutOverlaps, mergedRow];
   await api.put(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours`, { agencyId, rows: nextRows });
@@ -21905,10 +21916,10 @@ const submitRequest = async () => {
         // Linking publishes only the selected reservation(s), without inventing a weekly virtual series.
         for (const ctx of contexts) {
           if (editorOpenVirtual.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/virtual-intake`, {
-            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,careTypes:editorCareTypes.value
           });
           if (editorOpenInPerson.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/in-person-intake`, {
-            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value,careTypes:editorCareTypes.value
           });
         }
       } else {
@@ -24232,6 +24243,7 @@ const onCellBlockResizePointerDown = (e, b, dayName, hour, minute, edge) => {
     officeLocationId: Number(b.officeLocationId || b.buildingId || 0),
     roomId: Number(b.roomId || 0),
     virtualHoursId: Number(b.virtualHoursId || 0),
+    frequency: b.frequency,
     agencyId: Number(b.agencyId || 0),
     kind: String(b.kind),
     eventKind: String(b.eventKind || '').toUpperCase(),
@@ -24312,6 +24324,7 @@ const onCellBlockResizePointerUp = () => {
     officeLocationId: rs.officeLocationId,
     roomId: rs.roomId,
     virtualHoursId: Number(rs.virtualHoursId || 0),
+    frequency: rs.frequency,
     agencyId: Number(rs.agencyId || 0),
     providerId: rs.providerId,
     seriesId: rs.seriesId,
@@ -24343,6 +24356,7 @@ const onAppointmentPointerDown = (e, block, dayName, hour, minute = 0) => {
     officeLocationId: Number(block.officeLocationId || block.buildingId || 0),
     roomId: Number(block.roomId || 0),
     virtualHoursId: Number(block.virtualHoursId || 0),
+    frequency: block.frequency,
     agencyId: Number(block.agencyId || 0),
     providerId: Number(block.providerId || resolveBookedProviderIdForEvent(block) || props.userId || 0),
     seriesId: String(block.recurrenceSeriesId || '').trim(),
@@ -24439,6 +24453,7 @@ const openAppointmentMoveConfirm = (st, target) => {
     officeLocationId: st.officeLocationId,
     roomId: st.roomId,
     virtualHoursId: Number(st.virtualHoursId || 0),
+    frequency: st.frequency,
     agencyId: Number(st.agencyId || 0),
     providerId: st.providerId,
     seriesId: st.seriesId,
@@ -24475,10 +24490,10 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
     return;
   }
   const seriesId = String(draft.seriesId || '').trim();
-  if (!isPortal && !scope && seriesId) {
+  if (!scope && (seriesId || isPortal && draft.frequency !== 'ONCE')) {
     showAppointmentMoveModal.value = false;
     await askSeriesEditScope({
-      title: draft.label || 'Appointment',
+      title: isPortal?'Move published opening':draft.label || 'Appointment',
       run: async (chosen) => {
         await applyAppointmentMove(chosen, { pastConfirmed: true });
       }
@@ -24495,6 +24510,7 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
       const dayName = String(draft.targetDayName || '').trim()
         || ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][newStart.getDay()];
       await api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${Number(draft.virtualHoursId)}`, {
+        scope:scope||'single', occurrenceDate:String(draft.startAt).slice(0,10),
         dayOfWeek: dayName,
         startDate:String(draft.newStartAt).slice(0,10),
         startTime: `${pad2(newStart.getHours())}:${pad2(newStart.getMinutes())}`,

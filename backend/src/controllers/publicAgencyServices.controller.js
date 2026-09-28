@@ -1,3 +1,4 @@
+import {slotAllowsCare} from '../utils/availabilityCareTypes.js';
 import { readPublicWeekAvailability } from '../services/publicAvailabilitySnapshot.service.js';
 import {appointmentTimePredicate} from '../utils/publicAppointmentTimeSearch.js';
 import {publicSchoolAssignmentSql} from '../utils/providerDirectoryEligibility.js';
@@ -402,7 +403,7 @@ function dedupeSlots(slots) {
       String(s?.buildingId || ''),
       String(s?.roomId || ''),
       String(s?.sessionType || ''),
-      String(s?.frequency || '')
+      String(s?.frequency || ''), JSON.stringify(s?.careTypes)
     ].join('|');
     if (!String(s?.startAt || '').trim() || !String(s?.endAt || '').trim() || +new Date(s.startAt) <= Date.now()) continue;
     if (seen.has(key)) continue;
@@ -669,12 +670,14 @@ function normalizeSlots({ result, bookingMode, profile }) {
     ...s,
     modality: 'IN_PERSON',
     programType: 'IN_PERSON',
+    careTypes:s.careTypes??null,
     recurrence: { isRecurring: s.frequency !== 'ONCE', frequency: String(s.frequency || 'WEEKLY').toUpperCase() }
   }));
   const virtual = (publicFormatEnabled(profile,'VIRTUAL',bookingMode)?result?.virtualSlots || []:[]).filter((s) => new Date(s.startAt).getTime() > Date.now()).map((s) => ({
     ...s,
     modality: 'VIRTUAL',
     programType: 'VIRTUAL',
+    careTypes:s.careTypes??null,
     recurrence: { isRecurring: s.frequency !== 'ONCE', frequency: String(s.frequency || 'WEEKLY').toUpperCase() }
   }));
   return {
@@ -1430,7 +1433,7 @@ async function sendNewBookingNotification({ agencyId, agencyName, created, servi
 // Staff/current-client scheduling uses authenticated availability endpoints.
 export const getProviderSlots = (req, res, next) => getProviderDetail(req, {
   status: code => res.status(code),
-  json: data => res.json({ok:true,weekStart:data.availability.weekStart,slots:data.availability.slots})
+  json: data => res.json({ok:true,weekStart:data.availability.weekStart,slots:data.availability.slots.filter(s=>slotAllowsCare(s,req.query.care))})
 }, next);
 
 // ---------------------------------------------------------------------------
@@ -2043,7 +2046,7 @@ export const createProviderSlotHold = async (req, res, next) => {
         await getProviderDetail({ _liveAvailability:true, params: req.params, query: { serviceType, programType: modality, bookingMode: 'NEW_CLIENT', officeId:modality==='IN_PERSON'?Number(req.body.officeId)||undefined:undefined, weekStart: req.body.startAt.slice(0, 10) } },
           { status(code) { status = code; return this; }, json(value) { data = value; } }, (error) => { throw error; });
         const valid = status === 200 && data?.availability?.slots?.find((s) =>
-          +new Date(s.startAt) === +new Date(req.body.startAt) && +new Date(s.endAt) === +new Date(req.body.endAt) && (!req.body.frequency || s.frequency === req.body.frequency) && (!req.body.purpose || s.purpose === req.body.purpose));
+          slotAllowsCare(s,req.body.careType) && +new Date(s.startAt) === +new Date(req.body.startAt) && +new Date(s.endAt) === +new Date(req.body.endAt) && (!req.body.frequency || s.frequency === req.body.frequency) && (!req.body.purpose || s.purpose === req.body.purpose));
         if (!valid) throw holdError('This opening is no longer available. Please refresh and choose another time.');
         return valid;
       }

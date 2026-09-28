@@ -104,7 +104,7 @@ async function buildItscoWebsiteData({agency,page,settings,baseUrl}) {
       let insurances = accepted.map(i => ({ name: i.name, logoUrl: i.logo_url || null }));
       for (const name of profile?.insurances || []) if (!insurances.some(i => i.name.toLowerCase() === name.toLowerCase())) insurances.push({ name });
       insurances = restrictPublicInsurances(insurances,row);
-      const office = profile?.details?.inPersonEnabled === false ? false : Number(row.in_office_available) === 1 || Boolean(row.has_office_assignment) || (profile?.details?.sessionFormats || []).some(format => /in[ -]?person|in[ -]?office|office/i.test(format));
+      const office = profile?.details?.inPersonEnabled === false ? false : profile?.details?.inPersonEnabled === true || Number(row.in_office_available) === 1 || Boolean(row.has_office_assignment) || (profile?.details?.sessionFormats || []).some(format => /in[ -]?person|in[ -]?office|office/i.test(format));
       const schoolOpenings=agencyFormatAllowed(policy,'SCHOOL')&&assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.slots_available)>0);
       providers.push({ ...person, officeLocations:(officeLocations.get(Number(row.id))||[]).filter(o=>agencyOfficeAllowed(policy,o.id)), specialties: uniquePublicFacets(facets.specialties), ageGroups: uniquePublicFacets(facets.ageGroups),
         officeAcceptance:publicAcceptance({globalAccepting:person.acceptingNewClients,manual:profile?.details?.officeAvailability,assigned:office}),

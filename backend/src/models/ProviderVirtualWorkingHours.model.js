@@ -1,3 +1,4 @@
+import {careTypes} from '../utils/availabilityCareTypes.js';
 import pool from '../config/database.js';
 
 const DAY_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -87,9 +88,10 @@ class ProviderVirtualWorkingHours {
       const startDate = String(r.startDate || r.start_date || '').slice(0,10) || null;
       const endDate = String(r.endDate || r.end_date || '').slice(0,10) || null;
       const validDate = d => !d || (/^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d)) && new Date(d).toISOString().slice(0,10) === d);
-      if (!validDate(startDate) || !validDate(endDate) || (endDate && (!startDate || endDate < startDate))) continue;
+      if (!validDate(startDate) || !validDate(endDate) || (endDate && startDate && endDate < startDate)) continue;
       if (!['WEEKLY','EITHER'].includes(frequency) && !startDate) continue;
       if (startDate && DAY_ORDER[(new Date(startDate+'T12:00:00Z').getUTCDay()+6)%7] !== day) continue;
+      if(r.careTypes!=null&&(!Array.isArray(r.careTypes)||!careTypes(r.careTypes)?.length))continue;
       const purpose = frequency === 'ONCE' ? (r.purpose === 'MEETING' ? 'MEETING' : 'INTAKE') : 'ONGOING';
       out.push({
         dayOfWeek: day,
@@ -98,7 +100,7 @@ class ProviderVirtualWorkingHours {
         sessionType,
         availableForIntake: flags.availableForIntake,
         availableForSession: flags.availableForSession,
-        frequency, startDate, endDate, purpose
+        frequency, startDate, endDate, purpose, careTypes:careTypes(r.careTypes ?? r.care_types_json), excludedDates:Array.isArray(r.excludedDates)?r.excludedDates:[]
       });
     }
     // stable sort
@@ -119,7 +121,7 @@ class ProviderVirtualWorkingHours {
     try {
       const [r] = await pool.execute(
         `SELECT id, day_of_week, start_time, end_time, session_type, frequency,
-                available_for_intake, available_for_session, DATE_FORMAT(start_date, '%Y-%m-%d') start_date, DATE_FORMAT(end_date, '%Y-%m-%d') end_date, purpose
+                available_for_intake, available_for_session, DATE_FORMAT(start_date, '%Y-%m-%d') start_date, DATE_FORMAT(end_date, '%Y-%m-%d') end_date, purpose, excluded_dates_json, care_types_json
          FROM provider_virtual_working_hours
          WHERE agency_id = ? AND provider_id = ?
          ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
@@ -168,6 +170,7 @@ class ProviderVirtualWorkingHours {
         availableForIntake: flags.availableForIntake,
         availableForSession: flags.availableForSession,
         startDate: r.startDate || r.start_date || null, endDate: r.endDate || r.end_date || null, purpose: r.purpose || 'ONGOING',
+        careTypes:careTypes(r.careTypes ?? r.care_types_json), excludedDates:r.excludedDates || (typeof r.excluded_dates_json==='string'?JSON.parse(r.excluded_dates_json):r.excluded_dates_json) || [],
         frequency: normFrequency(r.frequency)
       };
     });
@@ -246,8 +249,8 @@ class ProviderVirtualWorkingHours {
           await conn.execute(
             `INSERT INTO provider_virtual_working_hours
                (agency_id, provider_id, day_of_week, start_time, end_time, session_type,
-                available_for_intake, available_for_session, frequency, start_date, end_date, purpose)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                available_for_intake, available_for_session, frequency, start_date, end_date, purpose, excluded_dates_json, care_types_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               aid,
               pid,
@@ -257,7 +260,7 @@ class ProviderVirtualWorkingHours {
               normSessionType(r.sessionType),
               r.availableForIntake ? 1 : 0,
               r.availableForSession ? 1 : 0,
-              normFrequency(r.frequency), r.startDate, r.endDate, r.purpose
+              normFrequency(r.frequency), r.startDate, r.endDate, r.purpose, JSON.stringify(r.excludedDates||[]), r.careTypes===null?null:JSON.stringify(r.careTypes)
             ]
           );
         } catch (e) {
@@ -274,6 +277,7 @@ class ProviderVirtualWorkingHours {
         availableForIntake: !!r.availableForIntake,
         availableForSession: !!r.availableForSession,
         startDate: r.startDate || r.start_date || null, endDate: r.endDate || r.end_date || null, purpose: r.purpose || 'ONGOING',
+        careTypes:careTypes(r.careTypes ?? r.care_types_json), excludedDates:r.excludedDates || (typeof r.excluded_dates_json==='string'?JSON.parse(r.excluded_dates_json):r.excluded_dates_json) || [],
         frequency: normFrequency(r.frequency)
       }));
     } catch (e) {

@@ -5919,7 +5919,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             availableForSession: !!(r?.availableForSession === true
               || r?.availableForSession === 1
               || ['REGULAR', 'BOTH'].includes(sessionType)),
-            startDate:r.startDate,endDate:r.endDate,purpose:r.purpose,
+            startDate:r.startDate,endDate:r.endDate,purpose:r.purpose,excludedDates:r.excludedDates,careTypes:r.careTypes,
             frequency: String(r?.frequency || 'WEEKLY').toUpperCase()
           });
         }

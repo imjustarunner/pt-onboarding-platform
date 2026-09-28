@@ -1,3 +1,4 @@
+import {editAvailabilityPublication} from '../services/availabilityPublicationEdit.service.js';
 import pool from '../config/database.js';
 import {requireProviderAvailabilityAccess} from '../services/providerAvailabilityAccess.service.js';
 import Availability from '../services/providerAvailability.service.js';
@@ -22,7 +23,7 @@ export async function getWorkspace(req,res,next) {try {
  const publications=[];
  for(const kind of ['virtual','inPerson']) {
   const [rows]=await pool.execute(`SELECT id,agency_id AS agencyId,start_at AS startAt,end_at AS endAt,office_location_id AS buildingId,
-   available_for_intake AS availableForIntake,available_for_session AS availableForSession
+   frequency,purpose,COALESCE(series_id,CASE WHEN frequency<>'ONCE' THEN 'legacy' END) AS seriesId,care_types_json AS careTypes,available_for_intake AS availableForIntake,available_for_session AS availableForSession
    FROM ${tables[kind]} WHERE provider_id=? AND agency_id IN (?,?) AND is_active=1 AND end_at>=UTC_TIMESTAMP() ORDER BY start_at`,
    [ids.providerId,ids.agencyId,sourceAgencyId]);
   publications.push(...rows.map(row=>({...row,kind,canEdit:Number(row.agencyId)===ids.agencyId||canEditSource})));
@@ -32,6 +33,7 @@ export async function getWorkspace(req,res,next) {try {
 export async function deletePublication(req,res,next) {try {
  const ids=await scope(req),kind=req.params.kind,id=Number(req.params.id),table=tables[kind];
  if(!table||!Number.isSafeInteger(id)||id<1)return res.status(400).json({error:{message:'Invalid published availability'}});
+ if(req.query.scope)return res.json(await editAvailabilityPublication({...ids,kind,id,action:'delete',scope:req.query.scope,occurrenceDate:req.query.occurrenceDate}));
  const [result]=await pool.execute(kind==='weekly'
   ? `DELETE FROM ${table} WHERE id=? AND agency_id=? AND provider_id=?`
   : `UPDATE ${table} SET is_active=0,updated_at=CURRENT_TIMESTAMP WHERE id=? AND agency_id=? AND provider_id=? AND is_active=1`,
@@ -39,3 +41,5 @@ export async function deletePublication(req,res,next) {try {
  if(!result.affectedRows)return res.status(404).json({error:{message:'Published availability no longer exists. Refresh the list.'}});
  res.json({ok:true});
  }catch(e){next(e);}}
+
+export async function movePublication(req,res,next){try{const ids=await scope(req);res.json(await editAvailabilityPublication({...ids,...req.body,agencyId:ids.agencyId,providerId:ids.providerId,kind:req.params.kind,id:Number(req.params.id),action:'move'}));}catch(e){next(e);}}

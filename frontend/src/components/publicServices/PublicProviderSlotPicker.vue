@@ -27,10 +27,11 @@
 </template>
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue';
+import {slotAllowsCare} from '../../utils/availabilityCareTypes.js';
 import {availabilityLabel} from '../../utils/availabilityLabel.js';
 import api from '../../services/api';
 import PublicOfficeLocations from './PublicOfficeLocations.vue';
-const props = defineProps({ agencySlug: { type: String, required: true }, providerId: { type: Number, required: true }, serviceType: { type: String, default: 'counseling' }, officeId:{type:[String,Number],default:''},officeLocations:{type:Array,default:()=>[]},fixedFormat:{type:String,default:''},initialWeek:{type:String,default:''},timeZone:{type:String,default:''} });
+const props = defineProps({ careType:{type:String,default:''},agencySlug: { type: String, required: true }, providerId: { type: Number, required: true }, serviceType: { type: String, default: 'counseling' }, officeId:{type:[String,Number],default:''},officeLocations:{type:Array,default:()=>[]},fixedFormat:{type:String,default:''},initialWeek:{type:String,default:''},timeZone:{type:String,default:''} });
 const emit = defineEmits(['hold']);
 const timezone = props.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 const today = new Date().toLocaleDateString('en-CA',{timeZone:timezone});
@@ -43,7 +44,7 @@ const base = computed(() => `/public/agency-services/${encodeURIComponent(props.
 const days = computed(() => {
   const groups = new Map();
   if(needsOffice.value)return [];
-  for (const slot of slots.value.filter(s => +new Date(s.startAt) > clock.value && (format.value!=='IN_PERSON'||!selectedOffice.value||String(s.buildingId)===selectedOffice.value))) {
+  for (const slot of slots.value.filter(s => slotAllowsCare(s,props.careType) && +new Date(s.startAt) > clock.value && (format.value!=='IN_PERSON'||!selectedOffice.value||String(s.buildingId)===selectedOffice.value))) {
     const day = new Date(slot.startAt).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric',timeZone:timezone });
     if (!groups.has(day)) groups.set(day, []);
     groups.get(day).push(slot);
@@ -59,7 +60,7 @@ let generation = 0;
 async function load() {
   const id = ++generation; loading.value = true; error.value = ''; slots.value = [];
   try {
-    const { data } = await api.get(`${base.value}/providers/${props.providerId}/slots`, { params: { serviceType: props.serviceType, programType: format.value, weekStart: week.value, bookingMode: 'NEW_CLIENT',officeId:format.value==='IN_PERSON'?selectedOffice.value||undefined:undefined }, skipAuthRedirect: true, skipGlobalLoading: true, timeout: 60000 });
+    const { data } = await api.get(`${base.value}/providers/${props.providerId}/slots`, { params: {care:props.careType||undefined, serviceType: props.serviceType, programType: format.value, weekStart: week.value, bookingMode: 'NEW_CLIENT',officeId:format.value==='IN_PERSON'?selectedOffice.value||undefined:undefined }, skipAuthRedirect: true, skipGlobalLoading: true, timeout: 60000 });
     if (id === generation) slots.value = data.slots || [];
   } catch (e) { if (id === generation) error.value = e.response?.data?.error?.message || 'Could not check openings.'; }
   finally { if (id === generation) loading.value = false; }
@@ -77,7 +78,7 @@ async function select(slot) {
     // Only one held selection per browser/agency. Never put its bearer token in a URL.
     let previous; try { previous = JSON.parse(sessionStorage.getItem(key.value) || 'null'); } catch {}
     if (previous?.token) await api.post(`${base.value}/release-hold`, { token: previous.token }, { skipAuthRedirect: true });
-    const { data } = await api.post(`${base.value}/providers/${props.providerId}/holds`, { startAt: slot.startAt, endAt: slot.endAt, frequency:slot.frequency, purpose:slot.purpose, modality: format.value, serviceType: props.serviceType, officeId:format.value==='IN_PERSON'?slot.buildingId||selectedOffice.value||undefined:undefined }, { skipAuthRedirect: true });
+    const { data } = await api.post(`${base.value}/providers/${props.providerId}/holds`, {careType:props.careType||undefined, startAt: slot.startAt, endAt: slot.endAt, frequency:slot.frequency, purpose:slot.purpose, modality: format.value, serviceType: props.serviceType, officeId:format.value==='IN_PERSON'?slot.buildingId||selectedOffice.value||undefined:undefined }, { skipAuthRedirect: true });
     save(data.hold); await load();
   } catch (e) { error.value = e.response?.data?.error?.message || 'Could not hold this opening. Please refresh availability.'; }
   finally { busy.value = false; }
@@ -90,7 +91,7 @@ async function verifyHold() {
     if(hold.value?.token===token && !data.active) { save(null); await load(); }
   } catch { error.value='Could not verify your pending hold. Please contact the team before relying on this time.'; }
 }
-watch(() => [props.agencySlug, props.providerId, props.serviceType], () => {
+watch(() => [props.agencySlug, props.providerId, props.serviceType,props.careType], () => {
   hold.value = null;
   try { const saved = JSON.parse(sessionStorage.getItem(key.value) || 'null'); if (saved?.providerId === props.providerId && saved?.serviceType === props.serviceType) { hold.value = saved; format.value = props.fixedFormat || saved.modality || 'IN_PERSON'; } } catch {}
   emit('hold', active.value ? hold.value : null); verifyHold(); load();

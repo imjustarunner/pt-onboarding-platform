@@ -29,7 +29,7 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,
   timeZone=result.timeZone||timeZone;
   if(result.checkedAt&&(!checkedAt||result.checkedAt<checkedAt))checkedAt=result.checkedAt;
   for(const [key,format] of [['inPersonSlots','IN_PERSON'],['virtualSlots','VIRTUAL']])
-   for(const slot of result[key]||[])if(Date.parse(slot.startAt)>now)all.push({startAt:slot.startAt,endAt:slot.endAt,format,frequency:slot.frequency||'WEEKLY',purpose:slot.purpose||null,buildingId:slot.buildingId,buildingName:slot.buildingName});
+   for(const slot of result[key]||[])if(Date.parse(slot.startAt)>now)all.push({startAt:slot.startAt,endAt:slot.endAt,format,frequency:slot.frequency||'WEEKLY',purpose:slot.purpose||null,careTypes:slot.careTypes??null,buildingId:slot.buildingId,buildingName:slot.buildingName});
  }
  const slots=[...new Map(all.map(s=>[`${s.format}:${s.startAt}:${s.endAt}:${s.buildingId||''}:${s.frequency}:${s.purpose}`,s])).values()].filter(s=>matchesTime(s)&&(!officeId||(Number(s.buildingId)===Number(officeId)))&&agencyFormatAllowed(profile?.agencyAvailability,s.format)&&agencyOfficeAllowed(s.format==='IN_PERSON'?profile?.agencyAvailability:null,s.buildingId)).sort((a,b)=>a.startAt.localeCompare(b.startAt));
  const policy=profile?.agencyAvailability;

@@ -5,14 +5,14 @@ import OpenSlotPlusOfficeRequestBody from '../OpenSlotPlusOfficeRequestBody.vue'
 describe('published appointment formats', () => {
   it('allows virtual availability without an office and requires a reservation for in-person', () => {
     const wrapper = mount(OpenSlotPlusOfficeRequestBody);
-    const [virtual, inPerson] = wrapper.findAll('fieldset input');
+    const [virtual, inPerson] = wrapper.findAll('[data-testid=appointment-format] input');
     expect(virtual.element.checked).toBe(true);
     expect(inPerson.element.disabled).toBe(true);
     expect(wrapper.text()).toContain('Reserve an office first');
   });
   it('lets staff select either or both formats on an office reservation', async () => {
     const wrapper = mount(OpenSlotPlusOfficeRequestBody, { props: { canLinkOffice: true } });
-    const [virtual, inPerson] = wrapper.findAll('fieldset input');
+    const [virtual, inPerson] = wrapper.findAll('[data-testid=appointment-format] input');
     await inPerson.setValue(true);
     await virtual.setValue(false);
     expect(wrapper.emitted('update:inPersonEnabled')).toEqual([[true]]);

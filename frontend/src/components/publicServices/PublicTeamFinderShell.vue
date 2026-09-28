@@ -261,7 +261,7 @@ const searchMode = ref('needs');
 const insurance = ref('');
 const location = ref(String(route.query.officeId||'')), language = ref(''), timeOfDay = ref('');
 const locations = computed(() => [...new Map(providers.value.flatMap(p=>p.officeLocations||[]).map(o=>[o.id,o])).values()].sort((a,b)=>a.name.localeCompare(b.name)));
-const needsOffice=computed(()=>filters.value.programType==='IN_PERSON'&&!locations.value.some(o=>String(o.id)===location.value));
+const needsOffice=computed(()=>false);
 function chooseOffice(id){location.value=String(id);filters.value.programType='IN_PERSON';load();}
 const languages = computed(() => [...new Set(providers.value.flatMap(p=>p.profile?.details?.languages||[]))].sort());
 const enabledServices = ref([]);

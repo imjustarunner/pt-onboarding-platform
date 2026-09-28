@@ -1,3 +1,4 @@
+import {allowsProviderPreference,stripIneligibleProviderPreference} from '../utils/intakeProviderPreference.js';
 import { applicationSnapshot, enrichApplicationRecord, issueApplicationReceiptToken, appendApplicationJobDescription } from '../services/jobApplicationRecord.service.js';
 import learningReflections from '../../../frontend/src/navigation/learningReflection.js';
 import {prepareLearningPacket} from '../services/learningEnrollment.service.js';
@@ -6233,6 +6234,7 @@ export const listPublicOfficeIntakeProviders = async (req, res, next) => {
     if (!link || (!link.is_active && !issuedRoiLink)) {
       return res.status(404).json({ error: { message: 'Intake link not found' } });
     }
+    if(!allowsProviderPreference(link))return res.json({providers:[]});
     const { agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     if(String(link.master_channel||'').toLowerCase()==='tutoring') {
       const {listTutors}=await import('./publicAgencyServices.controller.js');
@@ -6245,7 +6247,7 @@ export const listPublicOfficeIntakeProviders = async (req, res, next) => {
     const serviceMode = String(req.query.serviceMode || req.query.whoFor || '').trim();
     const providers = await listOfficeIntakeProviders(Number(agency?.id || link.organization_id || 0), {
       ages,
-      serviceMode
+      serviceMode, programType:req.query.programType, includeNotAccepting:false, includeWaitlist:true
     });
     res.setHeader('Cache-Control', 'no-store');
     return res.json({ providers });
@@ -7652,6 +7654,8 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    stripIneligibleProviderPreference(link,intakeData);
+    await validateSubmittedProviderPreferences(link,intakeData);
     await prepareLearningPacket(intakeData,link);
     // Inject the link-bound company_event_id as a synthetic registration
     // selection BEFORE we hash + persist intakeData. This way the saved
@@ -10568,6 +10572,8 @@ export const submitPublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    stripIneligibleProviderPreference(link,intakeData);
+    await validateSubmittedProviderPreferences(link,intakeData);
     await prepareLearningPacket(intakeData,link);
     // Mirror the school-roi flow: inject the link-bound company_event_id
     // as a synthetic registration selection so downstream ticket PDF +
@@ -12561,7 +12567,7 @@ export const saveInsuranceCardPhotos = async (req, res, next) => {
  */
 async function attachSubmittedProviderHold(link,intakeData,clients,submission,token) {
   const preference=intakeData?.responses?.submission?.requested_opening_preference;
-  if(!token || !preference?.providerId || (clients || []).length > 1) return;
+  if(!allowsProviderPreference(link)||!token || !preference?.providerId) return;
   const clientId=clients?.[0]?.id || submission?.client_id;
   if(!clientId) return;
   const agencyId=await resolveAgencyIdForLink(link);
@@ -12977,3 +12983,14 @@ export const savePreferencesUser = async (req, res, next) => {
     next(error);
   }
 };
+
+async function validateSubmittedProviderPreferences(link,intakeData) {
+ const bag=intakeData?.responses?.submission;
+ const ids=bag?.preferred_office_provider_ids;if(!Array.isArray(ids)||!ids.length||link.master_channel==='tutoring')return;
+ const agencyId=await resolveAgencyIdForLink(link);
+ const providers=await listOfficeIntakeProviders(agencyId,{includeNotAccepting:false,includeWaitlist:true,serviceMode:bag.service_subject||bag.serviceSubject||'',programType:bag.preferred_service_format||bag.preferred_modality||bag.preferredModality});
+ const selected=ids.map(id=>providers.find(p=>Number(p.id)===Number(id)));
+ if(selected.some(p=>!p))throw Object.assign(new Error('One of your preferred providers is no longer open to requests for this service. Please choose another provider or continue without a preference.'),{status:409});
+ bag.preferred_office_provider_ids=selected.map(p=>String(p.id));
+ bag.preferred_office_provider_summary=selected.map((p,i)=>`#${i+1} ${p.name}`).join(', ');
+}

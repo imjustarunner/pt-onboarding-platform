@@ -1,6 +1,6 @@
 import {getServices,putServices,getSettings,saveSettings,checkSettings,snoozeReminder,getMyReminders} from '../controllers/providerAvailabilitySettings.controller.js';
 import express from 'express';
-import {getWorkspace,deletePublication} from '../controllers/providerAvailabilityWorkspace.controller.js';
+import {getWorkspace,deletePublication,movePublication} from '../controllers/providerAvailabilityWorkspace.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireSkillBuildersSchoolProgramForAgencyContext } from '../middleware/skillBuildersSchoolProgram.middleware.js';
 import {
@@ -56,6 +56,7 @@ const router = express.Router();
 router.use(authenticate);
 router.get('/providers/:providerId/workspace', getWorkspace);
 router.delete('/providers/:providerId/publications/:kind/:id', deletePublication);
+router.patch('/providers/:providerId/publications/:kind/:id', movePublication);
 router.get('/me/opening-reminders', getMyReminders);
 router.get('/providers/:providerId/services', getServices);
 router.put('/providers/:providerId/services', putServices);

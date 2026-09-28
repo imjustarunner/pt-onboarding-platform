@@ -1260,6 +1260,7 @@ export const patchMyVirtualWorkingHoursRow = async (req, res, next) => {
     const id = Number(req.params?.id || 0);
     if (!id) return res.status(400).json({ error: { message: 'Invalid id' } });
 
+    if(req.body?.scope){const {editAvailabilityPublication}=await import('../services/availabilityPublicationEdit.service.js');return res.json(await editAvailabilityPublication({...req.body,agencyId,providerId,kind:'weekly',id,action:'move'}));}
     const dayOfWeek = req.body?.dayOfWeek || req.body?.day_of_week;
     const startTime = req.body?.startTime || req.body?.start_time;
     const endTime = req.body?.endTime || req.body?.end_time;

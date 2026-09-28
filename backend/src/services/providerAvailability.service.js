@@ -1,3 +1,4 @@
+import {careTypes} from '../utils/availabilityCareTypes.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
 import {agencyFormatAllowed,agencyOfficeAllowed} from '../utils/providerAgencyAvailability.js';
 import { readActiveHolds, expandWeeklyHold } from './publicProviderHold.service.js';
@@ -267,7 +268,7 @@ export class ProviderAvailabilityService {
             sessionType,
             availableForIntake: !!forIntake,
             availableForSession: !!forSession,
-            purpose: availabilityPurpose(r),
+            careTypes:careTypes(r.careTypes), purpose: availabilityPurpose(r),
             frequency: String(r.frequency || 'WEEKLY').toUpperCase()
           }
         });
@@ -334,7 +335,7 @@ export class ProviderAvailabilityService {
           slotState: slotState || null,
           status: status || null,
           timeZone: tzEvent,
-          frequency:r.publication_frequency||'ONCE',purpose:r.publication_purpose||'INTAKE',
+          careTypes:careTypes(r.publication_care_types), frequency:r.publication_frequency||'ONCE',purpose:r.publication_purpose||'INTAKE',
           inPersonIntakeEnabled
         };
 
@@ -365,6 +366,7 @@ export class ProviderAvailabilityService {
            e.slot_state,
            (SELECT ip.frequency FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_frequency,
            (SELECT ip.purpose FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_purpose,
+           (SELECT ip.care_types_json FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_care_types,
            e.client_id, e.clinical_session_id, e.billing_context_id,
            EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id = e.id) AS has_appointment,
            EXISTS(
@@ -428,6 +430,7 @@ export class ProviderAvailabilityService {
            e.slot_state,
            (SELECT ip.frequency FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_frequency,
            (SELECT ip.purpose FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_purpose,
+           (SELECT ip.care_types_json FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_care_types,
            e.client_id, e.clinical_session_id, e.billing_context_id,
            EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id = e.id) AS has_appointment,
            (r.is_active = 1 AND ol.is_active = 1 AND r.location_id = e.office_location_id
@@ -485,7 +488,7 @@ export class ProviderAvailabilityService {
           `SELECT
              v.start_at,
              v.end_at,
-             v.session_type, v.frequency, v.purpose,
+             v.session_type, v.frequency, v.purpose, v.care_types_json,
              v.available_for_intake,
              v.available_for_session,
              v.office_location_id,
@@ -559,7 +562,7 @@ export class ProviderAvailabilityService {
           end: e,
           meta: {
             sessionType,
-            frequency: r.frequency || 'ONCE', purpose:r.purpose||'INTAKE',
+            careTypes:careTypes(r.care_types_json), frequency: r.frequency || 'ONCE', purpose:r.purpose||'INTAKE',
             buildingId: Number(r.office_location_id || 0) || null,
             buildingName: String(r.building_name || '').trim() || null,
             roomId: Number(r.room_id || 0) || null,
@@ -696,7 +699,7 @@ export class ProviderAvailabilityService {
             startAt: sl.start.toISOString(),
             endAt: sl.end.toISOString(),
             sessionType: base?.meta?.sessionType || 'REGULAR',
-            frequency: base?.meta?.frequency || 'WEEKLY',
+            careTypes:base?.meta?.careTypes ?? null, frequency: base?.meta?.frequency || 'WEEKLY',
             purpose: base?.meta?.purpose || (base?.meta?.frequency === 'ONCE' ? 'INTAKE' : 'ONGOING'),
             buildingId: base?.meta?.buildingId ?? null,
             buildingName: base?.meta?.buildingName ?? null,
@@ -721,7 +724,7 @@ export class ProviderAvailabilityService {
           roomId: base.meta?.roomId ?? null,
           roomLabel: base.meta?.roomLabel ?? null,
           sessionType: base.meta?.inPersonIntakeEnabled ? 'INTAKE' : 'REGULAR',
-          frequency: base.meta?.frequency || 'ONCE', purpose:base.meta?.purpose || 'INTAKE'
+          careTypes:base.meta?.careTypes ?? null, frequency: base.meta?.frequency || 'ONCE', purpose:base.meta?.purpose || 'INTAKE'
         });
       }
     }
