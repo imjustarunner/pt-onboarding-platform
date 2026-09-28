@@ -313,7 +313,12 @@ export const getCurrentUser = async (req, res, next) => {
       loginBootstrap ? User.getAgencies(user.id) : Promise.resolve(null)
     ]);
     const pw = resolveRequiresPasswordChange(user, {
-      ssoRequired: !!ssoStateForMe?.ssoRequired
+      ssoRequired: !!ssoStateForMe?.ssoRequired,
+      // A Google-authenticated session does not use the app password, even if
+      // Workspace SSO is optional or this user has a password override. A signed
+      // brand-switch loginMethod retains that provenance without granting fresh
+      // Google reauthentication for other security checks.
+      authMethod: req.authClaims?.authMethod || req.authClaims?.loginMethod || null
     });
 
     // The bootstrap is private and only uses the session verified by middleware.

@@ -305,6 +305,7 @@ export const useAuthStore = defineStore('auth', () => {
           rememberVerifiedGoogleAccount({ user: next, authMethod: next.authMethod, orgSlug, remember: next.rememberGoogle !== false, agencies: branding.portalAgency ? [branding.portalAgency] : [] });
         }
         console.log('User data refreshed. New role:', merged.role);
+        return merged;
       }
     } catch (err) {
       console.error('Failed to refresh user data:', err);

@@ -8,6 +8,7 @@
       <div v-else-if="error" class="pw-card pw-card--solo">
         <h2>Password Change Error</h2>
         <p>{{ error }}</p>
+        <button type="button" class="pw-btn pw-btn--primary" @click="loadPasswordPolicy">Try again</button>
         <router-link to="/login" class="pw-btn pw-btn--primary">Go to Login</router-link>
       </div>
 
@@ -173,7 +174,7 @@ const route = useRoute();
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 
-const loading = ref(false);
+const loading = ref(true);
 const error = ref('');
 const currentPassword = ref('');
 const newPassword = ref('');
@@ -260,22 +261,29 @@ const handleChange = async () => {
   }
 };
 
+async function loadPasswordPolicy() {
+  loading.value = true;
+  error.value = '';
+  try {
+    // Recheck cached expiry flags before showing a forced password form. This
+    // also recovers Google users already redirected here by an older response.
+    const current = await authStore.refreshUser();
+    if (!current) throw new Error('We couldn’t verify your sign-in. Please try again.');
+    if (current.authMethod === 'google' && current.requiresPasswordChange !== true) {
+      await router.replace(getDashboardRoute());
+      return;
+    }
+  } catch (err) {
+    error.value = err.message || 'We couldn’t verify your sign-in. Please try again.';
+  }
+  loading.value = false;
+}
+
 onMounted(async () => {
   if (route.params.organizationSlug) {
-    await brandingStore.fetchAgencyTheme(route.params.organizationSlug);
+    void brandingStore.fetchAgencyTheme(route.params.organizationSlug).catch(() => {});
   }
-
-  if (!authStore.user) {
-    try {
-      await authStore.refreshUser();
-    } catch {
-      // ignore
-    }
-  }
-
-  if (!authStore.user) {
-    error.value = 'Your session was not established. Please click your login link again, or contact your administrator for a new link.';
-  }
+  await loadPasswordPolicy();
 });
 </script>
 

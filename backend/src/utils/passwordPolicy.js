@@ -2,11 +2,12 @@
  * Password expiry policy.
  *
  * Roles subject to the 120-day credential rotation:
- *   Password-based users only (including school_staff and SSO-override accounts).
+ *   Password-based sign-ins (including school_staff and SSO-override accounts).
  *
  * Pure Google SSO users (agency requires Workspace sign-in and admin has NOT
  * enabled sso_password_override) never rotate an app password — leftover
- * password_hash rows must not trap them on /change-password.
+ * password_hash rows must not trap them on /change-password. A verified Google
+ * sign-in is also exempt when SSO is optional or a password override exists.
  */
 
 const PASSWORD_POLICY_DAYS = 120;
@@ -31,12 +32,14 @@ export function isTemporaryPasswordActive(u) {
 
 /**
  * @param {object} u
- * @param {{ ssoRequired?: boolean }} [opts]
+ * @param {{ ssoRequired?: boolean, authMethod?: string|null }} [opts]
  *   When ssoRequired is true (Workspace SSO enforced, no password override),
  *   never require a password change — the user authenticates via Google only.
+ *   authMethod must come from verified server-side session claims, never input
+ *   supplied in a request body/query or the user's stored profile.
  */
-export function calcPasswordExpiry(u, { ssoRequired = false } = {}) {
-  if (ssoRequired) {
+export function calcPasswordExpiry(u, { ssoRequired = false, authMethod = null } = {}) {
+  if (ssoRequired || authMethod === 'google') {
     return { ...EMPTY_POLICY };
   }
 
@@ -86,8 +89,8 @@ export function calcPasswordExpiry(u, { ssoRequired = false } = {}) {
  * Effective "must change password" for auth payloads.
  * SSO-required users never get forced into password change (expiry or temp).
  */
-export function resolveRequiresPasswordChange(u, { ssoRequired = false } = {}) {
-  if (ssoRequired) {
+export function resolveRequiresPasswordChange(u, { ssoRequired = false, authMethod = null } = {}) {
+  if (ssoRequired || authMethod === 'google') {
     return {
       ...EMPTY_POLICY,
       requiresPasswordChange: false
