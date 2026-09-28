@@ -269,6 +269,13 @@
           <input type="checkbox" v-model="skillsOnly" @change="applyFilters" />
           <span>Skills clients only</span>
         </label>
+        <select v-model="referralEntryFilter" @change="applyFilters" class="filter-select" aria-label="Referring company">
+          <option value="">All referring companies</option>
+          <option v-for="entry in referralFilterEntries" :key="entry.id" :value="entry.id">{{ entry.name }}</option>
+        </select>
+        <select v-if="referralEntryFilter" v-model="referralDirectionFilter" @change="applyFilters" class="filter-select" aria-label="Referral direction">
+          <option value="incoming">Referred by</option><option value="outgoing">Referred to</option>
+        </select>
         <select v-model="sortBy" @change="applyFilters" class="filter-select" aria-label="Sort clients">
           <option value="submission_date-desc">Sort: Submission Date (Newest)</option>
           <option value="submission_date-asc">Sort: Submission Date (Oldest)</option>
@@ -665,6 +672,10 @@
     <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
       <div class="modal-content" @click.stop>
         <h3>Create New Client</h3>
+        <div class="form-group" role="group" aria-label="Client creation method">
+          <button type="button" class="btn" :class="createMode === 'manual' ? 'btn-primary' : 'btn-secondary'" @click="createMode = 'manual'">Manual entry</button>
+          <button type="button" class="btn" :class="createMode === 'fax' ? 'btn-primary' : 'btn-secondary'" @click="createMode = 'fax'">From fax</button>
+        </div>
         <form @submit.prevent="createClient">
           <div class="form-group">
             <label>Agency</label>
@@ -688,6 +699,7 @@
             <small v-if="loadingOrganizations">Loading organizations…</small>
             <small v-else-if="!availableOrganizations.length">No affiliated organizations found for this agency.</small>
           </div>
+          <FaxClientIntake v-if="createMode === 'fax'" :agency-id="createAgencyEffectiveId" :organization-id="newClient.organization_id" @change="onFaxChange" />
           <div class="form-group">
             <label>Client Type *</label>
             <select v-model="newClient.client_type" required>
@@ -903,7 +915,7 @@
             <button
               type="submit"
               class="btn btn-primary"
-              :disabled="creating || !createAgencyEffectiveId || !newClient.organization_id || !newClient.client_type || !String(newClient.initials || '').trim() || !newClient.submission_date || !newClient.insurance_type_id || (newClient.provider_id && !newClient.service_day)"
+              :disabled="creating || (createMode === 'fax' && !faxReview?.ready) || !createAgencyEffectiveId || !newClient.organization_id || !newClient.client_type || !String(newClient.initials || '').trim() || !newClient.submission_date || !newClient.insurance_type_id || (newClient.provider_id && !newClient.service_day)"
             >
               {{ creating ? 'Creating...' : 'Create Client' }}
             </button>
@@ -1358,6 +1370,7 @@
 </template>
 
 <script setup>
+import FaxClientIntake from '../../components/clients/FaxClientIntake.vue';
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -1974,6 +1987,14 @@ const bulkAffiliationId = ref('');
 const bulkClientStatusId = ref('');
 const bulkPromoteYear = ref('');
 
+const createMode = ref('manual');
+const faxReview = ref(null);
+function onFaxChange(review) {
+  faxReview.value = review;
+  if (review.fullName) {
+    newClient.value.initials = review.fullName.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part.slice(0,3)).join('').slice(0,10);
+  }
+}
 // New client form
 const newClient = ref({
   organization_id: null,
@@ -2386,6 +2407,14 @@ async function toggleClientDemo(client, on) {
   }
 }
 
+const referralEntryFilter = ref(String(route.query.referral_entry_id || ''));
+const referralDirectionFilter = ref('incoming');
+const referralFilterEntries = ref([]);
+watch(effectiveAgencyScopeId, async id => {
+  referralFilterEntries.value = [];
+  if (!id) return;
+  try { const { data } = await api.get('/client-referral-links/directory', { params: { agencyId: id } }); referralFilterEntries.value = data.entries || []; } catch { /* surfaced when selecting a referral filter */ }
+}, { immediate: true });
 const fetchClients = async () => {
   try {
     loading.value = true;
@@ -2396,6 +2425,7 @@ const fetchClients = async () => {
     if (scopedAgencyId) params.append('agency_id', String(scopedAgencyId));
     // Archived clients are managed in Settings -> Archive, not in the main client area.
     params.append('includeArchived', 'false');
+    if (referralEntryFilter.value) { params.append('referral_entry_id', referralEntryFilter.value); params.append('referral_direction', referralDirectionFilter.value); }
     if (clientStatusFilter.value) params.append('client_status_id', clientStatusFilter.value);
     if (workflowStatusFilter.value) params.append('status', workflowStatusFilter.value);
     if (devFillFilter.value === 'only') params.append('dev_fill', 'only');
@@ -3096,6 +3126,10 @@ const createClient = async ({ forceCreate = false } = {}) => {
       return;
     }
 
+    if (createMode.value === 'fax' && !faxReview.value?.ready) {
+      error.value = 'Review the fax fields and select a referring organization first.';
+      return;
+    }
     // Normalize optional fields
     const payload = {
       ...newClient.value,
@@ -3109,6 +3143,7 @@ const createClient = async ({ forceCreate = false } = {}) => {
       service_day: null,
       agency_id: agencyId,
       source: 'ADMIN_CREATED',
+      ...(createMode.value === 'fax' ? { faxIntake: faxReview.value, full_name: faxReview.value.fullName } : {}),
       ...(forceCreate ? { forceCreate: true } : {})
     };
 
@@ -3171,7 +3206,7 @@ const createClient = async ({ forceCreate = false } = {}) => {
     closeDupesModal();
     closeCreateModal();
   } catch (err) {
-    console.error('Failed to create client:', err);
+    if (createMode.value !== 'fax') console.error('Failed to create client:', err);
     const status = err.response?.status;
     const data = err.response?.data || {};
     const meta = data?.errorMeta || data?.error?.errorMeta || null;
@@ -3192,6 +3227,8 @@ const createClientAnyway = async () => {
 };
 
 const closeCreateModal = () => {
+  createMode.value = 'manual';
+  faxReview.value = null;
   showCreateModal.value = false;
   createAgencyId.value = '';
   cancelAddLanguage();

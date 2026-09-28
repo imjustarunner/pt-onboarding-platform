@@ -40,6 +40,11 @@ import config from '../config/config.js';
  * // because the middleware ensures sensitive fields are never in req.sanitizedBody.
  */
 export const requestLoggingMiddleware = (req, res, next) => {
+  if (req.body?.faxIntake || /^\/api\/(fax-intake|client-referral-links)(?:\/|$)/.test(req.path)) {
+    req.sanitizedBody = '[PRIVATE FAX / REFERRAL REQUEST]';
+    next();
+    return;
+  }
   if (/^\/api\/provider-directories(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE DIRECTORY REQUEST]'; next(); return; }
   if (/^\/api\/account-security(?:\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE ACCOUNT SECURITY REQUEST]'; next(); return; }
   if (/\/(family-billing|guardian-billing)(\/|$)/.test(req.path)) { req.sanitizedBody = '[PRIVATE BILLING REQUEST]'; next(); return; }

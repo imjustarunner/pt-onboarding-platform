@@ -1,3 +1,4 @@
+import { requireReferralAgency } from './faxIntake.routes.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
@@ -16,6 +17,10 @@ import {
 } from '../controllers/referralDirectory.controller.js';
 
 const router = express.Router();
+router.use(authenticate, (req, res, next) => {
+  if (!req.query.agencyId && !req.body?.agencyId && req.user?.agencyId) req.query.agencyId = req.user.agencyId;
+  return requireReferralAgency(req, res, next);
+});
 
 // Categories
 router.get('/categories', authenticate, listCategories);

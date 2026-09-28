@@ -389,6 +389,7 @@
                 <div class="cdp-glance-meta">{{ clientTypeLabel }}</div>
               </article>
             </div>
+            <ClientReferralLinks v-if="client?.id && ['super_admin','admin','staff','support','provider','provider_plus'].includes(authStore.user?.role)" :client-id="client.id" :agency-id="client.agency_id" />
             <div v-if="client?.id" class="cdp-affiliated-wrap">
               <ClientAffiliatedContactsPanel
                 mode="staff"
@@ -2733,6 +2734,7 @@
 </template>
 
 <script setup>
+import ClientReferralLinks from '../clients/ClientReferralLinks.vue';
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';

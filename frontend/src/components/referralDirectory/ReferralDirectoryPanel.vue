@@ -4,7 +4,7 @@
       <div class="rd-head-main">
         <h2 v-if="!embedded" class="rd-title">Referral Directory</h2>
         <p class="rd-sub">
-          External providers and resources your team refers families to. Categories are editable by admins.
+          Organizations that refer clients to your team and resources your team refers clients to. Categories are editable by admins.
         </p>
       </div>
       <div class="rd-head-actions">
@@ -63,6 +63,7 @@
         <div v-if="entry.organization_name" class="rd-line">{{ entry.organization_name }}</div>
         <div class="rd-kv-row">
           <span v-if="entry.phone">📞 <a :href="`tel:${entry.phone}`">{{ entry.phone }}</a></span>
+          <span v-if="entry.fax">Fax {{ entry.fax }}</span>
           <span v-if="entry.email">✉ <a :href="`mailto:${entry.email}`">{{ entry.email }}</a></span>
           <span v-if="entry.website">🌐 <a :href="entry.website" target="_blank" rel="noopener">{{ entry.website }}</a></span>
         </div>
@@ -74,6 +75,14 @@
         <div v-if="entry.insurances_accepted" class="rd-block">
           <span class="rd-kicker">Insurances</span>
           <div>{{ entry.insurances_accepted }}</div>
+        </div>
+        <div class="rd-block">
+          <a v-if="/^https?:\/\//i.test(entry.source_url || '')" :href="entry.source_url" target="_blank" rel="noopener noreferrer">Public contact source</a>
+          <button type="button" class="btn btn-ghost" @click="loadLinkedClients(entry)">View linked clients · incoming / outgoing</button>
+          <p v-if="linkedError[entry.id]" role="alert">{{ linkedError[entry.id] }}</p>
+          <ul v-if="linkedClients[entry.id]"><li v-for="link in linkedClients[entry.id]" :key="link.id">
+            <RouterLink :to="profileLink(link.client_id)">{{ link.initials }}</RouterLink> · {{ link.direction === 'incoming' ? 'Referred by this organization' : 'Referred to this organization' }} · {{ link.referral_date ? String(link.referral_date).slice(0,10) : 'Date not recorded' }}
+          </li><li v-if="!linkedClients[entry.id].length">No linked clients in your access scope.</li></ul>
         </div>
         <div v-if="entry.notes" class="rd-block">
           <span class="rd-kicker">Notes</span>
@@ -106,6 +115,7 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
@@ -120,6 +130,17 @@ const props = defineProps({
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
 
+const route = useRoute();
+const profileLink = id => route.params.organizationSlug
+  ? { name: 'OrganizationClientProfile', params: { organizationSlug: route.params.organizationSlug, clientId: id } }
+  : { name: 'ClientProfile', params: { clientId: id } };
+const linkedClients = ref({}), linkedError = ref({});
+async function loadLinkedClients(entry) {
+  const agencyId = resolvedAgencyId.value;
+  linkedError.value[entry.id] = '';
+  try { const { data } = await api.get(`/client-referral-links/entries/${entry.id}/clients`, { params: { agencyId } }); if (agencyId === resolvedAgencyId.value) linkedClients.value[entry.id] = data.links; }
+  catch { if (agencyId === resolvedAgencyId.value) linkedError.value[entry.id] = 'Unable to load linked clients.'; }
+}
 const categories = ref([]);
 const entries = ref([]);
 const loading = ref(false);
@@ -165,7 +186,7 @@ watch(search, () => {
   searchDebounce = setTimeout(() => loadEntries(), 250);
 });
 
-watch(resolvedAgencyId, () => { refreshAll(); });
+watch(resolvedAgencyId, () => { linkedClients.value = {}; linkedError.value = {}; refreshAll(); });
 
 async function loadCategories() {
   try {
