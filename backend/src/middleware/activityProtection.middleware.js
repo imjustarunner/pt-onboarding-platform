@@ -2,6 +2,12 @@ import { protectFileResource } from '../services/activityProtection.service.js';
 export function fileOperation(req){
  const path=decodeURIComponent(String(req.originalUrl||req.path||'').split('?')[0]).replace(/\/+/g,'/').toLowerCase();
  if(!['GET','POST','HEAD'].includes(req.method)||/^\/api\/(account-security|security-evidence)(?:\/|$)/.test(path))return false;
+ // These two endpoints export employee pay summaries, not client files. Their
+ // controllers still require agency payroll access, and authentication/session
+ // verification still runs. Keep this exact: raw reports, receipts and future
+ // payroll document endpoints must not inherit a blanket payroll exemption.
+ if (['GET','HEAD'].includes(req.method) && /^\/api\/payroll\/periods\/\d+\/export\.csv\/?$/.test(path)) return false;
+ if (req.method==='POST' && /^\/api\/payroll\/periods\/\d+\/adp\/export\/?$/.test(path)) return false;
  if (req.method==='POST' && /\/print-upload$/.test(path)) return false;
  if (/\/printable-packet\/(availability|template(?:\/.*)?|org-version-history)$/.test(path)) return false;
  return /(?:^|[/.-])(download|exports?|pdf|csv|zip|print|printable-packet|completion-package)(?:[./-]|$)/i.test(path)

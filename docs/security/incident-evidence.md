@@ -77,6 +77,19 @@ The transaction writes a per-user JWT issuance cutoff, revokes initialized sessi
 
 ## Local verification
 
+### Payroll output and client-file limits
+
+The employee pay-summary CSV (`GET/HEAD /api/payroll/periods/:id/export.csv`)
+and ADP export request (`POST /api/payroll/periods/:id/adp/export`) are not
+client-file operations. These exact endpoints do not consume client-file
+allowances or require a client-file review ticket, including while such a ticket
+is pending. They still run authentication, session/security verification, agency
+payroll authorization and request auditing. This is independent of SSO or role.
+
+The exception does not cover raw payroll reports, expense/receipt exports,
+clinical documents or future payroll download routes. Existing client-file holds
+remain in force for protected files; this change does not approve or remove them.
+
 ```sh
 node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.security-evidence.config.js
 node frontend/node_modules/vitest/vitest.mjs run --config frontend/vite.config.js frontend/src/components/admin/__tests__/SecurityEvidencePanel.test.js

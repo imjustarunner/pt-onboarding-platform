@@ -5,6 +5,18 @@ import { accountSecurityState } from '../../services/accountSecurity.service.js'
 import { enforceAccountSecurity, accountSecurityRouteKind } from '../accountSecurity.middleware.js';
 function fixture(path) { const req = { method: 'GET', originalUrl: path, user: { id: 1 } }; const res = { status: vi.fn().mockReturnThis(), json: vi.fn().mockReturnThis(), setHeader: vi.fn() }; return { req, res, next: vi.fn() }; }
 describe('server-side MFA access boundary', () => {
+  it('keeps payroll exports behind required sign-in verification for SSO superadmins', async () => {
+    for (const [method,path] of [['GET','/api/payroll/periods/42/export.csv'],['POST','/api/payroll/periods/42/adp/export']]) {
+      const {req,res,next}=fixture(path);req.method=method;req.user.role='super_admin';req.authClaims={authMethod:'google'};
+      expect(accountSecurityRouteKind(req)).toBe('protected');
+      accountSecurityState.mockResolvedValue({required:true,enabled:true,verified:false});
+      await enforceAccountSecurity(req,res,next);
+      expect(res.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();
+      accountSecurityState.mockResolvedValue({required:true,enabled:true,verified:true});
+      await enforceAccountSecurity(req,res,next);
+      expect(next).toHaveBeenCalledWith();
+    }
+  });
   it('allows only the signed-in user’s security/settings paths without verification', () => {
     expect(accountSecurityRouteKind(fixture('/api/users/1/preferences').req)).toBe('account');
     expect(accountSecurityRouteKind(fixture('/api/users/2/preferences').req)).toBe('protected');

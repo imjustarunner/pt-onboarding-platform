@@ -37,6 +37,23 @@ describe.skipIf(!socket)('shared activity protection integration',()=>{
   const [[alert]]=await state.db.query('SELECT * FROM activity_protection_alerts ORDER BY occurred_at LIMIT 1');expect(alert.user_id).toBe(1);expect(alert.reason).toBe('volume_limit');expect(alert.client_ip).toBe('192.0.2.1');
   const [[e]]=await state.db.query("SELECT COUNT(*) n FROM security_evidence WHERE action='activity_blocked' AND request_id=?",[alert.request_id]);expect(Number(e.n)).toBe(1);
  });
+ it('allows SSO superadmin payroll exports during a client-file hold without consuming approval or clearing the hold',async()=>{
+  for(let i=0;i<5;i++)await file(req(),`client-${i}`);
+  await expect(file(req(),'sixth-client')).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');
+  const owner=req();owner.body={reason:'Download the employee payroll summary report.',units:20};
+  const ticket=await call(requestFileAccess,owner);
+  for(const [method,originalUrl] of [['GET','/api/payroll/periods/42/export.csv'],['POST','/api/payroll/periods/42/adp/export']]){
+   const request={...req(),method,originalUrl,authClaims:{authMethod:'google'}};
+   const next=vi.fn();await enforceActivityProtection(request,{},next);
+   expect(next).toHaveBeenCalledWith();
+   expect(request.protectionRouteChecked).not.toBe(true);
+  }
+  const [[usage]]=await state.db.query("SELECT SUM(units) n FROM activity_protection_usage WHERE user_id=1 AND kind='client_file'");
+  expect(Number(usage.n)).toBe(5);
+  const [[savedTicket]]=await state.db.query('SELECT status,used_units FROM activity_protection_tickets WHERE id=?',[ticket.id]);
+  expect(savedTicket).toMatchObject({status:'pending',used_units:0});
+  await expect(file(req(),'another-client')).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');
+ });
  it('allows optional unverified users to request and designated reviewers to approve, but never self-approve',async()=>{
   state.verification={verified:false,required:false};await state.db.query('DELETE FROM account_mfa_sessions');
   const owner=req();owner.body={reason:'Prepare the requested care coordination records.',units:2};
