@@ -53,6 +53,6 @@ async function save(){if(invalid.value)return;saving.value=true;saved.value=fals
 onMounted(load);
 </script>
 <style scoped>
-.personal-delivery{padding:20px;border:1px solid var(--border-color,#cad6d0);border-radius:10px;background:var(--bg-primary,#fff);color:var(--text-primary,#263c35)}
+.personal-delivery{padding:20px;border:1px solid var(--border,#cad6d0);border-radius:10px;background:var(--bg-card,#fff);color:var(--text-primary,#263c35)}
 .personal-delivery h3{margin:0 0 12px}.personal-delivery p{line-height:1.5;font-size:14px}.personal-delivery label{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0}.personal-delivery fieldset{border:0;padding:0;margin:0}.personal-delivery select,.personal-delivery input[type=number]{padding:9px;max-width:100%;font:inherit}.personal-delivery button{padding:10px 14px;font:inherit;cursor:pointer}.delivery-note{padding:12px;background:#fff3d4;color:#513e09}
 </style>

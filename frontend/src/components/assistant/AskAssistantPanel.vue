@@ -66,7 +66,7 @@
         </div>
       </header>
 
-      <div v-if="showAgencyPicker" class="aap-agency-bar">
+      <div v-if="showAgencyPicker && !(isEmbedded && contextAgencyId)" class="aap-agency-bar">
         <div v-if="needsAgencySelection" class="aap-agency-hint">
           Pick a tenant so I can search your agency tools and data.
         </div>
@@ -85,7 +85,7 @@
               {{ opt.label }}
             </option>
           </optgroup>
-          <optgroup v-if="affiliationOptions.length" label="Affiliations">
+          <optgroup v-if="!isEmbedded && affiliationOptions.length" label="Affiliations">
             <option v-for="opt in affiliationOptions" :key="`aff-${opt.id}`" :value="opt.id">
               {{ opt.label }}
             </option>
@@ -95,12 +95,12 @@
 
       <div ref="turnsRef" class="aap-body" @scroll.passive="onBodyScroll">
         <div v-if="turns.length === 0" class="aap-empty">
-          <div class="aap-empty-visual" aria-hidden="true">
+          <div v-if="effectiveSurfaceMode === 'nav'" class="aap-empty-visual" aria-hidden="true">
             <div class="aap-empty-orbit" />
             <div class="aap-empty-core" />
           </div>
           <h3 class="aap-empty-title">{{ effectiveSurfaceMode === 'nav' ? 'Quick Nav' : effectiveSurfaceMode === 'ask' ? 'Ask' : 'What can I help with?' }}</h3>
-          <p class="aap-empty-desc">
+          <p v-if="effectiveSurfaceMode !== 'ask'" class="aap-empty-desc">
             <template v-if="effectiveSurfaceMode === 'nav'">
               <strong>Start typing</strong> to jump to any page — payroll, schedule, credentials, and more.
             </template>
@@ -512,7 +512,7 @@
           </div>
         </div>
         </div>
-        <p class="aap-foot-hint"><kbd>Enter</kbd> send · <kbd>↑↓</kbd> jump · <kbd>Esc</kbd> close</p>
+        <p v-if="effectiveSurfaceMode !== 'ask'" class="aap-foot-hint"><kbd>Enter</kbd> send · <kbd>↑↓</kbd> jump · <kbd>Esc</kbd> close</p>
       </footer>
     </aside>
   </div>
@@ -551,12 +551,13 @@ const props = defineProps({
   },
   /** Analytics / capability context for this surface */
   placementKey: { type: String, default: 'ask_assistant' },
+  contextAgencyId: { type: Number, default: null },
   /** Override close button visibility (default: hide in embedded) */
   showClose: { type: Boolean, default: undefined },
   /** Optional prompt seeded from a parent surface (e.g. User Manager chips). */
   seedPrompt: { type: String, default: '' }
 });
-const emit = defineEmits(['close']);
+const emit = defineEmits(['close', 'compose-message']);
 
 const router = useRouter();
 const route = useRoute();
@@ -580,7 +581,8 @@ const {
 
 const { interact: pinAssistantOpen, surfaceMode, seedPrompt: globalSeedPrompt, clearSeed } = useAskAssistant();
 
-const effectiveSurfaceMode = computed(() => surfaceMode.value || null);
+let requestEpoch = 0;
+const effectiveSurfaceMode = computed(() => props.variant === 'embedded' ? 'ask' : surfaceMode.value || null);
 
 const commandSurface = computed(() =>
   resolveCommandSurface({ path: route.path, fullPath: route.fullPath, name: route.name })
@@ -629,9 +631,7 @@ const subtitle = computed(() => {
       : 'Type to jump to any page or tool — instant navigation, no database lookup.';
   }
   if (effectiveSurfaceMode.value === 'ask') {
-    return surf
-      ? `Ask about schedules & team data — leaning on ${surf.label} first.`
-      : 'Ask about schedules, availability, who\'s in, coverage, and client fit.';
+    return tenantOptions.value.find(t => Number(t.id) === Number(effectiveAgencyId.value))?.label || 'Assistant';
   }
   if (capabilityPayload.value?.subtitle) return String(capabilityPayload.value.subtitle);
   if (surf) return `Prioritizing ${surf.label} tools and questions first.`;
@@ -642,7 +642,7 @@ const subtitle = computed(() => {
 
 const composerPlaceholder = computed(() => {
   if (effectiveSurfaceMode.value === 'nav') return 'Jump to payroll, schedule, credentials…';
-  if (effectiveSurfaceMode.value === 'ask') return 'Who is free today? What is Hale\'s schedule?';
+  if (effectiveSurfaceMode.value === 'ask') return 'Ask a question...';
   return 'Jump to a page or ask a question…';
 });
 
@@ -667,6 +667,10 @@ const navQuickChips = computed(() => {
 
 /** Everyday one-click actions — always tool/prefill (never free-text submit that can hit doc search). */
 const quickActionGroups = computed(() => {
+  if (effectiveSurfaceMode.value === 'ask') return [
+    { title: 'Providers', actions: ['Who is accepting clients?', 'Who sees clients with ADHD?', 'Who sees kids?', 'I need to refer a client to psychiatry'].map(label => ({ label, kind: 'question' })) },
+    { title: 'My work', actions: ["When is my next client?", 'Who can post an announcement?', 'Where can I send a message?', 'How do I submit a reimbursement?'].map(label => ({ label, kind: 'question' })) }
+  ];
   const day = [
     {
       id: 'agenda',
@@ -994,6 +998,7 @@ async function submitTurnFeedback(idx, helpful, correctedCapabilityId = null) {
 }
 
 async function rerouteWithCapability(promptText, forceCapabilityId) {
+  const epoch = requestEpoch;
   if (!promptText || !forceCapabilityId || busy.value) return;
   busy.value = true;
   error.value = '';
@@ -1012,6 +1017,7 @@ async function rerouteWithCapability(promptText, forceCapabilityId) {
       },
       { skipGlobalLoading: true }
     );
+    if (epoch !== requestEpoch) return;
     const data = resp?.data || {};
     const navs = await executeUiCommands(data.uiCommands);
     rememberAssistantTurn(data, promptText);
@@ -1025,8 +1031,10 @@ async function rerouteWithCapability(promptText, forceCapabilityId) {
       feedback: attachFeedbackMeta(data, promptText)
     });
   } catch (e) {
+    if (epoch !== requestEpoch) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Re-route failed';
   } finally {
+    if (epoch !== requestEpoch) return;
     busy.value = false;
     await nextTick();
     scrollTurnsToBottom({ force: true });
@@ -1457,6 +1465,7 @@ async function runQuickPrompt(text) {
 }
 
 async function runQuickAction(a) {
+  if (a?.kind === 'question') { prompt.value = a.label; await submit(); return; }
   if (!a || busy.value) return;
   markEngaged();
   const kind = String(a.kind || 'submit');
@@ -1541,6 +1550,8 @@ function close() {
 
 /** Nothing is written to disk; this clears in-memory transcript and draft (also runs when the drawer closes). */
 function clearChat({ report = false } = {}) {
+  requestEpoch++;
+  busy.value = false;
   if (report) reportDisengage('cleared_without_engagement');
   turns.value = [];
   persistentThreadId.value = null;
@@ -1566,6 +1577,7 @@ function startNewAssistantChat() {
 }
 
 async function loadLatestAssistantThread() {
+  const epoch = requestEpoch;
   const agencyId = effectiveAgencyId.value;
   if (!agencyId || !authStore.user?.id) return;
   try {
@@ -1573,10 +1585,12 @@ async function loadLatestAssistantThread() {
       params: { agencyId, limit: 12 },
       skipGlobalLoading: true
     });
+    if (epoch !== requestEpoch || agencyId !== effectiveAgencyId.value) return;
     pastThreads.value = Array.isArray(data?.threads) ? data.threads : [];
     const latest = pastThreads.value[0];
     if (!latest?.id || turns.value.length) return;
     const detail = await api.get(`/agents/assist/threads/${latest.id}`, { skipGlobalLoading: true });
+    if (epoch !== requestEpoch || agencyId !== effectiveAgencyId.value) return;
     const msgs = Array.isArray(detail?.data?.messages) ? detail.data.messages : [];
     if (!msgs.length) return;
     persistentThreadId.value = latest.id;
@@ -1593,6 +1607,7 @@ async function loadLatestAssistantThread() {
 }
 
 async function persistAssistantTurn(userText, assistantPayload) {
+  const epoch = requestEpoch;
   const agencyId = effectiveAgencyId.value;
   if (!agencyId) return;
   try {
@@ -1610,7 +1625,7 @@ async function persistAssistantTurn(userText, assistantPayload) {
       },
       { skipGlobalLoading: true }
     );
-    if (data?.thread?.id) persistentThreadId.value = data.thread.id;
+    if (epoch === requestEpoch && data?.thread?.id) persistentThreadId.value = data.thread.id;
   } catch {
     /* ignore */
   }
@@ -1623,6 +1638,7 @@ function toggleMic() {
 }
 
 async function executeUiCommands(commands) {
+  if (effectiveSurfaceMode.value === 'ask') return [];
   const arr = Array.isArray(commands) ? commands : [];
   const navs = [];
   for (const cmd of arr) {
@@ -1680,6 +1696,7 @@ async function executeUiCommands(commands) {
 }
 
 async function submit() {
+  const epoch = requestEpoch;
   const q = prompt.value.trim();
   if (!q || busy.value) return;
   if (!guardAgencyContext()) return;
@@ -1695,6 +1712,7 @@ async function submit() {
   });
   try {
     const resp = await api.post('/agents/assist', { prompt: q, context: buildContextPayload(), history: buildHistoryPayload() }, { skipGlobalLoading: true });
+    if (epoch !== requestEpoch) return;
     const data = resp?.data || {};
     const navs = await executeUiCommands(data.uiCommands);
     rememberAssistantTurn(data, q);
@@ -1708,10 +1726,12 @@ async function submit() {
       feedback: attachFeedbackMeta(data, q)
     });
     await persistAssistantTurn(q, data);
-    await maybeAutoJoinFromResponse(data);
+    if (epoch === requestEpoch && effectiveSurfaceMode.value !== 'ask') await maybeAutoJoinFromResponse(data);
   } catch (e) {
+    if (epoch !== requestEpoch) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Assistant request failed';
   } finally {
+    if (epoch !== requestEpoch) return;
     busy.value = false;
     await nextTick();
     scrollTurnsToBottom();
@@ -1735,6 +1755,7 @@ function buildContextPayload() {
       ? propPlacement
       : (surf?.placementKey || propPlacement || 'ask_assistant');
   return {
+    answerOnly: effectiveSurfaceMode.value === 'ask',
     routeName: route?.name ? String(route.name) : '',
     path,
     fullPath: path,
@@ -1782,6 +1803,7 @@ function handleActionClick(a) {
   const type = String(a?.type || '').trim() || (a?.toolCall ? 'tool' : a?.prefillText ? 'prefill' : '');
   markEngaged();
   if (type === 'prefill') {
+    if (effectiveSurfaceMode.value === 'ask') { prompt.value = prefillActionText(a); submit(); return; }
     const txt = prefillActionText(a);
     if (!txt) return;
     prompt.value = txt;
@@ -1828,7 +1850,13 @@ async function copyTextToClipboard(text) {
 }
 
 async function runNextAction(a) {
+  const epoch = requestEpoch;
   if (!a || busy.value) return;
+  if (a.type === 'compose_message') {
+    if (isEmbedded.value) emit('compose-message', { userId: a.userId, agencyId: a.agencyId, draft: a.draft || '' });
+    else error.value = 'Open Messages to select the recipient and compose your message.';
+    return;
+  }
   const label = String(a.label || '').trim() || 'Run action';
   const toolCalls = Array.isArray(a.toolCalls)
     ? a.toolCalls.filter((t) => t && typeof t === 'object' && t.name)
@@ -1857,6 +1885,7 @@ async function runNextAction(a) {
       },
       { skipGlobalLoading: true }
     );
+    if (epoch !== requestEpoch) return;
     const data = resp?.data || {};
     const navs = await executeUiCommands(data.uiCommands);
     const priorPrompt = findPriorUserPrompt(turns.value.length);
@@ -1872,8 +1901,10 @@ async function runNextAction(a) {
     });
     await maybeAutoJoinFromResponse(data);
   } catch (e) {
+    if (epoch !== requestEpoch) return;
     error.value = e?.response?.data?.error?.message || e?.message || 'Action failed';
   } finally {
+    if (epoch !== requestEpoch) return;
     busy.value = false;
     await nextTick();
     scrollTurnsToBottom();
@@ -1963,6 +1994,17 @@ watch(
   { immediate: true }
 );
 
+watch(() => props.contextAgencyId, id => {
+  if (props.variant === 'embedded') selectedAgencyId.value = id;
+}, { immediate: true });
+
+watch(effectiveAgencyId, (id, previous) => {
+  if (id === previous) return;
+  clearChat();
+  pastThreads.value = [];
+  if (props.open && id) loadLatestAssistantThread();
+});
+
 watch(
   () => props.seedPrompt,
   (v) => {
@@ -2036,7 +2078,8 @@ onUnmounted(() => {
   inset: auto;
   z-index: 1;
   width: 100%;
-  height: 100%;
+  height: auto;
+  flex: 1;
   min-height: 0;
   pointer-events: auto;
   display: flex;
@@ -2049,7 +2092,7 @@ onUnmounted(() => {
   right: auto;
   bottom: auto;
   width: 100%;
-  height: 100%;
+  height: auto;
   margin: 0;
   border-radius: 0;
   box-shadow: none;
@@ -2155,7 +2198,7 @@ onUnmounted(() => {
 .aap-agency-label {
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--aap-muted);
   flex-shrink: 0;
@@ -2191,7 +2234,7 @@ onUnmounted(() => {
   padding: 8px 12px;
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   color: var(--aap-muted);
   background: rgba(148, 163, 184, 0.12);
   cursor: pointer;
@@ -2235,7 +2278,7 @@ onUnmounted(() => {
 .aap-title {
   font-weight: 800;
   font-size: 1.05rem;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   line-height: 1.2;
 }
 
@@ -2327,7 +2370,7 @@ onUnmounted(() => {
   margin: 0 0 6px;
   font-size: 1.125rem;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
   color: var(--aap-slate);
 }
 
@@ -2406,7 +2449,7 @@ onUnmounted(() => {
   text-align: left;
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: #64748b;
   margin: 2px 0 8px;
@@ -2486,7 +2529,7 @@ onUnmounted(() => {
   font-size: 9px;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
 }
 
 .aap-msg.is-user .aap-msg-avatar {
@@ -2524,7 +2567,7 @@ onUnmounted(() => {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   color: var(--aap-muted);
   padding: 0 2px;
 }
@@ -2534,15 +2577,15 @@ onUnmounted(() => {
   padding: 11px 14px;
   font-size: 14px;
   line-height: 1.5;
-  white-space: pre-wrap;
+  white-space: normal;
   word-break: break-word;
 }
 
 .aap-msg.is-user .aap-msg-bubble {
-  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%);
+  background: var(--primary, #16675d);
   color: #fff;
   border-bottom-right-radius: 5px;
-  box-shadow: 0 6px 20px rgba(79, 70, 229, 0.28);
+  box-shadow: none;
 }
 
 .aap-msg.is-assistant .aap-msg-bubble {
@@ -2553,6 +2596,8 @@ onUnmounted(() => {
 }
 
 .aap-msg-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   margin: 0;
 }
 
@@ -2645,7 +2690,7 @@ onUnmounted(() => {
   gap: 5px;
   font-size: 11px;
   font-weight: 800;
-  letter-spacing: 0.07em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: var(--aap-teal-d);
   margin-bottom: 2px;
@@ -2725,7 +2770,7 @@ onUnmounted(() => {
   font-weight: 800;
   color: var(--aap-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0;
   font-size: 10px;
 }
 
@@ -3053,7 +3098,7 @@ onUnmounted(() => {
 .aap-qnav-group-label {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: #94a3b8;
   padding: 6px 10px 4px;
@@ -3102,7 +3147,7 @@ onUnmounted(() => {
   flex: 0 0 auto;
   font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   text-transform: uppercase;
   color: #0f766e;
   background: #ccfbf1;
@@ -3295,4 +3340,42 @@ onUnmounted(() => {
     padding-bottom: max(4px, env(safe-area-inset-bottom, 0px));
   }
 }
+
+/* Inherit the workspace theme, including embedded platform Messages. */
+.aap-drawer {
+  --aap-teal: var(--primary, #16675d);
+  --aap-teal-d: var(--primary, #16675d);
+  --aap-slate: var(--text-primary, #202a32);
+  --aap-muted: var(--text-secondary, #64748b);
+  --aap-line: var(--border, #d9e1e8);
+  background: var(--bg, #f7f9fa);
+  color: var(--text-primary, #202a32);
+}
+.aap-accent { background: var(--primary, #16675d); }
+.aap-drawer .aap-foot,
+.aap-drawer .aap-head,
+.aap-drawer .aap-agency-bar,
+.aap-drawer .aap-composer,
+.aap-drawer .aap-card,
+.aap-drawer .aap-input,
+.aap-drawer .aap-msg.is-assistant .aap-msg-bubble {
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #202a32);
+}
+.aap-drawer .aap-msg.is-user .aap-msg-bubble { background: var(--primary, #16675d); color: #fff; }
+.aap-drawer .aap-empty-orbit { display: none; }
+.aap-drawer .aap-input-wrap,
+.aap-drawer .aap-agency-select,
+.aap-drawer .aap-qnav-list,
+.aap-drawer .aap-school-qnav-list { background: var(--bg-card, #fff); color: var(--text-primary); }
+.aap-drawer .aap-msg.is-user .aap-msg-avatar { background: var(--primary, #16675d); color: #fff; }
+.aap-drawer .aap-capability-prompt,
+.aap-drawer .aap-prompt-btn,
+.aap-drawer .aap-fb-btn,
+.aap-drawer .aap-help-action,
+.aap-drawer .aap-action { background: var(--bg-card, #fff); color: var(--text-primary, #202a32); border-color: var(--aap-line); }
+.aap-drawer .aap-body { background: var(--bg, #f7f9fa); }
+.aap-drawer .aap-capability-title { color: var(--text-secondary, #64748b); }
+.aap-drawer .aap-msg-bubble { border-radius: 8px; }
+.aap-drawer .aap-card { border-radius: 6px; }
 </style>

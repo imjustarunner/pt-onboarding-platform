@@ -32,12 +32,6 @@
         <img v-if="resolveMembershipLogoUrl(m)" class="peer-info-logo" :src="resolveMembershipLogoUrl(m)" alt="" />
         <span class="peer-info-name">{{ m.name }}</span>
       </div>
-      <div v-if="brand.mode === 'default' && memberships.length > 1" class="peer-info-hint">
-        Shown in your default brand (shared tenants).
-      </div>
-      <div v-else-if="brand.mode === 'tenant'" class="peer-info-hint">
-        Shown in {{ brand.name }} branding.
-      </div>
     </div>
   </span>
 </template>
@@ -116,7 +110,8 @@ function cancelClose() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #fff;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #1f2937);
 }
 .peer-logo img {
   width: 100%;
@@ -149,7 +144,8 @@ function cancelClose() {
   z-index: 40;
   min-width: 180px;
   max-width: 260px;
-  background: #fff;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary, #1f2937);
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 10px;
   padding: 8px 10px;

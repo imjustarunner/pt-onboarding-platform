@@ -53,6 +53,24 @@ const render = () => {
 };
 
 describe('superadmin welcome briefing follows the workspace', () => {
+  it('stays dismissed across remounts and query navigation, but opens manually', async () => {
+    render();
+    await flushPromises();
+    document.querySelector('.briefing-close').click();
+    wrapper.unmount();
+    await router.push('/admin?panel=messages');
+    render();
+    await flushPromises();
+    expect(document.querySelector('.briefing-modal')).toBeNull();
+    window.dispatchEvent(new CustomEvent('app:open-command-center'));
+    await flushPromises();
+    expect(document.querySelector('.briefing-modal')).not.toBeNull();
+    document.querySelector('.briefing-close').click();
+    await router.push('/admin?panel=organizations');
+    await flushPromises();
+    expect(document.querySelector('.briefing-modal')).toBeNull();
+  });
+
   it('opens the HQ workspace from the explicit superadmin dashboard button', async () => {
     render();
     await flushPromises();
@@ -109,8 +127,98 @@ describe('superadmin welcome briefing follows the workspace', () => {
     await router.push('/itsco/admin');
     render();
     await flushPromises();
-    document.querySelector('.briefing-card--green .card-link').click();
+    document.querySelector('.briefing-card--green .card-link:last-child').click();
     await flushPromises();
     expect(router.currentRoute.value.path).toBe('/itsco/tasks');
+  });
+
+  it('keeps item and recent browsing inside the briefing with Back navigation', async () => {
+    render();
+    await flushPromises();
+    const originalCalls = api.get.mock.calls.length;
+    document.querySelector('.briefing-card--green .card-link').click();
+    await flushPromises();
+    expect(document.querySelector('.briefing-browser').textContent).toContain('ITSCO task');
+    document.querySelector('.browser-item').click();
+    await flushPromises();
+    expect(document.querySelector('.briefing-detail h2').textContent).toBe('ITSCO task');
+    expect(router.currentRoute.value.path).toBe('/admin');
+    expect(api.get.mock.calls.length).toBe(originalCalls + 1);
+    document.querySelector('.browser-back').click();
+    await flushPromises();
+    expect(document.querySelector('.browser-item')).not.toBeNull();
+    document.querySelector('.browser-back').click();
+    await flushPromises();
+    expect(document.querySelector('.briefing-browser')).toBeNull();
+    expect(document.querySelector('.briefing-modal')).not.toBeNull();
+  });
+
+  it('does not reopen after a full-page action when workspace identity updates', async () => {
+    render();
+    await flushPromises();
+    document.querySelector('.briefing-card--green .card-link:last-child').click();
+    await flushPromises();
+    const requests = api.get.mock.calls.length;
+    useBrandingStore().portalHostPortalUrl = null;
+    useBrandingStore().clearPortalTheme();
+    useAgencyStore().setPlatformMode();
+    await flushPromises();
+    expect(document.querySelector('.briefing-modal')).toBeNull();
+    expect(api.get.mock.calls.length).toBe(requests);
+    await wrapper.setProps({ loginTrigger: 2 });
+    await flushPromises();
+    expect(document.querySelector('.briefing-modal')).not.toBeNull();
+  });
+
+  it('shows overdue items beyond the three previews in the urgent list', async () => {
+    const original = api.get.getMockImplementation();
+    api.get.mockImplementation(path => path === '/tasks' ? Promise.resolve({ data: Array.from({ length: 6 }, (_, i) => ({ id: i + 1, title: `Overdue ${i}`, due_date: '2020-01-01', status: 'pending' })) }) : original(path));
+    render();
+    await flushPromises();
+    expect(document.querySelectorAll('.briefing-card--green .briefing-item')).toHaveLength(3);
+    expect(document.querySelector('.urgent-card strong').textContent).toBe('6');
+    document.querySelector('.urgent-card').click();
+    await flushPromises();
+    expect(document.querySelectorAll('.browser-item')).toHaveLength(6);
+    document.querySelectorAll('.browser-item')[5].click();
+    await flushPromises();
+    expect(document.querySelector('.briefing-detail h2').textContent).toBe('Overdue 5');
+    expect(router.currentRoute.value.path).toBe('/admin');
+  });
+
+  it('retains every tenant and ranks by recency, not name or visit count', async () => {
+    const tenants = Array.from({ length: 18 }, (_, i) => ({ id: i + 10, name: `Tenant ${i}`, slug: `tenant-${i}`, organization_type: 'agency' }));
+    localStorage.setItem('pt.tenantLastVisited:7', JSON.stringify({ 24: 1000, 12: 500 }));
+    localStorage.setItem('pt.tenantVisitCount', JSON.stringify({ 10: 99 }));
+    const original = api.get.getMockImplementation();
+    api.get.mockImplementation(path => path === '/agencies' ? Promise.resolve({ data: tenants }) : original(path));
+    render();
+    await flushPromises();
+    const names = [...document.querySelectorAll('.tenant-launcher')].map(el => el.title);
+    expect(names).toHaveLength(18);
+    expect(names.slice(0, 2)).toEqual(['Tenant 14', 'Tenant 2']);
+  });
+
+  it('does not continue loading a dismissed briefing after an in-flight request resolves', async () => {
+    let finish;
+    const original = api.get.getMockImplementation();
+    api.get.mockImplementation(path => path === '/agencies' ? new Promise(resolve => { finish = resolve; }) : original(path));
+    render();
+    document.querySelector('.briefing-close').click();
+    finish({ data: [itsco, tisi] });
+    await flushPromises();
+    expect(document.querySelector('.briefing-modal')).toBeNull();
+    expect(api.get).not.toHaveBeenCalledWith('/tasks', expect.anything());
+  });
+
+  it('shows the newest tasks in previews while keeping all loaded tasks available', async () => {
+    const original = api.get.getMockImplementation();
+    api.get.mockImplementation(path => path === '/tasks' ? Promise.resolve({ data: [
+      { id: 1, title: 'Older', created_at: '2020-01-01', status: 'pending' },
+      { id: 2, title: 'Newest', created_at: '2026-01-01', status: 'pending' }
+    ] }) : original(path));
+    render();
+    await flushPromises();
+    expect(document.querySelector('.briefing-card--green .briefing-item strong').textContent).toBe('Newest');
   });
 });

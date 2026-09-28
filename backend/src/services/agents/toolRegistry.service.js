@@ -1,3 +1,4 @@
+import { readAcceptingProviders, readNextClientAppointment } from './assistantOperationalReads.service.js';
 import { tenantMeetingBase } from '../../utils/tenantMeetingUrl.js';
 import pool from '../../config/database.js';
 import ReferralDirectoryEntry from '../../models/ReferralDirectoryEntry.model.js';
@@ -831,6 +832,7 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'getOfficeSchedule':
       case 'listOfficeRoster':
         return roleAllowed(reqUser, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant']);
+      case 'listAcceptingProviders':
       case 'findProvidersByApproach':
         // Anyone provider+ can ask "who uses CBT" for internal-referral purposes.
         return roleAllowed(reqUser, [
@@ -846,6 +848,7 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'rescheduleMeeting':
       case 'pushTodaysRemainingMeetings':
         return roleAllowed(reqUser, ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'supervisor', 'clinical_practice_assistant']);
+      case 'findMyNextClientAppointment':
       case 'openTodaysWorkspace':
       case 'openWorkspaceEvent':
         // Anyone signed in: returns whatever events the actor is part of today.
@@ -1312,6 +1315,16 @@ export function getToolSchemas() {
         },
         required: ['agencyId', 'candidateUserId', 'stage']
       }
+    },
+    {
+      name: 'listAcceptingProviders',
+      description: 'Read active providers explicitly marked accepting new clients in the selected tenant. Not appointment availability.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }
+    },
+    {
+      name: 'findMyNextClientAppointment',
+      description: 'Read the signed-in provider\'s next scheduled client appointment, excluding canceled, draft, completed and non-client meetings.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false }
     },
     {
       name: 'searchProviders',
@@ -2764,6 +2777,26 @@ export async function executeToolCall({ req, toolCall }) {
     }
     const profile = await HiringProfile.upsert({ candidateUserId, stage });
     return { ok: true, tool: name, result: { profile } };
+  }
+
+  if (name === 'listAcceptingProviders' || name === 'findMyNextClientAppointment') {
+    requireAuthed(req);
+    if (name === 'listAcceptingProviders' && !roleAllowed(req.user, [...PROVIDER_DIRECTORY_TOOL_ROLES, 'provider', 'supervisor'])) {
+      const error = new Error('Provider directory tools are not available for your role');
+      error.status = 403;
+      throw error;
+    }
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) noAgencyContextError();
+    await ensureAgencyAccess(req.user, agencyId);
+    const result = name === 'listAcceptingProviders'
+      ? await readAcceptingProviders(pool, agencyId)
+      : await readNextClientAppointment(pool, agencyId, Number(req.user.id));
+    if (result.appointment) {
+      result.appointment.start_at = mysqlUtcToIso(result.appointment.start_at);
+      result.appointment.end_at = mysqlUtcToIso(result.appointment.end_at);
+    }
+    return { ok: true, tool: name, result };
   }
 
   if (name === 'searchProviders') {
@@ -4688,4 +4721,3 @@ export async function executeToolCall({ req, toolCall }) {
   err.status = 400;
   throw err;
 }
-

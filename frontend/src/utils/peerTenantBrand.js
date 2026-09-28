@@ -1,4 +1,10 @@
 import { toUploadsUrl } from './uploadsUrl';
+import { tenantFaviconUrl } from './tenantBrandAssets';
+import { resolveTenantPalette } from './tenantPalette';
+
+export function isMessagingTenant(org) {
+  return ['agency', 'organization'].includes(String(org?.organization_type || org?.organizationType || 'agency').toLowerCase());
+}
 
 /**
  * Multi-tenant peer branding for Messages.
@@ -23,6 +29,7 @@ function parsePalette(raw) {
 function resolveAssetUrl(raw) {
   const s = String(raw || '').trim();
   if (!s) return null;
+  if (s.startsWith('/assets/')) return s;
   if (s.startsWith('http://') || s.startsWith('https://')) return s;
   // Prefer backend uploads host for relative / stored paths (split-origin safe).
   return toUploadsUrl(s);
@@ -43,6 +50,7 @@ export function resolveMembershipLogoUrl(m) {
     m.organizationLogoUrl,
     m.organization_logo_path,
     m.organizationLogoPath,
+    tenantFaviconUrl(m.slug || m.portal_url || m.name),
     m.icon_file_path,
     m.iconFilePath,
     m.chat_icon_path,
@@ -57,9 +65,8 @@ export function resolveMembershipLogoUrl(m) {
 
 export function membershipPrimaryColor(m) {
   if (!m) return null;
-  if (m.primary_color) return String(m.primary_color);
-  const palette = parsePalette(m.color_palette || m.colorPalette);
-  return palette?.primary || palette?.primaryColor || null;
+  const palette = parsePalette(m.color_palette || m.colorPalette) || {};
+  return resolveTenantPalette(m.slug || m.portal_url || m.name, { ...palette, primary: m.primary_color || palette.primary || palette.primaryColor }).primary || null;
 }
 
 /**
@@ -68,7 +75,7 @@ export function membershipPrimaryColor(m) {
  */
 export function resolvePeerTenantBrand(person, defaults = {}) {
   const shared = Array.isArray(person?.shared_agency_memberships)
-    ? person.shared_agency_memberships
+    ? person.shared_agency_memberships.filter(isMessagingTenant)
     : [];
 
   if (shared.length === 1) {
@@ -95,12 +102,13 @@ export function resolvePeerTenantBrand(person, defaults = {}) {
 
 export function membershipsForHover(person, viewerMemberships = []) {
   const shared = Array.isArray(person?.shared_agency_memberships)
-    ? person.shared_agency_memberships
+    ? person.shared_agency_memberships.filter(isMessagingTenant)
     : [];
-  if (shared.length) return shared;
+  if (Array.isArray(person?.shared_agency_memberships)) return shared;
   // Self / fallback: show viewer memberships when present
   if (Array.isArray(viewerMemberships) && viewerMemberships.length) {
-    return viewerMemberships.map((a) => ({
+    return viewerMemberships.filter(isMessagingTenant).map((a) => ({
+      ...a,
       id: a.id,
       name: a.name || `Agency ${a.id}`,
       organization_type: a.organization_type || a.organizationType || 'agency',

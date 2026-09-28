@@ -3,6 +3,7 @@ import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
 import { appendBrandSwitchHandoff } from '../utils/brandSwitchUrl';
 import { hasRememberedGoogleAccount } from '../utils/googleAccountMemory';
+import { recordTenantVisit } from '../utils/tenantRecency';
 import {
   isLocalWorkspaceHost, isSuperadminRole,
   tenantWorkspaceDestination, platformWorkspaceDestination
@@ -35,6 +36,7 @@ export function openTenantWorkspace(agency, router, options = {}) {
     hostPortalSlug: useBrandingStore().portalHostPortalUrl,
     ...options
   });
+  recordTenantVisit(useAuthStore().user?.id, agency.id);
   return navigateWorkspace(destination, router, { agencyId: Number(agency.id) });
 }
 

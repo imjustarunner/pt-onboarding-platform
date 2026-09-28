@@ -45,7 +45,6 @@ async function fixture(component, prefix = '') {
 }
 
 describe.each([
-  ['admin', PrivilegedLoginBriefingModal],
   ['provider', ProviderLoginBriefingModal]
 ])('%s welcome meeting navigation', (_, component) => {
   it.each(['', '/itsco'])('dismisses the overlay and routes to the selected meeting (%s)', async (prefix) => {
@@ -88,6 +87,27 @@ describe.each([
       // Prevent jsdom's page navigation; the component still receives the click.
       link.element.addEventListener('click', event => event.preventDefault());
       await link.trigger('click');
+      expect(wrapper.find('.briefing-close').exists()).toBe(false);
+    } finally { wrapper.unmount(); }
+  });
+});
+
+describe('admin command-center meeting details', () => {
+  it.each(['', '/itsco'])('browses meeting details without navigating, then opens the full schedule explicitly (%s)', async prefix => {
+    const { wrapper, router } = await fixture(PrivilegedLoginBriefingModal, prefix);
+    try {
+      await wrapper.get('.meeting-details').trigger('click');
+      await flushPromises();
+      expect(wrapper.get('.briefing-detail').text()).toContain('Weekly Check-in');
+      expect(router.currentRoute.value.path).toBe(`${prefix}/dashboard`);
+      expect(wrapper.get('.detail-join').attributes('target')).toBe('_blank');
+      await wrapper.get('.browser-back').trigger('click');
+      expect(wrapper.find('.briefing-detail').exists()).toBe(false);
+      await wrapper.get('.meeting-details').trigger('click');
+      await wrapper.get('.browser-full').trigger('click');
+      await flushPromises();
+      expect(router.currentRoute.value.path).toBe(`${prefix}/my-schedule`);
+      expect(router.currentRoute.value.query).toMatchObject({ eventId: 'weekly', eventKind: 'TEAM_MEETING' });
       expect(wrapper.find('.briefing-close').exists()).toBe(false);
     } finally { wrapper.unmount(); }
   });

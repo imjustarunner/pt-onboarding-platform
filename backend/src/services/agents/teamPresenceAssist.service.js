@@ -30,7 +30,7 @@ export function formatDurationApprox(ms) {
   return days === 1 ? 'about 1 day' : `about ${days} days`;
 }
 
-function computeStatus(row, now = Date.now()) {
+export function computeStatus(row, now = Date.now()) {
   const hb = row?.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : null;
   const activityAt = row?.last_activity_at ? new Date(row.last_activity_at).getTime() : null;
   const avail = String(row?.availability_level || 'everyone').toLowerCase();
@@ -46,13 +46,14 @@ function computeStatus(row, now = Date.now()) {
     && activityAt && Number.isFinite(activityAt) && now - activityAt >= SOFT_IDLE_AFTER_MS;
   const extendIdle = Number.isFinite(extendUntil) && extendUntil > now;
   const phaseIdle = phase === 'timedown' || phase === 'away';
-  const idleSession = extendIdle || phaseIdle || softIdle;
+  const freshHeartbeat = Number.isFinite(hb) && hb <= now && now - hb <= OFFLINE_AFTER_MS;
+  const idleSession = freshHeartbeat && (extendIdle || phaseIdle || softIdle);
 
   let status = 'offline';
   if (idleSession) status = 'idle';
-  else if (hb && now - hb <= OFFLINE_AFTER_MS) status = 'online';
+  else if (freshHeartbeat) status = 'online';
 
-  if (avail === 'offline' && status !== 'idle') status = 'offline';
+  if (avail === 'offline') status = 'offline';
 
   let idleReason = null;
   let idleForMs = null;
@@ -128,6 +129,9 @@ export async function listTeamPresenceForAssist({
      LEFT JOIN user_presence_status ps ON ps.user_id = u.id
      WHERE ua.agency_id = ?
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+       AND COALESCE(ua.is_active, 1) = 1
+       AND COALESCE(u.is_active, 1) = 1
+       AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED', 'INACTIVE_EMPLOYEE', 'TERMINATED_PENDING', 'PROSPECTIVE')
        AND u.role IN (${placeholders})
      ORDER BY u.first_name ASC, u.last_name ASC`,
     [aId, ...TEAM_EMPLOYEE_ROLES]
@@ -166,6 +170,7 @@ export async function listTeamPresenceForAssist({
     away,
     offline,
     people,
+    asOf: new Date().toISOString(),
     agencyId: aId,
     nameQuery: q || null
   };

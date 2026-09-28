@@ -3539,25 +3539,25 @@ defineExpose({ loadAll, clearSelection });
   .conversation-col { border-right: none; }
 }
 
-/* Plot Twist HQ dark desk */
+/* Follow the selected platform appearance. */
 .ticket-desk--platform {
-  --text-primary: #e5e7eb;
-  --text-secondary: #94a3b8;
-  --border: rgba(148, 163, 184, 0.18);
-  --primary: #8b5cf6;
-  color: #e5e7eb;
+
+
+
+
+  color: var(--text-primary);
 }
 .ticket-desk--platform .desk-title,
 .ticket-desk--platform .detail-subject,
 .ticket-desk--platform .subject {
-  color: #e5e7eb;
+  color: var(--text-primary);
 }
 .ticket-desk--platform .desk-sub,
 .ticket-desk--platform .muted,
 .ticket-desk--platform .preview,
 .ticket-desk--platform .row-meta,
 .ticket-desk--platform .breadcrumb {
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 .ticket-desk--platform .metric-card,
 .ticket-desk--platform .search,
@@ -3567,87 +3567,87 @@ defineExpose({ loadAll, clearSelection });
 .ticket-desk--platform .meta-sidebar,
 .ticket-desk--platform .composer textarea,
 .ticket-desk--platform .assign-row select {
-  background: #111827;
-  border-color: rgba(148, 163, 184, 0.22);
-  color: #e5e7eb;
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
 .ticket-desk--platform .metric-card.active {
-  border-color: #8b5cf6;
-  box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.35);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 15%, var(--bg-card));
 }
 .ticket-desk--platform .ticket-row {
-  background: #111827;
-  border-color: rgba(148, 163, 184, 0.14);
-  color: #e5e7eb;
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
 .ticket-desk--platform .ticket-row:hover {
-  background: #1e293b;
+  background: var(--bg-alt);
 }
 .ticket-desk--platform .ticket-row.active {
-  background: rgba(139, 92, 246, 0.18);
-  border-left-color: #8b5cf6;
+  background: color-mix(in srgb, var(--primary) 15%, var(--bg-card));
+  border-left-color: var(--primary);
 }
 .ticket-desk--platform .ticket-id {
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 .ticket-desk--platform .desk-body {
-  border-color: rgba(148, 163, 184, 0.18);
-  background: #0f172a;
+  border-color: var(--border);
+  background: var(--bg-card);
 }
 .ticket-desk--platform .list-toolbar,
 .ticket-desk--platform .detail-header,
 .ticket-desk--platform .composer {
-  border-color: rgba(148, 163, 184, 0.18);
-  background: #0b1220;
+  border-color: var(--border);
+  background: var(--bg-alt);
 }
 .ticket-desk--platform .btn-exit-ticket {
-  background: #111827;
-  border-color: rgba(148, 163, 184, 0.28);
-  color: #e5e7eb;
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
 .ticket-desk--platform .btn-exit-ticket:hover {
-  background: #1e293b;
+  background: var(--bg-alt);
 }
 .ticket-desk--platform .platform-chip {
-  background: #111827;
-  border-color: rgba(139, 92, 246, 0.45);
-  color: #e5e7eb;
+  background: var(--bg-card);
+  border-color: color-mix(in srgb, var(--primary) 15%, var(--bg-card));
+  color: var(--text-primary);
 }
 .ticket-desk--platform .platform-chip.active {
-  background: rgba(139, 92, 246, 0.18);
-  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.35);
+  background: color-mix(in srgb, var(--primary) 15%, var(--bg-card));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 15%, var(--bg-card));
 }
 .ticket-desk--platform .platform-chip-mark {
-  background: linear-gradient(135deg, #7c3aed, #2563eb);
+  background: var(--primary);
   color: #fff;
 }
 .ticket-desk--platform .platform-chip-name {
-  color: #e5e7eb;
+  color: var(--text-primary);
 }
 .ticket-desk--platform .platform-chip-counts .open {
   background: rgba(56, 189, 248, 0.16);
-  color: #7dd3fc;
+  color: var(--text-primary);
 }
 .ticket-desk--platform .platform-chip-counts .mine {
   background: rgba(52, 211, 153, 0.16);
-  color: #6ee7b7;
+  color: var(--text-primary);
 }
 .ticket-desk--platform .btn-secondary {
-  background: #1e293b;
-  border-color: rgba(148, 163, 184, 0.28);
-  color: #e5e7eb;
+  background: var(--bg-alt);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
 .ticket-desk--platform .btn-primary {
-  background: #7c3aed;
-  border-color: #7c3aed;
+  background: var(--primary);
+  border-color: var(--primary);
 }
 .ticket-desk--platform .error {
-  color: #fca5a5;
+  color: var(--danger, #c92a35);
 }
 .ticket-desk--platform .msg-bubble,
 .ticket-desk--platform .thread .bubble {
-  background: #1e293b;
-  color: #e5e7eb;
+  background: var(--bg-alt);
+  color: var(--text-primary);
 }
 
 /* Email details tab */

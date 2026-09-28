@@ -1,3 +1,4 @@
+import { syncBookClubChannel } from '../services/bookClubChannel.service.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
@@ -86,16 +87,18 @@ async function ensureUserIsEligibleForTenant(userId, tenantAgencyId) {
 }
 
 async function upsertUserPreference({ tenantAgencyId, userId, interestStatus, actorUserId }) {
-  await pool.execute(
-    `INSERT INTO book_club_user_preferences
+  await syncBookClubChannel(pool, tenantAgencyId, async (db) => {
+    await db.execute(
+      `INSERT INTO book_club_user_preferences
      (tenant_agency_id, user_id, interest_status, updated_by_user_id)
      VALUES (?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        interest_status = VALUES(interest_status),
        updated_by_user_id = VALUES(updated_by_user_id),
        updated_at = CURRENT_TIMESTAMP`,
-    [tenantAgencyId, userId, interestStatus, actorUserId || null]
-  );
+      [tenantAgencyId, userId, interestStatus, actorUserId || null]
+    );
+  });
 }
 
 async function upsertBookResponse({ learningClassId, userId, responseStatus, actorUserId }) {

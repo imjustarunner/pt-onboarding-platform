@@ -16,8 +16,8 @@
       <div class="panel-header">
         <div class="org-header">
           <div class="title">Messages</div>
-          <button v-if="!isSchoolStaffViewer" type="button" class="btn btn-secondary" @click="personalDeliveryOpen = true">Email reminders</button>
-          <div class="subtitle">{{ panelSubtitle }}</div><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a>
+          <button v-if="!isSchoolStaffViewer" type="button" class="delivery-settings" title="Email reminder settings" aria-label="Email reminder settings" @click="personalDeliveryOpen = true"><Settings2 :size="17" /></button>
+          <div class="subtitle">{{ panelSubtitle }}</div>
         </div>
         <label
           v-if="showComposeAgencyPicker"
@@ -149,6 +149,8 @@
             :open="mainTab === 'assistant'"
             variant="embedded"
             :placement-key="assistantPlacementKey"
+            :context-agency-id="effectiveComposeAgencyId"
+            @compose-message="composeFromAssistant"
           />
         </div>
 
@@ -1185,6 +1187,8 @@
 </template>
 
 <script setup>
+import { Settings2 } from '@lucide/vue';
+import { isMessagingTenant } from '../../utils/peerTenantBrand';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -1262,7 +1266,7 @@ const isChildOrgType = (org) => {
   return t === 'school' || t === 'program' || t === 'learning';
 };
 /** Tenant orgs the user can scope team presence / unified inbox to (not inherited schools). */
-const isTenantOrgForMessaging = (org) => isAgencyOrgType(org) || isAffiliationOrgType(org);
+const isTenantOrgForMessaging = isMessagingTenant;
 
 const agencyId = computed(() => {
   const current = agencyStore.currentAgency || null;
@@ -1284,7 +1288,7 @@ const agencyId = computed(() => {
   if (isAgencyOrgType(current)) return current?.id || null;
 
   // Club (affiliation) context: scope to club members only.
-  if (isAffiliationOrgType(current)) return current?.id || null;
+  if (isClubContext.value) return current?.id || null;
 
   // School/program/learning context: prefer explicit affiliated agency id.
   const affiliated =
@@ -1303,6 +1307,7 @@ const agencyId = computed(() => {
 const COMPOSE_AGENCY_KEY = 'pt.messages.composeAgencyId.v1';
 const composeAgencyId = ref(null);
 const membershipAgencies = computed(() => {
+  if (isClubContext.value) return [agencyStore.currentAgency];
   const seen = new Map();
   const includeChildOrgs = isSchoolStaffRole(authStore.user?.role);
   for (const a of agencyStore.userAgencies || []) {
@@ -1310,13 +1315,13 @@ const membershipAgencies = computed(() => {
     // Admin/support inherit child schools in userAgencies but cannot call presence for them.
     // Scope compose + presence to tenant agencies (and school org only for school staff).
     if (isTenantOrgForMessaging(a) || (includeChildOrgs && isChildOrgType(a))) {
-      seen.set(a.id, { id: a.id, name: a.name || `Agency ${a.id}` });
+      seen.set(a.id, { ...a, id: a.id, name: a.name || `Agency ${a.id}` });
     }
   }
   if (!seen.size) {
     for (const a of agencyStore.agencies || []) {
       if (a?.id && !seen.has(a.id) && isAgencyOrgType(a)) {
-        seen.set(a.id, { id: a.id, name: a.name || `Agency ${a.id}` });
+        seen.set(a.id, { ...a, id: a.id, name: a.name || `Agency ${a.id}` });
       }
     }
   }
@@ -1332,7 +1337,7 @@ const effectiveComposeAgencyId = computed(() => {
   const compose = Number(composeAgencyId.value || 0);
   if (compose && membershipAgencies.value.some((a) => Number(a.id) === compose)) return compose;
   const app = Number(agencyId.value || 0);
-  if (app) return app;
+  if (membershipAgencies.value.some((a) => Number(a.id) === app)) return app;
   return membershipAgencies.value[0]?.id || null;
 });
 
@@ -1358,7 +1363,7 @@ function ensureComposeAgency() {
     }
   }
   if (!next || !membershipIds.has(next)) {
-    next = Number(agencyId.value || 0) || Number(membershipAgencies.value[0]?.id || 0) || null;
+    next = membershipIds.has(Number(agencyId.value)) ? Number(agencyId.value) : Number(membershipAgencies.value[0]?.id || 0) || null;
   }
   composeAgencyId.value = next || null;
   if (next) persistComposeAgency(next);
@@ -1709,7 +1714,8 @@ const emptyDirectoryMessage = computed(() => {
 });
 const isClubContext = computed(() => {
   const current = agencyStore.currentAgency || null;
-  return !!current && isAffiliationOrgType(current);
+  return !!current && isAffiliationOrgType(current) &&
+    (String(route.params.organizationSlug || '') === String(current.slug || '') || /\/book-?club(?:\/|$)/.test(route.path));
 });
 
 const people = ref([]);
@@ -2160,7 +2166,9 @@ const loadThreads = async () => {
       params.agencyId = agencyId.value;
     }
     const resp = await api.get('/chat/threads', { params, skipGlobalLoading: true });
-    threads.value = resp.data || [];
+    const excluded = new Set([...(agencyStore.agencies || []), ...(agencyStore.userAgencies || [])]
+      .filter((a) => isAffiliationOrgType(a)).map((a) => Number(a.id)));
+    threads.value = (resp.data || []).filter((t) => isClubContext.value || !excluded.has(Number(t.agency_id)));
   } catch {
     // ignore
   }
@@ -3051,6 +3059,16 @@ const openChat = async (u, agencyIdOverride = null, organizationIdOverride = nul
   }
 };
 
+async function composeFromAssistant({ userId, agencyId, draft: messageDraft }) {
+  const person = (people.value || []).find(p => Number(p.id) === Number(userId));
+  if (!person || !personCanBeMessaged(person)) {
+    chatError.value = 'This recipient is not available in your messaging roster.';
+    return;
+  }
+  await openChat(person, agencyId);
+  if (activeThreadId.value && Number(activeChatUser.value?.id) === Number(userId)) draft.value = String(messageDraft || '');
+}
+
 const openThread = async (t) => {
   if (!t?.thread_id) return;
   const type = String(t?.thread_type || 'direct').toLowerCase();
@@ -3490,7 +3508,7 @@ watch(
           // ignore
         }
       }
-      
+
       const q = { ...newVal.query };
       delete q.threadId;
       router.replace({ path: newVal.path, query: q }).catch(() => {});
@@ -3554,11 +3572,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.org-header { position: relative; padding-right: 32px; min-width: 0; }
+.delivery-settings { position: absolute; right: 0; top: 0; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-card); color: var(--text-secondary); cursor: pointer; }
 .messages-workspace {
   display: flex;
   width: 100%;
   min-height: 0;
-  background: #fff;
+  background: var(--bg-card, #fff);
   color: var(--text-primary, #1a3d2b);
 }
 
@@ -3606,7 +3626,7 @@ onUnmounted(() => {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: #fff;
+  background: var(--bg-card, #fff);
 }
 
 .messages-workspace.layout-drawer .mw-list-col {
@@ -3681,7 +3701,7 @@ onUnmounted(() => {
   min-width: 0;
   min-height: 0;
   flex: 1;
-  background: #fff;
+  background: var(--bg-card, #fff);
 }
 
 .messages-workspace.layout-drawer:not(.has-active-chat) .mw-chat-col {
@@ -3775,7 +3795,7 @@ onUnmounted(() => {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 4px 6px;
-  background: #fff;
+  background: var(--bg-card, #fff);
   color: var(--text-primary);
 }
 
@@ -3975,7 +3995,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   bottom: calc(100% + 4px);
-  background: #fff;
+  background: var(--bg-card, #fff);
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
@@ -4052,7 +4072,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 4px;
   border: 1px solid #e2e8f0;
-  background: #fff;
+  background: var(--bg-card, #fff);
   border-radius: 999px;
   padding: 2px 8px;
   font-size: 12px;
@@ -4078,7 +4098,7 @@ onUnmounted(() => {
 }
 .rx-add-btn {
   border: 1px dashed #cbd5e1;
-  background: #fff;
+  background: var(--bg-card, #fff);
   border-radius: 999px;
   width: 24px;
   height: 24px;
@@ -4096,7 +4116,7 @@ onUnmounted(() => {
   gap: 2px;
   width: 180px;
   padding: 6px;
-  background: #fff;
+  background: var(--bg-card, #fff);
   border: 1px solid #e2e8f0;
   border-radius: 10px;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
@@ -4212,7 +4232,7 @@ onUnmounted(() => {
   bottom: calc(100% + 6px);
   left: 0;
   z-index: 120;
-  background: #fff;
+  background: var(--bg-card, #fff);
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 12px;
   box-shadow: 0 8px 28px rgba(15, 23, 42, 0.14);
@@ -4258,7 +4278,7 @@ onUnmounted(() => {
 }
 .filter-chip {
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--bg-card, #fff);
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 11px;
@@ -4306,7 +4326,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--bg-card, #fff);
   border-radius: 10px;
   padding: 8px 10px;
   cursor: pointer;
@@ -4337,7 +4357,7 @@ onUnmounted(() => {
   left: 10px;
   right: 10px;
   bottom: calc(100% + 6px);
-  background: #fff;
+  background: var(--bg-card, #fff);
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
@@ -4426,7 +4446,7 @@ onUnmounted(() => {
 .person {
   width: 100%;
   border: 1px solid var(--border);
-  background: white;
+  background: var(--bg-card, #fff);
   border-radius: 10px;
   padding: 10px 10px;
   display: flex;
@@ -4475,7 +4495,7 @@ onUnmounted(() => {
 }
 .mw-modal {
   width: min(420px, 100%);
-  background: #fff;
+  background: var(--bg-card, #fff);
   border-radius: 12px;
   padding: 16px;
   display: flex;
@@ -4531,6 +4551,10 @@ onUnmounted(() => {
 }
 
 .mw-chat-col .chat-box {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 100%;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -4548,7 +4572,7 @@ onUnmounted(() => {
   width: 360px;
   height: auto;
   border-top: 1px solid var(--border);
-  background: white;
+  background: var(--bg-card, #fff);
   display: flex;
   flex-direction: column;
   min-height: 0; /* critical for flex+overflow scrolling */
@@ -4613,7 +4637,7 @@ onUnmounted(() => {
 .msg-select input { width: 14px; height: 14px; }
 .msg {
   border: 1px solid var(--border);
-  background: white;
+  background: var(--bg-card, #fff);
   border-radius: 12px;
   padding: 8px 10px;
   max-width: 90%;
@@ -4685,132 +4709,132 @@ onUnmounted(() => {
 .error { color: #b91c1c; font-size: 13px; }
 .empty { color: var(--text-secondary); padding: 10px 2px; }
 
-/* Plot Twist HQ / platform dark shell */
-.messages-workspace.theme-platform {
-  --text-primary: #e5e7eb;
-  --text-secondary: #94a3b8;
-  --border: rgba(148, 163, 184, 0.18);
-  --primary: #8b5cf6;
-  background: #0f172a;
-  color: #e5e7eb;
-  border-radius: 16px;
+/* Inherit the active tenant/platform appearance. */
+.messages-workspace {
+
+
+
+
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 8px;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  border: 1px solid var(--border);
 }
 .messages-workspace.theme-platform.layout-page {
   min-height: min(78vh, 860px);
   height: min(78vh, 860px);
 }
-.messages-workspace.theme-platform .mw-list-col {
-  background: #111827;
-  border-right: 1px solid rgba(148, 163, 184, 0.18);
+.messages-workspace .mw-list-col {
+  background: var(--bg-alt);
+  border-right: 1px solid var(--border);
 }
-.messages-workspace.theme-platform .panel-header,
-.messages-workspace.theme-platform .nav-stubs,
-.messages-workspace.theme-platform .self-footer {
-  background: #0f172a;
-  border-color: rgba(148, 163, 184, 0.18);
+.messages-workspace .panel-header,
+.messages-workspace .nav-stubs,
+.messages-workspace .self-footer {
+  background: var(--bg-card);
+  border-color: var(--border);
 }
-.messages-workspace.theme-platform .title,
-.messages-workspace.theme-platform .name,
-.messages-workspace.theme-platform .chat-title,
-.messages-workspace.theme-platform .self-name,
-.messages-workspace.theme-platform .section-title {
-  color: #e5e7eb;
+.messages-workspace .title,
+.messages-workspace .name,
+.messages-workspace .chat-title,
+.messages-workspace .self-name,
+.messages-workspace .section-title {
+  color: var(--text-primary);
 }
-.messages-workspace.theme-platform .subtitle,
-.messages-workspace.theme-platform .status-line,
-.messages-workspace.theme-platform .self-status-label,
-.messages-workspace.theme-platform .muted {
-  color: #94a3b8;
+.messages-workspace .subtitle,
+.messages-workspace .status-line,
+.messages-workspace .self-status-label,
+.messages-workspace .muted {
+  color: var(--text-secondary);
 }
-.messages-workspace.theme-platform .nav-stub {
-  color: #94a3b8;
+.messages-workspace .nav-stub {
+  color: var(--text-secondary);
 }
-.messages-workspace.theme-platform .nav-stub.active {
-  background: rgba(139, 92, 246, 0.18);
-  color: #c4b5fd;
+.messages-workspace .nav-stub.active {
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-card));
+  color: var(--text-primary);
 }
-.messages-workspace.theme-platform .nav-stub-badge {
-  background: #8b5cf6;
+.messages-workspace .nav-stub-badge {
+  background: var(--primary);
   color: #fff;
 }
-.messages-workspace.theme-platform .person,
-.messages-workspace.theme-platform .filter-chip,
-.messages-workspace.theme-platform .compose-agency select,
-.messages-workspace.theme-platform .search,
-.messages-workspace.theme-platform .chat-composer textarea,
-.messages-workspace.theme-platform .mw-field input,
-.messages-workspace.theme-platform .status-menu {
-  background: #0b1220;
-  border-color: rgba(148, 163, 184, 0.22);
-  color: #e5e7eb;
+.messages-workspace .person,
+.messages-workspace .filter-chip,
+.messages-workspace .compose-agency select,
+.messages-workspace .search,
+.messages-workspace .chat-composer textarea,
+.messages-workspace .mw-field input,
+.messages-workspace .status-menu {
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
-.messages-workspace.theme-platform .person:hover {
-  border-color: #8b5cf6;
-  background: rgba(139, 92, 246, 0.1);
+.messages-workspace .person:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-card));
 }
-.messages-workspace.theme-platform .filter-chip.active {
-  border-color: #8b5cf6;
-  color: #c4b5fd;
-  background: rgba(139, 92, 246, 0.16);
+.messages-workspace .filter-chip.active {
+  border-color: var(--primary);
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-card));
 }
-.messages-workspace.theme-platform .mw-chat-col,
-.messages-workspace.theme-platform .chat-box,
-.messages-workspace.theme-platform .mw-empty-chat {
-  background: #0f172a;
+.messages-workspace .mw-chat-col,
+.messages-workspace .chat-box,
+.messages-workspace .mw-empty-chat {
+  background: var(--bg-card);
 }
-.messages-workspace.theme-platform .chat-box-header,
-.messages-workspace.theme-platform .chat-composer {
-  background: #111827;
-  border-color: rgba(148, 163, 184, 0.18);
+.messages-workspace .chat-box-header,
+.messages-workspace .chat-composer {
+  background: var(--bg-alt);
+  border-color: var(--border);
 }
-.messages-workspace.theme-platform .msg {
-  background: #1e293b;
-  color: #e5e7eb;
+.messages-workspace .msg {
+  background: var(--bg-alt);
+  color: var(--text-primary);
 }
-.messages-workspace.theme-platform .msg.mine {
-  background: rgba(139, 92, 246, 0.22);
+.messages-workspace .msg.mine {
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-card));
 }
-.messages-workspace.theme-platform .btn-primary {
-  background: linear-gradient(135deg, #7c3aed, #2563eb);
+.messages-workspace .btn-primary {
+  background: var(--primary);
   border: none;
   color: #fff;
 }
-.messages-workspace.theme-platform .btn-secondary {
-  background: #1e293b;
-  border-color: rgba(148, 163, 184, 0.28);
-  color: #e5e7eb;
+.messages-workspace .btn-secondary {
+  background: var(--bg-alt);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
-.messages-workspace.theme-platform .agency-chip,
-.messages-workspace.theme-platform .pill,
-.messages-workspace.theme-platform .you-chip {
-  border-color: rgba(148, 163, 184, 0.28);
-  color: #cbd5e1;
-  background: rgba(15, 23, 42, 0.8);
+.messages-workspace .agency-chip,
+.messages-workspace .pill,
+.messages-workspace .you-chip {
+  border-color: var(--border);
+  color: var(--text-secondary);
+  background: var(--bg-alt);
 }
-.messages-workspace.theme-platform .mw-modal {
-  background: #111827;
-  color: #e5e7eb;
+.messages-workspace .mw-modal {
+  background: var(--bg-alt);
+  color: var(--text-primary);
 }
-.messages-workspace.theme-platform .mw-toast {
-  background: #7c3aed;
+.messages-workspace .mw-toast {
+  background: var(--primary);
 }
-.messages-workspace.theme-platform .status-menu-item:hover,
-.messages-workspace.theme-platform .status-menu-item.active {
-  background: rgba(139, 92, 246, 0.16);
-  color: #e5e7eb;
+.messages-workspace .status-menu-item:hover,
+.messages-workspace .status-menu-item.active {
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg-card));
+  color: var(--text-primary);
 }
-.messages-workspace.theme-platform .emoji-picker {
-  background: #1e293b;
-  border-color: rgba(148, 163, 184, 0.18);
+.messages-workspace .emoji-picker {
+  background: var(--bg-alt);
+  border-color: var(--border);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
 }
-.messages-workspace.theme-platform .emoji-btn:hover {
+.messages-workspace .emoji-btn:hover {
   background: rgba(148, 163, 184, 0.14);
 }
-.messages-workspace.theme-platform .composer-icon-btn:hover,
-.messages-workspace.theme-platform .composer-icon-btn.active {
+.messages-workspace .composer-icon-btn:hover,
+.messages-workspace .composer-icon-btn.active {
   background: rgba(148, 163, 184, 0.14);
 }
 </style>

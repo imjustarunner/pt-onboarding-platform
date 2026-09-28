@@ -172,6 +172,7 @@ test('drift guard: every visible prompt maps to a deterministic capability and c
     'lookupProviderSchoolAssignments',
     'listSchoolCoverage'
   );
+  const payload = buildCapabilityUiPayload({ role: 'admin', allowedToolNames: adminTools });
   const catalogIds = new Set(getCapabilityCatalogForTests().map((c) => c.id));
 
   const prompts = new Set([
@@ -330,4 +331,3 @@ test('office roster extracts location query and correction chips prefer office i
   assert.equal(choices.some((c) => c.id === 'office_schedule'), false);
   assert.ok(choices.length <= 6);
 });
-

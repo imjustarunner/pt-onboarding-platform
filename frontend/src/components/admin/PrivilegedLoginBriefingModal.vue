@@ -17,7 +17,7 @@
           role="dialog"
           aria-modal="true"
           aria-labelledby="privileged-briefing-title"
-          @keydown.esc="dismiss"
+          @keydown.esc.stop="panel ? goBack() : dismiss()"
         >
           <div class="briefing-brand-rail" aria-hidden="true">
             <div class="brand-logo-stack">
@@ -72,7 +72,26 @@
 
             <div class="briefing-layout">
               <div class="briefing-main">
-                <DashboardMeetings :include-all-agencies="!workspaceSlug" @navigate="dismiss" />
+                <section v-if="panel" ref="panelElement" class="briefing-browser" tabindex="-1" :aria-label="panel.section.title">
+                  <header class="browser-toolbar">
+                    <button type="button" class="browser-back" @click="goBack"><ArrowLeft :size="18" aria-hidden="true" /> Back</button>
+                    <button v-if="panel.section.to" type="button" class="browser-full" @click="navigate(panel.item?.to || panel.section.to)"><Maximize2 :size="16" aria-hidden="true" /> Open full page</button>
+                  </header>
+                  <BriefingItemDetails v-if="panel.item" :key="`${panel.section.key}:${panel.item.id}`" :item="panel.item" :section="panel.section" />
+                  <template v-else>
+                    <h2>{{ panel.section.title }}</h2>
+                    <p class="browser-count">{{ panel.section.items.length }} {{ panel.section.key === 'urgent' ? 'urgent items' : 'recent items' }}</p>
+                    <button v-for="entry in panel.section.items.slice(0, panelLimit)" :key="`${entry.section?.key || panel.section.key}:${entry.id}`" type="button" class="briefing-item browser-item" @click="inspectItem(entry.section || panel.section, entry)">
+                      <span class="item-copy"><strong>{{ entry.label }}</strong><small>{{ [entry.section?.title, entry.meta].filter(Boolean).join(' · ') }}</small></span>
+                      <span v-if="entry.badge" class="item-badge" :class="`item-badge--${entry.badgeTone || 'neutral'}`">{{ entry.badge }}</span>
+                      <ChevronRight :size="18" aria-hidden="true" />
+                    </button>
+                    <p v-if="!panel.section.items.length">No recent items available.</p>
+                    <button v-if="panel.section.items.length > panelLimit" type="button" class="browser-more" @click="panelLimit += 20">Show more</button>
+                  </template>
+                </section>
+                <div v-show="!panel">
+                <DashboardMeetings :include-all-agencies="!workspaceSlug" inspect-in-place @inspect="inspectMeeting" />
                 <div v-if="sections.length" class="briefing-card-grid">
                   <article
                     v-for="section in sections"
@@ -92,7 +111,7 @@
                       :key="item.id"
                       type="button"
                       class="briefing-item"
-                      @click="navigate(section.to)"
+                      @click="inspectItem(section, item)"
                     >
                       <span class="item-dot" aria-hidden="true"></span>
                       <span class="item-copy">
@@ -103,9 +122,10 @@
                         {{ item.badge }}
                       </span>
                     </button>
-                    <button class="card-link" type="button" @click="navigate(section.to)">
-                      {{ section.action }} <span aria-hidden="true">→</span>
-                    </button>
+                    <div class="card-actions">
+                      <button type="button" class="card-link" @click="inspectSection(section)">Recent <ChevronRight :size="16" aria-hidden="true" /></button>
+                      <button class="card-link" type="button" @click="navigate(section.to)">{{ section.action }} <Maximize2 :size="15" aria-hidden="true" /></button>
+                    </div>
                   </article>
                 </div>
 
@@ -121,6 +141,7 @@
                     <span>{{ metric.label }}</span>
                     <small v-if="metric.hint">{{ metric.hint }}</small>
                   </div>
+                </div>
                 </div>
               </div>
 
@@ -152,7 +173,7 @@
                   </button>
                 </section>
 
-                <button v-if="urgentCount" class="urgent-card" type="button" @click="navigate(urgentDestination)">
+                <button v-if="urgentCount" class="urgent-card" type="button" @click="inspectSection(urgentSection)">
                   <span class="urgent-icon" aria-hidden="true">△</span>
                   <span><small>Urgent items</small><strong>{{ urgentCount }}</strong> require immediate attention</span>
                   <span aria-hidden="true">→</span>
@@ -173,15 +194,17 @@
             </label>
 
             <!-- Tenant quick-launch row (admin and superadmin) -->
-            <div v-if="tenantLaunchers.length > 0" class="tenant-launchers" role="list" aria-label="Go to tenant dashboard">
+            <div v-if="tenantLaunchers.length > 0" class="tenant-launcher-strip">
               <span v-if="isSuperadmin" class="tenant-launchers__label">Tenants</span>
+              <button type="button" class="tenant-scroll" aria-label="Scroll tenants left" title="Scroll tenants left" @click="scrollTenants(-1)"><ChevronLeft :size="18" /></button>
+              <div ref="tenantScroller" class="tenant-launchers" role="group" aria-label="Tenant dashboards, most recently visited first" tabindex="0">
               <button
-                v-for="(agency, idx) in tenantLaunchers.slice(0, 12)"
+                v-for="agency in tenantLaunchers"
                 :key="`launch-${agency.id}`"
                 type="button"
                 class="tenant-launcher"
-                :class="{ 'tenant-launcher--top': idx < 3 && (getVisitCounts()[String(agency.id)] || 0) > 0 }"
-                :title="`${agency.name}${(getVisitCounts()[String(agency.id)] || 0) > 0 ? ' · ' + getVisitCounts()[String(agency.id)] + ' visit' + (getVisitCounts()[String(agency.id)] === 1 ? '' : 's') : ''}`"
+                :class="{ 'tenant-launcher--top': Number(workspaceAgency?.id) === Number(agency.id) }"
+                :title="agency.name"
                 :style="{ '--tl-color': agency.primary || '#334155' }"
                 @click="navigateToTenant(agency)"
               >
@@ -194,15 +217,11 @@
                     @error="$event.target.style.display='none'"
                   />
                   <span v-else class="tenant-launcher__initials">{{ agency.initials }}</span>
-                  <span
-                    v-if="(getVisitCounts()[String(agency.id)] || 0) > 0"
-                    class="tenant-launcher__visits"
-                    :title="`${getVisitCounts()[String(agency.id)]} visit${getVisitCounts()[String(agency.id)] === 1 ? '' : 's'}`"
-                  >{{ getVisitCounts()[String(agency.id)] }}</span>
                 </div>
                 <span class="tenant-launcher__name">{{ agency.name }}</span>
               </button>
-              <span v-if="tenantLaunchers.length > 12" class="tenant-launchers__overflow">+{{ tenantLaunchers.length - 12 }} more</span>
+              </div>
+              <button type="button" class="tenant-scroll" aria-label="Scroll tenants right" title="Scroll tenants right" @click="scrollTenants(1)"><ChevronRight :size="18" /></button>
             </div>
 
             <div class="briefing-dashboard-actions">
@@ -222,13 +241,16 @@
 
 <script setup>
 import DashboardMeetings from '../meetings/DashboardMeetings.vue';
+import BriefingItemDetails from './BriefingItemDetails.vue';
 import { PLATFORM_BRAND } from '../../config/platformBrand.js';
 import { tenantFaviconUrl } from '../../utils/tenantBrandAssets.js';
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { claimLoginBriefing } from '../../utils/loginBriefingGate';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
 import { openTenantWorkspace, openPlatformWorkspace } from '../../services/workspaceNavigation';
-import { LayoutDashboard } from '@lucide/vue';
+import { LayoutDashboard, ArrowLeft, ChevronLeft, ChevronRight, Maximize2 } from '@lucide/vue';
+import { readTenantVisits, recordTenantVisit, sortTenantsByRecency } from '../../utils/tenantRecency';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
@@ -258,6 +280,14 @@ const visible = ref(false);
 const loading = ref(false);
 const loadError = ref(false);
 const dontShowAgain = ref(false);
+const panel = ref(null);
+const panelElement = ref(null);
+const panelLimit = ref(20);
+const panelHistory = [];
+const tenantScroller = ref(null);
+const tenantVisits = ref({});
+let dismissedLogin = null;
+let activeBriefingContext = null;
 const briefing = ref({
   notifications: null,
   messages: null,
@@ -407,15 +437,12 @@ const activePeople = computed(() => activePeopleRaw.value
     initials: initialsFor([person.first_name, person.last_name].filter(Boolean).join(' '))
   })));
 
-const urgentCount = computed(() => {
-  const urgentTickets = (briefing.value.tickets?.items || []).filter((item) => item.badgeTone === 'danger').length;
-  const urgentEscalations = Number(briefing.value.escalations?.count || 0);
-  const overdueTasks = (briefing.value.tasks?.items || []).filter((item) => item.badgeTone === 'danger').length;
-  return urgentTickets + urgentEscalations + overdueTasks;
-});
-const urgentDestination = computed(() => briefing.value.escalations?.count
-  ? `${prefix.value}/admin/escalations?mine=true`
-  : `${prefix.value}/tickets?mine=true`);
+const urgentSection = computed(() => ({
+  key: 'urgent', title: 'Urgent items',
+  items: sections.value.filter(section => ['tickets', 'escalations', 'tasks'].includes(section.key))
+    .flatMap(section => section.items.filter(item => item.badgeTone === 'danger').map(item => ({ ...item, section })))
+}));
+const urgentCount = computed(() => urgentSection.value.items.length);
 
 const glanceMetrics = computed(() => [
   { value: workspaceSlug.value ? tenantContextLabel.value : (isPlatformBriefing.value ? 'Platform' : brandedAgencies.value.length), label: workspaceSlug.value || isPlatformBriefing.value ? 'Scope' : 'Tenant affiliations' },
@@ -428,24 +455,7 @@ function storageKey() {
   return `pt.privilegedLoginBriefing.disabled:${userId.value || 0}`;
 }
 
-// ─── Tenant visit-count tracking ─────────────────────────────────────────────
-const VISIT_COUNT_KEY = 'pt.tenantVisitCount';
-
-function getVisitCounts() {
-  try { return JSON.parse(localStorage.getItem(VISIT_COUNT_KEY) || '{}'); } catch { return {}; }
-}
-
-function incrementVisitCount(agencyId) {
-  try {
-    const counts = getVisitCounts();
-    counts[String(agencyId)] = (counts[String(agencyId)] || 0) + 1;
-    localStorage.setItem(VISIT_COUNT_KEY, JSON.stringify(counts));
-  } catch { /* ignore */ }
-}
-
-// ─── Ranked launcher list (both admin and superadmin) ────────────────────────
 const tenantLaunchers = computed(() => {
-  const counts = getVisitCounts();
   const base = isSuperadmin.value
     ? (affiliationRows.value || []).filter(isAgencyTenantOrg).map((agency) => ({
         ...agency,
@@ -455,12 +465,44 @@ const tenantLaunchers = computed(() => {
       }))
     : brandedAgencies.value;
 
-  return [...base].sort((a, b) => {
-    const ca = counts[String(a.id)] || 0;
-    const cb = counts[String(b.id)] || 0;
-    return cb - ca; // most-visited first; ties keep insertion order
-  });
+  return sortTenantsByRecency(base, tenantVisits.value);
 });
+
+watch([userId, () => workspaceAgency.value?.id], ([user, agencyId]) => {
+  tenantVisits.value = agencyId ? recordTenantVisit(user, agencyId) : readTenantVisits(user);
+}, { immediate: true });
+
+function scrollTenants(direction) {
+  tenantScroller.value?.scrollBy({ left: direction * tenantScroller.value.clientWidth * 0.8, behavior: 'smooth' });
+}
+
+async function openPanel(next) {
+  panelHistory.push({ panel: panel.value, limit: panelLimit.value, focus: document.activeElement });
+  panel.value = next;
+  panelLimit.value = 20;
+  await nextTick();
+  panelElement.value?.focus();
+}
+function inspectItem(section, item) {
+  const to = ['tickets', 'escalations'].includes(section.key) && item.raw?.id
+    ? `${section.to}${section.to.includes('?') ? '&' : '?'}ticketId=${encodeURIComponent(item.raw.id)}`
+    : item.to;
+  return openPanel({ section, item: { ...item, to } });
+}
+function inspectSection(section) { return openPanel({ section }); }
+function inspectMeeting(meeting) {
+  return inspectItem({ key: 'meetings', title: 'Meeting details', to: meeting.to }, {
+    id: meeting.key, label: meeting.title, raw: meeting, to: meeting.to
+  });
+}
+async function goBack() {
+  const previous = panelHistory.pop();
+  panel.value = previous?.panel || null;
+  panelLimit.value = previous?.limit || 20;
+  await nextTick();
+  if (previous?.focus?.isConnected) previous.focus.focus();
+  else panelElement.value?.focus();
+}
 
 function isDisabled() {
   try { return localStorage.getItem(storageKey()) === '1'; } catch { return false; }
@@ -517,6 +559,7 @@ function todayScheduleItems(data) {
       if (Number.isNaN(date.getTime()) || localYmd(date) !== localYmd()) return null;
       return {
         id: `calendar-${item.id || index}`,
+        raw: item,
         label: item.title || item.counterpartyName || item.buildingName || 'Scheduled event',
         meta: formatTime(startsAt),
         sortAt: date.getTime()
@@ -542,7 +585,9 @@ function presenceBandLabel(person) {
 }
 
 function baseSection({ title, icon, tone, count, countLabel, items, action, to }) {
-  return { title, icon, tone, count: Number(count || 0), countLabel, items: items || [], action, to };
+  const timestamp = item => new Date(item.raw?.created_at || item.raw?.createdAt || 0).getTime() || 0;
+  const recentItems = [...(items || [])].sort((a, b) => a.sortAt && b.sortAt ? a.sortAt - b.sortAt : timestamp(b) - timestamp(a));
+  return { title, icon, tone, count: Number(count || 0), countLabel, items: recentItems, action, to };
 }
 
 function resolvePrimaryAgencyId() {
@@ -556,16 +601,18 @@ function resolvePrimaryAgencyId() {
 }
 
 function mapNotificationItems(rows = []) {
-  return rows.slice(0, 3).map((item) => ({
+  return rows.map((item) => ({
     id: `notification-${item.id}`,
+    raw: item,
     label: item.title || item.message || 'Notification',
     meta: relativeTime(item.created_at || item.createdAt)
   }));
 }
 
 function mapSchoolUpdateItems(rows = []) {
-  return rows.slice(0, 3).map((item) => ({
+  return rows.map((item) => ({
     id: `school-update-${item.id}`,
+    raw: item,
     label: item.title || item.message || 'School update',
     meta: relativeTime(item.created_at || item.createdAt)
   }));
@@ -601,6 +648,8 @@ function applyNotificationSections(unreadNotifications, notificationCount) {
 
 async function loadBriefing() {
   const generation = ++requestGeneration;
+  panel.value = null;
+  panelHistory.length = 0;
   loading.value = true;
   loadError.value = false;
   briefing.value = {
@@ -640,6 +689,7 @@ async function loadBriefing() {
       }
     }
 
+    if (generation !== requestGeneration) return;
     const primaryAgencyId = resolvePrimaryAgencyId();
     if (workspaceSlug.value && !primaryAgencyId) {
       loadError.value = true;
@@ -692,8 +742,9 @@ async function loadBriefing() {
         tone: 'blue',
         count: messageCount,
         countLabel: 'unread',
-        items: (messageData?.priority || []).slice(0, 3).map((item) => ({
+        items: (messageData?.priority || []).map((item) => ({
           id: item.id,
+          raw: item,
           label: item.label || 'Conversation',
           meta: [item.agencyName, relativeTime(item.occurredAt)].filter(Boolean).join(' · ')
         })),
@@ -751,12 +802,13 @@ async function loadBriefing() {
         tone: 'orange',
         count: ticketRows.length,
         countLabel: 'open',
-        items: ticketRows.slice(0, 3).map((item) => ({
+        items: ticketRows.map((item) => ({
           id: `ticket-${item.id}`,
+          raw: item,
           label: item.subject || `Support ticket #${item.id}`,
           meta: item.agency_name || item.school_name || '',
           badge: String(item.priority || '').toUpperCase() || null,
-          badgeTone: String(item.priority || '').toLowerCase() === 'high' ? 'danger' : 'warning'
+          badgeTone: ['high', 'urgent', 'critical'].includes(String(item.priority || '').toLowerCase()) ? 'danger' : 'warning'
         })),
         action: 'View assigned tickets',
         to: `${prefix.value}/tickets?mine=true`
@@ -767,11 +819,12 @@ async function loadBriefing() {
         tone: 'green',
         count: taskRows.length,
         countLabel: 'pending',
-        items: taskRows.slice(0, 3).map((item) => {
+        items: taskRows.map((item) => {
           const dueAt = item.due_date || item.dueDate;
           const overdue = dueAt && new Date(dueAt).getTime() < Date.now();
           return {
             id: `task-${item.id}`,
+            raw: item,
             label: item.title || 'Assigned task',
             meta: dueAt ? `Due ${new Date(dueAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : '',
             badge: overdue ? 'PAST DUE' : null,
@@ -787,8 +840,9 @@ async function loadBriefing() {
         tone: 'red',
         count: escalationRows.length,
         countLabel: 'urgent',
-        items: escalationRows.slice(0, 3).map((item) => ({
+        items: escalationRows.map((item) => ({
           id: `escalation-${item.id}`,
+          raw: item,
           label: item.subject || `Escalation #${item.id}`,
           meta: item.agency_name || '',
           badge: item.immediate_action_required ? 'URGENT' : String(item.priority || 'HIGH').toUpperCase(),
@@ -822,6 +876,8 @@ async function loadBriefing() {
 }
 
 function dismiss() {
+  dismissedLogin = `${userId.value}:${props.loginTrigger}`;
+  requestGeneration += 1;
   if (dontShowAgain.value) {
     try { localStorage.setItem(storageKey(), '1'); } catch { /* ignore */ }
   }
@@ -835,7 +891,7 @@ async function navigate(to) {
 }
 
 async function navigateToTenant(agency) {
-  incrementVisitCount(agency.id);
+  tenantVisits.value = recordTenantVisit(userId.value, agency.id);
   dismiss();
   await nextTick();
   await openTenantWorkspace(agency, router);
@@ -855,15 +911,25 @@ watch(
       visible.value = false;
       return;
     }
-    let freshFlag = false;
-    try { freshFlag = sessionStorage.getItem('justLoggedIn') === 'true'; } catch { /* ignore */ }
-    if (!trigger && !freshFlag) return;
+    if (dismissedLogin === `${nextUserId}:${trigger}`) return;
+    const context = `${nextUserId}:${workspaceSlug.value}:${workspaceAgency.value?.id || ''}`;
+    const freshLogin = claimLoginBriefing(nextUserId, trigger);
+    if (!freshLogin && !(visible.value && activeBriefingContext !== context)) return;
+    activeBriefingContext = context;
     void loadBriefing();
   },
   { immediate: true }
 );
 
+function manuallyOpen() {
+  if (!userId.value || !router.currentRoute.value.meta?.requiresAuth || !isPrivilegedLoginBriefingUser(authStore.user)) return;
+  dismissedLogin = null;
+  activeBriefingContext = `${userId.value}:${workspaceSlug.value}:${workspaceAgency.value?.id || ''}`;
+  void loadBriefing();
+}
+onMounted(() => window.addEventListener('app:open-command-center', manuallyOpen));
 onBeforeUnmount(() => {
+  window.removeEventListener('app:open-command-center', manuallyOpen);
   requestGeneration += 1;
 });
 </script>
@@ -1029,23 +1095,26 @@ onBeforeUnmount(() => {
 .superadmin-dashboard { display: inline-flex; align-items: center; justify-content: center; gap: 8px; background: var(--bg-card); color: var(--text-primary); }
 
 /* Tenant quick-launch icons in footer */
+.tenant-launcher-strip { display:flex; align-items:center; gap:8px; flex-basis:100%; min-width:0; order:-1; }
+.tenant-scroll { display:grid; place-items:center; flex:0 0 32px; width:32px; height:40px; border:1px solid var(--border); border-radius:6px; background:var(--bg-card); color:var(--text-primary); cursor:pointer; }
 .tenant-launchers {
   display: flex;
   align-items: center;
   gap: 6px;
   flex: 1;
-  flex-wrap: wrap;
-  overflow: hidden;
-  max-height: 78px; /* show at most ~2 rows before clipping */
+  min-width: 0;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 4px 2px 8px;
+  scrollbar-width: thin;
 }
 .tenant-launchers__label {
   font-size: 9px;
   font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: .08em;
+  letter-spacing: 0;
   color: var(--text-secondary);
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
   margin-right: 2px;
   flex-shrink: 0;
 }
@@ -1056,14 +1125,15 @@ onBeforeUnmount(() => {
   gap: 3px;
   padding: 5px 8px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 6px;
   background: var(--bg-card);
   color: var(--text-primary);
   cursor: pointer;
   font-size: 10px;
   font-weight: 700;
-  min-width: 56px;
-  max-width: 80px;
+  flex: 0 0 104px;
+  width: 104px;
+  height: 64px;
   transition: background .15s, border-color .15s, transform .1s;
 }
 .tenant-launcher:hover { background: rgba(255,255,255,.18); border-color: var(--text-secondary); transform: translateY(-1px); }
@@ -1078,25 +1148,19 @@ onBeforeUnmount(() => {
   display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 800;
 }
-.tenant-launcher__visits {
-  position: absolute;
-  top: -5px;
-  right: -6px;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  border-radius: 999px;
-  background: var(--brief-primary);
-  color: #fff;
-  font-size: 8px;
-  font-weight: 900;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-.tenant-launcher__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 76px; text-align: center; }
-.tenant-launchers__overflow { font-size: 10px; color: var(--text-secondary); white-space: nowrap; align-self: center; }
+.tenant-launcher__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 88px; text-align: center; }
+.card-actions { margin-top:auto; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+.card-actions .card-link { gap:6px; width:auto; }
+.briefing-browser { min-height:380px; padding:16px 0 24px; }
+.briefing-browser:focus { outline:none; }
+.browser-toolbar { display:flex; flex-wrap:wrap; justify-content:space-between; gap:12px; padding-bottom:16px; margin-bottom:20px; border-bottom:1px solid var(--border); }
+.browser-toolbar button, .browser-more { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; padding:8px 12px; border:1px solid var(--border); border-radius:6px; background:var(--bg-card); color:var(--text-primary); font:inherit; font-size:13px; cursor:pointer; }
+.browser-count { color:var(--text-secondary); font-size:13px; }
+.browser-item { width:100%; padding:14px 0; }
+.browser-item .item-copy strong { white-space:normal; overflow-wrap:anywhere; }
+.browser-item > svg { flex-shrink:0; }
+.browser-more { margin-top:16px; }
+.briefing-modal button:focus-visible, .tenant-launchers:focus-visible { outline:2px solid var(--brief-link); outline-offset:3px; }
 .briefing-fade-enter-active, .briefing-fade-leave-active { transition: opacity .18s ease; }
 .briefing-fade-enter-active .briefing-modal, .briefing-fade-leave-active .briefing-modal { transition: transform .18s ease; }
 .briefing-fade-enter-from, .briefing-fade-leave-to { opacity: 0; }
@@ -1126,7 +1190,7 @@ onBeforeUnmount(() => {
   .briefing-side { margin-top: 14px; }
   .briefing-footer { position: static; padding: 10px 14px; border-radius: 0; }
   .briefing-dashboard-actions { width: 100%; flex-direction: column; }
-  .tenant-launchers { flex-basis: 100%; max-height: none; }
+  .tenant-launchers__label { display:none; }
   .dont-show-label span { max-width: 150px; }
   .enter-dashboard { min-width: 155px; }
 }

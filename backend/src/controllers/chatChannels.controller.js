@@ -1,3 +1,4 @@
+import { syncBookClubChannel, BOOK_CLUB_CHANNEL_RULE } from '../services/bookClubChannel.service.js';
 /**
  * Team Channels (Slack-style) — Phase 3 foundation.
  * Reuses chat_threads / chat_messages / participants. Team employees only.
@@ -151,6 +152,7 @@ async function assertChannelMember(threadId, userId) {
 }
 
 function canManageChannelMembers(reqUser, channel) {
+  if (channel?.membership_rule === BOOK_CLUB_CHANNEL_RULE) return false;
   const role = normalizeRole(reqUser?.role);
   if (CHANNEL_CREATE_ROLES.has(role)) return true;
   const creatorId = channel?.created_by_user_id != null ? Number(channel.created_by_user_id) : null;
@@ -433,6 +435,7 @@ export const listChannels = async (req, res, next) => {
     }
 
     const me = req.user.id;
+    await syncBookClubChannel(pool, agencyId);
     await ensureGeneralChannel(agencyId, me);
     await ensureSchoolChannels(agencyId, me);
     try {
@@ -452,7 +455,7 @@ export const listChannels = async (req, res, next) => {
 
     const [rows] = await pool.execute(
       `SELECT t.id, t.agency_id, t.organization_id, t.name, t.slug, t.description,
-              t.visibility, t.updated_at, t.created_at,
+              t.visibility, t.updated_at, t.created_at, t.membership_rule,
               (SELECT 1 FROM chat_thread_participants tp
                 WHERE tp.thread_id = t.id AND tp.user_id = ? LIMIT 1) AS is_member
          FROM chat_threads t
@@ -519,7 +522,7 @@ export const createChannel = async (req, res, next) => {
     await assertAgencyAccess(req.user, agencyId);
 
     let slug = slugify(req.body?.slug || name);
-    if (slug === 'general' || slug.startsWith('school-')) {
+    if (slug === 'general' || slug.startsWith('school-') || slug.startsWith('subscription-')) {
       return res.status(400).json({ error: { message: 'That channel slug is reserved' } });
     }
 
@@ -596,7 +599,7 @@ export const joinChannel = async (req, res, next) => {
 
     const [[t]] = await pool.execute(
       `SELECT id, agency_id, organization_id, thread_type, name, slug, description,
-              visibility, archived_at
+              visibility, archived_at, membership_rule
          FROM chat_threads WHERE id = ? LIMIT 1`,
       [threadId]
     );
@@ -640,7 +643,7 @@ export const openChannel = async (req, res, next) => {
 
     const [[t]] = await pool.execute(
       `SELECT id, agency_id, organization_id, thread_type, name, slug, description,
-              visibility, archived_at
+              visibility, archived_at, membership_rule
          FROM chat_threads WHERE id = ? LIMIT 1`,
       [threadId]
     );
@@ -792,7 +795,7 @@ export const inviteChannelMembers = async (req, res, next) => {
       return res.status(400).json({
         error: {
           message:
-            'This is a smart group — membership updates automatically (Office Available or supervisees).'
+            'Membership is managed by the group subscription or assignment.'
         }
       });
     }
@@ -853,7 +856,7 @@ export const removeChannelMember = async (req, res, next) => {
       return res.status(400).json({
         error: {
           message:
-            'This is a smart group — turn Office Availability off or update supervisee assignments to change membership.'
+            'Update the group subscription or assignment to change membership.'
         }
       });
     }
@@ -895,7 +898,7 @@ export const leaveChannel = async (req, res, next) => {
       return res.status(400).json({
         error: {
           message:
-            'This is a smart group — turn Office Availability off or update supervisee assignments to leave.'
+            'Update the group subscription or assignment to leave.'
         }
       });
     }

@@ -12,6 +12,7 @@
       <AppearanceSelect />
       <nav class="pthq-nav">
         <div class="pthq-nav-section">Workspace</div>
+        <button type="button" class="pthq-nav-item" @click="openCommandCenter">Command Center</button>
         <button
           type="button"
           class="pthq-nav-item"
@@ -357,6 +358,7 @@
 
 <script setup>
 import AppearanceSelect from '../../components/AppearanceSelect.vue';
+import { openCommandCenter } from '../../utils/loginBriefingGate';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';

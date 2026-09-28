@@ -1,3 +1,4 @@
+import { answerAppQuestion } from '../services/agents/assistantAnswers.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import pool from '../config/database.js';
 import { runAgentAssist, safeParseAgentJson } from '../services/agents/agentRuntime.service.js';
@@ -2586,6 +2587,32 @@ export const assist = async (req, res, next) => {
         ...meta
       });
 
+    if (context.answerOnly === true) {
+      const payload = await answerAppQuestion({
+        prompt,
+        history: Array.isArray(req.body?.history) ? req.body.history.slice(-8) : [],
+        agencyId: agencyContextId,
+        allowedToolNames,
+        clientToolCalls,
+        execute: toolCall => executeToolCall({ req, toolCall }),
+        detect: async (question, readTools) => matchDeterministicCapabilityIntent({
+          prompt: question, allowedToolNames: readTools,
+          agencyTimezone: await resolveAssistAgencyTimezone(agencyContextId),
+          placementKey: context.placementKey, routeName: context.routeName
+        }),
+        format: (_question, results) => buildAssistantReplyFromTools('', results),
+        research: async (question, readTools) => {
+          if (!agencyContextId) return null;
+          try {
+            return await runAgencyResearchAssistResponse({
+              req, prompt: question, context, allowedToolNames: readTools, started, capabilityPayload
+            });
+          } catch { return null; }
+        }
+      });
+      return res.json(assistFeedback(payload, { prompt, runtime: payload.runtime }));
+    }
+
     if (promptAsksForCapabilities(prompt)) {
       return res.json(
         assistFeedback(buildCapabilityHelpResponse(capabilityPayload), {
@@ -3489,4 +3516,3 @@ export const appendAssistThreadTurn = async (req, res, next) => {
     next(e);
   }
 };
-
