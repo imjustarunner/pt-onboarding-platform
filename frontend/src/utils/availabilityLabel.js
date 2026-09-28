@@ -1,0 +1,1 @@
+export function availabilityLabel(slot) { return slot.frequency === 'ONCE' ? (slot.purpose === 'MEETING' ? 'One-time meeting' : 'Single intake session') : ({WEEKLY:'Weekly',BIWEEKLY:'Every 2 weeks',EVERY_3_WEEKS:'Every 3 weeks',EVERY_4_WEEKS:'Every 4 weeks',EITHER:'Weekly / every 2 weeks'}[slot.frequency] || 'Recurring opening'); }

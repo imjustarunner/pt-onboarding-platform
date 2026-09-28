@@ -6,7 +6,12 @@
 
     <fieldset class="osorb-panel">
       <legend>Appointment format</legend>
-      <label class="osorb-check"><input type="checkbox" :checked="virtualEnabled" :disabled="disabled" @change="emit('update:virtualEnabled', $event.target.checked)" /> Virtual</label>
+      <p v-if="canLinkOffice &amp;&amp; frequency!=='ONCE'" class="osorb-help muted">For office-linked recurring openings, we publish matching existing room reservations over the next year. Dates with client appointments are skipped; future unreserved rooms are not published.</p>
+    <label v-if="frequency==='ONCE'" class="osorb-check">One-time opening
+      <select :value="purpose" @change="emit('update:purpose',$event.target.value)"><option value="INTAKE">Single intake session</option><option value="MEETING">Meeting</option></select>
+    </label>
+    <p class="osorb-help muted">Recurring new-client openings offer an ongoing appointment. A one-time opening offers only an intake or meeting. Current-client-only openings are for rescheduling and are not shown publicly.</p>
+    <label class="osorb-check"><input type="checkbox" :checked="virtualEnabled" :disabled="disabled" @change="emit('update:virtualEnabled', $event.target.checked)" /> Virtual</label>
       <label class="osorb-check"><input type="checkbox" :checked="inPersonEnabled" :disabled="disabled || !canLinkOffice" @change="emit('update:inPersonEnabled', $event.target.checked)" /> In person at the linked office</label>
       <p v-if="!canLinkOffice" class="osorb-help muted">Reserve an office first to publish in-person openings.</p>
     </fieldset>
@@ -79,6 +84,8 @@ import { computed } from 'vue';
 import { openSlotAvailabilityLabels } from '../../utils/openSlotAvailabilityLabels.js';
 
 const props = defineProps({
+  frequency:{type:String,default:'WEEKLY'},
+  purpose:{type:String,default:'INTAKE'},
   virtualEnabled: { type: Boolean, default: true },
   inPersonEnabled: { type: Boolean, default: false },
   canLinkOffice: { type: Boolean, default: false },
@@ -93,6 +100,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
+  'update:purpose',
   'update:virtualEnabled',
   'update:inPersonEnabled',
   'update:availableForIntake',

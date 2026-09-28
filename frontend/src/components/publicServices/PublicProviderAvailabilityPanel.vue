@@ -14,7 +14,7 @@
      <h5>Next available appointments</h5>
      <p v-if="!slotsFor(f).length">{{emptyMessage(f)}}</p>
      <p v-else-if="!schedule.onlineScheduling" class="scheduling-note">These times show this provider’s {{f.key==='virtual'?'virtual':'in-person'}} availability; online time selection is not enabled. Inquire with our team to arrange a time.</p>
-     <div v-if="slotsFor(f).length" class="next-openings"><div v-for="group in daysFor(f).slice(0,expanded===f.value?60:6)" :key="group.date"><strong>{{day(group.startAt)}}</strong><div class="day-times"><div v-for="slot in group.slots" :key="slot.startAt+':'+slot.buildingId+':'+slot.roomId" class="day-time"><span>{{time(slot.startAt)}}</span><small>{{f.key==='virtual'?'Virtual':slot.buildingName||assignedOffices.find(o=>Number(o.id)===Number(slot.buildingId))?.name}}</small><button v-if="schedule.onlineScheduling" type="button" @click="openCalendar(f,slot)">Request time</button></div></div></div></div>
+     <div v-if="slotsFor(f).length" class="next-openings"><div v-for="group in daysFor(f).slice(0,expanded===f.value?60:6)" :key="group.date"><strong>{{day(group.startAt)}}</strong><div class="day-times"><div v-for="slot in group.slots" :key="slot.startAt+':'+slot.buildingId+':'+slot.roomId" class="day-time"><span>{{time(slot.startAt)}}</span><small>{{availabilityLabel(slot)}}</small><small>{{f.key==='virtual'?'Virtual':slot.buildingName||assignedOffices.find(o=>Number(o.id)===Number(slot.buildingId))?.name}}</small><button v-if="schedule.onlineScheduling" type="button" @click="openCalendar(f,slot)">Request time</button></div></div></div></div>
      <p v-if="slotsFor(f).length" class="timezone">Times shown in {{schedule.timeZone}}. Our team confirms placement.</p>
      <button v-if="slotsFor(f).length && (schedule.onlineScheduling || daysFor(f).length>6)" type="button" class="calendar-toggle" :aria-expanded="calendar===f.value || expanded===f.value" @click="toggleCalendar(f)">{{calendar===f.value || expanded===f.value?'Hide calendar':'View all '+f.label.toLowerCase()+' availability →'}}</button>
      <PublicProviderSlotPicker v-if="calendar===f.value" :key="f.value+calendarWeek+calendarOffice" :agency-slug="agencySlug" :provider-id="Number(provider.id)" :service-type="serviceType" :office-id="calendarOffice" :office-locations="assignedOffices" :fixed-format="f.value" :initial-week="calendarWeek" :time-zone="schedule.timeZone" @hold="$emit('hold',$event)"/>
@@ -47,6 +47,8 @@
  </section>
 </template>
 <script setup>
+import {availabilityLabel} from '../../utils/availabilityLabel.js';
+
 import {computed,nextTick,ref,watch} from 'vue';
 import {availabilityDayGroups} from '../../utils/availabilityDayGroups';
 import api from '../../services/api';

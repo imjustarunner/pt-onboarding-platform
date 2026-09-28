@@ -1,3 +1,4 @@
+import { isAvailabilitySearch, formatAvailabilitySearch } from '../services/agents/availabilitySearch.service.js';
 import { answerAppQuestion } from '../services/agents/assistantAnswers.service.js';
 import ActivityLogService from '../services/activityLog.service.js';
 import pool from '../config/database.js';
@@ -1871,6 +1872,8 @@ function buildAssistantReplyFromTools(assistantText, toolResults) {
     } else if (r.tool === 'setHiringStage') {
       const stage = r.result?.stage || r.result?.candidate?.stage;
       lines.push(stage ? `Updated hiring stage to "${stage}".` : 'Updated hiring stage.');
+    } else if (r.tool === 'findProviderAvailability') {
+      lines.push(formatAvailabilitySearch(r.result||{}));
     } else if (r.tool === 'findIntakeOpenings') {
       const out = r.result || {};
       const list = out.results || [];
@@ -2587,9 +2590,10 @@ export const assist = async (req, res, next) => {
         ...meta
       });
 
-    if (context.answerOnly === true) {
+    if (context.answerOnly === true || (allowedToolNames.has('findProviderAvailability') && isAvailabilitySearch(prompt,[...(Array.isArray(context.availabilityQueries)?context.availabilityQueries.map(text=>({role:'user',text})):[]),...(req.body?.history||[])]))) {
       const payload = await answerAppQuestion({
         prompt,
+        availabilityQueries:Array.isArray(context.availabilityQueries)?context.availabilityQueries.slice(-20).map(q=>String(q).slice(0,2000)):[],
         history: Array.isArray(req.body?.history) ? req.body.history.slice(-8) : [],
         agencyId: agencyContextId,
         allowedToolNames,

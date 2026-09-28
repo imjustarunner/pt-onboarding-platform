@@ -34,6 +34,7 @@ class ProviderVirtualSlotAvailability {
     availableForSession = null,
     source = 'OFFICE_EVENT',
     sourceEventId = null,
+    frequency = 'ONCE', purpose = 'INTAKE', database = pool,
     createdByUserId = null
   }) {
     const normalizedSessionType = deriveSessionType({
@@ -43,7 +44,7 @@ class ProviderVirtualSlotAvailability {
     });
     const flags = flagsFromSessionType(normalizedSessionType);
     try {
-      const [result] = await pool.execute(
+      const [result] = await database.execute(
         `INSERT INTO provider_virtual_slot_availability
            (agency_id, provider_id, office_location_id, room_id, start_at, end_at, session_type,
             available_for_intake, available_for_session, is_active, source, source_event_id, created_by_user_id)
@@ -73,10 +74,11 @@ class ProviderVirtualSlotAvailability {
           createdByUserId
         ]
       );
+      await database.execute(`UPDATE provider_virtual_slot_availability SET frequency=?,purpose=? WHERE agency_id=? AND provider_id=? AND start_at=? AND end_at=?`,[frequency,purpose,agencyId,providerId,startAt,endAt]);
       return result?.insertId || null;
     } catch (e) {
       if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      const [result] = await pool.execute(
+      const [result] = await database.execute(
         `INSERT INTO provider_virtual_slot_availability
            (agency_id, provider_id, office_location_id, room_id, start_at, end_at, session_type, is_active, source, source_event_id, created_by_user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?)
@@ -101,6 +103,7 @@ class ProviderVirtualSlotAvailability {
           createdByUserId
         ]
       );
+      await database.execute(`UPDATE provider_virtual_slot_availability SET frequency=?,purpose=? WHERE agency_id=? AND provider_id=? AND start_at=? AND end_at=?`,[frequency,purpose,agencyId,providerId,startAt,endAt]);
       return result?.insertId || null;
     }
   }

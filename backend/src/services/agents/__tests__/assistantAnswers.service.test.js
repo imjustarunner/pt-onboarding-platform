@@ -99,3 +99,9 @@ test('message content remains an unsent draft', async () => {
   assert.equal(r.nextActions[0].type, 'compose_message');
   assert.deepEqual(r.uiCommands, []);
 });
+test('availability follow-ups keep their constraints and execute only the scoped live read',async()=>{
+ const f=fixture({execute:async call=>({ok:true,tool:call.name,result:{filters:{dateFrom:'2026-09-30',dateTo:'2026-09-30',modality:'ALL'},timeZone:'America/Denver',providers:[]}})});
+ const r=await f.ask('Which of those see kids?',{availabilityQueries:['Who has availability Wednesday 2 to 5 PM?']});
+ assert.equal(r.toolCalls[0].name,'findProviderAvailability');assert.equal(r.toolCalls[0].args.previousQueries[0],'Who has availability Wednesday 2 to 5 PM?');assert.equal(r.availabilityQueries.length,2);
+ assert.match(r.assistantText,/No verified matches/);assert.deepEqual(r.uiCommands,[]);
+});

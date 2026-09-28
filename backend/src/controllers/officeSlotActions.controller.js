@@ -1,3 +1,4 @@
+import {publishOfficeAvailability} from '../services/publishOfficeAvailability.service.js';
 import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import { moveOfficeSessionSeries, moveOfficeSessionOccurrence } from '../services/officeSessionMove.service.js';
 import { wallMysqlToUtcMysql, normalizeWallMysqlDatetime, utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
@@ -1525,20 +1526,10 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
         return res.status(409).json({ error: { message: 'This office reservation has been cancelled.' } });
       }
 
-      await ProviderVirtualSlotAvailability.upsertSlot({
-        agencyId,
-        providerId,
-        officeLocationId,
-        roomId: Number(ev.room_id || 0) || null,
-        startAt,
-        endAt,
-        sessionType: availableForIntake && availableForSession ? 'BOTH' : (availableForIntake ? 'INTAKE' : 'REGULAR'),
-        availableForIntake,
-        availableForSession,
-        source: 'OFFICE_EVENT',
-        sourceEventId: ev.id,
-        createdByUserId: req.user.id
-      });
+      const publication = await publishOfficeAvailability({event:ev,agencyId,providerId,format:'VIRTUAL',
+        frequency:String(req.body?.frequency||'ONCE').toUpperCase(),purpose:req.body?.purpose,
+        availableForIntake:req.body?.availableForIntake!==false,availableForSession:req.body?.availableForSession===true,actorId:req.user.id});
+      return res.json({ok:true,enabled,agencyId,providerId,startAt,endAt,...publication});
     } else {
       const wasIntakeActive = await ProviderVirtualSlotAvailability.isActiveIntakeSlot({
         agencyId,
@@ -1624,19 +1615,10 @@ export const setEventInPersonIntakeAvailability = async (req, res, next) => {
         return res.status(409).json({ error: { message: 'This office reservation has been cancelled.' } });
       }
 
-      await ProviderInPersonSlotAvailability.upsertSlot({
-        availableForIntake: req.body?.availableForIntake !== false,
-        availableForSession: req.body?.availableForSession === true,
-        agencyId,
-        providerId,
-        officeLocationId,
-        roomId: Number(ev.room_id || 0) || null,
-        startAt,
-        endAt,
-        source: 'OFFICE_EVENT',
-        sourceEventId: ev.id,
-        createdByUserId: req.user.id
-      });
+      const publication = await publishOfficeAvailability({event:ev,agencyId,providerId,format:'IN_PERSON',
+        frequency:String(req.body?.frequency||'ONCE').toUpperCase(),purpose:req.body?.purpose,
+        availableForIntake:req.body?.availableForIntake!==false,availableForSession:req.body?.availableForSession===true,actorId:req.user.id});
+      return res.json({ok:true,enabled,agencyId,providerId,startAt,endAt,...publication});
     } else {
       const wasActive = await ProviderInPersonSlotAvailability.isActiveSlot({
         agencyId,

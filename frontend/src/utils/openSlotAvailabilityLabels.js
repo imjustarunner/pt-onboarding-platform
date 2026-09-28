@@ -18,7 +18,7 @@ export function openSlotAvailabilityLabels(practitionerType = '') {
     };
   }
   return {
-    intake: 'Available for intake (new clients)',
-    session: 'Available for session (current clients)'
+    intake: 'Available for new clients',
+    session: 'Available for current clients (rescheduling; not shown publicly)'
   };
 }

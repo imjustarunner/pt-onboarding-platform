@@ -5905,7 +5905,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             || ['INTAKE', 'BOTH'].includes(sessionType);
           // Grid "Open" marker is for intake-capable availability (never labeled "for intake").
           if (!forIntake) continue;
-          const key = `${aid}|${r.dayOfWeek}|${r.startTime}|${r.endTime}|${sessionType}`;
+          const key = `${aid}|${r.id}`;
           if (seenVwh.has(key)) continue;
           seenVwh.add(key);
           virtualWorkingHours.push({
@@ -5919,6 +5919,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
             availableForSession: !!(r?.availableForSession === true
               || r?.availableForSession === 1
               || ['REGULAR', 'BOTH'].includes(sessionType)),
+            startDate:r.startDate,endDate:r.endDate,purpose:r.purpose,
             frequency: String(r?.frequency || 'WEEKLY').toUpperCase()
           });
         }

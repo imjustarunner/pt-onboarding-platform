@@ -49,14 +49,18 @@ function wallDate(parts, timeZone) {
 export function expandWeeklyHold(hold, from, to) {
   const start = utcDate(hold.start_at || hold.startAt), end = utcDate(hold.end_at || hold.endAt);
   const timeZone = hold.time_zone || hold.timeZone || 'UTC';
+  const frequency=hold.frequency || 'WEEKLY';
+  if(frequency==='ONCE') return +start < +new Date(to) && +end > +new Date(from) ? [{start,end}] : [];
+  const step={BIWEEKLY:14,EVERY_3_WEEKS:21,EVERY_4_WEEKS:28}[frequency]||7;
   const base = localParts(start, timeZone);
+  const anchor=Date.UTC(base.year,base.month-1,base.day);
   const weekday = new Date(Date.UTC(base.year,base.month-1,base.day)).getUTCDay();
   const intervals = [];
   const first = new Date(+new Date(from)-86400000);
   first.setUTCHours(0,0,0,0);
   for(let day=+first;day<+new Date(to)+86400000;day+=86400000) {
     const d = new Date(day);
-    if(d.getUTCDay() !== weekday) continue;
+    if(d.getUTCDay() !== weekday || Math.round((day-anchor)/86400000)%step!==0) continue;
     const occurrence = wallDate({...base,year:d.getUTCFullYear(),month:d.getUTCMonth()+1,day:d.getUTCDate()},timeZone);
     if(occurrence) occurrence.setUTCMilliseconds(start.getUTCMilliseconds());
     if(!occurrence || +occurrence < +start) continue;
@@ -67,7 +71,7 @@ export function expandWeeklyHold(hold, from, to) {
 }
 export async function readActiveHolds(connection, providerId) {
   try {
-    const [rows] = await connection.execute(`SELECT id, agency_id, token_hash, time_zone,
+    const [rows] = await connection.execute(`SELECT id, agency_id, token_hash, time_zone, frequency,
       DATE_FORMAT(start_at, '%Y-%m-%dT%H:%i:%s.%fZ') start_at,
       DATE_FORMAT(end_at, '%Y-%m-%dT%H:%i:%s.%fZ') end_at
       FROM public_provider_slot_holds WHERE provider_id = ? AND released_at IS NULL`, [providerId]);
@@ -78,14 +82,14 @@ export async function readActiveHolds(connection, providerId) {
   }
 }
 const overlaps = (a,b) => +a.start < +b.end && +a.end > +b.start;
-export async function assertNoSelectionConflict(connection, {providerId,startAt,endAt,token='',agencyId,recurring=false,timeZone='UTC'}) {
+export async function assertNoSelectionConflict(connection, {providerId,startAt,endAt,token='',agencyId,recurring=false,timeZone='UTC',frequency='WEEKLY'}) {
   const holds = await readActiveHolds(connection, Number(providerId));
   const from = new Date(startAt), to = recurring ? new Date(+from+370*86400000) : new Date(endAt);
-  const wanted = recurring ? expandWeeklyHold({startAt,endAt,timeZone},from,to) : [{start:from,end:new Date(endAt)}];
+  const wanted = recurring ? expandWeeklyHold({startAt,endAt,timeZone,frequency},from,to) : [{start:from,end:new Date(endAt)}];
   for(const hold of holds) {
     if(Number(hold.agency_id) === Number(agencyId) && hold.token_hash === hashHoldToken(token)) continue;
     if(expandWeeklyHold(hold,from,to).some(h => wanted.some(w => overlaps(h,w)))) {
-      throw holdError('This weekly opening is held for a pending intake. Please choose another time.');
+      throw holdError('This opening is held for a pending intake. Please choose another time.');
     }
   }
   const [requests] = await connection.execute(`SELECT requested_start_at, requested_end_at FROM public_appointment_requests
@@ -93,9 +97,9 @@ export async function assertNoSelectionConflict(connection, {providerId,startAt,
     AND UPPER(COALESCE(status, 'PENDING')) NOT IN ('DECLINED', 'CANCELLED')`,[Number(providerId),sqlDate(from)]);
   if(requests.some(r => {
     const interval = {start:utcDate(r.requested_start_at),end:utcDate(r.requested_end_at)};
-    const windows = recurring ? expandWeeklyHold({startAt,endAt,timeZone},interval.start,interval.end) : wanted;
+    const windows = recurring ? expandWeeklyHold({startAt,endAt,timeZone,frequency},interval.start,interval.end) : wanted;
     return windows.some(w => overlaps(w,interval));
-  })) throw holdError('This weekly opening already has an appointment request. Please choose another time.');
+  })) throw holdError('This opening already has an appointment request. Please choose another time.');
 }
 export async function resolveClientProviderHolds(connection,{clientId,userId=null,reason='PLACEMENT_CHANGED'}) {
   // Called by explicit assignment mutations, never by a profile read or intake preference.
@@ -109,13 +113,15 @@ export function createPublicProviderHoldService(pool) {
       const {start,end} = validateHoldWindow(startAt,endAt);
       localParts(start,timeZone); // Reject an invalid timezone before acquiring a lock.
       return withProviderSelectionLock(pool,providerId,async connection => {
-        await assertNoSelectionConflict(connection,{agencyId,providerId,startAt:start,endAt:end,recurring:true,timeZone});
-        await validateAvailability();
+        const slot = await validateAvailability();
+        const frequency = slot?.frequency || 'WEEKLY';
+        const recurring = frequency !== 'ONCE';
+        await assertNoSelectionConflict(connection,{agencyId,providerId,startAt:start,endAt:end,recurring,timeZone,frequency});
         const token=randomBytes(32).toString('hex');
         await connection.execute(`INSERT INTO public_provider_slot_holds
-          (agency_id,provider_id,service_type,modality,start_at,end_at,token_hash,expires_at,time_zone)
-          VALUES (?,?,?,?,?,?,?,NULL,?)`,[agencyId,providerId,serviceType,modality,sqlDate(start),sqlDate(end),hashHoldToken(token),timeZone]);
-        return {token,expiresAt:null,recurring:true,timeZone,startAt:start.toISOString(),endAt:end.toISOString(),providerId,serviceType,modality};
+          (agency_id,provider_id,service_type,modality,start_at,end_at,token_hash,expires_at,time_zone,frequency)
+          VALUES (?,?,?,?,?,?,?,NULL,?,?)`,[agencyId,providerId,serviceType,modality,sqlDate(start),sqlDate(end),hashHoldToken(token),timeZone,frequency]);
+        return {token,expiresAt:null,recurring,frequency,purpose:slot?.purpose,timeZone,startAt:start.toISOString(),endAt:end.toISOString(),providerId,serviceType,modality};
       });
     },
     async status({agencyId,token}) {

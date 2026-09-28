@@ -22,7 +22,7 @@ function normTimeHHMM(v) {
   const s = String(v || '').trim();
   if (!s) return '';
   const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-  if (!m) return '';
+  if (!m || Number(m[1])>23 || Number(m[2])>59) return '';
   const hh = String(Math.max(0, Math.min(23, parseInt(m[1], 10)))).padStart(2, '0');
   const mm = String(Math.max(0, Math.min(59, parseInt(m[2], 10)))).padStart(2, '0');
   return `${hh}:${mm}:00`;
@@ -57,11 +57,12 @@ function flagsFromSessionType(sessionType) {
 
 function normFrequency(v) {
   const s = String(v || '').trim().toUpperCase();
+  if (s === 'ONCE') return 'ONCE';
   if (s === 'BIWEEKLY') return 'BIWEEKLY';
   if (s === 'EVERY_3_WEEKS') return 'EVERY_3_WEEKS';
   if (s === 'EVERY_4_WEEKS') return 'EVERY_4_WEEKS';
   if (s === 'EITHER') return 'EITHER';
-  return 'WEEKLY';
+  return !s || s==='WEEKLY' ? 'WEEKLY' : '';
 }
 
 class ProviderVirtualWorkingHours {
@@ -81,6 +82,15 @@ class ProviderVirtualWorkingHours {
       });
       const flags = flagsFromSessionType(sessionType);
       const frequency = normFrequency(r?.frequency);
+      if(!frequency) continue;
+      if(r.availableForIntake === false && r.availableForSession === false) continue;
+      const startDate = String(r.startDate || r.start_date || '').slice(0,10) || null;
+      const endDate = String(r.endDate || r.end_date || '').slice(0,10) || null;
+      const validDate = d => !d || (/^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d)) && new Date(d).toISOString().slice(0,10) === d);
+      if (!validDate(startDate) || !validDate(endDate) || (endDate && (!startDate || endDate < startDate))) continue;
+      if (!['WEEKLY','EITHER'].includes(frequency) && !startDate) continue;
+      if (startDate && DAY_ORDER[(new Date(startDate+'T12:00:00Z').getUTCDay()+6)%7] !== day) continue;
+      const purpose = frequency === 'ONCE' ? (r.purpose === 'MEETING' ? 'MEETING' : 'INTAKE') : 'ONGOING';
       out.push({
         dayOfWeek: day,
         startTime,
@@ -88,7 +98,7 @@ class ProviderVirtualWorkingHours {
         sessionType,
         availableForIntake: flags.availableForIntake,
         availableForSession: flags.availableForSession,
-        frequency
+        frequency, startDate, endDate, purpose
       });
     }
     // stable sort
@@ -109,7 +119,7 @@ class ProviderVirtualWorkingHours {
     try {
       const [r] = await pool.execute(
         `SELECT id, day_of_week, start_time, end_time, session_type, frequency,
-                available_for_intake, available_for_session
+                available_for_intake, available_for_session, DATE_FORMAT(start_date, '%Y-%m-%d') start_date, DATE_FORMAT(end_date, '%Y-%m-%d') end_date, purpose
          FROM provider_virtual_working_hours
          WHERE agency_id = ? AND provider_id = ?
          ORDER BY FIELD(day_of_week,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time ASC`,
@@ -157,6 +167,7 @@ class ProviderVirtualWorkingHours {
         sessionType,
         availableForIntake: flags.availableForIntake,
         availableForSession: flags.availableForSession,
+        startDate: r.startDate || r.start_date || null, endDate: r.endDate || r.end_date || null, purpose: r.purpose || 'ONGOING',
         frequency: normFrequency(r.frequency)
       };
     });
@@ -165,7 +176,7 @@ class ProviderVirtualWorkingHours {
   /**
    * Update a single virtual-working-hours row owned by the provider.
    */
-  static async updateRowForProvider({ id, agencyId, providerId, dayOfWeek, startTime, endTime, availableForIntake, availableForSession, frequency }) {
+  static async updateRowForProvider({ id, agencyId, providerId, dayOfWeek, startTime, endTime, availableForIntake, availableForSession, frequency, startDate, endDate, purpose }) {
     const rowId = Number(id || 0);
     const aid = Number(agencyId || 0);
     const pid = Number(providerId || 0);
@@ -176,16 +187,24 @@ class ProviderVirtualWorkingHours {
     if (!DAY_SET.has(day) || !start || !end || end <= start) {
       throw new Error('Invalid day/time range');
     }
+    const existing = (await this.listForProvider({agencyId:aid,providerId:pid})).find(r => r.id === rowId);
+    if (!existing) throw Object.assign(new Error('Virtual working hours row not found'), {status:404});
+    const candidate = {...existing, dayOfWeek:day, startTime:start, endTime:end};
+    for (const [k,v] of Object.entries({frequency,startDate,endDate,purpose,availableForIntake,availableForSession})) if(v !== undefined) candidate[k]=v;
+    const normalized = this.normalizeRows([candidate])[0];
+    if (!normalized) throw Object.assign(new Error('Invalid recurrence start date or time'),{status:400});
     const assignments = ['day_of_week = ?', 'start_time = ?', 'end_time = ?'];
     const values = [day, start, end];
+    assignments.push('start_date = ?', 'end_date = ?', 'purpose = ?');
+    values.push(normalized.startDate, normalized.endDate, normalized.purpose);
     if (availableForIntake != null || availableForSession != null) {
-      const sessionType = deriveSessionType({ availableForIntake, availableForSession });
+      const sessionType = deriveSessionType(normalized);
       const flags = flagsFromSessionType(sessionType);
       assignments.push('session_type = ?', 'available_for_intake = ?', 'available_for_session = ?');
       values.push(sessionType, Number(flags.availableForIntake), Number(flags.availableForSession));
     }
     if (frequency != null) {
-      if (!['WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'EITHER'].includes(String(frequency).toUpperCase())) {
+      if (!['ONCE', 'WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'EITHER'].includes(String(frequency).toUpperCase())) {
         throw new Error('Invalid recurring availability frequency');
       }
       assignments.push('frequency = ?');
@@ -227,8 +246,8 @@ class ProviderVirtualWorkingHours {
           await conn.execute(
             `INSERT INTO provider_virtual_working_hours
                (agency_id, provider_id, day_of_week, start_time, end_time, session_type,
-                available_for_intake, available_for_session, frequency)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                available_for_intake, available_for_session, frequency, start_date, end_date, purpose)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               aid,
               pid,
@@ -238,26 +257,12 @@ class ProviderVirtualWorkingHours {
               normSessionType(r.sessionType),
               r.availableForIntake ? 1 : 0,
               r.availableForSession ? 1 : 0,
-              normFrequency(r.frequency)
+              normFrequency(r.frequency), r.startDate, r.endDate, r.purpose
             ]
           );
         } catch (e) {
-          // Backward compatibility if migration hasn't been applied yet.
-          if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-          try {
-            await conn.execute(
-              `INSERT INTO provider_virtual_working_hours (agency_id, provider_id, day_of_week, start_time, end_time, session_type, frequency)
-               VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [aid, pid, r.dayOfWeek, r.startTime, r.endTime, normSessionType(r.sessionType), normFrequency(r.frequency)]
-            );
-          } catch (e2) {
-            if (e2?.code !== 'ER_BAD_FIELD_ERROR') throw e2;
-            await conn.execute(
-              `INSERT INTO provider_virtual_working_hours (agency_id, provider_id, day_of_week, start_time, end_time)
-               VALUES (?, ?, ?, ?, ?)`,
-              [aid, pid, r.dayOfWeek, r.startTime, r.endTime]
-            );
-          }
+          // Never discard the date/purpose constraint when the schema is unavailable.
+          throw e;
         }
       }
       await conn.commit();
@@ -268,6 +273,7 @@ class ProviderVirtualWorkingHours {
         sessionType: normSessionType(r.sessionType),
         availableForIntake: !!r.availableForIntake,
         availableForSession: !!r.availableForSession,
+        startDate: r.startDate || r.start_date || null, endDate: r.endDate || r.end_date || null, purpose: r.purpose || 'ONGOING',
         frequency: normFrequency(r.frequency)
       }));
     } catch (e) {

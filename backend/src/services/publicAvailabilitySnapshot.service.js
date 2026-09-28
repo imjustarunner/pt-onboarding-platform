@@ -15,12 +15,12 @@ export async function readPublicWeekAvailability(options, { fresh = false } = {}
     intakeOnly: Boolean(options.intakeOnly), slotMinutes: 60,
     includeGoogleBusy: true, externalCalendarIds: []
   };
-  return readPublicSnapshot({ key: ['public-week-v2', normalized], kind: 'availability', providerId: normalized.providerId }, async () => {
+  return readPublicSnapshot({ key: ['public-week-v3', normalized], kind: 'availability', providerId: normalized.providerId }, async () => {
     const result = await Availability.computeWeekAvailability(normalized);
     if (!result) throw new Error('Availability could not be loaded');
     // Explicit public allowlist: no busy events, client data, or calendar URLs.
-    const slots = rows => (rows || []).map(({ startAt, endAt, buildingId, buildingName, roomId, roomLabel, sessionType, frequency }) =>
-      ({ startAt, endAt, buildingId, buildingName, roomId, roomLabel, sessionType, frequency }));
+    const slots = rows => (rows || []).map(({ startAt, endAt, buildingId, buildingName, roomId, roomLabel, sessionType, frequency, purpose }) =>
+      ({ startAt, endAt, buildingId, buildingName, roomId, roomLabel, sessionType, frequency, purpose }));
     return { ok: true, agencyId: normalized.agencyId, providerId: normalized.providerId,
       weekStart: normalized.weekStartYmd, weekEnd: result.weekEnd, timeZone: result.timeZone, slotMinutes: 60,
       checkedAt: new Date().toISOString(), inPersonSlots: slots(result.inPersonSlots), virtualSlots: slots(result.virtualSlots) };

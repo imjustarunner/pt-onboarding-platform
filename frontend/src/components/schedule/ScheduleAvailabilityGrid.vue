@@ -2037,7 +2037,7 @@
           :show-others-present="editorShowOthersPresent"
           :others-present-names="editorOthersPresentNames"
           :admin-catalog-links="editorAdminCatalogLinks"
-          :recurrence-frequency-options="editorIsOpenSlot ? RECURRENCE_OPTIONS.filter(o => o.value === 'WEEKLY') : RECURRENCE_OPTIONS"
+          :recurrence-frequency-options="RECURRENCE_OPTIONS.filter(o => o.value !== 'MONTHLY' || o.value === editorRecurrenceFrequency)"
           @update:dateYmd="onEditorDateYmd"
           @update:startTime="onEditorStartTime"
           @update:endTime="onEditorEndTime"
@@ -2428,6 +2428,8 @@
             v-model:virtual-enabled="editorOpenVirtual"
             v-model:in-person-enabled="editorOpenInPerson"
             :can-link-office="editorCanLinkOpenOffice"
+            :frequency="scheduleEventRecurrence"
+            v-model:purpose="editorOpenPurpose"
             v-model:available-for-intake="editorAvailableForIntake"
             v-model:available-for-session="editorAvailableForSession"
             v-model:attach-office-request="editorAttachOfficeRequest"
@@ -5919,6 +5921,7 @@ import MeetingTimeClaimsPanel from '../meetings/MeetingTimeClaimsPanel.vue';
 import MeetingNotesPanel from '../meetings/MeetingNotesPanel.vue';
 import SupervisionSuperviseePanel from './SupervisionSuperviseePanel.vue';
 import SupervisionPresenterCasePanel from './SupervisionPresenterCasePanel.vue';
+import { availabilityOccursOn } from '../../utils/availabilityRecurrence.js';
 import OpenSlotPlusOfficeRequestBody from './OpenSlotPlusOfficeRequestBody.vue';
 import { useAppointmentChange } from '../../composables/useAppointmentChange.js';
 import AppointmentRemindersPanel from './AppointmentRemindersPanel.vue';
@@ -11145,6 +11148,7 @@ const portalIntakeInCell = (dayName, hour, minute = 0) => {
   };
   return rows.filter((row) => {
     if (String(row?.dayOfWeek || '') !== String(dayName || '')) return false;
+    if (!availabilityOccursOn(row, addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName)))) return false;
     const sessionType = String(row?.sessionType || '').toUpperCase();
     if (!['INTAKE', 'BOTH'].includes(sessionType)) return false;
     const startMin = toMin(String(row?.startTime || '').slice(0, 5));
@@ -13580,6 +13584,7 @@ const editorMeetingIsVirtual = ref(true);
 const editorSupervisionIsVirtual = ref(true);
 const editorSupervisionWaitingRoomEnabled = ref(true);
 const editorOpenSlotEnabled = ref(true);
+const editorOpenPurpose = ref('INTAKE');
 const editorAvailableForIntake = ref(true);
 const editorAvailableForSession = ref(false);
 const editorAcceptingNewClientsHint = computed(() => {
@@ -13662,7 +13667,7 @@ const editorMeetLink = computed(() => {
 });
 const editorPlatformLink = computed(() => editorVirtualLink.value);
 const editorShowRecurrence = computed(() => (
-  editorIsMeeting.value || editorIsSupervision.value || editorIsClinical.value || (editorIsOpenSlot.value && !editorCanLinkOpenOffice.value)
+  editorIsMeeting.value || editorIsSupervision.value || editorIsClinical.value || editorIsOpenSlot.value
 ));
 const editorRecurrenceFrequency = computed({
   get: () => {
@@ -14521,8 +14526,8 @@ const editorCanEditRoom = computed(() => !!editorIsOpenSlot.value);
 const editorOpenSlotRecurrenceHint = computed(() => {
   if (!editorIsOpenSlot.value) return '';
   return editorCanLinkOpenOffice.value
-    ? 'Publishes the selected office reservation(s). Client appointments and external calendar conflicts still block booking.'
-    : 'This publishes ongoing weekly availability. Editing an existing open slot updates its weekly series.';
+    ? 'Once publishes the selected reservation. Repeating publishes matching existing reservations; appointments and calendar conflicts still block openings.'
+    : 'Choose weekly, every 2 weeks, or every 4 weeks for ongoing availability. Once publishes an intake or meeting only.';
 });
 const editorOpenSlotDurationWarning = computed(() => {
   if (!editorIsOpenSlot.value) return '';
@@ -15458,6 +15463,7 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
     : [];
   editorServiceLocationId.value = Number(defaults.serviceLocationId || bookingServiceLocationId.value || 0) || 0;
   editorAttachOfficeRequest.value = !!defaults.attachOfficeRequest;
+  editorOpenPurpose.value=defaults.purpose==='MEETING'?'MEETING':'INTAKE';
   editorOpenSlotEnabled.value = defaults.openSlotEnabled !== false;
   editorAvailableForIntake.value = defaults.availableForIntake !== false;
   editorAvailableForSession.value = defaults.availableForSession === true;
@@ -15653,7 +15659,7 @@ const requestSubmitBlockedReason = computed(() => {
     const startH = Number(modalHour.value);
     if (!(endH > startH)) return 'Choose an end time after the start.';
     if (!editorAvailableForIntake.value && !editorAvailableForSession.value) {
-      return 'Select Available for intake and/or Available for session.';
+      return 'Select new-client and/or current-client availability.';
     }
   }
   if (t === 'school' && !schoolWindowValid.value) {
@@ -18671,6 +18677,7 @@ const openSlotActionModal = async ({
     const end=String(sourceOpenSlot.endTime || '').split(':').map(Number);
     if(start.length>=2){modalHour.value=start[0];modalStartHour.value=start[0];modalStartMinute.value=start[1];}
     if(end.length>=2){modalEndHour.value=end[0];modalEndMinute.value=end[1];}
+    editorOpenPurpose.value=sourceOpenSlot.purpose==='MEETING'?'MEETING':'INTAKE';
     scheduleEventRecurrence.value=sourceOpenSlot.frequency || 'WEEKLY';
     officeBookingRecurrence.value=scheduleEventRecurrence.value;
     scheduleEventRecurrenceEndMode.value='indefinite';
@@ -20721,10 +20728,13 @@ const ensureVirtualWorkingHoursForRange = async ({
   if (!agencyId) return;
   if (editingOpenSlot.value?.virtualHoursId) {
     if (agencyId !== Number(editingOpenSlot.value.agencyId)) throw new Error('This weekly series belongs to its original agency. Create a new open slot to publish for another agency.');
-    await api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${editingOpenSlot.value.virtualHoursId}`, {agencyId,dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,frequency:scheduleEventRecurrence.value});
+    await api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${editingOpenSlot.value.virtualHoursId}`, {agencyId,dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,frequency:scheduleEventRecurrence.value,startDate:addDaysYmd(weekStart.value,dayIdxFromWeekStartMonday(dayName)),purpose:editorOpenPurpose.value});
     return;
   }
   const day = String(dayName || '');
+  const frequency = scheduleEventRecurrence.value || 'WEEKLY';
+  const startDate = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(day));
+  const purpose = frequency==='ONCE' ? editorOpenPurpose.value : 'ONGOING';
   const targetStart = `${pad2(startHour)}:${pad2(startMinute)}`;
   const targetEnd = `${pad2(endHour)}:${pad2(endMinute)}`;
   const forIntake = availableForIntake !== false;
@@ -20733,6 +20743,7 @@ const ensureVirtualWorkingHoursForRange = async ({
   const resp = await api.get(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours`, { params: { agencyId } });
   const rows = Array.isArray(resp?.data?.rows) ? resp.data.rows : [];
   const normalized = rows.map((r) => ({
+    ...r,
     dayOfWeek: String(r.dayOfWeek || ''),
     startTime: String(r.startTime || ''),
     endTime: String(r.endTime || ''),
@@ -20746,7 +20757,7 @@ const ensureVirtualWorkingHoursForRange = async ({
 
   const targetStartMin = minuteFromTime(targetStart);
   const targetEndMin = minuteFromTime(targetEnd);
-  const sameDay = normalized.filter((r) => r.dayOfWeek === day);
+  const sameDay = normalized.filter((r) => r.dayOfWeek === day && r.frequency === frequency && r.startDate === startDate && (r.purpose||'ONGOING') === purpose);
   const overlaps = sameDay.filter((r) => {
     const s = minuteFromTime(r.startTime);
     const e = minuteFromTime(r.endTime);
@@ -20777,7 +20788,7 @@ const ensureVirtualWorkingHoursForRange = async ({
     sessionType: mergedIntake && mergedSession ? 'BOTH' : (mergedIntake ? 'INTAKE' : 'REGULAR'),
     availableForIntake: mergedIntake,
     availableForSession: mergedSession,
-    frequency: overlaps[0]?.frequency || 'WEEKLY'
+    frequency, startDate, endDate: null, purpose
   };
   const nextRows = [...rowsWithoutOverlaps, mergedRow];
   await api.put(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours`, { agencyId, rows: nextRows });
@@ -21876,7 +21887,7 @@ const submitRequest = async () => {
       const forIntake = editorAvailableForIntake.value !== false;
       const forSession = editorAvailableForSession.value === true;
       if (!forIntake && !forSession) {
-        throw new Error('Select Available for intake and/or Available for session.');
+        throw new Error('Select new-client and/or current-client availability.');
       }
       if (!editorOpenVirtual.value && !editorOpenInPerson.value) throw new Error('Select virtual, in-person, or both.');
       editorOpenSlotEnabled.value = true;
@@ -21894,10 +21905,10 @@ const submitRequest = async () => {
         // Linking publishes only the selected reservation(s), without inventing a weekly virtual series.
         for (const ctx of contexts) {
           if (editorOpenVirtual.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/virtual-intake`, {
-            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value
           });
           if (editorOpenInPerson.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/in-person-intake`, {
-            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession, frequency:scheduleEventRecurrence.value, purpose:editorOpenPurpose.value
           });
         }
       } else {
@@ -24485,6 +24496,7 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
         || ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][newStart.getDay()];
       await api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${Number(draft.virtualHoursId)}`, {
         dayOfWeek: dayName,
+        startDate:String(draft.newStartAt).slice(0,10),
         startTime: `${pad2(newStart.getHours())}:${pad2(newStart.getMinutes())}`,
         endTime: `${pad2(newEnd.getHours())}:${pad2(newEnd.getMinutes())}`,
         ...(Number(draft.agencyId || 0) > 0 ? { agencyId: Number(draft.agencyId) } : {})

@@ -4,9 +4,11 @@ vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn(async()=>({id
 vi.mock('../../models/ProviderVirtualWorkingHours.model.js',()=>({default:{listForProvider:vi.fn(async()=>[])}}));
 vi.mock('../../models/UserExternalCalendar.model.js',()=>({default:{}}));
 vi.mock('../externalBusyCalendar.service.js',()=>({default:{}}));
-vi.mock('../googleCalendar.service.js',()=>({default:{}}));
+vi.mock('../googleCalendar.service.js',()=>({default:{freeBusy:vi.fn()}}));
 vi.mock('../officeScheduleMaterializer.service.js',()=>({default:{}}));
 vi.mock('../publicProviderHold.service.js',()=>({readActiveHolds:vi.fn(async()=>[]),expandWeeklyHold:vi.fn(()=>[])}));
+import User from '../../models/User.model.js';
+import Google from '../googleCalendar.service.js';
 import pool from '../../config/database.js';
 import Hours from '../../models/ProviderVirtualWorkingHours.model.js';
 import {readActiveHolds,expandWeeklyHold} from '../publicProviderHold.service.js';
@@ -65,4 +67,19 @@ describe('published office availability and profile policy',()=>{
  it('restricts bachelor providers to Medicaid plans and normalizes duplicate age ranges',()=>{const plans=['Aetna','Medicaid','Colorado Access','Cigna'];expect(restrictPublicInsurances(plans,{credential:'BA'})).toEqual(['Medicaid','Colorado Access']);expect(restrictPublicInsurances(plans,{credential:'MA, LPCC'})).toEqual(plans);expect(uniquePublicFacets(['Toddler','Toddler (0-5)','Teens','Teen (14–18)'])).toEqual(['Toddler (0-5)','Teen (14–18)']);});
  it('reuses the saved public school blurb and defaults missing languages to English',async()=>{pool.execute.mockImplementation(async sql=>[sql.includes('FROM users')?[{provider_school_info_blurb:'School public bio',credential:'BA'}]:[]]);expect(await Profile.getForProvider({providerUserId:9})).toMatchObject({publicBlurb:'School public bio',details:{languages:['English']},acceptingNewClientsOverride:null,selfPayRateCents:null});});
  it('preserves manual context settings in the actual public profile',async()=>{pool.execute.mockResolvedValue([[]]);await Profile.upsertForProvider({providerUserId:9,details:{officeAvailability:'waitlist',schoolAvailability:'accepting',languages:['English']}});const insert=pool.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO provider_public_profiles'));expect(JSON.parse(insert[1][6])).toMatchObject({officeAvailability:'waitlist',schoolAvailability:'accepting'});});
+});
+it('respects four-week anchors and single-session purpose in the actual public calculator',async()=>{
+ events=[];Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true,frequency:'EVERY_4_WEEKS',startDate:'2029-12-24'}]);
+ expect((await compute()).virtualSlots).toEqual([]);
+ Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true,frequency:'ONCE',startDate:'2030-01-07',purpose:'MEETING'}]);
+ expect((await compute()).virtualSlots[0]).toMatchObject({frequency:'ONCE',purpose:'MEETING'});
+});
+it('current-client-only publications never enter the new-client calculator',async()=>{
+ events=[];Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:false,availableForSession:true,sessionType:'REGULAR',frequency:'WEEKLY'}]);expect((await compute()).virtualSlots).toEqual([]);
+});
+
+it('does not request a nonexistent primary Google calendar for app-managed group accounts',async()=>{
+ User.findById.mockResolvedValueOnce({id:9,login_is_group_email:1});
+ const result=await Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:true,includeExternalBusy:false,materializeOfficeEvents:false});
+ expect(Google.freeBusy).not.toHaveBeenCalled();expect(result.calendarWarnings).toEqual([]);
 });

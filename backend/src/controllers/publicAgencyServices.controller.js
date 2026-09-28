@@ -669,13 +669,13 @@ function normalizeSlots({ result, bookingMode, profile }) {
     ...s,
     modality: 'IN_PERSON',
     programType: 'IN_PERSON',
-    recurrence: { isRecurring: true, frequency: String(s.frequency || 'WEEKLY').toUpperCase() }
+    recurrence: { isRecurring: s.frequency !== 'ONCE', frequency: String(s.frequency || 'WEEKLY').toUpperCase() }
   }));
   const virtual = (publicFormatEnabled(profile,'VIRTUAL',bookingMode)?result?.virtualSlots || []:[]).filter((s) => new Date(s.startAt).getTime() > Date.now()).map((s) => ({
     ...s,
     modality: 'VIRTUAL',
     programType: 'VIRTUAL',
-    recurrence: { isRecurring: true, frequency: String(s.frequency || 'WEEKLY').toUpperCase() }
+    recurrence: { isRecurring: s.frequency !== 'ONCE', frequency: String(s.frequency || 'WEEKLY').toUpperCase() }
   }));
   return {
     virtual,
@@ -780,7 +780,7 @@ export const listCounselors = async (req, res, next) => {
     if (!agency) return;
 
     const serviceType = normalizeServiceType(req.query.serviceType || req._forcedServiceType || 'counseling');
-    const bookingMode = normalizeBookingMode(req.query.bookingMode || req.query.mode);
+    const bookingMode = 'NEW_CLIENT';
     const programType = normalizeProgramType(req.query.programType || req.query.program);
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
@@ -961,7 +961,7 @@ export const listTutors = async (req, res, next) => {
     const agency = await requireAgencyBySlug(res, req.params.agencySlug);
     if (!agency) return;
 
-    const bookingMode = normalizeBookingMode(req.query.bookingMode || req.query.mode);
+    const bookingMode = 'NEW_CLIENT';
     const programType = normalizeProgramType(req.query.programType || req.query.program);
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
@@ -1084,7 +1084,7 @@ export const listEvaluators = async (req, res, next) => {
     const agency = await requireAgencyBySlug(res, req.params.agencySlug);
     if (!agency) return;
 
-    const bookingMode = normalizeBookingMode(req.query.bookingMode || req.query.mode);
+    const bookingMode = 'NEW_CLIENT';
     const programType = normalizeProgramType(req.query.programType || req.query.program);
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
@@ -1226,7 +1226,7 @@ export const getProviderDetail = async (req, res, next) => {
     const user = userRows?.[0];
     if (!user) return res.status(404).json({ error: { message: 'Provider not found' } });
 
-    const bookingMode = normalizeBookingMode(req.query.bookingMode || req.query.mode);
+    const bookingMode = 'NEW_CLIENT';
     const programType = normalizeProgramType(req.query.programType || req.query.program);
     const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
     const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
@@ -1426,58 +1426,12 @@ async function sendNewBookingNotification({ agencyId, agencyName, created, servi
 // Public endpoint; returns the same held-slot-aware availability used by the finders.
 // ---------------------------------------------------------------------------
 
-export const getProviderSlots = async (req, res, next) => {
-  try {
-    if (normalizeBookingMode(req.query.bookingMode || req.query.mode) === 'NEW_CLIENT') {
-      return getProviderDetail(req, { status: (code) => res.status(code), json: (data) => res.json({ ok: true, weekStart: data.availability.weekStart, slots: data.availability.slots }) }, next);
-    }
-    const agency = await requireAgencyBySlug(res, req.params.agencySlug);
-    if (!agency) return;
-
-    const providerId = parseIntSafe(req.params.providerId);
-    if (!providerId) return res.status(400).json({ error: { message: 'Invalid providerId' } });
-
-    const bookingMode = normalizeBookingMode(req.query.bookingMode || req.query.mode);
-    const programType = normalizeProgramType(req.query.programType || req.query.program);
-    const weekStartRaw = String(req.query.weekStart || new Date().toISOString().slice(0, 10)).slice(0, 10);
-    const weekStart = startOfWeekMondayYmd(isValidYmd(weekStartRaw) ? weekStartRaw : new Date().toISOString().slice(0, 10));
-
-    // Confirm provider is enrolled for at least one service type with this agency
-    const [enrolledRow] = await pool.execute(
-      `SELECT id FROM provider_public_service_enrollments
-       WHERE agency_id = ? AND user_id = ? AND is_active = 1 LIMIT 1`,
-      [agency.id, providerId]
-    );
-    if (!enrolledRow?.[0]) return res.status(404).json({ error: { message: 'Provider not found' } });
-
-    const heldSlots = await getHeldSlotStartsForProvider(agency.id, providerId);
-    const result = await readPublicWeekAvailability({
-      agencyId: agency.id,
-      providerId,
-      weekStartYmd: weekStart,
-      includeGoogleBusy: true,
-      externalCalendarIds: [],
-      slotMinutes: 60,
-      intakeOnly: String(bookingMode || 'NEW_CLIENT') === 'NEW_CLIENT'
-    }).catch(() => null);
-
-    const calendarProfile = await ProviderPublicProfile.getForProvider({providerUserId:providerId,agencyId:agency.id}) || {};
-    const [[calendarUser]]=await pool.execute('SELECT provider_accepting_new_clients FROM users WHERE id=?',[providerId]);
-    calendarProfile.acceptingNewClientsOverride ??= Boolean(calendarUser?.provider_accepting_new_clients);
-    const inPersonSlots = filterHeldSlots(dedupeSlots(publicFormatEnabled(calendarProfile,'IN_PERSON',bookingMode)?result?.inPersonSlots || []:[]), heldSlots)
-      .map((s) => ({ ...s, modality: 'IN_PERSON', programType: 'IN_PERSON' }));
-    const virtualSlots = filterHeldSlots(dedupeSlots(publicFormatEnabled(calendarProfile,'VIRTUAL',bookingMode)?result?.virtualSlots || []:[]), heldSlots)
-      .map((s) => ({ ...s, modality: 'VIRTUAL', programType: 'VIRTUAL' }));
-
-    const slots = programType === 'VIRTUAL'
-      ? virtualSlots
-      : [...inPersonSlots, ...virtualSlots].sort((a, b) => String(a.startAt || '').localeCompare(String(b.startAt || '')));
-
-    res.json({ ok: true, weekStart, slots });
-  } catch (e) {
-    next(e);
-  }
-};
+// The unauthenticated directory only exposes new-client publications.
+// Staff/current-client scheduling uses authenticated availability endpoints.
+export const getProviderSlots = (req, res, next) => getProviderDetail(req, {
+  status: code => res.status(code),
+  json: data => res.json({ok:true,weekStart:data.availability.weekStart,slots:data.availability.slots})
+}, next);
 
 // ---------------------------------------------------------------------------
 // POST /:agencySlug/requests — create booking request
@@ -2088,13 +2042,14 @@ export const createProviderSlotHold = async (req, res, next) => {
         let data, status = 200;
         await getProviderDetail({ _liveAvailability:true, params: req.params, query: { serviceType, programType: modality, bookingMode: 'NEW_CLIENT', officeId:modality==='IN_PERSON'?Number(req.body.officeId)||undefined:undefined, weekStart: req.body.startAt.slice(0, 10) } },
           { status(code) { status = code; return this; }, json(value) { data = value; } }, (error) => { throw error; });
-        const valid = status === 200 && data?.availability?.slots?.some((s) =>
-          +new Date(s.startAt) === +new Date(req.body.startAt) && +new Date(s.endAt) === +new Date(req.body.endAt));
+        const valid = status === 200 && data?.availability?.slots?.find((s) =>
+          +new Date(s.startAt) === +new Date(req.body.startAt) && +new Date(s.endAt) === +new Date(req.body.endAt) && (!req.body.frequency || s.frequency === req.body.frequency) && (!req.body.purpose || s.purpose === req.body.purpose));
         if (!valid) throw holdError('This opening is no longer available. Please refresh and choose another time.');
+        return valid;
       }
     });
     res.setHeader('Cache-Control', 'no-store');
-    res.status(201).json({ hold, message: 'Weekly opening held until placement is resolved. This is not a confirmed appointment.' });
+    res.status(201).json({ hold, message: 'Opening held until placement is resolved. This is not a confirmed appointment.' });
   } catch (error) {
     if (error.code === 'ER_NO_SUCH_TABLE') return res.status(503).json({ error: { message: 'Temporary time selection is being prepared. You can continue enrollment with a provider preference.' } });
     if (error.status) return res.status(error.status).json({ error: { message: error.message } });

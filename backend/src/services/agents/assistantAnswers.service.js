@@ -1,10 +1,11 @@
+import { isAvailabilitySearch, formatAvailabilitySearch } from './availabilitySearch.service.js';
 import { detectAgeBucketFromText } from '../../utils/ageMatch.util.js';
 
 // Answer mode cannot execute navigation or mutations, including model-planned calls.
 export const ANSWER_READ_TOOLS = new Set([
   'listAcceptingProviders', 'findMyNextClientAppointment', 'findProvidersByApproach',
   'searchReferralDirectory', 'searchProviders', 'getProviderProfileFields',
-  'getProviderIntakeAvailability', 'findIntakeOpenings', 'findSchoolSlotAvailability',
+  'findProviderAvailability', 'getProviderIntakeAvailability', 'findIntakeOpenings', 'findSchoolSlotAvailability',
   'listTeamPresence', 'findNextMeeting', 'findMyMeetings', 'openTodaysWorkspace',
   'listMyOpenTasks', 'getMyPayrollSummary', 'getMyComplianceStatus',
   'queryAgencyCompliance', 'queryPayrollAnalytics', 'listMyRecentActivity',
@@ -40,7 +41,7 @@ export function appWorkflowAnswer(prompt) {
   return null;
 }
 
-export async function answerAppQuestion({ prompt, history = [], agencyId, allowedToolNames, clientToolCalls = [], execute, detect, format, research }) {
+export async function answerAppQuestion({ prompt, history = [], availabilityQueries = [], agencyId, allowedToolNames, clientToolCalls = [], execute, detect, format, research }) {
   const q = String(prompt || '').trim();
   const help = appWorkflowAnswer(q);
   if (help) return help;
@@ -52,6 +53,10 @@ export async function answerAppQuestion({ prompt, history = [], agencyId, allowe
   let messageRecipient = '';
   let messageDraft = '';
   if (calls.some(t => !readTools.has(t.name))) return reply('That action is not available in answer mode. No changes were made.');
+  if (!calls.length && readTools.has('findProviderAvailability') && isAvailabilitySearch(q,[...availabilityQueries.map(text=>({role:'user',text})),...history])) {
+    calls=[{name:'findProviderAvailability',args:{query:q,previousQueries:availabilityQueries.length?availabilityQueries:history.filter(t=>t.role==='user').map(t=>t.text||'')}}];
+    source='Live published availability, calendar conflicts, and recorded provider/client preferences';
+  }
   if (!calls.length) {
     if (/\bwhat can you do\b|\bhelp me\b|^help[?.!]*$/i.test(q)) return reply('What would you like to know?', { nextActions: [
       promptAction('Who is accepting clients?'), promptAction('Who sees clients with ADHD?'),
@@ -97,13 +102,14 @@ export async function answerAppQuestion({ prompt, history = [], agencyId, allowe
         const args = { ...(call.args || {}), agencyId };
         results.push(await execute({ name: call.name, args }));
       }
-    } catch {
+    } catch (error) {
+      if(calls[0]?.name==='findProviderAvailability'&&[400,403,404].includes(error.status)) return reply(error.message);
       return reply('I could not load those records. Please try again; I have not treated the failed lookup as an empty result.');
     }
     if (results.some(r => !r?.ok)) return reply('That lookup did not complete. Please try again; no changes were made.');
     let text;
     const out = results[0]?.result || {};
-    if (intent === 'accepting' || calls[0].name === 'listAcceptingProviders') {
+    if (calls[0].name === 'findProviderAvailability') { text=formatAvailabilitySearch(out); } else if (intent === 'accepting' || calls[0].name === 'listAcceptingProviders') {
       text = out.providers?.length ? `Marked as accepting new clients:\n${out.providers.map(p => `- ${nameOf(p)}`).join('\n')}${out.hasMore ? '\nShowing the first 50 matches.' : ''}\n\nThis is the recorded provider status, not a promise of an appointment or a school-specific opening.` : 'No active providers in this tenant are explicitly marked as accepting new clients. Missing status is not confirmation that a provider is full.';
     } else if (intent === 'next_client' || calls[0].name === 'findMyNextClientAppointment') {
       const a = out.appointment;
@@ -134,7 +140,7 @@ export async function answerAppQuestion({ prompt, history = [], agencyId, allowe
       if (calls[0].name === 'findProvidersByApproach') text += '\n\nMatches are based on recorded profile specialties, not confirmed availability. Verify age, location, insurance, and current openings before referring.';
       if (calls[0].name === 'searchReferralDirectory') text += '\n\nConfirm the referral contact, age range, insurance, and current intake availability with the listed practice.';
     }
-    return reply(`${text || 'The lookup returned no displayable answer.'}\n\nSource: ${source || 'authorized app records'}; checked ${new Date().toISOString()}.`, { toolResults: results, toolCalls: calls });
+    return reply(`${text || 'The lookup returned no displayable answer.'}\n\nSource: ${source || 'authorized app records'}; checked ${new Date().toISOString()}.`, { toolResults: results, toolCalls: calls, ...(calls[0].name==='findProviderAvailability'?{availabilityQueries:[...(calls[0].args.previousQueries||[]),q].slice(-20)}:{}) });
   }
   const found = await research(q, readTools);
   if (found && !['capability_help', 'agency_research_empty'].includes(found.runtime)) return { ...found, uiCommands: [], nextActions: [], nextCards: [] };

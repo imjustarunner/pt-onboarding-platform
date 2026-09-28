@@ -1,3 +1,4 @@
+import { findProviderAvailability } from './availabilitySearch.service.js';
 import { readAcceptingProviders, readNextClientAppointment } from './assistantOperationalReads.service.js';
 import { tenantMeetingBase } from '../../utils/tenantMeetingUrl.js';
 import pool from '../../config/database.js';
@@ -824,6 +825,7 @@ export function getToolSchemasForUser(reqUser, agentConfig = null) {
       case 'searchProviders':
       case 'getProviderProfileFields':
       case 'getProviderIntakeAvailability':
+      case 'findProviderAvailability':
       case 'findIntakeOpenings':
       case 'findSchoolSlotAvailability':
         return roleAllowed(reqUser, PROVIDER_DIRECTORY_TOOL_ROLES);
@@ -1387,6 +1389,11 @@ export function getToolSchemas() {
         },
         required: ['agencyId', 'providerId']
       }
+    },
+    {
+      name: 'findProviderAvailability',
+      description: 'Search live provider openings by day/date range, time, format, recurring frequency, child age, or saved submitted-client preferences. Follow-ups must preserve previous search queries. Monthly means EVERY_4_WEEKS. Read-only; never books a session.',
+      parameters: {type:'object',additionalProperties:false,properties:{agencyId:{type:'integer'},query:{type:'string'},previousQueries:{type:'array',items:{type:'string'}}},required:['query']}
     },
     {
       name: 'findIntakeOpenings',
@@ -2912,6 +2919,15 @@ export async function executeToolCall({ req, toolCall }) {
   // findIntakeOpenings — fan-out across providers in the agency, return
   // those with at least one open intake slot on the given date.
   // ---------------------------------------------------------------------
+  if (name === 'findProviderAvailability') {
+    requireAuthed(req);
+    if (!roleAllowed(req.user, PROVIDER_DIRECTORY_TOOL_ROLES)) throw Object.assign(new Error('Provider directory access is required'),{status:403});
+    const agencyId = currentAgencyId(req);
+    if (!agencyId) noAgencyContextError();
+    await ensureAgencyAccess(req.user,agencyId);
+    const result=await findProviderAvailability({agencyId,actor:req.user,query:str(args.query,2000),previousQueries:Array.isArray(args.previousQueries)?args.previousQueries.slice(-20).map(q=>str(q,2000)):[]});
+    return {ok:true,tool:name,result};
+  }
   if (name === 'findIntakeOpenings') {
     requireAuthed(req);
     if (!roleAllowed(req.user, PROVIDER_DIRECTORY_TOOL_ROLES)) {

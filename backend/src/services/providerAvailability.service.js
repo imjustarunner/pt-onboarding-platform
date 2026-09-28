@@ -1,6 +1,7 @@
 import Profile from '../models/ProviderPublicProfile.model.js';
 import {agencyFormatAllowed,agencyOfficeAllowed} from '../utils/providerAgencyAvailability.js';
 import { readActiveHolds, expandWeeklyHold } from './publicProviderHold.service.js';
+import { availabilityOccursOn, availabilityPurpose } from '../utils/availabilityRecurrence.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
@@ -248,7 +249,7 @@ export class ProviderAvailabilityService {
     for (const r of virtualRows || []) {
       const s = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.startTime, timeZone: virtualTimeZone });
       const e = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: r.dayOfWeek, hhmm: r.endTime, timeZone: virtualTimeZone });
-      if (s && e && e > s) {
+      if (s && e && e > s && availabilityOccursOn(r, new Intl.DateTimeFormat('en-CA',{timeZone:virtualTimeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(s))) {
         const sessionType = String(r.sessionType || 'REGULAR').toUpperCase();
         const forIntake = r.availableForIntake === true
           || r.availableForIntake === 1
@@ -266,6 +267,7 @@ export class ProviderAvailabilityService {
             sessionType,
             availableForIntake: !!forIntake,
             availableForSession: !!forSession,
+            purpose: availabilityPurpose(r),
             frequency: String(r.frequency || 'WEEKLY').toUpperCase()
           }
         });
@@ -332,6 +334,7 @@ export class ProviderAvailabilityService {
           slotState: slotState || null,
           status: status || null,
           timeZone: tzEvent,
+          frequency:r.publication_frequency||'ONCE',purpose:r.publication_purpose||'INTAKE',
           inPersonIntakeEnabled
         };
 
@@ -360,6 +363,8 @@ export class ProviderAvailabilityService {
            e.end_at,
            e.status,
            e.slot_state,
+           (SELECT ip.frequency FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_frequency,
+           (SELECT ip.purpose FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_purpose,
            e.client_id, e.clinical_session_id, e.billing_context_id,
            EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id = e.id) AS has_appointment,
            EXISTS(
@@ -421,6 +426,8 @@ export class ProviderAvailabilityService {
            e.end_at,
            e.status,
            e.slot_state,
+           (SELECT ip.frequency FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_frequency,
+           (SELECT ip.purpose FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_purpose,
            e.client_id, e.clinical_session_id, e.billing_context_id,
            EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id = e.id) AS has_appointment,
            (r.is_active = 1 AND ol.is_active = 1 AND r.location_id = e.office_location_id
@@ -478,7 +485,7 @@ export class ProviderAvailabilityService {
           `SELECT
              v.start_at,
              v.end_at,
-             v.session_type,
+             v.session_type, v.frequency, v.purpose,
              v.available_for_intake,
              v.available_for_session,
              v.office_location_id,
@@ -552,7 +559,7 @@ export class ProviderAvailabilityService {
           end: e,
           meta: {
             sessionType,
-            frequency: 'ONCE',
+            frequency: r.frequency || 'ONCE', purpose:r.purpose||'INTAKE',
             buildingId: Number(r.office_location_id || 0) || null,
             buildingName: String(r.building_name || '').trim() || null,
             roomId: Number(r.room_id || 0) || null,
@@ -610,7 +617,9 @@ export class ProviderAvailabilityService {
 
     // 5) Google busy blocks both modalities (optional)
     let googleBusyIntervals = [];
-    if (includeGoogleBusy) {
+    // App-managed group addresses have no personal Google Calendar. Their app
+    // appointments and explicitly connected external feeds were checked above.
+    if (includeGoogleBusy && ![true,1,'1'].includes(provider?.login_is_group_email)) {
       try {
         const providerEmail = String(provider?.email || '').trim().toLowerCase();
         const r = await GoogleCalendarService.freeBusy({
@@ -688,6 +697,7 @@ export class ProviderAvailabilityService {
             endAt: sl.end.toISOString(),
             sessionType: base?.meta?.sessionType || 'REGULAR',
             frequency: base?.meta?.frequency || 'WEEKLY',
+            purpose: base?.meta?.purpose || (base?.meta?.frequency === 'ONCE' ? 'INTAKE' : 'ONGOING'),
             buildingId: base?.meta?.buildingId ?? null,
             buildingName: base?.meta?.buildingName ?? null,
             roomId: base?.meta?.roomId ?? null,
@@ -711,7 +721,7 @@ export class ProviderAvailabilityService {
           roomId: base.meta?.roomId ?? null,
           roomLabel: base.meta?.roomLabel ?? null,
           sessionType: base.meta?.inPersonIntakeEnabled ? 'INTAKE' : 'REGULAR',
-          frequency: 'WEEKLY'
+          frequency: base.meta?.frequency || 'ONCE', purpose:base.meta?.purpose || 'INTAKE'
         });
       }
     }

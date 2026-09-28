@@ -1241,22 +1241,7 @@ export const putMyVirtualWorkingHours = async (req, res, next) => {
     if (rows.length > 100) return res.status(400).json({ error: { message: 'Too many rows' } });
 
     const normalized = ProviderVirtualWorkingHours.normalizeRows(rows);
-    if (normalized.length !== rows.length) return res.status(400).json({error:{message:'Each window must have a valid day and an end time later than its start time.'}});
-
-    // Validate overlaps within each day
-    const byDay = new Map();
-    for (const r of normalized) {
-      if (!byDay.has(r.dayOfWeek)) byDay.set(r.dayOfWeek, []);
-      byDay.get(r.dayOfWeek).push(r);
-    }
-    for (const [day, list] of byDay.entries()) {
-      list.sort((a, b) => String(a.startTime).localeCompare(String(b.startTime)));
-      for (let i = 1; i < list.length; i++) {
-        if (String(list[i].startTime) < String(list[i - 1].endTime)) {
-          return res.status(400).json({ error: { message: `Overlapping virtual working hours on ${day}` } });
-        }
-      }
-    }
+    if (normalized.length !== rows.length) return res.status(400).json({error:{message:'Each window needs a valid day and time range. Choose a matching first date for one-time or alternating-week availability.'}});
 
     const saved = await ProviderVirtualWorkingHours.replaceForProvider({ agencyId, providerId, rows: normalized });
     res.json({ ok: true, agencyId, providerId, rows: saved });
@@ -1287,7 +1272,7 @@ export const patchMyVirtualWorkingHoursRow = async (req, res, next) => {
       endTime,
       availableForIntake: req.body?.availableForIntake,
       availableForSession: req.body?.availableForSession,
-      frequency: req.body?.frequency
+      frequency: req.body?.frequency, startDate:req.body?.startDate, endDate:req.body?.endDate, purpose:req.body?.purpose
     });
     res.json({ ok: true, agencyId, providerId, row: updated });
   } catch (e) {

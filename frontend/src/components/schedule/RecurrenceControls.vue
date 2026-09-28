@@ -114,7 +114,7 @@ const emit = defineEmits([
   'update:weekdays'
 ]);
 
-const recurrenceOptions = computed(() => props.openSlotHint ? RECURRENCE_OPTIONS.filter(o => o.value === 'WEEKLY' || o.value === props.frequency) : RECURRENCE_OPTIONS);
+const recurrenceOptions = computed(() => RECURRENCE_OPTIONS.filter(o => o.value !== 'MONTHLY' || o.value === props.frequency));
 
 const weekdayOptions = [
   { value: 'Mon', short: 'Mon' },

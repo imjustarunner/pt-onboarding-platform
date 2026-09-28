@@ -103,7 +103,7 @@
             <div class="slot-time">{{ formatDateTime(slot.startAt) }} - {{ timeOnly(slot.endAt) }}</div>
             <div class="slot-meta">
               <span>{{ slot.programType === 'VIRTUAL' ? 'Virtual' : 'In person' }}</span>
-              <span class="badge">Recurring {{ slot.recurrence?.frequency || 'WEEKLY' }}</span>
+              <span class="badge">{{slot.frequency==='ONCE'?'Single intake / meeting':slot.recurrence?.frequency || 'WEEKLY'}}</span>
             </div>
             <div v-if="slot.buildingName || slot.roomLabel" class="slot-loc">
               {{ [slot.buildingName, slot.roomLabel].filter(Boolean).join(' • ') }}

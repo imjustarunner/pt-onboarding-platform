@@ -12,9 +12,10 @@ class ProviderInPersonSlotAvailability {
     availableForSession = false,
     source = 'OFFICE_EVENT',
     sourceEventId = null,
+    frequency = 'ONCE', purpose = 'INTAKE', database = pool,
     createdByUserId = null
   }) {
-    const [result] = await pool.execute(
+    const [result] = await database.execute(
       `INSERT INTO provider_in_person_slot_availability
          (agency_id, provider_id, office_location_id, room_id, start_at, end_at, is_active, available_for_intake, available_for_session, source, source_event_id, created_by_user_id)
        VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?)
@@ -29,6 +30,7 @@ class ProviderInPersonSlotAvailability {
          updated_at = CURRENT_TIMESTAMP`,
       [agencyId, providerId, officeLocationId, roomId, startAt, endAt, Number(availableForIntake), Number(availableForSession), source, sourceEventId, createdByUserId]
     );
+    await database.execute(`UPDATE provider_in_person_slot_availability SET frequency=?,purpose=? WHERE agency_id=? AND provider_id=? AND start_at=? AND end_at=?`,[frequency,purpose,agencyId,providerId,startAt,endAt]);
     return result?.insertId || null;
   }
 

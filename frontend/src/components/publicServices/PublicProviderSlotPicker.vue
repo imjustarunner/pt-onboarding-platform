@@ -1,7 +1,7 @@
 <template>
   <section class="opening-picker" aria-label="Available times">
     <h2>Find a time that works</h2>
-    <p>Choose an opening to hold this recurring weekly time until the team resolves your placement. This is not a confirmed appointment.</p>
+    <p>Choose an opening to hold this time at the displayed frequency until the team resolves your placement. This is not a confirmed appointment.</p>
     <div class="opening-controls">
       <label v-if="!fixedFormat">Session format<select v-model="format" @change="load"><option value="IN_PERSON">In person</option><option value="VIRTUAL">Telehealth</option></select></label>
       <label>Week of<input v-model="week" type="date" :min="today" @change="load" /></label>
@@ -12,14 +12,14 @@
     <p v-if="loading" role="status">Checking current openings…</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
     <div v-if="hold" class="opening-held" role="status">
-      <strong>{{ active ? 'Weekly time held for your intake' : 'This hold has been resolved' }}</strong>
-      <p>Every {{ weeklyTime(hold) }}</p><p>First opening: {{ dateTime(hold.startAt) }}</p>
-      <p>{{ active ? `Repeats weekly in ${hold.timeZone || timezone} until placement is resolved or the hold is released. This is not a booking.` : 'This time is no longer held. Check availability to choose again.' }}</p>
+      <strong>{{ active ? 'Time held for your intake' : 'This hold has been resolved' }}</strong>
+      <p>{{ availabilityLabel(hold) }} · {{ weeklyTime(hold) }}</p><p>First opening: {{ dateTime(hold.startAt) }}</p>
+      <p>{{ active ? `${availabilityLabel(hold)} in ${hold.timeZone || timezone} until placement is resolved or the hold is released. This is not a booking.` : 'This time is no longer held. Check availability to choose again.' }}</p>
       <button v-if="active" type="button" :disabled="busy" @click="release">Release this time</button>
     </div>
     <div v-if="!loading" class="opening-days">
       <div v-for="[day, times] in days" :key="day" class="opening-day"><h3>{{ day }}</h3>
-        <button v-for="slot in times" :key="`${slot.startAt}-${slot.endAt}`" type="button" :disabled="busy || active" @click="select(slot)">{{ time(slot.startAt) }}<small v-if="slot.buildingName"> · {{slot.buildingName}}</small></button>
+        <button v-for="slot in times" :key="`${slot.startAt}-${slot.endAt}`" type="button" :disabled="busy || active" @click="select(slot)">{{ time(slot.startAt) }} · {{availabilityLabel(slot)}}<small v-if="slot.buildingName"> · {{slot.buildingName}}</small></button>
       </div>
     </div>
     <p v-if="!loading && !error && !days.length && !active && !needsOffice">No published openings for this week and format. Try another week or continue with a provider preference.</p>
@@ -27,6 +27,7 @@
 </template>
 <script setup>
 import { computed, onUnmounted, ref, watch } from 'vue';
+import {availabilityLabel} from '../../utils/availabilityLabel.js';
 import api from '../../services/api';
 import PublicOfficeLocations from './PublicOfficeLocations.vue';
 const props = defineProps({ agencySlug: { type: String, required: true }, providerId: { type: Number, required: true }, serviceType: { type: String, default: 'counseling' }, officeId:{type:[String,Number],default:''},officeLocations:{type:Array,default:()=>[]},fixedFormat:{type:String,default:''},initialWeek:{type:String,default:''},timeZone:{type:String,default:''} });
@@ -76,7 +77,7 @@ async function select(slot) {
     // Only one held selection per browser/agency. Never put its bearer token in a URL.
     let previous; try { previous = JSON.parse(sessionStorage.getItem(key.value) || 'null'); } catch {}
     if (previous?.token) await api.post(`${base.value}/release-hold`, { token: previous.token }, { skipAuthRedirect: true });
-    const { data } = await api.post(`${base.value}/providers/${props.providerId}/holds`, { startAt: slot.startAt, endAt: slot.endAt, modality: format.value, serviceType: props.serviceType, officeId:format.value==='IN_PERSON'?slot.buildingId||selectedOffice.value||undefined:undefined }, { skipAuthRedirect: true });
+    const { data } = await api.post(`${base.value}/providers/${props.providerId}/holds`, { startAt: slot.startAt, endAt: slot.endAt, frequency:slot.frequency, purpose:slot.purpose, modality: format.value, serviceType: props.serviceType, officeId:format.value==='IN_PERSON'?slot.buildingId||selectedOffice.value||undefined:undefined }, { skipAuthRedirect: true });
     save(data.hold); await load();
   } catch (e) { error.value = e.response?.data?.error?.message || 'Could not hold this opening. Please refresh availability.'; }
   finally { busy.value = false; }

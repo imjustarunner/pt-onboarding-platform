@@ -978,7 +978,8 @@ async function submitTurnFeedback(idx, helpful, correctedCapabilityId = null) {
         correctedCapabilityId: correctedCapabilityId || null,
         note: String(t.feedback.note || '').trim() || null,
         assistantExcerpt: String(t.text || '').trim().slice(0, 1500) || null,
-        agencyId: effectiveAgencyId.value || null
+        agencyId: effectiveAgencyId.value || null,
+    availabilityQueries: turns.value.filter(t=>t.role==='assistant').at(-1)?.availabilityQueries||[]
       },
       { skipGlobalLoading: true }
     );
@@ -1025,6 +1026,7 @@ async function rerouteWithCapability(promptText, forceCapabilityId) {
     turns.value.push({
       role: 'assistant',
       text: String(data.assistantText || '').trim() || '(No response)',
+      availabilityQueries:data.availabilityQueries||null,
       navs,
       actions: Array.isArray(data.nextActions) ? data.nextActions : [],
       cards: Array.isArray(data.nextCards) ? data.nextCards : [],
@@ -1720,6 +1722,7 @@ async function submit() {
     turns.value.push({
       role: 'assistant',
       text: String(data.assistantText || '').trim() || '(No response)',
+      availabilityQueries:data.availabilityQueries||null,
       navs,
       actions: Array.isArray(data.nextActions) ? data.nextActions : [],
       cards: Array.isArray(data.nextCards) ? data.nextCards : [],
@@ -1762,7 +1765,8 @@ function buildContextPayload() {
     profileUserId,
     placementKey,
     surfaceKey: surf?.key || null,
-    agencyId: effectiveAgencyId.value || null
+    agencyId: effectiveAgencyId.value || null,
+    availabilityQueries: turns.value.filter(t=>t.role==='assistant').at(-1)?.availabilityQueries||[]
   };
 }
 
@@ -1894,6 +1898,7 @@ async function runNextAction(a) {
     turns.value.push({
       role: 'assistant',
       text: String(data.assistantText || '').trim() || '(No response)',
+      availabilityQueries:data.availabilityQueries||null,
       navs,
       actions: Array.isArray(data.nextActions) ? data.nextActions : [],
       cards: Array.isArray(data.nextCards) ? data.nextCards : [],
