@@ -19,11 +19,38 @@ beforeEach(()=>{vi.clearAllMocks();events=[{...event}];Hours.listForProvider.moc
 const compute=()=>Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:false,includeExternalBusy:false,materializeOfficeEvents:false});
 describe('published office availability and profile policy',()=>{
  it('published intake capacity overrides a stale closed flag',async()=>{const result=await compute();expect(result.inPersonSlots).toHaveLength(1);expect(result.inPersonSlots[0].startAt).toBe('2030-01-07T17:00:00.000Z');expect(publicAcceptance({globalAccepting:false,manual:'waitlist',hasOpenings:true}).status).toBe('accepting');});
- it('never offers booked or intake-disabled office times',async()=>{events[0].status='BOOKED';expect((await compute()).inPersonSlots).toHaveLength(0);events=[{...event},{...event,id:2,status:'BOOKED',slot_state:'ASSIGNED_BOOKED'}];expect((await compute()).inPersonSlots).toHaveLength(0);events=[{...event,in_person_intake_enabled:0}];expect((await compute()).inPersonSlots).toHaveLength(0);});
+ it('never offers booked or intake-disabled office times',async()=>{events[0].status='BOOKED';events[0].client_id=10;expect((await compute()).inPersonSlots).toHaveLength(0);events=[{...event},{...event,id:2,client_id:10,status:'BOOKED',slot_state:'ASSIGNED_BOOKED'}];expect((await compute()).inPersonSlots).toHaveLength(0);events=[{...event,in_person_intake_enabled:0}];expect((await compute()).inPersonSlots).toHaveLength(0);});
  it('keeps a published virtual time when its assigned office room is unavailable',async()=>{
   events[0].room_available=0;Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);
   const result=await compute();expect(result.inPersonSlots).toEqual([]);expect(result.virtualSlots).toHaveLength(1);
   Hours.listForProvider.mockResolvedValue([]);expect((await compute()).virtualSlots).toEqual([]);
+ });
+ it('keeps explicitly published weekly virtual time over an unbound booked office reservation (Jacque regression)',async()=>{
+  events=[{...event,status:'BOOKED',slot_state:'ASSIGNED_BOOKED',in_person_intake_enabled:0}];
+  Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);
+  const result=await compute();expect(result.virtualSlots).toHaveLength(1);expect(result.inPersonSlots).toEqual([]);
+  Hours.listForProvider.mockResolvedValue([]);expect((await compute()).virtualSlots).toEqual([]);
+ });
+ it('requires explicit in-person publication for a booked reservation, and never overrides appointment links',async()=>{
+  events=[{...event,status:'BOOKED',slot_state:'ASSIGNED_BOOKED'}];
+  expect((await compute()).inPersonSlots).toHaveLength(1);
+  for(const field of ['client_id','clinical_session_id','billing_context_id','has_appointment']) {
+   events[0][field]=10;expect((await compute()).inPersonSlots).toEqual([]);delete events[0][field];
+  }
+  events[0].in_person_intake_enabled=0;expect((await compute()).inPersonSlots).toEqual([]);
+ });
+ it('subtracts app appointments without depending on Google calendar sync',async()=>{
+  Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);
+  const original=pool.execute.getMockImplementation();
+  pool.execute.mockImplementation((sql,args)=>sql.startsWith('SELECT start_at, end_at FROM appointments')
+   ? Promise.resolve([[{start_at:event.start_at,end_at:event.end_at}]]) : original(sql,args));
+  const result=await compute();expect(result.virtualSlots).toEqual([]);expect(result.inPersonSlots).toEqual([]);
+ });
+ it('preserves office tags on explicitly published virtual slots',async()=>{
+  events=[];const original=pool.execute.getMockImplementation();
+  pool.execute.mockImplementation((sql,args)=>sql.includes('FROM provider_virtual_slot_availability v')
+   ? Promise.resolve([[{start_at:event.start_at,end_at:event.end_at,session_type:'INTAKE',available_for_intake:1,office_location_id:7,building_name:'Denver',room_id:4,room_label:'Room 4'}]]) : original(sql,args));
+  expect((await compute()).virtualSlots[0]).toMatchObject({buildingId:7,buildingName:'Denver',roomId:4});
  });
  it('subtracts pending weekly intake holds without treating them as bookings',async()=>{readActiveHolds.mockResolvedValue([{id:5}]);expandWeeklyHold.mockReturnValue([{start:new Date('2030-01-07T17:00:00Z'),end:new Date('2030-01-07T18:00:00Z')}]);expect((await compute()).inPersonSlots).toHaveLength(0);});
  it('separates assigned settings and manual acceptance from actual openings',()=>{expect(publicAcceptance({globalAccepting:true,assigned:false}).status).toBe('unavailable');expect(publicAcceptance({globalAccepting:true,manual:'waitlist'}).status).toBe('waitlist');expect(publicAcceptance({globalAccepting:false,manual:'accepting'})).toMatchObject({status:'unavailable',hasOpenings:false});});

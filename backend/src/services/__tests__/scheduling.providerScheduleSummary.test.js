@@ -20,6 +20,11 @@ describe('public provider schedule summaries',()=>{
   expect(result.waitlistFormats).toEqual(['IN_PERSON']);expect(result.locations[0].address).toBe('123 Example St, Denver, CO, 80202');
   expect(result.typicalAvailability).toEqual(['Saturday mornings']);
  });
+ it('keeps virtual openings tagged to the selected office',async()=>{
+  Availability.computeWeekAvailability.mockResolvedValue({virtualSlots:[{startAt:'2030-01-08T16:00:00Z',endAt:'2030-01-08T17:00:00Z',buildingId:7,buildingName:'Denver'}],inPersonSlots:[]});
+  expect((await readPublicProviderSchedule(9,2,{officeId:7})).slots).toHaveLength(1);
+  expect((await readPublicProviderSchedule(9,2,{officeId:8})).slots).toEqual([]);
+ });
  it('does not invent typical hours from available appointments when the profile has no summary',async()=>{
   Profile.getForProvider.mockResolvedValue({details:{}});
   const result=await readPublicProviderSchedule(9,2);

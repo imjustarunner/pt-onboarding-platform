@@ -63,6 +63,10 @@ router.post('/providers/:providerId/public-settings/snooze', snoozeReminder);
 
 
 router.get('/me/pending', getMyAvailabilityPending);
+router.get('/providers/:providerId/virtual-working-hours', getMyVirtualWorkingHours);
+router.put('/providers/:providerId/virtual-working-hours', putMyVirtualWorkingHours);
+router.patch('/providers/:providerId/virtual-working-hours/:id', patchMyVirtualWorkingHoursRow);
+
 router.get('/me/virtual-working-hours', getMyVirtualWorkingHours);
 router.put('/me/virtual-working-hours', putMyVirtualWorkingHours);
 router.patch('/me/virtual-working-hours/:id', patchMyVirtualWorkingHoursRow);

@@ -8,22 +8,26 @@ class ProviderInPersonSlotAvailability {
     roomId = null,
     startAt,
     endAt,
+    availableForIntake = true,
+    availableForSession = false,
     source = 'OFFICE_EVENT',
     sourceEventId = null,
     createdByUserId = null
   }) {
     const [result] = await pool.execute(
       `INSERT INTO provider_in_person_slot_availability
-         (agency_id, provider_id, office_location_id, room_id, start_at, end_at, is_active, source, source_event_id, created_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?)
+         (agency_id, provider_id, office_location_id, room_id, start_at, end_at, is_active, available_for_intake, available_for_session, source, source_event_id, created_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          office_location_id = VALUES(office_location_id),
          room_id = VALUES(room_id),
          is_active = TRUE,
+         available_for_intake = VALUES(available_for_intake),
+         available_for_session = VALUES(available_for_session),
          source = VALUES(source),
          source_event_id = VALUES(source_event_id),
          updated_at = CURRENT_TIMESTAMP`,
-      [agencyId, providerId, officeLocationId, roomId, startAt, endAt, source, sourceEventId, createdByUserId]
+      [agencyId, providerId, officeLocationId, roomId, startAt, endAt, Number(availableForIntake), Number(availableForSession), source, sourceEventId, createdByUserId]
     );
     return result?.insertId || null;
   }

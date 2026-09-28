@@ -1,3 +1,4 @@
+import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import { moveOfficeSessionSeries, moveOfficeSessionOccurrence } from '../services/officeSessionMove.service.js';
 import { wallMysqlToUtcMysql, normalizeWallMysqlDatetime, utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
 import { scheduleSessionNotifications } from '../services/sessionNotification.service.js';
@@ -1511,7 +1512,19 @@ export const setEventVirtualIntakeAvailability = async (req, res, next) => {
     const availableForIntake = bodyIntake === undefined ? true : !(bodyIntake === false || bodyIntake === 0 || bodyIntake === '0' || String(bodyIntake).toLowerCase() === 'false');
     const availableForSession = bodySession === true || bodySession === 1 || bodySession === '1' || String(bodySession).toLowerCase() === 'true';
 
+    await requireProviderAvailabilityAccess({ actor: req.user, agencyId, providerId });
     if (enabled) {
+      if (req.body?.availableForIntake === false && req.body?.availableForSession !== true) {
+        return res.status(400).json({ error: { message: 'Select new-client and/or current-client availability.' } });
+      }
+      const [appointments] = await pool.execute('SELECT id FROM appointments WHERE office_event_id = ? LIMIT 1', [eid]);
+      if (ev.client_id || ev.clinical_session_id || ev.billing_context_id || appointments.length) {
+        return res.status(409).json({ error: { message: 'This reservation has a client appointment. Update the appointment before publishing an opening.' } });
+      }
+      if (String(ev.status).toUpperCase() === 'CANCELLED') {
+        return res.status(409).json({ error: { message: 'This office reservation has been cancelled.' } });
+      }
+
       await ProviderVirtualSlotAvailability.upsertSlot({
         agencyId,
         providerId,
@@ -1598,8 +1611,22 @@ export const setEventInPersonIntakeAvailability = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Unable to resolve agency for provider/office' } });
     }
 
+    await requireProviderAvailabilityAccess({ actor: req.user, agencyId, providerId });
     if (enabled) {
+      if (req.body?.availableForIntake === false && req.body?.availableForSession !== true) {
+        return res.status(400).json({ error: { message: 'Select new-client and/or current-client availability.' } });
+      }
+      const [appointments] = await pool.execute('SELECT id FROM appointments WHERE office_event_id = ? LIMIT 1', [eid]);
+      if (ev.client_id || ev.clinical_session_id || ev.billing_context_id || appointments.length) {
+        return res.status(409).json({ error: { message: 'This reservation has a client appointment. Update the appointment before publishing an opening.' } });
+      }
+      if (String(ev.status).toUpperCase() === 'CANCELLED') {
+        return res.status(409).json({ error: { message: 'This office reservation has been cancelled.' } });
+      }
+
       await ProviderInPersonSlotAvailability.upsertSlot({
+        availableForIntake: req.body?.availableForIntake !== false,
+        availableForSession: req.body?.availableForSession === true,
         agencyId,
         providerId,
         officeLocationId,
