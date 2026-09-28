@@ -1,8 +1,15 @@
 <template>
   <div class="osorb" data-testid="open-slot-office-request-body">
     <p class="osorb-help muted">
-      Publish this time as an open slot for booking. Leave office unchecked for virtual availability, or attach an office request for the same series.
+      Publish availability for this provider. Link an existing office reservation to offer virtual visits, in-person visits, or both at that office.
     </p>
+
+    <fieldset class="osorb-panel">
+      <legend>Appointment format</legend>
+      <label class="osorb-check"><input type="checkbox" :checked="virtualEnabled" :disabled="disabled" @change="emit('update:virtualEnabled', $event.target.checked)" /> Virtual</label>
+      <label class="osorb-check"><input type="checkbox" :checked="inPersonEnabled" :disabled="disabled || !canLinkOffice" @change="emit('update:inPersonEnabled', $event.target.checked)" /> In person at the linked office</label>
+      <p v-if="!canLinkOffice" class="osorb-help muted">Reserve an office first to publish in-person openings.</p>
+    </fieldset>
 
     <label class="osorb-check">
       <input
@@ -72,6 +79,9 @@ import { computed } from 'vue';
 import { openSlotAvailabilityLabels } from '../../utils/openSlotAvailabilityLabels.js';
 
 const props = defineProps({
+  virtualEnabled: { type: Boolean, default: true },
+  inPersonEnabled: { type: Boolean, default: false },
+  canLinkOffice: { type: Boolean, default: false },
   availableForIntake: { type: Boolean, default: true },
   availableForSession: { type: Boolean, default: false },
   attachOfficeRequest: { type: Boolean, default: false },
@@ -83,6 +93,8 @@ const props = defineProps({
 });
 
 const emit = defineEmits([
+  'update:virtualEnabled',
+  'update:inPersonEnabled',
   'update:availableForIntake',
   'update:availableForSession',
   'update:attachOfficeRequest',

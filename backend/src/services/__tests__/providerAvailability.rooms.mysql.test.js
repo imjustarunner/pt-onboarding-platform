@@ -14,23 +14,29 @@ test('office openings require an active assigned room in the agency without an o
   await db.query('CREATE TABLE office_rooms (id INT,location_id INT,is_active BOOLEAN,room_number VARCHAR(20),label VARCHAR(20),name VARCHAR(20))');
   await db.query('CREATE TABLE office_locations (id INT,is_active BOOLEAN,timezone VARCHAR(40),name VARCHAR(40))');
   await db.query('CREATE TABLE office_location_agencies (office_location_id INT,agency_id INT)');
-  await db.query('CREATE TABLE office_events (id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(30),slot_state VARCHAR(30),office_location_id INT,room_id INT,assigned_provider_id INT,booked_provider_id INT)');
+  await db.query('CREATE TABLE office_events (id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(30),slot_state VARCHAR(30),office_location_id INT,room_id INT,assigned_provider_id INT,booked_provider_id INT,client_id INT,clinical_session_id BIGINT,billing_context_id BIGINT)');
+  await db.query('CREATE TABLE appointments (id INT,office_event_id INT)');
   await db.query('CREATE TABLE provider_in_person_slot_availability (agency_id INT,provider_id INT,source_event_id INT,start_at DATETIME,end_at DATETIME,office_location_id INT,is_active BOOLEAN)');
+  await db.query(await fs.readFile(new URL('../../../../database/migrations/1500_in_person_availability_audience.sql',import.meta.url),'utf8'));
   await db.query("INSERT INTO office_rooms VALUES (1,7,1,'1','One','One')");
   await db.query("INSERT INTO office_locations VALUES (7,1,'UTC','Assigned office')");
   await db.query('INSERT INTO office_location_agencies VALUES (7,2)');
-  await db.query("INSERT INTO office_events VALUES (1,'2030-01-07 17:00','2030-01-07 18:00','RELEASED','ASSIGNED_AVAILABLE',7,1,9,NULL)");
-  await db.query('INSERT INTO provider_in_person_slot_availability VALUES (2,9,1,NULL,NULL,7,1)');
+  await db.query("INSERT INTO office_events VALUES (1,'2030-01-07 17:00','2030-01-07 18:00','RELEASED','ASSIGNED_AVAILABLE',7,1,9,NULL,NULL,NULL,NULL)");
+  await db.query('INSERT INTO provider_in_person_slot_availability VALUES (2,9,1,NULL,NULL,7,1,1,0)');
   const source=await fs.readFile(new URL('../providerAvailability.service.js',import.meta.url),'utf8');
   const sql=source.match(/`(SELECT\s+e\.id,[\s\S]+?ORDER BY e\.start_at ASC)`/)[1];
-  const read=async()=>{const [rows]=await db.execute(sql,[2,2,9,2,9,9,'2030-01-14 00:00:00','2030-01-07 00:00:00']);return rows;};
+  const read=async(intakeOnly=true)=>{const [rows]=await db.execute(sql,[2,2,9,intakeOnly,2,9,9,'2030-01-14 00:00:00','2030-01-07 00:00:00']);return rows;};
   assert.equal((await read())[0].room_available,1);
+  await db.query('UPDATE provider_in_person_slot_availability SET available_for_intake=0,available_for_session=1');
+  assert.equal((await read())[0].in_person_intake_enabled,0);
+  assert.equal((await read(false))[0].in_person_intake_enabled,1);
+  await db.query('UPDATE provider_in_person_slot_availability SET available_for_intake=1');
   for(const [table,column] of [['office_rooms','is_active'],['office_locations','is_active']]){
    await db.query(`UPDATE ${table} SET ${column}=0`);assert.equal((await read())[0].room_available,0);await db.query(`UPDATE ${table} SET ${column}=1`);
   }
   await db.query('UPDATE office_rooms SET location_id=8');assert.equal((await read())[0].room_available,0);await db.query('UPDATE office_rooms SET location_id=7');
   await db.query('UPDATE office_location_agencies SET agency_id=3');assert.equal((await read()).length,0);await db.query('UPDATE office_location_agencies SET agency_id=2');
-  await db.query("INSERT INTO office_events VALUES (2,'2030-01-07 17:30','2030-01-07 18:30','BOOKED','ASSIGNED_BOOKED',7,1,10,10)");
+  await db.query("INSERT INTO office_events VALUES (2,'2030-01-07 17:30','2030-01-07 18:30','BOOKED','ASSIGNED_BOOKED',7,1,10,10,NULL,NULL,NULL)");
   assert.equal((await read())[0].room_available,0);
   await db.query("UPDATE office_events SET status='RELEASED',slot_state='ASSIGNED_AVAILABLE',booked_provider_id=NULL WHERE id=2");assert.equal((await read())[0].room_available,0);
   await db.query("UPDATE office_events SET slot_state=NULL WHERE id=2");assert.equal((await read())[0].room_available,0);

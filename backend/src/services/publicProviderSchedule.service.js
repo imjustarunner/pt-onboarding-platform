@@ -31,7 +31,7 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,
   for(const [key,format] of [['inPersonSlots','IN_PERSON'],['virtualSlots','VIRTUAL']])
    for(const slot of result[key]||[])if(Date.parse(slot.startAt)>now)all.push({startAt:slot.startAt,endAt:slot.endAt,format,frequency:slot.frequency||'WEEKLY',buildingId:slot.buildingId,buildingName:slot.buildingName});
  }
- const slots=[...new Map(all.map(s=>[`${s.format}:${s.startAt}:${s.endAt}:${s.buildingId||''}`,s])).values()].filter(s=>matchesTime(s)&&(!officeId||(s.format==='IN_PERSON'&&Number(s.buildingId)===Number(officeId)))&&agencyFormatAllowed(profile?.agencyAvailability,s.format)&&agencyOfficeAllowed(s.format==='IN_PERSON'?profile?.agencyAvailability:null,s.buildingId)).sort((a,b)=>a.startAt.localeCompare(b.startAt));
+ const slots=[...new Map(all.map(s=>[`${s.format}:${s.startAt}:${s.endAt}:${s.buildingId||''}`,s])).values()].filter(s=>matchesTime(s)&&(!officeId||(Number(s.buildingId)===Number(officeId)))&&agencyFormatAllowed(profile?.agencyAvailability,s.format)&&agencyOfficeAllowed(s.format==='IN_PERSON'?profile?.agencyAvailability:null,s.buildingId)).sort((a,b)=>a.startAt.localeCompare(b.startAt));
  const policy=profile?.agencyAvailability;
  const schools=[...new Map((policy?.school===false?[]:schoolRows).map(s=>{
   const hasOpenings=agencyFormatAllowed(policy,'SCHOOL')&&schoolRows.some(row=>Number(row.id)===Number(s.id)&&Number(row.slots_available)>0);

@@ -335,14 +335,15 @@ export class ProviderAvailabilityService {
         // Any office reservation means provider is not virtually available during that time.
         officeReservedBusy.push({ start: s, end: e });
 
+        const hasAppointment = Boolean(r.client_id || r.clinical_session_id || r.billing_context_id || Number(r.has_appointment));
         const isOpenAssignmentState = slotState === 'ASSIGNED_AVAILABLE' || slotState === 'ASSIGNED_TEMPORARY';
         const isBookedState = slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED';
-        // For intake availability, only advertise open in-person slots (not booked).
-        const includeInPersonForIntake = intakeOnlyFlag && inPersonIntakeEnabled && isOpenAssignmentState;
-        if (Number(r.room_available) === 1 && !isBookedState && ((isOpenAssignmentState && !intakeOnlyFlag) || includeInPersonForIntake)) {
+        // A booked room without a client/appointment is a reservation. Publishing it is explicit.
+        const includeInPersonForIntake = inPersonIntakeEnabled && (isOpenAssignmentState || (isBookedState && !legacyNoToggle));
+        if (Number(r.room_available) === 1 && !hasAppointment && ((isOpenAssignmentState && !intakeOnlyFlag) || includeInPersonForIntake)) {
           officeBase.push({ start: s, end: e, meta });
         }
-        if (isBookedState) {
+        if (hasAppointment) {
           officeBookedBusy.push({ start: s, end: e });
         }
       }
@@ -355,6 +356,8 @@ export class ProviderAvailabilityService {
            e.end_at,
            e.status,
            e.slot_state,
+           e.client_id, e.clinical_session_id, e.billing_context_id,
+           EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id = e.id) AS has_appointment,
            EXISTS(
              SELECT 1
              FROM provider_in_person_slot_availability ip
@@ -372,6 +375,7 @@ export class ProviderAvailabilityService {
                  )
                )
                AND ip.is_active = TRUE
+               AND (? = FALSE OR ip.available_for_intake = TRUE)
            ) AS in_person_intake_enabled,
            (r.is_active = 1 AND ol.is_active = 1 AND r.location_id = e.office_location_id
              AND e.assigned_provider_id IS NOT NULL
@@ -401,7 +405,7 @@ export class ProviderAvailabilityService {
            AND e.end_at > ?
            AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
          ORDER BY e.start_at ASC`,
-        [aid, scheduleAid, pid, aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+        [aid, scheduleAid, pid, intakeOnlyFlag, aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
       );
       pushOfficeRows(rows, false);
     } catch (e) {
@@ -413,6 +417,8 @@ export class ProviderAvailabilityService {
            e.end_at,
            e.status,
            e.slot_state,
+           e.client_id, e.clinical_session_id, e.billing_context_id,
+           EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id = e.id) AS has_appointment,
            (r.is_active = 1 AND ol.is_active = 1 AND r.location_id = e.office_location_id
              AND e.assigned_provider_id IS NOT NULL
              AND NOT EXISTS (
@@ -448,10 +454,12 @@ export class ProviderAvailabilityService {
       pushOfficeRows(fallbackRows, true);
     }
 
-    const [otherBookings]=await pool.execute(`SELECT start_at,end_at FROM office_events
+    const [otherBookings]=await pool.execute(`SELECT start_at,end_at,client_id,clinical_session_id,billing_context_id,
+      EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=office_events.id) AS has_appointment FROM office_events
       WHERE (assigned_provider_id=? OR booked_provider_id=?) AND (UPPER(status)='BOOKED' OR slot_state='ASSIGNED_BOOKED')
       AND COALESCE(UPPER(status),'')<>'CANCELLED' AND start_at<? AND end_at>?`,[pid,pid,`${weekEnd} 00:00:00`,`${weekStart} 00:00:00`]);
     for(const row of otherBookings) {
+      if (!(row.client_id || row.clinical_session_id || row.billing_context_id || Number(row.has_appointment))) continue;
       const start=parseMySqlDateTime(row.start_at),end=parseMySqlDateTime(row.end_at);
       if(start&&end)officeBookedBusy.push({start:utcPartsToDate(start),end:utcPartsToDate(end)});
     }
@@ -624,8 +632,21 @@ export class ProviderAvailabilityService {
          AND UPPER(COALESCE(status, 'PENDING')) NOT IN ('DECLINED', 'CANCELLED')`, [pid]);
     const requestBusy = publicRequests.map(r => ({ start: new Date(r.start_at), end: new Date(r.end_at) }));
 
+    // App appointments must block openings even when Google sync is disabled or delayed.
+    const [appointments] = await pool.execute(`SELECT start_at, end_at FROM appointments
+      WHERE provider_user_id = ? AND start_at < ? AND end_at > ?
+        AND status NOT IN ('canceled_by_provider','canceled_by_client','canceled_by_guardian',
+          'canceled_by_organization','late_canceled','rescheduled','voided')`,
+    [pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]);
+    const appointmentBusy = appointments.flatMap(row => {
+      const start = utcPartsToDate(parseMySqlDateTime(row.start_at));
+      const end = utcPartsToDate(parseMySqlDateTime(row.end_at));
+      return start && end && end > start ? [{ start, end }] : [];
+    });
+
     // Busy unions
     const busyAll = mergeIntervals([
+      ...appointmentBusy,
       ...officeBookedBusy,
       ...selectionBusy,
       ...requestBusy,
@@ -635,10 +656,10 @@ export class ProviderAvailabilityService {
     ]);
     const officeReservedBusyForVirtual = subtractIntervals(
       officeReservedBusy,
-      mergeIntervals(virtualSlotOverrideIntervals)
+      mergeIntervals([...virtualBase, ...virtualSlotOverrideIntervals])
     );
     // Intake mode: allow offering both in-person and virtual at the same time
-    // (client chooses modality). Still block virtual when the office slot is booked.
+    // (client chooses modality). Client appointments remain busy in both modes.
     const busyVirtual = mergeIntervals([
       ...busyAll,
       ...(intakeOnlyFlag ? officeBookedBusy : officeReservedBusyForVirtual)
@@ -657,7 +678,11 @@ export class ProviderAvailabilityService {
             startAt: sl.start.toISOString(),
             endAt: sl.end.toISOString(),
             sessionType: base?.meta?.sessionType || 'REGULAR',
-            frequency: base?.meta?.frequency || 'WEEKLY'
+            frequency: base?.meta?.frequency || 'WEEKLY',
+            buildingId: base?.meta?.buildingId ?? null,
+            buildingName: base?.meta?.buildingName ?? null,
+            roomId: base?.meta?.roomId ?? null,
+            roomLabel: base?.meta?.roomLabel ?? null
           });
         }
       }

@@ -1,3 +1,4 @@
+import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import pool from '../config/database.js';
 import config from '../config/config.js';
 import User from '../models/User.model.js';
@@ -159,7 +160,7 @@ async function requireAgencyMembership(req, res, agencyId) {
     res.status(400).json({ error: { message: 'agencyId is required' } });
     return false;
   }
-  if (req.user?.role === 'super_admin') return true;
+  if (['super_admin', 'superadmin'].includes(req.user?.role)) return true;
   const [rows] = await pool.execute(
     `SELECT 1 FROM user_agencies WHERE user_id = ? AND agency_id = ? LIMIT 1`,
     [req.user.id, agencyId]
@@ -1216,7 +1217,7 @@ export const getMyVirtualWorkingHours = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
-    const providerId = Number(req.user?.id || 0);
+    const providerId = await requireProviderAvailabilityAccess({ actor: req.user, agencyId, providerId: req.params?.providerId || req.user?.id });
     if (!providerId) return res.status(400).json({ error: { message: 'Invalid user' } });
 
     const rows = await ProviderVirtualWorkingHours.listForProvider({ agencyId, providerId });
@@ -1230,7 +1231,7 @@ export const putMyVirtualWorkingHours = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
-    const providerId = Number(req.user?.id || 0);
+    const providerId = await requireProviderAvailabilityAccess({ actor: req.user, agencyId, providerId: req.params?.providerId || req.user?.id });
     if (!providerId) return res.status(400).json({ error: { message: 'Invalid user' } });
 
     const rows = Array.isArray(req.body?.rows)
@@ -1268,7 +1269,7 @@ export const patchMyVirtualWorkingHoursRow = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
-    const providerId = Number(req.user?.id || 0);
+    const providerId = await requireProviderAvailabilityAccess({ actor: req.user, agencyId, providerId: req.params?.providerId || req.user?.id });
     if (!providerId) return res.status(400).json({ error: { message: 'Invalid user' } });
     const id = Number(req.params?.id || 0);
     if (!id) return res.status(400).json({ error: { message: 'Invalid id' } });
@@ -1361,7 +1362,7 @@ export const createMyOfficeAvailabilityRequest = async (req, res, next) => {
   try {
     const agencyId = await resolveAgencyId(req);
     if (!(await requireAgencyMembership(req, res, agencyId))) return;
-    const providerId = req.user.id;
+    const providerId = await requireProviderAvailabilityAccess({ actor: req.user, agencyId, providerId: req.body?.providerId || req.user.id });
 
     const preferredOfficeIds = Array.isArray(req.body?.preferredOfficeIds)
       ? req.body.preferredOfficeIds

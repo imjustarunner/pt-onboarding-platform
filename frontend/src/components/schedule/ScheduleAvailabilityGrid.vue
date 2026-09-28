@@ -2425,6 +2425,9 @@
 
           <OpenSlotPlusOfficeRequestBody
             v-if="editorIsOpenSlot || requestType === 'attach_open_for_booking'"
+            v-model:virtual-enabled="editorOpenVirtual"
+            v-model:in-person-enabled="editorOpenInPerson"
+            :can-link-office="editorCanLinkOpenOffice"
             v-model:available-for-intake="editorAvailableForIntake"
             v-model:available-for-session="editorAvailableForSession"
             v-model:attach-office-request="editorAttachOfficeRequest"
@@ -11475,8 +11478,8 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   for (const [aid, row] of portalByAgency) {
     const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
     const label = agencyId && colorBlocksByTenant.value
-      ? `Open · ${agencyLabel(agencyId) || 'Portal'}`
-      : 'Open';
+      ? `Published · ${agencyLabel(agencyId) || 'Portal'}`
+      : 'Published';
     const vwhId = Number(row?.id || 0) || 0;
     const st = String(row?.startTime || '').slice(0, 5);
     const et = String(row?.endTime || '').slice(0, 5);
@@ -11489,8 +11492,8 @@ const cellBlocks = (dayName, hour, minute = 0) => {
       kind: 'portal',
       shortLabel: singleDayFocused
         ? (label.length > 22 ? `${label.slice(0, 22)}…` : label)
-        : (agencyId ? 'Open' : 'Open'),
-      title: `Open for new clients${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}`,
+        : 'Published',
+      title: `Published weekly hours${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public page excludes appointment, school, and external calendar conflicts.`,
       agencyId,
       startTime: row?.startTime || null,
       endTime: row?.endTime || null,
@@ -12741,10 +12744,7 @@ const availableQuickActions = computed(() => {
       label: 'Open Slot for Booking',
       description: 'Publish open hours so new clients can book this time',
       disabledReason: '',
-      visible: !supervisionOnlyMode && (
-        !isAdminMode.value
-        || String(modalContext.value?.slotState || '').toUpperCase() === 'ASSIGNED_AVAILABLE'
-      ),
+      visible: !supervisionOnlyMode,
       tone: 'teal',
       chooserPriority: 20
     },
@@ -13531,6 +13531,9 @@ const editorIsOpenSlot = computed(() => (
   ['portal_intake', 'attach_open_for_booking'].includes(String(requestType.value || ''))
 ));
 
+const editorOpenVirtual = ref(true);
+const editorOpenInPerson = ref(false);
+const editorCanLinkOpenOffice = computed(() => Number(modalContext.value?.officeEventId || 0) > 0 || findProviderOfficeBookingsForEditorWindow().length > 0);
 const editorModality = ref('TELEHEALTH');
 const editorPracticeCategory = ref('');
 const editorPracticeCategories = ref([]);
@@ -13653,7 +13656,7 @@ const editorMeetLink = computed(() => {
 });
 const editorPlatformLink = computed(() => editorVirtualLink.value);
 const editorShowRecurrence = computed(() => (
-  editorIsMeeting.value || editorIsSupervision.value || editorIsClinical.value || editorIsOpenSlot.value
+  editorIsMeeting.value || editorIsSupervision.value || editorIsClinical.value || (editorIsOpenSlot.value && !editorCanLinkOpenOffice.value)
 ));
 const editorRecurrenceFrequency = computed({
   get: () => {
@@ -14507,7 +14510,9 @@ const editorAdminCatalogLinks = computed(() => {
 const editorCanEditRoom = computed(() => !!editorIsOpenSlot.value);
 const editorOpenSlotRecurrenceHint = computed(() => {
   if (!editorIsOpenSlot.value) return '';
-  return 'This publishes ongoing weekly availability. Editing an existing open slot updates its weekly series.';
+  return editorCanLinkOpenOffice.value
+    ? 'Publishes the selected office reservation(s). Client appointments and external calendar conflicts still block booking.'
+    : 'This publishes ongoing weekly availability. Editing an existing open slot updates its weekly series.';
 });
 const editorOpenSlotDurationWarning = computed(() => {
   if (!editorIsOpenSlot.value) return '';
@@ -15438,6 +15443,8 @@ function openAppointmentEditor({ mode = 'create', kind = '', id = 0, defaults = 
   editorOpenSlotEnabled.value = defaults.openSlotEnabled !== false;
   editorAvailableForIntake.value = defaults.availableForIntake !== false;
   editorAvailableForSession.value = defaults.availableForSession === true;
+  editorOpenVirtual.value = defaults.virtualEnabled !== false;
+  editorOpenInPerson.value = defaults.inPersonEnabled === true;
   // Keep legacy openSlotEnabled in sync with at least one flag.
   if (!editorAvailableForIntake.value && !editorAvailableForSession.value && editorOpenSlotEnabled.value) {
     editorAvailableForIntake.value = true;
@@ -20473,6 +20480,9 @@ const onQuickActionSelect = (act) => {
   }
   if (UNIFIED_EDITOR_KINDS.has(id)) {
     const hasOfficeEvent = Number(modalContext.value?.officeEventId || 0) > 0;
+    if (hasOfficeEvent && ['portal_intake', 'attach_open_for_booking'].includes(id)) {
+      bookingTargetUserId.value = Number(modalContext.value.assignedProviderId || modalContext.value.bookedProviderId || scheduleActorUserId.value);
+    }
     // Open slot: default virtual (no office) unless already tied to an office reservation.
     // Do not inherit sticky sessionAlsoRequestOffice for untied portal slots.
     let attachOffice = false;
@@ -20490,6 +20500,7 @@ const onQuickActionSelect = (act) => {
         openSlotEnabled: id === 'portal_intake' || id === 'attach_open_for_booking',
         availableForIntake: true,
         availableForSession: false,
+        inPersonEnabled: id === 'attach_open_for_booking',
         recurrence: (id === 'portal_intake' || id === 'attach_open_for_booking') ? 'WEEKLY' : undefined
       }
     });
@@ -20711,7 +20722,7 @@ const ensureVirtualWorkingHoursForRange = async ({
   if (!agencyId) return;
   if (editingOpenSlot.value?.virtualHoursId) {
     if (agencyId !== Number(editingOpenSlot.value.agencyId)) throw new Error('This weekly series belongs to its original agency. Create a new open slot to publish for another agency.');
-    await api.patch(`/availability/me/virtual-working-hours/${editingOpenSlot.value.virtualHoursId}`, {agencyId,dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,frequency:scheduleEventRecurrence.value});
+    await api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${editingOpenSlot.value.virtualHoursId}`, {agencyId,dayOfWeek:dayName,startTime:`${pad2(startHour)}:${pad2(startMinute)}`,endTime:`${pad2(endHour)}:${pad2(endMinute)}`,availableForIntake,availableForSession,frequency:scheduleEventRecurrence.value});
     return;
   }
   const day = String(dayName || '');
@@ -20720,7 +20731,7 @@ const ensureVirtualWorkingHoursForRange = async ({
   const forIntake = availableForIntake !== false;
   const forSession = availableForSession === true;
   const sessionType = forIntake && forSession ? 'BOTH' : (forIntake ? 'INTAKE' : (forSession ? 'REGULAR' : 'INTAKE'));
-  const resp = await api.get('/availability/me/virtual-working-hours', { params: { agencyId } });
+  const resp = await api.get(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours`, { params: { agencyId } });
   const rows = Array.isArray(resp?.data?.rows) ? resp.data.rows : [];
   const normalized = rows.map((r) => ({
     dayOfWeek: String(r.dayOfWeek || ''),
@@ -20770,7 +20781,7 @@ const ensureVirtualWorkingHoursForRange = async ({
     frequency: overlaps[0]?.frequency || 'WEEKLY'
   };
   const nextRows = [...rowsWithoutOverlaps, mergedRow];
-  await api.put('/availability/me/virtual-working-hours', { agencyId, rows: nextRows });
+  await api.put(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours`, { agencyId, rows: nextRows });
 };
 
 const selectedActionContexts = () => {
@@ -21868,44 +21879,35 @@ const submitRequest = async () => {
       if (!forIntake && !forSession) {
         throw new Error('Select Available for intake and/or Available for session.');
       }
+      if (!editorOpenVirtual.value && !editorOpenInPerson.value) throw new Error('Select virtual, in-person, or both.');
       editorOpenSlotEnabled.value = true;
-      await ensureVirtualWorkingHoursForRange({
-        dayName: dn,
-        startHour: h,
-        endHour: endH,
-        startMinute,
-        endMinute,
-        availableForIntake: forIntake,
-        availableForSession: forSession
-      });
-      // Office-tied attach: also toggle VI/IP overlays on the reservation when present.
-      if (requestType.value === 'attach_open_for_booking') {
-        const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0);
-        for (const ctx of contexts) {
-          if (forIntake || forSession) {
-            // eslint-disable-next-line no-await-in-loop
-            await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/virtual-intake`, {
-              enabled: true,
-              agencyId: effectiveAgencyId.value,
-              availableForIntake: forIntake,
-              availableForSession: forSession
-            }).catch(() => null);
-          }
-          if (forIntake) {
-            // eslint-disable-next-line no-await-in-loop
-            await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/in-person-intake`, {
-              enabled: true,
-              agencyId: effectiveAgencyId.value,
-              availableForIntake: forIntake,
-              availableForSession: forSession
-            }).catch(() => null);
-          }
-        }
-      }
       const linkedRoomId = Number(editorPreferredRoomId.value || editorRoomId.value || selectedOfficeRoomId.value || 0);
       const existingBooking = linkedRoomId > 0
         ? findProviderOfficeBookingsForEditorWindow().find((b) => Number(b?.roomId || 0) === linkedRoomId)
         : null;
+      const contexts = selectedActionContexts().filter((x) => Number(x?.officeEventId || 0) > 0);
+      if (!contexts.length && existingBooking) contexts.push({
+        officeEventId: existingBooking.officeEventId || existingBooking.id,
+        officeLocationId: existingBooking.buildingId
+      });
+      if (editorOpenInPerson.value && !contexts.length) throw new Error('Select an existing office reservation to publish in-person availability.');
+      if (contexts.length) {
+        // Linking publishes only the selected reservation(s), without inventing a weekly virtual series.
+        for (const ctx of contexts) {
+          if (editorOpenVirtual.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/virtual-intake`, {
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession
+          });
+          if (editorOpenInPerson.value) await api.post(`/office-slots/${ctx.officeLocationId}/events/${ctx.officeEventId}/in-person-intake`, {
+            enabled: true, agencyId, availableForIntake: forIntake, availableForSession: forSession
+          });
+        }
+      } else {
+        const selected = selectedActionContexts();
+        const ranges = selected.length > 1
+          ? selected.map(ctx => ({ dayName: ctx.dayName, startHour: ctx.hour, endHour: Number(ctx.hour) + 1 }))
+          : [{ dayName: dn, startHour: h, endHour: endH, startMinute, endMinute }];
+        for (const range of ranges) await ensureVirtualWorkingHoursForRange({ ...range, availableForIntake: forIntake, availableForSession: forSession });
+      }
       // Attach office request for the same series when requested from the unified editor.
       const officeId = Number(editorOfficeLocationId.value || selectedOfficeLocationId.value || existingBooking?.buildingId || 0);
       const attachOffice = !!(editorAttachOfficeRequest.value || sessionAlsoRequestOffice.value);
@@ -21939,6 +21941,7 @@ const submitRequest = async () => {
           : (editorOfficeLocations.value || []).map((l) => Number(l.id || 0)).filter((n) => n > 0).slice(0, 1);
         await withdrawEditorPriorOfficeRequests();
         const reqRes = await api.post('/availability/office-requests', {
+          providerId: scheduleActorUserId.value,
           agencyId,
           notes: requestNotes.value || 'Linked to open slot / portal intake (unified editor).',
           officeLocationIds: officeIds.length ? officeIds : undefined,
@@ -21951,25 +21954,8 @@ const submitRequest = async () => {
         });
         linkedOfficeRequestId = Number(reqRes?.data?.request?.id || reqRes?.data?.id || 0) || null;
         needsOfficeRefresh = true;
-        // Best-effort: link request onto a draft appointment row when catalog booking is available.
-        if (linkedOfficeRequestId && Number(editorTenantServiceId.value || 0) > 0) {
-          try {
-            await api.post('/appointments', {
-              agencyId,
-              tenantServiceId: Number(editorTenantServiceId.value),
-              providerUserId: Number(bookingTargetUserId.value || props.userId || 0) || undefined,
-              startAt: `${baseDateYmd}T${pad2(h)}:${pad2(startMinute)}:00`,
-              endAt: `${baseDateYmd}T${pad2(endH)}:${pad2(endMinute)}:00`,
-              modality: 'IN_PERSON',
-              source: 'staff_grid_open_slot',
-              officeBookingRequestId: linkedOfficeRequestId,
-              notes: requestNotes.value || null,
-              status: 'draft'
-            });
-          } catch {
-            /* appointment link is additive */
-          }
-        }
+        // Availability is capacity, not a client appointment. The eventual Book Session
+        // action creates the appointment, clinical context, reminders, and billing links.
       }
       forceRefreshSummary = true;
       const linkedRoomLabel = linkedRoomId && existingBooking ? officeEventRoomLabel(existingBooking) : '';
@@ -21980,7 +21966,7 @@ const submitRequest = async () => {
       } else if (linkedRoomId && existingBooking) {
         officeReminderToast.value = `Open slot published and linked to your office booking (${linkedRoomLabel}).`;
       } else {
-        officeReminderToast.value = 'Portal intake hours published — not tied to an office. New clients can request this time online.';
+        officeReminderToast.value = 'Availability published. New-client openings appear on the provider’s public page after appointment conflicts are checked.';
       }
       setTimeout(() => { officeReminderToast.value = ''; }, 6000);
     } else if (requestType.value === 'office_request_only') {
@@ -22060,6 +22046,7 @@ const submitRequest = async () => {
         : baseNotes;
       await withdrawEditorPriorOfficeRequests();
       await api.post('/availability/office-requests', {
+        providerId: scheduleActorUserId.value,
         agencyId: effectiveAgencyId.value,
         notes: notesWithTime || '',
         officeLocationIds: Number(selectedOfficeLocationId.value || editorOfficeLocationId.value || 0)
@@ -24497,7 +24484,7 @@ const applyAppointmentMove = async (scope = null, { pastConfirmed = false } = {}
       if (!newStart || !newEnd) throw new Error('Invalid open-slot times.');
       const dayName = String(draft.targetDayName || '').trim()
         || ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][newStart.getDay()];
-      await api.patch(`/availability/me/virtual-working-hours/${Number(draft.virtualHoursId)}`, {
+      await api.patch(`/availability/providers/${scheduleActorUserId.value}/virtual-working-hours/${Number(draft.virtualHoursId)}`, {
         dayOfWeek: dayName,
         startTime: `${pad2(newStart.getHours())}:${pad2(newStart.getMinutes())}`,
         endTime: `${pad2(newEnd.getHours())}:${pad2(newEnd.getMinutes())}`,
