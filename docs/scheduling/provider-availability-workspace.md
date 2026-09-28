@@ -1,6 +1,10 @@
 # Staff availability workspace
 
-Open **Provider Management → Openings & preferences**. Search a provider and select a week, then choose **Manage availability**.
+Open **Provider Management → Openings & preferences**. The scrollable provider list includes photos, common preferences, assigned offices, online request settings, and the next opening in the selected week. Filter by name or availability preference. Edit the checkboxes and select **Save changes** for that provider; saves apply only to the current agency. **All preferences** opens the full settings. Calendar checks load as rows come into view, and incomplete checks are never presented as confirmed unavailability.
+
+Staff can also edit the same settings in **User profile → Service & Availability**. Providers can edit their own settings in **My Account → My Availability**, with a link to their own schedule.
+
+Choose **Manage availability** for openings, conflicts, recurring hours, and client placement.
 
 - **Openings & conflicts** groups actual new-client openings by local date and explains overlaps with appointments, school commitments, pending selections/requests, and connected calendars. A partial conflict can leave some of a published window open. A failed calendar check is shown explicitly.
 - **Preferences** lets support, admin, superadmin, and existing authorized staff manage accepting new clients, waitlists, appointment formats, assigned offices, schedule sharing, services, and service-specific online time requests. The agency’s public scheduling switch remains a prerequisite.
@@ -13,7 +17,7 @@ Validation: scheduling regressions, permission and shared-schedule tests, servic
 
 ## Ask for openings and match submitted clients
 
-Use **Find matching openings** in Openings & preferences, or the app assistant:
+Use **Find the right opening** in Openings & preferences, or the app assistant. Workspace results show provider photos, times grouped by date, recurrence, and direct links to openings and preferences. The last question and active filters remain visible, and follow-ups preserve the search context:
 
 - “Who has availability Wednesday between 2 and 5 PM?”
 - Follow up: “Which of those see kids?” and then “A 12 year old.”

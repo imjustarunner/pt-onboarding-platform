@@ -538,6 +538,9 @@
               </AccountDashboardCard>
             </template>
 
+            <template #availability-settings>
+              <ProviderAvailabilitySettings v-if="isProviderLikeUser && selectedProviderProfileAgencyId" :provider-id="Number(userId)" :agency-id="selectedProviderProfileAgencyId" @updated="onAvailabilityPreferencesSaved" />
+            </template>
             <template #public-profile>
               <AccountDashboardCard
                 v-if="isProviderLikeUser"
@@ -554,7 +557,7 @@
                 @save="saveProviderPublicProfileAndClose"
                 @cancel="cancelProviderPublicProfileEdit"
               >
-                <ProviderAvailabilitySettings :key="String(user?.sees_clients)+String(user?.provider_accepting_new_clients)" v-if="selectedProviderProfileAgencyId" :provider-id="Number(userId)" :agency-id="selectedProviderProfileAgencyId" @updated="onAvailabilityPreferencesSaved" />
+
                 <div v-if="providerPublicProfileLoading" class="loading">Loading provider public profile…</div>
                 <div v-else-if="providerPublicProfileError" class="error">{{ providerPublicProfileError }}</div>
                 <div v-else class="form-grid acct-public-profile" style="margin-top: 0;">

@@ -143,11 +143,11 @@ export const APP_PAGES = [
     desc: 'Modular Provider Update pushes, handbook, export, and payroll submit.'
   },
   {
-    title: 'Provider Availability',
+    title: 'Provider Management',
     section: 'Workforce Ops › Staff & Scheduling',
     path: '/admin/provider-availability',
     keywords: ['provider availability', 'availability intake', 'availability', 'provider management'],
-    desc: 'Manage provider availability and intake.'
+    desc: 'Provider photos, availability preferences, published openings, and client placement.'
   },
   {
     title: 'Facilitator Availability',

@@ -1,3 +1,4 @@
+import {publicUploadsUrlFromStoredPath} from '../../utils/uploads.js';
 import {normalizeCareType,slotAllowsCare} from '../../utils/availabilityCareTypes.js';
 import { uniquePublicFacets, restrictPublicInsurances, publicLanguages } from '../../utils/publicProviderPresentation.js';
 import {offersProviderService} from '../../utils/providerServiceOfferings.js';
@@ -135,7 +136,7 @@ export async function findProviderAvailability({agencyId,actor,query,previousQue
     unverified=applyPreferences(filters,clientPreferences,client,now);
   }
   const compute=deps.compute||((options)=>(import('../providerAvailability.service.js').then(m=>m.default.computeWeekAvailability(options))));
-  const [providers]=await db.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.credential,u.title,u.languages_spoken,p.insurances_json,p.public_details_json FROM users u JOIN user_agencies ua ON ua.user_id=u.id LEFT JOIN provider_public_profiles p ON p.user_id=u.id
+  const [providers]=await db.execute(`SELECT DISTINCT u.id,u.first_name,u.last_name,u.credential,u.title,u.profile_photo_path,u.languages_spoken,p.insurances_json,p.public_details_json FROM users u JOIN user_agencies ua ON ua.user_id=u.id LEFT JOIN provider_public_profiles p ON p.user_id=u.id
    WHERE ua.agency_id=? AND COALESCE(ua.is_active,1)=1 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
    AND COALESCE(u.status,'') NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING')
    AND (u.role IN ('provider','provider_plus','supervisor','clinical_practice_assistant') OR u.has_provider_access=1)
@@ -160,7 +161,7 @@ export async function findProviderAvailability({agencyId,actor,query,previousQue
         for(const [format,rows] of [['VIRTUAL',data.virtualSlots],['IN_PERSON',data.inPersonSlots]])if(filters.modality==='ALL'||filters.modality===format)for(const row of appointmentWindows(rows||[])){const slot={...row,format};if(+new Date(slot.startAt)>+now&&slotMatchesSearch(slot,filters,timeZone))slots.push(slot);}
       }
       const unique=[...new Map(slots.map(s=>[`${s.startAt}:${s.endAt}:${s.format}:${s.buildingId||''}:${s.frequency}:${s.purpose}`,s])).values()].sort((a,b)=>a.startAt.localeCompare(b.startAt));
-      if(unique.length)results.push({providerId:Number(p.id),name:[p.first_name,p.last_name].filter(Boolean).join(' '),ages:evidence.ages,review,slots:unique.slice(0,20),totalSlots:unique.length,calendarWarnings:[...new Set(warnings)]});
+      if(unique.length)results.push({providerId:Number(p.id),profilePhotoUrl:publicUploadsUrlFromStoredPath(p.profile_photo_path),title:p.title||p.credential||'',name:[p.first_name,p.last_name].filter(Boolean).join(' '),ages:evidence.ages,review,slots:unique.slice(0,20),totalSlots:unique.length,calendarWarnings:[...new Set(warnings)]});
       else if(warnings.length)failed.push(Number(p.id));
     }catch {failed.push(Number(p.id));}
   }}));

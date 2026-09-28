@@ -682,8 +682,8 @@ const allSections = computed(() => [
       },
       {
         id: 'provider-availability',
-        title: 'Provider Availability',
-        shortDesc: 'Provider slots and availability.',
+        title: 'Provider Management',
+        shortDesc: 'Provider preferences and openings.',
         desc: 'School slots, office and virtual availability, ratios, and usage by agency.',
         cta: 'Open →',
         to: providerManagementTo.value,

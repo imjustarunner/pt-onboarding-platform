@@ -1,3 +1,4 @@
+import {enrichAvailabilityRoster} from '../services/providerAvailabilityRoster.service.js';
 import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import pool from '../config/database.js';
 import config from '../config/config.js';
@@ -4151,7 +4152,7 @@ export const listProvidersForAvailability = async (req, res, next) => {
       );
       rows = providerRows;
     }
-    res.json(rows || []);
+    res.json(req.query.includePreferences==='true'?await enrichAvailabilityRoster(rows||[],agencyId):rows||[]);
   } catch (e) {
     next(e);
   }

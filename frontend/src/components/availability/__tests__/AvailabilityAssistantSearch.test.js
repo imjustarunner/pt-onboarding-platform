@@ -18,3 +18,9 @@ describe('staff availability matching',()=>{
   expect(api.post).toHaveBeenCalledWith('/agents/assist',expect.objectContaining({prompt:'Match client #123 preferences to provider availability',context:expect.objectContaining({answerOnly:true,agencyId:2})}),expect.anything());expect(api.post).toHaveBeenCalledTimes(1);w.unmount();
  });
 });
+
+it('shows a photo, readable Thursday opening, and direct preference action',async()=>{
+ const result={filters:{dateFrom:'2030-01-03',dateTo:'2030-01-03',exactTime:'07:00',modality:'ALL'},timeZone:'America/Denver',providers:[{providerId:9,name:'Jacquelyne Fernandez',profilePhotoUrl:'/uploads/jacque.jpg',slots:[{startAt:'2030-01-03T14:00:00Z',endAt:'2030-01-03T15:00:00Z',frequency:'WEEKLY',format:'VIRTUAL'}],totalSlots:1}],failedProviderIds:[10],checkedAt:'2030-01-01T15:00:00Z'};
+ api.post.mockResolvedValue({data:{assistantText:'raw fallback',toolResults:[{ok:true,tool:'findProviderAvailability',result}]}});
+ const w=mount(Search,{props:{agencyId:2,providers:[{id:10,first_name:'Pending',last_name:'Provider'}]}});await w.find('input').setValue('Who has availability Thursdays at 7 AM?');await w.find('form').trigger('submit');await flushPromises();expect(w.text()).toContain('Thursday, Jan 3 at 7:00 AM');expect(w.find('.match-person img').attributes('src')).toBe('/uploads/jacque.jpg');expect(w.text()).not.toContain('raw fallback');expect(w.find('.verification summary').text()).toContain('1 providers need a calendar check');await w.find('.match-actions .text-button').trigger('click');expect(w.emitted('manage')[0][0]).toEqual({providerId:9,tab:'preferences'});
+});

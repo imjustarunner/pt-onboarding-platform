@@ -4696,7 +4696,7 @@ const syncFromQuery = () => {
   const qMy = route.query?.my;
   if (
     typeof qMy === 'string' &&
-    ['account', 'credentials', 'documents', 'life-balance', 'payroll', 'compensation', 'benefits', 'kudos', 'preferences', 'support'].includes(qMy)
+    ['account', 'availability', 'credentials', 'documents', 'life-balance', 'payroll', 'compensation', 'benefits', 'kudos', 'preferences', 'support'].includes(qMy)
   ) {
     const hiddenInClub = ['credentials', 'payroll', 'compensation', 'benefits'];
     if (isClubContext.value && hiddenInClub.includes(qMy)) {

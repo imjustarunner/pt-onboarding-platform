@@ -47,6 +47,11 @@
       <MyKudosTab v-if="flags.kudos && agencyId" :agency-id="Number(agencyId)" />
       <p v-else class="acct-hub__empty">Kudos are not enabled for this organization.</p>
     </div>
+    <section v-if="canManageOwnAvailability && activeSection === 'availability'" class="acct-hub__pane">
+      <h2>My availability</h2><p>Choose the services you offer, who can request appointments, and your published openings for this agency.</p>
+      <ProviderAvailabilitySettings :provider-id="Number(userId)" :agency-id="Number(agencyId)" />
+      <details><summary>Add or edit my virtual openings</summary><VirtualWorkingHoursEditor :provider-id="Number(userId)" :agency-id="Number(agencyId)" /></details>
+    </section>
     <div v-show="activeSection === 'preferences'" class="acct-hub__pane">
       <UserPreferencesHub v-if="userId" :user-id="userId" :is-club-context="isClubContext" />
     </div>
@@ -58,6 +63,8 @@
 
 <script setup>
 import { computed } from 'vue';
+import ProviderAvailabilitySettings from '../availability/ProviderAvailabilitySettings.vue';
+import VirtualWorkingHoursEditor from '../availability/VirtualWorkingHoursEditor.vue';
 import ProviderBillingSettings from '../admin/ProviderBillingSettings.vue';
 import {useAgencyStore} from '../../store/agency';
 import FamilyLedgerPanel from '../billing/FamilyLedgerPanel.vue';
@@ -90,8 +97,11 @@ const authStore = useAuthStore();
 const agencyStore=useAgencyStore();
 const canSetOwnRates=computed(()=>Number(props.userId)===Number(authStore.user?.id)&&Number(props.agencyId)===Number(agencyStore.currentAgency?.id)&&['life_coach','consultant'].includes(agencyStore.currentAgency?.organization_type||agencyStore.currentAgency?.organizationType)&&!['client','client_guardian'].includes(authStore.user?.role));
 
+const canManageOwnAvailability=computed(()=>!!props.agencyId&&Number(props.userId)===Number(authStore.user?.id)&&!props.isClubContext&&(['provider','provider_plus','intern','intern_plus','facilitator','supervisor','clinical_practice_assistant','admin','super_admin'].includes(authStore.user?.role)||!!authStore.user?.has_provider_access));
+
 const flags = computed(() => ({
   workforce: !props.isClubContext,
+  availability: canManageOwnAvailability.value,
   kudos: props.canSeeKudos,
 }));
 

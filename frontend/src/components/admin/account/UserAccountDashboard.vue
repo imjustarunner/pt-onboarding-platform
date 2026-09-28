@@ -444,9 +444,10 @@
             v-if="showAccountSection('service-availability')"
             section-id="service-availability"
             title="Service & Availability Settings"
-            subtitle="Clinical service settings and caseload preferences."
+            subtitle="New-client preferences, appointment formats, and online time requests."
             :can-edit="false"
           >
+            <slot name="availability-settings" />
             <div class="acct-field-grid">
               <div class="acct-field"><span class="acct-field-label">Service Settings</span><span class="acct-field-value">{{ serviceAvailability.settings || '—' }}</span></div>
               <div class="acct-field"><span class="acct-field-label">Session Length</span><span class="acct-field-value">{{ serviceAvailability.sessionLength || '—' }}</span></div>
