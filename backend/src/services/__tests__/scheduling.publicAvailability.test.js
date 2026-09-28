@@ -18,6 +18,14 @@ let events;
 beforeEach(()=>{vi.clearAllMocks();events=[{...event}];Hours.listForProvider.mockResolvedValue([]);readActiveHolds.mockResolvedValue([]);expandWeeklyHold.mockReturnValue([]);pool.execute.mockImplementation(async sql=>[sql.includes('SELECT ol.timezone')?[{timezone:'UTC'}]:sql.includes('FROM office_events e')?events:[]]);});
 const compute=()=>Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:false,includeExternalBusy:false,materializeOfficeEvents:false});
 describe('published office availability and profile policy',()=>{
+ it('returns conflict explanations only to explicitly opted-in staff calls',async()=>{
+  Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);
+  events[0].client_id=10;
+  expect(await compute()).not.toHaveProperty('diagnostics');
+  const result=await Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:false,includeExternalBusy:false,materializeOfficeEvents:false,includeDiagnostics:true});
+  expect(result.virtualSlots).toEqual([]);expect(result.diagnostics[0].reasons).toContain('Appointment linked to an office reservation');
+  expect(result.diagnostics.find(row=>row.format==='IN_PERSON').reasons).toContain('Appointment linked to an office reservation');
+ });
  it('published intake capacity overrides a stale closed flag',async()=>{const result=await compute();expect(result.inPersonSlots).toHaveLength(1);expect(result.inPersonSlots[0].startAt).toBe('2030-01-07T17:00:00.000Z');expect(publicAcceptance({globalAccepting:false,manual:'waitlist',hasOpenings:true}).status).toBe('accepting');});
  it('never offers booked or intake-disabled office times',async()=>{events[0].status='BOOKED';events[0].client_id=10;expect((await compute()).inPersonSlots).toHaveLength(0);events=[{...event},{...event,id:2,client_id:10,status:'BOOKED',slot_state:'ASSIGNED_BOOKED'}];expect((await compute()).inPersonSlots).toHaveLength(0);events=[{...event,in_person_intake_enabled:0}];expect((await compute()).inPersonSlots).toHaveLength(0);});
  it('keeps a published virtual time when its assigned office room is unavailable',async()=>{

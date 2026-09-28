@@ -4,6 +4,7 @@ import { readActiveHolds, expandWeeklyHold } from './publicProviderHold.service.
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
+import { availabilityDiagnostics } from './availabilityDiagnostics.js';
 import ExternalBusyCalendarService from './externalBusyCalendar.service.js';
 import GoogleCalendarService from './googleCalendar.service.js';
 import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
@@ -175,7 +176,8 @@ export class ProviderAvailabilityService {
     externalCalendarIds = [],
     slotMinutes = 60,
     intakeOnly = false,
-    materializeOfficeEvents = true
+    materializeOfficeEvents = true,
+    includeDiagnostics = false
   }) {
     const aid = Number(agencyId || 0);
     const pid = Number(providerId || 0);
@@ -298,6 +300,7 @@ export class ProviderAvailabilityService {
 
     // 3) Office events: base availability for in-person + reserved blocks to prevent virtual overlap
     const officeBase = [];
+    const officePublishedCandidates = [];
     const officeReservedBusy = [];
     const officeBookedBusy = [];
     const pushOfficeRows = (rows, legacyNoToggle = false) => {
@@ -343,6 +346,7 @@ export class ProviderAvailabilityService {
         if (Number(r.room_available) === 1 && !hasAppointment && ((isOpenAssignmentState && !intakeOnlyFlag) || includeInPersonForIntake)) {
           officeBase.push({ start: s, end: e, meta });
         }
+        if (inPersonIntakeEnabled) officePublishedCandidates.push({start:s,end:e,meta,reasons:Number(r.room_available)===1?[]:['Office room is unavailable or reserved by someone else']});
         if (hasAppointment) {
           officeBookedBusy.push({ start: s, end: e });
         }
@@ -563,6 +567,7 @@ export class ProviderAvailabilityService {
     }
 
     // 4) External Therapy Notes busy (ICS) blocks both modalities
+    const calendarWarnings = [];
     let externalBusy = [];
     if (includeExternalBusy) {
       try {
@@ -593,7 +598,9 @@ export class ProviderAvailabilityService {
           timeMaxIso
         });
         if (r?.ok) externalBusy = r.busy || [];
+        else calendarWarnings.push('External calendar could not be checked. Confirm conflicts before booking.');
       } catch {
+        calendarWarnings.push('External calendar could not be checked. Confirm conflicts before booking.');
         externalBusy = [];
       }
     }
@@ -612,11 +619,13 @@ export class ProviderAvailabilityService {
           timeMax: timeMaxIso,
           calendarId: 'primary'
         });
+        if (!r?.ok) calendarWarnings.push('Google Calendar could not be checked. Confirm conflicts before booking.');
         const busy = r?.ok ? (r.busy || []) : [];
         googleBusyIntervals = (busy || [])
           .map((b) => ({ start: new Date(b.startAt), end: new Date(b.endAt) }))
           .filter((i) => i.start instanceof Date && i.end instanceof Date && i.end > i.start && !Number.isNaN(i.start.getTime()) && !Number.isNaN(i.end.getTime()));
       } catch {
+        calendarWarnings.push('Google Calendar could not be checked. Confirm conflicts before booking.');
         googleBusyIntervals = [];
       }
     }
@@ -707,7 +716,16 @@ export class ProviderAvailabilityService {
       }
     }
 
+    const diagnostics = includeDiagnostics ? availabilityDiagnostics({
+      bases: [...combinedVirtualBase.map(b => ({...b,format:'VIRTUAL'})), ...officePublishedCandidates.map(b => ({...b,format:'IN_PERSON'}))],
+      blockers: [['Client appointment', appointmentBusy], ['Appointment linked to an office reservation', officeBookedBusy],
+        ['Pending time selection', selectionBusy], ['Pending appointment request', requestBusy],
+        ['School commitment', schoolBusy], ['External calendar busy time', externalBusyIntervals], ['Google Calendar busy time', googleBusyIntervals]],
+      policy, formatAllowed: agencyFormatAllowed, officeAllowed: agencyOfficeAllowed, slotMinutes
+    }) : undefined;
     return {
+      calendarWarnings,
+      ...(includeDiagnostics ? {diagnostics, scheduleAgencyId:scheduleAid} : {}),
       ok: true,
       agencyId: aid,
       providerId: pid,

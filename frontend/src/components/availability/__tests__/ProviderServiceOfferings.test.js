@@ -11,8 +11,8 @@ describe('agency service selections',()=>{
   expect(w.text()).toContain('Next Level Up');await w.findAll('input')[1].setValue(true);
   api.put.mockResolvedValue({data:{...data,services:data.services.map(s=>({...s,offered:true}))}});
   await w.find('button').trigger('click');await flushPromises();
-  expect(api.put).toHaveBeenCalledWith('/availability/providers/9/services',{agencyId:2,services:['counseling','tutoring']},expect.any(Object));
-  expect(w.findAll('input').every(i=>i.element.checked)).toBe(true);expect(w.emitted('updated')).toHaveLength(1);w.unmount();
+  expect(api.put).toHaveBeenCalledWith('/availability/providers/9/services',{agencyId:2,services:['counseling','tutoring'],onlineScheduling:[]},expect.any(Object));
+  expect(w.findAll('fieldset')[0].findAll('input').every(i=>i.element.checked)).toBe(true);expect(w.emitted('updated')).toHaveLength(1);w.unmount();
  });
  it('does not replace the new agency with a stale response',async()=>{
   let resolve;api.get.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));

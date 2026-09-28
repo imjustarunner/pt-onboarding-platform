@@ -1236,11 +1236,12 @@ export const putMyVirtualWorkingHours = async (req, res, next) => {
 
     const rows = Array.isArray(req.body?.rows)
       ? req.body.rows
-      : (Array.isArray(req.body?.virtualWorkingHours) ? req.body.virtualWorkingHours : []);
+      : req.body?.virtualWorkingHours;
     if (!Array.isArray(rows)) return res.status(400).json({ error: { message: 'rows must be an array' } });
     if (rows.length > 100) return res.status(400).json({ error: { message: 'Too many rows' } });
 
     const normalized = ProviderVirtualWorkingHours.normalizeRows(rows);
+    if (normalized.length !== rows.length) return res.status(400).json({error:{message:'Each window must have a valid day and an end time later than its start time.'}});
 
     // Validate overlaps within each day
     const byDay = new Map();
@@ -1350,7 +1351,8 @@ export const getProviderWeekAvailability = async (req, res, next) => {
       timeZone: r.timeZone,
       slotMinutes: r.slotMinutes,
       virtualSlots: r.virtualSlots || [],
-      inPersonSlots: r.inPersonSlots || []
+      inPersonSlots: r.inPersonSlots || [],
+      calendarWarnings: r.calendarWarnings || []
     });
   } catch (e) {
     next(e);
