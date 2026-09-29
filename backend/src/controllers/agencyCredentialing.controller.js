@@ -6,6 +6,7 @@ import UserInfoValue from '../models/UserInfoValue.model.js';
 import InsuranceCredentialingDefinition from '../models/InsuranceCredentialingDefinition.model.js';
 import InsuranceCredentialingContact from '../models/InsuranceCredentialingContact.model.js';
 import InsuranceCredentialingInteraction from '../models/InsuranceCredentialingInteraction.model.js';
+import { superviseeBillingAllowed, validateSuperviseeBillingInput } from '../utils/superviseePayerEligibility.js';
 import UserInsuranceCredentialing from '../models/UserInsuranceCredentialing.model.js';
 import CredentialingChangeLog from '../models/CredentialingChangeLog.model.js';
 import StorageService from '../services/storage.service.js';
@@ -1184,6 +1185,9 @@ export const listUserCredentialing = async (req, res, next) => {
       user_id: r.user_id,
       insurance_credentialing_definition_id: r.insurance_credentialing_definition_id,
       insurance_name: r.insurance_name,
+      allow_supervisee_billing: superviseeBillingAllowed(r),
+      billing_payer_id: r.billing_payer_id || null,
+      billing_payer_name: r.billing_payer_name || null,
       insurance_logo_path: r.insurance_logo_path || null,
       insurance_logo_url: r.insurance_logo_path ? publicUploadsUrlFromStoredPath(r.insurance_logo_path) : null,
       effective_date: r.effective_date,
@@ -1219,7 +1223,9 @@ export const upsertUserInsuranceCredentialing = async (req, res, next) => {
     if (!def || Number(def.agency_id) !== agencyId) {
       return res.status(400).json({ error: { message: 'Insurance definition not found or wrong agency' } });
     }
+    validateSuperviseeBillingInput(req.body?.allowSuperviseeBilling);
     const created = await UserInsuranceCredentialing.upsert({
+      allowSuperviseeBilling: req.body?.allowSuperviseeBilling,
       userId: parseInt(userId, 10),
       insuranceCredentialingDefinitionId: parseInt(insuranceCredentialingDefinitionId, 10),
       effectiveDate: effectiveDate || null,
@@ -1256,6 +1262,8 @@ export const updateUserInsuranceCredentialing = async (req, res, next) => {
     }
     const body = req.body || {};
     const updates = {};
+    validateSuperviseeBillingInput(body.allowSuperviseeBilling);
+    if (body.allowSuperviseeBilling !== undefined) updates.allow_supervisee_billing = body.allowSuperviseeBilling ? 1 : 0;
     if (body.effectiveDate != null) updates.effective_date = body.effectiveDate || null;
     if (body.submittedDate != null) updates.submitted_date = body.submittedDate || null;
     if (body.resubmittedDate != null) updates.resubmitted_date = body.resubmittedDate || null;

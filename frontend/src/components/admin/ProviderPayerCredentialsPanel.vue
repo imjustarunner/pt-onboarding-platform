@@ -81,6 +81,13 @@
           </div>
         </div>
 
+        <p class="muted" v-if="row.billingPayerName">Billing payer: {{ row.billingPayerName }} · {{ row.billingPayerId }}</p>
+        <p class="muted" v-else>Billing payer not connected. Link this credentialing payer under Credentialing Management → Payers &amp; connections before using it for supervisee claims.</p>
+        <div class="supervisee-eligibility">
+          <label><input v-model="row.edit.allowSuperviseeBilling" type="checkbox" :disabled="row.saving" /> Available for supervisee billing</label>
+          <p class="muted">Allow this payer credential to be used and displayed for assigned billing supervisees. This does not change the provider’s own credential. TRICARE and TriWest default to off; verify the applicable contract before enabling.</p>
+        </div>
+
         <div class="docs-row">
           <div class="doc-block" :class="{ 'doc-missing': !row.welcomeLetterUrl }">
             <div class="doc-label">Welcome letter</div>
@@ -222,6 +229,8 @@ const mapRow = (cred, def) => {
   const pin = String(cred?.pin_or_reference || '').trim();
   return {
     definitionId,
+    billingPayerId: cred?.billing_payer_id,
+    billingPayerName: cred?.billing_payer_name,
     recordId: Number(cred?.id || 0) || null,
     name,
     logoUrl: logoPath ? toUploadsUrl(logoPath) : null,
@@ -244,6 +253,7 @@ const mapRow = (cred, def) => {
     message: '',
     error: '',
     edit: {
+      allowSuperviseeBilling: cred?.allow_supervisee_billing === true || Number(cred?.allow_supervisee_billing) === 1,
       effectiveDate: toDateInput(cred?.effective_date),
       submittedDate: toDateInput(cred?.submitted_date),
       resubmittedDate: toDateInput(cred?.resubmitted_date),
@@ -330,6 +340,7 @@ const saveRow = async (row) => {
       const created = await api.post(`/agencies/${props.agencyId}/credentialing/user-insurance`, {
         userId: props.userId,
         insuranceCredentialingDefinitionId: row.definitionId,
+        allowSuperviseeBilling: row.edit.allowSuperviseeBilling,
         effectiveDate: row.edit.effectiveDate || null,
         submittedDate: row.edit.submittedDate || null,
         resubmittedDate: row.edit.resubmittedDate || null,
@@ -340,6 +351,7 @@ const saveRow = async (row) => {
       row.recordId = Number(created.data?.id || 0) || row.recordId;
     } else {
       await api.patch(`/agencies/${props.agencyId}/credentialing/user-insurance/${row.recordId}`, {
+        allowSuperviseeBilling: row.edit.allowSuperviseeBilling,
         effectiveDate: row.edit.effectiveDate || null,
         submittedDate: row.edit.submittedDate || null,
         resubmittedDate: row.edit.resubmittedDate || null,

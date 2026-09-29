@@ -1,3 +1,4 @@
+import { checkSuperviseePayerEligibility } from '../services/credentialPayerEligibility.service.js';
 import crypto from 'node:crypto';
 import { hasPendingClaimChange,previouslyTransmitted,claimChangeRequests,resolveServiceChange } from '../services/claimServiceChanges.service.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -50,6 +51,10 @@ export async function prepareClaimReview(agencyId, claimId) {
   const configuredPayerPolicy = await loadPayerPolicy(agencyId, insurance?.primary?.payerId, insurance?.primary?.planType);
   const payerPolicy = { ...configuredPayerPolicy, coloradoMedicaid: configuredPayerPolicy?.coloradoMedicaid === true || insurance?.primary?.payerId === 'COCHA' };
   const supervision = evaluateSupervisedBilling({ policy,payerPolicy,dateOfService:claim.date_of_service,serviceProvider:person(providerId),supervisor:person(policy.supervisorUserId),note:documentation.note });
+  if (policy.billingMode === 'billing_supervisor') {
+    supervision.payerCredentialEligibility = await checkSuperviseePayerEligibility({ agencyId, supervisorId: policy.supervisorUserId, payerId: insurance?.primary?.payerId });
+    if (!supervision.payerCredentialEligibility.allowed) supervision.blockers.push(supervision.payerCredentialEligibility.reason);
+  }
   if (Number(documentation.note.provider_signed_by_user_id || documentation.note.created_by_user_id) !== providerId) supervision.blockers.push('The signed note author does not match the treating service provider');
   // Older notes used is_billable=0 to represent a cosign hold. Policy now owns that hold.
   if (documentation.note.provider_signed_at && !isNonBillableDocument(documentation.note) && policy.supervisorUserId) readiness.blockers = readiness.blockers.filter(b=>b!=='Note requires supervisor approval or is non-billable');

@@ -1,19 +1,13 @@
+import { credentialPayerRows } from '../services/credentialPayerEligibility.service.js';
 import pool from '../config/database.js';
+import { validateSuperviseeBillingInput } from '../utils/superviseePayerEligibility.js';
 
 /**
  * Per-user, per-insurance credentialing status.
  */
 class UserInsuranceCredentialing {
   static async listByUserId(userId) {
-    const [rows] = await pool.execute(
-      `SELECT uic.*, icd.name AS insurance_name, icd.parent_id AS insurance_parent_id, icd.logo_path AS insurance_logo_path
-       FROM user_insurance_credentialing uic
-       JOIN insurance_credentialing_definitions icd ON icd.id = uic.insurance_credentialing_definition_id
-       WHERE uic.user_id = ?
-       ORDER BY icd.sort_order ASC, icd.name ASC`,
-      [userId]
-    );
-    return rows || [];
+    return credentialPayerRows(userId);
   }
 
   static async listByInsuranceId(insuranceDefinitionId) {
@@ -57,6 +51,7 @@ class UserInsuranceCredentialing {
   static async upsert({
     userId,
     insuranceCredentialingDefinitionId,
+    allowSuperviseeBilling = undefined,
     effectiveDate = null,
     submittedDate = null,
     resubmittedDate = null,
@@ -65,6 +60,7 @@ class UserInsuranceCredentialing {
     notes = null,
     updatedByUserId = null
   }) {
+    validateSuperviseeBillingInput(allowSuperviseeBilling);
     const [existing] = await pool.execute(
       'SELECT id FROM user_insurance_credentialing WHERE user_id = ? AND insurance_credentialing_definition_id = ? LIMIT 1',
       [userId, insuranceCredentialingDefinitionId]
@@ -74,7 +70,7 @@ class UserInsuranceCredentialing {
         await pool.execute(
           `UPDATE user_insurance_credentialing
            SET effective_date = ?, submitted_date = ?, resubmitted_date = ?, returned_date = ?,
-               pin_or_reference = ?, notes = ?, updated_by_user_id = ?
+               pin_or_reference = ?, notes = ?, updated_by_user_id = ?, allow_supervisee_billing = COALESCE(?, allow_supervisee_billing)
            WHERE user_id = ? AND insurance_credentialing_definition_id = ?`,
           [
             effectiveDate,
@@ -84,6 +80,7 @@ class UserInsuranceCredentialing {
             pinOrReference,
             notes,
             updatedByUserId,
+            allowSuperviseeBilling ?? null,
             userId,
             insuranceCredentialingDefinitionId
           ]
@@ -94,7 +91,7 @@ class UserInsuranceCredentialing {
           await pool.execute(
             `UPDATE user_insurance_credentialing
              SET effective_date = ?, submitted_date = ?, resubmitted_date = ?,
-                 pin_or_reference = ?, notes = ?, updated_by_user_id = ?
+                 pin_or_reference = ?, notes = ?, updated_by_user_id = ?, allow_supervisee_billing = COALESCE(?, allow_supervisee_billing)
              WHERE user_id = ? AND insurance_credentialing_definition_id = ?`,
             [
               effectiveDate,
@@ -103,6 +100,7 @@ class UserInsuranceCredentialing {
               pinOrReference,
               notes,
               updatedByUserId,
+              allowSuperviseeBilling ?? null,
               userId,
               insuranceCredentialingDefinitionId
             ]
@@ -117,8 +115,8 @@ class UserInsuranceCredentialing {
       const [result] = await pool.execute(
         `INSERT INTO user_insurance_credentialing
          (user_id, insurance_credentialing_definition_id, effective_date, submitted_date, resubmitted_date,
-          returned_date, pin_or_reference, notes, updated_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          returned_date, pin_or_reference, notes, updated_by_user_id, allow_supervisee_billing)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           userId,
           insuranceCredentialingDefinitionId,
@@ -128,7 +126,8 @@ class UserInsuranceCredentialing {
           returnedDate,
           pinOrReference,
           notes,
-          updatedByUserId
+          updatedByUserId,
+          allowSuperviseeBilling ?? null
         ]
       );
       return result?.insertId ? await this.findByUserAndInsurance(userId, insuranceCredentialingDefinitionId) : null;
@@ -137,8 +136,8 @@ class UserInsuranceCredentialing {
       const [result] = await pool.execute(
         `INSERT INTO user_insurance_credentialing
          (user_id, insurance_credentialing_definition_id, effective_date, submitted_date, resubmitted_date,
-          pin_or_reference, notes, updated_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          pin_or_reference, notes, updated_by_user_id, allow_supervisee_billing)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           userId,
           insuranceCredentialingDefinitionId,
@@ -147,7 +146,8 @@ class UserInsuranceCredentialing {
           resubmittedDate,
           pinOrReference,
           notes,
-          updatedByUserId
+          updatedByUserId,
+          allowSuperviseeBilling ?? null
         ]
       );
       return result?.insertId ? await this.findByUserAndInsurance(userId, insuranceCredentialingDefinitionId) : null;

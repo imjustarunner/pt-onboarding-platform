@@ -1,3 +1,4 @@
+import { checkSuperviseePayerEligibility } from '../credentialPayerEligibility.service.js';
 import {readFile} from 'node:fs/promises';
 import mysql from 'mysql2/promise';
 import {it,expect} from 'vitest';
@@ -21,7 +22,12 @@ it.skipIf(process.env.CREDENTIAL_WORKSPACE_MYSQL_TEST!=='1')('isolates tenant cr
       CREATE TABLE clinical_sessions(id BIGINT PRIMARY KEY,agency_id INT,provider_user_id INT);
       CREATE TABLE clinical_claims(id BIGINT PRIMARY KEY,clinical_session_id BIGINT,agency_id INT,destination_payer_id VARCHAR(32),billing_npi VARCHAR(20),claim_lifecycle VARCHAR(40),is_deleted BOOLEAN DEFAULT 0);
     `);
-    for(const file of ['534_credentialing_overhaul_foundation.sql','1012_agency_group_npis_and_payer_credentialing.sql','1496_credentialing_workspace.sql'])await admin.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
+    for(const file of ['534_credentialing_overhaul_foundation.sql','1012_agency_group_npis_and_payer_credentialing.sql','1496_credentialing_workspace.sql','1511_supervisee_payer_eligibility.sql'])await admin.query(await readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8'));
+    await admin.query(`CREATE TABLE medical_payer_setup_requests(id BIGINT PRIMARY KEY,agency_id INT,payer_name VARCHAR(120));
+      CREATE TABLE medical_payer_setup_details(request_id BIGINT PRIMARY KEY,claimmd_payer_id VARCHAR(32),directory_name VARCHAR(180),directory_status VARCHAR(32));
+      INSERT INTO medical_payer_setup_requests VALUES(1,1,'Synthetic Payer'),(2,2,'Other agency payer');
+      INSERT INTO medical_payer_setup_details VALUES(1,'SYNTH','Synthetic Payer','id_match'),(2,'OTHER','Other Payer','id_match');`);
+    await admin.query('ALTER TABLE insurance_credentialing_definitions ADD COLUMN logo_path VARCHAR(500) NULL');
     // Existing 916 migration adds this operational date along with unrelated seed data.
     await admin.query('ALTER TABLE user_insurance_credentialing ADD COLUMN returned_date DATE NULL');
     await admin.query(`
@@ -40,17 +46,21 @@ it.skipIf(process.env.CREDENTIAL_WORKSPACE_MYSQL_TEST!=='1')('isolates tenant cr
     `);
     main=mysql.createPool({socketPath:'/private/tmp/coverage-mysql.sock',user:'root',database:schema,connectionLimit:8});
     const d={main,clinical:main,grants:async()=>[1],expand:async x=>x,billing:async()=>false,connectionMeta:async()=>({configured:true,accountId:'current'})};
-    const user={id:9,role:'staff'},input={version:0,status:'active',billingGroupNpiId:31,evidenceReference:'Synthetic payer letter'};
+    const user={id:9,role:'staff'},input={allowSuperviseeBilling:false,version:0,status:'active',billingGroupNpiId:31,evidenceReference:'Synthetic payer letter'};
     const results=await Promise.allSettled(Array.from({length:5},()=>saveCredentialingWorkflow(user,1,'provider',21,input,d)));
     expect(results.filter(r=>r.status==='fulfilled')).toHaveLength(1);expect(results.filter(r=>r.status==='rejected').every(r=>r.reason.status===409)).toBe(true);
+    await expect(saveCredentialingWorkflow(user,1,'payer',11,{version:0,payerId:'OTHER',evidenceReference:'Wrong agency route'},d)).rejects.toMatchObject({status:400});
     await saveCredentialingWorkflow(user,1,'payer',11,{version:0,payerId:'SYNTH',evidenceReference:'Synthetic directory'},d);
     await expect(saveCredentialingWorkflow(user,1,'provider',22,input,d)).rejects.toMatchObject({status:404});
     await expect(saveCredentialingWorkflow(user,1,'provider',21,{...input,version:1,billingGroupNpiId:32},d)).rejects.toMatchObject({status:400});
     const workspace=await credentialingWorkspace(user,{},d);
     expect(workspace.organizations.map(a=>a.id)).toEqual([1]);expect(workspace.records).toHaveLength(2);
-    expect(workspace.records.find(r=>r.subjectType==='provider')).toMatchObject({providerNpi:'1111111111',status:'active',version:1});
+    expect(workspace.records.find(r=>r.subjectType==='provider')).toMatchObject({providerNpi:'1111111111',status:'active',version:1,allowSuperviseeBilling:false});
     expect(workspace.enrollments).toHaveLength(1);expect(workspace.enrollments[0].status).toBe('requested');
     expect(workspace.claimCounts).toHaveLength(1);expect(workspace.claimCounts[0]).toMatchObject({status:'rejected',count:1,agencyId:1});
+    const eligibility=await checkSuperviseePayerEligibility({agencyId:1,supervisorId:10,payerId:'SYNTH'},main);
+    expect(eligibility.allowed).toBe(false);expect(eligibility.credentialIds).toEqual([21]);
+    expect((await checkSuperviseePayerEligibility({agencyId:2,supervisorId:10,payerId:'SYNTH'},main)).credentialIds).toEqual([]);
     const [[audit]]=await main.query('SELECT COUNT(*) AS count FROM credentialing_workflow_events');expect(audit.count).toBe(2);
     await expect(credentialingWorkspace(user,{agencyId:2},d)).rejects.toMatchObject({status:403});
   } finally {await main?.end();await admin.query(`DROP DATABASE IF EXISTS ${schema}`);await admin.end();}

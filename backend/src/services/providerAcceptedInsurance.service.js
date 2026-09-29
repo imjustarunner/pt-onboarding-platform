@@ -1,3 +1,5 @@
+import { credentialPayerRows } from './credentialPayerEligibility.service.js';
+import { superviseeBillingAllowed, defaultSuperviseeBillingAllowed } from '../utils/superviseePayerEligibility.js';
 import pool from '../config/database.js';
 import {restrictPublicInsurances} from '../utils/publicProviderPresentation.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
@@ -9,25 +11,15 @@ function isMissingSchemaError(err) {
 }
 
 async function listDirectAcceptedInsurances(userId, agencyId) {
-  const [rows] = await pool.execute(
-    `SELECT uic.id,
-            uic.effective_date,
-            uic.submitted_date,
-            icd.id AS insurance_definition_id,
-            icd.name,
-            icd.logo_path
-     FROM user_insurance_credentialing uic
-     JOIN insurance_credentialing_definitions icd
-       ON icd.id = uic.insurance_credentialing_definition_id
-     WHERE uic.user_id = ? AND icd.agency_id = ?
-     ORDER BY icd.sort_order ASC, icd.name ASC`,
-    [userId, agencyId]
-  );
+  const rows = await credentialPayerRows(userId, agencyId);
   return (rows || []).map((r) => ({
     id: r.id,
     insurance_definition_id: r.insurance_definition_id,
-    name: String(r.name || ''),
-    label: String(r.name || ''),
+    allow_supervisee_billing: superviseeBillingAllowed(r),
+    aliases: [r.name, r.parent_name, r.billing_payer_name, r.directory_name].filter(Boolean),
+    billing_payer_id: r.billing_payer_name ? r.billing_payer_id : null,
+    name: String(r.billing_payer_name || r.name || ''),
+    label: String(r.billing_payer_name || r.name || ''),
     logo_path: r.logo_path || null,
     logo_url: publicUploadsUrlFromStoredPath(r.logo_path || null),
     effective_date: r.effective_date || null,
@@ -39,7 +31,7 @@ async function listDirectAcceptedInsurances(userId, agencyId) {
  * Insurances displayed for a provider: their own credentialing rows plus any
  * inherited from their billing supervisor (supervisees bill under billing supervisor).
  */
-export async function listProviderAcceptedInsurances({ userId, agencyId }) {
+export async function listProviderAcceptedInsurances({ userId, agencyId, includeIneligible = false }) {
   const uid = parseInt(userId, 10);
   const aid = parseInt(agencyId, 10);
   if (!Number.isInteger(uid) || uid <= 0 || !Number.isInteger(aid) || aid <= 0) {
@@ -58,6 +50,8 @@ export async function listProviderAcceptedInsurances({ userId, agencyId }) {
     const billingSupervisorId = await SupervisorAssignment.resolveClaimBillingSupervisorId(uid, aid);
     if (billingSupervisorId && billingSupervisorId !== uid) {
       const inherited = await listDirectAcceptedInsurances(billingSupervisorId, aid);
+      const payerKey = row => row.billing_payer_id || String(row.name).trim().toLowerCase();
+      const excludedPayers = new Set(inherited.filter(row => !row.allow_supervisee_billing).map(payerKey));
       let billingSupervisorName = '';
       try {
         const [urows] = await pool.execute(
@@ -73,9 +67,12 @@ export async function listProviderAcceptedInsurances({ userId, agencyId }) {
       for (const row of inherited) {
         const defId = Number(row.insurance_definition_id);
         if (byDefId.has(defId)) continue;
+        const ineligible = excludedPayers.has(payerKey(row));
+        if (ineligible && !includeIneligible) continue;
         byDefId.set(defId, {
           ...row,
           id: null,
+          ineligible_for_supervisee: ineligible,
           source: 'billing_supervisor',
           inherited_from_user_id: billingSupervisorId,
           inherited_from_name: billingSupervisorName
@@ -107,7 +104,9 @@ export function mapAcceptedInsuranceForDisplay(row) {
 }
 
 export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyId }) {
-  const rows = await listProviderAcceptedInsurances({ userId, agencyId });
+  const allRows = await listProviderAcceptedInsurances({ userId, agencyId, includeIneligible: true });
+  const rows = allRows.filter(row => !row.ineligible_for_supervisee);
+  const excluded = allRows.filter(row => row.ineligible_for_supervisee);
   // Agency acceptance is distinct from payer credentialing. Never manufacture a
   // credentialing record or effective date merely to publish accepted coverage.
   let overrides = [];
@@ -122,19 +121,26 @@ export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyI
   } catch (error) {
     if (!isMissingSchemaError(error)) throw error;
   }
-  const merged = mergeAgencyInsuranceAcceptance(rows, overrides);
+  const merged = mergeAgencyInsuranceAcceptance(rows, overrides, excluded);
   const [people] = await pool.execute('SELECT credential, title FROM users WHERE id = ? LIMIT 1', [Number(userId)]);
   return restrictPublicInsurances(merged, people[0] || {}).map(mapAcceptedInsuranceForDisplay);
 }
 
-export function mergeAgencyInsuranceAcceptance(rows, overrides) {
+export function mergeAgencyInsuranceAcceptance(rows, overrides, excluded = []) {
   const key = value => String(value || '').trim().toLowerCase();
+  const excludedNames = new Set(excluded.flatMap(row => [row.name, ...(row.aliases || [])]).map(key));
   const byName = new Map(rows.map(row => [key(row.name), row]));
   for (const override of overrides) {
     const name = key(override.label);
     if (!name) continue;
-    if (!Number(override.is_allowed)) byName.delete(name);
-    else if (!byName.has(name)) byName.set(name, {
+    if (!Number(override.is_allowed)) {
+      for (const [entryName, row] of byName) {
+        if (entryName === name || (row.aliases || []).some(alias => key(alias) === name)) byName.delete(entryName);
+      }
+    }
+    else if (!byName.has(name) && !excludedNames.has(name)
+      && defaultSuperviseeBillingAllowed(override.label)
+      && !rows.some(row => (row.aliases || []).some(alias => key(alias) === name))) byName.set(name, {
       insurance_definition_id: null,
       insurance_key: `type:${override.id}`,
       name: override.label,

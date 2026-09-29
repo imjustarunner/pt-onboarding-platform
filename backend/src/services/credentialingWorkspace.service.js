@@ -1,3 +1,4 @@
+import { superviseeBillingAllowed, validateSuperviseeBillingInput } from '../utils/superviseePayerEligibility.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { claimMdConnectionMeta } from './claimMdConnection.service.js';
@@ -40,14 +41,17 @@ export function normalizeCredentialTracking(input) {
 
 export async function credentialingWorkspace(user,query={},d=deps) {
   const scope=await credentialingScope(user,query.agencyId,d);
-  const result={organizations:scope.organizations,records:[],payers:[],groups:[],enrollments:[],claimCounts:[],capabilities:{electronicEnrollment:true,claimLinkage:true}};
+  const result={organizations:scope.organizations,records:[],payers:[],billingPayers:[],groups:[],enrollments:[],claimCounts:[],capabilities:{electronicEnrollment:true,claimLinkage:true}};
   if(!scope.ids.length)return result;
   const marks=scope.ids.map(()=>'?').join(',');
   // Select only operational fields. Credentials/passwords, provider DOB and claim PHI never enter this response.
   const [providers]=await d.main.execute(`SELECT 'provider' AS subjectType,c.id AS credentialId,p.agency_id AS agencyId,p.id AS payerDefinitionId,p.name AS payerName,
+    c.allow_supervisee_billing, parent.name AS parent_name, link.payer_id AS billing_payer_id,
     c.user_id AS providerId,CONCAT_WS(' ',u.first_name,u.last_name) AS subjectName,(SELECT v.value FROM user_info_values v JOIN user_info_field_definitions f ON f.id=v.field_definition_id WHERE v.user_id=u.id AND (f.agency_id IS NULL OR f.agency_id=p.agency_id) AND f.field_key IN ('provider_identity_npi_number','npi_number','provider_npi_number','provider_npi','npi') ORDER BY FIELD(f.field_key,'provider_identity_npi_number','npi_number','provider_npi_number','provider_npi','npi'),v.updated_at DESC,v.id DESC LIMIT 1) AS providerNpi,
     c.effective_date AS effectiveDate,c.submitted_date AS submittedDate,c.returned_date AS returnedDate
     FROM user_insurance_credentialing c JOIN insurance_credentialing_definitions p ON p.id=c.insurance_credentialing_definition_id
+    LEFT JOIN insurance_credentialing_definitions parent ON parent.id=p.parent_id AND parent.agency_id=p.agency_id
+    LEFT JOIN credentialing_payer_links link ON link.insurance_definition_id=p.id AND link.agency_id=p.agency_id
     JOIN users u ON u.id=c.user_id WHERE p.agency_id IN (${marks})`,scope.ids);
   const [groups]=await d.main.execute(`SELECT g.id,g.agency_id AS agencyId,g.npi_number AS npi,g.label,g.office_location_id AS officeId,
     o.name AS officeName,o.street_address AS streetAddress,o.city,o.state FROM agency_group_npis g LEFT JOIN office_locations o ON o.id=g.office_location_id AND o.agency_id=g.agency_id WHERE g.agency_id IN (${marks}) AND g.is_active=1`,scope.ids);
@@ -60,9 +64,18 @@ export async function credentialingWorkspace(user,query={},d=deps) {
     FROM credentialing_workflow_tracking WHERE agency_id IN (${marks})`,scope.ids);
   const [payers]=await d.main.execute(`SELECT p.id,p.agency_id AS agencyId,p.name,l.payer_id AS payerId,l.evidence_reference AS evidenceReference,COALESCE(l.version,0) AS version
     FROM insurance_credentialing_definitions p LEFT JOIN credentialing_payer_links l ON l.agency_id=p.agency_id AND l.insurance_definition_id=p.id WHERE p.agency_id IN (${marks}) ORDER BY p.name`,scope.ids);
+  const [billingPayers]=await d.main.execute(`SELECT r.id,r.agency_id AS agencyId,r.payer_name AS name,d.claimmd_payer_id AS payerId,d.directory_name AS directoryName
+    FROM medical_payer_setup_requests r JOIN medical_payer_setup_details d ON d.request_id=r.id
+    WHERE r.agency_id IN (${marks}) AND d.directory_status='id_match' AND d.claimmd_payer_id IS NOT NULL ORDER BY r.payer_name`,scope.ids);
+  result.billingPayers=billingPayers;
+  for (const row of providers) {
+    const billing=billingPayers.find(p=>Number(p.agencyId)===Number(row.agencyId) && p.payerId===row.billing_payer_id);
+    row.allowSuperviseeBilling=superviseeBillingAllowed({...row,name:row.payerName,billing_payer_name:billing?.name,directory_name:billing?.directoryName});
+    delete row.allow_supervisee_billing;
+  }
   const byKey=new Map(tracking.map(t=>[`${t.agencyId}:${t.subjectType}:${t.credentialId}`,t]));
   result.records=[...providers,...groupRecords].map(r=>{const t=byKey.get(`${r.agencyId}:${r.subjectType}:${r.credentialId}`);return {...r,version:0,...t,status:trackedStatus({...r,...t})};});
-  result.groups=groups;result.payers=payers;
+  result.groups=groups;result.payers=payers.map(p=>({...p,billingPayerLinked:billingPayers.some(b=>Number(b.agencyId)===Number(p.agencyId)&&b.payerId===p.payerId)}));
   for(const org of result.organizations)org.canViewBilling=scope.ids.includes(Number(org.id)) && await d.billing(user,org.id);
   try {
     [result.enrollments]=await d.clinical.execute(`SELECT agency_id AS agencyId,connection_id AS connectionId,payer_id AS payerId,provider_npi AS groupNpi,billing_office_location_id AS officeId,enrollment_type AS type,status,last_event_at AS lastEventAt FROM claimmd_enrollments WHERE agency_id IN (${marks})`,scope.ids);
@@ -89,6 +102,7 @@ export async function saveCredentialingWorkflow(user,agencyId,kind,id,input,d=de
   if(!Number.isInteger(version)||version<0)throw error(400,'Reload the current record before saving');
   const value=kind==='payer'?{payerId:String(input.payerId || '').trim(),evidenceReference:String(input.evidenceReference || '').trim()}:normalizeCredentialTracking(input);
   if(kind==='payer'&&(!/^[A-Za-z0-9_-]{2,32}$/.test(value.payerId)||value.evidenceReference.length<5||value.evidenceReference.length>500))throw error(400,'Enter the verified electronic payer ID and a source reference');
+  if(kind==='provider' && input.allowSuperviseeBilling !== undefined) value.allowSuperviseeBilling=validateSuperviseeBillingInput(input.allowSuperviseeBilling);
   const db=await d.main.getConnection();
   try {
     await db.beginTransaction();
@@ -96,6 +110,12 @@ export async function saveCredentialingWorkflow(user,agencyId,kind,id,input,d=de
       'SELECT c.id,c.effective_date FROM user_insurance_credentialing c JOIN insurance_credentialing_definitions p ON p.id=c.insurance_credentialing_definition_id WHERE c.id=? AND p.agency_id=? FOR UPDATE':
       'SELECT c.id,c.effective_date FROM agency_group_npi_payer_credentialing c JOIN agency_group_npis g ON g.id=c.agency_group_npi_id JOIN insurance_credentialing_definitions p ON p.id=c.insurance_credentialing_definition_id AND p.agency_id=g.agency_id WHERE c.id=? AND g.agency_id=? FOR UPDATE';
     const [[record]]=await db.execute(sql,[id,agencyId]);if(!record)throw error(404,'Credentialing record not found in this agency');
+    if(kind==='payer') {
+      const [[billingPayer]]=await db.execute(`SELECT r.id FROM medical_payer_setup_requests r
+        JOIN medical_payer_setup_details d ON d.request_id=r.id
+        WHERE r.agency_id=? AND d.claimmd_payer_id=? AND d.directory_status='id_match' LIMIT 1 FOR UPDATE`,[agencyId,value.payerId]);
+      if(!billingPayer)throw error(400,'Select a verified payer from this agency’s billing payer list. Add or verify it in Billing first.');
+    }
     if(kind!=='payer'&&value.status==='active'){
       const effective=record.effective_date instanceof Date?record.effective_date.toISOString().slice(0,10):String(record.effective_date || '').slice(0,10);
       if(!effective || effective>new Date().toISOString().slice(0,10))throw error(409,'An active credential requires a recorded effective date that has already started');
@@ -107,6 +127,9 @@ export async function saveCredentialingWorkflow(user,agencyId,kind,id,input,d=de
       ON DUPLICATE KEY UPDATE payer_id=VALUES(payer_id),evidence_reference=VALUES(evidence_reference),updated_by_user_id=VALUES(updated_by_user_id),version=version+1`,[agencyId,id,value.payerId,value.evidenceReference,user.id]);
     else await db.execute(`INSERT INTO credentialing_workflow_tracking (agency_id,subject_type,credential_id,status,billing_group_npi_id,revalidation_due,follow_up_date,next_action,evidence_reference,updated_by_user_id) VALUES (?,?,?,?,?,?,?,?,?,?)
       ON DUPLICATE KEY UPDATE status=VALUES(status),billing_group_npi_id=VALUES(billing_group_npi_id),revalidation_due=VALUES(revalidation_due),follow_up_date=VALUES(follow_up_date),next_action=VALUES(next_action),evidence_reference=VALUES(evidence_reference),updated_by_user_id=VALUES(updated_by_user_id),version=version+1`,[agencyId,kind,id,value.status,value.billingGroupNpiId,value.revalidationDue,value.followUpDate,value.nextAction,value.evidenceReference,user.id]);
+    if(kind==='provider' && value.allowSuperviseeBilling !== undefined) {
+      await db.execute('UPDATE user_insurance_credentialing SET allow_supervisee_billing=?,updated_by_user_id=? WHERE id=?',[value.allowSuperviseeBilling ? 1 : 0,user.id,id]);
+    }
     await db.execute('INSERT INTO credentialing_workflow_events (agency_id,subject_type,record_id,actor_user_id,before_json,after_json) VALUES (?,?,?,?,?,?)',[agencyId,kind,id,user.id,previous?JSON.stringify(previous):null,JSON.stringify(value)]);
     await db.commit();return {saved:true,version:version+1};
   }catch(e){await db.rollback();throw e;}finally{db.release();}
