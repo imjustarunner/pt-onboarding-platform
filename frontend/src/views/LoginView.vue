@@ -388,14 +388,14 @@
               :class="{ 'login-credentials-wrap--school-split': schoolPortalCredentialsRow }"
             >
               <div class="form-group login-credentials-username">
-                <label for="username">{{ usernameFieldLabel }}</label>
+                <label for="username">{{ isSchoolCareBridge ? 'Email address' : usernameFieldLabel }}</label>
                 <input
                   id="username"
                   name="username"
                   v-model="username"
                   type="text"
                   required
-                  :placeholder="usernameFieldPlaceholder"
+                  :placeholder="isSchoolCareBridge ? 'name@yourorganization.org' : usernameFieldPlaceholder"
                   autocomplete="username"
                   autocapitalize="none"
                   autocorrect="off"
@@ -694,6 +694,7 @@ import { PLATFORM_BRAND } from '../config/platformBrand.js';
 import { tenantFaviconUrl } from '../utils/tenantBrandAssets.js';
 import { resolveLoginPalette } from '../utils/loginPalette.js';
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeExternalPath } from '../utils/schoolCareBridge';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
@@ -852,7 +853,10 @@ const setAppPreviewMode = (mode) => {
 };
 
 // Check if this is an organization-specific login page (supports both legacy agencySlug and new organizationSlug)
+const scbAuthOrg = ref('');
+const isSchoolCareBridge = computed(() => isSchoolCareBridgePath(route.path));
 const loginSlug = computed(() => {
+  if (isSchoolCareBridge.value && scbAuthOrg.value) return scbAuthOrg.value;
   if (route.meta?.organizationSlug && route.params?.organizationSlug) return route.params.organizationSlug;
   if (route.meta?.agencySlug && route.params?.agencySlug) return route.params.agencySlug;
   return null;
@@ -1105,6 +1109,7 @@ const _isOnPlatformHost =
   _currentHostname === '127.0.0.1';
 
 const isPlatformLogin = computed(() => {
+  if (isSchoolCareBridge.value) return false;
   // If we're not on the platform host (e.g. we're on app.itsco.health), this
   // is always a tenant login — never show platform branding.
   if (!_isOnPlatformHost) return false;
@@ -1190,7 +1195,7 @@ const tenantLoginVideoNarrowSrc = computed(() => {
 });
 
 const showTenantLoginVideo = computed(
-  () => !!(tenantLoginVideoWideSrc.value || tenantLoginVideoNarrowSrc.value)
+  () => !isSchoolCareBridge.value && !!(tenantLoginVideoWideSrc.value || tenantLoginVideoNarrowSrc.value)
 );
 
 const showTisiLoginVideo = computed(() => isMainTenantHubLogin('tisi') && showTenantLoginVideo.value);
@@ -1355,6 +1360,7 @@ onMounted(async () => {
   // Without this, isOrgLogin is true here so the platform /login shortcut above never runs, and return visits
   // would stay on the hub instead of opening the school login with username prefilled + verify.
   if (
+    !isSchoolCareBridge.value &&
     isOrgLogin.value &&
     loginSlug.value &&
     !String(route.query?.u || '').trim() &&
@@ -1417,7 +1423,7 @@ onMounted(async () => {
       brandingStore.clearPortalTheme();
     }
     // Initialize portal theme if on subdomain/custom domain (separate from slug-based org logins)
-    await brandingStore.initializePortalTheme();
+    if (!isSchoolCareBridge.value) await brandingStore.initializePortalTheme();
     const hostSlug = String(
       brandingStore.portalHostPortalUrl || resolveHostImpliedPortalSlug(brandingStore) || ''
     ).trim().toLowerCase();
@@ -1596,6 +1602,9 @@ function restoreLoginMemory() {
   return memory;
 }
 watch(effectiveLoginSlug, () => {
+  // Discovery updates the agency context without leaving this branded form.
+  // Keep the verified email and password step during that context update.
+  if (isSchoolCareBridge.value) return;
   if (String(route.query?.sso || '') === '1' || workspacePreparing.value) return;
   username.value = '';
   showPassword.value = false;
@@ -1673,6 +1682,7 @@ const portalOrganizationIdForIntake = computed(() => {
 
 /** School/program/learning org login: show public intakes before sign-in (no password step required). */
 const showIntakesTrigger = computed(() => {
+  if (isSchoolCareBridge.value) return false;
   const t = String(loginTheme.value?.agency?.organizationType || '').toLowerCase();
   return (
     isOrgLogin.value &&
@@ -1887,7 +1897,8 @@ watch(
 
 /** Same-origin post-login destination (e.g. a meeting join link) to carry through Google SSO. */
 function ssoNextParam() {
-  const redirectPath = route.query?.redirect;
+  const captured = route.query?.redirect || (isSchoolCareBridge.value ? route.path : null);
+  const redirectPath = isSchoolCareBridge.value && typeof captured === 'string' ? schoolCareBridgeExternalPath(captured) : captured;
   const safe = typeof redirectPath === 'string' && redirectPath.startsWith('/') && !redirectPath.startsWith('//') && !redirectPath.includes('\\') && !redirectPath.startsWith('//');
   return safe ? `&next=${encodeURIComponent(redirectPath)}` : '';
 }
@@ -2004,7 +2015,8 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       '/auth/identify',
       {
         username: u,
-        organizationSlug: slug || undefined
+        organizationSlug: slug || undefined,
+        ...(isSchoolCareBridge.value ? { surface: 'schoolcarebridge' } : {})
       },
       { skipGlobalLoading: true, skipAuthRedirect: true }
     );
@@ -2028,6 +2040,16 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       passwordPolicyDays: data?.passwordPolicyDays ?? 120
     };
 
+    if (data.schoolCareBridgeRedirect && !isSchoolCareBridge.value) {
+      const target = new URL(data.schoolCareBridgeRedirect);
+      if (target.protocol === 'https:' && ['mh4kidz.org', 'schoolcarebridge.org', 'www.schoolcarebridge.org'].includes(target.hostname)) {
+        window.location.assign(target.href); return;
+      }
+    }
+    if (data?.needsOrgChoice === true && isSchoolCareBridge.value) {
+      needsOrgChoice.value = true; orgOptions.value = data.orgOptions || [];
+      showPassword.value = false; selectedOrgSlug.value = ''; return;
+    }
     if (data?.needsOrgChoice === true) {
       // Simplified login UX: never show an org picker.
       // Keep users on the login route they chose and continue with password.
@@ -2042,6 +2064,22 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
     // IMPORTANT: prefer portal_url as the branded portal path segment.
     const resolvedSlug = String(ro?.portal_url || ro?.portalUrl || ro?.slug || '').trim().toLowerCase();
     const resolvedOrgType = String(ro?.organization_type || ro?.organizationType || '').toLowerCase();
+
+    if (isSchoolCareBridge.value) {
+      if (resolvedOrgType === 'school' && resolvedSlug && route.params.organizationSlug !== resolvedSlug) {
+        sessionStorage.setItem('__pt_login_pending_username__', u);
+        sessionStorage.setItem('__pt_login_pending_verify__', '1');
+        await router.replace({ path: schoolCareBridgePath(resolvedSlug) }); return;
+      }
+      // Agency identities keep the SchoolCareBridge login presentation.
+      // Authenticate in the resolved organization; choose authorized schools after login.
+      scbAuthOrg.value = resolvedSlug || String(route.params.organizationSlug || '');
+      if (identifiedLoginMethod.value === 'google') {
+        const path = withSsoNext(String(data?.login?.googleStartUrl || ''));
+        if (path) { window.location.assign(`${getBackendBaseUrl()}${path}`); return; }
+      }
+      showPassword.value = true; return;
+    }
 
     const current = effectiveLoginSlug.value || '';
     const isSummitLogin = isSummitTenantSlug(current);
@@ -2287,6 +2325,14 @@ const handleLogin = async () => {
         agencyStore.applyLoginAgencies(result.agencies);
       }
 
+      if (isSchoolCareBridge.value) {
+        sessionStorage.removeItem('__pt_login_pending_username__');
+        sessionStorage.removeItem('__pt_login_pending_verify__');
+        const destination = route.query.redirect;
+        const safeDestination = typeof destination === 'string' && isSchoolCareBridgePath(destination) && !destination.includes('\\');
+        await router.replace(safeDestination ? destination : schoolCareBridgePath(String(route.params.organizationSlug || '')));
+        loading.value = false; return;
+      }
       const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
       const agencyList = Array.isArray(agencies) ? agencies : [];
       const schoolStaffSlug = roleNorm === 'school_staff' ? getPrimarySchoolStaffPortalSlug(agencyList) : null;
@@ -2488,6 +2534,7 @@ const submitGuardianTempPasswordHelp = async () => {
     }
     const resp = await api.post('/auth/request-guardian-temp-password', {
       email: String(forgotPasswordEmail.value || '').trim(),
+      ...(isSchoolCareBridge.value ? { surface: 'schoolcarebridge' } : {}),
       organizationSlug: loginSlug.value || undefined,
       captchaToken: captchaToken || undefined
     }, { skipGlobalLoading: true, skipAuthRedirect: true });
@@ -2511,6 +2558,7 @@ const submitForgotPassword = async () => {
     // waiting on Enterprise script load was hanging the button with no feedback.
     const resp = await api.post('/auth/request-password-reset', {
       email: String(forgotPasswordEmail.value || '').trim(),
+      ...(isSchoolCareBridge.value ? { surface: 'schoolcarebridge' } : {}),
       organizationSlug: loginSlug.value || undefined
     }, { skipGlobalLoading: true, skipAuthRedirect: true });
 

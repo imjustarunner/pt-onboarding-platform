@@ -203,6 +203,7 @@ import publicAgencyServicesRoutes from './routes/publicAgencyServices.routes.js'
 import publicUnifiedBookingRoutes from './routes/publicUnifiedBooking.routes.js';
 import platformSessionNotificationsRoutes from './routes/platformSessionNotifications.routes.js';
 import publicSchoolsRoutes from './routes/publicSchools.routes.js';
+import schoolCareBridgeRoutes from './routes/schoolCareBridge.routes.js';
 import publicSchoolReferralRoutes from './routes/publicSchoolReferral.routes.js';
 import publicDistrictScheduleRoutes from './routes/publicDistrictSchedule.routes.js';
 import publicAgencySupportRoutes from './routes/publicAgencySupport.routes.js';
@@ -753,6 +754,7 @@ app.use('/api/public/unified-booking', publicUnifiedBookingRoutes);
 app.use('/api/platform/session-notification-settings', platformSessionNotificationsRoutes);
 app.use('/api/public/provider-availability', publicProviderAvailabilityRoutes);
 app.use('/api/public/schools', publicSchoolsRoutes);
+app.use('/api/schoolcarebridge', schoolCareBridgeRoutes);
 app.use('/api/public/school-referral', publicSchoolReferralRoutes);
 app.use('/api/public/district-schedule', publicDistrictScheduleRoutes);
 app.use('/api/public/agency-support', publicAgencySupportRoutes);

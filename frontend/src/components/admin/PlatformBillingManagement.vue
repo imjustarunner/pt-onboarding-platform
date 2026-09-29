@@ -1,5 +1,6 @@
 <template>
   <div class="platform-billing">
+    <SchoolCareBridgeProgramBilling />
     <div class="section-header">
       <h2>Platform Billing</h2>
       <p class="section-description">
@@ -125,6 +126,7 @@
 </template>
 
 <script setup>
+import SchoolCareBridgeProgramBilling from './SchoolCareBridgeProgramBilling.vue';
 import { onMounted, ref } from 'vue';
 import api from '../../services/api';
 

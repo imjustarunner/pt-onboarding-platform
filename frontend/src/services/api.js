@@ -1,3 +1,4 @@
+import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from '../utils/schoolCareBridge';
 import axios from 'axios';
 import { begin as beginGlobalLoading, end as endGlobalLoading } from '../utils/pageLoader';
 import {
@@ -7,7 +8,7 @@ import {
 import { isSchoolPortalShellActive } from '../utils/schoolPortalShell.js';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3000/api',
+  baseURL: (typeof window !== 'undefined' && (isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname)))) ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:3000/api'),
   headers: {
     'Content-Type': 'application/json'
   },
@@ -129,6 +130,7 @@ function checkRequestStorm(config) {
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
+    if (isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname))) config.baseURL = '/api';
     // Circuit-breaker check must run before anything else (incl. global loading),
     // so a tripped request never begins a loading overlay or touches the network.
     checkRequestStorm(config);

@@ -1,0 +1,68 @@
+<template>
+ <div class="scb-entry" :style="schoolStyle">
+  <header class="scb-header"><SchoolCareBridgeBrand/><div class="scb-school-identity" v-if="school"><img v-if="school.logoUrl" :src="asset(school.logoUrl)" alt="" @error="hideImage"/><strong>{{school.name}}<small>School portal</small></strong></div><div class="scb-entry-links"><router-link :to="schoolCareBridgePath()">{{school ? 'Switch school' : 'Portal home'}}</router-link><a href="https://mh4kidz.org">MH4Kidz ↗</a><button v-if="auth.isAuthenticated" @click="logout">Sign out</button></div></header>
+  <div v-if="school?.agencies?.length" class="scb-affiliates"><span>Affiliated agencies</span><div v-for="agency in school.agencies" :key="agency.id"><img v-if="agency.logoUrl" :src="asset(agency.logoUrl)" alt="" @error="hideImage"/><strong>{{agency.name}}</strong></div></div>
+  <p v-if="busy" class="scb-status" role="status">Opening your portal…</p>
+  <section v-else-if="error" class="scb-status" role="alert"><h1>We couldn’t open this portal</h1><p>{{error}}</p><router-link :to="schoolCareBridgePath()">Choose a school</router-link> <button @click="load">Try again</button></section>
+  <template v-else-if="auth.isAuthenticated">
+   <OrganizationDashboardView v-if="school && authorized" />
+   <main v-else class="scb-school-picker"><p class="scb-eyebrow">SchoolCareBridge · A program of MH4Kidz</p><h1>Choose your school</h1><p>Open a school portal available to your account.</p><div class="scb-picker-grid"><router-link v-for="item in schools" :key="item.id" :to="schoolCareBridgePath(item.slug)"><img v-if="item.logoUrl" :src="asset(item.logoUrl)" alt="" @error="hideImage"/><strong>{{item.name}}</strong><span>→</span></router-link></div><p v-if="!schools.length">No active school portals are available to this account. Contact your school or agency administrator for access.</p><a v-if="auth.user?.role!=='school_staff'" class="scb-button scb-outline" :href="agencyWorkspace">Open agency workspace ↗</a></main>
+  </template>
+  <main v-else class="scb-login-layout" :class="{'scb-school-login':school}">
+   <section class="scb-login-story">
+    <p class="scb-eyebrow">{{school ? 'Your school community' : 'Connecting schools. Supporting students.'}}</p>
+    <h1>{{school ? `${school.name} School Portal` : 'A shared place for schools and care teams.'}}</h1>
+    <p>{{school?.tagline || (school ? 'Sign in with your existing account to coordinate with your school and affiliated agency partners.' : 'Find your school, connect with your care partners, and keep everyday coordination in one place.')}}</p>
+    <div class="scb-login-tools"><span v-for="tool in ['Providers','Days & schedule','Student roster','Messages','Digital forms','Upload packet']" :key="tool">{{tool}}</span></div>
+    <p class="scb-login-footnote">Available tools and information depend on your authorized access.</p>
+    <router-link v-if="!school" to="/schoolcarebridge/for-schools">Explore SchoolCareBridge →</router-link>
+   </section>
+   <section class="scb-auth-card" aria-label="Sign in"><h2>{{school ? 'Sign in to your school portal' : 'Welcome back'}}</h2><p>Start with your email address.</p><LoginView /></section>
+  </main>
+  <footer class="scb-entry-footer">SchoolCareBridge · A program of MH4Kidz <span>Technology managed by Plot Twist Co.</span><router-link to="/schoolcarebridge/security">Access & privacy</router-link></footer>
+ </div>
+</template>
+<script setup>
+import {computed,onMounted,ref,watch} from 'vue';
+import {useRoute,useRouter} from 'vue-router';
+import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import LoginView from '../LoginView.vue';
+import OrganizationDashboardView from '../OrganizationDashboardView.vue';
+import {useAuthStore} from '../../store/auth';
+import {useAgencyStore} from '../../store/agency';
+import {useOrganizationStore} from '../../store/organization';
+import {useBrandingStore} from '../../store/branding';
+import api from '../../services/api';
+import {toUploadsUrl} from '../../utils/uploadsUrl';
+import {schoolCareBridgePath,schoolCareBridgeExternalPath} from '../../utils/schoolCareBridge';
+import {publicWebsiteUrl} from '../../composables/useStandalonePublicWebsite';
+import '../../styles/schoolCareBridge.css';
+const route=useRoute(),router=useRouter(),auth=useAuthStore(),agencyStore=useAgencyStore(),organizationStore=useOrganizationStore(),brandingStore=useBrandingStore();
+const school=ref(null),schools=ref([]),busy=ref(true),error=ref(''),authorized=ref(false);
+const asset=value=>value?.startsWith('/assets/')?value:toUploadsUrl(value);
+const hideImage=event=>{event.target.style.display='none';};
+const options={skipAuthRedirect:true,skipGlobalLoading:true};
+const schoolStyle=computed(()=>{const color=school.value?.colors?.primary;const background=publicWebsiteUrl(school.value?.backgroundUrl);return {...(/^#[a-f0-9]{3,8}$/i.test(color||'')?{'--scb-school-color':color}:{}),...(background?{'--scb-school-background':`url("${background.replace(/["\\\n\r]/g,'')}")`}:{})};});
+const agencyWorkspace=computed(()=>{const agency=(agencyStore.userAgencies||[]).find(a=>a.organization_type==='agency');return `https://plottwisthq.com/${encodeURIComponent(agency?.portal_url||agency?.slug||'')}${agency?'/dashboard':'dashboard'}`;});
+async function load(){busy.value=true;error.value='';authorized.value=false;try{
+ const slug=String(route.params.organizationSlug||'');
+ if(slug){const {data}=await api.get(`/schoolcarebridge/schools/${encodeURIComponent(slug)}`,options);school.value=data.school;}
+ if(route.query.routingHint){const token=String(route.query.routingHint);const clean={...route.query};delete clean.routingHint;try{const {data}=await api.post('/schoolcarebridge/routing-hint/consume',{token,destination:window.location.origin+schoolCareBridgeExternalPath(route.path)},options);sessionStorage.setItem('__pt_login_pending_username__',data.username);sessionStorage.setItem('__pt_login_pending_verify__','1');}finally{await router.replace({path:route.path,query:clean});}}
+ if(auth.isAuthenticated){
+  if(!agencyStore.userAgencies?.length)await agencyStore.fetchUserAgencies();
+  if(slug){await api.get(`/schoolcarebridge/access/${encodeURIComponent(slug)}`,options);await organizationStore.fetchBySlug(slug);brandingStore.setActiveRouteSlug(slug);await brandingStore.fetchAgencyTheme(slug);authorized.value=true;}
+  else {const {data}=await api.get('/schoolcarebridge/my-schools',options);schools.value=data.schools||[];}
+ }
+ document.title=school.value?`${school.value.name} | SchoolCareBridge`:'Sign in | SchoolCareBridge';
+}catch(e){if(e.response?.status===401 && auth.isAuthenticated){auth.clearAuth();error.value='';}else{error.value=e.response?.data?.error?.message||'Please try again or contact your school administrator.';}}finally{busy.value=false;}}
+async function logout(){await auth.logout();if(auth.isAuthenticated)return;window.location.assign(schoolCareBridgeExternalPath(schoolCareBridgePath(school.value?.slug||'')));}
+watch(()=>auth.isAuthenticated,()=>load());
+onMounted(load);
+</script>
+<style scoped>
+.scb-entry{background:#f5faff}.scb-header{background:white;max-width:none;padding:8px 35px;border-bottom:1px solid #e2ebf1}.scb-school-identity{display:flex;align-items:center;gap:13px;margin-right:auto}.scb-school-identity img{width:48px;height:48px;object-fit:contain}.scb-school-identity small{display:block;font-weight:400;font-size:12px;color:#61758a}.scb-entry-links{display:flex;gap:20px;font-size:12px;align-items:center}.scb-entry-links button{border:1px solid #ccdce9;background:white;border-radius:8px;padding:8px 13px}.scb-affiliates{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:24px;background:white;border-bottom:1px solid #e2ebf1;padding:12px;font-size:12px}.scb-affiliates>span{color:#65758a;font-size:11px;text-transform:uppercase;letter-spacing:.08em}.scb-affiliates>div{display:flex;align-items:center;gap:8px}.scb-affiliates img{max-width:95px;height:30px;object-fit:contain}.scb-login-layout{max-width:1440px;margin:auto;display:grid;grid-template-columns:1fr 1fr;align-items:center;gap:55px;padding:65px 65px 85px;background:linear-gradient(125deg,#f1fbffdd,#f6fbf5ee),url('/assets/mh4kidz/mountains.webp') center/cover}.scb-school-login{background:linear-gradient(125deg,#f1fbfff5,#f6fbf5d9),var(--scb-school-background,url('/assets/mh4kidz/mountains.webp')) center/cover}.scb-login-story h1{font-size:clamp(34px,3.7vw,54px);letter-spacing:-.035em;line-height:1.12;margin:0 0 25px;color:var(--scb-school-color,#102e53)}.scb-login-story>p:not(.scb-eyebrow){font-size:18px;color:#465f76}.scb-login-tools{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:30px 0}.scb-login-tools span{border:1px solid #e0eaf1;border-radius:12px;background:#fffffff0;padding:17px 20px;font-size:14px;font-weight:700}.scb-login-story .scb-login-footnote{font-size:12px!important}.scb-auth-card{padding:35px 30px;background:white;box-shadow:0 14px 50px #16394f14;border:1px solid #e2eaf0;border-radius:22px;min-width:0}.scb-auth-card>h2{font-size:29px;text-align:center;margin-bottom:10px}.scb-auth-card>p{text-align:center;color:#5a7085;font-size:14px}.scb-auth-card :deep(.login-page){padding:0!important;background:none!important;min-height:0!important;display:block!important}.scb-auth-card :deep(.login-container){background:none!important;width:100%!important;max-width:none!important;padding:0!important;margin:0!important}.scb-auth-card :deep(.login-card){width:100%!important;max-width:none!important;padding:0!important;box-shadow:none!important;border:0!important;background:none!important;display:block!important}.scb-auth-card :deep(.login-dual-brand),.scb-auth-card :deep(.login-logo),.scb-auth-card :deep(.logo),.scb-auth-card :deep(.login-card>h2),.scb-auth-card :deep(.login-card>h1),.scb-auth-card :deep(.login-card>.subtitle),.scb-auth-card :deep(.app-preview-toggle-group),.scb-auth-card :deep(.platform-footer),.scb-auth-card :deep(video){display:none!important}.scb-entry-footer{display:flex;gap:25px;justify-content:center;flex-wrap:wrap;padding:28px 20px;font-size:12px;color:#5a7085}.scb-entry-footer span{font-size:11px}.scb-school-picker{max-width:1000px;margin:auto;padding:65px 25px;min-height:60vh}.scb-school-picker h1{font-size:38px}.scb-picker-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:15px;margin:30px 0}.scb-picker-grid a{display:flex;align-items:center;gap:14px;background:white;border:1px solid #dce8f0;border-radius:14px;padding:25px;text-decoration:none}.scb-picker-grid img{width:42px;height:42px;object-fit:contain}.scb-picker-grid span{margin-left:auto}
+@media(max-width:900px){.scb-login-layout{gap:25px;padding:40px 25px}.scb-header{flex-wrap:wrap;padding:8px 20px}.scb-entry-links{width:100%;justify-content:center;padding-bottom:10px}.scb-auth-card{padding:25px 20px}}
+@media(max-width:650px){.scb-login-layout{grid-template-columns:1fr;padding:30px 18px}.scb-login-tools{display:none}.scb-login-story h1{font-size:33px}.scb-login-story>p:not(.scb-eyebrow){font-size:16px}.scb-school-identity{margin:0 auto}.scb-picker-grid{grid-template-columns:1fr}.scb-auth-card{padding:28px 18px}.scb-entry-footer{gap:10px;text-align:center}}
+
+.scb-auth-card :deep(.login-credentials-wrap){display:flex!important;flex-direction:column;gap:18px!important}.scb-auth-card :deep(.form-group){margin-bottom:0}.scb-auth-card :deep(.intakes-trigger-row){display:none}.scb-auth-card :deep(.btn-primary){background:linear-gradient(120deg,#008de5,#0768cc)!important;border-color:transparent!important;color:white!important;border-radius:9px;min-height:46px}.scb-auth-card :deep(input:not([type=checkbox])),.scb-auth-card :deep(select){border:1px solid #c6d5e2!important;border-radius:8px!important;min-height:48px!important;background:white!important;color:#173b5e!important;font-size:15px!important}.scb-auth-card :deep(.help-link),.scb-auth-card :deep(.login-security-link),.scb-auth-card :deep(.password-toggle){color:#006ec6!important}.scb-auth-card :deep(label){color:#183958}.scb-auth-card :deep(.login-help){line-height:1.8}.scb-auth-card :deep(.login-security-footer){background:none;padding-top:16px}.scb-auth-card :deep(.remember-row){margin-top:20px}.scb-auth-card :deep(.login-page){--primary-color:#007cdd;--secondary-color:#139e61}
+</style>

@@ -1,3 +1,4 @@
+import { mintRoutingHint } from '../services/schoolCareBridgeRouting.service.js';
 import { getPasswordRecoverySsoState, passwordRecoveryRequiresSupport, PASSWORD_RECOVERY_SUPPORT_MESSAGE } from '../services/passwordRecoveryPolicy.service.js';
 import { accountPasswordLocked, recordPasswordResult } from '../middleware/loginProtection.middleware.js';
 import bcrypt from 'bcrypt';
@@ -1246,6 +1247,15 @@ export const identifyLogin = async (req, res, next) => {
 
     let affiliationBranding = null;
 
+    // SchoolCareBridge chooses an actual school before applying its login policy.
+    if (req.body?.surface === 'schoolcarebridge' && userRole === 'school_staff') {
+      const schools = orgOptions.filter(o => o.organization_type === 'school');
+      const chosen = schools.find(o => pickSlug(o) === requestedOrgSlug);
+      if (schools.length > 1 && !chosen) {
+        return res.json({ matched: true, normalizedUsername, needsOrgChoice: true, orgOptions: schools, resolvedOrg: null, login: { method: 'password' } });
+      }
+    }
+
     // Resolve org context
     let resolved = null;
     const requested = requestedOrgSlug ? String(requestedOrgSlug).trim().toLowerCase() : null;
@@ -1434,6 +1444,13 @@ export const identifyLogin = async (req, res, next) => {
       }
     }
 
+    let schoolCareBridgeRedirect = null;
+    if (req.body?.surface !== 'schoolcarebridge' && userRole === 'school_staff' && orgOptions.some(o => o.organization_type === 'school')) {
+      const origin = String(req.get('origin') || '');
+      if (origin === 'https://app.itsco.health') {
+        schoolCareBridgeRedirect = await mintRoutingHint(pool, { username: normalizedUsername, slug: resolved?.organization_type === 'school' ? resolvedSlug : '' });
+      }
+    }
     notifyRescueAttempt({ matched: true, method: loginMethod, resolvedSlug });
     const passwordPolicy =
       loginMethod === 'password'
@@ -1454,6 +1471,7 @@ export const identifyLogin = async (req, res, next) => {
           }
         : null,
       affiliationBranding,
+      schoolCareBridgeRedirect,
       login:
         loginMethod === 'google'
           ? { method: 'google', googleStartUrl }
@@ -1833,10 +1851,18 @@ export const googleOAuthCallback = async (req, res, next) => {
     const reqRedirectUri = buildOAuthRedirectUriForRequest();
     const reqFrontendBase = frontendBaseFromRedirectUri(reqRedirectUri);
 
+    let schoolCareBridgeReturn = null;
+    try {
+      const state = verifyGoogleState(String(req.query?.state || ''));
+      const next = String(state?.next || '');
+      if (/^\/schoolcarebridge\/app(?:\/|$)/.test(next) || (['schoolcarebridge.org','www.schoolcarebridge.org'].includes(new URL(state.redirectUri).hostname) && /^\/app(?:\/|$)/.test(next))) {
+        if (!next.includes('\\')) schoolCareBridgeReturn = next.split('?')[0];
+      }
+    } catch { /* Unverified state must never control a destination. */ }
     const redirectToLogin = (orgSlug, msg, frontendBase = reqFrontendBase) => {
       const safeSlug = String(orgSlug || '').trim() || '';
       const url = new URL(frontendBase || config.frontendUrl);
-      url.pathname = safeSlug ? `/${safeSlug}/login` : '/login';
+      url.pathname = schoolCareBridgeReturn || (safeSlug ? `/${safeSlug}/login` : '/login');
       if (msg) url.searchParams.set('error', String(msg));
       return res.redirect(302, url.toString());
     };

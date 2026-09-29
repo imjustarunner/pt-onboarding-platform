@@ -1946,6 +1946,7 @@
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
         <ProviderAvailabilityNotice v-if="isAuthenticated && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
         <DashboardMeetings v-if="authStore.isAuthenticated && /dashboard/i.test(route.path)" />
+        <SchoolCareBridgeBrand v-if="route.path.startsWith('/schoolcarebridge/app/') && !route.meta.schoolCareBridgeEntry" style="margin: 10px auto" />
         <router-view :key="route.path" />
       </main>
       <PublicTranslateWidget v-if="showPublicTranslateWidget" />
@@ -1995,11 +1996,11 @@
         @dismiss="loginSplashVisible = false"
       />
       <PrivilegedLoginBriefingModal
-        v-if="isAuthenticated"
+        v-if="isAuthenticated && !route.path.startsWith('/schoolcarebridge')"
         :login-trigger="privilegedLoginBriefingTrigger"
       />
       <ProviderLoginBriefingModal
-        v-if="isAuthenticated"
+        v-if="isAuthenticated && !route.path.startsWith('/schoolcarebridge')"
         :login-trigger="privilegedLoginBriefingTrigger"
       />
       <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute" />
@@ -2248,6 +2249,7 @@
 </template>
 
 <script setup>
+import SchoolCareBridgeBrand from './components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import DashboardMeetings from './components/meetings/DashboardMeetings.vue';
 import AppearanceSelect from './components/AppearanceSelect.vue';
 import { PLATFORM_BRAND } from './config/platformBrand.js';
@@ -3994,7 +3996,7 @@ const hideGlobalNavForSchoolStaff = computed(() => {
 /** Team-meeting / supervision join rooms + Quick View — hide app chrome that squeezes mobile layout. */
 const isImmersiveJoinRoute = computed(() => {
   if (['AdaptiveJoinHub','AdaptiveJoinService','OrganizationAdaptiveJoinAlt','OrganizationAdaptiveJoinService'].includes(route.name)) return true;
-  if (route.meta?.publicQuickView === true || route.meta?.publicMarketingHub === true || route.meta?.publicPageDesignPreview === true) return true;
+  if (route.path.startsWith('/schoolcarebridge') || route.meta?.publicQuickView === true || route.meta?.publicMarketingHub === true || route.meta?.publicPageDesignPreview === true) return true;
   const path = String(route.path || '');
   return (
     path.startsWith('/quick-view/')

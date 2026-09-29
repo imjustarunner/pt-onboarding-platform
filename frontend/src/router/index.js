@@ -1,5 +1,6 @@
 import { routeRequiresSchoolPortalsFeature, routeRequiresProgramOverviewDashboard, routeRequiresSkillBuildersSchoolProgramFeature } from '../navigation/routeFeatures.js';
 import { isLoginEntryRoute, getSsoArrivalRoute } from '../utils/loginHandoff';
+import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowPath } from '../utils/schoolCareBridge.js';
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { rememberVerifiedGoogleAccount } from '../utils/googleAccountMemory';
@@ -306,6 +307,12 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  { path: '/schoolcarebridge/session-ended', name: 'SchoolCareBridgeSessionEnded', component: () => import('../views/school/SchoolCareBridgeSessionEnded.vue'), meta: { requiresGuest: false } },
+  { path: '/schoolcarebridge/app', name: 'SchoolCareBridgeLogin', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true } },
+  { path: '/schoolcarebridge/app/:organizationSlug', name: 'SchoolCareBridgeSchool', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true, organizationSlug: true } },
+  { path: '/schoolcarebridge/:section?', name: 'SchoolCareBridgeWebsite', component: () => import('../views/public/SchoolCareBridgeWebsite.vue'), meta: { publicMarketingHub: true } },
+  { path: '/p/schoolcarebridge/:section?', redirect: to => ({ path: '/schoolcarebridge' + (to.params.section ? '/' + to.params.section : ''), query: to.query, hash: to.hash }) },
+
   { path: '/latinx/:section?', name: 'LatinxProviderDirectory', component: () => import('../views/public/ProviderDirectoryView.vue'), meta: { requiresGuest: false, publicMarketingHub: true, hideNav: true, publicMarketingTitle: 'Latinx Therapist Project CO | Provider Directory' } },
   { path: '/provider-directory/:directorySlug/:section?', name: 'PublicProviderDirectory', component: () => import('../views/public/ProviderDirectoryView.vue'), meta: { requiresGuest: false, publicMarketingHub: true, hideNav: true, publicMarketingTitle: 'Provider Directory' } },
   { path: '/:organizationSlug/email-compose', name: 'OrganizationEmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { requiresAuth: true, hideNav: true, organizationSlug: true } },
@@ -4687,6 +4694,12 @@ const routes = [
   }
 ];
 
+// Aliases retain existing route identity, role guards, and workflow components.
+for (const route of routes) {
+  if (['OrganizationResetPassword', 'OrganizationChangePassword', 'OrganizationSchoolProviderProfile', 'OrganizationDocumentSigning', 'OrganizationDocumentReview', 'OrganizationDocumentPrint', 'OrganizationSchoolReinitPublic'].includes(route.name)) {
+    route.alias = [...(Array.isArray(route.alias) ? route.alias : route.alias ? [route.alias] : []), route.path.replace('/:organizationSlug', '/schoolcarebridge/app/:organizationSlug')];
+  }
+}
 const router = createRouter({
   history: publicDomainHistory(createWebHistory(), window.location.hostname),
   routes,
@@ -4824,6 +4837,31 @@ router.beforeEach(async (to, from, next) => {
       return false;
     }
   };
+
+  // Keep links emitted by the shared school components on the SchoolCareBridge surface.
+  if (isSchoolCareBridgePath(from.path) && !isSchoolCareBridgePath(to.path)) {
+    if (['OrganizationDashboard', 'OrganizationLogin'].includes(String(to.name)) && to.params.organizationSlug) {
+      next({ path: schoolCareBridgePath(String(to.params.organizationSlug)), query: to.query, hash: to.hash, replace: true }); return;
+    }
+    const school = String(from.params.organizationSlug || '');
+    const mapped = schoolCareBridgeWorkflowPath(to.path, school);
+    if (mapped) { next({ path: mapped, query: to.query, hash: to.hash, replace: true }); return; }
+    if (to.path === '/login') { next({ path: schoolCareBridgePath(school), query: to.query, replace: true }); return; }
+  }
+  if (to.meta.schoolCareBridgeEntry) {
+    await tryBootstrapAuthFromCookie();
+    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
+      const school = String(to.params.organizationSlug || '');
+      next({ path: school ? schoolCareBridgePath(school, '/change-password') : '/change-password', query: { redirect: to.fullPath }, replace: true });
+      return;
+    }
+    // The entry component checks /schoolcarebridge/access before mounting any school workflows.
+    next(); return;
+  }
+  if (isSchoolCareBridgePath(to.path) && to.meta.requiresAuth && !authStore.isAuthenticated) {
+    await tryBootstrapAuthFromCookie();
+    if (!authStore.isAuthenticated) { next({ path: schoolCareBridgePath(String(to.params.organizationSlug || '')), query: { redirect: to.fullPath }, replace: true }); return; }
+  }
 
   if (isFamilyHost() && !to.meta?.familyCommandCenter) {
     next({ name: 'FamilyCommandCenter', query: to.query, hash: to.hash, replace: true });
@@ -5636,6 +5674,7 @@ router.beforeEach(async (to, from, next) => {
   // In installed mobile PWA mode, provider-access users should stay in the provider-mobile shell.
   if (
     authStore.isAuthenticated &&
+    !isSchoolCareBridgePath(to.path) &&
     hasProviderMobileAccess(authStore.user) &&
     isStandalonePwa() &&
     isLikelyMobileViewport() &&

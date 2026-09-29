@@ -157,6 +157,7 @@
 </template>
 
 <script setup>
+import { isSchoolCareBridgePath, schoolCareBridgePath } from '../utils/schoolCareBridge';
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
@@ -223,7 +224,7 @@ const expiryCallout = computed(() => {
 });
 
 function goCancel() {
-  router.push(getDashboardRoute());
+  router.push(isSchoolCareBridgePath(route.path) ? schoolCareBridgePath(String(route.params.organizationSlug || '')) : (isSchoolCareBridgePath(String(route.query.redirect || '')) ? route.query.redirect : getDashboardRoute()));
 }
 
 const handleChange = async () => {
@@ -253,7 +254,7 @@ const handleChange = async () => {
     }
 
     setTimeout(() => {
-      router.push(getDashboardRoute());
+      router.push(isSchoolCareBridgePath(route.path) ? schoolCareBridgePath(String(route.params.organizationSlug || '')) : (isSchoolCareBridgePath(String(route.query.redirect || '')) ? route.query.redirect : getDashboardRoute()));
     }, 250);
   } catch (err) {
     formError.value = err.response?.data?.error?.message || err.message || 'Failed to change password.';

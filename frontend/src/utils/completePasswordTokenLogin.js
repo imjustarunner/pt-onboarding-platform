@@ -18,7 +18,7 @@ function markJustLoggedIn() {
  * Persist the JWT from a password-set / reset-token response and send the user
  * to their home (school portal for school staff, otherwise the usual dashboard).
  */
-export async function completePasswordTokenLogin(payload, router) {
+export async function completePasswordTokenLogin(payload, router, { destination = null } = {}) {
   const authStore = useAuthStore();
   const agencyStore = useAgencyStore();
   const user = payload?.user || null;
@@ -48,5 +48,5 @@ export async function completePasswordTokenLogin(payload, router) {
     if (slug) dest = `/${slug}/dashboard`;
   }
 
-  await router.replace(dest);
+  await router.replace(destination || dest);
 }

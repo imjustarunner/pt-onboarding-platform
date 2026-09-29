@@ -1,3 +1,4 @@
+import { isSchoolCareBridgeHost, isSchoolCareBridgePath, schoolCareBridgeExternalPath, schoolCareBridgePath } from './schoolCareBridge.js';
 import { buildOrgLoginPath } from './orgLoginPath';
 
 function coalesceOrgs(user, userAgencies) {
@@ -140,6 +141,8 @@ const NON_SLUG_SEGMENTS = [
 export function getCurrentPortalSlugFromPath() {
   if (typeof window === 'undefined' || !window.location?.pathname) return null;
   const parts = window.location.pathname.split('/').filter(Boolean);
+  if (parts[0] === 'schoolcarebridge' && parts[1] === 'app') return parts[2] || null;
+  if (isSchoolCareBridgeHost(window.location.hostname) && parts[0] === 'app') return parts[1] || null;
   const first = parts[0];
   if (!first || NON_SLUG_SEGMENTS.includes(first.toLowerCase())) return null;
   return first;
@@ -269,6 +272,10 @@ export function getLoginUrl(user = null, userAgencies = null) {
  * @returns {string} Login URL path
  */
 export function getLoginUrlForRedirect(user = null, userAgencies = null, opts = {}) {
+  if (typeof window !== 'undefined' && (isSchoolCareBridgeHost(window.location.hostname) || isSchoolCareBridgePath(window.location.pathname))) {
+    const school = window.location.pathname.match(/\/app\/([^/?#]+)/)?.[1] || '';
+    return schoolCareBridgeExternalPath(schoolCareBridgePath(school)) + (opts?.timeout ? '?timeout=true' : '');
+  }
   const hostImplied = String(getCurrentPortalSlugFromHostCache() || '').trim().toLowerCase() || null;
   const withTimeout = (base) => {
     if (!opts?.timeout) return base;

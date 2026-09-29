@@ -101,6 +101,7 @@ server {
  root /usr/share/nginx/html;
  location = /manifest.webmanifest { default_type application/manifest+json; add_header Cache-Control "no-cache"; try_files /manifest.webmanifest =404; }
  location = / { add_header Cache-Control "no-cache"; try_files /_public-sites/${slug}/home.html =404; }
+ ${slug === 'mh4kidz' ? 'location = /schoolcarebridge { add_header Cache-Control "no-cache"; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location = /schoolcarebridge/app { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/app/ { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/ { add_header Cache-Control "no-store"; try_files /_public-sites/schoolcarebridge/home.html =404; }' : ''}
  location = /login { return 302 https://app.${domain}/login$is_args$args; }
  location = /app { return 302 https://app.${domain}/login$is_args$args; }
  location ~ ^/[^/]+/login$ { return 302 https://app.${domain}/login$is_args$args; }
@@ -114,3 +115,23 @@ server {
 }
 `;}).join('\n');
 writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + publicServers);
+
+// Prepared now; DNS, certificate and load-balancer activation are separate rollout steps.
+mkdirSync(`${dist}/_public-sites/schoolcarebridge`, {recursive:true});
+const scbMeta = buildShareMeta({host:'schoolcarebridge.org',path:'/'});
+writeFileSync(`${dist}/_public-sites/schoolcarebridge/home.html`, injectPublicFavicon(injectShareMetaIntoHtml(shell,scbMeta), 'schoolcarebridge.org'));
+writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + `
+server {
+ listen 8080;
+ server_name schoolcarebridge.org www.schoolcarebridge.org;
+ root /usr/share/nginx/html;
+ add_header X-Content-Type-Options nosniff always;
+ location ^~ /api/ { return 404; } # Route /api/* to the existing backend at the load balancer.
+ location ^~ /_public-sites/ { return 404; }
+ location ~ \\.nginx\\.conf$ { return 404; }
+ location ^~ /assets/ { try_files $uri =404; }
+ location = /app { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /_public-sites/schoolcarebridge/home.html =404; }
+ location ^~ /app/ { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /_public-sites/schoolcarebridge/home.html =404; }
+ location / { add_header Cache-Control "no-cache"; try_files $uri /_public-sites/schoolcarebridge/home.html =404; }
+}
+`);

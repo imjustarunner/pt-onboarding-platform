@@ -1,3 +1,4 @@
+import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
 import { publicSupportSlugFromHost } from './publicDomainRouting.js';
 import { tenantFaviconUrl } from './tenantBrandAssets.js';
 
@@ -14,6 +15,7 @@ export const PUBLIC_WEBSITE_TITLES = {
 
 /** Public website identity must not depend on the visitor's selected app agency. */
 export function publicBrowserBranding(host, path = '/') {
+  if (isSchoolCareBridgeHost(host) || isSchoolCareBridgePath(path)) return { slug: 'schoolcarebridge', title: 'SchoolCareBridge | A program of MH4Kidz', favicon: '/assets/schoolcarebridge/logo.png' };
   const slug = publicSupportSlugFromHost(host) || String(path).match(/^\/p\/([^/?#]+)/)?.[1];
   const title = PUBLIC_WEBSITE_TITLES[slug];
   return title ? { slug, title, favicon: tenantFaviconUrl(slug) } : null;

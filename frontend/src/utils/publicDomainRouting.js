@@ -1,3 +1,4 @@
+import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
 /** Public-domain address adapter. App and Quick View hosts are deliberately excluded. */
 export const ITSCO_PUBLIC_HOSTS = ['itsco.health', 'www.itsco.health'];
 export const ITSCO_PUBLIC_SECTIONS = ['', 'community-standards', 'live-chat-support', 'services', 'providers', 'schools', 'about', 'growth', 'impact', 'team', 'insurance', 'resources', 'referral-network', 'contact', 'internships', 'founders', 'supervisors', 'internship-fair'];
@@ -34,6 +35,15 @@ export function publicSupportSlugFromHost(host = '') {
  return publicSiteSlug(host);
 }
 export function publicSitePaths(host) {
+ if (isSchoolCareBridgeHost(host)) return {
+  clean: value => String(value).replace(/^\/schoolcarebridge(?=\/|[?#]|$)/, '').replace(/^([?#]|$)/, '/$1'),
+  internal: value => {
+   const path = String(value);
+   if (isSchoolCareBridgePath(path) || /^\/(api|assets|uploads|p)(\/|$)/.test(path)) return path;
+   return `/schoolcarebridge${path === '/' ? '' : path}`;
+  }
+ };
+
  if (isItscoPublicHost(host)) return {clean: cleanItscoPath, internal: internalItscoPath};
  const slug = publicSiteSlug(host);
  if (!slug) return null;
@@ -50,6 +60,7 @@ export function publicSitePaths(host) {
   },
   internal(value) {
    const path = String(value);
+   if (isSchoolCareBridgePath(path)) return path;
    const pathname = path.split(/[?#]/)[0];
    const rest = path.slice(pathname.length);
    // Only root and single-segment marketing pages are adapted. Enrollment,

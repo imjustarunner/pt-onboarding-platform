@@ -1,3 +1,4 @@
+import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge';
 /**
  * Helpers for building absolute URLs to the backend `/uploads/*` routes.
  *
@@ -5,6 +6,7 @@
  * so relative `/uploads/...` URLs will hit the frontend Cloud Run service (404).
  */
 export function getBackendBaseUrl() {
+  if (typeof window !== 'undefined' && (isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname)))) return '/api';
   // Keep the API base as-is. We serve uploads from `/api/uploads/*` as well as `/uploads/*`,
   // so this works for:
   // - split-origin deployments (backend origin differs from frontend origin)

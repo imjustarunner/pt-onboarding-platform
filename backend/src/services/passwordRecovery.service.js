@@ -1,3 +1,4 @@
+import { schoolCareBridgeDeployment } from './schoolCareBridgeRouting.service.js';
 /**
  * Password recovery (Forgot Password) — first principles
  *
@@ -157,11 +158,16 @@ function loginReminderLines(loginEmail) {
   };
 }
 
-async function buildMessage({ user, agency, orgSlug, token, loginEmail, expiresInHours = RESET_HOURS }) {
-  const resetLink = EmailTemplateService.buildResetTokenLink(
+async function buildMessage({ user, agency, orgSlug, token, loginEmail, req, expiresInHours = RESET_HOURS }) {
+  let resetLink = EmailTemplateService.buildResetTokenLink(
     agency || { portal_url: orgSlug, slug: orgSlug },
     token
   );
+  if (req?.body?.surface === 'schoolcarebridge' && /^[a-z0-9][a-z0-9-]*$/.test(orgSlug || agency?.portal_url || agency?.slug || '')) {
+    const deployment = schoolCareBridgeDeployment();
+    const schoolSlug = orgSlug || agency?.portal_url || agency?.slug;
+    resetLink = `${deployment.origin}${deployment.basePath}/app/${encodeURIComponent(schoolSlug)}/reset-password/${encodeURIComponent(token)}`;
+  }
   const firstSet = userNeedsFirstPasswordSet(user);
   const reminder = loginReminderLines(loginEmail);
   let subject = firstSet ? 'Set your password' : 'Reset your password';
@@ -302,6 +308,7 @@ export async function requestPasswordRecoveryEmail({
 
   const tokenResult = existingTokenResult || await User.generatePasswordlessToken(user.id, RESET_HOURS, 'reset');
   const { subject, body, html, resetLink, firstSet } = await buildMessage({
+    req,
     user,
     agency,
     orgSlug,

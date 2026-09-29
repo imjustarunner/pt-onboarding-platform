@@ -5,5 +5,6 @@ const sites = {
 };
 export function publicWebsitePath(slug) {
  const site=sites[String(slug||'').toLowerCase().replace(/[^a-z0-9]/g,'')];
+ if (String(slug).toLowerCase() === 'schoolcarebridge') return '/schoolcarebridge';
  return site?`/p/${site}`:null;
 }

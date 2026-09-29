@@ -143,7 +143,7 @@ export const useAuthStore = defineStore('auth', () => {
       
       // Try regular login first
       try {
-        response = await api.post('/auth/login', { username: identifier, password, organizationSlug: orgSlug || undefined });
+        response = await api.post('/auth/login', { username: identifier, password, organizationSlug: orgSlug || undefined }, { skipAuthRedirect: true });
       } catch (regularLoginError) {
         // If regular login fails, try approved employee login
         if (regularLoginError.response?.status === 403 && regularLoginError.response?.data?.error?.code === 'SSO_REQUIRED') {
@@ -164,7 +164,7 @@ export const useAuthStore = defineStore('auth', () => {
           if (looksLikeUserNotFound && looksLikeEmail) {
             console.log('Regular login user not found, trying approved employee login...');
             try {
-              response = await api.post('/auth/approved-employee-login', { email: identifier, password });
+              response = await api.post('/auth/approved-employee-login', { email: identifier, password }, { skipAuthRedirect: true });
             } catch (approvedEmployeeError) {
               // Both failed, return the approved employee error (more specific)
               const errorMessage = approvedEmployeeError.response?.data?.error?.message || approvedEmployeeError.message || 'Login failed. Please check your credentials and try again.';
@@ -417,6 +417,12 @@ export const useAuthStore = defineStore('auth', () => {
       const { getLoginUrlForRedirect } = await import('../utils/loginRedirect');
       if (!loginUrl) {
         loginUrl = getLoginUrlForRedirect(currentUser);
+      }
+      if (window.location.pathname.startsWith('/schoolcarebridge') || ['schoolcarebridge.org','www.schoolcarebridge.org'].includes(window.location.hostname)) {
+        const { schoolCareBridgeExternalPath } = await import('../utils/schoolCareBridge');
+        loginUrl = String(options.redirectTo || '').startsWith('/session-ended?')
+          ? schoolCareBridgeExternalPath('/schoolcarebridge' + options.redirectTo)
+          : getLoginUrlForRedirect(currentUser);
       }
       _clearStoredAgencies();
 

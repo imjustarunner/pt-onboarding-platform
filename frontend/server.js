@@ -90,6 +90,13 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use((req, res, next) => {
+  if (/^\/schoolcarebridge\/app(?:\/|$)/.test(req.path) || (['schoolcarebridge.org','www.schoolcarebridge.org'].includes(String(req.headers.host || '').split(':')[0]) && /^\/app(?:\/|$)/.test(req.path))) {
+    res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex');
+  }
+  next();
+});
+
 // Serve static files from dist directory
 // This handles all static assets including /assets/* files
 app.use(express.static(distPath, {

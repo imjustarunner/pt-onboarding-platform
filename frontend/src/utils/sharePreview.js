@@ -1,3 +1,4 @@
+import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
 import { publicSiteSlug, isItscoPublicHost } from './publicDomainRouting.js';
 
 /**
@@ -164,7 +165,8 @@ export function buildShareMeta({ host, path, proto = 'https' } = {}) {
   const hostname = normHost(host);
   const hostSlug = isItscoPublicHost(hostname) ? 'itsco' : publicSiteSlug(hostname);
   const pathSlugWebsite = /^\/p\//.test(path || '') ? String(path).split('?')[0].split('/')[2] : null;
-  const website = PUBLIC_WEBSITES[hostSlug || pathSlugWebsite];
+  const scb = isSchoolCareBridgeHost(hostname) || isSchoolCareBridgePath(path);
+  const website = scb ? { name: 'SchoolCareBridge | A program of MH4Kidz', image: '/assets/schoolcarebridge/logo.png', description: 'Connecting schools and mental health agencies. A school-centered program of MH4Kidz.' } : PUBLIC_WEBSITES[hostSlug || pathSlugWebsite];
   const isWebsite = !!website;
   const pathSlug = resolvePathTenantSlug(path);
   const pathTenant = PATH_TENANTS[pathSlug] || null;

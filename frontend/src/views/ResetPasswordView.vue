@@ -1,6 +1,6 @@
 <template>
   <div class="reset-page" :style="pageStyle">
-    <div class="reset-content">
+    <div class="reset-content"><SchoolCareBridgeBrand v-if="isSchoolCareBridgePath(route.path)" />
       <div class="reset-card">
         <PasswordRecoveryBrand
           :tenant="tenantBrand"
@@ -108,6 +108,8 @@
 </template>
 
 <script setup>
+import SchoolCareBridgeBrand from '../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import { isSchoolCareBridgePath, schoolCareBridgePath } from '../utils/schoolCareBridge';
 import { ref, computed, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useBrandingStore } from '../store/branding';
@@ -145,6 +147,11 @@ const pageStyle = computed(() => ({
 }));
 const loginTo = computed(() => {
   const slug = route.params.organizationSlug || tenantBrand.value?.slug;
+  if (isSchoolCareBridgePath(route.path)) {
+    // Agency recovery links carry an agency slug; only school identities should
+    // return to a school-specific entry. Others resume email discovery.
+    return schoolCareBridgePath(schoolBrand.value ? String(route.params.organizationSlug || schoolBrand.value.slug || '') : '');
+  }
   return slug ? `/${slug}/login` : '/login';
 });
 
@@ -220,7 +227,9 @@ const handleReset = async () => {
       successMessage.value = resp.data.message;
       return;
     }
-    await completePasswordTokenLogin(resp.data, router);
+    await completePasswordTokenLogin(resp.data, router, {
+      destination: isSchoolCareBridgePath(route.path) ? loginTo.value : null
+    });
   } catch (err) {
     formError.value = err.response?.data?.error?.message || err.message || 'Failed to reset password.';
     saving.value = false;
