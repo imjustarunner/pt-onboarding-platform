@@ -6,6 +6,7 @@
   >
     <!-- Root: categorized submit actions -->
     <div v-if="view === 'root'" class="submit-hub__root">
+      <AccountabilityWorkspace :agency-id="agencyId" />
       <PayCalculatorCard :agency-id="agencyId" :start-expanded="false" />
 
       <button
@@ -165,6 +166,7 @@
 <script setup>
 import { computed, toRef } from 'vue';
 import SubmitHubPanel from './SubmitHubPanel.vue';
+import AccountabilityWorkspace from './AccountabilityWorkspace.vue';
 import SubmitHubSection from './SubmitHubSection.vue';
 import SubmitSubmissionHistoryColumn from './SubmitSubmissionHistoryColumn.vue';
 import AdditionalAvailabilitySubmit from '../AdditionalAvailabilitySubmit.vue';

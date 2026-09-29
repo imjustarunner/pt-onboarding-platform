@@ -141,6 +141,7 @@ import kudosRoutes from './routes/kudos.routes.js';
 import kioskRoutes from './routes/kiosk.routes.js';
 import emergencyBroadcastRoutes from './routes/emergencyBroadcast.routes.js';
 import payrollRoutes from './routes/payroll.routes.js';
+import accountabilityRoutes from './routes/accountability.routes.js';
 import companyCarRoutes from './routes/companyCar.routes.js';
 // Budget routes lazy-loaded to avoid startup lag from @google-cloud/vision
 import weatherRoutes from './routes/weather.routes.js';
@@ -1007,6 +1008,7 @@ app.use('/api/kudos', kudosRoutes);
 app.use('/api/kiosk', kioskRoutes);
 app.use('/api/emergency-broadcasts', emergencyBroadcastRoutes);
 app.use('/api/payroll', payrollRoutes);
+app.use('/api/accountability', accountabilityRoutes);
 app.use('/api/company-car', companyCarRoutes);
 app.use('/api/company-events', companyEventClientsRoutes);
 app.use('/api/company-events', companyEventStaffingRoutes);

@@ -35,6 +35,7 @@
     </template>
 
     <template #after-filters>
+      <AccountabilityWorkspace :agency-id="agencyId" />
       <div v-if="currentTierBanner" class="pay-tier-banner" :class="`pay-tier-banner--${currentTierBanner.kind}`">
         <strong>{{ currentTierBanner.label }}</strong>
         <span>{{ currentTierBanner.detail }}</span>
@@ -2441,6 +2442,7 @@ import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import PayrollHubPanel from './PayrollHubPanel.vue';
+import AccountabilityWorkspace from './AccountabilityWorkspace.vue';
 import PayrollHubSection from './PayrollHubSection.vue';
 import IndirectTimeClaimEditModal from './IndirectTimeClaimEditModal.vue';
 import PayCalculatorCard from './PayCalculatorCard.vue';
