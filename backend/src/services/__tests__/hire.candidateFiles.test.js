@@ -11,6 +11,17 @@ describe('applicant resume files', () => {
     expect(await resolveOwnedAdminDocStoragePath(doc, 30)).toBe(doc.storage_path);
     expect(m.execute).not.toHaveBeenCalled();
   });
+  it.each(['application','resume','reference-release','candidate-copy'])('recognizes the unique saveAdminDoc prefix for %s without reopening protected intake storage',async(kind)=>{
+    const doc={id:193,doc_type:'resume',storage_path:`admin_docs/1790634023437-f5ngbvg7-${kind}-1312-unique.pdf`};
+    m.read.mockRejectedValue(Object.assign(new Error('held'),{code:'ACTIVITY_REVIEW_REQUIRED'}));
+    expect(await resolveOwnedAdminDocStoragePath(doc,1312)).toBe(doc.storage_path);
+    expect(m.read).not.toHaveBeenCalled();expect(m.execute).not.toHaveBeenCalled();
+  });
+  it('does not treat another candidate’s named copy as an owned import',async()=>{
+    m.execute.mockResolvedValue([[]]);
+    await resolveOwnedAdminDocStoragePath({doc_type:'resume',storage_path:'admin_docs/1790634023437-f5ngbvg7-application-999-unique.pdf'},1312);
+    expect(m.execute).toHaveBeenCalledWith(expect.any(String),[1312]);
+  });
   it('repairs an older shared filename from the candidate-owned encrypted upload', async () => {
     m.execute.mockResolvedValueOnce([[{ storage_path: 'intake/8/resume.enc', original_filename: 'resume.pdf', mime_type: 'application/pdf', is_encrypted: 1, encryption_wrapped_key: 'wrapped', encryption_iv: 'iv', encryption_auth_tag: 'tag' }]]).mockResolvedValue([{}]);
     m.read.mockResolvedValue(Buffer.from('encrypted'));

@@ -20,7 +20,10 @@ export async function resolveOwnedAdminDocStoragePath(doc, userId) {
   if (!current || !userId || !PERSONAL_DOC_TYPES.has(type)) return current;
   // New imports already have a unique, decrypted copy. Never replace it with
   // encrypted intake bytes (which a browser renders as an empty PDF).
-  if (/\/(?:application|resume|reference-release)-\d+-|\/candidate-copy-/.test(current)) return current;
+  const ownerId = Number(userId);
+  const ownedCopy = Number.isSafeInteger(ownerId) && ownerId > 0
+    && new RegExp(`^admin_docs/(?:[0-9]+-[a-z0-9]+-)?(?:application|resume|reference-release|candidate-copy)-${ownerId}-[^/]+$`, 'i').test(current);
+  if (ownedCopy) return current;
 
   try {
     const [uploads] = await pool.execute(

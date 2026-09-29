@@ -5855,6 +5855,7 @@
 </template>
 
 <script setup>
+import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
 import './schedule-new-request-modal.css';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -11491,9 +11492,6 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   });
   for (const [aid, row] of portalByAgency) {
     const agencyId = (aid === 'none' || !aid) ? null : Number(aid);
-    const label = agencyId && colorBlocksByTenant.value
-      ? `Published · ${agencyLabel(agencyId) || 'Portal'}`
-      : 'Published';
     const vwhId = Number(row?.id || 0) || 0;
     const st = String(row?.startTime || '').slice(0, 5);
     const et = String(row?.endTime || '').slice(0, 5);
@@ -11504,9 +11502,8 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     blocks.push({
       key: `portal-${vwhId || agencyId || 'x'}-${st}`,
       kind: 'portal',
-      shortLabel: singleDayFocused
-        ? (label.length > 22 ? `${label.slice(0, 22)}…` : label)
-        : 'Published',
+      shortLabel: `Virtual · ${clockRangeLabel(startAt, endAt)}`,
+      virtualSlice: virtualAvailabilityCellSlice(st, et, hour, minute, showQuarterDetail.value ? 15 : 60),
       title: `Published weekly hours${agencySuffix(agencyId ? [agencyId] : [])} — ${dayName} ${st}–${et}. The public page excludes appointment, school, and external calendar conflicts.`,
       agencyId,
       startTime: row?.startTime || null,
@@ -19919,6 +19916,16 @@ const cellBlockStyle = (b) => {
     style.minWidth = '0';
     style.maxWidth = '48%';
   }
+  if (b?.virtualSlice) {
+    // Keep the normal side-by-side columns, but occupy only the published minutes.
+    if (!(Number(b.dayViewColTotal || 0) > 1)) style.position = 'relative';
+    style.top = `${b.virtualSlice.topPct}%`;
+    style.height = `${b.virtualSlice.heightPct}%`;
+    style.bottom = 'auto';
+    style.minHeight = '0';
+    style.boxSizing = 'border-box';
+    style.alignSelf = 'flex-start';
+  }
   return style;
 };
 
@@ -21901,6 +21908,7 @@ const submitRequest = async () => {
         throw new Error('Select new-client and/or current-client availability.');
       }
       if (!editorOpenVirtual.value && !editorOpenInPerson.value) throw new Error('Select virtual, in-person, or both.');
+      if ((editorOpenInPerson.value || editorAttachOfficeRequest.value || sessionAlsoRequestOffice.value) && (startMinute || endMinute)) throw new Error('Office reservations must start and end on the hour. Turn off the office option to publish these exact virtual hours.');
       editorOpenSlotEnabled.value = true;
       const linkedRoomId = Number(editorPreferredRoomId.value || editorRoomId.value || selectedOfficeRoomId.value || 0);
       const existingBooking = linkedRoomId > 0
@@ -21924,9 +21932,7 @@ const submitRequest = async () => {
         }
       } else {
         const selected = selectedActionContexts();
-        const ranges = selected.length > 1
-          ? selected.map(ctx => ({ dayName: ctx.dayName, startHour: ctx.hour, endHour: Number(ctx.hour) + 1 }))
-          : [{ dayName: dn, startHour: h, endHour: endH, startMinute, endMinute }];
+        const ranges = virtualPublicationRanges(selected, { dayName: dn, startHour: h, endHour: endH, startMinute, endMinute });
         for (const range of ranges) await ensureVirtualWorkingHoursForRange({ ...range, availableForIntake: forIntake, availableForSession: forSession });
       }
       // Attach office request for the same series when requested from the unified editor.
@@ -21991,6 +21997,7 @@ const submitRequest = async () => {
       }
       setTimeout(() => { officeReminderToast.value = ''; }, 6000);
     } else if (requestType.value === 'office_request_only') {
+      if (startMinute || endMinute) throw new Error('Office reservations must start and end on the hour. Choose whole-hour times for this office request.');
       // Always use modal's hour range (End time dropdown) as source of truth; shift/drag select is unreliable in office layout
       // Prefer unified editor recurrence controls when present.
       const recurrence = String(scheduleEventRecurrence.value || officeBookingRecurrence.value || 'ONCE').toUpperCase();
