@@ -2148,7 +2148,7 @@ const fetchProviderPublicProfile = async () => {
     });
     const profile = data?.profile || {};
     const defaults = data?.agencyDefaults || {};
-    const insurances = Array.isArray(profile.insurances) ? profile.insurances : [];
+    const insurances = (profile.acceptedInsurances || []).map(insurance => insurance.name);
     providerPublicProfile.value = {
       publicBlurb: String(profile.publicBlurb || '').trim(),
       selfPayRateLabel: profile.selfPayRateCents !== null && profile.selfPayRateCents !== undefined

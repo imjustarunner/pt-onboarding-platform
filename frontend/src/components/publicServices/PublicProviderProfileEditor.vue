@@ -13,6 +13,7 @@
    <div class="editor-grid">
     <label v-for="field in fields" :key="field.key">{{ field.label }}<textarea v-model="draft[field.key]" rows="2" placeholder="Separate entries with commas" /></label>
    </div>
+   <p>Insurance shown publicly comes from payer credentials and agency acceptance settings. Manage payer credentials in Credentialing Management.</p>
    <TypicalAvailabilityInput v-model="draft.typicalAvailability" :disabled="busy"/>
    <p>Use the availability settings below to control new-client intake and appointment formats. Those settings apply to the selected agency and its assigned offices.</p>
    <p>Specialties, populations, and clinical approaches come from the provider’s clinical profile. <router-link v-if="auth.user?.role !== 'staff'" :to="{name:'UserProfile',params:{userId:provider.id}}">Open full staff profile</router-link></p>
@@ -35,7 +36,7 @@ const auth=useAuthStore(),verified=ref(false),editing=ref(false),busy=ref(false)
 const manager=computed(()=>window.parent===window && (Number(auth.user?.id)===Number(props.provider.id) || ['admin','super_admin','support','staff'].includes(auth.user?.role)));
 const allowed=computed(()=>manager.value && verified.value);
 const availabilityFields=[['officeAvailability','Office acceptance'],['virtualAvailability','Virtual acceptance'],['schoolAvailability','Assigned school acceptance']];
-const fields=[{key:'insurances',label:'Insurance accepted'},{key:'languages',label:'Languages'},{key:'locations',label:'Public locations'}];
+const fields=[{key:'languages',label:'Languages'},{key:'locations',label:'Public locations'}];
 let savedProfile={},generation=0;
 watch(()=>[props.provider.id,props.agencyId,manager.value],async()=>{
  const id=++generation;verified.value=false;editing.value=false;

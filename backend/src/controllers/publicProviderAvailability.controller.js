@@ -206,7 +206,7 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId, service
   }
   return {
     publicBlurb: String(profile?.publicBlurb || '').trim(),
-    insurances: Array.isArray(profile?.insurances) ? profile.insurances : [],
+    insurances: acceptedInsurances.map(insurance => insurance.name),
     acceptedInsurances,
     selfPayRateCents: effectiveRateCents,
     selfPayRateLabel: formatMoney(effectiveRateCents),

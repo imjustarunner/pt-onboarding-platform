@@ -22,7 +22,7 @@ async function rangePartners(req, res, next) {
 async function rangeProviders(req, res, next) {
   try {
     if (!await published(res)) return;
-    const result=await readPublicSnapshot({key:['range-providers-v1'],kind:'website'},async()=>{
+    const result=await readPublicSnapshot({key:['range-providers-v2'],kind:'website'},async()=>{
     const [candidates] = await pool.execute(`${RANGE_PROVIDER_SQL} ORDER BY u.last_name,u.first_name,a.id,s.service_type`);
     const rows=candidates.filter(rangeProviderEligible);
     const providers = [];

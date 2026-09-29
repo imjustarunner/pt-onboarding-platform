@@ -606,7 +606,7 @@ async function resolveProviderProfileSummary({ agencyId, providerUserId, service
   return {
     details: Object.fromEntries(Object.entries(profile?.details||{}).filter(([key])=>!['availabilityByAgency','serviceOfferingsByAgency'].includes(key))),
     publicBlurb: String(profile?.publicBlurb || '').trim(),
-    insurances: Array.isArray(profile?.insurances) ? profile.insurances : [],
+    insurances: acceptedInsurances.map(insurance => insurance.name),
     acceptedInsurances,
     selfPayRateCents: effectiveRateCents,
     selfPayRateLabel: formatMoney(effectiveRateCents),

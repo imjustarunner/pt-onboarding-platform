@@ -18,7 +18,7 @@ async function enrichProvider(dto,row) {
   AND NOT EXISTS(SELECT 1 FROM district_schedule_hidden_providers h WHERE h.agency_id=? AND h.school_organization_id=a.id AND h.provider_user_id=p.provider_user_id)`,[dto.agencyId,dto.id,dto.agencyId,dto.agencyId]);
  return {...dto,gender:profile?.details?.gender||'',languages:profile?.details?.languages||[],locations,
   schools:dto.school?schools:[],inPerson:profile?.agencyAvailability?dto.inPerson:locations.length>0||Boolean(row.in_office_available),
-  insurances:restrictPublicInsurances([...new Set([...dto.insurances,...accepted.map(i=>i.name)])],row)};
+  insurances:restrictPublicInsurances([...new Set(accepted.map(i=>i.name))],row)};
 }
 import pool from '../config/database.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';

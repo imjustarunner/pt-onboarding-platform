@@ -123,3 +123,10 @@ describe('public multi-service directories',()=>{
  });
 
 });
+
+it('does not reintroduce free-text profile insurance after credential filtering',async()=>{
+  Profile.getForProvider.mockResolvedValue({insurances:['TRICARE','TriWest','Unchecked payer']});
+  const res=response(),next=vi.fn();await listCounselors(request(),res,next);expect(next).not.toHaveBeenCalled();
+  const provider=res.json.mock.calls[0][0].providers[0];expect(provider).toBeDefined();
+  expect(provider.profile.acceptedInsurances).toEqual([]);expect(provider.profile.insurancesAccepted).toEqual([]);
+});

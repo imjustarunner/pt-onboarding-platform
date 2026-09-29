@@ -587,16 +587,8 @@
                       :items="headerAcceptedInsurances"
                       :show-label="false"
                     />
-                    <small v-else class="form-help">No credentialing insurances yet. Supervisees inherit billing supervisor insurances when assigned.</small>
-                    <div style="margin-top: 8px;">
-                      <label style="font-size: 12px; font-weight: 400; color: var(--text-secondary);">Edit CSV (comma separated)</label>
-                      <input
-                        v-model="providerPublicInsurancesCsv"
-                        type="text"
-                        placeholder="Medicaid, Self Pay, Tricare"
-                        :disabled="!canEditUser || providerPublicProfileSaving || !editingProviderPublicProfile"
-                      />
-                    </div>
+                    <small v-else class="form-help">No eligible insurance is listed yet. Review payer credentials and billing supervisor assignments.</small>
+                    <small class="form-help">Manage insurance through payer credentials and agency acceptance settings. Only credentials enabled for supervisee billing are inherited.</small>
                   </div>
                   <div v-if="canManageSelfPayRates" class="form-group">
                     <label>Provider self-pay override (USD)</label>

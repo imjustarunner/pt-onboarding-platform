@@ -34,7 +34,7 @@ export async function resolveItscoWebsite() {
 export async function getItscoWebsiteData(req) {
   const { agency } = await resolveItscoWebsite();
   const baseUrl = requestBaseUrl(req);
-  return readPublicSnapshot({key:['itsco-website-v1',agency.id,baseUrl],kind:'website'}, async () =>
+  return readPublicSnapshot({key:['itsco-website-v2',agency.id,baseUrl],kind:'website'}, async () =>
     buildItscoWebsiteData({...await resolveItscoWebsite(),baseUrl}));
 }
 
@@ -102,7 +102,7 @@ async function buildItscoWebsiteData({agency,page,settings,baseUrl}) {
         listProviderAcceptedInsurancesForDisplay({ userId: row.id, agencyId: agency.id })
       ]);
       let insurances = accepted.map(i => ({ name: i.name, logoUrl: i.logo_url || null }));
-      for (const name of profile?.insurances || []) if (!insurances.some(i => i.name.toLowerCase() === name.toLowerCase())) insurances.push({ name });
+      // Public labels come from credentialing/agency acceptance, never free-text profile tags.
       insurances = restrictPublicInsurances(insurances,row);
       const office = profile?.details?.inPersonEnabled === false ? false : profile?.details?.inPersonEnabled === true || Number(row.in_office_available) === 1 || Boolean(row.has_office_assignment) || (profile?.details?.sessionFormats || []).some(format => /in[ -]?person|in[ -]?office|office/i.test(format));
       const schoolOpenings=agencyFormatAllowed(policy,'SCHOOL')&&assignments.some(a=>Number(a.providerId)===Number(row.id)&&Number(a.slots_available)>0);

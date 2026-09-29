@@ -1,3 +1,4 @@
+import { listProviderAcceptedInsurancesForDisplay } from '../services/providerAcceptedInsurance.service.js';
 import User from '../models/User.model.js';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
 import pool from '../config/database.js';
@@ -54,6 +55,7 @@ export const getUserProviderPublicProfile = async (req, res, next) => {
         details: profile?.details || {},
         publicBlurb: profile?.publicBlurb || '',
         insurances: Array.isArray(profile?.insurances) ? profile.insurances : [],
+        acceptedInsurances: await listProviderAcceptedInsurancesForDisplay({userId, agencyId}),
         selfPayRateCents: profile?.selfPayRateCents ?? null,
         selfPayRateNote: profile?.selfPayRateNote || '',
         acceptingNewClientsOverride: profile?.acceptingNewClientsOverride ?? null

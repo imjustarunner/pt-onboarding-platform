@@ -4,7 +4,7 @@ A provider's own payer credential and permission to bill under that credential f
 
 In **Credentialing Management → Providers → Review**, or **Provider profile → Payer credentials**, use **Available for supervisee billing**. It defaults on except for TRICARE/TriWest names, including parent-payer and linked billing-payer names. These are organization defaults; credentialing staff can change the checkbox after verifying the applicable contract. The provider's own credential remains in place.
 
-An unchecked credential is excluded from the assigned billing supervisee's accepted-insurance list and blocks supervised claim review/transmission for its linked billing payer. Agency acceptance overrides cannot re-add an excluded credential by its recorded aliases. TRICARE/TriWest cannot be added through acceptance overrides without an actual direct or explicitly enabled inherited credential. Existing bachelor-level presentation restrictions still apply.
+An unchecked credential is excluded from the assigned billing supervisee's accepted-insurance list and blocks supervised claim review/transmission for its linked billing payer. Agency acceptance overrides cannot re-add an excluded credential by its recorded aliases. TRICARE/TriWest cannot be added through acceptance overrides without an actual direct or explicitly enabled inherited credential. Legacy free-text public-profile insurance tags cannot add payers back to the website or provider finder. Existing bachelor-level presentation restrictions still apply.
 
 ## Connect credentialing to billing
 
