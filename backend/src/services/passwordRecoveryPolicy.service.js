@@ -1,3 +1,4 @@
+import { usesPasswordLogin } from '../utils/passwordLogin.js';
 import User from '../models/User.model.js';
 
 const excludedRoles = new Set(['school_staff', 'client_guardian', 'client', 'guardian', 'kiosk']);
@@ -18,7 +19,7 @@ export function passwordRecoverySsoState(user, organizations) {
     if (!excludedRoles.has(role) && aliases.some((r) => roles.includes(r))) ssoPolicyRequired = true;
   }
   const ssoPasswordOverride = enabled(user?.sso_password_override);
-  return { ssoEnabled, ssoPolicyRequired, ssoPasswordOverride, ssoRequired: ssoPolicyRequired && !ssoPasswordOverride };
+  return { ssoEnabled, ssoPolicyRequired, ssoPasswordOverride, ssoRequired: ssoPolicyRequired && !usesPasswordLogin(user) };
 }
 
 // Let lookup errors propagate: recovery must not bypass an unavailable SSO policy.

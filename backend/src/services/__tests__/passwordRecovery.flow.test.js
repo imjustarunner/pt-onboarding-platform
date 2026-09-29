@@ -131,6 +131,9 @@ describe('recovery SSO and account restrictions', () => {
     expect(passwordRecoverySsoState({ role: 'clinical_practice_assistant' }, orgs).ssoRequired).toBe(true);
     expect(passwordRecoverySsoState({ role: 'clinical_practice_assistant', sso_password_override: '1' }, orgs).ssoRequired).toBe(false);
   });
+  it.each([{ login_is_group_email: 1 }, { login_is_group_email: '1' }, { is_demo: 1 }])('keeps password recovery available for group and demo accounts %j', user => {
+    expect(passwordRecoverySsoState({ role: 'provider', ...user }, [tenant]).ssoRequired).toBe(false);
+  });
   it.each([{ status: 'ARCHIVED' }, { status: 'inactive' }, { is_archived: '1' }, { pending_access_locked: 1 }])('preserves access restrictions for %j', (u) => {
     expect(passwordRecoveryRequiresSupport(u)).toBe(true);
   });

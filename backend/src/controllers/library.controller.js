@@ -74,7 +74,9 @@ async function assertLibraryAccess(req, agencyId, { manage = false } = {}) {
     err.status = 403;
     throw err;
   }
-  const caps = getUserCapabilities(req.user, { effectiveRole: req.user?.effectiveRole });
+  // requireCapability resolves these from the current database user, including status.
+  // JWT identity alone omits status and incorrectly denies active providers.
+  const caps = req.userCapabilities ?? getUserCapabilities(req.user, { effectiveRole: req.user?.effectiveRole });
   if (!caps.canViewLibrary && !caps.canAccessPlatform) {
     const err = new Error('Library access denied');
     err.status = 403;

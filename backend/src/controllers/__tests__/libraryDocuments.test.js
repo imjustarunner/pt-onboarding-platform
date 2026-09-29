@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../models/Library.model.js', () => ({ default: { findResource: vi.fn(), createResource: vi.fn(), userCanEditResource: vi.fn(), updateResource: vi.fn(), recordView: vi.fn(), findExistingPersonalCopy: vi.fn(), logDistribution: vi.fn(), grantResourcePermission: vi.fn(), listResourceShares: vi.fn() } }));
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: vi.fn() }));
 vi.mock('../../services/storage.service.js', () => ({ default: {} }));
 vi.mock('../../utils/meDashboardTenantScope.js', () => ({ pickDashboardContextAgencyId: () => 2, hasTenantAccess: vi.fn() }));
 vi.mock('../../utils/capabilities.js', () => ({ getUserCapabilities: vi.fn() }));
@@ -20,6 +20,25 @@ beforeEach(() => {
   Library.findResource.mockResolvedValue({ ...original }); Library.createResource.mockImplementation(async data => ({ ...data, id: 20, version: 1 }));
 });
 describe('library document API', () => {
+  it.each(['provider', 'provider_plus', 'clinical_practice_assistant', 'staff', 'support', 'admin', 'super_admin'])
+    ('keeps the database-backed library permission for an active %s with a status-less session', async (role) => {
+      const { getUserCapabilities: realCapabilities } = await vi.importActual('../../utils/capabilities.js');
+      req.user = { id: 7, role };
+      req.userCapabilities = realCapabilities({ id: 7, role, status: 'ACTIVE_EMPLOYEE' });
+      getUserCapabilities.mockReturnValue({ canViewLibrary: false, canAccessPlatform: false });
+      Library.findResource.mockResolvedValue({ ...original });
+      await getResource(req, res, next);
+      expect(next).not.toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ id: 10 }));
+      expect(getUserCapabilities).not.toHaveBeenCalled();
+    });
+  it('honors a denied server capability instead of re-granting from the session role', async () => {
+    req.userCapabilities = { canViewLibrary: false, canAccessPlatform: false };
+    await getResource(req, res, next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+    expect(Library.findResource).not.toHaveBeenCalled();
+  });
+
   it('allows a viewer to create an independently owned personal template copy', async () => {
     await copyLibraryDocument(req, res, next);
     expect(next).not.toHaveBeenCalled();

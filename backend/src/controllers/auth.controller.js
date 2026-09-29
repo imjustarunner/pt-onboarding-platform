@@ -1,3 +1,4 @@
+import { usesPasswordLogin } from '../utils/passwordLogin.js';
 import { mintRoutingHint } from '../services/schoolCareBridgeRouting.service.js';
 import { getPasswordRecoverySsoState, passwordRecoveryRequiresSupport, PASSWORD_RECOVERY_SUPPORT_MESSAGE } from '../services/passwordRecoveryPolicy.service.js';
 import { accountPasswordLocked, recordPasswordResult } from '../middleware/loginProtection.middleware.js';
@@ -163,8 +164,7 @@ const parseFeatureFlags = (raw) => {
   }
   return raw && typeof raw === 'object' ? raw : {};
 };
-const isSsoPasswordOverrideEnabled = (user) =>
-  user?.sso_password_override === 1 || user?.sso_password_override === true || user?.sso_password_override === '1';
+const isSsoPasswordOverrideEnabled = usesPasswordLogin;
 const isSsoPolicyRequiredForRole = ({ featureFlags, userRole }) => {
   const ssoEnabled = featureFlags?.googleSsoEnabled === true;
   const requiredRoles = Array.isArray(featureFlags?.googleSsoRequiredRoles)

@@ -131,7 +131,7 @@ class User {
       // This is more reliable, especially with connection pooling and Unix sockets
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'login_is_group_email', 'password_changed_at')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'login_is_group_email', 'is_demo', 'password_changed_at')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -148,6 +148,7 @@ class User {
       if (existingColumns.includes('credential')) query += ', credential';
       if (existingColumns.includes('sso_password_override')) query += ', sso_password_override';
       if (existingColumns.includes('login_is_group_email')) query += ', login_is_group_email';
+      if (existingColumns.includes('is_demo')) query += ', is_demo';
       if (existingColumns.includes('password_changed_at')) query += ', password_changed_at';
     } catch (err) {
       // If we can't check columns, just use the base query
@@ -220,7 +221,7 @@ class User {
     try {
       const dbName = process.env.DB_NAME || 'onboarding_stage';
       const [columns] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'password_changed_at')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('work_email', 'personal_email', 'username', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'login_is_group_email', 'is_demo', 'password_changed_at')",
         [dbName]
       );
       const existingColumns = columns.map(c => c.COLUMN_NAME);
@@ -235,6 +236,8 @@ class User {
       if (existingColumns.includes('work_phone_extension')) query += ', work_phone_extension';
       if (existingColumns.includes('credential')) query += ', credential';
       if (existingColumns.includes('sso_password_override')) query += ', sso_password_override';
+      if (existingColumns.includes('login_is_group_email')) query += ', login_is_group_email';
+      if (existingColumns.includes('is_demo')) query += ', is_demo';
       if (existingColumns.includes('password_changed_at')) query += ', password_changed_at';
     } catch (err) {
       console.warn('Could not check for columns:', err.message);
@@ -284,7 +287,7 @@ class User {
     let existingColumns = [];
     try {
       const [cols] = await pool.execute(
-        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('username', 'work_email', 'personal_email', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'password_changed_at')",
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('username', 'work_email', 'personal_email', 'has_supervisor_privileges', 'has_provider_access', 'has_staff_access', 'personal_phone', 'work_phone', 'work_phone_extension', 'credential', 'sso_password_override', 'login_is_group_email', 'is_demo', 'password_changed_at')",
         [dbName]
       );
       existingColumns = cols.map((c) => c.COLUMN_NAME);
@@ -302,6 +305,8 @@ class User {
     if (existingColumns.includes('work_phone_extension')) sel += ', work_phone_extension';
     if (existingColumns.includes('credential')) sel += ', credential';
     if (existingColumns.includes('sso_password_override')) sel += ', sso_password_override';
+    if (existingColumns.includes('login_is_group_email')) sel += ', login_is_group_email';
+    if (existingColumns.includes('is_demo')) sel += ', is_demo';
     if (existingColumns.includes('password_changed_at')) sel += ', password_changed_at';
 
     // Match on digits-only comparison for whichever phone columns exist
