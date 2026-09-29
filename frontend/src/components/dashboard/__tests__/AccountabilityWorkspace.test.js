@@ -8,8 +8,8 @@ let wrapper, enabled, manager, report;
 beforeEach(() => {
   vi.clearAllMocks(); enabled = true; manager = false;
   report = { id: 1, month: '2026-09', version: 1, status: 'draft', settings, receipts: [], data: { expenses: [], mileage: [] }, deliveryStatus: 'not_sent' };
-  m.get.mockImplementation(async path => ({ data: path.endsWith('/access') ? { enabled, manager, settings } : path.endsWith('/settings') ? { users: [{ id: 3, first_name: 'Rachel', last_name: 'Finch', email: 'rachel@example.com' }], grants: [] } : [] }));
-  m.post.mockImplementation(async path => ({ data: path.endsWith('/reports') ? structuredClone(report) : {} }));
+  m.get.mockImplementation(async path => ({ data: path === '/accountability/workspaces' ? [{ agencyId: 1, agencyName: 'PlotTwistCO', userId: 538, userName: 'Melissa Mendez', enabled, isSelf: true }, { agencyId: 2, agencyName: 'ITSCO', userId: 538, userName: 'Melissa Mendez', enabled, isSelf: true }, { agencyId: 2, agencyName: 'ITSCO', userId: 501, userName: 'Michael Mendez', enabled, isSelf: false }] : path.includes('/access') ? { enabled, manager, settings, delegated: path.includes('userId='), canManageAll: manager } : path.endsWith('/settings') ? { users: [{ id: 538, first_name: 'Melissa', last_name: 'Mendez', email: 'melissa@example.com' }], grants: [] } : [] }));
+  m.post.mockImplementation(async path => ({ data: path.split('?')[0].endsWith('/reports') ? structuredClone(report) : {} }));
   m.put.mockImplementation(async (_path, body) => ({ data: { ...structuredClone(report), version: 2, data: body.data } }));
 });
 afterEach(() => wrapper?.unmount());
@@ -24,7 +24,7 @@ describe('monthly accountability workspace', () => {
   });
   it('requires a verified account and explicit parameters before granting access', async () => {
     enabled = false; manager = true; await open(); expect(wrapper.text()).toContain('Permissions & parameters');
-    await wrapper.find('.settings select').setValue('3'); expect(wrapper.find('input[type="email"]').element.value).toBe('melissa@plottwistco.com'); expect(wrapper.find('input[type="checkbox"]').element.checked).toBe(false); expect(m.put).not.toHaveBeenCalled();
+    await wrapper.find('.settings select').setValue('538'); expect(wrapper.find('input[type="email"]').element.value).toBe('melissa@plottwistco.com'); expect(wrapper.find('input[type="checkbox"]').element.checked).toBe(false); expect(m.put).not.toHaveBeenCalled();
   });
   it('previews a tracker import and saves the trips in the selected monthly draft', async () => {
     await open(); await openMonth(); await wrapper.find('.view-picker select').setValue('mileage');
@@ -50,9 +50,9 @@ describe('monthly accountability workspace', () => {
     await wrapper.findAll('button').find(b => b.text() === 'Discard changes & reload').trigger('click'); await flushPromises();
     expect(wrapper.text()).toContain('Draft saved'); expect(wrapper.findAll('.expense')).toHaveLength(0);
   });
-  it('clears the previous company report when changing organizations', async () => {
+  it('keeps the workspace independent of the global organization selector', async () => {
     await open(); await openMonth(); await wrapper.setProps({ agencyId: 9 }); await flushPromises();
-    expect(m.get).toHaveBeenCalledWith('/accountability/9/access'); expect(wrapper.find('.report-bar').exists()).toBe(false);
+    expect(m.get).not.toHaveBeenCalledWith('/accountability/9/access'); expect(wrapper.find('.report-bar').exists()).toBe(true);
   });
   it('prints an unfinished worksheet, keeps its cells editable, then saves further adjustments', async () => {
     const preview = { document: {}, location: {}, close: vi.fn() };
@@ -70,4 +70,42 @@ describe('monthly accountability workspace', () => {
     expect(m.put.mock.calls.at(-1)[1].data.expenses[0].vendor).toBe('Updated vendor');
     vi.restoreAllMocks(); vi.unstubAllGlobals();
   });
+  it('shows property taxes and homeowners insurance in new plan settings', async () => {
+    enabled = false; manager = true; await open();
+    const names = wrapper.findAll('.category-settings input').map(i => i.element.value);
+    expect(names).toContain('Property taxes'); expect(names).toContain('Homeowners insurance');
+  });
+  it('calculates separate monthly tax and insurance totals using precise plan percentages', async () => {
+    report.settings = { ...settings, categories: [{ key: 'property_taxes', label: 'Property taxes', percent: 272/4540*100 }, { key: 'homeowners_insurance', label: 'Homeowners insurance', percent: 272/4540*100 }] };
+    await open(); await openMonth();
+    await wrapper.find('input[aria-label="Property taxes total"]').setValue('1000');
+    await wrapper.find('input[aria-label="Homeowners insurance total"]').setValue('200');
+    expect(wrapper.find('.monthly-totals').text()).toContain('$59.91');
+    expect(wrapper.find('.monthly-totals').text()).toContain('$11.98');
+    expect(wrapper.find('.monthly-totals tfoot').text()).toContain('$71.89');
+    expect(wrapper.find('.workspace-picker select').element.disabled).toBe(true);
+    await wrapper.findAll('button').find(b => b.text() === 'Save monthly draft').trigger('click'); await flushPromises();
+    expect(m.put.mock.calls.at(-1)[1].data.expenses.map(e => [e.category,e.amount])).toEqual([['property_taxes',1000],['homeowners_insurance',200]]);
+  });
+  it('switches company and participant in one area while keeping the month selected', async () => {
+    manager = true; await open(); await openMonth();
+    await wrapper.find('.workspace-picker select').setValue('2:501'); await flushPromises();
+    expect(m.get).toHaveBeenCalledWith('/accountability/2/access?userId=501');
+    expect(wrapper.find('.report-bar').exists()).toBe(false);
+    expect(wrapper.find('input[type="month"]').element.value).toBe('2026-09');
+    await wrapper.findAll('button').find(b => b.text() === 'Open month').trigger('click'); await flushPromises();
+    expect(m.post).toHaveBeenCalledWith('/accountability/2/reports?userId=501', { month: '2026-09' });
+    await wrapper.find('.view-picker select').setValue('submit');
+    expect(wrapper.text()).toContain('Michael Mendez must open their account to sign');
+    expect(wrapper.find('signature-pad-stub').exists()).toBe(false);
+  });
+  it('does not overwrite itemized bills when displaying a monthly category total', async () => {
+    report.data.expenses = [{ id: 'one', category: 'phone', amount: 10.01 }, { id: 'two', category: 'phone', amount: 10.01 }];
+    await open(); await openMonth();
+    expect(wrapper.find('input[aria-label="Phone total"]').exists()).toBe(false);
+    expect(wrapper.find('.monthly-totals').text()).toContain('$20.02');
+    expect(wrapper.find('.monthly-totals').text()).toContain('$10.02');
+    expect(m.put).not.toHaveBeenCalled();
+  });
+
 });

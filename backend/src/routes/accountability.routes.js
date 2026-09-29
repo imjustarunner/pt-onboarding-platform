@@ -19,15 +19,23 @@ const positiveId = (v) => { const n = Number(v); if (!Number.isSafeInteger(n) ||
 
 async function access(req, db = pool) {
   const agencyId = positiveId(req.params.agencyId);
-  const userId = Number(req.user.id);
-  if (!canAccessAccountability(userId, agencyId)) throw invalid('This workspace is restricted to the three approved work accounts.', 403);
+  const actorId = Number(req.user.id);
+  const userId = req.query?.userId == null ? actorId : positiveId(req.query.userId);
+  const delegated = userId !== actorId;
+  if (delegated && req.user.role !== 'super_admin') throw invalid('Only a superadmin can prepare another participant’s report.', 403);
+  if (delegated && !isAccountabilityParticipant(userId, agencyId)) throw invalid('This participant is not approved for this company.', 403);
+  if (!canAccessAccountability(actorId, agencyId)) throw invalid('This workspace is restricted to the three approved work accounts.', 403);
   const [[agency]] = await db.execute('SELECT id, name FROM agencies WHERE id = ?', [agencyId]);
   if (!agency) throw invalid('Organization not found.', 404);
-  const [[membership]] = await db.execute('SELECT has_payroll_access FROM user_agencies WHERE agency_id = ? AND user_id = ?', [agencyId, userId]);
+  const [[membership]] = await db.execute('SELECT has_payroll_access FROM user_agencies WHERE agency_id = ? AND user_id = ?', [agencyId, actorId]);
   const manager = req.user.role === 'super_admin' || !!Number(membership?.has_payroll_access);
   if (!membership && !manager) throw invalid('Organization access required.', 403);
+  if (delegated) {
+    const [[targetMember]] = await db.execute('SELECT user_id FROM user_agencies WHERE agency_id = ? AND user_id = ?', [agencyId, userId]);
+    if (!targetMember) throw invalid('Participant is not a member of this organization.', 403);
+  }
   const [[grant]] = await db.execute('SELECT * FROM accountability_grants WHERE agency_id = ? AND user_id = ?', [agencyId, userId]);
-  return { agencyId, userId, agency, manager, grant: isAccountabilityParticipant(userId, agencyId) && grant && Number(grant.enabled) ? parseJson(grant.settings_json) : null };
+  return { agencyId, userId, actorId, delegated, agency, manager, grant: isAccountabilityParticipant(userId, agencyId) && grant && Number(grant.enabled) ? parseJson(grant.settings_json) : null };
 }
 async function report(req, db = pool, lock = false) {
   const ctx = await access(req, db);
@@ -56,9 +64,46 @@ async function payload(row, settings) {
   return { id: row.id, month: row.report_month, status: row.status, version: row.version, data, settings: snapshot?.settings || settings, receipts, totals: reportTotals(data, snapshot?.settings || settings), deliveryStatus: row.delivery_status, deliveryDetail: row.delivery_detail, signedAt: row.signed_at };
 }
 
+// Discover permitted person/company pairs without changing the global organization.
+router.get('/workspaces', run(async (req, res) => {
+  const actorId = Number(req.user.id);
+  if (![1, 2].some(id => canAccessAccountability(actorId, id))) throw invalid('This workspace is restricted to the three approved work accounts.', 403);
+  const manageAll = req.user.role === 'super_admin';
+  const [rows] = await pool.execute(`SELECT a.id AS agency_id, a.name AS agency_name, u.id AS user_id,
+    u.first_name, u.last_name, g.enabled
+    FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id JOIN users u ON u.id=ua.user_id
+    LEFT JOIN accountability_grants g ON g.agency_id=ua.agency_id AND g.user_id=ua.user_id
+    WHERE ua.agency_id IN (1,2) AND u.id IN (501,507,538) ORDER BY u.last_name,u.first_name,a.name`);
+  res.json(rows.filter(r => isAccountabilityParticipant(r.user_id, r.agency_id) && (manageAll || Number(r.user_id) === actorId))
+    .map(r => ({ agencyId: Number(r.agency_id), agencyName: r.agency_name, userId: Number(r.user_id), userName: `${r.first_name} ${r.last_name}`, enabled: !!Number(r.enabled), isSelf: Number(r.user_id) === actorId })));
+}));
+
+// Private setup files carry personal plan information; it is never seeded in source code.
+router.post('/plan-setup', run(async (req, res) => {
+  if (req.user.role !== 'super_admin' || !canAccessAccountability(req.user.id, 2)) throw invalid('Approved superadmin access required.', 403);
+  const plans = req.body.plans;
+  if (!Array.isArray(plans) || !plans.length || plans.length > 4) throw invalid('Choose a setup file with 1–4 approved plans.');
+  const seen = new Set();
+  const entries = plans.map(p => {
+    const agencyId = positiveId(p.agencyId), userId = positiveId(p.userId), key = `${agencyId}:${userId}`;
+    if (!isAccountabilityParticipant(userId, agencyId) || seen.has(key)) throw invalid('Each plan must identify a unique approved participant and company.');
+    seen.add(key);
+    if (typeof p.enabled !== 'boolean') throw invalid('Each plan must explicitly set its permission.');
+    return { agencyId, userId, enabled: p.enabled, settings: validateSettings(p.settings) };
+  });
+  await transaction(async db => {
+    for (const p of entries) {
+      const [[member]] = await db.execute('SELECT user_id FROM user_agencies WHERE agency_id = ? AND user_id = ?', [p.agencyId, p.userId]);
+      if (!member) throw invalid('A plan participant is not a member of its organization.');
+      await db.execute(`INSERT INTO accountability_grants (agency_id,user_id,enabled,settings_json,updated_by) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),settings_json=VALUES(settings_json),updated_by=VALUES(updated_by)`, [p.agencyId, p.userId, p.enabled ? 1 : 0, JSON.stringify(p.settings), Number(req.user.id)]);
+    }
+  });
+  res.json({ saved: entries.length });
+}));
+
 router.get('/:agencyId/access', run(async (req, res) => {
   const ctx = await access(req);
-  res.json({ enabled: !!ctx.grant, manager: ctx.manager, settings: ctx.grant });
+  res.json({ enabled: !!ctx.grant, manager: ctx.manager, settings: ctx.grant, delegated: ctx.delegated, canManageAll: req.user.role === 'super_admin' });
 }));
 router.get('/:agencyId/settings', run(async (req, res) => {
   const ctx = await access(req);
@@ -176,6 +221,7 @@ router.get('/:agencyId/reports/:reportId/pdf', run(async (req, res) => {
 router.post('/:agencyId/reports/:reportId/sign', run(async (req, res) => {
   await transaction(async (db) => {
     const ctx = await report(req, db, true);
+    if (ctx.delegated) throw invalid('The participant must sign their own report.', 403);
     draft(ctx.row, req.body.version);
     if (JSON.stringify(req.body.settings) !== JSON.stringify(ctx.grant)) throw invalid('Your plan parameters changed. Reload and review them before signing.', 409);
     if (req.body.attested !== true) throw invalid('Accept the certification before signing.');
@@ -212,7 +258,7 @@ router.post('/:agencyId/reports/:reportId/send', run(async (req, res) => {
       to: snapshot.settings.recipient, subject: `${snapshot.agencyName} accountability report - ${snapshot.month} - ${snapshot.userName}`,
       text: `The signed monthly accountability report for ${snapshot.userName} (${snapshot.month}) is attached, including supporting receipts.`,
       fromName: identity?.display_name || identity?.from_name || snapshot.agencyName, fromAddress: identity?.from_email || null,
-      agencyId: ctx.agencyId, userId: ctx.userId, generatedByUserId: ctx.userId, source: 'manual', templateType: 'accountability_report',
+      agencyId: ctx.agencyId, userId: ctx.userId, generatedByUserId: ctx.actorId, source: 'manual', templateType: 'accountability_report',
       attachments: [{ filename: `accountability-${snapshot.month}.pdf`, contentType: 'application/pdf', contentBase64: bytes.toString('base64') }]
     });
     if (result?.skipped || result?.blocked) { status = 'failed'; detail = 'Email was not sent. Check organization email settings before retrying.'; }

@@ -8,9 +8,9 @@ vi.mock('../../services/emailSenderIdentityResolver.service.js', () => ({ resolv
 import router from '../accountability.routes.js';
 const settings = { recipient: 'melissa@plottwistco.com', officeAddress: 'Office', policy: 'Plan', attestation: 'Certify', mileageRate: 0.7, categories: [{ key: 'phone', label: 'Phone', percent: 50 }] };
 let grant, membership, row, actor;
-async function request(path, method = 'get', body = {}, params = {}) {
+async function request(path, method = 'get', body = {}, params = {}, query = {}) {
   const route = router.stack.find(layer => layer.route?.path === path && layer.route.methods[method]).route;
-  const req = { params: { agencyId: '2', reportId: '7', userId: '507', ...params }, user: actor, body };
+  const req = { params: { agencyId: '2', reportId: '7', userId: '507', ...params }, user: actor, body, query };
   const res = { json: vi.fn(), set: vi.fn().mockReturnThis(), send: vi.fn() }; const next = vi.fn();
   await route.stack.at(-1).handle(req, res, next); return { res, next };
 }
@@ -19,6 +19,8 @@ beforeEach(() => {
   row = { id: 7, agency_id: 2, user_id: 507, report_month: '2026-09', version: 3, status: 'draft', data_json: { expenses: [], mileage: [] }, snapshot_json: { settings, agencyName: 'ITSCO', userName: 'Participant', month: '2026-09' }, pdf_key: 'private-key' };
   m.read.mockResolvedValue(Buffer.from('PDF')); m.send.mockResolvedValue({ id: 'message-1' });
   m.execute.mockImplementation(async (sql) => {
+    if (sql.includes('SELECT user_id FROM user_agencies')) return [[{ user_id: 538 }]];
+    if (sql.includes('a.id AS agency_id')) return [[{ agency_id: 2, agency_name: 'ITSCO', user_id: 501, first_name: 'Michael', last_name: 'Mendez', enabled: 1 }, { agency_id: 2, agency_name: 'ITSCO', user_id: 538, first_name: 'Melissa', last_name: 'Mendez', enabled: 1 }, { agency_id: 1, agency_name: 'PlotTwistCO', user_id: 538, first_name: 'Melissa', last_name: 'Mendez', enabled: 1 }, { agency_id: 2, agency_name: 'ITSCO', user_id: 507, first_name: 'Rachel', last_name: 'Finch', enabled: 1 }]];
     if (sql.includes('SELECT id, name FROM agencies')) return [[{ id: 2, name: 'ITSCO' }]];
     if (sql.includes('SELECT has_payroll_access')) return [membership ? [membership] : []];
     if (sql.includes('SELECT * FROM accountability_grants')) return [grant ? [grant] : []];
@@ -69,7 +71,7 @@ describe('accountability authorization and submission', () => {
     membership = null; const { next } = await request('/:agencyId/access'); expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
   });
   it('does not grant access by name or general membership', async () => {
-    grant = null; const { res } = await request('/:agencyId/access'); expect(res.json).toHaveBeenCalledWith({ enabled: false, manager: false, settings: null });
+    grant = null; const { res } = await request('/:agencyId/access'); expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ enabled: false, manager: false, settings: null }));
     const { next } = await request('/:agencyId/reports'); expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
   });
   it('prevents participants from changing their own parameters', async () => {
@@ -106,4 +108,57 @@ describe('accountability authorization and submission', () => {
     m.execute.mockImplementation((sql, params) => sql.includes("SET delivery_status='sending'") ? [{ affectedRows: 0 }] : original(sql, params));
     const { next } = await request('/:agencyId/reports/:reportId/send', 'post'); expect(next).toHaveBeenCalledWith(expect.objectContaining({ status: 409 })); expect(m.send).not.toHaveBeenCalled();
   });
+  it('lists all approved person/company pairs for a verified superadmin and only self for a participant', async () => {
+    actor = { id: 501, role: 'super_admin' };
+    const all = await request('/workspaces');
+    expect(all.res.json.mock.calls[0][0]).toHaveLength(4);
+    expect(all.res.json.mock.calls[0][0]).toContainEqual(expect.objectContaining({ agencyId: 1, userId: 538, isSelf: false }));
+    actor = { id: 538, role: 'provider' };
+    const own = await request('/workspaces');
+    expect(own.res.json.mock.calls[0][0].map(p => p.userId)).toEqual([538, 538]);
+  });
+  it('lets a verified superadmin save another approved participant’s draft with owner-scoped queries', async () => {
+    actor = { id: 501, role: 'super_admin' }; row.user_id = 538;
+    const result = await request('/:agencyId/reports/:reportId', 'put', { version: 3, data: row.data_json }, {}, { userId: '538' });
+    expect(result.next).not.toHaveBeenCalled();
+    expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('id = ? AND agency_id = ? AND user_id = ?'), [7, 2, 538]);
+    expect(result.res.json).toHaveBeenCalledWith(expect.objectContaining({ version: 4 }));
+  });
+  it('rejects delegated report/receipt access for regular participants and invalid company pairs', async () => {
+    for (const path of ['/:agencyId/reports', '/:agencyId/reports/:reportId/pdf', '/:agencyId/reports/:reportId/receipts/:receiptId']) {
+      const result = await request(path, 'get', {}, {}, { userId: '538' });
+      expect(result.next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+    }
+    actor = { id: 501, role: 'super_admin' };
+    const wrongCompany = await request('/:agencyId/reports', 'get', {}, { agencyId: '1' }, { userId: '507' });
+    expect(wrongCompany.next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+    expect(m.read).not.toHaveBeenCalled();
+  });
+  it('does not allow a superadmin to sign as another participant or bypass a revoked grant', async () => {
+    actor = { id: 501, role: 'super_admin' }; row.user_id = 538;
+    const signed = await request('/:agencyId/reports/:reportId/sign', 'post', { version: 3 }, {}, { userId: '538' });
+    expect(signed.next).toHaveBeenCalledWith(expect.objectContaining({ status: 403, message: 'The participant must sign their own report.' }));
+    grant.enabled = 0;
+    const revoked = await request('/:agencyId/reports/:reportId/pdf', 'get', {}, {}, { userId: '538' });
+    expect(revoked.next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+  });
+  it('imports separate plans atomically and attributes configuration to the real superadmin', async () => {
+    actor = { id: 501, role: 'super_admin' };
+    const result = await request('/plan-setup', 'post', { plans: [{ agencyId: 2, userId: 538, enabled: true, settings }, { agencyId: 1, userId: 538, enabled: true, settings }] });
+    expect(result.next).not.toHaveBeenCalled(); expect(m.commit).toHaveBeenCalledOnce();
+    expect(result.res.json).toHaveBeenCalledWith({ saved: 2 });
+    const writes = m.execute.mock.calls.filter(([sql]) => sql.startsWith('INSERT INTO accountability_grants'));
+    expect(writes.map(([, values]) => [values[0], values[1], values[4]])).toEqual([[2,538,501],[1,538,501]]);
+  });
+  it('rejects duplicate or unauthorized setup plans before any mutation', async () => {
+    actor = { id: 501, role: 'super_admin' };
+    const plan = { agencyId: 2, userId: 538, enabled: true, settings };
+    const dup = await request('/plan-setup', 'post', { plans: [plan, plan] });
+    expect(dup.next).toHaveBeenCalledWith(expect.objectContaining({ status: 400 }));
+    expect(m.beginTransaction).not.toHaveBeenCalled();
+    actor = { id: 507, role: 'provider' };
+    const denied = await request('/plan-setup', 'post', { plans: [plan] });
+    expect(denied.next).toHaveBeenCalledWith(expect.objectContaining({ status: 403 }));
+  });
+
 });
