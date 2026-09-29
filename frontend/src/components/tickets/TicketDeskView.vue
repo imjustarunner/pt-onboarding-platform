@@ -136,7 +136,12 @@
 
         <div v-if="error" class="error pad">{{ error }}</div>
         <div v-else-if="loading && !tickets.length" class="muted pad">Loading tickets…</div>
-        <div v-else-if="!tickets.length" class="muted pad">No tickets match.</div>
+        <div v-else-if="!tickets.length" class="muted pad">
+          <p>{{ hasListFilters ? 'No tickets match the selected filters.' : 'No tickets match.' }}</p>
+          <button v-if="hasListFilters" type="button" class="btn btn-secondary btn-sm" @click="clearListFilters">
+            Clear filters
+          </button>
+        </div>
         <ul v-else class="ticket-list">
           <li
             v-for="t in tickets"
@@ -1451,12 +1456,17 @@ const createdByName = computed(() => {
 });
 
 const useMineForced = computed(() => props.mode === 'mine' || isSchoolStaff.value);
-const useMine = computed(() => {
+// /mine lists tickets submitted by the user. Assigned tickets stay on the
+// staff queue with mine=true, matching the tenant chips' Mine counts.
+const useSubmittedTickets = computed(() => {
   if (props.mode === 'mine') return true;
   if (props.mode === 'queue') return false;
-  if (isSchoolStaff.value) return true;
-  return viewMode.value === 'mine';
+  return isSchoolStaff.value;
 });
+const hasListFilters = computed(() => !!(
+  displayStatus.value || searchInput.value.trim() || priorityFilter.value
+  || sourceChannel.value || creatorRoleFilter.value || topicFilter.value
+));
 
 const canActOnSelected = computed(() => {
   const claimed = Number(selected.value?.claimed_by_user_id || 0);
@@ -1605,6 +1615,18 @@ function toggleMetric(key) {
 
 function toggleViewMode() {
   viewMode.value = viewMode.value === 'mine' ? 'all' : 'mine';
+  // An Open-only filter excludes claimed tickets, so reset it when changing views.
+  displayStatus.value = '';
+  loadTickets();
+}
+
+function clearListFilters() {
+  displayStatus.value = '';
+  searchInput.value = '';
+  priorityFilter.value = '';
+  sourceChannel.value = '';
+  creatorRoleFilter.value = '';
+  topicFilter.value = '';
   loadTickets();
 }
 
@@ -1672,7 +1694,7 @@ async function loadAgencyCounts() {
 }
 
 async function loadMetrics() {
-  if (useMine.value) return;
+  if (useSubmittedTickets.value) return;
   try {
     const params = {};
     if (agencyIdInput.value === 'platform') {
@@ -1700,7 +1722,7 @@ async function loadTickets() {
     const isPlatform = agencyIdInput.value === 'platform';
     const selectedAgencyId = Number(agencyIdInput.value);
     const hasAgency = !isPlatform && Number.isFinite(selectedAgencyId) && selectedAgencyId > 0;
-    if (useMine.value) {
+    if (useSubmittedTickets.value) {
       const r = await api.get('/support-tickets/mine', { skipGlobalLoading: true });
       let list = Array.isArray(r.data) ? r.data : [];
       if (isPlatform) {
@@ -2602,6 +2624,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  clearTimeout(searchDebounceTimer);
   window.removeEventListener('resize', onResize);
 });
 
