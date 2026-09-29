@@ -15,6 +15,7 @@ import {
 import { getSstcSurfaceChoice, getPreferredWorkAgencyId } from './sstcSurfaceChoice.js';
 import { isPractitionerOrgType } from './practitionerVertical.js';
 import { isBookClubAgency, getBookClubParentSlug } from './bookClubAgency.js';
+import { isSchoolCareBridgeOnly, schoolCareBridgePartnerPath } from './schoolCareBridgeTenant.js';
 import { getCurrentPortalSlugFromHostCache } from './loginRedirect.js';
 import { guessPortalSlugFromHostname } from './orgScopedPath.js';
 import {
@@ -93,6 +94,9 @@ export function getDashboardRoute() {
   }
   
   const userRole = String(user.role || '').toLowerCase();
+  if (userRole !== 'super_admin' && isSchoolCareBridgeOnly(agencyStore.currentAgency)) {
+    return schoolCareBridgePartnerPath(agencyStore.currentAgency.portal_url || agencyStore.currentAgency.slug);
+  }
   // Superadmin landing follows the login address, never stored memberships.
   if (userRole === 'super_admin' || userRole === 'superadmin') {
     const hostSlug = hostImpliedPortalSlug();

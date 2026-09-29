@@ -885,6 +885,9 @@ export const updateAgency = async (req, res, next) => {
 
     // Workspace management enrollment is controlled by the platform operator.
     if (formattedFeatureFlags && !isSuperAdmin) {
+      // Tenant product scope can only be changed by the platform operator.
+      if (previousFeatureFlags.schoolCareBridgeOnly === undefined) delete formattedFeatureFlags.schoolCareBridgeOnly;
+      else formattedFeatureFlags.schoolCareBridgeOnly = previousFeatureFlags.schoolCareBridgeOnly;
       if (previousFeatureFlags.managedWorkspaceGroupsEnabled === undefined) delete formattedFeatureFlags.managedWorkspaceGroupsEnabled;
       else formattedFeatureFlags.managedWorkspaceGroupsEnabled = previousFeatureFlags.managedWorkspaceGroupsEnabled;
       if (previousFeatureFlags.managedWorkspaceGroupsEnabled === true) formattedFeatureFlags.workspaceEmailDomain = previousFeatureFlags.workspaceEmailDomain;

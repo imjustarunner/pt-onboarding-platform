@@ -1,6 +1,7 @@
 import { routeRequiresSchoolPortalsFeature, routeRequiresProgramOverviewDashboard, routeRequiresSkillBuildersSchoolProgramFeature } from '../navigation/routeFeatures.js';
 import { isLoginEntryRoute, getSsoArrivalRoute } from '../utils/loginHandoff';
 import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowPath } from '../utils/schoolCareBridge.js';
+import { scopedSchoolCareBridgeDestination } from '../utils/schoolCareBridgeTenant.js';
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { rememberVerifiedGoogleAccount } from '../utils/googleAccountMemory';
@@ -307,6 +308,8 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  { path: '/admin/schoolcarebridge', name: 'SchoolCareBridgeProgram', component: () => import('../views/admin/SchoolCareBridgeProgramView.vue'), meta: { requiresAuth: true, requiresRole: ['super_admin'] } },
+  { path: '/schoolcarebridge/app/partners/:partnerSlug/:partnerSection?', name: 'SchoolCareBridgePartner', component: () => import('../views/school/SchoolCareBridgePartnerView.vue'), meta: { schoolCareBridgeEntry: true, schoolCareBridgePartner: true } },
   { path: '/schoolcarebridge/session-ended', name: 'SchoolCareBridgeSessionEnded', component: () => import('../views/school/SchoolCareBridgeSessionEnded.vue'), meta: { requiresGuest: false } },
   { path: '/schoolcarebridge/app', name: 'SchoolCareBridgeLogin', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true } },
   { path: '/schoolcarebridge/app/:organizationSlug', name: 'SchoolCareBridgeSchool', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true, organizationSlug: true } },
@@ -4838,6 +4841,14 @@ router.beforeEach(async (to, from, next) => {
     }
   };
 
+  if (to.meta.requiresAuth && !isSchoolCareBridgePath(to.path)) {
+    await tryBootstrapAuthFromCookie();
+    if (authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
+      if (!agencyStore.userAgencies?.length) await agencyStore.fetchUserAgencies();
+      const scoped = scopedSchoolCareBridgeDestination(to, agencyStore.userAgencies || []);
+      if (scoped) { next({path:scoped,replace:true}); return; }
+    }
+  }
   // Keep links emitted by the shared school components on the SchoolCareBridge surface.
   if (isSchoolCareBridgePath(from.path) && !isSchoolCareBridgePath(to.path)) {
     if (['OrganizationDashboard', 'OrganizationLogin'].includes(String(to.name)) && to.params.organizationSlug) {

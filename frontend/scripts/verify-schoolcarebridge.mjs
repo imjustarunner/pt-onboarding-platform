@@ -33,6 +33,7 @@ await page.route('**/api/**', async route => {
     await route.fulfill({ contentType: 'text/html', body: '<p>Configured Google authentication would start here.</p>' }); return;
   } else if (path.endsWith('/public/marketing-pages/schoolcarebridge')) {
     data = { page: { slug: 'schoolcarebridge', title: 'SchoolCareBridge', heroTitle: 'Connecting Schools. Supporting Students.', heroImageUrl: '/assets/mh4kidz/teamwork.webp', branding: { schoolcarebridgeWebsite: {} } } };
+  } else if (path.endsWith('/schoolcarebridge/partners') || path.endsWith('/schoolcarebridge/my-partners')) { data={partners:[{id:2,name:'ITSCO',slug:'itsco',logoUrl:'/assets/itsco/logo.png',workspaceMode:'connected'}]};
   } else if (path.includes('/schoolcarebridge/schools/')) {
     if (path.endsWith('/unknown')) { status = 404; data = { error: { message: 'This school portal is unavailable.' } }; }
     else { const chosen = path.endsWith('/lincoln') ? second : school; data = { school: { ...chosen, agencies: [{ id: 2, name: 'ITSCO' }, { id: 3, name: 'Next Level Up' }] } }; }
@@ -69,9 +70,10 @@ async function identify(email) { await page.locator('#username').fill(email); aw
 try {
   for (const width of (process.env.SCB_VERIFY_QUICK ? [] : [1440, 390])) {
     await page.setViewportSize({ width, height: 1000 });
-    for (const section of ['', 'for-schools', 'for-agencies', 'how-it-works', 'about', 'resources', 'security']) {
+    for (const section of ['', 'for-schools', 'for-agencies', 'how-it-works', 'about', 'resources', 'security', 'partners']) {
       await visit('/schoolcarebridge' + (section ? '/' + section : ''));
       assert.equal(await page.locator('h1').count(), 1);
+      if (['', 'partners', 'for-schools'].includes(section)) await page.screenshot({path:`/tmp/scb-${section||'home'}-${width}.png`,fullPage:true});
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     }
   }
@@ -87,6 +89,7 @@ try {
   await page.locator('#password').waitFor();
   assert.ok(await page.getByText('Next Level Up', { exact: true }).isVisible());
   assert.ok(!page.url().includes('staff'));
+  await page.screenshot({path:'/tmp/scb-school-login.png',fullPage:true});
   await page.locator('#password').fill('WrongPassword');
   await page.locator('.login-form button[type=submit]').click();
   await page.getByText('Invalid credentials', { exact: true }).waitFor();
@@ -111,7 +114,7 @@ try {
   await visit('/schoolcarebridge/app/ashley');await page.locator('.school-portal').waitFor();
   assert.ok(await page.locator('.scb-affiliates').getByText('ITSCO',{exact:true}).isVisible());
   await page.screenshot({path:'/tmp/scb-authenticated-portal.png',fullPage:true});
-  await visit('/schoolcarebridge/app/ashley?mode=roster');await page.locator('.school-portal').waitFor();
+  await visit('/schoolcarebridge/app/ashley?sp=roster');await page.locator('.school-portal').waitFor();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await page.locator('#username').waitFor(); assert.equal(signedIn, false);
   signedIn = true;

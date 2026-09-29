@@ -34,6 +34,7 @@
         </div>
       </div>
       <div class="hub-header-actions">
+        <router-link v-if="schoolCareBridgePartner" class="scb-hub-entry" :to="schoolCareBridgePartnerPath(schoolCareBridgePartner.slug)" :aria-label="`${schoolCareBridgePartner.name} SchoolCareBridge workspace`"><img src="/assets/schoolcarebridge/logo.png" alt="SchoolCareBridge"/><span>{{schoolCareBridgePartner.name}} · School portals →</span></router-link>
         <nav class="hub-switcher" aria-label="Switch hub">
           <template v-for="item in hubSwitcherLinks" :key="item.key">
             <span
@@ -291,6 +292,7 @@
 </template>
 
 <script setup>
+import { schoolCareBridgePartnerPath } from '../utils/schoolCareBridgeTenant';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
@@ -311,6 +313,11 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const schoolCareBridgePartner = ref(null);
+async function loadSchoolCareBridgePartner() {
+  try { const {data}=await api.get('/schoolcarebridge/my-partners',{skipGlobalLoading:true}); schoolCareBridgePartner.value=data.partners.find(p=>Number(p.id)===Number(agencyStore.currentAgency?.id))||null; } catch { schoolCareBridgePartner.value=null; }
+}
+watch(()=>agencyStore.currentAgency?.id,loadSchoolCareBridgePartner);
 const brandingStore = useBrandingStore();
 const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null));
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
@@ -988,6 +995,7 @@ watch(visibleSections, (sections) => {
   }
 });
 onMounted(() => {
+  loadSchoolCareBridgePartner();
   loadPendingCounts();
   // Silently redirect to the org-scoped URL on mount if a tenant is active
   // but the URL is the flat slug-less route. Skip on dedicated app hosts
@@ -2049,3 +2057,7 @@ onMounted(() => {
 </style>
 
 <style src="../styles/hubSectionTones.css"></style>
+
+<style scoped>
+.scb-hub-entry{display:flex;flex-direction:column;align-items:center;justify-content:center;background:white;border:1px solid #d8e5ec;border-radius:12px;padding:0 14px 9px;text-decoration:none;color:#174563}.scb-hub-entry img{width:170px;height:59px;object-fit:cover}.scb-hub-entry span{font-size:11px;font-weight:700}
+</style>

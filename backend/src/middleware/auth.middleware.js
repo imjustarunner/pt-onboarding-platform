@@ -10,11 +10,14 @@ import { canUserManageClub, getUserClubMembership, inferLegacyClubRole } from '.
 import { hasTenantAccess } from '../utils/meDashboardTenantScope.js';
 import { getSessionSecurity, sessionRouteAllowed, invalidateSessionPolicyCache } from '../services/sessionSecurity.service.js';
 import { enforceAccountSecurity } from './accountSecurity.middleware.js';
+import { enforceSchoolCareBridgeScope } from './schoolCareBridgeScope.middleware.js';
 import { recordAccountSession } from '../services/personalSessionHistory.service.js';
 
 const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
   'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
 ]);
+
+const finishAuthentication = (req,res,next) => enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next));
 
 /** Normalize role strings for authorization (JWT quirks / legacy variants). */
 function normalizeAuthRole(role) {
@@ -251,7 +254,7 @@ export const authenticate = async (req, res, next) => {
         agencyId: decoded.agencyId,
         agencyIds: decoded.agencyIds || (decoded.agencyId ? [decoded.agencyId] : [])
       };
-      return enforceAccountSecurity(req, res, next);
+      return finishAuthentication(req, res, next);
     }
     
     // Backward compatibility: older passwordless tokens may include type='passwordless'.
@@ -272,7 +275,7 @@ export const authenticate = async (req, res, next) => {
       };
       await resolveEffectiveRole(req);
       await req.auditIdentify?.(req.user);
-      return enforceAccountSecurity(req, res, next);
+      return finishAuthentication(req, res, next);
     }
 
     // Regular user tokens - support both email and username for login
@@ -291,7 +294,7 @@ export const authenticate = async (req, res, next) => {
     };
     await resolveEffectiveRole(req);
     await req.auditIdentify?.(req.user);
-    return enforceAccountSecurity(req, res, next);
+    return finishAuthentication(req, res, next);
   } catch (error) {
     if (error.code === 'HIRE_ACTIVATION_REQUIRED') return res.status(403).json({ error: { code: error.code, message: error.message, usePortalLink: true } });
     if (error.code?.startsWith('SESSION_')) return res.status(error.status || 503).json({ error: { code: error.code, message: error.message } });
@@ -391,7 +394,7 @@ export const authenticateOptional = async (req, res, next) => {
           }
           req.authClaims = decoded;
           await recordAccountSession(decoded, req);
-          return enforceAccountSecurity(req, res, next);
+          return finishAuthentication(req, res, next);
         }
       } catch (error) {
         if (!['TokenExpiredError', 'JsonWebTokenError', 'NotBeforeError'].includes(error.name)) return next(error);
