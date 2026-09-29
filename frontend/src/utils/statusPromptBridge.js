@@ -14,6 +14,7 @@ import {
   loadCustomOutReasons,
   removeCustomOutReason
 } from './presenceStatus';
+import { formatCountdownClock } from './sessionTimeoutBranding';
 
 const KEY = '__PT_STATUS_PROMPT__';
 const ROOT_ID = 'pt-status-prompt-root';
@@ -82,6 +83,17 @@ export function registerStatusPromptHandlers(handlers) {
 
 export function getStatusPromptMode() {
   return getBridge().mode;
+}
+
+// Share the existing security countdown; this presentation never owns a timer.
+export function updateStatusPromptSession(context = null) {
+  const b = getBridge();
+  const wasPage = !!b.sessionContext?.enabled;
+  b.sessionContext = context;
+  if (b.mode !== 'timedown') return;
+  if (wasPage !== !!context?.enabled) renderPromptDom(b.mode);
+  const clock = document.getElementById('pt-sp-countdown');
+  if (clock) clock.textContent = formatCountdownClock(context?.secondsLeft || 0);
 }
 
 export function subscribeStatusPrompt(fn, id = 'default') {
@@ -163,6 +175,21 @@ function ensurePromptStyles() {
     .pt-sp-custom-wrap { display:inline-flex; align-items:center; gap:4px; }
     .pt-sp-custom-del { width:22px; height:22px; border:none; border-radius:999px; background:rgba(15,23,42,0.08); color:#334155; cursor:pointer; font-size:14px; }
     .pt-sp-privacy { margin:10px 0 0; font-size:11px; color:#94a3b8; line-height:1.4; }
+    #pt-status-prompt-root.pt-sp-page { padding:0; background:#f3f6f5; backdrop-filter:none; }
+    .pt-sp-page .pt-sp-card { width:100%; height:100%; max-height:none; box-sizing:border-box; border:0; border-radius:0; padding:0 max(24px, calc((100vw - 960px) / 2)) 32px; box-shadow:none; background:transparent; }
+    .pt-sp-session-header { position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:24px 0; margin-bottom:20px; background:#f3f6f5; border-bottom:2px solid var(--pt-sp-accent, #1f6b4a); }
+    .pt-sp-brand { display:flex; align-items:center; gap:16px; min-width:0; font-size:1.1rem; font-weight:750; }
+    .pt-sp-brand img { width:auto; max-width:180px; max-height:56px; object-fit:contain; }
+    .pt-sp-countdown-wrap { text-align:right; flex-shrink:0; color:#475569; font-size:0.8rem; }
+    #pt-sp-countdown { display:block; font-size:clamp(2rem, 5vw, 3rem); line-height:1.1; font-weight:800; font-variant-numeric:tabular-nums; color:#0f172a; }
+    .pt-sp-page .pt-sp-actions { margin:18px 0 24px; }
+    .pt-sp-page .pt-sp-section { margin-bottom:22px; }
+    .pt-sp-page .pt-sp-btn-primary, .pt-sp-page .pt-sp-chip.active { background:var(--pt-sp-accent, #1f6b4a); }
+    @media (max-width:640px) {
+      .pt-sp-session-header { gap:12px; padding:16px 0; }
+      .pt-sp-brand { flex-direction:column; align-items:flex-start; gap:6px; font-size:0.9rem; }
+      .pt-sp-brand img { max-width:130px; max-height:40px; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -193,9 +220,11 @@ function isLongerAway(reason) {
 
 function renderPromptDom(mode) {
   if (typeof document === 'undefined') return;
+  const previousFocus = document.activeElement?.closest?.(`#${ROOT_ID}`) ? document.activeElement.textContent : null;
   ensurePromptStyles();
   removePromptDom();
   const b = getBridge();
+  const sessionPage = mode === 'timedown' && b.sessionContext?.enabled;
   b.outReason = b.outReason || 'meal';
   b.durationMinutes = b.durationMinutes || 60;
   if (b.reachable === undefined) b.reachable = null;
@@ -213,9 +242,42 @@ function renderPromptDom(mode) {
   root.setAttribute('aria-labelledby', 'pt-sp-title');
   root.style.cssText =
     'position:fixed;inset:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(15,23,20,0.55);backdrop-filter:blur(4px);';
+  if (sessionPage) {
+    root.classList.add('pt-sp-page');
+    // Remove inline defaults so the full-page layout can apply responsively.
+    for (const property of ['padding', 'background', 'backdrop-filter']) root.style.removeProperty(property);
+    root.style.setProperty('--pt-sp-accent', b.sessionContext.primaryColor || '#1f6b4a');
+  }
 
   const card = document.createElement('div');
   card.className = 'pt-sp-card';
+
+  if (sessionPage) {
+    const header = document.createElement('header');
+    header.className = 'pt-sp-session-header';
+    const brand = document.createElement('div');
+    brand.className = 'pt-sp-brand';
+    if (b.sessionContext.logoUrl) {
+      const logo = document.createElement('img');
+      logo.src = b.sessionContext.logoUrl;
+      logo.alt = b.sessionContext.brandName || 'Your workspace';
+      brand.appendChild(logo);
+    }
+    const name = document.createElement('span');
+    name.textContent = b.sessionContext.brandName || 'Your workspace';
+    brand.appendChild(name);
+    const countdown = document.createElement('div');
+    countdown.className = 'pt-sp-countdown-wrap';
+    countdown.textContent = 'Automatic logout in';
+    const clock = document.createElement('span');
+    clock.id = 'pt-sp-countdown';
+    clock.setAttribute('role', 'timer');
+    clock.setAttribute('aria-label', 'Time until automatic logout');
+    clock.textContent = formatCountdownClock(b.sessionContext.secondsLeft || 0);
+    countdown.appendChild(clock);
+    header.append(brand, countdown);
+    card.appendChild(header);
+  }
 
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
@@ -226,17 +288,19 @@ function renderPromptDom(mode) {
     if (mode === 'logout') resolveLogoutStatusPrompt(false);
     else closeStatusPrompt();
   });
-  card.appendChild(closeBtn);
+  if (!sessionPage) card.appendChild(closeBtn);
 
   const h2 = document.createElement('h2');
   h2.id = 'pt-sp-title';
   h2.className = 'pt-sp-h2';
-  h2.textContent = titleFor(mode);
+  h2.textContent = sessionPage ? 'Your workspace is locked' : titleFor(mode);
   card.appendChild(h2);
 
   const sub = document.createElement('p');
   sub.className = 'pt-sp-sub';
-  sub.textContent = subFor(mode);
+  sub.textContent = sessionPage
+    ? 'Your information is protected. Stay logged in to continue working, or choose a status before leaving. The countdown continues while you decide.'
+    : subFor(mode);
   card.appendChild(sub);
 
   const selectOut = (id, customLabel = null) => {
@@ -442,7 +506,7 @@ function renderPromptDom(mode) {
     const still = document.createElement('button');
     still.type = 'button';
     still.className = 'pt-sp-btn-primary';
-    still.textContent = "I'm still here";
+    still.textContent = sessionPage ? "I'm still here — stay logged in" : "I'm still here";
     still.addEventListener('click', async () => {
       try {
         await b.handlers?.onStillHere?.();
@@ -525,11 +589,23 @@ function renderPromptDom(mode) {
   const privacy = document.createElement('p');
   privacy.className = 'pt-sp-privacy';
   privacy.textContent = 'Your status is visible to your organization on the Presence / Team Board.';
-  card.appendChild(actions);
+  if (sessionPage) sub.after(actions);
+  else card.appendChild(actions);
   card.appendChild(guide);
   card.appendChild(privacy);
   root.appendChild(card);
   document.body.appendChild(root);
+  if (sessionPage) {
+    const buttons = [...root.querySelectorAll('button:not(:disabled)')];
+    (buttons.find(button => button.textContent === previousFocus) || buttons[0])?.focus({ preventScroll: true });
+    root.addEventListener('keydown', (event) => {
+      if (event.key !== 'Tab') return;
+      const available = [...root.querySelectorAll('button:not(:disabled)')];
+      const first = available[0]; const last = available.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    });
+  }
 }
 
 export function openStatusPrompt(

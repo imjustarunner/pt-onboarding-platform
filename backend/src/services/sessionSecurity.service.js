@@ -14,18 +14,22 @@ export async function loadSessionPolicy(user) {
   const cacheKey = `${user.id || user.email}:${user.role || user.type}`;
   const cached = policyCache.get(cacheKey);
   if (cached && cached.until > Date.now()) return cached.policy;
-  const [[preferences], [agencies], [branding]] = await Promise.all([
+  const [[preferences], [agencies], [branding], [employees]] = await Promise.all([
     pool.execute('SELECT session_lock_enabled, inactivity_timeout_minutes, session_lock_pin_hash FROM user_preferences WHERE user_id = ? LIMIT 1', [user.id || null]),
     normalizeSessionRole(user.role) === 'super_admin'
       ? pool.execute('SELECT session_settings_json FROM agencies WHERE is_active = 1')
       : user.id ? pool.execute(`SELECT a.session_settings_json FROM agencies a
       INNER JOIN user_agencies ua ON ua.agency_id = a.id WHERE ua.user_id = ? AND a.is_active = 1 AND COALESCE(ua.is_active, 1) = 1`, [user.id])
       : pool.execute('SELECT session_settings_json FROM agencies WHERE id = ?', [user.agencyId || null]),
-    pool.execute('SELECT max_inactivity_timeout_minutes FROM platform_branding ORDER BY id DESC LIMIT 1')
+    pool.execute('SELECT max_inactivity_timeout_minutes FROM platform_branding ORDER BY id DESC LIMIT 1'),
+    pool.execute('SELECT is_hourly_worker FROM users WHERE id = ? LIMIT 1', [user.id || null])
   ]);
   const settings = agencies.map(a => typeof a.session_settings_json === 'string'
     ? JSON.parse(a.session_settings_json || '{}') : (a.session_settings_json || {}));
-  const policy = resolveSessionPolicy({ role: user.role, settings, preferences: preferences[0] || {}, platformMax: branding[0]?.max_inactivity_timeout_minutes });
+  // Read employment status from storage, not a client field or stale JWT claim.
+  const hourly = employees[0]?.is_hourly_worker;
+  const isHourlyWorker = [false, 0, '0'].includes(hourly) ? false : [true, 1, '1'].includes(hourly) ? true : undefined;
+  const policy = resolveSessionPolicy({ role: user.role, isHourlyWorker, settings, preferences: preferences[0] || {}, platformMax: branding[0]?.max_inactivity_timeout_minutes });
   if (policyCache.size > 5000) policyCache.clear();
   policyCache.set(cacheKey, { policy, until: Date.now() + 30000 });
   return policy;

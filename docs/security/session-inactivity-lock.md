@@ -6,7 +6,9 @@ Agency Management → General → Session Timeout (Timedown) → **Require Quick
 
 Select the roles that must use their existing six-digit Quick View passcode. This overrides the optional four-digit session PIN preference. A user without a Quick View passcode must fully sign in and configure/reset it in My Preferences; a missing code does not disable the requirement.
 
-The strictest timeouts and passcode requirement across active agency memberships apply to the whole login. Superadmins can access all agencies, so all active agencies participate in their policy. Admin/support/CPA/superadmin idle and countdown durations are capped at ten minutes each; shorter agency settings apply. Other users default to three minutes idle and ten minutes countdown. Platform and personal session-lock limits can shorten the idle interval.
+The strictest passcode requirement and explicit maximum inactivity limits across active agency memberships apply to the whole login. Superadmins can access all agencies, so all active agencies participate in their policy. Non-hourly admin/support/superadmin users get ten minutes idle followed by a ten-minute logout countdown, overriding the general agency idle/countdown fields. Eligibility uses the stored `users.is_hourly_worker` flag; missing or unknown employment status does not grant this exception. Hourly staff and other roles retain their existing policy, including shorter agency idle/countdown settings. Platform, agency maximum and personal session-lock limits can still shorten the idle interval.
+
+Eligible non-hourly users see their status chooser as a full branded page during timedown, with a sticky countdown that remains visible while choosing a status. It uses the existing absolute logout deadline and never resets time merely by opening the page or selecting an option. Stay logged in, Away status and logout keep their existing server-verified behavior. Required PINs retain the PIN lock screen and its countdown; manual status and logout prompts retain their existing modal presentation.
 
 ## Behavior
 
@@ -36,7 +38,7 @@ The server rejects an expired session whenever it is presented, even if the brow
 
 ```sh
 node frontend/node_modules/vitest/vitest.mjs run --config backend/vitest.session-security.config.js
-npm --prefix frontend test -- --run src/store/__tests__/sessionLock.test.js src/utils/__tests__/activityTracker.test.js src/utils/__tests__/sessionDeadline.test.js src/components/__tests__/SessionLockScreen.test.js
+npm --prefix frontend test -- --run src/store/__tests__/sessionLock.test.js src/utils/__tests__/activityTracker.test.js src/utils/__tests__/sessionDeadline.test.js src/components/__tests__/SessionLockScreen.test.js src/utils/__tests__/statusPromptBridge.test.js src/components/__tests__/StatusPromptModal.test.js
 cd frontend
 NODE_OPTIONS=--max-old-space-size=8192 npm run build
 ```

@@ -2,6 +2,34 @@ import { describe, it, expect } from 'vitest';
 import { resolveSessionPolicy, sessionSecurityState, validateSessionSettings } from '../sessionSecurityPolicy.js';
 
 describe('session security policy', () => {
+  it.each(['admin', 'support', 'super_admin', 'superadmin', 'super-admin', 'super admin'])(
+    'gives non-hourly %s ten minutes idle and ten minutes to resume despite generic agency settings', (role) => {
+      const policy = resolveSessionPolicy({ role, isHourlyWorker: false, settings: [{ idleBeforeTimedownSeconds: 180, timedownSeconds: 90 }] });
+      expect(policy).toMatchObject({ nonHourlyAdminSession: true, idleBeforeTimedownSeconds: 600, timedownSeconds: 600 });
+      const row = { last_activity_at: new Date(0), absolute_expires_at: 3600000 };
+      expect(sessionSecurityState(row, policy, 599999).phase).toBe('active');
+      expect(sessionSecurityState(row, policy, 600000).phase).toBe('timedown');
+      expect(sessionSecurityState(row, policy, 1199999).phase).toBe('timedown');
+      expect(sessionSecurityState(row, policy, 1200000).phase).toBe('expired');
+    }
+  );
+  it.each(['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider', 'staff'])(
+    'preserves existing policy for hourly or unverified %s', (role) => {
+      const settings = [{ idleBeforeTimedownSeconds: 180, timedownSeconds: 90 }];
+      for (const isHourlyWorker of [true, undefined]) {
+        expect(resolveSessionPolicy({ role, isHourlyWorker, settings })).toMatchObject({ nonHourlyAdminSession: false, idleBeforeTimedownSeconds: 180, timedownSeconds: 90 });
+      }
+      if (!['admin', 'support', 'super_admin'].includes(role)) {
+        expect(resolveSessionPolicy({ role, isHourlyWorker: false, settings })).toMatchObject({ nonHourlyAdminSession: false, idleBeforeTimedownSeconds: 180, timedownSeconds: 90 });
+      }
+    }
+  );
+  it('keeps explicit shorter lock limits and required PINs for non-hourly admins', () => {
+    const input = { role: 'admin', isHourlyWorker: false };
+    expect(resolveSessionPolicy({ ...input, platformMax: 2 }).idleBeforeTimedownSeconds).toBe(120);
+    expect(resolveSessionPolicy({ ...input, settings: [{ maxInactivityTimeoutMinutes: 3, requireQuickViewPinRoles: ['admin'] }] })).toMatchObject({ idleBeforeTimedownSeconds: 180, pinRequired: true, useLockScreen: true });
+    expect(resolveSessionPolicy({ ...input, preferences: { session_lock_enabled: 1, inactivity_timeout_minutes: 1 } }).idleBeforeTimedownSeconds).toBe(60);
+  });
   it('enforces selected roles regardless of user preferences or agency ordering', () => {
     const settings = [{ idleBeforeTimedownSeconds: 900 }, { requireQuickViewPinRoles: ['admin'], idleBeforeTimedownSeconds: 120, timedownSeconds: 90 }];
     const policy = resolveSessionPolicy({ role: 'admin', settings, preferences: { session_lock_enabled: false } });

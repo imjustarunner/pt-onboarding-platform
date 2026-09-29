@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), compare: vi.fn(), connection: { execute: vi.fn(), beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() } }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute, getConnection: async () => mocks.connection } }));
 vi.mock('bcrypt', () => ({ default: { compare: mocks.compare } }));
-import { changeSessionSecurity, sessionRouteAllowed, getSessionSecurity, invalidateSessionPolicyCache } from '../sessionSecurity.service.js';
+import { changeSessionSecurity, sessionRouteAllowed, getSessionSecurity, invalidateSessionPolicyCache, loadSessionPolicy } from '../sessionSecurity.service.js';
 
 let row;
 const policy = { idleBeforeTimedownSeconds: 30, timedownSeconds: 90, useLockScreen: true, pinRequired: true };
@@ -18,6 +18,22 @@ beforeEach(() => {
   mocks.compare.mockResolvedValue(true);
 });
 describe('server session transitions', () => {
+  it.each([false, 0, '0', true, 1, '1'])('uses stored hourly status (%s), ignoring conflicting caller claims', async (hourly) => {
+    invalidateSessionPolicyCache();
+    mocks.execute.mockImplementation(async (sql) => {
+      if (sql.startsWith('SELECT is_hourly_worker')) return [[{ is_hourly_worker: hourly }]];
+      if (sql.includes('session_settings_json')) return [[{ session_settings_json: { idleBeforeTimedownSeconds: 180 } }]];
+      return [[]];
+    });
+    const eligible = [false, 0, '0'].includes(hourly);
+    const result = await loadSessionPolicy({ id: 1, role: 'support', is_hourly_worker: eligible });
+    expect(result).toMatchObject({ nonHourlyAdminSession: eligible, idleBeforeTimedownSeconds: eligible ? 600 : 180 });
+  });
+  it('does not grant the non-hourly policy when the employee record is missing', async () => {
+    invalidateSessionPolicyCache();
+    mocks.execute.mockResolvedValue([[]]);
+    expect(await loadSessionPolicy({ id: 1, role: 'admin', is_hourly_worker: false })).toMatchObject({ nonHourlyAdminSession: false });
+  });
   it('rejects an old JWT even if it has no previously initialized security row', async () => {
     mocks.execute.mockResolvedValue([[{ reject_issued_before: 200 }]]);
     await expect(getSessionSecurity({ id: 507, iat: 100, exp: 9999999999 }, 'old-token')).rejects.toMatchObject({ code: 'SESSION_EXPIRED' });

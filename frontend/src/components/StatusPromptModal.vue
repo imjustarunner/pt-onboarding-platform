@@ -8,11 +8,14 @@ import { onUnmounted, watch } from 'vue';
 import { useAuthStore } from '../store/auth';
 import { useSessionLockStore } from '../store/sessionLock';
 import { usePresenceSessionStore } from '../store/presenceSession';
+import { useBrandingStore } from '../store/branding';
+import { useAgencyStore } from '../store/agency';
 import {
   registerStatusPromptHandlers,
   closeStatusPrompt,
   getStatusPromptMode,
-  subscribeStatusPrompt
+  subscribeStatusPrompt,
+  updateStatusPromptSession
 } from '../utils/statusPromptBridge';
 import {
   resumeSession,
@@ -25,6 +28,20 @@ import {
 const authStore = useAuthStore();
 const sessionLockStore = useSessionLockStore();
 const presenceSession = usePresenceSessionStore();
+const brandingStore = useBrandingStore();
+const agencyStore = useAgencyStore();
+
+watch(
+  () => ({
+    enabled: !!sessionLockStore.lockConfig?.nonHourlyAdminSession && sessionLockStore.warningActive && !sessionLockStore.isLocked,
+    secondsLeft: sessionLockStore.warningSecondsLeft,
+    logoUrl: brandingStore.displayLogoUrl,
+    brandName: agencyStore.currentAgency?.name || brandingStore.displayName,
+    primaryColor: brandingStore.effectivePrimaryColor
+  }),
+  updateStatusPromptSession,
+  { immediate: true, flush: 'sync' }
+);
 
 // Keep Pinia promptMode in sync when the imperative bridge closes (Cancel / Update).
 const unsubPromptBridge = subscribeStatusPrompt((mode) => {
@@ -33,7 +50,7 @@ const unsubPromptBridge = subscribeStatusPrompt((mode) => {
   }
 }, 'statusPromptModal');
 
-// While Timedown is up, privileged users must keep the status modal stacked on top.
+// Eligible non-hourly staff see the branded page; other privileged users keep the chooser.
 watch(
   () => ({
     warning: sessionLockStore.warningActive,
@@ -116,6 +133,7 @@ registerStatusPromptHandlers({
 });
 
 onUnmounted(() => {
+  updateStatusPromptSession(null);
   if (typeof unsubPromptBridge === 'function') unsubPromptBridge();
   // Only clear handlers if this instance still owns them and prompt is closed.
   if (!getStatusPromptMode()) {

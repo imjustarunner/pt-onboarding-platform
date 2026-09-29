@@ -24,8 +24,9 @@ const seconds = (value, fallback) => Number.isFinite(Number(value)) && value != 
 
 // Apply the strictest policy across memberships. Switching tabs/agency headers
 // must not weaken protection for information already loaded from another agency.
-export function resolveSessionPolicy({ role, settings = [], preferences = {}, platformMax = 30 }) {
+export function resolveSessionPolicy({ role, isHourlyWorker, settings = [], preferences = {}, platformMax = 30 }) {
   role = normalizeSessionRole(role);
+  const nonHourlyAdminSession = ['admin', 'super_admin', 'support'].includes(role) && isHourlyWorker === false;
   const privileged = ['admin', 'super_admin', 'support', 'clinical_practice_assistant'].includes(role);
   let idle = privileged ? 600 : 180;
   let timedown = 600;
@@ -37,6 +38,9 @@ export function resolveSessionPolicy({ role, settings = [], preferences = {}, pl
     timedown = Math.min(...settings.map(s => seconds(s.timedownSeconds ?? (s.timedownMinutes == null ? null : s.timedownMinutes * 60), 600)));
     if (privileged) { idle = Math.min(idle, 600); timedown = Math.min(timedown, 600); }
   }
+  // The general agency idle/countdown fields still govern everyone else.
+  // Explicit platform, agency maximum and personal lock limits below still apply.
+  if (nonHourlyAdminSession) { idle = 600; timedown = 600; }
   for (const s of settings) {
     const n = Number(s.maxInactivityTimeoutMinutes ?? s.max_inactivity_timeout_minutes);
     if (n >= 1) agencyMax = Math.min(agencyMax, n);
@@ -47,6 +51,7 @@ export function resolveSessionPolicy({ role, settings = [], preferences = {}, pl
   const timeout = Math.min(agencyMax, Math.max(1, Number(preferences.inactivity_timeout_minutes) || agencyMax));
   idle = Math.min(idle, agencyMax * 60, sessionLockEnabled ? timeout * 60 : Infinity);
   return {
+    nonHourlyAdminSession,
     platformMaxMinutes: max, agencyMaxMinutes: agencyMax,
     sessionLockEnabled, inactivityTimeoutMinutes: timeout, effectiveTimeoutMinutes: timeout,
     pinRequired, pinType: pinRequired ? 'quick_view' : 'session', pinLength: pinRequired ? 6 : 4,
