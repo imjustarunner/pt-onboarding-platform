@@ -14,6 +14,7 @@ import { validatePasswordStrength, checkPasswordBasics } from '../utils/password
 import { ensureDigitalIntakeFormsForSchool } from './schoolOnboardingIntakeBootstrap.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { normalizeGroupSubscription } from './schoolGroupSubscription.service.js';
+import { toStoredDistrictName, validateSchoolDistrictSelection } from '../utils/districtSlug.shared.js';
 
 const AGENCY_HELPER_ROLES = new Set([
   'admin',
@@ -483,7 +484,7 @@ async function upsertSchoolProfile(schoolId, updates = {}) {
        secondary_contact_text = COALESCE(VALUES(secondary_contact_text), secondary_contact_text)`,
     [
       schoolId,
-      districtName,
+      toStoredDistrictName(districtName),
       schoolNumber,
       itscoEmail,
       combinedDays,
@@ -1442,6 +1443,8 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
   const markCompleteFlag = effectiveMarkComplete;
 
   if (stepKey === 'school_information') {
+    const profile = await getSchoolProfile(invite.school_organization_id);
+    const districtName = validateSchoolDistrictSelection(body.districtName, profile?.district_name);
     const schoolName = String(body.schoolName || (markCompleteFlag ? invite.school_name : '')).trim();
     const itscoEmail = String(body.itscoEmail || '').trim().toLowerCase();
     if (markCompleteFlag && !schoolName) {
@@ -1462,7 +1465,7 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
     const contactName = String(body.primaryContactName || '').trim();
     const contactEmail = String(body.primaryContactEmail || '').trim();
     await upsertSchoolProfile(invite.school_organization_id, {
-      districtName: body.districtName || null,
+      districtName,
       schoolNumber: body.schoolNumber || null,
       itscoEmail: itscoEmail || null,
       schoolAddress: body.schoolAddress || null,
@@ -1477,7 +1480,7 @@ export async function saveStep(token, stepKey, payload = {}, markComplete = true
       schoolDaysTimes: body.schoolDaysTimes || null
     });
     const filledBody = Object.fromEntries(
-      Object.entries({ ...body, ...(itscoEmail ? { itscoEmail } : {}) }).filter(
+      Object.entries({ ...body, districtName, ...(itscoEmail ? { itscoEmail } : {}) }).filter(
         ([, value]) => String(value ?? '').trim() !== ''
       )
     );

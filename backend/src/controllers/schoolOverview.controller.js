@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { toStoredDistrictName } from '../utils/districtSlug.shared.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import Agency from '../models/Agency.model.js';
 import PlatformBranding from '../models/PlatformBranding.model.js';
@@ -328,7 +329,7 @@ export const getSchoolOverview = async (req, res, next) => {
         const sid = safeInt(r?.school_id);
         const target = bySchoolId.get(sid);
         if (!target) continue;
-        target.district_name = r?.district_name ? String(r.district_name) : null;
+        target.district_name = toStoredDistrictName(r?.district_name);
       }
     } catch (e) {
       if (!isMissingSchemaError(e)) throw e;

@@ -13,7 +13,7 @@ async function main() {
       {
         schoolOrganizationId: 425,
         itscoEmail: 'grantbeacon@itsco.health',
-        districtName: 'Denver Public Schools'
+        districtName: 'DPS'
       }
     ]
   });

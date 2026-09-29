@@ -64,6 +64,22 @@ export function toPublicDistrictDisplayName(nameOrSlug) {
   return group.shortCode || group.canonicalName || normalizeDistrictName(nameOrSlug);
 }
 
+/** Persist known aliases consistently without inventing a district for blank input. */
+export function toStoredDistrictName(value) {
+  return String(value || '').trim() ? toPublicDistrictDisplayName(value) : null;
+}
+
+/** School contacts select existing districts; new districts require agency setup. */
+export function validateSchoolDistrictSelection(value, existingDistrict = null) {
+  const district = toStoredDistrictName(value);
+  if (district === null) return null;
+  const option = DISTRICT_SHORT_CODE_OPTIONS.find((item) => item.value.toLowerCase() === district.toLowerCase());
+  if (option) return option.value;
+  const existing = toStoredDistrictName(existingDistrict);
+  if (existing && existing.toLowerCase() === district.toLowerCase()) return existing;
+  throw Object.assign(new Error('Select an existing district. Contact your agency to add a new district.'), { status: 400 });
+}
+
 function aliasKey(value) {
   return String(value || '')
     .trim()

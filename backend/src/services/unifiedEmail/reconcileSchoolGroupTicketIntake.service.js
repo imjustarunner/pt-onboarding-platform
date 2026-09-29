@@ -1,4 +1,5 @@
 import pool from '../../config/database.js';
+import { toStoredDistrictName } from '../../utils/districtSlug.shared.js';
 import Agency from '../../models/Agency.model.js';
 import GoogleWorkspaceDirectoryService from '../googleWorkspaceDirectory.service.js';
 import {
@@ -68,7 +69,7 @@ export async function reconcileSchoolGroupTicketIntakeForAgency({
   for (const link of profileLinks || []) {
     const schoolOrganizationId = Number(link.schoolOrganizationId || link.school_id || 0);
     const itscoEmail = normalizeEmail(link.itscoEmail || link.itsco_email || link.groupEmail);
-    const districtName = String(link.districtName || link.district_name || '').trim() || null;
+    const districtName = toStoredDistrictName(link.districtName || link.district_name);
     if (!schoolOrganizationId || !itscoEmail.includes('@')) continue;
     if (dryRun) {
       stats.profilesLinked += 1;

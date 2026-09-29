@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { callGeminiText } from './geminiText.service.js';
 import pool from '../config/database.js';
+import { toStoredDistrictName } from '../utils/districtSlug.shared.js';
 
 const slugify = (s) =>
   String(s || '')
@@ -277,7 +278,7 @@ async function findOrCreateSchool(connection, { agencyId, schoolName, districtNa
     `INSERT INTO school_profiles (school_organization_id, district_name)
      VALUES (?, ?)
      ON DUPLICATE KEY UPDATE district_name = COALESCE(VALUES(district_name), district_name)`,
-    [schoolId, districtName && String(districtName).trim() ? String(districtName).trim() : null]
+    [schoolId, toStoredDistrictName(districtName)]
   );
 
   return { schoolId, created };
@@ -318,7 +319,7 @@ async function upsertSchoolProfile(connection, { schoolId, updates }) {
          secondary_contact_text = COALESCE(VALUES(secondary_contact_text), secondary_contact_text)`,
       [
         schoolId,
-        districtName && String(districtName).trim() ? String(districtName).trim() : null,
+        toStoredDistrictName(districtName),
         schoolNumber && String(schoolNumber).trim() ? String(schoolNumber).trim() : null,
         itscoEmail && normalizeEmail(itscoEmail) ? normalizeEmail(itscoEmail) : (itscoEmail && String(itscoEmail).trim() ? String(itscoEmail).trim() : null),
         schoolDaysTimes && String(schoolDaysTimes).trim() ? String(schoolDaysTimes).trim() : null,
@@ -349,7 +350,7 @@ async function upsertSchoolProfile(connection, { schoolId, updates }) {
          primary_contact_role = COALESCE(VALUES(primary_contact_role), primary_contact_role)`,
       [
         schoolId,
-        districtName && String(districtName).trim() ? String(districtName).trim() : null,
+        toStoredDistrictName(districtName),
         schoolNumber && String(schoolNumber).trim() ? String(schoolNumber).trim() : null,
         itscoEmail && normalizeEmail(itscoEmail) ? normalizeEmail(itscoEmail) : (itscoEmail && String(itscoEmail).trim() ? String(itscoEmail).trim() : null),
         schoolDaysTimes && String(schoolDaysTimes).trim() ? String(schoolDaysTimes).trim() : null,
