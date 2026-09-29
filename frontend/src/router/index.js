@@ -5577,7 +5577,8 @@ router.beforeEach(async (to, from, next) => {
     !to.meta.organizationSlug &&
     !allowUnscopedDashboard &&
     !allowUnscopedNotifications &&
-    !allowUnscopedDocumentSigning
+    !allowUnscopedDocumentSigning &&
+    to.name !== 'SchoolCareBridgeOperations'
   ) {
     const slug = getDefaultOrganizationSlug();
     if (slug && !isPortalHostSlugRedundantInPath(brandingStore, slug)) {
@@ -5614,6 +5615,7 @@ router.beforeEach(async (to, from, next) => {
       'OrganizationSchoolReinitPublic'
     ]);
     const allowedUnscopedRouteNames = new Set([
+      'SchoolCareBridgeOperations',
       'DocumentSigning',
       'DocumentReview',
       'SchoolReinitPublic',

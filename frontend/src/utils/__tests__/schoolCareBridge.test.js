@@ -1,4 +1,5 @@
 import {describe,it,expect} from 'vitest';
+import {getCurrentPortalSlugFromPath,getLoginUrlForRedirect} from '../loginRedirect';
 import {publicSitePaths} from '../publicDomainRouting';
 import {schoolCareBridgePath,schoolCareBridgeExternalPath,schoolCareBridgeWorkflowPath,isSchoolCareBridgeHost} from '../schoolCareBridge';
 import {buildShareMeta} from '../sharePreview';
@@ -33,5 +34,11 @@ describe('SchoolCareBridge address compatibility',()=>{
  });
  it('uses a clean future-domain destination without leaking the internal prefix',()=>{
   expect(schoolCareBridgeExternalPath('/schoolcarebridge/app/ashley','schoolcarebridge.org')).toBe('/app/ashley');
+ });
+ it('returns operations sessions to general sign-in without treating operations as a school',()=>{
+  const previous=window.location.pathname;window.history.replaceState(null,'','/schoolcarebridge/app/operations?payment_intent_client_secret=must-not-transfer');
+  expect(getCurrentPortalSlugFromPath()).toBeNull();const target=getLoginUrlForRedirect(null,null,{timeout:true});
+  expect(target).toContain('/schoolcarebridge/app?');expect(decodeURIComponent(target)).toContain('redirect=/schoolcarebridge/app/operations');expect(target).toContain('timeout=true');expect(target).not.toContain('must-not-transfer');
+  window.history.replaceState(null,'',previous);
  });
 });

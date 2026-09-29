@@ -5,12 +5,19 @@ const base=process.env.SCB_VERIFY_BASE||'http://127.0.0.1:5179';
 const browser=await chromium.launch({headless:true,executablePath:process.env.SCB_BROWSER_EXECUTABLE||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'});
 const page=await browser.newPage({viewport:{width:1440,height:1050}}),errors=[],writes=[];
 page.on('pageerror',e=>errors.push(e.message));
-let role='super_admin';
+let role='super_admin',signedIn=true;
+const school={id:12,name:'Example Elementary',slug:'example',portal_url:'example',organization_type:'school',is_active:1};
 const program={id:1,title:'Parent workshop',programType:'original',typeLabel:'MH4Kidz Original',ownerName:'MH4Kidz',audience:'parents',description:'Practical support for parents.',deliveryMode:'in_person',regions:['Denver Metro'],presenterName:'Example Presenter',presenterBio:'Parent educator.',travelAvailable:true,durationMinutes:60,capacity:30,fundingMode:'cash',priceCents:50000,published:true,revision:1};
 const commercial={revision:1,active:false,terms:commercialDefaults,documents:[{key:'platform-agreement',title:'Platform contract'},{key:'baa',title:'BAA'},{key:'presenter-booking',title:'Presenter contract'}],reviewHash:'fixture'};
 await page.route('https://schoolcarebridge.org/**',async r=>{const u=new URL(r.request().url()),response=await r.fetch({url:base+u.pathname+u.search});await r.fulfill({response});});
-await page.route('**/api/**',async r=>{const req=r.request(),path=new URL(req.url()).pathname,body=req.postDataJSON()||{};let data={};if(req.method()!=='GET')writes.push({path,body});
- if(path.endsWith('/users/me'))data={id:20,role,email:'operator@example.test',status:'ACTIVE_EMPLOYEE'};
+await page.route('**/api/**',async r=>{const req=r.request(),path=new URL(req.url()).pathname,body=req.postDataJSON()||{};let data={},status=200;if(req.method()!=='GET')writes.push({path,body});
+ if(path.endsWith('/users/me')){status=signedIn?200:401;data=signedIn?{id:20,role,email:'operator@example.test',status:'ACTIVE_EMPLOYEE'}:{error:{message:'Sign in'}};}
+ else if(path.endsWith('/auth/identify'))data={matched:true,normalizedUsername:body.username,resolvedOrg:school,login:{method:'password'}};
+ else if(path.endsWith('/auth/login')){signedIn=true;data={token:'synthetic-token',sessionId:'synthetic-session',user:{id:20,role,email:body.username,status:'ACTIVE_EMPLOYEE'},agencies:[school]};}
+ else if(path.includes('/schoolcarebridge/schools/'))data={school:{...school,agencies:[]}};
+ else if(path.includes('login-theme'))data={agency:{...school,organizationType:'school',themeSettings:{}},platform:{}};
+ else if(path.includes('/agencies/slug/'))data=school;
+ else if(path.includes('/portal/')&&path.endsWith('/theme'))data={...school,agency:school,colorPalette:{primary:'#007cdd'},themeSettings:{}};
  else if(path.includes('/auth/session'))data={effectiveTimeoutMinutes:30,session:{serverNow:Date.now(),lastActivityAt:Date.now(),lockAt:Date.now()+25*60000,expiresAt:Date.now()+30*60000,phase:'active'}};
  else if(path.includes('/public/marketing-pages/'))data={page:{slug:'schoolcarebridge',title:'SchoolCareBridge',branding:{schoolcarebridgeWebsite:{}}}};
  else if(path.endsWith('/schoolcarebridge/programs'))data={programs:[program]};
@@ -19,7 +26,7 @@ await page.route('**/api/**',async r=>{const req=r.request(),path=new URL(req.ur
  else if(path.endsWith('/operations/workspace'))data={canManage:role==='super_admin',operator:{id:3,name:'MH4Kidz',slug:'mh4kidz'},programs:[program],bookings:[],invoices:[],commercial,financeEnabled:false,presenters:[],financePrograms:[],allocations:[],contractEvidence:[]};
  else if(path.endsWith('/operations/bookings'))data={id:1};
  else if(path.endsWith('/agencies'))data=[];
- await r.fulfill({json:data});
+ await r.fulfill({status,json:data});
 });
 try{
  await page.goto(base+'/schoolcarebridge/programs',{waitUntil:'networkidle'});await page.getByRole('heading',{name:'Parent workshop',exact:true}).waitFor();await page.getByLabel(/^Region/).selectOption('Denver Metro');await page.getByRole('link',{name:'Request a school booking →'}).click();await page.getByRole('heading',{name:'Programs & operations',exact:true}).waitFor();
@@ -29,5 +36,6 @@ try{
  await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.equal(await page.getByRole('heading',{name:'Programs & operations',exact:true}).count(),1);await page.getByLabel('Invoice due in days').scrollIntoViewIfNeeded();assert.ok(await page.getByLabel('Invoice due in days').isVisible());assert.ok(await page.locator('.scb-operations input,.scb-operations select,.scb-operations textarea').evaluateAll(els=>els.every(el=>{const r=el.getBoundingClientRect();return r.right<=innerWidth&&r.left>=0;})), 'All mobile form controls fit the viewport');await page.screenshot({path:'/tmp/scb-commerce-mobile.png'});
  await page.goto('https://schoolcarebridge.org/programs',{waitUntil:'networkidle'});await page.getByRole('heading',{name:'Parent workshop',exact:true}).waitFor();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.getByRole('link',{name:'Request a school booking →'}).click();await page.waitForURL('https://schoolcarebridge.org/app/operations?program=1');await page.getByRole('heading',{name:'Programs & operations',exact:true}).waitFor();
  role='school_staff';await page.evaluate(()=>{localStorage.clear();sessionStorage.clear();});await page.goto(base+'/schoolcarebridge/app/operations',{waitUntil:'networkidle'});await page.getByRole('heading',{name:'My school programs',exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Contracts',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'Programs',exact:true}).count(),0);
+ signedIn=false;await page.evaluate(()=>{localStorage.clear();sessionStorage.clear();});await page.goto(base+'/schoolcarebridge/app/operations?program=1',{waitUntil:'networkidle'});await page.locator('#username').fill('staff@example.test');await page.locator('#username').press('Tab');await page.waitForURL(u=>u.pathname==='/schoolcarebridge/app/example');assert.ok(decodeURIComponent(page.url()).includes('redirect=/schoolcarebridge/app/operations?program=1'));await page.locator('#password').fill('Synthetic!123');await page.locator('.login-form button[type=submit]').click();await page.waitForURL(base+'/schoolcarebridge/app/operations?program=1');await page.getByRole('heading',{name:'My school programs',exact:true}).waitFor();
  assert.deepEqual(errors,[]);assert.ok(!writes.some(w=>/payment|activate|invoice/.test(w.path)));console.log('PASS: catalog/filter, booking request, admin program editor, proposed contract rates, mobile layout, future host, school-only controls; no financial actions.');
 }catch(e){console.error({url:page.url(),errors,body:(await page.locator('body').innerText()).slice(0,3500)});await page.screenshot({path:'/tmp/scb-commerce-failure.png',fullPage:true});throw e;}finally{await browser.close();}

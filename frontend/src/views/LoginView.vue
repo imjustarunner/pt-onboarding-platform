@@ -2069,7 +2069,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       if (resolvedOrgType === 'school' && resolvedSlug && route.params.organizationSlug !== resolvedSlug) {
         sessionStorage.setItem('__pt_login_pending_username__', u);
         sessionStorage.setItem('__pt_login_pending_verify__', '1');
-        await router.replace({ path: schoolCareBridgePath(resolvedSlug) }); return;
+        await router.replace({ path: schoolCareBridgePath(resolvedSlug), query: { ...route.query } }); return;
       }
       // Agency identities keep the SchoolCareBridge login presentation.
       // Authenticate in the resolved organization; choose authorized schools after login.

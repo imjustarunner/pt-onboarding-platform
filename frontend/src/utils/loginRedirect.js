@@ -141,6 +141,7 @@ const NON_SLUG_SEGMENTS = [
 export function getCurrentPortalSlugFromPath() {
   if (typeof window === 'undefined' || !window.location?.pathname) return null;
   const parts = window.location.pathname.split('/').filter(Boolean);
+  if (/^(?:\/schoolcarebridge)?\/app\/operations\/?$/.test(window.location.pathname)) return null;
   if (parts[0] === 'schoolcarebridge' && parts[1] === 'app') return (parts[2] === 'partners' ? parts[3] : parts[2]) || null;
   if (isSchoolCareBridgeHost(window.location.hostname) && parts[0] === 'app') return (parts[1] === 'partners' ? parts[2] : parts[1]) || null;
   const first = parts[0];
@@ -273,6 +274,11 @@ export function getLoginUrl(user = null, userAgencies = null) {
  */
 export function getLoginUrlForRedirect(user = null, userAgencies = null, opts = {}) {
   if (typeof window !== 'undefined' && (isSchoolCareBridgeHost(window.location.hostname) || isSchoolCareBridgePath(window.location.pathname))) {
+    if (/\/app\/operations\/?$/.test(window.location.pathname)) {
+      const query = new URLSearchParams({ redirect: schoolCareBridgePath('operations') });
+      if (opts?.timeout) query.set('timeout', 'true');
+      return schoolCareBridgeExternalPath(schoolCareBridgePath()) + '?' + query;
+    }
     const partner = window.location.pathname.match(/\/app\/partners\/([^/?#]+)/)?.[1];
     if (partner) return schoolCareBridgeExternalPath(`${schoolCareBridgePath()}/partners/${partner}`) + (opts?.timeout ? '?timeout=true' : '');
     const school = window.location.pathname.match(/\/app\/([^/?#]+)/)?.[1] || '';
