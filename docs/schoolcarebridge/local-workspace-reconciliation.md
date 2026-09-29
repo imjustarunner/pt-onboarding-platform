@@ -251,3 +251,7 @@ This SchoolCareBridge release is developed in a separate main-based worktree. It
 ## Expanded untracked directories
 
 The complete recursive inventory is in `untracked-file-inventory.json`. This expands the directory entries above without changing any files. Counts: 236 not on main, 23 same as main, 9 differs from main.
+
+## Patch-equivalent local commits
+
+`git cherry -v origin/main HEAD` confirms that eight of the nine root-only commits have patch-equivalent changes on main; they do not need another cherry-pick. The remaining commit, `a5804985` (tenant workspace identity / HQ login), is not patch-identical to main and requires review against later branding work before deciding what, if anything, remains to merge. Commit reachability alone would have overstated the unpushed work.

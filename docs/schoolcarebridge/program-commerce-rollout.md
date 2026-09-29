@@ -85,3 +85,9 @@ Do not delete paid invoices, receipts, contracts, usage evidence or audit rows. 
 ## Drafting references
 
 The BAA structure follows the required safeguards, reporting, individual-rights support, subcontractor and termination subjects in [HHS Business Associate Contracts](https://www.hhs.gov/hipaa/for-professionals/covered-entities/sample-business-associate-agreement-provisions/index.html). Compensation review addresses the nonprofit's potential related-party concerns described in [IRS excess benefit transactions guidance](https://www.irs.gov/charities-non-profits/charitable-organizations/intermediate-sanctions-excess-benefit-transactions). These sources do not approve the proposed prices or replace review of the parties' actual facts and governing law.
+
+## Release verification, September 28, 2026
+
+Migration 1506 was applied successfully. The configured database was checked afterward: zero executed agreements, zero published offerings, zero invoices and zero payments. Backend targeted tests: 58 passed. Frontend targeted tests: 53 passed. Synthetic MySQL and browser flows passed, including the signed-out school’s return to its selected booking after email identification, school-branded login, and the general operations sign-in destination on expiry. The production frontend build passed; the existing partner/portal browser regression and live public-page smoke checks passed.
+
+Daily metering scheduling is still pending Google Cloud reauthentication. The configured user account required interactive login; the available deployment service account lacked scheduler permissions. No IAM changes or alternate privileged credentials were used. The endpoint and manual capture are ready, but scheduled collection must be configured before rollout.
