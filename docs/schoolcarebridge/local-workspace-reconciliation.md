@@ -247,3 +247,7 @@ This SchoolCareBridge release is developed in a separate main-based worktree. It
 - `frontend/src/utils/sharePreview.js`
 - `frontend/src/views/ChangePasswordView.vue`
 - `frontend/src/views/ResetPasswordView.vue`
+
+## Expanded untracked directories
+
+The complete recursive inventory is in `untracked-file-inventory.json`. This expands the directory entries above without changing any files. Counts: 236 not on main, 23 same as main, 9 differs from main.
