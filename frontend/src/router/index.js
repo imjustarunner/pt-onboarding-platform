@@ -4701,6 +4701,7 @@ const routes = [
 for (const route of routes) {
   if (['OrganizationResetPassword', 'OrganizationChangePassword', 'OrganizationSchoolProviderProfile', 'OrganizationDocumentSigning', 'OrganizationDocumentReview', 'OrganizationDocumentPrint', 'OrganizationSchoolReinitPublic'].includes(route.name)) {
     route.alias = [...(Array.isArray(route.alias) ? route.alias : route.alias ? [route.alias] : []), route.path.replace('/:organizationSlug', '/schoolcarebridge/app/:organizationSlug')];
+    if (['OrganizationChangePassword','OrganizationDocumentSigning','OrganizationDocumentReview','OrganizationDocumentPrint'].includes(route.name)) route.alias.push(route.path.replace('/:organizationSlug','/schoolcarebridge/app/partners/:organizationSlug'));
   }
 }
 const router = createRouter({
@@ -4854,16 +4855,17 @@ router.beforeEach(async (to, from, next) => {
     if (['OrganizationDashboard', 'OrganizationLogin'].includes(String(to.name)) && to.params.organizationSlug) {
       next({ path: schoolCareBridgePath(String(to.params.organizationSlug)), query: to.query, hash: to.hash, replace: true }); return;
     }
-    const school = String(from.params.organizationSlug || '');
+    const school = String(from.params.organizationSlug || from.params.partnerSlug || '');
     const mapped = schoolCareBridgeWorkflowPath(to.path, school);
-    if (mapped) { next({ path: mapped, query: to.query, hash: to.hash, replace: true }); return; }
+    if (mapped) { const target = from.path.includes('/app/partners/') && /\/(tasks\/documents|change-password)(\/|$)/.test(mapped) ? mapped.replace('/app/','/app/partners/') : mapped; next({ path: target, query: to.query, hash: to.hash, replace: true }); return; }
     if (to.path === '/login') { next({ path: schoolCareBridgePath(school), query: to.query, replace: true }); return; }
   }
   if (to.meta.schoolCareBridgeEntry) {
     await tryBootstrapAuthFromCookie();
     if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
-      const school = String(to.params.organizationSlug || '');
-      next({ path: school ? schoolCareBridgePath(school, '/change-password') : '/change-password', query: { redirect: to.fullPath }, replace: true });
+      const school = String(to.params.organizationSlug || to.params.partnerSlug || '');
+      const passwordPath = to.meta.schoolCareBridgePartner ? `${schoolCareBridgePath()}/partners/${encodeURIComponent(school)}/change-password` : school ? schoolCareBridgePath(school, '/change-password') : '/change-password';
+      next({ path: passwordPath, query: { redirect: to.fullPath }, replace: true });
       return;
     }
     // The entry component checks /schoolcarebridge/access before mounting any school workflows.
@@ -4871,7 +4873,7 @@ router.beforeEach(async (to, from, next) => {
   }
   if (isSchoolCareBridgePath(to.path) && to.meta.requiresAuth && !authStore.isAuthenticated) {
     await tryBootstrapAuthFromCookie();
-    if (!authStore.isAuthenticated) { next({ path: schoolCareBridgePath(String(to.params.organizationSlug || '')), query: { redirect: to.fullPath }, replace: true }); return; }
+    if (!authStore.isAuthenticated) { const loginPath = to.path.includes('/app/partners/') ? `${schoolCareBridgePath()}/partners/${encodeURIComponent(to.params.organizationSlug || '')}` : schoolCareBridgePath(String(to.params.organizationSlug || '')); next({ path: loginPath, query: { redirect: to.fullPath }, replace: true }); return; }
   }
 
   if (isFamilyHost() && !to.meta?.familyCommandCenter) {

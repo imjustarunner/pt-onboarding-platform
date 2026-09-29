@@ -1,3 +1,4 @@
+import { isSchoolCareBridgeOnly } from '../utils/schoolCareBridgeTenant.js';
 import pool from '../config/database.js';
 import BillingInvoiceService from '../services/billingInvoice.service.js';
 import AgencyBillingPaymentService from '../services/agencyBillingPayment.service.js';
@@ -10,7 +11,7 @@ export const runMonthlyBilling = async (req, res, next) => {
     const periodEnd = period.periodEnd.toISOString().slice(0, 10);
 
     const [rows] = await pool.execute(
-      `SELECT id AS agency_id
+      `SELECT id AS agency_id, feature_flags
        FROM agencies
        WHERE is_active = TRUE
          AND LOWER(COALESCE(organization_type, 'agency')) = 'agency'`
@@ -19,6 +20,10 @@ export const runMonthlyBilling = async (req, res, next) => {
     const results = [];
     for (const row of rows) {
       const agencyId = row.agency_id;
+      if (isSchoolCareBridgeOnly(row)) {
+        results.push({ agencyId, status: 'skipped', reason: 'SchoolCareBridge billing is inactive' });
+        continue;
+      }
       try {
         const invoice = await BillingInvoiceService.generateForAgency(agencyId, {
           period,

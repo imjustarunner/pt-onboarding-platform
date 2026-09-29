@@ -1,10 +1,7 @@
 import User from '../models/User.model.js';
 
-export function isSchoolCareBridgeOnly(agency) {
-  let flags=agency?.feature_flags||agency?.featureFlags||{};
-  try{if(typeof flags==='string')flags=JSON.parse(flags);}catch{return false;}
-  return flags?.schoolCareBridgeOnly===true;
-}
+import { isSchoolCareBridgeOnly } from '../utils/schoolCareBridgeTenant.js';
+export { isSchoolCareBridgeOnly };
 
 // Product scope narrows existing authorization; it never grants a role, school
 // membership or ROI. Resource controllers remain the final access authority.

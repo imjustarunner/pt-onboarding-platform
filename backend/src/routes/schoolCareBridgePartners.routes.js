@@ -13,7 +13,7 @@ const id = value => { const n=Number(value); if(!Number.isSafeInteger(n)||n<1) t
 const slug = value => { const s=String(value||'').trim().toLowerCase(); if(!/^[a-z0-9][a-z0-9-]{1,79}$/.test(s)||['app','partners','admin','api','schoolcarebridge','login'].includes(s)) throw scbError(400,'Choose a unique portal address using letters, numbers and hyphens.'); return s; };
 const text = (value,max=255) => String(value||'').trim().slice(0,max);
 const image = value => { const v=text(value,1000); if(!v)return ''; if(/^\/(?:assets|uploads)\/[a-zA-Z0-9_./% -]+$/.test(v))return v; try{const u=new URL(v);if(u.protocol==='https:'&&!u.username&&!u.password)return u.href;}catch{} throw scbError(400,'Use an uploaded image path or HTTPS image URL.'); };
-const publicPartner = row => ({ id:row.agency_id, name:row.name, slug:row.portal_url||row.slug, logoUrl:row.logo_url||row.logo_path||null, description:parseObject(row.settings_json).description||'' });
+const publicPartner = row => ({ id:row.agency_id, name:row.name, slug:row.portal_url||row.slug, logoUrl:row.logo_url||row.logo_path||(row.slug==='itsco'?'/assets/itsco/logo.png':null), description:parseObject(row.settings_json).description||'' });
 const selectPartners = `SELECT p.*, a.name,a.official_name,a.slug,a.portal_url,a.logo_url,a.logo_path,a.color_palette,a.support_team_email,a.feature_flags FROM schoolcarebridge_partners p JOIN agencies a ON a.id=p.agency_id WHERE p.is_active=TRUE AND a.is_active=TRUE AND COALESCE(a.is_archived,0)=0`;
 async function partnerFor(req,{admin=false}={}) {
   const [[partner]]=await pool.execute(`${selectPartners} AND (a.portal_url=? OR a.slug=?) LIMIT 1`,[req.params.slug,req.params.slug]);

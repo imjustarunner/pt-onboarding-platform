@@ -1,3 +1,4 @@
+import { isSchoolCareBridgeOnly } from '../utils/schoolCareBridgeTenant.js';
 import {medicalServiceInvoiceLines,appendMedicalServiceLines,attachMedicalServiceInvoice} from './medicalServiceFees.service.js';
 import StorageService from './storage.service.js';
 import BillingUsageService from './billingUsage.service.js';
@@ -29,6 +30,9 @@ class BillingInvoiceService {
 
     const agency = await Agency.findById(parsedAgencyId);
     if (!agency) throw new Error('Agency not found');
+    // SchoolCareBridge pricing and usage allocation are not commercially active.
+    // Connected agencies (including ITSCO) keep their existing billing.
+    if (isSchoolCareBridgeOnly(agency)) throw Object.assign(new Error('SchoolCareBridge billing is inactive. A separate pricing agreement and activation are required.'), { status: 409, statusCode: 409, code: 'SCHOOLCAREBRIDGE_BILLING_INACTIVE' });
 
     const { periodStart, periodEnd } = period || getCurrentBillingPeriod(new Date());
     const periodStartStr = periodStart.toISOString().slice(0, 10);

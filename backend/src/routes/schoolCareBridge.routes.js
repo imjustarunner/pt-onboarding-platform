@@ -10,7 +10,7 @@ import { consumeRoutingHint, schoolCareBridgeDeployment } from '../services/scho
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
 const object = value => { try { return typeof value === 'string' ? JSON.parse(value) : value || {}; } catch { return {}; } };
-const publicSchool = school => ({ id: school.id, slug: school.portal_url || school.slug, name: school.name, logoUrl: school.logo_url || school.logo_path || school.icon_file_path || null });
+const publicSchool = school => ({ id: school.id, slug: school.portal_url || school.slug, name: school.name, logoUrl: school.logo_url || school.logo_path || school.icon_file_path || (school.slug === 'itsco' ? '/assets/itsco/logo.png' : null) });
 const available = school => school && school.organization_type === 'school' && !!school.is_active && !school.is_archived;
 
 router.get('/schools/:slug', sharedLoginLimiter({ identify: true }), wrap(async (req, res) => {
