@@ -693,16 +693,18 @@
 
     <!-- Supervisors Modal -->
     <div v-if="showSupervisorsModal && !isSscSstcTenant" class="modal-overlay" @click="showSupervisorsModal = false">
-      <div class="modal-content large" @click.stop style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+      <div class="modal-content large" role="dialog" aria-modal="true" aria-labelledby="supervisors-title" @click.stop style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-          <h2>Supervisors</h2>
+          <h2 id="supervisors-title">Supervisors</h2>
           <button @click="showSupervisorsModal = false" class="btn btn-secondary">Close</button>
         </div>
         
+        <p class="muted">Assigned people are nested under each supervisor. Labels show their supervisory role for each person.</p>
+
         <!-- Agency Filter -->
         <div style="margin-bottom: 20px;">
-          <label style="display: block; margin-bottom: 8px; font-weight: 500;">Filter by Agency:</label>
-          <select v-model="supervisorsAgencyFilter" @change="fetchSupervisorsList" style="padding: 8px; border: 1px solid var(--border); border-radius: 6px; min-width: 200px;">
+          <label for="supervisors-agency" style="display: block; margin-bottom: 8px; font-weight: 500;">Filter by Agency:</label>
+          <select id="supervisors-agency" v-model="supervisorsAgencyFilter" @change="fetchSupervisorsList" style="padding: 8px; border: 1px solid var(--border); border-radius: 6px; min-width: 200px;">
             <option value="">All Agencies</option>
             <option v-for="agency in agencyOptions" :key="agency.id" :value="agency.id">
               {{ agency.name }}
@@ -711,71 +713,24 @@
         </div>
         
         <div v-if="supervisorsLoading" class="loading">Loading supervisors...</div>
-        <div v-else-if="supervisorsError" class="error">{{ supervisorsError }}</div>
+        <div v-else-if="supervisorsError" class="error" role="alert">{{ supervisorsError }} <button type="button" class="btn btn-secondary btn-sm" @click="fetchSupervisorsList">Retry</button></div>
         <div v-else-if="supervisorsList.length === 0" class="empty-state">
           <p>No supervisors found.</p>
         </div>
         <div v-else class="supervisors-list">
-          <div v-for="supervisor in supervisorsList" :key="supervisor.id" class="supervisor-item" style="border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 12px; background: var(--bg);">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div style="flex: 1;">
-                <h3 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600;">
-                  {{ supervisor.first_name }} {{ supervisor.last_name }}
-                </h3>
-                <p style="margin: 0; color: var(--text-secondary); font-size: 14px;">{{ supervisor.email }}</p>
-                <p v-if="supervisor.agencies" style="margin: 4px 0 0 0; color: var(--text-secondary); font-size: 12px;">
-                  Agencies: {{ supervisor.agencies }}
-                </p>
-              </div>
-              <div style="display: flex; gap: 8px; align-items: center;">
-                <button 
-                  @click="toggleSupervisorExpanded(supervisor.id)" 
-                  class="btn btn-sm btn-secondary"
-                  style="min-width: 100px;"
-                >
-                  {{ expandedSupervisors[supervisor.id] ? '▼ Hide' : '▶ Show' }} Supervisees
-                </button>
-                <button 
-                  @click="openAddSuperviseeModal(supervisor)" 
-                  class="btn btn-sm btn-primary"
-                >
-                  Add Supervisee
-                </button>
-              </div>
-            </div>
-            
-            <!-- Expanded Supervisees List -->
-            <div v-if="expandedSupervisors[supervisor.id]" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-              <div v-if="superviseesLoading[supervisor.id]" class="loading-small" style="padding: 12px; text-align: center; font-size: 14px;">
-                Loading supervisees...
-              </div>
-              <div v-else-if="superviseesBySupervisor[supervisor.id] && superviseesBySupervisor[supervisor.id].length === 0" class="empty-state-small" style="padding: 12px; text-align: center; color: var(--text-secondary); font-size: 14px;">
-                No supervisees assigned.
-              </div>
-              <div v-else class="supervisees-list" style="display: grid; gap: 8px;">
-                <div 
-                  v-for="assignment in superviseesBySupervisor[supervisor.id]" 
-                  :key="assignment.id"
-                  style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8f9fa; border-radius: 6px; border: 1px solid var(--border);"
-                >
-                  <div>
-                    <strong>{{ assignment.supervisee_first_name }} {{ assignment.supervisee_last_name }}</strong>
-                    <br>
-                    <small style="color: var(--text-secondary);">{{ assignment.supervisee_email }}</small>
-                    <br>
-                    <small style="color: var(--text-secondary); font-size: 11px;">Agency: {{ assignment.agency_name }}</small>
-                  </div>
-                  <router-link 
-                    :to="userProfilePath(assignment.supervisee_id)" 
-                    class="btn btn-sm btn-primary"
-                    @click="showSupervisorsModal = false"
-                  >
-                    View Profile
-                  </router-link>
-                </div>
-              </div>
-            </div>
-          </div>
+          <SupervisorDirectoryCard
+            v-for="supervisor in supervisorsList"
+            :key="`${supervisorsAgencyFilter}:${supervisor.id}`"
+            :supervisor="supervisor"
+            :assignments="superviseesBySupervisor[supervisor.id] || []"
+            :loading="superviseesLoading[supervisor.id]"
+            :error="superviseesErrors[supervisor.id] || ''"
+            :role-label="formatRole(supervisor.role)"
+            :profile-path="userProfilePath"
+            @add="openAddSuperviseeModal(supervisor)"
+            @retry="fetchSuperviseesForSupervisor(supervisor.id)"
+            @open-profile="showSupervisorsModal = false"
+          />
         </div>
       </div>
     </div>
@@ -1823,6 +1778,7 @@ import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumen
 import AskAssistantPanel from '../../components/assistant/AskAssistantPanel.vue';
 import UserSmartGrid from '../../components/admin/UserSmartGrid.vue';
 import UserDirectoryQuickView from '../../components/admin/UserDirectoryQuickView.vue';
+import SupervisorDirectoryCard from '../../components/admin/SupervisorDirectoryCard.vue';
 import { useDirectoryQuickView } from '../../composables/useDirectoryQuickView.js';
 import IdentityReviewDrawer from '../../components/admin/IdentityReviewDrawer.vue';
 import { canSeeClientExchangeNav, clientExchangePath } from '../../utils/clientExchangeNav.js';
@@ -1933,7 +1889,8 @@ const supervisorsList = ref([]);
 const supervisorsLoading = ref(false);
 const supervisorsError = ref('');
 const supervisorsAgencyFilter = ref('');
-const expandedSupervisors = ref({});
+const superviseesErrors = ref({});
+let supervisorsRequestId = 0;
 const superviseesBySupervisor = ref({});
 const superviseesLoading = ref({});
 
@@ -3856,69 +3813,48 @@ const toggleUserAvailability = async (u, checked) => {
 };
 
 const fetchSupervisorsList = async () => {
+  const requestId = ++supervisorsRequestId;
+  const agencyId = String(supervisorsAgencyFilter.value || '');
+  supervisorsLoading.value = true;
+  supervisorsError.value = '';
+  supervisorsList.value = [];
+  superviseesBySupervisor.value = {};
+  superviseesErrors.value = {};
+  superviseesLoading.value = {};
   try {
-    supervisorsLoading.value = true;
-    supervisorsError.value = '';
-    
-    const response = await api.get('/users');
-    // Filter to supervisors using has_supervisor_privileges as source of truth
-    let supervisors = response.data.filter(u => isSupervisor(u));
-    
-    // Filter by agency if selected
-    if (supervisorsAgencyFilter.value) {
-      const agencyId = parseInt(supervisorsAgencyFilter.value);
-      supervisors = supervisors.filter(supervisor => {
-        // Check if supervisor belongs to the selected agency
-        if (supervisor.agency_ids) {
-          const supervisorAgencyIds = typeof supervisor.agency_ids === 'string'
-            ? supervisor.agency_ids.split(',').map(id => parseInt(id.trim()))
-            : supervisor.agency_ids;
-          return supervisorAgencyIds.includes(agencyId);
-        }
-        return false;
-      });
-    }
-    
-    supervisorsList.value = supervisors;
-    
-    // Pre-expand and fetch supervisees for all supervisors
-    for (const supervisor of supervisors) {
-      expandedSupervisors.value[supervisor.id] = false; // Start collapsed
-      await fetchSuperviseesForSupervisor(supervisor.id);
-    }
-  } catch (err) {
-    supervisorsError.value = err.response?.data?.error?.message || 'Failed to load supervisors';
-    console.error('Error fetching supervisors:', err);
-  } finally {
+    const response = await api.get('/users', { params: agencyId ? { agency_id: agencyId } : {} });
+    if (requestId !== supervisorsRequestId) return;
+    supervisorsList.value = (response.data || [])
+      .filter((u) => isSupervisor(u))
+      .filter((u) => !agencyId || [...parseUserOrgIds(u), ...userAgencyIds(u)].includes(Number(agencyId)))
+      .sort((a, b) => `${a.last_name || ''} ${a.first_name || ''}`.localeCompare(`${b.last_name || ''} ${b.first_name || ''}`));
+    // Render cards immediately; each team has its own loading and retry state.
+    const requests = supervisorsList.value.map((supervisor) => fetchSuperviseesForSupervisor(supervisor.id, requestId, agencyId));
     supervisorsLoading.value = false;
+    await Promise.all(requests);
+  } catch (err) {
+    if (requestId !== supervisorsRequestId) return;
+    supervisorsError.value = err.response?.data?.error?.message || 'Failed to load supervisors';
+  } finally {
+    if (requestId === supervisorsRequestId) supervisorsLoading.value = false;
   }
 };
 
-const fetchSuperviseesForSupervisor = async (supervisorId) => {
+const fetchSuperviseesForSupervisor = async (supervisorId, requestId = supervisorsRequestId, agencyId = String(supervisorsAgencyFilter.value || '')) => {
+  superviseesLoading.value[supervisorId] = true;
+  superviseesErrors.value[supervisorId] = '';
   try {
-    superviseesLoading.value[supervisorId] = true;
-    
-    const params = {};
-    if (supervisorsAgencyFilter.value) {
-      params.agencyId = supervisorsAgencyFilter.value;
-    }
-    
-    const response = await api.get(`/supervisor-assignments/supervisor/${supervisorId}`, { params });
+    const response = await api.get(`/supervisor-assignments/supervisor/${supervisorId}`, {
+      params: agencyId ? { agencyId } : {}
+    });
+    if (requestId !== supervisorsRequestId) return;
     superviseesBySupervisor.value[supervisorId] = response.data || [];
   } catch (err) {
-    console.error(`Error fetching supervisees for supervisor ${supervisorId}:`, err);
+    if (requestId !== supervisorsRequestId) return;
     superviseesBySupervisor.value[supervisorId] = [];
+    superviseesErrors.value[supervisorId] = err.response?.data?.error?.message || 'Failed to load assigned people.';
   } finally {
-    superviseesLoading.value[supervisorId] = false;
-  }
-};
-
-const toggleSupervisorExpanded = async (supervisorId) => {
-  expandedSupervisors.value[supervisorId] = !expandedSupervisors.value[supervisorId];
-  
-  // Fetch supervisees if not already loaded
-  if (expandedSupervisors.value[supervisorId] && !superviseesBySupervisor.value[supervisorId]) {
-    await fetchSuperviseesForSupervisor(supervisorId);
+    if (requestId === supervisorsRequestId) superviseesLoading.value[supervisorId] = false;
   }
 };
 
@@ -4000,7 +3936,10 @@ const createSuperviseeAssignment = async () => {
 // Watch for modal opening to fetch supervisors
 watch(showSupervisorsModal, (isOpen) => {
   if (isOpen) {
+    supervisorsAgencyFilter.value = String(agencySort.value || '');
     fetchSupervisorsList();
+  } else {
+    supervisorsRequestId += 1;
   }
 });
 
