@@ -80,7 +80,8 @@
       </div>
 
       <!-- Create New Assignment -->
-      <div class="create-assignment-section">
+      <p v-if="inactiveSupervisee" class="section-description">This user is inactive. Past supervisors are retained below; reactivate the user before assigning a supervisor.</p>
+      <div v-else class="create-assignment-section">
         <h4 style="margin-bottom: 16px;">Create New Assignment</h4>
         <div class="assignment-form" style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-bottom: 16px;">
@@ -164,6 +165,7 @@
         </div>
       </div>
     </div>
+    <SupervisorAssignmentHistory v-if="props.superviseeId" :user-id="props.superviseeId" :agency-id="selectedAgencyId" :refresh-key="historyRefreshKey" />
   </div>
 </template>
 
@@ -171,7 +173,8 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
-import { isSupervisor } from '../../utils/helpers.js';
+import { isSupervisor, isInactiveStaffAccount } from '../../utils/helpers.js';
+import SupervisorAssignmentHistory from './SupervisorAssignmentHistory.vue';
 import { SUPERVISOR_TYPES, supervisorTypeLabel } from '../../constants/supervisorTypes.js';
 import { isTenantOrganization } from '../../utils/tenantOrganizations.js';
 import {
@@ -201,6 +204,7 @@ const authStore = useAuthStore();
 const loading = ref(true);
 const error = ref('');
 const assignments = ref([]);
+const historyRefreshKey = ref(0);
 const agencies = ref([]);
 const tenantOptions = ref([]);
 const supervisors = ref([]);
@@ -223,6 +227,7 @@ if (props.superviseeId) {
 }
 
 const superviseeUser = ref(null);
+const inactiveSupervisee = computed(() => isInactiveStaffAccount(superviseeUser.value));
 
 const superviseeDisplayName = computed(() => {
   if (!props.superviseeId) return '';
@@ -237,7 +242,7 @@ const superviseeDisplayName = computed(() => {
 });
 
 const canCreateAssignment = computed(() => {
-  return newAssignment.value.supervisorId &&
+  return !inactiveSupervisee.value && newAssignment.value.supervisorId &&
          newAssignment.value.superviseeId &&
          newAssignment.value.agencyId &&
          tenantOptions.value.length > 0;
@@ -380,6 +385,7 @@ const fetchAssignments = async () => {
     error.value = err.response?.data?.error?.message || 'Failed to load assignments';
   } finally {
     loading.value = false;
+    historyRefreshKey.value += 1;
   }
 };
 

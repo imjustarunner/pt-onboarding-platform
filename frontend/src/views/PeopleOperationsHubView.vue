@@ -413,6 +413,7 @@ import {
   workspaceNavContextFromStores
 } from '../utils/workspaceNavAccess.js';
 import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath.js';
+import { parseFeatureFlags } from '../utils/schoolPortalsAccess.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -450,7 +451,7 @@ const isTruthyFlag = (v) => {
 };
 
 const agencyFlags = computed(() =>
-  agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags || {}
+  parseFeatureFlags(agencyStore.currentAgency?.feature_flags ?? agencyStore.currentAgency?.featureFlags)
 );
 const hasPeopleOpsFeature = computed(() => isTruthyFlag(agencyFlags.value?.peopleOpsEnabled));
 const hasHiringFeature = computed(() => isTruthyFlag(agencyFlags.value?.hiringEnabled));

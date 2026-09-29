@@ -19,13 +19,13 @@ function isTruthyFlag(v) {
 
 function resolveHiringFeature(opts = {}) {
   if (opts.hasHiringFeature != null) return !!opts.hasHiringFeature;
-  const flags = opts.agencyFeatureFlags || {};
+  const flags = parseFeatureFlags(opts.agencyFeatureFlags);
   return isTruthyFlag(flags.hiringEnabled);
 }
 
 function resolvePeopleOpsFeature(opts = {}) {
   if (opts.hasPeopleOpsFeature != null) return !!opts.hasPeopleOpsFeature;
-  const flags = opts.agencyFeatureFlags || {};
+  const flags = parseFeatureFlags(opts.agencyFeatureFlags);
   return isTruthyFlag(flags.peopleOpsEnabled);
 }
 
@@ -367,7 +367,7 @@ export function workspaceNavContextFromStores({
   const agencyRecord = agency?.value ?? agency ?? {};
   const pb = branding?.platformBranding ?? branding ?? {};
   const slugNorm = String(slug || agencyRecord.slug || agencyRecord.portal_url || '').trim();
-  const flags = agencyRecord.feature_flags ?? agencyRecord.featureFlags ?? {};
+  const flags = parseFeatureFlags(agencyRecord.feature_flags ?? agencyRecord.featureFlags);
 
   return {
     role,

@@ -1,3 +1,9 @@
+export function isInactiveStaffAccount(user) {
+  return [false, 0, '0'].includes(user?.is_active)
+    || [true, 1, '1'].includes(user?.is_archived)
+    || ['INACTIVE', 'INACTIVE_EMPLOYEE', 'ARCHIVED', 'TERMINATED', 'TERMINATED_PENDING'].includes(String(user?.status || '').trim().toUpperCase());
+}
+
 /**
  * Check if a user is a supervisor (using has_supervisor_privileges as source of truth).
  * Supervisor is always additive: it only adds the supervision card and supervisee access.

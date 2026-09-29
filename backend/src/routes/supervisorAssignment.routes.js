@@ -5,6 +5,7 @@ import {
   deleteAssignment,
   getSupervisees,
   getSupervisors,
+  getSupervisionHistory,
   getAgencyAssignments,
   getTenantOptions,
   setPrimarySupervisor
@@ -48,6 +49,7 @@ router.get('/supervisor/:supervisorId', getSupervisees);
 
 // Get supervisors for a supervisee
 router.get('/supervisee/:superviseeId', getSupervisors);
+router.get('/supervisee/:superviseeId/history', getSupervisionHistory);
 
 // Get tenant options for supervisor assignments
 router.get('/tenant-options', getTenantOptions);

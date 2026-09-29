@@ -2,6 +2,23 @@ import pool from '../config/database.js';
 import { normalizeSupervisorType, SUPERVISOR_TYPES, SUPERVISOR_TYPE_LABELS } from '../constants/supervisorTypes.js';
 
 class SupervisorAssignment {
+  static async findHistoryBySupervisee(superviseeId, { agencyId = null, agencyIds = null } = {}) {
+    if (Array.isArray(agencyIds) && !agencyIds.length) return [];
+    const params = [superviseeId];
+    let query = 'SELECT * FROM supervisor_assignment_history WHERE supervisee_id = ?';
+    if (agencyId) {
+      query += ' AND agency_id = ?';
+      params.push(agencyId);
+    }
+    if (Array.isArray(agencyIds)) {
+      query += ` AND agency_id IN (${agencyIds.map(() => '?').join(',')})`;
+      params.push(...agencyIds);
+    }
+    query += ' ORDER BY ended_at DESC, id DESC';
+    const [rows] = await pool.execute(query, params);
+    return rows;
+  }
+
   /**
    * Create a new supervisor assignment
    */

@@ -8431,6 +8431,7 @@ const editAgency = async (agency) => {
       maxInactivityTimeoutMinutes: sessionLockMaxMinutes != null && Number.isFinite(Number(sessionLockMaxMinutes)) ? Number(sessionLockMaxMinutes) : null
     },
     featureFlags: {
+      ...featureFlags,
       portalVariant: String(featureFlags.portalVariant || 'healthcare_provider'),
       submitEnabledForEmployeePortal: featureFlags.submitEnabledForEmployeePortal === true,
       inSchoolSubmissionsEnabled: featureFlags.inSchoolSubmissionsEnabled !== false,

@@ -11,6 +11,7 @@ import {
   isClinicalOrBillingSupervisorCredentialText
 } from '../utils/credentialNormalization.js';
 import pool from '../config/database.js';
+import { isInactiveStaffAccount } from '../utils/staffEligibility.js';
 
 async function resolveUserCredentialText(user) {
   const fromUser = String(user?.credential || '').trim();
@@ -101,6 +102,9 @@ export const createAssignment = async (req, res, next) => {
     if (!supervisor) {
       return res.status(404).json({ error: { message: 'Supervisor not found' } });
     }
+    if (isInactiveStaffAccount(supervisor)) {
+      return res.status(400).json({ error: { message: 'Inactive users cannot be assigned as supervisors.' } });
+    }
 
     // Check if user can be assigned as supervisor (has supervisor role OR has supervisor privileges)
     if (!User.canBeAssignedAsSupervisor(supervisor)) {
@@ -126,6 +130,9 @@ export const createAssignment = async (req, res, next) => {
     const supervisee = await User.findById(superviseeId);
     if (!supervisee) {
       return res.status(404).json({ error: { message: 'Supervisee not found' } });
+    }
+    if (isInactiveStaffAccount(supervisee)) {
+      return res.status(400).json({ error: { message: 'Inactive users cannot have current supervisor assignments. Their past supervisors remain in supervision history.' } });
     }
 
     // Verify both users belong to the tenant (directly or via affiliated schools/programs)
@@ -316,9 +323,34 @@ export const getSupervisors = async (req, res, next) => {
 };
 
 /**
- * List tenant-level agencies available for supervisor assignments.
- * GET /api/supervisor-assignments/tenant-options?supervisorId=&superviseeId=
+ * Read past supervisors without treating the historical relationship as access.
  */
+export const getSupervisionHistory = async (req, res, next) => {
+  try {
+    const superviseeId = Number(req.params.superviseeId);
+    const agencyId = req.query.agencyId == null ? null : Number(req.query.agencyId);
+    if (!Number.isSafeInteger(superviseeId) || superviseeId <= 0
+      || (agencyId !== null && (!Number.isSafeInteger(agencyId) || agencyId <= 0))) {
+      return res.status(400).json({ error: { message: 'Invalid user or agency id' } });
+    }
+    const isSelf = superviseeId === Number(req.user.id);
+    const isSuperAdmin = req.user.role === 'super_admin';
+    if (!isSelf && !['admin', 'super_admin', 'support'].includes(req.user.role)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    // Offboarded users may have no memberships. Scope history by the actor's
+    // tenants, not by the former employee's current memberships.
+    const agencyIds = isSelf || isSuperAdmin ? null : [...await collectTenantIdsForUser(req.user.id)];
+    if (agencyId && agencyIds && !agencyIds.includes(agencyId)) {
+      return res.status(403).json({ error: { message: 'You do not have access to this agency' } });
+    }
+    res.json(await SupervisorAssignment.findHistoryBySupervisee(superviseeId, { agencyId, agencyIds }));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/** List shared tenant-level agencies available for supervisor assignments. */
 export const getTenantOptions = async (req, res, next) => {
   try {
     if (req.user.role !== 'admin' && req.user.role !== 'super_admin' && req.user.role !== 'support') {

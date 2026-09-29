@@ -1754,6 +1754,17 @@ export const setStaffInactive = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
+    // End supervision while memberships and identities are still present.
+    // The database archives the assignments in this same transaction.
+    await conn.execute(
+      `UPDATE users
+       SET status = 'INACTIVE_EMPLOYEE',
+           is_active = FALSE,
+           provider_accepting_new_clients = FALSE
+       WHERE id = ?`,
+      [uid]
+    );
+
     const actorId = Number(req.user.id) || 0;
     for (const aid of agencyIds) {
       await detachUserFromOrganization(conn, { userId: uid, agencyId: aid, actorUserId: actorId });
@@ -1771,15 +1782,6 @@ export const setStaffInactive = async (req, res, next) => {
     }
 
     await detachUserGlobalLinks(conn, uid);
-
-    await conn.execute(
-      `UPDATE users
-       SET status = 'INACTIVE_EMPLOYEE',
-           is_active = FALSE,
-           provider_accepting_new_clients = FALSE
-       WHERE id = ?`,
-      [uid]
-    );
 
     await conn.commit();
 

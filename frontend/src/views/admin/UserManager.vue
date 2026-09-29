@@ -1771,7 +1771,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
-import { isSupervisor } from '../../utils/helpers.js';
+import { isSupervisor, isInactiveStaffAccount } from '../../utils/helpers.js';
 import { getStatusLabel, getStatusBadgeClass } from '../../utils/statusUtils.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 import BulkDocumentAssignmentDialog from '../../components/documents/BulkDocumentAssignmentDialog.vue';
@@ -3825,7 +3825,7 @@ const fetchSupervisorsList = async () => {
     const response = await api.get('/users', { params: agencyId ? { agency_id: agencyId } : {} });
     if (requestId !== supervisorsRequestId) return;
     supervisorsList.value = (response.data || [])
-      .filter((u) => isSupervisor(u))
+      .filter((u) => isSupervisor(u) && !isInactiveStaffAccount(u))
       .filter((u) => !agencyId || [...parseUserOrgIds(u), ...userAgencyIds(u)].includes(Number(agencyId)))
       .sort((a, b) => `${a.last_name || ''} ${a.first_name || ''}`.localeCompare(`${b.last_name || ''} ${b.first_name || ''}`));
     // Render cards immediately; each team has its own loading and retry state.
@@ -3866,7 +3866,7 @@ const openAddSuperviseeModal = async (supervisor) => {
   try {
     const usersResponse = await api.get('/users');
     availableSupervisees.value = usersResponse.data.filter((u) =>
-      ['provider', 'staff', 'facilitator', 'intern'].includes(String(u?.role || '').toLowerCase())
+      !isInactiveStaffAccount(u) && ['provider', 'staff', 'facilitator', 'intern'].includes(String(u?.role || '').toLowerCase())
     );
     availableAgenciesForAssignment.value = [];
   } catch (err) {

@@ -1,4 +1,5 @@
 import { validateSessionSettings } from '../utils/sessionSecurityPolicy.js';
+import { mergeAgencyFeatureFlags } from '../utils/agencyFeatureFlags.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import { validationResult } from 'express-validator';
@@ -874,13 +875,9 @@ export const updateAgency = async (req, res, next) => {
     // Capture previous feature_flags so we can record entitlement events for any toggles.
     let previousFeatureFlags = {};
     if (formattedFeatureFlags && typeof formattedFeatureFlags === 'object') {
-      try {
-        const existing = await Agency.findById(id);
-        const raw = existing?.feature_flags;
-        previousFeatureFlags = typeof raw === 'string' ? (JSON.parse(raw || '{}') || {}) : (raw || {});
-      } catch {
-        previousFeatureFlags = {};
-      }
+      const existing = await Agency.findById(id);
+      previousFeatureFlags = mergeAgencyFeatureFlags(existing?.feature_flags, {});
+      formattedFeatureFlags = mergeAgencyFeatureFlags(previousFeatureFlags, formattedFeatureFlags);
     }
 
     // Workspace management enrollment is controlled by the platform operator.

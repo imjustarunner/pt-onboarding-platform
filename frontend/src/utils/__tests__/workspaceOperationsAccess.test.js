@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   canAccessFinanceOperationsHub,
+  canAccessPeopleOperationsHub,
   resolveWorkspaceAccess,
   buildDashboardQuickAccessLinks,
   buildHubSwitcherLinks,
@@ -18,6 +19,25 @@ const context = (agency = itsco, user = admin) => workspaceNavContextFromStores(
 });
 
 describe('tenant operations access', () => {
+  it('shows People Operations for ITSCO admin staff after restoring tenant features, including serialized flags', () => {
+    for (const role of ['admin', 'support', 'staff']) {
+      for (const flags of [{ hiringEnabled: true, peopleOpsEnabled: true }, JSON.stringify({ hiringEnabled: true, peopleOpsEnabled: true })]) {
+        const ctx = context({ ...itsco, feature_flags: flags }, { role, has_supervisor_privileges: 1, capabilities: { canManageHiring: true } });
+        expect(canAccessPeopleOperationsHub(ctx)).toBe(true);
+        for (const links of [buildDashboardQuickAccessLinks(ctx), buildHubSwitcherLinks(ctx)]) {
+          expect(links.find(link => link.key === 'people').to).toBe('/itsco/people-operations');
+        }
+      }
+    }
+  });
+
+  it('retains disabled-feature and employee-role boundaries for People Operations', () => {
+    const enabled = { ...context(), agencyFeatureFlags: { hiringEnabled: true }, hasHiringFeature: true };
+    expect(canAccessPeopleOperationsHub({ ...enabled, role: 'provider', user: { role: 'provider' } })).toBe(false);
+    expect(canAccessPeopleOperationsHub({ ...enabled, isAffiliationContext: true })).toBe(false);
+    expect(canAccessPeopleOperationsHub(context())).toBe(false);
+  });
+
   it('restores school access for ITSCO admins without showing their other tenant finance access', () => {
     const ctx = context();
     expect(resolveWorkspaceAccess(ctx)).toMatchObject({ school: true, finance: false });
