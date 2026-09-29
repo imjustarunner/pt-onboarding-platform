@@ -1,6 +1,6 @@
 <template>
   <div class="scb-partner" :class="{'scb-partner-guest':!auth.isAuthenticated}">
-    <header class="scb-header"><SchoolCareBridgeBrand/><router-link to="/schoolcarebridge/partners">Our partners</router-link><router-link :to="schoolCareBridgePath()">Switch workspace</router-link><button v-if="auth.isAuthenticated" class="scb-button scb-outline" @click="auth.logout()">Sign out</button></header>
+    <header class="scb-header"><SchoolCareBridgeBrand/><router-link to="/schoolcarebridge/partners">Our partners</router-link><router-link to="/schoolcarebridge/app/operations">Programs & bookings</router-link><router-link :to="schoolCareBridgePath()">Switch workspace</router-link><button v-if="auth.isAuthenticated" class="scb-button scb-outline" @click="auth.logout()">Sign out</button></header>
     <p v-if="loading" class="scb-status" role="status">Opening your workspace…</p>
     <section v-else-if="error" class="scb-status" role="alert"><h1>We couldn’t open this workspace</h1><p>{{error}}</p><button @click="load">Try again</button></section>
     <main v-else-if="!auth.isAuthenticated" class="scb-partner-signin">

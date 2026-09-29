@@ -21,7 +21,8 @@
         </section>
         <div v-if="custom?.body" class="scb-prose scb-section" v-html="customHtml"></div>
 
-        <template v-if="section==='partners'">
+        <template v-if="section==='programs'"><SchoolCareBridgeProgramCatalog/></template>
+        <template v-else-if="section==='partners'">
           <section class="scb-section scb-partners-section"><p class="scb-eyebrow">Our partner agencies</p><h2>Care starts with the people who show up.</h2><p class="scb-section-intro">Meet the agencies using SchoolCareBridge to connect with their school communities. Select your agency’s logo to enter its workspace.</p><p v-if="partnersLoading" role="status">Loading our partners…</p><p v-else-if="partnersError" role="alert">We couldn’t load the partner directory. <button @click="loadPartners">Try again</button></p><div v-else class="scb-partner-cards"><article v-for="partner in partners" :key="partner.id"><router-link class="scb-partner-brand-link" :to="schoolCareBridgePartnerPath(partner.slug)" :aria-label="`${partner.name} SchoolCareBridge workspace`"><img v-if="partnerLogo(partner)" :src="partnerLogo(partner)" :alt="partner.name" @error="$event.target.style.display='none'"/><strong v-else>{{partner.name}}</strong></router-link><p class="scb-eyebrow">SchoolCareBridge partner</p><h3>{{partner.name}}</h3><p>{{partner.description||'Connecting school staff and care providers through a shared school-centered workspace.'}}</p><router-link class="scb-button" :to="schoolCareBridgePartnerPath(partner.slug)">{{partner.name}} SchoolCareBridge →</router-link></article><p v-if="!partners.length">Partner listings are being prepared.</p></div></section>
           <section class="scb-split-section scb-section"><div><p class="scb-eyebrow">Join the program</p><h2>Your agency. Your schools.<br/>A shared place to connect.</h2><p>Keep your agency identity while making school coordination easier. New partners can start with a focused workspace for school portals, clients, providers and everyday settings.</p></div><div class="scb-soft-panel"><h3>What a partnership includes</h3><ul class="scb-check-list"><li>Your agency logo and branded entry</li><li>School-specific portals and care-team attribution</li><li>A concise operations workspace</li><li>Existing role and student-information permissions</li></ul><router-link :to="path('for-agencies')">Explore the agency experience →</router-link></div></section>
         </template>
@@ -38,7 +39,7 @@
           <section class="scb-section"><p class="scb-eyebrow">What guides the experience</p><div class="scb-value-grid"><article v-for="[title,body] in values" :key="title"><span aria-hidden="true">✦</span><h3>{{title}}</h3><p>{{body}}</p></article></div></section>
         </template>
 
-        <template v-else-if="section==='resources'">
+        <template v-else-if="section==='resources'"><SchoolCareBridgeProgramCatalog/>
           <section class="scb-section"><p class="scb-eyebrow">Tools for your next step</p><h2>Find what you need, where you need it.</h2><div class="scb-resource-grid"><router-link v-for="[symbol,title,body] in resources" :key="title" :to="schoolCareBridgePath()"><span class="scb-resource-icon" aria-hidden="true">{{symbol}}</span><div><h3>{{title}}</h3><p>{{body}}</p><strong>Find your school portal →</strong></div></router-link></div></section>
           <section class="scb-split-section scb-section scb-soft-band"><img class="scb-section-photo" src="/assets/mh4kidz/groups.webp" alt="A group activity bringing children together"/><div><p class="scb-eyebrow">Beyond the portal</p><h2>Explore MH4Kidz’s<br/>community programs.</h2><p>Visit MH4Kidz for its published programs and resources. For a school or agency conversation, use the program’s configured contact destination below.</p><a class="scb-button" href="https://mh4kidz.org">Visit MH4Kidz ↗</a><p v-if="!contactUrl" class="scb-pending">A SchoolCareBridge contact destination has not been configured yet.</p><a v-else :href="contactUrl" @click="guardPreview">Contact the program team →</a></div></section>
           <section class="scb-section"><h2>Getting started with your portal</h2><div class="scb-faq"><details v-for="[question,answer] in resourceFaq" :key="question"><summary>{{question}}</summary><p>{{answer}}</p></details></div></section>
@@ -73,13 +74,14 @@ import { schoolCareBridgePath } from '../../utils/schoolCareBridge';
 import { schoolCareBridgePartnerPath } from '../../utils/schoolCareBridgeTenant';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import SchoolCareBridgePortalPreview from '../../components/schoolcarebridge/SchoolCareBridgePortalPreview.vue';
+import SchoolCareBridgeProgramCatalog from '../../components/schoolcarebridge/SchoolCareBridgeProgramCatalog.vue';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import { useStandalonePublicWebsite, publicWebsiteUrl as safe } from '../../composables/useStandalonePublicWebsite';
 import '../../styles/schoolCareBridge.css';
 import '../../styles/schoolCareBridgeWebsite.css';
 const {page,loading,error,menuOpen,section,load,guardPreview,previewNotice}=useStandalonePublicWebsite('schoolcarebridge','SchoolCareBridge | A program of MH4Kidz');
 const path=slug=>`/schoolcarebridge${slug?'/'+slug:''}`;
-const nav=[['For Schools','for-schools'],['For Agencies','for-agencies'],['How It Works','how-it-works'],['About','about'],['Partners','partners'],['Resources','resources'],['Security','security']];
+const nav=[['For Schools','for-schools'],['For Agencies','for-agencies'],['How It Works','how-it-works'],['About','about'],['Partners','partners'],['Programs','programs'],['Resources','resources'],['Security','security']];
 const settings=computed(()=>page.value?.branding?.schoolcarebridgeWebsite||{});
 const mh4Contact=ref('');
 const contactUrl=computed(()=>safe(settings.value.demoUrl||settings.value.contactUrl||settings.value.partnerUrl||mh4Contact.value));
@@ -87,6 +89,7 @@ onMounted(async()=>{try{const {data}=await api.get('/public/marketing-pages/mh4k
 const custom=computed(()=>page.value?.branding?.contentPages?.find(p=>p.slug===section.value));
 const customHtml=computed(()=>DOMPurify.sanitize(marked.parse(custom.value?.body||''),{FORBID_TAGS:['form','input','button','textarea','select','style','iframe']}));
 const pages={
+ programs:{eyebrow:'Programs & workshops',title:'More support for your school community.',description:'Discover original, partner, managed and sponsored programs. Connect with presenters in your region and arrange the support your school needs.',cards:[]},
  partners:{eyebrow:'Our partners',title:'Agencies and schools. Connected by care.',description:'Meet the agency partners bringing SchoolCareBridge to their school communities.',label:'Our partners',heading:'Care starts with connection.',cards:[]},
  '':{eyebrow:'Connecting schools. Supporting students.',title:'A bridge between schools and the care students need.',description:'Coordinate school-based mental health services with trusted agency partners through one school-centered experience.',label:'Built around your school',heading:'Less searching. More working together.',cards:[['Your school’s portal','A familiar home with your school’s name, colors, and affiliated agencies.'],['Connected care teams','Find providers, view schedules, and communicate with the people supporting your school.'],['Enrollment in one place','Use digital forms or upload completed packets through existing school workflows.'],['Access that fits your role','Work with the information and tools your account is authorized to use.']]},
  'for-schools':{eyebrow:'For schools',title:'A simpler way to coordinate school-based support.',description:'Give school staff one place to find providers, coordinate paperwork, and keep services organized.',label:'Built for school staff',heading:'Your school’s next steps, together.',cards:[['Find your providers','See the agency partners and providers serving your school.'],['Coordinate enrollment','Send digital forms, find printable documents, and upload completed packets.'],['Stay organized','Review schedules, rosters, messages, and pending school workflows.'],['Keep your school identity','Your school’s branding stays prominent alongside SchoolCareBridge and MH4Kidz.']]},

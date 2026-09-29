@@ -10,7 +10,7 @@ import { normalizeAgreementTerms, parseObject, renderSchoolCareBridgeAgreement, 
 const router = express.Router();
 const wrap = fn => (req,res,next) => Promise.resolve(fn(req,res)).catch(next);
 const id = value => { const n=Number(value); if(!Number.isSafeInteger(n)||n<1) throw scbError(400,'Invalid identifier.'); return n; };
-const slug = value => { const s=String(value||'').trim().toLowerCase(); if(!/^[a-z0-9][a-z0-9-]{1,79}$/.test(s)||['app','partners','admin','api','schoolcarebridge','login'].includes(s)) throw scbError(400,'Choose a unique portal address using letters, numbers and hyphens.'); return s; };
+const slug = value => { const s=String(value||'').trim().toLowerCase(); if(!/^[a-z0-9][a-z0-9-]{1,79}$/.test(s)||['app','partners','operations','admin','api','schoolcarebridge','login'].includes(s)) throw scbError(400,'Choose a unique portal address using letters, numbers and hyphens.'); return s; };
 const text = (value,max=255) => String(value||'').trim().slice(0,max);
 const image = value => { const v=text(value,1000); if(!v)return ''; if(/^\/(?:assets|uploads)\/[a-zA-Z0-9_./% -]+$/.test(v))return v; try{const u=new URL(v);if(u.protocol==='https:'&&!u.username&&!u.password)return u.href;}catch{} throw scbError(400,'Use an uploaded image path or HTTPS image URL.'); };
 const publicPartner = row => ({ id:row.agency_id, name:row.name, slug:row.portal_url||row.slug, logoUrl:row.logo_url||row.logo_path||(row.slug==='itsco'?'/assets/itsco/logo.png':null), description:parseObject(row.settings_json).description||'' });

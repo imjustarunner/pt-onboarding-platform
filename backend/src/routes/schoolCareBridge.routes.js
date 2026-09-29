@@ -62,8 +62,12 @@ async function billingConfiguration() {
   const [[row]] = await pool.execute('SELECT * FROM schoolcarebridge_program_config WHERE id = 1');
   const operator = row?.operator_agency_id ? await Agency.findById(row.operator_agency_id) : null;
   const account = operator ? await AgencyBillingAccount.getByAgencyId(operator.id) : null;
+  const [[commercial]] = await pool.execute('SELECT revision,executed_revision,activated_at,terms_json FROM schoolcarebridge_commercial_terms WHERE id=1');
+  const executed = !!commercial?.activated_at && commercial.executed_revision === commercial.revision;
+  const rolloutDate = object(commercial?.terms_json).rolloutDate || null;
+  const active = executed && !!rolloutDate && rolloutDate <= new Date().toISOString().slice(0,10);
   return { operatorAgencyId: operator?.id || null, operatorName: 'MH4Kidz', revenueRecipient: 'MH4Kidz', invoiceIssuer: 'Plot Twist Co',
-    billingAccountReady: !!account, setupComplete: !!operator && !!account, chargesEnabled: false, invoiceIssuanceEnabled: false,
+    billingAccountReady: !!account, setupComplete: !!operator && !!account, chargesEnabled: active, invoiceIssuanceEnabled: active, commercialAgreementRecorded: executed, rolloutDate,
     deployment: schoolCareBridgeDeployment() };
 }
 router.get('/program-config', authenticate, requireSuperAdmin, wrap(async (req, res) => res.json(await billingConfiguration())));

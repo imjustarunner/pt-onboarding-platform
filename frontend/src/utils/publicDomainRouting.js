@@ -39,7 +39,7 @@ export function publicSitePaths(host) {
   clean: value => String(value).replace(/^\/schoolcarebridge(?=\/|[?#]|$)/, '').replace(/^([?#]|$)/, '/$1'),
   internal: value => {
    const path = String(value);
-   if (isSchoolCareBridgePath(path) || /^\/(api|assets|uploads|p)(\/|$)/.test(path)) return path;
+   if (isSchoolCareBridgePath(path) || /^\/(api|assets|uploads|p|intake|i|preferences-form|life-balance-form)(\/|$)/.test(path)) return path;
    return `/schoolcarebridge${path === '/' ? '' : path}`;
   }
  };

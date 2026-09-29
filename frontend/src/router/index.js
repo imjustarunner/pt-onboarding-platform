@@ -308,6 +308,7 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  { path: '/schoolcarebridge/app/operations', name: 'SchoolCareBridgeOperations', component: () => import('../views/school/SchoolCareBridgeOperationsView.vue'), meta: { requiresAuth: true } },
   { path: '/admin/schoolcarebridge', name: 'SchoolCareBridgeProgram', component: () => import('../views/admin/SchoolCareBridgeProgramView.vue'), meta: { requiresAuth: true, requiresRole: ['super_admin'] } },
   { path: '/schoolcarebridge/app/partners/:partnerSlug/:partnerSection?', name: 'SchoolCareBridgePartner', component: () => import('../views/school/SchoolCareBridgePartnerView.vue'), meta: { schoolCareBridgeEntry: true, schoolCareBridgePartner: true } },
   { path: '/schoolcarebridge/session-ended', name: 'SchoolCareBridgeSessionEnded', component: () => import('../views/school/SchoolCareBridgeSessionEnded.vue'), meta: { requiresGuest: false } },

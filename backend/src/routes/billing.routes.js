@@ -34,6 +34,13 @@ import {
 
 const router = express.Router();
 
+// Daily, read-only usage metering; no invoice or collection is triggered.
+router.post('/schoolcarebridge-usage-snapshot', async (req,res,next) => {
+  const secret=process.env.BILLING_JOB_SECRET;
+  if(!secret||req.get('x-billing-job-secret')!==secret)return res.status(401).json({error:{message:'Unauthorized'}});
+  try { const {captureUsage}=await import('../services/schoolCareBridgeCommerce.service.js');res.json(await captureUsage(null)); } catch(e) { next(e); }
+});
+
 // Internal monthly billing job (Cloud Scheduler)
 router.post('/run-monthly', (req, res, next) => {
   const configured = process.env.BILLING_JOB_SECRET;
