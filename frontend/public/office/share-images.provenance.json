@@ -1,0 +1,13 @@
+{
+  "method": "Built-in image_gen, editing the existing generated location backgrounds. JPEG copies for SMS link previews.",
+  "assets": [
+    {
+      "file": "windchime-kiosk-share.jpg",
+      "prompt": "Edit this existing office landscape into a polished SMS link preview card, wide 1200x630 composition. Preserve the recognizable landscape and warm sage/cream atmosphere. Add large elegant clearly legible dark forest-green text \"Windchime Kiosk\" in the pale left/center sky area, and a small subtitle \"Client check-in • Office directory\". Keep all text comfortably inside the central safe area so phone link preview crops do not cut it off. No other logos or text. Preserve the existing imagery as much as possible."
+    },
+    {
+      "file": "denver-kiosk-share.jpg",
+      "prompt": "Edit this existing office landscape into a polished SMS link preview card, wide 1200x630 composition. Preserve the recognizable landscape and warm sage/cream atmosphere. Add large elegant clearly legible dark forest-green text \"Denver Kiosk\" in the pale left/center sky area, and a small subtitle \"Client check-in • Office directory\". Keep all text comfortably inside the central safe area so phone link preview crops do not cut it off. No other logos or text. Preserve the existing imagery as much as possible."
+    }
+  ]
+}

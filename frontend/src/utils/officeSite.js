@@ -31,7 +31,11 @@ export function applyOfficeInstallIdentity(locationId) {
   if (site) document.querySelector('link[rel="manifest"]')?.setAttribute('href', site.manifest);
 }
 export function officeHtml(html, site) {
+  const title=`${site.name} Kiosk`, image=`https://plottwisthq.com/office/${site.locationId===6?'denver':'windchime'}-kiosk-share.jpg`;
   return html.replace(/<title>[^<]*<\/title>/, '<title>Office</title>')
+    .replace(/(<meta\b[^>]*(?:property|name)="(?:og|twitter):title"[^>]*content=")[^"]*(")/g,`$1${title}$2`)
+    .replace(/(<meta\b[^>]*(?:property|name)="(?:og|twitter):description"[^>]*content=")[^"]*(")/g,'$1Client check-in, today’s providers, and the office directory.$2')
+    .replace(/(<meta\b[^>]*(?:property|name)="(?:og|twitter):image"[^>]*content=")[^"]*(")/g,`$1${image}$2`)
     .replace(/(<link\b[^>]*id="app-(?:favicon|apple-touch-icon)"[^>]*href=")[^"]*(")/g, `$1${OFFICE_ICON}$2`)
     .replace(/(<link\b[^>]*rel="manifest"[^>]*href=")[^"]*(")/, `$1${site.manifest}$2`)
     .replace('</head>', '<meta name="apple-mobile-web-app-title" content="Office"><meta name="application-name" content="Office"></head>');

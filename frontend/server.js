@@ -1,4 +1,5 @@
 import express from 'express';
+import { OFFICE_SITES, officeSiteForHost, officeHtml } from './src/utils/officeSite.js';
 import { pages as auricwellPages } from './src/auricwell/website/render.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -14,6 +15,12 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 8080;
 const distPath = join(__dirname, 'dist');
+app.use((req,res,next)=>{
+  const match=req.path.match(/^\/kiosk-welcome\/(1|6)\/?$/);
+  const site=match?OFFICE_SITES.find(s=>s.locationId===Number(match[1])):req.path==='/'?officeSiteForHost(req.headers.host):null;
+  if(!site)return next();
+  return res.type('html').set('Cache-Control','no-store').send(officeHtml(readFileSync(join(distPath,'index.html'),'utf8'),site));
+});
 
 console.log(`Serving files from: ${distPath}`);
 console.log(`Dist directory exists: ${existsSync(distPath)}`);

@@ -7,6 +7,7 @@ import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityRe
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { publicAppBaseUrl } from './contactReminderToken.service.js';
 import { withMessagingJobLock } from './messagingJobLock.service.js';
+import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 
 export function arrivalRecipient(user) {
   const address = usesPasswordLogin(user)
@@ -77,7 +78,7 @@ export async function runOfficeArrivalTick() {
         }
         if(Date.now()-parseUtcDate(row.created_at).getTime()>4*60*60_000){await pool.execute("UPDATE office_arrival_deliveries SET email_status='expired' WHERE notification_id=? AND email_status='pending'",[row.notification_id]);continue;}
         const to=arrivalRecipient(row);
-        const sender=await resolvePreferredSenderIdentityForAgency({agencyId:row.agency_id,preferredKeys:['notifications','system'],includePlatformDefaults:false,onlyActive:true});
+        const sender=await EmailSenderIdentity.findByAgencyAndIdentityKey(row.agency_id,'kiosk') || await resolvePreferredSenderIdentityForAgency({agencyId:row.agency_id,preferredKeys:['notifications','system'],includePlatformDefaults:false,onlyActive:true});
         if(!to || !sender?.id || Number(sender.agency_id)!==Number(row.agency_id)) throw Object.assign(new Error('Missing email setup'),{code:'ARRIVAL_EMAIL_SETUP'});
         const token=crypto.randomBytes(32).toString('hex');
         // Recheck acknowledgment atomically immediately before external delivery.

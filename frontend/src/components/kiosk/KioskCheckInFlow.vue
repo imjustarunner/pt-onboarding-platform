@@ -25,14 +25,15 @@
       <template v-else-if="step === 'confirm'">
         <h2 id="arrival-title">Ready to check in?</h2>
         <p>We’ll let your provider know you’ve arrived.</p>
-        <fieldset class="respondent"><legend>Who is checking in?</legend><label><input v-model="respondentType" type="radio" value="adult_self" /> I’m answering for myself (18 or older)</label><label><input v-model="respondentType" type="radio" value="youth_self" /> I’m answering for myself (under 18)</label><label><input v-model="respondentType" type="radio" value="caregiver" /> I’m answering for my child</label></fieldset>
+        <label class="visit-type">Type of visit<select v-model="serviceType"><option value="counseling">Therapy / counseling</option><option value="tutoring">Tutoring</option></select></label>
+        <fieldset class="respondent"><legend>Who is checking in?</legend><label><input v-model="respondentType" type="radio" value="adult_self" /> I’m answering for myself (18 or older)</label><label><input v-model="respondentType" type="radio" value="youth_self" /> I’m answering for myself (under 18)</label><label><input v-model="respondentType" type="radio" value="caregiver" /> I’m answering for my dependent (child or someone in my care)</label></fieldset>
         <div class="visit"><span>Today at</span><strong>{{ formatKioskTime(selected.startAt) }}</strong><span>{{ roomLabel(selected) }}</span></div>
         <p>Please wait in the lobby after checking in. Your provider will come get you.</p>
         <div v-if="error" class="error" role="alert">{{ error }}</div>
         <div class="actions"><button class="secondary" :disabled="saving" @click="props.directSlot ? emit('close') : (step = 'slots'); error = ''">Back</button><button class="primary" :disabled="saving || !respondentType" @click="checkIn">{{ saving ? 'Checking you in…' : 'I’m here · Check in' }}</button></div>
       </template>
 
-      <KioskVisitForms v-else-if="step === 'forms'" :forms="forms" :saving="saving" :error="error" @submit="submitForms" />
+      <KioskVisitForms v-else-if="step === 'forms'" :forms="forms" :saving="saving" :error="error" @submit="submitForms" @finish="emit('checked-in')" />
       <template v-else>
         <div class="success" aria-hidden="true">✓</div>
         <h2 id="arrival-title">You’re checked in.</h2>
@@ -42,7 +43,7 @@
         <button class="primary" @click="emit('close')">Done</button>
         <p class="help">Returning to the welcome screen in {{ remaining }} seconds.</p>
       </template>
-      <button v-if="step !== 'done'" class="secondary start-over" :disabled="saving" @click="emit('close')">Clear selection · Start over</button>
+      <button v-if="!['done','forms'].includes(step)" class="secondary start-over" :disabled="saving" @click="emit('close')">Clear selection · Start over</button>
       <footer>Your responses stay private. This screen clears when you finish or start over.</footer>
     </section>
   </div>
@@ -66,6 +67,7 @@ const loadError = ref('');
 const error = ref('');
 const remaining = ref(12);
 const respondentType = ref('');
+const serviceType=ref(props.provider.serviceType||'counseling');
 const forms = ref([]), formsUnavailable = ref(false);
 let submissionKey = crypto.randomUUID();
 const initials = computed(() => `${props.provider.firstName?.[0] || ''}${props.provider.lastName?.[0] || ''}`);
@@ -85,19 +87,18 @@ async function checkIn() {
   if (saving.value || !selected.value) return;
   saving.value = true; error.value = '';
   try {
-    const { data } = await api.post(`/kiosk/${props.locationId}/checkin`, { eventId: selected.value.eventId, providerId: props.provider.id, submissionKey, respondentType:respondentType.value, ...(props.directSlot?{appointmentStartAt:props.directSlot.appointmentStartAt,nextHour:!!props.directSlot.nextHour}:{}) });
+    const { data } = await api.post(`/kiosk/${props.locationId}/checkin`, { eventId: selected.value.eventId, providerId: props.provider.id, submissionKey, respondentType:respondentType.value, serviceType:serviceType.value, ...(props.directSlot?{appointmentStartAt:props.directSlot.appointmentStartAt,nextHour:!!props.directSlot.nextHour}:{}) });
     if (!data?.ok || !data?.notification?.inApp) throw new Error('Unconfirmed arrival');
-    if (!disposed && props.directSlot) { emit('checked-in'); return; }
-    if (!disposed) { forms.value = data.submission?.forms || []; formsUnavailable.value = !!data.submission?.formsUnavailable; step.value = forms.value.length && !data.submission?.completed ? 'forms' : 'done'; remaining.value = 12; }
+    if (!disposed) { forms.value = data.submission?.forms || []; formsUnavailable.value = !!data.submission?.formsUnavailable; step.value = forms.value.length && !data.submission?.completed ? 'forms' : 'done'; remaining.value = 12; if(props.directSlot&&step.value==='done')emit('checked-in'); }
   } catch (err) { error.value = err.response?.data?.error?.message || 'We couldn’t confirm your check-in. Try again or ask the office team for help.'; }
   finally { saving.value = false; touch(); }
 }
-async function submitForms(answers) {
+async function submitForms({answers,skippedFormIds}) {
   if (saving.value) return; saving.value = true; error.value = '';
   try {
-    const {data} = await api.post(`/kiosk/${props.locationId}/checkin/forms`,{submissionKey,answers});
+    const {data} = await api.post(`/kiosk/${props.locationId}/checkin/forms`,{submissionKey,answers,skippedFormIds});
     if (!data?.ok) throw new Error('Unconfirmed submission');
-    if (!disposed) {step.value='done'; remaining.value=12;}
+    if (!disposed) {if(props.directSlot)emit('checked-in');else {step.value='done'; remaining.value=12;}}
   } catch(e) {error.value=e.response?.data?.error?.message || 'Your responses could not be saved. Please try again.';}
   finally {saving.value=false;touch();}
 }
@@ -134,6 +135,6 @@ onUnmounted(() => { disposed = true; submissionKey = null; forms.value = []; cle
 header{display:flex;align-items:center;justify-content:space-between}.eyebrow{font-size:11px;letter-spacing:2px;font-weight:800;color:#627972}.close{width:48px;height:48px;border:1px solid #dae3dc;border-radius:50%;background:transparent;font-size:28px;color:inherit;cursor:pointer}
 .provider{display:flex;gap:14px;align-items:center;margin:14px 0 26px}.avatar{display:grid;place-items:center;background:#e7eee3;width:54px;height:54px;border-radius:18px;font-weight:700}.provider strong,.provider div span{display:block}.provider strong{font-size:19px}.provider div span{font-size:13px;color:#657774;margin-top:4px}
 h2{font-size:32px;line-height:1.13;letter-spacing:-1px;margin:0 0 14px}p{line-height:1.65;color:#617370}.times{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:24px 0;max-height:300px;overflow:auto}.time{border:1px solid #dce5dc;border-radius:14px;padding:18px 8px;background:white;color:inherit;cursor:pointer}.time strong,.time span{display:block}.time strong{font-size:19px}.time span{font-size:12px;margin-top:6px}.time.selected{background:#e7f0e2;border:2px solid #416952;padding:17px 7px}
-.respondent{border:1px solid #cedbd2;border-radius:12px;padding:16px}.respondent label{display:flex;align-items:center;gap:12px;min-height:48px}.respondent input{width:22px;height:22px}
+.visit-type{display:grid;gap:8px;margin:15px 0}.visit-type select{font:inherit;padding:12px;border:1px solid #cedbd2;border-radius:10px;background:white}.respondent{border:1px solid #cedbd2;border-radius:12px;padding:16px}.respondent label{display:flex;align-items:center;gap:12px;min-height:48px}.respondent input{width:22px;height:22px}
 .start-over{width:100%;margin-top:18px}.primary,.secondary{min-height:54px;padding:14px 22px;border-radius:14px;font:inherit;font-weight:700;cursor:pointer}.primary{background:#234e45;color:white;border:1px solid #234e45;width:100%;display:flex;justify-content:space-between;align-items:center}.secondary{border:1px solid #cedbd2;background:transparent;color:#234e45}.actions{display:flex;gap:10px}.actions .primary{flex:1}.help{font-size:12px}.visit{padding:25px;background:#eef2e8;border-radius:18px;margin:24px 0;display:flex;flex-direction:column;gap:8px}.visit strong{font-size:36px;letter-spacing:-1px}.visit.compact{flex-direction:row;justify-content:space-between;align-items:center}.visit.compact strong{font-size:23px}.success{width:66px;height:66px;background:#e6efde;color:#426c45;font-size:38px;border-radius:50%;display:grid;place-items:center;margin:12px 0 24px}.state,.error{padding:20px;background:#f2f0e6;border-radius:12px;margin:18px 0;line-height:1.6}.state button{display:block;margin-top:12px}.error{color:#8c392e;background:#fff1eb}footer{border-top:1px solid #e6eae2;margin-top:26px;padding-top:18px;font-size:11px;color:#6e7c73;text-align:center}button:disabled{opacity:.5;cursor:default}button:focus-visible{outline:3px solid #b78432;outline-offset:4px}@media(max-width:520px){.arrival-overlay{padding:10px}.arrival-panel{padding:22px;border-radius:20px}h2{font-size:27px}.times{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>

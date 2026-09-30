@@ -1474,6 +1474,7 @@
 
         <!-- Surveys Tab -->
         <div v-if="showPanel('surveys')" class="detail-section">
+          <ClientFeedbackTrends v-if="client?.id && !['school_staff','client_guardian'].includes(roleNorm)" :client-id="client.id" />
           <div class="form-actions" style="margin-top: 0; justify-content: space-between;">
             <h3 style="margin:0;">Survey responses</h3>
             <button class="btn btn-secondary btn-sm" type="button" @click="printSurveyTrends">Print trend</button>
@@ -2751,6 +2752,7 @@
 </template>
 
 <script setup>
+import ClientFeedbackTrends from '../kiosk/ClientFeedbackTrends.vue';
 import ClientReferralLinks from '../clients/ClientReferralLinks.vue';
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } from 'vue';
 import { useRoute, useRouter } from 'vue-router';

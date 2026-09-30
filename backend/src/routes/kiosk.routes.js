@@ -1,5 +1,5 @@
 import { officeSupportRead } from './officeLobby.routes.js';
-import { completeForms, listSubmissions, submissionClients, submissionSessions, attachSubmission } from '../controllers/officeClientSubmissions.controller.js';
+import { completeForms, listSubmissions, submissionClients, submissionSessions, attachSubmission, attachSeries, clientFeedback } from '../controllers/officeClientSubmissions.controller.js';
 import express from 'express';
 import { authenticate, requireKioskUser } from '../middleware/auth.middleware.js';
 import {
@@ -94,6 +94,8 @@ router.post('/:locationId/submit', submitKioskSurvey);
 router.use(authenticate);
 router.get('/support-messages/:id', officeSupportRead);
 router.get('/client-checkins', listSubmissions);
+router.get('/client-feedback/:clientId', clientFeedback);
+router.patch('/client-checkins/series-attachment', attachSeries);
 router.get('/client-checkins/:id/clients', submissionClients);
 router.get('/client-checkins/:id/sessions', submissionSessions);
 router.patch('/client-checkins/:id/attachment', attachSubmission);
@@ -108,4 +110,3 @@ router.get('/questionnaire-responses', listProviderQuestResponses);
 router.patch('/questionnaire-responses/:responseId/tag-client', tagResponseToClient);
 
 export default router;
-

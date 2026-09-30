@@ -10,7 +10,7 @@ function reject(status, message) {
 
 // Lock the event so simultaneous taps create exactly one arrival and one inbox alert.
 // The inbox alert and arrival commit together: a successful check-in always has an alert.
-export async function recordOfficeKioskCheckin({ locationId, eventId, providerId, submissionKey, respondentType, appointmentStartAt, nextHour=false }) {
+export async function recordOfficeKioskCheckin({ locationId, eventId, providerId, submissionKey, respondentType, serviceType, appointmentStartAt, nextHour=false }) {
   const conn = await pool.getConnection();
   let notification;
   let submission;
@@ -95,7 +95,7 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
     if (submissionKey) {
       const agencyId = notification?.agency_id || alerts[0]?.agency_id;
       if (!agencyId) throw reject(409,'Your provider’s office setup needs attention.');
-      submission = await beginClientSubmission(conn,event,Number(agencyId),submissionKey,respondentType);
+      submission = await beginClientSubmission(conn,event,Number(agencyId),submissionKey,respondentType,serviceType);
     }
     await conn.commit();
   } catch (error) {

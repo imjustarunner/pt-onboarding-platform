@@ -1,0 +1,10 @@
+import {it,expect,vi,afterEach} from 'vitest';import {mount,flushPromises} from '@vue/test-utils';import Trends from '../ClientFeedbackTrends.vue';vi.mock('../../../services/api',()=>({default:{get:vi.fn()}}));import api from '../../../services/api';let wrapper;afterEach(()=>{wrapper?.unmount();vi.resetAllMocks();});
+const visit=(id,respondentType,serviceType,total)=>({id,respondentType,serviceType,scheduledStartAt:'2026-09-29T22:00:00Z',timezone:'America/Denver',location:'Synthetic',forms:[],answers:{},skippedFormIds:[],score:{total,connection:total,progress:total,expected:6,answered:total==null?3:6}});
+it('separates service and respondent trends, labels complete tens, and leaves partial totals blank',async()=>{
+ api.get.mockResolvedValue({data:{visits:[visit(1,'adult_self','counseling',10),visit(2,'caregiver','counseling',3),visit(3,'adult_self','tutoring',7),visit(4,'adult_self','counseling',null)]}});wrapper=mount(Trends,{props:{clientId:9}});await flushPromises();expect(wrapper.findAll('.charts article')).toHaveLength(3);expect(wrapper.get('.latest').text()).toContain('10.0');expect(wrapper.text()).toContain('Incomplete · 3/6');expect(wrapper.findAll('details')).toHaveLength(2);
+ await wrapper.findAll('select')[1].setValue('caregiver');expect(wrapper.get('.latest').text()).toContain('3.0');expect(wrapper.findAll('details')).toHaveLength(1);
+ await wrapper.findAll('select')[0].setValue('tutoring');await flushPromises();expect(wrapper.get('.latest').text()).toContain('7.0');expect(wrapper.findAll('details')).toHaveLength(1);
+});
+it('clears a previous client immediately and ignores an older request finishing late',async()=>{
+ let old;api.get.mockImplementationOnce(()=>new Promise(resolve=>old=resolve)).mockResolvedValueOnce({data:{visits:[visit(2,'adult_self','counseling',8)]}});wrapper=mount(Trends,{props:{clientId:9}});await wrapper.setProps({clientId:10});await flushPromises();old({data:{visits:[visit(1,'adult_self','counseling',2)]}});await flushPromises();expect(wrapper.get('.latest').text()).toContain('8.0');
+});

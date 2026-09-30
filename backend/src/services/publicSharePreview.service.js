@@ -141,6 +141,8 @@ export function absoluteShareImageUrl(req, pathname = '/') {
 }
 
 export async function getSharePreviewState({ host, agencySlug, page, pathname } = {}) {
+  const location=({'437.plottwisthq.com':1,'office1.plottwisthq.com':6})[normHost(host)]||Number(String(pathname||'').match(/^\/kiosk-welcome\/(1|6)(?:\/|\?|$)/)?.[1]);
+  if([1,6].includes(location))return {page:'home',imageUrl:`/office/${location===6?'denver':'windchime'}-kiosk-share.jpg`,custom:false,agencySlug:null,spec:SHARE_IMAGE_SPEC};
   const pathSlug = resolvePortalSlugFromSharePath(pathname);
   // Standalone public websites do not require a tenant, including Mental Range.
   if (/^\/p\//.test(String(pathname || ''))) {

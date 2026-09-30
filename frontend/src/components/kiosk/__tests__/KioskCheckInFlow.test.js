@@ -24,7 +24,7 @@ describe('private office check-in', () => {
     expect(wrapper.text()).not.toContain('Checked in');
     expect(wrapper.findAll('input')).toHaveLength(0);
     await confirm();
-    expect(api.post).toHaveBeenCalledExactlyOnceWith('/kiosk/3/checkin', { eventId: 9, providerId: 7, submissionKey:expect.any(String),respondentType:'adult_self' });
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/kiosk/3/checkin', { eventId: 9, providerId: 7, submissionKey:expect.any(String),respondentType:'adult_self',serviceType:'counseling' });
     expect(api.get).toHaveBeenCalledTimes(1); // No clinical information loaded on the shared tablet.
     expect(wrapper.text()).toContain('You’re checked in.');
     await vi.advanceTimersByTimeAsync(12_000);
@@ -47,7 +47,7 @@ describe('private office check-in', () => {
     api.post.mockResolvedValueOnce({data:{ok:true,notification:{inApp:true},submission:{forms:[form]}}}).mockResolvedValueOnce({data:{ok:true}});
     await open();await confirm();expect(wrapper.find('form').exists()).toBe(true);await vi.advanceTimersByTimeAsync(13_000);expect(wrapper.emitted('close')).toBeUndefined();
     await wrapper.get('form input').setValue('Private fixture answer');await wrapper.get('form').trigger('submit');await flushPromises();
-    expect(api.post.mock.calls[1][1]).toEqual({submissionKey:api.post.mock.calls[0][1].submissionKey,answers:{'module:1':{a:'Private fixture answer'}}});
+    expect(api.post.mock.calls[1][1]).toEqual({submissionKey:api.post.mock.calls[0][1].submissionKey,answers:{'module:1':{a:'Private fixture answer'}},skippedFormIds:[]});
     expect(wrapper.text()).toContain('You’re checked in.');expect(wrapper.find('form').exists()).toBe(false);
   });
   it('closes from the explicit Clear selection button',async()=>{await open();await wrapper.get('.start-over').trigger('click');expect(wrapper.emitted('close')).toHaveLength(1);});

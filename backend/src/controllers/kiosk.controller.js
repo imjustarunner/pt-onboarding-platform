@@ -164,7 +164,7 @@ export const checkInToEvent = async (req, res, next) => {
       || (providerId !== null && (!Number.isSafeInteger(providerId) || providerId <= 0))) {
       return res.status(400).json({ error: { message: 'A valid office, appointment, and provider are required.' } });
     }
-    const result = await recordOfficeKioskCheckin({ locationId, eventId, providerId, submissionKey:req.body?.submissionKey, respondentType:req.body?.respondentType, appointmentStartAt:req.body?.appointmentStartAt, nextHour:req.body?.nextHour===true });
+    const result = await recordOfficeKioskCheckin({ locationId, eventId, providerId, submissionKey:req.body?.submissionKey, respondentType:req.body?.respondentType, serviceType:req.body?.serviceType, appointmentStartAt:req.body?.appointmentStartAt, nextHour:req.body?.nextHour===true });
     res.status(result.alreadyCheckedIn ? 200 : 201).json(result);
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: { message: error.message } });

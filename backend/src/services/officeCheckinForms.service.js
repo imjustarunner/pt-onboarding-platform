@@ -3,6 +3,7 @@ import OfficeSlotQuestionnaireRule from '../models/OfficeSlotQuestionnaireRule.m
 import OfficeQuestionnaireModule from '../models/OfficeQuestionnaireModule.model.js';
 import ModuleContent from '../models/ModuleContent.model.js';
 import IntakeLink from '../models/IntakeLink.model.js';
+import { officeFeedbackForms } from './officeFeedbackForms.js';
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value;
 const supported = new Set(['text','textarea','email','phone','number','date','select','multi_select','boolean']);
 export function normalizeCheckinField(f, required = false) {
@@ -12,7 +13,8 @@ export function normalizeCheckinField(f, required = false) {
   return {id:String(f.id || f.field_key),label:f.field_label || f.label || f.field_key,type,required:required || !!f.is_required || !!f.required,
     options:Array.isArray(options) ? options.map(o=>typeof o === 'object' ? {value:String(o.value ?? o.label),label:String(o.label ?? o.value)} : {value:String(o),label:String(o)}) : []};
 }
-export async function formsForCheckin(event, agencyId, respondentType) {
+export async function formsForCheckin(event, agencyId, respondentType, serviceType='counseling') {
+  if(serviceType==='tutoring')return {forms:officeFeedbackForms(respondentType,serviceType),unavailable:false};
   let rules = await OfficeSlotQuestionnaireRule.findForEvent({officeLocationId:event.office_location_id,roomId:event.room_id,startAt:event.start_at,bookedProviderId:event.booked_provider_id,timezone:event.timezone || 'America/Denver'});
   if (!rules.length) rules = (await OfficeQuestionnaireModule.listForOffice({officeLocationId:event.office_location_id})).filter(r=>!r.agency_id || Number(r.agency_id)===agencyId);
   rules = rules.filter(r=>(r.respondent_type || 'adult_self')===respondentType);
@@ -42,7 +44,7 @@ export async function formsForCheckin(event, agencyId, respondentType) {
     if (!fields.length || fields.some(f=>!f)) { unavailable = true; continue; }
     forms.push({id:key,respondentType,title:title || 'Visit questionnaire',fields});
   }
-  return {forms,unavailable};
+  return {forms:forms.length?forms:officeFeedbackForms(respondentType,serviceType),unavailable};
 }
 export function validateCheckinAnswers(forms, input) {
   const fail = () => { throw Object.assign(new Error('Please complete the requested fields using the available choices.'),{status:400}); };

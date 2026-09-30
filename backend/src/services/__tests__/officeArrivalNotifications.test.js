@@ -1,7 +1,8 @@
 import {it,expect,vi,beforeEach,afterEach} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),channel:vi.fn(),sender:vi.fn(),send:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),channel:vi.fn(),sender:vi.fn(),send:vi.fn(),kiosk:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>m}}));
 vi.mock('../notificationPreferences.service.js',()=>({isNotificationChannelEnabled:m.channel}));
+vi.mock('../../models/EmailSenderIdentity.model.js',()=>({default:{findByAgencyAndIdentityKey:m.kiosk}}));
 vi.mock('../emailSenderIdentityResolver.service.js',()=>({resolvePreferredSenderIdentityForAgency:m.sender}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
 vi.mock('../messagingJobLock.service.js',()=>({withMessagingJobLock:async(_,work)=>work()}));
@@ -32,6 +33,10 @@ it('escapes message HTML and offers action links without client answers',()=>{
 it('sends branded identity mail with the provider account and unique message id',async()=>{
  await runOfficeArrivalTick();expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:20,userId:7,to:'sso@example.test',templateType:'kiosk_checkin',html:expect.stringContaining('Dismiss this arrival'),internetMessageIdOverride:'<office-arrival-12@plottwisthq.com>'}));
  expect(m.execute.mock.calls.some(([sql,args])=>sql.includes('email_status=?')&&args[0]==='sent')).toBe(true);
+});
+it('prefers the dedicated kiosk identity over a general agency sender',async()=>{
+ m.kiosk.mockResolvedValue({id:42,agency_id:2});await runOfficeArrivalTick();
+ expect(m.kiosk).toHaveBeenCalledWith(2,'kiosk');expect(m.sender).not.toHaveBeenCalled();expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:42}));
 });
 it.each(['acknowledged','read','opted out','inactive'])('suppresses email when %s',async reason=>{
  if(reason==='acknowledged')row.acknowledged_at=new Date();if(reason==='read')row.is_read=1;if(reason==='opted out')m.channel.mockResolvedValue(false);if(reason==='inactive')row.is_active=0;

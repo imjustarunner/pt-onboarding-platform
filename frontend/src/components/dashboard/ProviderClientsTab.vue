@@ -1030,7 +1030,7 @@ const allSections = computed(() => {
   }
   return [
     ...primarySections.value,
-    { id: 'checkins', label: 'Check-in submissions', iconKey: 'office', badge: 0 },
+    { id: 'checkins', label: 'Recurring check-ins', iconKey: 'office', badge: 0 },
     { id: 'referrals', label: 'Referral directory', iconKey: 'referrals', badge: 0 },
   ];
 });

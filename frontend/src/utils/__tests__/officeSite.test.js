@@ -16,4 +16,8 @@ describe('dedicated office sites', () => {
   const html=officeHtml('<head><title>Portal</title><link rel="manifest" href="/manifest.webmanifest"></head>',OFFICE_SITES[0]);
   expect(html).toContain('<title>Office</title>');expect(html).toContain('/office/windchime.webmanifest');expect(html).toContain('apple-mobile-web-app-title');
  });
+ it('gives each location its own SMS title and landscape image without changing the installed app name',()=>{
+  const shell='<head><title>Plot Twist Co</title><meta property="og:title" content="Plot Twist Co"><meta property="og:image" content="old"><meta name="twitter:title" content="Plot Twist Co"><meta name="twitter:image" content="old"></head>';
+  for(const site of OFFICE_SITES){const html=officeHtml(shell,site);expect(html).toContain(`<title>Office</title>`);expect(html).toContain(`content="${site.name} Kiosk"`);expect(html).toContain(`/office/${site.locationId===6?'denver':'windchime'}-kiosk-share.jpg`);expect(html).not.toContain('content="old"');}
+ });
 });

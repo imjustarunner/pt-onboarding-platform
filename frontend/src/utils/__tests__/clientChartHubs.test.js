@@ -27,6 +27,7 @@ describe('clientChartHubs Record Center', () => {
       'notes',
       'medical-record',
       'treatment-plans',
+      'surveys',
       'documents',
       'billing',
       'authorizations',
@@ -91,6 +92,7 @@ describe('clientChartHubs Record Center', () => {
       'medical-record',
       'treatment-plans',
       'learning-plans',
+      'surveys',
       'documents',
       'authorizations',
       'audit'

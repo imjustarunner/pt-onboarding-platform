@@ -125,6 +125,7 @@ export function recordsSubnav({
     items.push({ id: 'treatment-plans', label: 'Treatment plans' });
   }
 
+  if(canViewClinical||showLearningSurfaces)items.push({id:'surveys',label:'Feedback & surveys'});
   items.push({ id: 'documents', label: 'Documents' });
   if (canViewBilling) {
     items.push({
