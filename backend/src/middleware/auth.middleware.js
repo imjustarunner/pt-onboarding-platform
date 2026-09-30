@@ -114,7 +114,7 @@ export const authenticate = async (req, res, next) => {
     // Provider-First Welcome Kiosk public endpoints (no auth required)
     if (
       req.method === 'GET' &&
-      /^\/api\/kiosk\/[^/]+\/providers-today\/?$/.test(requestPath)
+      /^\/api\/kiosk\/[^/]+\/(providers-today|office-directory)\/?$/.test(requestPath)
     ) {
       return next();
     }
@@ -137,7 +137,7 @@ export const authenticate = async (req, res, next) => {
       return next();
     }
     // Other public kiosk endpoints (check-in, questionnaires, slots)
-    if (/^\/api\/kiosk\/[^/]+\/(checkin|questionnaires|events|identify-by-pin|providers|available-rooms)\/?/.test(requestPath)) {
+    if (/^\/api\/kiosk\/[^/]+\/(checkin|questionnaires|events|identify-by-pin|providers|available-rooms)(?:\/|$)/.test(requestPath)) {
       return next();
     }
     if (requestPath.startsWith('/api/public-intake') && !requestPath.includes('/approve')) {
