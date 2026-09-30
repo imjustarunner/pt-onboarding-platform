@@ -82,7 +82,7 @@ export async function ensureSendAsAlias({
   } catch (e) {
     logGoogleUnauthorizedHint(e, { context: 'ensureSendAsAlias' });
     const msg = e?.message || e?.response?.data?.error?.message || String(e);
-    return { ok: false, error: msg, sendAsEmail: email };
+    return { ok: false, error: msg, code: e.code || null, retryAt: e.retryAt || null, sendAsEmail: email };
   }
 }
 

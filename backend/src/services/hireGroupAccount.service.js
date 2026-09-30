@@ -3,7 +3,7 @@
  * Used when agency.feature_flags.hireAccountMode === 'group_password'.
  *
  * Flow:
- * 1) Pre-hire: provisionHireGroupUsername — pick @ work username / Google Group only
+ * 1) Pre-hire: provisionHireGroupUsername — pick @ work username / Google Group + verified Gmail sender
  * 2) End of onboarding: finalizeHireGroupPassword — prepare password; People Operations activates app login after review
  *
  * SMS 2FA (DEFERRED — do not implement until in-app text/SMS verification exists):
@@ -16,6 +16,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import GoogleWorkspaceDirectoryService from './googleWorkspaceDirectory.service.js';
 import { ensurePersonalMailboxForAddress } from './personalMailbox.service.js';
+import { ensureHireGroupSender } from './hireGroupEmail.service.js';
 
 const parseJsonObject = (raw, fallback = {}) => {
   if (!raw) return fallback;
@@ -382,7 +383,7 @@ async function persistGroupUsernameFields({ userId, email, personalEmail }) {
 }
 
 /**
- * Pre-hire: create Google Group work username only (no app password yet).
+ * Pre-hire: create Google Group work username and verified sender (no app password yet).
  */
 export async function provisionHireGroupUsername({
   user,
@@ -396,14 +397,17 @@ export async function provisionHireGroupUsername({
     throw new Error('Agency is not configured for group_password hire accounts');
   }
 
-  if (user.work_email && String(user.work_email).includes('@')) {
+  const existingEmail = normalizeEmail(user.work_email);
+  const resuming = existingEmail.includes('@') && existingEmail === normalizeEmail(workEmail)
+    && [true, 1, '1'].includes(user.login_is_group_email);
+  if (existingEmail.includes('@') && !resuming) {
     const err = new Error('Work username is already set.');
     err.code = 'USERNAME_ALREADY_SET';
     err.details = { workEmail: user.work_email };
     throw err;
   }
 
-  const availability = await checkHireWorkEmailAvailability({
+  const availability = resuming ? { available: true, email: existingEmail } : await checkHireWorkEmailAvailability({
     email: workEmail,
     userId: user.id,
     agency
@@ -435,7 +439,10 @@ export async function provisionHireGroupUsername({
   }
 
   let group = null;
-  try {
+  if (resuming) {
+    group = await GoogleWorkspaceDirectoryService.getGroup({ groupEmail: email });
+    if (!group) throw Object.assign(new Error('The saved work email group is missing. Restore it before retrying setup.'), { code: 'HIRE_GROUP_EMAIL_REQUIRED', status: 409 });
+  } else try {
     group = await GoogleWorkspaceDirectoryService.createGroup({
       email,
       name: name.slice(0, 73),
@@ -485,31 +492,27 @@ export async function provisionHireGroupUsername({
     delivery: 'ALL_MAIL'
   });
 
-  await persistGroupUsernameFields({ userId: user.id, email, personalEmail });
-
-  let personalInbox = null;
-  try {
-    personalInbox = await ensurePersonalMailboxForAddress({
-      agencyId: agency.id,
-      userId: user.id,
-      fromEmail: email,
-      displayName: name
-    });
-  } catch (inboxErr) {
-    console.warn('[hireGroupAccount] personal mailbox wiring failed:', inboxErr?.message || inboxErr);
-  }
+  // Persist ownership before external sender registration so a temporary Gmail
+  // failure can resume the same address without creating a second group. Do not
+  // reset a password already prepared on an idempotent retry.
+  if (!resuming) await persistGroupUsernameFields({ userId: user.id, email, personalEmail });
+  const personalInbox = await ensurePersonalMailboxForAddress({
+    agencyId: agency.id, userId: user.id, fromEmail: email, displayName: name
+  });
+  const sending = await ensureHireGroupSender({ email, displayName: name });
 
   return {
     workEmail: email,
     groupEmail: email,
     username: email,
     groupId: group?.id || null,
-    ssoPasswordOverride: false,
-    passwordSet: false,
+    ssoPasswordOverride: resuming && hasHireGroupPasswordFinalized(user),
+    passwordSet: resuming && hasHireGroupPasswordFinalized(user),
     personalEmail,
     recoveryEmail: personalEmail,
     whoCanPostMessage: 'ANYONE_CAN_POST',
-    personalInboxId: personalInbox?.id || null
+    personalInboxId: personalInbox?.id || null,
+    ...sending
   };
 }
 

@@ -3004,6 +3004,12 @@ class User {
         await requireOnboardingSubmitted(userId);
         completedHire = true;
       }
+      // Group creation alone does not authorize Gmail to send from that address.
+      // Fail before changing status so activation can safely be retried.
+      if ([true, 1, '1'].includes(current?.login_is_group_email)) {
+        const { ensureHireGroupEmailForActivation } = await import('../services/hireGroupEmail.service.js');
+        await ensureHireGroupEmailForActivation(current);
+      }
     }
 
     const now = new Date();

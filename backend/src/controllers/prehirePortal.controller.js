@@ -1167,11 +1167,6 @@ export const provisionPortalAccount = async (req, res, next) => {
     const workEmail = req.body?.workEmail || req.body?.email;
     const user = await User.findById(req.portalUser.id);
     if (!user) return res.status(404).json({ error: { message: 'User not found.' } });
-    if (user.work_email && String(user.work_email).includes('@')) {
-      return res.status(400).json({
-        error: { message: 'Work username is already set.', workEmail: user.work_email }
-      });
-    }
     const agency = await loadPortalAgency(user.id);
     if (!agency) return res.status(400).json({ error: { message: 'No organization found.' } });
     const { provisionHireGroupUsername } = await import('../services/hireGroupAccount.service.js');
@@ -1197,7 +1192,7 @@ export const provisionPortalAccount = async (req, res, next) => {
       return res.status(400).json({ error: { message: e.message } });
     }
     if (e?.message) {
-      return res.status(400).json({ error: { message: e.message } });
+      return res.status(e.status || 400).json({ error: { message: e.message, code: e.code || null, retryAt: e.retryAt || null } });
     }
     next(e);
   }
