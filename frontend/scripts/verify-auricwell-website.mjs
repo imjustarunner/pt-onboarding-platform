@@ -7,6 +7,12 @@ const errors = [], apiRequests = [];
 page.on('pageerror', error => errors.push(error.message));
 page.on('request', req => { if (new URL(req.url()).pathname.startsWith('/api/')) apiRequests.push(req.url()); });
 try {
+ const legacy = await page.request.get(`${base}/auricwell/innerstrength/clients?clientId=71`, {maxRedirects:0});
+ assert([301,302].includes(legacy.status()));
+ const destination = new URL(legacy.headers().location, base);
+ assert.equal(destination.origin, new URL(base).origin, 'Redirect must retain the external scheme and port');
+ assert.equal(destination.pathname, '/auricwell/app/innerstrength/clients');
+ assert.equal(destination.search, '?clientId=71');
  for (const width of [1440, 768, 390, 320]) {
   await page.setViewportSize({width,height:1000});
   for (const section of ['', 'product', 'security', 'about', 'contact']) {
