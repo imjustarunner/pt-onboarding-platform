@@ -89,7 +89,7 @@ const loadOffices = async () => {
     loading.value = true;
     error.value = '';
     const resp = await api.get('/offices');
-    offices.value = resp.data || [];
+    offices.value = [...(resp.data || [])].sort((a, b) => String(a.name).localeCompare(String(b.name), 'en', { numeric: true }));
   } catch (e) {
     error.value = e.response?.data?.error?.message || 'Failed to load offices';
   } finally {

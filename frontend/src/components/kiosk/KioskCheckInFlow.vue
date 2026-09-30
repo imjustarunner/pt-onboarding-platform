@@ -5,7 +5,7 @@
         <span class="eyebrow">{{ step === 'done' ? 'ALL SET' : 'YOUR VISIT' }}</span>
         <button class="close" :disabled="saving" aria-label="Close check-in" @click="emit('close')">×</button>
       </header>
-      <div class="provider"><span class="avatar">{{ initials }}</span><div><strong>{{ provider.firstName }} {{ provider.lastName }}</strong><span>{{ provider.credential || provider.title || 'Your provider' }}</span></div></div>
+      <div class="provider"><KioskPerson :person="provider" /></div>
 
       <template v-if="step === 'slots'">
         <h2 id="arrival-title">What time is your appointment?</h2>
@@ -47,6 +47,7 @@
 <script setup>
 import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import api from '../../services/api';
+import KioskPerson from './KioskPerson.vue';
 import { formatKioskTime } from '../../utils/kioskTime';
 const props = defineProps({ provider: { type: Object, required: true }, locationId: { type: [Number, String], required: true }, timezone: { type: String, default: 'America/Denver' } });
 const emit = defineEmits(['close']);

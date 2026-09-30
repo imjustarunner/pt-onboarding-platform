@@ -1,3 +1,4 @@
+import { loadOfficeDirectory } from '../services/officeKioskDirectory.service.js';
 import { recordOfficeKioskCheckin } from '../services/officeKioskCheckin.service.js';
 import { verifiedObjectiveQuestion } from '../services/kioskObjectivePrompt.service.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
@@ -1096,7 +1097,7 @@ export const listKioskSkillBuilderEvents = async (req, res, next) => {
 
     const [rows] = await pool.execute(
       `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at,
-              sg.agency_id, a.name AS agency_name, sg.name AS group_name
+              sg.agency_id, a.name AS agency_name, a.portal_url AS agency_slug, sg.name AS group_name
        FROM company_events ce
        INNER JOIN skills_groups sg ON sg.company_event_id = ce.id
        INNER JOIN office_location_agencies ola ON ola.agency_id = sg.agency_id AND ola.office_location_id = ?
@@ -1414,8 +1415,9 @@ export const listProvidersToday = async (req, res, next) => {
          e.end_at,
          r.name AS room_name,
          r.room_number,
-         COALESCE(a_loc.name,       a_any.name)           AS agency_name,
-         COALESCE(a_loc.color_palette, a_any.color_palette) AS agency_color_palette
+         a.name AS agency_name, a.portal_url AS agency_slug,
+         COALESCE(NULLIF(a.logo_path, ''), NULLIF(a.logo_url, ''), ai.file_path) AS agency_logo_path,
+         a.color_palette AS agency_color_palette
        FROM office_events e
        JOIN users u ON u.id = e.booked_provider_id
          AND u.is_active = 1
@@ -1423,21 +1425,11 @@ export const listProvidersToday = async (req, res, next) => {
          AND u.terminated_at IS NULL
        JOIN office_rooms r ON r.id = e.room_id AND r.is_active = 1
        JOIN office_locations ol ON ol.id = e.office_location_id
-       -- Prefer agency matching this location
-       LEFT JOIN user_agencies ua_loc
-         ON ua_loc.user_id = u.id
-         AND ua_loc.agency_id = ol.agency_id
-         AND ua_loc.is_active = 1
-       LEFT JOIN agencies a_loc ON a_loc.id = ua_loc.agency_id
-       -- Fallback: any active agency for this provider
-       LEFT JOIN (
-         SELECT ua2.user_id,
-                a2.name,
-                a2.color_palette
-         FROM user_agencies ua2
-         JOIN agencies a2 ON a2.id = ua2.agency_id
-         WHERE ua2.is_active = 1
-       ) a_any ON a_any.user_id = u.id AND a_loc.id IS NULL
+       LEFT JOIN agencies a ON a.id = (
+         SELECT ua.agency_id FROM user_agencies ua JOIN agencies candidate ON candidate.id = ua.agency_id
+         WHERE ua.user_id = u.id AND ua.is_active = 1 AND candidate.organization_type = 'agency'
+         ORDER BY (ua.agency_id = ol.agency_id) DESC, ua.agency_id LIMIT 1)
+       LEFT JOIN icons ai ON ai.id = a.icon_id
        WHERE e.office_location_id = ?
          AND e.status <> 'CANCELLED'
          AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
@@ -1461,6 +1453,8 @@ export const listProvidersToday = async (req, res, next) => {
           title: row.title || null,
           profilePhotoPath: row.profile_photo_path || null,
           agencyName: row.agency_name || null,
+          agencyLogoPath: row.agency_logo_path || null,
+          agencySlug: row.agency_slug || null,
           agencyPrimaryColor: (() => {
             try {
               const palette = typeof row.agency_color_palette === 'string'
@@ -2162,31 +2156,9 @@ export const listKioskOfficeDirectory = async (req, res, next) => {
     if (!Number.isSafeInteger(locationId) || locationId <= 0) return res.status(400).json({ error: { message: 'Invalid office' } });
     const loc = await OfficeLocation.findById(locationId);
     if (!loc?.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
-    const timezone = loc.timezone || 'America/Denver';
-    const bounds = officeTodayUtcBounds(timezone);
-    const [rows] = await pool.execute(
-      `SELECT r.id, r.name, r.room_number, e.start_at, e.end_at,
-              u.id AS provider_id, u.first_name, u.last_name
-       FROM office_rooms r
-       LEFT JOIN office_events e ON e.room_id = r.id AND e.office_location_id = r.location_id
-         AND e.status <> 'CANCELLED'
-         AND (e.status = 'BOOKED' OR e.slot_state IN ('ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'))
-         AND e.start_at < ? AND e.end_at > ?
-       LEFT JOIN users u ON u.id = COALESCE(e.booked_provider_id, e.assigned_provider_id)
-         AND u.is_active = 1 AND u.status = 'ACTIVE_EMPLOYEE' AND u.terminated_at IS NULL
-       WHERE r.location_id = ? AND r.is_active = 1
-       ORDER BY r.sort_order, r.name, e.start_at`, [bounds.endExclusive, bounds.startAt, locationId]);
-    const rooms = new Map();
-    const now = Date.now();
-    for (const row of rows) {
-      if (!rooms.has(row.id)) rooms.set(row.id, { id: row.id, name: row.name, roomNumber: row.room_number, assignments: [] });
-      if (row.start_at) rooms.get(row.id).assignments.push({
-        providerName: row.provider_id ? `${row.first_name} ${row.last_name}`.trim() : 'Reserved',
-        startAt: toOfficeWallStr(row.start_at, timezone), endAt: toOfficeWallStr(row.end_at, timezone),
-        status: parseUtcDate(row.end_at).getTime() <= now ? 'finished'
-          : parseUtcDate(row.start_at).getTime() <= now ? 'current' : 'upcoming'
-      });
-    }
-    res.json({ timezone, rooms: [...rooms.values()] });
-  } catch (error) { next(error); }
+    res.json(await loadOfficeDirectory(pool, loc, req.query));
+  } catch (error) {
+    if (error.status === 400) return res.status(400).json({ error: { message: error.message } });
+    next(error);
+  }
 };

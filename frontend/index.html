@@ -42,6 +42,11 @@
       })();
     </script>
     <link rel="manifest" href="/manifest.webmanifest">
+    <script type="module">
+      import { officeSiteForHost, isOfficePath, applyOfficeInstallIdentity } from '/src/utils/officeSite.js';
+      const office = officeSiteForHost(location.hostname);
+      if (office || isOfficePath(location.pathname)) applyOfficeInstallIdentity(office?.locationId || location.pathname.match(/\d+/)?.[0]);
+    </script>
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

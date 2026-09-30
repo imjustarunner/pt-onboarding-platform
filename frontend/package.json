@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/build-public-domains.mjs",
+    "build": "vite build && node scripts/build-public-domains.mjs && node scripts/build-office-sites.mjs",
     "cap:sync": "npm run build && npx cap sync ios",
     "cap:open:ios": "npx cap open ios",
     "cap:run:ios": "npm run build && npx cap run ios",

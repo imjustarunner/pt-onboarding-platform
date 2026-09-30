@@ -1,3 +1,4 @@
+import { officePaths } from './officeSite.js';
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
 /** Public-domain address adapter. App and Quick View hosts are deliberately excluded. */
 export const ITSCO_PUBLIC_HOSTS = ['itsco.health', 'www.itsco.health'];
@@ -35,6 +36,8 @@ export function publicSupportSlugFromHost(host = '') {
  return publicSiteSlug(host);
 }
 export function publicSitePaths(host) {
+ const office = officePaths(host);
+ if (office) return office;
  if (isSchoolCareBridgeHost(host)) return {
   clean: value => String(value).replace(/^\/schoolcarebridge(?=\/|[?#]|$)/, '').replace(/^([?#]|$)/, '/$1'),
   internal: value => {
