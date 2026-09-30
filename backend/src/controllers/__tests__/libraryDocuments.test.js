@@ -5,7 +5,9 @@ vi.mock('../../services/storage.service.js', () => ({ default: {} }));
 vi.mock('../../utils/meDashboardTenantScope.js', () => ({ pickDashboardContextAgencyId: () => 2, hasTenantAccess: vi.fn() }));
 vi.mock('../../utils/capabilities.js', () => ({ getUserCapabilities: vi.fn() }));
 vi.mock('../../services/libraryDocument.service.js', () => ({ sanitizeDocumentHtml: value => String(value || ''), validateDocumentBranding: vi.fn(), resolveDocumentLetterhead: vi.fn(), buildDocumentRender: vi.fn(), documentError: (message, status = 400) => Object.assign(new Error(message), { status }) }));
-import { copyLibraryDocument, distributeResource, getResource, updateResource } from '../library.controller.js';
+vi.mock('../../services/libraryGooglePreview.service.js',()=>({loadLibraryGooglePreview:vi.fn()}));
+import {loadLibraryGooglePreview} from '../../services/libraryGooglePreview.service.js';
+import { previewGoogleResource, copyLibraryDocument, distributeResource, getResource, updateResource } from '../library.controller.js';
 import Library from '../../models/Library.model.js';
 import pool from '../../config/database.js';
 import { hasTenantAccess } from '../../utils/meDashboardTenantScope.js';
@@ -15,7 +17,7 @@ let req, res, next;
 beforeEach(() => {
   vi.resetAllMocks();
   req = { params: { id: '10' }, user: { id: 7, role: 'provider' }, query: { agencyId: 2 }, body: {} };
-  res = { status: vi.fn().mockReturnThis(), json: vi.fn() }; next = vi.fn();
+  res = { status: vi.fn().mockReturnThis(), json: vi.fn(),set:vi.fn(),type:vi.fn().mockReturnThis(),send:vi.fn() }; next = vi.fn();
   hasTenantAccess.mockResolvedValue(true); getUserCapabilities.mockReturnValue({ canViewLibrary: true, canManageLibrary: false });
   Library.findResource.mockResolvedValue({ ...original }); Library.createResource.mockImplementation(async data => ({ ...data, id: 20, version: 1 }));
 });
@@ -78,4 +80,17 @@ describe('library document API', () => {
     expect(Library.createResource).toHaveBeenCalledTimes(1); expect(Library.createResource).toHaveBeenCalledWith(expect.objectContaining({ ownerUserId: 7, sourceResourceId: 10, scope: 'personal', brandingMode: 'organization' }));
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ count: 1, skipped: 1 }));
   });
+});
+
+it('serves a private portal preview only after checking tenant and resource visibility',async()=>{
+ loadLibraryGooglePreview.mockResolvedValue({buffer:Buffer.from('%PDF-example'),mimeType:'application/pdf',filename:'Guide.pdf'});
+ await previewGoogleResource(req,res,next);
+ expect(Library.findResource).toHaveBeenCalledWith('10',2,{userId:7});
+ expect(loadLibraryGooglePreview).toHaveBeenCalledWith(expect.objectContaining({id:10}));
+ expect(res.set).toHaveBeenCalledWith(expect.objectContaining({'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}));expect(res.send).toHaveBeenCalledWith(expect.any(Buffer));
+});
+it('never accesses Google for a hidden, archived, or other-agency resource',async()=>{
+ Library.findResource.mockResolvedValue(null);await previewGoogleResource(req,res,next);expect(res.status).toHaveBeenCalledWith(404);expect(loadLibraryGooglePreview).not.toHaveBeenCalled();
+ Library.findResource.mockResolvedValue({...original,archivedAt:'2026-01-01'});await previewGoogleResource(req,res,next);expect(loadLibraryGooglePreview).not.toHaveBeenCalled();
+ hasTenantAccess.mockResolvedValue(false);await previewGoogleResource(req,res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(loadLibraryGooglePreview).not.toHaveBeenCalled();
 });

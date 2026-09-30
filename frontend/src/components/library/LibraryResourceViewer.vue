@@ -15,22 +15,23 @@
         >
           Distribute…
         </button>
+        <a v-if="googlePreviewUrl" class="btn btn-secondary btn-sm" :href="googlePreviewUrl" target="_blank" rel="noopener noreferrer">Open document</a>
         <a
-          v-if="openExternalUrl"
+          v-if="openExternalUrl && (!isGoogle || resource?.canEdit || canDistribute)"
           class="btn btn-secondary btn-sm"
           :href="openExternalUrl"
           target="_blank"
           rel="noopener noreferrer"
         >
-          {{ isGoogle ? 'Open in Google' : 'Open in new tab' }}
+          {{ isGoogle ? 'Google original' : 'Open in new tab' }}
         </a>
         <a
-          v-if="downloadUrl && !isGoogle && resource?.resourceType === 'file'"
+          v-if="downloadUrl && (isGoogle || resource?.resourceType === 'file')"
           class="btn btn-secondary btn-sm"
           :href="downloadUrl"
           target="_blank"
           rel="noopener noreferrer"
-          download
+          :download="isGoogle ? previewFilename : ''"
         >
           Download
         </a>
@@ -39,8 +40,13 @@
     </header>
 
     <div class="lib-viewer__body">
+      <div v-if="isGoogle && previewLoading" class="lib-viewer__fallback" role="status">Opening document…</div>
+      <div v-else-if="isGoogle && previewError" class="lib-viewer__fallback" role="alert">
+        <p>{{ previewError }}</p>
+        <button type="button" class="btn btn-primary" @click="loadGooglePreview">Try again</button>
+      </div>
       <iframe
-        v-if="embedUrl"
+        v-else-if="embedUrl"
         class="lib-viewer__frame"
         :src="embedUrl"
         :title="resource?.name || 'Preview'"
@@ -66,11 +72,11 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch, onBeforeUnmount } from 'vue';
+import { fetchLibraryGooglePreview } from '../../services/library.js';
 import LibraryDocumentWorkspace from './LibraryDocumentWorkspace.vue';
 import {
   isGoogleWorkspaceUrl,
-  getGoogleWorkspacePreviewUrl,
   detectGoogleResourceLabel
 } from '../../utils/googleWorkspacePreview.js';
 
@@ -108,7 +114,7 @@ const embedUrl = computed(() => {
   const r = props.resource;
   if (!r || isBranded.value) return null;
   if (isGoogle.value) {
-    return r.previewUrl || getGoogleWorkspacePreviewUrl(r.externalUrl) || null;
+    return googlePreviewUrl.value || null;
   }
   if (r.resourceType === 'file' && (r.fileType === 'pdf' || String(r.mimeType || '').includes('pdf'))) {
     return r.fileUrl || r.previewUrl || null;
@@ -124,7 +130,7 @@ const isImage = computed(() => {
 
 const imageUrl = computed(() => props.resource?.fileUrl || props.resource?.previewUrl || null);
 
-const downloadUrl = computed(() => props.resource?.fileUrl || null);
+const downloadUrl = computed(() => isGoogle.value ? googlePreviewUrl.value : props.resource?.fileUrl || null);
 
 const openExternalUrl = computed(() => {
   const r = props.resource;
@@ -133,6 +139,33 @@ const openExternalUrl = computed(() => {
   if (r.fileUrl) return r.fileUrl;
   return null;
 });
+const googlePreviewUrl = ref(''), previewLoading = ref(false), previewError = ref(''), previewFilename = ref('Document.pdf');
+let previewSequence = 0, previewRequest = null;
+function releasePreview() {
+  if (googlePreviewUrl.value) URL.revokeObjectURL(googlePreviewUrl.value);
+  googlePreviewUrl.value = '';
+}
+async function loadGooglePreview() {
+  const sequence = ++previewSequence;
+  previewRequest?.abort(); releasePreview(); previewError.value = '';
+  previewLoading.value = isGoogle.value;
+  if (!isGoogle.value) return;
+  previewRequest = new AbortController();
+  try {
+    const blob = await fetchLibraryGooglePreview(props.resource.id, props.resource.agencyId, previewRequest.signal);
+    if (sequence === previewSequence) {
+      const extension = blob.type.startsWith('image/') ? blob.type.split('/')[1] : 'pdf';
+      previewFilename.value = `${String(props.resource.name || 'Document').replace(/\.(pdf|png|jpe?g|gif|webp)$/i, '')}.${extension}`;
+      googlePreviewUrl.value = URL.createObjectURL(blob);
+    }
+  } catch (error) {
+    if (sequence === previewSequence) previewError.value = error.response?.data?.error?.message || error.message || 'The document could not be opened. Try again or ask the resource owner for a PDF copy.';
+  } finally {
+    if (sequence === previewSequence) previewLoading.value = false;
+  }
+}
+watch(() => [props.resource?.id, props.resource?.agencyId, props.resource?.externalUrl, isGoogle.value], loadGooglePreview, { immediate: true });
+onBeforeUnmount(() => { previewSequence++; previewRequest?.abort(); releasePreview(); });
 </script>
 
 <style scoped>

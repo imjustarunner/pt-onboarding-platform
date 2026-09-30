@@ -174,3 +174,20 @@ export async function exportLibraryDocument(id, format, agencyId) {
   const { data } = await api.get(`${base}/resources/${id}/${format}`, { params: { agencyId }, responseType: 'blob' });
   return data;
 }
+
+export async function fetchLibraryGooglePreview(id, agencyId, signal) {
+  try {
+    const { data } = await api.get(`${base}/resources/${id}/google-preview`, {
+      params: { agencyId }, responseType: 'blob', skipGlobalLoading: true, timeout: 120000, signal
+    });
+    return data;
+  } catch (error) {
+    if (typeof error.response?.data?.text === 'function') {
+      try {
+        const detail = JSON.parse(await error.response.data.text());
+        if (detail.error?.message) error.message = detail.error.message;
+      } catch { /* Keep the request error if no JSON error is available. */ }
+    }
+    throw error;
+  }
+}

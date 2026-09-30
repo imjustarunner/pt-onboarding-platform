@@ -855,6 +855,21 @@ export const deleteResource = async (req, res, next) => {
   }
 };
 
+export const previewGoogleResource = async (req, res, next) => {
+  try {
+    const agencyId = resolveAgencyId(req);
+    await assertLibraryAccess(req, agencyId);
+    const resource = await Library.findResource(req.params.id, agencyId, { userId: req.user.id });
+    if (!resource || resource.archivedAt) return res.status(404).json({ error: { message: 'Resource not found' } });
+    const { loadLibraryGooglePreview } = await import('../services/libraryGooglePreview.service.js');
+    const preview = await loadLibraryGooglePreview(resource);
+    await Library.recordView(req.user.id, resource.id);
+    res.set({ 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
+      'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(preview.filename)}` });
+    res.type(preview.mimeType).send(preview.buffer);
+  } catch (error) { next(error); }
+};
+
 export const downloadResource = async (req, res, next) => {
   try {
     const agencyId = resolveAgencyId(req);
