@@ -594,6 +594,7 @@ export const postMessagesHubSend = async (req, res, next) => {
 
     if (method === 'email') {
       const out = await sendHubEmail({
+        deliveryChoice: req.body?.deliveryChoice,
         agencyId,
         userId: req.user.id,
         person,

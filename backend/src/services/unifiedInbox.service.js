@@ -1,3 +1,4 @@
+import { planEmailDelivery, recordEmailDeliveryChoice } from './emailDeliveryChoice.service.js';
 import { resolveEmailSendMailbox } from './emailSendMailbox.service.js';
 import { persistOutboundAttachments, loadOutboundAttachments } from './communicationAttachments.service.js';
 import { emailReplyHeaders } from '../utils/emailThreading.js';
@@ -375,7 +376,10 @@ export async function replyToConversation(conversationId, payload, { userId } = 
   if (mode === 'forward' && !/^fwd:/i.test(subject)) subject = `Fwd: ${subjectBase}`;
   else if (mode !== 'forward' && !/^re:/i.test(subject)) subject = `Re: ${subjectBase}`;
 
-  const scheduleAt = resolveScheduleAt(payload);
+  const deliveryPlan = payload.deliveryPlan || (payload.availabilityChoiceRequired || payload.deliveryChoice
+    ? await planEmailDelivery({agencyId:conv.agency_id,userId,to,cc,bcc:bccFinal,choice:payload.deliveryChoice,requireChoice:!!payload.availabilityChoiceRequired}) : null);
+  let scheduleAt = resolveScheduleAt(payload);
+  if (deliveryPlan?.scheduledAt && (!scheduleAt || new Date(deliveryPlan.scheduledAt)>scheduleAt)) scheduleAt=new Date(deliveryPlan.scheduledAt);
   const undoMs = scheduleAt ? 0 : resolveUndoDelayMs(payload);
   const useDelayUndo = !scheduleAt && undoMs > 0;
 
@@ -401,6 +405,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
       sentAt: null
     });
     await prepareMessageAttachments(msgId, payload.attachments);
+    await recordEmailDeliveryChoice(msgId, userId, deliveryPlan);
     await CommunicationConversation.updateMessage(msgId, { sendStatus: 'scheduled' });
     const nextStatus = payload.setStatus || 'waiting_on_them';
     await CommunicationConversation.update(conversationId, { status: nextStatus });
@@ -432,6 +437,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
   });
 
   await prepareMessageAttachments(msgId, payload.attachments);
+  await recordEmailDeliveryChoice(msgId, userId, deliveryPlan);
   const sendResult = await deliverPreparedMessage(msgId, () => deliverOutboundEmail({
     conv,
     inbox,
@@ -615,36 +621,38 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
 
       // Re-hold if recipient is still planned out / outside availability.
       try {
-        const primaryEmail = to[0]?.email || to[0];
-        const {
-          resolveRecipientDeliveryGate,
-          findAgencyUserIdByEmail
-        } = await import('./hubRecipientDelivery.service.js');
-        const recipientUserId = await findAgencyUserIdByEmail(conv.agency_id, primaryEmail);
-        if (recipientUserId) {
-          const gate = await resolveRecipientDeliveryGate({
-            agencyId: conv.agency_id,
-            userId: recipientUserId,
-            displayName: to[0]?.name || primaryEmail
-          });
-          if (gate?.receiveAt) {
-            const holdUntil = new Date(gate.receiveAt);
-            if (holdUntil.getTime() > Date.now() + 15000) {
-              await CommunicationConversation.updateMessage(row.id, {
-                sendStatus: 'scheduled',
-                scheduledSendAt: holdUntil,
-                undoExpiresAt: holdUntil
-              });
-              try {
-                await CommunicationConversation.update(row.conversation_id, {
-                  snoozedUntil: holdUntil,
-                  snoozeRestoreUnread: true
+        if (!row.recipient_delivery_choice) {
+          const primaryEmail = to[0]?.email || to[0];
+          const {
+            resolveRecipientDeliveryGate,
+            findAgencyUserIdByEmail
+          } = await import('./hubRecipientDelivery.service.js');
+          const recipientUserId = await findAgencyUserIdByEmail(conv.agency_id, primaryEmail);
+          if (recipientUserId) {
+            const gate = await resolveRecipientDeliveryGate({
+              agencyId: conv.agency_id,
+              userId: recipientUserId,
+              displayName: to[0]?.name || primaryEmail
+            });
+            if (gate?.receiveAt) {
+              const holdUntil = new Date(gate.receiveAt);
+              if (holdUntil.getTime() > Date.now() + 15000) {
+                await CommunicationConversation.updateMessage(row.id, {
+                  sendStatus: 'scheduled',
+                  scheduledSendAt: holdUntil,
+                  undoExpiresAt: holdUntil
                 });
-              } catch {
-                /* ignore */
+                try {
+                  await CommunicationConversation.update(row.conversation_id, {
+                    snoozedUntil: holdUntil,
+                    snoozeRestoreUnread: true
+                  });
+                } catch {
+                  /* ignore */
+                }
+                deferred += 1;
+                continue;
               }
-              deferred += 1;
-              continue;
             }
           }
         }
@@ -843,6 +851,9 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     if (blocked) throw new Error(`Blocked address: ${addr.email}`);
   }
 
+  const deliveryPlan = payload.deliveryPlan || (payload.availabilityChoiceRequired || payload.deliveryChoice
+    ? await planEmailDelivery({agencyId,userId,to,cc,bcc,choice:payload.deliveryChoice,requireChoice:!!payload.availabilityChoiceRequired}) : null);
+
   // Auto-save outbound recipients as safe contacts for this user
   try {
     const UserCommunicationContact = (await import('../models/UserCommunicationContact.model.js')).default;
@@ -894,7 +905,8 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     });
   }
 
-  const scheduleAt = resolveScheduleAt(payload);
+  let scheduleAt = resolveScheduleAt(payload);
+  if (deliveryPlan?.scheduledAt && (!scheduleAt || new Date(deliveryPlan.scheduledAt)>scheduleAt)) scheduleAt=new Date(deliveryPlan.scheduledAt);
   const undoMs = scheduleAt ? 0 : resolveUndoDelayMs(payload);
 
   if (scheduleAt || undoMs > 0) {
@@ -917,6 +929,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
       sentAt: null
     });
     await prepareMessageAttachments(msgId, payload.attachments);
+    await recordEmailDeliveryChoice(msgId, userId, deliveryPlan);
     await CommunicationConversation.updateMessage(msgId, { sendStatus: 'scheduled' });
     return {
       ...conv,
@@ -946,6 +959,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
   });
 
   await prepareMessageAttachments(msgId, payload.attachments);
+  await recordEmailDeliveryChoice(msgId, userId, deliveryPlan);
   const sendResult = await deliverPreparedMessage(msgId, () => sendEmailFromIdentity({
     senderIdentityId: mailbox.identity.id,
     to: to.map((t) => t.email).join(', '),

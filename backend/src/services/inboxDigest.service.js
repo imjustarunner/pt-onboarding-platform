@@ -241,7 +241,6 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     const Agency = (await import('../models/Agency.model.js')).default;
     const agency = await Agency.findById(agencyId);
     const schedule = await resolveAvailabilitySchedule(row.user_id, { agencyId });
-    if (!isMessageReminderWindow(now, schedule, agency?.timezone)) continue;
     const settings = await getAgencyEmailSettings(agencyId);
     let to;
     try { to = await messageReminderRecipient(row, { channel: 'secure', allowPersonal: row.personal_email_notify !== 0 && settings?.personalEmailDigestEnabled !== false }); }
@@ -253,6 +252,8 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     );
 
     const reminderPreferences = personalMessagePreferences(row);
+    const immediatePersonal = reminderPreferences.personalEmailDelayMode === 'immediate' && String(to).toLowerCase() === String(row.personal_email || '').toLowerCase();
+    if (!immediatePersonal && !isMessageReminderWindow(now, schedule, agency?.timezone)) continue;
     // Unread chat messages in threads the user belongs to
     const [unread] = await pool.execute(
       `SELECT t.id AS thread_id, MIN(m.created_at) AS oldest_unread_at, MAX(m.id) AS message_id, COUNT(*) AS unread_count

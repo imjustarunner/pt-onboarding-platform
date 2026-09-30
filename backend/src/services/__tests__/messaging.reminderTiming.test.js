@@ -48,6 +48,6 @@ it('honors immediate and custom-hour choices without rounding up to a business d
  expect(at('2026-09-21T10:00:00-06:00','immediate',24)).toBe('2026-09-21T16:00:00.000Z');
  expect(at('2026-09-21T10:00:00-06:00','hours',2)).toBe('2026-09-21T18:00:00.000Z');
  expect(at('2026-09-21T18:00:00-06:00','hours',2)).toBe('2026-09-22T13:00:00.000Z');
- expect(at('2026-09-18T20:00:00-06:00','immediate',0)).toBe('2026-09-21T13:00:00.000Z');
+ expect(at('2026-09-18T20:00:00-06:00','immediate',0)).toBe('2026-09-19T02:00:00.000Z');
  expect(at('2026-09-21T18:00:00-06:00','business_day',24)).toBe('2026-09-23T13:00:00.000Z');
 });

@@ -1,3 +1,4 @@
+import {findAgencyUserIdByEmail,resolveRecipientDeliveryGate} from '../hubRecipientDelivery.service.js';
 import {beforeEach,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(async()=>[[]])},onTableWrite:()=>{}}));
 vi.mock('../../models/CommunicationConversation.model.js',()=>({default:{listDueScheduledMessages:vi.fn(),claimScheduledMessage:vi.fn(async()=>true),findById:vi.fn(async()=>({id:10,agency_id:2,inbox_id:3,external_thread_id:'original-thread'})),update:vi.fn(async()=>{}),updateMessage:vi.fn(async()=>{})}}));
@@ -5,7 +6,7 @@ vi.mock('../../models/CommunicationInbox.model.js',()=>({default:{findById:vi.fn
 vi.mock('../emailSendMailbox.service.js',()=>({resolveEmailSendMailbox:vi.fn(async()=>({identity:{id:7},replyTo:'staff@tenant.test',displayName:'Staff'}))}));
 vi.mock('../personalThreadReminder.service.js',()=>({personalReplySendMailbox:vi.fn(async()=>({identity:{id:44},replyTo:'messages@tenant.test',fromEmail:'messages@tenant.test',displayName:'Messages'}))}));
 vi.mock('../communicationAttachments.service.js',()=>({loadOutboundAttachments:vi.fn(async()=>[])}));
-vi.mock('../hubRecipientDelivery.service.js',()=>({findAgencyUserIdByEmail:vi.fn(async()=>null)}));
+vi.mock('../hubRecipientDelivery.service.js',()=>({findAgencyUserIdByEmail:vi.fn(async()=>null),resolveRecipientDeliveryGate:vi.fn(async()=>({receiveAt:'2030-10-01T13:00:00Z'}))}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:vi.fn(async()=>({id:'sent',internetMessageId:'<bridge@tenant.test>',threadId:'original-thread'}))}));
 import Conversation from '../../models/CommunicationConversation.model.js';
 import {personalReplySendMailbox} from '../personalThreadReminder.service.js';
@@ -21,4 +22,12 @@ it('sends an authenticated personal reply through messages@ with the original ex
 it('does not send when permission is revoked during the undo window',async()=>{
  personalReplySendMailbox.mockRejectedValueOnce(new Error('Personal reply permissions changed.'));
  expect(await processScheduledOutboundSends()).toMatchObject({failed:1,sent:0});expect(sendEmailFromIdentity).not.toHaveBeenCalled();
+});
+
+it.each(['now','next_available'])('never silently re-holds a queued %s choice',async(choice)=>{
+ const [row]=await Conversation.listDueScheduledMessages();
+ Conversation.listDueScheduledMessages.mockResolvedValue([{...row,recipient_delivery_choice:choice}]);
+ findAgencyUserIdByEmail.mockResolvedValueOnce(6);
+ expect(await processScheduledOutboundSends()).toMatchObject({sent:1,deferred:0});
+ expect(findAgencyUserIdByEmail).not.toHaveBeenCalled();expect(resolveRecipientDeliveryGate).not.toHaveBeenCalled();
 });

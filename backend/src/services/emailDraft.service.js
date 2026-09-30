@@ -1,3 +1,4 @@
+import { planEmailDelivery } from './emailDeliveryChoice.service.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -71,16 +72,17 @@ export async function deleteEmailDraft(actor,id) {
   if (draft.state !== 'editing') throw fail('Submitted email cannot be discarded as a draft',409);
   await pool.execute("DELETE FROM communication_email_drafts WHERE id=? AND user_id=? AND state='editing'",[id,actor.id]);
 }
-export async function sendEmailDraft(actor,id,version) {
+export async function sendEmailDraft(actor,id,version,deliveryChoice=null) {
   const draft = await getEmailDraft(actor,id);
   if (draft.state === 'sent') return draft.result;
   if (draft.state !== 'editing') throw fail('Submission is awaiting confirmation. Check the conversation before sending another copy.',409);
   if (!draft.draft.to.trim() || (!draft.draft.text.trim() && !draft.draft.attachments.length && draft.mode !== 'forward')) throw fail('Add a recipient and a message or attachment');
   const recipients = [draft.draft.to,draft.draft.cc,draft.draft.bcc].flatMap(value => String(value || '').split(/[,;]/).map(s=>s.trim()).filter(Boolean));
   if (recipients.some(email=>! /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email))) throw fail('Use complete email addresses separated by commas');
+  const deliveryPlan = await planEmailDelivery({agencyId:draft.agency_id,userId:actor.id,...draft.draft,choice:deliveryChoice,requireChoice:true});
   const [claim] = await pool.execute("UPDATE communication_email_drafts SET state='sending' WHERE id=? AND user_id=? AND version=? AND state='editing'",[id,actor.id,Number(version)||0]);
   if (!claim.affectedRows) throw fail('This draft is already being submitted or changed in another window',409);
-  const payload = { ...draft.draft, text: [draft.draft.text,draft.draft.quotedText].filter(Boolean).join('\n\n'), mode:draft.mode, undoDelaySeconds:20 };
+  const payload = { ...draft.draft, text: [draft.draft.text,draft.draft.quotedText].filter(Boolean).join('\n\n'), mode:draft.mode, undoDelaySeconds:20, deliveryPlan };
   try {
     const result = draft.mode === 'new'
       ? await composeNewEmail({ agencyId:draft.agency_id,userId:actor.id,payload })

@@ -20,7 +20,7 @@
           <label v-if="form.personalEmailDelayMode === 'hours'">Hours
             <input v-model.number="form.personalEmailDelayHours" type="number" min="1" max="168" step="1" required />
           </label>
-          <p>Delivery follows your Availability Hours (weekdays 7 a.m.–7 p.m. by default). Immediate means the next message check during those hours. Custom delays count elapsed hours, then wait for your next available time.</p>
+          <p>Immediate means the next message check, including outside your Availability Hours. Other delays follow your Availability Hours (weekdays 7 a.m.–7 p.m. by default). Custom delays count elapsed hours, then wait for your next available time.</p>
           <p v-if="form.personalEmailDelayMode === 'business_day'">With the default schedule: Friday at 4 p.m. → Monday at 4 p.m.; Monday at 6 p.m. → Wednesday at 7 a.m.</p>
           <label>What to send
             <select v-model="form.personalEmailDeliveryMode">

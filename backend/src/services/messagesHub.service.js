@@ -2798,7 +2798,8 @@ export async function sendHubEmail({
   sendDuringNextAvailable = false,
   conversationId = null,
   mode = 'reply',
-  toOverride = null
+  toOverride = null,
+  deliveryChoice = null
 }) {
   if (!person.email) {
     const err = new Error('Person has no email address');
@@ -3035,33 +3036,6 @@ export async function sendHubEmail({
     effectiveScheduledAt = await resolvePresetDate(schedulePreset);
   }
 
-  // Custom / preset times outside the recipient's hours snap to their next open window.
-  if (effectiveScheduledAt && person.userId) {
-    try {
-      const { resolveScheduledSendAgainstAvailability } = await import('./hubRecipientDelivery.service.js');
-      const snapped = await resolveScheduledSendAgainstAvailability({
-        agencyId: aid,
-        userId: person.userId,
-        requestedAt: effectiveScheduledAt
-      });
-      if (snapped?.sendAt) {
-        if (snapped.snapped) holdReason = 'recipient';
-        effectiveScheduledAt = snapped.sendAt;
-      }
-    } catch (e) {
-      console.warn('[sendHubEmail] schedule snap:', e?.message || e);
-    }
-  }
-
-  if (deliveryGate?.receiveAt) {
-    const hold = new Date(deliveryGate.receiveAt);
-    if (!Number.isNaN(hold.getTime())) {
-      if (!effectiveScheduledAt || hold > effectiveScheduledAt) {
-        effectiveScheduledAt = hold;
-        holdReason = 'recipient';
-      }
-    }
-  }
   const wantSenderHold =
     !!sendDuringNextAvailable ||
     String(schedulePreset || '').toLowerCase() === 'next_available';
@@ -3111,7 +3085,9 @@ export async function sendHubEmail({
     replyTo,
     clientId: person.clientId || null,
     templateType: 'hub_email',
-    mode: sendMode
+    mode: sendMode,
+    availabilityChoiceRequired: true,
+    deliveryChoice
   };
 
   if (effectiveScheduledAt) {
@@ -3158,6 +3134,12 @@ export async function sendHubEmail({
     } catch (e) {
       console.warn('[sendHubEmail] reply token:', e?.message || e);
     }
+  }
+
+  if (deliveryChoice === 'now') deliveryGate = null;
+  if (deliveryChoice === 'next_available' && result?.scheduledSendAt) {
+    effectiveScheduledAt = new Date(result.scheduledSendAt);
+    holdReason = 'recipient';
   }
 
   // Availability / next-available holds land in Snoozed until release (no notify while held).

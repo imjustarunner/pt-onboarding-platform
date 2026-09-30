@@ -1089,6 +1089,7 @@
                 </p>
                 <div class="msg-hub-sig-preview-body" v-html="signaturePreview.html" />
               </div>
+              <EmailDeliveryChoice :info="availabilityPrompt" :busy="sending" @choose="send({deliveryChoice:$event})" @cancel="availabilityPrompt=null" />
               <p v-if="sendError" class="msg-hub-error inline">{{ sendError }}</p>
             </div>
           </template>
@@ -1520,6 +1521,7 @@
 </template>
 
 <script setup>
+import EmailDeliveryChoice from './EmailDeliveryChoice.vue';
 import { downloadAttachment } from '../../utils/communicationAttachments';
 import { groupEmailThreads, groupSecureTopics, emailComposeTarget, emailReplyRecipients } from '../../utils/messageThreads';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -1620,6 +1622,7 @@ const peopleLoading = ref(false);
 const sending = ref(false);
 const error = ref('');
 const sendError = ref('');
+const availabilityPrompt = ref(null);
 const people = ref([]);
 const conversations = ref([]);
 const listFilter = ref('unread');
@@ -2264,9 +2267,7 @@ const sendQueueReason = computed(() => {
   if (schedulePreset.value) return scheduleLabel(schedulePreset.value);
   if (deliveryNotice.value) {
     const gate = selected.value?.deliveryGate;
-    if (gate?.outsideAvailability) return 'Recipient availability hours';
-    if (gate?.plannedOut) return 'Recipient planned out';
-    return 'Recipient delivery hold';
+    return 'Choose delivery time when sending';
   }
   return '';
 });
@@ -4536,7 +4537,8 @@ async function reactToMessage(msg) {
   }
 }
 
-async function send() {
+async function send({ deliveryChoice = null } = {}) {
+  if (sending.value) return;
   if (!selected.value?.personKey) return;
   if (!canSendCompose.value) return;
   const sendAgencyId =
@@ -4556,16 +4558,17 @@ async function send() {
   if (
     (sendMethod.value === 'secure' || sendMethod.value === 'email') &&
     needsGuardianSendConfirm() &&
-    !sendConfirmPending.value
+    !sendConfirmPending.value && !deliveryChoice
   ) {
     sendConfirmOpen.value = true;
     return;
   }
   await executeSend({
+    deliveryChoice,
     sendToAllPortalGuardians: !!sendConfirmPending.value?.sendToAll,
     includeClient: !!(includeClientOnSend.value || sendConfirmPending.value?.includeClient)
   });
-  sendConfirmPending.value = null;
+  if (!availabilityPrompt.value) sendConfirmPending.value = null;
   sendConfirmOpen.value = false;
 }
 
@@ -4586,7 +4589,8 @@ function cancelSendConfirm() {
   sendConfirmPending.value = null;
 }
 
-async function executeSend({ sendToAllPortalGuardians = false, includeClient = false } = {}) {
+async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = false, includeClient = false } = {}) {
+  availabilityPrompt.value = null;
   if (sending.value) return;
   const sendingPersonKey = selected.value?.personKey;
   const sendAgencyId =
@@ -4660,6 +4664,7 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
         subject: composeSubject.value.trim() || undefined
       };
       if (sendMethod.value === 'email') {
+        payload.deliveryChoice = deliveryChoice;
         payload.bodyHtml = String(composeBody.value || '').trim() || null;
         let cc = composeCc.value.trim();
         if (personKey === primaryKey && emailCcExtra) {
@@ -4863,6 +4868,7 @@ async function executeSend({ sendToAllPortalGuardians = false, includeClient = f
       ];
     }
   } catch (e) {
+    if (e?.response?.data?.error?.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED') { availabilityPrompt.value=e.response.data.error.availability; return; }
     sendError.value = e?.response?.data?.error?.message || e?.message || 'Send failed';
   } finally {
     sending.value = false;
@@ -4969,6 +4975,7 @@ defineExpose({
   openTeamChat,
   hasActiveChat
 });
+watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => selected.value?.personKey], () => { availabilityPrompt.value = null; });
 </script>
 
 <style scoped>

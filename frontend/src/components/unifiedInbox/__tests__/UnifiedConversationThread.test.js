@@ -52,3 +52,17 @@ describe('email conversation composer', () => {
     expect(wrapper.find('textarea').element.value).toBe('My draft');
   });
 });
+
+it('offers both delivery choices without losing the reply or sending twice', async () => {
+  api.post.mockResolvedValueOnce({ data: {} }).mockRejectedValueOnce({ response: { data: { error: {
+    code: 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED', availability: { recipientCount: 1, nextAvailableAt: '2026-10-01T13:00:00Z' }
+  } } } });
+  render();
+  await button('Send').trigger('click'); await flushPromises();
+  expect(wrapper.find('textarea').element.value).toBe('My draft');
+  expect(button('Send now')).toBeTruthy();expect(button('Send at next availability')).toBeTruthy();
+  await button('Send now').trigger('click');await flushPromises();
+  expect(api.post).toHaveBeenLastCalledWith('/communications/conversations/1/reply',expect.objectContaining({deliveryChoice:'now',text:'My draft'}));
+  expect(api.post.mock.calls.filter(([url])=>url.endsWith('/reply'))).toHaveLength(2);
+  expect(wrapper.emitted('reply')).toHaveLength(1);
+});

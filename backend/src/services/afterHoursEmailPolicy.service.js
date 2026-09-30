@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Directory from './googleWorkspaceDirectory.service.js';
-import { isAppOnlyProvider } from './messageReminderRecipient.service.js';
+import { isAppOnlyProvider, activeMessageStaff } from './messageReminderRecipient.service.js';
 
 const email = value => String(value?.email || value || '').trim().toLowerCase();
 export async function verifiedAppOnlyProvider(userId) {
@@ -33,4 +33,20 @@ export async function eligibleClientAfterHoursReply({ agencyId, ownerUserId, inb
      AND LOWER(TRIM(SUBSTRING_INDEX(from_email,'@',-1)))=? LIMIT 1`, [domain]
   );
   return internal ? null : provider;
+}
+
+/** Availability may hold app-only staff email, never an active SSO mailbox.
+ * No personal email or forwarding opt-in is required for app delivery. */
+export async function usesAppEmailAvailability(userId) {
+  const user = userId ? await User.findById(userId) : null;
+  if (!user || !activeMessageStaff(user) || ![true, 1, '1'].includes(user.sso_password_override) || !Directory.isConfigured()) return false;
+  const login = email(user.email);
+  if (!login) return false;
+  try {
+    const account = await Directory.getUser({ primaryEmail: login });
+    if (account) return !!account.suspended;
+  } catch (error) {
+    if (Number(error.code || error.response?.status) !== 400 || !/Type not supported: userKey/i.test(String(error.message))) throw error;
+  }
+  return [true, 1, '1'].includes(user.login_is_group_email) && !!await Directory.getGroup({ groupEmail: login });
 }

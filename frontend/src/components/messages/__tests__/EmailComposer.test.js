@@ -51,3 +51,15 @@ it('applies a request deadline and preserves unsaved text when saving times out'
  await state.saveAndClose();expect(state.busy).toBe(false);expect(state.draft.text).toBe('Keep this safe');expect(mock.back).not.toHaveBeenCalled();
  expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({method:'put',timeout:30000}));
 });
+
+it.each(['now','next_available'])('keeps the draft on an availability prompt and sends only the selected %s choice',async(choice)=>{
+ state.draft.text='Hello';await nextTick();await state.save();
+ mock.api.mockRejectedValueOnce({response:{data:{error:{code:'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED',availability:{recipientCount:1,nextAvailableAt:'2026-10-01T13:00:00Z'}}}}});
+ await state.send();expect(state.availabilityPrompt.recipientCount).toBe(1);expect(state.record.state).toBe('editing');expect(state.busy).toBe(false);
+ const prompt=wrapper.findComponent({name:'EmailDeliveryChoice'});prompt.vm.$emit('choose',choice);await flushPromises();
+ expect(mock.api).toHaveBeenLastCalledWith(expect.objectContaining({url:'/communications/drafts/mine/send',data:{version:2,deliveryChoice:choice}}));
+ expect(state.record.state).toBe('sent');
+});
+it('clears an availability prompt if recipients change',async()=>{
+ state.availabilityPrompt={recipientCount:1};state.draft.to='other@example.org';await nextTick();expect(state.availabilityPrompt).toBeNull();
+});

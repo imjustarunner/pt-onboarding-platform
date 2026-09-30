@@ -1,4 +1,6 @@
 <script setup>
+import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
+const availabilityPrompt = ref(null);
 import { computed, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { downloadAttachment, encodeEmailFiles } from '../../utils/communicationAttachments';
@@ -154,6 +156,7 @@ function smsDeepLinkIds() {
 watch(
   () => props.detail?.conversation?.id,
   () => {
+    availabilityPrompt.value = null;
     sendError.value = '';
     composerMode.value = isCallLike.value ? 'internal' : 'reply';
     showCcBcc.value = false;
@@ -214,7 +217,8 @@ function fromLabel(msg) {
   return msg.from?.name || msg.from?.email || (msg.direction === 'outbound' ? (props.inbox?.from_email || 'You') : 'Sender');
 }
 
-async function send({ skipConfirm = false } = {}) {
+async function send({ skipConfirm = false, deliveryChoice = null } = {}) {
+  if (sending.value) return;
   if (!conv.value || sending.value) return;
   const conversationId = conv.value.id;
   sending.value = true;
@@ -248,6 +252,7 @@ async function send({ skipConfirm = false } = {}) {
       isInternalNote: composerMode.value === 'internal',
       text: body.value,
       attachments: attachments.value,
+      deliveryChoice,
       to: to.value,
       cc: cc.value,
       bcc: bcc.value,
@@ -276,6 +281,7 @@ async function send({ skipConfirm = false } = {}) {
     }
     emit('reply', data);
   } catch (e) {
+    if (e?.response?.data?.error?.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED') { confirmOpen.value=false; availabilityPrompt.value=e.response.data.error.availability; return; }
     sendError.value = e?.response?.data?.error?.message || e?.message || 'Send failed';
   } finally {
     sending.value = false;
@@ -400,6 +406,7 @@ function applySuggestedStatus() {
   if (!insight.value?.suggestedStatus) return;
   emit('patch', { status: insight.value.suggestedStatus });
 }
+watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
 </script>
 
 <template>
@@ -574,6 +581,7 @@ function applySuggestedStatus() {
 
         <label v-if="!isTelephony && composerMode !== 'internal'">Attachments <input type="file" multiple @change="selectAttachments" /></label>
         <p v-if="attachments.length">{{ attachments.map((a) => a.filename).join(', ') }} <button type="button" @click="attachments = []">Remove attachments</button></p>
+        <EmailDeliveryChoice :info="availabilityPrompt" :busy="sending" @choose="send({skipConfirm:true,deliveryChoice:$event})" @cancel="availabilityPrompt=null" />
         <div v-if="sendError" class="uc-send-err">{{ sendError }}</div>
         <div v-if="confirmOpen" class="uc-confirm-inline">
           <strong>Review before sending</strong>

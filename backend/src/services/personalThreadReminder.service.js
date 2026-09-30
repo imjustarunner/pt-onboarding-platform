@@ -50,8 +50,8 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
       if (settings?.personalEmailDigestEnabled === false) continue;
       const agency = await Agency.findById(row.agency_id);
       const schedule = await resolveAvailabilitySchedule(row.user_id, { agencyId: row.agency_id });
-      if (!isMessageReminderWindow(now, schedule, agency?.timezone)) continue;
       const preferences = personalMessagePreferences({...row, digest_hours:row.digest_hours ?? settings?.personalEmailDigestBusinessHours ?? 24});
+      if (preferences.personalEmailDelayMode !== 'immediate' && !isMessageReminderWindow(now, schedule, agency?.timezone)) continue;
       if (!preferences.personalEmailNotify || !(personalMessageDueAt(row.received_at, { schedule, timeZone:agency?.timezone, preferences }) <= now)) continue;
       const recipient = await messageReminderRecipient(row);
       if (!recipient) continue;

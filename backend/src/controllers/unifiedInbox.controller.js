@@ -253,13 +253,13 @@ export async function postUnifiedReply(req, res, next) {
     if (!isAllowedRole(req.user)) return deny(res);
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: { message: 'Invalid id' } });
-    const result = await replyToConversation(id, req.body || {}, { userId: req.user.id });
+    const result = await replyToConversation(id, {...req.body,deliveryPlan:undefined,availabilityChoiceRequired:true}, { userId: req.user.id });
     const detail = await getConversationDetail(result.forwardedConversationId || id, { userId: req.user.id, markRead: true });
     res.json({ ...result, ...detail });
   } catch (e) {
     const msg = e?.message || 'Reply failed';
     if (e?.status && Number(e.status) >= 400 && Number(e.status) < 500) {
-      return res.status(e.status).json({ error: { message: msg, details: e.details || undefined } });
+      return res.status(e.status).json({ error: { message: msg, code:e.code, availability:e.availability, details: e.details || undefined } });
     }
     if (/required|not found|No sender|Select an inbox|opted|texting number|SMS/i.test(msg)) {
       return res.status(400).json({ error: { message: msg } });
@@ -288,11 +288,12 @@ export async function postUnifiedCompose(req, res, next) {
       agencyId,
       inboxId,
       userId: req.user.id,
-      payload: req.body || {}
+      payload: {...req.body,deliveryPlan:undefined,availabilityChoiceRequired:true}
     });
     const detail = await getConversationDetail(conversation.id, { userId: req.user.id, markRead: true });
     res.status(201).json(detail);
   } catch (e) {
+    if(e.availability) return res.status(409).json({error:{message:e.message,code:e.code,availability:e.availability}});
     const msg = e?.message || 'Compose failed';
     if (/required|Select an inbox|Recipient/i.test(msg)) {
       return res.status(400).json({ error: { message: msg } });

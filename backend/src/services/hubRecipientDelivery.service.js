@@ -1,3 +1,4 @@
+import { usesAppEmailAvailability } from './afterHoursEmailPolicy.service.js';
 /**
  * When a Messages Hub recipient is outside Availability Hours or Planned Out,
  * delay outbound email until they are back and available.
@@ -50,7 +51,7 @@ export async function resolveRecipientDeliveryGate({
   now = new Date()
 } = {}) {
   const uid = Number(userId || 0);
-  if (!uid) return null;
+  if (!uid || !await usesAppEmailAvailability(uid)) return null;
 
   const name = String(displayName || 'They').trim() || 'They';
   const reasons = [];
@@ -120,11 +121,11 @@ export async function resolveRecipientDeliveryGate({
   const whenLabel = formatReceiveWhen(holdUntil, scheduleTz);
   let message;
   if (reasons.includes('planned_out') && outsideAvailability) {
-    message = `${name} is planned out and outside availability hours — they will receive this email ${whenLabel}.`;
+    message = `${name} is planned out and outside availability hours — next availability is ${whenLabel}. You can send now or wait until then.`;
   } else if (reasons.includes('planned_out')) {
-    message = `${name} is planned out — they will receive this email ${whenLabel}.`;
+    message = `${name} is planned out — next availability is ${whenLabel}. You can send now or wait until then.`;
   } else {
-    message = `${name} is outside availability hours — they will receive this email ${whenLabel}.`;
+    message = `${name} is outside availability hours — next availability is ${whenLabel}. You can send now or wait until then.`;
   }
 
   return {
@@ -185,7 +186,7 @@ export async function resolveScheduledSendAgainstAvailability({
   now = new Date()
 } = {}) {
   const requested = requestedAt instanceof Date ? requestedAt : new Date(requestedAt);
-  if (!userId || Number.isNaN(requested.getTime())) {
+  if (!userId || Number.isNaN(requested.getTime()) || !await usesAppEmailAvailability(userId)) {
     return {
       sendAt: Number.isNaN(requested.getTime()) ? null : requested,
       snapped: false,

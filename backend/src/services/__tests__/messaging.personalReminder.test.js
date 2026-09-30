@@ -131,3 +131,14 @@ it('rechecks preferences before a scheduled personal reply is actually sent',asy
  pool.execute.mockResolvedValue([[reminder]]);
  expect(await personalReplySendMailbox({reminderId:1,conversationId:10,inbox,userId:5,to:[{email:'client@example.org'}]})).toMatchObject({fromEmail:'messages@itsco.health'});
 });
+
+it('delivers opted-in immediate notifications after hours without changing default or off behavior',async()=>{
+ const row={...provider,conversation_id:10,message_id:20,agency_id:2,inbox_id:3,user_id:5,from_email:inbox.from_email,received_at:'2026-09-30T02:00:00Z',personal_email_delay_mode:'immediate'};
+ pool.execute.mockImplementation(async sql=>sql.startsWith('SELECT c.id')?[[row]]:[{affectedRows:1}]);
+ expect(await runPersonalThreadReminders({now:new Date('2026-09-30T02:01:00Z')})).toMatchObject({sent:1});
+ sendEmailFromIdentity.mockClear();row.personal_email_delay_mode='business_day';
+ expect(await runPersonalThreadReminders({now:new Date('2026-09-30T02:01:00Z')})).toMatchObject({sent:0});
+ row.personal_email_delay_mode='immediate';row.personal_email_notify=0;
+ expect(await runPersonalThreadReminders({now:new Date('2026-09-30T02:01:00Z')})).toMatchObject({sent:0});
+ expect(sendEmailFromIdentity).not.toHaveBeenCalled();
+});

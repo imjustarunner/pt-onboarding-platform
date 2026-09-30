@@ -12,7 +12,7 @@ async function authorize(req) {
 const handle = (fn) => async (req, res, next) => {
   try { await fn(req, res, next); }
   catch (e) {
-    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    if (e.status) return res.status(e.status).json({ error: { message: e.message, code:e.code, availability:e.availability } });
     next(e);
   }
 };
@@ -37,7 +37,7 @@ export const postQuickReply = handle(async (req, res) => {
   const result = await replyToConversation(conv.id, {
     text: String(req.body.text || ''), mode, to: req.body.to, cc: req.body.cc, bcc: req.body.bcc,
     subject: req.body.subject, attachments: req.body.attachments,
-    undoDelaySeconds: 20
+    undoDelaySeconds: 20, availabilityChoiceRequired:true, deliveryChoice:req.body.deliveryChoice
   }, { userId: req.quickView.userId });
   res.json({ ok: true, ...result });
 });
@@ -50,7 +50,7 @@ export const postQuickCompose = handle(async (req, res) => {
   if (!String(req.body?.to || '').trim() || (!String(req.body?.text || '').trim() && !req.body?.attachments?.length)) throw Object.assign(new Error('Recipient and message text or attachment are required'), { status: 400 });
   const conversation = await composeNewEmail({ agencyId, inboxId: inbox.id, userId, payload: {
     to: req.body.to, cc: req.body.cc, bcc: req.body.bcc, subject: req.body.subject,
-    text: req.body.text, attachments: req.body.attachments, undoDelaySeconds: 20
+    text: req.body.text, attachments: req.body.attachments, undoDelaySeconds: 20, availabilityChoiceRequired:true, deliveryChoice:req.body.deliveryChoice
   } });
   res.json({ ok: true, conversation });
 });

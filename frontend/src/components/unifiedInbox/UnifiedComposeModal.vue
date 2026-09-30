@@ -1,4 +1,6 @@
 <script setup>
+import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
+const availabilityPrompt = ref(null);
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import { encodeEmailFiles } from '../../utils/communicationAttachments';
@@ -92,7 +94,8 @@ async function sendSecureSchoolStaff(email) {
   }
 }
 
-async function send({ skipConfirm = false } = {}) {
+async function send({ skipConfirm = false, deliveryChoice = null } = {}) {
+  if (sending.value) return;
   error.value = '';
   schoolStaffSecurePrompt.value = null;
   if (isDmMode.value) {
@@ -160,16 +163,19 @@ async function send({ skipConfirm = false } = {}) {
       bcc: bcc.value || undefined,
       subject: subject.value,
       text: body.value,
-      attachments: attachments.value
+      attachments: attachments.value,
+      deliveryChoice
     });
     confirmOpen.value = false;
     emit('sent');
   } catch (e) {
+    if (e?.response?.data?.error?.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED') { confirmOpen.value=false; availabilityPrompt.value=e.response.data.error.availability; return; }
     error.value = e?.response?.data?.error?.message || e?.message || 'Send failed';
   } finally {
     sending.value = false;
   }
 }
+watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
 </script>
 
 <template>
@@ -222,7 +228,8 @@ async function send({ skipConfirm = false } = {}) {
 
       <label v-if="isEmailMode">Attachments <input type="file" multiple @change="selectAttachments" /></label>
       <p v-if="attachments.length">{{ attachments.map((a) => a.filename).join(', ') }} <button type="button" @click="attachments = []">Remove attachments</button></p>
-      <p v-if="error" class="uc-err">{{ error }}</p>
+      <EmailDeliveryChoice :info="availabilityPrompt" :busy="sending" @choose="send({skipConfirm:true,deliveryChoice:$event})" @cancel="availabilityPrompt=null" />
+        <p v-if="error" class="uc-err">{{ error }}</p>
 
       <footer>
         <button type="button" class="uc-cancel" @click="emit('close')">Cancel</button>

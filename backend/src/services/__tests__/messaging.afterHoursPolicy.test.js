@@ -5,7 +5,7 @@ vi.mock('../googleWorkspaceDirectory.service.js', () => ({ default: { isConfigur
 import User from '../../models/User.model.js';
 import Directory from '../googleWorkspaceDirectory.service.js';
 import pool from '../../config/database.js';
-import { eligibleClientAfterHoursReply, verifiedAppOnlyProvider } from '../afterHoursEmailPolicy.service.js';
+import { eligibleClientAfterHoursReply, verifiedAppOnlyProvider, usesAppEmailAvailability } from '../afterHoursEmailPolicy.service.js';
 const user = { id: 5, role: 'provider', status: 'ACTIVE', is_active: 1, email: 'provider@itsco.health', sso_password_override: 1, login_is_group_email: 1 };
 const context = { agencyId: 2, ownerUserId: 5, inbox: { kind: 'personal', agency_id: 2, owner_user_id: 5, from_email: user.email }, recipientEmails: [user.email], senderTrust: 'guardian', fromEmail: 'parent@example.org' };
 beforeEach(() => { vi.clearAllMocks();User.findById.mockResolvedValue(user);Directory.getUser.mockResolvedValue(null);Directory.getGroup.mockResolvedValue({ id: 'group' });pool.execute.mockResolvedValue([[]]); });
@@ -39,4 +39,19 @@ it('requires positive group verification and an active owner', async () => {
 it('does not guess when directory verification is unavailable', async () => {
  Directory.getUser.mockRejectedValueOnce(new Error('Directory unavailable'));
  await expect(eligibleClientAfterHoursReply(context)).rejects.toThrow('Directory unavailable');
+});
+
+it('bypasses recipient availability for SSO and stale group flags',async()=>{
+ User.findById.mockResolvedValue({...user,sso_password_override:0});
+ expect(await usesAppEmailAvailability(5)).toBe(false);expect(Directory.getUser).not.toHaveBeenCalled();
+ User.findById.mockResolvedValue(user);Directory.getUser.mockResolvedValue({suspended:false});
+ expect(await usesAppEmailAvailability(5)).toBe(false);
+});
+it('limits recipient availability to active app staff using groups or disabled SSO',async()=>{
+ expect(await usesAppEmailAvailability(5)).toBe(true);
+ Directory.getUser.mockResolvedValue({suspended:true});
+ User.findById.mockResolvedValue({...user,login_is_group_email:0,personal_email:null});
+ expect(await usesAppEmailAvailability(5)).toBe(true);
+ User.findById.mockResolvedValue({...user,status:'INACTIVE'});
+ expect(await usesAppEmailAvailability(5)).toBe(false);
 });

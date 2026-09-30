@@ -19,6 +19,7 @@
             <button type="button" @click="send({confirmMissingAttachment:true})">Send without an attachment</button>
             <button type="button" @click="confirmAttachment=false">Keep editing</button>
           </div>
+          <EmailDeliveryChoice :info="availabilityPrompt" :busy="busy" @choose="send({confirmMissingAttachment:true,deliveryChoice:$event})" @cancel="availabilityPrompt=null" />
           <footer><button class="send" :disabled="busy" type="submit">{{ busy ? 'Working…' : 'Send' }}</button><button :disabled="busy" type="button" @click="discard">Discard draft</button></footer>
           <details v-if="draft.quotedText" open><summary>Previous emails included below your message</summary><pre>{{ draft.quotedText }}</pre></details>
         </fieldset></form>
@@ -29,6 +30,7 @@
   </main>
 </template>
 <script setup>
+import EmailDeliveryChoice from '../components/messages/EmailDeliveryChoice.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
@@ -40,7 +42,7 @@ const route=useRoute(); const router=useRouter(); const qv=route.meta.publicQuic
 const record=ref(null),draft=ref({to:'',cc:'',bcc:'',subject:'',text:'',quotedText:'',attachments:[]});
 const error=ref(''),status=ref(''),loading=ref(true),busy=ref(false),fromEmail=ref(''),bodyInput=ref(null),sendResult=ref(null),undoAvailable=ref(false);
 const title=computed(()=>({new:'New email',reply:'Reply',reply_all:'Reply all',forward:'Forward'})[record.value?.mode || route.query.mode] || 'Email draft');
-const confirmAttachment=ref(false);
+const confirmAttachment=ref(false),availabilityPrompt=ref(null);
 let saved='',timer=null,saveTask=null,undoTimer=null;
 const config=()=>messagingRequestOptions({withCredentials:true,headers:qv && sessionStorage.getItem('plottwist.quickViewSession') ? {'X-Quick-View-Session':sessionStorage.getItem('plottwist.quickViewSession')} : {}});
 const request=(method,path,data)=>qv ? axios({method,url:`/api/quick-view${path}`,data,...config()}) : api({method,url:`/communications${path}`,data,...config()});
@@ -54,7 +56,7 @@ async function save() {
   saveTask=(async()=>{const {data}=await request('put',`/drafts/${record.value.id}`,{version:record.value.version,draft:JSON.parse(snapshot)});record.value.version=data.version;saved=snapshot;status.value='Draft saved';error.value='';notify();})();
   try { await saveTask; } catch(e) { status.value='Draft not saved';error.value=e.response?.data?.error?.message || 'Could not save. Keep this window open and retry.';throw e; } finally{saveTask=null;}
 }
-watch(draft,()=>{confirmAttachment.value=false;if(loading.value||record.value?.state!=='editing')return;status.value='Unsaved changes';clearTimeout(timer);timer=setTimeout(()=>save().catch(()=>{}),500);},{deep:true});
+watch(draft,()=>{availabilityPrompt.value=null;confirmAttachment.value=false;if(loading.value||record.value?.state!=='editing')return;status.value='Unsaved changes';clearTimeout(timer);timer=setTimeout(()=>save().catch(()=>{}),500);},{deep:true});
 async function attach(event){try{draft.value.attachments.push(...await encodeEmailFiles(event.target.files || []));await save();}catch(e){error.value=e.message;}finally{event.target.value='';}}
 async function saveAndClose(){busy.value=true;try{await save();closeWindow();}catch{/* retain draft */}finally{busy.value=false;}}
 function closeWindow(){notify();if(window.opener){window.close();}else router.back();}
@@ -62,7 +64,7 @@ function beforeUnload(event){if(record.value?.state==='editing' && JSON.stringif
 function onHidden(){if(document.visibilityState==='hidden')save().catch(()=>{});}
 function retrySave(){if(!busy.value)save().catch(()=>{});}
 async function discard(){busy.value=true;try{clearTimeout(timer);if(saveTask)await saveTask;await request('delete',`/drafts/${record.value.id}`);record.value.state='discarded';saved=JSON.stringify(draft.value);closeWindow();}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}finally{busy.value=false;}}
-async function send({confirmMissingAttachment=false}={}){if(busy.value)return;if(!confirmMissingAttachment&&!draft.value.attachments.length&&/\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject+'\n'+draft.value.text)){confirmAttachment.value=true;return;}confirmAttachment.value=false;busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version});sendResult.value=data;record.value.state='sent';status.value='Queued';undoAvailable.value=true;undoTimer=setTimeout(()=>undoAvailable.value=false,20000);notify('delivery');}catch(e){error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
+async function send({confirmMissingAttachment=false,deliveryChoice=null}={}){if(busy.value)return;if(!confirmMissingAttachment&&!draft.value.attachments.length&&/\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject+'\n'+draft.value.text)){confirmAttachment.value=true;return;}confirmAttachment.value=false;busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version,deliveryChoice});availabilityPrompt.value=null;sendResult.value=data;record.value.state='sent';status.value='Queued';undoAvailable.value=true;undoTimer=setTimeout(()=>undoAvailable.value=false,20000);notify('delivery');}catch(e){if(e.response?.data?.error?.code==='RECIPIENT_AVAILABILITY_CHOICE_REQUIRED'){availabilityPrompt.value=e.response.data.error.availability;return;}error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
 async function undo(){busy.value=true;try{await request('post',`/conversations/${sendResult.value.conversationId}/messages/${sendResult.value.messageId}/undo`,{});const {data}=await request('post','/drafts',{agencyId:record.value.agency_id,conversationId:record.value.conversation_id,mode:record.value.mode,draft:draft.value});record.value=data.draft;saved=JSON.stringify(draft.value);undoAvailable.value=false;status.value='Send undone. Draft saved.';await router.replace({query:{draftId:record.value.id}});notify('delivery');}catch(e){error.value=e.response?.data?.error?.message || 'The undo window has ended';}finally{busy.value=false;}}
 async function openDraft(){
   loading.value=true;error.value='';

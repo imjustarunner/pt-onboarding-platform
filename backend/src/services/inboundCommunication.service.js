@@ -1,3 +1,4 @@
+import { hasInboundDeliveryChoice } from './emailDeliveryChoice.service.js';
 /**
  * Post-ingest hook for inbound email in the unified communications stack.
  * Classify sender trust → apply hold/unknown → OOO / SUPPORT / intent review.
@@ -69,7 +70,8 @@ export async function processInboundCommunicationEvent({
   const classification = await classifyInboundSender({
     agencyId: aid,
     ownerUserId: ownerId,
-    fromEmail: email
+    fromEmail: email,
+    checkAvailability: !await hasInboundDeliveryChoice({agencyId:aid,messageId,ownerUserId:ownerId})
   });
 
   await applySenderClassificationToConversation(cid, classification);

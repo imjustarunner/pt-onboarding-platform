@@ -1,3 +1,4 @@
+vi.mock('../afterHoursEmailPolicy.service.js', () => ({ usesAppEmailAvailability: vi.fn(async () => false) }));
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(async () => [[]]) } }));
 vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: {
@@ -5,6 +6,8 @@ vi.mock('../../models/CommunicationConversation.model.js', () => ({ default: {
 } }));
 vi.mock('../../models/CommunicationInbox.model.js', () => ({ default: { findById: vi.fn() } }));
 vi.mock('../communicationAttachments.service.js', () => ({ persistOutboundAttachments: vi.fn(), loadOutboundAttachments: vi.fn(async () => []) }));
+vi.mock('../emailDeliveryChoice.service.js', () => ({ planEmailDelivery: vi.fn(), recordEmailDeliveryChoice: vi.fn() }));
+import { planEmailDelivery, recordEmailDeliveryChoice } from '../emailDeliveryChoice.service.js';
 import { persistOutboundAttachments, loadOutboundAttachments } from '../communicationAttachments.service.js';
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: vi.fn() }));
 vi.mock('../ticketEmailInboxAdapter.service.js', () => ({}));
@@ -95,4 +98,28 @@ it('does not report undo success after the delivery worker has claimed a message
 it('does not let another mailbox member undo someone else’s send', async () => {
   Conversation.findMessageById.mockResolvedValue({ id: 50, conversation_id: 1, author_user_id: 6, direction: 'outbound', send_status: 'scheduled' });
   await expect(undoOutboundMessage(1, 50, { userId: 5 })).rejects.toThrow('Only the sender');
+});
+
+it('persists the explicit availability choice before releasing the undo queue', async () => {
+ const plan={choice:'now',recipientIds:[6],scheduledAt:null};
+ planEmailDelivery.mockResolvedValue(plan);
+ await replyToConversation(1,{text:'Hello',availabilityChoiceRequired:true,deliveryChoice:'now'},{userId:5});
+ expect(recordEmailDeliveryChoice).toHaveBeenCalledWith(50,5,plan);
+ const stored=recordEmailDeliveryChoice.mock.invocationCallOrder[0];
+ const queued=Conversation.updateMessage.mock.invocationCallOrder[0];
+ expect(stored).toBeLessThan(queued);
+});
+it('schedules the chosen next availability and preserves a later explicit schedule', async () => {
+ const next='2030-10-01T13:00:00.000Z';
+ planEmailDelivery.mockResolvedValue({choice:'next_available',recipientIds:[6],scheduledAt:next});
+ const first=await replyToConversation(1,{text:'Hello',availabilityChoiceRequired:true,deliveryChoice:'next_available'},{userId:5});
+ expect(new Date(first.scheduledSendAt).toISOString()).toBe(next);
+ const later='2030-10-02T13:00:00.000Z';
+ const second=await replyToConversation(1,{text:'Hello',availabilityChoiceRequired:true,deliveryChoice:'now',scheduledSendAt:later},{userId:5});
+ expect(new Date(second.scheduledSendAt).toISOString()).toBe(later);
+});
+it('does not create a message or conversation before the sender chooses',async()=>{
+ planEmailDelivery.mockRejectedValueOnce(Object.assign(new Error('Choose delivery'),{status:409}));
+ await expect(composeNewEmail({agencyId:2,inboxId:3,userId:5,payload:{to:'a@example.org',text:'Hello',availabilityChoiceRequired:true}})).rejects.toMatchObject({status:409});
+ expect(Conversation.create).not.toHaveBeenCalled();expect(Conversation.addMessage).not.toHaveBeenCalled();
 });

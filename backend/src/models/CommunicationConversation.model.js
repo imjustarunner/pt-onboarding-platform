@@ -858,9 +858,10 @@ class CommunicationConversation {
       )
       .catch(() => null);
     const [rows] = await pool.execute(
-      `SELECT m.*, c.agency_id, c.inbox_id, c.subject AS conversation_subject, c.external_thread_id
+      `SELECT m.*, c.agency_id, c.inbox_id, c.subject AS conversation_subject, c.external_thread_id, dc.delivery_choice AS recipient_delivery_choice
        FROM communication_messages m
        JOIN communication_conversations c ON c.id = m.conversation_id
+       LEFT JOIN communication_message_delivery_choices dc ON dc.message_id=m.id AND dc.actor_user_id=m.author_user_id
        WHERE m.send_status = 'scheduled'
          AND m.scheduled_send_at IS NOT NULL
          AND m.scheduled_send_at <= NOW()
