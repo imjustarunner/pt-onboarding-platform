@@ -329,11 +329,9 @@ async function upsertSchoolContactRoleFlags({
 export function isInviteUsable(invite) {
   if (!invite) return { ok: false, code: 'not_found', message: 'Invite not found' };
   if (invite.status === 'revoked') return { ok: false, code: 'revoked', message: 'This invite has been revoked' };
-  if (invite.status === 'expired') return { ok: false, code: 'expired', message: 'This invite has expired' };
   if (invite.status === 'submitted') return { ok: true, submitted: true };
-  if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
-    return { ok: false, code: 'expired', message: 'This invite has expired' };
-  }
+  // School onboarding links remain usable until explicitly revoked, including
+  // links created under the former 21-day expiration policy.
   return { ok: true, submitted: false };
 }
 
@@ -886,9 +884,6 @@ export async function createInvite({
       isPrimary: true
     });
 
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 21);
-
     // Returning school_staff who already have credentials (or just received a reset)
     // should not be forced through a brand-new password step.
     let passwordAlreadyUsable = false;
@@ -906,7 +901,7 @@ export async function createInvite({
       contactEmail: email,
       schoolName: name,
       invitedByUserId: invitedByUserId || null,
-      expiresAt,
+      expiresAt: null,
       status: 'invited',
       source: source === 'qr' ? 'qr' : 'invite',
       qrLinkId: qrLinkId || null,
@@ -991,12 +986,9 @@ export async function resendInvite(inviteId, agencyId, invitedByUserId) {
   if (invite.status === 'revoked' || invite.status === 'submitted') {
     throw Object.assign(new Error('Cannot resend a revoked or submitted invite'), { status: 400 });
   }
-  const token = SchoolOnboardingInvite.generateToken();
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 21);
+  // Resending must preserve links already shared with the school.
   const updated = await SchoolOnboardingInvite.update(invite.id, {
-    token,
-    expiresAt,
+    expiresAt: null,
     status: invite.status === 'expired' ? 'invited' : invite.status
   });
   const inviter = invitedByUserId ? await User.findById(invitedByUserId) : null;
@@ -1077,7 +1069,6 @@ function resolveInviteDisplayStatus(invite, progress) {
   const raw = String(invite?.status || '').toLowerCase();
   if (raw === 'submitted') return { key: 'submitted', label: 'Submitted' };
   if (raw === 'revoked') return { key: 'revoked', label: 'Revoked' };
-  if (raw === 'expired') return { key: 'expired', label: 'Expired' };
   if (hasRecipientStartedOnboarding(invite, progress)) {
     return { key: 'in_progress', label: 'In progress' };
   }
@@ -1236,7 +1227,7 @@ export function serializeInvite(invite, { admin = false, publicView = false } = 
     stepProgress: progress,
     completedSteps: completedCount(progress),
     totalSteps: STEP_KEYS.length,
-    expiresAt: invite.expires_at,
+    expiresAt: null,
     submittedAt: invite.submitted_at,
     passwordSet: !!invite.password_set_at,
     createdAt: invite.created_at,

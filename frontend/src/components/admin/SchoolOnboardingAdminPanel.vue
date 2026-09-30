@@ -442,7 +442,7 @@
                   </div>
                   <div class="so-receipt-line">
                     <span class="so-receipt-line__label">Expires</span>
-                    <span class="so-receipt-line__value">{{ formatDate(selectedInvite.expiresAt) }}</span>
+                    <span class="so-receipt-line__value">Never</span>
                   </div>
                   <div class="so-receipt-line">
                     <span class="so-receipt-line__label">School org ID</span>

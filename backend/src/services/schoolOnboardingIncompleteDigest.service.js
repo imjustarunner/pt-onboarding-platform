@@ -178,7 +178,6 @@ export async function listIncompleteStartedInvitesForAgency(agencyId) {
      JOIN agencies s ON s.id = i.school_organization_id
      WHERE i.agency_id = ?
        AND LOWER(COALESCE(i.status, '')) NOT IN ('submitted', 'revoked')
-       AND (i.expires_at IS NULL OR i.expires_at > NOW())
      ORDER BY i.updated_at DESC, i.id DESC`,
     [aid]
   );

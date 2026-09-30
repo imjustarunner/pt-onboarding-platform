@@ -281,7 +281,7 @@
               </article>
               <article class="so-info">
                 <h3>Save &amp; continue later</h3>
-                <p class="muted">Use this invite link anytime before it expires — progress is saved.</p>
+                <p class="muted">This invite link does not expire. Your progress is saved so you can return anytime.</p>
               </article>
               <article class="so-info">
                 <h3>See a portal in action</h3>

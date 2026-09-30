@@ -33,6 +33,11 @@ export default class SchoolOnboardingInvite {
     if (!row) return null;
     return {
       ...row,
+      // Accept legacy expired rows while the expiration backfill rolls out.
+      status: row.status === 'expired'
+        ? (row.submitted_at ? 'submitted' : (row.recipient_started_at || row.password_set_at ? 'in_progress' : 'invited'))
+        : row.status,
+      expires_at: null,
       step_progress: {
         ...DEFAULT_STEP_PROGRESS,
         ...parseJson(row.step_progress, {})
@@ -61,7 +66,7 @@ export default class SchoolOnboardingInvite {
         data.contactEmail,
         data.schoolName,
         data.invitedByUserId || null,
-        data.expiresAt,
+        null,
         data.status || 'invited',
         data.source || 'invite',
         data.qrLinkId || null,
