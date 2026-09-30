@@ -1,3 +1,4 @@
+import { recordOfficeKioskCheckin } from '../services/officeKioskCheckin.service.js';
 import { verifiedObjectiveQuestion } from '../services/kioskObjectivePrompt.service.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import { listProvidersAtLocationOnDate } from '../services/officeProviderLocation.service.js';
@@ -5,7 +6,6 @@ import User from '../models/User.model.js';
 import KioskModel from '../models/Kiosk.model.js';
 import OfficeLocationAgency from '../models/OfficeLocationAgency.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
-import OfficeEventCheckin from '../models/OfficeEventCheckin.model.js';
 import OfficeQuestionnaireModule from '../models/OfficeQuestionnaireModule.model.js';
 import OfficeQuestionnaireResponse from '../models/OfficeQuestionnaireResponse.model.js';
 import ModuleContent from '../models/ModuleContent.model.js';
@@ -153,66 +153,18 @@ export const listKioskEvents = async (req, res, next) => {
 // Public: check in to a specific booked event
 export const checkInToEvent = async (req, res, next) => {
   try {
-    const { locationId } = req.params;
-    const eventId = parseInt(req.body?.eventId);
-    if (!Number.isInteger(eventId) || eventId <= 0) {
-      return res.status(400).json({ error: { message: 'eventId is required' } });
+    const locationId = Number(req.params.locationId);
+    const eventId = Number(req.body?.eventId);
+    const providerId = req.body?.providerId == null ? null : Number(req.body.providerId);
+    if (![locationId, eventId].every((id) => Number.isSafeInteger(id) && id > 0)
+      || (providerId !== null && (!Number.isSafeInteger(providerId) || providerId <= 0))) {
+      return res.status(400).json({ error: { message: 'A valid office, appointment, and provider are required.' } });
     }
-
-    const loc = await OfficeLocation.findById(parseInt(locationId));
-    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
-
-    const ev = await OfficeEvent.findById(eventId);
-    if (!ev || ev.office_location_id !== parseInt(locationId)) {
-      return res.status(404).json({ error: { message: 'Event not found' } });
-    }
-    if (ev.status !== 'BOOKED' || !ev.booked_provider_id) {
-      return res.status(400).json({ error: { message: 'Event is not a booked slot' } });
-    }
-
-    const checkin = await OfficeEventCheckin.create({
-      eventId: ev.id,
-      officeLocationId: ev.office_location_id,
-      roomId: ev.room_id,
-      providerId: ev.booked_provider_id
-    });
-
-    // Notify the booked provider with time and room
-    try {
-      const agencies = await User.getAgencies(ev.booked_provider_id);
-      const agencyId = agencies?.[0]?.id || null;
-      if (agencyId) {
-        const start = new Date(ev.start_at);
-        const timeStr = start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        let roomName = null;
-        if (ev.room_id) {
-          const [roomRows] = await (await import('../config/database.js')).default.execute(
-            'SELECT name FROM office_rooms WHERE id = ?',
-            [ev.room_id]
-          );
-          roomName = roomRows?.[0]?.name || null;
-        }
-        const roomPart = roomName ? ` in ${roomName}` : '';
-        const message = `Your ${timeStr} appointment has checked in${roomPart}.`;
-        await createNotificationAndDispatch({
-          type: 'kiosk_checkin',
-          severity: 'info',
-          title: 'Client checked in',
-          message,
-          userId: ev.booked_provider_id,
-          agencyId,
-          relatedEntityType: 'office_event_checkin',
-          relatedEntityId: checkin?.id || null,
-          actorSource: 'Kiosk'
-        });
-      }
-    } catch {
-      // ignore
-    }
-
-    res.status(201).json({ ok: true, eventId: ev.id, checkin });
-  } catch (e) {
-    next(e);
+    const result = await recordOfficeKioskCheckin({ locationId, eventId, providerId });
+    res.status(result.alreadyCheckedIn ? 200 : 201).json(result);
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
   }
 };
 
@@ -1469,7 +1421,7 @@ export const listProvidersToday = async (req, res, next) => {
          AND u.is_active = 1
          AND u.status = 'ACTIVE_EMPLOYEE'
          AND u.terminated_at IS NULL
-       JOIN office_rooms r ON r.id = e.room_id
+       JOIN office_rooms r ON r.id = e.room_id AND r.is_active = 1
        JOIN office_locations ol ON ol.id = e.office_location_id
        -- Prefer agency matching this location
        LEFT JOIN user_agencies ua_loc
@@ -1487,6 +1439,7 @@ export const listProvidersToday = async (req, res, next) => {
          WHERE ua2.is_active = 1
        ) a_any ON a_any.user_id = u.id AND a_loc.id IS NULL
        WHERE e.office_location_id = ?
+         AND e.status <> 'CANCELLED'
          AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
          AND e.booked_provider_id IS NOT NULL
          AND e.start_at < ?
@@ -1589,17 +1542,16 @@ export const listProviderSlotsToday = async (req, res, next) => {
          e.start_at,
          e.end_at,
          r.name AS room_name,
-         r.room_number,
-         oec.id AS checkin_id
+         r.room_number
        FROM office_events e
        JOIN users u ON u.id = e.booked_provider_id
          AND u.is_active = 1
          AND u.status = 'ACTIVE_EMPLOYEE'
          AND u.terminated_at IS NULL
-       JOIN office_rooms r ON r.id = e.room_id
-       LEFT JOIN office_event_checkins oec ON oec.event_id = e.id
+       JOIN office_rooms r ON r.id = e.room_id AND r.is_active = 1
        WHERE e.office_location_id = ?
          AND e.booked_provider_id = ?
+         AND e.status <> 'CANCELLED'
          AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
          AND e.start_at < ?
          AND e.end_at > ?
@@ -1612,8 +1564,7 @@ export const listProviderSlotsToday = async (req, res, next) => {
       startAt: toOfficeWallStr(r.start_at, tz),
       endAt: toOfficeWallStr(r.end_at, tz),
       roomName: r.room_name,
-      roomNumber: r.room_number,
-      alreadyCheckedIn: r.checkin_id != null
+      roomNumber: r.room_number
     }));
 
     res.json({ locationId: parseInt(locationId), providerId: parseInt(providerId), timezone: tz, slots });
@@ -2202,4 +2153,40 @@ export const submitKioskTreatmentGoals = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+// Lobby directory: staff assignments only; no client IDs, names, or event titles.
+export const listKioskOfficeDirectory = async (req, res, next) => {
+  try {
+    const locationId = Number(req.params.locationId);
+    if (!Number.isSafeInteger(locationId) || locationId <= 0) return res.status(400).json({ error: { message: 'Invalid office' } });
+    const loc = await OfficeLocation.findById(locationId);
+    if (!loc?.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
+    const timezone = loc.timezone || 'America/Denver';
+    const bounds = officeTodayUtcBounds(timezone);
+    const [rows] = await pool.execute(
+      `SELECT r.id, r.name, r.room_number, e.start_at, e.end_at,
+              u.id AS provider_id, u.first_name, u.last_name
+       FROM office_rooms r
+       LEFT JOIN office_events e ON e.room_id = r.id AND e.office_location_id = r.location_id
+         AND e.status <> 'CANCELLED'
+         AND (e.status = 'BOOKED' OR e.slot_state IN ('ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'))
+         AND e.start_at < ? AND e.end_at > ?
+       LEFT JOIN users u ON u.id = COALESCE(e.booked_provider_id, e.assigned_provider_id)
+         AND u.is_active = 1 AND u.status = 'ACTIVE_EMPLOYEE' AND u.terminated_at IS NULL
+       WHERE r.location_id = ? AND r.is_active = 1
+       ORDER BY r.sort_order, r.name, e.start_at`, [bounds.endExclusive, bounds.startAt, locationId]);
+    const rooms = new Map();
+    const now = Date.now();
+    for (const row of rows) {
+      if (!rooms.has(row.id)) rooms.set(row.id, { id: row.id, name: row.name, roomNumber: row.room_number, assignments: [] });
+      if (row.start_at) rooms.get(row.id).assignments.push({
+        providerName: row.provider_id ? `${row.first_name} ${row.last_name}`.trim() : 'Reserved',
+        startAt: toOfficeWallStr(row.start_at, timezone), endAt: toOfficeWallStr(row.end_at, timezone),
+        status: parseUtcDate(row.end_at).getTime() <= now ? 'finished'
+          : parseUtcDate(row.start_at).getTime() <= now ? 'current' : 'upcoming'
+      });
+    }
+    res.json({ timezone, rooms: [...rooms.values()] });
+  } catch (error) { next(error); }
 };

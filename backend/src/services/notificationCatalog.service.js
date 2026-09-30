@@ -95,6 +95,7 @@ const TYPES_BY_CATEGORY = {
 };
 
 const LABEL_OVERRIDES = {
+  kiosk_checkin: 'Client arrival at office',
   user_login: 'User logged in',
   user_logout: 'User logged out',
   presence_user_returned: 'Teammate is back',
@@ -287,6 +288,7 @@ const WORKFORCE_ESSENTIAL = new Set([
 
 const PROVIDER_ESSENTIAL = new Set([
   ...WORKFORCE_ESSENTIAL,
+  'kiosk_checkin',
   'inbound_client_message', 'support_ticket_forwarded_to_provider',
   'paperwork_received', 'client_terminated', 'client_assigned',
   'medical_records_release_submitted', 'psychotherapy_threshold_exceeded',
@@ -382,6 +384,7 @@ export function isNotificationEssentialForRole(type, role) {
 
 /** Per-type default overrides (toast on + 5 min for presence return alerts). */
 const DEFAULT_OVERRIDES_BY_TYPE = {
+  kiosk_checkin: { toast: true, sound: true },
   presence_user_returned: {
     toast: true,
     toastDurationMode: 'timed',

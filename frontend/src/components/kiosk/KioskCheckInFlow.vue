@@ -1,686 +1,112 @@
 <template>
-  <div class="kcif-overlay" @click.self="onOverlayClick">
-    <div class="kcif-panel" role="dialog" aria-modal="true" :aria-label="`Check in with ${provider.firstName} ${provider.lastName}`">
-      <!-- Header -->
-      <div class="kcif-header">
-        <div class="kcif-header__provider">
-          <div class="kcif-header__avatar" aria-hidden="true">
-            <img v-if="photoUrl" :src="photoUrl" alt="" />
-            <span v-else>{{ initials }}</span>
-          </div>
-          <div>
-            <div class="kcif-header__name">{{ provider.firstName }} {{ provider.lastName }}</div>
-            <div class="kcif-header__cred">{{ provider.credential || provider.title || '' }}</div>
-          </div>
-        </div>
-        <button class="kcif-header__close" aria-label="Close" @click="$emit('close')">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
+  <div class="arrival-overlay" @pointerdown="touch" @keydown="onKeydown">
+    <section ref="panel" class="arrival-panel" role="dialog" aria-modal="true" aria-labelledby="arrival-title" tabindex="-1">
+      <header>
+        <span class="eyebrow">{{ step === 'done' ? 'ALL SET' : 'YOUR VISIT' }}</span>
+        <button class="close" :disabled="saving" aria-label="Close check-in" @click="emit('close')">×</button>
+      </header>
+      <div class="provider"><span class="avatar">{{ initials }}</span><div><strong>{{ provider.firstName }} {{ provider.lastName }}</strong><span>{{ provider.credential || provider.title || 'Your provider' }}</span></div></div>
 
-      <!-- Step 1: Select time slot -->
-      <div v-if="step === 'slots'" class="kcif-body">
-        <h2 class="kcif-body__title">Select your appointment time</h2>
-        <p class="kcif-body__hint">Please select the time of your appointment below to check in.</p>
-
-        <div v-if="loadingSlots" class="kcif-loading">
-          <div class="kcif-spinner" />
-          <span>Loading appointments…</span>
-        </div>
-        <div v-else-if="slots.length === 0" class="kcif-empty">
-          No upcoming appointments found for today.
-        </div>
-        <div v-else class="kcif-slots-grid">
-          <button
-            v-for="slot in slots"
-            :key="slot.eventId"
-            class="kcif-slot"
-            :class="{
-              'kcif-slot--selected': selectedSlot?.eventId === slot.eventId,
-              'kcif-slot--checked-in': slot.alreadyCheckedIn
-            }"
-            :disabled="slot.alreadyCheckedIn"
-            @click="selectedSlot = slot"
-          >
-            <span class="kcif-slot__time">{{ formatTime(slot.startAt) }}</span>
-            <span v-if="slot.roomNumber || slot.roomName" class="kcif-slot__room">
-              <template v-if="slot.roomNumber">Office number {{ slot.roomNumber }}</template>
-              <template v-else>{{ slot.roomName }}</template>
-            </span>
-            <span v-if="slot.alreadyCheckedIn" class="kcif-slot__done">Checked in</span>
+      <template v-if="step === 'slots'">
+        <h2 id="arrival-title">What time is your appointment?</h2>
+        <p>Choose your scheduled time. No client name needed.</p>
+        <div v-if="loading" class="state" role="status">Finding today’s appointment times…</div>
+        <div v-else-if="loadError" class="state" role="alert">{{ loadError }}<button class="secondary" @click="loadSlots">Try again</button></div>
+        <div v-else-if="!slots.length" class="state">No appointment times are listed today. Please ask the office team for help.</div>
+        <div v-else class="times" aria-label="Appointment times">
+          <button v-for="slot in slots" :key="slot.eventId" class="time" :class="{ selected: selected?.eventId === slot.eventId }" :aria-pressed="selected?.eventId === slot.eventId" @click="selected = slot">
+            <strong>{{ formatKioskTime(slot.startAt) }}</strong><span>{{ roomLabel(slot) }}</span>
           </button>
         </div>
+        <p class="help">Don’t see your time? Please ask the office team. This screen is for scheduled visits.</p>
+        <button class="primary" :disabled="!selected || loading || !!loadError" @click="step = 'confirm'">Continue <span aria-hidden="true">→</span></button>
+      </template>
 
-        <button
-          v-if="slots.length > 0"
-          class="kcif-btn kcif-btn--primary"
-          :disabled="!selectedSlot"
-          @click="confirmCheckIn"
-        >
-          Continue
-        </button>
-      </div>
+      <template v-else-if="step === 'confirm'">
+        <h2 id="arrival-title">Ready to check in?</h2>
+        <p>We’ll let your provider know you’ve arrived.</p>
+        <div class="visit"><span>Today at</span><strong>{{ formatKioskTime(selected.startAt) }}</strong><span>{{ roomLabel(selected) }}</span></div>
+        <p>Please wait in the lobby after checking in. Your provider will come get you.</p>
+        <div v-if="error" class="error" role="alert">{{ error }}</div>
+        <div class="actions"><button class="secondary" :disabled="saving" @click="step = 'slots'; error = ''">Back</button><button class="primary" :disabled="saving" @click="checkIn">{{ saving ? 'Checking you in…' : 'I’m here · Check in' }}</button></div>
+      </template>
 
-      <!-- Step 2: Confirm check-in -->
-      <div v-else-if="step === 'confirm'" class="kcif-body">
-        <div class="kcif-confirm-icon" aria-hidden="true">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#3a6b7a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        </div>
-        <h2 class="kcif-body__title">Confirm check-in</h2>
-        <p class="kcif-body__hint">
-          Checking in for your <strong>{{ formatTime(selectedSlot.startAt) }}</strong> appointment
-          <span v-if="selectedSlot.roomName"> in {{ selectedSlot.roomName }}</span>.
-        </p>
-        <p class="kcif-body__hint" style="color: #5a7585; font-size: 14px;">
-          Your provider will be notified.
-        </p>
-        <div class="kcif-confirm-actions">
-          <button class="kcif-btn kcif-btn--secondary" @click="step = 'slots'">Back</button>
-          <button class="kcif-btn kcif-btn--primary" :disabled="checkingIn" @click="submitCheckIn">
-            <span v-if="checkingIn">Checking in…</span>
-            <span v-else>Check In</span>
-          </button>
-        </div>
-        <div v-if="checkInError" class="kcif-error">{{ checkInError }}</div>
-      </div>
-
-      <!-- Step 3: Questionnaires -->
-      <div v-else-if="step === 'questionnaires'" class="kcif-body">
-        <h2 class="kcif-body__title">
-          {{ questionnaire ? questionnaire.title : 'Please complete the following' }}
-        </h2>
-        <p v-if="questionnaire?.description" class="kcif-body__hint">{{ questionnaire.description }}</p>
-
-        <div v-if="loadingQuestionnaires" class="kcif-loading">
-          <div class="kcif-spinner" />
-          <span>Loading questionnaire…</span>
-        </div>
-        <div v-else-if="questionnaires.length === 0" class="kcif-empty">
-          All done! No questionnaires required.
-        </div>
-        <div v-else class="kcif-quest-form">
-          <div
-            v-for="field in questionnaire?.fields || []"
-            :key="field.id"
-            class="kcif-quest-field"
-          >
-            <label class="kcif-quest-label">{{ field.field_label }}</label>
-
-            <!-- Radio / select style options -->
-            <div v-if="field.field_type === 'radio' || field.field_type === 'select'" class="kcif-quest-options">
-              <button
-                v-for="opt in field.options || []"
-                :key="opt.value ?? opt"
-                class="kcif-quest-option"
-                :class="{ 'kcif-quest-option--selected': answers[field.id] === (opt.value ?? opt) }"
-                @click="answers[field.id] = opt.value ?? opt"
-              >
-                {{ opt.label ?? opt }}
-              </button>
-            </div>
-
-            <!-- Scale (0–10 or 0–3) -->
-            <div v-else-if="field.field_type === 'scale'" class="kcif-quest-scale">
-              <button
-                v-for="n in scaleOptions(field)"
-                :key="n"
-                class="kcif-quest-scale-btn"
-                :class="{ 'kcif-quest-scale-btn--selected': answers[field.id] === n }"
-                @click="answers[field.id] = n"
-              >
-                {{ n }}
-              </button>
-            </div>
-
-            <!-- Textarea / text -->
-            <textarea
-              v-else-if="field.field_type === 'textarea'"
-              v-model="answers[field.id]"
-              class="kcif-quest-textarea"
-              rows="3"
-            />
-            <input
-              v-else
-              v-model="answers[field.id]"
-              class="kcif-quest-input"
-              :type="field.field_type === 'number' ? 'number' : 'text'"
-            />
-          </div>
-        </div>
-
-        <div class="kcif-confirm-actions" style="margin-top: 24px;">
-          <button
-            v-if="questionnaires.length > 0"
-            class="kcif-btn kcif-btn--secondary"
-            @click="skipQuestionnaire"
-          >
-            Skip
-          </button>
-          <button
-            class="kcif-btn kcif-btn--primary"
-            :disabled="submittingQuest"
-            @click="submitQuestionnaire"
-          >
-            <span v-if="submittingQuest">Submitting…</span>
-            <span v-else-if="questionnaires.length === 0">Continue</span>
-            <span v-else>Submit &amp; Continue</span>
-          </button>
-        </div>
-        <div v-if="questError" class="kcif-error">{{ questError }}</div>
-      </div>
-
-      <!-- Step 4: Treatment goal self-ratings -->
-      <div v-else-if="step === 'goals'" class="kcif-body">
-        <h2 class="kcif-body__title">How have things been?</h2>
-        <p class="kcif-body__hint">Rate each treatment goal since your last session. Skip any that don’t apply today.</p>
-        <div v-if="loadingGoals" class="kcif-loading">
-          <div class="kcif-spinner" />
-          <span>Loading goals…</span>
-        </div>
-        <div v-else class="kcif-quest-form">
-          <div v-for="g in goalItems" :key="g.id" class="kcif-quest-field">
-            <label class="kcif-quest-label">{{ g.prompt }}</label>
-            <div class="kcif-quest-options">
-              <button
-                v-for="n in 10"
-                :key="n"
-                type="button"
-                class="kcif-quest-option"
-                :class="{ 'kcif-quest-option--selected': goalAnswers[g.id] === n }"
-                @click="goalAnswers[g.id] = n"
-              >
-                {{ n }}
-              </button>
-            </div>
-          </div>
-        </div>
-        <div class="kcif-quest-actions">
-          <button class="kcif-btn kcif-btn--secondary" :disabled="submittingGoals" @click="step = 'done'">Skip</button>
-          <button class="kcif-btn kcif-btn--primary" :disabled="submittingGoals" @click="submitGoalRatings">
-            {{ submittingGoals ? 'Saving…' : 'Save & continue' }}
-          </button>
-        </div>
-        <div v-if="goalError" class="kcif-error">{{ goalError }}</div>
-      </div>
-
-      <!-- Step 5: Thank you -->
-      <div v-else-if="step === 'done'" class="kcif-body kcif-body--center">
-        <div class="kcif-done-icon" aria-hidden="true">
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#2e7055" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        </div>
-        <h2 class="kcif-body__title">You're checked in!</h2>
-        <p class="kcif-body__hint">
-          {{ provider.firstName }} has been notified. Please have a seat and they'll be with you shortly.
-        </p>
-        <button class="kcif-btn kcif-btn--primary" style="margin-top: 24px;" @click="$emit('close')">
-          Done
-        </button>
-      </div>
-    </div>
+      <template v-else>
+        <div class="success" aria-hidden="true">✓</div>
+        <h2 id="arrival-title">You’re checked in.</h2>
+        <p role="status">An arrival notification is saved for {{ provider.firstName }}. Make yourself comfortable in the lobby.</p>
+        <div class="visit compact"><strong>{{ formatKioskTime(selected.startAt) }}</strong><span>{{ roomLabel(selected) }}</span></div>
+        <button class="primary" @click="emit('close')">Done</button>
+        <p class="help">Returning to the welcome screen in {{ remaining }} seconds.</p>
+      </template>
+      <footer>No client names are displayed or requested.</footer>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import api from '../../services/api';
-import { toUploadsUrl } from '../../utils/uploadsUrl';
-
-const props = defineProps({
-  provider: { type: Object, required: true },
-  locationId: { type: [String, Number], required: true },
-  timezone: { type: String, default: 'America/Denver' }
-});
+import { formatKioskTime } from '../../utils/kioskTime';
+const props = defineProps({ provider: { type: Object, required: true }, locationId: { type: [Number, String], required: true }, timezone: { type: String, default: 'America/Denver' } });
 const emit = defineEmits(['close']);
-
-const step = ref('slots'); // slots | confirm | questionnaires | goals | done
-
-// Slots
+const panel = ref(null);
+const step = ref('slots');
 const slots = ref([]);
-const loadingSlots = ref(true);
-const selectedSlot = ref(null);
-const checkingIn = ref(false);
-const checkInError = ref('');
-
-// Questionnaires
-const questionnaires = ref([]);
-const questIdx = ref(0);
-const questionnaire = computed(() => questionnaires.value[questIdx.value] || null);
-const loadingQuestionnaires = ref(false);
-const answers = ref({});
-const submittingQuest = ref(false);
-const questError = ref('');
-
-const goalItems = ref([]);
-const goalAnswers = ref({});
-const loadingGoals = ref(false);
-const submittingGoals = ref(false);
-const goalError = ref('');
-
-const photoUrl = computed(() => toUploadsUrl(props.provider.profilePhotoPath));
-const initials = computed(() => {
-  const f = (props.provider.firstName || '').charAt(0);
-  const l = (props.provider.lastName || '').charAt(0);
-  return `${f}${l}`.toUpperCase();
-});
-
-function formatTime(iso) {
-  if (!iso) return '';
-  // The DB stores local time strings — append 'Z' trick won't work here.
-  // Instead, treat the string as a local time in the office's timezone.
-  // The string looks like "2026-06-22 10:00:00" (local, no tz indicator).
-  // We parse it naively then display it directly — it already IS the local time.
-  const normalized = String(iso).replace(' ', 'T');
-  // Strip any trailing Z so browsers don't re-interpret as UTC
-  const noZ = normalized.endsWith('Z') ? normalized.slice(0, -1) : normalized;
-  const d = new Date(noZ);
-  if (Number.isNaN(d.getTime())) return String(iso);
-  // Format using the office timezone so the displayed hour matches the stored local hour
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: props.timezone });
-}
-
-function scaleOptions(field) {
-  const max = field.max_value ?? 10;
-  const min = field.min_value ?? 0;
-  const arr = [];
-  for (let i = min; i <= max; i++) arr.push(i);
-  return arr;
-}
-
+const selected = ref(null);
+const loading = ref(true);
+const saving = ref(false);
+const loadError = ref('');
+const error = ref('');
+const remaining = ref(12);
+const initials = computed(() => `${props.provider.firstName?.[0] || ''}${props.provider.lastName?.[0] || ''}`);
+const roomLabel = (slot) => slot.roomNumber ? `Office ${slot.roomNumber}` : slot.roomName || 'Your provider’s office';
+let activityAt = Date.now();
+let timer;
+let previousFocus;
+let disposed = false;
+function touch() { activityAt = Date.now(); }
 async function loadSlots() {
-  loadingSlots.value = true;
+  loading.value = true; loadError.value = ''; selected.value = null;
+  try { const { data } = await api.get(`/kiosk/${props.locationId}/providers/${props.provider.id}/slots-today`); slots.value = data?.slots || []; }
+  catch { loadError.value = 'We couldn’t load appointment times. Please try again or ask the office team.'; }
+  finally { loading.value = false; }
+}
+async function checkIn() {
+  if (saving.value || !selected.value) return;
+  saving.value = true; error.value = '';
   try {
-    const res = await api.get(`/kiosk/${props.locationId}/providers/${props.provider.id}/slots-today`);
-    slots.value = res.data?.slots || [];
-  } catch {
-    slots.value = [];
-  } finally {
-    loadingSlots.value = false;
-  }
+    const { data } = await api.post(`/kiosk/${props.locationId}/checkin`, { eventId: selected.value.eventId, providerId: props.provider.id });
+    if (!data?.ok || !data?.notification?.inApp) throw new Error('Unconfirmed arrival');
+    if (!disposed) { step.value = 'done'; remaining.value = 12; }
+  } catch (err) { error.value = err.response?.data?.error?.message || 'We couldn’t confirm your check-in. Try again or ask the office team for help.'; }
+  finally { saving.value = false; touch(); }
 }
-
-function confirmCheckIn() {
-  if (!selectedSlot.value) return;
-  step.value = 'confirm';
-  checkInError.value = '';
+function onKeydown(event) {
+  touch();
+  if (event.key === 'Escape' && !saving.value) emit('close');
+  if (event.key !== 'Tab') return;
+  const buttons = [...panel.value.querySelectorAll('button:not(:disabled)')];
+  const first = buttons[0], last = buttons.at(-1);
+  if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.value)) { event.preventDefault(); last?.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
 }
-
-async function submitCheckIn() {
-  checkingIn.value = true;
-  checkInError.value = '';
-  try {
-    await api.post(`/kiosk/${props.locationId}/checkin`, { eventId: selectedSlot.value.eventId });
-    // After check-in, load questionnaires
-    await loadQuestionnaires();
-    if (questionnaires.value.length) {
-      step.value = 'questionnaires';
-    } else {
-      await goToGoalsOrDone();
-    }
-  } catch (e) {
-    checkInError.value = e?.response?.data?.error?.message || 'Check-in failed. Please try again or contact the support team.';
-  } finally {
-    checkingIn.value = false;
-  }
-}
-
-async function loadQuestionnaires() {
-  loadingQuestionnaires.value = true;
-  questionnaires.value = [];
-  questIdx.value = 0;
-  answers.value = {};
-  try {
-    const res = await api.get(`/kiosk/${props.locationId}/questionnaires`, { params: { eventId: selectedSlot.value.eventId } });
-    const qs = res.data || [];
-
-    // Fetch field definitions for each questionnaire
-    const full = [];
-    for (const q of qs) {
-      try {
-        let def = null;
-        if (q.moduleId) {
-          const r = await api.get(`/kiosk/${props.locationId}/questionnaires/${q.moduleId}/definition`);
-          def = r.data;
-        } else if (q.intakeLinkId) {
-          const r = await api.get(`/kiosk/${props.locationId}/intake-questionnaire/${q.intakeLinkId}/definition`);
-          def = r.data;
-        }
-        full.push({ ...q, fields: def?.fields || [] });
-      } catch {
-        full.push({ ...q, fields: [] });
-      }
-    }
-    questionnaires.value = full;
-  } catch {
-    questionnaires.value = [];
-  } finally {
-    loadingQuestionnaires.value = false;
-  }
-}
-
-function skipQuestionnaire() {
-  advanceOrFinish();
-}
-
-async function submitQuestionnaire() {
-  if (!questionnaire.value) {
-    advanceOrFinish();
-    return;
-  }
-  submittingQuest.value = true;
-  questError.value = '';
-  try {
-    const q = questionnaire.value;
-    await api.post(`/kiosk/${props.locationId}/questionnaires/submit`, {
-      eventId: selectedSlot.value.eventId,
-      moduleId: q.moduleId || undefined,
-      intakeLinkId: q.intakeLinkId || undefined,
-      answers: answers.value,
-      typicalDayTime: true
-    });
-    advanceOrFinish();
-  } catch (e) {
-    questError.value = e?.response?.data?.error?.message || 'Could not submit. Please try again.';
-  } finally {
-    submittingQuest.value = false;
-  }
-}
-
-function advanceOrFinish() {
-  answers.value = {};
-  if (questIdx.value < questionnaires.value.length - 1) {
-    questIdx.value++;
-  } else {
-    void goToGoalsOrDone();
-  }
-}
-
-async function goToGoalsOrDone() {
-  loadingGoals.value = true;
-  goalItems.value = [];
-  goalAnswers.value = {};
-  try {
-    const res = await api.get(`/kiosk/${props.locationId}/treatment-goals`, {
-      params: { eventId: selectedSlot.value?.eventId }
-    });
-    goalItems.value = Array.isArray(res.data?.objectives) ? res.data.objectives : [];
-  } catch {
-    goalItems.value = [];
-  } finally {
-    loadingGoals.value = false;
-  }
-  step.value = goalItems.value.length ? 'goals' : 'done';
-}
-
-async function submitGoalRatings() {
-  submittingGoals.value = true;
-  goalError.value = '';
-  try {
-    const ratings = goalItems.value
-      .map((g) => ({ objectiveId: g.id, scaleValue: goalAnswers.value[g.id] }))
-      .filter((r) => Number.isInteger(r.scaleValue));
-    if (ratings.length) {
-      await api.post(`/kiosk/${props.locationId}/treatment-goals`, {
-        eventId: selectedSlot.value?.eventId,
-        ratings
-      });
-    }
-    step.value = 'done';
-  } catch (e) {
-    goalError.value = e?.response?.data?.error?.message || 'Could not save ratings.';
-  } finally {
-    submittingGoals.value = false;
-  }
-}
-
-function onOverlayClick() {
-  if (step.value === 'done') emit('close');
-}
-
-onMounted(loadSlots);
+watch(step, async () => { touch(); await nextTick(); panel.value?.focus(); });
+onMounted(() => {
+  previousFocus = document.activeElement; panel.value?.focus(); loadSlots();
+  timer = setInterval(() => {
+    if (step.value === 'done') { remaining.value -= 1; if (remaining.value <= 0) emit('close'); }
+    else if (!saving.value && Date.now() - activityAt > 90_000) emit('close');
+  }, 1000);
+});
+onUnmounted(() => { disposed = true; clearInterval(timer); previousFocus?.focus(); });
 </script>
 
 <style scoped>
-.kcif-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(20, 40, 55, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  padding: 20px;
-}
-
-.kcif-panel {
-  background: #fff;
-  border-radius: 20px;
-  width: 100%;
-  max-width: 560px;
-  max-height: 90dvh;
-  overflow-y: auto;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.25);
-}
-
-/* Header */
-.kcif-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 20px 24px 18px;
-  border-bottom: 1px solid #eaeff3;
-}
-.kcif-header__provider {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-.kcif-header__avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: #d0e4ea;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  font-weight: 700;
-  color: #1e4a5a;
-  flex-shrink: 0;
-}
-.kcif-header__avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.kcif-header__name {
-  font-size: 17px;
-  font-weight: 700;
-  color: #1a2f3a;
-}
-.kcif-header__cred {
-  font-size: 13px;
-  color: #6b8494;
-}
-.kcif-header__close {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #8aa3b0;
-  padding: 4px;
-  border-radius: 8px;
-  line-height: 1;
-  transition: color 0.1s, background 0.1s;
-}
-.kcif-header__close:hover { color: #1a2f3a; background: #f0f4f6; }
-
-/* Body */
-.kcif-body {
-  padding: 24px 24px 28px;
-}
-.kcif-body--center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-.kcif-body__title {
-  font-size: 22px;
-  font-weight: 800;
-  color: #1a2f3a;
-  margin: 0 0 8px;
-}
-.kcif-body__hint {
-  font-size: 15px;
-  color: #4a6070;
-  margin: 0 0 20px;
-  line-height: 1.5;
-}
-
-/* Slots */
-.kcif-slots-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 10px;
-  margin-bottom: 20px;
-}
-.kcif-slot {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 10px;
-  border: 2px solid #e2ecf0;
-  border-radius: 12px;
-  background: #fff;
-  cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
-}
-.kcif-slot:hover:not(:disabled) {
-  border-color: #3a6b7a;
-  background: #f3f8fa;
-}
-.kcif-slot--selected {
-  border-color: #3a6b7a;
-  background: #e8f4f7;
-}
-.kcif-slot--checked-in {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.kcif-slot__time {
-  font-size: 18px;
-  font-weight: 700;
-  color: #1a2f3a;
-}
-.kcif-slot__room {
-  font-size: 12px;
-  color: #6b8494;
-}
-.kcif-slot__done {
-  font-size: 11px;
-  background: #eef6f3;
-  color: #2e7055;
-  border-radius: 8px;
-  padding: 2px 8px;
-  font-weight: 600;
-}
-
-/* Confirm */
-.kcif-confirm-icon,
-.kcif-done-icon {
-  margin-bottom: 16px;
-}
-.kcif-confirm-actions {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-/* Questionnaire */
-.kcif-quest-form { display: flex; flex-direction: column; gap: 20px; }
-.kcif-quest-field { display: flex; flex-direction: column; gap: 8px; }
-.kcif-quest-label {
-  font-size: 15px;
-  font-weight: 600;
-  color: #1a2f3a;
-  line-height: 1.4;
-}
-.kcif-quest-options,
-.kcif-quest-scale { display: flex; flex-wrap: wrap; gap: 8px; }
-.kcif-quest-option,
-.kcif-quest-scale-btn {
-  padding: 8px 16px;
-  border: 2px solid #e2ecf0;
-  border-radius: 10px;
-  background: #fff;
-  cursor: pointer;
-  font-size: 14px;
-  color: #2a4a5a;
-  font-weight: 500;
-  transition: border-color 0.1s, background 0.1s;
-}
-.kcif-quest-option:hover,
-.kcif-quest-scale-btn:hover { border-color: #3a6b7a; background: #f0f7f9; }
-.kcif-quest-option--selected,
-.kcif-quest-scale-btn--selected { border-color: #3a6b7a; background: #e8f4f7; color: #1a3a4a; }
-.kcif-quest-input,
-.kcif-quest-textarea {
-  width: 100%;
-  padding: 10px 14px;
-  border: 1.5px solid #dde6eb;
-  border-radius: 10px;
-  font-size: 15px;
-  color: #1a2f3a;
-  box-sizing: border-box;
-  outline: none;
-  transition: border-color 0.12s;
-}
-.kcif-quest-input:focus,
-.kcif-quest-textarea:focus { border-color: #3a6b7a; }
-
-/* Buttons */
-.kcif-btn {
-  padding: 12px 28px;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  border: none;
-  transition: opacity 0.12s, background 0.12s;
-}
-.kcif-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.kcif-btn--primary { background: #1e3a4a; color: #fff; }
-.kcif-btn--primary:hover:not(:disabled) { background: #2d5265; }
-.kcif-btn--secondary { background: #e8edf2; color: #2a4a5a; }
-.kcif-btn--secondary:hover:not(:disabled) { background: #dae3ea; }
-
-/* Misc */
-.kcif-loading, .kcif-empty {
-  padding: 32px 0;
-  text-align: center;
-  color: #7a9aaa;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-.kcif-spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid #dde6eb;
-  border-top-color: #3a6b7a;
-  border-radius: 50%;
-  animation: kcif-spin 0.7s linear infinite;
-}
-@keyframes kcif-spin { to { transform: rotate(360deg); } }
-
-.kcif-error {
-  margin-top: 12px;
-  color: #c0392b;
-  font-size: 14px;
-  background: #fdf0ee;
-  border-radius: 8px;
-  padding: 10px 14px;
-}
+.arrival-overlay{position:fixed;inset:0;z-index:1000;background:#122e35a8;backdrop-filter:blur(9px);display:flex;align-items:center;justify-content:center;padding:24px;color:#193d40;font-family:inherit}
+.arrival-panel{width:100%;max-width:590px;max-height:92dvh;overflow:auto;background:#fffefa;border-radius:28px;padding:30px;box-shadow:0 30px 100px #102e3540;outline:none;box-sizing:border-box}
+header{display:flex;align-items:center;justify-content:space-between}.eyebrow{font-size:11px;letter-spacing:2px;font-weight:800;color:#627972}.close{width:48px;height:48px;border:1px solid #dae3dc;border-radius:50%;background:transparent;font-size:28px;color:inherit;cursor:pointer}
+.provider{display:flex;gap:14px;align-items:center;margin:14px 0 26px}.avatar{display:grid;place-items:center;background:#e7eee3;width:54px;height:54px;border-radius:18px;font-weight:700}.provider strong,.provider div span{display:block}.provider strong{font-size:19px}.provider div span{font-size:13px;color:#657774;margin-top:4px}
+h2{font-size:32px;line-height:1.13;letter-spacing:-1px;margin:0 0 14px}p{line-height:1.65;color:#617370}.times{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:24px 0;max-height:300px;overflow:auto}.time{border:1px solid #dce5dc;border-radius:14px;padding:18px 8px;background:white;color:inherit;cursor:pointer}.time strong,.time span{display:block}.time strong{font-size:19px}.time span{font-size:12px;margin-top:6px}.time.selected{background:#e7f0e2;border:2px solid #416952;padding:17px 7px}
+.primary,.secondary{min-height:54px;padding:14px 22px;border-radius:14px;font:inherit;font-weight:700;cursor:pointer}.primary{background:#234e45;color:white;border:1px solid #234e45;width:100%;display:flex;justify-content:space-between;align-items:center}.secondary{border:1px solid #cedbd2;background:transparent;color:#234e45}.actions{display:flex;gap:10px}.actions .primary{flex:1}.help{font-size:12px}.visit{padding:25px;background:#eef2e8;border-radius:18px;margin:24px 0;display:flex;flex-direction:column;gap:8px}.visit strong{font-size:36px;letter-spacing:-1px}.visit.compact{flex-direction:row;justify-content:space-between;align-items:center}.visit.compact strong{font-size:23px}.success{width:66px;height:66px;background:#e6efde;color:#426c45;font-size:38px;border-radius:50%;display:grid;place-items:center;margin:12px 0 24px}.state,.error{padding:20px;background:#f2f0e6;border-radius:12px;margin:18px 0;line-height:1.6}.state button{display:block;margin-top:12px}.error{color:#8c392e;background:#fff1eb}footer{border-top:1px solid #e6eae2;margin-top:26px;padding-top:18px;font-size:11px;color:#6e7c73;text-align:center}button:disabled{opacity:.5;cursor:default}button:focus-visible{outline:3px solid #b78432;outline-offset:4px}@media(max-width:520px){.arrival-overlay{padding:10px}.arrival-panel{padding:22px;border-radius:20px}h2{font-size:27px}.times{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>

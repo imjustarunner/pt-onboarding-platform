@@ -13,6 +13,19 @@
       </div>
     </div>
 
+    <div v-if="kioskUrl" class="kiosk-link-panel">
+      <div>
+        <strong>Lobby check-in</strong>
+        <p>One link for this office’s providers across agencies. No client login needed.</p>
+        <a :href="kioskUrl" target="_blank" rel="noopener noreferrer" class="kiosk-full-url">{{ kioskUrl }}</a>
+      </div>
+      <div class="kiosk-link-actions">
+        <a :href="kioskUrl" target="_blank" rel="noopener noreferrer" class="btn btn-primary">Open office kiosk ↗</a>
+        <button type="button" class="btn btn-secondary" @click="copyKioskUrl">Copy kiosk link</button>
+        <span v-if="copyMessage" role="status">{{ copyMessage }}</span>
+      </div>
+    </div>
+
     <div class="tabs" data-tour="buildings-tabs">
       <router-link class="tab" :class="{ active: isActive('/buildings/schedule') }" :to="tabTo('/buildings/schedule')" data-tour="buildings-tab-schedule">Schedule</router-link>
       <router-link class="tab" :class="{ active: isActive('/buildings/review') }" :to="tabTo('/buildings/review')" data-tour="buildings-tab-review">Review</router-link>
@@ -42,6 +55,18 @@ const loading = ref(false);
 const error = ref('');
 const offices = ref([]);
 const selectedOfficeId = ref('');
+const copyMessage = ref('');
+const kioskUrl = computed(() => /^\d+$/.test(selectedOfficeId.value)
+  ? `https://plottwisthq.com/kiosk-welcome/${selectedOfficeId.value}`
+  : '');
+const copyKioskUrl = async () => {
+  try {
+    await navigator.clipboard.writeText(kioskUrl.value);
+    copyMessage.value = 'Link copied. Save it as a bookmark on the lobby tablet.';
+  } catch {
+    copyMessage.value = 'Select and copy the full link shown here.';
+  }
+};
 
 const orgSlug = computed(() => (typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : null));
 const orgTo = (path) => (orgSlug.value ? `/${orgSlug.value}${path}` : path);
@@ -73,6 +98,7 @@ const loadOffices = async () => {
 };
 
 const onOfficeChanged = () => {
+  copyMessage.value = '';
   // Keep officeId in query so child pages can use it
   router.replace({ query: { ...route.query, officeId: selectedOfficeId.value || undefined } });
 };
@@ -89,6 +115,23 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.kiosk-link-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 18px;
+  margin: 18px 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-alt);
+}
+.kiosk-link-panel p { margin: 6px 0; color: var(--text-secondary); font-size: 13px; }
+.kiosk-full-url { overflow-wrap: anywhere; }
+.kiosk-link-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.kiosk-link-actions [role="status"] { flex-basis: 100%; font-size: 12px; }
+@media (max-width: 760px) { .kiosk-link-panel { align-items: flex-start; flex-direction: column; } }
+
 .header {
   display: flex;
   justify-content: space-between;

@@ -1,0 +1,65 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), channel: vi.fn(), sender: vi.fn(), email: vi.fn(), dispatch: vi.fn(), push: vi.fn() }));
+vi.mock('../../config/database.js', () => ({ default: { getConnection: async () => mocks } }));
+vi.mock('../notificationDispatcher.service.js', () => ({ default: { dispatchForNotification: mocks.dispatch, dispatchPushForNotification: mocks.push } }));
+vi.mock('../notificationPreferences.service.js', () => ({ isNotificationChannelEnabled: mocks.channel }));
+vi.mock('../emailSenderIdentityResolver.service.js', () => ({ resolvePreferredSenderIdentityForAgency: mocks.sender }));
+vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: mocks.email }));
+import { recordOfficeKioskCheckin } from '../officeKioskCheckin.service.js';
+let event, existing, alert, failNotification;
+beforeEach(() => {
+  vi.resetAllMocks(); vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-30T01:00:00Z')); // Still September 29 in Denver.
+  event = { id: 9, office_location_id: 3, room_id: 4, booked_provider_id: 7, status: 'BOOKED', start_at: '2026-09-30 01:00:00', end_at: '2026-09-30 02:00:00', timezone: 'America/Denver', agency_id: 2, location_name: 'North Office', room_number: '204', email: 'provider@example.test', role: 'provider' };
+  existing = []; alert = []; failNotification = false;
+  mocks.channel.mockResolvedValue(false);
+  mocks.execute.mockImplementation(async (sql) => {
+    if (sql.includes('FROM office_events')) return [[event].filter(Boolean)];
+    if (sql.includes('SELECT id FROM office_event_checkins')) return [existing];
+    if (sql.includes('SELECT id FROM notifications')) return [alert];
+    if (sql.includes('SELECT ua.agency_id')) return [[{ agency_id: 2 }]];
+    if (sql.includes('INSERT INTO notifications') && failNotification) throw new Error('Notification write failed');
+    return [{ insertId: 12 }];
+  });
+});
+afterEach(() => vi.useRealTimers());
+const checkIn = () => recordOfficeKioskCheckin({ locationId: 3, eventId: 9, providerId: 7 });
+describe('office arrival atomicity and privacy', () => {
+  it('commits arrival and provider alert together, using the office day and timezone', async () => {
+    const result = await checkIn();
+    expect(result.notification.inApp).toBe(true);
+    expect(mocks.commit).toHaveBeenCalledOnce();
+    const call = mocks.execute.mock.calls.find(([sql]) => sql.includes('INSERT INTO notifications'));
+    expect(call[1]).toEqual([expect.stringContaining('7:00 PM MDT'), 7, 2, 12]);
+    expect(call[1][0]).toContain('Office 204');
+    expect(result).not.toHaveProperty('checkin');
+    expect(mocks.email).not.toHaveBeenCalled();
+  });
+  it('does not duplicate alerts or email on a repeated arrival', async () => {
+    existing = [{ id: 12 }]; alert = [{ id: 13 }];
+    expect((await checkIn()).alreadyCheckedIn).toBe(true);
+    expect(mocks.execute.mock.calls.some(([sql]) => sql.includes('INSERT'))).toBe(false);
+    expect(mocks.dispatch).not.toHaveBeenCalled(); expect(mocks.email).not.toHaveBeenCalled();
+  });
+  it('rolls back the arrival if the inbox alert cannot be saved', async () => {
+    failNotification = true; await expect(checkIn()).rejects.toThrow('Notification write failed');
+    expect(mocks.rollback).toHaveBeenCalledOnce(); expect(mocks.commit).not.toHaveBeenCalled(); expect(mocks.release).toHaveBeenCalledOnce();
+  });
+  it.each(['cancelled', 'other day', 'reassigned', 'other location'])('rejects a %s appointment', async (reason) => {
+    if (reason === 'cancelled') event.status = 'CANCELLED';
+    if (reason === 'other day') { event.start_at = '2026-09-28 15:00:00'; event.end_at = '2026-09-28 16:00:00'; }
+    if (reason === 'reassigned') event.booked_provider_id = 88;
+    if (reason === 'other location') event = null;
+    await expect(checkIn()).rejects.toHaveProperty('status', reason === 'other location' ? 404 : 409);
+    expect(mocks.commit).not.toHaveBeenCalled();
+  });
+  it('sends optional email from the office agency’s identity when opted in', async () => {
+    mocks.channel.mockResolvedValue(true); mocks.sender.mockResolvedValue({ id: 20 }); mocks.email.mockResolvedValue({});
+    expect((await checkIn()).notification.email).toBe('submitted');
+    expect(mocks.email).toHaveBeenCalledWith(expect.objectContaining({ to: 'provider@example.test', senderIdentityId: 20, templateType: 'kiosk_checkin', text: expect.stringContaining('7:00 PM MDT') }));
+  });
+  it('preserves in-app success if optional email delivery fails', async () => {
+    mocks.channel.mockResolvedValue(true); mocks.sender.mockResolvedValue({ id: 20 }); mocks.email.mockRejectedValue(new Error('offline'));
+    expect((await checkIn()).notification).toEqual({ inApp: true, email: 'failed' });
+    expect(mocks.rollback).not.toHaveBeenCalled();
+  });
+});
