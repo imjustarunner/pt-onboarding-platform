@@ -50,3 +50,8 @@ it('marks an uncertain transport failure for inspection without automatic resend
  m.send.mockRejectedValue(Object.assign(new Error('timeout'),{code:'ETIMEDOUT'}));await runOfficeArrivalTick();
  expect(m.execute.mock.calls.some(([sql])=>sql.includes("email_status='sending' OR attempts>=3"))).toBe(true);
 });
+it('retries a known pre-send verification throttle after Gmail’s deadline',async()=>{
+ m.send.mockRejectedValue(Object.assign(new Error('Gmail rate limit'),{code:'EMAIL_SENDER_TEMPORARY',retryAt:Date.parse('2026-09-30T13:11:40Z')}));
+ await runOfficeArrivalTick();
+ expect(m.execute.mock.calls.find(([sql])=>sql.includes("SET email_status='pending',last_error=?"))?.[1]).toEqual(['EMAIL_SENDER_TEMPORARY','2026-09-30 13:11:45',12]);
+});

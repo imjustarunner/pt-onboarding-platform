@@ -18,3 +18,12 @@ it('fails closed when the Gmail alias check fails', async () => {
  const gmail = client(null);gmail.users.settings.sendAs.get.mockRejectedValue(new Error('403'));
  await expect(assertVerifiedGmailSender(gmail, 'provider@itsco.health')).rejects.toMatchObject({ code: 'EMAIL_SENDER_UNVERIFIED' });
 });
+it('distinguishes a temporary Gmail limit and preserves its retry deadline',async()=>{
+ const gmail=client(null);gmail.users.settings.sendAs.get.mockRejectedValue({response:{status:429,data:{error:{message:'User-rate limit exceeded. Retry after 2026-09-30T13:11:40.640Z'}}}});
+ await expect(assertVerifiedGmailSender(gmail,'provider@itsco.health')).rejects.toMatchObject({code:'EMAIL_SENDER_TEMPORARY',retryAt:Date.parse('2026-09-30T13:11:40.640Z')});
+});
+it('caches successful verification briefly, never a failed lookup',async()=>{
+ const gmail=client({sendAsEmail:'provider@itsco.health',verificationStatus:'accepted'});
+ await assertVerifiedGmailSender(gmail,'provider@itsco.health');await assertVerifiedGmailSender(gmail,'provider@itsco.health');
+ expect(gmail.users.settings.sendAs.get).toHaveBeenCalledTimes(1);
+});
