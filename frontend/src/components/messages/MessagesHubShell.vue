@@ -3,7 +3,7 @@
     class="msg-hub"
     :class="{
       'msg-hub--drawer': isDrawerLayout,
-      'msg-hub--mobile-thread': mobileShowThread && (!!selected || !!conversationPreview),
+      'msg-hub--mobile-thread': mobileShowThread && (!!selected || !!selectedConversation || !!conversationPreview),
       'person-focus': personFocus,
       'chat-like': personFocus && isChatLikeMethod
     }"
@@ -43,7 +43,7 @@
     <div class="email-channel-filters" role="group" aria-label="Filter conversations by channel">
       <button v-for="channel in inboxChannels" :key="channel.id" type="button" :aria-pressed="inboxChannel === channel.id" @click="selectInboxChannel(channel.id)">{{ channel.label }}</button>
     </div>
-    <div v-if="error" class="msg-hub-error">{{ error }}</div>
+    <div v-if="error" class="msg-hub-error" role="alert">{{ error }}</div>
 
     <div class="msg-hub-body">
       <div
@@ -1173,6 +1173,10 @@
             </div>
           </template>
 
+          <div v-else-if="selectedConversation" class="msg-hub-thread-empty">
+            <p role="status">{{ loadingEmail ? 'Opening conversation…' : 'This conversation could not be loaded.' }}</p>
+            <button v-if="!loadingEmail" type="button" class="btn btn-secondary" @click="pickConversation(selectedConversation)">Try again</button>
+          </div>
           <div v-else class="msg-hub-thread-empty">
             <h3>Who do you want to reach?</h3>
             <p>
@@ -1520,7 +1524,8 @@ import { downloadAttachment } from '../../utils/communicationAttachments';
 import { groupEmailThreads, groupSecureTopics, emailComposeTarget, emailReplyRecipients } from '../../utils/messageThreads';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import api from '../../services/api';
+import api, { messagingError } from '../../services/messagingApi';
+import { useSessionLockStore } from '../../store/sessionLock';
 import EmailThreadReader from './EmailThreadReader.vue';
 import { emailPreviewText } from '../../utils/emailReading';
 import { openEmailComposer } from '../../utils/emailComposerWindow';
@@ -1538,22 +1543,45 @@ const readerSmsText=ref('');
 async function replyReaderSms(){const cid=conversationPreview.value?.conversation?.id;if(!cid||sending.value)return;sending.value=true;try{await api.post(`/communications/conversations/${cid}/reply`,{text:readerSmsText.value,mode:'reply'},{skipGlobalLoading:true});readerSmsText.value='';await refreshMail();}catch(e){error.value=e.response?.data?.error?.message||'Could not send text';}finally{sending.value=false;}}
 const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = ref(null);
 let inboxRequest=0,emailReadRequest=0,mailPollTimer=null,hoverTimer=null,hidePreviewTimer=null;
+let inboxController=null,emailReadController=null;
+const loadingEmail = ref(false);
 function selectInboxChannel(channel){inboxChannel.value=channel;selectNav('inbox',isConversationMode.value ? navId.value : 'inbox');}
 function composeEmail(mode='new') {
   const conversationId=selectedConversation.value?.conversationId || selectedConversation.value?.id || emailSubjectThreads.value.find(t=>t.key===activeEmailThreadKey.value)?.conversationId;
   if(mode !== 'new' && !conversationId){error.value='Open an email conversation first.';return;}
   openEmailComposer(router,{mode,agencyId:agencyId.value,conversationId:mode==='new'?undefined:conversationId,to:mode==='new'?selected.value?.email:undefined});
 }
-async function refreshMail(){
-  if(refreshing.value || !agencyId.value)return;refreshing.value=true;
-  try{
-    if(isConversationMode.value)await loadConversations({quiet:true});else await loadInboxCounts();
-    const id=conversationPreview.value?.conversation?.id,request=emailReadRequest;
-    if(id){const {data}=await api.get(`/communications/conversations/${id}`,{params:{markRead:'0'},skipGlobalLoading:true});if(request===emailReadRequest&&conversationPreview.value?.conversation?.id===id){const merged=new Map(conversationPreview.value.messages.map(m=>[m.id,m]));for(const m of data.messages)merged.set(m.id,m);conversationPreview.value={...data,messages:[...merged.values()].sort((a,b)=>a.id-b.id),nextBeforeId:conversationPreview.value.nextBeforeId};}}
-  }catch{/* Retain the readable thread on transient background failures. */}finally{refreshing.value=false;}
+async function refreshMail({ quiet = false } = {}) {
+  if (refreshing.value || loadingList.value || sessionBlocked.value || !agencyId.value) return;
+  refreshing.value = true;
+  try {
+    if (isConversationMode.value) await loadConversations({ quiet });
+    else await loadInboxCounts();
+    const id = conversationPreview.value?.conversation?.id, request = emailReadRequest;
+    if (id && !sessionBlocked.value) {
+      const { data } = await api.get(`/communications/conversations/${id}`, { params: { markRead: '0' } });
+      if (request === emailReadRequest && conversationPreview.value?.conversation?.id === id) {
+        const merged = new Map(conversationPreview.value.messages.map(m => [m.id, m]));
+        for (const m of data.messages || []) merged.set(m.id, m);
+        conversationPreview.value = { ...data, messages: [...merged.values()].sort((a,b) => a.id-b.id), nextBeforeId: conversationPreview.value.nextBeforeId };
+      }
+    }
+  } catch (e) {
+    if (!quiet) error.value = messagingError(e, 'Could not refresh messages. Please try again.');
+  } finally { refreshing.value = false; }
 }
+function refreshMailInBackground() {
+  if (!document.hidden) void refreshMail({ quiet: true });
+}
+
 async function discardListedDraft(c){try{await api.delete(`/communications/drafts/${c.draftId}`,{skipGlobalLoading:true});await loadConversations({quiet:true});}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}}
-function onComposerMessage(event){if(event.origin===window.location.origin&&event.data?.type==='email-drafts-changed')refreshMail();}
+function onComposerMessage(event) {
+  if (event.origin !== window.location.origin || event.data?.type !== 'email-drafts-changed') return;
+  // Keystroke autosaves only affect Drafts. They must not keep rebuilding the
+  // inbox or a readable thread in the parent window.
+  if (event.data.change === 'draft' && navId.value !== 'drafts') return;
+  refreshMailInBackground();
+}
 function scheduleHidePreview(){clearTimeout(hoverTimer);hidePreviewTimer=setTimeout(()=>hoverEmail.value=null,200);}
 function previewEmail(c,event){
   clearTimeout(hidePreviewTimer);clearTimeout(hoverTimer);if(c.channel!=='email'||c.draftId)return;
@@ -1581,6 +1609,8 @@ const emit = defineEmits(['open-team-chat', 'unread-change']);
 
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
+const sessionLockStore = useSessionLockStore();
+const sessionBlocked = computed(() => sessionLockStore.isLocked || sessionLockStore.warningActive);
 const route = useRoute();
 const router = useRouter();
 
@@ -3555,6 +3585,9 @@ async function fetchPeople({ browse, q, limit = 40 } = {}) {
 
 function selectNav(section, id) {
   closePerson();
+  ++inboxRequest;
+  inboxController?.abort();
+  loadingList.value = false;
   navSection.value = section;
   navId.value = id;
   railOpen.value = false;
@@ -3628,9 +3661,12 @@ async function openTeamChat(tab = null) {
 }
 
 async function loadConversations({ quiet = false } = {}) {
+  if (quiet && loadingList.value) return;
   const request = ++inboxRequest;
-  if (!quiet) loadingList.value = true;
-  error.value = '';
+  inboxController?.abort();
+  const controller = new AbortController();
+  inboxController = controller;
+  if (!quiet) { loadingList.value = true; error.value = ''; }
   people.value = [];
   try {
     if (!agencyId.value) {
@@ -3639,7 +3675,7 @@ async function loadConversations({ quiet = false } = {}) {
     }
     const id = navId.value;
     if (id === 'drafts') {
-      const { data } = await api.get('/communications/drafts', { params: { agencyId: agencyId.value }, skipGlobalLoading: true });
+      const { data } = await api.get('/communications/drafts', { params: { agencyId: agencyId.value }, signal: controller.signal });
       if (request !== inboxRequest) return;
       conversations.value = (data.drafts || []).map(d => ({ id:d.id,draftId:d.id,channel:'email',subject:d.subject,
         primary_participant_name:d.recipient || 'Draft',last_message_preview:d.preview,last_message_at:d.updated_at }));
@@ -3655,7 +3691,7 @@ async function loadConversations({ quiet = false } = {}) {
           channel: inboxChannel.value,
           limit: 80
         },
-        skipGlobalLoading: true
+        signal: controller.signal
       });
       if (request !== inboxRequest) return;
       const items = Array.isArray(data?.items) ? data.items : [];
@@ -3698,18 +3734,18 @@ async function loadConversations({ quiet = false } = {}) {
     }
     const { data } = await api.get('/communications/conversations', {
       params,
-      skipGlobalLoading: true
+      signal: controller.signal
     });
     if (request !== inboxRequest) return;
     conversations.value = Array.isArray(data?.conversations) ? data.conversations : [];
     await loadInboxCounts();
   } catch (e) {
-    if (request !== inboxRequest) return;
+    if (request !== inboxRequest || e?.code === 'ERR_CANCELED' || quiet) return;
     const status = e?.response?.status;
     if (status === 403) {
       error.value = 'Inbox views need Communications access. Use People filters, or open Communications Center.';
     } else {
-      error.value = e?.response?.data?.error?.message || 'Could not load conversations';
+      error.value = messagingError(e, 'Could not load conversations. Please try Refresh.');
     }
   } finally {
     if (request === inboxRequest) loadingList.value = false;
@@ -3882,6 +3918,11 @@ async function pickConversation(conv) {
   hoverEmail.value = null;
   if (conv.draftId) return openEmailComposer(router, { draftId: conv.draftId });
   const request = ++emailReadRequest;
+  emailReadController?.abort();
+  const controller = new AbortController();
+  emailReadController = controller;
+  loadingEmail.value = false;
+  error.value = '';
   selectedConversation.value = conv;
   conversationPreview.value = null;
   mobileShowThread.value = true;
@@ -3925,10 +3966,11 @@ async function pickConversation(conv) {
     error.value = 'Could not open this conversation';
     return;
   }
+  loadingEmail.value = true;
   try {
     const { data } = await api.get(`/communications/conversations/${emailConvId}`, {
       params: { agencyId: agencyId.value },
-      skipGlobalLoading: true
+      signal: controller.signal
     });
     if (request !== emailReadRequest) return;
     conversationPreview.value = data;
@@ -3948,7 +3990,11 @@ async function pickConversation(conv) {
     dropOpenedFromUnread({ ...conv, conversationId: emailConvId });
     await refreshUnreadAfterOpen();
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Could not open conversation';
+    if (request === emailReadRequest && e?.code !== 'ERR_CANCELED') {
+      error.value = messagingError(e, 'Could not open conversation. Please try again.');
+    }
+  } finally {
+    if (request === emailReadRequest) loadingEmail.value = false;
   }
 }
 
@@ -3979,6 +4025,8 @@ async function loadPersonContext(personKey) {
 function closePerson() {
   rememberEmailDraft();
   ++emailReadRequest;
+  emailReadController?.abort();
+  loadingEmail.value = false;
   selected.value = null;
   selectedConversation.value = null;
   conversationPreview.value = null;
@@ -3993,8 +4041,7 @@ function backToList() {
     closePerson();
     return;
   }
-  mobileShowThread.value = false;
-  conversationPreview.value = null;
+  closePerson();
 }
 
 async function markSelectedUnread() {
@@ -4854,17 +4901,25 @@ async function openLinkedConversation() {
 }
 watch(() => route.query.conversationId, () => openLinkedConversation());
 
+watch(sessionBlocked, (blocked, wasBlocked) => {
+  if (!blocked && wasBlocked) {
+    if (selectedConversation.value && !conversationPreview.value && !loadingEmail.value) void pickConversation(selectedConversation.value);
+    refreshMailInBackground();
+  }
+});
+
 onMounted(() => {
   selectNav('inbox', 'unread');
-  mailPollTimer = setInterval(() => { if (!document.hidden) refreshMail(); }, 15000);
-  window.addEventListener('focus', refreshMail);
+  mailPollTimer = setInterval(refreshMailInBackground, 15000);
+  window.addEventListener('focus', refreshMailInBackground);
+  window.addEventListener('online', refreshMailInBackground);
   window.addEventListener('message', onComposerMessage);
   openLinkedConversation();
   document.addEventListener('click', onDocClickClosePickers);
   loadInboxCounts();
   loadSendDelayPrefs();
   queuedPollTimer = setInterval(() => {
-    if (inboxCounts.value.queued > 0 || navId.value === 'queued' || undoBanner.value) {
+    if (!sessionBlocked.value && !document.hidden && (inboxCounts.value.queued > 0 || navId.value === 'queued' || undoBanner.value)) {
       refreshQueuedCount();
       if (navId.value === 'queued') loadQueued();
     }
@@ -4873,7 +4928,10 @@ onMounted(() => {
 onUnmounted(() => {
   clearInterval(mailPollTimer);
   clearTimeout(hoverTimer); clearTimeout(hidePreviewTimer);
-  window.removeEventListener('focus', refreshMail);
+  window.removeEventListener('focus', refreshMailInBackground);
+  window.removeEventListener('online', refreshMailInBackground);
+  ++inboxRequest; ++emailReadRequest;
+  inboxController?.abort(); emailReadController?.abort();
   window.removeEventListener('message', onComposerMessage);
   clearUndoBanner();
   clearTimeout(staffSuggestTimer);

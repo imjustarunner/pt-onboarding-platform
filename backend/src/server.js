@@ -2158,6 +2158,12 @@ if (!isBootstrap) {
       }
     }
     try {
+      const { runUnknownSenderReclassificationTick } = await import('./services/senderTrust.service.js');
+      await runUnknownSenderReclassificationTick();
+    } catch (error) {
+      console.error('Error in unknown sender reclassification tick:', error?.code || error?.message);
+    }
+    try {
       const { runIntentReviewEscalationTick } = await import('./services/emailAutomation.service.js');
       await runIntentReviewEscalationTick();
     } catch (error) {

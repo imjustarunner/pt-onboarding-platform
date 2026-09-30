@@ -1106,7 +1106,8 @@ export async function sendEmailFromIdentity({
     attachments,
     linkUrl,
     templateType: templateType || 'identity_send',
-    clientId
+    clientId,
+    source
   });
   const ttForQuality = String(templateType || 'identity_send').trim().toLowerCase();
   const skipQualityForLoginRecovery = [

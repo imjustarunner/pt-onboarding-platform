@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushPromises, shallowMount } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import { nextTick, reactive } from 'vue';
+import { useSessionLockStore } from '../../../store/sessionLock';
+vi.mock('../../../store/sessionLock', () => ({ useSessionLockStore: vi.fn() }));
 import Hub from '../MessagesHubShell.vue';
 import api from '../../../services/api';
 import { openEmailComposer } from '../../../utils/emailComposerWindow';
@@ -13,8 +15,11 @@ const person = { personKey: 'email:alice@example.org@2', email: 'alice@example.o
 const msg = (cid, subject = 'Same subject') => ({ id: `email-msg-${cid}`, bodyPreview: 'Hello', channel: 'email', direction: 'inbound', from: { email: 'alice@example.org' }, createdAt: '2026-09-01', meta: { conversationId: cid, messageId: cid, subject, inboxEmail: 'messages@itsco.health' } });
 let wrapper;
 let state;
+let lock;
 beforeEach(async () => {
   vi.clearAllMocks();
+  lock = reactive({isLocked:false,warningActive:false});
+  useSessionLockStore.mockReturnValue(lock);
   api.get.mockResolvedValue({ data: {} });
   api.patch.mockResolvedValue({ data: {} });
   api.post.mockResolvedValue({ data: { threadRef: { conversationId: 20 } } });
@@ -73,4 +78,56 @@ it('loads only the current user’s explicit drafts', async () => {
   await state.loadConversations();
   expect(api.get).toHaveBeenCalledWith('/communications/drafts',expect.objectContaining({params:{agencyId:2}}));
   expect(state.conversations[0]).toMatchObject({draftId:'one',last_message_preview:'My words'});
+});
+
+const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => {resolve=a;reject=b;}); return {promise,resolve,reject}; };
+it('does not let a background poll supersede a user’s folder request', async () => {
+  const pending=deferred(); api.get.mockReturnValueOnce(pending.promise);
+  state.navId='inbox'; const loading=state.loadConversations();
+  const count=api.get.mock.calls.length; await state.refreshMail({quiet:true});
+  expect(api.get.mock.calls.length).toBe(count);
+  pending.resolve({data:{items:[{id:12,conversationId:12,channel:'email',preview:'New mail'}]}});
+  await loading; expect(state.conversations[0].id).toBe(12); expect(state.loadingList).toBe(false);
+});
+it('aborts the previous conversation and ignores its late error', async () => {
+  const old=deferred(); api.get.mockReturnValueOnce(old.promise);
+  const first=state.pickConversation({id:10});
+  const oldConfig=api.get.mock.calls.at(-1)[1];
+  api.get.mockResolvedValue({data:{conversation:{id:20},messages:[]}});
+  await state.pickConversation({id:20});
+  expect(oldConfig.signal.aborted).toBe(true);
+  old.reject(new Error('late failure')); await first;
+  expect(state.conversationPreview.conversation.id).toBe(20); expect(state.error).toBe('');
+});
+it('recovers from a timed-out conversation without losing the selected email', async () => {
+  api.get.mockRejectedValueOnce(Object.assign(new Error('timeout'),{code:'ECONNABORTED'}));
+  await state.pickConversation({id:20});
+  expect(state.loadingEmail).toBe(false); expect(wrapper.text()).toContain('Try again');
+  expect(state.error).toContain('connection took too long');
+  api.get.mockResolvedValue({data:{conversation:{id:20},messages:[]}});
+  await state.pickConversation(state.selectedConversation);
+  expect(state.conversationPreview.conversation.id).toBe(20); expect(state.error).toBe('');
+});
+it('keeps actionable errors through background polling and pauses polling while locked', async () => {
+  state.error='Could not send your email'; await state.refreshMail({quiet:true});
+  expect(state.error).toBe('Could not send your email');
+  lock.isLocked=true; await nextTick(); api.get.mockClear();
+  await state.refreshMail({quiet:true}); expect(api.get).not.toHaveBeenCalled();
+  lock.isLocked=false; await nextTick(); await flushPromises(); expect(api.get).toHaveBeenCalled();
+});
+it('cancels folder loading when switching to a People view', async () => {
+  const old=deferred(); api.get.mockReturnValueOnce(old.promise);
+  state.navId='unknown'; const first=state.loadConversations();
+  const config=api.get.mock.calls.at(-1)[1];
+  state.selectNav('people','staff'); expect(config.signal.aborted).toBe(true);
+  old.resolve({data:{conversations:[{id:999}]}}); await first;
+  expect(state.conversations.some(c=>c.id===999)).toBe(false); expect(state.loadingList).toBe(false);
+});
+
+it('does not reload the reading pane on every composer autosave', async () => {
+  state.navId='inbox';api.get.mockClear();
+  state.onComposerMessage({origin:window.location.origin,data:{type:'email-drafts-changed',change:'draft'}});
+  await flushPromises();expect(api.get).not.toHaveBeenCalled();
+  state.onComposerMessage({origin:window.location.origin,data:{type:'email-drafts-changed',change:'delivery'}});
+  await flushPromises();expect(api.get).toHaveBeenCalled();
 });

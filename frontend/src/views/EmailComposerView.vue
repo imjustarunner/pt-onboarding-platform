@@ -3,6 +3,7 @@
     <header><h1>{{ title }}</h1><button type="button" :disabled="busy || loading" @click="saveAndClose">Save &amp; close ×</button></header>
     <p v-if="error" role="alert" class="error">{{ error }}</p>
     <p v-if="loading" role="status">Opening draft…</p>
+    <button v-else-if="!record" type="button" @click="openDraft">Try opening draft again</button>
     <template v-else-if="record">
       <p class="status" role="status">{{ status }}<span v-if="fromEmail"> · From {{ fromEmail }}</span></p>
       <template v-if="record.state === 'editing'">
@@ -13,6 +14,11 @@
           <label>Your message<textarea ref="bodyInput" v-model="draft.text" placeholder="Write your message…" rows="12" /></label>
           <label class="files">Attach files<input type="file" multiple @change="attach" /></label>
           <ul v-if="draft.attachments.length"><li v-for="(a,i) in draft.attachments" :key="i">{{ a.filename }} <button type="button" @click="draft.attachments.splice(i,1)">Remove</button></li></ul>
+          <div v-if="confirmAttachment" class="attachment-warning" role="alert">
+            <p>Your message mentions an attachment, but no file is attached.</p>
+            <button type="button" @click="send({confirmMissingAttachment:true})">Send without an attachment</button>
+            <button type="button" @click="confirmAttachment=false">Keep editing</button>
+          </div>
           <footer><button class="send" :disabled="busy" type="submit">{{ busy ? 'Working…' : 'Send' }}</button><button :disabled="busy" type="button" @click="discard">Discard draft</button></footer>
           <details v-if="draft.quotedText" open><summary>Previous emails included below your message</summary><pre>{{ draft.quotedText }}</pre></details>
         </fieldset></form>
@@ -26,7 +32,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
-import api from '../services/api';
+import api, { messagingRequestOptions } from '../services/messagingApi';
 import { emailReplyRecipients } from '../utils/messageThreads';
 import { quoteEmailHistory } from '../utils/emailReading';
 import { encodeEmailFiles } from '../utils/communicationAttachments';
@@ -34,10 +40,11 @@ const route=useRoute(); const router=useRouter(); const qv=route.meta.publicQuic
 const record=ref(null),draft=ref({to:'',cc:'',bcc:'',subject:'',text:'',quotedText:'',attachments:[]});
 const error=ref(''),status=ref(''),loading=ref(true),busy=ref(false),fromEmail=ref(''),bodyInput=ref(null),sendResult=ref(null),undoAvailable=ref(false);
 const title=computed(()=>({new:'New email',reply:'Reply',reply_all:'Reply all',forward:'Forward'})[record.value?.mode || route.query.mode] || 'Email draft');
+const confirmAttachment=ref(false);
 let saved='',timer=null,saveTask=null,undoTimer=null;
-const config=()=>({withCredentials:true,skipGlobalLoading:true,headers:qv && sessionStorage.getItem('plottwist.quickViewSession') ? {'X-Quick-View-Session':sessionStorage.getItem('plottwist.quickViewSession')} : {}});
+const config=()=>messagingRequestOptions({withCredentials:true,headers:qv && sessionStorage.getItem('plottwist.quickViewSession') ? {'X-Quick-View-Session':sessionStorage.getItem('plottwist.quickViewSession')} : {}});
 const request=(method,path,data)=>qv ? axios({method,url:`/api/quick-view${path}`,data,...config()}) : api({method,url:`/communications${path}`,data,...config()});
-const notify=()=>{try{window.opener?.postMessage({type:'email-drafts-changed'},window.location.origin);}catch{/* opener may be closed */}};
+const notify=(change='draft')=>{try{window.opener?.postMessage({type:'email-drafts-changed',change},window.location.origin);}catch{/* opener may be closed */}};
 async function save() {
   clearTimeout(timer);
   if(saveTask) { await saveTask; return save(); }
@@ -47,17 +54,18 @@ async function save() {
   saveTask=(async()=>{const {data}=await request('put',`/drafts/${record.value.id}`,{version:record.value.version,draft:JSON.parse(snapshot)});record.value.version=data.version;saved=snapshot;status.value='Draft saved';error.value='';notify();})();
   try { await saveTask; } catch(e) { status.value='Draft not saved';error.value=e.response?.data?.error?.message || 'Could not save. Keep this window open and retry.';throw e; } finally{saveTask=null;}
 }
-watch(draft,()=>{if(loading.value||record.value?.state!=='editing')return;status.value='Unsaved changes';clearTimeout(timer);timer=setTimeout(()=>save().catch(()=>{}),500);},{deep:true});
+watch(draft,()=>{confirmAttachment.value=false;if(loading.value||record.value?.state!=='editing')return;status.value='Unsaved changes';clearTimeout(timer);timer=setTimeout(()=>save().catch(()=>{}),500);},{deep:true});
 async function attach(event){try{draft.value.attachments.push(...await encodeEmailFiles(event.target.files || []));await save();}catch(e){error.value=e.message;}finally{event.target.value='';}}
 async function saveAndClose(){busy.value=true;try{await save();closeWindow();}catch{/* retain draft */}finally{busy.value=false;}}
 function closeWindow(){notify();if(window.opener){window.close();}else router.back();}
 function beforeUnload(event){if(record.value?.state==='editing' && JSON.stringify(draft.value)!==saved){save().catch(()=>{});event.preventDefault();event.returnValue='';}}
 function onHidden(){if(document.visibilityState==='hidden')save().catch(()=>{});}
+function retrySave(){if(!busy.value)save().catch(()=>{});}
 async function discard(){busy.value=true;try{clearTimeout(timer);if(saveTask)await saveTask;await request('delete',`/drafts/${record.value.id}`);record.value.state='discarded';saved=JSON.stringify(draft.value);closeWindow();}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}finally{busy.value=false;}}
-async function send(){busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version});sendResult.value=data;record.value.state='sent';status.value='Queued';undoAvailable.value=true;undoTimer=setTimeout(()=>undoAvailable.value=false,20000);notify();}catch(e){error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
-async function undo(){busy.value=true;try{await request('post',`/conversations/${sendResult.value.conversationId}/messages/${sendResult.value.messageId}/undo`,{});const {data}=await request('post','/drafts',{agencyId:record.value.agency_id,conversationId:record.value.conversation_id,mode:record.value.mode,draft:draft.value});record.value=data.draft;saved=JSON.stringify(draft.value);undoAvailable.value=false;status.value='Send undone. Draft saved.';await router.replace({query:{draftId:record.value.id}});notify();}catch(e){error.value=e.response?.data?.error?.message || 'The undo window has ended';}finally{busy.value=false;}}
-onMounted(async()=>{
-  window.addEventListener('beforeunload',beforeUnload);document.addEventListener('visibilitychange',onHidden);
+async function send({confirmMissingAttachment=false}={}){if(busy.value)return;if(!confirmMissingAttachment&&!draft.value.attachments.length&&/\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject+'\n'+draft.value.text)){confirmAttachment.value=true;return;}confirmAttachment.value=false;busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version});sendResult.value=data;record.value.state='sent';status.value='Queued';undoAvailable.value=true;undoTimer=setTimeout(()=>undoAvailable.value=false,20000);notify('delivery');}catch(e){error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
+async function undo(){busy.value=true;try{await request('post',`/conversations/${sendResult.value.conversationId}/messages/${sendResult.value.messageId}/undo`,{});const {data}=await request('post','/drafts',{agencyId:record.value.agency_id,conversationId:record.value.conversation_id,mode:record.value.mode,draft:draft.value});record.value=data.draft;saved=JSON.stringify(draft.value);undoAvailable.value=false;status.value='Send undone. Draft saved.';await router.replace({query:{draftId:record.value.id}});notify('delivery');}catch(e){error.value=e.response?.data?.error?.message || 'The undo window has ended';}finally{busy.value=false;}}
+async function openDraft(){
+  loading.value=true;error.value='';
   try{
     if(route.query.draftId){const {data}=await request('get',`/drafts/${route.query.draftId}`);record.value=data.draft;draft.value={...draft.value,...data.draft.draft};}
     else {
@@ -71,8 +79,12 @@ onMounted(async()=>{
     saved=JSON.stringify(draft.value);status.value=record.value.state==='editing'?'Draft saved':'Submitted';
   }catch(e){error.value=e.response?.data?.error?.message || 'Could not open draft. Sign in again and retry.';}
   finally{loading.value=false;await nextTick();bodyInput.value?.focus();}
+}
+onMounted(()=>{
+  window.addEventListener('beforeunload',beforeUnload);window.addEventListener('online',retrySave);document.addEventListener('visibilitychange',onHidden);
+  void openDraft();
 });
-onUnmounted(()=>{clearTimeout(timer);clearTimeout(undoTimer);window.removeEventListener('beforeunload',beforeUnload);document.removeEventListener('visibilitychange',onHidden);});
+onUnmounted(()=>{clearTimeout(timer);clearTimeout(undoTimer);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('online',retrySave);document.removeEventListener('visibilitychange',onHidden);});
 </script>
 <style scoped>
 fieldset{border:0;padding:0;margin:0;min-width:0}.email-composer{max-width:1050px;margin:auto;padding:24px;color:var(--text-primary,#20352b);background:var(--bg-primary,#fff);min-height:100vh}header,footer,.recipients{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}h1{font-size:1.5rem}label{display:flex;flex-direction:column;gap:6px;margin:12px 0;flex:1}input,textarea,button{font:inherit;color:inherit;border:1px solid #a5b9af;border-radius:6px;padding:10px;background:transparent}textarea{min-height:250px;resize:vertical;line-height:1.5;width:100%;box-sizing:border-box}button{cursor:pointer}button:disabled{opacity:.5}.send{background:#16664c;color:white;min-width:120px}.error{color:#af2929}.status{font-size:.85rem;color:#47755f}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.6}details{margin-top:24px;border-top:1px solid #a5b9af;padding-top:14px;opacity:.85}footer{justify-content:flex-start}@media(max-width:600px){.email-composer{padding:12px}.recipients{display:block}}

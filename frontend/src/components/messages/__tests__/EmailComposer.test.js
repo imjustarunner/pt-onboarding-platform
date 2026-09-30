@@ -33,3 +33,21 @@ it('retains the draft and keeps the window open when saving fails',async()=>{
 it('discards only through the explicit delete action',async()=>{
  await state.discard();expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({method:'delete',url:'/communications/drafts/mine'}));expect(mock.back).toHaveBeenCalled();
 });
+
+it('warns before queuing an attachment-free email and lets the writer explicitly continue', async()=>{
+ state.draft.text='Please send the attachment';await nextTick();await state.send();
+ expect(state.confirmAttachment).toBe(true);
+ expect(mock.api.mock.calls.some(([c])=>c.url.endsWith('/send'))).toBe(false);
+ await state.send({confirmMissingAttachment:true});
+ expect(mock.api.mock.calls.filter(([c])=>c.url.endsWith('/send'))).toHaveLength(1);
+});
+it('does not warn about attachment wording only in quoted history', async()=>{
+ state.draft.text='Thank you';state.draft.quotedText='From: Earlier sender\nSee attached';await nextTick();await state.send();
+ expect(state.confirmAttachment).toBe(false);
+ expect(mock.api.mock.calls.filter(([c])=>c.url.endsWith('/send'))).toHaveLength(1);
+});
+it('applies a request deadline and preserves unsaved text when saving times out', async()=>{
+ state.draft.text='Keep this safe';await nextTick();mock.api.mockRejectedValueOnce(Object.assign(new Error('timeout'),{code:'ECONNABORTED'}));
+ await state.saveAndClose();expect(state.busy).toBe(false);expect(state.draft.text).toBe('Keep this safe');expect(mock.back).not.toHaveBeenCalled();
+ expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({method:'put',timeout:30000}));
+});

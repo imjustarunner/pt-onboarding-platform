@@ -173,20 +173,8 @@ export async function getUnifiedConversations(req, res, next) {
       }
     }
 
-    if (filter === 'unknown') {
-      try {
-        const { reclassifyUnknownConversationsForAgency } = await import(
-          '../services/senderTrust.service.js'
-        );
-        await reclassifyUnknownConversationsForAgency({
-          agencyId,
-          ownerUserId: req.user.id,
-          limit: 100
-        });
-      } catch (e) {
-        console.warn('[unifiedInbox] unknown reclassify:', e?.message || e);
-      }
-    }
+    // Sender trust is refreshed by the policy scheduler. Reading a folder must
+    // not wait for agency-wide directory checks or classify other owners' mail.
 
     const conversations = await listConversations({
       agencyId,

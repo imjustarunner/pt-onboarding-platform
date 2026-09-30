@@ -36,7 +36,8 @@ export async function classifyInboundSender({
   agencyId,
   ownerUserId,
   fromEmail,
-  now = new Date()
+  now = new Date(),
+  checkAvailability = true
 }) {
   const email = normEmail(fromEmail);
   const aid = Number(agencyId || 0);
@@ -300,7 +301,7 @@ export async function classifyInboundSender({
   // Store mail immediately; only verified app-only providers wait for availability.
   const settings = await getAgencyEmailSettings(aid);
   const holdEnabled = settings.holdStaffSchoolOutsideAvailability !== false;
-  if (holdEnabled && oid && await verifiedAppOnlyProvider(oid)) {
+  if (checkAvailability && holdEnabled && oid && await verifiedAppOnlyProvider(oid)) {
     const { available, schedule } = await isUserAvailable(oid, now, { agencyId: aid });
     if (!available && schedule?.enabled) {
       result.holdForAvailability = true;
@@ -353,46 +354,27 @@ export async function runConversationReleaseTick({ now = new Date() } = {}) {
   return { released: rows?.affectedRows || 0 };
 }
 
-/**
- * Re-run sender classification for unknown conversations (fixes stale flags when
- * school site mailboxes / contacts become known).
- */
-export async function reclassifyUnknownConversationsForAgency({
-  agencyId,
-  ownerUserId = null,
-  limit = 80
-} = {}) {
-  const aid = Number(agencyId || 0);
-  if (!aid) return { checked: 0, updated: 0 };
-  const lim = Math.min(Math.max(Number(limit) || 80, 1), 200);
-  const [rows] = await pool.execute(
-    `SELECT c.id, c.owner_user_id,
-            (
-              SELECT p.email FROM communication_participants p
-              WHERE p.conversation_id = c.id
-              ORDER BY p.is_primary DESC, p.id ASC
-              LIMIT 1
-            ) AS from_email
-     FROM communication_conversations c
-     WHERE c.agency_id = ?
-       AND c.archived_at IS NULL
-       AND COALESCE(c.is_unknown_sender, 0) = 1
-     ORDER BY c.last_message_at DESC
-     LIMIT ${lim}`,
-    [aid]
-  ).catch(() => [[]]);
-
+/** Recheck stored mail off the interactive read path, using its actual owner. */
+async function reclassifyStoredSenders(rows) {
   let updated = 0;
-  for (const row of rows || []) {
-    const fromEmail = String(row.from_email || '').trim();
+  const classifications = new Map();
+  for (const row of rows) {
+    const fromEmail = normEmail(row.from_email);
     if (!fromEmail) continue;
-    const classification = await classifyInboundSender({
-      agencyId: aid,
-      ownerUserId: ownerUserId || row.owner_user_id || null,
-      fromEmail
-    });
+    const ownerUserId = row.inbox_owner_user_id || row.owner_user_id || null;
+    const key = `${row.agency_id}:${ownerUserId}:${fromEmail}`;
+    let classification = classifications.get(key);
+    if (!classification) {
+      classification = await classifyInboundSender({ agencyId: row.agency_id, ownerUserId, fromEmail, checkAvailability: false });
+      classifications.set(key, classification);
+    }
     if (classification.isUnknownSender) continue;
-    await applySenderClassificationToConversation(row.id, classification);
+    // Reclassification must not hold an already delivered conversation again.
+    await pool.execute(
+      `UPDATE communication_conversations SET sender_trust = ?, is_unknown_sender = 0
+       WHERE id = ? AND COALESCE(is_unknown_sender, 0) = 1`,
+      [classification.trust, row.id]
+    );
     if (classification.displayName) {
       await pool.execute(
         `UPDATE communication_participants
@@ -403,22 +385,51 @@ export async function reclassifyUnknownConversationsForAgency({
                ELSE kind
              END
          WHERE conversation_id = ? AND is_primary = 1`,
-        [
-          classification.displayName,
-          classification.trust,
-          classification.trust,
-          row.id
-        ]
-      ).catch(() => null);
+        [classification.displayName, classification.trust, classification.trust, row.id]
+      );
     }
     updated += 1;
   }
-  return { checked: (rows || []).length, updated };
+  return { checked: rows.length, updated };
+}
+
+const unknownSenderQuery = `SELECT c.id, c.agency_id, c.owner_user_id,
+    CASE WHEN i.kind = 'personal' THEN i.owner_user_id ELSE NULL END AS inbox_owner_user_id,
+    (SELECT p.email FROM communication_participants p WHERE p.conversation_id = c.id
+     ORDER BY p.is_primary DESC, p.id ASC LIMIT 1) AS from_email
+  FROM communication_conversations c
+  LEFT JOIN communication_inboxes i ON i.id = c.inbox_id
+  WHERE c.archived_at IS NULL AND c.channel = 'email'
+    AND COALESCE(c.is_unknown_sender, 0) = 1`;
+
+export async function reclassifyUnknownConversationsForAgency({ agencyId, limit = 80 } = {}) {
+  const aid = Number(agencyId || 0);
+  if (!aid) return { checked: 0, updated: 0 };
+  const lim = Math.min(Math.max(Math.trunc(Number(limit)) || 80, 1), 200);
+  const [rows] = await pool.execute(`${unknownSenderQuery} AND c.agency_id = ? ORDER BY c.id LIMIT ${lim}`, [aid]);
+  return reclassifyStoredSenders(rows);
+}
+
+let unknownSenderCursor = 0;
+let unknownSenderTickRunning = false;
+export async function runUnknownSenderReclassificationTick() {
+  if (unknownSenderTickRunning) return { checked: 0, updated: 0 };
+  unknownSenderTickRunning = true;
+  try {
+    // Bounded, rotating batches prevent one agency or old sender starving others.
+    const [rows] = await pool.execute(`${unknownSenderQuery} AND c.id > ? ORDER BY c.id LIMIT 50`, [unknownSenderCursor]);
+    const result = await reclassifyStoredSenders(rows);
+    unknownSenderCursor = rows.length === 50 ? Number(rows.at(-1).id) : 0;
+    return result;
+  } finally {
+    unknownSenderTickRunning = false;
+  }
 }
 
 export default {
   classifyInboundSender,
   applySenderClassificationToConversation,
   runConversationReleaseTick,
+  runUnknownSenderReclassificationTick,
   reclassifyUnknownConversationsForAgency
 };

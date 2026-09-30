@@ -54,8 +54,12 @@ export function validateOutboundEmailQuality({
   linkUrl = null,
   templateType = null,
   clientId = null,
-  hadAttachments = false
+  hadAttachments = false,
+  source = null
 } = {}) {
+  // A staff-written email is not an automation template. Attachment/link
+  // wording is advisory in its composer, not a hidden veto after it is queued.
+  if (source === 'manual' && templateType === 'hub_email') return { ok: true, flags: [] };
   const flags = [];
   const combined = `${subject}\n${text}\n${stripHtml(html)}`;
   const hasAttachments = hadAttachments || (Array.isArray(attachments) && attachments.length > 0);
@@ -131,7 +135,8 @@ export function scanStoredCommunicationQuality(row) {
     linkUrl: meta.linkUrl || meta.link_url,
     templateType: row?.template_type,
     clientId: row?.client_id,
-    hadAttachments
+    hadAttachments,
+    source: meta.source
   });
   const flags = [...qualityFlags];
   if (meta.usedFallbackSender) {
