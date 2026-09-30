@@ -12,8 +12,9 @@
         <button class="cep-btn cep-btn--ghost" type="button" @click="load" :disabled="loading">
           {{ loading ? 'Loading…' : '↺ Refresh' }}
         </button>
+        <button class="cep-btn cep-btn--primary" type="button" :disabled="!agencyId" @click="showNewReferral = true">+ New client referral</button>
         <button class="cep-btn cep-btn--primary" type="button" @click="openPostModal" :disabled="!agencyId">
-          + Post a client
+          Post an existing client
         </button>
       </div>
     </div>
@@ -81,7 +82,7 @@
         </button>
       </div>
 
-      <ClientDisplayModeToggle />
+
 
       <div class="cep-search-wrap">
         <span class="cep-search-icon" aria-hidden="true">⌕</span>
@@ -284,6 +285,7 @@
     </div>
 
     <!-- Post listing modal -->
+    <NewReferralModal v-if="showNewReferral" :agency-id="agencyId" @close="showNewReferral = false" @posted="showNewReferral = false; onPosted()" />
     <PostListingModal
       v-if="showPostModal"
       :agency-id="agencyId"
@@ -299,7 +301,6 @@ import { computed, watch, ref, reactive } from 'vue';
 import { useRoute } from 'vue-router';
 import { useClientExchangeAgency } from '../../composables/useClientExchangeAgency';
 import { useAuthStore } from '../../store/auth';
-import { useClientDisplayMode } from '../../composables/useClientDisplayMode';
 import {
   buildExchangeListingSearchContext,
   matchesQueueSearch
@@ -308,9 +309,9 @@ import api from '../../services/api';
 import ListingCard from './ListingCard.vue';
 import PostListingModal from './PostListingModal.vue';
 import ClientExchangeSummary from './ClientExchangeSummary.vue';
-import ClientDisplayModeToggle from '../admin/ClientDisplayModeToggle.vue';
+import NewReferralModal from './NewReferralModal.vue';
 
-const { getClientLabel } = useClientDisplayMode();
+const showNewReferral = ref(false);
 
 const route = useRoute();
 const { agencyId, agencies, selected: selectedAgency } = useClientExchangeAgency();
@@ -358,13 +359,7 @@ const currentTabList = computed(() => {
 const searchTokens = computed(() => String(searchQuery.value || '').toLowerCase().split(/\s+/).filter(Boolean));
 
 function listingClientLabel(listing) {
-  if (!listing) return '—';
-  if (!listing.clientId) return `Client referral #${listing.id}`;
-  return getClientLabel({
-    id: listing.clientId,
-    initials: listing.clientInitials,
-    identifierCode: listing.clientIdentifierCode || listing.clientIdentifier,
-  });
+  return listing?.clientInitials || (listing ? `Client referral #${listing.id}` : '—');
 }
 
 function matchSearch(listing) {

@@ -29,6 +29,15 @@
           <span v-if="schoolTag" class="chip chip--school">{{ schoolTag }}</span>
         </div>
 
+        <TaskClaimButton :task="item" @claimed="onTaskClaimed" />
+        <section v-if="exchangeSetup" class="client-action-banner">
+          <p>Complete this client's record from the EHR. Paste demographics, the intake, and the latest treatment plan here, or review records the provider already supplied.</p>
+          <button type="button" class="btn btn-primary btn-sm" @click="showExchangeImport = true">Import demographics, intake and treatment plan</button>
+          <router-link :to="{ path: `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/clients`, query: { clientId: exchangeSetup.clientId } }">Review client record</router-link>
+          <p v-if="exchangeEhrReference">EHR reference: {{ exchangeEhrReference }}</p>
+          <p v-if="exchangeRecordsImported">Records saved. Review the imported information, then mark this task done.</p>
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="item.status === 'completed'" @click="emit('complete', item)">Mark task done</button>
+        </section>
         <div v-if="clientLifecycleAction" class="client-action-banner">
           <p>
             This is a client action item — complete it the same way you would from Clients.
@@ -332,12 +341,16 @@
         </ul>
       </template>
     </div>
+    <ClientEhrBringUpToDatePanel v-if="exchangeSetup" :open="showExchangeImport" :client-id="exchangeSetup.clientId" :agency-id="exchangeSetup.agencyId" creation-flow @close="showExchangeImport = false" @imported="onExchangeRecordsImported" />
   </aside>
 </template>
 
 <script setup>
 import { computed, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import { useRoute } from 'vue-router';
+import TaskClaimButton from './TaskClaimButton.vue';
+import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpToDatePanel.vue';
 import { formatDate } from '../../utils/formatDate';
 import { TASK_CATEGORIES, formatTaskCategoriesShort, getTaskCategories, normalizeTaskCategories, taskCategoryLabel } from '../../utils/taskCategories';
 import { taskSchoolTag } from '../../utils/taskSchoolTag.js';
@@ -411,6 +424,35 @@ function parseTaskMetadata(item) {
   }
   return meta && typeof meta === 'object' ? meta : {};
 }
+
+const route = useRoute();
+const showExchangeImport = ref(false);
+const exchangeRecordsImported = ref(false);
+const exchangeEhrReference = ref('');
+const exchangeSetup = computed(() => {
+  const meta = parseTaskMetadata(props.item);
+  return meta.source === 'client_exchange_setup' && meta.clientId && meta.agencyId ? meta : null;
+});
+function onTaskClaimed(task) {
+  assigneeUserId.value = String(task.assigned_to_user_id || '');
+  if (exchangeSetup.value) showExchangeImport.value = true;
+  emit('changed');
+}
+function onExchangeRecordsImported() { exchangeRecordsImported.value = true; showExchangeImport.value = false; emit('changed'); }
+watch(() => props.item.id, async () => {
+  exchangeEhrReference.value = '';
+  exchangeRecordsImported.value = false;
+  showExchangeImport.value = !!props.item._justClaimed && !!exchangeSetup.value;
+  const meta = exchangeSetup.value;
+  if (meta) {
+    const id = props.item.id;
+    try {
+      const { data } = await api.get(`/clients/${meta.clientId}`, { skipGlobalLoading: true });
+      const prefs = typeof data.intake_preferences_json === 'string' ? JSON.parse(data.intake_preferences_json) : data.intake_preferences_json;
+      if (props.item.id === id) exchangeEhrReference.value = prefs?.exchangeReferral?.ehrReference || '';
+    } catch { /* The chart link remains available for authorized staff. */ }
+  }
+}, { immediate: true });
 
 const clientLifecycleAction = computed(() => {
   const meta = parseTaskMetadata(props.item);

@@ -1,3 +1,4 @@
+import { claimSharedTask } from '../services/taskClaim.service.js';
 /**
  * Self-service task management for Momentum List (custom tasks).
  * Users can create, update, and delete their own custom tasks without admin.
@@ -43,6 +44,7 @@ async function canUpdateOrDeleteTask(task, userId, role = '') {
   const r = String(role || '').toLowerCase();
   if (['admin', 'super_admin', 'support', 'supervisor'].includes(r)) return true;
   if (String(task.task_type) === 'custom') {
+    if (Number(task.assigned_to_user_id) === Number(userId)) return true;
     if (task.task_list_id) {
       const membership = await TaskListMember.findByListAndUser(task.task_list_id, userId);
       return membership && TaskListMember.canEdit(membership.role);
@@ -144,7 +146,7 @@ export const createCustomTask = async (req, res, next) => {
 
     await TaskAuditLog.logAction({
       taskId: task.id,
-      actionType: resolvedAssignee ? 'assigned' : 'created',
+      actionType: 'assigned',
       actorUserId: userId,
       targetUserId: resolvedAssignee || userId,
       metadata: meta
@@ -309,27 +311,11 @@ export const claimTask = async (req, res, next) => {
     const userId = req.user.id;
     const taskId = parseInt(req.params.id, 10);
 
-    const task = await Task.findById(taskId);
-    if (!task) return res.status(404).json({ error: { message: 'Task not found' } });
-    if (String(task.task_type) !== 'custom') return res.status(400).json({ error: { message: 'Only custom tasks can be claimed' } });
-    if (!task.task_list_id) return res.status(400).json({ error: { message: 'Task must be in a shared list to claim' } });
-    if (task.assigned_to_user_id) return res.status(400).json({ error: { message: 'Task is already assigned' } });
-
-    const membership = await TaskListMember.findByListAndUser(task.task_list_id, userId);
-    if (!membership) return res.status(403).json({ error: { message: 'You must be a member of this list to claim' } });
-
-    const updated = await Task.updateCustomTask(taskId, { assignedToUserId: userId });
-
-    await TaskAuditLog.logAction({
-      taskId,
-      actionType: 'assigned',
-      actorUserId: userId,
-      targetUserId: userId,
-      metadata: { source: 'claim', taskListId: task.task_list_id }
-    });
-
+    await claimSharedTask({ taskId, userId });
+    const updated = await Task.findById(taskId);
     res.json(updated);
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: { message: err.message } });
     next(err);
   }
 };

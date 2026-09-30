@@ -32,6 +32,7 @@
 
       <div class="pct-toolbar">
         <PostClientToExchangeButton v-if="!profileEmbed" />
+        <button v-if="!profileEmbed && agencyId" class="pct-btn pct-btn--ghost" @click="showNewReferral = true">New exchange referral</button>
         <router-link v-if="!profileEmbed" class="pct-btn pct-btn--ghost" :to="{ path: `${route.params?.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/clients`, query: { new: '1' } }">Add client</router-link>
         <template v-if="activeSection === 'school'">
           <label class="pct-field">
@@ -474,6 +475,7 @@
       @close="showEhrPatientListModal = false"
       @imported="onEhrPatientListImported"
     />
+    <NewReferralModal v-if="showNewReferral && agencyId" :agency-id="agencyId" @close="showNewReferral = false" @posted="showNewReferral = false; load()" />
     <ClientEhrBringUpToDatePanel
       :open="!!bringUpClient"
       :client-id="bringUpClient?.id || 0"
@@ -498,6 +500,7 @@ import ClientDetailPanel from '../admin/ClientDetailPanel.vue';
 import ReferralDirectoryPanel from '../referralDirectory/ReferralDirectoryPanel.vue';
 import ClientExchangePanel from '../clientExchange/ClientExchangePanel.vue';
 import EhrPatientListImportModal from '../admin/EhrPatientListImportModal.vue';
+import NewReferralModal from '../clientExchange/NewReferralModal.vue';
 import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpToDatePanel.vue';
 import { displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 
@@ -516,6 +519,7 @@ const props = defineProps({
 const emit = defineEmits(['update:needsAttentionCount', 'update:pendingClientsCount']);
 
 const route = useRoute();
+const showNewReferral = ref(false);
 const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();

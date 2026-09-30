@@ -89,6 +89,7 @@
           </button>
           <div class="task-row__main">
             <span class="task-row__title" :class="{ done: task.status === 'completed' }">{{ task.title }}</span>
+            <TaskClaimButton :task="task" @claimed="$emit('task-updated'); $emit('open', { ...task, ...$event, _justClaimed: true })" />
             <span v-if="showAssignee(task)" class="task-row__assignee-wrap">
               <UserAvatar
                 v-if="showAssigneeAvatars"
@@ -184,6 +185,7 @@
 import { computed, reactive, ref, onBeforeUnmount, onMounted } from 'vue';
 import { formatDate } from '../../utils/formatDate';
 import { resolveTaskTypeMeta, taskTypeIconSvg } from '../../utils/taskTypeIcons';
+import TaskClaimButton from './TaskClaimButton.vue';
 import UserAvatar from '../common/UserAvatar.vue';
 import BulkActionBar from './BulkActionBar.vue';
 import api from '../../services/api';

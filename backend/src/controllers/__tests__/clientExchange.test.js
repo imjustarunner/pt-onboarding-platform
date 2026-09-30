@@ -1,12 +1,13 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn() }));
+const mocks = vi.hoisted(() => ({ client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn(), referral: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../models/User.model.js', () => ({ default: {} }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: mocks.client } }));
 vi.mock('../../services/clientRecordAccess.service.js', () => ({ providerHasAssignedClientAccess: mocks.access, resolveClientRecordAccess: mocks.recordAccess }));
 vi.mock('../../services/clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: mocks.summary }));
 vi.mock('../../services/clientExchange.service.js', () => ({ createListing: mocks.create }));
-import { createListing, previewClientSummary, saveClientSchedule } from '../clientExchange.controller.js';
+vi.mock('../../services/clientExchangeReferral.service.js', () => ({ createExchangeReferral: mocks.referral }));
+import { createReferral, createListing, previewClientSummary, saveClientSchedule } from '../clientExchange.controller.js';
 const response = () => { const res = { status: vi.fn(), json: vi.fn() }; res.status.mockReturnValue(res); return res; };
 const request = () => ({ user: { id: 7, role: 'provider', agencies: [{ id: 2 }] }, body: { agencyId: 2, clientId: 4, currentProviderUserId: 999 } });
 beforeEach(() => { vi.clearAllMocks(); mocks.client.mockResolvedValue({ id: 4, agency_id: 2, provider_id: 7, status: 'CURRENT' }); mocks.access.mockResolvedValue(true); mocks.create.mockResolvedValue({ id: 12 }); });
@@ -63,4 +64,11 @@ it('rejects invalid scheduling preferences without writing client data', async (
   const req = request(); req.params = { clientId: 4 }; req.body.schedule = { windows: [{ start: '17:00', end: '15:00' }], timezone: 'America/Denver' };
   const res = response(); await saveClientSchedule(req, res, vi.fn());
   expect(res.status).toHaveBeenCalledWith(400); expect(mocks.execute).not.toHaveBeenCalled();
+});
+it('allows an agency provider to create an EHR referral but rejects nonclinical roles', async () => {
+  const req = request(); mocks.referral.mockResolvedValue({ clientId: 15, taskId: 30 });
+  const res = response(); await createReferral(req, res, vi.fn());
+  expect(res.status).toHaveBeenCalledWith(201); expect(mocks.referral).toHaveBeenCalledWith({ agencyId: 2, actor: req.user, input: req.body });
+  mocks.referral.mockClear(); req.user.role = 'school_staff';
+  const denied = response(); await createReferral(req, denied, vi.fn()); expect(denied.status).toHaveBeenCalledWith(403); expect(mocks.referral).not.toHaveBeenCalled();
 });

@@ -44,7 +44,7 @@ export async function notifyExchangeMatches({ listing, client }) {
       const result = await sendEmailFromIdentity({
         senderIdentityId: sender.id, to, userId: user.id, source: 'auto',
         subject: 'New Client Exchange match',
-        ...buildExchangeEmail({ listing, link }),
+        ...buildExchangeEmail({ listing, link, client }),
         templateType: 'client_exchange_match', linkUrl: link, fromDisplayNameOverride: 'Notifications'
       });
       if (result?.skipped || result?.blocked) summary.failed++;

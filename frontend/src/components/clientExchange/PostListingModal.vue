@@ -66,6 +66,9 @@
           </label>
         </div>
 
+        <label class="field"><span class="label">Preferred provider gender</span>
+          <select v-model="providerGender" class="select"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select>
+        </label>
         <ClientSchedulePreferences v-model="schedule" />
 
         <label class="field">
@@ -113,6 +116,7 @@ const ageBand = ref('');
 const gender = ref('');
 const presentingProblemsRaw = ref('');
 const modality = ref('');
+const providerGender = ref('');
 const insurance = ref('');
 const schedule = ref({});
 const notes = ref('');
@@ -126,7 +130,7 @@ let summaryVersion = 0;
 watch(selectedClientId, async clientId => {
   const version = ++summaryVersion;
   sharedSummary.value = {};
-  schedule.value = {};
+  schedule.value = {}; providerGender.value = '';
   ageBand.value = ''; gender.value = ''; presentingProblemsRaw.value = ''; modality.value = ''; insurance.value = ''; notes.value = '';
   summaryError.value = '';
   summaryLoading.value = false;
@@ -137,6 +141,7 @@ watch(selectedClientId, async clientId => {
     if (version === summaryVersion) {
       sharedSummary.value = response.data?.summary || {};
       schedule.value = sharedSummary.value.preferences?.schedule || {};
+      providerGender.value = sharedSummary.value.preferences?.providerGender || '';
     }
   } catch (error) {
     if (version === summaryVersion) summaryError.value = error?.response?.data?.error?.message || 'Unable to load the client summary. Please try again.';
@@ -195,6 +200,7 @@ async function submit() {
       preferences: {
         modality: modality.value || undefined,
         insurance: insurance.value || undefined,
+        providerGender: providerGender.value || null,
         schedule: normalizeExchangeSchedule(schedule.value)
       },
       notes: notes.value || null

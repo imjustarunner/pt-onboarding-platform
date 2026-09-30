@@ -20,11 +20,21 @@ export function clientAge(client, now = new Date()) {
   return age >= 0 && age <= 120 ? age : null;
 }
 
+export function normalizedProviderGender(value) {
+  const gender = String(value || '').toLowerCase().trim();
+  if (/^(female|woman|women|she\/her)\b/.test(gender)) return 'female';
+  if (/^(male|man|men|he\/him)\b/.test(gender)) return 'male';
+  if (/^(nonbinary|non-binary|non binary|they\/them)\b/.test(gender)) return 'nonbinary';
+  return gender;
+}
+
 export function matchesExchangeListing({ user, profile, facets = {}, listing, client, now }) {
   const availability = providerAvailabilityPreferences(user, profile);
   if (!availability.seesClients || !availability.acceptingNewClients) return false;
   const modality = listing.preferences?.modality || listing.preferences?.preferredModality;
   if (modality === 'in_person' ? !availability.inPerson : modality === 'virtual' ? !availability.virtual : !availability.inPerson && !availability.virtual) return false;
+  const preferredGender = normalizedProviderGender(listing.preferences?.providerGender);
+  if (preferredGender && preferredGender !== normalizedProviderGender(profile?.details?.gender)) return false;
   const age = clientAge(client, now);
   const requestedAge = age == null ? ageRange(listing.demographics?.ageBand) : [age, age];
   if (requestedAge && !(facets.ageGroups || []).some(value => {

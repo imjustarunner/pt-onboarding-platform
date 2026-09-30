@@ -1,3 +1,4 @@
+import { createExchangeReferral } from '../services/clientExchangeReferral.service.js';
 import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -95,6 +96,19 @@ export async function previewClientSummary(req, res, next) {
     if (!access.ok) return res.status(access.status || 403).json({ error: { message: access.message } });
     res.json({ summary: await loadClientExchangeSummary({ client }) });
   } catch (error) { next(error); }
+}
+
+export async function createReferral(req, res, next) {
+  try {
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!agencyId || !(await assertAgencyAccess(req, agencyId))) return res.status(403).json({ error: { message: 'Agency access required' } });
+    const allowed = ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'];
+    if (!allowed.includes(req.user.role)) return res.status(403).json({ error: { message: 'Provider or support access required' } });
+    res.status(201).json(await createExchangeReferral({ agencyId, actor: req.user, input: req.body }));
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
 }
 
 /** Save scheduling preferences for later one-click exchange posting. */

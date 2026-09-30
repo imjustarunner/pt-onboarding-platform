@@ -59,10 +59,13 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
   const billing = diagnoses.length ? [] : await listBillingDiagnosesForClient({ agencyId, clientId: client.id });
   const intake = parseSummaryJson(client.intake_preferences_json);
   const age = clientAge(client);
+  const referral = intake.exchangeReferral || {};
+  const problem = latestPresentingProblem({ plans, intakes: [...intakes, ...intakeNotes], preferences: intake });
+  if (!problem.presentingProblems.length && referral.presentingProblem) { problem.presentingProblems = [referral.presentingProblem]; problem.presentingProblemSource = 'Referral'; }
   return {
-    demographics: { ...(age == null ? {} : { ageBand: String(age) }), ...(client.gender ? { gender: client.gender } : {}) },
-    diagnoses: summaryItems(diagnoses.length ? diagnoses : billing),
-    ...latestPresentingProblem({ plans, intakes: [...intakes, ...intakeNotes], preferences: intake }),
-    preferences: { modality: intake.preferredModality || null, schedule: scheduleFromIntake(intake, client.timezone) }
+    demographics: { ...(age == null ? (referral.age == null ? {} : { ageBand: String(referral.age) }) : { ageBand: String(age) }), ...(client.gender ? { gender: client.gender } : {}) },
+    diagnoses: summaryItems(diagnoses.length ? diagnoses : billing.length ? billing : referral.diagnoses),
+    ...problem,
+    preferences: { modality: intake.preferredModality || null, schedule: scheduleFromIntake(intake, client.timezone), providerGender: intake.preferredProviderGender || null }
   };
 }

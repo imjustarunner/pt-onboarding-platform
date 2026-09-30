@@ -1,3 +1,4 @@
+import { exchangeSafeValue, exchangeSafeText } from '../utils/clientExchangePrivacy.js';
 import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
 import { insertExchangeListing } from './clientExchangePosting.service.js';
 import pool from '../config/database.js';
@@ -99,9 +100,8 @@ function mapRequestRow(row) {
 }
 
 /**
- * Providers browsing the exchange never see the client's real identity —
- * only agency staff (support/admin/super_admin), the poster, or the current
- * provider get the client's initials/code for reference.
+ * Agency providers see client initials in the exchange. Chart links and internal
+ * identifiers remain restricted to staff, the poster, and the assigned provider.
  */
 function isPrivilegedViewer({ viewerRole, viewerUserId, listing }) {
   const role = String(viewerRole || '').toLowerCase();
@@ -127,7 +127,7 @@ function redactListing(listing, { viewerRole, viewerUserId }) {
   }
   // Redacted view for browsing providers: strip identifying fields.
   const { clientId, postedByName, currentProviderName, ...rest } = mapped;
-  return { ...rest, clientId: null, currentProviderName: null };
+  return { ...rest, clientId: null, clientInitials: listing.client_initials || null, currentProviderName: null };
 }
 
 export async function listListings({ agencyId, status, viewerUserId, viewerRole }) {
@@ -165,9 +165,16 @@ export async function listListings({ agencyId, status, viewerUserId, viewerRole 
 }
 
 async function hydrateListingSummary(row) {
-  if (!row.client_id || !['open', 'requested'].includes(row.status)) return row;
+  if (!row.client_id) return row;
   const client = await Client.findById(row.client_id);
   if (!client || Number(client.agency_id) !== Number(row.agency_id)) return row;
+  if (!['open', 'requested'].includes(row.status)) {
+    for (const field of ['diagnoses_json', 'presenting_problems_json', 'demographics_json']) row[field] = exchangeSafeValue(parseJsonColumn(row[field]), client);
+    const preferences = parseJsonColumn(row.preferences_json) || {};
+    if (preferences.schedule) preferences.schedule.notes = exchangeSafeText(preferences.schedule.notes, client);
+    row.preferences_json = preferences; row.notes = exchangeSafeText(row.notes, client);
+    return row;
+  }
   const saved = await loadClientExchangeSummary({ client });
   const preferences = parseJsonColumn(row.preferences_json) || {};
   const summary = mergeExchangeSummary(saved, {
@@ -177,10 +184,11 @@ async function hydrateListingSummary(row) {
   });
   summary.preferences.presentingProblemSource = saved.presentingProblemSource;
   summary.preferences.presentingProblemUpdatedAt = saved.presentingProblemUpdatedAt;
-  row.diagnoses_json = summary.diagnoses;
-  row.presenting_problems_json = summary.presentingProblems;
-  row.demographics_json = summary.demographics;
-  row.preferences_json = summary.preferences;
+  row.diagnoses_json = exchangeSafeValue(summary.diagnoses, client);
+  row.presenting_problems_json = exchangeSafeValue(summary.presentingProblems, client);
+  row.demographics_json = exchangeSafeValue(summary.demographics, client);
+  row.preferences_json = { ...summary.preferences, schedule: summary.preferences.schedule ? { ...summary.preferences.schedule, notes: exchangeSafeText(summary.preferences.schedule.notes, client) } : undefined };
+  row.notes = exchangeSafeText(row.notes, client);
   return row;
 }
 

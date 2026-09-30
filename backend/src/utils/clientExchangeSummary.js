@@ -1,3 +1,4 @@
+import { exchangeSafeText } from './clientExchangePrivacy.js';
 import { exchangeScheduleLines } from './clientExchangeSchedule.js';
 export function summaryItems(value) {
   if (value == null || value === '') return [];
@@ -26,19 +27,20 @@ export function mergeExchangeSummary(saved, additional = {}) {
 }
 
 const escapeHtml = value => String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
-export function buildExchangeEmail({ listing, link }) {
+export function buildExchangeEmail({ listing, link, client = {} }) {
   const demographics = listing.demographics || {};
   const preferences = listing.preferences || {};
   const sections = [
     ['Age', summaryItems(demographics.ageBand)],
     ['Gender', summaryItems(demographics.gender)],
+    ['Preferred provider gender', summaryItems(preferences.providerGender)],
     ['Presenting problems', summaryItems(listing.presentingProblems)],
     ['Presenting problem source', [listing.presentingProblemSource, listing.presentingProblemUpdatedAt ? new Date(listing.presentingProblemUpdatedAt).toISOString().slice(0, 10) : null].filter(Boolean)],
     ['Diagnoses', summaryItems(listing.diagnoses)],
     ['Modality', summaryItems(({ in_person: 'In person', virtual: 'Virtual', either: 'In person or virtual' })[preferences.modality] || preferences.modality)],
     ['Insurance', summaryItems(preferences.insurance)],
     ['When the client needs a provider', exchangeScheduleLines(preferences.schedule)]
-  ].filter(([, values]) => values.length);
+  ].map(([label, values]) => [label, values.map(value => exchangeSafeText(value, client))]).filter(([, values]) => values.length);
   const intro = 'A new client is available in the exchange. Review the shared information and request the client if you are interested. Multiple providers may request; the current provider or support team chooses the assignment.';
   return {
     text: `${intro}\n\n${sections.map(([label, values]) => `${label}:\n${values.map(value => `- ${value}`).join('\n')}`).join('\n\n')}\n\nView client and request: ${link}`,

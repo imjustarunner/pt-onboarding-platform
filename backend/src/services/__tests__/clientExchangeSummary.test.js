@@ -46,3 +46,7 @@ it('includes persisted scheduling preferences in the summary used for one-click 
   const summary = await loadClientExchangeSummary({ client: { id: 3, agency_id: 2, intake_preferences_json: JSON.stringify({ exchangeSchedule: schedule }) } });
   expect(summary.preferences.schedule).toEqual(schedule);
 });
+it('uses a minimal provider referral until newer clinical records are available', async () => {
+  const summary = await loadClientExchangeSummary({ client: { id: 3, agency_id: 2, gender: 'female', intake_preferences_json: { exchangeReferral: { age: 9, diagnoses: 'F41.1', presentingProblem: 'Worry' }, preferredProviderGender: 'female' } } });
+  expect(summary).toMatchObject({ demographics: { ageBand: '9', gender: 'female' }, diagnoses: ['F41.1'], presentingProblems: ['Worry'], presentingProblemSource: 'Referral', preferences: { providerGender: 'female' } });
+});

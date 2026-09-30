@@ -40,3 +40,9 @@ test('specified insurance requires a supported insurance', () => {
   assert.equal(matchesExchangeListing({ ...base, listing: { ...base.listing, preferences: { insurance: 'aetna' } } }), true);
   assert.equal(matchesExchangeListing({ ...base, listing: { ...base.listing, preferences: { insurance: 'Other' } } }), false);
 });
+test('honors an explicitly requested provider gender', () => {
+  const listing = { ...base.listing, preferences: { ...base.listing.preferences, providerGender: 'female' } };
+  assert.equal(matchesExchangeListing({ ...base, listing, profile: { ...base.profile, details: { gender: 'Woman (she/her)' } } }), true);
+  assert.equal(matchesExchangeListing({ ...base, listing, profile: { ...base.profile, details: { gender: 'male' } } }), false);
+  assert.equal(matchesExchangeListing({ ...base, listing }), false);
+});

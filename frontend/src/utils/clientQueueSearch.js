@@ -146,6 +146,7 @@ export function buildExchangeListingSearchContext(listing) {
     ...problemList,
     prefs.modality,
     prefs.insurance,
+    prefs.providerGender,
     ...exchangeScheduleLines(prefs.schedule),
     listing?.status
   ];

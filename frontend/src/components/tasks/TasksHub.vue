@@ -129,7 +129,7 @@
           </div>
           <div v-if="actionItemsLoading" class="hub-state">Loading action items…</div>
           <div v-else-if="!actionItems.length" class="hub-state">No action items yet</div>
-          <TasksListTable
+          <TasksListTable @task-updated="refresh"
             v-else
             :tasks="actionItemsAsTasks"
             :type-defs="typeDefs"
@@ -219,7 +219,7 @@
                     </button>
                     <div v-show="isTeamListExpanded(list.id)" class="team-list-block__tasks">
                       <div v-if="teamListTasksLoading[list.id]" class="hub-state hub-state--sm">Loading tasks…</div>
-                      <TasksListTable
+                      <TasksListTable @task-updated="refresh"
                         v-else-if="(teamListTasksByListId[list.id] || []).length"
                         :tasks="teamListTasksByListId[list.id]"
                         :type-defs="typeDefs"
@@ -393,7 +393,7 @@
               <template v-else>No tasks found</template>
             </div>
 
-            <TasksListTable
+            <TasksListTable @task-updated="refresh"
               v-else-if="layout === 'list'"
               :tasks="displayTasks"
               :type-defs="typeDefs"

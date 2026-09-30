@@ -15,6 +15,7 @@
       <ul v-if="diagnoses.length"><li v-for="diagnosis in diagnoses" :key="diagnosis">{{ diagnosis }}</li></ul>
       <p v-else class="muted">Not recorded</p>
     </section>
+    <p v-if="listing.preferences?.providerGender">Preferred provider gender: {{ listing.preferences.providerGender }}</p>
     <section v-if="scheduleLines.length">
       <strong>When the client needs a provider</strong>
       <ul><li v-for="line in scheduleLines" :key="line">{{ line }}</li></ul>

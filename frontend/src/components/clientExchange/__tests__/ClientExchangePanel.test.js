@@ -52,3 +52,12 @@ it('shows the shared client details before allowing a request and prevents dupli
   expect(wrapper.findAll('button').some(button => button.text() === 'Request this client')).toBe(false);
   wrapper.unmount();
 });
+it('uses initials in the exchange regardless of the chart display mode', async () => {
+  mocks.user = { id: 7, role: 'provider' };
+  mocks.store = reactive({ currentAgency: { id: 2 }, userAgencies: [], agencies: [], fetchUserAgencies: vi.fn().mockResolvedValue([]) });
+  mocks.route.query = {};
+  mocks.get.mockResolvedValue({ data: { listings: [{ id: 4, clientId: null, clientInitials: 'AB', full_name: 'Synthetic Name', status: 'open' }], requests: [] } });
+  const wrapper = makeWrapper(); await flushPromises();
+  expect(wrapper.findComponent({ name: 'ListingCard' }).props('clientLabel')).toBe('AB');
+  expect(wrapper.text()).not.toContain('Synthetic Name'); wrapper.unmount();
+});

@@ -3,6 +3,11 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import * as ctrl from '../controllers/clientExchange.controller.js';
 
 const router = express.Router();
+router.use(authenticate, (req, res, next) => {
+  if (!['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(req.user?.role)) return res.status(403).json({ error: { message: 'Provider or agency staff access required' } });
+  next();
+});
+router.post('/referrals', ctrl.createReferral);
 
 router.get('/clients/:clientId/summary', authenticate, ctrl.previewClientSummary);
 router.put('/clients/:clientId/schedule', authenticate, ctrl.saveClientSchedule);
