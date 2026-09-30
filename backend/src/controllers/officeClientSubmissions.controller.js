@@ -1,3 +1,4 @@
+import { scoreOfficeFeedback } from '../services/officeFeedbackForms.js';
 import { readAccessibleFeedback, summarizeFeedback } from '../services/officeFeedbackSummary.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -35,4 +36,11 @@ export const clientFeedback = action(async(req,res)=>{
 export const clientFeedbackSummaries = action(async(req,res)=>{
   const visits=await readAccessibleFeedback({user:req.user,clientIds:req.body?.clientIds,providerId:req.body?.providerId??null});
   res.json({summaries:summarizeFeedback(visits),windowDays:42,asOf:new Date().toISOString()});
+});
+
+export const submissionResponses = action(async(req,res)=>{
+ const id=Number(req.params.id);if(!Number.isSafeInteger(id)||id<=0)return res.status(400).json({error:{message:'Invalid check-in.'}});
+ const row=await privateSubmission(pool,id,req.user.id),forms=json(row.forms_json),feedback=readSubmissionAnswers(row.answers_json);
+ const [[location]]=await pool.execute('SELECT name,timezone FROM office_locations WHERE id=?',[row.office_location_id]);
+ res.json({visit:{id:row.id,scheduledStartAt:row.scheduled_start_at,completedAt:row.completed_at,location:location?.name,timezone:location?.timezone||'America/Denver',respondentType:forms.respondentType,serviceType:forms.serviceType||'counseling',forms:forms.forms,answers:feedback.answers,skippedFormIds:feedback.skippedFormIds,score:scoreOfficeFeedback(forms.forms,feedback.answers,feedback.skippedFormIds)}});
 });

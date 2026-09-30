@@ -3085,6 +3085,18 @@ const routes = [
     }
   },
   {
+    path: '/office-checkin-responses/:submissionId',
+    name: 'OfficeCheckinResponses',
+    component: () => import('../views/provider/OfficeCheckinResponsesView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/:organizationSlug/office-checkin-responses/:submissionId',
+    name: 'OrganizationOfficeCheckinResponses',
+    component: () => import('../views/provider/OfficeCheckinResponsesView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/dashboard',
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),

@@ -5,7 +5,9 @@ import { usesPasswordLogin } from '../utils/passwordLogin.js';
 import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
 import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
-import { publicAppBaseUrl } from './contactReminderToken.service.js';
+import { arrivalEmail } from './officeArrivalEmail.js';
+import { feedbackForArrival } from './officeArrivalFeedback.service.js';
+export { arrivalEmail, escapeHtml } from './officeArrivalEmail.js';
 import { withMessagingJobLock } from './messagingJobLock.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 
@@ -16,16 +18,6 @@ export function arrivalRecipient(user) {
   return String(address || '').trim().toLowerCase() || null;
 }
 export const tokenHash = token => crypto.createHash('sha256').update(token).digest('hex');
-export const escapeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export function arrivalEmail(notification, token) {
-  const url = `${publicAppBaseUrl()}/api/public/office-arrivals/${token}`;
-  const app = `${publicAppBaseUrl()}/dashboard`;
-  return {
-    subject: 'Your client has arrived',
-    text: `${notification.message}\n\nOpen the app: ${app}\nDismiss this arrival or keep future check-ins in-app only: ${url}`,
-    html: `<h1>Your client has arrived</h1><p>${escapeHtml(notification.message)}</p><p><a href="${escapeHtml(app)}">Open the app</a></p><p><a href="${escapeHtml(url)}">Dismiss this arrival</a> · <a href="${escapeHtml(url)}?action=in_app_only">Keep check-ins in-app only</a></p><p>No client names or questionnaire responses are included in this email.</p>`
-  };
-}
 
 export async function acknowledgeArrival(id, userId, inAppOnly = false) {
   const db = await pool.getConnection();
@@ -77,6 +69,10 @@ export async function runOfficeArrivalTick() {
           await pool.execute("UPDATE office_arrival_deliveries SET email_status='suppressed' WHERE notification_id=? AND email_status='pending'",[row.notification_id]);continue;
         }
         if(Date.now()-parseUtcDate(row.created_at).getTime()>4*60*60_000){await pool.execute("UPDATE office_arrival_deliveries SET email_status='expired' WHERE notification_id=? AND email_status='pending'",[row.notification_id]);continue;}
+        const feedback=await feedbackForArrival(row);
+        if(feedback?.wait){
+          await pool.execute("UPDATE office_arrival_deliveries SET due_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 15 SECOND) WHERE notification_id=? AND email_status='pending'",[row.notification_id]);continue;
+        }
         const to=arrivalRecipient(row);
         const sender=await EmailSenderIdentity.findByAgencyAndIdentityKey(row.agency_id,'kiosk') || await resolvePreferredSenderIdentityForAgency({agencyId:row.agency_id,preferredKeys:['notifications','system'],includePlatformDefaults:false,onlyActive:true});
         if(!to || !sender?.id || Number(sender.agency_id)!==Number(row.agency_id)) throw Object.assign(new Error('Missing email setup'),{code:'ARRIVAL_EMAIL_SETUP'});
@@ -87,7 +83,7 @@ export async function runOfficeArrivalTick() {
           WHERE d.notification_id=? AND d.email_status='pending' AND d.acknowledged_at IS NULL AND n.is_read=0
           AND NOT EXISTS (SELECT 1 FROM user_notification_type_preferences p WHERE p.user_id=d.user_id AND p.notification_type='kiosk_checkin' AND p.email_enabled=0)`,[tokenHash(token),row.notification_id]);
         if(!claim.affectedRows)continue;
-        const result=await sendEmailFromIdentity({senderIdentityId:sender.id,to,...arrivalEmail(row,token),userId:row.user_id,templateType:'kiosk_checkin',source:'auto',internetMessageIdOverride:`<office-arrival-${row.notification_id}@plottwisthq.com>`});
+        const result=await sendEmailFromIdentity({senderIdentityId:sender.id,to,...arrivalEmail(row,token,feedback),userId:row.user_id,templateType:'kiosk_checkin',source:'auto',internetMessageIdOverride:`<office-arrival-${row.notification_id}@plottwisthq.com>`});
         const status=result?.skipped?'suppressed':result?.pendingApproval?'pending_approval':result?.id?'sent':'failed';
         await pool.execute('UPDATE office_arrival_deliveries SET email_status=?,last_error=? WHERE notification_id=?',[status,result?.reason?.slice(0,100)||null,row.notification_id]);
       } catch(error) {

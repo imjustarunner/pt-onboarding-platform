@@ -1,11 +1,12 @@
 import {it,expect,vi,beforeEach,afterEach} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),channel:vi.fn(),sender:vi.fn(),send:vi.fn(),kiosk:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),channel:vi.fn(),sender:vi.fn(),send:vi.fn(),kiosk:vi.fn(),feedback:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>m}}));
 vi.mock('../notificationPreferences.service.js',()=>({isNotificationChannelEnabled:m.channel}));
 vi.mock('../../models/EmailSenderIdentity.model.js',()=>({default:{findByAgencyAndIdentityKey:m.kiosk}}));
 vi.mock('../emailSenderIdentityResolver.service.js',()=>({resolvePreferredSenderIdentityForAgency:m.sender}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
 vi.mock('../messagingJobLock.service.js',()=>({withMessagingJobLock:async(_,work)=>work()}));
+vi.mock('../officeArrivalFeedback.service.js',()=>({feedbackForArrival:m.feedback}));
 import {arrivalRecipient,arrivalEmail,acknowledgeArrival,runOfficeArrivalTick,tokenHash} from '../officeArrivalNotifications.service.js';
 let row,claim;
 beforeEach(()=>{
@@ -59,4 +60,8 @@ it('retries a known pre-send verification throttle after Gmail’s deadline',asy
  m.send.mockRejectedValue(Object.assign(new Error('Gmail rate limit'),{code:'EMAIL_SENDER_TEMPORARY',retryAt:Date.parse('2026-09-30T13:11:40Z')}));
  await runOfficeArrivalTick();
  expect(m.execute.mock.calls.find(([sql])=>sql.includes("SET email_status='pending',last_error=?"))?.[1]).toEqual(['EMAIL_SENDER_TEMPORARY','2026-09-30 13:11:45',12]);
+});
+
+it('waits for feedback before claiming mail but never delays acknowledgment suppression',async()=>{
+ m.feedback.mockResolvedValue({wait:true});await runOfficeArrivalTick();expect(m.send).not.toHaveBeenCalled();expect(m.execute.mock.calls.some(([sql])=>sql.includes('INTERVAL 15 SECOND'))).toBe(true);expect(m.execute.mock.calls.some(([sql])=>sql.includes("SET d.email_status='sending'"))).toBe(false);
 });
