@@ -1,5 +1,6 @@
 export function summaryItems(value) {
-  if (!value) return [];
+  if (value == null || value === '') return [];
+  if (typeof value === 'number') return Number.isFinite(value) ? [String(value)] : [];
   if (typeof value === 'string') {
     try { return summaryItems(JSON.parse(value)); } catch { return [value.trim()].filter(Boolean); }
   }

@@ -25,7 +25,8 @@
 import { computed } from 'vue';
 const props = defineProps({ listing: { type: Object, required: true } });
 function items(value) {
-  if (!value) return [];
+  if (value == null || value === '') return [];
+  if (typeof value === 'number') return Number.isFinite(value) ? [String(value)] : [];
   if (typeof value === 'string') { try { return items(JSON.parse(value)); } catch { return [value]; } }
   if (Array.isArray(value)) return value.flatMap(items);
   if (typeof value === 'object') {
