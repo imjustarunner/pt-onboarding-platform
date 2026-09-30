@@ -71,3 +71,20 @@ it('resumes the saved writing returned by the server instead of replacing it wit
  state=wrapper.vm.$.setupState;expect(state.draft.text).toBe('Work already written');expect(state.status).toBe('Draft restored');
  mock.replace.mockClear();await state.saveAndClose();expect(wrapper.emitted('close')).toHaveLength(1);expect(mock.replace).not.toHaveBeenCalled();
 });
+
+it('saves all To, Cc and Bcc recipients before queuing the provider email', async()=>{
+ wrapper.unmount();
+ wrapper=shallowMount(Composer,{global:{stubs:{EmailRecipientField:false}}});await flushPromises();
+ state=wrapper.vm.$.setupState;
+ const fields=wrapper.findAllComponents({name:'EmailRecipientField'});
+ for(const [field,addresses] of [[fields[0],'alice@example.org; bob@example.org'],[fields[1],'carol@example.org, dave@example.org'],[fields[2],'private@example.org; other@example.org']]){
+   await field.find('input').setValue(addresses);await field.find('input').trigger('keydown',{key:'Enter'});
+ }
+ expect(mock.api.mock.calls.some(([c])=>c.url.endsWith('/send'))).toBe(false);
+ state.draft.text='Hello everyone';await nextTick();await wrapper.find('form').trigger('submit');await flushPromises();
+ const calls=mock.api.mock.calls.map(([c])=>c);
+ const saved=calls.findLast(c=>c.method==='put');
+ expect(saved.data.draft).toMatchObject({to:'help@grasshopper.com, alice@example.org, bob@example.org',cc:'staff@itsco.health, carol@example.org, dave@example.org',bcc:'private@example.org, other@example.org'});
+ expect(calls.findIndex(c=>c===saved)).toBeLessThan(calls.findIndex(c=>c.url.endsWith('/send')));
+ expect(state.record.state).toBe('sent');
+});

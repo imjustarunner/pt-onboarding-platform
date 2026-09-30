@@ -8,8 +8,8 @@
       <p class="status" role="status">{{ status }}<span v-if="fromEmail"> · From {{ fromEmail }}</span></p>
       <template v-if="record.state === 'editing'">
         <form @submit.prevent="send"><fieldset :disabled="busy">
-          <div class="to-row"><label>To<input v-model="draft.to" type="text" inputmode="email" required placeholder="name@example.com, group@itsco.health" /></label><button v-if="!draft.cc && !draft.bcc" type="button" :aria-expanded="showCopyFields" @click="showCopyFields=!showCopyFields">Cc / Bcc</button></div>
-          <div v-show="showCopyFields || draft.cc || draft.bcc" class="recipients"><label>Cc<input v-model="draft.cc" type="text" inputmode="email" /></label><label>Bcc<input v-model="draft.bcc" type="text" inputmode="email" /></label></div>
+          <div class="to-row"><EmailRecipientField v-model="draft.to" label="To" required /><button v-if="!draft.cc && !draft.bcc" type="button" :aria-expanded="showCopyFields" @click="showCopyFields=!showCopyFields">Cc / Bcc</button></div>
+          <div v-show="showCopyFields || draft.cc || draft.bcc" class="recipients"><EmailRecipientField v-model="draft.cc" label="Cc" /><EmailRecipientField v-model="draft.bcc" label="Bcc" /></div>
           <label>Subject<input v-model="draft.subject" maxlength="998" /></label>
           <label>Your message<textarea ref="bodyInput" v-model="draft.text" placeholder="Write your message…" rows="12" /></label>
           <label class="files">Attach files<input type="file" multiple @change="attach" /></label>
@@ -30,6 +30,7 @@
   </main>
 </template>
 <script setup>
+import EmailRecipientField from '../components/messages/EmailRecipientField.vue';
 import EmailDeliveryChoice from '../components/messages/EmailDeliveryChoice.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
