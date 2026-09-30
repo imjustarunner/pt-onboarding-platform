@@ -2321,6 +2321,7 @@ function extendForMeeting(item) {
 }
 
 function clearSession() {
+  window.dispatchEvent(new Event('quick-view-session-ended'));
   quickPreview.value=null;clearTimeout(quickPreviewTimer);clearTimeout(quickPreviewHideTimer);
   session.value = null; sessionUserId.value = null; sessionAgencyId.value = null;
   stopHeartbeat(); clearTimeout(undoTimer); clearTimeout(quickPreviewTimer); clearTimeout(quickPreviewHideTimer);

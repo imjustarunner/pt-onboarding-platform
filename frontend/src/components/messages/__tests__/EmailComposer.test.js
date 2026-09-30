@@ -63,3 +63,11 @@ it.each(['now','next_available'])('keeps the draft on an availability prompt and
 it('clears an availability prompt if recipients change',async()=>{
  state.availabilityPrompt={recipientCount:1};state.draft.to='other@example.org';await nextTick();expect(state.availabilityPrompt).toBeNull();
 });
+
+it('resumes the saved writing returned by the server instead of replacing it with a blank reply',async()=>{
+ wrapper.unmount();const original=mock.api.getMockImplementation();
+ mock.api.mockImplementation(async config=>config.method==='post'&&config.url==='/communications/drafts'?{data:{draft:{id:'existing',agency_id:2,mode:'reply_all',version:8,state:'editing',resumed:true,draft:{to:'alice@example.org',cc:'team@example.org',subject:'Saved subject',text:'Work already written',quotedText:'Original',attachments:[]}}}}:original(config));
+ wrapper=shallowMount(Composer,{props:{composeContext:{mode:'reply_all',conversationId:10}}});await flushPromises();
+ state=wrapper.vm.$.setupState;expect(state.draft.text).toBe('Work already written');expect(state.status).toBe('Draft restored');
+ mock.replace.mockClear();await state.saveAndClose();expect(wrapper.emitted('close')).toHaveLength(1);expect(mock.replace).not.toHaveBeenCalled();
+});

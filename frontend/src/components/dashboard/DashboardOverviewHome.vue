@@ -50,6 +50,8 @@
       :show-chats="showChats"
     />
 
+    <OverviewEmailDrafts v-if="showChats" :agency-id="agencyId" :enabled="enabled" />
+
     <div class="ov-metric-row" :class="{ 'ov-metric-row--focus-open': !focusCollapsed }">
       <OverviewTodaysFocus
         class="ov-focus-slot"
@@ -182,6 +184,7 @@ import OverviewNotesSnapshot from './OverviewNotesSnapshot.vue';
 import OverviewRecentActivity from './OverviewRecentActivity.vue';
 import OverviewQuickActions from './OverviewQuickActions.vue';
 import OverviewQuickNav from './OverviewQuickNav.vue';
+import OverviewEmailDrafts from './OverviewEmailDrafts.vue';
 import OverviewTodaysFocus from './OverviewTodaysFocus.vue';
 import FocusSessionModal from '../tasks/FocusSessionModal.vue';
 import api from '../../services/api';

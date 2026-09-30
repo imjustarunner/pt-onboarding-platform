@@ -1961,6 +1961,7 @@
       <!-- <RegistrationPromoToastRail v-if="isAuthenticated" /> -->
       <HelperWidget v-if="isAuthenticated && !isImmersiveJoinRoute && !hideGlobalNavForSchoolStaff" />
       <BetaFeedbackWidget v-if="isAuthenticated && !isNative && !isImmersiveJoinRoute && !hideGlobalNavForSchoolStaff" />
+      <EmailComposerDock :owner-id="user?.id" :locked="sessionLockStore.isLocked || sessionLockStore.warningActive" />
       <FloatingMeetingBar v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
       <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome && !hideGlobalNavForSchoolStaff" />
@@ -2259,6 +2260,7 @@ import { ref, computed, watch, onMounted, onUnmounted, unref, nextTick, provide 
 import { Capacitor } from '@capacitor/core';
 const isNative = Capacitor.isNativePlatform();
 import { useAuthStore } from './store/auth';
+import EmailComposerDock from './components/messages/EmailComposerDock.vue';
 import AccountSecurityNotice from './components/AccountSecurityNotice.vue';
 import { useBrandingStore } from './store/branding';
 import { useAgencyStore } from './store/agency';

@@ -131,3 +131,32 @@ it('does not reload the reading pane on every composer autosave', async () => {
   state.onComposerMessage({origin:window.location.origin,data:{type:'email-drafts-changed',change:'delivery'}});
   await flushPromises();expect(api.get).toHaveBeenCalled();
 });
+
+it('searches older email bodies on the server and retains matches absent from the preview',async()=>{
+ state.inboxChannel='email';state.navId='inbox';state.listSearch='older sentence';
+ api.get.mockResolvedValue({data:{conversations:[{id:30,channel:'email',subject:'A different title',last_message_preview:'Latest reply'}]}});
+ await state.loadConversations();
+ expect(api.get).toHaveBeenCalledWith('/communications/conversations',expect.objectContaining({params:expect.objectContaining({q:'older sentence',channel:'email',hubScope:1,filter:'all',limit:80,offset:0})}));
+ expect(state.filteredConversations.map(c=>c.id)).toEqual([30]);
+});
+it('appends additional search results without duplicate threads',async()=>{
+ state.inboxChannel='email';state.navId='inbox';state.listSearch='older sentence';state.conversations=[{id:30,channel:'email'}];
+ api.get.mockResolvedValue({data:{conversations:[{id:30,channel:'email'},{id:31,channel:'email'}]}});
+ await state.loadConversations({append:true});
+ expect(state.conversations.map(c=>c.id)).toEqual([30,31]);
+ expect(api.get).toHaveBeenCalledWith('/communications/conversations',expect.objectContaining({params:expect.objectContaining({offset:1})}));
+});
+it('lists failed sends separately, opens the actual conversation, and never exposes discard as a retry',async()=>{
+ state.navId='needs_attention';api.get.mockResolvedValue({data:{items:[{messageId:40,conversationId:10,subject:'Failed email',deliveryLabel:'Send failed'}]}});
+ await state.loadConversations();expect(state.conversations[0]).toMatchObject({id:'failed-40',conversationId:10,deliveryLabel:'Send failed'});
+ expect(state.conversations[0].draftId).toBeUndefined();
+});
+it('remembers the selected folder and channel using an account-and-agency preference only',()=>{
+ state.inboxChannel='email';state.selectNav('inbox','sent');
+ expect(JSON.parse(localStorage.getItem('messaging-view:5:2'))).toEqual({folder:'sent',channel:'email'});
+ state.restoreMailboxView();expect(state.navId).toBe('sent');expect(state.inboxChannel).toBe('email');
+ localStorage.removeItem('messaging-view:5:2');
+});
+it('keeps Mentions search local instead of turning it into an unfiltered email search',()=>{
+ state.navId='mentions';state.inboxChannel='email';expect(state.emailSearchEnabled).toBe(false);
+});

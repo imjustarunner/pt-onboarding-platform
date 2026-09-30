@@ -23,6 +23,19 @@ export function validateEmailDraft(raw = {}) {
   });
   return data;
 }
+// Metadata is server-owned. Old drafts remain visible when they contain writing/files.
+export const meaningfulDraftSql = `(JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$._hasContent')) IN ('true','1') OR
+ (JSON_EXTRACT(draft_json,'$._hasContent') IS NULL AND (
+ CHAR_LENGTH(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$.text')),'')))>0 OR
+ COALESCE(JSON_LENGTH(JSON_EXTRACT(draft_json,'$.attachments')),0)>0 OR
+ (mode='new' AND CHAR_LENGTH(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$.subject')),'')))>0))))`;
+const headerKeys = ['to','cc','bcc','subject'];
+export function draftWithMetadata(data, previous = null) {
+  const baseline = previous?._baseline || Object.fromEntries(headerKeys.map(k => [k, data[k] || '']));
+  return {...data, _baseline:baseline, _hasContent:!!(data.text.trim() || data.attachments.length ||
+    (previous && headerKeys.some(k => String(data[k] || '').trim() !== String(baseline[k] || '').trim())))};
+}
+
 async function agencyAccess(actor, agencyId) {
   if (actor.scopedAgencyId && Number(actor.scopedAgencyId) !== Number(agencyId)) throw fail('Mailbox not found',404);
   const agencies = await User.getAgencies(actor.id);
@@ -42,7 +55,7 @@ export async function listEmailDrafts(actor, agencyId) {
     JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$.subject')) AS subject,
     JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$.to')) AS recipient,
     LEFT(JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$.text')),400) AS preview
-    FROM communication_email_drafts WHERE user_id=? AND agency_id=? AND state IN ('editing','sending') ORDER BY updated_at DESC LIMIT 200`, [actor.id,agencyId]);
+    FROM communication_email_drafts WHERE user_id=? AND agency_id=? AND state='editing' AND ${meaningfulDraftSql} ORDER BY updated_at DESC LIMIT 200`, [actor.id,agencyId]);
   return rows;
 }
 export async function createEmailDraft(actor, input) {
@@ -55,14 +68,32 @@ export async function createEmailDraft(actor, input) {
     agencyId = Number(conv.agency_id); cid = conv.id;
   }
   await agencyAccess(actor,agencyId);
-  const id = randomUUID(); const data = validateEmailDraft(input.draft);
-  await pool.execute(`INSERT INTO communication_email_drafts(id,user_id,agency_id,conversation_id,mode,draft_json) VALUES(?,?,?,?,?,?)`,[id,actor.id,agencyId,cid,mode,JSON.stringify(data)]);
-  return getEmailDraft(actor,id);
+  const data = draftWithMetadata(validateEmailDraft(input.draft));
+  let id = randomUUID(), resumed = false;
+  const insert = db => db.execute(`INSERT INTO communication_email_drafts(id,user_id,agency_id,conversation_id,mode,draft_json) VALUES(?,?,?,?,?,?)`,[id,actor.id,agencyId,cid,mode,JSON.stringify(data)]);
+  if (cid) {
+    // Serialize reply creation for this author; two windows must not create two competing drafts.
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[actor.id]);
+      const [existing] = await connection.execute(`SELECT id, ${meaningfulDraftSql} AS hasContent FROM communication_email_drafts WHERE user_id=? AND agency_id=? AND conversation_id=? AND state='editing' AND mode=? ORDER BY ${meaningfulDraftSql} DESC, updated_at DESC LIMIT 1 FOR UPDATE`,[actor.id,agencyId,cid,mode]);
+      if (existing[0]) {
+        id=existing[0].id; resumed=!!existing[0].hasContent;
+        // An untouched shell should quote the latest email, not an old reply.
+        if (!resumed) await connection.execute("UPDATE communication_email_drafts SET draft_json=?,version=version+1 WHERE id=? AND user_id=? AND state='editing'",[JSON.stringify(data),id,actor.id]);
+      } else await insert(connection);
+      await connection.commit();
+    } catch(error) { await connection.rollback(); throw error; }
+    finally { connection.release(); }
+  } else await insert(pool);
+  return {...await getEmailDraft(actor,id), resumed};
 }
+
 export async function saveEmailDraft(actor,id,input) {
   const draft = await getEmailDraft(actor,id);
   if (draft.state !== 'editing') throw fail('This draft has already been submitted',409);
-  const data = validateEmailDraft(input.draft);
+  const data = draftWithMetadata(validateEmailDraft(input.draft), draft.draft);
   const [result] = await pool.execute(`UPDATE communication_email_drafts SET draft_json=?,version=version+1 WHERE id=? AND user_id=? AND version=? AND state='editing'`,[JSON.stringify(data),id,actor.id,Number(input.version)||0]);
   if (!result.affectedRows) throw fail('This draft changed in another window. Reopen it before editing.',409);
   return { version: draft.version + 1 };
@@ -97,4 +128,25 @@ export async function sendEmailDraft(actor,id,version,deliveryChoice=null) {
     if ((e.status >= 400 && e.status < 500) || /^(Blocked address:|Recipient \(To\) is required|No sender|Select an inbox)/.test(e.message || '')) await pool.execute("UPDATE communication_email_drafts SET state='editing' WHERE id=? AND user_id=?",[id,actor.id]);
     throw e;
   }
+}
+
+
+export async function getEmailDraftSummary(actor, agencyId) {
+  await agencyAccess(actor, agencyId);
+  const [[counts]] = await pool.execute(`SELECT SUM(state='editing' AND ${meaningfulDraftSql}) AS draftCount,
+    SUM(state='sending') AS pendingCount FROM communication_email_drafts WHERE user_id=? AND agency_id=?`,[actor.id,agencyId]);
+  const [threads] = await pool.execute(`SELECT id,conversation_id FROM communication_email_drafts WHERE user_id=? AND agency_id=? AND state='editing' AND conversation_id IS NOT NULL AND ${meaningfulDraftSql} ORDER BY updated_at DESC LIMIT 500`,[actor.id,agencyId]);
+  const [[failed]] = await pool.execute(`SELECT COUNT(*) AS n FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id WHERE c.agency_id=? AND m.author_user_id=? AND m.channel='email' AND m.direction='outbound' AND m.send_status='failed'`,[agencyId,actor.id]);
+  return {draftCount:Number(counts?.draftCount)||0,attentionCount:(Number(counts?.pendingCount)||0)+(Number(failed?.n)||0),conversationDrafts:threads};
+}
+
+export async function listEmailAttention(actor, agencyId) {
+  await agencyAccess(actor, agencyId);
+  const [drafts] = await pool.execute(`SELECT id AS draftId,conversation_id AS conversationId,updated_at AS updatedAt,
+    JSON_UNQUOTE(JSON_EXTRACT(draft_json,'$.subject')) AS subject,'Confirmation pending' AS deliveryLabel
+    FROM communication_email_drafts WHERE user_id=? AND agency_id=? AND state='sending' ORDER BY updated_at DESC LIMIT 100`,[actor.id,agencyId]);
+  const [failed] = await pool.execute(`SELECT m.id AS messageId,c.id AS conversationId,m.subject,m.created_at AS updatedAt,'Send failed' AS deliveryLabel
+    FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id
+    WHERE c.agency_id=? AND m.author_user_id=? AND m.channel='email' AND m.direction='outbound' AND m.send_status='failed' ORDER BY m.id DESC LIMIT 100`,[agencyId,actor.id]);
+  return [...drafts,...failed].sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt));
 }

@@ -148,6 +148,7 @@
               :placeholder="listSearchPlaceholder"
             />
           </label>
+          <button v-if="emailSearchEnabled && listSearch.trim() && hasMoreEmailResults" type="button" :disabled="loadingList" @click="moreEmailResults">Show more search results</button>
           <div v-if="loadingList || loadingQueued" class="msg-hub-muted pad">Loading…</div>
 
           <ul v-else-if="isQueuedMode && queuedItems.length" class="msg-hub-list">
@@ -217,7 +218,7 @@
                 'email-list-row': c.channel === 'email',
                 unread: c.is_unread
               }"
-              tabindex="0" role="button" @keydown.enter="pickConversation(c)"
+              tabindex="0" role="button" @keydown.enter.self="pickConversation(c)" @keydown.space.self.prevent="pickConversation(c)"
               @mouseenter="previewEmail(c, $event)" @mouseleave="scheduleHidePreview" @focus="previewEmail(c, $event)" @blur="scheduleHidePreview"
               @click="pickConversation(c)"
             >
@@ -250,6 +251,9 @@
                   </span>
                   <span v-if="c.last_message_at" class="msg-hub-time">{{ formatTime(c.last_message_at) }}</span>
                 </div>
+                <p v-if="c.channel === 'email'" class="msg-hub-snippet"><strong>{{ c.subject || '(No subject)' }}</strong></p>
+                <p v-if="c.deliveryLabel" role="status">{{ c.deliveryLabel }}</p>
+                <button v-if="!c.draftId && draftByConversation[c.conversationId || c.id]" type="button" class="msg-hub-btn secondary sm" @click.stop="openEmailComposer(router,{draftId:draftByConversation[c.conversationId || c.id]})" @keydown.enter.stop>Draft · Continue writing</button>
                 <p class="msg-hub-snippet">
                   <span v-if="isConversationSnoozed(c)" class="msg-hub-snooze-tag" title="Snoozed">⏰</span>
                   <span
@@ -260,8 +264,8 @@
                   {{ emailPreviewText(c.last_message_preview || '') }}
                 </p>
               </div>
-              <button v-if="c.draftId" type="button" class="msg-hub-btn secondary sm" @click.stop="discardListedDraft(c)">Discard</button>
-              <div v-else-if="!c.hubKind || c.hubKind === 'email' || c.hubKind === 'sms'" class="msg-hub-row-actions" @click.stop>
+              <button v-if="c.draftId && !c.deliveryLabel" type="button" class="msg-hub-btn secondary sm" @click.stop="discardListedDraft(c)">Discard</button>
+              <div v-else-if="!c.deliveryLabel && (!c.hubKind || c.hubKind === 'email' || c.hubKind === 'sms')" class="msg-hub-row-actions" @click.stop>
                 <div class="msg-hub-snooze-wrap">
                   <button
                     type="button"
@@ -1531,6 +1535,7 @@ import { useSessionLockStore } from '../../store/sessionLock';
 import EmailThreadReader from './EmailThreadReader.vue';
 import { emailPreviewText } from '../../utils/emailReading';
 import { openEmailComposer } from '../../utils/emailComposerWindow';
+import { useEmailWorkspace } from '../../composables/useEmailWorkspace';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
@@ -1547,7 +1552,7 @@ const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = re
 let inboxRequest=0,emailReadRequest=0,mailPollTimer=null,hoverTimer=null,hidePreviewTimer=null;
 let inboxController=null,emailReadController=null;
 const loadingEmail = ref(false);
-function selectInboxChannel(channel){inboxChannel.value=channel;selectNav('inbox',isConversationMode.value ? navId.value : 'inbox');}
+function selectInboxChannel(channel){inboxChannel.value=channel;selectNav('inbox',isConversationMode.value && (!['drafts','needs_attention'].includes(navId.value) || ['all','email'].includes(channel)) ? navId.value : 'inbox');}
 function composeEmail(mode='new') {
   const conversationId=selectedConversation.value?.conversationId || selectedConversation.value?.id || emailSubjectThreads.value.find(t=>t.key===activeEmailThreadKey.value)?.conversationId;
   if(mode !== 'new' && !conversationId){error.value='Open an email conversation first.';return;}
@@ -1576,12 +1581,15 @@ function refreshMailInBackground() {
   if (!document.hidden) void refreshMail({ quiet: true });
 }
 
-async function discardListedDraft(c){try{await api.delete(`/communications/drafts/${c.draftId}`,{skipGlobalLoading:true});await loadConversations({quiet:true});}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}}
+async function discardListedDraft(c){try{await api.delete(`/communications/drafts/${c.draftId}`,{skipGlobalLoading:true});await loadConversations({quiet:true});window.dispatchEvent(new CustomEvent('email-workspace-changed'));}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}}
 function onComposerMessage(event) {
   if (event.origin !== window.location.origin || event.data?.type !== 'email-drafts-changed') return;
+  onWorkspaceChanged({detail:event.data});
+}
+function onWorkspaceChanged(event) {
   // Keystroke autosaves only affect Drafts. They must not keep rebuilding the
   // inbox or a readable thread in the parent window.
-  if (event.data.change === 'draft' && navId.value !== 'drafts') return;
+  if (event.detail?.change === 'draft' && navId.value !== 'drafts') return;
   refreshMailInBackground();
 }
 function scheduleHidePreview(){clearTimeout(hoverTimer);hidePreviewTimer=setTimeout(()=>hoverEmail.value=null,200);}
@@ -1728,6 +1736,7 @@ const queuedItems = ref([]);
 const loadingQueued = ref(false);
 
 const agencyId = computed(() => agencyStore.currentAgency?.id || null);
+const { summary: emailWorkspace, draftByConversation } = useEmailWorkspace(agencyId);
 
 const inboxNavItems = [
   { id: 'inbox', label: 'Inbox' },
@@ -1738,7 +1747,8 @@ const inboxNavItems = [
   { id: 'queued', label: 'Queued' },
   { id: 'snoozed', label: 'Snoozed' },
   { id: 'sent', label: 'Sent' },
-  { id: 'drafts', label: 'Drafts' }
+  { id: 'drafts', label: 'Drafts' },
+  { id: 'needs_attention', label: 'Needs attention' }
 ];
 
 const peopleNavItems = [
@@ -1798,7 +1808,11 @@ const listColumnTitle = computed(() => {
   return peopleNavItems.find((x) => x.id === navId.value)?.label || 'People';
 });
 
+const emailSearchEnabled = computed(() => inboxChannel.value==='email' && isConversationMode.value && !['drafts','needs_attention','mentions'].includes(navId.value));
+const hasMoreEmailResults=ref(false);
+function moreEmailResults(){loadConversations({append:true});}
 const listSearchPlaceholder = computed(() => {
+  if(emailSearchEnabled.value)return 'Search email in this folder…';
   if (navSection.value === 'people' && navId.value === 'contacts') {
     return 'Search contacts, staff, clients, guardians…';
   }
@@ -1807,7 +1821,7 @@ const listSearchPlaceholder = computed(() => {
 
 const isConversationMode = computed(() => {
   if (navSection.value !== 'inbox') return false;
-  return ['inbox', 'unread', 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent'].includes(navId.value);
+  return ['inbox', 'unread', 'unknown', 'mentions', 'starred', 'snoozed', 'drafts', 'sent', 'needs_attention'].includes(navId.value);
 });
 
 const isQueuedMode = computed(() => navSection.value === 'inbox' && navId.value === 'queued');
@@ -1961,7 +1975,7 @@ const filteredConversations = computed(() => {
   let list = [...(conversations.value || [])];
   const q = listSearch.value.trim().toLowerCase();
   if (inboxChannel.value !== 'all') list = list.filter(c => c.channel === inboxChannel.value);
-  if (!q) return list;
+  if (!q || emailSearchEnabled.value) return list;
   return list.filter((c) => {
     const hay = `${conversationThreadTitle(c)} ${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''} ${c.hubChannelLabel || ''}`.toLowerCase();
     return hay.includes(q);
@@ -3584,6 +3598,14 @@ async function fetchPeople({ browse, q, limit = 40 } = {}) {
 }
 
 
+function mailboxPreferenceKey() { return `messaging-view:${authStore.user?.id}:${agencyId.value}`; }
+function restoreMailboxView() {
+  let saved={}; try { saved=JSON.parse(localStorage.getItem(mailboxPreferenceKey()) || '{}'); } catch { /* unavailable storage */ }
+  const folder=route.query.folder || saved.folder || 'inbox';
+  const channel=route.query.channel || saved.channel || 'all';
+  inboxChannel.value=inboxChannels.some(item=>item.id===channel)?channel:'all';
+  selectNav('inbox',inboxNavItems.some(item=>item.id===folder)?folder:'inbox');
+}
 function selectNav(section, id) {
   closePerson();
   ++inboxRequest;
@@ -3591,6 +3613,7 @@ function selectNav(section, id) {
   loadingList.value = false;
   navSection.value = section;
   navId.value = id;
+  if(route.query.folder && route.query.folder!==id){const query={...route.query};delete query.folder;delete query.channel;Promise.resolve(router.replace({query})).catch(()=>{});}
   railOpen.value = false;
   sharedFilesHint.value = false;
   reminderNotice.value = '';
@@ -3638,6 +3661,8 @@ function selectNav(section, id) {
   }
 
   if (section === 'inbox') {
+    if (id === 'drafts' || id === 'needs_attention') inboxChannel.value='email';
+    try {localStorage.setItem(mailboxPreferenceKey(),JSON.stringify({folder:id,channel:inboxChannel.value}));} catch { /* unavailable storage */ }
     if (id === 'queued') {
       loadQueued();
       return;
@@ -3661,7 +3686,7 @@ async function openTeamChat(tab = null) {
   await router.push({ path, query: q }).catch(() => {});
 }
 
-async function loadConversations({ quiet = false } = {}) {
+async function loadConversations({ quiet = false, append = false } = {}) {
   if (quiet && loadingList.value) return;
   const request = ++inboxRequest;
   inboxController?.abort();
@@ -3675,6 +3700,12 @@ async function loadConversations({ quiet = false } = {}) {
       return;
     }
     const id = navId.value;
+    if (id === 'needs_attention') {
+      const {data} = await api.get('/communications/drafts/attention', {params:{agencyId:agencyId.value},signal:controller.signal});
+      if(request !== inboxRequest) return;
+      conversations.value=(data.items || []).map(item=>({...item,id:item.draftId || `failed-${item.messageId}`,channel:'email',primary_participant_name:item.deliveryLabel,last_message_at:item.updatedAt}));
+      return;
+    }
     if (id === 'drafts') {
       const { data } = await api.get('/communications/drafts', { params: { agencyId: agencyId.value }, signal: controller.signal });
       if (request !== inboxRequest) return;
@@ -3683,6 +3714,15 @@ async function loadConversations({ quiet = false } = {}) {
       return;
     }
 
+    if (emailSearchEnabled.value && listSearch.value.trim()) {
+      const {data}=await api.get('/communications/conversations',{params:{agencyId:agencyId.value,hubScope:1,channel:'email',filter:id==='inbox'?'all':id,q:listSearch.value.trim(),limit:80,offset:append?conversations.value.length:0},signal:controller.signal});
+      if(request!==inboxRequest)return;
+      const rows=data.conversations || [];
+      conversations.value=append?[...conversations.value,...rows.filter(row=>!conversations.value.some(existing=>existing.id===row.id))]:rows;
+      hasMoreEmailResults.value=rows.length===80;
+      return;
+    }
+    hasMoreEmailResults.value=false;
     // Unified Inbox / Unread: email + secure + internal + SMS + groups
     if (id === 'unread' || id === 'inbox') {
       const { data } = await api.get(id === 'unread' ? '/messages/hub/unread' : '/messages/hub/inbox', {
@@ -3778,6 +3818,8 @@ async function loadInboxCounts() {
 }
 
 function inboxBadgeCount(id) {
+  if (id === 'drafts') return emailWorkspace.value?.draftCount || 0;
+  if (id === 'needs_attention') return emailWorkspace.value?.attentionCount || 0;
   if (id === 'unread') return inboxCounts.value.unread > 0 ? inboxCounts.value.unread : 0;
   if (id === 'snoozed') return inboxCounts.value.snoozed > 0 ? inboxCounts.value.snoozed : 0;
   if (id === 'unknown') return inboxCounts.value.unknown > 0 ? inboxCounts.value.unknown : 0;
@@ -4884,13 +4926,14 @@ watch(
     timeline.value = [];
     recentFiles.value = [];
     recentActivity.value = [];
-    if (isConversationMode.value) loadConversations();
-    else loadList();
+    conversations.value=[];listSearch.value='';restoreMailboxView();
   }
 );
 
 let listSearchTimer = null;
 watch(listSearch, () => {
+  clearTimeout(listSearchTimer);hasMoreEmailResults.value=false;
+  if(emailSearchEnabled.value){listSearchTimer=setTimeout(()=>loadConversations(),300);return;}
   const f = listFilter.value;
   if (!['staff', 'school_staff', 'guardians'].includes(f)) return;
   clearTimeout(listSearchTimer);
@@ -4914,12 +4957,14 @@ watch(sessionBlocked, (blocked, wasBlocked) => {
   }
 });
 
+watch(() => [route.query.folder,route.query.channel], () => {if(route.query.folder || route.query.channel)restoreMailboxView();});
 onMounted(() => {
-  selectNav('inbox', 'unread');
+  restoreMailboxView();
   mailPollTimer = setInterval(refreshMailInBackground, 15000);
   window.addEventListener('focus', refreshMailInBackground);
   window.addEventListener('online', refreshMailInBackground);
   window.addEventListener('message', onComposerMessage);
+  window.addEventListener('email-workspace-changed', onWorkspaceChanged);
   openLinkedConversation();
   document.addEventListener('click', onDocClickClosePickers);
   loadInboxCounts();
@@ -4939,6 +4984,7 @@ onUnmounted(() => {
   ++inboxRequest; ++emailReadRequest;
   inboxController?.abort(); emailReadController?.abort();
   window.removeEventListener('message', onComposerMessage);
+  window.removeEventListener('email-workspace-changed', onWorkspaceChanged);
   clearUndoBanner();
   clearTimeout(staffSuggestTimer);
   clearTimeout(peopleTimer);
