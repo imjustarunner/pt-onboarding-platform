@@ -32,7 +32,7 @@ export async function notifyExchangeMatches({ listing, client }) {
       summary.matched++;
       await Notification.create({
         type: 'client_exchange_match', severity: 'info', title: 'New Client Exchange match',
-        message: 'A new referral matches your client preferences. View the client and claim it in the exchange.',
+        message: 'A new referral matches your client preferences. View the client and request it in the exchange.',
         userId: user.id, agencyId, relatedEntityType: 'client_exchange_listing', relatedEntityId: listing.id,
         actorUserId: listing.postedByUserId, actorSource: 'client_exchange',
         audienceJson: { agencySlug: agency?.slug || agency?.portal_url }
@@ -71,10 +71,10 @@ export async function notifyExchangeClaim({ listing, requestingProviderUserId })
   const recipient = listing.current_provider_user_id || listing.posted_by_user_id;
   if (!recipient || Number(recipient) === Number(requestingProviderUserId)) return;
   await exchangeActivityNotification({ listing, userId: recipient, type: 'client_exchange_claim',
-    title: 'New Client Exchange claim', message: 'A provider has claimed your referral. Review all claims and choose a provider in Client Exchange.', actorUserId: requestingProviderUserId });
+    title: 'New Client Exchange request', message: 'A provider has requested your referral. Review all requests and choose a provider in Client Exchange.', actorUserId: requestingProviderUserId });
 }
 
 export async function notifyExchangeAssignment({ listing, request, actingUserId }) {
   await exchangeActivityNotification({ listing, userId: request.requesting_provider_user_id, type: 'client_exchange_assigned',
-    title: 'Client Exchange assignment confirmed', message: 'You have been assigned the client you claimed. Open the exchange to view the client record.', actorUserId: actingUserId });
+    title: 'Client Exchange assignment confirmed', message: 'You have been assigned the client you requested. Open the exchange to view the client record.', actorUserId: actingUserId });
 }

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { latestPresentingProblem, intakePresentingProblems } from '../clientCareSummary.js';
+import { latestPresentingProblem, intakePresentingProblems, intakeNotePresentingProblems } from '../clientCareSummary.js';
 import { buildExchangeEmail } from '../clientExchangeSummary.js';
 it('uses the newest nonempty recorded concern, whether intake or treatment plan', () => {
   const plans = [{ status: 'active', updated_at: '2026-09-15', discharge_plan: 'Presenting Problem\nCurrent plan concern\n\nPrescribed Frequency\nWeekly' },
@@ -24,8 +24,19 @@ it('reads flat self-intake and nested clinical responses', () => {
 });
 it('includes diagnoses and problems in both email formats and escapes HTML', () => {
   const mail = buildExchangeEmail({ listing: { demographics: { ageBand: '12' }, diagnoses: [{ icd10_code: 'F41.1', description: 'Anxiety' }], presentingProblems: ['Worry <script>'], presentingProblemSource: 'Treatment plan', presentingProblemUpdatedAt: '2026-09-20' }, link: 'https://example.test/client-exchange?listingId=4&agencyId=2' });
-  for (const body of [mail.text, mail.html]) { expect(body).toContain('F41.1 — Anxiety'); expect(body).toContain('Treatment plan'); expect(body).toContain('View client and claim'); }
+  for (const body of [mail.text, mail.html]) { expect(body).toContain('F41.1 — Anxiety'); expect(body).toContain('Treatment plan'); expect(body).toContain('View client and request'); }
   expect(mail.text).toContain('Age:\n- 12');
   expect(mail.html).toContain('<li style="white-space:pre-wrap">12</li>');
   expect(mail.html).toContain('Worry &lt;script&gt;'); expect(mail.html).not.toContain('<script>');
+});
+
+it('extracts only presenting concerns from an imported intake, excluding unrelated clinical details', () => {
+  expect(intakeNotePresentingProblems([{ key: 'Presenting Problem', body: 'Current concern' }, { key: 'Family History', body: 'Private history' }])).toEqual(['Current concern']);
+});
+it('allows explicitly imported plans pending review, while excluding generated drafts', () => {
+  const summary = latestPresentingProblem({ plans: [
+    { status: 'draft', source_tool_id: 'client_creation_record_import', presenting_problem: 'Imported plan concern', updated_at: '2026-09-29' },
+    { status: 'draft', source_tool_id: 'intake_packet_bootstrap', presenting_problem: 'Generated draft concern', updated_at: '2026-09-30' }
+  ] });
+  expect(summary).toMatchObject({ presentingProblems: ['Imported plan concern'], presentingProblemSource: 'Treatment plan (review pending)' });
 });

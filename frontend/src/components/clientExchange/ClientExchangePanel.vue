@@ -51,7 +51,7 @@
         <div class="cep-stat-icon cep-stat-icon--purple">⏳</div>
         <div>
           <div class="cep-stat-value">{{ pendingRequestCount }}</div>
-          <div class="cep-stat-label">Pending claims</div>
+          <div class="cep-stat-label">Pending requests</div>
         </div>
       </div>
       <div class="cep-stat">
@@ -73,8 +73,8 @@
         <button type="button" class="cep-tab" :class="{ active: activeTab === 'mine' }" @click="activeTab = 'mine'">
           My activity
         </button>
-        <button type="button" class="cep-tab" :class="{ active: activeTab === 'claims' }" @click="activeTab = 'claims'">
-          Manage claims <span v-if="manageableListings.length" class="cep-count">{{ manageableListings.length }}</span>
+        <button type="button" class="cep-tab" :class="{ active: activeTab === 'requests' }" @click="activeTab = 'requests'">
+          Manage requests <span v-if="manageableListings.length" class="cep-count">{{ manageableListings.length }}</span>
         </button>
         <button type="button" class="cep-tab" :class="{ active: activeTab === 'closed' }" @click="activeTab = 'closed'">
           Closed / withdrawn
@@ -102,9 +102,9 @@
       <!-- Left: list -->
       <div class="cep-list-col">
         <!-- Open tab -->
-        <template v-if="activeTab === 'open' || activeTab === 'claims'">
+        <template v-if="activeTab === 'open' || activeTab === 'requests'">
           <div v-if="!loading && visibleOpen.length === 0" class="cep-empty">
-            {{ activeTab === 'claims' ? 'No claims awaiting your assignment.' : searchQuery ? 'No results for your search.' : 'No open listings right now.' }}
+            {{ activeTab === 'requests' ? 'No requests awaiting your assignment.' : searchQuery ? 'No results for your search.' : 'No open listings right now.' }}
           </div>
           <ListingCard
             v-for="listing in visibleOpen"
@@ -149,9 +149,9 @@
             @deny="onDeny"
           />
 
-          <div class="cep-sub-heading" style="margin-top: 1rem;">My claims</div>
+          <div class="cep-sub-heading" style="margin-top: 1rem;">My requests</div>
           <div v-if="!loading && myRequests.length === 0" class="cep-empty">
-            You haven't claimed any clients.
+            You haven't requested any clients.
           </div>
           <div v-else class="cep-request-list">
             <div v-for="r in myRequests" :key="r.id" class="cep-request-row">
@@ -221,13 +221,13 @@
         <!-- Requests for this listing -->
         <section class="cep-detail-section">
           <div class="cep-detail-section-title">
-            Claims
+            Requests
             <span v-if="selectedListing.pendingRequestCount > 0" class="cep-pending-badge">
               {{ selectedListing.pendingRequestCount }} pending
             </span>
           </div>
           <div v-if="requestsLoadingId === selectedListing.id" class="cep-muted">Loading…</div>
-          <div v-else-if="!requestsByListing[selectedListing.id]?.length" class="cep-muted">No claims yet.</div>
+          <div v-else-if="!requestsByListing[selectedListing.id]?.length" class="cep-muted">No requests yet.</div>
           <div v-else class="cep-requests-list">
             <div v-for="r in requestsByListing[selectedListing.id]" :key="r.id" class="cep-request-item">
               <div class="cep-request-item-top">
@@ -251,15 +251,15 @@
             style="margin-top: 0.5rem;"
             @click="onExpand(selectedListing.id)"
           >
-            {{ requestsLoadingId === selectedListing.id ? 'Loading…' : 'Refresh claims' }}
+            {{ requestsLoadingId === selectedListing.id ? 'Loading…' : 'Refresh requests' }}
           </button>
         </section>
 
         <!-- Actions -->
         <section class="cep-detail-section cep-detail-section--actions">
           <template v-if="canRequest(selectedListing)">
-            <div class="cep-detail-section-title">Claim client</div>
-            <p class="cep-muted">Multiple providers can claim this client. The current provider or support team will select the assignment.</p>
+            <div class="cep-detail-section-title">Request this client</div>
+            <p class="cep-muted">Multiple providers can request this client. The current provider or support team will select the assignment.</p>
             <textarea
               v-model="requestMessages[selectedListing.id]"
               rows="2"
@@ -268,11 +268,11 @@
             ></textarea>
             <div class="cep-detail-action-row">
               <button type="button" class="cep-btn cep-btn--primary" :disabled="actionPending" @click="submitRequest(selectedListing)">
-                {{ actionPending ? 'Saving…' : 'Claim client' }}
+                {{ actionPending ? 'Saving…' : 'Request this client' }}
               </button>
             </div>
           </template>
-          <p v-if="hasPendingClaim(selectedListing)" class="cep-muted">Your claim is pending. You will be notified if the client is assigned to you.</p>
+          <p v-if="hasPendingClaim(selectedListing)" class="cep-muted">Your request is pending. You will be notified if the client is assigned to you.</p>
           <template v-if="canWithdraw(selectedListing)">
             <button type="button" class="cep-btn cep-btn--ghost" @click="onWithdraw(selectedListing.id)">
               Withdraw listing
@@ -350,7 +350,7 @@ const myListings = computed(() =>
 const pendingRequestCount = computed(() => openListings.value.reduce((s, l) => s + (l.pendingRequestCount || 0), 0));
 
 const currentTabList = computed(() => {
-  if (activeTab.value === 'open' || activeTab.value === 'claims') return visibleOpen.value;
+  if (activeTab.value === 'open' || activeTab.value === 'requests') return visibleOpen.value;
   if (activeTab.value === 'mine') return myListings.value;
   return closedListings.value;
 });
@@ -378,7 +378,7 @@ function matchSearch(listing) {
 
 const filteredOpen = computed(() => openListings.value.filter(matchSearch));
 const manageableListings = computed(() => openListings.value.filter(l => l.canManageClaims && l.pendingRequestCount > 0));
-const visibleOpen = computed(() => activeTab.value === 'claims' ? manageableListings.value.filter(matchSearch) : filteredOpen.value);
+const visibleOpen = computed(() => activeTab.value === 'requests' ? manageableListings.value.filter(matchSearch) : filteredOpen.value);
 
 function formatDate(v) {
   if (!v) return '—';

@@ -306,9 +306,9 @@
           >
             {{ discarding ? 'Discarding…' : 'Discard draft' }}
           </button>
-          <template v-if="isDraftEditor || isUpdaterMode">
+          <template v-if="isDraftEditor || isUpdaterMode || allowImportedDraft">
             <button type="button" class="na-btn-outline" :disabled="saving" @click="save({ finalize: false })">
-              {{ saving && !finalizing ? 'Saving…' : 'Save draft' }}
+              {{ saving && !finalizing ? 'Saving…' : (allowImportedDraft ? 'Save for review' : 'Save draft') }}
             </button>
             <button
               type="button"
@@ -357,6 +357,7 @@ const props = defineProps({
   agencyId: { type: [Number, String], required: true },
   clientId: { type: [Number, String], required: true },
   initialText: { type: String, default: '' },
+  allowImportedDraft: { type: Boolean, default: false },
   planId: { type: [Number, String], default: null },
   mode: { type: String, default: 'import' },
   initialPlan: { type: Object, default: null },
@@ -912,7 +913,7 @@ async function save({ finalize = true } = {}) {
     for (const g of model.value.goals || []) {
       syncGoalCompletion(g);
       for (const o of g.objectives || []) {
-        if (!isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget)) {
+        if ((finalize || !props.allowImportedDraft) && !isObjectiveScaleValid(o.scaleCurrent, o.scaleTarget)) {
           throw new Error('Each objective needs a valid 1–10 current and target before saving.');
         }
       }
@@ -942,7 +943,7 @@ async function save({ finalize = true } = {}) {
       dischargePlan: model.value.dischargePlan || null,
       presentingProblem: model.value.presentingProblem || null,
       prescribedFrequency: model.value.prescribedFrequency || null,
-      sourceToolId: props.mode === 'generated' ? (props.initialPlan?.sourceToolId || 'note_aid_generated_plan') : (asDraft ? 'intake_packet_bootstrap' : 'note_aid_plan_import'),
+      sourceToolId: props.allowImportedDraft ? 'client_creation_record_import' : props.mode === 'generated' ? (props.initialPlan?.sourceToolId || 'note_aid_generated_plan') : (asDraft ? 'intake_packet_bootstrap' : 'note_aid_plan_import'),
       icd10Code: primary?.icd10Code || null,
       diagnosisDescription: primary?.description || null,
       diagnosticJustification: String(model.value.diagnosticJustification || '').trim() || null,

@@ -30,6 +30,7 @@
 
       <div class="pct-toolbar">
         <PostClientToExchangeButton v-if="!profileEmbed" />
+        <router-link v-if="!profileEmbed" class="pct-btn pct-btn--ghost" :to="{ path: `${route.params?.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/clients`, query: { new: '1' } }">Add client</router-link>
         <template v-if="activeSection === 'school'">
           <label class="pct-field">
             <span class="pct-field__label">School</span>

@@ -23,7 +23,7 @@
           <strong v-if="clientLabel" class="lc-client-label">{{ clientLabel }}</strong>
           <span v-if="listing.clientType" class="lc-type">{{ formatClientType(listing.clientType) }}</span>
           <span v-if="listing.pendingRequestCount > 0" class="lc-pending-badge">
-            {{ listing.pendingRequestCount }} pending claim{{ listing.pendingRequestCount === 1 ? '' : 's' }}
+            {{ listing.pendingRequestCount }} pending request{{ listing.pendingRequestCount === 1 ? '' : 's' }}
           </span>
         </div>
         <div class="lc-meta muted">Posted {{ formatDate(listing.createdAt) }}</div>
@@ -48,13 +48,13 @@
           Withdraw
         </button>
         <button type="button" class="btn-link" @click="toggleExpand">
-          {{ expanded ? 'Hide claims' : 'Review claims' }}
+          {{ expanded ? 'Hide requests' : 'Review requests' }}
         </button>
       </div>
 
       <div v-if="expanded" class="lc-requests" @click.stop>
-        <div v-if="requestsLoading" class="muted">Loading claims…</div>
-        <div v-else-if="requests.length === 0" class="muted">No claims yet.</div>
+        <div v-if="requestsLoading" class="muted">Loading requests…</div>
+        <div v-else-if="requests.length === 0" class="muted">No requests yet.</div>
         <table v-else class="lc-requests-table">
           <thead>
             <tr>

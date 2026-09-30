@@ -95,6 +95,7 @@ const TYPES_BY_CATEGORY = {
 };
 
 const LABEL_OVERRIDES = {
+  client_exchange_claim: 'Client Exchange request',
   kiosk_checkin: 'Client arrival at office',
   user_login: 'User logged in',
   user_logout: 'User logged out',

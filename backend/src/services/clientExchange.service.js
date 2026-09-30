@@ -1,3 +1,4 @@
+import { insertExchangeListing } from './clientExchangePosting.service.js';
 import pool from '../config/database.js';
 import { notifyExchangeMatches } from './clientExchangeNotifications.service.js';
 import { loadClientExchangeSummary } from './clientExchangeSummary.service.js';
@@ -218,7 +219,8 @@ export async function createListing({
   presentingProblems = null,
   diagnoses = null,
   preferences = null,
-  notes = null
+  notes = null,
+  onlyUnassigned = false
 }) {
   const aid = Number(agencyId);
   const cid = Number(clientId);
@@ -231,14 +233,6 @@ export async function createListing({
   if (!client) throw new Error('Client not found');
   if (Number(client.agency_id) !== aid) throw new Error('Client does not belong to this agency');
 
-  const [existing] = await pool.execute(
-    `SELECT id FROM client_exchange_listings WHERE client_id = ? AND status IN ('open', 'requested') LIMIT 1`,
-    [cid]
-  );
-  if (existing?.[0]?.id) {
-    throw new Error('This client already has an open listing in the exchange');
-  }
-
   const savedSummary = await loadClientExchangeSummary({ client });
   const sharedSummary = mergeExchangeSummary(savedSummary, {
     demographics: safeJson(demographics), preferences: safeJson(preferences),
@@ -249,34 +243,14 @@ export async function createListing({
   sharedSummary.preferences.presentingProblemUpdatedAt = savedSummary.presentingProblemUpdatedAt;
   ({ demographics, preferences, presentingProblems, diagnoses } = sharedSummary);
 
-  const resolvedCurrentProvider = currentProviderUserId != null ? Number(currentProviderUserId) : (client.provider_id || null);
-
-  const [result] = await pool.execute(
-    `INSERT INTO client_exchange_listings
-       (agency_id, client_id, posted_by_user_id, current_provider_user_id, status,
-        demographics_json, presenting_problems_json, diagnoses_json, preferences_json, notes)
-     VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`,
-    [
-      aid,
-      cid,
-      posterId,
-      resolvedCurrentProvider,
-      JSON.stringify(safeJson(demographics) || {}),
-      JSON.stringify(safeJson(presentingProblems) || {}),
-      JSON.stringify(safeJson(diagnoses) || {}),
-      JSON.stringify(safeJson(preferences) || {}),
-      notes || null
-    ]
-  );
-
-  await ClientStatusHistory.create({
-    client_id: cid,
-    changed_by_user_id: posterId,
-    field_changed: 'client_exchange_listing',
-    from_value: null,
-    to_value: 'open',
-    note: 'Posted to Client Exchange for reassignment'
-  });
+  const inserted = await insertExchangeListing({ agencyId: aid, clientId: cid, postedByUserId: posterId,
+    summary: sharedSummary, notes, onlyUnassigned });
+  const result = { insertId: inserted.listingId };
+  const resolvedCurrentProvider = inserted.currentProviderId;
+  if (!inserted.created) {
+    const listing = await getListingById(inserted.listingId, { viewerUserId: posterId, viewerRole: 'admin' });
+    return { ...listing, alreadyPosted: true };
+  }
 
   try {
     const OfficeAcceptance = await import('./officeClientAcceptance.service.js');
@@ -321,7 +295,7 @@ export async function withdrawListing({ listingId, actingUserId }) {
 export async function createRequest({ listingId, requestingProviderUserId, message = null }) {
   const { requestId, listing } = await createExchangeClaim({ listingId, requestingProviderUserId, message });
   await notifyExchangeClaim({ listing, requestingProviderUserId }).catch(error => {
-    console.error('[clientExchange] Claim notification failed', { listingId, error: error?.message });
+    console.error('[clientExchange] Request notification failed', { listingId, error: error?.message });
   });
   return getRequestById(requestId);
 }

@@ -46,11 +46,11 @@ export function intakePresentingProblems({ row, clientId, clientIds = [] }) {
 
 export function latestPresentingProblem({ plans = [], intakes = [], preferences = {} }) {
   const candidates = [
-    ...plans.filter(plan => plan.status === 'active').map(plan => ({
-      values: summaryItems(presentingProblemFromPlan(plan)), source: 'Treatment plan',
+    ...plans.filter(plan => plan.status === 'active' || (plan.status === 'draft' && plan.source_tool_id === 'client_creation_record_import')).map(plan => ({
+      values: summaryItems(presentingProblemFromPlan(plan)), source: plan.status === 'draft' ? 'Treatment plan (review pending)' : 'Treatment plan',
       recordedAt: plan.updated_at || plan.created_at || null, priority: 2
     })),
-    ...intakes.map(intake => ({ values: intake.values, source: 'Intake', recordedAt: intake.recordedAt, priority: 1 })),
+    ...intakes.map(intake => ({ values: intake.values, source: intake.source || 'Intake', recordedAt: intake.recordedAt, priority: 1 })),
     { values: summaryItems(preferences.presentingConcern || preferences.reasonForVisit), source: 'Intake',
       recordedAt: preferences.submittedAt || null, priority: 0 }
   ].filter(candidate => candidate.values?.length);
@@ -59,4 +59,11 @@ export function latestPresentingProblem({ plans = [], intakes = [], preferences 
   const latest = candidates[0];
   return { presentingProblems: latest?.values || [], presentingProblemSource: latest?.source || null,
     presentingProblemUpdatedAt: latest?.recordedAt || null };
+}
+
+/** Share only the presenting-problem section of an imported intake. */
+export function intakeNotePresentingProblems(sections) {
+  const rows = Array.isArray(sections) ? sections : sections?.sections || [];
+  return summaryItems(rows.filter(section => /presenting[ _-]*(problem|concern)|chief[ _-]*complaint|reason[ _-]*for[ _-]*(visit|referral|treatment|therapy)/i.test([section.key, section.label, section.title].filter(Boolean).join(' ')))
+    .map(section => section.body || section.content || ''));
 }

@@ -7163,10 +7163,17 @@ export const getClientDemographics = async (req, res, next) => {
   }
 };
 
-/**
- * Parse pasted demographics text (Note Aid) — does not persist.
- * POST /api/clients/:id/demographics/parse
- */
+/** Parse supplied demographics before a client exists; no records are read or persisted. */
+export const previewNewClientDemographics = async (req, res, next) => {
+  try {
+    if (!['super_admin', 'admin', 'support', 'staff', 'provider', 'provider_plus'].includes(String(req.user?.role || '').toLowerCase())) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const { parseDemographicsPaste } = await import('../services/demographicsImport.service.js');
+    res.json({ parsed: parseDemographicsPaste(req.body?.text || '') });
+  } catch (error) { next(error); }
+};
+
 export const parseClientDemographicsImport = async (req, res, next) => {
   try {
     const clientId = parseInt(req.params.id, 10);

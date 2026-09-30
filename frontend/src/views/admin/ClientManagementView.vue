@@ -47,7 +47,7 @@
           @click="identityReviewMode = 'tests'"
         >Show Tests</button>
         <PostClientToExchangeButton />
-        <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ New client</button>
+        <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ Add client</button>
       </div>
     </div>
 
@@ -643,6 +643,7 @@
               </label>
             </td>
             <td class="actions-cell col-actions" @click.stop @mouseenter="quickViewClient = null; clearTimeout(_hoverOpenTimer)">
+              <QuickPostClientToExchange :client="client" @posted="loadSideCounts" />
               <button @click.stop="openQuickView(client)" class="btn btn-primary btn-xs cm-view-btn" title="Quick preview">
                 Preview
               </button>
@@ -672,12 +673,27 @@
     <!-- Create Client Modal -->
     <div v-if="showCreateModal" class="modal-overlay" @click.self="closeCreateModal">
       <div class="modal-content" @click.stop>
-        <h3>Create New Client</h3>
-        <div class="form-group" role="group" aria-label="Client creation method">
+        <h3>Add client</h3>
+        <p v-if="createdClientRecord" class="hint">Client #{{ createdClientRecord.id }} is saved. Continue below to finish importing, assigning, or posting this same client.</p>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
+        <div v-if="!createdClientRecord" class="form-group" role="group" aria-label="Client creation method">
+          <button type="button" class="btn" :class="createMode === 'paste' ? 'btn-primary' : 'btn-secondary'" @click="createMode = 'paste'">Paste records</button>
           <button type="button" class="btn" :class="createMode === 'manual' ? 'btn-primary' : 'btn-secondary'" @click="createMode = 'manual'">Manual entry</button>
           <button type="button" class="btn" :class="createMode === 'fax' ? 'btn-primary' : 'btn-secondary'" @click="createMode = 'fax'">From fax</button>
         </div>
         <form @submit.prevent="createClient">
+          <fieldset :disabled="creating || !!createdClientRecord" style="border: 0; padding: 0; margin: 0; min-width: 0;">
+          <section v-if="createMode === 'paste'" class="form-group">
+            <p>Paste any records you have, review the client details, then choose how to save.</p>
+            <label>Demographics</label>
+            <textarea v-model="createRecords.demographics" rows="5" @blur="!newClient.full_name && createRecords.demographics.trim() && readCreateDemographics()" placeholder="Paste name, date of birth, contact details…"></textarea>
+            <button type="button" class="btn btn-secondary" :disabled="parsingCreateDemographics || !createRecords.demographics.trim()" @click="readCreateDemographics">{{ parsingCreateDemographics ? 'Reading…' : 'Fill details from demographics' }}</button>
+            <label>Intake</label>
+            <textarea v-model="createRecords.intake" rows="5" placeholder="Paste the intake note…"></textarea>
+            <label>Most recent treatment plan</label>
+            <textarea v-model="createRecords.plan" rows="5" placeholder="Paste the most recent treatment plan…"></textarea>
+            <small>Pasted records are imported before the client is assigned or posted. Any treatment-plan review opens before completion.</small>
+          </section>
           <div class="form-group">
             <label>Agency</label>
             <select v-if="canChooseCreateAgency" v-model="createAgencyId">
@@ -717,6 +733,10 @@
             </small>
           </div>
           <div class="form-group">
+            <label>Full name</label>
+            <input v-model="newClient.full_name" type="text" @blur="fillCreateInitials" />
+          </div>
+          <div class="form-group">
             <label>Initials *</label>
             <input 
               v-model="newClient.initials" 
@@ -729,7 +749,7 @@
           </div>
           <div class="form-group">
             <label>Provider</label>
-            <select v-model="newClient.provider_id" :disabled="providerOptionsLoading || !newClient.organization_id">
+            <select v-model="newClient.provider_id" :disabled="!canBackofficeEdit || providerOptionsLoading || !newClient.organization_id">
               <option :value="null">Not assigned</option>
               <option v-for="provider in availableProvidersForOrg" :key="provider.id" :value="provider.id">
                 {{ provider.first_name }} {{ provider.last_name }}
@@ -740,16 +760,9 @@
               No scheduled providers found for this organization.
             </small>
           </div>
-          <div class="form-group" v-if="newClient.provider_id">
-            <label class="checkbox-label" style="display:flex; align-items:center; gap: 8px;">
-              <input type="checkbox" v-model="newClient.provider_make_primary" />
-              <span>Make provider primary</span>
-            </label>
-            <small>Primary provider is what shows on the client list and in the client modal.</small>
-          </div>
-          <div class="form-group" v-if="newClient.provider_id">
-            <label>Provider available day *</label>
-            <select v-model="newClient.service_day" required>
+          <div class="form-group" v-if="newClient.provider_id && selectedOrgIsSchool">
+            <label>Provider available day (optional)</label>
+            <select v-model="newClient.service_day">
               <option value="">Select day…</option>
               <option v-for="d in availableServiceDays" :key="d" :value="d">{{ d }}</option>
             </select>
@@ -769,9 +782,9 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Insurance *</label>
-            <select v-model="newClient.insurance_type_id" :disabled="createInsuranceLoading" required>
-              <option :value="null" disabled>Select insurance…</option>
+            <label>Insurance (optional)</label>
+            <select v-model="newClient.insurance_type_id" :disabled="createInsuranceLoading">
+              <option :value="null">Not recorded</option>
               <option v-for="it in createInsuranceTypes" :key="it.id" :value="it.id">{{ it.label }}</option>
             </select>
             <small v-if="createInsuranceLoading">Loading insurance types…</small>
@@ -911,19 +924,33 @@
               </div>
             </div>
           </div>
+          </fieldset>
+          <label v-if="createdClientRecord && createOutcome === 'assign' && canBackofficeEdit" class="form-group">
+            Provider for this saved client
+            <select v-model="newClient.provider_id" :disabled="creating">
+              <option :value="null">Select provider…</option>
+              <option v-for="provider in availableProvidersForOrg" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option>
+            </select>
+          </label>
           <div class="modal-actions">
-            <button type="button" @click="closeCreateModal" class="btn btn-secondary">Cancel</button>
-            <button
-              type="submit"
-              class="btn btn-primary"
-              :disabled="creating || (createMode === 'fax' && !faxReview?.ready) || !createAgencyEffectiveId || !newClient.organization_id || !newClient.client_type || !String(newClient.initials || '').trim() || !newClient.submission_date || !newClient.insurance_type_id || (newClient.provider_id && !newClient.service_day)"
-            >
-              {{ creating ? 'Creating...' : 'Create Client' }}
-            </button>
+            <button type="button" @click="closeCreateModal" :disabled="creating" class="btn btn-secondary">{{ createdClientRecord ? 'Close' : 'Cancel' }}</button>
+            <button v-if="createdClientRecord" type="submit" class="btn btn-primary" :disabled="creating">{{ creating ? 'Saving…' : 'Continue saving this client' }}</button>
+            <template v-else>
+              <button type="submit" class="btn btn-primary" :disabled="!canSubmitCreate || !newClient.provider_id" @click="createOutcome = 'assign'">Assign and save</button>
+              <button v-if="canBackofficeEdit" type="submit" class="btn btn-secondary" :disabled="!canSubmitCreate" @click="createOutcome = 'unassigned'">Save unassigned</button>
+              <button v-if="canBackofficeEdit && canSeeClientExchange" type="submit" class="btn btn-primary" :disabled="!canSubmitCreate" @click="createOutcome = 'exchange'">Save and post to exchange</button>
+            </template>
           </div>
         </form>
       </div>
     </div>
+
+    <ClientEhrBringUpToDatePanel
+      v-if="createdClientRecord && createMode === 'paste'"
+      :open="showCreatedRecordsImport" :client-id="createdClientRecord.id" :agency-id="createdClientRecord.agency_id || createAgencyEffectiveId"
+      :client-label="newClient.full_name || newClient.initials" :initial-texts="createRecords" creation-flow
+      @close="showCreatedRecordsImport = false" @imported="onCreatedRecordsImported"
+    />
 
     <!-- Rollover Modal (extra confirmation gates) -->
     <div v-if="showRolloverModal" class="modal-overlay" @click.self="closeRolloverModal">
@@ -1373,7 +1400,7 @@
 <script setup>
 import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
 import FaxClientIntake from '../../components/clients/FaxClientIntake.vue';
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -1401,6 +1428,9 @@ import {
   colorFromHue
 } from '../../utils/clientManagementVisuals.js';
 import { parseClientManagementSearch, matchesParsedSearch, SEARCH_HINTS } from '../../utils/clientManagementSearch.js';
+import ClientEhrBringUpToDatePanel from '../../components/admin/clientChart/ClientEhrBringUpToDatePanel.vue';
+import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
+import { finishClientCreation } from '../../utils/clientCreationOutcome.js';
 import ClientRenewalPushModal from '../../components/admin/ClientRenewalPushModal.vue';
 import RenewalFlagsChips from '../../components/admin/RenewalFlagsChips.vue';
 
@@ -1755,6 +1785,8 @@ const WORKFLOW_STATUS_OPTIONS = [
 const showCreateModal = ref(false);
 const openCreateClientModal = async () => {
   showCreateModal.value = true;
+  createOutcome.value = canBackofficeEdit.value ? 'unassigned' : 'assign';
+  if (!canBackofficeEdit.value) newClient.value.provider_id = authStore.user?.id || null;
   // Ensure agency is set so org dropdown can populate immediately.
   if (!createAgencyId.value && activeAgencyId.value) {
     createAgencyId.value = String(activeAgencyId.value);
@@ -1773,7 +1805,7 @@ const linkedOrganizations = ref([]);
 const loadingOrganizations = ref(false);
 const clientStatuses = ref([]);
 
-// Create-client: Insurance (required)
+// Create-client: Insurance (optional)
 const createInsuranceTypes = ref([]);
 const createInsuranceLoading = ref(false);
 const createInsuranceError = ref('');
@@ -1989,8 +2021,44 @@ const bulkAffiliationId = ref('');
 const bulkClientStatusId = ref('');
 const bulkPromoteYear = ref('');
 
-const createMode = ref('manual');
+const createMode = ref('paste');
 const faxReview = ref(null);
+const createOutcome = ref('unassigned');
+const createdClientRecord = ref(null);
+const createdRecordsImported = ref(false);
+const createdDocumentsSaved = ref(false);
+const showCreatedRecordsImport = ref(false);
+const createRecords = reactive({ demographics: '', intake: '', plan: '' });
+const parsingCreateDemographics = ref(false);
+let createDemographicsVersion = 0;
+const canSubmitCreate = computed(() => !creating.value && !parsingCreateDemographics.value
+  && (createMode.value !== 'fax' || faxReview.value?.ready) && createAgencyEffectiveId.value
+  && newClient.value.organization_id && newClient.value.client_type && String(newClient.value.initials || '').trim()
+  && newClient.value.submission_date);
+function fillCreateInitials() {
+  if (!newClient.value.initials && newClient.value.full_name) {
+    const names = newClient.value.full_name.trim().split(/\s+/);
+    newClient.value.initials = [names[0], names.length > 1 ? names[names.length - 1] : ''].map(name => name.slice(0, 3)).join('');
+  }
+}
+async function readCreateDemographics() {
+  const version = ++createDemographicsVersion;
+  parsingCreateDemographics.value = true;
+  error.value = '';
+  try {
+    const { data } = await api.post('/clients/demographics/preview', { text: createRecords.demographics });
+    if (version !== createDemographicsVersion || !showCreateModal.value) return;
+    if (data.parsed?.fullName) { newClient.value.full_name = data.parsed.fullName; fillCreateInitials(); }
+    else error.value = 'Name could not be read. Enter the full name and initials below; the demographics can still be imported.';
+  } catch (e) { if (version === createDemographicsVersion) error.value = e.response?.data?.error?.message || 'Unable to read demographics'; }
+  finally { if (version === createDemographicsVersion) parsingCreateDemographics.value = false; }
+}
+async function onCreatedRecordsImported() {
+  createdRecordsImported.value = true;
+  showCreatedRecordsImport.value = false;
+  await createClient();
+}
+
 function onFaxChange(review) {
   faxReview.value = review;
   if (review.fullName) {
@@ -2002,6 +2070,7 @@ const newClient = ref({
   organization_id: null,
   client_type: '',
   initials: '',
+  full_name: '',
   provider_id: null,
   provider_make_primary: true,
   service_day: '',
@@ -2517,7 +2586,7 @@ const fetchClientStatuses = async () => {
 
 const fetchProviders = async () => {
   try {
-    const agencyId = effectiveAgencyScopeId.value;
+    const agencyId = showCreateModal.value ? createAgencyEffectiveId.value : effectiveAgencyScopeId.value;
     if (!agencyId) {
       availableProviders.value = [];
       return;
@@ -2530,7 +2599,7 @@ const fetchProviders = async () => {
 };
 
 const fetchProviderAssignmentsForOrg = async () => {
-  const agencyId = effectiveAgencyScopeId.value;
+  const agencyId = createAgencyEffectiveId.value;
   const orgId = Number(newClient.value?.organization_id);
   if (!agencyId || !orgId) {
     providerAssignmentsForOrg.value = [];
@@ -3112,15 +3181,17 @@ const openDupesModal = (matches, { canForceCreate = false } = {}) => {
 };
 
 const createClient = async ({ forceCreate = false } = {}) => {
+  if (creating.value) return;
   try {
     creating.value = true;
     error.value = '';
+    if (createOutcome.value === 'assign' && !newClient.value.provider_id) throw new Error('Select a provider before assigning this client');
 
     // The agency_id must be the parent agency org. Prefer active agency context, but fall back
     // to the selected organization's affiliation (super admin / platform-wide org picker).
-    const orgId = Number(newClient.value?.organization_id) || null;
+    const orgId = Number(createdClientRecord.value?.organization_id || newClient.value?.organization_id) || null;
     const org = orgId ? (linkedOrganizations.value || []).find((o) => Number(o?.id) === orgId) : null;
-    const agencyId = createAgencyEffectiveId.value || (org?.affiliated_agency_id ? Number(org.affiliated_agency_id) : null);
+    const agencyId = Number(createdClientRecord.value?.agency_id) || createAgencyEffectiveId.value || (org?.affiliated_agency_id ? Number(org.affiliated_agency_id) : null);
 
     if (!agencyId) {
       error.value = 'Unable to determine agency. Please ensure you are associated with an agency.';
@@ -3141,7 +3212,7 @@ const createClient = async ({ forceCreate = false } = {}) => {
       insurance_type_id: newClient.value.insurance_type_id ? Number(newClient.value.insurance_type_id) : null,
       doc_date: newClient.value.doc_date ? String(newClient.value.doc_date).slice(0, 10) : null,
       // Assign provider/day in a second call so slot adjustments are enforced centrally.
-      provider_id: null,
+      provider_id: canBackofficeEdit.value ? null : Number(authStore.user?.id),
       service_day: null,
       agency_id: agencyId,
       source: 'ADMIN_CREATED',
@@ -3149,8 +3220,9 @@ const createClient = async ({ forceCreate = false } = {}) => {
       ...(forceCreate ? { forceCreate: true } : {})
     };
 
-    const resp = await api.post('/clients', payload);
-    const created = resp.data || null;
+    const created = createdClientRecord.value || (await api.post('/clients', payload)).data;
+    if (!created?.id) throw new Error('The client could not be saved');
+    createdClientRecord.value = created;
     const warningMeta = created?.warningMeta || null;
     const archivedMatches = Array.isArray(warningMeta?.matches)
       ? warningMeta.matches.filter((m) => String(m?.workflowStatus || '').toUpperCase() === 'ARCHIVED')
@@ -3163,33 +3235,15 @@ const createClient = async ({ forceCreate = false } = {}) => {
       alert(`Client created with warnings:\n- ${warnings.join('\n- ')}`);
     }
 
-    // Slot-aware assignment (optional): assign via affiliations system (optionally primary)
-    const providerId = newClient.value?.provider_id ? Number(newClient.value.provider_id) : null;
-    const serviceDay = String(newClient.value?.service_day || '').trim() || null;
-    if (created?.id && providerId && serviceDay) {
-      try {
-        await api.post(`/clients/${created.id}/provider-assignments`, {
-          organization_id: Number(newClient.value.organization_id),
-          provider_user_id: providerId,
-          service_day: serviceDay,
-          is_primary: newClient.value?.provider_make_primary !== false
-        });
-      } catch (e) {
-        const msg = e?.response?.data?.error?.message || 'Provider/day could not be saved';
-        error.value = `Client was created, but provider/day could not be saved: ${msg}. Please set the primary provider in the client’s Affiliations tab.`;
-        await fetchClients();
-        return;
-      }
-    }
-
     // Apply Document Status selections (Needed/Received)
-    if (created?.id && (createPaperworkStatuses.value || []).length) {
+    if (created?.id && !createdDocumentsSaved.value && (createPaperworkStatuses.value || []).length) {
       try {
         const updates = (createPaperworkStatuses.value || []).map((s) => ({
           paperwork_status_id: Number(s.id),
           is_needed: (createDocsNeededIds.value || []).includes(Number(s.id))
         }));
         await api.put(`/clients/${created.id}/document-status`, { updates });
+        createdDocumentsSaved.value = true;
       } catch (e) {
         const msg = e?.response?.data?.error?.message || 'Document Status could not be saved';
         error.value = `Client was created, but Document Status could not be saved: ${msg}. Please open the client and set Document Status again.`;
@@ -3198,17 +3252,26 @@ const createClient = async ({ forceCreate = false } = {}) => {
       }
     }
 
+    const hasRecords = createMode.value === 'paste' && Object.values(createRecords).some(text => text.trim());
+    if (hasRecords && !createdRecordsImported.value) {
+      showCreatedRecordsImport.value = true;
+      return;
+    }
+    const listing = await finishClientCreation({ api, clientId: created.id, agencyId, organizationId: orgId,
+      outcome: createOutcome.value, providerId: newClient.value.provider_id,
+      serviceDay: newClient.value.service_day, isSchool: selectedOrgIsSchool.value });
     await fetchClients();
-    if (shouldOfferUnarchive) {
-      // Client already created; offer unarchive of archived matches (no second create).
-      openDupesModal(warningMeta.matches || archivedMatches, { canForceCreate: false });
-      showCreateModal.value = false;
+    if (listing?.notifications?.failed) {
+      error.value = 'Client saved and posted, but some notification emails could not be sent. The listing is available in Client Exchange.';
+      // Keep the existing client in view; retrying will reuse its listing.
       return;
     }
     closeDupesModal();
+    if (shouldOfferUnarchive) openDupesModal(warningMeta.matches || archivedMatches, { canForceCreate: false });
+    creating.value = false;
     closeCreateModal();
   } catch (err) {
-    if (createMode.value !== 'fax') console.error('Failed to create client:', err);
+    console.error('Client save could not complete', { status: err.response?.status || null });
     const status = err.response?.status;
     const data = err.response?.data || {};
     const meta = data?.errorMeta || data?.error?.errorMeta || null;
@@ -3218,7 +3281,7 @@ const createClient = async ({ forceCreate = false } = {}) => {
       });
       return;
     }
-    error.value = data?.error?.message || data?.error || 'Failed to create client';
+    error.value = `${createdClientRecord.value ? 'Client is saved; completion needs attention. ' : ''}${data?.error?.message || data?.error || err.message || 'Failed to create client'}`;
   } finally {
     creating.value = false;
   }
@@ -3229,7 +3292,16 @@ const createClientAnyway = async () => {
 };
 
 const closeCreateModal = () => {
-  createMode.value = 'manual';
+  if (creating.value || showCreatedRecordsImport.value) return;
+  createMode.value = 'paste';
+  createDemographicsVersion++;
+  parsingCreateDemographics.value = false;
+  if (createdClientRecord.value) fetchClients();
+  createdClientRecord.value = null;
+  createdRecordsImported.value = false;
+  createdDocumentsSaved.value = false;
+  createOutcome.value = canBackofficeEdit.value ? 'unassigned' : 'assign';
+  Object.assign(createRecords, { demographics: '', intake: '', plan: '' });
   faxReview.value = null;
   showCreateModal.value = false;
   createAgencyId.value = '';
@@ -3238,6 +3310,7 @@ const closeCreateModal = () => {
     organization_id: null,
     client_type: '',
     initials: '',
+    full_name: '',
     provider_id: null,
     provider_make_primary: true,
     service_day: '',
@@ -3329,6 +3402,7 @@ onMounted(async () => {
   await fetchProviders();
   await fetchClients();
   await openClientFromQuery();
+  if (route.query?.new === '1') await openCreateClientModal();
 
   // Default school year for new clients (best-effort; user can override).
   if (!newClient.value.school_year) {
@@ -3339,10 +3413,10 @@ onMounted(async () => {
 watch(
   () => createAgencyEffectiveId.value,
   async () => {
-    if (!showCreateModal.value) return;
+    if (!showCreateModal.value || createdClientRecord.value) return;
     // Changing agency in the create modal should refresh org/provider/status dropdowns.
     newClient.value.organization_id = null;
-    newClient.value.provider_id = null;
+    newClient.value.provider_id = canBackofficeEdit.value ? null : authStore.user?.id || null;
     newClient.value.service_day = '';
     newClient.value.insurance_type_id = null;
     await fetchLinkedOrganizations();
@@ -3360,7 +3434,7 @@ watch(
   () => newClient.value?.organization_id,
   async () => {
     // Reset downstream selections when org changes
-    newClient.value.provider_id = null;
+    newClient.value.provider_id = canBackofficeEdit.value ? null : authStore.user?.id || null;
     newClient.value.service_day = '';
     newClient.value.paperwork_delivery_method_id = null;
     deliveryMethods.value = [];

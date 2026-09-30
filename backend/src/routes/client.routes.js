@@ -8,6 +8,7 @@ import {
   getClientNameDuplicates,
   getClientById,
   createClient,
+  previewNewClientDemographics,
   updateClient,
   graduateClientType,
   updateClientStatus,
@@ -169,6 +170,8 @@ router.post('/note-aid/claim-unassigned', postNoteAidClaimUnassigned);
 router.post('/bulk/promote-school-year', bulkPromoteSchoolYear);
 router.post('/bulk/rollover-school-year', rolloverSchoolYear);
 router.post('/bulk/renewals', requireBackofficeAdmin, bulkCreateClientRenewals);
+
+router.post('/demographics/preview', previewNewClientDemographics);
 
 // Get client detail
 router.get('/:id', getClientById);

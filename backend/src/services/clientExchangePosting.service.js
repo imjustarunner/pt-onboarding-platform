@@ -1,0 +1,34 @@
+import pool from '../config/database.js';
+const fail = message => Object.assign(new Error(message), { status: 409 });
+
+/** Serialize posting with assignment and other posts for this client. */
+export async function insertExchangeListing({ agencyId, clientId, postedByUserId, summary, notes, onlyUnassigned = false }) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [clients] = await connection.execute('SELECT id, agency_id, provider_id, status FROM clients WHERE id = ? FOR UPDATE', [clientId]);
+    const client = clients[0];
+    if (!client || Number(client.agency_id) !== Number(agencyId)) throw fail('Client does not belong to this agency');
+    if (['ARCHIVED', 'DECLINED'].includes(String(client.status || '').toUpperCase())) throw fail('Archived or declined clients cannot be posted to the exchange');
+    const [existing] = await connection.execute("SELECT id FROM client_exchange_listings WHERE client_id = ? AND status IN ('open', 'requested') LIMIT 1", [clientId]);
+    if (existing.length) {
+      await connection.commit();
+      return { listingId: existing[0].id, created: false, currentProviderId: client.provider_id };
+    }
+    if (onlyUnassigned) {
+      const [assignments] = await connection.execute('SELECT id FROM client_provider_assignments WHERE client_id = ? AND is_active = TRUE LIMIT 1', [clientId]);
+      if (client.provider_id || assignments.length) throw fail('This client is already assigned. Open their profile to post a transfer.');
+    }
+    const [result] = await connection.execute(`INSERT INTO client_exchange_listings
+      (agency_id, client_id, posted_by_user_id, current_provider_user_id, status,
+       demographics_json, presenting_problems_json, diagnoses_json, preferences_json, notes)
+      VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`, [agencyId, clientId, postedByUserId, client.provider_id || null,
+      JSON.stringify(summary.demographics || {}), JSON.stringify(summary.presentingProblems || []),
+      JSON.stringify(summary.diagnoses || []), JSON.stringify(summary.preferences || {}), notes || null]);
+    await connection.execute(`INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
+      VALUES (?, ?, 'client_exchange_listing', NULL, 'open', 'Posted to Client Exchange for reassignment')`, [clientId, postedByUserId]);
+    await connection.commit();
+    return { listingId: result.insertId, created: true, currentProviderId: client.provider_id };
+  } catch (error) { await connection.rollback(); throw error; }
+  finally { connection.release(); }
+}

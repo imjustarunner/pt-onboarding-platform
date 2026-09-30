@@ -120,6 +120,7 @@
           }"
           @click="select(c)"
         >
+          <QuickPostClientToExchange :client="{ ...c, agencyId }" />
           <div class="oiq-card-top">
             <div class="oiq-card-initials" :style="initialsStyle(c)">{{ getAvatarLetters(c) }}</div>
 
@@ -338,6 +339,7 @@
 
         <!-- Assign + actions -->
         <section class="oiq-section oiq-section--assign">
+          <QuickPostClientToExchange :client="{ ...selected, agencyId }" />
           <div class="oiq-section-title">Assign to provider</div>
           <div class="oiq-assign-row">
             <select v-model="assignSelections[selected.id]" class="oiq-select">
@@ -415,6 +417,7 @@ import {
   matchesQueueSearch
 } from '../../utils/clientQueueSearch.js';
 import api from '../../services/api';
+import QuickPostClientToExchange from '../clientExchange/QuickPostClientToExchange.vue';
 import ClientDisplayModeToggle from './ClientDisplayModeToggle.vue';
 
 const { getClientLabel, getAvatarLetters } = useClientDisplayMode();

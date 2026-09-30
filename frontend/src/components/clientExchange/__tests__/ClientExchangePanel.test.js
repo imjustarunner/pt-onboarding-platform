@@ -36,19 +36,19 @@ describe('exchange agency loading', () => {
   });
 });
 
-it('shows the shared client details before allowing a claim and prevents duplicate claims', async () => {
+it('shows the shared client details before allowing a request and prevents duplicate requests', async () => {
   const listing = { id: 4, agencyId: 2, status: 'requested', currentProviderUserId: 99, presentingProblems: ['Current treatment concern'], diagnoses: ['F41.1 — Anxiety'], pendingRequestCount: 1 };
   mocks.user = { id: 7, role: 'provider' };
   mocks.store = reactive({ currentAgency: { id: 2 }, userAgencies: [], agencies: [], fetchUserAgencies: vi.fn().mockResolvedValue([]) });
   mocks.route.query = { listingId: '4' };
-  let claimed = false;
-  mocks.get.mockImplementation(async url => ({ data: url.endsWith('/4') ? { listing, requests: claimed ? [{ id: 8, listingId: 4, status: 'pending' }] : [] } : url.endsWith('my-requests') ? { requests: claimed ? [{ id: 8, listingId: 4, status: 'pending' }] : [] } : { listings: [listing] } }));
-  mocks.post.mockImplementation(async () => { claimed = true; return { data: {} }; });
+  let requested = false;
+  mocks.get.mockImplementation(async url => ({ data: url.endsWith('/4') ? { listing, requests: requested ? [{ id: 8, listingId: 4, status: 'pending' }] : [] } : url.endsWith('my-requests') ? { requests: requested ? [{ id: 8, listingId: 4, status: 'pending' }] : [] } : { listings: [listing] } }));
+  mocks.post.mockImplementation(async () => { requested = true; return { data: {} }; });
   const wrapper = makeWrapper(); await flushPromises();
   expect(wrapper.text()).toContain('Current treatment concern'); expect(wrapper.text()).toContain('F41.1 — Anxiety');
-  const claim = wrapper.findAll('button').find(button => button.text() === 'Claim client');
-  expect(claim).toBeDefined(); await claim.trigger('click'); await flushPromises();
+  const request = wrapper.findAll('button').find(button => button.text() === 'Request this client');
+  expect(request).toBeDefined(); await request.trigger('click'); await flushPromises();
   expect(mocks.post).toHaveBeenCalledWith('/client-exchange/listings/4/requests', { message: '' });
-  expect(wrapper.findAll('button').some(button => button.text() === 'Claim client')).toBe(false);
+  expect(wrapper.findAll('button').some(button => button.text() === 'Request this client')).toBe(false);
   wrapper.unmount();
 });

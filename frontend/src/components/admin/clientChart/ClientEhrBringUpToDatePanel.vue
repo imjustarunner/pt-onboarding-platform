@@ -1,15 +1,15 @@
 <template>
-  <div v-if="open" class="ehr-bring-backdrop" @click.self="emit('close')">
+  <div v-if="open" class="ehr-bring-backdrop" @click.self="!busy && emit('close')">
     <div class="ehr-bring" role="dialog" aria-labelledby="ehr-bring-title">
       <header class="ehr-bring-head">
         <div>
-          <h3 id="ehr-bring-title">Bring up to date</h3>
+          <h3 id="ehr-bring-title">{{ creationFlow ? 'Import new client records' : 'Bring up to date' }}</h3>
           <p class="ehr-bring-sub">
             {{ clientLabel || 'Client' }}
             <span v-if="clientId"> · #{{ clientId }}</span>
           </p>
         </div>
-        <button type="button" class="ehr-link" @click="emit('close')">Close</button>
+        <button type="button" class="ehr-link" :disabled="busy" @click="emit('close')">Close</button>
       </header>
 
       <div class="ehr-status-row" aria-label="Setup status">
@@ -44,7 +44,7 @@
       <p v-if="successMessage" class="ehr-ok">{{ successMessage }}</p>
 
       <div class="ehr-actions">
-        <button type="button" class="ehr-btn-ghost" :disabled="busy" @click="markDoneOnly">
+        <button v-if="!creationFlow" type="button" class="ehr-btn-ghost" :disabled="busy" @click="markDoneOnly">
           {{ markingDone ? 'Marking…' : 'Mark done' }}
         </button>
         <button
@@ -66,6 +66,7 @@
         :agency-id="agencyId"
         :client-id="clientId"
         :initial-text="planReviewText"
+        :allow-imported-draft="creationFlow"
         mode="import"
         @close="onPlanReviewClose"
         @saved="onPlanReviewSaved"
@@ -89,13 +90,17 @@ const props = defineProps({
   open: { type: Boolean, default: false },
   clientId: { type: [Number, String], required: true },
   agencyId: { type: [Number, String], required: true },
-  clientLabel: { type: String, default: '' }
+  clientLabel: { type: String, default: '' },
+  initialTexts: { type: Object, default: () => ({}) },
+  creationFlow: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['close', 'done', 'imported']);
 
 const demographicsText = ref('');
 const intakeText = ref('');
+let importedIntakeDraft = null;
+const reviewPending = reactive({ intake: false, plan: false });
 const planText = ref('');
 const importing = ref(false);
 const markingDone = ref(false);
@@ -110,6 +115,7 @@ const status = reactive({
   plan: 'missing'
 });
 
+let initializedClientId = null;
 const todayIso = computed(() => new Date().toISOString().slice(0, 10));
 const hasAnyPaste = computed(
   () => !!(demographicsText.value.trim() || intakeText.value.trim() || planText.value.trim())
@@ -132,9 +138,11 @@ watch(
   () => props.open,
   (open) => {
     if (!open) return;
-    demographicsText.value = '';
-    intakeText.value = '';
-    planText.value = '';
+    if (props.creationFlow && initializedClientId === props.clientId) return;
+    initializedClientId = props.clientId;
+    demographicsText.value = props.initialTexts.demographics || '';
+    intakeText.value = props.initialTexts.intake || '';
+    planText.value = props.initialTexts.plan || '';
     error.value = '';
     successMessage.value = '';
     stepLog.value = [];
@@ -142,9 +150,18 @@ watch(
     planReviewText.value = '';
     status.demographics = 'missing';
     status.intake = 'missing';
+    importedIntakeDraft = null;
     status.plan = 'missing';
-  }
+    reviewPending.intake = false;
+    reviewPending.plan = false;
+    if (props.creationFlow) importAll();
+  },
+  { immediate: true }
 );
+
+for (const [text, key] of [[demographicsText, 'demographics'], [intakeText, 'intake'], [planText, 'plan']]) {
+  watch(text, () => { if (status[key] === 'imported') status[key] = 'missing'; if (key === 'intake') importedIntakeDraft = null; });
+}
 
 function log(ok, message) {
   stepLog.value = [...stepLog.value, { ok, message }];
@@ -203,7 +220,8 @@ function onPlanReviewClose() {
   }
 }
 
-async function onPlanReviewSaved() {
+async function onPlanReviewSaved(plan) {
+  reviewPending.plan = plan?.status === 'draft';
   showPlanReview.value = false;
   status.plan = 'imported';
   log(true, `Treatment plan saved from review (effective ${todayIso.value})`);
@@ -247,11 +265,12 @@ async function importDemographics() {
 async function importIntake() {
   const text = intakeText.value.trim();
   if (!text) return false;
-  const res = await api.post(
+  const res = importedIntakeDraft || await api.post(
     `/clients/${props.clientId}/intake-note/import`,
-    { text },
+    { text, ...(props.creationFlow ? { sessionContext: { source: 'client_creation_record_import' } } : {}) },
     { skipGlobalLoading: true, headers: agencyHeaders() }
   );
+  importedIntakeDraft = res;
   const draft = res?.data?.draft;
   const draftId = draft?.id;
   if (!draftId) throw new Error('Intake import did not return a draft');
@@ -296,6 +315,14 @@ async function importIntake() {
       throw e;
     }
   }
+
+  if (props.creationFlow && !diagnoses.some(d => d.code)) {
+    reviewPending.intake = true;
+    status.intake = 'imported';
+    log(true, 'Intake saved; diagnosis review is still pending.');
+    return true;
+  }
+  reviewPending.intake = false;
 
   try {
     await api.post(
@@ -367,9 +394,7 @@ async function importPlan() {
     dischargeParts.push(`Discharge Criteria/Planning\n${String(parsed.dischargePlan).trim()}`);
   }
 
-  await api.post(
-    '/medical-billing/treatment-plans',
-    {
+  const payload = {
       agencyId: Number(props.agencyId),
       clientId: Number(props.clientId),
       title: 'Imported Treatment Plan',
@@ -397,9 +422,16 @@ async function importPlan() {
           measurementMethod: o.measurementMethod || DEFAULT_MEASUREMENT_METHOD
         }))
       }))
-    },
-    { skipGlobalLoading: true }
-  );
+    };
+  reviewPending.plan = false;
+  try {
+    await api.post('/medical-billing/treatment-plans', payload, { skipGlobalLoading: true });
+  } catch (e) {
+    if (!props.creationFlow || e.response?.data?.error?.code !== 'intake_not_finalized') throw e;
+    await api.post('/medical-billing/treatment-plans', { ...payload, status: 'draft', finalize: false, sourceToolId: 'client_creation_record_import' }, { skipGlobalLoading: true });
+    reviewPending.plan = true;
+    log(true, 'Treatment plan saved; intake finalization is still pending.');
+  }
   status.plan = 'imported';
   log(true, `Treatment plan saved (effective ${effectiveDate})`);
   return true;
@@ -415,17 +447,26 @@ async function promoteSetupComplete() {
 }
 
 async function finishImportPipeline() {
+  const incomplete = [[demographicsText.value, status.demographics], [intakeText.value, status.intake], [planText.value, status.plan]]
+    .some(([text, result]) => text.trim() && result !== 'imported');
+  if (incomplete) {
+    error.value = 'Some records still need attention. Retry the incomplete steps before finishing or posting to the exchange.';
+    return;
+  }
   const anyOk = [status.demographics, status.intake, status.plan].some((s) => s === 'imported');
   if (!anyOk) {
     error.value = 'Nothing imported successfully. Check the paste text and try again.';
     return;
   }
   try {
-    await promoteSetupComplete();
+    if (!reviewPending.intake && !reviewPending.plan
+      && (!props.creationFlow || (status.intake === 'imported' && status.plan === 'imported'))) await promoteSetupComplete();
   } catch (e) {
     log(false, `Setup complete skipped: ${e.response?.data?.error?.message || e.message}`);
   }
-  successMessage.value = 'Import finished. Review step log, then Mark done if the chart looks complete.';
+  successMessage.value = reviewPending.intake || reviewPending.plan
+    ? 'Records saved; clinical review remains pending.'
+    : (props.creationFlow ? 'Records imported.' : 'Import finished. Review step log, then Mark done if the chart looks complete.');
   emit('imported', { ...status });
 }
 
@@ -436,7 +477,7 @@ async function importAll() {
   successMessage.value = '';
   stepLog.value = [];
   try {
-    if (demographicsText.value.trim()) {
+    if (demographicsText.value.trim() && status.demographics !== 'imported') {
       try {
         await importDemographics();
       } catch (e) {
@@ -444,7 +485,7 @@ async function importAll() {
         log(false, `Demographics failed: ${e.response?.data?.error?.message || e.message}`);
       }
     }
-    if (intakeText.value.trim()) {
+    if (intakeText.value.trim() && status.intake !== 'imported') {
       try {
         await importIntake();
       } catch (e) {
@@ -452,7 +493,7 @@ async function importAll() {
         log(false, `Intake failed: ${e.response?.data?.error?.message || e.message}`);
       }
     }
-    if (planText.value.trim()) {
+    if (planText.value.trim() && status.plan !== 'imported' && (!intakeText.value.trim() || status.intake === 'imported')) {
       try {
         const planResult = await importPlan();
         if (planResult === 'needs_review') {

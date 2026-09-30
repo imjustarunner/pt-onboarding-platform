@@ -12,7 +12,7 @@ async function withListing(listingId, action) {
     const [rows] = await connection.execute('SELECT * FROM client_exchange_listings WHERE id = ? FOR UPDATE', [listingId]);
     const listing = rows[0];
     if (!listing) throw fail('Listing not found', 404);
-    if (!['open', 'requested'].includes(listing.status)) throw fail('This listing is no longer accepting claims');
+    if (!['open', 'requested'].includes(listing.status)) throw fail('This listing is no longer accepting requests');
     const result = await action(connection, listing);
     await connection.commit();
     return result;
@@ -28,7 +28,7 @@ async function eligibleProvider(connection, userId, agencyId) {
       AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING')
       AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant') OR u.has_provider_access = 1)
     LIMIT 1`, [userId, agencyId]);
-  if (!rows.length) throw fail('An active provider in this agency is required to claim or receive the client', 403);
+  if (!rows.length) throw fail('An active provider in this agency is required to request or receive the client', 403);
 }
 
 export async function createExchangeClaim({ listingId, requestingProviderUserId, message }) {
@@ -37,7 +37,7 @@ export async function createExchangeClaim({ listingId, requestingProviderUserId,
     if (Number(requestingProviderUserId) === Number(listing.current_provider_user_id)) throw fail('You are already the current provider for this client');
     const [existing] = await connection.execute(`SELECT id FROM client_exchange_requests
       WHERE listing_id = ? AND requesting_provider_user_id = ? AND status = 'pending'`, [listingId, requestingProviderUserId]);
-    if (existing.length) throw fail('You already have a pending claim for this listing');
+    if (existing.length) throw fail('You already have a pending request for this listing');
     const [result] = await connection.execute(`INSERT INTO client_exchange_requests (listing_id, requesting_provider_user_id, status, message)
       VALUES (?, ?, 'pending', ?)`, [listingId, requestingProviderUserId, message || null]);
     await connection.execute("UPDATE client_exchange_listings SET status = 'requested' WHERE id = ?", [listingId]);
@@ -59,12 +59,12 @@ export async function resolveExchangeClaim({ requestId, action, actingUserId, ac
   return withListing(requests[0].listing_id, async (connection, listing) => {
     const [rows] = await connection.execute('SELECT * FROM client_exchange_requests WHERE id = ? FOR UPDATE', [requestId]);
     const request = rows[0];
-    if (!request || request.status !== 'pending') throw fail('This claim has already been resolved');
+    if (!request || request.status !== 'pending') throw fail('This request has already been resolved');
     const [clients] = await connection.execute('SELECT * FROM clients WHERE id = ? FOR UPDATE', [listing.client_id]);
     const client = clients[0];
     if (!client || Number(client.agency_id) !== Number(listing.agency_id)) throw fail('Client no longer belongs to this exchange');
     if (String(client.status).toUpperCase() === 'ARCHIVED') throw fail('Archived clients cannot be assigned');
-    if (Number(client.provider_id || 0) !== Number(listing.current_provider_user_id || 0)) throw fail('Client assignment changed. Withdraw and repost the listing before assigning a claim.');
+    if (Number(client.provider_id || 0) !== Number(listing.current_provider_user_id || 0)) throw fail('Client assignment changed. Withdraw and repost the listing before assigning a request.');
     const canResolve = backoffice(actingRole) || Number(client.provider_id) === Number(actingUserId)
       || (!client.provider_id && Number(listing.posted_by_user_id) === Number(actingUserId));
     if (!canResolve) throw fail('Only the current provider or the posting team can assign this client', 403);
@@ -84,7 +84,7 @@ export async function resolveExchangeClaim({ requestId, action, actingUserId, ac
     await afterLegacyProviderFieldsChanged(connection, { clientId: client.id, userId: actingUserId, providerUserId: providerId, serviceDay: client.service_day, isPrimary: true });
     await recordProviderAssignmentChange({ connection, clientId: client.id, agencyId: client.agency_id, clientType: client.client_type, oldProviderUserId: client.provider_id, newProviderUserId: providerId, actingUserId });
     await connection.execute(`INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
-      VALUES (?, ?, 'provider_id', ?, ?, 'Assigned from Client Exchange claim')`, [client.id, actingUserId, client.provider_id ? String(client.provider_id) : null, String(providerId)]);
+      VALUES (?, ?, 'provider_id', ?, ?, 'Assigned from Client Exchange request')`, [client.id, actingUserId, client.provider_id ? String(client.provider_id) : null, String(providerId)]);
     await connection.execute("UPDATE client_exchange_requests SET status = 'approved', resolved_by_user_id = ?, resolved_at = NOW() WHERE id = ?", [actingUserId, requestId]);
     await connection.execute(`UPDATE client_exchange_requests SET status = 'denied', resolved_by_user_id = ?, resolved_at = NOW(),
       denial_reason = 'Another provider was assigned this client' WHERE listing_id = ? AND status = 'pending' AND id != ?`, [actingUserId, listing.id, requestId]);

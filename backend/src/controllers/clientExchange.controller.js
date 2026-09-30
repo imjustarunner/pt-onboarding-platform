@@ -117,6 +117,7 @@ export async function createListing(req, res, next) {
     if (String(client.status).toUpperCase() === 'ARCHIVED') {
       return res.status(400).json({ error: { message: 'Archived clients cannot be posted to the exchange' } });
     }
+    if (req.body?.quickPost && !isBackoffice(req.user.role)) return res.status(403).json({ error: { message: 'Agency staff access is required for one-click posting' } });
     const listing = await ClientExchange.createListing({
       agencyId,
       clientId,
@@ -126,10 +127,12 @@ export async function createListing(req, res, next) {
       presentingProblems: req.body?.presentingProblems,
       diagnoses: req.body?.diagnoses,
       preferences: req.body?.preferences,
-      notes: req.body?.notes
+      notes: req.body?.notes,
+      onlyUnassigned: req.body?.quickPost === true
     });
     res.status(201).json({ listing });
   } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     const msg = e?.message || 'Failed to create listing';
     if (/not found|already belongs|already has an open listing|does not belong/i.test(msg)) {
       return res.status(400).json({ error: { message: msg } });

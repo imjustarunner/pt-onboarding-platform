@@ -26,3 +26,18 @@ it('tolerates unprovisioned clinical tables, but surfaces database failures', as
   mocks.clinical.mockRejectedValue(new Error('Connection failed'));
   await expect(loadClientExchangeSummary({ client: { id: 3, agency_id: 2 } })).rejects.toThrow('Connection failed');
 });
+
+it('includes the newest finalized imported intake in latest-source selection', async () => {
+  mocks.execute.mockImplementation(async sql => [sql.includes('client_intake_note_drafts') ? [{ status: 'final', note_sections_json_enc: JSON.stringify([{ key: 'Presenting Problem', body: 'New imported concern' }]), finalized_at: '2026-09-30' }] : []]);
+  mocks.clinical.mockImplementation(async sql => [sql.includes('clinical_treatment_plans') ? [{ status: 'active', presenting_problem: 'Older plan', updated_at: '2026-09-20' }] : []]);
+  const summary = await loadClientExchangeSummary({ client: { id: 3, agency_id: 2 } });
+  expect(summary).toMatchObject({ presentingProblems: ['New imported concern'], presentingProblemSource: 'Intake' });
+});
+it('includes only explicitly imported pending intakes and labels review status', async () => {
+  mocks.execute.mockImplementation(async sql => [sql.includes('client_intake_note_drafts') ? [
+    { status: 'diagnosis_pending', session_context_enc: JSON.stringify({ source: 'client_creation_record_import' }), note_sections_json_enc: JSON.stringify([{ key: 'Presenting Problem', body: 'Imported concern' }]), updated_at: '2026-09-29' },
+    { status: 'diagnosis_pending', note_sections_json_enc: JSON.stringify([{ key: 'Presenting Problem', body: 'Unreviewed generated content' }]), updated_at: '2026-09-30' }
+  ] : []]);
+  const summary = await loadClientExchangeSummary({ client: { id: 3, agency_id: 2 } });
+  expect(summary).toMatchObject({ presentingProblems: ['Imported concern'], presentingProblemSource: 'Intake (review pending)' });
+});

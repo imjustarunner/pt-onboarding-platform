@@ -16,7 +16,7 @@
             <router-link v-else class="ocm-hub-switcher-btn" :to="item.to">{{ item.label }}</router-link>
           </template>
         </nav>
-        <router-link class="ocm-hub-action-btn ocm-hub-action-btn--primary" :to="orgPath('/admin/clients')">+ New intake</router-link>
+        <router-link class="ocm-hub-action-btn ocm-hub-action-btn--primary" :to="orgPath('/admin/clients?new=1')">+ Add client</router-link>
         <button class="ocm-hub-action-btn" type="button" :disabled="loading" @click="load">
           {{ loading ? 'Loading…' : '↺ Refresh' }}
         </button>
@@ -178,6 +178,7 @@
                 <td>{{ c.nextStep?.label || '—' }}</td>
                 <td>{{ formatRelativeTime(c.createdAt) }}</td>
                 <td class="ocm-row-actions" @click.stop>
+                  <QuickPostClientToExchange :client="c" />
                   <button type="button" class="ocm-link" @click="selectedId = c.id">Review</button>
                   <a :href="clientProfilePath(c.id)" target="_blank" rel="noopener">Open</a>
                 </td>
@@ -323,6 +324,7 @@
 </template>
 
 <script setup>
+import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
 import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';

@@ -43,3 +43,10 @@ it('protects the chart summary with record access and agency checks', async () =
   req.query.agencyId = 3; const otherAgency = response(); await previewClientSummary(req, otherAgency, vi.fn());
   expect(otherAgency.status).toHaveBeenCalledWith(404);
 });
+
+it('restricts one-click posting to staff and forwards the unassigned requirement', async () => {
+  const req = request(); req.body.quickPost = true;
+  const denied = response(); await createListing(req, denied, vi.fn()); expect(denied.status).toHaveBeenCalledWith(403);
+  req.user.role = 'support'; const allowed = response(); await createListing(req, allowed, vi.fn());
+  expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ onlyUnassigned: true }));
+});
