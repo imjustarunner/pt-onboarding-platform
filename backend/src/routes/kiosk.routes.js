@@ -1,3 +1,4 @@
+import { officeSupportRead } from './officeLobby.routes.js';
 import { completeForms, listSubmissions, submissionClients, submissionSessions, attachSubmission } from '../controllers/officeClientSubmissions.controller.js';
 import express from 'express';
 import { authenticate, requireKioskUser } from '../middleware/auth.middleware.js';
@@ -91,6 +92,7 @@ router.post('/:locationId/submit', submitKioskSurvey);
 
 // Authenticated endpoints (dashboards)
 router.use(authenticate);
+router.get('/support-messages/:id', officeSupportRead);
 router.get('/client-checkins', listSubmissions);
 router.get('/client-checkins/:id/clients', submissionClients);
 router.get('/client-checkins/:id/sessions', submissionSessions);

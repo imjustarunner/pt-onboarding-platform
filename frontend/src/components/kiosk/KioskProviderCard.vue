@@ -1,27 +1,23 @@
 <template>
-  <button type="button" class="provider-card" @click="$emit('select', provider)">
-    <div class="portrait"><img v-if="photoUrl && !photoFailed" :src="photoUrl" alt="" @error="photoFailed = true" /><span v-else>{{ initials }}</span><i :class="{ upcoming: provider.status !== 'active_now' }" /></div>
-    <span class="provider-info"><strong>{{ provider.firstName }} {{ provider.lastName }}</strong><span class="credential">{{ provider.credential || provider.title || 'Provider' }}</span><span v-if="provider.agencyName" class="agency"><img v-if="logoUrl && !logoFailed" :src="logoUrl" alt="" @error="logoFailed = true" />{{ provider.agencyName }}</span></span>
-    <span class="room">{{ provider.currentRoomNumber ? `Office ${provider.currentRoomNumber}` : provider.currentRoomName || 'Office visit' }}</span>
-    <span class="schedule">{{ provider.status === 'active_now' ? 'Scheduled now' : `Next at ${formatKioskTime(provider.nextSlotAt)}` }}</span>
-    <span class="choose">Check in <span aria-hidden="true">↗</span></span>
-  </button>
+ <article class="provider-card">
+  <div class="card-top"><button class="portrait" :aria-label="`Enlarge photo of ${provider.firstName} ${provider.lastName}`" @click="$emit('photo',provider)"><img v-if="photoUrl&&!photoFailed" :src="photoUrl" alt="" @error="photoFailed=true"/><span v-else>{{initials}}</span></button><span class="status">{{mode==='current'?'Your appointment':mode==='today'?'Here today':'Provider'}}</span></div>
+  <button class="profile-link" @click="$emit('profile',provider)"><strong>{{provider.firstName}} {{provider.lastName}}</strong><span>{{provider.credential||provider.title||'Provider'}}</span></button>
+  <div class="agency"><img v-if="logoUrl&&!logoFailed" :src="logoUrl" alt="" @error="logoFailed=true"/>{{provider.agencyName}}</div>
+  <div v-if="mode!=='profiles'" class="room"><MapPin :size="15"/>{{provider.currentRoomNumber?`Office ${provider.currentRoomNumber}`:provider.currentRoomName||'Office visit'}}</div>
+  <button class="choose" :class="{checkin:mode==='current'}" @click="$emit('select',provider)"><span>{{mode==='current'?`${formatKioskTime(provider.currentSlot?.startAt)} check-in`:mode==='today'?'More info · Today’s times':'View profile'}}</span><ArrowRight :size="19" aria-hidden="true"/></button>
+ </article>
 </template>
 <script setup>
-import { computed, ref } from 'vue';
-import { toUploadsUrl } from '../../utils/uploadsUrl';
-import { tenantFaviconUrl } from '../../utils/tenantBrandAssets';
-import { formatKioskTime } from '../../utils/kioskTime';
-const props = defineProps({ provider: { type: Object, required: true } });
-defineEmits(['select']);
-const photoFailed = ref(false);
-const logoFailed = ref(false);
-const logoUrl = computed(() => toUploadsUrl(props.provider.agencyLogoPath) || tenantFaviconUrl(props.provider.agencySlug));
-const photoUrl = computed(() => toUploadsUrl(props.provider.profilePhotoPath));
-const initials = computed(() => `${props.provider.firstName?.[0] || ''}${props.provider.lastName?.[0] || ''}`);
+import {computed,ref} from 'vue';
+import {ArrowRight,MapPin} from '@lucide/vue';
+import {toUploadsUrl} from '../../utils/uploadsUrl';
+import {tenantFaviconUrl} from '../../utils/tenantBrandAssets';
+import {formatKioskTime} from '../../utils/kioskTime';
+const props=defineProps({provider:{type:Object,required:true},mode:{type:String,default:'current'}});defineEmits(['select','photo','profile']);
+const photoFailed=ref(false),logoFailed=ref(false);
+const photoUrl=computed(()=>toUploadsUrl(props.provider.profilePhotoPath)),logoUrl=computed(()=>toUploadsUrl(props.provider.agencyLogoPath)||tenantFaviconUrl(props.provider.agencySlug));
+const initials=computed(()=>`${props.provider.firstName?.[0]||''}${props.provider.lastName?.[0]||''}`);
 </script>
 <style scoped>
-.provider-card{position:relative;display:flex;flex-direction:column;align-items:flex-start;min-width:0;padding:25px;background:#fffefa;border:1px solid #e1e7dc;border-radius:22px;text-align:left;color:#203f3b;font:inherit;cursor:pointer;transition:transform .18s,box-shadow .18s,border-color .18s}.provider-card:hover{transform:translateY(-3px);box-shadow:0 12px 30px #294e3712;border-color:#839a73}.provider-card:focus-visible{outline:3px solid #b78432;outline-offset:4px}.portrait{width:70px;height:70px;position:relative;margin-bottom:22px}.portrait img,.portrait>span{width:100%;height:100%;border-radius:22px;object-fit:cover}.portrait>span{display:grid;place-items:center;background:#e8eee0;font-size:25px;font-weight:600}.portrait i{position:absolute;right:-3px;bottom:0;width:14px;height:14px;border-radius:50%;background:#718b49;border:3px solid #fffefa}.portrait i.upcoming{background:#c3a271}.provider-info{display:flex;flex-direction:column;gap:5px}.provider-info strong{font-size:20px;letter-spacing:-.4px;line-height:1.3}.credential{font-size:13px;color:#6a7970}.agency{font-size:11px;color:#6a7970;margin:5px 0 16px}.room{background:#edf1e6;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:700;margin-top:auto}.schedule{font-size:11px;color:#6a7970;margin:10px 0 22px}.choose{display:flex;justify-content:space-between;width:100%;border-top:1px solid #e8ebdf;padding-top:17px;font-size:13px;font-weight:700}.choose>span{font-size:19px}
-@media(prefers-reduced-motion:reduce){.provider-card{transition:none}.provider-card:hover{transform:none}}
-.agency{display:flex;align-items:center;gap:7px}.agency img{width:38px;height:28px;object-fit:contain}
+.provider-card{display:flex;flex-direction:column;padding:22px;background:#fffefa;border:1px solid #dde5d8;border-radius:22px;color:#24443d;min-width:0;box-shadow:0 4px 18px #203f3b04}.card-top{display:flex;justify-content:space-between;align-items:start;gap:8px}.portrait{width:76px;height:88px;padding:0;background:#e7eddc;border:0;border-radius:15px;overflow:hidden;cursor:pointer;flex-shrink:0}.portrait img{width:100%;height:100%;object-fit:cover;object-position:50% 20%}.portrait span{font-size:25px}.status{font-size:10px;border-radius:20px;background:#eaf2e5;color:#456543;padding:7px 9px}.profile-link{padding:0;margin:16px 0 9px;border:0;background:none;text-align:left;color:inherit;cursor:pointer}.profile-link strong{display:block;font-size:21px;letter-spacing:-.5px}.profile-link span{display:block;font-size:13px;color:#728071;margin-top:5px}.agency{display:flex;align-items:center;gap:9px;font-size:12px;color:#718071;min-height:30px;margin:2px 0 14px}.agency img{max-width:52px;height:28px;object-fit:contain}.room{display:flex;gap:7px;align-items:center;font-size:12px;margin-bottom:18px;color:#697b69}.choose{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;margin-top:auto;border:1px solid #dbe4d6;background:transparent;border-radius:11px;padding:14px 12px;color:#24443d;font:inherit;font-size:13px;font-weight:600;cursor:pointer}.choose.checkin{background:#315e49;color:#fff;border-color:#315e49}button:focus-visible{outline:3px solid #b78432;outline-offset:3px}@media(max-width:450px){.provider-card{padding:17px}.profile-link strong{font-size:19px}}
 </style>

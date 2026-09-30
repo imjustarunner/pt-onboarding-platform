@@ -313,11 +313,14 @@ async function insertTicketMessageRow({
   authorUserId,
   authorRole,
   body,
-  isInternal = false
+  isInternal = false,
+  requireEncryption = false
 }) {
   const hasEnc = await hasSupportTicketEncryptionColumns();
   const hasInternal = await hasSupportTicketMessageInternalColumn();
   const enc = hasEnc ? prepareEncryptedTicketText(body) : { plain: body, ciphertext: null, iv: null, authTag: null, keyId: null };
+
+  if (requireEncryption && !enc.encrypted) throw Object.assign(new Error('Secure message encryption is unavailable.'), {status:503});
 
   if (hasEnc && hasInternal) {
     await pool.execute(
@@ -2417,6 +2420,7 @@ export const createSupportTicketMessage = async (req, res, next) => {
       authorUserId: req.user.id,
       authorRole: String(req.user?.role || ''),
       body,
+      requireEncryption: ticket.created_by_source_key === 'office_kiosk_support',
       isInternal: wantInternal && (isAgencyAdminUser(req) || role === 'super_admin' || role === 'staff' || role === 'clinical_practice_assistant')
     });
 
@@ -3039,6 +3043,8 @@ export const answerSupportTicket = async (req, res, next) => {
     const hasCloseOnRead = await hasSupportTicketsCloseOnReadColumn();
     const hasEnc = await hasSupportTicketEncryptionColumns();
     const aEnc = hasEnc ? prepareEncryptedTicketText(answer) : { plain: answer, ciphertext: null, iv: null, authTag: null, keyId: null };
+
+    if (ticket.created_by_source_key === 'office_kiosk_support' && !aEnc.encrypted) return res.status(503).json({error:{message:'Secure message encryption is unavailable.'}});
 
     if (hasEnc && hasCloseOnRead) {
       await pool.execute(

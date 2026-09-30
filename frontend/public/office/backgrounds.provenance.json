@@ -1,0 +1,7 @@
+{
+  "method": "Built-in image_gen tool; generated illustrations, not location documentary photographs. Converted to WebP with cwebp for loading speed.",
+  "assets": [
+    {"file": "pikes-peak.webp", "prompt": "Photorealistic natural illustration of Pikes Peak, Colorado, seen from Colorado Springs; recognizable broad rounded summit and Front Range foothills with a few ponderosa pines. Soft early morning light, muted sage and cream tones. Mountain on the right half, quiet pale sky and low contrast on the left for readable office lobby UI. Wide landscape, 1536x1024. No text, logos, buildings, or people."},
+    {"file": "denver-skyline.webp", "prompt": "Photorealistic natural illustration of the Denver downtown skyline, including the recognizable cash-register Wells Fargo tower and Front Range mountains behind. Soft morning light, muted sage, blue, and cream tones. Skyline mainly center and right; quiet pale sky on the left for readable office lobby UI. Wide landscape, 1536x1024. No text, logos, or people."}
+  ]
+}

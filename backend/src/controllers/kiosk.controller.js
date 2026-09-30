@@ -1,3 +1,4 @@
+import { lobbyLocation, officeToday } from '../services/officeLobby.service.js';
 import { canCheckIn, checkinClosesAt } from '../utils/officeCheckinWindow.js';
 import { assertCheckinClientAccess } from '../services/officeClientSubmissions.service.js';
 import { loadOfficeDirectory } from '../services/officeKioskDirectory.service.js';
@@ -163,7 +164,7 @@ export const checkInToEvent = async (req, res, next) => {
       || (providerId !== null && (!Number.isSafeInteger(providerId) || providerId <= 0))) {
       return res.status(400).json({ error: { message: 'A valid office, appointment, and provider are required.' } });
     }
-    const result = await recordOfficeKioskCheckin({ locationId, eventId, providerId, submissionKey:req.body?.submissionKey, respondentType:req.body?.respondentType });
+    const result = await recordOfficeKioskCheckin({ locationId, eventId, providerId, submissionKey:req.body?.submissionKey, respondentType:req.body?.respondentType, appointmentStartAt:req.body?.appointmentStartAt, nextHour:req.body?.nextHour===true });
     res.status(result.alreadyCheckedIn ? 200 : 201).json(result);
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: { message: error.message } });
@@ -1393,185 +1394,8 @@ function wallStrToUtcMysql(wallStr, timeZone) {
 // ─── Provider-First Welcome Kiosk ────────────────────────────────────────────
 
 // Public: providers with BOOKED events today, sorted active-now → upcoming (done = omitted)
-export const listProvidersToday = async (req, res, next) => {
-  try {
-    const { locationId } = req.params;
-    const loc = await OfficeLocation.findById(parseInt(locationId));
-    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
-
-    const now = new Date();
-    const tz = loc.timezone || 'America/Denver';
-    const { startAt, endAt } = localTodayBounds(tz);
-    const nowMs = now.getTime();
-
-    const [rows] = await pool.execute(
-      `SELECT
-         u.id,
-         u.first_name,
-         u.last_name,
-         u.credential,
-         u.title,
-         u.profile_photo_path,
-         e.id AS event_id,
-         e.start_at,
-         e.end_at,
-         r.name AS room_name,
-         r.room_number,
-         a.name AS agency_name, COALESCE(NULLIF(a.slug, ''), a.portal_url) AS agency_slug,
-         COALESCE(NULLIF(a.logo_path, ''), NULLIF(a.logo_url, ''), ai.file_path) AS agency_logo_path,
-         a.color_palette AS agency_color_palette
-       FROM office_events e
-       JOIN users u ON u.id = e.booked_provider_id
-         AND u.is_active = 1
-         AND u.status = 'ACTIVE_EMPLOYEE'
-         AND u.terminated_at IS NULL
-       JOIN office_rooms r ON r.id = e.room_id AND r.is_active = 1
-       JOIN office_locations ol ON ol.id = e.office_location_id
-       LEFT JOIN agencies a ON a.id = (
-         SELECT ua.agency_id FROM user_agencies ua JOIN agencies candidate ON candidate.id = ua.agency_id
-         WHERE ua.user_id = u.id AND ua.is_active = 1 AND candidate.organization_type = 'agency'
-         ORDER BY (ua.agency_id = ol.agency_id) DESC, ua.agency_id LIMIT 1)
-       LEFT JOIN icons ai ON ai.id = a.icon_id
-       WHERE e.office_location_id = ?
-         AND e.status <> 'CANCELLED'
-         AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
-         AND e.booked_provider_id IS NOT NULL
-         AND e.start_at < ?
-         AND e.end_at > ?
-       ORDER BY u.id, e.start_at ASC`,
-      [parseInt(locationId), endAt, startAt]
-    );
-
-    // Group by provider; determine status from their events relative to now
-    const providerMap = new Map();
-    for (const row of (rows || [])) {
-      if (!canCheckIn(row, nowMs)) continue;
-      const pid = row.id;
-      if (!providerMap.has(pid)) {
-        providerMap.set(pid, {
-          id: pid,
-          firstName: row.first_name,
-          lastName: row.last_name,
-          credential: row.credential || null,
-          title: row.title || null,
-          profilePhotoPath: row.profile_photo_path || null,
-          agencyName: row.agency_name || null,
-          agencyLogoPath: row.agency_logo_path || null,
-          agencySlug: row.agency_slug || null,
-          agencyPrimaryColor: (() => {
-            try {
-              const palette = typeof row.agency_color_palette === 'string'
-                ? JSON.parse(row.agency_color_palette)
-                : row.agency_color_palette;
-              return palette?.primary || null;
-            } catch { return null; }
-          })(),
-          currentRoomName: null,
-          currentRoomNumber: null,
-          nextSlotAt: null,
-          status: 'upcoming',
-          events: []
-        });
-      }
-      providerMap.get(pid).events.push({
-        checkinClosesAt: checkinClosesAt(row),
-        startAt: toOfficeWallStr(row.start_at, tz),
-        endAt: toOfficeWallStr(row.end_at, tz),
-        startMs: parseUtcDate(row.start_at)?.getTime() ?? NaN,
-        endMs: parseUtcDate(row.end_at)?.getTime() ?? NaN,
-        roomName: row.room_name,
-        roomNumber: row.room_number
-      });
-    }
-
-    const providers = [];
-    for (const p of providerMap.values()) {
-      const activeEvent = p.events.find((e) => e.startMs <= nowMs && e.endMs > nowMs);
-      const futureEvents = p.events.filter((e) => e.startMs > nowMs).sort((a, b) => a.startMs - b.startMs);
-      const allDone = p.events.every((e) => e.endMs <= nowMs);
-
-      if (allDone) continue; // Provider's day is done; omit from kiosk
-
-      if (activeEvent) {
-        p.status = 'active_now';
-        p.currentRoomName = activeEvent.roomName;
-        p.currentRoomNumber = activeEvent.roomNumber;
-      } else if (futureEvents.length > 0) {
-        p.status = 'upcoming';
-        p.nextSlotAt = futureEvents[0].startAt;
-        p.currentRoomName = futureEvents[0].roomName;
-        p.currentRoomNumber = futureEvents[0].roomNumber;
-      }
-
-      p.checkinClosesAt = p.events.map(e => e.checkinClosesAt).sort().at(-1);
-      delete p.events;
-      providers.push(p);
-    }
-
-    // Sort: active_now first, then upcoming by nextSlotAt (wall strings share a synthetic epoch)
-    providers.sort((a, b) => {
-      if (a.status === b.status) {
-        const ta = a.nextSlotAt ? new Date(String(a.nextSlotAt).replace(' ', 'T') + 'Z').getTime() : 0;
-        const tb = b.nextSlotAt ? new Date(String(b.nextSlotAt).replace(' ', 'T') + 'Z').getTime() : 0;
-        return ta - tb;
-      }
-      return a.status === 'active_now' ? -1 : 1;
-    });
-
-    res.json({ locationId: parseInt(locationId), locationName: loc.name, timezone: tz, providers });
-  } catch (e) {
-    console.error('[kiosk-debug] providers-today error:', e);
-    next(e);
-  }
-};
-
-// Public: a provider's BOOKED slots for today (no client info)
-export const listProviderSlotsToday = async (req, res, next) => {
-  try {
-    const { locationId, providerId } = req.params;
-    const loc = await OfficeLocation.findById(parseInt(locationId));
-    if (!loc || !loc.is_active) return res.status(404).json({ error: { message: 'Location not found' } });
-
-    const tz = loc.timezone || 'America/Denver';
-    const { startAt, endAt } = localTodayBounds(tz);
-
-    const [rows] = await pool.execute(
-      `SELECT
-         e.id AS event_id,
-         e.start_at,
-         e.end_at,
-         r.name AS room_name,
-         r.room_number
-       FROM office_events e
-       JOIN users u ON u.id = e.booked_provider_id
-         AND u.is_active = 1
-         AND u.status = 'ACTIVE_EMPLOYEE'
-         AND u.terminated_at IS NULL
-       JOIN office_rooms r ON r.id = e.room_id AND r.is_active = 1
-       WHERE e.office_location_id = ?
-         AND e.booked_provider_id = ?
-         AND e.status <> 'CANCELLED'
-         AND (e.status = 'BOOKED' OR e.slot_state = 'ASSIGNED_BOOKED')
-         AND e.start_at < ?
-         AND e.end_at > ?
-       ORDER BY e.start_at ASC`,
-      [parseInt(locationId), parseInt(providerId), endAt, startAt]
-    );
-
-    const slots = (rows || []).filter(r => canCheckIn(r)).map((r) => ({
-      checkinClosesAt: checkinClosesAt(r),
-      eventId: r.event_id,
-      startAt: toOfficeWallStr(r.start_at, tz),
-      endAt: toOfficeWallStr(r.end_at, tz),
-      roomName: r.room_name,
-      roomNumber: r.room_number
-    }));
-
-    res.json({ locationId: parseInt(locationId), providerId: parseInt(providerId), timezone: tz, slots });
-  } catch (e) {
-    next(e);
-  }
-};
+export const listProvidersToday = async(req,res,next)=>{try{res.set('Cache-Control','no-store');res.json(await officeToday(await lobbyLocation(req.params.locationId),{view:req.query.view==='today'?'today':'current',nextHour:req.query.nextHour==='1'}));}catch(e){next(e);}};
+export const listProviderSlotsToday = async(req,res,next)=>{try{const data=await officeToday(await lobbyLocation(req.params.locationId),{nextHour:req.query.nextHour==='1'});const provider=data.providers.find(p=>Number(p.id)===Number(req.params.providerId));res.set('Cache-Control','no-store');res.json({timezone:data.timezone,slots:provider?.currentSlot?[provider.currentSlot]:[]});}catch(e){next(e);}};
 
 // ── Room availability helpers ────────────────────────────────────────────────
 

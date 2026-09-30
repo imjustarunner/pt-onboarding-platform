@@ -1,0 +1,11 @@
+import express from 'express';
+import { publicAgencySupportTicketLimiter } from '../middleware/rateLimiter.middleware.js';
+import { lobbyLocation,officePeople,lobbyProviderProfile } from '../services/officeLobby.service.js';
+import { submitOfficeSupport,readOfficeSupport } from '../services/officeKioskSupport.service.js';
+const router=express.Router();
+const action=fn=>async(req,res,next)=>{try{res.set('Cache-Control','no-store');await fn(req,res);}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}};
+router.get('/:locationId/people',action(async(req,res)=>res.json(await officePeople(await lobbyLocation(req.params.locationId)))));
+router.get('/:locationId/providers/:providerId',action(async(req,res)=>res.json(await lobbyProviderProfile(await lobbyLocation(req.params.locationId),req.params.providerId,req.query.agencyId))));
+router.post('/:locationId/support',publicAgencySupportTicketLimiter,action(async(req,res)=>res.status(201).json(await submitOfficeSupport({...req.body,locationId:Number(req.params.locationId)}))));
+export const officeSupportRead=action(async(req,res)=>res.json(await readOfficeSupport(Number(req.params.id),req.user)));
+export default router;

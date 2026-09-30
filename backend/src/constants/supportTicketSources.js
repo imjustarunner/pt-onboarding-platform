@@ -8,6 +8,7 @@ export const SUPPORT_TICKET_SOURCE_KEYS = Object.freeze({
   PUBLIC_SCHOOL_INTAKE_SPLASH: 'public_school_intake_splash',
   GUARDIAN_TEMP_PASSWORD: 'guardian_temp_password',
   GUARDIAN_ACCESS_TOKEN: 'guardian_access_token',
+  OFFICE_KIOSK_SUPPORT: 'office_kiosk_support',
   PUBLIC_AGENCY_SUPPORT: 'public_agency_support',
   PREHIRE_PORTAL_CHAT: 'prehire_portal_chat',
   CLIENT_RENEWAL: 'client_renewal',
@@ -24,6 +25,7 @@ export function normalizeSupportTicketSourceKey(value) {
 export function supportTicketSourceLabel(value) {
   const key = normalizeSupportTicketSourceKey(value);
   const labels = {
+    office_kiosk_support: 'Office kiosk',
     [SUPPORT_TICKET_SOURCE_KEYS.FORGOT_USERNAME]: 'Forgot Username',
     [SUPPORT_TICKET_SOURCE_KEYS.PASSWORD_RECOVERY]: 'Password recovery',
     [SUPPORT_TICKET_SOURCE_KEYS.INFO_REQUEST]: 'Info Request',

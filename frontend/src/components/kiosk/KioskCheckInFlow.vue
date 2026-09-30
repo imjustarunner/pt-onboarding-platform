@@ -29,7 +29,7 @@
         <div class="visit"><span>Today at</span><strong>{{ formatKioskTime(selected.startAt) }}</strong><span>{{ roomLabel(selected) }}</span></div>
         <p>Please wait in the lobby after checking in. Your provider will come get you.</p>
         <div v-if="error" class="error" role="alert">{{ error }}</div>
-        <div class="actions"><button class="secondary" :disabled="saving" @click="step = 'slots'; error = ''">Back</button><button class="primary" :disabled="saving || !respondentType" @click="checkIn">{{ saving ? 'Checking you in…' : 'I’m here · Check in' }}</button></div>
+        <div class="actions"><button class="secondary" :disabled="saving" @click="props.directSlot ? emit('close') : (step = 'slots'); error = ''">Back</button><button class="primary" :disabled="saving || !respondentType" @click="checkIn">{{ saving ? 'Checking you in…' : 'I’m here · Check in' }}</button></div>
       </template>
 
       <KioskVisitForms v-else-if="step === 'forms'" :forms="forms" :saving="saving" :error="error" @submit="submitForms" />
@@ -54,12 +54,12 @@ import api from '../../services/api';
 import KioskPerson from './KioskPerson.vue';
 import KioskVisitForms from './KioskVisitForms.vue';
 import { formatKioskTime } from '../../utils/kioskTime';
-const props = defineProps({ provider: { type: Object, required: true }, locationId: { type: [Number, String], required: true }, timezone: { type: String, default: 'America/Denver' } });
-const emit = defineEmits(['close']);
+const props = defineProps({ provider: { type: Object, required: true }, locationId: { type: [Number, String], required: true }, directSlot: {type:Object,default:null}, timezone: { type: String, default: 'America/Denver' } });
+const emit = defineEmits(['close','checked-in','busy']);
 const panel = ref(null);
-const step = ref('slots');
-const slots = ref([]);
-const selected = ref(null);
+const step = ref(props.directSlot?'confirm':'slots');
+const slots = ref(props.directSlot?[props.directSlot]:[]);
+const selected = ref(props.directSlot);
 const loading = ref(true);
 const saving = ref(false);
 const loadError = ref('');
@@ -85,8 +85,9 @@ async function checkIn() {
   if (saving.value || !selected.value) return;
   saving.value = true; error.value = '';
   try {
-    const { data } = await api.post(`/kiosk/${props.locationId}/checkin`, { eventId: selected.value.eventId, providerId: props.provider.id, submissionKey, respondentType:respondentType.value });
+    const { data } = await api.post(`/kiosk/${props.locationId}/checkin`, { eventId: selected.value.eventId, providerId: props.provider.id, submissionKey, respondentType:respondentType.value, ...(props.directSlot?{appointmentStartAt:props.directSlot.appointmentStartAt,nextHour:!!props.directSlot.nextHour}:{}) });
     if (!data?.ok || !data?.notification?.inApp) throw new Error('Unconfirmed arrival');
+    if (!disposed && props.directSlot) { emit('checked-in'); return; }
     if (!disposed) { forms.value = data.submission?.forms || []; formsUnavailable.value = !!data.submission?.formsUnavailable; step.value = forms.value.length && !data.submission?.completed ? 'forms' : 'done'; remaining.value = 12; }
   } catch (err) { error.value = err.response?.data?.error?.message || 'We couldn’t confirm your check-in. Try again or ask the office team for help.'; }
   finally { saving.value = false; touch(); }
@@ -109,9 +110,10 @@ function onKeydown(event) {
   if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.value)) { event.preventDefault(); last?.focus(); }
   else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
 }
+watch(saving,value=>emit('busy',value));
 watch(step, async () => { touch(); await nextTick(); panel.value?.focus(); });
 onMounted(() => {
-  previousFocus = document.activeElement; panel.value?.focus(); loadSlots();
+  previousFocus = document.activeElement; panel.value?.focus(); if(!props.directSlot) loadSlots(); else loading.value=false;
   timer = setInterval(() => {
     if (!saving.value && ['slots', 'confirm'].includes(step.value)) {
       slots.value = slots.value.filter(s => !s.checkinClosesAt || Date.parse(s.checkinClosesAt) > Date.now());
@@ -120,7 +122,7 @@ onMounted(() => {
       }
     }
     if (step.value === 'done') { remaining.value -= 1; if (remaining.value <= 0) emit('close'); }
-    else if (!saving.value && Date.now() - activityAt > 180_000) emit('close');
+    else if (!props.directSlot && !saving.value && Date.now() - activityAt > 180_000) emit('close');
   }, 1000);
 });
 onUnmounted(() => { disposed = true; submissionKey = null; forms.value = []; clearInterval(timer); previousFocus?.focus(); });

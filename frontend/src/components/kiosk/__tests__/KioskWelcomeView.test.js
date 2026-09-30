@@ -8,7 +8,7 @@ describe('client landing page',()=>{
  it('shows room browsing only after explicitly choosing Office directory',async()=>{
   const wrapper=mount(KioskWelcomeView,{global:{stubs:{KioskOfficeBoard:{template:'<div data-test="board">Room directory</div>'}}}});await flushPromises();
   expect(wrapper.text()).toContain('Client check-in');expect(wrapper.find('[data-test="board"]').exists()).toBe(false);
-  await wrapper.findAll('.tabs button')[1].trigger('click');expect(wrapper.find('[data-test="board"]').exists()).toBe(true);
+  await wrapper.findAll('.tabs button').find(b=>b.text()==='Office directory').trigger('click');expect(wrapper.find('[data-test="board"]').exists()).toBe(true);
   // Avoid relying on browser scrolling in jsdom.
   document.querySelector('.workspace')?.scrollIntoView?.();
   await wrapper.findAll('.tabs button')[0].trigger('click');await flushPromises();expect(wrapper.find('[data-test="board"]').exists()).toBe(false);wrapper.unmount();

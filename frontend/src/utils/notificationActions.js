@@ -5,6 +5,7 @@ export function notificationDestination(notification, { organizationSlug = null,
   const entityId = Number(n.related_entity_id || 0);
   const adminLike = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(String(role || '').toLowerCase());
 
+  if (entityType === 'office_kiosk_support' && entityId) return `/office-support/${entityId}`;
   if (['client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned'].includes(n.type)) {
     let audience = n.audience_json || {};
     if (typeof audience === 'string') { try { audience = JSON.parse(audience); } catch { audience = {}; } }

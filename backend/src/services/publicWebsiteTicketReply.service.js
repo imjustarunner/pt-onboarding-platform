@@ -1,6 +1,7 @@
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import {sendEmailFromIdentity} from './unifiedEmail/unifiedEmailSender.service.js';
 export async function sendWebsiteTicketReply(ticket,body,{identities=EmailSenderIdentity,send=sendEmailFromIdentity}={}) {
+ if(ticket.created_by_source_key==='office_kiosk_support')return {sent:false,reason:'Office kiosk messages stay in the secure app. No email reply was sent.'};
  if(ticket.source_channel!=='public_web'||!ticket.source_email_from)return {sent:false,reason:'No visitor email is available.'};
  let identity;
  for(const key of ['support','schoolreply','general','info']){identity=await identities.findByAgencyAndIdentityKey(ticket.agency_id,key);if(identity)break;}

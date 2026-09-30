@@ -1,3 +1,4 @@
+import officeLobbyRoutes from './routes/officeLobby.routes.js';
 import officeArrivalPublicRoutes from './routes/officeArrivalPublic.routes.js';
 import auricwellPreviewRoutes from './routes/auricwellPreview.routes.js';
 import { auricwellPreviewBoundary } from './middleware/auricwellPreview.middleware.js';
@@ -897,6 +898,7 @@ app.use('/api/platform/business-onboarding', adminBusinessOnboardingRouter);
 app.use('/api/beta-feedback', betaFeedbackRoutes);
 app.use('/api/platform-retention-settings', platformRetentionSettingsRoutes);
 app.use('/api/onboarding-packages', onboardingPackageRoutes);
+app.use('/api/public/office-lobby', officeLobbyRoutes);
 app.use('/api/public/office-arrivals', officeArrivalPublicRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/email-templates', emailTemplateRoutes);

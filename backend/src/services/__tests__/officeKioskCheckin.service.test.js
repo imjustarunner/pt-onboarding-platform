@@ -59,8 +59,8 @@ describe('office arrival atomicity and privacy', () => {
     expect(insert[1]).toEqual([12,7,2]);
     expect(mocks.email).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();
   });
-  it('rejects a stale client at exactly thirty minutes after the start',async()=>{
-    vi.setSystemTime(new Date('2026-09-30T01:30:00Z'));
+  it('rejects a stale client when the next hourly window begins',async()=>{
+    vi.setSystemTime(new Date('2026-09-30T01:31:00Z'));
     await expect(checkIn()).rejects.toHaveProperty('status',409);
     expect(mocks.commit).not.toHaveBeenCalled();
   });
@@ -69,5 +69,19 @@ describe('office arrival atomicity and privacy', () => {
       if(sql.includes('INSERT INTO office_arrival_deliveries'))throw new Error('Queue unavailable');return base(sql,args);
     });
     await expect(checkIn()).rejects.toThrow('Queue unavailable');expect(mocks.rollback).toHaveBeenCalledOnce();
+  });
+  it('records the displayed hour of a multi-hour assignment, not its block start',async()=>{
+    event.start_at='2026-09-29 23:00:00';event.end_at='2026-09-30 04:00:00';event.status='ASSIGNED';
+    await recordOfficeKioskCheckin({locationId:3,eventId:9,providerId:7,appointmentStartAt:'2026-09-30T01:00:00.000Z'});
+    const insert=mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO office_event_checkins'));
+    expect(insert[1].at(-1)).toBe('2026-09-30 01:00:00');
+    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('UPDATE office_event_checkins'))[1]).toEqual(['2026-09-29 23:00:00',9]);
+    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO notifications'))[1][0]).toContain('7:00 PM MDT');
+  });
+  it('does not silently check a stale selection into the next hour of the same block',async()=>{
+    event.start_at='2026-09-29 23:00:00';event.end_at='2026-09-30 04:00:00';
+    vi.setSystemTime(new Date('2026-09-30T01:31:00Z'));
+    await expect(recordOfficeKioskCheckin({locationId:3,eventId:9,providerId:7,appointmentStartAt:'2026-09-30T01:00:00.000Z'})).rejects.toHaveProperty('status',409);
+    expect(mocks.commit).not.toHaveBeenCalled();
   });
 });

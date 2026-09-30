@@ -1395,6 +1395,7 @@ const routes = [
     component: () => import('../views/KioskView.vue'),
     meta: { requiresGuest: false }
   },
+  { path: '/office-support/:id', name: 'OfficeSupportMessage', component: () => import('../views/OfficeSupportMessageView.vue'), meta: { requiresAuth: true } },
   { path: '/office-booking/:locationId', name: 'OfficeSelfBooking', component: () => import('../views/OfficeSelfBookingView.vue'), meta: { requiresAuth: true } },
   // Client check-in and office directory (public lobby)
   {
