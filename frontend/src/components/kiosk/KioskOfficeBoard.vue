@@ -13,7 +13,7 @@
     <div v-if="loading" class="loading" role="status">Loading offices…</div>
     <div v-else-if="!error && !rooms.length" class="loading">No rooms are listed for this building yet.</div>
     <div v-else-if="!error" class="room-grid">
-      <button v-for="room in rooms" :key="room.id" class="room-card" :class="{ occupied: room.occupied, selected: selectedId === room.id }" :aria-expanded="selectedId === room.id" aria-controls="room-details" @click="selectedId = selectedId === room.id ? null : room.id">
+      <button v-for="room in rooms" :key="room.id" class="room-card" :class="{ occupied: room.occupied, selected: selectedId === room.id }" :aria-expanded="selectedId === room.id" aria-controls="room-details" @click="selectRoom(room.id)">
         <span class="room-top"><span class="room-number">{{ room.roomNumber != null ? `Office ${room.roomNumber}` : room.name }}</span><span class="room-status">{{ room.occupied ? 'Occupied' : 'Available' }}</span></span>
         <span class="room-name">{{ room.name }}</span>
         <template v-for="(entry, index) in room.current" :key="index">
@@ -40,7 +40,7 @@
   </section>
 </template>
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { formatKioskTime } from '../../utils/kioskTime';
 import KioskPerson from './KioskPerson.vue';
@@ -58,9 +58,13 @@ async function load({ background = false } = {}) {
     if (request !== generation) return;
     if (!data.date || !data.time || !Array.isArray(data.rooms) || data.rooms.some(room => typeof room.occupied !== 'boolean' || !Array.isArray(room.current) || !Array.isArray(room.assignments))) throw new Error('Incomplete availability response');
     rooms.value = data.rooms || []; timezone.value = data.timezone; date.value = data.date; time.value = data.time;
+    loading.value = false;
+    if (selectedId.value && !background) { await nextTick(); if (request === generation) revealDetails(); }
   } catch { if (request === generation) { rooms.value = []; error.value = 'Office availability couldn’t load. Please retry or ask the office team.'; } }
   finally { if (request === generation) loading.value = false; }
 }
+function revealDetails() { document.getElementById('room-details')?.scrollIntoView?.({ block: 'start' }); }
+async function selectRoom(id) { selectedId.value = selectedId.value === id ? null : id; if (selectedId.value) { await nextTick(); revealDetails(); } }
 function selectDate(value) { if (!value) return; date.value = value; live.value = false; load(); }
 function selectTime(value) { if (!value) return; time.value = value; live.value = false; load(); }
 function moveDay(amount) { if (!date.value) return; const day = new Date(`${date.value}T12:00:00Z`); day.setUTCDate(day.getUTCDate() + amount); selectDate(day.toISOString().slice(0, 10)); }
