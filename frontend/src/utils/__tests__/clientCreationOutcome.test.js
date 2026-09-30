@@ -21,3 +21,9 @@ it('saves unassigned without assignment and posts only the saved client for exch
   await finishClientCreation({ ...a, outcome: 'exchange' });
   expect(a.api.post).toHaveBeenCalledWith('/client-exchange/listings', { agencyId: 2, clientId: 12, quickPost: true });
 });
+it('persists scheduling needs for an unassigned client so one-click posting can reuse them later', async () => {
+  const a = args(); const schedule = { days: ['Wednesday'], periods: ['after_school'], windows: [], timezone: 'America/Denver' };
+  await finishClientCreation({ ...a, outcome: 'unassigned', schedule });
+  expect(a.api.put).toHaveBeenCalledWith('/client-exchange/clients/12/schedule', { agencyId: 2, schedule });
+  expect(a.api.post).not.toHaveBeenCalled();
+});

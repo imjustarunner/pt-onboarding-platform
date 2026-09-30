@@ -1,3 +1,4 @@
+import { exchangeScheduleLines } from './clientExchangeSchedule.js';
 export function summaryItems(value) {
   if (value == null || value === '') return [];
   if (typeof value === 'number') return Number.isFinite(value) ? [String(value)] : [];
@@ -35,7 +36,8 @@ export function buildExchangeEmail({ listing, link }) {
     ['Presenting problem source', [listing.presentingProblemSource, listing.presentingProblemUpdatedAt ? new Date(listing.presentingProblemUpdatedAt).toISOString().slice(0, 10) : null].filter(Boolean)],
     ['Diagnoses', summaryItems(listing.diagnoses)],
     ['Modality', summaryItems(({ in_person: 'In person', virtual: 'Virtual', either: 'In person or virtual' })[preferences.modality] || preferences.modality)],
-    ['Insurance', summaryItems(preferences.insurance)]
+    ['Insurance', summaryItems(preferences.insurance)],
+    ['When the client needs a provider', exchangeScheduleLines(preferences.schedule)]
   ].filter(([, values]) => values.length);
   const intro = 'A new client is available in the exchange. Review the shared information and request the client if you are interested. Multiple providers may request; the current provider or support team chooses the assignment.';
   return {

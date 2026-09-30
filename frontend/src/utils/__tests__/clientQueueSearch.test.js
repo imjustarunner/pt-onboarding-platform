@@ -30,3 +30,7 @@ describe('clientQueueSearch', () => {
     expect(matchesQueueSearch(ctx.haystack, ['teen'], { numericAges: ctx.numericAges })).toBe(true);
   });
 });
+it('finds exchange referrals by requested days and time ranges', () => {
+  const ctx = buildExchangeListingSearchContext({ preferences: { schedule: { days: ['Monday'], periods: ['after_school'], windows: [{ day: 'Monday', start: '15:30', end: '17:00' }], timezone: 'America/Denver' } } });
+  expect(ctx.haystack).toContain('After school'); expect(ctx.haystack).toContain('Monday: 3:30 PM–5:00 PM');
+});

@@ -15,6 +15,10 @@
       <ul v-if="diagnoses.length"><li v-for="diagnosis in diagnoses" :key="diagnosis">{{ diagnosis }}</li></ul>
       <p v-else class="muted">Not recorded</p>
     </section>
+    <section v-if="scheduleLines.length">
+      <strong>When the client needs a provider</strong>
+      <ul><li v-for="line in scheduleLines" :key="line">{{ line }}</li></ul>
+    </section>
     <p v-if="listing.preferences?.modality || listing.preferences?.insurance" class="summary-basics">
       <span v-if="listing.preferences?.modality">{{ modalityLabel }}</span>
       <span v-if="listing.preferences?.insurance">Insurance: {{ listing.preferences.insurance }}</span>
@@ -23,6 +27,7 @@
 </template>
 <script setup>
 import { computed } from 'vue';
+import { exchangeScheduleLines } from '../../utils/clientExchangeSchedule.js';
 const props = defineProps({ listing: { type: Object, required: true } });
 function items(value) {
   if (value == null || value === '') return [];
@@ -36,6 +41,7 @@ function items(value) {
   }
   return [];
 }
+const scheduleLines = computed(() => exchangeScheduleLines(props.listing.preferences?.schedule));
 const problems = computed(() => items(props.listing.presentingProblems));
 const diagnoses = computed(() => items(props.listing.diagnoses));
 const modalityLabel = computed(() => ({ in_person: 'In person', virtual: 'Virtual', either: 'In person or virtual' }[props.listing.preferences?.modality] || props.listing.preferences?.modality));

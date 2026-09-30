@@ -1,3 +1,4 @@
+import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
@@ -94,6 +95,27 @@ export async function previewClientSummary(req, res, next) {
     if (!access.ok) return res.status(access.status || 403).json({ error: { message: access.message } });
     res.json({ summary: await loadClientExchangeSummary({ client }) });
   } catch (error) { next(error); }
+}
+
+/** Save scheduling preferences for later one-click exchange posting. */
+export async function saveClientSchedule(req, res, next) {
+  try {
+    const clientId = safeInt(req.params.clientId);
+    const agencyId = safeInt(req.body?.agencyId);
+    if (!clientId || !agencyId) return res.status(400).json({ error: { message: 'clientId and agencyId are required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) return res.status(403).json({ error: { message: 'Forbidden' } });
+    const client = await Client.findById(clientId);
+    if (!client || Number(client.agency_id) !== agencyId) return res.status(404).json({ error: { message: 'Client not found' } });
+    if (!isBackoffice(req.user.role) && !(await providerHasAssignedClientAccess({ userId: req.user.id, clientId, client }))) {
+      return res.status(403).json({ error: { message: 'Only assigned providers or agency staff can update scheduling preferences' } });
+    }
+    const schedule = normalizeExchangeSchedule(req.body?.schedule);
+    await pool.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.exchangeSchedule', CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`, [JSON.stringify(schedule), clientId, agencyId]);
+    res.json({ schedule });
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
 }
 
 /** POST /api/client-exchange/listings */

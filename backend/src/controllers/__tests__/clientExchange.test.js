@@ -1,12 +1,12 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn() }));
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
+const mocks = vi.hoisted(() => ({ client: vi.fn(), access: vi.fn(), create: vi.fn(), recordAccess: vi.fn(), summary: vi.fn(), execute: vi.fn() }));
+vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../models/User.model.js', () => ({ default: {} }));
 vi.mock('../../models/Client.model.js', () => ({ default: { findById: mocks.client } }));
 vi.mock('../../services/clientRecordAccess.service.js', () => ({ providerHasAssignedClientAccess: mocks.access, resolveClientRecordAccess: mocks.recordAccess }));
 vi.mock('../../services/clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: mocks.summary }));
 vi.mock('../../services/clientExchange.service.js', () => ({ createListing: mocks.create }));
-import { createListing, previewClientSummary } from '../clientExchange.controller.js';
+import { createListing, previewClientSummary, saveClientSchedule } from '../clientExchange.controller.js';
 const response = () => { const res = { status: vi.fn(), json: vi.fn() }; res.status.mockReturnValue(res); return res; };
 const request = () => ({ user: { id: 7, role: 'provider', agencies: [{ id: 2 }] }, body: { agencyId: 2, clientId: 4, currentProviderUserId: 999 } });
 beforeEach(() => { vi.clearAllMocks(); mocks.client.mockResolvedValue({ id: 4, agency_id: 2, provider_id: 7, status: 'CURRENT' }); mocks.access.mockResolvedValue(true); mocks.create.mockResolvedValue({ id: 12 }); });
@@ -49,4 +49,18 @@ it('restricts one-click posting to staff and forwards the unassigned requirement
   const denied = response(); await createListing(req, denied, vi.fn()); expect(denied.status).toHaveBeenCalledWith(403);
   req.user.role = 'support'; const allowed = response(); await createListing(req, allowed, vi.fn());
   expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ onlyUnassigned: true }));
+});
+it('saves schedule preferences only for agency staff or an assigned provider in the client agency', async () => {
+  const req = request(); req.params = { clientId: 4 }; req.body.schedule = { days: ['Monday'], periods: ['after_school'] };
+  const res = response(); await saveClientSchedule(req, res, vi.fn());
+  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('JSON_SET'), [expect.stringContaining('after_school'), 4, 2]);
+  mocks.execute.mockClear(); mocks.access.mockResolvedValue(false);
+  const denied = response(); await saveClientSchedule(req, denied, vi.fn()); expect(denied.status).toHaveBeenCalledWith(403); expect(mocks.execute).not.toHaveBeenCalled();
+  req.user.role = 'support'; mocks.client.mockResolvedValue({ agency_id: 3 });
+  const other = response(); await saveClientSchedule(req, other, vi.fn()); expect(other.status).toHaveBeenCalledWith(404); expect(mocks.execute).not.toHaveBeenCalled();
+});
+it('rejects invalid scheduling preferences without writing client data', async () => {
+  const req = request(); req.params = { clientId: 4 }; req.body.schedule = { windows: [{ start: '17:00', end: '15:00' }], timezone: 'America/Denver' };
+  const res = response(); await saveClientSchedule(req, res, vi.fn());
+  expect(res.status).toHaveBeenCalledWith(400); expect(mocks.execute).not.toHaveBeenCalled();
 });

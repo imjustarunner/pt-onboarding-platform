@@ -41,3 +41,8 @@ it('includes only explicitly imported pending intakes and labels review status',
   const summary = await loadClientExchangeSummary({ client: { id: 3, agency_id: 2 } });
   expect(summary).toMatchObject({ presentingProblems: ['Imported concern'], presentingProblemSource: 'Intake (review pending)' });
 });
+it('includes persisted scheduling preferences in the summary used for one-click posting', async () => {
+  const schedule = { days: ['Wednesday'], periods: ['after_school'], windows: [{ day: 'Wednesday', start: '15:30', end: '17:00' }], timezone: 'America/Denver' };
+  const summary = await loadClientExchangeSummary({ client: { id: 3, agency_id: 2, intake_preferences_json: JSON.stringify({ exchangeSchedule: schedule }) } });
+  expect(summary.preferences.schedule).toEqual(schedule);
+});

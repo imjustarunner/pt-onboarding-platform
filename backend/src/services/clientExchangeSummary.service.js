@@ -1,3 +1,4 @@
+import { scheduleFromIntake } from '../utils/clientExchangeSchedule.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { summaryItems } from '../utils/clientExchangeSummary.js';
@@ -62,6 +63,6 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
     demographics: { ...(age == null ? {} : { ageBand: String(age) }), ...(client.gender ? { gender: client.gender } : {}) },
     diagnoses: summaryItems(diagnoses.length ? diagnoses : billing),
     ...latestPresentingProblem({ plans, intakes: [...intakes, ...intakeNotes], preferences: intake }),
-    preferences: { modality: intake.preferredModality || null }
+    preferences: { modality: intake.preferredModality || null, schedule: scheduleFromIntake(intake, client.timezone) }
   };
 }

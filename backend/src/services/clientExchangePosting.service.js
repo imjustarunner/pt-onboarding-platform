@@ -25,6 +25,9 @@ export async function insertExchangeListing({ agencyId, clientId, postedByUserId
       VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`, [agencyId, clientId, postedByUserId, client.provider_id || null,
       JSON.stringify(summary.demographics || {}), JSON.stringify(summary.presentingProblems || []),
       JSON.stringify(summary.diagnoses || []), JSON.stringify(summary.preferences || {}), notes || null]);
+    if (summary.preferences?.schedule) {
+      await connection.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.exchangeSchedule', CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`, [JSON.stringify(summary.preferences.schedule), clientId, agencyId]);
+    }
     await connection.execute(`INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
       VALUES (?, ?, 'client_exchange_listing', NULL, 'open', 'Posted to Client Exchange for reassignment')`, [clientId, postedByUserId]);
     await connection.commit();

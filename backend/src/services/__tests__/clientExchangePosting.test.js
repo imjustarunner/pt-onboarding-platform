@@ -37,3 +37,9 @@ it('rejects cross-agency or archived clients and rolls back failed audit writes'
   await expect(insertExchangeListing(args)).rejects.toThrow('Audit failed');
   expect(mocks.commit).not.toHaveBeenCalled(); expect(mocks.rollback).toHaveBeenCalledTimes(3);
 });
+it('preserves scheduling preferences on the client in the same transaction as posting', async () => {
+  const schedule = { days: ['Wednesday'], periods: ['after_school'], windows: [], timezone: 'America/Denver' };
+  await insertExchangeListing({ ...args, summary: { ...args.summary, preferences: { schedule } } });
+  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('JSON_SET'), [JSON.stringify(schedule), 12, 2]);
+  expect(mocks.commit).toHaveBeenCalledOnce();
+});

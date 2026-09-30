@@ -1,3 +1,4 @@
+import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
 import { insertExchangeListing } from './clientExchangePosting.service.js';
 import pool from '../config/database.js';
 import { notifyExchangeMatches } from './clientExchangeNotifications.service.js';
@@ -233,6 +234,8 @@ export async function createListing({
   if (!client) throw new Error('Client not found');
   if (Number(client.agency_id) !== aid) throw new Error('Client does not belong to this agency');
 
+  preferences = safeJson(preferences);
+  if (preferences?.schedule != null) preferences = { ...preferences, schedule: normalizeExchangeSchedule(preferences.schedule) };
   const savedSummary = await loadClientExchangeSummary({ client });
   const sharedSummary = mergeExchangeSummary(savedSummary, {
     demographics: safeJson(demographics), preferences: safeJson(preferences),

@@ -1,6 +1,9 @@
 /** Finish only an existing, imported client. Retrying must never create another chart. */
-export async function finishClientCreation({ api, clientId, agencyId, organizationId, outcome, providerId, serviceDay, isSchool }) {
+export async function finishClientCreation({ api, clientId, agencyId, organizationId, outcome, providerId, serviceDay, isSchool, schedule }) {
   if (!clientId) throw new Error('Save the client before completing setup');
+  if (schedule && (schedule.days?.length || schedule.periods?.length || schedule.windows?.length || schedule.notes)) {
+    await api.put(`/client-exchange/clients/${clientId}/schedule`, { agencyId: Number(agencyId), schedule });
+  }
   if (outcome === 'assign') {
     if (!providerId) throw new Error('Select a provider for Assign and save');
     const existing = (await api.get(`/clients/${clientId}`)).data;

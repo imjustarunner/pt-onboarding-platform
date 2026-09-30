@@ -1,3 +1,4 @@
+import { exchangeScheduleLines } from './clientExchangeSchedule.js';
 /**
  * Shared search helpers for intake queue and client exchange lists.
  * Supports age bands (14-17), numeric ages, and terms like teen / adult.
@@ -145,6 +146,7 @@ export function buildExchangeListingSearchContext(listing) {
     ...problemList,
     prefs.modality,
     prefs.insurance,
+    ...exchangeScheduleLines(prefs.schedule),
     listing?.status
   ];
 

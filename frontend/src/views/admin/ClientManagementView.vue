@@ -694,6 +694,7 @@
             <textarea v-model="createRecords.plan" rows="5" placeholder="Paste the most recent treatment plan…"></textarea>
             <small>Pasted records are imported before the client is assigned or posted. Any treatment-plan review opens before completion.</small>
           </section>
+          <ClientSchedulePreferences v-model="createSchedule" />
           <div class="form-group">
             <label>Agency</label>
             <select v-if="canChooseCreateAgency" v-model="createAgencyId">
@@ -1429,6 +1430,8 @@ import {
 } from '../../utils/clientManagementVisuals.js';
 import { parseClientManagementSearch, matchesParsedSearch, SEARCH_HINTS } from '../../utils/clientManagementSearch.js';
 import ClientEhrBringUpToDatePanel from '../../components/admin/clientChart/ClientEhrBringUpToDatePanel.vue';
+import ClientSchedulePreferences from '../../components/clientExchange/ClientSchedulePreferences.vue';
+import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
 import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
 import { finishClientCreation } from '../../utils/clientCreationOutcome.js';
 import ClientRenewalPushModal from '../../components/admin/ClientRenewalPushModal.vue';
@@ -2028,6 +2031,7 @@ const createdClientRecord = ref(null);
 const createdRecordsImported = ref(false);
 const createdDocumentsSaved = ref(false);
 const showCreatedRecordsImport = ref(false);
+const createSchedule = ref({});
 const createRecords = reactive({ demographics: '', intake: '', plan: '' });
 const parsingCreateDemographics = ref(false);
 let createDemographicsVersion = 0;
@@ -3185,6 +3189,7 @@ const createClient = async ({ forceCreate = false } = {}) => {
   try {
     creating.value = true;
     error.value = '';
+    const schedule = normalizeExchangeSchedule(createSchedule.value);
     if (createOutcome.value === 'assign' && !newClient.value.provider_id) throw new Error('Select a provider before assigning this client');
 
     // The agency_id must be the parent agency org. Prefer active agency context, but fall back
@@ -3258,7 +3263,7 @@ const createClient = async ({ forceCreate = false } = {}) => {
       return;
     }
     const listing = await finishClientCreation({ api, clientId: created.id, agencyId, organizationId: orgId,
-      outcome: createOutcome.value, providerId: newClient.value.provider_id,
+      schedule, outcome: createOutcome.value, providerId: newClient.value.provider_id,
       serviceDay: newClient.value.service_day, isSchool: selectedOrgIsSchool.value });
     await fetchClients();
     if (listing?.notifications?.failed) {
@@ -3301,6 +3306,7 @@ const closeCreateModal = () => {
   createdRecordsImported.value = false;
   createdDocumentsSaved.value = false;
   createOutcome.value = canBackofficeEdit.value ? 'unassigned' : 'assign';
+  createSchedule.value = {};
   Object.assign(createRecords, { demographics: '', intake: '', plan: '' });
   faxReview.value = null;
   showCreateModal.value = false;

@@ -66,6 +66,8 @@
           </label>
         </div>
 
+        <ClientSchedulePreferences v-model="schedule" />
+
         <label class="field">
           <span class="label">Notes for other providers</span>
           <textarea v-model="notes" rows="3" placeholder="Why is this client being posted? Anything useful for a new provider to know."></textarea>
@@ -87,6 +89,8 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import ClientExchangeSummary from './ClientExchangeSummary.vue';
+import ClientSchedulePreferences from './ClientSchedulePreferences.vue';
+import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 
@@ -110,6 +114,7 @@ const gender = ref('');
 const presentingProblemsRaw = ref('');
 const modality = ref('');
 const insurance = ref('');
+const schedule = ref({});
 const notes = ref('');
 const submitting = ref(false);
 const posted = ref(false);
@@ -121,13 +126,18 @@ let summaryVersion = 0;
 watch(selectedClientId, async clientId => {
   const version = ++summaryVersion;
   sharedSummary.value = {};
+  schedule.value = {};
+  ageBand.value = ''; gender.value = ''; presentingProblemsRaw.value = ''; modality.value = ''; insurance.value = ''; notes.value = '';
   summaryError.value = '';
   summaryLoading.value = false;
   if (!clientId) return;
   summaryLoading.value = true;
   try {
     const response = await api.get(`/client-exchange/clients/${clientId}/summary`, { params: { agencyId: props.agencyId } });
-    if (version === summaryVersion) sharedSummary.value = response.data?.summary || {};
+    if (version === summaryVersion) {
+      sharedSummary.value = response.data?.summary || {};
+      schedule.value = sharedSummary.value.preferences?.schedule || {};
+    }
   } catch (error) {
     if (version === summaryVersion) summaryError.value = error?.response?.data?.error?.message || 'Unable to load the client summary. Please try again.';
   } finally {
@@ -184,7 +194,8 @@ async function submit() {
         .filter(Boolean),
       preferences: {
         modality: modality.value || undefined,
-        insurance: insurance.value || undefined
+        insurance: insurance.value || undefined,
+        schedule: normalizeExchangeSchedule(schedule.value)
       },
       notes: notes.value || null
     });
