@@ -26,4 +26,10 @@ The app's shared transport mailbox hit Gmail 429 responses. Kiosk aliases use th
 - Confirmed all six affected live mailbox mappings resolve to one appropriate agency without accessing message bodies.
 - Messaging suite: 241 tests. Office kiosk suite: 139 tests. Database-backed synthetic test verified shared cooldown, no repeated external callback, and five-to-ten-minute retry backoff; removed synthetic rows. Real Google client resources verified to be wrapped without network calls.
 
-After deployment, verify the current revision, seed any remaining Gmail deadline, release the temporary inbound lock, and observe actual Gmail recovery and inbox deliveries. A passing unit test is not evidence of live delivery. Do not replay stale password resets or bulk-resend earlier failed communications.
+Deployment of `d2f0e9d3` succeeded (GitHub Actions run `36741839463`). At 10:14 MDT, `onboarding-backend-g36741839463a1` served 100% of traffic with no revision tags. The manual inbox pause was released; the database cooldown remained active until the last observed Google deadline plus five seconds, `2026-09-30T16:26:35.518Z`. The shared counter showed zero Gmail requests during the seeded cooldown. Both existing arrival deliveries were recorded as sent, with none pending.
+
+Live Gmail recovery and subsequent inbox deliveries remain to be verified after Google's deadline. A retry deadline is the earliest retry time, not a guarantee that Google's restriction has cleared. A passing test or deployment is not evidence of new email delivery. Do not replay stale password resets or bulk-resend earlier failed communications.
+
+## Optional future mailbox separation
+
+Keep group administration and inbound processing on the current identity; a separate actual Workspace mailbox could handle outgoing alerts. Aliases on the existing mailbox do not provide separate user limits. Directory and Gmail identities are separately configured in the app, but incoming/outgoing Gmail currently share a client and need explicit separation before switching. The new outgoing mailbox would not need group-administrator privileges. No accounts, aliases, or permissions were moved during this incident repair.
