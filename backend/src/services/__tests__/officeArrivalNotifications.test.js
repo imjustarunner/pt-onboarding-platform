@@ -39,7 +39,7 @@ it('prefers the dedicated kiosk identity over a general agency sender',async()=>
  m.kiosk.mockResolvedValue({id:42,agency_id:2});await runOfficeArrivalTick();
  expect(m.kiosk).toHaveBeenCalledWith(2,'kiosk');expect(m.sender).not.toHaveBeenCalled();expect(m.send).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:42}));
 });
-it.each(['acknowledged','read','opted out','inactive'])('suppresses email when %s',async reason=>{
+it.each(['acknowledged','opted out','inactive'])('suppresses email when %s',async reason=>{
  if(reason==='acknowledged')row.acknowledged_at=new Date();if(reason==='read')row.is_read=1;if(reason==='opted out')m.channel.mockResolvedValue(false);if(reason==='inactive')row.is_active=0;
  await runOfficeArrivalTick();expect(m.send).not.toHaveBeenCalled();
 });
@@ -72,4 +72,9 @@ it('enriches only eligible provider alerts and still shows the arrival if feedba
  expect(m.feedback).toHaveBeenCalledWith(expect.objectContaining({user_id:7,agency_id:2}),expect.any(Number),{waitForCompletion:false});
  m.channel.mockResolvedValue(false);m.feedback.mockClear();expect(await listArrivals(7,'provider')).toEqual([]);expect(m.feedback).not.toHaveBeenCalled();
  m.channel.mockResolvedValue(true);m.feedback.mockRejectedValue(new Error('temporary'));expect((await listArrivals(7,'provider'))[0].feedbackUnavailable).toBe(true);
+});
+
+it('does not suppress fallback just because the app or notification inbox marked the arrival read',async()=>{
+ row.is_read=1;await runOfficeArrivalTick();expect(m.send).toHaveBeenCalledOnce();
+ const claim=m.execute.mock.calls.find(([sql])=>sql.includes("SET d.email_status='sending'"))[0];expect(claim).toContain('d.acknowledged_at IS NULL');expect(claim).not.toContain('n.is_read=0');
 });

@@ -41,7 +41,7 @@ export async function listArrivals(userId, userRole) {
   const [rows] = await pool.execute(`SELECT n.id,n.title,n.message,n.agency_id,d.email_status,d.due_at
     FROM office_arrival_deliveries d JOIN notifications n ON n.id=d.notification_id
     JOIN users u ON u.id=d.user_id AND u.is_active=1 AND u.terminated_at IS NULL
-    WHERE d.user_id=? AND n.user_id=? AND d.acknowledged_at IS NULL AND n.is_read=0
+    WHERE d.user_id=? AND n.user_id=? AND d.acknowledged_at IS NULL
       AND d.created_at>DATE_SUB(UTC_TIMESTAMP(),INTERVAL 4 HOUR)
       AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=d.user_id AND ua.agency_id=d.agency_id AND ua.is_active=1)
     ORDER BY d.created_at LIMIT 20`,[userId,userId]);
@@ -70,7 +70,7 @@ export async function runOfficeArrivalTick() {
       const context={userId:row.user_id,userRole:row.role,agencyId:row.agency_id,type:'kiosk_checkin',channel:'email'};
       try {
         const [members]=await pool.execute('SELECT 1 FROM user_agencies WHERE user_id=? AND agency_id=? AND is_active=1 LIMIT 1',[row.user_id,row.agency_id]);
-        if(row.acknowledged_at || row.is_read || !row.is_active || row.terminated_at || !members.length || !await isNotificationChannelEnabled(context)) {
+        if(row.acknowledged_at || !row.is_active || row.terminated_at || !members.length || !await isNotificationChannelEnabled(context)) {
           await pool.execute("UPDATE office_arrival_deliveries SET email_status='suppressed' WHERE notification_id=? AND email_status='pending'",[row.notification_id]);continue;
         }
         if(Date.now()-parseUtcDate(row.created_at).getTime()>4*60*60_000){await pool.execute("UPDATE office_arrival_deliveries SET email_status='expired' WHERE notification_id=? AND email_status='pending'",[row.notification_id]);continue;}
@@ -85,7 +85,7 @@ export async function runOfficeArrivalTick() {
         // Recheck acknowledgment atomically immediately before external delivery.
         const [claim]=await pool.execute(`UPDATE office_arrival_deliveries d JOIN notifications n ON n.id=d.notification_id
           SET d.email_status='sending',d.attempts=d.attempts+1,d.action_token_hash=?,d.action_expires_at=DATE_ADD(UTC_TIMESTAMP(),INTERVAL 7 DAY)
-          WHERE d.notification_id=? AND d.email_status='pending' AND d.acknowledged_at IS NULL AND n.is_read=0
+          WHERE d.notification_id=? AND d.email_status='pending' AND d.acknowledged_at IS NULL
           AND NOT EXISTS (SELECT 1 FROM user_notification_type_preferences p WHERE p.user_id=d.user_id AND p.notification_type='kiosk_checkin' AND p.email_enabled=0)`,[tokenHash(token),row.notification_id]);
         if(!claim.affectedRows)continue;
         const result=await sendEmailFromIdentity({senderIdentityId:sender.id,to,...arrivalEmail(row,token,feedback),userId:row.user_id,templateType:'kiosk_checkin',source:'auto',internetMessageIdOverride:`<office-arrival-${row.notification_id}@plottwisthq.com>`});
