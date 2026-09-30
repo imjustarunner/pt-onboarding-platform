@@ -9,3 +9,10 @@ it('prioritizes the latest email and keeps earlier emails expandable',async()=>{
  expect(wrapper.findAll('.email-message')[0].element.open).toBe(true);
  await wrapper.get('.actions button').trigger('click');expect(wrapper.emitted('compose')).toEqual([['reply']]);wrapper.unmount();
 });
+it('shows signature images, lets the reader load other images, and resets that choice for another conversation',async()=>{
+ const message={id:8,body_html:'<div class="gmail_signature"><img src="https://lh7-us.googleusercontent.com/signature" width="420"></div><img src="https://outside.test/logo.png" alt="Logo">'};
+ const wrapper=mount(Reader,{props:{conversation:{id:20},messages:[message]}});
+ expect(wrapper.findAll('.body img')).toHaveLength(1);expect(wrapper.find('.body details').exists()).toBe(false);
+ await wrapper.get('.load-images').trigger('click');expect(wrapper.findAll('.body img')).toHaveLength(2);
+ await wrapper.setProps({conversation:{id:21}});expect(wrapper.findAll('.body img')).toHaveLength(1);wrapper.unmount();
+});

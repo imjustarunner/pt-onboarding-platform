@@ -14,6 +14,27 @@ export function decodeBase64Url(data) {
   return Buffer.from(s + pad, 'base64').toString('utf8');
 }
 
+/** Retain the HTML alternative, excluding attached emails and HTML files. */
+export async function readGmailBodyHtml(payload, { gmail, gmailMessageId } = {}) {
+  const html = [];
+  async function visit(part) {
+    if (!part || part.filename || /^message\//i.test(part.mimeType || '')) return;
+    const disposition = headerMap(part.headers).get('content-disposition') || '';
+    if (/^attachment\b/i.test(disposition)) return;
+    if (String(part.mimeType).toLowerCase() === 'text/html') {
+      let encoded = part.body?.data;
+      if (!encoded && part.body?.attachmentId && gmail && gmailMessageId) {
+        const { data } = await gmail.users.messages.attachments.get({ userId: 'me', messageId: gmailMessageId, id: part.body.attachmentId });
+        encoded = data?.data;
+      }
+      if (encoded) html.push(decodeBase64Url(encoded));
+    }
+    for (const child of part.parts || []) await visit(child);
+  }
+  await visit(payload);
+  return html.length ? html.join('\n') : null;
+}
+
 export function extractEmails(headerValue) {
   const v = String(headerValue || '').trim();
   if (!v) return [];

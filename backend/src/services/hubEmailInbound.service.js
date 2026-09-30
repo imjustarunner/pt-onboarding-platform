@@ -1,6 +1,7 @@
 import { isDistributionMail } from './personalMessageThreadPolicy.service.js';
 import { persistInboundEmail } from './inboundEmailPersistence.service.js';
 import { prepareInboundAttachments } from './communicationAttachments.service.js';
+import { readGmailBodyHtml } from '../utils/gmailMessageParse.shared.js';
 /**
  * Route inbound replies to messages@ into the hub communication thread.
  */
@@ -150,6 +151,7 @@ export async function ingestHubEmailReply({
     inboxId: conversation.inbox_id, agencyId: aid, conversationId,
     deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null),
     threadId, fromEmail, subject, bodyText,
+    bodyHtml: await readGmailBodyHtml(gmailPayload, { gmail, gmailMessageId }),
     to: toAddresses.map((email) => ({ email })), cc: ccAddresses.map((email) => ({ email })),
     inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments, isGroupEmail: isDistributionMail(gmailPayload?.headers, null)
   });

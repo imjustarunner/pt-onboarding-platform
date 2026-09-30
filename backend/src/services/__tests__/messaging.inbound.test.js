@@ -25,10 +25,10 @@ describe('shared mailbox reply routing', () => {
   });
   it('routes by exact parent ID and preserves group recipients', async () => {
     pool.execute.mockResolvedValueOnce([[{ id: 42, agency_id: 2 }]]);
-    expect(await ingestHubEmailReply({ ...base, inReplyTo: '<original@example.org>' })).toMatchObject({ conversationId: 42 });
+    expect(await ingestHubEmailReply({ ...base, inReplyTo: '<original@example.org>', gmailPayload:{mimeType:'text/html',body:{data:Buffer.from('<p>Signature</p>').toString('base64url')}} })).toMatchObject({ conversationId: 42 });
     expect(pool.execute.mock.calls[0][1]).toEqual([2, 7, '<original@example.org>']);
     expect(persistInboundEmail).toHaveBeenCalledWith(expect.objectContaining({
-      conversationId: 42, cc: [{ email: 'colleague@example.org' }], deliveryId: '<incoming@example.org>'
+      bodyHtml:'<p>Signature</p>', conversationId: 42, cc: [{ email: 'colleague@example.org' }], deliveryId: '<incoming@example.org>'
     }));
   });
   it('finds the nearest known ancestor when the immediate parent is unavailable', async () => {

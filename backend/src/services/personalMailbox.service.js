@@ -1,6 +1,7 @@
 import { isDistributionMail } from './personalMessageThreadPolicy.service.js';
 import { persistInboundEmail } from './inboundEmailPersistence.service.js';
 import { prepareInboundAttachments } from './communicationAttachments.service.js';
+import { readGmailBodyHtml } from '../utils/gmailMessageParse.shared.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
@@ -511,7 +512,9 @@ export async function ingestPersonalMailboxInbound({
   const result = await persistInboundEmail({
     inboxId: inbox.id, agencyId: aid, conversationId, ownerUserId: Number(inbox.owner_user_id || ownerUserId) || null,
     deliveryId: messageIdHeader || (gmailMessageId ? `gmail:${gmailMessageId}` : null),
-    threadId, fromEmail, replyToEmail, subject, bodyText, to: to.map((email) => ({ email })), cc: cc.map((email) => ({ email })),
+    threadId, fromEmail, replyToEmail, subject, bodyText,
+    bodyHtml: await readGmailBodyHtml(gmailPayload, { gmail, gmailMessageId }),
+    to: to.map((email) => ({ email })), cc: cc.map((email) => ({ email })),
     inReplyTo, referencesHeader, receivedAt: receivedAt || new Date(), attachments, isGroupEmail: isDistributionMail(gmailPayload?.headers, inbox.from_email)
   });
   await (await import('./inboundEventInvitation.service.js')).forwardInboundEventInvitation({inbox,userId:Number(inbox.owner_user_id||ownerUserId),messageId:result.messageId,gmail,gmailMessageId,payload:gmailPayload,subject,bodyText,fromEmail,to,cc});
