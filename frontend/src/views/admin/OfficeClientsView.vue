@@ -9,6 +9,7 @@
         </p>
       </div>
       <div class="ocm-hub-header-actions">
+        <PostClientToExchangeButton />
         <nav class="ocm-hub-switcher" aria-label="Office tools">
           <template v-for="item in officeNavLinks" :key="item.key">
             <span v-if="item.isActive" class="ocm-hub-switcher-btn is-active" aria-current="page">{{ item.label }}</span>
@@ -322,6 +323,7 @@
 </template>
 
 <script setup>
+import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';

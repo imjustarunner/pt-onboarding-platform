@@ -5,6 +5,12 @@ export function notificationDestination(notification, { organizationSlug = null,
   const entityId = Number(n.related_entity_id || 0);
   const adminLike = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(String(role || '').toLowerCase());
 
+  if (n.type === 'client_exchange_match') {
+    let audience = n.audience_json || {};
+    if (typeof audience === 'string') { try { audience = JSON.parse(audience); } catch { audience = {}; } }
+    const exchangeBase = audience.agencySlug ? `/${encodeURIComponent(audience.agencySlug)}` : base;
+    return `${exchangeBase}/client-exchange?listingId=${entityId}&agencyId=${Number(n.agency_id)}`;
+  }
   if (entityType === 'provider_availability' && n.user_id) return `${base}/admin/users/${Number(n.user_id)}?section=public-profile&agencyId=${Number(n.agency_id)}`;
   if (n.type === 'school_portal_onboarding_completed') {
     return `${base}/admin/school-onboarding${n.agency_id ? `?agencyId=${n.agency_id}` : ''}`;

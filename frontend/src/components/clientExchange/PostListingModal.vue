@@ -66,10 +66,10 @@
         <div v-if="submitError" class="error">{{ submitError }}</div>
 
         <div class="modal-actions">
-          <button type="button" class="btn btn-primary" :disabled="!selectedClientId || submitting" @click="submit">
+          <button type="button" class="btn btn-primary" :disabled="!selectedClientId || submitting || posted" @click="submit">
             {{ submitting ? 'Posting…' : 'Post to exchange' }}
           </button>
-          <button type="button" class="btn btn-secondary" @click="$emit('close')">Cancel</button>
+          <button type="button" class="btn btn-secondary" @click="posted ? $emit('posted') : $emit('close')">{{ posted ? 'Done' : 'Cancel' }}</button>
         </div>
       </template>
     </div>
@@ -103,6 +103,7 @@ const modality = ref('');
 const insurance = ref('');
 const notes = ref('');
 const submitting = ref(false);
+const posted = ref(false);
 const submitError = ref('');
 
 const eligibleClients = computed(() => clients.value);
@@ -122,7 +123,7 @@ async function loadClients() {
   loadingClients.value = true;
   error.value = '';
   try {
-    const params = { agency_id: props.agencyId, client_type: 'clinical,learning' };
+    const params = { agency_id: props.agencyId, client_type: 'clinical,learning,basic_nonclinical,school' };
     if (!props.isBackoffice) {
       params.provider_id = authStore.user?.id;
     }
@@ -141,7 +142,7 @@ async function submit() {
   submitting.value = true;
   submitError.value = '';
   try {
-    await api.post('/client-exchange/listings', {
+    const response = await api.post('/client-exchange/listings', {
       agencyId: props.agencyId,
       clientId: Number(selectedClientId.value),
       demographics: {
@@ -158,6 +159,14 @@ async function submit() {
       },
       notes: notes.value || null
     });
+    const delivery = response.data?.listing?.notifications;
+    if (delivery?.failed || delivery?.queued) {
+      posted.value = true;
+      submitError.value = delivery.failed
+        ? 'Client posted, but some matching emails could not be sent. Check notification email delivery in Communications. Do not repost this client.'
+        : 'Client posted. Matching emails are awaiting approval in Communications.';
+      return;
+    }
     emit('posted');
   } catch (e) {
     submitError.value = e?.response?.data?.error?.message || e?.message || 'Failed to post listing';

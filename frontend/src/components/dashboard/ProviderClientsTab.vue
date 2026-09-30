@@ -29,6 +29,7 @@
       </header>
 
       <div class="pct-toolbar">
+        <PostClientToExchangeButton v-if="!profileEmbed" />
         <template v-if="activeSection === 'school'">
           <label class="pct-field">
             <span class="pct-field__label">School</span>
@@ -482,6 +483,7 @@
 </template>
 
 <script setup>
+import PostClientToExchangeButton from '../clientExchange/PostClientToExchangeButton.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';

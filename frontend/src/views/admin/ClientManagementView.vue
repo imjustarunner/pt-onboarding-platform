@@ -46,6 +46,7 @@
           class="cm-hbtn cm-hbtn--ghost"
           @click="identityReviewMode = 'tests'"
         >Show Tests</button>
+        <PostClientToExchangeButton />
         <button @click="openCreateClientModal" class="cm-hbtn cm-hbtn--primary">+ New client</button>
       </div>
     </div>
@@ -1370,6 +1371,7 @@
 </template>
 
 <script setup>
+import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
 import FaxClientIntake from '../../components/clients/FaxClientIntake.vue';
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';

@@ -149,3 +149,15 @@ test('master channel switches and unsupported capabilities cannot be bypassed', 
   assert.equal(resolved.effective.push, false);
   assert.equal(resolved.effective.sound, false);
 });
+
+
+test('exchange matches default to inbox and email for staff who receive a match', () => {
+  for (const userRole of ['provider', 'intern', 'staff', 'admin', 'clinical_practice_assistant']) {
+    const result = resolveNotificationTypePreference('client_exchange_match', {
+      userRole, globalPreferences: {}, typePreferences: new Map()
+    });
+    assert.equal(result.effective.inApp, true, userRole);
+    assert.equal(result.effective.email, true, userRole);
+    assert.equal(result.effective.sms, false, userRole);
+  }
+});

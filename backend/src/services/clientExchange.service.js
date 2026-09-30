@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { notifyExchangeMatches } from './clientExchangeNotifications.service.js';
+import { clientAge } from '../utils/clientExchangeMatching.js';
 import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
@@ -205,6 +207,11 @@ export async function createListing({
     throw new Error('This client already has an open listing in the exchange');
   }
 
+  const intake = parseJsonColumn(client.intake_preferences_json) || {};
+  const age = clientAge(client);
+  demographics = { ...(age == null ? {} : { ageBand: String(age) }), ...(safeJson(demographics) || {}) };
+  preferences = { modality: intake.preferredModality, ...(safeJson(preferences) || {}) };
+
   const resolvedCurrentProvider = currentProviderUserId != null ? Number(currentProviderUserId) : (client.provider_id || null);
 
   const [result] = await pool.execute(
@@ -248,11 +255,7 @@ export async function createListing({
   // Announce into the Office Available smart group (replaces Google Chat referral routing).
   try {
     const SmartGroups = await import('./smartChatGroups.service.js');
-    const clientName = [client.first_name, client.last_name].filter(Boolean).join(' ').trim();
-    const previewBits = [
-      clientName || null,
-      notes ? String(notes).slice(0, 160) : null
-    ].filter(Boolean);
+    const previewBits = ['A new referral is available. Open Client Exchange to review it.'];
     await SmartGroups.announceClientExchangeListing({
       agencyId: aid,
       listingId: result.insertId,
@@ -263,7 +266,14 @@ export async function createListing({
     console.warn('[createListing] Office Available chat announce failed:', e?.message || e);
   }
 
-  return getListingById(result.insertId, { viewerUserId: posterId, viewerRole: 'admin' });
+  const listing = await getListingById(result.insertId, { viewerUserId: posterId, viewerRole: 'admin' });
+  try {
+    listing.notifications = await notifyExchangeMatches({ listing, client });
+  } catch (error) {
+    console.error('[clientExchange] Match notification setup failed', { listingId: listing.id, error: error?.message });
+    listing.notifications = { matched: 0, sent: 0, queued: 0, skipped: 0, failed: 1 };
+  }
+  return listing;
 }
 
 export async function withdrawListing({ listingId, actingUserId }) {

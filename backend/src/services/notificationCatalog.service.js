@@ -32,7 +32,7 @@ const TYPES_BY_CATEGORY = {
   ],
   clients_documents: [
     'paperwork_received', 'new_packet_uploaded', 'new_prospective_inquiry', 'client_became_current',
-    'client_checklist_updated', 'client_terminated', 'client_assigned',
+    'client_checklist_updated', 'client_terminated', 'client_assigned', 'client_exchange_match',
     'client_ready_to_schedule',
     'client_school_roi_link_generated', 'client_school_roi_link_copied',
     'client_school_roi_link_sent', 'client_school_roi_completed',
@@ -176,6 +176,7 @@ const LABEL_OVERRIDES = {
 };
 
 const WORKFORCE_RELEVANT = new Set([
+  'client_exchange_match',
   'temp_password_expired', 'invitation_expired', 'password_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
   'emergency_broadcast', 'presence_return_overdue_nudge', 'task_overdue',
@@ -275,6 +276,7 @@ const GUARDIAN_RELEVANT = new Set([
 // smaller subset enabled when a user has not made an explicit per-type choice.
 // Optional relevant types remain available in settings, but start off.
 const WORKFORCE_ESSENTIAL = new Set([
+  'client_exchange_match',
   'temp_password_expired', 'invitation_expired', 'password_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
   'emergency_broadcast', 'task_overdue', 'chat_message', 'task_comment_mention',
@@ -490,7 +492,7 @@ for (const [category, types] of Object.entries(TYPES_BY_CATEGORY)) {
         sound: defaultOverrides.sound ?? required,
         digest: false,
         push: required && PUSH_CAPABLE.has(type),
-        email: required,
+        email: required || type === 'client_exchange_match',
         sms: required && SMS_CAPABLE.has(type),
         toastDurationMode:
           defaultOverrides.toastDurationMode ?? (required ? 'dismissable' : 'timed'),

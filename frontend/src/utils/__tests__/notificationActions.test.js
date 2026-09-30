@@ -45,3 +45,8 @@ describe('notificationActions', () => {
       .toEqual({ dismissed: true });
   });
 });
+
+it('opens an exchange match in its own agency, even from another tenant', () => {
+  expect(notificationDestination({ type: 'client_exchange_match', related_entity_type: 'client_exchange_listing', related_entity_id: 44, agency_id: 2, audience_json: JSON.stringify({ agencySlug: 'itsco' }) }, { organizationSlug: 'other', role: 'provider' }))
+    .toBe('/itsco/client-exchange?listingId=44&agencyId=2');
+});

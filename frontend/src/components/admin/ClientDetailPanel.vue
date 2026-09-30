@@ -142,6 +142,7 @@
         </div>
 
         <div class="cdp-header-actions">
+          <button v-if="canPostClientToExchange" type="button" class="cdp-btn-primary" @click="openPostToExchangeModal">Post to Client Exchange</button>
           <button
             v-if="!props.fullPage && props.client?.id"
             class="cdp-btn-primary cdp-open-full"
@@ -3977,7 +3978,7 @@ const postToExchangeClientLabel = computed(() => {
 });
 const canPostClientToExchange = computed(() => {
   if (!canSeeClientExchangeNav(roleNorm.value)) return false;
-  if (!isClinicalLikeClientType.value) return false;
+  if (!['clinical', 'learning', 'school', 'basic_nonclinical'].includes(effectiveClientType.value)) return false;
   if (!hasAgencyAccess.value) return false;
   if (isClientArchived.value) return false;
   if (isBackofficeRole.value) return true;

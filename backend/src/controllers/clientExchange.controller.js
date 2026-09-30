@@ -1,5 +1,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import Client from '../models/Client.model.js';
+import { providerHasAssignedClientAccess } from '../services/clientRecordAccess.service.js';
 import * as ClientExchange from '../services/clientExchange.service.js';
 
 function safeInt(v) {
@@ -88,11 +90,21 @@ export async function createListing(req, res, next) {
     if (!(await assertAgencyAccess(req, agencyId))) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
+    const client = await Client.findById(clientId);
+    if (!client || Number(client.agency_id) !== agencyId) {
+      return res.status(400).json({ error: { message: 'Client does not belong to this agency' } });
+    }
+    if (!isBackoffice(req.user.role) && !(await providerHasAssignedClientAccess({ userId: req.user.id, clientId, client }))) {
+      return res.status(403).json({ error: { message: 'Only assigned providers or agency staff can post this client' } });
+    }
+    if (String(client.status).toUpperCase() === 'ARCHIVED') {
+      return res.status(400).json({ error: { message: 'Archived clients cannot be posted to the exchange' } });
+    }
     const listing = await ClientExchange.createListing({
       agencyId,
       clientId,
       postedByUserId: req.user.id,
-      currentProviderUserId: req.body?.currentProviderUserId ? safeInt(req.body.currentProviderUserId) : undefined,
+      currentProviderUserId: client.provider_id || null,
       demographics: req.body?.demographics,
       presentingProblems: req.body?.presentingProblems,
       diagnoses: req.body?.diagnoses,

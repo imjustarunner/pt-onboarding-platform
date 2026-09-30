@@ -48,6 +48,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   expiring_background: ['compliance', 'notifications'],
   background_check_scheduled_admin: ['compliance', 'notifications'],
   client_assigned: ['notifications', 'people_operations', 'support'],
+  client_exchange_match: ['notifications'],
   client_terminated: ['notifications', 'people_operations', 'support'],
   client_checklist_updated: ['notifications', 'support'],
   contact_reminder_assigned: ['notifications'],

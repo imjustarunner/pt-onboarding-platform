@@ -5,24 +5,31 @@
       <div class="cep-header-copy">
         <h1 class="cep-title">Client Exchange</h1>
         <p class="cep-subtitle">
-          Post and claim client referrals here. Google Chat is being retired for this workflow —
-          new listings notify the Office Available team chat group.
+          Post and request client referrals. Matching providers receive a notification and email when a client is added.
         </p>
       </div>
       <div class="cep-header-actions">
         <button class="cep-btn cep-btn--ghost" type="button" @click="load" :disabled="loading">
           {{ loading ? 'Loading…' : '↺ Refresh' }}
         </button>
-        <button class="cep-btn cep-btn--primary" type="button" @click="openPostModal">
+        <button class="cep-btn cep-btn--primary" type="button" @click="openPostModal" :disabled="!agencyId">
           + Post a client
         </button>
       </div>
     </div>
 
     <div class="cep-banner cep-banner--info">
-      Turn on <strong>Office Availability</strong> in the header to receive Client Exchange posts in Team chat.
-      Office Available is independent of whether you have open schedule slots.
+      Providers accepting new clients in person or virtually receive matches based on their saved availability and client preferences.
+      Update your availability and clinical profile to keep your matches current.
     </div>
+
+    <label v-if="agencies.length > 1 || !agencyId">
+      Agency
+      <select :value="agencyId || ''" @change="selectedAgency = $event.target.value">
+        <option value="">Select an agency…</option>
+        <option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option>
+      </select>
+    </label>
 
     <!-- Stats row -->
     <div class="cep-stats">
@@ -283,8 +290,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, reactive } from 'vue';
-import { useAgencyStore } from '../../store/agency';
+import { computed, watch, ref, reactive } from 'vue';
+import { useRoute } from 'vue-router';
+import { useClientExchangeAgency } from '../../composables/useClientExchangeAgency';
 import { useAuthStore } from '../../store/auth';
 import { useClientDisplayMode } from '../../composables/useClientDisplayMode';
 import {
@@ -298,13 +306,10 @@ import ClientDisplayModeToggle from '../admin/ClientDisplayModeToggle.vue';
 
 const { getClientLabel } = useClientDisplayMode();
 
-const agencyStore = useAgencyStore();
+const route = useRoute();
+const { agencyId, agencies, selected: selectedAgency } = useClientExchangeAgency();
 const authStore = useAuthStore();
 
-const agencyId = computed(() => {
-  const a = agencyStore.currentAgency?.value || agencyStore.currentAgency;
-  return a?.id || null;
-});
 const currentUserId = computed(() => Number(authStore.user?.id || 0) || null);
 const isBackoffice = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
@@ -418,7 +423,9 @@ function selectListing(listing) {
   }
 }
 
+let loadVersion = 0;
 async function load() {
+  const version = ++loadVersion;
   if (!agencyId.value) return;
   loading.value = true;
   error.value = '';
@@ -427,13 +434,15 @@ async function load() {
       api.get('/client-exchange/listings', { params: { agencyId: agencyId.value } }),
       api.get('/client-exchange/my-requests', { params: { agencyId: agencyId.value } })
     ]);
+    if (version !== loadVersion) return;
     listings.value = listingsRes.data?.listings || [];
     myRequests.value = myRequestsRes.data?.requests || [];
-    // Do not auto-select; user clicks to open detail
+    const linked = listings.value.find(l => l.id === Number(route.query?.listingId));
+    if (linked && !selectedListingId.value) selectListing(linked);
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load Client Exchange';
+    if (version === loadVersion) error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load Client Exchange';
   } finally {
-    loading.value = false;
+    if (version === loadVersion) loading.value = false;
   }
 }
 
@@ -508,7 +517,16 @@ async function onPosted() {
   await load();
 }
 
-onMounted(load);
+watch(agencyId, () => {
+  listings.value = [];
+  myRequests.value = [];
+  requestsByListing.value = {};
+  selectedListingId.value = null;
+  showPostModal.value = false;
+  error.value = '';
+  loading.value = false;
+  load();
+}, { immediate: true });
 </script>
 
 <style scoped>
