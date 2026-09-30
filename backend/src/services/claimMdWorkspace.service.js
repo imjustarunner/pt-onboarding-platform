@@ -17,7 +17,9 @@ export async function billingWorkspace(user, query = {}, deps = dependencies) {
   if (!user?.id || ['provider', 'provider_plus'].includes(role)) throw denied();
   let candidates;
   if (role === 'super_admin') {
-    [candidates] = await deps.main.execute('SELECT id, name, slug, logo_url, color_palette, feature_flags FROM agencies WHERE is_active = 1');
+    [candidates] = user.auricwellPreviewAgencyId
+      ? await deps.main.execute('SELECT id, name, slug, logo_url, color_palette, feature_flags FROM agencies WHERE is_active = 1 AND id = ?', [user.auricwellPreviewAgencyId])
+      : await deps.main.execute('SELECT id, name, slug, logo_url, color_palette, feature_flags FROM agencies WHERE is_active = 1');
   } else {
     candidates = await deps.memberships(user.id);
   }

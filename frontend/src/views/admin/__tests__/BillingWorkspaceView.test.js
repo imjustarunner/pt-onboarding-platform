@@ -8,13 +8,15 @@ import { canAccessBillingWorkspace } from '../../../config/medicalBillingAccess'
 vi.mock('../../../services/api', () => ({ default: { get: vi.fn() } }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 1, name: 'Management Agency' } }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 5, role: 'support', first_name: 'Test', last_name: 'Biller' } }) }));
-vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }), useRouter: () => ({ replace: vi.fn() }) }));
+const mockRoute = vi.hoisted(() => ({query:{},meta:{}}));
+vi.mock('vue-router', () => ({ useRoute: () => mockRoute, useRouter: () => ({ replace: vi.fn() }) }));
 vi.mock('../../../components/admin/ClaimMdWorkspace.vue', () => ({ default: { template: '<div>Claim tools</div>', methods: { showHistory: vi.fn() } } }));
 vi.mock('../../../components/admin/MedicalBillingReportsPanel.vue', () => ({ default: { template: '<div>Company reports</div>' } }));
 vi.mock('../MedicalBillingView.vue', () => ({ default: { template: '<div>Company settings</div>' } }));
+vi.mock('../../../components/billing/RemittanceWorkspace.vue', () => ({default:{props:['agencyId','agencyName'],template:'<div data-testid="remittances">Payments for {{ agencyName }}</div>'}}));
 const data = () => ({ organizations: [{ id: 1, name: 'Company One', colors: { primary: '#23564f' }, counts: { ready: 4, submitted: 2 }, connection: { configured: true, mode: 'disabled' }, enrollments: [] }, { id: 3, name: 'Company Three', counts: { rejected: 2 }, connection: { configured: false }, enrollments: [] }], claims: [{ id: 8, agency_id: 1, client_id: 12, clinical_note_id: 10, claim_lifecycle: 'submitted', amount_cents: 10000 }], total: 1, capabilities: { claims: true, enrollments: true, paymentPosting: false }, updatedAt: '2026-09-24T12:00:00Z' });
 const button = (w, text) => w.findAll('button').find(b => b.text() === text);
-beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); api.get.mockResolvedValue({ data: data() }); });
+beforeEach(() => { mockRoute.query={}; mockRoute.meta={}; vi.clearAllMocks(); localStorage.clear(); api.get.mockResolvedValue({ data: data() }); });
 describe('billing workspace', () => {
   it('starts with all authorized companies and distinguishes accepted claims from payment', async () => {
     const w = mount(BillingWorkspaceView); await flushPromises();
@@ -41,14 +43,19 @@ describe('billing workspace', () => {
     resolveOld({ data: data() }); await flushPromises();
     expect(w.text()).toContain('Claim #99'); expect(w.text()).not.toContain('Claim #8'); w.unmount();
   });
-  it('uses the scoped ERA endpoint and never treats directory entries as posted payments', async () => {
+  it('passes the selected practice to the shared remittance workspace', async () => {
     const w = mount(BillingWorkspaceView); await flushPromises();
     await w.find('[data-testid="organization-scope"]').setValue('1'); await flushPromises();
-    await button(w, 'Payments').trigger('click');
-    api.get.mockResolvedValue({ data: { eras: [{ eraid: 'test-era', payer_name: 'Test payer' }] } });
-    await button(w, 'Check ERA directory').trigger('click'); await flushPromises();
-    expect(api.get).toHaveBeenLastCalledWith('/medical-billing/claimmd/eras', { params: { agencyId: 1 } });
-    expect(w.text()).toContain('test-era'); expect(w.text()).toContain('Payment posting is not enabled yet'); w.unmount();
+    await button(w, 'Payments').trigger('click'); await flushPromises();
+    expect(w.find('[data-testid="remittances"]').text()).toContain('Company One');
+    expect(w.text()).not.toContain('Payments for Company Three'); w.unmount();
+  });
+  it('locks AuricWell to the server-selected practice',async()=>{
+    mockRoute.meta={auricwellPreview:true};mockRoute.query={billingScope:'3'};
+    const w=mount(BillingWorkspaceView);await flushPromises();
+    expect(api.get.mock.calls[0][1].params.agencyId).toBe('1');
+    expect(w.find('[data-testid="organization-scope"]').exists()).toBe(false);
+    w.unmount();
   });
   it('clears financial results after an authorization failure', async () => {
     const w = mount(BillingWorkspaceView); await flushPromises();

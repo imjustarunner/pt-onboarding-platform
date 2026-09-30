@@ -1,0 +1,21 @@
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
+vi.mock('../../config/clinicalDatabase.js',()=>({default:{execute:vi.fn()}}));
+vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn()}}));
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn()}}));
+vi.mock('../auth.middleware.js',()=>({authenticate:(q,s,n)=>n(),requireActiveStatus:(q,s,n)=>n()}));
+vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:vi.fn()}));
+import { auricwellPreviewBoundary } from '../auricwellPreview.middleware.js';
+import pool from '../../config/database.js';
+import clinical from '../../config/clinicalDatabase.js';
+import User from '../../models/User.model.js';
+import Agency from '../../models/Agency.model.js';
+const run=(overrides={})=>new Promise(resolve=>{const req={method:'GET',path:'/clinical-notes/recent',query:{},body:{},user:{id:9,role:'super_admin'},get:()=> '7',is:()=>false,...overrides};auricwellPreviewBoundary(req,{},error=>resolve({req,error}));});
+beforeEach(()=>{vi.clearAllMocks();User.findById.mockResolvedValue({id:9,role:'super_admin',is_active:1});Agency.findById.mockResolvedValue({id:7,is_active:1,organization_type:'agency'});pool.execute.mockResolvedValue([[{agency_id:7}]]);clinical.execute.mockResolvedValue([[{agency_id:7}]]);});
+describe('shared API practice boundary',()=>{
+  it('leaves existing full-suite calls alone',async()=>{expect((await run({get:()=>null})).error).toBeUndefined();expect(User.findById).not.toHaveBeenCalled();});
+  it('pins list requests and disables cross-practice searches',async()=>{const {req,error}=await run({query:{allAccessible:'1',all_agencies:'1'}});expect(error).toBeUndefined();expect(req.query).toMatchObject({agencyId:'7',agency_id:'7',allAccessible:'0',all_agencies:'0'});expect(req.user.id).toBe(9);});
+  it('rejects cross-practice rows even for superadmins',async()=>{pool.execute.mockResolvedValue([[{agency_id:8}]]);expect((await run({path:'/clients/12'})).error.status).toBe(404);clinical.execute.mockResolvedValue([[{agency_id:8}]]);expect((await run({path:'/medical-billing/notes/12'})).error.status).toBe(404);});
+  it('checks linked client scope before saving a draft',async()=>{pool.execute.mockResolvedValue([[{agency_id:8}]]);expect((await run({method:'POST',path:'/clinical-notes/drafts',body:{agencyId:7,clientId:12}})).error.status).toBe(404);});
+  it('rejects foreign scope, switched actors and file uploads',async()=>{expect((await run({query:{agencyId:8}})).error.status).toBe(403);expect((await run({authClaims:{testAccountSwitch:true}})).error.status).toBe(403);expect((await run({method:'POST',path:'/clinical-notes/generate',is:()=>true})).error.status).toBe(403);});
+});

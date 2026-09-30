@@ -11,7 +11,15 @@ const gamesRoot = path.resolve(rootDir, '..', 'games');
 export default defineConfig({
   // Always resolve root relative to this config file (works even when invoked from repo root).
   root: rootDir,
-  plugins: [vue()],
+  plugins: [vue(), {
+    name: 'auricwell-preview-entry',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        if (/^\/auricwell(?:\/[^.?]*)?(?:\?.*)?$/.test(req.url || '')) req.url = '/auricwell.html';
+        next();
+      });
+    }
+  }],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -42,7 +50,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     rollupOptions: {
-      input: indexHtml
+      input: { main: indexHtml, auricwell: fileURLToPath(new URL('./auricwell.html', import.meta.url)) }
     }
   }
 });

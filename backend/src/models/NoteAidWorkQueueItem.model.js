@@ -192,7 +192,7 @@ class NoteAidWorkQueueItem {
     return Number(result?.affectedRows || 0);
   }
 
-  static async listForUser(userId, { purgeExpired = false } = {}) {
+  static async listForUser(userId, { purgeExpired = false, agencyId = null } = {}) {
     const uid = safeInt(userId);
     if (!uid) return [];
     if (purgeExpired) {
@@ -201,7 +201,7 @@ class NoteAidWorkQueueItem {
     const [rows] = await pool.execute(
       `SELECT *
        FROM note_aid_work_queue_items
-       WHERE user_id = ?
+       WHERE user_id = ? ${agencyId ? "AND agency_id = ?" : ""}
        ORDER BY
          CASE status
            WHEN 'not_started' THEN 0
@@ -212,7 +212,7 @@ class NoteAidWorkQueueItem {
          END,
          date_of_service IS NULL, date_of_service ASC,
          id ASC`,
-      [uid]
+      agencyId ? [uid, agencyId] : [uid]
     );
     return (rows || []).map(toApiItem);
   }

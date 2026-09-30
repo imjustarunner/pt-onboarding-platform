@@ -173,6 +173,10 @@ function requireNotSchoolStaff(req, res) {
 }
 
 async function requireUserHasAgencyAccess(req, res, agencyId) {
+  if (req.auricwellPreview && Number(agencyId) !== req.auricwellPreview.agencyId) {
+    res.status(403).json({ error: { message: 'Choose a client in this practice.' } });
+    return false;
+  }
   const roleNorm = String(req.user?.role || '').toLowerCase();
   if (roleNorm === 'super_admin') return true;
 
@@ -967,7 +971,8 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
     ])];
     const signedSessions = await listSignedNoteSessions({
       userId: req.user.id,
-      clientIds
+      clientIds,
+      agencyId: req.auricwellPreview?.agencyId || null
     });
     const signedKeys = new Set((signedSessions || []).map((s) => sessionMatchKey(s)).filter(Boolean));
     const signedDraftIds = new Set(
@@ -980,7 +985,7 @@ export const listRecentClinicalNoteDrafts = async (req, res, next) => {
         return k && signedKeys.has(k);
       })
       .map((d) => d.id);
-    if (retireIds.length) {
+    if (retireIds.length && !req.auricwellPreview) {
       await ClinicalNoteDraft.deleteForUser({ userId: req.user.id, draftIds: retireIds });
     }
     const remaining = (drafts || []).filter((d) => !retireIds.includes(d.id));

@@ -33,9 +33,10 @@ export const listNotesToSign = async (req, res, next) => {
        LEFT JOIN clients c ON c.id = cn.client_id
        WHERE cns.supervisor_user_id = ?
          AND cns.status = 'awaiting_supervisor'
+         ${req.auricwellPreview ? 'AND cns.agency_id = ?' : ''}
        ORDER BY cns.provider_signed_at DESC, cns.created_at DESC
        LIMIT 50`,
-      [userId]
+      req.auricwellPreview ? [userId, req.auricwellPreview.agencyId] : [userId]
     ).catch(async () => {
       // Fallback when clinical_notes / clients are unavailable on this pool.
       const [basic] = await pool.execute(
@@ -46,9 +47,10 @@ export const listNotesToSign = async (req, res, next) => {
          JOIN users u ON u.id = cns.provider_user_id
          WHERE cns.supervisor_user_id = ?
            AND cns.status = 'awaiting_supervisor'
+         ${req.auricwellPreview ? 'AND cns.agency_id = ?' : ''}
          ORDER BY cns.provider_signed_at DESC, cns.created_at DESC
          LIMIT 50`,
-        [userId]
+        req.auricwellPreview ? [userId, req.auricwellPreview.agencyId] : [userId]
       ).catch(() => [[]]);
       return [basic || []];
     });
@@ -80,8 +82,9 @@ export const getNotesToSignCount = async (req, res, next) => {
       `SELECT COUNT(*) AS c
        FROM clinical_note_signoffs
        WHERE supervisor_user_id = ?
-         AND status = 'awaiting_supervisor'`,
-      [userId]
+         AND status = 'awaiting_supervisor'
+         ${req.auricwellPreview ? 'AND agency_id = ?' : ''}`,
+      req.auricwellPreview ? [userId, req.auricwellPreview.agencyId] : [userId]
     ).catch(() => [[{ c: 0 }]]);
 
     res.json({ count: Number(row?.c || 0), isSupervisor: true });

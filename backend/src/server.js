@@ -1,3 +1,5 @@
+import auricwellPreviewRoutes from './routes/auricwellPreview.routes.js';
+import { auricwellPreviewBoundary } from './middleware/auricwellPreview.middleware.js';
 import faxIntakeRoutes from './routes/faxIntake.routes.js';
 import clientReferralLinksRoutes from './routes/clientReferralLinks.routes.js';
 import {publicRouter as publicWebsiteChatRoutes,staffRouter as websiteChatStaffRoutes} from './routes/publicWebsiteChat.routes.js';
@@ -405,6 +407,9 @@ app.use('/api', (req, res, next) => {
   res.setHeader('Expires', '0');
   next();
 });
+
+app.use('/api', auricwellPreviewBoundary);
+app.use('/api/auricwell-preview', auricwellPreviewRoutes);
 
 // Temporary diagnostics: logs high-signal details for unexpected 403s on key endpoints.
 // Enable by setting ACCESS_DEBUG=1 in the environment (Cloud Run).

@@ -1740,6 +1740,7 @@ const props = defineProps({
   embedServiceCode: { type: String, default: '' }
 });
 const isEmbedded = computed(() => !!props.embedded);
+const isAuricWell = computed(() => route.meta?.auricwellPreview === true);
 
 const orgTo = (path) => {
   const slug = route.params.organizationSlug;
@@ -1889,6 +1890,7 @@ const phiNameHits = computed(() => {
 const clientProfileHref = computed(() => {
   const cid = Number(effectiveClientId.value || 0);
   if (!cid) return '';
+  if (isAuricWell.value) return `/auricwell/${route.params.organizationSlug}/clients?clientId=${cid}`;
   const slug = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.organization_slug || route.params?.organizationSlug;
   return slug ? `/${slug}/admin/clients/${cid}` : `/admin/clients/${cid}`;
 });
@@ -2490,6 +2492,7 @@ const chartAgencyIdForSave = computed(() => {
 });
 
 function chartAgencyCandidates() {
+  if (isAuricWell.value) return [Number(currentAgencyId.value)];
   return [...new Set(
     [
       Number(noteAidAgencyId.value || 0),
@@ -3831,7 +3834,9 @@ function applySessionTimingDefaults({ force = false } = {}) {
 }
 
 function collapseSidebarsForNote() {
-  // Keep library + work queue open when a note is active (user can still hide manually).
+  libraryExpanded.value = false;
+  libraryCollapsed.value = true;
+  workQueueCollapsed.value = true;
 }
 
 watch(hasOpenNote, (open) => {
@@ -6448,7 +6453,8 @@ const loadRecent = async ({ retry = true } = {}) => {
     const res = await api.get('/clinical-notes/recent', {
       params: {
         agencyId: currentAgencyId.value,
-        allAccessible: '1',
+        allAccessible: isAuricWell.value ? '0' : '1',
+        ...(isAuricWell.value ? { agencyId: currentAgencyId.value } : {}),
         days: 2555,
         archiveStatus: 'all',
         clientIds: queueClientIds.join(',')
@@ -6908,6 +6914,7 @@ async function loadClientAgencyContext(clientId) {
   clientAgencyMembershipIds.value = [];
   learningSponsorAgencyIds.value = [];
   if (!cid) return;
+  if (isAuricWell.value) { clientAgencyMembershipIds.value = [Number(currentAgencyId.value)]; return; }
 
   const primary = Number(selectedClient.value?.agency_id || selectedClient.value?.agencyId || 0) || null;
   const memberships = primary ? [primary] : [];
@@ -8468,6 +8475,7 @@ const startNewNoteDifferentService = () => {
 };
 
 const loadDraftIntoWorkspace = async (d, options = {}) => {
+  collapseSidebarsForNote();
   if (!d) return;
   const preserveWorkQueue = !!options.preserveWorkQueueItemId;
   const expectedClientId = Number(options.expectedClientId || 0) || null;
@@ -8697,6 +8705,7 @@ const loadClinicalNoteIntoWorkspace = async (
   noteId,
   { agencyId: preferredAgencyId = null, preserveWorkQueueId = null } = {}
 ) => {
+  collapseSidebarsForNote();
   const nid = Number(noteId || 0);
   if (!nid) return;
   signedNoteViewerId.value = nid;
@@ -8946,7 +8955,7 @@ onMounted(async () => {
   // Direct entry (bookmark / quick nav): hourly workers not clocked in get offered a Log Time start.
   // Launchers (Tools & Aids / nav) already prompt; skipPrompt when already linked to a session.
   // Treatment-plan / intake / sessionless writers must NOT be forced into a billable progress note.
-  if (!isEmbedded.value && !fromIndirectSession.value) {
+  if (!isAuricWell.value && !isEmbedded.value && !fromIndirectSession.value) {
     const launchIntent = String(route.query?.launchIntent || route.query?.intent || '').toLowerCase();
     const isPlanOrIntakeIntent = [
       'update_treatment_plan',
@@ -8970,14 +8979,11 @@ onMounted(async () => {
     }
   }
 
-  // Prefer both side panels open; only tuck the queue on very small phones.
-  if (typeof window !== 'undefined' && window.innerWidth < 720) {
-    workQueueCollapsed.value = true;
-  }
+  // Both panels open on entry; opening a note collapses them.
 
   if (canUseTool.value) {
     await bootstrapWorkspace();
-    claimUnassignedNoteAidClients().catch(() => {});
+    if (!isAuricWell.value) claimUnassignedNoteAidClients().catch(() => {});
     if (isEmbedded.value) {
       const qAgency = Number(props.embedAgencyId || 0) || null;
       if (qAgency) selectedQueueAgencyId.value = qAgency;

@@ -63,3 +63,12 @@ describe('cross-company billing scope', () => {
     expect(deps.clinical.execute).not.toHaveBeenCalled();
   });
 });
+
+it('limits preview organization metadata, balances and claims before any financial query', async () => {
+  const deps = fixture(); deps.main.execute.mockResolvedValue([[agency(3)]]);
+  const data = await billingWorkspace({id:10,role:'super_admin',auricwellPreviewAgencyId:3},{agencyId:'3'},deps);
+  expect(deps.main.execute).toHaveBeenCalledWith(expect.stringContaining('AND id = ?'),[3]);
+  expect(data.organizations.map(a=>a.id)).toEqual([3]);
+  expect(deps.eftList.mock.calls.map(([id])=>id)).toEqual([3]);
+  for (const [,params] of deps.clinical.execute.mock.calls) expect(params[0]).toBe(3);
+});

@@ -92,13 +92,14 @@ async function attachClientLabels(sessions = []) {
  * Signed clinical notes used to retire leftover Note Aid drafts and mark
  * matching work-queue items done.
  */
-export async function listSignedNoteSessions({ userId = null, clientIds = [], limit = 400 } = {}) {
+export async function listSignedNoteSessions({ userId = null, clientIds = [], agencyId = null, limit = 400 } = {}) {
   const uid = safeInt(userId);
   const cids = [...new Set((clientIds || []).map(safeInt).filter(Boolean))];
   if (!uid && !cids.length) return [];
   const lim = Math.max(1, Math.min(800, Number(limit) || 400));
   const where = ['n.is_deleted = 0', 'n.provider_signed_at IS NOT NULL'];
   const params = [];
+  if (agencyId) { where.push('n.agency_id = ?'); params.push(agencyId); }
   if (cids.length && uid) {
     where.push(`(n.created_by_user_id = ? OR n.client_id IN (${cids.map(() => '?').join(',')}))`);
     params.push(uid, ...cids);

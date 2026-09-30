@@ -6,7 +6,8 @@ function norm(value) {
 }
 
 const PATH_SEGMENT_RESERVED = new Set([
-  'schoolcarebridge', 'app', 'login', 'admin', 'dashboard', 'logout', 'schools', 'kiosk',
+  'schoolcarebridge',
+  'auricwell', 'app', 'login', 'admin', 'dashboard', 'logout', 'schools', 'kiosk',
   'passwordless-login', 'reset-password', 'change-password', 'intake',
   'join', 'office-intake', 'i', 'preferences-form', 'careers', 'public',
   'registration-receipt', 'counseling', 'tutoring', 'coaching', 'consulting'

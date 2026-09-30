@@ -697,7 +697,9 @@ export const listClientChart = async (req, res, next) => {
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
 
-    const scope = await collectChartScope({ clientId, agencyId });
+    const scope = req.auricwellPreview
+      ? { clientIds: [clientId], agencyIds: [agencyId] }
+      : await collectChartScope({ clientId, agencyId });
     const chartAgencyIds = scope.agencyIds.length ? scope.agencyIds : [agencyId];
     const chartClientIds = scope.clientIds.length ? scope.clientIds : [clientId];
     const agencyIn = chartAgencyIds.map(() => '?').join(',');

@@ -123,6 +123,12 @@ app.use(express.static(distPath, {
 }));
 
 // SPA fallback: serve index.html for all routes that don't match static files
+app.get(['/auricwell', '/auricwell/*'], (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  res.sendFile(join(distPath, 'auricwell.html'));
+});
+
 app.get('*', (req, res) => {
   // Check if this is a request for a file (has file extension)
   const hasExtension = /\.[^/]+$/.test(req.path);

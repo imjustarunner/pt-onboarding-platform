@@ -4812,6 +4812,15 @@ function isFreshLoginWindow(now = Date.now()) {
   }
 }
 
+// The AuricWell preview has its own frontend entry; SPA login redirects must
+// cross the document boundary rather than rendering it inside the staff shell.
+router.beforeEach((to) => {
+  if (/^\/auricwell(?:\/|$)/.test(to.path)) {
+    window.location.assign(to.fullPath);
+    return false;
+  }
+});
+
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
   const brandingStore = useBrandingStore();

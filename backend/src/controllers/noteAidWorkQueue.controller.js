@@ -11,7 +11,7 @@ export async function listNoteAidWorkQueue(req, res) {
   try {
     const userId = safeInt(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Unauthorized' } });
-    const items = await NoteAidWorkQueueItem.listForUser(userId);
+    const items = await NoteAidWorkQueueItem.listForUser(userId, { agencyId: req.auricwellPreview?.agencyId || null });
     return res.json({ items });
   } catch (error) {
     console.error('listNoteAidWorkQueue:', error);

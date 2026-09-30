@@ -8,12 +8,12 @@
 
     <main class="billing-main">
       <header class="workspace-header"><div><span class="eyebrow">REVENUE OPERATIONS</span><h1>{{ pageTitle }}</h1><p>{{ descriptions[section] }}</p></div><button class="secondary" :disabled="loading" @click="reload">{{ loading ? 'Refreshing…' : 'Refresh' }}</button></header>
-      <section class="scope-bar" aria-label="Organization scope">
+      <section v-if="!route.meta?.auricwellPreview" class="scope-bar" aria-label="Organization scope">
         <label><span>Organization scope</span><select v-model="scopeId" data-testid="organization-scope"><option value="all">All Companies ({{ organizations.length }})</option><option v-for="org in organizations" :key="org.id" :value="String(org.id)">{{ org.name }}</option></select></label>
         <div class="scope-context"><strong>{{ scopeId === 'all' ? 'Your authorized billing organizations' : scopedOrganization?.name }}</strong><span>Signed in as {{ signedInName }} · Billing for {{ scopeId === 'all' ? 'multiple organizations' : scopedOrganization?.name }}</span></div>
         <span v-if="updatedAt" class="timestamp">Updated {{ clockTime(updatedAt) }}</span>
       </section>
-      <p v-if="scopedOrganization && ['admin','super_admin'].includes(authStore.user?.role)" class="panel-note"><button class="text-button" @click="openBillingIdentity">Billing identity setup: tax ID and practice profile →</button></p>
+      <p v-if="!route.meta?.auricwellPreview && scopedOrganization && ['admin','super_admin'].includes(authStore.user?.role)" class="panel-note"><button class="text-button" @click="openBillingIdentity">Billing identity setup: tax ID and practice profile →</button></p>
       <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
       <p v-if="loading && !organizations.length" class="empty-state" role="status">Loading your billing organizations…</p>
       <p v-else-if="!organizations.length && !error" class="empty-state">No organizations with medical billing access are available for your account.</p>
@@ -112,7 +112,7 @@ const navigation = [
 ];
 const descriptions = { workspace: 'Manage payer connections, claims, and follow-ups across your organizations.', claims: 'Work the queue, approve claims, and follow clearinghouse and payer responses.', payers: 'Track claims, ERA, eligibility, and EFT direct deposits for every billing company.', payments: 'Review remittances and prepare for verified payment reconciliation.', reports: 'Explore claim performance and export company billing reports.', settings: 'Manage the billing setup for each organization.' };
 const section = ref(navigation.some(n => n.id === route.query.billingSection) ? route.query.billingSection : 'workspace');
-const scopeId = ref(String(route.query.billingScope || route.query.agencyId || (route.query.claimId ? agencyStore.currentAgency?.id : '') || 'all')), status = ref('all'), page = ref(1), searchInput = ref(String(route.query.claimId || '')), search = ref(String(route.query.claimId || '')), companySearch = ref('');
+const scopeId = ref(String((route.meta?.auricwellPreview ? agencyStore.currentAgency?.id : null) || route.query.billingScope || route.query.agencyId || (route.query.claimId ? agencyStore.currentAgency?.id : '') || 'all')), status = ref('all'), page = ref(1), searchInput = ref(String(route.query.claimId || '')), search = ref(String(route.query.claimId || '')), companySearch = ref('');
 const organizations = ref([]), claims = ref([]), total = ref(0), capabilities = ref({}), updatedAt = ref(null), loading = ref(false), error = ref('');
 const queueMode = ref('claims');
 const selectedCompanyId = ref(null), selectedClaim = ref(null), claimTools = ref(null), claimDialog = ref(null);
