@@ -3982,8 +3982,7 @@ const canPostClientToExchange = computed(() => {
   if (!hasAgencyAccess.value) return false;
   if (isClientArchived.value) return false;
   if (isBackofficeRole.value) return true;
-  const providerId = Number(props.client?.provider_id || 0);
-  return providerId > 0 && providerId === Number(authStore.user?.id || 0);
+  return viewerIsAssignedProvider.value;
 });
 
 function openPostToExchangeModal() {

@@ -23,3 +23,10 @@ it('allows backoffice to post unassigned clients but rejects archived clients', 
   const res = response(); await createListing(req, res, vi.fn()); expect(res.status).toHaveBeenCalledWith(201);
   mocks.client.mockResolvedValue({ agency_id: 2, status: 'ARCHIVED' }); const archived = response(); await createListing(req, archived, vi.fn()); expect(archived.status).toHaveBeenCalledWith(400);
 });
+
+it('allows an actively assigned secondary provider without changing the current provider', async () => {
+  mocks.client.mockResolvedValue({ id: 4, agency_id: 2, provider_id: 9, status: 'CURRENT' });
+  const res = response(); await createListing(request(), res, vi.fn());
+  expect(res.status).toHaveBeenCalledWith(201);
+  expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ currentProviderUserId: 9 }));
+});

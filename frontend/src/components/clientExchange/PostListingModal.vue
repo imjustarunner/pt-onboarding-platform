@@ -6,7 +6,7 @@
         <button type="button" class="btn-link" @click="$emit('close')">Close</button>
       </div>
 
-      <div v-if="loadingClients" class="muted">Loading your office clients…</div>
+      <div v-if="loadingClients" class="muted">Loading clients…</div>
       <div v-else-if="error" class="error">{{ error }}</div>
       <template v-else>
         <label class="field" v-if="!lockClient">
@@ -18,7 +18,7 @@
             </option>
           </select>
           <span v-if="eligibleClients.length === 0" class="muted small">
-            No eligible office clients found{{ isBackoffice ? '' : ' assigned to you' }}.
+            No eligible clients found{{ isBackoffice ? '' : ' assigned to you' }}.
           </span>
         </label>
         <div v-else class="field">
