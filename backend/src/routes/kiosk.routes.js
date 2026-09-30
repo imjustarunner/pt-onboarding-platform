@@ -1,5 +1,5 @@
 import { officeSupportRead } from './officeLobby.routes.js';
-import { completeForms, listSubmissions, submissionClients, submissionSessions, attachSubmission, attachSeries, clientFeedback } from '../controllers/officeClientSubmissions.controller.js';
+import { completeForms, listSubmissions, submissionClients, submissionSessions, attachSubmission, attachSeries, clientFeedback, clientFeedbackSummaries } from '../controllers/officeClientSubmissions.controller.js';
 import express from 'express';
 import { authenticate, requireKioskUser } from '../middleware/auth.middleware.js';
 import {
@@ -95,6 +95,7 @@ router.use(authenticate);
 router.get('/support-messages/:id', officeSupportRead);
 router.get('/client-checkins', listSubmissions);
 router.get('/client-feedback/:clientId', clientFeedback);
+router.post('/client-feedback/summaries', clientFeedbackSummaries);
 router.patch('/client-checkins/series-attachment', attachSeries);
 router.get('/client-checkins/:id/clients', submissionClients);
 router.get('/client-checkins/:id/sessions', submissionSessions);

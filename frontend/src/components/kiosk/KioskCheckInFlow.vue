@@ -56,7 +56,7 @@ import KioskPerson from './KioskPerson.vue';
 import KioskVisitForms from './KioskVisitForms.vue';
 import { formatKioskTime } from '../../utils/kioskTime';
 const props = defineProps({ provider: { type: Object, required: true }, locationId: { type: [Number, String], required: true }, directSlot: {type:Object,default:null}, timezone: { type: String, default: 'America/Denver' } });
-const emit = defineEmits(['close','checked-in','busy']);
+const emit = defineEmits(['close','checked-in','busy','arrival-recorded']);
 const panel = ref(null);
 const step = ref(props.directSlot?'confirm':'slots');
 const slots = ref(props.directSlot?[props.directSlot]:[]);
@@ -89,7 +89,7 @@ async function checkIn() {
   try {
     const { data } = await api.post(`/kiosk/${props.locationId}/checkin`, { eventId: selected.value.eventId, providerId: props.provider.id, submissionKey, respondentType:respondentType.value, serviceType:serviceType.value, ...(props.directSlot?{appointmentStartAt:props.directSlot.appointmentStartAt,nextHour:!!props.directSlot.nextHour}:{}) });
     if (!data?.ok || !data?.notification?.inApp) throw new Error('Unconfirmed arrival');
-    if (!disposed) { forms.value = data.submission?.forms || []; formsUnavailable.value = !!data.submission?.formsUnavailable; step.value = forms.value.length && !data.submission?.completed ? 'forms' : 'done'; remaining.value = 12; if(props.directSlot&&step.value==='done')emit('checked-in'); }
+    if (!disposed) { emit('arrival-recorded'); if(data.alreadyCheckedIn&&!data.submission){emit('checked-in',{alreadyCheckedIn:true});return;} forms.value = data.submission?.forms || []; formsUnavailable.value = !!data.submission?.formsUnavailable; step.value = forms.value.length && !data.submission?.completed ? 'forms' : 'done'; remaining.value = 12; if(props.directSlot&&step.value==='done')emit('checked-in'); }
   } catch (err) { error.value = err.response?.data?.error?.message || 'We couldn’t confirm your check-in. Try again or ask the office team for help.'; }
   finally { saving.value = false; touch(); }
 }

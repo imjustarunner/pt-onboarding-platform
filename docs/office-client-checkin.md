@@ -12,7 +12,7 @@ Clear selection / Start over is visible before arrival. After arrival, two optio
 
 ## Office directory and booking
 
-Start/end time searches show a room red if any booked event or office hold overlaps the selected range. Green means no booking/hold overlaps the whole range; standing assignment ownership remains separate. End boundaries are exclusive. Quarter-hour buttons set minutes to 00, 15, 30 or 45; the native picker still accepts other minutes.
+Start/end time searches show a room red if any booked event or office hold overlaps the selected range. Green means no booking/hold overlaps the whole range; standing assignment ownership remains separate. End boundaries are exclusive. The native time picker accepts minutes. **Next hour** advances to the next whole hour, retaining a valid same-day duration; crossing midnight advances the date. Separate minute-shortcut buttons have been removed.
 
 Expand a green room and choose **Staff · Book this office**. The staff page, https://plottwisthq.com/office-booking/1, retains the room/date/range and requires sign-in. Authorized active staff can reserve for themselves today in the building’s timezone, starting now or later. These reservations are confirmed immediately and do not enter an approval queue. Future dates remain browseable but this endpoint rejects future booking, past starts and midnight-spanning ranges. Existing broader scheduling workflows are unchanged.
 
@@ -51,3 +51,16 @@ The snapshot records `office_feedback_v1` scoring, service type, exact item text
 Arrival delivery prefers the agency’s active `kiosk` sender identity; dedicated senders use `kiosk@tenant` and `noreply@tenant` Reply-To. Gmail sender verification must succeed. Temporary verification throttles retain a pending arrival until Gmail’s retry deadline; uncertain send failures are not automatically replayed. Provider notification preferences remain respected.
 
 Windchime and Denver have dedicated generated SMS preview images under `frontend/public/office/*-kiosk-share.jpg`. Both existing `/kiosk-welcome/1` and `/kiosk-welcome/6` paths and configured office hostnames receive server-rendered location metadata. Older message apps may retain previews already cached for a URL.
+
+
+## Client-list feedback summaries
+
+My Dashboard → Clients and the Clients tab on a provider’s admin profile show each client’s connection and progress scores. The supervision caseload table shows the same summaries. School roster summaries are passed only from the authorized provider client view; school staff do not receive feedback.
+
+Each provider/service/respondent series stays separate. Current means latest completed score (dated in its tooltip); average uses all completed category scores. Six-week average uses the last 42 days, inclusive. Six-week change is the latest minus first completed category score within that window and requires two distinct appointment times. Missing answers, one-point histories, and stale-only histories do not become zero change. Caseload averages give each client equal weight and display scored-client and change-eligible counts.
+
+The batch read endpoint accepts at most 200 client IDs, authorizes rows before decrypting, and returns scores rather than item responses. Agency staff are scoped to active agency membership. Supervisors require the active supervisor capability and an assignment to that provider in the same agency, with the client on that provider’s current caseload. Providers keep their own current caseload access. Super admins can review across agencies. These are read permissions only; bulk attachment permissions are unchanged. Client charts also support authorized administrators and supervisors, with a provider selector so histories are not combined.
+
+Checked-in provider/time slots remain visible with a disabled **Checked in** button until their check-in window closes. Status comes from the saved arrival and survives refreshes or another kiosk. The event transaction prevents another arrival for the same provider/location/time, and a different receipt token cannot create a second feedback form. Only the original receipt token may resume its original form after a network retry.
+
+On narrow screens, overflowing navigation tabs slowly scroll back and forth while the kiosk is open. Touch/keyboard interaction pauses motion, reduced-motion settings disable it, and automatic scrolling does not reset the kiosk inactivity timer.

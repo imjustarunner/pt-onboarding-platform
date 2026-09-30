@@ -1,8 +1,8 @@
+import { readAccessibleFeedback, summarizeFeedback } from '../services/officeFeedbackSummary.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import { completeClientSubmission, privateSubmission, assertCheckinClientAccess, attachClientSubmission, attachCheckinSeries, readSubmissionAnswers } from '../services/officeClientSubmissions.service.js';
 import { checkinSeries } from '../utils/officeCheckinSeries.js';
-import { scoreOfficeFeedback } from '../services/officeFeedbackForms.js';
 const json=v=>typeof v==='string'?JSON.parse(v):v;
 const action = fn => async(req,res,next)=>{try{res.set('Cache-Control','no-store');await fn(req,res);}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}};
 export const completeForms = action(async(req,res)=>res.json(await completeClientSubmission({locationId:Number(req.params.locationId),key:req.body?.submissionKey,answers:req.body?.answers,skippedFormIds:req.body?.skippedFormIds})));
@@ -29,10 +29,10 @@ export const attachSubmission = action(async(req,res)=>res.json(await attachClie
 
 export const attachSeries = action(async(req,res)=>res.json(await attachCheckinSeries({providerId:req.user.id,ids:req.body?.ids,clientId:Number(req.body?.clientId)})));
 export const clientFeedback = action(async(req,res)=>{
-  const clientId=Number(req.params.clientId);
-  const [[client]]=await pool.execute('SELECT agency_id FROM clients WHERE id=?',[clientId]);
-  if(!client)return res.status(404).json({error:{message:'Client not found.'}});
-  await assertCheckinClientAccess(pool,req.user.id,clientId,client.agency_id);
-  const [rows]=await pool.execute(`SELECT s.id,s.scheduled_start_at,s.forms_json,s.answers_json,s.completed_at,l.name location_name,l.timezone FROM office_client_checkin_submissions s JOIN office_locations l ON l.id=s.office_location_id WHERE s.client_id=? AND s.provider_id=? AND s.agency_id=? ORDER BY s.scheduled_start_at,s.id LIMIT 2000`,[clientId,req.user.id,client.agency_id]);
-  res.json({visits:rows.map(row=>{const envelope=json(row.forms_json),feedback=readSubmissionAnswers(row.answers_json);return {id:row.id,scheduledStartAt:row.scheduled_start_at,location:row.location_name,timezone:row.timezone,completedAt:row.completed_at,respondentType:envelope.respondentType,serviceType:envelope.serviceType||'counseling',forms:envelope.forms,answers:feedback.answers,skippedFormIds:feedback.skippedFormIds,score:scoreOfficeFeedback(envelope.forms,feedback.answers,feedback.skippedFormIds)};}),truncated:rows.length===2000});
+  const visits=await readAccessibleFeedback({user:req.user,clientIds:[Number(req.params.clientId)]});
+  res.json({visits,truncated:false});
+});
+export const clientFeedbackSummaries = action(async(req,res)=>{
+  const visits=await readAccessibleFeedback({user:req.user,clientIds:req.body?.clientIds,providerId:req.body?.providerId??null});
+  res.json({summaries:summarizeFeedback(visits),windowDays:42,asOf:new Date().toISOString()});
 });

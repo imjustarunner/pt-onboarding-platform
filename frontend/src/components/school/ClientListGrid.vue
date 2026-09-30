@@ -188,6 +188,7 @@
         <table class="clients-table">
         <thead>
           <tr>
+            <th v-if="feedbackByClient && !isSchoolStaff">Feedback</th>
             <th class="sortable col-client" @click="toggleSort('initials')" role="button" tabindex="0">
               Client
               <span class="sort-indicator" v-if="sortKey === 'initials'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
@@ -295,6 +296,7 @@
             @keydown.enter.prevent="handleRowActivate(client)"
             @keydown.space.prevent="handleRowActivate(client)"
           >
+            <td v-if="feedbackByClient && !isSchoolStaff"><ClientFeedbackSummary :summaries="feedbackByClient[client.id]" :loading="feedbackLoading" :unavailable="feedbackUnavailable" /></td>
             <td class="initials-cell col-client">
               <div class="client-label">
                 <button
@@ -733,6 +735,7 @@
 </template>
 
 <script setup>
+import ClientFeedbackSummary from '../kiosk/ClientFeedbackSummary.vue';
 import { computed, ref, onMounted, watch, inject } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -753,6 +756,9 @@ import {
 } from '../../utils/schoolStaffRoiLabels.js';
 
 const props = defineProps({
+  feedbackByClient: { type: Object, default: null },
+  feedbackLoading: Boolean,
+  feedbackUnavailable: Boolean,
   organizationSlug: {
     type: String,
     required: true

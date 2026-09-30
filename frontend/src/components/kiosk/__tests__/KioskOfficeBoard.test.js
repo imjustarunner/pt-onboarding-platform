@@ -16,11 +16,11 @@ describe('office board navigation', () => {
   expect(api.get).toHaveBeenLastCalledWith('/kiosk/1/office-directory',{params:{date:'2026-09-30',time:'10:30'}});
   expect(wrapper.get('#room-details').text()).toContain('Office 1'); expect(wrapper.find('.room-card.occupied').exists()).toBe(false);
  });
- it('sends a full range and exposes quarter-hour shortcuts and Clear selection',async()=>{
+ it('advances to the next whole hour, preserves the range, and offers Clear selection',async()=>{
   api.get.mockImplementation(async (_url,config)=>({data:{...data,...config.params}}));wrapper=mount(KioskOfficeBoard,{props:{locationId:1}});await flushPromises();
   await wrapper.get('[aria-label="Office end time"]').setValue('18:00');await flushPromises();
   expect(api.get).toHaveBeenLastCalledWith('/kiosk/1/office-directory',{params:{date:'2026-09-29',time:'10:30',endTime:'18:00'}});
-  await wrapper.get('[aria-label="Start minute 45"]').trigger('click');expect(api.get).toHaveBeenLastCalledWith('/kiosk/1/office-directory',{params:{date:'2026-09-29',time:'10:45',endTime:'18:00'}});
+  expect(wrapper.find('.minute-shortcuts').exists()).toBe(false);await wrapper.findAll('button').find(b=>b.text()==='Next hour').trigger('click');expect(api.get).toHaveBeenLastCalledWith('/kiosk/1/office-directory',{params:{date:'2026-09-29',time:'11:00',endTime:'18:30'}});
   await flushPromises();await wrapper.get('.room-card').trigger('click');await wrapper.findAll('button').find(b=>b.text()==='Clear room selection').trigger('click');expect(wrapper.find('#room-details').exists()).toBe(false);
  });
  it('does not paint old or incomplete API responses as available', async () => {
@@ -35,4 +35,10 @@ describe('office board navigation', () => {
   resolve({data});await flushPromises();
   expect(wrapper.find('[role="alert"]').exists()).toBe(true);expect(wrapper.find('.room-card').exists()).toBe(false);
  });
+});
+
+it('Next hour rolls the directory date forward at midnight',async()=>{
+ api.get.mockImplementation(async (_url,config)=>({data:{...data,date:'2026-09-30',time:'23:45',...config.params}}));wrapper=mount(KioskOfficeBoard,{props:{locationId:1}});await flushPromises();
+ await wrapper.findAll('button').find(b=>b.text()==='Next hour').trigger('click');await flushPromises();
+ expect(api.get).toHaveBeenLastCalledWith('/kiosk/1/office-directory',{params:{date:'2026-10-01',time:'00:00'}});
 });

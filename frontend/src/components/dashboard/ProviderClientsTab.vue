@@ -103,7 +103,7 @@
         <button
           class="pct-btn pct-btn--primary"
           type="button"
-          @click="refreshCurrentScope"
+          @click="refreshCurrentScope(); refreshFeedback()"
           :disabled="loading || officeLoading"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
@@ -114,6 +114,9 @@
           {{ (loading || officeLoading) ? 'Loading…' : 'Refresh' }}
         </button>
       </div>
+
+      <p v-if="feedbackError" role="alert">{{ feedbackError }}</p>
+      <CaseloadFeedbackSummary :by-client="feedbackByClient" />
 
       <!-- All Clients -->
       <template v-if="activeSection === 'all'">
@@ -197,6 +200,7 @@
                   Since
                   <span class="pct-sort-indicator" aria-hidden="true">{{ allSortIndicatorFor('since') }}</span>
                 </th>
+                <th>Feedback</th>
                 <th v-if="canEhrPatientImport">Chart setup</th>
               </tr>
             </thead>
@@ -244,6 +248,7 @@
                 <td v-if="allColumnPrefs.status">{{ officeStatusLabel(c) }}</td>
                 <td v-if="allColumnPrefs.sessions">{{ officeSessionTotal(c) }}</td>
                 <td v-if="allColumnPrefs.since">{{ formatSinceDate(c.submission_date) }}</td>
+                <td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
                 <td v-if="canEhrPatientImport">
                   <button
                     type="button"
@@ -270,6 +275,9 @@
           :organization-id="Number(selectedSchoolOrgId) || null"
           :organization-name="selectedSchoolName"
           :clients-override="schoolClientsForGrid"
+          :feedback-by-client="feedbackByClient"
+          :feedback-loading="feedbackLoading"
+          :feedback-unavailable="!!feedbackError"
           roster-scope="provider"
           :roster-provider-user-id="rosterProviderUserId"
           :skill-builders-only="skillBuildersOnlyFilter"
@@ -299,7 +307,7 @@
                 <th>Type</th>
                 <th>Status</th>
                 <th>Sessions (FY)</th>
-                <th>Since</th>
+                <th>Since</th><th>Feedback</th>
               </tr>
             </thead>
             <tbody>
@@ -317,7 +325,7 @@
                 <td>{{ formatClientTypeLabel(c) }}</td>
                 <td>{{ officeStatusLabel(c) }}</td>
                 <td>{{ officeSessionTotal(c) }}</td>
-                <td>{{ formatSinceDate(c.submission_date) }}</td>
+                <td>{{ formatSinceDate(c.submission_date) }}</td><td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
               </tr>
             </tbody>
           </table>
@@ -357,7 +365,7 @@
                 <th>Type</th>
                 <th>Status</th>
                 <th>Sessions (FY)</th>
-                <th>Since</th>
+                <th>Since</th><th>Feedback</th>
               </tr>
             </thead>
             <tbody>
@@ -375,7 +383,7 @@
                 <td>{{ formatClientTypeLabel(c) }}</td>
                 <td>{{ officeStatusLabel(c) }}</td>
                 <td>{{ officeSessionTotal(c) }}</td>
-                <td>{{ formatSinceDate(c.submission_date) }}</td>
+                <td>{{ formatSinceDate(c.submission_date) }}</td><td><ClientFeedbackSummary :summaries="feedbackByClient[c.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
               </tr>
             </tbody>
           </table>
@@ -496,6 +504,9 @@ import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 import ClientListGrid from '../school/ClientListGrid.vue';
+import ClientFeedbackSummary from '../kiosk/ClientFeedbackSummary.vue';
+import CaseloadFeedbackSummary from '../kiosk/CaseloadFeedbackSummary.vue';
+import { useClientFeedbackSummaries } from '../../composables/useClientFeedbackSummaries.js';
 import ClientDetailPanel from '../admin/ClientDetailPanel.vue';
 import ReferralDirectoryPanel from '../referralDirectory/ReferralDirectoryPanel.vue';
 import ClientExchangePanel from '../clientExchange/ClientExchangePanel.vue';
@@ -948,6 +959,8 @@ function allClientSortValue(c, field) {
   }
   return '';
 }
+
+const { byClient: feedbackByClient, loading: feedbackLoading, error: feedbackError, refresh: refreshFeedback } = useClientFeedbackSummaries(combinedClientsList, currentUserId);
 
 const sortedCombinedClientsList = computed(() => {
   const field = allSortBy.value;

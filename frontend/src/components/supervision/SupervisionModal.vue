@@ -150,6 +150,7 @@
               <div v-else-if="clientsError" class="supervision-error-inline">{{ clientsError }}</div>
               <div v-else-if="clientsList?.length" class="supervision-readonly-summary">
                 <p><strong>{{ clientsList.length }}</strong> client(s) assigned. Read-only.</p>
+                <p v-if="feedbackError" role="alert">{{ feedbackError }}</p><CaseloadFeedbackSummary :by-client="feedbackByClient" />
                 <div class="caseload-table-wrap">
                   <table class="caseload-table">
                     <thead>
@@ -158,7 +159,7 @@
                         <th><button type="button" class="caseload-sort-btn" @click="setCaseloadSort('school')">School {{ caseloadSortIndicator('school') }}</button></th>
                         <th><button type="button" class="caseload-sort-btn" @click="setCaseloadSort('assigned')">Assigned {{ caseloadSortIndicator('assigned') }}</button></th>
                         <th><button type="button" class="caseload-sort-btn" @click="setCaseloadSort('status')">Status {{ caseloadSortIndicator('status') }}</button></th>
-                        <th><button type="button" class="caseload-sort-btn" @click="setCaseloadSort('missing')">Missing checklist {{ caseloadSortIndicator('missing') }}</button></th>
+                        <th>Feedback</th><th><button type="button" class="caseload-sort-btn" @click="setCaseloadSort('missing')">Missing checklist {{ caseloadSortIndicator('missing') }}</button></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -175,7 +176,7 @@
                         </td>
                         <td>{{ clientSchoolName(client) || '—' }}</td>
                         <td>{{ caseloadAssignedDate(client) }}</td>
-                        <td>{{ caseloadStatus(client) }}</td>
+                        <td>{{ caseloadStatus(client) }}</td><td><ClientFeedbackSummary :summaries="feedbackByClient[client.id]" :loading="feedbackLoading" :unavailable="!!feedbackError" /></td>
                         <td>
                           <span v-if="caseloadMissingChecklist(client).length" class="client-item-missing">
                             {{ caseloadMissingChecklist(client).join(', ') }}
@@ -774,6 +775,10 @@
 </template>
 
 <script setup>
+import ClientFeedbackSummary from '../kiosk/ClientFeedbackSummary.vue';
+import CaseloadFeedbackSummary from '../kiosk/CaseloadFeedbackSummary.vue';
+import { useClientFeedbackSummaries } from '../../composables/useClientFeedbackSummaries.js';
+
 import SupervisionDocumentationPanel from './SupervisionDocumentationPanel.vue';
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -1972,6 +1977,8 @@ async function fetchDocuments() {
     documentsLoading.value = false;
   }
 }
+
+const { byClient: feedbackByClient, loading: feedbackLoading, error: feedbackError } = useClientFeedbackSummaries(clientsList, () => selectedSupervisee.value?.supervisee_id);
 
 async function fetchClients() {
   const s = selectedSupervisee.value;

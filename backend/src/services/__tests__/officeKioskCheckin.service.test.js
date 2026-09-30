@@ -85,3 +85,11 @@ describe('office arrival atomicity and privacy', () => {
     expect(mocks.commit).not.toHaveBeenCalled();
   });
 });
+
+it('does not create another feedback receipt when a different visitor retries an already checked-in slot',async()=>{
+ existing=[{id:12}];alert=[{id:13,agency_id:2}];const base=mocks.execute.getMockImplementation();
+ mocks.execute.mockImplementation((sql,args)=>sql.includes('SELECT id FROM office_client_checkin_submissions')?Promise.resolve([[]]):base(sql,args));
+ const result=await recordOfficeKioskCheckin({locationId:3,eventId:9,providerId:7,submissionKey:'1ccab28e-45d3-4409-9cef-083bdd1905cd',respondentType:'adult_self'});
+ expect(result.alreadyCheckedIn).toBe(true);expect(result.submission).toBeUndefined();expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('INSERT'))).toBe(false);
+ expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('SELECT id FROM office_event_checkins'))[1]).toEqual([3,7,'2026-09-30 01:00:00']);
+});

@@ -1,4 +1,4 @@
-import { beginClientSubmission } from './officeClientSubmissions.service.js';
+import { beginClientSubmission, submissionTokenHash } from './officeClientSubmissions.service.js';
 import pool from '../config/database.js';
 import NotificationDispatcher from './notificationDispatcher.service.js';
 import { lobbySlot } from '../utils/officeLobbyWindow.js';
@@ -51,7 +51,7 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
     // During a rolling release an older instance can still write a null slot.
     // Adopt that arrival only for its original appointment, never a later hour.
     await conn.execute('UPDATE office_event_checkins SET slot_start_at = ? WHERE event_id = ? AND slot_start_at IS NULL',[originalStart,eventId]);
-    const [existing] = await conn.execute('SELECT id FROM office_event_checkins WHERE event_id = ? AND slot_start_at = ?', [eventId,slotStart]);
+    const [existing] = await conn.execute('SELECT id FROM office_event_checkins WHERE office_location_id = ? AND provider_id = ? AND slot_start_at = ?', [locationId,event.booked_provider_id,slotStart]);
     let checkinId = existing[0]?.id;
     alreadyCheckedIn = !!checkinId;
     if (!checkinId) {
@@ -79,7 +79,7 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
         hour: 'numeric', minute: '2-digit', timeZone: timezone, timeZoneName: 'short'
       });
       const room = event.room_number ? `Office ${event.room_number}` : event.room_name;
-      const message = `Your ${time} appointment has checked in at ${event.location_name}, ${room}. Your client is waiting in the lobby.${submissionKey ? ' Review this arrival in Clients → Check-in submissions.' : ''}`;
+      const message = `Your ${time} appointment has checked in at ${event.location_name}, ${room}. Your client is waiting in the lobby.${submissionKey ? ' Review this arrival in Clients → Recurring check-ins.' : ''}`;
       const [insert] = await conn.execute(
         `INSERT INTO notifications (type, severity, title, message, user_id, agency_id,
           related_entity_type, related_entity_id, actor_source)
@@ -92,7 +92,14 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
          VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 90 SECOND))`,
         [notification.id, notification.user_id, notification.agency_id]);
     }
-    if (submissionKey) {
+    let resumeOwnReceipt = false;
+    if (submissionKey && alreadyCheckedIn) {
+      const [receipts] = await conn.execute('SELECT id FROM office_client_checkin_submissions WHERE token_hash=? AND event_id=? AND scheduled_start_at=?', [submissionTokenHash(submissionKey),eventId,slotStart]);
+      resumeOwnReceipt = receipts.length > 0;
+    }
+    // A new browser cannot create another questionnaire receipt for an arrival
+    // that already exists. Only the original opaque receipt can be resumed.
+    if (submissionKey && (!alreadyCheckedIn || resumeOwnReceipt)) {
       const agencyId = notification?.agency_id || alerts[0]?.agency_id;
       if (!agencyId) throw reject(409,'Your provider’s office setup needs attention.');
       submission = await beginClientSubmission(conn,event,Number(agencyId),submissionKey,respondentType,serviceType);
