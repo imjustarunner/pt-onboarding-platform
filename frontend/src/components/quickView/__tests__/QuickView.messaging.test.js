@@ -111,3 +111,12 @@ describe('Quick View inactivity',()=>{
     expect(axios.post).not.toHaveBeenCalled();
   });
 });
+
+it.each(['now','next_available'])('preserves the Quick View compose message while choosing %s',async(choice)=>{
+ state.composeToEmail='staff@example.org';state.composeText='Keep my message';await flushPromises();
+ axios.post.mockRejectedValueOnce({response:{data:{error:{code:'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED',availability:{recipientCount:1,nextAvailableAt:'2026-10-01T13:00:00Z'}}}}});
+ await state.sendCompose();expect(state.composeAvailability.recipientCount).toBe(1);expect(state.composeText).toBe('Keep my message');
+ axios.post.mockResolvedValueOnce({data:{conversation:{id:30,messageId:40,scheduled:true}}});axios.get.mockResolvedValueOnce({data:{conversation:{id:30,channel:'email'},messages:[]}});
+ await state.sendCompose({deliveryChoice:choice});
+ expect(axios.post).toHaveBeenLastCalledWith('/api/quick-view/compose',expect.objectContaining({deliveryChoice:choice,text:'Keep my message'}),expect.any(Object));
+});

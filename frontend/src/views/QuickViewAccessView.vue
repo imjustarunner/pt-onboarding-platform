@@ -210,6 +210,7 @@
             <label>Attachments <input type="file" multiple @change="selectEmailFiles($event)" /></label>
             <p v-if="replyAttachments.length">{{ replyAttachments.map((a) => a.filename).join(', ') }} <button type="button" class="qv-btn ghost sm" @click="replyAttachments = []">Remove</button></p>
           </template>
+          <EmailDeliveryChoice :info="replyAvailability" :busy="replyBusy" @choose="sendQuickReply({deliveryChoice:$event})" @cancel="replyAvailability=null" />
           <button type="submit" class="qv-btn primary" :disabled="replyBusy || (!replyText.trim() && !replyAttachments.length)">{{ replyBusy ? 'Sending…' : (replyMode === 'forward' ? 'Forward' : 'Send reply') }}</button>
         </form>
         </template>
@@ -608,6 +609,7 @@
         <textarea v-model="composeText" rows="4" placeholder="Write your message…" />
         <label>Attachments <input type="file" multiple @change="selectEmailFiles($event, true)" /></label>
         <p v-if="composeAttachments.length">{{ composeAttachments.map((a) => a.filename).join(', ') }} <button type="button" @click="composeAttachments = []">Remove</button></p>
+        <EmailDeliveryChoice :info="composeAvailability" :busy="composeBusy" @choose="sendCompose({deliveryChoice:$event})" @cancel="composeAvailability=null" />
         <div class="qv-sheet-actions">
           <button type="button" class="qv-btn ghost" @click="showCompose = false">Cancel</button>
           <button type="submit" class="qv-btn primary" :disabled="composeBusy">{{ composeBusy ? 'Sending…' : 'Send' }}</button>
@@ -765,6 +767,7 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import { emailReplyRecipients } from '../utils/messageThreads';
 import EmailThreadReader from '../components/messages/EmailThreadReader.vue';
+import EmailDeliveryChoice from '../components/messages/EmailDeliveryChoice.vue';
 import { openEmailComposer } from '../utils/emailComposerWindow';
 import { emailPreviewText } from '../utils/emailReading';
 import { encodeEmailFiles } from '../utils/communicationAttachments';
@@ -899,6 +902,8 @@ const composeToEmail = ref('');
 const composeSubject = ref('');
 const composeText = ref('');
 const composeBusy = ref(false);
+const composeAvailability = ref(null);
+const replyAvailability = ref(null);
 const showNewTask = ref(false);
 const newTaskTitle = ref('');
 const newTaskDue = ref('');
@@ -2197,7 +2202,7 @@ function formatRole(role) {
 
 function composeTo(c) { openEmailComposer(router,{quickView:true,session:session.value,mode:'new',to:c.email || ''}); }
 
-async function sendCompose() {
+async function sendCompose({deliveryChoice=null}={}) {
   if (composeBusy.value || !composeToEmail.value.trim() || (!composeText.value.trim() && !composeAttachments.value.length)) return;
   composeBusy.value = true;
   error.value = '';
@@ -2207,6 +2212,7 @@ async function sendCompose() {
     const { data } = await axios.post(
       `${apiBase}/compose`,
       {
+        deliveryChoice,
         to: composeToEmail.value.trim(),
         subject: composeSubject.value.trim(),
         text: composeText.value.trim(), cc: composeCc.value, bcc: composeBcc.value, attachments: composeAttachments.value
@@ -2222,6 +2228,8 @@ async function sendCompose() {
     sendNotice.value = data.conversation?.scheduled ? 'Email queued. You have 20 seconds to undo.' : 'Email sent';
     await openConversation({ id: data.conversation.id });
   } catch (e) {
+    if (session.value !== sessionAtSend) return;
+    if (e?.response?.data?.error?.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED') { composeAvailability.value=e.response.data.error.availability; return; }
     error.value = e?.response?.data?.error?.message || 'Could not send message';
   } finally {
     composeBusy.value = false;
@@ -2275,7 +2283,7 @@ async function createContact() {
   }
 }
 
-async function sendQuickReply() {
+async function sendQuickReply({deliveryChoice=null}={}) {
   const id = activeConv.value?.id;
   if (!id || replyBusy.value || (!replyText.value.trim() && !replyAttachments.value.length)) return;
   const draft = { text: replyText.value, to: replyTo.value, cc: replyCc.value, bcc: replyBcc.value, attachments: replyAttachments.value, mode: replyMode.value };
@@ -2283,7 +2291,7 @@ async function sendQuickReply() {
   const sessionAtSend = session.value;
   try {
     const { data } = await axios.post(`${apiBase}/conversations/${id}/reply`, {
-      text: replyText.value.trim(), mode: replyMode.value, to: replyTo.value, cc: replyCc.value, bcc: replyBcc.value, attachments: replyAttachments.value
+      deliveryChoice, text: replyText.value.trim(), mode: replyMode.value, to: replyTo.value, cc: replyCc.value, bcc: replyBcc.value, attachments: replyAttachments.value
     }, { headers: authHeaders(), withCredentials: true });
     if (session.value !== sessionAtSend) return;
     emailDrafts.delete(id);
@@ -2293,7 +2301,11 @@ async function sendQuickReply() {
     const destination = data.forwardedConversationId || id;
     if (data.scheduled) offerUndo(destination, data.messageId, draft);
     await openConversation({ id: destination }, { refresh: true });
-  } catch (e) { error.value = e?.response?.data?.error?.message || 'Reply failed'; }
+  } catch (e) {
+    if (session.value !== sessionAtSend || activeConv.value?.id !== id) return;
+    if (e?.response?.data?.error?.code === 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED') { replyAvailability.value=e.response.data.error.availability; return; }
+    error.value = e?.response?.data?.error?.message || 'Reply failed';
+  }
   finally { replyBusy.value = false; }
 }
 
@@ -2393,6 +2405,8 @@ onUnmounted(() => {
   stopHeartbeat(); clearTimeout(undoTimer);
   stopNoteAidSpeak();
 });
+watch([composeToEmail, composeCc, composeBcc, composeText, composeSubject, session], () => { composeAvailability.value=null; });
+watch([replyTo, replyCc, replyBcc, replyText, () => activeConv.value?.id, session], () => { replyAvailability.value=null; });
 </script>
 
 <style scoped>
