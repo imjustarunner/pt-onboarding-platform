@@ -32,6 +32,7 @@ import {
   kioskSkillBuilderEventClockOut,
   // Provider-First Welcome Kiosk
   listProvidersToday,
+  listKioskOfficeDirectory,
   listProviderSlotsToday,
   listAvailableRooms,
   reserveRoomByPin,
@@ -50,6 +51,7 @@ router.get('/me/context', authenticate, requireKioskUser, getKioskContext);
 
 // Provider-First Welcome Kiosk: public endpoints
 router.get('/:locationId/providers-today', listProvidersToday);
+router.get('/:locationId/office-directory', listKioskOfficeDirectory);
 router.get('/:locationId/providers/:providerId/slots-today', listProviderSlotsToday);
 router.get('/:locationId/available-rooms', listAvailableRooms);
 router.post('/:locationId/reserve-by-pin', reserveRoomByPin);

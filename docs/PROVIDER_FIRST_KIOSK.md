@@ -4,6 +4,19 @@ A public-facing lobby kiosk surface that greets clients by showing all providers
 
 ---
 
+## September 2026 lobby update
+
+The shared 437 Windchime office kiosk is **https://plottwisthq.com/kiosk-welcome/1**.
+Office 1 is the shared scheduling location (13 active rooms); other Windchime records, including office 8, are billing-only locations and do not have the shared schedule.
+
+Open **Office locations**, choose the shared Windchime office, and use **Open office kiosk** or **Copy kiosk link**. Save the full URL as a browser bookmark or home-screen shortcut on the lobby device. This route requires no account or login; there is no kiosk authentication session to expire. Use a dedicated lobby browser profile with no staff account signed in. Device sleep/full-screen settings are separate from app authentication.
+
+Recommended future short hostname: `437.plottwisthq.com`, representing the shared office rather than one agency. It is not provisioned by this code change. Set up DNS and an HTTPS certificate on the existing app load balancer, then route that hostname to the kiosk (including its assets and API requests). A DNS record alone does not map the hostname root to the office-specific route. Keep `qv.itsco.health` for Quick View.
+
+The current lobby flow is provider → appointment time → confirm → done, with an office directory showing current and upcoming provider assignments. It does not open questionnaires, client names, or treatment goals. Arrival and provider inbox notification are committed together, with optional email using the provider’s **Client arrival at office** preference and the agency’s configured sender. Existing notification policies remain effective. The lobby refreshes every minute and resets after success or inactivity.
+
+See [verification and screenshots](../deliverables/office-kiosk-verification/README.md). The architecture notes below describe the earlier questionnaire/PIN implementation; those backend tools remain available separately from the simplified lobby.
+
 ## Overview
 
 The kiosk runs at `/kiosk-welcome/:locationId` — a public URL requiring no login, bookmarked on lobby tablets. It auto-refreshes every 60 seconds and never shows client names or identifying information at any point.

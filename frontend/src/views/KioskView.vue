@@ -1,5 +1,8 @@
 <template>
-  <div class="kiosk">
+  <KioskWelcomeView v-if="showProviderLobby" :key="locationId" :location-id="locationId">
+    <template v-if="locationSettings && showModeSelector" #actions><button type="button" class="btn btn-secondary" @click="showOtherModes = true; selectMode(null)">Other kiosk options</button></template>
+  </KioskWelcomeView>
+  <div v-else class="kiosk">
     <div class="kiosk-card">
       <h2>{{ modeTitle }}</h2>
       <p class="subtitle">{{ modeSubtitle }}</p>
@@ -10,7 +13,7 @@
           <button v-if="allowedModes.includes('event')" type="button" class="mode-btn" @click="selectMode('event')">
             <span class="mode-icon">📅</span>
             <span class="mode-label">Office Event Check-in</span>
-            <span class="mode-desc">Select your appointment and complete questionnaire</span>
+            <span class="mode-desc">Choose your provider and appointment time</span>
           </button>
           <button v-if="allowedModes.includes('client_check_in')" type="button" class="mode-btn" @click="selectMode('client_check_in')">
             <span class="mode-icon">✓</span>
@@ -562,6 +565,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../services/api';
+import KioskWelcomeView from './KioskWelcomeView.vue';
 import SignaturePad from '../components/SignaturePad.vue';
 import GwvFieldsEsign from './guardian/waivers/GwvFieldsEsign.vue';
 import GwvFieldsPickup from './guardian/waivers/GwvFieldsPickup.vue';
@@ -592,6 +596,7 @@ const defaultSettings = {
 const effectiveSettings = computed(() => ({ ...defaultSettings, ...props.locationSettings }));
 
 const mode = ref(null);
+const showOtherModes = ref(false);
 const modeSelected = computed(() => mode.value != null);
 
 const allowedModes = computed(() => {
@@ -603,6 +608,11 @@ const showModeSelector = computed(() => effectiveSettings.value.show_mode_select
 
 /** event and client_check_in share the same flow */
 const isEventMode = computed(() => mode.value === 'event' || mode.value === 'client_check_in');
+const showProviderLobby = computed(() => isEventMode.value || (
+  !modeSelected.value && !showOtherModes.value
+  && effectiveSettings.value.kiosk_type === 'lobby'
+  && allowedModes.value.some((mode) => mode === 'event' || mode === 'client_check_in')
+));
 
 const modeTitle = computed(() => {
   if (mode.value === 'clock') return 'Clock In / Out';
@@ -1192,9 +1202,8 @@ const reset = () => {
 
 const selectMode = (m) => {
   mode.value = m;
-  if (m === 'event' || m === 'client_check_in') {
-    loadEvents();
-  } else if (m === null) {
+  if (m === 'event' || m === 'client_check_in') showOtherModes.value = false;
+  if (m === null) {
     clockStep.value = 1;
     selectedClockSite.value = null;
     programStaff.value = [];
@@ -1361,8 +1370,7 @@ const loadProgramSites = async () => {
 };
 
 onMounted(() => {
-  loadProgramSites();
-  loadEvents();
+  if (props.locationSettings) loadProgramSites();
   if (!showModeSelector.value && allowedModes.value.includes(effectiveSettings.value.default_mode)) {
     selectMode(effectiveSettings.value.default_mode);
   }
