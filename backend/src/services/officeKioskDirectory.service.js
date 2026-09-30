@@ -11,11 +11,15 @@ export function directorySelection(query, timezone, now = new Date()) {
     || typeof time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
     throw Object.assign(new Error('Choose a valid date and time.'), { status: 400 });
   }
+  const endTime = query.endTime || null;
+  if (endTime && (typeof endTime !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(endTime) || endTime <= time)) {
+    throw Object.assign(new Error('End time must be after start time on the selected day.'), { status: 400 });
+  }
   // One calendar day per read; future browsing never writes/materializes schedules.
-  return { date, time, selectedAt: `${date} ${time}:00`, bounds: localDayUtcBounds(date, timezone) };
+  return { date, time, endTime, selectedEndAt: endTime ? `${date} ${endTime}:00` : null, selectedAt: `${date} ${time}:00`, bounds: localDayUtcBounds(date, timezone) };
 }
 
-export function buildOfficeDirectory({ rooms, events, standing, plans, people, date, selectedAt, timezone }) {
+export function buildOfficeDirectory({ rooms, events, standing, plans, people, date, selectedAt, selectedEndAt = null, timezone }) {
   const peopleById = new Map(people.map(p => [Number(p.id), {
     id: Number(p.id), firstName: p.first_name, lastName: p.last_name,
     name: `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Provider',
@@ -61,7 +65,7 @@ export function buildOfficeDirectory({ rooms, events, standing, plans, people, d
         return { startAt, endAt, booked, held, assignedProvider, bookedProvider,
           status: endAt <= selectedAt ? 'finished' : startAt <= selectedAt ? 'current' : 'upcoming' };
       }).filter(a => a.booked || a.held || a.assignedProvider).sort((a,b) => a.startAt.localeCompare(b.startAt));
-    const current = assignments.filter(a => a.status === 'current');
+    const current = assignments.filter(a => selectedEndAt ? a.startAt < selectedEndAt && a.endAt > selectedAt : a.status === 'current');
     return { id: room.id, name: room.name, roomNumber: room.room_number, assignments,
       occupied: current.some(a => a.booked || a.held), current };
   }).sort((a,b) => String(a.roomNumber ?? a.name).localeCompare(String(b.roomNumber ?? b.name), 'en', { numeric: true }));
@@ -70,7 +74,7 @@ export function buildOfficeDirectory({ rooms, events, standing, plans, people, d
 export async function loadOfficeDirectory(db, location, query) {
   const timezone = location.timezone || 'America/Denver';
   const selection = directorySelection(query, timezone);
-  const { bounds, date, time, selectedAt } = selection;
+  const { bounds, date, time, endTime, selectedAt, selectedEndAt } = selection;
   const [[rooms], [events], [standing], [plans]] = await Promise.all([
     db.execute('SELECT id, name, room_number FROM office_rooms WHERE location_id = ? AND is_active = 1', [location.id]),
     db.execute(`SELECT room_id, DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s') start_at,
@@ -90,6 +94,6 @@ export async function loadOfficeDirectory(db, location, query) {
       ORDER BY (ua.agency_id = ?) DESC, ua.agency_id LIMIT 1)
     LEFT JOIN icons ai ON ai.id = a.icon_id
     WHERE u.id IN (${ids.map(() => '?').join(',')})`, [location.agency_id, ...ids]);
-  return { locationId: location.id, locationName: location.name, timezone, date, time, selectedAt,
-    rooms: buildOfficeDirectory({ rooms, events, standing, plans, people, date, selectedAt, timezone }) };
+  return { locationId: location.id, locationName: location.name, timezone, date, time, endTime, selectedAt,
+    rooms: buildOfficeDirectory({ rooms, events, standing, plans, people, date, selectedAt, selectedEndAt, timezone }) };
 }

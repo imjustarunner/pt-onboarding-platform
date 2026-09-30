@@ -29,6 +29,11 @@ describe('public office directory', () => {
  it.each([{date:'2026-02-30'}, {date:[]}, {date:'bad'}, {time:'24:00'}, {time:['12:00']}])('rejects malformed selections %j', query => {
   expect(() => directorySelection(query,timezone)).toThrow('valid date');
  });
+ it('marks any overlapping booking red across a selected range, excluding exact boundaries',()=>{
+  expect(buildOfficeDirectory({...base,selectedAt:'2026-09-29 09:00:00',selectedEndAt:'2026-09-29 12:00:00'})[0].occupied).toBe(true);
+  expect(buildOfficeDirectory({...base,selectedAt:'2026-09-29 09:00:00',selectedEndAt:'2026-09-29 10:00:00'})[0].occupied).toBe(false);
+  expect(()=>directorySelection({time:'16:00',endTime:'15:00'},timezone)).toThrow('End time');
+ });
  it('sorts numerically and keeps booked and assigned providers distinct, with media', () => {
   const result = buildOfficeDirectory(base);
   expect(result.map(r => r.roomNumber)).toEqual([1,2,10]);

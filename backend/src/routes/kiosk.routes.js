@@ -1,3 +1,4 @@
+import { completeForms, listSubmissions, submissionClients, submissionSessions, attachSubmission } from '../controllers/officeClientSubmissions.controller.js';
 import express from 'express';
 import { authenticate, requireKioskUser } from '../middleware/auth.middleware.js';
 import {
@@ -74,6 +75,7 @@ router.post('/:locationId/guardian-waiver-section', postKioskGuardianWaiverSecti
 router.post('/:locationId/clock-in', kioskClockIn);
 router.post('/:locationId/clock-out', kioskClockOut);
 router.post('/:locationId/guardian-checkin', kioskGuardianCheckin);
+router.post('/:locationId/checkin/forms', completeForms);
 router.post('/:locationId/checkin', checkInToEvent);
 router.get('/:locationId/questionnaires', listKioskQuestionnaires);
 router.get('/:locationId/intake-questionnaire/:intakeLinkId/definition', getKioskIntakeLinkDefinition);
@@ -89,6 +91,10 @@ router.post('/:locationId/submit', submitKioskSurvey);
 
 // Authenticated endpoints (dashboards)
 router.use(authenticate);
+router.get('/client-checkins', listSubmissions);
+router.get('/client-checkins/:id/clients', submissionClients);
+router.get('/client-checkins/:id/sessions', submissionSessions);
+router.patch('/client-checkins/:id/attachment', attachSubmission);
 router.get('/:locationId/checkins', listCheckins);
 router.get('/providers/:providerId/surveys', getSlotSurveys);
 

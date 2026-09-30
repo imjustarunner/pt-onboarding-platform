@@ -18,6 +18,8 @@
 
     <ReferralDirectoryPanel v-if="!profileEmbed && activeSection === 'referrals'" embedded />
 
+    <ClientCheckinSubmissions v-else-if="!profileEmbed && activeSection === 'checkins'" :create-client-to="providerOnboardingTo" />
+
     <ClientExchangePanel v-else-if="!profileEmbed && activeSection === 'exchange'" />
 
     <template v-else-if="!profileEmbed || activeSection === 'all' || activeSection === 'school' || activeSection === 'office' || activeSection === 'new'">
@@ -484,6 +486,7 @@
 </template>
 
 <script setup>
+import ClientCheckinSubmissions from '../kiosk/ClientCheckinSubmissions.vue';
 import PostClientToExchangeButton from '../clientExchange/PostClientToExchangeButton.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -517,7 +520,7 @@ const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
-const VALID_SECTIONS = new Set(['all', 'school', 'office', 'new', 'exchange', 'referrals']);
+const VALID_SECTIONS = new Set(['all', 'school', 'office', 'new', 'exchange', 'referrals', 'checkins']);
 
 function normalizeSection(raw) {
   const s = String(raw || '').trim().toLowerCase();
@@ -1023,6 +1026,7 @@ const allSections = computed(() => {
   }
   return [
     ...primarySections.value,
+    { id: 'checkins', label: 'Check-in submissions', iconKey: 'office', badge: 0 },
     { id: 'referrals', label: 'Referral directory', iconKey: 'referrals', badge: 0 },
   ];
 });

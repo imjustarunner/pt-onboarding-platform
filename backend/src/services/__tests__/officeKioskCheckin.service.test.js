@@ -15,7 +15,7 @@ beforeEach(() => {
   mocks.execute.mockImplementation(async (sql) => {
     if (sql.includes('FROM office_events')) return [[event].filter(Boolean)];
     if (sql.includes('SELECT id FROM office_event_checkins')) return [existing];
-    if (sql.includes('SELECT id FROM notifications')) return [alert];
+    if (sql.includes('SELECT id, agency_id FROM notifications')) return [alert];
     if (sql.includes('SELECT ua.agency_id')) return [[{ agency_id: 2 }]];
     if (sql.includes('INSERT INTO notifications') && failNotification) throw new Error('Notification write failed');
     return [{ insertId: 12 }];

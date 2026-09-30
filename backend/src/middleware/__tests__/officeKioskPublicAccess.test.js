@@ -24,7 +24,7 @@ describe('public lobby directory authentication boundary', () => {
     const { res, next } = await request('GET', path);
     expect(next).toHaveBeenCalledOnce(); expect(res.status).not.toHaveBeenCalled();
   });
-  it.each([['POST', '/api/kiosk/1/office-directory'], ['GET', '/api/kiosk/1/office-directory/private'], ['GET', '/api/kiosk/1/checkins'], ['GET', '/api/kiosk/me/context']])('still authenticates %s %s', async (method, path) => {
+  it.each([['GET','/api/kiosk/client-checkins'], ['PATCH','/api/kiosk/client-checkins/1/attachment'], ['POST','/api/office-schedule/locations/1/same-day-booking'], ['POST', '/api/kiosk/1/office-directory'], ['GET', '/api/kiosk/1/office-directory/private'], ['GET', '/api/kiosk/1/checkins'], ['GET', '/api/kiosk/me/context']])('still authenticates %s %s', async (method, path) => {
     const { res, next } = await request(method, path);
     expect(res.status).toHaveBeenCalledWith(401); expect(next).not.toHaveBeenCalled();
   });

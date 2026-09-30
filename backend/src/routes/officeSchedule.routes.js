@@ -1,3 +1,4 @@
+import { bookOfficeToday } from '../services/officeSameDayBooking.service.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
@@ -69,6 +70,15 @@ router.get('/booking-metadata', getBookingMetadata);
 router.get('/locations/:locationId/availability', getAvailability);
 router.get('/locations/:locationId/weekly-grid', getWeeklyGrid);
 router.post('/locations/:locationId/refresh-ehr-assigned-bookings', refreshEhrAssignedRoomBookings);
+
+// Authenticated self-booking: same office-local day only, no approval queue.
+router.post('/locations/:locationId/same-day-booking', async (req,res,next) => {
+  try {
+    const locationId = Number(req.params.locationId), roomId = Number(req.body?.roomId);
+    if (!Number.isSafeInteger(locationId) || locationId <= 0 || !Number.isSafeInteger(roomId) || roomId <= 0) return res.status(400).json({error:{message:'Choose a building and room.'}});
+    res.status(201).json(await bookOfficeToday({user:req.user,locationId,roomId,date:req.body?.date,time:req.body?.time,endTime:req.body?.endTime}));
+  } catch(error) { if (error.status) return res.status(error.status).json({error:{message:error.message}}); next(error); }
+});
 
 // User booking request
 router.post('/requests', createBookingRequest);

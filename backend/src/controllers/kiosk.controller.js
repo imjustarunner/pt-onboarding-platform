@@ -1,3 +1,4 @@
+import { assertCheckinClientAccess } from '../services/officeClientSubmissions.service.js';
 import { loadOfficeDirectory } from '../services/officeKioskDirectory.service.js';
 import { recordOfficeKioskCheckin } from '../services/officeKioskCheckin.service.js';
 import { verifiedObjectiveQuestion } from '../services/kioskObjectivePrompt.service.js';
@@ -161,7 +162,7 @@ export const checkInToEvent = async (req, res, next) => {
       || (providerId !== null && (!Number.isSafeInteger(providerId) || providerId <= 0))) {
       return res.status(400).json({ error: { message: 'A valid office, appointment, and provider are required.' } });
     }
-    const result = await recordOfficeKioskCheckin({ locationId, eventId, providerId });
+    const result = await recordOfficeKioskCheckin({ locationId, eventId, providerId, submissionKey:req.body?.submissionKey, respondentType:req.body?.respondentType });
     res.status(result.alreadyCheckedIn ? 200 : 201).json(result);
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: { message: error.message } });
@@ -1845,7 +1846,7 @@ export const listProviderQuestRules = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT osqr.id, osqr.office_location_id, osqr.room_id, osqr.day_of_week,
               osqr.hour_start, osqr.hour_end, osqr.module_id, osqr.intake_link_id,
-              osqr.is_active, osqr.created_at,
+              osqr.is_active, osqr.created_at, osqr.respondent_type,
               m.title AS module_title,
               il.title AS intake_link_title,
               r.name AS room_name,
@@ -1876,11 +1877,13 @@ export const createProviderQuestRule = async (req, res, next) => {
 
     const OfficeSlotQuestionnaireRule = (await import('../models/OfficeSlotQuestionnaireRule.model.js')).default;
 
+    const respondentType = req.body?.respondentType || 'adult_self';
+    if (!['adult_self','youth_self','caregiver'].includes(respondentType)) return res.status(400).json({error:{message:'Invalid respondent type'}});
     const end = hourEnd != null ? parseInt(hourEnd) : (hourStart != null ? parseInt(hourStart) : null);
     const [result] = await pool.execute(
       `INSERT INTO office_slot_questionnaire_rules
-         (office_location_id, provider_id, room_id, day_of_week, hour_start, hour_end, module_id, intake_link_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (office_location_id, provider_id, room_id, day_of_week, hour_start, hour_end, module_id, intake_link_id, respondent_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         parseInt(officeLocationId),
         providerId,
@@ -1889,7 +1892,8 @@ export const createProviderQuestRule = async (req, res, next) => {
         hourStart != null ? parseInt(hourStart) : null,
         end,
         moduleId ? parseInt(moduleId) : null,
-        intakeLinkId ? parseInt(intakeLinkId) : null
+        intakeLinkId ? parseInt(intakeLinkId) : null,
+        respondentType
       ]
     );
     const rule = await OfficeSlotQuestionnaireRule.findById(result.insertId);
@@ -1995,15 +1999,22 @@ export const tagResponseToClient = async (req, res, next) => {
 
     // Verify the response belongs to this provider
     const [rows] = await pool.execute(
-      'SELECT id, provider_id FROM office_questionnaire_responses WHERE id = ? LIMIT 1',
+      'SELECT id, provider_id, office_location_id FROM office_questionnaire_responses WHERE id = ? LIMIT 1',
       [responseId]
     );
     const response = rows?.[0];
     if (!response) return res.status(404).json({ error: { message: 'Response not found' } });
-    if (Number(response.provider_id) !== providerId) {
+    if (Number(response.provider_id) !== Number(providerId)) {
       return res.status(403).json({ error: { message: 'Not your response' } });
     }
 
+    if (clientId) {
+      const [[client]] = await pool.execute('SELECT agency_id FROM clients WHERE id = ?',[clientId]);
+      if (!client) return res.status(404).json({error:{message:'Client not found'}});
+      await assertCheckinClientAccess(pool,providerId,clientId,client.agency_id);
+      const [[office]] = await pool.execute('SELECT id FROM office_locations WHERE id = ? AND (agency_id = ? OR EXISTS (SELECT 1 FROM office_location_agencies a WHERE a.office_location_id = office_locations.id AND a.agency_id = ?))',[response.office_location_id,client.agency_id,client.agency_id]);
+      if (!office) return res.status(403).json({error:{message:'Client agency is not assigned to this building'}});
+    }
     await pool.execute(
       'UPDATE office_questionnaire_responses SET client_id = ? WHERE id = ?',
       [clientId || null, responseId]

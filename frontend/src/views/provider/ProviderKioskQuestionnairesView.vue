@@ -60,7 +60,7 @@
               </select>
             </div>
             <div class="pkq-form-field">
-              <label class="pkq-label">Day of week</label>
+              <label class="pkq-label">Who answers this version?</label><select v-model="newRule.respondentType" class="pkq-input"><option value="adult_self">Adult · self-report</option><option value="youth_self">Child / teen · self-report</option><option value="caregiver">Parent / caregiver</option></select><p>Choose the official version for this respondent. Wording is shown exactly as configured.</p></div><div class="pkq-form-field"><label class="pkq-label">Day of week</label>
               <select v-model="newRule.dayOfWeek" class="pkq-input">
                 <option :value="null">All days</option>
                 <option v-for="d in dayOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
@@ -104,7 +104,7 @@
             <div class="pkq-rule-row__info">
               <div class="pkq-rule-row__title">{{ rule.module_title || rule.intake_link_title || 'Questionnaire' }}</div>
               <div class="pkq-rule-row__meta">
-                <span>{{ rule.location_name }}</span>
+                <span>{{ rule.location_name }}</span><span> · {{ rule.respondent_type === 'caregiver' ? 'Caregiver' : rule.respondent_type === 'youth_self' ? 'Youth self-report' : 'Adult self-report' }}</span>
                 <span v-if="rule.room_name">· {{ rule.room_name }}</span>
                 <span v-if="rule.day_of_week != null">· {{ dayOptions.find(d => d.value === rule.day_of_week)?.label }}</span>
                 <span v-if="rule.hour_start != null">· {{ formatHour(rule.hour_start) }}<span v-if="rule.hour_end != null && rule.hour_end !== rule.hour_start">–{{ formatHour(rule.hour_end) }}</span></span>
@@ -157,7 +157,7 @@ const newRule = ref({
   questSource: null,
   dayOfWeek: null,
   hourStart: null,
-  hourEnd: null
+  respondentType: 'adult_self', hourEnd: null
 });
 
 // Options
@@ -220,7 +220,7 @@ async function loadOptions() {
 function cancelNewRule() {
   showNewRuleForm.value = false;
   createError.value = '';
-  newRule.value = { officeLocationId: null, questSource: null, dayOfWeek: null, hourStart: null, hourEnd: null };
+  newRule.value = { officeLocationId: null, questSource: null, dayOfWeek: null, hourStart: null, respondentType: 'adult_self', hourEnd: null };
 }
 
 async function createRule() {
@@ -239,6 +239,7 @@ async function createRule() {
       dayOfWeek: newRule.value.dayOfWeek,
       hourStart: newRule.value.hourStart,
       hourEnd: newRule.value.hourEnd,
+      respondentType: newRule.value.respondentType,
       moduleId,
       intakeLinkId
     });

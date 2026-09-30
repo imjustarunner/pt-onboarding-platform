@@ -1,3 +1,4 @@
+import { beginClientSubmission } from './officeClientSubmissions.service.js';
 import pool from '../config/database.js';
 import NotificationDispatcher from './notificationDispatcher.service.js';
 import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
@@ -11,16 +12,17 @@ function reject(status, message) {
 
 // Lock the event so simultaneous taps create exactly one arrival and one inbox alert.
 // The inbox alert and arrival commit together: a successful check-in always has an alert.
-export async function recordOfficeKioskCheckin({ locationId, eventId, providerId }) {
+export async function recordOfficeKioskCheckin({ locationId, eventId, providerId, submissionKey, respondentType }) {
   const conn = await pool.getConnection();
   let notification;
+  let submission;
   let recipient;
   let alreadyCheckedIn = false;
   try {
     await conn.beginTransaction();
     const [rows] = await conn.execute(
       `SELECT e.id, e.office_location_id, e.room_id, e.booked_provider_id, e.status, e.slot_state,
-              e.start_at, e.end_at, ol.name AS location_name, ol.timezone, ol.agency_id,
+              e.start_at, e.end_at, e.client_id, e.clinical_session_id, ol.name AS location_name, ol.timezone, ol.agency_id,
               r.name AS room_name, r.room_number, u.email, u.work_email, u.role
        FROM office_events e
        JOIN office_locations ol ON ol.id = e.office_location_id AND ol.is_active = 1
@@ -52,7 +54,7 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
       checkinId = insert.insertId;
     }
     const [alerts] = await conn.execute(
-      `SELECT id FROM notifications WHERE type = 'kiosk_checkin' AND user_id = ?
+      `SELECT id, agency_id FROM notifications WHERE type = 'kiosk_checkin' AND user_id = ?
        AND related_entity_type = 'office_event_checkin' AND related_entity_id = ? LIMIT 1`,
       [event.booked_provider_id, checkinId]);
     if (!alerts.length) {
@@ -70,7 +72,7 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
         hour: 'numeric', minute: '2-digit', timeZone: timezone, timeZoneName: 'short'
       });
       const room = event.room_number ? `Office ${event.room_number}` : event.room_name;
-      const message = `Your ${time} appointment has checked in at ${event.location_name}, ${room}. Your client is waiting in the lobby.`;
+      const message = `Your ${time} appointment has checked in at ${event.location_name}, ${room}. Your client is waiting in the lobby.${submissionKey ? ' Review this arrival in Clients → Check-in submissions.' : ''}`;
       const [insert] = await conn.execute(
         `INSERT INTO notifications (type, severity, title, message, user_id, agency_id,
           related_entity_type, related_entity_id, actor_source)
@@ -79,6 +81,11 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
       notification = { id: insert.insertId, type: 'kiosk_checkin', severity: 'info',
         title: 'Your client has arrived', message, user_id: event.booked_provider_id, agency_id: agencyId };
       recipient = event;
+    }
+    if (submissionKey) {
+      const agencyId = notification?.agency_id || alerts[0]?.agency_id;
+      if (!agencyId) throw reject(409,'Your provider’s office setup needs attention.');
+      submission = await beginClientSubmission(conn,event,Number(agencyId),submissionKey,respondentType);
     }
     await conn.commit();
   } catch (error) {
@@ -113,5 +120,5 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
       console.warn('[office-kiosk] Optional email failed:', error?.code || 'delivery_error');
     }
   }
-  return { ok: true, eventId, alreadyCheckedIn, notification: { inApp: true, email } };
+  return { ok: true, eventId, alreadyCheckedIn, ...(submission ? {submission} : {}), notification: { inApp: true, email } };
 }

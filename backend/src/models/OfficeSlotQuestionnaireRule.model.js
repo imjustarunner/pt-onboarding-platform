@@ -1,3 +1,4 @@
+import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 import pool from '../config/database.js';
 
 class OfficeSlotQuestionnaireRule {
@@ -13,10 +14,10 @@ class OfficeSlotQuestionnaireRule {
    *
    * Within each tier, more-specific rules (non-null room_id / day_of_week) rank higher.
    */
-  static async findForEvent({ officeLocationId, roomId, startAt, bookedProviderId = null }) {
-    const start = startAt instanceof Date ? startAt : new Date(startAt);
-    const dayOfWeek = start.getDay();
-    const hour = start.getHours();
+  static async findForEvent({ officeLocationId, roomId, startAt, bookedProviderId = null, timezone = 'America/Denver' }) {
+    const wall = utcToZonedMysqlWall(startAt, timezone);
+    const dayOfWeek = new Date(`${wall.slice(0,10)}T12:00:00Z`).getUTCDay();
+    const hour = Number(wall.slice(11,13));
 
     const roomCondition = roomId == null
       ? 'osqr.room_id IS NULL'

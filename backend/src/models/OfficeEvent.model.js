@@ -18,10 +18,9 @@ function normalizeMySqlDateTime(value) {
 }
 
 class OfficeEvent {
-  static lockNameForSlot({ roomId, startAt, endAt }) {
-    const normalizedStartAt = normalizeMySqlDateTime(startAt);
-    const normalizedEndAt = normalizeMySqlDateTime(endAt);
-    return `office_slot:${Number(roomId)}:${normalizedStartAt}:${normalizedEndAt}`;
+  static lockNameForSlot({ roomId }) {
+    // Different, overlapping time ranges must share the same lock.
+    return `office_room:${Number(roomId)}`;
   }
 
   static duplicateSlotError(conflict = null) {

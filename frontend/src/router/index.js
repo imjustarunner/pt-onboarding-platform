@@ -1395,7 +1395,8 @@ const routes = [
     component: () => import('../views/KioskView.vue'),
     meta: { requiresGuest: false }
   },
-  // Provider-First Welcome Kiosk (public lobby splash screen)
+  { path: '/office-booking/:locationId', name: 'OfficeSelfBooking', component: () => import('../views/OfficeSelfBookingView.vue'), meta: { requiresAuth: true } },
+  // Client check-in and office directory (public lobby)
   {
     path: '/kiosk-welcome/:locationId',
     name: 'KioskWelcome',
