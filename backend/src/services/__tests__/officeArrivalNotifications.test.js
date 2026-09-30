@@ -65,3 +65,11 @@ it('retries a known pre-send verification throttle after Gmail’s deadline',asy
 it('waits for feedback before claiming mail but never delays acknowledgment suppression',async()=>{
  m.feedback.mockResolvedValue({wait:true});await runOfficeArrivalTick();expect(m.send).not.toHaveBeenCalled();expect(m.execute.mock.calls.some(([sql])=>sql.includes('INTERVAL 15 SECOND'))).toBe(true);expect(m.execute.mock.calls.some(([sql])=>sql.includes("SET d.email_status='sending'"))).toBe(false);
 });
+it('enriches only eligible provider alerts and still shows the arrival if feedback fails',async()=>{
+ const {listArrivals}=await import('../officeArrivalNotifications.service.js');
+ m.feedback.mockResolvedValue({submissionId:4,metrics:{connection:{current:8}}});
+ const arrivals=await listArrivals(7,'provider');expect(arrivals[0].feedback.metrics.connection.current).toBe(8);
+ expect(m.feedback).toHaveBeenCalledWith(expect.objectContaining({user_id:7,agency_id:2}),expect.any(Number),{waitForCompletion:false});
+ m.channel.mockResolvedValue(false);m.feedback.mockClear();expect(await listArrivals(7,'provider')).toEqual([]);expect(m.feedback).not.toHaveBeenCalled();
+ m.channel.mockResolvedValue(true);m.feedback.mockRejectedValue(new Error('temporary'));expect((await listArrivals(7,'provider'))[0].feedbackUnavailable).toBe(true);
+});

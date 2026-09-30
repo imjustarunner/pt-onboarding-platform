@@ -1,6 +1,6 @@
 <template>
   <div class="arrival-overlay" @pointerdown="touch" @keydown="onKeydown">
-    <section ref="panel" class="arrival-panel" role="dialog" aria-modal="true" aria-labelledby="arrival-title" tabindex="-1">
+    <section ref="panel" class="arrival-panel" :class="{'feedback-panel':step==='forms'}" role="dialog" aria-modal="true" aria-labelledby="arrival-title" tabindex="-1">
       <header>
         <span class="eyebrow">{{ step === 'done' ? 'ALL SET' : 'YOUR VISIT' }}</span>
         <button class="close" :disabled="saving" aria-label="Close check-in" @click="emit('close')">×</button>
@@ -89,7 +89,7 @@ async function checkIn() {
   try {
     const { data } = await api.post(`/kiosk/${props.locationId}/checkin`, { eventId: selected.value.eventId, providerId: props.provider.id, submissionKey, respondentType:respondentType.value, serviceType:serviceType.value, ...(props.directSlot?{appointmentStartAt:props.directSlot.appointmentStartAt,nextHour:!!props.directSlot.nextHour}:{}) });
     if (!data?.ok || !data?.notification?.inApp) throw new Error('Unconfirmed arrival');
-    if (!disposed) { emit('arrival-recorded'); if(data.alreadyCheckedIn&&!data.submission){emit('checked-in',{alreadyCheckedIn:true});return;} forms.value = data.submission?.forms || []; formsUnavailable.value = !!data.submission?.formsUnavailable; step.value = forms.value.length && !data.submission?.completed ? 'forms' : 'done'; remaining.value = 12; if(props.directSlot&&step.value==='done')emit('checked-in'); }
+    if (!disposed) { emit('arrival-recorded'); if(data.alreadyCheckedIn&&!data.submission){emit('checked-in',{alreadyCheckedIn:true});return;} forms.value = data.submission?.forms || []; formsUnavailable.value = !!data.submission?.formsUnavailable; step.value = forms.value.length && !data.submission?.completed ? 'forms' : 'done'; remaining.value = 12; if(step.value==='done')emit('checked-in'); }
   } catch (err) { error.value = err.response?.data?.error?.message || 'We couldn’t confirm your check-in. Try again or ask the office team for help.'; }
   finally { saving.value = false; touch(); }
 }
@@ -98,7 +98,7 @@ async function submitForms({answers,skippedFormIds}) {
   try {
     const {data} = await api.post(`/kiosk/${props.locationId}/checkin/forms`,{submissionKey,answers,skippedFormIds});
     if (!data?.ok) throw new Error('Unconfirmed submission');
-    if (!disposed) {if(props.directSlot)emit('checked-in');else {step.value='done'; remaining.value=12;}}
+    if (!disposed) {emit('checked-in');}
   } catch(e) {error.value=e.response?.data?.error?.message || 'Your responses could not be saved. Please try again.';}
   finally {saving.value=false;touch();}
 }
@@ -131,7 +131,7 @@ onUnmounted(() => { disposed = true; submissionKey = null; forms.value = []; cle
 
 <style scoped>
 .arrival-overlay{position:fixed;inset:0;z-index:1000;background:#122e35a8;backdrop-filter:blur(9px);display:flex;align-items:center;justify-content:center;padding:24px;color:#193d40;font-family:inherit}
-.arrival-panel{width:100%;max-width:590px;max-height:92dvh;overflow:auto;background:#fffefa;border-radius:28px;padding:30px;box-shadow:0 30px 100px #102e3540;outline:none;box-sizing:border-box}
+.arrival-panel.feedback-panel{max-width:960px;max-height:96dvh}.arrival-panel{width:100%;max-width:590px;max-height:92dvh;overflow:auto;background:#fffefa;border-radius:28px;padding:30px;box-shadow:0 30px 100px #102e3540;outline:none;box-sizing:border-box}
 header{display:flex;align-items:center;justify-content:space-between}.eyebrow{font-size:11px;letter-spacing:2px;font-weight:800;color:#627972}.close{width:48px;height:48px;border:1px solid #dae3dc;border-radius:50%;background:transparent;font-size:28px;color:inherit;cursor:pointer}
 .provider{display:flex;gap:14px;align-items:center;margin:14px 0 26px}.avatar{display:grid;place-items:center;background:#e7eee3;width:54px;height:54px;border-radius:18px;font-weight:700}.provider strong,.provider div span{display:block}.provider strong{font-size:19px}.provider div span{font-size:13px;color:#657774;margin-top:4px}
 h2{font-size:32px;line-height:1.13;letter-spacing:-1px;margin:0 0 14px}p{line-height:1.65;color:#617370}.times{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:24px 0;max-height:300px;overflow:auto}.time{border:1px solid #dce5dc;border-radius:14px;padding:18px 8px;background:white;color:inherit;cursor:pointer}.time strong,.time span{display:block}.time strong{font-size:19px}.time span{font-size:12px;margin-top:6px}.time.selected{background:#e7f0e2;border:2px solid #416952;padding:17px 7px}

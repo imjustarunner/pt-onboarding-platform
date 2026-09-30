@@ -27,8 +27,7 @@ describe('private office check-in', () => {
     expect(api.post).toHaveBeenCalledExactlyOnceWith('/kiosk/3/checkin', { eventId: 9, providerId: 7, submissionKey:expect.any(String),respondentType:'adult_self',serviceType:'counseling' });
     expect(api.get).toHaveBeenCalledTimes(1); // No clinical information loaded on the shared tablet.
     expect(wrapper.text()).toContain('You’re checked in.');
-    await vi.advanceTimersByTimeAsync(12_000);
-    expect(wrapper.emitted('close')).toHaveLength(1);
+    expect(wrapper.emitted('checked-in')).toHaveLength(1);
   });
   it('keeps a failed check-in visible and does not claim notification success', async () => {
     api.post.mockRejectedValue({ response: { data: { error: { message: 'This appointment has changed.' } } } });
@@ -46,9 +45,9 @@ describe('private office check-in', () => {
     const form={id:'module:1',title:'Test form',fields:[{id:'a',label:'Test answer',type:'text',required:true}]};
     api.post.mockResolvedValueOnce({data:{ok:true,notification:{inApp:true},submission:{forms:[form]}}}).mockResolvedValueOnce({data:{ok:true}});
     await open();await confirm();expect(wrapper.find('form').exists()).toBe(true);await vi.advanceTimersByTimeAsync(13_000);expect(wrapper.emitted('close')).toBeUndefined();
-    await wrapper.get('form input').setValue('Private fixture answer');await wrapper.get('form').trigger('submit');await flushPromises();
+    await wrapper.get('form input').setValue('Private fixture answer');await wrapper.get('form').trigger('submit');await wrapper.get('form').trigger('submit');await flushPromises();
     expect(api.post.mock.calls[1][1]).toEqual({submissionKey:api.post.mock.calls[0][1].submissionKey,answers:{'module:1':{a:'Private fixture answer'}},skippedFormIds:[]});
-    expect(wrapper.text()).toContain('You’re checked in.');expect(wrapper.find('form').exists()).toBe(false);
+    expect(wrapper.emitted('checked-in')).toHaveLength(1);
   });
   it('closes from the explicit Clear selection button',async()=>{await open();await wrapper.get('.start-over').trigger('click');expect(wrapper.emitted('close')).toHaveLength(1);});
   it('clears an abandoned selection after three idle minutes', async () => {

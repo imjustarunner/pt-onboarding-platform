@@ -46,7 +46,12 @@ export async function listArrivals(userId, userRole) {
       AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=d.user_id AND ua.agency_id=d.agency_id AND ua.is_active=1)
     ORDER BY d.created_at LIMIT 20`,[userId,userId]);
   const result=[];
-  for(const row of rows) if(await isNotificationChannelEnabled({userId,userRole,agencyId:row.agency_id,type:'kiosk_checkin',channel:'inApp'})) result.push(row);
+  for(const row of rows) if(await isNotificationChannelEnabled({userId,userRole,agencyId:row.agency_id,type:'kiosk_checkin',channel:'inApp'})) {
+    // An unavailable score must never hide the arrival itself.
+    try { row.feedback=await feedbackForArrival({notification_id:row.id,user_id:userId,agency_id:row.agency_id},Date.now(),{waitForCompletion:false}); }
+    catch { row.feedbackUnavailable=true; }
+    result.push(row);
+  }
   return result;
 }
 

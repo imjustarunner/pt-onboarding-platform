@@ -22,3 +22,19 @@ it('groups dates, preserves respondent labels, and bulk-attaches only selected v
  await wrapper.findAll('button').find(b=>b.text()==='Select unattached visits').trigger('click');await wrapper.get('.attachment input').setValue('Synthetic');await vi.advanceTimersByTimeAsync(300);await flushPromises();await wrapper.get('select[aria-label="Client to attach"]').setValue(9);await flushPromises();
  await wrapper.findAll('button').find(b=>b.text()==='Attach selected visits to client').trigger('click');await flushPromises();expect(api.patch).toHaveBeenCalledWith('/kiosk/client-checkins/series-attachment',{ids:[1,2],clientId:9});
 });
+
+it('offers tappable scores, advances after the third answer, and keeps answers editable before finishing',async()=>{
+ const {default:VisitForms}=await import('../KioskVisitForms.vue');
+ const {officeFeedbackForms}=await import('../../../../../backend/src/services/officeFeedbackForms.js');
+ const items=officeFeedbackForms('caregiver');wrapper=mount(VisitForms,{props:{forms:items}});
+ expect(wrapper.find('select').exists()).toBe(false);expect(wrapper.findAll('.rating button')).toHaveLength(33);
+ for(let i=0;i<3;i++)await wrapper.findAll('.rating')[i].findAll('button')[8].trigger('click');
+ expect(wrapper.text()).toContain('Questionnaire 2 of 2');expect(wrapper.emitted('submit')).toBeUndefined();
+ await wrapper.findAll('button').find(b=>b.text()==='Back').trigger('click');
+ expect(wrapper.findAll('.rating button[aria-pressed=true]').map(b=>b.text())).toEqual(['8','8','8']);
+ await wrapper.findAll('.rating')[0].findAll('button')[9].trigger('click');expect(wrapper.text()).toContain('Questionnaire 1 of 2');
+ await wrapper.get('form').trigger('submit');
+ for(let i=0;i<3;i++)await wrapper.findAll('.rating')[i].findAll('button')[6].trigger('click');
+ expect(wrapper.text()).toContain('Review your feedback');expect(wrapper.emitted('submit')).toBeUndefined();
+ await wrapper.get('form').trigger('submit');expect(wrapper.emitted('submit')[0][0].answers[items[0].id].heard).toBe('9');
+});
