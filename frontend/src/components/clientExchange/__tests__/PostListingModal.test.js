@@ -4,11 +4,13 @@ const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('../../../services/api', () => ({ default: mocks }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7 } }) }));
 import Modal from '../PostListingModal.vue';
-beforeEach(() => { vi.clearAllMocks(); mocks.post.mockResolvedValue({ data: { listing: { id: 1, notifications: { sent: 1 } } } }); });
+beforeEach(() => { vi.clearAllMocks(); mocks.get.mockResolvedValue({ data: { summary: { diagnoses: ['F41.1 — Anxiety'], presentingProblems: ['Worry'] } } }); mocks.post.mockResolvedValue({ data: { listing: { id: 1, notifications: { sent: 1 } } } }); });
 it('posts the preset client directly from the profile', async () => {
   const wrapper = mount(Modal, { props: { agencyId: 2, presetClientId: 4, lockClient: true } });
   await flushPromises(); await wrapper.find('.btn-primary').trigger('click'); await flushPromises();
-  expect(mocks.get).not.toHaveBeenCalled();
+  expect(mocks.get).toHaveBeenCalledWith('/client-exchange/clients/4/summary', { params: { agencyId: 2 } });
+  expect(wrapper.text()).toContain('F41.1 — Anxiety');
+  expect(wrapper.text()).toContain('Worry');
   expect(mocks.post).toHaveBeenCalledWith('/client-exchange/listings', expect.objectContaining({ agencyId: 2, clientId: 4 }));
   expect(wrapper.emitted('posted')).toHaveLength(1);
 });

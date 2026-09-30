@@ -4,6 +4,7 @@ import * as ctrl from '../controllers/clientExchange.controller.js';
 
 const router = express.Router();
 
+router.get('/clients/:clientId/summary', authenticate, ctrl.previewClientSummary);
 router.get('/listings', authenticate, ctrl.listListings);
 router.post('/listings', authenticate, ctrl.createListing);
 router.get('/listings/:id', authenticate, ctrl.getListing);

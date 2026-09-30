@@ -26,6 +26,14 @@
           <div class="locked-client">{{ presetClientLabel || 'Selected client' }}</div>
         </div>
 
+        <section v-if="selectedClientId" class="field">
+          <strong>Shared client information</strong>
+          <p class="muted small">Recorded diagnoses and presenting problems are included in the exchange and its notification emails.</p>
+          <p v-if="summaryLoading" class="muted">Loading client information…</p>
+          <p v-else-if="summaryError" class="error">{{ summaryError }}</p>
+          <ClientExchangeSummary v-else :listing="sharedSummary" />
+        </section>
+
         <div class="field-row">
           <label class="field">
             <span class="label">Age band</span>
@@ -38,8 +46,8 @@
         </div>
 
         <label class="field">
-          <span class="label">Presenting problems (comma separated)</span>
-          <input v-model="presentingProblemsRaw" class="input" placeholder="anxiety, family conflict" />
+          <span class="label">Additional presenting problems (one per line)</span>
+          <textarea v-model="presentingProblemsRaw" rows="2" placeholder="Add any concerns not already recorded above"></textarea>
         </label>
 
         <div class="field-row">
@@ -66,7 +74,7 @@
         <div v-if="submitError" class="error">{{ submitError }}</div>
 
         <div class="modal-actions">
-          <button type="button" class="btn btn-primary" :disabled="!selectedClientId || submitting || posted" @click="submit">
+          <button type="button" class="btn btn-primary" :disabled="!selectedClientId || submitting || posted || summaryLoading || !!summaryError" @click="submit">
             {{ submitting ? 'Posting…' : 'Post to exchange' }}
           </button>
           <button type="button" class="btn btn-secondary" @click="posted ? $emit('posted') : $emit('close')">{{ posted ? 'Done' : 'Cancel' }}</button>
@@ -77,7 +85,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
+import ClientExchangeSummary from './ClientExchangeSummary.vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 
@@ -105,6 +114,26 @@ const notes = ref('');
 const submitting = ref(false);
 const posted = ref(false);
 const submitError = ref('');
+const sharedSummary = ref({});
+const summaryLoading = ref(false);
+const summaryError = ref('');
+let summaryVersion = 0;
+watch(selectedClientId, async clientId => {
+  const version = ++summaryVersion;
+  sharedSummary.value = {};
+  summaryError.value = '';
+  summaryLoading.value = false;
+  if (!clientId) return;
+  summaryLoading.value = true;
+  try {
+    const response = await api.get(`/client-exchange/clients/${clientId}/summary`, { params: { agencyId: props.agencyId } });
+    if (version === summaryVersion) sharedSummary.value = response.data?.summary || {};
+  } catch (error) {
+    if (version === summaryVersion) summaryError.value = error?.response?.data?.error?.message || 'Unable to load the client summary. Please try again.';
+  } finally {
+    if (version === summaryVersion) summaryLoading.value = false;
+  }
+});
 
 const eligibleClients = computed(() => clients.value);
 
@@ -150,7 +179,7 @@ async function submit() {
         gender: gender.value || undefined
       },
       presentingProblems: presentingProblemsRaw.value
-        .split(',')
+        .split('\n')
         .map((s) => s.trim())
         .filter(Boolean),
       preferences: {

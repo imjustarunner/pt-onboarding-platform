@@ -51,7 +51,7 @@
         <div class="cep-stat-icon cep-stat-icon--purple">⏳</div>
         <div>
           <div class="cep-stat-value">{{ pendingRequestCount }}</div>
-          <div class="cep-stat-label">Pending requests</div>
+          <div class="cep-stat-label">Pending claims</div>
         </div>
       </div>
       <div class="cep-stat">
@@ -72,6 +72,9 @@
         </button>
         <button type="button" class="cep-tab" :class="{ active: activeTab === 'mine' }" @click="activeTab = 'mine'">
           My activity
+        </button>
+        <button type="button" class="cep-tab" :class="{ active: activeTab === 'claims' }" @click="activeTab = 'claims'">
+          Manage claims <span v-if="manageableListings.length" class="cep-count">{{ manageableListings.length }}</span>
         </button>
         <button type="button" class="cep-tab" :class="{ active: activeTab === 'closed' }" @click="activeTab = 'closed'">
           Closed / withdrawn
@@ -99,12 +102,12 @@
       <!-- Left: list -->
       <div class="cep-list-col">
         <!-- Open tab -->
-        <template v-if="activeTab === 'open'">
-          <div v-if="!loading && filteredOpen.length === 0" class="cep-empty">
-            {{ searchQuery ? 'No results for your search.' : 'No open listings right now.' }}
+        <template v-if="activeTab === 'open' || activeTab === 'claims'">
+          <div v-if="!loading && visibleOpen.length === 0" class="cep-empty">
+            {{ activeTab === 'claims' ? 'No claims awaiting your assignment.' : searchQuery ? 'No results for your search.' : 'No open listings right now.' }}
           </div>
           <ListingCard
-            v-for="listing in filteredOpen"
+            v-for="listing in visibleOpen"
             :key="listing.id"
             :listing="listing"
             :current-user-id="currentUserId"
@@ -115,7 +118,6 @@
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
             @select="selectListing(listing)"
-            @request="onRequest"
             @withdraw="onWithdraw"
             @expand="onExpand"
             @approve="onApprove"
@@ -141,16 +143,15 @@
             :requests="requestsByListing[listing.id] || []"
             :requests-loading="requestsLoadingId === listing.id"
             @select="selectListing(listing)"
-            @request="onRequest"
             @withdraw="onWithdraw"
             @expand="onExpand"
             @approve="onApprove"
             @deny="onDeny"
           />
 
-          <div class="cep-sub-heading" style="margin-top: 1rem;">My requests to other listings</div>
+          <div class="cep-sub-heading" style="margin-top: 1rem;">My claims</div>
           <div v-if="!loading && myRequests.length === 0" class="cep-empty">
-            You haven't requested any listings.
+            You haven't claimed any clients.
           </div>
           <div v-else class="cep-request-list">
             <div v-for="r in myRequests" :key="r.id" class="cep-request-row">
@@ -159,6 +160,7 @@
               </div>
               <div class="cep-request-dates">{{ formatDate(r.createdAt) }}</div>
               <div class="cep-request-listing-status">Listing: {{ r.listingStatus }}</div>
+              <button type="button" class="cep-btn cep-btn--ghost cep-btn--sm" @click="openClaimListing(r.listingId)">View client</button>
               <div v-if="r.message" class="cep-request-msg">{{ r.message }}</div>
             </div>
           </div>
@@ -200,9 +202,10 @@
           <button type="button" class="cep-close-detail" @click="selectedListingId = null" title="Close">✕</button>
         </div>
 
-        <div v-if="selectedListingChips.length" class="cep-detail-chips">
-          <span v-for="(chip, idx) in selectedListingChips" :key="idx" class="cep-chip">{{ chip }}</span>
-        </div>
+        <section class="cep-detail-section">
+          <ClientExchangeSummary :listing="selectedListing" />
+          <router-link v-if="selectedListing.clientId && (isBackoffice || isCurrentProviderFor(selectedListing))" class="cep-btn cep-btn--ghost cep-btn--sm" :to="clientRecordPath(selectedListing)">Open client record</router-link>
+        </section>
 
         <section class="cep-detail-section">
           <div class="cep-detail-section-title">Notes</div>
@@ -218,13 +221,13 @@
         <!-- Requests for this listing -->
         <section class="cep-detail-section">
           <div class="cep-detail-section-title">
-            Requests
+            Claims
             <span v-if="selectedListing.pendingRequestCount > 0" class="cep-pending-badge">
               {{ selectedListing.pendingRequestCount }} pending
             </span>
           </div>
           <div v-if="requestsLoadingId === selectedListing.id" class="cep-muted">Loading…</div>
-          <div v-else-if="!requestsByListing[selectedListing.id]?.length" class="cep-muted">No requests yet.</div>
+          <div v-else-if="!requestsByListing[selectedListing.id]?.length" class="cep-muted">No claims yet.</div>
           <div v-else class="cep-requests-list">
             <div v-for="r in requestsByListing[selectedListing.id]" :key="r.id" class="cep-request-item">
               <div class="cep-request-item-top">
@@ -232,11 +235,11 @@
                 <span class="cep-status-badge" :class="`cep-status-${r.status}`">{{ r.status }}</span>
               </div>
               <p v-if="r.message" class="cep-request-item-msg">{{ r.message }}</p>
-              <div v-if="r.status === 'pending' && (isBackoffice || isCurrentProviderFor(selectedListing))" class="cep-request-item-actions">
-                <button type="button" class="cep-btn cep-btn--primary cep-btn--sm" @click="onApprove({ requestId: r.id, listingId: selectedListing.id })">
-                  Approve
+              <div v-if="r.status === 'pending' && selectedListing.canManageClaims" class="cep-request-item-actions">
+                <button type="button" class="cep-btn cep-btn--primary cep-btn--sm" :disabled="actionPending" @click="onApprove({ requestId: r.id, listingId: selectedListing.id })">
+                  {{ selectedListing.currentProviderUserId ? 'Transfer to provider' : 'Assign to provider' }}
                 </button>
-                <button type="button" class="cep-btn cep-btn--ghost cep-btn--sm" @click="onDeny({ requestId: r.id, listingId: selectedListing.id })">
+                <button type="button" class="cep-btn cep-btn--ghost cep-btn--sm" :disabled="actionPending" @click="onDeny({ requestId: r.id, listingId: selectedListing.id })">
                   Deny
                 </button>
               </div>
@@ -248,14 +251,15 @@
             style="margin-top: 0.5rem;"
             @click="onExpand(selectedListing.id)"
           >
-            {{ requestsLoadingId === selectedListing.id ? 'Loading…' : 'Refresh requests' }}
+            {{ requestsLoadingId === selectedListing.id ? 'Loading…' : 'Refresh claims' }}
           </button>
         </section>
 
         <!-- Actions -->
         <section class="cep-detail-section cep-detail-section--actions">
           <template v-if="canRequest(selectedListing)">
-            <div class="cep-detail-section-title">Request this client</div>
+            <div class="cep-detail-section-title">Claim client</div>
+            <p class="cep-muted">Multiple providers can claim this client. The current provider or support team will select the assignment.</p>
             <textarea
               v-model="requestMessages[selectedListing.id]"
               rows="2"
@@ -263,11 +267,12 @@
               placeholder="Optional note for the current provider…"
             ></textarea>
             <div class="cep-detail-action-row">
-              <button type="button" class="cep-btn cep-btn--primary" @click="submitRequest(selectedListing)">
-                Send request
+              <button type="button" class="cep-btn cep-btn--primary" :disabled="actionPending" @click="submitRequest(selectedListing)">
+                {{ actionPending ? 'Saving…' : 'Claim client' }}
               </button>
             </div>
           </template>
+          <p v-if="hasPendingClaim(selectedListing)" class="cep-muted">Your claim is pending. You will be notified if the client is assigned to you.</p>
           <template v-if="canWithdraw(selectedListing)">
             <button type="button" class="cep-btn cep-btn--ghost" @click="onWithdraw(selectedListing.id)">
               Withdraw listing
@@ -302,6 +307,7 @@ import {
 import api from '../../services/api';
 import ListingCard from './ListingCard.vue';
 import PostListingModal from './PostListingModal.vue';
+import ClientExchangeSummary from './ClientExchangeSummary.vue';
 import ClientDisplayModeToggle from '../admin/ClientDisplayModeToggle.vue';
 
 const { getClientLabel } = useClientDisplayMode();
@@ -326,27 +332,12 @@ const requestsLoadingId = ref(null);
 const showPostModal = ref(false);
 const selectedListingId = ref(null);
 const searchQuery = ref('');
+const actionPending = ref(false);
 const requestMessages = reactive({});
 
 const selectedListing = computed(() => {
   if (!selectedListingId.value) return null;
   return listings.value.find((l) => l.id === selectedListingId.value) || null;
-});
-
-const selectedListingChips = computed(() => {
-  const l = selectedListing.value;
-  if (!l) return [];
-  const out = [];
-  const demo = l.demographics || {};
-  if (demo.ageBand) out.push(`Age: ${demo.ageBand}`);
-  if (demo.gender) out.push(demo.gender);
-  const problems = l.presentingProblems;
-  if (Array.isArray(problems)) out.push(...problems);
-  else if (problems && typeof problems === 'object') out.push(...Object.values(problems).filter(Boolean));
-  const prefs = l.preferences || {};
-  if (prefs.modality) out.push(`Modality: ${prefs.modality}`);
-  if (prefs.insurance) out.push(`Insurance: ${prefs.insurance}`);
-  return out.filter(Boolean).slice(0, 10);
 });
 
 const openListings = computed(() => listings.value.filter((l) => l.status === 'open' || l.status === 'requested'));
@@ -359,7 +350,7 @@ const myListings = computed(() =>
 const pendingRequestCount = computed(() => openListings.value.reduce((s, l) => s + (l.pendingRequestCount || 0), 0));
 
 const currentTabList = computed(() => {
-  if (activeTab.value === 'open') return filteredOpen.value;
+  if (activeTab.value === 'open' || activeTab.value === 'claims') return visibleOpen.value;
   if (activeTab.value === 'mine') return myListings.value;
   return closedListings.value;
 });
@@ -368,6 +359,7 @@ const searchTokens = computed(() => String(searchQuery.value || '').toLowerCase(
 
 function listingClientLabel(listing) {
   if (!listing) return '—';
+  if (!listing.clientId) return `Client referral #${listing.id}`;
   return getClientLabel({
     id: listing.clientId,
     initials: listing.clientInitials,
@@ -385,6 +377,8 @@ function matchSearch(listing) {
 }
 
 const filteredOpen = computed(() => openListings.value.filter(matchSearch));
+const manageableListings = computed(() => openListings.value.filter(l => l.canManageClaims && l.pendingRequestCount > 0));
+const visibleOpen = computed(() => activeTab.value === 'claims' ? manageableListings.value.filter(matchSearch) : filteredOpen.value);
 
 function formatDate(v) {
   if (!v) return '—';
@@ -406,9 +400,22 @@ function isCurrentProviderFor(listing) {
   return Number(listing.currentProviderUserId) === Number(currentUserId.value);
 }
 
+function hasPendingClaim(listing) {
+  return myRequests.value.some(r => r.listingId === listing.id && r.status === 'pending');
+}
 function canRequest(listing) {
-  if (!['open', 'requested'].includes(listing.status)) return false;
-  return !isCurrentProviderFor(listing);
+  const providerRole = ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(authStore.user?.role) || authStore.user?.has_provider_access;
+  if (!providerRole || !['open', 'requested'].includes(listing.status)) return false;
+  return !isCurrentProviderFor(listing) && !hasPendingClaim(listing);
+}
+function clientRecordPath(listing) {
+  const agency = agencies.value.find(a => Number(a.id) === Number(listing.agencyId));
+  const slug = agency?.slug || route.params?.organizationSlug;
+  return `${slug ? '/' + slug : ''}/admin/clients/${listing.clientId}`;
+}
+function openClaimListing(id) {
+  const listing = listings.value.find(l => l.id === id);
+  if (listing) selectListing(listing);
 }
 
 function canWithdraw(listing) {
@@ -438,7 +445,10 @@ async function load() {
     listings.value = listingsRes.data?.listings || [];
     myRequests.value = myRequestsRes.data?.requests || [];
     const linked = listings.value.find(l => l.id === Number(route.query?.listingId));
-    if (linked && !selectedListingId.value) selectListing(linked);
+    if (linked && !selectedListingId.value) {
+      activeTab.value = ['open', 'requested'].includes(linked.status) ? 'open' : 'closed';
+      selectListing(linked);
+    }
   } catch (e) {
     if (version === loadVersion) error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load Client Exchange';
   } finally {
@@ -451,6 +461,7 @@ async function onExpand(listingId) {
   try {
     const res = await api.get(`/client-exchange/listings/${listingId}`);
     requestsByListing.value = { ...requestsByListing.value, [listingId]: res.data?.requests || [] };
+    if (res.data?.listing) listings.value = listings.value.map(l => l.id === listingId ? res.data.listing : l);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to load requests';
   } finally {
@@ -458,24 +469,18 @@ async function onExpand(listingId) {
   }
 }
 
-async function onRequest({ listingId, message }) {
-  try {
-    await api.post(`/client-exchange/listings/${listingId}/requests`, { message });
-    await load();
-  } catch (e) {
-    error.value = e?.response?.data?.error?.message || e?.message || 'Failed to request listing';
-  }
-}
-
 async function submitRequest(listing) {
+  if (actionPending.value) return;
+  actionPending.value = true;
   const msg = requestMessages[listing.id] || '';
   try {
     await api.post(`/client-exchange/listings/${listing.id}/requests`, { message: msg });
     requestMessages[listing.id] = '';
     await load();
+    await onExpand(listing.id);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to request listing';
-  }
+  } finally { actionPending.value = false; }
 }
 
 async function onWithdraw(listingId) {
@@ -489,23 +494,27 @@ async function onWithdraw(listingId) {
 }
 
 async function onApprove({ requestId, listingId }) {
+  if (actionPending.value) return;
+  actionPending.value = true;
   try {
     await api.post(`/client-exchange/requests/${requestId}/approve`);
     await load();
     await onExpand(listingId);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to approve request';
-  }
+  } finally { actionPending.value = false; }
 }
 
 async function onDeny({ requestId, listingId }) {
+  if (actionPending.value) return;
+  actionPending.value = true;
   try {
     await api.post(`/client-exchange/requests/${requestId}/deny`);
     await load();
     await onExpand(listingId);
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to deny request';
-  }
+  } finally { actionPending.value = false; }
 }
 
 function openPostModal() {
@@ -516,6 +525,14 @@ async function onPosted() {
   showPostModal.value = false;
   await load();
 }
+
+watch(() => route.query?.listingId, (id) => {
+  const linked = listings.value.find(listing => listing.id === Number(id));
+  if (linked) {
+    activeTab.value = ['open', 'requested'].includes(linked.status) ? 'open' : 'closed';
+    selectListing(linked);
+  }
+});
 
 watch(agencyId, () => {
   listings.value = [];

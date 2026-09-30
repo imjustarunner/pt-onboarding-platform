@@ -195,7 +195,16 @@
             @alert-click="onOverviewAlertClick"
             @view-event="openLifecycleHistoryEvent"
             @open-document="openChartDocument"
-          />
+          >
+            <template #clinical-summary>
+              <section v-if="canViewMedicalRecord" class="cdp-care-section">
+                <h3 class="cc-hub-section__title">Presenting problems &amp; diagnoses</h3>
+                <p v-if="careSummaryLoading" class="muted">Loading clinical summary…</p>
+                <p v-else-if="careSummaryError" class="error">{{ careSummaryError }}</p>
+                <ClientExchangeSummary v-else-if="careSummary" :listing="careSummary" />
+              </section>
+            </template>
+          </ClientOverviewHub>
         </div>
 
         <div
@@ -333,6 +342,13 @@
                 <span v-else class="muted">Hover to add</span>
               </div>
             </div>
+          </div>
+
+          <div v-if="canViewMedicalRecord" class="cdp-care-section">
+            <h3 class="cdp-section-title">Presenting problems &amp; diagnoses</h3>
+            <p v-if="careSummaryLoading" class="muted">Loading clinical summary…</p>
+            <p v-else-if="careSummaryError" class="error">{{ careSummaryError }}</p>
+            <ClientExchangeSummary v-else-if="careSummary" :listing="careSummary" />
           </div>
 
           <div class="cdp-care-section">
@@ -2794,6 +2810,7 @@ import {
 import ClientCareTimeline from './clientChart/ClientCareTimeline.vue';
 import ClientIntakeNotePanel from './clientChart/ClientIntakeNotePanel.vue';
 import ClientRecordsOverview from './clientChart/ClientRecordsOverview.vue';
+import ClientExchangeSummary from '../clientExchange/ClientExchangeSummary.vue';
 import ClientTreatmentPlansPanel from './clientChart/ClientTreatmentPlansPanel.vue';
 import ClientLearningOsPanel from './clientChart/ClientLearningOsPanel.vue';
 import ClientAuthorizationsPanel from './clientChart/ClientAuthorizationsPanel.vue';
@@ -3969,6 +3986,27 @@ const canViewMedicalRecord = computed(() => {
 
 const clientAgencyId = computed(() => Number(props.client?.agency_id || 0) || null);
 const clientChartClientId = computed(() => Number(props.client?.id || 0) || null);
+const careSummary = ref(null);
+const careSummaryLoading = ref(false);
+const careSummaryError = ref('');
+let careSummaryVersion = 0;
+watch([clientAgencyId, clientChartClientId, canViewMedicalRecord, chartHub, () => props.client?.updated_at], async ([agencyId, clientId, enabled, hub]) => {
+  const version = ++careSummaryVersion;
+  careSummary.value = null;
+  careSummaryError.value = '';
+  careSummaryLoading.value = false;
+  if (!enabled || !agencyId || !clientId || !['overview', 'account'].includes(hub)) return;
+  careSummaryLoading.value = true;
+  try {
+    const { data } = await api.get(`/client-exchange/clients/${clientId}/summary`, { params: { agencyId } });
+    if (version === careSummaryVersion) careSummary.value = data.summary;
+  } catch (error) {
+    if (version === careSummaryVersion) careSummaryError.value = error?.response?.data?.error?.message || 'Unable to load clinical summary';
+  } finally {
+    if (version === careSummaryVersion) careSummaryLoading.value = false;
+  }
+}, { immediate: true });
+
 
 const showPostToExchangeModal = ref(false);
 const postToExchangeClientLabel = computed(() => {

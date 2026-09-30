@@ -25,6 +25,8 @@
         </div>
       </div>
 
+      <slot name="clinical-summary" />
+
       <div class="cc-tile-row">
         <button type="button" class="cc-tile" disabled>
           <div class="cc-tile__k">Current status</div>

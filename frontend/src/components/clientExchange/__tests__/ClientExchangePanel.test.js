@@ -1,14 +1,14 @@
 import { mount, flushPromises } from '@vue/test-utils';
 import { reactive } from 'vue';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ store: null, get: vi.fn(), route: { params: {}, query: {} } }));
+const mocks = vi.hoisted(() => ({ store: null, get: vi.fn(), post: vi.fn(), user: { id: 7, role: 'provider' }, route: { params: {}, query: {} } }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => mocks.store }));
-vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 7, role: 'provider' } }) }));
+vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: mocks.user }) }));
 vi.mock('vue-router', () => ({ useRoute: () => mocks.route }));
-vi.mock('../../../services/api', () => ({ default: { get: mocks.get } }));
+vi.mock('../../../services/api', () => ({ default: { get: mocks.get, post: mocks.post } }));
 vi.mock('../../../composables/useClientDisplayMode', () => ({ useClientDisplayMode: () => ({ getClientLabel: () => 'Referral' }) }));
 import Panel from '../ClientExchangePanel.vue';
-const makeWrapper = () => mount(Panel, { global: { stubs: { ListingCard: true, ClientDisplayModeToggle: true, PostListingModal: true } } });
+const makeWrapper = () => mount(Panel, { global: { stubs: { RouterLink: true, ListingCard: true, ClientDisplayModeToggle: true, PostListingModal: true } } });
 describe('exchange agency loading', () => {
   beforeEach(() => {
     mocks.store = reactive({ currentAgency: null, userAgencies: [], agencies: [], fetchUserAgencies: vi.fn().mockResolvedValue([]) });
@@ -34,4 +34,21 @@ describe('exchange agency loading', () => {
     expect(mocks.get).toHaveBeenCalledWith('/client-exchange/listings', { params: { agencyId: 3 } });
     wrapper.unmount();
   });
+});
+
+it('shows the shared client details before allowing a claim and prevents duplicate claims', async () => {
+  const listing = { id: 4, agencyId: 2, status: 'requested', currentProviderUserId: 99, presentingProblems: ['Current treatment concern'], diagnoses: ['F41.1 — Anxiety'], pendingRequestCount: 1 };
+  mocks.user = { id: 7, role: 'provider' };
+  mocks.store = reactive({ currentAgency: { id: 2 }, userAgencies: [], agencies: [], fetchUserAgencies: vi.fn().mockResolvedValue([]) });
+  mocks.route.query = { listingId: '4' };
+  let claimed = false;
+  mocks.get.mockImplementation(async url => ({ data: url.endsWith('/4') ? { listing, requests: claimed ? [{ id: 8, listingId: 4, status: 'pending' }] : [] } : url.endsWith('my-requests') ? { requests: claimed ? [{ id: 8, listingId: 4, status: 'pending' }] : [] } : { listings: [listing] } }));
+  mocks.post.mockImplementation(async () => { claimed = true; return { data: {} }; });
+  const wrapper = makeWrapper(); await flushPromises();
+  expect(wrapper.text()).toContain('Current treatment concern'); expect(wrapper.text()).toContain('F41.1 — Anxiety');
+  const claim = wrapper.findAll('button').find(button => button.text() === 'Claim client');
+  expect(claim).toBeDefined(); await claim.trigger('click'); await flushPromises();
+  expect(mocks.post).toHaveBeenCalledWith('/client-exchange/listings/4/requests', { message: '' });
+  expect(wrapper.findAll('button').some(button => button.text() === 'Claim client')).toBe(false);
+  wrapper.unmount();
 });

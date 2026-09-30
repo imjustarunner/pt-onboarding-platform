@@ -161,3 +161,12 @@ test('exchange matches default to inbox and email for staff who receive a match'
     assert.equal(result.effective.sms, false, userRole);
   }
 });
+
+test('exchange claims and assignments reach provider and support inboxes by default', () => {
+  for (const userRole of ['provider', 'support']) {
+    for (const type of ['client_exchange_claim', 'client_exchange_assigned']) {
+      const preference = resolveNotificationTypePreference(type, { userRole, globalPreferences: {}, legacyCategories: {}, typePreferences: new Map(), agencyPreferences: null });
+      assert.equal(preference.effective.inApp, true);
+    }
+  }
+});

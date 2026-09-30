@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { buildExchangeEmail } from '../utils/clientExchangeSummary.js';
 import Agency from '../models/Agency.model.js';
 import Notification from '../models/Notification.model.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
@@ -31,7 +32,7 @@ export async function notifyExchangeMatches({ listing, client }) {
       summary.matched++;
       await Notification.create({
         type: 'client_exchange_match', severity: 'info', title: 'New Client Exchange match',
-        message: 'A new referral matches your client preferences. Open the exchange to review and request it.',
+        message: 'A new referral matches your client preferences. View the client and claim it in the exchange.',
         userId: user.id, agencyId, relatedEntityType: 'client_exchange_listing', relatedEntityId: listing.id,
         actorUserId: listing.postedByUserId, actorSource: 'client_exchange',
         audienceJson: { agencySlug: agency?.slug || agency?.portal_url }
@@ -43,7 +44,7 @@ export async function notifyExchangeMatches({ listing, client }) {
       const result = await sendEmailFromIdentity({
         senderIdentityId: sender.id, to, userId: user.id, source: 'auto',
         subject: 'New Client Exchange match',
-        text: `A new referral matches your client preferences. Sign in to review the listing and request this client:\n\n${link}`,
+        ...buildExchangeEmail({ listing, link }),
         templateType: 'client_exchange_match', linkUrl: link, fromDisplayNameOverride: 'Notifications'
       });
       if (result?.skipped || result?.blocked) summary.failed++;
@@ -55,4 +56,25 @@ export async function notifyExchangeMatches({ listing, client }) {
     }
   }
   return summary;
+}
+
+async function exchangeActivityNotification({ listing, userId, type, title, message, actorUserId }) {
+  const agency = await Agency.findById(listing.agency_id);
+  return Notification.create({
+    type, severity: 'info', title, message, userId, agencyId: listing.agency_id,
+    relatedEntityType: 'client_exchange_listing', relatedEntityId: listing.id, actorUserId,
+    actorSource: 'client_exchange', audienceJson: { agencySlug: agency?.slug || agency?.portal_url }
+  });
+}
+
+export async function notifyExchangeClaim({ listing, requestingProviderUserId }) {
+  const recipient = listing.current_provider_user_id || listing.posted_by_user_id;
+  if (!recipient || Number(recipient) === Number(requestingProviderUserId)) return;
+  await exchangeActivityNotification({ listing, userId: recipient, type: 'client_exchange_claim',
+    title: 'New Client Exchange claim', message: 'A provider has claimed your referral. Review all claims and choose a provider in Client Exchange.', actorUserId: requestingProviderUserId });
+}
+
+export async function notifyExchangeAssignment({ listing, request, actingUserId }) {
+  await exchangeActivityNotification({ listing, userId: request.requesting_provider_user_id, type: 'client_exchange_assigned',
+    title: 'Client Exchange assignment confirmed', message: 'You have been assigned the client you claimed. Open the exchange to view the client record.', actorUserId: actingUserId });
 }

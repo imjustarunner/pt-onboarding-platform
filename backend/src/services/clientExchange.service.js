@@ -1,6 +1,9 @@
 import pool from '../config/database.js';
 import { notifyExchangeMatches } from './clientExchangeNotifications.service.js';
-import { clientAge } from '../utils/clientExchangeMatching.js';
+import { loadClientExchangeSummary } from './clientExchangeSummary.service.js';
+import { mergeExchangeSummary, summaryItems } from '../utils/clientExchangeSummary.js';
+import { createExchangeClaim, resolveExchangeClaim, withdrawExchangeListing } from './clientExchangeClaims.service.js';
+import { notifyExchangeClaim, notifyExchangeAssignment } from './clientExchangeNotifications.service.js';
 import Client from '../models/Client.model.js';
 import ClientStatusHistory from '../models/ClientStatusHistory.model.js';
 import { generateUniqueSixDigitClientCode } from '../utils/clientCode.js';
@@ -63,6 +66,8 @@ function mapListingRow(row) {
     status: row.status,
     demographics: parseJsonColumn(row.demographics_json),
     presentingProblems: parseJsonColumn(row.presenting_problems_json),
+    presentingProblemSource: parseJsonColumn(row.preferences_json)?.presentingProblemSource || null,
+    presentingProblemUpdatedAt: parseJsonColumn(row.preferences_json)?.presentingProblemUpdatedAt || null,
     diagnoses: parseJsonColumn(row.diagnoses_json),
     preferences: parseJsonColumn(row.preferences_json),
     notes: row.notes || null,
@@ -107,6 +112,9 @@ function isPrivilegedViewer({ viewerRole, viewerUserId, listing }) {
 function redactListing(listing, { viewerRole, viewerUserId }) {
   const mapped = mapListingRow(listing);
   if (!mapped) return null;
+  mapped.canManageClaims = ['admin', 'super_admin', 'support', 'staff'].includes(String(viewerRole || '').toLowerCase())
+    || Number(viewerUserId) === Number(listing.current_provider_user_id)
+    || (!listing.current_provider_user_id && Number(viewerUserId) === Number(listing.posted_by_user_id));
   if (isPrivilegedViewer({ viewerRole, viewerUserId, listing })) {
     return {
       ...mapped,
@@ -148,7 +156,30 @@ export async function listListings({ agencyId, status, viewerUserId, viewerRole 
      ORDER BY FIELD(l.status, 'open', 'requested', 'approved', 'withdrawn', 'closed'), l.created_at DESC`,
     values
   );
+  for (let i = 0; i < (rows || []).length; i += 5) {
+    await Promise.all(rows.slice(i, i + 5).map(hydrateListingSummary));
+  }
   return (rows || []).map((row) => redactListing(row, { viewerUserId, viewerRole }));
+}
+
+async function hydrateListingSummary(row) {
+  if (!row.client_id || !['open', 'requested'].includes(row.status)) return row;
+  const client = await Client.findById(row.client_id);
+  if (!client || Number(client.agency_id) !== Number(row.agency_id)) return row;
+  const saved = await loadClientExchangeSummary({ client });
+  const preferences = parseJsonColumn(row.preferences_json) || {};
+  const summary = mergeExchangeSummary(saved, {
+    presentingProblems: preferences.additionalPresentingProblems ?? (saved.presentingProblems.length ? [] : parseJsonColumn(row.presenting_problems_json)),
+    preferences,
+    demographics: parseJsonColumn(row.demographics_json)
+  });
+  summary.preferences.presentingProblemSource = saved.presentingProblemSource;
+  summary.preferences.presentingProblemUpdatedAt = saved.presentingProblemUpdatedAt;
+  row.diagnoses_json = summary.diagnoses;
+  row.presenting_problems_json = summary.presentingProblems;
+  row.demographics_json = summary.demographics;
+  row.preferences_json = summary.preferences;
+  return row;
 }
 
 async function getRawListingById(listingId) {
@@ -174,6 +205,7 @@ async function getRawListingById(listingId) {
 export async function getListingById(listingId, { viewerUserId, viewerRole } = {}) {
   const row = await getRawListingById(listingId);
   if (!row) return null;
+  await hydrateListingSummary(row);
   return redactListing(row, { viewerUserId, viewerRole });
 }
 
@@ -207,10 +239,15 @@ export async function createListing({
     throw new Error('This client already has an open listing in the exchange');
   }
 
-  const intake = parseJsonColumn(client.intake_preferences_json) || {};
-  const age = clientAge(client);
-  demographics = { ...(age == null ? {} : { ageBand: String(age) }), ...(safeJson(demographics) || {}) };
-  preferences = { modality: intake.preferredModality, ...(safeJson(preferences) || {}) };
+  const savedSummary = await loadClientExchangeSummary({ client });
+  const sharedSummary = mergeExchangeSummary(savedSummary, {
+    demographics: safeJson(demographics), preferences: safeJson(preferences),
+    presentingProblems: safeJson(presentingProblems), diagnoses: safeJson(diagnoses)
+  });
+  sharedSummary.preferences.additionalPresentingProblems = summaryItems(presentingProblems);
+  sharedSummary.preferences.presentingProblemSource = savedSummary.presentingProblemSource;
+  sharedSummary.preferences.presentingProblemUpdatedAt = savedSummary.presentingProblemUpdatedAt;
+  ({ demographics, preferences, presentingProblems, diagnoses } = sharedSummary);
 
   const resolvedCurrentProvider = currentProviderUserId != null ? Number(currentProviderUserId) : (client.provider_id || null);
 
@@ -277,54 +314,16 @@ export async function createListing({
 }
 
 export async function withdrawListing({ listingId, actingUserId }) {
-  const listing = await getRawListingById(listingId);
-  if (!listing) throw new Error('Listing not found');
-  if (!['open', 'requested'].includes(listing.status)) {
-    throw new Error('Only open listings can be withdrawn');
-  }
-  await pool.execute(
-    `UPDATE client_exchange_listings SET status = 'withdrawn', closed_at = NOW(), closed_by_user_id = ? WHERE id = ?`,
-    [actingUserId || null, listing.id]
-  );
-  await pool.execute(
-    `UPDATE client_exchange_requests SET status = 'withdrawn', resolved_by_user_id = ?, resolved_at = NOW()
-     WHERE listing_id = ? AND status = 'pending'`,
-    [actingUserId || null, listing.id]
-  );
-  return getListingById(listing.id, { viewerUserId: actingUserId, viewerRole: 'admin' });
+  await withdrawExchangeListing({ listingId, actingUserId });
+  return getListingById(listingId, { viewerUserId: actingUserId, viewerRole: 'admin' });
 }
 
 export async function createRequest({ listingId, requestingProviderUserId, message = null }) {
-  const listing = await getRawListingById(listingId);
-  if (!listing) throw new Error('Listing not found');
-  if (!['open', 'requested'].includes(listing.status)) {
-    throw new Error('This listing is no longer accepting requests');
-  }
-  const requesterId = Number(requestingProviderUserId);
-  if (!requesterId) throw new Error('requestingProviderUserId is required');
-  if (requesterId === Number(listing.current_provider_user_id || 0)) {
-    throw new Error('You are already the current provider for this client');
-  }
-
-  const [existing] = await pool.execute(
-    `SELECT id FROM client_exchange_requests WHERE listing_id = ? AND requesting_provider_user_id = ? AND status = 'pending' LIMIT 1`,
-    [listing.id, requesterId]
-  );
-  if (existing?.[0]?.id) {
-    throw new Error('You already have a pending request for this listing');
-  }
-
-  const [result] = await pool.execute(
-    `INSERT INTO client_exchange_requests (listing_id, requesting_provider_user_id, status, message)
-     VALUES (?, ?, 'pending', ?)`,
-    [listing.id, requesterId, message || null]
-  );
-
-  if (listing.status === 'open') {
-    await pool.execute(`UPDATE client_exchange_listings SET status = 'requested' WHERE id = ?`, [listing.id]);
-  }
-
-  return getRequestById(result.insertId);
+  const { requestId, listing } = await createExchangeClaim({ listingId, requestingProviderUserId, message });
+  await notifyExchangeClaim({ listing, requestingProviderUserId }).catch(error => {
+    console.error('[clientExchange] Claim notification failed', { listingId, error: error?.message });
+  });
+  return getRequestById(requestId);
 }
 
 export async function getRequestById(requestId) {
@@ -379,78 +378,14 @@ export async function listMyRequests({ agencyId, requestingProviderUserId }) {
  * provider (logged via the normal status-history trail), closes the
  * listing, and auto-denies any other pending requests for the same listing.
  */
-export async function resolveRequest({ requestId, action, actingUserId, denialReason = null }) {
-  const act = String(action || '').toLowerCase();
-  if (!['approve', 'deny'].includes(act)) throw new Error('action must be approve or deny');
-
-  const [rows] = await pool.execute(
-    `SELECT r.*, l.id AS listing_id, l.client_id, l.status AS listing_status
-     FROM client_exchange_requests r
-     JOIN client_exchange_listings l ON l.id = r.listing_id
-     WHERE r.id = ?
-     LIMIT 1`,
-    [Number(requestId)]
-  );
-  const request = rows?.[0] || null;
-  if (!request) throw new Error('Request not found');
-  if (request.status !== 'pending') throw new Error('Request has already been resolved');
-
-  if (act === 'deny') {
-    await pool.execute(
-      `UPDATE client_exchange_requests SET status = 'denied', resolved_by_user_id = ?, resolved_at = NOW(), denial_reason = ?
-       WHERE id = ?`,
-      [actingUserId || null, denialReason || null, request.id]
-    );
-    const [stillPending] = await pool.execute(
-      `SELECT COUNT(*) AS cnt FROM client_exchange_requests WHERE listing_id = ? AND status = 'pending'`,
-      [request.listing_id]
-    );
-    if (Number(stillPending?.[0]?.cnt || 0) === 0 && request.listing_status === 'requested') {
-      await pool.execute(`UPDATE client_exchange_listings SET status = 'open' WHERE id = ?`, [request.listing_id]);
-    }
-    return getRequestById(request.id);
-  }
-
-  // Approve: reassign the client, close the listing, deny remaining requests.
-  if (request.client_id) {
-    await Client.assignProvider(
-      request.client_id,
-      request.requesting_provider_user_id,
-      actingUserId || null,
-      'Reassigned via Client Exchange'
-    );
-  }
-
-  await pool.execute(
-    `UPDATE client_exchange_requests SET status = 'approved', resolved_by_user_id = ?, resolved_at = NOW()
-     WHERE id = ?`,
-    [actingUserId || null, request.id]
-  );
-  await pool.execute(
-    `UPDATE client_exchange_requests SET status = 'denied', resolved_by_user_id = ?, resolved_at = NOW(),
-       denial_reason = 'Another provider was approved for this listing'
-     WHERE listing_id = ? AND status = 'pending' AND id != ?`,
-    [actingUserId || null, request.listing_id, request.id]
-  );
-  await pool.execute(
-    `UPDATE client_exchange_listings
-     SET status = 'closed', closed_at = NOW(), closed_by_user_id = ?, current_provider_user_id = ?
-     WHERE id = ?`,
-    [actingUserId || null, request.requesting_provider_user_id, request.listing_id]
-  );
-
-  if (request.client_id) {
-    await ClientStatusHistory.create({
-      client_id: request.client_id,
-      changed_by_user_id: actingUserId || null,
-      field_changed: 'client_exchange_listing',
-      from_value: 'requested',
-      to_value: 'closed',
-      note: 'Client Exchange request approved; provider reassigned'
+export async function resolveRequest(options) {
+  const { listing, request } = await resolveExchangeClaim(options);
+  if (options.action === 'approve') {
+    await notifyExchangeAssignment({ listing, request, actingUserId: options.actingUserId }).catch(error => {
+      console.error('[clientExchange] Assignment notification failed', { listingId: listing.id, error: error?.message });
     });
   }
-
-  return getRequestById(request.id);
+  return getRequestById(options.requestId);
 }
 
 /**

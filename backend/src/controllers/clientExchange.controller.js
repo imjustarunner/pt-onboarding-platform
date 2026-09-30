@@ -1,7 +1,8 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
-import { providerHasAssignedClientAccess } from '../services/clientRecordAccess.service.js';
+import { loadClientExchangeSummary } from '../services/clientExchangeSummary.service.js';
+import { providerHasAssignedClientAccess, resolveClientRecordAccess } from '../services/clientRecordAccess.service.js';
 import * as ClientExchange from '../services/clientExchange.service.js';
 
 function safeInt(v) {
@@ -79,6 +80,22 @@ export async function getListing(req, res, next) {
   }
 }
 
+/** Read-only chart summary; publishing continues to require posting authorization. */
+export async function previewClientSummary(req, res, next) {
+  try {
+    const clientId = safeInt(req.params.clientId);
+    const agencyId = safeInt(req.query.agencyId);
+    if (!clientId || !agencyId) return res.status(400).json({ error: { message: 'clientId and agencyId are required' } });
+    const client = await Client.findById(clientId);
+    if (!client || Number(client.agency_id) !== agencyId) return res.status(404).json({ error: { message: 'Client not found' } });
+    const allowedRoles = ['admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'];
+    if (!allowedRoles.includes(req.user.role)) return res.status(403).json({ error: { message: 'Forbidden' } });
+    const access = await resolveClientRecordAccess({ userId: req.user.id, role: req.user.role, client });
+    if (!access.ok) return res.status(access.status || 403).json({ error: { message: access.message } });
+    res.json({ summary: await loadClientExchangeSummary({ client }) });
+  } catch (error) { next(error); }
+}
+
 /** POST /api/client-exchange/listings */
 export async function createListing(req, res, next) {
   try {
@@ -140,6 +157,7 @@ export async function withdrawListing(req, res, next) {
     const listing = await ClientExchange.withdrawListing({ listingId, actingUserId: req.user.id });
     res.json({ listing });
   } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     const msg = e?.message || 'Failed to withdraw listing';
     if (/not found|Only open listings/i.test(msg)) {
       return res.status(400).json({ error: { message: msg } });
@@ -165,6 +183,7 @@ export async function createRequest(req, res, next) {
     });
     res.status(201).json({ request });
   } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     const msg = e?.message || 'Failed to request listing';
     if (/not found|no longer accepting|already have a pending|already the current provider/i.test(msg)) {
       return res.status(400).json({ error: { message: msg } });
@@ -194,7 +213,7 @@ async function resolveRequestAction(req, res, next, action) {
     if (!requestId) return res.status(400).json({ error: { message: 'Invalid request id' } });
 
     const [rows] = await pool.execute(
-      `SELECT r.id, r.status, l.id AS listing_id, l.agency_id, l.current_provider_user_id
+      `SELECT r.id, r.status, l.id AS listing_id, l.agency_id, l.current_provider_user_id, l.posted_by_user_id
        FROM client_exchange_requests r
        JOIN client_exchange_listings l ON l.id = r.listing_id
        WHERE r.id = ?
@@ -207,7 +226,8 @@ async function resolveRequestAction(req, res, next, action) {
       return res.status(403).json({ error: { message: 'Forbidden' } });
     }
     const uid = Number(req.user.id);
-    const canResolve = isBackoffice(req.user.role) || uid === Number(row.current_provider_user_id || 0);
+    const canResolve = isBackoffice(req.user.role) || uid === Number(row.current_provider_user_id || 0)
+      || (!row.current_provider_user_id && uid === Number(row.posted_by_user_id));
     if (!canResolve) {
       return res.status(403).json({ error: { message: 'Only the current provider or admin/support can resolve this request' } });
     }
@@ -216,10 +236,12 @@ async function resolveRequestAction(req, res, next, action) {
       requestId,
       action,
       actingUserId: req.user.id,
+      actingRole: req.user.role,
       denialReason: req.body?.denialReason || null
     });
     res.json({ request });
   } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     const msg = e?.message || 'Failed to resolve request';
     if (/not found|already been resolved|action must be/i.test(msg)) {
       return res.status(400).json({ error: { message: msg } });

@@ -23,15 +23,13 @@
           <strong v-if="clientLabel" class="lc-client-label">{{ clientLabel }}</strong>
           <span v-if="listing.clientType" class="lc-type">{{ formatClientType(listing.clientType) }}</span>
           <span v-if="listing.pendingRequestCount > 0" class="lc-pending-badge">
-            {{ listing.pendingRequestCount }} pending request{{ listing.pendingRequestCount === 1 ? '' : 's' }}
+            {{ listing.pendingRequestCount }} pending claim{{ listing.pendingRequestCount === 1 ? '' : 's' }}
           </span>
         </div>
         <div class="lc-meta muted">Posted {{ formatDate(listing.createdAt) }}</div>
       </div>
 
-      <div class="lc-chips" v-if="chips.length">
-        <span v-for="(chip, idx) in chips" :key="idx" class="lc-chip">{{ chip }}</span>
-      </div>
+      <ClientExchangeSummary :listing="listing" />
 
       <p v-if="listing.notes" class="lc-notes">{{ listing.notes }}</p>
 
@@ -40,14 +38,7 @@
       </div>
 
       <div class="lc-actions" @click.stop>
-        <button
-          v-if="canRequest"
-          type="button"
-          class="btn btn-primary btn-sm"
-          @click="showRequestForm = !showRequestForm"
-        >
-          Request this client
-        </button>
+        <button type="button" class="btn btn-primary btn-sm" @click="$emit('select', listing)">View client</button>
         <button
           v-if="canWithdraw"
           type="button"
@@ -57,32 +48,20 @@
           Withdraw
         </button>
         <button type="button" class="btn-link" @click="toggleExpand">
-          {{ expanded ? 'Hide requests' : 'View requests' }}
+          {{ expanded ? 'Hide claims' : 'Review claims' }}
         </button>
       </div>
 
-      <div v-if="showRequestForm" class="lc-request-form" @click.stop>
-        <textarea
-          v-model="requestMessage"
-          rows="2"
-          placeholder="Optional note for the current provider (availability, fit, etc.)"
-        ></textarea>
-        <div class="lc-request-form-actions">
-          <button type="button" class="btn btn-primary btn-sm" @click="submitRequest">Send request</button>
-          <button type="button" class="btn btn-secondary btn-sm" @click="showRequestForm = false">Cancel</button>
-        </div>
-      </div>
-
       <div v-if="expanded" class="lc-requests" @click.stop>
-        <div v-if="requestsLoading" class="muted">Loading requests…</div>
-        <div v-else-if="requests.length === 0" class="muted">No requests yet.</div>
+        <div v-if="requestsLoading" class="muted">Loading claims…</div>
+        <div v-else-if="requests.length === 0" class="muted">No claims yet.</div>
         <table v-else class="lc-requests-table">
           <thead>
             <tr>
               <th>Provider</th>
               <th>Message</th>
               <th>Status</th>
-              <th v-if="isBackoffice || isCurrentProvider"></th>
+              <th v-if="listing.canManageClaims"></th>
             </tr>
           </thead>
           <tbody>
@@ -90,10 +69,10 @@
               <td>{{ r.requestingProviderName || `Provider #${r.requestingProviderUserId}` }}</td>
               <td>{{ r.message || '—' }}</td>
               <td><span class="status-badge" :class="`status-${r.status}`">{{ r.status }}</span></td>
-              <td v-if="isBackoffice || isCurrentProvider">
+              <td v-if="listing.canManageClaims">
                 <div v-if="r.status === 'pending'" class="lc-request-resolve">
                   <button type="button" class="btn btn-primary btn-sm" @click="$emit('approve', { requestId: r.id, listingId: listing.id })">
-                    Approve
+                    {{ listing.currentProviderUserId ? 'Transfer to provider' : 'Assign to provider' }}
                   </button>
                   <button type="button" class="btn btn-secondary btn-sm" @click="$emit('deny', { requestId: r.id, listingId: listing.id })">
                     Deny
@@ -110,6 +89,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import ClientExchangeSummary from './ClientExchangeSummary.vue';
 
 const props = defineProps({
   listing: { type: Object, required: true },
@@ -121,36 +101,16 @@ const props = defineProps({
   clientLabel: { type: String, default: '' },
   compact: { type: Boolean, default: false }
 });
-const emit = defineEmits(['request', 'withdraw', 'expand', 'approve', 'deny', 'select']);
+const emit = defineEmits(['withdraw', 'expand', 'approve', 'deny', 'select']);
 
 const expanded = ref(false);
-const showRequestForm = ref(false);
-const requestMessage = ref('');
 
 const isCurrentProvider = computed(() => Number(props.listing.currentProviderUserId) === Number(props.currentUserId));
 const isPoster = computed(() => Number(props.listing.postedByUserId) === Number(props.currentUserId));
 
-const canRequest = computed(() => {
-  if (!['open', 'requested'].includes(props.listing.status)) return false;
-  return !isCurrentProvider.value;
-});
 const canWithdraw = computed(() => {
   if (!['open', 'requested'].includes(props.listing.status)) return false;
   return props.isBackoffice || isPoster.value || isCurrentProvider.value;
-});
-
-const chips = computed(() => {
-  const out = [];
-  const demo = props.listing.demographics || {};
-  if (demo.ageBand) out.push(`Age: ${demo.ageBand}`);
-  if (demo.gender) out.push(demo.gender);
-  const problems = props.listing.presentingProblems;
-  if (Array.isArray(problems)) out.push(...problems);
-  else if (problems && typeof problems === 'object') out.push(...Object.values(problems).filter(Boolean));
-  const prefs = props.listing.preferences || {};
-  if (prefs.modality) out.push(`Modality: ${prefs.modality}`);
-  if (prefs.insurance) out.push(`Insurance: ${prefs.insurance}`);
-  return out.filter(Boolean).slice(0, 8);
 });
 
 function formatClientType(t) {
@@ -174,11 +134,7 @@ function toggleExpand() {
   if (expanded.value) emit('expand', props.listing.id);
 }
 
-function submitRequest() {
-  emit('request', { listingId: props.listing.id, message: requestMessage.value || null });
-  showRequestForm.value = false;
-  requestMessage.value = '';
-}
+
 </script>
 
 <style scoped>
