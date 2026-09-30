@@ -177,6 +177,7 @@ const LABEL_OVERRIDES = {
 };
 
 const WORKFORCE_RELEVANT = new Set([
+  'kiosk_checkin', // Personal arrivals also apply to staff with provider duties.
   'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned',
   'temp_password_expired', 'invitation_expired', 'password_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
@@ -277,6 +278,7 @@ const GUARDIAN_RELEVANT = new Set([
 // smaller subset enabled when a user has not made an explicit per-type choice.
 // Optional relevant types remain available in settings, but start off.
 const WORKFORCE_ESSENTIAL = new Set([
+  'kiosk_checkin',
   'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned',
   'temp_password_expired', 'invitation_expired', 'password_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
@@ -493,7 +495,7 @@ for (const [category, types] of Object.entries(TYPES_BY_CATEGORY)) {
         sound: defaultOverrides.sound ?? required,
         digest: false,
         push: required && PUSH_CAPABLE.has(type),
-        email: required || type === 'client_exchange_match',
+        email: required || type === 'client_exchange_match' || type === 'kiosk_checkin',
         sms: required && SMS_CAPABLE.has(type),
         toastDurationMode:
           defaultOverrides.toastDurationMode ?? (required ? 'dismissable' : 'timed'),

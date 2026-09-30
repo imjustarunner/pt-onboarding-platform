@@ -38,7 +38,8 @@ const route = useRoute();
 const locationId = computed(() => props.locationId || route.params.locationId);
 const locationName = ref('');
 const timezone = ref('America/Denver');
-const providers = ref([]);
+const providerRows = ref([]);
+const providers = computed(() => providerRows.value.filter(p => !p.checkinClosesAt || Date.parse(p.checkinClosesAt) > now.value.getTime()));
 const loading = ref(true);
 const error = ref('');
 const tab = ref('providers');
@@ -54,7 +55,7 @@ async function loadProviders() {
   try {
     const { data } = await api.get(`/kiosk/${locationId.value}/providers-today`);
     if (requestGeneration !== generation) return;
-    providers.value = data.providers || []; locationName.value = data.locationName || ''; timezone.value = data.timezone || 'America/Denver'; error.value = '';
+    providerRows.value = data.providers || []; locationName.value = data.locationName || ''; timezone.value = data.timezone || 'America/Denver'; error.value = '';
   } catch { if (requestGeneration === generation) error.value = 'The schedule couldn’t refresh. Displayed information may be out of date.'; }
   finally { if (requestGeneration === generation) loading.value = false; }
 }
@@ -65,7 +66,7 @@ async function refresh() {
 }
 async function showProviders() { tab.value = 'providers'; await nextTick(); document.querySelector('.workspace')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); }
 function closeCheckin() { selectedProvider.value = null; refresh(); }
-watch(locationId, () => { applyOfficeInstallIdentity(locationId.value); generation++; providers.value = []; selectedProvider.value = null; loading.value = true; refreshing = false; refresh(); });
+watch(locationId, () => { applyOfficeInstallIdentity(locationId.value); generation++; providerRows.value = []; selectedProvider.value = null; loading.value = true; refreshing = false; refresh(); });
 onMounted(() => { applyOfficeInstallIdentity(locationId.value); refresh(); clockTimer = setInterval(() => { now.value = new Date(); }, 1000); refreshTimer = setInterval(refresh, 60_000); });
 onUnmounted(() => { generation++; clearInterval(clockTimer); clearInterval(refreshTimer); });
 </script>

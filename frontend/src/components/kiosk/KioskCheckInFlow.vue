@@ -113,6 +113,12 @@ watch(step, async () => { touch(); await nextTick(); panel.value?.focus(); });
 onMounted(() => {
   previousFocus = document.activeElement; panel.value?.focus(); loadSlots();
   timer = setInterval(() => {
+    if (!saving.value && ['slots', 'confirm'].includes(step.value)) {
+      slots.value = slots.value.filter(s => !s.checkinClosesAt || Date.parse(s.checkinClosesAt) > Date.now());
+      if (selected.value && !slots.value.some(s => s.eventId === selected.value.eventId)) {
+        selected.value = null; step.value = 'slots'; error.value = 'That check-in time has passed. Please choose another appointment or ask the office team.';
+      }
+    }
     if (step.value === 'done') { remaining.value -= 1; if (remaining.value <= 0) emit('close'); }
     else if (!saving.value && Date.now() - activityAt > 180_000) emit('close');
   }, 1000);

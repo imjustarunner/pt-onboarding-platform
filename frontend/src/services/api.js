@@ -160,6 +160,7 @@ api.interceptors.request.use(
       const url = String(config?.url || '');
       const isSchoolPortalApi =
         url.includes('/school-portal/') || url.startsWith('school-portal/');
+      const isOfficeKioskApi = /^\/kiosk\/\d+\//.test(url);
       const isPublicIntakeApi =
         url.includes('/public-intake/') || url.startsWith('public-intake/');
       const isBackgroundWidgetApi =
@@ -172,7 +173,7 @@ api.interceptors.request.use(
         || /\/agencies\/\d+\/(users|departments)(\?|$)/.test(url)
         || url.includes('/supervision/providers')
         || /\/availability\//.test(url);
-      if (!config?.skipGlobalLoading && (isSchoolPortalShellActive.value || isSchoolPortalApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
+      if (!config?.skipGlobalLoading && (isSchoolPortalShellActive.value || isSchoolPortalApi || isOfficeKioskApi || isPublicIntakeApi || isBackgroundWidgetApi)) {
         config.skipGlobalLoading = true;
       }
       if (!config?.skipGlobalLoading) {

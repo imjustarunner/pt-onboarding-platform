@@ -1,3 +1,4 @@
+import officeArrivalPublicRoutes from './routes/officeArrivalPublic.routes.js';
 import auricwellPreviewRoutes from './routes/auricwellPreview.routes.js';
 import { auricwellPreviewBoundary } from './middleware/auricwellPreview.middleware.js';
 import faxIntakeRoutes from './routes/faxIntake.routes.js';
@@ -896,6 +897,7 @@ app.use('/api/platform/business-onboarding', adminBusinessOnboardingRouter);
 app.use('/api/beta-feedback', betaFeedbackRoutes);
 app.use('/api/platform-retention-settings', platformRetentionSettingsRoutes);
 app.use('/api/onboarding-packages', onboardingPackageRoutes);
+app.use('/api/public/office-arrivals', officeArrivalPublicRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/email-templates', emailTemplateRoutes);
 app.use('/api/email-settings', emailSettingsRoutes);
@@ -2108,6 +2110,12 @@ if (!isBootstrap) {
 
   scheduleDailyDigest();
   setInterval(scheduleDailyDigest, 15 * 60 * 1000);
+
+  // Durable arrival fallback, shared safely across always-on Cloud Run replicas.
+  let arrivalTickRunning=false;
+  const arrivalTick=async()=>{if(arrivalTickRunning)return;arrivalTickRunning=true;try{const {runOfficeArrivalTick}=await import('./services/officeArrivalNotifications.service.js');await runOfficeArrivalTick();}catch(e){console.warn('[office-arrival]',e.code||'scheduler_error');}finally{arrivalTickRunning=false;}};
+  void arrivalTick();
+  setInterval(arrivalTick,15_000);
 
   // Messaging reminders: business-day delay, work addresses for SSO users.
   const scheduleInboxDigest = async () => {

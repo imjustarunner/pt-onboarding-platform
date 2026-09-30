@@ -55,3 +55,11 @@ describe('private office check-in', () => {
     await open(); await vi.advanceTimersByTimeAsync(181_000); expect(wrapper.emitted('close')).toHaveLength(1);
   });
 });
+it('removes an expired selection while the client is on the confirmation step',async()=>{
+ vi.setSystemTime(new Date('2026-09-30T12:29:59Z'));
+ api.get.mockResolvedValue({data:{slots:[{...slot,checkinClosesAt:'2026-09-30T12:30:00Z'}]}});
+ await open();await wrapper.get('.time').trigger('click');await wrapper.get('.primary').trigger('click');
+ expect(wrapper.find('input[value=caregiver]').exists()).toBe(true);
+ await vi.advanceTimersByTimeAsync(1000);
+ expect(wrapper.findAll('.time')).toHaveLength(0);expect(wrapper.find('input[value=caregiver]').exists()).toBe(false);expect(api.post).not.toHaveBeenCalled();
+});

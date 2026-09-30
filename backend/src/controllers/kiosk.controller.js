@@ -1,3 +1,4 @@
+import { canCheckIn, checkinClosesAt } from '../utils/officeCheckinWindow.js';
 import { assertCheckinClientAccess } from '../services/officeClientSubmissions.service.js';
 import { loadOfficeDirectory } from '../services/officeKioskDirectory.service.js';
 import { recordOfficeKioskCheckin } from '../services/officeKioskCheckin.service.js';
@@ -1444,6 +1445,7 @@ export const listProvidersToday = async (req, res, next) => {
     // Group by provider; determine status from their events relative to now
     const providerMap = new Map();
     for (const row of (rows || [])) {
+      if (!canCheckIn(row, nowMs)) continue;
       const pid = row.id;
       if (!providerMap.has(pid)) {
         providerMap.set(pid, {
@@ -1472,6 +1474,7 @@ export const listProvidersToday = async (req, res, next) => {
         });
       }
       providerMap.get(pid).events.push({
+        checkinClosesAt: checkinClosesAt(row),
         startAt: toOfficeWallStr(row.start_at, tz),
         endAt: toOfficeWallStr(row.end_at, tz),
         startMs: parseUtcDate(row.start_at)?.getTime() ?? NaN,
@@ -1500,6 +1503,7 @@ export const listProvidersToday = async (req, res, next) => {
         p.currentRoomNumber = futureEvents[0].roomNumber;
       }
 
+      p.checkinClosesAt = p.events.map(e => e.checkinClosesAt).sort().at(-1);
       delete p.events;
       providers.push(p);
     }
@@ -1554,7 +1558,8 @@ export const listProviderSlotsToday = async (req, res, next) => {
       [parseInt(locationId), parseInt(providerId), endAt, startAt]
     );
 
-    const slots = (rows || []).map((r) => ({
+    const slots = (rows || []).filter(r => canCheckIn(r)).map((r) => ({
+      checkinClosesAt: checkinClosesAt(r),
       eventId: r.event_id,
       startAt: toOfficeWallStr(r.start_at, tz),
       endAt: toOfficeWallStr(r.end_at, tz),

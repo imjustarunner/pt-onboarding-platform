@@ -1,10 +1,11 @@
 <template>
   <BrandingProvider>
     <AccountSecurityNotice v-if="isAuthenticated" />
+    <OfficeArrivalSplash v-if="isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" :key="user.id" />
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell }">
-      <div v-if="pageLoading && !isLoginEntry" class="agency-loading-overlay" aria-label="Loading">
+      <div v-if="pageLoading && !isLoginEntry && !isPublicOfficeRoute" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
           <div class="agency-loading-text">{{ loadingText }}</div>
@@ -2337,6 +2338,8 @@ import InactivityWarningModal from './components/InactivityWarningModal.vue';
 import NoteAidClockInPromptModal from './components/NoteAidClockInPromptModal.vue';
 import StatusPromptModal from './components/StatusPromptModal.vue';
 import PlannedOutLoginConflictModal from './components/PlannedOutLoginConflictModal.vue';
+import OfficeArrivalSplash from './components/kiosk/OfficeArrivalSplash.vue';
+import { isOfficePath } from './utils/officeSite.js';
 import AwaySessionOverlay from './components/AwaySessionOverlay.vue';
 import LogoutStatusSplit from './components/LogoutStatusSplit.vue';
 import TestAccountSwitcher from './components/TestAccountSwitcher.vue';
@@ -2751,6 +2754,7 @@ function suppressSchoolPortalFullscreenLoader() {
   pageLoading.value = false;
 }
 
+const isPublicOfficeRoute = computed(() => isOfficePath(route.path));
 const isPublicIntakeRoute = computed(() => routeLooksLikePublicIntake(route));
 
 function suppressPublicIntakeFullscreenLoader() {
@@ -6343,6 +6347,7 @@ const showNewNotificationToast = async () => {
       if (seenNotificationToastIds.has(key)) continue;
       seenNotificationToastIds.add(key);
       const type = String(item.type || item.notification_type || '').trim();
+      if (type === 'kiosk_checkin') continue; // Dedicated acknowledgment splash.
       const meta = item.metadata || item.meta || {};
       if (
         meta.refreshSchedule === true

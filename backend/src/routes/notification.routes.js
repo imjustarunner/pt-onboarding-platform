@@ -1,3 +1,4 @@
+import { listArrivals, acknowledgeArrival } from '../services/officeArrivalNotifications.service.js';
 import express from 'express';
 import {
   getNotifications,
@@ -29,6 +30,9 @@ const router = express.Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+router.get('/office-arrivals', async(req,res,next)=>{try{res.set('Cache-Control','no-store');res.json({arrivals:await listArrivals(req.user.id,req.user.role)});}catch(e){next(e);}});
+router.post('/office-arrivals/:id/acknowledge', async(req,res,next)=>{try{await acknowledgeArrival(Number(req.params.id),req.user.id,req.body?.inAppOnly===true);res.json({ok:true});}catch(e){next(e);}});
 
 // Get notifications with optional filters
 router.get('/', getNotifications);

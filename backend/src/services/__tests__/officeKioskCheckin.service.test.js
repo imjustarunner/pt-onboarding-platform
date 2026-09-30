@@ -52,14 +52,22 @@ describe('office arrival atomicity and privacy', () => {
     await expect(checkIn()).rejects.toHaveProperty('status', reason === 'other location' ? 404 : 409);
     expect(mocks.commit).not.toHaveBeenCalled();
   });
-  it('sends optional email from the office agency’s identity when opted in', async () => {
-    mocks.channel.mockResolvedValue(true); mocks.sender.mockResolvedValue({ id: 20 }); mocks.email.mockResolvedValue({});
-    expect((await checkIn()).notification.email).toBe('submitted');
-    expect(mocks.email).toHaveBeenCalledWith(expect.objectContaining({ to: 'provider@example.test', senderIdentityId: 20, templateType: 'kiosk_checkin', text: expect.stringContaining('7:00 PM MDT') }));
+  it('queues fallback atomically without sending immediate email or SMS', async () => {
+    expect((await checkIn()).notification.email).toBe('queued');
+    const insert=mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO office_arrival_deliveries'));
+    expect(insert[0]).toContain('INTERVAL 90 SECOND');
+    expect(insert[1]).toEqual([12,7,2]);
+    expect(mocks.email).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();
   });
-  it('preserves in-app success if optional email delivery fails', async () => {
-    mocks.channel.mockResolvedValue(true); mocks.sender.mockResolvedValue({ id: 20 }); mocks.email.mockRejectedValue(new Error('offline'));
-    expect((await checkIn()).notification).toEqual({ inApp: true, email: 'failed' });
-    expect(mocks.rollback).not.toHaveBeenCalled();
+  it('rejects a stale client at exactly thirty minutes after the start',async()=>{
+    vi.setSystemTime(new Date('2026-09-30T01:30:00Z'));
+    await expect(checkIn()).rejects.toHaveProperty('status',409);
+    expect(mocks.commit).not.toHaveBeenCalled();
+  });
+  it('rolls back when the durable fallback cannot be saved',async()=>{
+    const base=mocks.execute.getMockImplementation();mocks.execute.mockImplementation((sql,args)=>{
+      if(sql.includes('INSERT INTO office_arrival_deliveries'))throw new Error('Queue unavailable');return base(sql,args);
+    });
+    await expect(checkIn()).rejects.toThrow('Queue unavailable');expect(mocks.rollback).toHaveBeenCalledOnce();
   });
 });

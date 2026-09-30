@@ -1,9 +1,7 @@
 import { beginClientSubmission } from './officeClientSubmissions.service.js';
 import pool from '../config/database.js';
 import NotificationDispatcher from './notificationDispatcher.service.js';
-import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
-import { resolvePreferredSenderIdentityForAgency } from './emailSenderIdentityResolver.service.js';
-import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
+import { canCheckIn } from '../utils/officeCheckinWindow.js';
 import { officeTodayUtcBounds, parseUtcDate } from '../utils/officeEventDateTime.util.js';
 
 function reject(status, message) {
@@ -16,7 +14,6 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
   const conn = await pool.getConnection();
   let notification;
   let submission;
-  let recipient;
   let alreadyCheckedIn = false;
   try {
     await conn.beginTransaction();
@@ -44,6 +41,7 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
       && parseUtcDate(event.end_at) > parseUtcDate(bounds.startAt))) {
       throw reject(409, 'Check-in is available only for today’s appointments.');
     }
+    if (!canCheckIn(event)) throw reject(409, 'This check-in window has closed. Please ask the office team for help.');
     const [existing] = await conn.execute('SELECT id FROM office_event_checkins WHERE event_id = ?', [eventId]);
     let checkinId = existing[0]?.id;
     alreadyCheckedIn = !!checkinId;
@@ -80,7 +78,10 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
         [message, event.booked_provider_id, agencyId, checkinId]);
       notification = { id: insert.insertId, type: 'kiosk_checkin', severity: 'info',
         title: 'Your client has arrived', message, user_id: event.booked_provider_id, agency_id: agencyId };
-      recipient = event;
+      await conn.execute(
+        `INSERT INTO office_arrival_deliveries (notification_id, user_id, agency_id, due_at)
+         VALUES (?, ?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 90 SECOND))`,
+        [notification.id, notification.user_id, notification.agency_id]);
     }
     if (submissionKey) {
       const agencyId = notification?.agency_id || alerts[0]?.agency_id;
@@ -94,31 +95,8 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
   } finally {
     conn.release();
   }
-  // Additional channels cannot undo the saved arrival and inbox notification.
-  let email = 'not_requested';
-  if (notification) {
-    await Promise.allSettled([
-      NotificationDispatcher.dispatchForNotification(notification),
-      NotificationDispatcher.dispatchPushForNotification(notification)
-    ]);
-    try {
-      const enabled = await isNotificationChannelEnabled({ userId: notification.user_id,
-        userRole: recipient.role, agencyId: notification.agency_id, type: 'kiosk_checkin', channel: 'email' });
-      if (enabled) {
-        const sender = await resolvePreferredSenderIdentityForAgency({ agencyId: notification.agency_id,
-          preferredKeys: ['notifications', 'system'], includePlatformDefaults: false, onlyActive: true });
-        const to = recipient.work_email || recipient.email;
-        if (sender?.id && to) {
-          const result = await sendEmailFromIdentity({ senderIdentityId: sender.id, to,
-            subject: notification.title, text: notification.message, userId: notification.user_id,
-            templateType: 'kiosk_checkin', source: 'auto' });
-          email = result?.skipped ? 'skipped' : result?.pendingApproval ? 'pending' : 'submitted';
-        } else email = 'unavailable';
-      }
-    } catch (error) {
-      email = 'failed';
-      console.warn('[office-kiosk] Optional email failed:', error?.code || 'delivery_error');
-    }
-  }
+  // The durable fallback waits 90 seconds for acknowledgment. Push stays opt-in.
+  if (notification) await Promise.allSettled([NotificationDispatcher.dispatchPushForNotification(notification)]);
+  const email = notification ? 'queued' : 'not_requested';
   return { ok: true, eventId, alreadyCheckedIn, ...(submission ? {submission} : {}), notification: { inApp: true, email } };
 }
