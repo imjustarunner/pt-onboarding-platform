@@ -56,6 +56,7 @@ async function load({ background = false } = {}) {
   try {
     const { data } = await api.get(`/kiosk/${props.locationId}/office-directory`, { params: live.value ? {} : { date: date.value, time: time.value } });
     if (request !== generation) return;
+    if (!data.date || !data.time || !Array.isArray(data.rooms) || data.rooms.some(room => typeof room.occupied !== 'boolean' || !Array.isArray(room.current) || !Array.isArray(room.assignments))) throw new Error('Incomplete availability response');
     rooms.value = data.rooms || []; timezone.value = data.timezone; date.value = data.date; time.value = data.time;
   } catch { if (request === generation) { rooms.value = []; error.value = 'Office availability couldn’t load. Please retry or ask the office team.'; } }
   finally { if (request === generation) loading.value = false; }

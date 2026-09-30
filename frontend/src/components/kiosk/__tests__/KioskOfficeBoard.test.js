@@ -16,6 +16,11 @@ describe('office board navigation', () => {
   expect(api.get).toHaveBeenLastCalledWith('/kiosk/1/office-directory',{params:{date:'2026-09-30',time:'10:30'}});
   expect(wrapper.get('#room-details').text()).toContain('Office 1'); expect(wrapper.find('.room-card.occupied').exists()).toBe(false);
  });
+ it('does not paint old or incomplete API responses as available', async () => {
+  api.get.mockResolvedValue({data:{rooms:[{id:1,roomNumber:1,assignments:[]}]}});
+  wrapper=mount(KioskOfficeBoard,{props:{locationId:1}});await flushPromises();
+  expect(wrapper.find('[role="alert"]').exists()).toBe(true);expect(wrapper.find('.room-card').exists()).toBe(false);
+ });
  it('ignores late responses and clears stale colors when requests fail', async () => {
   let resolve;api.get.mockResolvedValueOnce({data});wrapper=mount(KioskOfficeBoard,{props:{locationId:1}});await flushPromises();
   api.get.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));await wrapper.get('[aria-label="Next day"]').trigger('click');
