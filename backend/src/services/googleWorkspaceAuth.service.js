@@ -1,3 +1,4 @@
+import { guardGmailClient } from './unifiedEmail/gmailTrafficGuard.js';
 import { google } from 'googleapis';
 
 // Required scopes (match Admin Console DWD configuration)
@@ -90,7 +91,7 @@ export async function buildImpersonatedJwtClient({
 export async function getWorkspaceClientsForEmployee({ subjectEmail } = {}) {
   const auth = await buildImpersonatedJwtClient({ subjectEmail });
   const calendar = google.calendar({ version: 'v3', auth });
-  const gmail = google.gmail({ version: 'v1', auth });
+  const gmail = guardGmailClient(google.gmail({ version: 'v1', auth }), subjectEmail);
   const drive = google.drive({ version: 'v3', auth });
   return { auth, calendar, gmail, drive };
 }

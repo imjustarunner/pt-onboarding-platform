@@ -27,3 +27,7 @@ it('caches successful verification briefly, never a failed lookup',async()=>{
  await assertVerifiedGmailSender(gmail,'provider@itsco.health');await assertVerifiedGmailSender(gmail,'provider@itsco.health');
  expect(gmail.users.settings.sendAs.get).toHaveBeenCalledTimes(1);
 });
+it('preserves a shared-mailbox cooldown without misclassifying the sender as unverified',async()=>{
+ const gmail=client(null);gmail.users.settings.sendAs.get.mockRejectedValue({code:'GMAIL_MAILBOX_THROTTLED',retryAt:12345});
+ await expect(assertVerifiedGmailSender(gmail,'kiosk@itsco.health')).rejects.toMatchObject({code:'EMAIL_SENDER_TEMPORARY',retryAt:12345});
+});

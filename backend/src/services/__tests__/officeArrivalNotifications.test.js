@@ -56,10 +56,10 @@ it('marks an uncertain transport failure for inspection without automatic resend
  m.send.mockRejectedValue(Object.assign(new Error('timeout'),{code:'ETIMEDOUT'}));await runOfficeArrivalTick();
  expect(m.execute.mock.calls.some(([sql])=>sql.includes("email_status='sending' OR attempts>=3"))).toBe(true);
 });
-it('retries a known pre-send verification throttle after Gmail’s deadline',async()=>{
- m.send.mockRejectedValue(Object.assign(new Error('Gmail rate limit'),{code:'EMAIL_SENDER_TEMPORARY',retryAt:Date.parse('2026-09-30T13:11:40Z')}));
+it.each(['EMAIL_SENDER_TEMPORARY','GMAIL_MAILBOX_THROTTLED','GMAIL_MAILBOX_BUSY'])('retries a known unsent %s after the mailbox deadline',async(code)=>{
+ m.send.mockRejectedValue(Object.assign(new Error('Gmail rate limit'),{code,retryAt:Date.parse('2026-09-30T13:11:40Z')}));
  await runOfficeArrivalTick();
- expect(m.execute.mock.calls.find(([sql])=>sql.includes("SET email_status='pending',last_error=?"))?.[1]).toEqual(['EMAIL_SENDER_TEMPORARY','2026-09-30 13:11:45',12]);
+ expect(m.execute.mock.calls.find(([sql])=>sql.includes("SET email_status='pending',last_error=?"))?.[1]).toEqual([code,'2026-09-30 13:11:45',12]);
 });
 
 it('waits for feedback before claiming mail but never delays acknowledgment suppression',async()=>{

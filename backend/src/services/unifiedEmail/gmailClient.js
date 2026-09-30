@@ -1,3 +1,4 @@
+import { guardGmailClient } from './gmailTrafficGuard.js';
 import { google } from 'googleapis';
 import {
   buildImpersonatedJwtClient,
@@ -33,7 +34,7 @@ export async function getGmailClient() {
     scopes: [...GOOGLE_WORKSPACE_SCOPES, 'https://www.googleapis.com/auth/gmail.modify']
   });
 
-  const gmail = google.gmail({ version: 'v1', auth });
+  const gmail = guardGmailClient(google.gmail({ version: 'v1', auth }),impersonate);
   cached = { cacheKey, gmail };
   return gmail;
 }

@@ -2371,11 +2371,14 @@ if (!isBootstrap) {
     inboundEmailAgentRunning = true;
     try {
       const { runInboundEmailAgentOnce } = await import('./services/unifiedEmail/inboundEmailAgent.service.js');
-      const maxMessages = process.env.EMAIL_AGENT_MAX_MESSAGES
-        ? Number(process.env.EMAIL_AGENT_MAX_MESSAGES)
-        : 50;
+      const maxMessages = Math.min(10, Math.max(1, Number(process.env.EMAIL_AGENT_MAX_MESSAGES) || 10));
       const { withMessagingJobLock } = await import('./services/messagingJobLock.service.js');
-      const result = await withMessagingJobLock('inbound', () => runInboundEmailAgentOnce({ maxMessages }));
+      const { claimGmailInboundPoll } = await import('./services/unifiedEmail/gmailTrafficGuard.js');
+      const { getImpersonatedUser } = await import('./services/unifiedEmail/gmailClient.js');
+      const result = await withMessagingJobLock('inbound', async () => {
+        if(!await claimGmailInboundPoll(getImpersonatedUser()))return {skipped:'mailbox_cooldown_or_poll_not_due'};
+        return runInboundEmailAgentOnce({ maxMessages });
+      });
       const scanned = Number(result?.scanned || 0);
       if (scanned > 0) {
         console.info('[EmailAgent] tick:', result);
@@ -2391,7 +2394,8 @@ if (!isBootstrap) {
       if (notConfigured) {
         console.warn('[EmailAgent] skipped (Gmail not fully configured):', msg);
       } else {
-        console.error('[EmailAgent] scheduler error:', error);
+        if(['GMAIL_MAILBOX_THROTTLED','GMAIL_MAILBOX_BUSY','EMAIL_SENDER_TEMPORARY'].includes(error.code))console.info('[EmailAgent] deferred until',new Date(error.retryAt).toISOString());
+        else console.error('[EmailAgent] scheduler error:', error?.code || 'inbound_failed');
       }
     } finally {
       inboundEmailAgentRunning = false;

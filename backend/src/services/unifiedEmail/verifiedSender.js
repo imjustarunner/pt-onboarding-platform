@@ -13,6 +13,7 @@ export async function assertVerifiedGmailSender(gmail, fromEmail) {
   try {
     alias = (await gmail.users.settings.sendAs.get({ userId: 'me', sendAsEmail: address }))?.data;
   } catch (cause) {
+    if(['GMAIL_MAILBOX_THROTTLED','GMAIL_MAILBOX_BUSY'].includes(cause.code))throw Object.assign(new Error('Gmail sender verification is waiting for the shared mailbox.'),{code:'EMAIL_SENDER_TEMPORARY',cause,retryAt:cause.retryAt});
     const status=Number(cause.response?.status||cause.code);
     if(status===429 || status>=500){
       const message=String(cause.response?.data?.error?.message||cause.message||'');

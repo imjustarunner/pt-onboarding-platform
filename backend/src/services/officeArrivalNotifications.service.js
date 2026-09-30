@@ -94,7 +94,7 @@ export async function runOfficeArrivalTick() {
       } catch(error) {
         // Verification happens before Gmail send. A temporary verification
         // failure is known not to have sent mail, so it is safe to retry.
-        if(error.code==='EMAIL_SENDER_TEMPORARY'){
+        if(['EMAIL_SENDER_TEMPORARY','GMAIL_MAILBOX_THROTTLED','GMAIL_MAILBOX_BUSY'].includes(error.code)){
           const retry=new Date(Math.max(Date.now()+60000,Number(error.retryAt)||0)+5000).toISOString().slice(0,19).replace('T',' ');
           await pool.execute("UPDATE office_arrival_deliveries SET email_status='pending',last_error=?,due_at=? WHERE notification_id=? AND email_status IN ('pending','sending')",[error.code,retry,row.notification_id]);
           continue;

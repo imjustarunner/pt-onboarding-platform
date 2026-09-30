@@ -3,10 +3,27 @@ import Directory from './googleWorkspaceDirectory.service.js';
 import { getImpersonatedUser } from './unifiedEmail/gmailClient.js';
 
 const norm = (s) => String(s || '').trim().toLowerCase();
+// Explicit Workspace configuration takes precedence over shared fallback senders.
+// Conflicting explicit owners stay unresolved; never silently pick a tenant.
+export function mailboxDomainOwners(senderDomains, configuredDomains) {
+  const collect = rows => {
+    const owners = new Map();
+    for (const row of rows) {
+      const domain = norm(row.domain);
+      if (!domain || domain === 'null') continue;
+      if (!owners.has(domain)) owners.set(domain, new Set());
+      owners.get(domain).add(Number(row.agency_id));
+    }
+    return owners;
+  };
+  const owners = collect(senderDomains);
+  for (const [domain, ids] of collect(configuredDomains)) owners.set(domain, ids);
+  return new Map([...owners].filter(([, ids]) => ids.size === 1).map(([domain, ids]) => [domain, [...ids][0]]));
+}
 /** Expand only addressed groups, never From/Reply-To. Stop at personal mailboxes:
  * their delegate/owner memberships must not grant those people another inbox's mail.
  */
-export async function expandMailboxRecipients(addresses, mailboxes, listMembers, groupAgencyIds = new Map()) {
+export async function expandMailboxRecipients(addresses, mailboxes, listMembers, groupAgencyIds = new Map(), domainAgencyIds = new Map()) {
   const byAddress = new Map();
   for (const box of mailboxes) {
     const aliases = typeof box.inbound_addresses_json === 'string' ? JSON.parse(box.inbound_addresses_json || '[]') : box.inbound_addresses_json || [];
@@ -32,7 +49,14 @@ export async function expandMailboxRecipients(addresses, mailboxes, listMembers,
       const tenantBoxes=matches.filter(b=>['agency','life_coach','consultant'].includes(b.organization_type));
       if(tenantBoxes.length===1) matches=tenantBoxes;
     }
-    if (matches.length > 1) throw new Error(`Ambiguous personal mailbox address: ${address}`);
+    if(matches.length>1 && !agencyId && matches.every(b=>b.owner_user_id!=null) && new Set(matches.map(b=>Number(b.owner_user_id))).size===1) {
+      // A direct address belongs to its uniquely configured tenant domain. Group
+      // context above still takes precedence; never choose between different owners.
+      const tenantId=domainAgencyIds.get(address.split('@')[1]);
+      const canonical=matches.filter(b=>Number(b.agency_id)===Number(tenantId));
+      if(canonical.length===1)matches=canonical;
+    }
+    if (matches.length > 1) throw Object.assign(new Error('Ambiguous personal mailbox address'),{code:'AMBIGUOUS_MAILBOX'});
     if (matches.length) { found.set(matches[0].id, matches[0]); continue; }
     for (const member of await listMembers(address)) {
       if (['NONE', 'DISABLED'].includes(member.delivery_settings)) continue;
@@ -73,6 +97,14 @@ export async function resolvePersonalMailRecipients(addresses, { sentFromEmail =
   let groupAgencyIds = new Map();
   try { const [groups] = await pool.execute('SELECT email,agency_id FROM managed_workspace_groups'); groupAgencyIds = new Map(groups.map(g=>[norm(g.email),Number(g.agency_id)])); }
   catch(e) { if(e.code!=='ER_NO_SUCH_TABLE')throw e; }
+  const [domainRows]=await pool.execute(`SELECT LOWER(SUBSTRING_INDEX(esi.from_email,'@',-1)) domain,esi.agency_id
+    FROM email_sender_identities esi JOIN agencies a ON a.id=esi.agency_id
+    WHERE esi.is_active=1 AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 AND a.organization_type IN ('agency','life_coach','consultant')
+      AND esi.identity_key IN ('system','notifications','kiosk','messages','support') AND esi.from_email LIKE '%@%'`);
+  const [configuredDomains] = await pool.execute(`SELECT id AS agency_id,
+    JSON_UNQUOTE(JSON_EXTRACT(feature_flags,'$.workspaceEmailDomain')) AS domain FROM agencies
+    WHERE is_active=1 AND COALESCE(is_archived,0)=0 AND organization_type IN ('agency','life_coach','consultant')`);
+  const domainAgencyIds = mailboxDomainOwners(domainRows, configuredDomains);
   return expandMailboxRecipients(addresses, boxes, async (groupKey) => {
     if (!admin) return [];
     // Calendar invitations often address the app relay and actual Workspace
@@ -91,5 +123,5 @@ export async function resolvePersonalMailRecipients(addresses, { sentFromEmail =
       members.push(...(result.data?.members || [])); pageToken = result.data?.nextPageToken;
     } while (pageToken);
     return members;
-  }, groupAgencyIds);
+  }, groupAgencyIds, domainAgencyIds);
 }

@@ -1,3 +1,4 @@
+import { deferredInboundMessages, deferInboundMessage, clearInboundRetry } from './gmailInboundRetry.js';
 import { resolvePersonalMailRecipients } from '../groupMailboxRouting.service.js';
 import pool from '../../config/database.js';
 import { getGmailClient, getImpersonatedUser } from './gmailClient.js';
@@ -898,13 +899,17 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
 
   const ourFromEmails = await listOurFromEmailsLower();
 
-  const list = await gmail.users.messages.list({
-    userId: 'me',
-    q: '-label:AI_PROCESSED -in:spam -in:trash newer_than:30d',
-    maxResults: Math.max(1, Math.min(50, Number(maxMessages) || 10))
-  });
-
-  const msgs = list.data?.messages || [];
+  const mailbox=getImpersonatedUser(),msgs=[],limit=Math.max(1,Math.min(10,Number(maxMessages)||10));
+  let pageToken;
+  // Skip deferred failures without fetching their bodies; page past them so a
+  // broken mapping cannot block newer/other recipients' mail indefinitely.
+  for(let page=0;page<4&&msgs.length<limit;page++) {
+    const list=await gmail.users.messages.list({userId:'me',q:'-label:AI_PROCESSED -in:spam -in:trash newer_than:30d',maxResults:50,...(pageToken?{pageToken}:{})});
+    const candidates=list.data?.messages||[];
+    const deferred=await deferredInboundMessages(mailbox,candidates.map(m=>m.id).filter(Boolean));
+    msgs.push(...candidates.filter(m=>m.id&&!deferred.has(m.id)).slice(0,limit-msgs.length));
+    pageToken=list.data?.nextPageToken;if(!pageToken)break;
+  }
   const statusDraftsEnabled = parseTruthy(process.env.EMAIL_AI_STATUS_DRAFTS_ENABLED);
   const reinitIntakeEnabled = statusDraftsEnabled && String(process.env.EMAIL_AI_REINIT_ENABLED || 'true').toLowerCase() !== 'false';
   const results = {
@@ -922,6 +927,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     const id = m.id;
     if (!id) continue;
 
+    let failed=false;
     try {
     const full = await gmail.users.messages.get({ userId: 'me', id, format: 'full' });
     const payload = full.data?.payload || null;
@@ -1012,9 +1018,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
         results.inboxDeliveries += 1;
       }
     } catch (e) {
-      console.warn('[EmailAgent] recipient delivery will retry:', e?.message || e);
-      results.needsHuman += 1;
-      continue; // Never acknowledge partial fan-out; successful copies deduplicate on retry.
+      throw e; // Never acknowledge partial fan-out; outer retry preserves successful copies.
     }
     if (automated || (personalRecipients.length && (!routed.senderIdentityId ||
         personalRecipients.some((r) => Number(r.id) === Number(routed.senderIdentityId))))) {
@@ -1167,9 +1171,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
             continue;
           }
         } catch (hubErr) {
-          console.error('[EmailAgent] Hub email reply ingest failed:', hubErr);
-          results.needsHuman += 1;
-          continue; // Keep unread for retry; never turn a failed reply into an unrelated ticket.
+          throw hubErr; // Preserve unread reply and defer it without blocking other messages.
         }
       }
     }
@@ -1200,9 +1202,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId] }
         });
       } catch (personalErr) {
-        console.error('[EmailAgent] Personal mailbox ingest failed:', personalErr?.message || personalErr);
-        results.needsHuman += 1;
-        // Preserve UNREAD so transient storage/database failures are retried.
+        throw personalErr; // Preserve unread message and apply bounded retry backoff.
       }
       continue;
     }
@@ -1697,9 +1697,12 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     } catch (error) {
       // Leave the failed delivery unacknowledged for retry without starving
       // every other provider's mail in this poll.
+      failed=true;
+      if(['GMAIL_MAILBOX_THROTTLED','GMAIL_MAILBOX_BUSY','EMAIL_SENDER_TEMPORARY'].includes(error.code))throw error;
       results.needsHuman += 1;
-      console.warn('[EmailAgent] message will retry:', id, error?.code || 'delivery_failed');
-    }
+      await deferInboundMessage(mailbox,id,error);
+      console.warn('[EmailAgent] message deferred:',error?.code || 'delivery_failed');
+    } finally { if(!failed)await clearInboundRetry(mailbox,id); }
   }
 
   return results;

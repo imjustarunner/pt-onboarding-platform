@@ -4,7 +4,7 @@ vi.mock('../googleWorkspaceDirectory.service.js',()=>({default:{isConfigured:()=
 vi.mock('../unifiedEmail/gmailClient.js',()=>({getImpersonatedUser:()=> 'ai@itsco.health'}));
 import pool from '../../config/database.js';
 import Directory from '../googleWorkspaceDirectory.service.js';
-import { expandMailboxRecipients, resolvePersonalMailRecipients } from '../groupMailboxRouting.service.js';
+import { expandMailboxRecipients, resolvePersonalMailRecipients, mailboxDomainOwners } from '../groupMailboxRouting.service.js';
 const boxes=[{id:1,from_email:'eden@itsco.health'},{id:2,from_email:'alex@itsco.health'}];
 it('delivers nested group mail to every addressed staff inbox exactly once',async()=>{
   const graph={'staff@itsco.health':[{type:'GROUP',email:'team@itsco.health'},{type:'GROUP',email:'eden@itsco.health'}],'team@itsco.health':[{type:'GROUP',email:'eden@itsco.health'},{type:'USER',email:'alex@itsco.health'},{type:'GROUP',email:'staff@itsco.health'}]};
@@ -49,4 +49,19 @@ it('retains tenant context when a managed group is nested inside another group',
  const shared=[{id:1,from_email:'shared@plottwistco.com',owner_user_id:5,agency_id:1},{id:2,from_email:'shared@plottwistco.com',owner_user_id:5,agency_id:2}];
  const list=async email=>email==='support@itsco.health'?[{email:'staff@itsco.health',type:'GROUP'}]:[{email:'shared@plottwistco.com',type:'USER'}];
  expect((await expandMailboxRecipients(['support@itsco.health'],shared,list,new Map([['staff@itsco.health',2]]))).map(b=>b.id)).toEqual([2]);
+});
+it('routes a direct shared login only to its uniquely configured tenant domain for the same owner',async()=>{
+ const shared=[{id:1,from_email:'staff@itsco.health',owner_user_id:5,agency_id:2,organization_type:'agency'},{id:2,from_email:'staff@itsco.health',owner_user_id:5,agency_id:6,organization_type:'agency'}];
+ const domains=new Map([['itsco.health',2]]);
+ expect((await expandMailboxRecipients(['staff@itsco.health'],shared,async()=>[],new Map(),domains)).map(b=>b.id)).toEqual([1]);
+ await expect(expandMailboxRecipients(['staff@itsco.health'],[{...shared[0],owner_user_id:9},shared[1]],async()=>[],new Map(),domains)).rejects.toHaveProperty('code','AMBIGUOUS_MAILBOX');
+ await expect(expandMailboxRecipients(['staff@itsco.health'],shared,async()=>[])).rejects.toHaveProperty('code','AMBIGUOUS_MAILBOX');
+ // Explicit tenant-group context wins over the address's default domain.
+ expect((await expandMailboxRecipients(['team@nextlevel.test'],shared,async()=>[{type:'USER',email:'staff@itsco.health'}],new Map([['team@nextlevel.test',6]]),domains)).map(b=>b.id)).toEqual([2]);
+});
+
+it('uses explicit Workspace ownership over fallback sender domains without hiding explicit conflicts', () => {
+ const senders=[{domain:'shared.test',agency_id:1},{domain:'shared.test',agency_id:9},{domain:'other.test',agency_id:2}];
+ expect([...mailboxDomainOwners(senders,[{domain:'shared.test',agency_id:1}])]).toEqual([['shared.test',1],['other.test',2]]);
+ expect(mailboxDomainOwners(senders,[{domain:'shared.test',agency_id:1},{domain:'shared.test',agency_id:9}]).has('shared.test')).toBe(false);
 });

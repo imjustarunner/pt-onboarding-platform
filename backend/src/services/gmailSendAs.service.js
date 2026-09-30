@@ -1,3 +1,4 @@
+import { guardGmailClient } from './unifiedEmail/gmailTrafficGuard.js';
 /**
  * Gmail Send-as alias automation (impersonated mailbox).
  * Requires DWD scope: https://www.googleapis.com/auth/gmail.settings.sharing
@@ -39,7 +40,7 @@ export async function ensureSendAsAlias({
     subjectEmail: subject,
     scopes: [...GOOGLE_WORKSPACE_SCOPES, GMAIL_SETTINGS_SHARING_SCOPE]
   });
-  const gmail = google.gmail({ version: 'v1', auth });
+  const gmail = guardGmailClient(google.gmail({ version: 'v1', auth }), subject);
 
   try {
     const list = await gmail.users.settings.sendAs.list({ userId: 'me' });
@@ -91,7 +92,7 @@ export async function listSendAsAliases({ impersonateUser = null } = {}) {
     subjectEmail: subject,
     scopes: [...GOOGLE_WORKSPACE_SCOPES, GMAIL_SETTINGS_SHARING_SCOPE]
   });
-  const gmail = google.gmail({ version: 'v1', auth });
+  const gmail = guardGmailClient(google.gmail({ version: 'v1', auth }), subject);
   const list = await gmail.users.settings.sendAs.list({ userId: 'me' });
   return list?.data?.sendAs || [];
 }

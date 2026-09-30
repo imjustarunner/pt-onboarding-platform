@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+vi.mock('../unifiedEmail/gmailInboundRetry.js',()=>({deferredInboundMessages:vi.fn(async()=>new Set()),deferInboundMessage:vi.fn(),clearInboundRetry:vi.fn()}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: () => {} }));
 vi.mock('../unifiedEmail/gmailClient.js', () => ({ getGmailClient: vi.fn(), getImpersonatedUser: () => 'ai@example.org' }));
 vi.mock('../unifiedEmail/gmailLabels.js', () => ({ ensureLabelId: async name => name }));
@@ -45,4 +46,16 @@ it('continues delivering other providers’ mail when an earlier Gmail message f
  const result=await runInboundEmailAgentOnce();expect(result.needsHuman).toBe(1);expect(ingestPersonalMailboxInbound).toHaveBeenCalledTimes(2);
  expect(gmail.users.messages.modify).not.toHaveBeenCalledWith(expect.objectContaining({id:'broken'}));
  expect(gmail.users.messages.modify).toHaveBeenCalledWith(expect.objectContaining({id:'working'}));
+});
+it('stops the batch immediately when Gmail throttles instead of fetching the remaining messages',async()=>{
+ gmail.users.messages.list.mockResolvedValue({data:{messages:[{id:'first'},{id:'second'}]}});gmail.users.messages.get.mockRejectedValueOnce({code:'GMAIL_MAILBOX_THROTTLED',retryAt:12345});
+ await expect(runInboundEmailAgentOnce()).rejects.toMatchObject({code:'GMAIL_MAILBOX_THROTTLED'});expect(gmail.users.messages.get).toHaveBeenCalledOnce();expect(ingestPersonalMailboxInbound).not.toHaveBeenCalled();
+});
+it('defers a routing failure and pages past deferred messages without fetching their bodies',async()=>{
+ const retry=await import('../unifiedEmail/gmailInboundRetry.js');
+ resolvePersonalMailRecipients.mockRejectedValueOnce(Object.assign(new Error('Ambiguous mapping'),{code:'AMBIGUOUS_MAILBOX'}));
+ await runInboundEmailAgentOnce();expect(retry.deferInboundMessage).toHaveBeenCalledWith('ai@example.org','delivery',expect.objectContaining({code:'AMBIGUOUS_MAILBOX'}));expect(gmail.users.messages.modify).not.toHaveBeenCalled();
+ vi.clearAllMocks();retry.deferredInboundMessages.mockResolvedValueOnce(new Set(['deferred'])).mockResolvedValueOnce(new Set());
+ gmail.users.messages.list.mockResolvedValueOnce({data:{messages:[{id:'deferred'}],nextPageToken:'page2'}}).mockResolvedValueOnce({data:{messages:[{id:'new'}]}});
+ resolvePersonalMailRecipients.mockResolvedValue([{id:11,agency_id:2}]);await runInboundEmailAgentOnce();expect(gmail.users.messages.get).toHaveBeenCalledTimes(1);expect(gmail.users.messages.get).toHaveBeenCalledWith(expect.objectContaining({id:'new'}));expect(retry.clearInboundRetry).toHaveBeenCalledWith('ai@example.org','new');
 });
