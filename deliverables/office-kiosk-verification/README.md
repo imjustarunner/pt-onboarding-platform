@@ -8,11 +8,12 @@ Check-in locks the booked event and saves the arrival and personal provider noti
 
 In notification settings, the type is **Client arrival at office** (`kiosk_checkin`). Provider defaults now include this type with toast and sound; existing user preferences and agency notification policies still apply. Enable its Email option to request email as well. Email requires an active agency notifications/system sender identity and a provider email address; existing email delivery/approval policies apply. Email sends only the appointment time, office, and arrival message. No real messages were sent during verification.
 
-No new database migration is required. The existing office scheduling, office check-in, and notification tables must already be installed. This change has been implemented locally, not deployed. Live database behavior and real email delivery have not been exercised.
+No new database migration is required. The existing office scheduling, office check-in, and notification tables must already be installed. The kiosk overhaul was committed and deployed as `297217ed` on 2026-09-29. The production welcome screen was verified in a signed-out browser. Follow-up `3ce4679e` is also deployed: it adds the directory to the public authentication allowlist and protects private check-in history. Final production verification passed in a signed-out Chrome session: the new welcome screen loaded without redirects or browser errors and the office directory displayed all 13 active rooms. Real client check-ins and email delivery have not been exercised.
 
 ## Verification
 
 - 9 backend service tests: atomic rollback, repeat submissions, office-local date/time, stale or invalid appointments, optional email delivery and failure.
+- 7 authentication-boundary tests: public directory GETs, method/path boundaries, private history, and kiosk account context.
 - 8 frontend tests: private payload, success/error handling, timezone formatting, reset timers, existing public routes, mixed lobby modes, and staff-only stations.
 - Browser verification with synthetic data: provider → time → confirmation → success, office directory, 1440px desktop, 768px tablet, and 390px mobile. Browser timezone intentionally differs from the office timezone.
 - Vite production build passed with an 8 GB Node heap. The default 4 GB heap was insufficient for this repository. Existing dynamic-import and bundle-size warnings remain.
@@ -28,3 +29,7 @@ node scripts/check-office-kiosk.mjs
 ```
 
 Screenshots contain synthetic provider names: `desktop.png`, `directory.png`, `confirm.png`, `success.png`, `tablet.png`, and `mobile.png`.
+
+## Shared Windchime bookmark and data model
+
+Save **https://plottwisthq.com/kiosk-welcome/1**. Office 1 is the shared room/scheduling record; office 8 is a duplicate holding TISI billing configuration. The user clarified that these should become one physical office with agency-specific billing profiles. See [the unification audit](../../docs/windchime-location-unification.md). No billing consolidation has been applied.
