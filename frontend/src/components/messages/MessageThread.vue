@@ -491,7 +491,7 @@ defineExpose({ refresh: loadMessages });
   background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: #ffffff;
 }
-.msg-text { line-height: 1.45; }
+.msg-text { font-size: max(1.125rem, 1em); line-height: 1.6; overflow-wrap: anywhere; }
 
 .msg-attachments {
   margin-top: 8px;
@@ -589,6 +589,8 @@ defineExpose({ refresh: loadMessages });
   min-height: 36px;
   max-height: 140px;
   font: inherit;
+  font-size: max(1rem, 1em);
+  line-height: 1.6;
   outline: none;
 }
 .composer-textarea:focus { border-color: #2563eb; }

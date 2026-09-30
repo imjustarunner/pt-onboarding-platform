@@ -4658,7 +4658,13 @@ onUnmounted(() => {
 }
 .msg-action:hover { color: rgba(15, 23, 42, 0.75); text-decoration: underline; }
 .msg-action:disabled { opacity: 0.6; cursor: not-allowed; }
-.msg-body { white-space: pre-wrap; font-size: 13px; color: var(--text-primary); }
+.msg-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: max(1.125rem, 1em);
+  line-height: 1.6;
+  color: var(--text-primary);
+}
 
 .chat-composer {
   border-top: 1px solid var(--border);
@@ -4682,7 +4688,8 @@ onUnmounted(() => {
   min-height: 56px;
   max-height: 140px;
   resize: vertical;
-  font-size: 13px;
+  font-size: max(1rem, 1em);
+  line-height: 1.6;
   box-sizing: border-box;
 }
 .chat-composer .btn {

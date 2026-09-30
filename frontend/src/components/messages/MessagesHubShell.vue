@@ -1173,7 +1173,7 @@
               :has-older="!!conversationPreview.nextBeforeId" :loading-older="loadingEmailHistory"
               @compose="composeEmail" @unread="markSelectedUnread" @older="loadEarlierEmail"
               @attachment="downloadReaderAttachment" @like="likeReaderMessage" />
-            <div v-else class="msg-hub-timeline"><article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble"><p>{{ msg.body_text || msg.subject }}</p><time>{{ formatTime(msg.sent_at || msg.created_at) }}</time></article>
+            <div v-else class="msg-hub-timeline"><article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble"><p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p><time>{{ formatTime(msg.sent_at || msg.created_at) }}</time></article>
               <form v-if="conversationPreview.conversation?.channel === 'sms'" @submit.prevent="replyReaderSms"><textarea v-model="readerSmsText" aria-label="Text message reply" required /><button type="submit" :disabled="sending">Send text</button></form>
             </div>
           </template>
@@ -5099,6 +5099,10 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   flex-direction: column;
   overflow: hidden;
 }
+.msg-hub-thread-col {
+  /* Keep both reading and replying accessible on short screens. */
+  overflow-y: auto;
+}
 .msg-hub-filters,
 .msg-hub-modal-tabs {
   display: flex;
@@ -5335,14 +5339,14 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--mh-muted);
 }
 .msg-hub-smart-text {
   flex: 1 1 180px;
   margin: 0;
-  font-size: 13px;
-  line-height: 1.45;
-  color: #64748b;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--mh-ink);
   white-space: pre-wrap;
 }
 .msg-hub-smart-text.loading {
@@ -5709,7 +5713,7 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 }
 .msg-hub-timeline {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: min(12rem, 30dvh);
   overflow: auto;
   padding: 14px 16px;
   display: flex;
@@ -5718,10 +5722,11 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   background: #f8fafc;
 }
 .msg-hub-bubble {
+  flex-shrink: 0;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
-  padding: 8px 12px;
+  padding: 12px 16px;
   border-radius: 10px;
   background: #fff;
   border: 1px solid var(--mh-line);
@@ -5764,28 +5769,28 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   display: block;
 }
 .msg-hub-bubble-name {
-  font-size: 13px;
+  font-size: 1rem;
   font-weight: 650;
   color: var(--mh-ink, #0f172a);
   min-width: 0;
 }
 .msg-hub-bubble-time {
-  font-size: 11px;
+  font-size: 0.875rem;
   color: var(--mh-muted);
   margin-left: auto;
 }
-.msg-hub-bubble-body {
-  margin: 2px 0 0;
+.msg-hub-bubble p { margin: 4px 0; white-space: pre-wrap; }
+.msg-hub-bubble .msg-hub-bubble-body {
+  margin: 8px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
-  font-size: 14px;
-  line-height: 1.4;
-  font-weight: 500;
+  font-size: max(1.125rem, 1em);
+  line-height: 1.6;
+  font-weight: 400;
   min-width: 0;
 }
-.msg-hub-bubble p { margin: 4px 0; white-space: pre-wrap; font-size: 14px; }
-.msg-hub-bubble time { font-size: 11px; color: var(--mh-muted); }
+.msg-hub-bubble time { font-size: 0.875rem; color: var(--mh-muted); }
 .msg-hub-bubble-ch {
   font-size: 10px;
   font-weight: 800;
@@ -5851,7 +5856,9 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   border-radius: 8px;
   padding: 10px 12px;
   font: inherit;
-  line-height: 1.45;
+  font-size: max(1rem, 1em);
+  line-height: 1.6;
+  color: var(--mh-ink);
 }
 .msg-hub-cc-bcc-btns {
   display: inline-flex;
@@ -6524,6 +6531,9 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 .msg-hub.person-focus.chat-like .msg-hub-grid {
   grid-template-columns: minmax(0, 1fr) minmax(180px, 220px);
 }
+@media (max-width: 1100px) {
+  .msg-hub.person-focus.chat-like .msg-hub-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .msg-hub.person-focus.chat-like .msg-hub-list-col {
   display: none;
 }
@@ -6870,7 +6880,8 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 .msg-hub--drawer .msg-hub-sub {
   display: none;
 }
-.msg-hub--drawer .msg-hub-grid {
+.msg-hub--drawer .msg-hub-grid,
+.msg-hub--drawer.person-focus.chat-like .msg-hub-grid {
   grid-template-columns: 1fr;
 }
 .msg-hub--drawer .msg-hub-list-col { display: flex; }
