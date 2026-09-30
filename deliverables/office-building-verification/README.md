@@ -9,3 +9,13 @@ Screenshots use synthetic provider/booking fixtures, including an existing Inner
 - Dedicated-host simulation: Windchime root maps to physical office 1; Denver office1 root maps to physical office 6; both keep `/` in the address bar, display title Office, and select their own manifest.
 - Read-only database integration: existing Windchime and Denver rooms queried for September 29, September 30 and January 5; provider photos and agency identity resolved. Known agency logo fallbacks render from bundled brand assets because the legacy uploaded-logo fields are empty.
 - DNS, certificate and load balancer host rules are still to be configured by the owner. See `docs/office-building-sites.md`.
+
+## Production verification
+
+- Frontend deployment `07cd9790` and backend deployment `ec921bd9` both succeeded. All office changes are on main.
+- Signed-out URLs verified: `https://plottwisthq.com/kiosk-welcome/1` and `https://plottwisthq.com/kiosk-welcome/6`.
+- September 30 at 2:00 PM office time: Windchime showed 13 numerically sorted rooms with 3 booked; Denver showed its 1 room available. Every returned entry overlapped the requested calendar day, and UI colors matched the API.
+- Windchime card images: all 6 provider/agency images loaded. Expanded room photos/logos also finished loading. No page JavaScript errors occurred at either location.
+- Both manifests returned `application/manifest+json`, name/short name Office, and the correct building's start URL. Both browser titles were Office.
+- Selecting a room and advancing a day retained its detail view. Verification blocked check-in POSTs; no real arrival alerts or emails were sent.
+- `live-windchime.png` and `live-denver.png` capture real public provider schedules (no client identities). The other screenshots remain synthetic previews.
