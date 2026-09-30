@@ -1097,7 +1097,7 @@ export const listKioskSkillBuilderEvents = async (req, res, next) => {
 
     const [rows] = await pool.execute(
       `SELECT ce.id, ce.title, ce.starts_at, ce.ends_at,
-              sg.agency_id, a.name AS agency_name, a.portal_url AS agency_slug, sg.name AS group_name
+              sg.agency_id, a.name AS agency_name, COALESCE(NULLIF(a.slug, ''), a.portal_url) AS agency_slug, sg.name AS group_name
        FROM company_events ce
        INNER JOIN skills_groups sg ON sg.company_event_id = ce.id
        INNER JOIN office_location_agencies ola ON ola.agency_id = sg.agency_id AND ola.office_location_id = ?
@@ -1415,7 +1415,7 @@ export const listProvidersToday = async (req, res, next) => {
          e.end_at,
          r.name AS room_name,
          r.room_number,
-         a.name AS agency_name, a.portal_url AS agency_slug,
+         a.name AS agency_name, COALESCE(NULLIF(a.slug, ''), a.portal_url) AS agency_slug,
          COALESCE(NULLIF(a.logo_path, ''), NULLIF(a.logo_url, ''), ai.file_path) AS agency_logo_path,
          a.color_palette AS agency_color_palette
        FROM office_events e

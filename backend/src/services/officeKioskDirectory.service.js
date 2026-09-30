@@ -83,7 +83,7 @@ export async function loadOfficeDirectory(db, location, query) {
   const ids = [...new Set([...events.flatMap(e => [e.assigned_provider_id, e.booked_provider_id]), ...standing.map(a => a.provider_id)].filter(Boolean))];
   let people = [];
   if (ids.length) [people] = await db.execute(`SELECT u.id, u.first_name, u.last_name, u.profile_photo_path,
-    a.name agency_name, a.portal_url agency_slug, COALESCE(NULLIF(a.logo_path, ''), NULLIF(a.logo_url, ''), ai.file_path) agency_logo_path
+    a.name agency_name, COALESCE(NULLIF(a.slug, ''), a.portal_url) agency_slug, COALESCE(NULLIF(a.logo_path, ''), NULLIF(a.logo_url, ''), ai.file_path) agency_logo_path
     FROM users u LEFT JOIN agencies a ON a.id = (
       SELECT ua.agency_id FROM user_agencies ua JOIN agencies candidate ON candidate.id = ua.agency_id
       WHERE ua.user_id = u.id AND ua.is_active = 1 AND candidate.organization_type = 'agency'

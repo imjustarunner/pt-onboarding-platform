@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { directorySelection, buildOfficeDirectory } from '../officeKioskDirectory.service.js';
 const timezone = 'America/Denver';
 const people = [{ id: 4, first_name: 'Jordan', last_name: 'Rivera', profile_photo_path: 'photo.jpg', agency_name: 'Agency', agency_logo_path: 'logo.png' }, { id: 5, first_name: 'Alex', last_name: 'Chen' }];
@@ -12,6 +12,19 @@ describe('public office directory', () => {
   expect(directorySelection({}, timezone, new Date('2026-09-30T02:00:00Z')).date).toBe('2026-09-29');
   const {bounds} = directorySelection({date:'2026-11-01',time:'12:00'},timezone);
   expect(bounds.startAt).toBe('2026-11-01 06:00:00'); expect(bounds.endExclusive).toBe('2026-11-02 07:00:00');
+ });
+ it('keeps the requested day when production ICU renders midnight as 24:00', () => {
+  const NativeFormatter = Intl.DateTimeFormat;
+  const mock = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function(...args) {
+    const formatter = new NativeFormatter(...args);
+    const format = formatter.formatToParts.bind(formatter);
+    formatter.formatToParts = value => format(value).map(part => part.type === 'hour' && part.value === '00' ? {...part,value:'24'} : part);
+    return formatter;
+  });
+  try {
+    expect(directorySelection({date:'2026-09-30',time:'14:00'},timezone).bounds).toMatchObject({startAt:'2026-09-30 06:00:00',endExclusive:'2026-10-01 06:00:00'});
+    expect(directorySelection({date:'2026-11-01',time:'14:00'},timezone).bounds).toMatchObject({startAt:'2026-11-01 06:00:00',endExclusive:'2026-11-02 07:00:00'});
+  } finally { mock.mockRestore(); }
  });
  it.each([{date:'2026-02-30'}, {date:[]}, {date:'bad'}, {time:'24:00'}, {time:['12:00']}])('rejects malformed selections %j', query => {
   expect(() => directorySelection(query,timezone)).toThrow('valid date');

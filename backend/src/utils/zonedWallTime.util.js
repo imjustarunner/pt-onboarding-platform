@@ -34,7 +34,9 @@ export function getTimeZoneOffsetMs(date, timeZone) {
       Number(map.year),
       Number(map.month) - 1,
       Number(map.day),
-      Number(map.hour),
+      // Some ICU/Node versions render midnight as 24:00 on the SAME date.
+      // Feeding 24 to Date.UTC advances a day and shifts day bounds backwards.
+      Number(map.hour) === 24 ? 0 : Number(map.hour),
       Number(map.minute),
       Number(map.second)
     )
