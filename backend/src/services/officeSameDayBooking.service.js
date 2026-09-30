@@ -8,6 +8,7 @@ import { directorySelection, loadOfficeDirectory } from './officeKioskDirectory.
 import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 const fail = (status, message) => Object.assign(new Error(message), { status });
 export function sameDayWindow(input, timezone, now = new Date()) {
+  if (typeof input.date !== 'string' || typeof input.time !== 'string') throw fail(400,'Choose a date and start time.');
   const selection = directorySelection(input, timezone, now);
   const wall = utcToZonedMysqlWall(now, timezone);
   if (!selection.endTime || selection.date !== wall.slice(0, 10) || selection.selectedAt.slice(0,16) < wall.slice(0,16)) {
@@ -57,6 +58,8 @@ export async function bookOfficeToday({ user, locationId, roomId, date, time, en
       for (const [from,to] of [[originalStart,window.startAt],[window.endAt,originalEnd]]) {
         if (from >= to) continue;
         const copy = {...row,start_at:from,end_at:to};
+        // Calendar event IDs belong to the original occurrence, not its new fragments.
+        for (const field of ['google_provider_event_id','google_provider_calendar_id','google_sync_status','google_sync_error','google_synced_at']) if (field in copy) copy[field] = null;
         await conn.execute(`INSERT INTO office_events (${columns.map(c=>'`'+c+'`').join(',')}) VALUES (${columns.map(()=>'?').join(',')})`,columns.map(c=>copy[c] && typeof copy[c]==='object' && !(copy[c] instanceof Date) ? JSON.stringify(copy[c]) : copy[c]));
       }
     }
