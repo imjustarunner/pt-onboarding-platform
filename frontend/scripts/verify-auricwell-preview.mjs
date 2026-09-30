@@ -25,6 +25,8 @@ await page.route('**/api/**',async r=>{
  else if(p.endsWith('/guardians'))data=[];
  else if(p==='/medical-billing/service-locations')data={choices:[]};
  else if(p==='/clinical-notes/termination-outcomes')data={outcomes:[]};
+ if (p==='/auricwell-preview/context' && u.searchParams.get('slug')==='second-practice') data={actor,practice:{...practice,id:8,name:'Second Practice',slug:'second-practice'},preview:true};
+ if (p==='/clients' && req.headers()['x-auricwell-practice']==='8') data={clients:[{id:82,agency_id:8,full_name:'Second Practice Client',status:'ACTIVE'}]};
  await r.fulfill({status:200,contentType:'application/json',body:JSON.stringify(data)});
 });
 try{
@@ -49,10 +51,24 @@ try{
  await page.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Appointments',exact:true}).click();
  await page.getByText('90834',{exact:true}).waitFor();
  await page.setViewportSize({width:390,height:844});
+ await page.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Documentation / Note Aid'}).click();
+ await page.locator('.na-app').waitFor();
+ assert((await page.locator('.na-main').boundingBox()).width >= 300, 'Mobile editor must keep usable width');
+ assert((await page.locator('.cnl').boundingBox()).width >= 300, 'Mobile library must keep usable width');
+ await page.screenshot({path:'/private/tmp/auricwell-preview-note-mobile.png',fullPage:true});
  await page.screenshot({path:'/private/tmp/auricwell-preview-mobile.png',fullPage:true});
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  const scoped=requests.filter(r=>!r.path.startsWith('/auricwell-preview/context'));
  assert(scoped.every(r=>r.headers['x-auricwell-practice']==='7'),JSON.stringify(scoped.filter(r=>r.headers['x-auricwell-practice']!=='7')));
  assert.equal(errors.length,0,JSON.stringify(errors));
- console.log(JSON.stringify({ok:true,requests:requests.length,errors}));
+ await page.goto(`${process.env.AURICWELL_PREVIEW_URL || 'http://127.0.0.1:5181'}/auricwell/second-practice/clients`);
+ await page.getByText('Second Practice Client',{exact:true}).waitFor();
+ assert.equal(await page.getByText('Synthetic Client',{exact:true}).count(),0);
+ assert.equal(requests.filter(r=>r.path==='/clients').at(-1).headers['x-auricwell-practice'],'8');
+ await page.route('**/api/auricwell-preview/context?*',r=>r.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:{message:'Sign in with your superadmin account.'}})}));
+ await page.goto(`${process.env.AURICWELL_PREVIEW_URL || 'http://127.0.0.1:5181'}/auricwell/innerstrength`);
+ await page.getByRole('heading',{name:'Practice access'}).waitFor();
+ assert.equal(await page.locator('.aw-nav').count(),0);
+ assert.equal(await page.getByText('Second Practice Client',{exact:true}).count(),0);
+ console.log(JSON.stringify({ok:true,requests:requests.length,errors,practiceSwitch:true,unauthenticated:true}));
 }finally{await browser.close();}

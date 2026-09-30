@@ -11633,6 +11633,22 @@ a.na-chip--link {
 }
 
 @media (max-width: 640px) {
+  /* Keep both entry panels usable without creating implicit narrow columns. */
+  .na-app:not(.na-app--embedded) { height: auto; overflow: visible; }
+  .na-topbar-actions { grid-column: auto; justify-content: flex-start; flex-wrap: wrap; }
+  .na-tagline { display: none; }
+  .na-shell:not(.na-shell--embedded):not(.na-shell--library-expanded),
+  .na-shell:not(.na-shell--queue-collapsed):not(.na-shell--embedded):not(.na-shell--library-expanded),
+  .na-shell--queue-collapsed:not(.na-shell--embedded):not(.na-shell--library-expanded) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    flex: none;
+    overflow: visible;
+  }
+  .na-shell :deep(.cnl), .na-shell :deep(.na-wq) {
+    height: auto; max-height: 360px; min-width: 0; width: 100%; overflow: auto;
+  }
+  .na-shell :deep(.cnl:not(.cnl--collapsed)), .na-shell :deep(.na-wq:not(.na-wq--collapsed)) { height: 300px; }
   .na-topbar {
     grid-template-columns: 1fr;
     text-align: left;
