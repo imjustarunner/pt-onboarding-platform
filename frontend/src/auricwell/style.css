@@ -5,3 +5,5 @@ body{margin:0;background:#fff!important;color:#213449!important}.aw-app{min-heig
 .aw-app .na-app{--na-teal:#2467a7;--na-teal-dark:#1b4e7e;--na-teal-soft:#e7f1fa;--na-canvas:#fff;background:#fff!important}.aw-app .na-shell,.aw-app .billing-main{background:#fff}.aw-app .billing-nav{background:#fff;color:#213449;border-right:1px solid #dde5ed}.aw-app .billing-nav button{color:#526476}.aw-app .billing-nav button.active{color:#fff}.aw-app .billing-nav .nav-footer{color:#526476}.aw-app .na-archive-btn{background:#f3f7fc;color:#2467a7;border-color:#c7d8e9}
 
 .aw-app .na-app{--na-teal:#2467a7!important;--na-teal-dark:#1b4e7e!important;--na-teal-soft:#e7f1fa!important;--na-canvas:#fff!important}.aw-app .cnl{--cnl-teal:#2467a7!important;--cnl-teal-dark:#1b4e7e!important}
+
+.aw-login{max-width:680px;border:1px solid #e3eaf3;border-radius:16px;padding:40px;margin:64px auto;background:linear-gradient(145deg,#fff,#f7faff)}.aw-login .aw-button{display:inline-block;margin:16px 0 24px}.aw-login h1{font-size:38px;line-height:1.15}.aw-login p{line-height:1.7}@media(max-width:700px){.aw-login{margin:28px 16px;padding:28px}.aw-login h1{font-size:30px}}

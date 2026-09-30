@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import { readFileSync } from 'node:fs';
+import { pages, renderWebsite } from './src/auricwell/website/render.mjs';
 import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
@@ -15,7 +17,23 @@ export default defineConfig({
     name: 'auricwell-preview-entry',
     configureServer(server) {
       server.middlewares.use((req, _res, next) => {
-        if (/^\/auricwell(?:\/[^.?]*)?(?:\?.*)?$/.test(req.url || '')) req.url = '/auricwell.html';
+        const parsed = new URL(req.url || '/', 'http://localhost');
+        const pathname = parsed.pathname.replace(/\/$/, '');
+        if (pathname === '/auricwell/website.css') {
+          _res.setHeader('Content-Type', 'text/css');
+          return _res.end(readFileSync(path.join(rootDir, 'src/auricwell/website/website.css')));
+        }
+        const section = pathname === '/auricwell' ? '' : pathname.replace(/^\/auricwell\//, '');
+        if (pathname.startsWith('/auricwell') && Object.hasOwn(pages, section)) {
+          _res.setHeader('Content-Type', 'text/html');
+          return _res.end(renderWebsite(section, {base:'/auricwell', email:'support@auricwell.com'}));
+        }
+        if (/^\/auricwell\/app(?:\/|$)/.test(pathname)) req.url = '/auricwell.html';
+        else if (/^\/auricwell\/[^.]+$/.test(pathname)) {
+          _res.statusCode = 302;
+          _res.setHeader('Location', pathname.replace('/auricwell/', '/auricwell/app/') + parsed.search);
+          return _res.end();
+        }
         next();
       });
     }

@@ -32,6 +32,7 @@ await page.route('**/api/**',async r=>{
 try{
  await page.goto(`${process.env.AURICWELL_PREVIEW_URL || 'http://127.0.0.1:5181'}/auricwell/innerstrength`);
  await page.getByRole('heading',{name:'Care, connected.'}).waitFor();
+ assert.match(page.url(), /\/auricwell\/app\/innerstrength$/);
  assert.match(await page.locator('.aw-identity').innerText(),/Test Administrator/);
  await page.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Clients',exact:true}).click();
  await page.getByText('Synthetic Client',{exact:true}).waitFor();
@@ -61,7 +62,7 @@ try{
  const scoped=requests.filter(r=>!r.path.startsWith('/auricwell-preview/context'));
  assert(scoped.every(r=>r.headers['x-auricwell-practice']==='7'),JSON.stringify(scoped.filter(r=>r.headers['x-auricwell-practice']!=='7')));
  assert.equal(errors.length,0,JSON.stringify(errors));
- await page.goto(`${process.env.AURICWELL_PREVIEW_URL || 'http://127.0.0.1:5181'}/auricwell/second-practice/clients`);
+ await page.goto(`${process.env.AURICWELL_PREVIEW_URL || 'http://127.0.0.1:5181'}/auricwell/app/second-practice/clients`);
  await page.getByText('Second Practice Client',{exact:true}).waitFor();
  assert.equal(await page.getByText('Synthetic Client',{exact:true}).count(),0);
  assert.equal(requests.filter(r=>r.path==='/clients').at(-1).headers['x-auricwell-practice'],'8');

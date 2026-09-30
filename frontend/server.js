@@ -1,4 +1,5 @@
 import express from 'express';
+import { pages as auricwellPages } from './src/auricwell/website/render.mjs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, readdirSync, statSync, readFileSync } from 'fs';
@@ -97,6 +98,23 @@ app.use((req, res, next) => {
   next();
 });
 
+// Public pages never load clinical stores or request practice data.
+app.use((req, res, next) => {
+  if (!/^\/auricwell(?:\/|$)/.test(req.path)) return next();
+  const pathname = req.path.replace(/\/$/, '');
+  const section = pathname === '/auricwell' ? '' : pathname.slice('/auricwell/'.length);
+  if (Object.hasOwn(auricwellPages, section)) {
+    if (pathname !== req.path) return res.redirect(301, pathname + req.originalUrl.slice(req.path.length));
+    return res.set('Cache-Control', 'no-cache').sendFile(join(distPath, 'auricwell/site', `${section || 'home'}.html`));
+  }
+  if (/^app(?:\/|$)/.test(section)) return res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(join(distPath, 'auricwell.html'));
+  if (section.startsWith('site/')) return res.sendStatus(404);
+  if (section === 'website.css') return res.set('Cache-Control', 'no-cache').sendFile(join(distPath, 'auricwell/website.css'));
+  if (section.includes('.')) return next();
+  return res.redirect(301, `/auricwell/app/${section}` + req.originalUrl.slice(req.path.length));
+});
+app.get('/auricwell.html', (_req, res) => res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(join(distPath, 'auricwell.html')));
+
 // Serve static files from dist directory
 // This handles all static assets including /assets/* files
 app.use(express.static(distPath, {
@@ -121,13 +139,6 @@ app.use(express.static(distPath, {
     }
   }
 }));
-
-// SPA fallback: serve index.html for all routes that don't match static files
-app.get(['/auricwell', '/auricwell/*'], (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-  res.sendFile(join(distPath, 'auricwell.html'));
-});
 
 app.get('*', (req, res) => {
   // Check if this is a request for a file (has file extension)

@@ -1890,7 +1890,7 @@ const phiNameHits = computed(() => {
 const clientProfileHref = computed(() => {
   const cid = Number(effectiveClientId.value || 0);
   if (!cid) return '';
-  if (isAuricWell.value) return `/auricwell/${route.params.organizationSlug}/clients?clientId=${cid}`;
+  if (isAuricWell.value) return `${router.options.history.base}/${route.params.organizationSlug}/clients?clientId=${cid}`;
   const slug = agencyStore.currentAgency?.slug || agencyStore.currentAgency?.organization_slug || route.params?.organizationSlug;
   return slug ? `/${slug}/admin/clients/${cid}` : `/admin/clients/${cid}`;
 });

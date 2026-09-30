@@ -4,11 +4,13 @@ import { createRouter, createWebHistory } from 'vue-router';
 import { i18n } from '../i18n';
 import api from '../services/api';
 import App from './App.vue';
+import { auricwellAppBase } from './paths';
 import '../style.css';
 import './style.css';
 
 // A separate entry and router; EHR views are imported from the shared frontend code.
-const router = createRouter({ history: createWebHistory('/auricwell'), routes: [
+const router = createRouter({ history: createWebHistory(auricwellAppBase()), routes: [
+  { path: '/login', name: 'login', component: { template: '<div />' } },
   { path: '/', component: { template: '<div />' } },
   { path: '/:organizationSlug/:section?', component: { template: '<div />' }, meta: { auricwellPreview: true } }
 ] });

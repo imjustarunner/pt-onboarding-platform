@@ -1,6 +1,6 @@
 # AuricWell administrator preview
 
-The published preview at `/auricwell` is a separate Vue HTML entry/router that imports the existing clinical and billing components. `/auricwell/innerstrength` explicitly resolves to the existing `tisi` agency. Other practices use their existing slug. It uses the same backend, canonical charts, draft writer, clinical notes and billing services. Opening a preview never provisions a second practice, copies records or changes organization enrollment.
+The published preview at `/auricwell/app` is a separate Vue HTML entry/router that imports the existing clinical and billing components. `/auricwell/app/innerstrength` explicitly resolves to the existing `tisi` agency. Other practices use their existing slug. It uses the same backend, canonical charts, draft writer, clinical notes and billing services. Opening a preview never provisions a second practice, copies records or changes organization enrollment.
 
 Only the real, active superadmin can enter. Demo and switched-account sessions are rejected. Normal AuricWell customer credentials are not implemented by this exception. The user's real name and preview status remain visible. Draft saves retain the real actor; no provider is impersonated. The shared full-suite session's lock/expiry still applies. Switching practices reloads the document to discard sensitive in-memory state.
 
@@ -28,3 +28,13 @@ Both HTML entries are built by the existing frontend deployment. Nginx and the o
 Run `../frontend/node_modules/.bin/vitest run --config vitest.auricwell-preview.config.js` in backend, the Claim.MD regression suite, and the existing BillingWorkspace/ClinicalNoteGenerator view tests. Browser validation intercepts all APIs with synthetic data. No live patient modifications, claims, payments, invitations or signatures are part of automated validation. Docker is not needed locally; GitHub Actions continues its existing remote image build/deploy process.
 
 Validated locally: nine preview policy/boundary tests; 154 shared billing tests (one opt-in database test skipped); 30 shared Note Aid/billing view tests; synthetic Chrome desktop/mobile checks. Both frontend entries compile in a production Vite build. Local build validation omits copying public media because of disk constraints; remote deployment uses the normal complete build. Browser check: `node frontend/scripts/verify-auricwell-preview.mjs` against the frontend dev server on port 5181 (or set `AURICWELL_PREVIEW_URL`).
+
+## Public website and app addresses
+
+The website is hosted at `https://plottwisthq.com/auricwell`, with Home, Product, Security, About and Contact pages. The Vercel deployment at auricwell.com is unchanged. Static HTML is built by `scripts/build-auricwell-website.mjs`; public pages load no clinical JavaScript, stores or APIs. Copy distinguishes the administrator preview from planned customer workflows. Illustrations use sample content.
+
+Sign-in starts at `/auricwell/app/login`, continues through the existing HQ authentication flow and returns to the chooser at `/auricwell/app`. This does not introduce customer credentials or implicit cross-product sign-in. The explicit, identified superadmin preview remains the only available access. Workspaces use `/auricwell/app/:organizationSlug/:section?`. Old `/auricwell/:organizationSlug` links redirect, preserving queries; practice switches still reload to clear state. Other HQ routes, including `/app`, are unchanged.
+
+Contact opens an email to the user-designated `support@auricwell.com`; it is not a form submission or delivery confirmation. Configure that mailbox separately. No pricing, certifications, testimonials or launch dates are asserted. Moving to auricwell.com later requires deployment routing, canonical metadata and authenticated API configuration; changing DNS alone is not a validated deployment.
+
+Run `node frontend/scripts/verify-auricwell-website.mjs` (Chrome / Playwright; optional `AURICWELL_PREVIEW_URL`). Covers five pages at 1440, 768, 390 and 320 pixels, keyboard navigation, mobile links, contact and login handoff, with zero public clinical API requests. The preview browser check verifies old-link redirects and scoped practice switching. Production compilation and 30 shared Note Aid/billing component tests pass.
