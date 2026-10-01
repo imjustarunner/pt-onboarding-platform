@@ -1506,6 +1506,7 @@ export const generateClinicalNote = async (req, res, next) => {
 
     const { text, modelName, latencyMs, finishReason } = await callGeminiText({
       prompt,
+      ...(req.sessionTranscription ? {vertexOnly:true,sensitive:true} : {}),
       temperature: Number.isFinite(tool.temperature) ? tool.temperature : 0.2,
       maxOutputTokens: Math.max(
         Number.isFinite(tool.maxOutputTokens) ? tool.maxOutputTokens : 1600,
@@ -1564,6 +1565,7 @@ export const generateClinicalNote = async (req, res, next) => {
       (transcriptSource === 'audio' || usedAudioTranscript) ? null : (terminationRequested ? providerInputText : inputText);
     const encryptedInputText = maybeEncryptText(storedInputText);
     const encryptedOutputJson = maybeEncryptText(outputJson);
+    if(req.sessionTranscription && !isChatEncryptionConfigured()) throw Object.assign(new Error('Secure note storage is not configured.'),{status:503});
 
     let draft = null;
     if (draftId) {
@@ -1600,7 +1602,7 @@ export const generateClinicalNote = async (req, res, next) => {
 
     if (!draft) {
       draft = await ClinicalNoteDraft.create({
-        allowReuse: !terminationRequested,
+        allowReuse: !terminationRequested && !req.sessionTranscription,
         userId: req.user.id,
         agencyId,
         clientId,

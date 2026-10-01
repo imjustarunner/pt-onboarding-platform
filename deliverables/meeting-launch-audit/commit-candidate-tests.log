@@ -1,0 +1,67 @@
+RUN  v4.0.18 /private/tmp/meeting-consent-check/backend
+
+ ✓ src/services/__tests__/scheduling.officeMove.test.js (4 tests) 17ms
+ ✓ src/services/__tests__/scheduling.calendarSync.test.js (6 tests) 33ms
+ ✓ src/services/__tests__/meetingCounselingPersonalAccess.test.js (12 tests) 15ms
+ ✓ src/services/__tests__/meetingPriorityEmail.test.js (5 tests) 73ms
+ ✓ src/services/__tests__/scheduling.agencyAvailability.test.js (4 tests) 21ms
+ ✓ src/services/__tests__/meetingInvitations.test.js (17 tests) 36ms
+ ✓ src/services/__tests__/scheduling.publicAvailability.test.js (13 tests) 35ms
+ ✓ src/services/__tests__/meetingSupervisionPersonalAccess.test.js (23 tests) 52ms
+ ✓ src/services/__tests__/meetingCompensationPolicy.test.js (7 tests) 22ms
+ ✓ src/services/__tests__/scheduling.changeService.test.js (11 tests) 34ms
+ ✓ src/services/__tests__/meetingConfiguredReminders.test.js (4 tests) 28ms
+ ✓ src/services/__tests__/meetingExpiry.test.js (4 tests) 41ms
+ ✓ src/services/__tests__/scheduling.providerScheduleSummary.test.js (6 tests) 9ms
+ ✓ src/services/__tests__/scheduling.claimReadiness.test.js (6 tests) 16ms
+ ✓ src/utils/__tests__/scheduling.recurrence.test.js (4 tests) 17ms
+ ✓ src/services/__tests__/scheduling.officePlan.test.js (7 tests) 310ms
+ ✓ src/services/__tests__/meetingSettingsPolicy.test.js (4 tests) 16ms
+ ✓ src/services/__tests__/scheduling.availabilityWorkspace.test.js (12 tests) 14ms
+ ✓ src/services/__tests__/scheduling.selfPayRates.test.js (15 tests) 10ms
+ ✓ src/services/__tests__/meetingJoinPolicy.test.js (14 tests) 7ms
+ ✓ src/services/__tests__/scheduling.officeBinding.test.js (9 tests) 19ms
+ ✓ src/services/__tests__/meetingScheduleChanges.test.js (6 tests) 5ms
+ ✓ src/controllers/__tests__/meetingTranscriptControl.test.js (6 tests) 13ms
+ ✓ src/services/__tests__/scheduling.clinicalLink.test.js (9 tests) 9ms
+ ✓ src/controllers/__tests__/meetingLaunchAccess.test.js (10 tests) 15ms
+ ✓ src/services/__tests__/meetingReplyMailbox.test.js (5 tests) 7ms
+ ✓ src/services/__tests__/scheduling.selfPayBooking.test.js (4 tests) 10ms
+ ✓ src/services/__tests__/scheduling.availabilityAccess.test.js (11 tests) 4ms
+ ✓ src/services/__tests__/scheduling.changeNote.test.js (6 tests) 8ms
+ ✓ src/models/__tests__/meetingSupervisionTranscriptAppend.test.js (4 tests) 7ms
+ ✓ src/services/__tests__/scheduling.settlement.test.js (5 tests) 8ms
+ ✓ src/services/__tests__/activeMeetingPrompts.test.js (3 tests) 8ms
+ ✓ src/services/__tests__/scheduling.changeWorkflow.test.js (7 tests) 9ms
+ ✓ src/services/__tests__/meetingSupervisionAgreementSigning.test.js (4 tests) 7ms
+ ✓ src/services/__tests__/meetingConsentTranscription.test.js (11 tests) 16ms
+ ✓ src/services/__tests__/meetingCalendarEmail.test.js (6 tests) 41ms
+stderr | src/controllers/__tests__/meetingSupervisionPersonalEntry.test.js
+CORS_ORIGIN missing, using fallback.
+
+ ✓ src/services/__tests__/scheduling.publicTranslation.test.js (2 tests) 4ms
+ ✓ src/utils/__tests__/scheduling.packageUsage.test.js (17 tests) 7ms
+ ✓ src/services/__tests__/scheduling.packagePolicy.test.js (5 tests) 7ms
+ ✓ src/services/__tests__/scheduling.serviceOfferings.test.js (8 tests) 11ms
+ ✓ src/services/__tests__/meetingRecordingAgreement.test.js (11 tests) 12ms
+ ✓ src/services/__tests__/scheduling.kimiPaymentAndShare.test.js (11 tests) 7ms
+ ✓ src/services/__tests__/meetingSettingsAccess.test.js (6 tests) 4ms
+ ✓ src/services/__tests__/scheduling.providerDirectoryPolicy.test.js (5 tests) 7ms
+ ✓ src/services/__tests__/scheduling.publicGender.test.js (2 tests) 4ms
+ ✓ src/services/__tests__/scheduling.billingAccess.test.js (5 tests) 6ms
+ ✓ src/services/__tests__/hire.interviewAccess.test.js (8 tests) 9ms
+ ✓ src/services/__tests__/meetingInboundInvitation.test.js (3 tests) 4ms
+ ✓ src/services/__tests__/meetingRecipientIdentity.test.js (3 tests) 3ms
+ ✓ src/models/__tests__/meetingTranscriptAppend.test.js (1 test) 4ms
+stderr | src/controllers/__tests__/meetingSupervisionLaunch.test.js
+CORS_ORIGIN missing, using fallback.
+
+ ↓ src/services/__tests__/scheduling.mysql.test.js (21 tests | 21 skipped)
+ ✓ src/services/__tests__/meetingReminders.test.js (5 tests) 7ms
+ ✓ src/controllers/__tests__/meetingSupervisionPersonalEntry.test.js (9 tests) 26ms
+ ✓ src/controllers/__tests__/meetingSupervisionLaunch.test.js (9 tests) 9ms
+
+ Test Files  53 passed | 1 skipped (54)
+      Tests  394 passed | 21 skipped (415)
+   Start at  12:06:44
+   Duration  3.03s (transform 5.04s, setup 0ms, import 12.21s, tests 1.12s, environment 4ms)

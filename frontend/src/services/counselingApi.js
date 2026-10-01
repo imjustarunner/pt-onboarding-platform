@@ -32,7 +32,7 @@ export async function getCounselingShareLink(sessionId) {
 }
 
 export async function acceptCounselingInvite(token) {
-  const { data } = await api.post(`/counseling/invite/${token}/accept`);
+  const { data } = await api.post(`/counseling/invite/${encodeURIComponent(token)}/accept`,{}, {skipAuthRedirect:true});
   return data;
 }
 

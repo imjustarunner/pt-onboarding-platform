@@ -1,0 +1,20 @@
+import {beforeEach,describe,it,expect,vi} from 'vitest';
+import jwt from 'jsonwebtoken';
+const m=vi.hoisted(()=>({execute:vi.fn(),session:vi.fn(),member:vi.fn(),auth:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../config/config.js',()=>({default:{jwt:{secret:'test-app-secret'}}}));
+vi.mock('../../models/CounselingSession.model.js',()=>({default:{findByInviteToken:m.session,findByIdOrPublicId:m.session,ensurePublicId:m.session,toPublic:r=>({id:r.id,publicId:r.public_id})}}));
+vi.mock('../meetingJoinPolicy.service.js',()=>({hasActiveMeetingMembership:m.member}));
+vi.mock('../../middleware/auth.middleware.js',()=>({authenticate:m.auth}));
+import {exchangeCounselingInvitation,validateCounselingInvitation} from '../counselingInvitationAccess.service.js';
+import {authenticateCounselingSession} from '../../middleware/counselingInvitationAccess.middleware.js';
+let row,client;
+beforeEach(()=>{vi.clearAllMocks();row={id:9,public_id:'session-uuid',agency_id:2,provider_user_id:7,client_user_id:null,appointment_id:55,status:'active',guest_invite_token:'a'.repeat(48)};client={id:33,agency_id:2,initials:'AB'};m.session.mockImplementation(async()=>row);m.member.mockResolvedValue(true);m.execute.mockImplementation(async()=>[[client]]);});
+const grant=async()=>(await exchangeCounselingInvitation(row.guest_invite_token)).counselingAccess.token;
+describe('personal client links',()=>{
+ it('enters as the appointment client without creating a staff identity or app token',async()=>{const token=await grant();expect(await validateCounselingInvitation(token,'session-uuid')).toMatchObject({clientId:33,userId:null,sessionId:9});expect(()=>jwt.verify(token,'test-app-secret')).toThrow();});
+ it.each(['rotation','client-change','ended','provider-removed'])('rejects %s on subsequent requests',async change=>{const token=await grant();if(change==='rotation')row.guest_invite_token='b'.repeat(48);if(change==='client-change')client.id=34;if(change==='ended')row.status='ended';if(change==='provider-removed')m.member.mockResolvedValue(false);await expect(validateCounselingInvitation(token,'session-uuid')).rejects.toMatchObject({status:expect.any(Number)});});
+ it('rejects ambiguous client appointments',async()=>{m.execute.mockResolvedValue([[client,{...client,id:34}]]);await expect(grant()).rejects.toMatchObject({status:409});});
+ it.each(['/sessions/9/end','/sessions/9/share-link','/sessions/9/recording-consent/request','/sessions/9/transcription/note','/activities'])('does not authorize %s with a client grant',async path=>{const token=await grant(),next=vi.fn(),res={set:vi.fn(),status:vi.fn().mockReturnThis(),json:vi.fn()};await authenticateCounselingSession({path,method:'POST',get:()=>token},res,next);expect(res.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();});
+ it('uses the invited client even when another account is signed in',async()=>{const token=await grant(),next=vi.fn(),req={path:'/sessions/9/chat',method:'POST',get:()=>token,user:{id:999,role:'super_admin'}},res={set:vi.fn()};await authenticateCounselingSession(req,res,next);expect(next).toHaveBeenCalledOnce();expect(req.user).toMatchObject({id:null,role:'client'});expect(m.auth).not.toHaveBeenCalled();});
+});

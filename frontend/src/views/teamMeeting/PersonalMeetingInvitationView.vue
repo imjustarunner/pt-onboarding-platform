@@ -4,6 +4,7 @@
     <section v-if="(route.query.rsvp || route.name === 'InterviewRsvp') && !rsvpSaved"><p>Please confirm your response for this meeting.</p><button class="btn btn-primary" :disabled="saving" @click="respond('accepted')">I’m attending</button> <button class="btn btn-secondary" :disabled="saving" @click="respond('declined')">Decline</button></section>
     <p v-if="rsvpSaved" role="status">Your response has been saved: {{ rsvpSaved === 'accepted' ? 'Attending' : 'Declined' }}.</p>
     <p v-if="error" role="alert">{{ error }}</p>
+    <RouterLink v-if="signInRequired" :to="{path:'/login',query:{redirect:route.fullPath}}">Sign in to open this invitation</RouterLink>
     <section v-else-if="meeting">
       <h2>{{ meeting.title }}</h2>
       <p>{{ meeting.when }}</p>
@@ -22,18 +23,28 @@
 import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { saveSupervisionAccess } from '../../utils/supervisionInvitationAccess';
 const route = useRoute(), router = useRouter(), error = ref('');
 const meeting = ref(null), rsvpSaved=ref(''),saving=ref(false);
+const signInRequired = ref(false);
 async function respond(response){saving.value=true;error.value='';try{await api.post(`/meeting-invitations/${route.name === 'InterviewRsvp' ? 'interview/' : ''}${encodeURIComponent(route.params.token)}/rsvp`,{eventId:Number(route.query.eventId),response});rsvpSaved.value=response;}catch(e){error.value=e.response?.data?.error?.message||'Could not save your response.';}finally{saving.value=false;}}
 onMounted(async () => {
   if((route.query.rsvp || route.name === 'InterviewRsvp'))return;
   try {
-    const { data } = await api.get(`/meeting-invitations/${encodeURIComponent(route.params.token)}`, {params: route.query.details ? {details:1,eventId:route.query.eventId} : {}});
+    const { data } = await api.get(`/meeting-invitations/${encodeURIComponent(route.params.token)}`, {skipAuthRedirect:true,params: route.query.details ? {details:1,eventId:route.query.eventId} : {}});
     if (!data.joinUrl && data.meeting) { meeting.value = data.meeting; return; }
     const url = new URL(data.joinUrl);
+    if (data.supervisionAccess) {
+      if (url.origin !== window.location.origin) {
+        // Exchange on the destination origin; never put the session grant in a URL.
+        window.location.replace(`${url.origin}/join/invitation/${encodeURIComponent(route.params.token)}`);
+        return;
+      }
+      saveSupervisionAccess(data.supervisionAccess);
+    }
     if (url.origin === window.location.origin) await router.replace(url.pathname + url.search);
     else window.location.replace(url.href);
-  } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to open your invitation. Please sign in with the account that received it.'; }
+  } catch (e) { signInRequired.value=Number(e.response?.status)===401; error.value = e.response?.data?.error?.message || e.message || 'Unable to open your invitation.'; }
 });
 </script>
 <style scoped>

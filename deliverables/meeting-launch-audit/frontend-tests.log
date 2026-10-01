@@ -1,0 +1,40 @@
+RUN  v4.0.18 /Users/mendez/PTOnboardingApp/frontend
+
+ ✓ src/components/video/__tests__/localPublisherMedia.test.js (4 tests) 122ms
+ ✓ src/composables/__tests__/consentedAudioCapture.test.js (5 tests) 26ms
+ ✓ src/components/supervision/__tests__/SupervisionVideoLobbyPanel.test.js (1 test) 29ms
+ ✓ src/components/schedule/__tests__/OpenSlotPlusOfficeRequestBody.test.js (2 tests) 21ms
+ ✓ src/views/teamMeeting/__tests__/personalInvitation.test.js (5 tests) 30ms
+ ✓ src/composables/__tests__/supervisionPersonalEntry.test.js (4 tests) 28ms
+ ✓ src/components/video/__tests__/meetingPresentation.test.js (4 tests) 6ms
+ ✓ src/utils/__tests__/supervisionInvitationAccess.test.js (4 tests) 28ms
+stderr | src/components/supervision/__tests__/SupervisionPersonalIdentity.test.js > personal invitation display identity > uses the link recipient name and photo rather than another signed-in account
+[Vue warn]: Failed setting prop "localName" on <video-session-room-stub>: value You · Supervisee · Rachel Example is invalid. TypeError: Cannot set property localName of [object Element] which has only a getter
+    at patchDOMProp (/Users/mendez/PTOnboardingApp/frontend/node_modules/@vue/runtime-dom/dist/runtime-dom.cjs.js:603:13)
+    at patchProp (/Users/mendez/PTOnboardingApp/frontend/node_modules/@vue/runtime-dom/dist/runtime-dom.cjs.js:714:5)
+    at mountElement (/Users/mendez/PTOnboardingApp/frontend/node_modules/@vue/runtime-core/dist/runtime-core.cjs.js:5547:11)
+    at processElement (/Users/mendez/PTOnboardingApp/frontend/node_modules/@vue/runtime-core/dist/runtime-core.cjs.js:5484:7)
+    at patch (/Users/mendez/PTOnboardingApp/frontend/node_modules/@vue/runtime-core/dist/runtime-core.cjs.js:5342:11)
+    at ReactiveEffect.componentUpdateFn [as fn] (/Users/mendez/PTOnboardingApp/frontend/node_modules/@vue/runtime-core/dist/runtime-core.cjs.js:5991:11)
+    at ReactiveEffect.run (/Users/mendez/PTOnboardingApp/frontend/node_modules/@vue/reactivity/dist/reactivity.cjs.js:241:19)
+    at setupRenderEffect (/Users/mendez/PTOnboardingApp/frontend/node_modules/@vue/runtime-core/dist/runtime-core.cjs.js:6119:5)
+    at mountComponent (/Users/mendez/PTOnboardingApp/frontend/node_modules/@vue/runtime-core/dist/runtime-core.cjs.js:5893:7)
+    at processComponent (/Users/mendez/PTOnboardingApp/frontend/node_modules/@vue/runtime-core/dist/runtime-core.cjs.js:5845:9)
+  at <VideoSessionRoom ref="videoRoomRef" key="room-video" token="video"  ... >
+  at <SupervisionVideoRoom sessionId=29 token="video" vonageSessionId="room"  ... >
+  at <VTUROOT>
+
+ ✓ src/components/supervision/__tests__/SupervisionPersonalIdentity.test.js (1 test) 37ms
+ ✓ src/components/schedule/__tests__/meetingReminderControls.test.js (4 tests) 125ms
+ ✓ src/components/schedule/__tests__/meetingTimeEntry.test.js (9 tests) 73ms
+ ✓ src/components/schedule/__tests__/meetingSchedulingCleanup.test.js (6 tests) 107ms
+ ✓ src/utils/__tests__/meetingAudio.test.js (1 test) 1ms
+ ✓ src/components/video/__tests__/nativeAudioCapture.test.js (6 tests) 5ms
+ ✓ src/components/video/__tests__/VideoSessionRoom.test.js (13 tests) 249ms
+ ✓ src/components/video/__tests__/vonageAudioProcessor.test.js (8 tests) 2ms
+ ✓ src/components/schedule/__tests__/appointmentEditorShared.test.js (4 tests) 2ms
+
+ Test Files  17 passed (17)
+      Tests  81 passed (81)
+   Start at  12:06:15
+   Duration  1.82s (transform 3.81s, setup 249ms, import 6.72s, tests 891ms, environment 7.23s)

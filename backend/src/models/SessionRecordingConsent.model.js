@@ -8,6 +8,7 @@ function safeInt(v) {
 
 function normalizeDob(dob) {
   if (!dob) return null;
+  if (dob instanceof Date) return Number.isNaN(dob.getTime()) ? null : dob.toISOString().slice(0,10);
   const s = String(dob).trim().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
   return s;
@@ -65,50 +66,25 @@ class SessionRecordingConsent {
     return rows?.[0] || null;
   }
 
-  static async findOnFile({ agencyId, clientId = null, signerFullName = null, signerDob = null }) {
+  static async findOnFile({ agencyId, clientId = null, signerFullName = null, signerDob = null }, db = pool) {
     const aid = safeInt(agencyId);
     if (!aid) return null;
-    if (clientId) {
-      const [rows] = await pool.execute(
-        `SELECT * FROM session_recording_consents
-         WHERE agency_id = ? AND client_id = ? AND signed_at IS NOT NULL
-         ORDER BY signed_at DESC LIMIT 1`,
-        [aid, safeInt(clientId)]
-      );
-      if (rows?.[0]) return rows[0];
-      try {
-        const [phiRows] = await pool.execute(
-          `SELECT id, client_id, created_at
-           FROM client_phi_documents
-           WHERE client_id = ? AND agency_id = ?
-             AND document_type = 'audio_recording_consent'
-             AND removed_at IS NULL
-           ORDER BY id DESC LIMIT 1`,
-          [safeInt(clientId), aid]
-        );
-        if (phiRows?.[0]) {
-          return {
-            id: null,
-            client_id: phiRows[0].client_id,
-            signed_at: phiRows[0].created_at,
-            matched_by: 'client_id',
-            source: 'client_file'
-          };
-        }
-      } catch {
-        // older deployments may not have this table/column
-      }
+    const signedProof = `c.signed_at IS NOT NULL AND c.revoked_at IS NULL AND (
+      (c.document_hash IS NOT NULL AND c.signature_json IS NOT NULL AND c.signed_pdf_path IS NOT NULL)
+      OR EXISTS(SELECT 1 FROM signed_documents sd WHERE sd.id=c.signed_document_id
+        AND sd.task_id=c.task_id AND sd.signed_pdf_path IS NOT NULL AND sd.pdf_hash IS NOT NULL))`;
+    if (safeInt(clientId)) {
+      const [rows] = await db.execute(`SELECT c.* FROM session_recording_consents c
+        JOIN clients client ON client.id=c.client_id AND client.agency_id=c.agency_id
+        WHERE c.agency_id=? AND c.client_id=? AND ${signedProof} ORDER BY c.signed_at DESC LIMIT 1`, [aid,safeInt(clientId)]);
+      return rows?.[0] || null;
     }
-    const name = normalizeName(signerFullName);
-    const dob = normalizeDob(signerDob);
+    const name = normalizeName(signerFullName), dob = normalizeDob(signerDob);
     if (name && dob) {
-      const [rows] = await pool.execute(
-        `SELECT * FROM session_recording_consents
-         WHERE agency_id = ? AND signer_full_name = ? AND signer_dob = ? AND signed_at IS NOT NULL
-         ORDER BY signed_at DESC LIMIT 1`,
-        [aid, name, dob]
-      );
-      if (rows?.[0]) return rows[0];
+      const [rows] = await db.execute(`SELECT c.* FROM session_recording_consents c
+        WHERE c.agency_id=? AND c.signer_full_name=? AND c.signer_dob=? AND ${signedProof}
+        ORDER BY c.signed_at DESC LIMIT 1`, [aid,name,dob]);
+      return rows?.[0] || null;
     }
     return null;
   }

@@ -30,6 +30,8 @@ class SupervisorAssignment {
       [supervisorId, superviseeId, agencyId, type, isPrimary ? 1 : 0, createdByUserId]
     );
 
+    const { ensureSupervisionAgreement } = await import('../services/supervisionAgreement.service.js');
+    await ensureSupervisionAgreement(result.insertId);
     return this.findById(result.insertId);
   }
 
@@ -120,6 +122,8 @@ class SupervisorAssignment {
        WHERE id = ?`,
       [supervisorId, createdByUserId, id]
     );
+    const { ensureSupervisionAgreement } = await import('../services/supervisionAgreement.service.js');
+    await ensureSupervisionAgreement(id);
     return this.findById(id);
   }
 

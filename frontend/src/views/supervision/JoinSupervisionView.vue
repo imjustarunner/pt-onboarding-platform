@@ -71,6 +71,7 @@
 </template>
 
 <script setup>
+import {finishMeetingTranscription} from '../../utils/finishMeetingTranscription';
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -78,6 +79,7 @@ import SupervisionLiveRoom from '../../components/supervision/SupervisionLiveRoo
 import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
 import api from '../../services/api';
 import { resolveHostImpliedPortalSlug } from '../../utils/orgScopedPath';
+import { supervisionAccessFor } from '../../utils/supervisionInvitationAccess';
 
 const router = useRouter();
 const route = useRoute();
@@ -177,7 +179,8 @@ function applyTokenPayload(data) {
     }
     return '';
   };
-  localDisplayName.value = preferName(authPerson, fromApi, authName);
+  localDisplayName.value = supervisionAccessFor(numericSessionId.value || sessionId.value)
+    ? preferName(fromApi) : preferName(authPerson, fromApi, authName);
   const roleFromApi = String(data.roleLabel || '').trim();
   localRoleLabel.value = (roleFromApi && roleFromApi.toLowerCase() !== 'guest')
     ? roleFromApi
@@ -235,6 +238,7 @@ async function pollAdmissionStatus() {
     if (Array.isArray(data.actionItems)) waitingActionItems.value = data.actionItems;
     if (data.sessionTitle && !sessionTitle.value) sessionTitle.value = String(data.sessionTitle);
     if (data.admitted && data.token) {
+      videoConnected.value = false;
       applyTokenPayload(data);
       stopAdmissionPolling();
       // Keep heartbeat running (already started in lobby).
@@ -260,6 +264,7 @@ function startPresenceHeartbeat() {
         {
           identity,
           action: 'heartbeat',
+          inMainRoom: videoConnected.value && !isInLobby.value,
           displayName: localDisplayName.value || undefined
         },
         { skipAuthRedirect: true, skipGlobalLoading: true }
@@ -343,13 +348,16 @@ async function endLiveSessionForEveryone() {
   const sid = numericSessionId.value || sessionId.value;
   if (!sid) return;
   try {
+    await finishMeetingTranscription(`/supervision/sessions/${encodeURIComponent(sid)}`);
     const { data } = await api.post(`/supervision/sessions/${encodeURIComponent(sid)}/end-live`, {}, {
       skipGlobalLoading: true,
       skipAuthRedirect: true
     });
     applyClosurePayload(data || {});
+    return true;
   } catch (e) {
-    console.warn('[JoinSupervision] end-live failed', e?.message || e);
+    window.alert(e?.response?.data?.error?.message || e?.message || 'Unable to end the session. Please retry.');
+    return false;
   }
 }
 
@@ -363,7 +371,7 @@ async function onLeaveRequest(payload = {}) {
   if (intentionalLeave.value || sessionExit.value) return;
   const endForAll = !!payload?.endForAll;
   if (endForAll) {
-    await endLiveSessionForEveryone();
+    if (!await endLiveSessionForEveryone()) return;
     liveEndedAt.value = liveEndedAt.value || new Date().toISOString();
     await finishLeave({ variant: 'ended-by-you', canRejoin: false });
     return;
@@ -386,6 +394,7 @@ function onVideoDisconnected() {
 
 function onVideoConnected() {
   videoConnected.value = true;
+  startPresenceHeartbeat();
 }
 
 function goLogin() {

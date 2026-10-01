@@ -24,7 +24,7 @@ export default class CounselingSessionNotes {
        VALUES (?, ?, ?, ?, ?)`,
       [
         Number(sessionId),
-        Number(authorUserId),
+        Number(authorUserId) || null,
         visibility,
         String(body || ''),
         activityId || null

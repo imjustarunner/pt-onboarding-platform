@@ -1,9 +1,10 @@
 {
   "passed": true,
-  "output_directory": "/tmp/meeting-launch-release-check",
+  "copyPublicDir": false,
+  "output_directory": "/tmp/meeting-consent-build",
   "node_heap_limit_mb": 8192,
   "warnings": [
-    "Some production chunks exceed the build size warning threshold."
+    "Existing large chunk warnings"
   ],
-  "completion": "\u2713 built in 1m 14s"
+  "completion": "built in 1m"
 }

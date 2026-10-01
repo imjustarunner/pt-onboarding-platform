@@ -6,7 +6,7 @@ export default class CounselingSessionChat {
       `INSERT INTO counseling_session_chat
         (session_id, sender_user_id, sender_role, body)
        VALUES (?, ?, ?, ?)`,
-      [Number(sessionId), Number(senderUserId), String(senderRole), String(body || '')]
+      [Number(sessionId), Number(senderUserId) || null, String(senderRole), String(body || '')]
     );
     return this.findById(result.insertId);
   }

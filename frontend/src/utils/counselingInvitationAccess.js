@@ -1,0 +1,4 @@
+const memory=new Map();
+export function saveCounselingAccess(access){if(!access?.token||!access.publicId||!Number(access.sessionId))throw new Error('Invalid client invitation.');for(const id of [access.sessionId,access.publicId]){memory.set(String(id),access);try{sessionStorage.setItem(`counseling-personal-access:${id}`,JSON.stringify(access));}catch{}}}
+export function counselingAccessFor(id){let access=memory.get(String(id));if(!access)try{access=JSON.parse(sessionStorage.getItem(`counseling-personal-access:${id}`)||'null');}catch{}if(!access?.token||Number(access.expiresAt)<=Date.now())return null;return access;}
+export function attachCounselingAccess(config){const match=/^\/counseling\/sessions\/([\w-]+)(?:\/|$)/.exec(String(config.url||''));const access=match&&counselingAccessFor(match[1]);if(access){config.headers||={};config.headers['X-Counseling-Access']=access.token;config.skipAuthRedirect=true;}return config;}

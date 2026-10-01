@@ -4,11 +4,12 @@
  */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../services/api';
+import { supervisionAccessFor } from '../utils/supervisionInvitationAccess';
 import { useAuthStore } from '../store/auth';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../utils/activityTracker';
-import { createBrowserSpeechCapture } from './browserSpeechCapture.js';
+import { createConsentedAudioCapture } from './consentedAudioCapture.js';
 
-export function useSupervisionLiveSession(props, emit, { enablePresentation = false, enableActivityFeed = true } = {}) {
+export function useSupervisionLiveSession(props, emit, { enablePresentation = false, enableActivityFeed = true, getAudioStream } = {}) {
   const authStore = useAuthStore();
 
   const sideTab = ref('discussion');
@@ -157,18 +158,19 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     prioritizeSelfView.value = true;
   }
 
+  const hasSessionAccess = () => !!(authStore.isAuthenticated || supervisionAccessFor(numericSessionId.value));
   async function postLifecycle(eventType) {
-    const sid = numericSessionId.value || props.supervisionSessionId;
-    if (!sid) return;
-    if (!authStore.isAuthenticated && !authStore.user?.id) return;
+    const sid = numericSessionId.value;
+    if (!sid || !hasSessionAccess()) return;
     try {
-      await api.post(`/supervision/sessions/${sid}/meeting-lifecycle`, {
-        eventType,
-        clientSessionKey: `web-${sid}-${authStore.user?.id || 0}-${props.joinIdentity || 'auth'}`
+      // The server derives identity and starts time only after admission. Do not
+      // also write the old browser lifecycle ledger (it double-counted joins).
+      await api.post(`/supervision/sessions/${sid}/join-presence`, {
+        action: ['left', 'closed'].includes(eventType) ? 'leave' : 'heartbeat',
+        inMainRoom: !props.isInLobby && lifecyclePosted.value,
+        displayName: props.localDisplayName || undefined
       }, { skipGlobalLoading: true, skipAuthRedirect: true });
-    } catch {
-      /* best-effort */
-    }
+    } catch { /* best-effort; the next heartbeat retries */ }
   }
 
   function speakerLabelForTranscript() {
@@ -181,7 +183,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
 
   async function loadSessionTranscript() {
     const sid = numericSessionId.value;
-    if (!sid || !authStore.isAuthenticated) return;
+    if (!sid || props.isInLobby || !hasSessionAccess()) return;
     try {
     const { data } = await api.get(`/supervision/sessions/${sid}/artifacts`, {
       skipGlobalLoading: true,
@@ -196,49 +198,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     }
   }
 
-  async function flushLiveTranscript({ final = false } = {}) {
-    const chunks = (liveTranscriptChunks.value || []).map((t) => String(t || '').trim()).filter(Boolean);
-    if (!chunks.length) return;
-    const transcript = chunks.join(' ').trim();
-    if (!transcript) return;
-    liveTranscriptChunks.value = [];
-    const sid = numericSessionId.value || props.supervisionSessionId;
-    const joinToken = String(props.joinToken || '').trim();
-    try {
-      if (authStore.isAuthenticated && sid) {
-        await api.post(
-          `/supervision/sessions/${encodeURIComponent(sid)}/client-transcript`,
-          {
-            transcript,
-            speakerLabel: speakerLabelForTranscript(),
-            replace: false,
-            final: !!final
-          },
-          { skipGlobalLoading: true, skipAuthRedirect: true }
-        );
-      } else if (joinToken) {
-        await api.post(
-          `/supervision/guest-transcript/${encodeURIComponent(joinToken)}`,
-          {
-            transcript,
-            speakerLabel: speakerLabelForTranscript(),
-            final: !!final
-          },
-          { skipGlobalLoading: true, skipAuthRedirect: true }
-        );
-      }
-      const stamped = `[${speakerLabelForTranscript()}] ${transcript}`;
-      const prev = String(sessionTranscriptText.value || '').trim();
-      if (!prev) sessionTranscriptText.value = stamped;
-      else if (!prev.includes(stamped)) sessionTranscriptText.value = `${prev}\n${stamped}`;
-      if (final) transcriptHint.value = 'Transcript saved for this session.';
-    } catch (e) {
-      liveTranscriptChunks.value = [...chunks, ...liveTranscriptChunks.value];
-      if (final) {
-        transcriptHint.value = e?.response?.data?.error?.message || 'Could not save live transcript.';
-      }
-    }
-  }
+  async function flushLiveTranscript() { await speechCapture?.flush(); }
 
   const transcriptPaused = ref(false);
   const transcriptRoomStopped = ref(false);
@@ -259,12 +219,13 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   }
 
   function startLiveTranscriptCapture() {
-    if (transcriptPaused.value || transcriptRoomStopped.value) return;
+    if (transcriptRoomStopped.value) return;
     if (speechCapture) return;
-    speechCapture = createBrowserSpeechCapture({
-      onTranscript: (text) => {
-        if (text) liveTranscriptChunks.value.push(text);
-      },
+    speechCapture = createConsentedAudioCapture({
+      baseUrl: `/supervision/sessions/${numericSessionId.value}`,
+      getStream: getAudioStream,
+      isHost: props.isSupervisor,
+      onState: state => { transcriptPaused.value=state.paused; transcriptRoomStopped.value=state.stopped; },
       onHint: (text) => {
         transcriptHint.value = text;
       },
@@ -273,29 +234,23 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       }
     });
     const started = speechCapture.start();
-    if (started && !transcriptFlushTimer) {
-      // Flush often so the other party sees this speaker's lines in the shared transcript.
-      transcriptFlushTimer = setInterval(() => {
-        void flushLiveTranscript({ final: false });
-      }, 8000);
-    }
     if (!started) {
       transcriptHint.value = props.isSupervisor
-        ? 'Live transcript could not start on this browser. Chrome desktop works best.'
-        : 'Your speech is not being transcribed yet — allow mic access and stay on Chrome. Only your mic can be labeled as you.';
+        ? 'Audio transcription is unavailable in this browser.'
+        : 'Allow microphone access to transcribe your speech.';
     }
   }
 
   async function pauseLiveTranscript() {
     if (transcriptRoomStopped.value) return;
+    await speechCapture?.control('pause');
     transcriptPaused.value = true;
-    stopLiveTranscriptCapture();
-    await flushLiveTranscript({ final: false });
     transcriptHint.value = 'Transcript paused';
   }
 
   async function resumeLiveTranscript() {
     if (transcriptRoomStopped.value) return;
+    await speechCapture?.control('resume');
     transcriptPaused.value = false;
     transcriptHint.value = 'Transcript resumed';
     startLiveTranscriptCapture();
@@ -315,7 +270,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   }
 
   function scheduleLiveTranscriptCapture(settleMs = null) {
-    if (props.isInLobby || transcriptPaused.value || transcriptRoomStopped.value) return;
+    if (props.isInLobby || transcriptRoomStopped.value) return;
     if (transcriptStartTimer) clearTimeout(transcriptStartTimer);
     const delay = settleMs == null
       ? (props.isSupervisor ? 1600 : 2800)
@@ -331,7 +286,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       lifecyclePosted.value = true;
       postLifecycle('joined');
     }
-    // Lobby has a live Vonage publisher; wait for main-room mic settle before Web Speech.
+    // Lobby has a live Vonage publisher; wait for main-room mic settle before capturing audio.
     scheduleLiveTranscriptCapture();
     emit('connected');
   }
@@ -583,6 +538,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   }
 
   watch(() => props.isInLobby, (inLobby) => {
+    lifecyclePosted.value = false;
     if (!inLobby) prioritizeSelfView.value = false;
     if (inLobby) {
       stopLiveTranscriptCapture();
@@ -603,6 +559,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     if (enableActivityFeed) await refreshActivity();
     await loadSessionTranscript();
     pollTimer.value = setInterval(() => {
+      if (lifecyclePosted.value) void postLifecycle('joined');
       refreshPresentation();
       if (enableActivityFeed) refreshActivity();
       loadSessionTranscript();
@@ -612,6 +569,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   onUnmounted(() => {
     resumeInactivityTimeout();
     if (pollTimer.value) clearInterval(pollTimer.value);
+    void speechCapture?.flush();
     stopLiveTranscriptCapture();
     void flushLiveTranscript({ final: true });
     if (lifecyclePosted.value) postLifecycle('left');

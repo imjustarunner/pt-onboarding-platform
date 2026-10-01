@@ -44,14 +44,14 @@ export function mapSupervisionArtifact(row) {
 }
 
 class SupervisionSessionArtifact {
-  static async findBySessionId(sessionId) {
+  static async findBySessionId(sessionId, db = pool, forUpdate = false) {
     const sid = parseInt(sessionId, 10);
     if (!sid) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT *
        FROM supervision_session_artifacts
        WHERE session_id = ?
-       LIMIT 1`,
+       LIMIT 1${forUpdate ? ' FOR UPDATE' : ''}`,
       [sid]
     );
     return mapSupervisionArtifact(rows?.[0] || null);
@@ -74,6 +74,30 @@ class SupervisionSessionArtifact {
     return this.findBySessionId(sid);
   }
 
+  static async appendTranscriptChunk({ sessionId, text, updatedByUserId = null }, transaction = null) {
+    const db = transaction || await pool.getConnection();
+    try {
+      if (!transaction) await db.beginTransaction();
+      await db.execute(`INSERT INTO supervision_session_artifacts (session_id,tagged_at)
+        VALUES (?,NOW()) ON DUPLICATE KEY UPDATE session_id=VALUES(session_id)`, [sessionId]);
+      const existing = await this.findBySessionId(sessionId, db, true);
+      if (existing?.transcript_stopped_at || Number(existing?.transcript_paused)) {
+        throw Object.assign(new Error(existing?.transcript_stopped_at ? 'Transcription was stopped for this session.' : 'Transcription is paused.'), {
+          status: 409, transcriptStoppedAt: existing?.transcript_stopped_at || null,
+          transcriptStoppedByName: existing?.transcript_stopped_by_name || null,
+          transcriptPaused: !!Number(existing?.transcript_paused)
+        });
+      }
+      const previous = String(existing?.transcriptText || '').trim();
+      const chunk = String(text || '').trim();
+      const transcriptText = previous.includes(chunk) ? previous : [previous, chunk].filter(Boolean).join('\n').slice(0, 120000);
+      const result = await this.upsertBySessionId({ sessionId, transcriptText, updatedByUserId }, db);
+      if (!transaction) await db.commit();
+      return result;
+    } catch (error) { if (!transaction) await db.rollback(); throw error; }
+    finally { if (!transaction) db.release(); }
+  }
+
   static async upsertBySessionId({
     sessionId,
     taggedAt = null,
@@ -87,13 +111,26 @@ class SupervisionSessionArtifact {
     actionItems = undefined,
     privateNotesText = undefined,
     updatedByUserId = null
-  }) {
+  }, db = pool) {
     const sid = parseInt(sessionId, 10);
     if (!sid) return null;
     const updatedBy = updatedByUserId ? parseInt(updatedByUserId, 10) : null;
 
+    if (db === pool) {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const result = await this.upsertBySessionId(arguments[0], connection);
+        await connection.commit();
+        return result;
+      } catch (error) { await connection.rollback(); throw error; }
+      finally { connection.release(); }
+    }
+    await db.execute(`INSERT INTO supervision_session_artifacts (session_id,tagged_at)
+      VALUES (?,NOW()) ON DUPLICATE KEY UPDATE session_id=VALUES(session_id)`, [sid]);
+
     // Merge with existing decrypted values so partial updates don't wipe fields.
-    const existing = await this.findBySessionId(sid);
+    const existing = await this.findBySessionId(sid, db, true);
     const next = {
       transcriptUrl: transcriptUrl === undefined ? (existing?.transcriptUrl ?? null) : (transcriptUrl || null),
       transcriptText: transcriptText === undefined ? (existing?.transcriptText ?? null) : (transcriptText || null),
@@ -107,7 +144,7 @@ class SupervisionSessionArtifact {
     const enc = encryptSensitiveArtifact(next);
     const useEncryption = !!enc && isSupervisionArtifactEncryptionConfigured();
 
-    await pool.execute(
+    await db.execute(
       `INSERT INTO supervision_session_artifacts
         (
           session_id,
@@ -169,7 +206,7 @@ class SupervisionSessionArtifact {
       ]
     );
 
-    return this.findBySessionId(sid);
+    return this.findBySessionId(sid, db);
   }
 }
 
