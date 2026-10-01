@@ -5,7 +5,8 @@
     <p v-if="loading" role="status">Opening draft…</p>
     <button v-else-if="!record" type="button" @click="openDraft">Try opening draft again</button>
     <template v-else-if="record">
-      <p class="status" role="status">{{ status }}<span v-if="fromEmail"> · From {{ fromEmail }}</span></p>
+      <p class="status" role="status">{{ status }}<span v-if="senderPreview?.fromEmail"> · From {{ senderPreview.fromEmail }} · Replies to {{ senderPreview.replyTo }}</span></p>
+      <p v-if="senderPreviewUnavailable" role="status">Sender details are temporarily unavailable. Your draft can still be saved; sending will recheck the mailbox.</p>
       <template v-if="record.state === 'editing'">
         <form @submit.prevent="send"><fieldset :disabled="busy">
           <div class="to-row"><EmailRecipientField v-model="draft.to" label="To" required /><button v-if="!draft.cc && !draft.bcc" type="button" :aria-expanded="showCopyFields" @click="showCopyFields=!showCopyFields">Cc / Bcc</button></div>
@@ -46,6 +47,7 @@ const route=useRoute(); const router=useRouter(); const context=props.composeCon
 const setDraftRoute=id=>props.composeContext ? Promise.resolve() : router.replace({query:{draftId:id}});
 const record=ref(null),draft=ref({to:'',cc:'',bcc:'',subject:'',text:'',quotedText:'',attachments:[]});
 const error=ref(''),status=ref(''),loading=ref(true),busy=ref(false),fromEmail=ref(''),bodyInput=ref(null),sendResult=ref(null),undoAvailable=ref(false);
+const senderPreview=ref(null),senderPreviewUnavailable=ref(false);
 const title=computed(()=>({new:'New email',reply:'Reply',reply_all:'Reply all',forward:'Forward'})[record.value?.mode || context.mode] || 'Email draft');
 const showCopyFields=ref(false),confirmAttachment=ref(false),availabilityPrompt=ref(null),confirmedDelivery=ref('');
 const deliveryStatus=computed(()=>confirmedDelivery.value || (sendResult.value?.sent ? 'Sent' : sendResult.value?.scheduledSendAt ? `Queued for ${new Date(sendResult.value.scheduledSendAt).toLocaleString()}` : 'Email queued for delivery.'));
@@ -86,8 +88,14 @@ async function openDraft(){
     fromEmail.value=record.value.from_email || fromEmail.value;sendResult.value=record.value.result || sendResult.value;
     if(String(record.value.id).startsWith('legacy-') && /<[^>]+>/.test(draft.value.text)){const doc=new DOMParser().parseFromString(draft.value.text,'text/html');doc.querySelectorAll('p,div,br').forEach(e=>e.append('\n'));draft.value.text=doc.body.textContent || '';}
     saved=JSON.stringify(draft.value);status.value=record.value.state==='editing'?(record.value.resumed?'Draft restored':'Draft saved'):'Submitted';
+    if(record.value.state==='editing')void loadSenderPreview(record.value.id);
   }catch(e){error.value=e.response?.data?.error?.message || 'Could not open draft. Sign in again and retry.';}
   finally{loading.value=false;await nextTick();bodyInput.value?.focus();}
+}
+async function loadSenderPreview(id){
+  senderPreview.value=null;senderPreviewUnavailable.value=false;
+  try{const {data}=await request('get',`/drafts/${id}/sender`);if(record.value?.id===id)senderPreview.value=data;}
+  catch{if(record.value?.id===id)senderPreviewUnavailable.value=true;}
 }
 onMounted(()=>{
   window.addEventListener('beforeunload',beforeUnload);window.addEventListener('online',retrySave);document.addEventListener('visibilitychange',onHidden);

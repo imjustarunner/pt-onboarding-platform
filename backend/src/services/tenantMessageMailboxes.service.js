@@ -268,5 +268,19 @@ export async function listMessageAliasesForAgency(agencyId, { userId = null } = 
       out.push(a);
     }
   }
+  if (userId) {
+    const { resolveEmailSendMailbox } = await import('./emailSendMailbox.service.js');
+    for (const alias of out.filter(a => ['personal', 'messages'].includes(a.kind))) {
+      try {
+        const inbox = await CommunicationInbox.findById(alias.inboxId);
+        const sender = await resolveEmailSendMailbox({ agencyId, userId, inbox });
+        alias.fromEmail = sender.fromEmail;
+        alias.replyTo = sender.replyTo;
+        alias.routing = sender.routing;
+      } catch {
+        alias.sendingUnavailable = true;
+      }
+    }
+  }
   return out;
 }

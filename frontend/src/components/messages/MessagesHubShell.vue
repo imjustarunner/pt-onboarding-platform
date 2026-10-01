@@ -858,14 +858,21 @@
                 </div>
                 <div class="msg-hub-email-row">
                   <label>From</label>
-                  <span v-if="replyMailboxEmail">{{ replyMailboxEmail }}</span>
+                  <span v-if="replyMailboxEmail">{{ composeSenderAlias?.fromEmail || replyMailboxEmail }}</span>
                   <select v-else v-model="composeFromAliasId" class="msg-hub-alias">
                     <option v-for="a in emailAliases" :key="a.id || a.email" :value="a.id">
-                      {{ a.email }} ({{ a.kind === 'personal' ? 'You' : a.displayName }})
+                      {{ a.fromEmail || a.email }} ({{ a.kind === 'personal' ? 'You' : a.displayName }})
                     </option>
                     <option v-if="!emailAliases.length" :value="null">Configure a work mailbox</option>
                   </select>
                 </div>
+                <div v-if="composeSenderAlias?.replyTo" class="msg-hub-email-row">
+                  <label>Replies to</label>
+                  <span>{{ composeSenderAlias.replyTo }}</span>
+                </div>
+                <p v-if="composeSenderAlias?.sendingUnavailable" role="alert">
+                  This sender could not be verified. Please try again before sending.
+                </p>
                 <input
                   v-if="showCcField"
                   v-model="composeCc"
@@ -2536,6 +2543,9 @@ const replyMailboxEmail = computed(() => {
   const thread = emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value);
   return thread?.messages?.at(-1)?.meta?.inboxEmail || (selectedConversation.value?.id && !activeEmailThreadKey.value ? selectedConversation.value.inbox_from_email : '') || '';
 });
+const composeSenderAlias = computed(() => replyMailboxEmail.value
+  ? emailAliases.value.find(a => a.email?.toLowerCase() === replyMailboxEmail.value.toLowerCase())
+  : emailAliases.value.find(a => Number(a.id) === Number(composeFromAliasId.value)));
 
 const activeEmailThreadSubject = computed(() => {
   const t = emailSubjectThreads.value.find((x) => x.key === activeEmailThreadKey.value);

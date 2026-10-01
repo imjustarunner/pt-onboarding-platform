@@ -33,6 +33,19 @@ beforeEach(async () => {
 });
 afterEach(() => wrapper?.unmount());
 describe('Messages hub thread interactions', () => {
+  it('shows the actual messages From and personal work Reply-To without changing mailbox selection', async () => {
+    state.emailAliases = [{ id: 7, email: 'thughes@itsco.health', fromEmail: 'messages@itsco.health', replyTo: 'thughes@itsco.health', kind: 'personal' }];
+    state.emailComposeMode = 'new';
+    state.composeFromAliasId = 7;
+    await nextTick();
+    expect(state.composeSenderAlias).toMatchObject({ fromEmail: 'messages@itsco.health', replyTo: 'thughes@itsco.health' });
+    state.timeline = [{ ...msg(10), meta: { ...msg(10).meta, inboxEmail: 'thughes@itsco.health' } }];
+    state.activeEmailThreadKey = 'email:10';
+    state.emailComposeMode = 'reply';
+    await nextTick();
+    expect(state.replyMailboxEmail).toBe('thughes@itsco.health');
+    expect(state.composeSenderAlias.fromEmail).toBe('messages@itsco.health');
+  });
   it('opens New email in a detached composer without a previous conversation ID', () => {
     state.selectedConversation = { id:10 }; state.activeEmailThreadKey='email:10';
     state.startNewSubjectCompose();

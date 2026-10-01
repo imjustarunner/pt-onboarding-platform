@@ -2856,7 +2856,10 @@ export async function sendHubEmail({
     throw err;
   }
 
-  const replyTo = String(inbox.from_email || '').trim() || null;
+  const { resolveEmailSendMailbox } = await import('./emailSendMailbox.service.js');
+  const senderMailbox = await resolveEmailSendMailbox({ agencyId: aid, userId, inbox });
+  inbox = senderMailbox.inbox;
+  const replyTo = senderMailbox.replyTo;
 
   const [agencyRows] = await pool.execute(
     `SELECT name, logo_url, logo_path, color_palette FROM agencies WHERE id = ? LIMIT 1`,
@@ -2982,7 +2985,7 @@ export async function sendHubEmail({
     sentAt: new Date()
   });
 
-  // Stable Reply-To (messages@) — Google Groups often mishandle plus-addresses.
+  // Stable work/group Reply-To — Google Groups often mishandle plus-addresses.
   // Inbound routing uses RFC reply headers or an unambiguous provider thread ID.
   const crypto = await import('crypto');
   const replyRaw = crypto.randomBytes(24).toString('hex');
@@ -3176,7 +3179,8 @@ export async function sendHubEmail({
   return {
     channel: 'email',
     threadRef: { conversationId: outConversationId, messageId: result?.messageId || null },
-    fromEmail: mailboxes.messages?.from_email || null,
+    fromEmail: senderMailbox.fromEmail,
+    replyTo: senderMailbox.replyTo,
     scheduled: !!result?.scheduled,
     scheduledSendAt: result?.scheduledSendAt || effectiveScheduledAt?.toISOString() || null,
     scheduledSendAtLabel,
@@ -4498,4 +4502,3 @@ export async function countHubUnreadTotal({ agencyId, userId } = {}) {
   });
   return feed.counts;
 }
-

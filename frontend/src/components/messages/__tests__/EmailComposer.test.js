@@ -9,6 +9,7 @@ let wrapper,state;
 beforeEach(async()=>{
  vi.useFakeTimers();vi.clearAllMocks();mock.route.query={mode:'reply_all',conversationId:'10'};
  mock.api.mockImplementation(async({method,url,data})=>{
+  if(method==='get'&&url.endsWith('/sender'))return {data:{fromEmail:'messages@itsco.health',replyTo:'thughes@itsco.health'}};
   if(method==='get')return {data:{conversation:{id:10,agency_id:2,inbox_from_email:'eden@itsco.health',subject:'Question'},messages:[{id:1,from:{email:'help@grasshopper.com'},direction:'inbound',to:[{email:'eden@itsco.health'},{email:'staff@itsco.health'}],body_text:'The whole email'}]}};
   if(method==='post'&&url==='/communications/drafts')return {data:{draft:{id:'mine',agency_id:2,conversation_id:10,mode:'reply_all',version:1,state:'editing',from_email:'eden@itsco.health',draft:data.draft}}};
   if(method==='put')return {data:{version:2}};
@@ -17,6 +18,19 @@ beforeEach(async()=>{
  wrapper=shallowMount(Composer);state=wrapper.vm.$.setupState;await flushPromises();
 });
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();});
+it('shows effective From and Reply-To in the detached and docked draft composer',()=>{
+ expect(wrapper.text()).toContain('From messages@itsco.health');
+ expect(wrapper.text()).toContain('Replies to thughes@itsco.health');
+});
+it('keeps draft editing and autosave usable if sender preview fails',async()=>{
+ mock.api.mockRejectedValueOnce(new Error('Directory timeout'));
+ await state.loadSenderPreview('mine');
+ expect(state.senderPreviewUnavailable).toBe(true);expect(state.loading).toBe(false);
+ expect(state.error).toBe('');
+ state.draft.text='Still saving';await nextTick();await vi.advanceTimersByTimeAsync(500);await flushPromises();
+ expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({method:'put',data:expect.objectContaining({draft:expect.objectContaining({text:'Still saving'})})}));
+ expect(state.status).toBe('Draft saved');
+});
 it('creates a private draft on an explicit reply action, includes group recipients and quoted history',()=>{
  expect(state.draft.to).toBe('help@grasshopper.com');expect(state.draft.cc).toBe('staff@itsco.health');expect(state.draft.quotedText).toContain('The whole email');expect(state.draft.text).toBe('');
  expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({url:'/communications/conversations/10?markRead=0'}));

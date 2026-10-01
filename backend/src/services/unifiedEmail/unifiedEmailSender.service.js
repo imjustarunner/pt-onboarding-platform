@@ -1341,7 +1341,7 @@ export async function sendEmailFromIdentity({
       impersonatedUser: getImpersonatedUser(),
       senderIdentityId: identity.id,
       fromEmail: identity.from_email,
-      replyTo: identity.reply_to || null,
+      replyTo,
       ...(cc ? { cc } : {}),
       ...redirectMeta
     }).catch(() => {});

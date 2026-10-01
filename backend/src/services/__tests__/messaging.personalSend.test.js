@@ -12,6 +12,7 @@ import Conversation from '../../models/CommunicationConversation.model.js';
 import {personalReplySendMailbox} from '../personalThreadReminder.service.js';
 import {sendEmailFromIdentity} from '../unifiedEmail/unifiedEmailSender.service.js';
 import {processScheduledOutboundSends} from '../unifiedInbox.service.js';
+import {resolveEmailSendMailbox} from '../emailSendMailbox.service.js';
 beforeEach(()=>{vi.clearAllMocks();Conversation.listDueScheduledMessages.mockResolvedValue([{id:20,conversation_id:10,author_user_id:5,to_json:[{email:'client@example.org'}],cc_json:[],bcc_json:[],body_text:'Confirmed.',subject:'Re: Meeting',in_reply_to:'<external@example.org>',references_header:'<external@example.org>',personal_reply_reminder_id:11}]);});
 it('sends an authenticated personal reply through messages@ with the original external reply headers',async()=>{
  expect(await processScheduledOutboundSends()).toMatchObject({sent:1});
@@ -30,4 +31,12 @@ it.each(['now','next_available'])('never silently re-holds a queued %s choice',a
  findAgencyUserIdByEmail.mockResolvedValueOnce(6);
  expect(await processScheduledOutboundSends()).toMatchObject({sent:1,deferred:0});
  expect(findAgencyUserIdByEmail).not.toHaveBeenCalled();expect(resolveRecipientDeliveryGate).not.toHaveBeenCalled();
+});
+it('re-resolves an SSO mailbox at delivery while preserving its personal conversation',async()=>{
+ const [row]=await Conversation.listDueScheduledMessages();
+ Conversation.listDueScheduledMessages.mockResolvedValue([{...row,personal_reply_reminder_id:null,recipient_delivery_choice:'now'}]);
+ resolveEmailSendMailbox.mockResolvedValueOnce({identity:{id:44},fromEmail:'messages@itsco.health',replyTo:'thughes@itsco.health',displayName:'Tatainya Hughes'});
+ expect(await processScheduledOutboundSends()).toMatchObject({sent:1,failed:0});
+ expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:44,replyToOverride:'thughes@itsco.health',generatedByUserId:5,templateType:'hub_email',inReplyTo:'<external@example.org>'}));
+ expect(personalReplySendMailbox).not.toHaveBeenCalled();
 });

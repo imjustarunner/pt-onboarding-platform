@@ -372,6 +372,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
   }
 
   const subjectBase = payload.subject || conv.subject || '';
+  const senderMailbox = await resolveEmailSendMailbox({ agencyId: conv.agency_id, userId, inbox });
   let subject = subjectBase;
   if (mode === 'forward' && !/^fwd:/i.test(subject)) subject = `Fwd: ${subjectBase}`;
   else if (mode !== 'forward' && !/^re:/i.test(subject)) subject = `Re: ${subjectBase}`;
@@ -390,7 +391,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
       channel: 'email',
       direction: 'outbound',
       authorUserId: userId,
-      from: { email: inbox.from_email, name: inbox.display_name },
+      from: { email: senderMailbox.fromEmail, name: senderMailbox.displayName, replyTo: senderMailbox.replyTo },
       to,
       cc,
       bcc: bccFinal,
@@ -423,7 +424,7 @@ export async function replyToConversation(conversationId, payload, { userId } = 
     channel: 'email',
     direction: 'outbound',
     authorUserId: userId,
-    from: { email: inbox.from_email, name: inbox.display_name },
+    from: { email: senderMailbox.fromEmail, name: senderMailbox.displayName, replyTo: senderMailbox.replyTo },
     to,
     cc,
     bcc: bccFinal,
@@ -916,7 +917,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
       channel: 'email',
       direction: 'outbound',
       authorUserId: userId,
-      from: { email: fromEmail, name: fromDisplayName },
+      from: { email: fromEmail, name: fromDisplayName, replyTo },
       to,
       cc,
       bcc,
@@ -947,7 +948,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     channel: 'email',
     direction: 'outbound',
     authorUserId: userId,
-    from: { email: fromEmail, name: fromDisplayName },
+    from: { email: fromEmail, name: fromDisplayName, replyTo },
     to,
     cc,
     bcc,

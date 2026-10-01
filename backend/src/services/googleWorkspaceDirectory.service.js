@@ -37,12 +37,12 @@ class GoogleWorkspaceDirectoryService {
     return google.admin({ version: 'directory_v1', auth });
   }
 
-  static async getUser({ primaryEmail }) {
+  static async getUser({ primaryEmail, timeoutMs = null }) {
     const email = String(primaryEmail || '').trim().toLowerCase();
     if (!email) throw new Error('primaryEmail is required');
     const admin = await this.getClient();
     try {
-      const result = await admin.users.get({ userKey: email });
+      const result = await admin.users.get({ userKey: email }, timeoutMs ? { timeout: timeoutMs } : undefined);
       return result?.data || null;
     } catch (e) {
       const status = e?.code || e?.response?.status || null;
@@ -137,12 +137,12 @@ class GoogleWorkspaceDirectoryService {
   /**
    * Lookup a Google Group by email. Returns null when not found.
    */
-  static async getGroup({ groupEmail }) {
+  static async getGroup({ groupEmail, timeoutMs = null }) {
     const email = String(groupEmail || '').trim().toLowerCase();
     if (!email) throw new Error('groupEmail is required');
     const admin = await this.getClient();
     try {
-      const result = await admin.groups.get({ groupKey: email });
+      const result = await admin.groups.get({ groupKey: email }, timeoutMs ? { timeout: timeoutMs } : undefined);
       return result?.data || null;
     } catch (e) {
       const status = e?.code || e?.response?.status || null;

@@ -48,6 +48,20 @@ export async function getEmailDraft(actor, id) {
   if (rows[0].conversation_id) await requireConversationAccess(actor,rows[0].conversation_id);
   return map(rows[0]);
 }
+/** Separate from saving/opening drafts: a sender lookup must not block autosave. */
+export async function getEmailDraftSender(actor, id) {
+  const draft = await getEmailDraft(actor, id);
+  let inbox = null;
+  if (draft.conversation_id) {
+    const conv = await requireConversationAccess(actor, draft.conversation_id);
+    const Inbox = (await import('../models/CommunicationInbox.model.js')).default;
+    inbox = await Inbox.findById(conv.inbox_id);
+    if (!inbox) throw fail('Work mailbox unavailable');
+  }
+  const { resolveEmailSendMailbox } = await import('./emailSendMailbox.service.js');
+  const sender = await resolveEmailSendMailbox({ agencyId: draft.agency_id, userId: actor.id, inbox });
+  return { fromEmail: sender.fromEmail, replyTo: sender.replyTo };
+}
 export async function listEmailDrafts(actor, agencyId) {
   await agencyAccess(actor,agencyId);
   // Never return attachments in a list response.

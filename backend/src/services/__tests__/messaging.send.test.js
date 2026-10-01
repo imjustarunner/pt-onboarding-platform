@@ -24,9 +24,11 @@ import Inbox from '../../models/CommunicationInbox.model.js';
 import { sendEmailFromIdentity } from '../unifiedEmail/unifiedEmailSender.service.js';
 import pool from '../../config/database.js';
 import { replyToConversation, composeNewEmail, undoOutboundMessage } from '../unifiedInbox.service.js';
+import { resolveEmailSendMailbox } from '../emailSendMailbox.service.js';
 const parent = { direction: 'outbound', internet_message_id: '<outbound@itsco.health>', to: [{ email: 'alice@example.org' }], cc: [], references_header: '<root@example.org>' };
 beforeEach(() => {
   vi.clearAllMocks();
+  resolveEmailSendMailbox.mockResolvedValue({ identity: { id: 7 }, inbox: { id: 3 }, fromEmail: 'messages@itsco.health', replyTo: 'messages@itsco.health', displayName: 'Messages' });
   Conversation.findById.mockResolvedValue({ id: 1, channel: 'email', agency_id: 2, inbox_id: 3, subject: 'Help' });
   Conversation.create.mockResolvedValue({ id: 2, channel: 'email', agency_id: 2, inbox_id: 3 });
   Conversation.listParticipants.mockResolvedValue([{ email: 'original@example.org', is_primary: 1 }]);
@@ -35,6 +37,14 @@ beforeEach(() => {
   sendEmailFromIdentity.mockResolvedValue({ id: 'gmail-id', internetMessageId: '<new@itsco.health>', threadId: 'gmail-thread' });
 });
 describe('email sending', () => {
+  it.each(['new', 'reply', 'reply_all', 'forward'])('preserves the SSO work Reply-To and staff signature author for %s', async mode => {
+    resolveEmailSendMailbox.mockResolvedValue({ identity: { id: 8 }, inbox: { id: 3 }, fromEmail: 'messages@itsco.health', replyTo: 'thughes@itsco.health', displayName: 'Tatainya Hughes' });
+    const payload = { text: 'Hello', html: '<p>Hello</p>', to: 'client@example.org', skipUndo: true, mode };
+    if (mode === 'new') await composeNewEmail({ agencyId: 2, inboxId: 3, userId: 5, payload });
+    else await replyToConversation(1, payload, { userId: 5 });
+    expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({ senderIdentityId: 8, replyToOverride: 'thughes@itsco.health', generatedByUserId: 5, source: 'manual', templateType: 'hub_email', html: expect.stringContaining('Hello') }));
+    expect(Conversation.addMessage).toHaveBeenCalledWith(expect.objectContaining({ from: expect.objectContaining({ email: 'messages@itsco.health', replyTo: 'thughes@itsco.health' }) }));
+  });
   it('persists reply headers during the undo delay, including outbound-only threads', async () => {
     await replyToConversation(1, { text: 'Following up' }, { userId: 5 });
     expect(Conversation.addMessage).toHaveBeenCalledWith(expect.objectContaining({ to: [{ email: 'alice@example.org', name: null }], inReplyTo: '<outbound@itsco.health>', referencesHeader: '<root@example.org> <outbound@itsco.health>', sendStatus: 'preparing' }));
