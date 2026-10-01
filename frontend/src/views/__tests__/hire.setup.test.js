@@ -48,6 +48,23 @@ describe('hire setup wizards', () => {
     expect(button('Prepare and send').attributes('disabled')).toBeDefined();
     expect(http.post).toHaveBeenCalledTimes(1); // navigating never sends an invitation
   });
+  it('shows failed delivery and retries just the email without recreating the prehire packet', async () => {
+    wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
+    await wrapper.findAll('.sph-steps button')[2].trigger('click');
+    await button('Update contract preview').trigger('click'); await flushPromises();
+    await wrapper.findAll('label').find(l => l.text().includes('I reviewed this agreement')).get('input').setValue(true);
+    await wrapper.findAll('.sph-steps button')[3].trigger('click');
+    http.post.mockResolvedValueOnce({ data: { passwordlessTokenLink: 'https://app.itsco.health/pre-hire/created', email: { status: 'failed', reason: 'send_failed' } } });
+    await button('Prepare and send').trigger('click'); await flushPromises();
+    expect(wrapper.get('[role="status"]').text()).toContain('invitation was not sent');
+    expect(wrapper.get('[role="status"]').text()).not.toContain('Invitation emailed');
+    http.post.mockResolvedValueOnce({ data: { passwordlessTokenLink: 'https://app.itsco.health/pre-hire/refreshed', email: { status: 'sent', redirected: true, deliveredTo: 'testing@itsco.health' } } });
+    await button('Email portal link again').trigger('click'); await flushPromises();
+    expect(http.post.mock.calls.filter(([url]) => url.endsWith('/send-prehire'))).toHaveLength(1);
+    expect(http.post.mock.calls.at(-1)[0]).toBe('/hiring/candidates/2/email-prehire-link');
+    expect(wrapper.get('[role="status"]').text()).toContain('Invitation emailed to testing@itsco.health');
+    expect(wrapper.get('[role="status"]').text()).toContain('Test address redirected');
+  });
   it('onboarding offers only onboarding collections and requires review before promotion', async () => {
     wrapper = mount(PromoteToOnboarding, { props: { candidate: { id: 2, first_name: 'Elena', work_email: 'elena@agency.org' }, agencyId: 1 }, global: { stubs: { teleport: true } } }); await flushPromises();
     const options = wrapper.findAll('.pto-select option').map(o => o.text());

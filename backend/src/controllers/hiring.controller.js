@@ -2127,7 +2127,11 @@ export const emailPrehirePortalLink = async (req, res, next) => {
       portalLink: tokenLink,
       customSubject: req.body?.msgSubject || null,
       customBody: req.body?.msgBody || null,
-      generatedByUserId: req.user?.id || null
+      generatedByUserId: req.user?.id || null,
+      source: 'manual'
+    }).catch((error) => {
+      console.error('[emailPrehirePortalLink] Email failed:', error?.message);
+      return { status: 'failed', reason: 'send_failed' };
     });
 
     res.json({
@@ -4547,36 +4551,40 @@ export const sendPreHire = async (req, res, next) => {
       console.warn('[sendPreHire] checklist seed failed:', checkErr?.message);
     }
 
+    let emailResult = { status: 'failed', reason: tokenLink ? 'no_recipient_email' : 'no_portal_link' };
     if (tokenLink && recipientEmail) {
       const tokens = req.body?.contractTokens && typeof req.body.contractTokens === 'object'
         ? req.body.contractTokens
         : {};
-      setImmediate(async () => {
-        try {
-          const { sendPrehirePortalInviteEmail } = await import('../services/prehireInviteEmail.service.js');
-          await sendPrehirePortalInviteEmail({
-            agencyId,
-            candidateUserId,
-            portalLink: tokenLink,
-            customSubject: req.body?.msgSubject,
-            customBody: req.body?.msgBody,
-            generatedByUserId: req.user?.id || null,
-            inviteDetails: {
-              startDate: tokens.START_DATE || req.body?.startDate || null,
-              expirationDate: tokens.EXPIRATION_DATE || tokens.CONTRACT_EXPIRATION || null,
-              minDays: tokens.MIN_DAYS_PER_WEEK || tokens.MIN_DAYS || null,
-              minHours: tokens.MIN_HOURS || tokens.MIN_HOURS_PER_WEEK || null,
-              steps: checklistTitles
-            }
-          });
-        } catch (emailErr) {
-          console.error('[sendPreHire] Failed to send invite email:', emailErr);
-        }
-      });
+      // Finish the send before returning: request-based runtimes can suspend background work.
+      try {
+        const { sendPrehirePortalInviteEmail } = await import('../services/prehireInviteEmail.service.js');
+        emailResult = await sendPrehirePortalInviteEmail({
+          agencyId,
+          candidateUserId,
+          portalLink: tokenLink,
+          customSubject: req.body?.msgSubject,
+          customBody: req.body?.msgBody,
+          generatedByUserId: req.user?.id || null,
+          source: 'manual',
+          inviteDetails: {
+            startDate: tokens.START_DATE || req.body?.startDate || null,
+            expirationDate: tokens.EXPIRATION_DATE || tokens.CONTRACT_EXPIRATION || null,
+            minDays: tokens.MIN_DAYS_PER_WEEK || tokens.MIN_DAYS || null,
+            minHours: tokens.MIN_HOURS || tokens.MIN_HOURS_PER_WEEK || null,
+            steps: checklistTitles
+          }
+        });
+      } catch (emailErr) {
+        console.error('[sendPreHire] Failed to send invite email:', emailErr?.message);
+        emailResult = { status: 'failed', reason: 'send_failed' };
+      }
     }
 
     res.json({
       ok: true,
+      email: emailResult,
+      recipientEmail,
       passwordlessToken: tokenResult?.token || null,
       passwordlessTokenLink: tokenLink,
       assignedTaskCount: assignedTasks.length,

@@ -179,10 +179,11 @@
       <div class="sph-actions">
         <button type="button" class="btn btn-secondary" @click="setupStep ? setupStep-- : goBack()">{{ setupStep ? 'Back' : 'Cancel' }}</button>
         <button v-if="setupStep < 3" type="button" class="btn btn-primary" @click="setupStep++">Continue →</button>
-        <button type="button" v-if="setupStep === 3" class="btn btn-primary" :disabled="sending || !readyToSend" @click="initiate">
-          {{ sending ? 'Preparing invitation…' : 'Prepare and send pre-hire invitation' }}
+        <button type="button" v-if="setupStep === 3" class="btn btn-primary" :disabled="sending || (!tokenLink && !readyToSend)" @click="tokenLink ? resendInvitation() : initiate()">
+          {{ sending ? 'Sending invitation…' : tokenLink ? 'Email portal link again' : 'Prepare and send pre-hire invitation' }}
         </button>
       </div>
+      <p v-if="tokenLink" role="status" :class="emailDelivery?.status === 'sent' ? 'sph-ok' : 'sph-warn'">{{ prehireInviteDeliveryMessage(emailDelivery) }}</p>
       <p v-if="tokenLink" class="sph-ok">
         Portal link created:
         <a :href="tokenLink" target="_blank" rel="noopener">{{ tokenLink }}</a>
@@ -200,6 +201,7 @@ import HireWorkflowEditor from '../../components/admin/HireWorkflowEditor.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { prehireInviteDeliveryMessage } from '../../utils/prehireInviteDelivery.js';
 import { useAgencyStore } from '../../store/agency';
 import { mapSignerRolesWithDefaults } from '../../utils/hiringSignerDefaults.js';
 
@@ -216,6 +218,7 @@ const detail = ref(null);
 const settings = ref({});
 const extraFiles = ref([]);
 const tokenLink = ref('');
+const emailDelivery = ref(null);
 const jobDocs = ref([]);
 const inferredPayLabel = ref('');
 const inferredCategory = ref(null);
@@ -467,6 +470,7 @@ const initiate = async () => {
       },
       { params: { agencyId: agencyId.value } }
     );
+    emailDelivery.value = data?.email || null;
     tokenLink.value = data?.passwordlessTokenLink || '';
     contractTaskId.value = data?.contractTaskId || null;
     contractWarning.value = data?.contractWarning || '';
@@ -476,6 +480,18 @@ const initiate = async () => {
   } finally {
     sending.value = false;
   }
+};
+
+const resendInvitation = async () => {
+  sending.value = true;
+  sendError.value = '';
+  try {
+    const { data } = await api.post(`/hiring/candidates/${userId.value}/email-prehire-link`, {}, { params: { agencyId: agencyId.value } });
+    emailDelivery.value = data?.email || null;
+    tokenLink.value = data?.passwordlessTokenLink || tokenLink.value;
+  } catch (e) {
+    sendError.value = e.response?.data?.error?.message || 'Failed to resend invitation.';
+  } finally { sending.value = false; }
 };
 
 const setupSteps = ['Person & job', 'Pre-hire steps', 'Contract & cosigners', 'Review & invite'];

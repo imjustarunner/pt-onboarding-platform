@@ -553,6 +553,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import { prehireInviteDeliveryMessage } from '../../utils/prehireInviteDelivery.js';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
@@ -956,12 +957,7 @@ const emailPortalLink = async (c) => {
   try {
     const params = selectedAgencyId.value ? { agencyId: selectedAgencyId.value } : {};
     const r = await api.post(`/hiring/candidates/${c.id}/email-prehire-link`, {}, { params });
-    const to = r.data?.recipientEmail || c.personal_email || c.email || 'candidate';
-    if (r.data?.email?.skipped) {
-      actionMsg.value = `Link refreshed, but email was not sent (${r.data.email.reason || 'skipped'}). Copy the link above.`;
-    } else {
-      actionMsg.value = `Portal link emailed to ${to}.`;
-    }
+    actionMsg.value = prehireInviteDeliveryMessage(r.data?.email);
     await load();
   } catch (e) {
     actionMsg.value = e.response?.data?.error?.message || 'Failed to email portal link.';

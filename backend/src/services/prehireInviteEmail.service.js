@@ -6,6 +6,7 @@
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
+import { HOGWARTS_TEST_INBOX } from '../utils/hogwartsTestEmail.js';
 
 export const PREHIRE_PORTAL_ACCESS_TRIGGER = 'pre_hire_admin_review_access';
 
@@ -26,10 +27,26 @@ function textToHtml(text) {
 
 function applyCustomTokens(text, { firstName, portalLink }) {
   return String(text || '')
-    .replace(/\{first_name\}/gi, firstName)
-    .replace(/\{link\}/gi, portalLink)
-    .replace(/\{\{FIRST_NAME\}\}/g, firstName)
-    .replace(/\{\{PORTAL_LOGIN_LINK\}\}/g, portalLink);
+    .replace(/\{\{FIRST_NAME\}\}|\{first_name\}/gi, () => firstName)
+    .replace(/\{\{PORTAL_LOGIN_LINK\}\}|\{link\}/gi, () => portalLink);
+}
+
+function parseObject(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch { return {}; }
+}
+
+export function prehireInviteDelivery(result, recipientEmail) {
+  const status = result?.pendingApproval || result?.queued ? 'pending'
+    : result?.skipped || result?.blocked || result?.failed ? 'failed'
+      : result?.id ? 'sent' : 'failed';
+  return {
+    ...result,
+    status,
+    recipientEmail,
+    deliveredTo: status === 'sent' ? (result.redirected ? HOGWARTS_TEST_INBOX : recipientEmail) : null
+  };
 }
 
 function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink, inviteDetails }) {
@@ -102,7 +119,8 @@ export async function sendPrehirePortalInviteEmail({
   customSubject = null,
   customBody = null,
   generatedByUserId = null,
-  inviteDetails = null
+  inviteDetails = null,
+  source = 'auto'
 }) {
   const user = await User.findById(candidateUserId);
   if (!user) return { skipped: true, reason: 'user_not_found' };
@@ -114,16 +132,41 @@ export async function sendPrehirePortalInviteEmail({
   }
 
   const [agencyRows] = await pool.execute(
-    `SELECT prehire_settings, name, onboarding_team_email, people_ops_email, portal_url, slug
+    `SELECT prehire_settings, name
      FROM agencies WHERE id = ? LIMIT 1`,
     [agencyId]
   );
   const agencyRow = agencyRows[0] || {};
   const rawSettings = agencyRow.prehire_settings;
-  const settings = typeof rawSettings === 'string' ? JSON.parse(rawSettings) : (rawSettings || {});
+  const settings = parseObject(rawSettings);
   const agencyName = agencyRow.name || 'People Operations';
   const firstName = user.first_name || 'there';
-  const jobTitle = user.applied_role || settings.default_job_title || '';
+  const [profileRows] = await pool.execute(
+    `SELECT hp.applied_role, jd.title AS job_title FROM hiring_profiles hp
+     LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = ?
+     WHERE hp.candidate_user_id = ? LIMIT 1`, [agencyId, candidateUserId]
+  );
+  const jobTitle = profileRows[0]?.job_title || profileRows[0]?.applied_role || settings.default_job_title || '';
+  // Resends include the same saved offer details and checklist as the first invite.
+  if (!inviteDetails) {
+    const [generations] = await pool.execute(
+      `SELECT g.token_values_json FROM contract_generations g JOIN tasks t ON t.id = g.task_id
+       WHERE g.agency_id = ? AND g.candidate_user_id = ? AND t.status != 'overridden'
+       ORDER BY g.id DESC LIMIT 1`, [agencyId, candidateUserId]
+    );
+    const [steps] = await pool.execute(
+      'SELECT title FROM hiring_prehire_checklist_items WHERE agency_id = ? AND user_id = ? ORDER BY id',
+      [agencyId, candidateUserId]
+    );
+    const tokens = parseObject(generations[0]?.token_values_json);
+    inviteDetails = {
+      startDate: tokens.START_DATE,
+      expirationDate: tokens.EXPIRATION_DATE || tokens.CONTRACT_EXPIRATION,
+      minDays: tokens.MIN_DAYS_PER_WEEK || tokens.MIN_DAYS,
+      minHours: tokens.MIN_HOURS || tokens.MIN_HOURS_PER_WEEK,
+      steps: steps.map(step => step.title)
+    };
+  }
 
   let subject;
   let text;
@@ -169,6 +212,12 @@ export async function sendPrehirePortalInviteEmail({
     }
   }
 
+  // A customized message must still include the candidate's usable portal link.
+  if (!text.includes(portalLink)) {
+    text += `\n\nYour private pre-hire portal: ${portalLink}`;
+    html += `<p><a href="${escHtml(portalLink)}">Open your private pre-hire portal</a></p>`;
+  }
+
   const result = await sendNotificationEmail({
     agencyId,
     triggerKey: PREHIRE_PORTAL_ACCESS_TRIGGER,
@@ -180,48 +229,8 @@ export async function sendPrehirePortalInviteEmail({
     generatedByUserId,
     templateType: PREHIRE_PORTAL_ACCESS_TRIGGER,
     templateId,
-    source: 'auto'
+    source
   });
-
-  if (result?.skipped) {
-    console.warn('[sendPrehirePortalInviteEmail] notification skipped for user', candidateUserId, ':', result.reason, '— sending hire email directly');
-    try {
-      const { resolveJobApplicationSenderIdentity } = await import('./hiringReferenceIdentity.service.js');
-      const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
-      const identity = await resolveJobApplicationSenderIdentity(agencyId);
-      if (identity?.id) {
-        await sendEmailFromIdentity({
-          senderIdentityId: identity.id,
-          to: recipientEmail,
-          subject,
-          text,
-          html,
-          userId: candidateUserId,
-          agencyId,
-          source: 'auto'
-        });
-        return { ok: true, fallback: true };
-      }
-    } catch (fallbackErr) {
-      console.warn('[sendPrehirePortalInviteEmail] identity send failed:', fallbackErr?.message);
-    }
-    try {
-      const { default: EmailService } = await import('./email.service.js');
-      await EmailService.sendEmail({
-        to: recipientEmail,
-        subject,
-        text,
-        html,
-        userId: candidateUserId,
-        agencyId,
-        source: 'auto'
-      });
-      return { ok: true, fallback: true };
-    } catch (emailErr) {
-      console.error('[sendPrehirePortalInviteEmail] direct send failed:', emailErr?.message);
-      return result;
-    }
-  }
-
-  return result;
+  // Keep one audited delivery path. A held/blocked send is never a successful send.
+  return prehireInviteDelivery(result, recipientEmail);
 }

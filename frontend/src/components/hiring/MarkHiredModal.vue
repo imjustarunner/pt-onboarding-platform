@@ -173,10 +173,10 @@
 
         <!-- Success -->
         <div v-if="tokenLink" class="info-banner info-banner-success">
-          <div><strong>Pre-hire initiated successfully.</strong></div>
+          <div><strong>Pre-hire setup saved.</strong></div>
           <div style="margin-top:6px;">Setup link (expires in {{ tokenExpiryLabel }}):</div>
           <div class="mono">{{ tokenLink }}</div>
-          <div class="link-note">Emailed to the candidate. Copy above as backup.</div>
+          <div class="link-note">{{ prehireInviteDeliveryMessage(emailDelivery) }}</div>
         </div>
       </div>
 
@@ -209,6 +209,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import api from '../../services/api';
+import { prehireInviteDeliveryMessage } from '../../utils/prehireInviteDelivery.js';
 import StaffClientComfortPreferencesModal from '../tutoring/StaffClientComfortPreferencesModal.vue';
 import { mapSignerRolesWithDefaults } from '../../utils/hiringSignerDefaults.js';
 
@@ -431,6 +432,7 @@ watch(() => props.show, (val) => { if (val) loadModal(); });
 const sending = ref(false);
 const sendError = ref('');
 const tokenLink = ref('');
+const emailDelivery = ref(null);
 
 const send = async () => {
   if (!props.candidate?.id || !props.agencyId) return;
@@ -461,6 +463,7 @@ const send = async () => {
       },
       { params: { agencyId: props.agencyId } }
     );
+    emailDelivery.value = r.data?.email || null;
     tokenLink.value = r.data?.passwordlessTokenLink || '';
     emit('hired', r.data);
   } catch (e) {
