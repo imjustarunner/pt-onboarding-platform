@@ -22,77 +22,14 @@
         <p v-if="titleMissing" class="tmb-required">Add a title to schedule this meeting.</p>
       </div>
 
-      <div v-if="showVirtualOptions" class="tmb-row">
-        <label class="tmb-label">Virtual</label>
-        <div class="tmb-switch-row">
-          <div class="tmb-switch-copy">
-            <span class="tmb-switch-title">Virtual appointment</span>
-            <p class="muted">Schedule with a joinable video room.</p>
-          </div>
-          <label class="tmb-switch" :class="{ disabled }">
-            <input
-              type="checkbox"
-              role="switch"
-              :checked="isVirtual"
-              :disabled="disabled"
-              :aria-checked="String(!!isVirtual)"
-              @change="emit('update:isVirtual', !!$event.target.checked)"
-            />
-            <span class="tmb-switch-slider" aria-hidden="true"></span>
-          </label>
-        </div>
-        <div v-if="isVirtual && videoConfigured" class="tmb-switch-row">
-          <div class="tmb-switch-copy">
-            <span class="tmb-switch-title">Platform video room</span>
-            <p class="muted">Link the in-app video room for this meeting.</p>
-          </div>
-          <label class="tmb-switch" :class="{ disabled }">
-            <input
-              type="checkbox"
-              role="switch"
-              :checked="usePlatformVideo"
-              :disabled="disabled"
-              :aria-checked="String(!!usePlatformVideo)"
-              @change="emit('update:usePlatformVideo', !!$event.target.checked)"
-            />
-            <span class="tmb-switch-slider" aria-hidden="true"></span>
-          </label>
-        </div>
-        <div v-if="isVirtual && (!videoConfigured || !usePlatformVideo)" class="tmb-switch-row">
-          <div class="tmb-switch-copy">
-            <span class="tmb-switch-title">Google Meet link</span>
-            <p class="muted">Create a Meet link when platform video isn’t used.</p>
-          </div>
-          <label class="tmb-switch" :class="{ disabled }">
-            <input
-              type="checkbox"
-              role="switch"
-              :checked="createMeetLink"
-              :disabled="disabled"
-              :aria-checked="String(!!createMeetLink)"
-              @change="emit('update:createMeetLink', !!$event.target.checked)"
-            />
-            <span class="tmb-switch-slider" aria-hidden="true"></span>
-          </label>
-        </div>
-        <div v-if="isVirtual && usePlatformVideo && videoConfigured" class="tmb-switch-row">
-          <div class="tmb-switch-copy">
-            <span class="tmb-switch-title">Waiting room</span>
-            <p class="muted">Participants wait until the host admits them.</p>
-          </div>
-          <label class="tmb-switch" :class="{ disabled }">
-            <input
-              type="checkbox"
-              role="switch"
-              :checked="waitingRoomEnabled"
-              :disabled="disabled"
-              :aria-checked="String(!!waitingRoomEnabled)"
-              @change="emit('update:waitingRoomEnabled', !!$event.target.checked)"
-            />
-            <span class="tmb-switch-slider" aria-hidden="true"></span>
-          </label>
-        </div>
-      </div>
+      <MeetingLocationOptions v-if="showVirtualOptions"
+        :is-virtual="isVirtual" :use-platform-video="usePlatformVideo" :create-meet-link="createMeetLink"
+        :video-configured="videoConfigured" :waiting-room-enabled="waitingRoomEnabled" :disabled="disabled"
+        @update:is-virtual="emit('update:isVirtual', $event)"
+        @update:use-platform-video="emit('update:usePlatformVideo', $event)"
+        @update:create-meet-link="emit('update:createMeetLink', $event)"
+        @update:waiting-room-enabled="emit('update:waitingRoomEnabled', $event)"
+      />
 
       <div v-if="showNotifyOption" class="tmb-row">
         <label class="tmb-label">Notifications</label>
@@ -176,16 +113,14 @@
             Employee Evaluation
           </option>
         </select>
-        <p v-if="meetingKind === 'huddle'" class="muted">
-          Agency-internal huddle. Solo / 1:1 includes goals (like individual supervision); group huddles (2+ invitees) are agenda-only.
-          CPA Meeting: host uses Admin Time. Mentorship Meeting: host uses the Individual Meeting rate. Eligible participants use the meeting rate; interns receive unpaid indirect time. All time is based on recorded attendance.
-        </p>
-        <p v-else-if="meetingSubtype === 'evaluation'" class="muted">
-          Semi-annual employee self-assessment meeting. Invite exactly one employee; attendance pays at the Support Activity (MEETING) rate.
-        </p>
-        <p v-else-if="!canSetAdminSubtype && showMeetingSubtype" class="muted">
-          Only admin, support, or super admin can create Admin Meetings or Town Halls.
-        </p>
+        <p class="muted" aria-live="polite">{{ meetingTypeDescriptions[typeSelectValue] }}</p>
+        <details class="tmb-type-guide">
+          <summary>When should I use each type?</summary>
+          <dl><template v-for="(description, type) in meetingTypeDescriptions" :key="type">
+            <dt>{{ meetingTypeLabels[type] }}</dt><dd>{{ description }}</dd>
+          </template></dl>
+          <p class="muted">Pay depends on recorded attendance, role, configured rates, and compensation settings. Salaried and admin roles do not receive separate meeting pay.</p>
+        </details>
       </div>
 
       <div v-if="showTrainingPayOption && meetingKind !== 'huddle'" class="tmb-row">
@@ -426,6 +361,7 @@
 </template>
 
 <script setup>
+import MeetingLocationOptions from './MeetingLocationOptions.vue';
 import { computed, nextTick, ref } from 'vue';
 
 const props = defineProps({
@@ -508,6 +444,24 @@ const goalAddRef = ref(null);
 const actionAddRef = ref(null);
 
 const showWorkspaceSide = computed(() => !!(props.showAgendaDraft || props.showGoalsActionsDraft));
+
+const meetingTypeLabels = {
+  general: 'General team meeting', huddle: 'Huddle', cpa: 'CPA Meeting', mentorship: 'Mentorship Meeting',
+  interview: 'Interview', leadership_circle: 'Leadership Circle', supervisors_meeting: 'Supervisors meeting',
+  admin: 'Admin Meeting', town_hall: 'Town Hall', evaluation: 'Employee Evaluation'
+};
+const meetingTypeDescriptions = {
+  general: 'Routine collaboration or project discussion. Use this when no specialized workflow applies; compensation is off by default.',
+  huddle: 'A quick internal check-in, solo or with others. Solo and one-to-one huddles include goals; group huddles are agenda-only. Host pay follows their CPA / Provider Plus role.',
+  cpa: 'A CPA-led internal meeting. The host uses Admin Time; eligible attendees use the meeting rate and interns record unpaid indirect time.',
+  mentorship: 'An internal mentoring conversation. The host uses the Individual Meeting rate; eligible attendees use the meeting rate and interns record unpaid indirect time.',
+  interview: 'A hiring interview with a candidate and interviewers. Uses the interview workspace and candidate-focused video; agenda, goals, action items, and compensation are off by default.',
+  leadership_circle: 'Leadership planning and decisions. Compensation is enabled by default; eligible supervisors use half their individual-supervision rate.',
+  supervisors_meeting: 'Coordination among supervisors, rather than a clinical supervision session. Compensation is enabled by default; eligible supervisors use half their individual-supervision rate.',
+  admin: 'Administrative or operational work. Compensation is enabled by default; eligible supervisors use half their individual-supervision rate.',
+  town_hall: 'An organization-wide update or discussion. Compensation is enabled by default for eligible attendees at the meeting rate.',
+  evaluation: 'A semi-annual employee self-assessment meeting. Invite exactly one employee; eligible attendance uses the Support Activity (MEETING) rate.'
+};
 
 const typeSelectValue = computed(() => (
   props.meetingKind === 'huddle' ? (['cpa','mentorship'].includes(props.meetingSubtype) ? props.meetingSubtype : 'huddle') : String(props.meetingSubtype || 'general')
@@ -716,6 +670,10 @@ function removeAction(idx) {
 </script>
 
 <style scoped>
+.tmb-type-guide { font-size: .84rem; }
+.tmb-type-guide summary { cursor: pointer; color: #6d28d9; }
+.tmb-type-guide dt { font-weight: 700; margin-top: 10px; }
+.tmb-type-guide dd { margin: 4px 0; color: #64748b; }
 .tmb { display: flex; flex-direction: column; gap: 12px; }
 .tmb--with-side {
   display: grid;

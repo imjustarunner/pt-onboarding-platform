@@ -2,7 +2,7 @@ import { huddleSubtype, HUDDLE_SUBTYPES } from '../services/huddlePolicy.js';
 import { randomUUID } from 'node:crypto';
 import { captureMeetingChange, queueMeetingChange } from '../services/meetingScheduleChanges.service.js';
 import { saveEventMeetingSettings, assertMeetingCompensationSetting } from '../services/meetingSettings.service.js';
-import { ADMIN_ONLY_MEETING_TYPES, normalizeMeetingSettings } from '../services/meetingSettingsPolicy.js';
+import { ADMIN_ONLY_MEETING_TYPES, meetingTypeForEvent, normalizeMeetingSettings } from '../services/meetingSettingsPolicy.js';
 import { getPasswordRecoverySsoState, passwordRecoveryRequiresSupport } from '../services/passwordRecoveryPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
@@ -6289,8 +6289,8 @@ export const createUserScheduleEvent = async (req, res, next) => {
       .toLowerCase();
     if (ADMIN_ONLY_MEETING_TYPES.has(requestedSubtype) && !['admin','super_admin','superadmin'].includes(actorRole)) return res.status(403).json({error:{message:'Only administrators can schedule this meeting type.'}});
     if (req.body?.meetingSettings != null) normalizeMeetingSettings(req.body.meetingSettings);
-    await assertMeetingCompensationSetting({agencyId,type:kind==='HUDDLE'?'huddle':requestedSubtype,input:req.body?.meetingSettings,role:actorRole});
     let meetingSubtype = kind === 'HUDDLE' ? huddleSubtype({meeting_subtype:requestedSubtype},provider.role) : 'general';
+    await assertMeetingCompensationSetting({agencyId,type:meetingTypeForEvent({kind,meeting_subtype:kind==='HUDDLE'?meetingSubtype:requestedSubtype}),input:req.body?.meetingSettings,role:actorRole});
     if (HUDDLE_SUBTYPES.includes(requestedSubtype) && kind !== 'HUDDLE') return res.status(400).json({error:{message:'CPA and Mentorship meetings must use the huddle meeting kind.'}});
     if (kind==='HUDDLE' && meetingSubtype==='cpa' && provider.role!=='clinical_practice_assistant') return res.status(400).json({error:{message:'Select a Clinical Practice Assistant as the CPA Meeting host.'}});
     if (kind === 'TEAM_MEETING' && (requestedSubtype === 'admin' || ['town_hall', 'leadership_circle', 'supervisors_meeting'].includes(requestedSubtype) || requestedSubtype === 'interview' || requestedSubtype === 'evaluation')) {
@@ -7093,7 +7093,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     const { applyClockTimesToOccurrence } = await import('../utils/seriesTimeShift.js');
     let updated = null;
     if (req.body?.meetingSettings != null) normalizeMeetingSettings(req.body.meetingSettings);
-    await assertMeetingCompensationSetting({agencyId:target.agency_id,existing:target,type:kind==='HUDDLE'?'huddle':nextMeetingSubtype || target.meeting_subtype,input:req.body?.meetingSettings,role:actorRole});
+    await assertMeetingCompensationSetting({agencyId:target.agency_id,existing:target,type:meetingTypeForEvent({kind,meeting_subtype:nextMeetingSubtype || target.meeting_subtype}),input:req.body?.meetingSettings,role:actorRole});
     const meetingChangeBefore = new Map();
     if (['TEAM_MEETING','HUDDLE'].includes(kind)) {
       for (const occurrence of rowsToUpdate) meetingChangeBefore.set(Number(occurrence.id), await captureMeetingChange(occurrence));

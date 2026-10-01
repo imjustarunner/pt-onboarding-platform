@@ -114,9 +114,6 @@
           <div v-if="canManageMeetingLive" class="join-tools">
             <button type="button" class="btn btn-secondary btn-sm" @click="toolsOpen = !toolsOpen">Tools</button>
             <div v-if="toolsOpen" class="join-tools__menu">
-              <button type="button" class="join-tools__item" @click="copyJoinLink">
-                {{ joinLinkCopied ? 'Copied!' : 'Copy join link' }}
-              </button>
               <button type="button" class="join-tools__item" @click="openAddAttendeeModal">
                 Add someone to this meeting
               </button>
@@ -843,7 +840,6 @@ const {
 });
 
 const toolsOpen = ref(false);
-const joinLinkCopied = ref(false);
 const showAddAttendeeModal = ref(false);
 const addAttendeeSearch = ref('');
 const addAttendeeCandidates = ref([]);
@@ -859,7 +855,6 @@ const chatPanelOpen = ref(true);
 const raisedHandCount = ref(0);
 const raisedHandNames = ref([]);
 const mutedParticipantNames = ref([]);
-const participantJoinUrl = ref('');
 
 const videoFullscreenHandsNotice = computed(() => {
   if (!raisedHandCount.value) return '';
@@ -1207,14 +1202,7 @@ function applyTokenPayload(data) {
   if (data.attendanceTrackingEnabled != null) {
     attendanceTrackingEnabled.value = !!data.attendanceTrackingEnabled;
   }
-  const joinLink = String(
-    data.participantJoinUrl
-    || data.participant_join_url
-    || data.joinUrl
-    || data.join_url
-    || ''
-  ).trim();
-  if (joinLink) participantJoinUrl.value = joinLink;
+
 }
 
 function applyClosurePayload(data = {}) {
@@ -1271,6 +1259,7 @@ async function pollMeetingCompletion() {
     }
   } catch (e) {
     if (e?.response?.data?.interviewGuestEnded) onInterviewGuestEndedSignal(e.response.data);
+    else if (Number(e?.response?.status) === 410) onMeetingEnded();
   }
 }
 
@@ -1600,19 +1589,6 @@ function onAudioMapChange(payload) {
 
 function onParticipantLeft() {
   attendancePanelRef.value?.load?.({ quiet: true });
-}
-
-async function copyJoinLink() {
-  const url = String(participantJoinUrl.value || '').trim()
-    || (typeof window !== 'undefined' ? window.location.href : '');
-  try {
-    await navigator.clipboard.writeText(url);
-    joinLinkCopied.value = true;
-    setTimeout(() => { joinLinkCopied.value = false; }, 2000);
-  } catch {
-    /* ignore */
-  }
-  toolsOpen.value = false;
 }
 
 const filteredAddAttendeeCandidates = computed(() => {
@@ -2588,7 +2564,7 @@ onUnmounted(() => {
   min-height: 0 !important;
   height: 100% !important;
 }
-.join-video--lobby :deep(.vsr__viewport) { aspect-ratio: 4 / 3; height: auto; min-height: 0; }
+.join-video--lobby :deep(.vsr__viewport) { aspect-ratio: 1; height: auto; min-height: 0; }
 .join-video--lobby :deep(.vsr__stage:not(.vsr__stage--strip)) { flex: 1 1 auto; height: 100% !important; }
 .join-video :deep(.vsr__controls) {
   position: relative;

@@ -3,7 +3,7 @@ export function mediaElement(owner) {
   return typeof owner?.element === 'function' ? owner.element() : owner?.element || null;
 }
 
-/** Fit landscape tiles into the available stage, including full-screen rows. */
+/** Fit square camera tiles into the available stage, including full-screen rows. */
 export function tileGrid(count, width, height, size = 'm') {
   if (!count) return { columns: 1, rows: 1 };
   const minWidth = { mini: 80, s: 150, m: 240, l: 340 }[size] || 240;
@@ -13,7 +13,7 @@ export function tileGrid(count, width, height, size = 'm') {
     const rows = Math.ceil(count / columns);
     const tileWidth = (width - 6 * (columns - 1)) / columns;
     const tileHeight = (height - 6 * (rows - 1)) / rows;
-    const area = Math.min(tileWidth, tileHeight * 16 / 9) ** 2;
+    const area = Math.min(tileWidth, tileHeight) ** 2;
     const score = area * (count / (columns * rows));
     if (score > best.score) best = { columns, rows, score };
   }

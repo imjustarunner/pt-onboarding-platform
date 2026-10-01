@@ -590,6 +590,7 @@
 import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
+  showVirtualOptions: { type: Boolean, default: false },
   dateYmd: { type: String, default: '' },
   startTime: { type: String, default: '' },
   endTime: { type: String, default: '' },

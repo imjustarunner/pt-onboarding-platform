@@ -76,6 +76,7 @@
       v-if="(showVirtual || showVirtualOptions) && !hideVirtualControls && !bookSessionLayout"
       :is-virtual="virtualIsVirtual"
       :link="virtualLink"
+      :allow-sharing="virtualAllowSharing"
       :meet-link="meetLink"
       :platform-link="platformLink"
       :hint="virtualHint"
@@ -138,6 +139,7 @@ const props = defineProps({
   showVirtual: { type: Boolean, default: false },
   hideVirtualControls: { type: Boolean, default: false },
   virtualLink: { type: String, default: '' },
+  virtualAllowSharing: { type: Boolean, default: true },
   meetLink: { type: String, default: '' },
   platformLink: { type: String, default: '' },
   virtualHint: { type: String, default: '' },
@@ -293,6 +295,7 @@ const headerProps = computed(() => ({
   canEditType: props.canEditType,
   showType: props.showType,
   showParticipant: props.showParticipant,
+  showVirtualOptions: props.showVirtualOptions,
   participantLabel: props.participantLabel,
   participantSummary: props.participantSummary,
   status: props.status,

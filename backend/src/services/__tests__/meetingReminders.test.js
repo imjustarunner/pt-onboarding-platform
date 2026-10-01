@@ -13,6 +13,11 @@ import {buildScheduleEventNotificationPlan,runJoinReminderTick} from '../joinRem
 beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[]]);});
 const event={id:10,kind:'TEAM_MEETING',title:'Leadership',provider_id:5,start_at:'2099-09-28 22:00:00',notify_participants:1};
 describe('editable meeting reminders',()=>{
+  it('never falls back to sending without notification preferences when the schema is missing columns',async()=>{
+    m.execute.mockRejectedValueOnce(Object.assign(new Error("Unknown column 'notify_participants'"), {code:'ER_BAD_FIELD_ERROR'}));
+    await runJoinReminderTick({now:new Date('2026-09-28T21:30:00Z')});
+    expect(m.execute).toHaveBeenCalledTimes(1);
+  });
   it('shows the actual selected reminder time in the event notification plan',async()=>{
     const plan=await buildScheduleEventNotificationPlan({...event,reminder_minutes:30});
     expect(plan.items[0].scheduledFor).toBe('2099-09-28T21:30:00.000Z');expect(plan.items[0].bodyPreview).toContain('30 minutes');

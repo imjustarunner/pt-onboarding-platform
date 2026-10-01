@@ -20,7 +20,7 @@
             +{{ selectedNames.length - maxSummaryChips }}
           </span>
         </template>
-        <span v-else class="mpp-placeholder">Select participants…</span>
+        <span v-else class="mpp-placeholder">Select people or groups…</span>
       </span>
       <span class="mpp-chevron" aria-hidden="true">{{ expanded ? '▴' : '▾' }}</span>
     </button>
@@ -32,51 +32,32 @@
         <button type="button" class="btn btn-secondary btn-sm" @click="emit('retry')">Retry</button>
       </div>
       <template v-else>
-        <div v-if="lockedGroups.length" class="mpp-groups">
-          <div class="mpp-section-label">Supervision groups <span class="mpp-locked-hint">(auto-updated)</span></div>
-          <div class="mpp-group-row">
-            <button
-              v-for="g in lockedGroups"
-              :key="g.key"
-              type="button"
-              class="mpp-group-btn mpp-group-btn--locked"
-              :class="{ on: isGroupFullySelected(g) }"
-              :title="`${(g.userIds || []).length} people`"
-              :disabled="disabled || !(g.userIds || []).length"
-              @click="emit('toggle-group', g)"
-            >
-              <span class="mpp-group-lock" aria-hidden="true">🔒</span>
-              <span class="mpp-group-name">{{ g.label }}</span>
-              <span class="mpp-group-count">{{ (g.userIds || []).length }}</span>
-            </button>
-          </div>
-        </div>
-
+        <input
+          class="mpp-search" type="search" :value="search" :disabled="disabled"
+          aria-label="Search people and groups"
+          placeholder="Search people, groups, or a group member…"
+          @input="emit('update:search', $event.target.value)"
+        />
+        <label v-if="canUseAllAgencies" class="mpp-toggle">
+          <input type="checkbox" :checked="includeAllAgencies" :disabled="disabled" @change="emit('update:includeAllAgencies', !!$event.target.checked)" />
+          <span>Include people from all my agencies</span>
+        </label>
         <div class="mpp-groups">
-          <div class="mpp-section-label">Teams &amp; groups</div>
-          <div class="mpp-group-row">
-            <button
-              v-for="g in openGroups"
-              :key="g.key"
-              type="button"
-              class="mpp-group-btn"
-              :class="{ on: isGroupFullySelected(g) }"
-              :title="`${(g.userIds || []).length} people`"
-              :disabled="disabled || !(g.userIds || []).length"
-              @click="emit('toggle-group', g)"
-            >
+          <button type="button" class="mpp-browse" :aria-expanded="groupsVisible" @click="groupsExpanded = !groupsExpanded">
+            {{ groupsVisible ? '▾' : '▸' }} Groups ({{ matchingGroups.length }})
+            <span v-if="search.trim()"> · matching names or members</span>
+          </button>
+          <div v-if="groupsVisible" class="mpp-group-row">
+            <button v-for="g in matchingGroups" :key="g.key" type="button" class="mpp-group-btn"
+              :class="{ on: isGroupFullySelected(g) }" :title="`${(g.userIds || []).length} people`"
+              :disabled="disabled || !(g.userIds || []).length" @click="emit('toggle-group', g)">
+              <span v-if="g.locked || g.kind === 'locked'" aria-hidden="true">🔒</span>
               <span class="mpp-group-name">{{ g.label }}</span>
               <span class="mpp-group-count">{{ (g.userIds || []).length }}</span>
             </button>
-            <button
-              type="button"
-              class="mpp-group-btn mpp-group-btn--create"
-              :disabled="disabled"
-              @click="startCreateGroup"
-            >
-              + Create new group
-            </button>
+            <p v-if="!matchingGroups.length" class="muted">No groups match this search.</p>
           </div>
+          <button type="button" class="mpp-browse" :disabled="disabled" @click="startCreateGroup">+ Create group from selected people</button>
           <div v-if="creatingGroup" class="mpp-create-group">
             <input
               ref="createGroupInputEl"
@@ -105,23 +86,9 @@
           <p v-if="createGroupError" class="error">{{ createGroupError }}</p>
         </div>
 
-        <label v-if="canUseAllAgencies" class="mpp-toggle">
-          <input type="checkbox" :checked="includeAllAgencies" :disabled="disabled" @change="emit('update:includeAllAgencies', !!$event.target.checked)" />
-          <span>Include people from all my agencies</span>
-        </label>
-
-        <input
-          class="mpp-search"
-          type="text"
-          :value="search"
-          :disabled="disabled"
-          placeholder="Search participants by name or email"
-          @input="emit('update:search', $event.target.value)"
-        />
-
         <div class="mpp-actions">
           <button class="btn btn-secondary btn-sm" type="button" :disabled="disabled" @click="emit('add-all-shown')">
-            Add all shown
+            Add shown people
           </button>
           <button class="btn btn-secondary btn-sm" type="button" :disabled="disabled || !selectedIds.length" @click="emit('clear')">
             Clear
@@ -187,6 +154,7 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   error: { type: String, default: '' },
   disabled: { type: Boolean, default: false },
+  roster: { type: Array, default: () => [] },
   candidates: { type: Array, default: () => [] },
   groups: { type: Array, default: () => [] },
   selectedIds: { type: Array, default: () => [] },
@@ -222,12 +190,24 @@ const selectedIdSet = computed(
   () => new Set((props.selectedIds || []).map((n) => Number(n || 0)).filter((n) => n > 0))
 );
 
-const lockedGroups = computed(
-  () => (props.groups || []).filter((g) => g?.locked || String(g?.kind || '') === 'locked')
-);
-const openGroups = computed(
-  () => (props.groups || []).filter((g) => !g?.locked && String(g?.kind || '') !== 'locked')
-);
+const groupsExpanded = ref(false);
+const groupsVisible = computed(() => groupsExpanded.value);
+watch(() => props.search, query => { groupsExpanded.value = !!query.trim(); }, { immediate: true });
+const matchingGroups = computed(() => {
+  const query = props.search.trim().toLowerCase();
+  if (!query) return props.groups;
+  // Use the full roster so even the host (excluded from selectable people) can
+  // be found through their group memberships.
+  const roster = props.roster.length ? props.roster : props.candidates;
+  const matchingIds = new Set(roster.filter(person =>
+    [props.personLabel(person), person.email, person.firstName, person.lastName,
+      person.first_name, person.last_name].filter(Boolean).join(' ').toLowerCase().includes(query)
+  ).map(person => Number(person.id)));
+  return props.groups.filter(group =>
+    [group.label, group.name, group.email].filter(Boolean).join(' ').toLowerCase().includes(query)
+    || (group.userIds || []).some(id => matchingIds.has(Number(id)))
+  );
+});
 
 const creatingGroup = ref(false);
 const newGroupName = ref('');
@@ -292,6 +272,9 @@ watch(
 </script>
 
 <style scoped>
+.mpp-browse { display: block; border: 0; background: transparent; color: #334155; text-align: left; cursor: pointer; font: inherit; font-size: .84rem; padding: 6px 0; }
+.mpp-group-row { max-height: 180px; overflow: auto; }
+
 .mpp-selected--collapsed { max-height: 76px; overflow: hidden; }
 .mpp-chip-photo { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
 .mpp { display: flex; flex-direction: column; gap: 8px; }

@@ -264,43 +264,25 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
 
   try {
     // Supervision sessions starting in 5-8 min
-    let supvRows = [];
-    try {
-      const [rows] = await pool.execute(
-        `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
-                ss.google_meet_link, ss.join_token, ss.enrollment_mode, ss.notify_participants,
-                CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
-         FROM supervision_sessions ss
-         JOIN users sup ON sup.id = ss.supervisor_user_id
-         WHERE (ss.status IS NULL OR ss.status <> 'CANCELLED')
-           AND ss.reminder_minutes IS NOT NULL
-           AND ss.status='SCHEDULED'
-           AND ss.start_at > ?
-           AND DATE_SUB(ss.start_at, INTERVAL ss.reminder_minutes MINUTE) <= ?
-           AND DATE_SUB(ss.start_at, INTERVAL ss.reminder_minutes MINUTE) > DATE_SUB(?, INTERVAL 3 MINUTE)
-         ORDER BY ss.start_at ASC`,
-        [toSqlDatetimeUtc(now),toSqlDatetimeUtc(now),toSqlDatetimeUtc(now)]
-      );
-      supvRows = rows || [];
-    } catch (e) {
-      if (!/enrollment_mode|notify_participants/i.test(String(e?.message || ''))) throw e;
-      const [rows] = await pool.execute(
-        `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
-                ss.google_meet_link, ss.join_token,
-                CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
-         FROM supervision_sessions ss
-         JOIN users sup ON sup.id = ss.supervisor_user_id
-         WHERE (ss.status IS NULL OR ss.status <> 'CANCELLED')
-           AND ss.start_at >= ? AND ss.start_at < ?
-         ORDER BY ss.start_at ASC`,
-        [startSql, endSql]
-      );
-      supvRows = rows || [];
-    }
+    const [supvRows] = await pool.execute(
+      `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
+              ss.google_meet_link, ss.join_token, ss.enrollment_mode, ss.notify_participants,
+              CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
+       FROM supervision_sessions ss
+       JOIN users sup ON sup.id = ss.supervisor_user_id
+       WHERE (ss.status IS NULL OR ss.status <> 'CANCELLED')
+         AND ss.reminder_minutes IS NOT NULL
+         AND ss.status='SCHEDULED'
+         AND ss.start_at > ?
+         AND DATE_SUB(ss.start_at, INTERVAL ss.reminder_minutes MINUTE) <= ?
+         AND DATE_SUB(ss.start_at, INTERVAL ss.reminder_minutes MINUTE) > DATE_SUB(?, INTERVAL 3 MINUTE)
+       ORDER BY ss.start_at ASC`,
+      [toSqlDatetimeUtc(now),toSqlDatetimeUtc(now),toSqlDatetimeUtc(now)]
+    );
 
     for (const r of supvRows || []) {
       const sessionId = Number(r.id);
-      // Opt-out via notify_participants boolean (default on when column missing).
+      // Honor the persisted notification opt-out.
       if (r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0') {
         continue;
       }
@@ -350,38 +332,21 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
     }
 
     // Team meetings + huddles starting in 5-8 min
-    let teamRows = [];
-    try {
-      const [rows] = await pool.execute(
-        `SELECT pse.id, pse.agency_id, pse.provider_id, pse.title, pse.kind, pse.google_meet_link,
-                pse.platform_video_link, pse.notify_participants, pse.participant_join_token, pse.join_token
-         FROM provider_schedule_events pse
-         WHERE UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
-           AND (pse.status IS NULL OR pse.status = 'ACTIVE')
-           AND pse.meeting_settings_json IS NULL
-           AND pse.reminder_minutes IS NOT NULL
-           AND pse.meeting_completed_at IS NULL
-           AND pse.start_at > ?
-           AND DATE_SUB(pse.start_at, INTERVAL pse.reminder_minutes MINUTE) <= ?
-           AND DATE_SUB(pse.start_at, INTERVAL pse.reminder_minutes MINUTE) > DATE_SUB(?, INTERVAL 3 MINUTE)
-         ORDER BY pse.start_at ASC`,
-        [toSqlDatetimeUtc(now), toSqlDatetimeUtc(now), toSqlDatetimeUtc(now)]
-      );
-      teamRows = rows || [];
-    } catch (e) {
-      if (!/notify_participants|participant_join_token/i.test(String(e?.message || ''))) throw e;
-      const [rows] = await pool.execute(
-        `SELECT pse.id, pse.agency_id, pse.provider_id, pse.title, pse.kind, pse.google_meet_link, pse.platform_video_link
-         FROM provider_schedule_events pse
-         WHERE UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
-           AND (pse.status IS NULL OR pse.status = 'ACTIVE')
-           AND pse.meeting_settings_json IS NULL
-           AND pse.start_at >= ? AND pse.start_at < ?
-         ORDER BY pse.start_at ASC`,
-        [startSql, endSql]
-      );
-      teamRows = rows || [];
-    }
+    const [teamRows] = await pool.execute(
+      `SELECT pse.id, pse.agency_id, pse.provider_id, pse.title, pse.kind, pse.google_meet_link,
+              pse.platform_video_link, pse.notify_participants, pse.participant_join_token, pse.join_token
+       FROM provider_schedule_events pse
+       WHERE UPPER(COALESCE(pse.kind, '')) IN ('TEAM_MEETING', 'HUDDLE')
+         AND (pse.status IS NULL OR pse.status = 'ACTIVE')
+         AND pse.meeting_settings_json IS NULL
+         AND pse.reminder_minutes IS NOT NULL
+         AND pse.meeting_completed_at IS NULL
+         AND pse.start_at > ?
+         AND DATE_SUB(pse.start_at, INTERVAL pse.reminder_minutes MINUTE) <= ?
+         AND DATE_SUB(pse.start_at, INTERVAL pse.reminder_minutes MINUTE) > DATE_SUB(?, INTERVAL 3 MINUTE)
+       ORDER BY pse.start_at ASC`,
+      [toSqlDatetimeUtc(now), toSqlDatetimeUtc(now), toSqlDatetimeUtc(now)]
+    );
 
     for (const r of teamRows || []) {
       if (r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0') {

@@ -29,4 +29,11 @@ describe('invited active meeting prompts',()=>{
     expect(await activeMeetingPrompts(0)).toEqual([]);
     expect(mocks.execute).not.toHaveBeenCalled();
   });
+  it('uses the selected external meeting link instead of inventing a platform room',async()=>{
+    mocks.execute.mockResolvedValueOnce([[{id:7,agency_id:2,meeting_type:'team_meeting',platform_video_link:0,google_meet_link:'https://meet.google.com/abc-defg-hij',start_at:'2026-01-01 10:00:00'}]]).mockResolvedValueOnce([[]]);
+    expect((await activeMeetingPrompts(9))[0].joinUrl).toBe('https://meet.google.com/abc-defg-hij');
+    expect(mocks.execute.mock.calls[0][0]).toContain('COALESCE(p.platform_video_link,1)=1');
+    expect(mocks.execute.mock.calls[1][0]).toContain("NOT IN ('IN_PERSON','IN-PERSON')");
+    expect(mocks.execute.mock.calls[1][0]).toContain('WITHDRAWN');
+  });
 });

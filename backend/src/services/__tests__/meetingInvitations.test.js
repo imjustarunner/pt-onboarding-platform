@@ -1,5 +1,5 @@
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.email,displayName:[user.first_name,user.last_name].filter(Boolean).join(' '),calendarAccountEmail:user.email})}));
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invitationKey, meetingInvitationContent, reminderMinutes } from '../meetingInvitationPolicy.js';
 const m = vi.hoisted(()=>({execute:vi.fn(),send:vi.fn(),lock:vi.fn(),release:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.lock,release:m.release})}}));
@@ -12,6 +12,8 @@ const event = {id:10,agency_id:2,provider_id:3,title:'Leadership <meeting>',star
 const invite = {id:1,agency_id:2,provider_id:3,event_id:10,user_id:5,join_token:token,meeting_type:'team_meeting'};
 beforeEach(()=>{
   vi.clearAllMocks();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-09-28T21:59:00Z'));
   m.execute.mockImplementation(async sql=>sql.includes('SELECT * FROM meeting_email_invitations')?[[invite]]:sql.includes('SELECT p.*')?[[event]]:[]);
   m.lock.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.includes('SELECT id FROM meeting_email')?[[{id:1}]]:sql.includes('SELECT id,email')?[[{id:5,email:'person@example.com'},{id:3,first_name:'Host'}]]:[[]]);
   m.send.mockResolvedValue({messageId:'sent'});
@@ -77,3 +79,5 @@ describe('durable invitation delivery',()=>{
   it('does not label approval-queued email as sent or repeatedly enqueue it',async()=>{m.send.mockResolvedValue({queued:true,pendingApproval:true});await sendDueMeetingInvitations();expect(m.lock).toHaveBeenCalledWith(expect.stringContaining('delivery_status=?'),['approval','approval',null,1]);});
   it('backs off on disabled email instead of flooding requests',async()=>{m.send.mockResolvedValue({skipped:true});await sendDueMeetingInvitations();expect(m.lock.mock.calls.some(([sql])=>sql.includes('INTERVAL 1 HOUR'))).toBe(true);});
 });
+
+afterEach(() => vi.useRealTimers());

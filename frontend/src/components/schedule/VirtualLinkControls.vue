@@ -14,7 +14,7 @@
       <div class="vlc-label">{{ labelText }}</div>
       <div class="vlc-top-actions">
         <button
-          v-if="compact && displayLink"
+          v-if="allowSharing && compact && displayLink"
           type="button"
           class="vlc-expand"
           @click="expanded = !expanded"
@@ -33,86 +33,19 @@
       </div>
     </div>
 
-    <div v-if="showOptions" class="vlc-options">
-      <div class="vlc-switch-row">
-        <div class="vlc-switch-copy">
-          <span class="vlc-switch-title">Virtual</span>
-          <p class="vlc-switch-hint muted">Schedule with a joinable video room.</p>
-        </div>
-        <label class="vlc-switch" :class="{ disabled }">
-          <input
-            type="checkbox"
-            role="switch"
-            :checked="isVirtual"
-            :disabled="disabled"
-            :aria-checked="String(!!isVirtual)"
-            @change="emit('update:isVirtual', !!$event.target.checked)"
-          />
-          <span class="vlc-switch-slider" aria-hidden="true"></span>
-        </label>
-      </div>
+      <MeetingLocationOptions v-if="showOptions"
+        :is-virtual="isVirtual" :use-platform-video="usePlatformVideo" :create-meet-link="createMeetLink"
+        :video-configured="videoConfigured" :waiting-room-enabled="waitingRoomEnabled" :disabled="disabled"
+        @update:is-virtual="emit('update:isVirtual', $event)"
+        @update:use-platform-video="emit('update:usePlatformVideo', $event)"
+        @update:create-meet-link="emit('update:createMeetLink', $event)"
+        @update:waiting-room-enabled="emit('update:waitingRoomEnabled', $event)"
+      />
 
-      <template v-if="isVirtual">
-        <div v-if="videoConfigured" class="vlc-switch-row">
-          <div class="vlc-switch-copy">
-            <span class="vlc-switch-title">Platform video room</span>
-            <p class="vlc-switch-hint muted">Link the in-app video room for this meeting.</p>
-          </div>
-          <label class="vlc-switch" :class="{ disabled }">
-            <input
-              type="checkbox"
-              role="switch"
-              :checked="usePlatformVideo"
-              :disabled="disabled"
-              :aria-checked="String(!!usePlatformVideo)"
-              @change="emit('update:usePlatformVideo', !!$event.target.checked)"
-            />
-            <span class="vlc-switch-slider" aria-hidden="true"></span>
-          </label>
-        </div>
-
-        <div v-if="!videoConfigured || !usePlatformVideo" class="vlc-switch-row">
-          <div class="vlc-switch-copy">
-            <span class="vlc-switch-title">Google Meet link</span>
-            <p class="vlc-switch-hint muted">Create a Meet link when platform video isn’t used.</p>
-          </div>
-          <label class="vlc-switch" :class="{ disabled }">
-            <input
-              type="checkbox"
-              role="switch"
-              :checked="createMeetLink"
-              :disabled="disabled"
-              :aria-checked="String(!!createMeetLink)"
-              @change="emit('update:createMeetLink', !!$event.target.checked)"
-            />
-            <span class="vlc-switch-slider" aria-hidden="true"></span>
-          </label>
-        </div>
-
-        <div v-if="usePlatformVideo && videoConfigured" class="vlc-switch-row">
-          <div class="vlc-switch-copy">
-            <span class="vlc-switch-title">Waiting room</span>
-            <p class="vlc-switch-hint muted">Participants wait until the host admits them.</p>
-          </div>
-          <label class="vlc-switch" :class="{ disabled }">
-            <input
-              type="checkbox"
-              role="switch"
-              :checked="waitingRoomEnabled"
-              :disabled="disabled"
-              :aria-checked="String(!!waitingRoomEnabled)"
-              @change="emit('update:waitingRoomEnabled', !!$event.target.checked)"
-            />
-            <span class="vlc-switch-slider" aria-hidden="true"></span>
-          </label>
-        </div>
-      </template>
-    </div>
-
-    <template v-if="!showOptions || isVirtual">
+    <template v-if="displayLink">
       <div class="vlc-row">
         <input
-          v-if="!compact || !displayLink || expanded"
+          v-if="allowSharing && (!compact || !displayLink || expanded)"
           class="vlc-input"
           type="text"
           readonly
@@ -121,6 +54,7 @@
           @focus="$event.target.select()"
         />
         <button
+          v-if="allowSharing"
           type="button"
           class="btn btn-secondary btn-sm"
           :disabled="!displayLink"
@@ -139,7 +73,7 @@
           Join
         </a>
       </div>
-      <div v-if="(!compact || expanded) && secondaryLink && secondaryLink !== displayLink" class="vlc-secondary muted">
+      <div v-if="allowSharing && (!compact || expanded) && secondaryLink && secondaryLink !== displayLink" class="vlc-secondary muted">
         Also:
         <a
           :href="toSameOriginPath(secondaryLink)"
@@ -150,14 +84,17 @@
         <button type="button" class="btn btn-ghost btn-xs" @click="copyText(secondaryLink)">Copy</button>
       </div>
       <p v-if="hint" class="vlc-hint muted">{{ hint }}</p>
+      <p v-if="!allowSharing" class="vlc-hint muted">Each person joins from their calendar or personal invitation. Add people to the meeting to invite them.</p>
     </template>
   </div>
 </template>
 
 <script setup>
+import MeetingLocationOptions from './MeetingLocationOptions.vue';
 import { computed, ref, watch } from 'vue';
 
 const props = defineProps({
+  allowSharing: { type: Boolean, default: true },
   link: { type: String, default: '' },
   meetLink: { type: String, default: '' },
   platformLink: { type: String, default: '' },

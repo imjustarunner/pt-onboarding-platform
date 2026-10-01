@@ -12,12 +12,13 @@ export async function activeMeetingPrompts(userId) {
     AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED')
     AND (u.role IN ('super_admin','superadmin') OR EXISTS (SELECT 1 FROM user_agencies ua
       WHERE ua.user_id=u.id AND ua.agency_id=${alias}.agency_id AND ua.is_active=1)))`;
-  const [team] = await pool.execute(`SELECT p.id,p.agency_id,p.title,p.start_at,p.end_at,
+  const [team] = await pool.execute(`SELECT p.id,p.agency_id,p.title,p.start_at,p.end_at,p.platform_video_link,p.google_meet_link,
     COALESCE(p.participant_join_token,p.join_token) AS join_token,
     'team_meeting' AS meeting_type,
     EXISTS(SELECT 1 FROM provider_schedule_event_join_presence mine WHERE mine.event_id=p.id AND mine.join_identity=?) AS previously_joined
     FROM provider_schedule_events p JOIN agencies org ON org.id=p.agency_id AND org.is_active=1
     WHERE p.kind IN ('TEAM_MEETING','HUDDLE') AND p.status='ACTIVE' AND p.meeting_completed_at IS NULL
+      AND (COALESCE(p.platform_video_link,1)=1 OR NULLIF(TRIM(p.google_meet_link),'') IS NOT NULL)
       AND (p.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=p.id AND a.user_id=?))
       AND ${member('p')}
       AND p.start_at <= DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE)
@@ -29,8 +30,9 @@ export async function activeMeetingPrompts(userId) {
     EXISTS(SELECT 1 FROM supervision_session_join_presence mine WHERE mine.session_id=s.id AND mine.join_identity=?) AS previously_joined
     FROM supervision_sessions s JOIN agencies org ON org.id=s.agency_id AND org.is_active=1
     WHERE s.status IN ('SCHEDULED','IN_PROGRESS') AND s.live_ended_at IS NULL
+      AND UPPER(COALESCE(s.modality,'')) NOT IN ('IN_PERSON','IN-PERSON')
       AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR s.supervisee_user_id=?
-        OR EXISTS(SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=? AND a.status NOT IN ('DECLINED','REMOVED','CANCELLED')))
+        OR EXISTS(SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=? AND a.status NOT IN ('DECLINED','REMOVED','CANCELLED','WITHDRAWN')))
       AND ${member('s')}
       AND s.start_at <= DATE_ADD(UTC_TIMESTAMP(),INTERVAL 5 MINUTE)
       AND (s.end_at>=UTC_TIMESTAMP() OR EXISTS(SELECT 1 FROM supervision_session_join_presence live WHERE live.session_id=s.id AND live.left_at IS NULL AND live.last_seen_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 90 SECOND)))
@@ -42,6 +44,7 @@ export async function activeMeetingPrompts(userId) {
     return { id: row.id, key: `${row.meeting_type}:${row.id}`, title: row.title || 'Meeting',
       meetingType: row.meeting_type, startAt: parseUtcDate(row.start_at)?.toISOString(),
       isLive: parseUtcDate(row.start_at) <= new Date(), previouslyJoined: !!Number(row.previously_joined),
-      joinUrl: (row.meeting_type==='supervision' ? joinUrlForSupervision : joinUrlForTeamMeeting)(base,row.join_token || row.id) };
+      joinUrl: row.meeting_type !== 'supervision' && row.platform_video_link != null && !Number(row.platform_video_link) && row.google_meet_link
+        ? row.google_meet_link : (row.meeting_type==='supervision' ? joinUrlForSupervision : joinUrlForTeamMeeting)(base,row.join_token || row.id) };
   }));
 }

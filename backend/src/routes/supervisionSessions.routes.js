@@ -1,3 +1,4 @@
+import { requirePersonalSupervisionInvitation } from '../services/meetingJoinPolicy.service.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireActiveStatus } from '../middleware/auth.middleware.js';
@@ -38,18 +39,13 @@ import {
   signupForSupervisionSession,
   withdrawFromSupervisionSession,
   getSupervisionJoinInfo,
-  getSupervisionGuestJoin,
-  getGuestAdmissionStatus,
   postSupervisionJoinPresence,
   getSupervisionLiveAttendance,
   endSupervisionLiveSession,
-  saveGuestTranscript
 } from '../controllers/supervisionSessions.controller.js';
 import {
   getSupervisionActivity,
   postSupervisionActivity,
-  getSupervisionGuestActivity,
-  postSupervisionGuestActivity
 } from '../controllers/videoMeetingActivity.controller.js';
 import {
   listSessionPresentations,
@@ -70,13 +66,13 @@ const router = express.Router();
 
 // Public: resolve session to org slug for join redirect (no auth)
 router.get('/join-info/:sessionId', getSupervisionJoinInfo);
-// Public: guest video join via opaque join_token (no login)
-router.get('/guest-join/:joinToken', getSupervisionGuestJoin);
-router.get('/guest-admission/:joinToken', getGuestAdmissionStatus);
-router.post('/guest-transcript/:joinToken', saveGuestTranscript);
-router.get('/guest-activity/:joinToken', getSupervisionGuestActivity);
-router.post('/guest-activity/:joinToken', postSupervisionGuestActivity);
-router.post('/sessions/:id/join-presence', postSupervisionJoinPresence);
+// Retired anonymous supervision routes: old bookmarks must sign in.
+router.get('/guest-join/:joinToken', requirePersonalSupervisionInvitation);
+router.get('/guest-admission/:joinToken', requirePersonalSupervisionInvitation);
+router.post('/guest-transcript/:joinToken', requirePersonalSupervisionInvitation);
+router.get('/guest-activity/:joinToken', requirePersonalSupervisionInvitation);
+router.post('/guest-activity/:joinToken', requirePersonalSupervisionInvitation);
+router.post('/sessions/:id/join-presence', authenticate, postSupervisionJoinPresence);
 
 router.use(authenticate);
 const documentationGate=[requireActiveStatus,(req,res,next)=>{res.set('Cache-Control','no-store');next();}];

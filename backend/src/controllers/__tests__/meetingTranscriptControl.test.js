@@ -17,7 +17,7 @@ import {postTeamMeetingTranscriptControl,getTeamMeetingAdmissionStatus,saveTeamM
 const response=()=>{const res={json:vi.fn(),status:vi.fn()};res.status.mockReturnValue(res);return res;};
 describe('room-wide transcript opt-in',()=>{
   beforeEach(()=>{
-    vi.clearAllMocks();m.execute.mockResolvedValue([[]]);m.ensure.mockResolvedValue({});
+    vi.clearAllMocks();m.execute.mockImplementation(async sql => sql.includes('FROM users u JOIN agencies') ? [[{active:1}]] : [[]]);m.ensure.mockResolvedValue({});
     m.event.mockResolvedValue({id:9,agency_id:2,provider_id:7,kind:'TEAM_MEETING',meeting_subtype:'general'});
     m.artifact.mockResolvedValue({transcript_started_at:'2026-09-21 12:00:00',transcript_paused:0});
   });
@@ -25,11 +25,12 @@ describe('room-wide transcript opt-in',()=>{
     const res=response(),next=vi.fn();
     await postTeamMeetingTranscriptControl({params:{eventId:'9'},user:{id:7,role:'staff'},body:{action:'start'}},res,next);
     expect(next).not.toHaveBeenCalled();
-    expect(m.execute.mock.calls[0][0]).toContain('transcript_started_at=COALESCE');
+    expect(m.execute.mock.calls.some(([sql])=>sql.includes('transcript_started_at=COALESCE'))).toBe(true);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({action:'start',transcriptStartedAt:'2026-09-21 12:00:00'}));
     expect(m.execute.mock.calls.every(([sql])=>!sql.includes('attendance_tracking'))).toBe(true);
   });
   it('returns persisted transcript state during rejoin polling even with attendance off',async()=>{
+    m.execute.mockImplementation(async sql => sql.includes('FROM users u JOIN agencies') ? [[{ active: 1 }]] : [[]]);
     const res=response(),next=vi.fn();
     await getTeamMeetingAdmissionStatus({params:{eventId:'9'},user:{id:7,role:'staff'}},res,next);
     expect(next).not.toHaveBeenCalled();
@@ -58,7 +59,7 @@ describe('room-wide transcript opt-in',()=>{
     expect(res.status).toHaveBeenCalledWith(403);
   });
   it('allows the host to update an invited participant but never promotes interview candidates',async()=>{
-    vi.clearAllMocks();m.event.mockResolvedValue({id:9,agency_id:2,provider_id:7,kind:'TEAM_MEETING'});m.participants.mockResolvedValue([{id:8}]);m.execute.mockResolvedValue([[]]);
+    vi.clearAllMocks();m.event.mockResolvedValue({id:9,agency_id:2,provider_id:7,kind:'TEAM_MEETING'});m.participants.mockResolvedValue([{id:8}]);m.execute.mockImplementation(async sql => sql.includes('FROM users u JOIN agencies') ? [[{active:1}]] : [[]]);
     const req={params:{eventId:9,userId:8},user:{id:7,role:'provider'},body:{isRequired:false,isCohost:true}},res=response(),next=vi.fn();
     await putMeetingParticipantPreferences(req,res,next);expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith({ok:true});
     m.execute.mockResolvedValue([[{candidate:1}]]);const denied=response();await putMeetingParticipantPreferences(req,denied,next);expect(denied.status).toHaveBeenCalledWith(400);

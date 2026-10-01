@@ -1462,13 +1462,26 @@
                 'cell-blocks--pick-expanded': isCellPickExpanded(d, slot.hour, slot.minute)
               }"
               @mouseenter="hoveredPickCellKey = cellPickKey(d, slot.hour, slot.minute)"
-              @mouseleave="hoveredPickCellKey = ''"
+              @mouseleave="onCalendarStackMouseLeave($event)"
+              @keydown.stop
+              @keydown.esc="hoveredPickCellKey = ''"
+              @focusout="onCalendarStackFocusOut($event)"
             >
-              <span
-                v-if="cellBlocksNeedPickOnClick(d, slot.hour, slot.minute) && !isCellPickExpanded(d, slot.hour, slot.minute)"
+              <button
+                v-if="cellBlocksNeedPickOnClick(d, slot.hour, slot.minute)"
+                type="button" @mousedown.stop @pointerdown.stop @click.stop="toggleCalendarStack($event, d, slot.hour, slot.minute)"
+                :aria-expanded="isCellPickExpanded(d, slot.hour, slot.minute)"
                 class="cell-multi-pick-badge"
                 :title="`${cellPickableBlocks(d, slot.hour, slot.minute).length} items overlap — hover to see each`"
-              >{{ cellPickableBlocks(d, slot.hour, slot.minute).length }}</span>
+              >{{ cellPickableBlocks(d, slot.hour, slot.minute).length }} items</button>
+              <div v-if="isCellPickExpanded(d, slot.hour, slot.minute)" class="cell-expanded-list" :style="d === visibleDays[visibleDays.length - 1] ? { left: 'auto', right: 0 } : {}" @mousedown.stop @pointerdown.stop @click.stop>
+                <strong>{{ d }} · {{ hourLabel(slot.hour) }} — {{ cellBlocks(d, slot.hour, slot.minute, true).length }} items</strong>
+                <button v-for="item in cellBlocks(d, slot.hour, slot.minute, true)" :key="`expanded-${item.key}`"
+                  type="button" class="cell-expanded-item" @click.stop="onCellBlockClick($event, item, d, slot.hour, slot.minute)">
+                  <strong>{{ cellBlockKindLabel(item) }}</strong>
+                  <span>{{ item.title || item.shortLabel }}</span>
+                </button>
+              </div>
               <div
                 v-for="b in cellBlocks(d, slot.hour, slot.minute)"
                 :key="b.key"
@@ -1496,7 +1509,7 @@
                   }
                 ]"
                 :title="b.title"
-                :style="{ ...cellBlockStyle(b), ...cellBlockPickHoverStyle(d, slot.hour, slot.minute, b), ...schedResizeOverrideStyle(b, d, slot.hour, slot.minute) }"
+                :style="{ ...cellBlockStyle(b), ...schedResizeOverrideStyle(b, d, slot.hour, slot.minute) }"
                 @mouseenter="hoveredBlockKey = blockKey(d, slot.hour, b)"
                 @mouseleave="hoveredBlockKey = ''"
                 @mousedown.stop
@@ -1786,29 +1799,8 @@
         <div v-if="meetingCreatedShare" class="nr-meeting-created" data-testid="meeting-created-share">
           <div class="nr-meeting-created-copy">
             <strong>{{ meetingCreatedShare.title || 'Meeting scheduled' }}</strong>
-            <span class="muted">Share the right link for each role</span>
+            <span class="muted">Open this meeting from your calendar. When email invitations are enabled, each person receives their own personal join link. You do not need to share separate host or participant links.</span>
           </div>
-          <VirtualLinkControls
-            v-if="meetingCreatedShare.hostJoinUrl"
-            label="Host link"
-            :is-virtual="true"
-            :link="meetingCreatedShare.hostJoinUrl"
-            hint="Host join link — enters the main room immediately."
-            compact
-            :same-tab="true"
-          />
-          <VirtualLinkControls
-            label="Participant link"
-            :is-virtual="true"
-            :link="meetingCreatedShare.joinUrl || meetingCreatedShare.meetLink"
-            :meet-link="meetingCreatedShare.meetLink"
-            :platform-link="meetingCreatedShare.joinUrl"
-            hint="Participant join link — waiting room when enabled."
-            compact
-            :same-tab="true"
-            dismissible
-            @dismiss="dismissMeetingCreatedShare"
-          />
           <button type="button" class="btn btn-primary btn-sm" @click="dismissMeetingCreatedShare">
             Done
           </button>
@@ -1952,6 +1944,7 @@
           v-model:virtual-create-meet-link="createMeetingMeetLink"
           :virtual-video-configured="scheduleVideoConfigured"
           :virtual-link="editorVirtualLink"
+          :virtual-allow-sharing="!editorIsMeeting && !editorIsSupervision"
           :meet-link="editorMeetLink"
           :platform-link="editorPlatformLink"
           :virtual-hint="editorVirtualHint"
@@ -2246,6 +2239,7 @@
               :error="supervisionProvidersError || ((!supervisionProvidersLoading && !availableSupervisionParticipants.length) ? 'No eligible supervisees found for this tenant.' : '')"
               :disabled="submitting || scheduleEventSaving"
               :candidates="filteredSupervisionParticipants"
+              :roster="availableSupervisionParticipants"
               :groups="supervisionInviteGroupsFiltered"
               :selected-ids="selectedSupervisionParticipantIds"
               :selected-chips="selectedSupervisionParticipantChips"
@@ -2298,6 +2292,7 @@
               :error="meetingCandidatesError"
               :disabled="submitting || scheduleEventSaving"
               :candidates="filteredMeetingCandidates"
+              :roster="meetingCandidates"
               :groups="meetingInviteGroups"
               :selected-ids="selectedMeetingParticipantIds"
               :selected-chips="selectedMeetingParticipantChips"
@@ -2398,7 +2393,7 @@
             @update:meetingKind="onEditorMeetingKind"
           >
           </TeamMeetingBody>
-          <MeetingSettingsEditor v-if="editorIsMeeting" :agency-id="Number(editorAgencyId || 0)" :type="editorMeetingKind === 'huddle' ? 'huddle' : meetingSubtype" v-model="meetingSettings" :disabled="submitting || scheduleEventSaving" />
+          <MeetingSettingsEditor v-if="editorIsMeeting" :agency-id="Number(editorAgencyId || 0)" :type="editorMeetingKind === 'huddle' && !['cpa', 'mentorship'].includes(meetingSubtype) ? 'huddle' : meetingSubtype" v-model="meetingSettings" :disabled="submitting || scheduleEventSaving" />
           <label v-if="editorIsMeeting && isScheduleEventEditMode" class="sched-toggle"><input v-model="notifyMeetingChanges" type="checkbox" /> Notify participants of changes (after 5 minutes)</label>
 
           <SupervisionBody
@@ -3654,6 +3649,7 @@
               :error="supervisionProvidersError"
               :disabled="submitting"
               :candidates="filteredSupervisionParticipants"
+              :roster="availableSupervisionParticipants"
               :groups="supervisionInviteGroupsFiltered"
               :selected-ids="selectedSupervisionParticipantIds"
               :selected-chips="selectedSupervisionParticipantChips"
@@ -4868,14 +4864,6 @@
                 {{ (supvMeetOpening || supvAppVideoLoading) ? 'Joining…' : (selectedSupvSession?.joinUrl ? 'Join with app' : 'Join Meet (tracked)') }}
               </button>
               <button
-                v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.participantJoinUrl"
-                class="btn btn-secondary btn-sm"
-                type="button"
-                @click="copyTextToClipboard(selectedSupvSession.participantJoinUrl || selectedSupvSession.joinUrl, 'Participant join link copied')"
-              >
-                Copy participant link
-              </button>
-              <button
                 v-if="supervisionSessionInitiated"
                 class="btn btn-secondary btn-sm"
                 type="button"
@@ -4885,47 +4873,10 @@
                 Agenda
               </button>
             </div>
-            <div
-              v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.hostJoinUrl"
-              class="supv-join-links"
-              style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px;"
-            >
-              <div v-if="selectedSupvSession?.hostJoinUrl" class="supv-join-link-row">
-                <span class="supv-join-link-label">Host join link</span>
-                <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
-                  <a
-                    class="btn btn-secondary btn-sm"
-                    :href="selectedSupvSession.hostJoinUrl"
-                    target="_blank"
-                    rel="noreferrer"
-                  >Open host link</a>
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-sm"
-                    @click="copyTextToClipboard(selectedSupvSession.hostJoinUrl, 'Host join link copied')"
-                  >Copy</button>
-                </div>
-              </div>
-              <div v-if="selectedSupvSession?.joinUrl || selectedSupvSession?.participantJoinUrl" class="supv-join-link-row">
-                <span class="supv-join-link-label">Participant join link</span>
-                <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
-                  <a
-                    class="btn btn-secondary btn-sm"
-                    :href="selectedSupvSession.participantJoinUrl || selectedSupvSession.joinUrl"
-                    target="_blank"
-                    rel="noreferrer"
-                  >Open participant link</a>
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-sm"
-                    @click="copyTextToClipboard(selectedSupvSession.participantJoinUrl || selectedSupvSession.joinUrl, 'Participant join link copied')"
-                  >Copy</button>
-                </div>
-              </div>
-              <p v-if="selectedSupvSession?.waitingRoomEnabled !== false" class="muted" style="margin: 0; font-size: 0.8rem;">
-                Waiting room is on — participants wait until the host admits them.
-              </p>
-            </div>
+            <p class="muted" style="margin-top: 10px;">
+              Each invited person joins from their calendar or personal email invitation.
+              Add participants in the schedule editor to invite them.
+            </p>
           </div>
           <div v-else class="muted" style="margin-top: 8px;">
             No video link yet. Join link appears when video is configured.
@@ -11349,10 +11300,10 @@ const shortOfficeLabel = (topEvent, fallback) => {
   return fallback;
 };
 
-const cellBlocks = (dayName, hour, minute = 0) => {
+const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
   const blocks = [];
   const singleDayFocused = visibleDays.value.length === 1;
-  const perTypeInlineLimit = singleDayFocused ? Number.MAX_SAFE_INTEGER : 2;
+  const perTypeInlineLimit = (singleDayFocused || expanded) ? Number.MAX_SAFE_INTEGER : 2;
 
   // Office assignment blocks: All offices, one building, or Off.
   const selectedOfficeId = Number(selectedOfficeLocationId.value || 0);
@@ -11567,7 +11518,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const last = sortedEvents[sortedEvents.length - 1] || null;
     const segmentClass = quarterSegmentForRange(dayName, hour, minute, first?.startAt, last?.endAt);
     // Paint once from the start cell as a continuous spanning block.
-    if (segmentClass === 'middle' || segmentClass === 'end') continue;
+    if (!expanded && (segmentClass === 'middle' || segmentClass === 'end')) continue;
     const timedSlice = appointmentSpanSlice(first?.startAt, last?.endAt || first?.endAt, dayName, hour, minute);
     const isSignupBlock = isSignupSupervisionEvent(first);
     const viewerSignedUp = !!first?.viewerSignedUp;
@@ -11609,7 +11560,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   const scheduleHits = scheduleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
   for (const ev of scheduleHits) {
     const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
-    if (segmentClass === 'middle' || segmentClass === 'end') continue;
+    if (!expanded && (segmentClass === 'middle' || segmentClass === 'end')) continue;
     const timedSlice = appointmentSpanSlice(ev?.startAt, ev?.endAt, dayName, hour, minute);
     const attendeeCount = meetingBookedParticipantCount(ev);
     const isGroupMeeting = isMultiParticipantMeeting(ev);
@@ -11701,7 +11652,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
     const events = googleEventsInCell(dayName, hour, minute).slice(0, perTypeInlineLimit);
     for (const ev of events) {
       const segmentClass = quarterSegmentForRange(dayName, hour, minute, ev?.startAt, ev?.endAt);
-      if (segmentClass === 'middle' || segmentClass === 'end') continue;
+      if (!expanded && (segmentClass === 'middle' || segmentClass === 'end')) continue;
       const timedSlice = appointmentSpanSlice(ev?.startAt, ev?.endAt, dayName, hour, minute);
       blocks.push({
         key: `gevt-${String(ev?.id || ev?.summary || 'event')}`,
@@ -11788,7 +11739,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   const requestBlocks = blocks.filter((b) => b.kind === 'request');
   const primaryBlock = blocks.find((b) => PRIMARY_OVERLAP_KINDS.has(b.kind));
   let displayBlocks = blocks;
-  if (!singleDayFocused && primaryBlock && requestBlocks.length) {
+  if (!expanded && !singleDayFocused && primaryBlock && requestBlocks.length) {
     primaryBlock.hasPendingRequest = true;
     primaryBlock.pendingRequestCount = requestBlocks.length;
     const reqHint = requestBlocks.length === 1
@@ -11799,7 +11750,7 @@ const cellBlocks = (dayName, hour, minute = 0) => {
   }
 
   // Side-by-side if multiple; keep it readable: show at most 3 blocks, then "+N".
-  if (!singleDayFocused && displayBlocks.length > 3) {
+  if (!expanded && !singleDayFocused && displayBlocks.length > 3) {
     const extra = displayBlocks.length - 2;
     return [
       displayBlocks[0],
@@ -11998,22 +11949,33 @@ const isActionCellSelected = (dayName, hour) => {
 const blockKey = (dayName, hour, block) => `${String(dayName || '')}|${Number(hour)}|${String(block?.key || '')}`;
 const isBlockHovered = (dayName, hour, block) => hoveredBlockKey.value === blockKey(dayName, hour, block);
 const hoveredPickCellKey = ref('');
+async function toggleCalendarStack(event, day, hour, minute) {
+  const container = event.currentTarget?.parentElement;
+  hoveredPickCellKey.value = cellPickKey(day, hour, minute);
+  await nextTick();
+  container?.querySelector('.cell-expanded-item')?.focus();
+}
+function onCalendarStackMouseLeave(event) {
+  if (!event.currentTarget.contains(document.activeElement)) hoveredPickCellKey.value = '';
+}
+function onCalendarStackFocusOut(event) {
+  if (!event.currentTarget.contains(event.relatedTarget)) hoveredPickCellKey.value = '';
+}
 
 const CELL_PICKABLE_KINDS = new Set([
   'oa', 'ot', 'ob', 'intake-ip', 'intake-vi',
   'portal', 'school', 'request',
-  'sevt', 'supv', 'supv-signup', 'gevt', 'ebusy'
+  'sevt', 'supv', 'supv-signup', 'gevt', 'ebusy', 'gbusy'
 ]);
 
 const cellPickKey = (dayName, hour, minute = 0) =>
   `${String(dayName || '')}|${Number(hour)}|${Number(minute || 0)}`;
 
 const cellPickableBlocks = (dayName, hour, minute = 0) => (
-  (cellBlocks(dayName, hour, minute) || []).filter((b) => {
+  (cellBlocks(dayName, hour, minute, true) || []).filter((b) => {
     const kind = String(b?.kind || '');
     if (!b || kind === 'more') return false;
     if (!CELL_PICKABLE_KINDS.has(kind)) return false;
-    if (b.segmentClass === 'middle' || b.segmentClass === 'end') return false;
     return true;
   })
 );
@@ -12021,7 +11983,7 @@ const cellPickableBlocks = (dayName, hour, minute = 0) => (
 const cellBlocksNeedPickOnClick = (dayName, hour, minute = 0) => {
   const pickables = cellPickableBlocks(dayName, hour, minute);
   if (pickables.length <= 1) return false;
-  if (pickables.length === 2 && pickables.every((b) => b.shareRow)) return false;
+
   return true;
 };
 
@@ -12039,7 +12001,7 @@ const cellBlockKindLabel = (block) => {
   if (kind === 'supv-signup') return 'Open group supervision';
   if (kind === 'supv') return 'Supervision';
   if (kind === 'sevt') return scheduleKindLabel(block?.eventKind, block) || 'Schedule event';
-  if (kind === 'gevt') return 'Google Calendar';
+  if (kind === 'gevt' || kind === 'gbusy') return 'Google Calendar';
   if (kind === 'ebusy') return 'Therapy session';
   if (kind === 'intake-ip') return 'In-person intake';
   if (kind === 'intake-vi') return 'Virtual intake';
@@ -12099,28 +12061,6 @@ const buildCellBlockStackItem = (block, dayName, hour, minute = 0) => {
   };
 };
 
-const cellBlockPickHoverStyle = (dayName, hour, minute, block) => {
-  if (!isCellPickExpanded(dayName, hour, minute)) return {};
-  const pickables = cellPickableBlocks(dayName, hour, minute);
-  const idx = pickables.findIndex((b) => b.key === block.key);
-  if (idx < 0) return {};
-  const n = pickables.length;
-  const gapPx = 3;
-  const slicePct = 100 / n;
-  const plusReserve = canBookFromGrid.value ? CELL_PLUS_HIT_RESERVE_PX : 0;
-  return {
-    position: 'absolute',
-    left: '3px',
-    right: `${3 + plusReserve}px`,
-    top: `calc(${idx * slicePct}% + ${Math.max(0, idx) * gapPx}px)`,
-    height: `calc(${slicePct}% - ${gapPx}px)`,
-    zIndex: 20 + idx,
-    flex: 'none',
-    minHeight: '20px',
-    width: 'auto',
-    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.15)'
-  };
-};
 const clearSelectedActionSlots = () => {
   selectedActionSlots.value = [];
   selectedBlockKey.value = '';
@@ -13639,12 +13579,8 @@ const editorVirtualLink = computed(() => {
   }
   if (editorIsMeeting.value) {
     const item = editingScheduleStackItem.value;
-    const viewerId = Number(authStore.user?.id || 0);
-    const useHostLink = item?.isHost === true
-      || (viewerId > 0 && Number(item?.createdByUserId || 0) === viewerId);
     return String(
-      (useHostLink ? item?.hostJoinUrl : null)
-      || item?.appJoinUrl
+      item?.appJoinUrl
       || item?.platformVideoLink
       || ''
     ).trim();
@@ -28774,15 +28710,33 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 .cell-blocks--multi-pick {
   overflow: visible;
 }
-.cell-blocks--pick-expanded {
-  z-index: 16;
+.cell-blocks--pick-expanded { z-index: 16; }
+.cell-blocks--pick-expanded > .cell-block { visibility: hidden; }
+.cell-expanded-list {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 50;
+  width: max(100%, 280px); max-width: calc(100vw - 64px); box-sizing: border-box; max-height: min(440px, 65vh); overflow: auto;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px;
+  background: var(--bg-primary, #fff); color: var(--text-primary, #0f172a);
+  border: 1px solid #94a3b8; border-radius: 12px; box-shadow: 0 12px 28px #0f172a33;
+  font-size: 12px; line-height: 1.4;
 }
+.cell-expanded-item {
+  display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;
+  border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px;
+  background: var(--bg-secondary, #f8fafc); color: inherit;
+  text-align: left; cursor: pointer; font: inherit; white-space: normal; overflow-wrap: anywhere;
+}
+.cell-expanded-item:hover, .cell-expanded-item:focus-visible { outline: 2px solid #6366f1; }
+.sched-wrap--dark .cell-expanded-list { background: #162235; color: #f1f5f9; }
+.sched-wrap--dark .cell-expanded-item { background: #243247; }
+
 .cell-multi-pick-badge {
   position: absolute;
   top: 2px;
   left: 4px;
   z-index: 18;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
   font-size: 9px;
   font-weight: 900;
   line-height: 1;

@@ -1,0 +1,187 @@
+{
+  "date": "2026-10-01",
+  "scope": [
+    "meetings",
+    "video",
+    "scheduling"
+  ],
+  "status": "Scoped audit and local fixes complete; live launch verification pending",
+  "deployed": false,
+  "findings": [
+    {
+      "id": "M01",
+      "severity": "High",
+      "issue": "Public join metadata disclosed alternative room tokens",
+      "resolution": "Public branding/redirect responses now preserve only the reference opened by the visitor. Numeric references no longer reveal stored host or participant tokens.",
+      "status": "fixed_locally",
+      "files": [
+        "backend/src/controllers/teamMeetings.controller.js",
+        "backend/src/controllers/supervisionSessions.controller.js"
+      ]
+    },
+    {
+      "id": "M02",
+      "severity": "High",
+      "issue": "Anonymous supervision access bypassed personal invitations",
+      "resolution": "Retired guest join, admission, activity and transcript handlers now require sign-in. Removed the browser fallback from failed authentication to anonymous supervision. Candidate-specific interview access remains supported.",
+      "status": "fixed_locally",
+      "files": [
+        "backend/src/routes/supervisionSessions.routes.js",
+        "frontend/src/views/supervision/JoinSupervisionView.vue"
+      ]
+    },
+    {
+      "id": "M03",
+      "severity": "High",
+      "issue": "Attendance accepted caller-supplied participant identities",
+      "resolution": "Presence now authorizes the current account and derives its identity on the server. Interview candidate identity is derived from the validated interview token. Unauthenticated ordinary meetings cannot create or close another person\u2019s attendance.",
+      "status": "fixed_locally",
+      "files": [
+        "backend/src/controllers/teamMeetings.controller.js",
+        "backend/src/controllers/supervisionSessions.controller.js"
+      ]
+    },
+    {
+      "id": "M04",
+      "severity": "High",
+      "issue": "Old URL roles and stale membership could affect access",
+      "resolution": "Room access uses active tenant membership and the current roster. Host privileges derive from the owner/cohost assignment. Shared host URLs no longer promote schedulers. Added active membership checks to meeting workspace and activity authorization; withdrawn supervision invitees lose room access.",
+      "status": "fixed_locally",
+      "files": [
+        "backend/src/services/meetingJoinPolicy.service.js",
+        "backend/src/controllers/videoMeetingActivity.controller.js"
+      ]
+    },
+    {
+      "id": "M05",
+      "severity": "High",
+      "issue": "Cancelled or external meetings could still request platform credentials",
+      "resolution": "Token, admission and heartbeat paths reject cancelled/ended meetings and explicit non-platform locations. Authorized leave cleanup remains possible. In-person supervision cannot create a video room.",
+      "status": "fixed_locally",
+      "files": [
+        "backend/src/services/meetingJoinPolicy.service.js",
+        "backend/src/controllers/__tests__/meetingLaunchAccess.test.js"
+      ]
+    },
+    {
+      "id": "M06",
+      "severity": "Medium",
+      "issue": "Shared host/participant copy controls remained in current screens",
+      "resolution": "Removed role-link sharing from creation confirmation, live team meetings, supervision details/live rooms and the meeting editor. Joining remains available; new people are invited by adding them to the meeting. Clinical client invitation sharing is a separate workflow and is preserved.",
+      "status": "fixed_locally",
+      "files": [
+        "frontend/src/components/schedule/ScheduleAvailabilityGrid.vue",
+        "frontend/src/components/schedule/VirtualLinkControls.vue"
+      ]
+    },
+    {
+      "id": "M07",
+      "severity": "Medium",
+      "issue": "Old reminder schema fallbacks could ignore opt-outs",
+      "resolution": "Removed fallbacks that retried without notification preferences or persisted reminder timing. Missing required columns now stop delivery instead of sending under invented defaults. Existing configured and per-event reminder paths remain disjoint.",
+      "status": "fixed_locally",
+      "files": [
+        "backend/src/services/joinReminder.service.js",
+        "backend/src/services/__tests__/meetingReminders.test.js"
+      ]
+    },
+    {
+      "id": "M08",
+      "severity": "Medium",
+      "issue": "CPA and mentorship defaults were treated as ordinary huddles",
+      "resolution": "Meeting settings and compensation validation now use the actual subtype in creation, editing and persistence. The editor loads subtype-specific defaults and keeps matching fallback values.",
+      "status": "fixed_locally",
+      "files": [
+        "backend/src/services/meetingSettings.service.js",
+        "backend/src/controllers/user.controller.js"
+      ]
+    },
+    {
+      "id": "M09",
+      "severity": "Medium",
+      "issue": "Active prompts could send external meetings into platform video",
+      "resolution": "Prompts use the selected Google Meet link when platform video is off, exclude in-person meetings without video, and exclude withdrawn supervision invitees.",
+      "status": "fixed_locally",
+      "files": [
+        "backend/src/services/activeMeetingPrompts.service.js"
+      ]
+    },
+    {
+      "id": "M10",
+      "severity": "Medium",
+      "issue": "Camera tiles reverted to horizontal layouts",
+      "resolution": "Earlier fixes in this task enforce square tiles in gallery, solo, featured and lobby layouts. Browser measurements verified square dimensions at desktop, tablet and mobile widths.",
+      "status": "fixed_locally",
+      "files": [
+        "frontend/src/components/video/VideoSessionRoom.vue",
+        "frontend/src/components/video/meetingPresentation.js"
+      ]
+    },
+    {
+      "id": "M11",
+      "severity": "High",
+      "issue": "Silent or lost microphone input lacked clear recovery",
+      "resolution": "Earlier fixes add microphone selection, an input meter, live-track validation, interruption warnings and microphone reconnection without restarting the camera. Simulated tests cover ended/paused/missing tracks and preserved mute state. The reported interview\u2019s exact cause remains unconfirmed; a live headset call is required.",
+      "status": "fixed_locally_live_audio_pending",
+      "files": [
+        "frontend/src/components/video/localPublisherMedia.js",
+        "frontend/src/components/video/VideoSessionRoom.vue"
+      ]
+    },
+    {
+      "id": "M12",
+      "severity": "Medium",
+      "issue": "Scheduling was crowded and ambiguous",
+      "resolution": "Earlier fixes combine people/groups with membership-aware search and collapsed groups, expand crowded calendar cells into readable accessible cards, replace overlapping virtual switches with a location selector, and explain all meeting types.",
+      "status": "fixed_locally",
+      "files": [
+        "frontend/src/components/schedule/MeetingParticipantsPicker.vue",
+        "frontend/src/components/schedule/MeetingLocationOptions.vue",
+        "frontend/src/components/schedule/TeamMeetingBody.vue"
+      ]
+    }
+  ],
+  "retained_compatibility": [
+    "Existing room-token columns and old calendar/bookmark routes remain for compatibility. They are not invitations to share and do not independently grant ordinary meeting access.",
+    "Personal invitation tokens still validate the recipient account and current meeting roster on every resolution. Forwarding a personal invitation does not impersonate its recipient.",
+    "Interview candidate guest links and clinical client/guardian invitations serve external participants and are distinct from obsolete anonymous staff-supervision access.",
+    "Vonage project-key compatibility and historically named roomSid/twilio_room_sid storage remain: the active video adapter uses Vonage. Removing these names without migrating stored sessions could break existing meetings.",
+    "Legacy stored reminder settings remain supported without bypassing notification opt-outs. Existing records are not bulk-emailed by this change.",
+    "Recording-rule provider functions remain unimplemented and the recording-rules endpoint fails rather than reporting success. No caller was found in the current meeting UI; recording is not certified by this audit."
+  ],
+  "launch_verification": [
+    {
+      "check": "Real-device audio acceptance",
+      "status": "not_performed",
+      "acceptance": "Run an interview with an external candidate and two staff accounts. Verify two-way audio with laptop, wired and Bluetooth microphones; switch devices, mute/unmute, reconnect, deny/regrant microphone permission, and enter/leave the waiting room. Confirm the microphone meter reflects the selected device."
+    },
+    {
+      "check": "Database and migration verification",
+      "status": "not_performed",
+      "acceptance": "Verify deployed meeting migrations including 1000, 1048, 1473, 1477 and 1478 and current schema compatibility. Run disposable MySQL integration tests with SCHEDULING_TEST_MYSQL_PORT configured; 21 such tests were skipped locally. No production migration or data mutation was performed."
+    },
+    {
+      "check": "Invitation and provider end-to-end smoke test",
+      "status": "not_performed",
+      "acceptance": "In staging, create/edit/cancel single and recurring meetings, receive personal invitations for owner and invitee, reject a forwarded link/wrong account and removed invitee, verify reminder opt-outs, test Google Meet selection and candidate access, and check attendance after waiting, leaving and rejoining."
+    },
+    {
+      "check": "Deployment",
+      "status": "not_performed",
+      "acceptance": "Changes are local. Release and verify the frontend and backend together before launch; already-issued SDK credentials may remain valid until disconnect/expiry."
+    }
+  ],
+  "verification": {
+    "backend_passed": 320,
+    "backend_database_tests_skipped": 21,
+    "frontend_passed": 61,
+    "attendance_node_test_passed": 1,
+    "production_build": "passed",
+    "production_build_command": "NODE_OPTIONS=--max-old-space-size=8192 ./node_modules/.bin/vite build --outDir /tmp/meeting-launch-release-check",
+    "backend_command": "../frontend/node_modules/.bin/vitest run --config vitest.meeting-launch.config.js",
+    "frontend_command": "./node_modules/.bin/vitest run src/components/video/__tests__ src/components/schedule/__tests__ src/components/supervision/__tests__/SupervisionVideoLobbyPanel.test.js",
+    "attendance_command": "NODE_ENV=test node --test --test-force-exit src/services/__tests__/meetingAttendanceSegments.service.test.js",
+    "browser_evidence": "../meeting-cleanup-verification/verification.json",
+    "limitations": "Tests use synthetic data, mocked database/provider calls and simulated media tracks. The Node attendance calculation check passed with test-mode database connection disabled; force-exit avoids the existing pool timer. No real participant audio, real email delivery, production database or deployment was exercised."
+  }
+}
