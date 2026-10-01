@@ -380,7 +380,7 @@
 
 </template>
         <template #messages><PreHirePortalChat ref="chatRef" :token="token" :portal-api="portalApi" :support-team="supportTeam" :agency-name="agency?.name || ''" /></template>
-        <template #time><strong>{{ processClosed ? 'Time submitted for review' : activity.tracking.value ? 'Recording active time' : 'Time tracking paused' }}</strong><p>{{ Math.floor((portalData?.journey?.time?.seconds || 0) / 60) }} minutes saved</p><p v-if="activity.error.value" role="alert">{{ activity.error.value }}</p><p v-else>Active portal work is recorded for payroll review. Tell People Operations about time spent outside this portal or any missing time.</p></template>
+        <template #time><strong>{{ processClosed ? 'Time submitted for review' : embeddedTraining ? 'Time tracking is handled in this training step' : activity.tracking.value ? 'Recording active time' : 'Time tracking paused' }}</strong><p>{{ Math.floor((portalData?.journey?.time?.seconds || 0) / 60) }} minutes saved</p><p v-if="activity.error.value" role="alert">{{ activity.error.value }}</p><p v-else>Active portal work is recorded for payroll review. Tell People Operations about time spent outside this portal or any missing time.</p></template>
       </HirePortalWorkspace>
       <!-- Task signing panel (modal-style overlay) -->
       <transition name="panel-slide">
