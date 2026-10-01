@@ -314,7 +314,7 @@ function buildAppEntries() {
       group: 'clients',
       keywords: ['client exchange', 'reassign', 'transfer client', 'caseload swap'],
       kind: 'path',
-      path: '/dashboard?tab=clients&clients=exchange',
+      path: '/client-exchange',
       rolesAny: [
         'admin',
         'support',

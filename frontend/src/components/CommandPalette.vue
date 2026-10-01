@@ -314,6 +314,7 @@ const quickNavCtx = computed(() => {
 });
 
 const navigationOptions = computed(() => ({
+  hostPortalSlug: brandingStore.portalHostPortalUrl,
   currentPath: route.path,
   orgSlug: orgSlug.value,
   dashboardPath: `${orgSlug.value ? '/' + orgSlug.value : ''}/dashboard`,

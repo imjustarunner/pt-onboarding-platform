@@ -1,5 +1,6 @@
 import { getAllQuickNavEntries, getQuickNavCatalog, resolveQuickNavRoute } from './quickNavCatalog.js';
 import { APP_PAGES } from './appPagesData.js';
+import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath.js';
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { hasProviderMobileAccess } from '../utils/providerMobileAccess.js';
 import { canAccessSchoolPortalsSurfaces } from '../utils/schoolPortalsAccess.js';
@@ -63,13 +64,24 @@ export function canDiscoverQuickNavRoute(route, { user, agency = {}, platformBra
   return true;
 }
 
-function resolveRegistered(router, location) {
+function resolveRegistered(router, location, hostPortalSlug) {
   if (!location) return null;
   try {
     let resolved = router.resolve(location);
     // Validate redirect destinations too. Preserve query/hash just as vue-router does.
     const seen = new Set();
     for (let i = 0; i < 8; i++) {
+      // Match the router's dedicated-host canonicalization before recording the
+      // destination. Otherwise a successful /itsco/page → /page navigation is
+      // reported as an access failure by every Quick Nav surface.
+      const prefix = hostPortalSlug ? `/${hostPortalSlug}` : '';
+      if (prefix && (resolved.path === prefix || resolved.path.startsWith(`${prefix}/`))) {
+        const path = resolved.path.slice(prefix.length) || '/';
+        // The mobile shell is only registered under /:organizationSlug.
+        if (path !== '/provider-mobile' && !path.startsWith('/provider-mobile/')) {
+          resolved = router.resolve({ path, query: resolved.query, hash: resolved.hash });
+        }
+      }
       if (!resolved.matched.length || resolved.matched.some(r => /:pathMatch|:catchAll/.test(r.path))) return null;
       const redirect = resolved.matched.at(-1)?.redirect;
       if (!redirect) return resolved;
@@ -87,9 +99,10 @@ export function resolveRegisteredQuickNav(entry, router, opts = {}) {
   if (!entry) return null;
   let location;
   try { location = resolveQuickNavRoute(entry, opts); } catch { return null; }
-  let resolved = resolveRegistered(router, location);
+  const hostPortalSlug = resolveHostImpliedPortalSlug({ portalHostPortalUrl: opts.hostPortalSlug });
+  let resolved = resolveRegistered(router, location, hostPortalSlug);
   if (!resolved && entry.kind === 'path' && entry.scope !== 'platform') {
-    resolved = resolveRegistered(router, resolveQuickNavRoute(entry, { ...opts, orgSlug: '' }));
+    resolved = resolveRegistered(router, resolveQuickNavRoute(entry, { ...opts, orgSlug: '' }), hostPortalSlug);
   }
   return resolved;
 }

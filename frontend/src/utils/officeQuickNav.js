@@ -9,7 +9,7 @@ export function buildOfficeQuickNavLinks({ orgPath, current = '' } = {}) {
     { key: 'clients', label: 'Office Clients', to: p('/admin/office-clients') },
     { key: 'intake', label: 'Intake Queue', to: p('/admin/office-intake-queue') },
     { key: 'management', label: 'Client Management', to: p('/admin/clients') },
-    { key: 'exchange', label: 'Client Exchange', to: p('/admin/client-exchange') }
+    { key: 'exchange', label: 'Client Exchange', to: p('/client-exchange') }
   ];
   return items.map((item) => ({
     ...item,

@@ -1105,6 +1105,7 @@ const quickNavCtx = computed(() => {
 });
 
 const quickNavigationOptions = computed(() => ({
+  hostPortalSlug: brandingStore.portalHostPortalUrl,
   currentPath: route.path, orgSlug: orgSlugForNavigation(), dashboardPath: dashboardPathForQuickNav(),
   user: authStore.user, agency: agencyStore.currentAgency || {}, platformBranding: brandingStore.platformBranding || {}
 }));
