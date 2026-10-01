@@ -318,6 +318,19 @@
         {{ connectionNotice }}
       </div>
 
+      <div v-if="audioProblem" class="vsr__audio-problem" role="alert">{{ audioProblem }} Open Microphone settings to reconnect or choose another input.</div>
+      <details v-if="!hideControls && !lobbyMode" class="vsr__audio-settings" @toggle="refreshMicrophones">
+        <summary>Microphone settings</summary>
+        <label>Microphone
+          <select aria-label="Microphone input" :value="selectedMicrophoneId" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @change="changeMicrophone($event.target.value)">
+            <option value="default">System default microphone</option>
+            <option v-for="device in microphoneDevices" :key="device.deviceId" :value="device.deviceId">{{ device.label || 'Microphone' }}</option>
+          </select>
+        </label>
+        <label>Input level <meter aria-label="Microphone input level" min="0" max="1" :value="localMicLevel" /></label>
+        <p>Speak and check that the level moves. If it stays flat, check your headset mute switch or choose another microphone.</p>
+        <button type="button" class="vsr__ctrl" :disabled="audioDeviceBusy || !sessionReady || micLockedByHost" @click="changeMicrophone(selectedMicrophoneId)">{{ audioDeviceBusy ? 'Reconnecting…' : 'Reconnect microphone' }}</button>
+      </details>
       <div v-if="!hideControls" class="vsr__controls" role="toolbar" aria-label="Session media controls">
         <button
           v-if="canSelfUnmute || publishAudio"
@@ -679,14 +692,20 @@ const stageGridStyle = computed(() => {
     const columns = Math.max(1, Math.min(thumbnails, Math.floor(stageSize.value.width / 144)));
     const rows = Math.ceil(thumbnails / columns);
     return {
+      '--vsr-camera-side': `${Math.max(1, Math.min(stageSize.value.width, Math.max(180, stageSize.value.height - rows * 106)))}px`,
       gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
       gridTemplateRows: `minmax(180px, 1fr)${rows ? ` repeat(${rows}, 100px)` : ''}`
     };
   }
-  if (!isGridStage.value || screenFocused.value) return null;
-  const count = Math.min(stageVideoCount.value, visibleStagePages.value * STAGE_TILE_PAGE_SIZE);
-  const grid = tileGrid(count, stageSize.value.width, stageSize.value.height, props.compact ? 'mini' : tileSizePreset.value);
-  return { gridTemplateColumns: `repeat(${grid.columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${grid.rows}, minmax(0, 1fr))` };
+  if (props.lobbyMode || props.layout === 'strip' || props.tileFocus === 'collapsed') return null;
+  const count = Math.max(1, Math.min(stageVideoCount.value, visibleStagePages.value * STAGE_TILE_PAGE_SIZE));
+  const { width, height } = stageSize.value;
+  const grid = tileGrid(count, width, height, props.compact ? 'mini' : tileSizePreset.value);
+  const side = Math.max(1, Math.floor(Math.min((width - 6 * (grid.columns - 1)) / grid.columns,
+    Math.max(112, (height - 6 * (grid.rows - 1)) / grid.rows))));
+  return { gridTemplateColumns: `repeat(${grid.columns}, ${side}px)`, gridTemplateRows: `repeat(${grid.rows}, ${side}px)`,
+    '--vsr-camera-side': `${side}px`, justifyContent: 'center',
+    alignContent: side * grid.rows + 6 * (grid.rows - 1) > height ? 'start' : 'center', overflowY: 'auto' };
 });
 watch(stageEl, (el) => {
   stageResizeObserver?.disconnect();
@@ -2374,7 +2393,7 @@ async function connect() {
         automuteNoticeVisible.value = false;
         needsAudioSourceAttach.value = true;
         publisher = await publishLocal(false, { captureAudio: false });
-        showMicHint('Joined muted — mic was busy. Tap Unmute when ready (close other apps using the mic first).');
+        audioProblem.value = 'Joined without a microphone. Check browser permission and your selected input, then unmute.';
       } else {
         throw publishErr;
       }
@@ -2391,10 +2410,16 @@ async function connect() {
           publisher.publishAudio(true);
           broadcastMicState(true);
         } catch (e) {
+          publishAudio.value = false;
+          broadcastMicState(false);
+          audioProblem.value = 'Could not start the microphone. Others cannot hear you.';
           console.warn('[VideoSessionRoom] pending unmute failed', e?.message || e);
         }
       }
     }
+    monitorMicrophone();
+    void refreshMicrophones();
+    publisher?.on?.('audioInputDeviceChanged', () => { monitorMicrophone(); void refreshMicrophones(); });
     attachPublisherAudioLevel();
     voiceIsolationStatus.value = props.lobbyMode ? '' : 'processing';
     if (!props.lobbyMode) {
@@ -2540,6 +2565,9 @@ async function toggleScreenShare() {
 
 function disconnect(emitEvent = true) {
   try {
+    stopMonitoringMicrophone();
+    monitoredAudioTrack = null;
+    audioProblem.value = '';
     clearFloatingReactions();
     resetStagePagination();
     stopScreenShare();
@@ -2630,24 +2658,78 @@ function showMicHint(message) {
   }, 6000);
 }
 
-async function addPublisherAudioWithoutRestartingCamera() {
+const microphoneDevices = ref([]);
+const selectedMicrophoneId = ref('default');
+const audioDeviceBusy = ref(false);
+const audioProblem = ref('');
+let monitoredAudioTrack = null;
+function onMicrophoneEnded() {
+  needsAudioSourceAttach.value = true;
+  publishAudio.value = false;
+  localMicLevel.value = 0;
+  broadcastMicState(false);
+  audioProblem.value = 'Microphone disconnected — others cannot hear you.';
+}
+function onMicrophonePaused() {
+  if (publishAudio.value && !props.lobbyMode) audioProblem.value = 'Microphone input paused — check your device and browser permission.';
+}
+function onMicrophoneResumed() {
+  if (audioProblem.value.startsWith('Microphone input paused')) audioProblem.value = '';
+}
+function stopMonitoringMicrophone() {
+  monitoredAudioTrack?.removeEventListener?.('ended', onMicrophoneEnded);
+  monitoredAudioTrack?.removeEventListener?.('mute', onMicrophonePaused);
+  monitoredAudioTrack?.removeEventListener?.('unmute', onMicrophoneResumed);
+}
+function monitorMicrophone() {
+  stopMonitoringMicrophone();
+  monitoredAudioTrack = publisher?.getAudioSource?.() || null;
+  monitoredAudioTrack?.addEventListener?.('ended', onMicrophoneEnded);
+  monitoredAudioTrack?.addEventListener?.('mute', onMicrophonePaused);
+  monitoredAudioTrack?.addEventListener?.('unmute', onMicrophoneResumed);
+  if (monitoredAudioTrack?.readyState === 'ended' || (!props.lobbyMode && publisher && publishAudio.value && !monitoredAudioTrack)) onMicrophoneEnded();
+}
+async function refreshMicrophones() {
+  if (!OTApi?.getDevices) return;
+  try {
+    const devices = await new Promise((resolve, reject) => OTApi.getDevices((error, list) => error ? reject(error) : resolve(list || [])));
+    microphoneDevices.value = devices.filter(device => device.kind === 'audioInput' || device.kind === 'audioinput')
+      .filter(device => device.deviceId !== 'default');
+  } catch { /* Reconnect to system default remains available. */ }
+}
+async function addPublisherAudioWithoutRestartingCamera(deviceId = selectedMicrophoneId.value) {
   if (!publisher) throw new Error('Video session is not ready.');
-  if (!OTApi?.getDevices) throw new Error('Microphone devices are not available.');
   voiceIsolationStatus.value = 'processing';
-  const devices = await new Promise((resolve, reject) => {
-    OTApi.getDevices((error, list) => (error ? reject(error) : resolve(list || [])));
-  });
-  const microphone = devices.find((device) => String(device?.kind || '').toLowerCase() === 'audioinput');
-  await attachPublisherAudioDevice(publisher, microphone?.deviceId || 'default');
+  const activePublisher = publisher;
+  stopMonitoringMicrophone();
+  try {
+    await attachPublisherAudioDevice(activePublisher, deviceId || 'default');
+  } finally { monitorMicrophone(); }
+  if (publisher !== activePublisher) throw new Error('The video session has ended.');
   publisherAudioStream = null;
   publisherAudioTrack = publisher?.getAudioSource?.() || null;
   needsAudioSourceAttach.value = false;
+  audioProblem.value = '';
   await enhanceLocalPublisherAudio();
   await syncLocalVideoPresentation();
 }
+async function changeMicrophone(deviceId) {
+  if (audioDeviceBusy.value || micToggleInFlight || micLockedByHost.value || !publisher) return;
+  audioDeviceBusy.value = true;
+  try {
+    await addPublisherAudioWithoutRestartingCamera(deviceId);
+    selectedMicrophoneId.value = deviceId;
+    // Switching inputs preserves mute, including a host mute received while waiting.
+    publisher.publishAudio(publishAudio.value && !micLockedByHost.value);
+    rebroadcastLocalMediaState();
+    showMicHint(publishAudio.value ? 'Microphone reconnected. Speak and check the input level.' : 'Microphone reconnected. Unmute when ready.');
+  } catch (error) {
+    audioProblem.value = sanitizeVideoError(error).message || 'Could not connect to that microphone.';
+  } finally { audioDeviceBusy.value = false; }
+}
 
 async function toggleMic() {
-  if (micToggleInFlight) return;
+  if (micToggleInFlight || audioDeviceBusy.value) return;
   if (props.lobbyMode) {
     // Auto-muted participants may test/grant the mic in private, but a successful
     // test must not change the muted state they carry into the main room.
@@ -2738,19 +2820,25 @@ async function toggleMic() {
   try {
     // Flip published audio immediately so mute/unmute never waits on noise
     // suppression or Voice Isolation. Attach a missing source first if needed.
-    if (next && needsAudioSourceAttach.value) {
+    if (next && (needsAudioSourceAttach.value || !publisher?.getAudioSource?.() || publisher.getAudioSource().readyState === 'ended')) {
       await addPublisherAudioWithoutRestartingCamera();
     }
+    if (next && micLockedByHost.value) {
+      publishAudio.value = false;
+      publisher.publishAudio(false);
+      return;
+    }
     publisher.publishAudio(next);
+    if (next) audioProblem.value = '';
     broadcastMicState(next);
     if (next) {
       void enhanceLocalPublisherAudio();
-      setTimeout(() => broadcastMicState(true), 250);
-      setTimeout(() => broadcastMicState(true), 900);
+      setTimeout(() => rebroadcastLocalMediaState(), 250);
+      setTimeout(() => rebroadcastLocalMediaState(), 900);
     } else {
       setSpeaking('local', false);
       localMicLevel.value = 0;
-      setTimeout(() => broadcastMicState(false), 250);
+      setTimeout(() => rebroadcastLocalMediaState(), 250);
     }
   } catch (e) {
     console.error('[VideoSessionRoom] publishAudio failed', e);
@@ -2840,6 +2928,7 @@ function handleVisibilityResume() {
 
 onMounted(() => {
   speakerTimer = setInterval(updateSpeakingSnapshot, 200);
+  navigator.mediaDevices?.addEventListener?.('devicechange', refreshMicrophones);
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', handleVisibilityResume);
   }
@@ -2851,6 +2940,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearInterval(speakerTimer);
+  navigator.mediaDevices?.removeEventListener?.('devicechange', refreshMicrophones);
   stageResizeObserver?.disconnect();
   if (typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', handleVisibilityResume);
@@ -2928,10 +3018,10 @@ defineExpose({
 .vsr--lobby .vsr__viewport {
   flex: 0 0 auto;
   width: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 1;
   height: auto;
   min-height: 0;
-  /* The parent bounds the width; the preview keeps the camera's aspect ratio. */
+  /* The parent bounds the width; lobby previews use square camera tiles. */
 }
 .vsr--lobby .vsr__stage {
   flex: 1 1 auto;
@@ -4084,4 +4174,24 @@ defineExpose({
     transform: rotate(360deg);
   }
 }
+.vsr .vsr__stage > .vsr__tile.vsr__tile--pip {
+  width: 100px !important; height: 100px !important; max-width: 100% !important;
+  aspect-ratio: 1; justify-self: center;
+}
+/* Camera geometry is independent of the available wide stage and parent sizing. */
+.vsr:not(.vsr--lobby):not(.vsr--strip) .vsr__stage:not(.vsr__stage--screen):not(.vsr__stage--focus-collapsed) > .vsr__tile:not(.vsr__tile--pip) {
+  width: var(--vsr-camera-side, 100%) !important;
+  height: var(--vsr-camera-side, 100%) !important;
+  max-width: 100% !important;
+  min-height: 0 !important;
+  aspect-ratio: 1;
+  justify-self: center;
+  align-self: center;
+}
+.vsr__audio-settings { padding: 8px 12px; background: #1c2230; font-size: .82rem; }
+.vsr__audio-settings summary { cursor: pointer; }
+.vsr__audio-settings label { display: flex; align-items: center; gap: 8px; margin: 8px 0; flex-wrap: wrap; }
+.vsr__audio-settings select { max-width: 100%; padding: 6px; background: #12151c; color: white; }
+.vsr__audio-settings meter { width: 130px; }
+.vsr__audio-problem { padding: 8px 12px; color: #fef3c7; background: #78350f; }
 </style>

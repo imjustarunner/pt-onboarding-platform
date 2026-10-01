@@ -22,15 +22,6 @@
           {{ viewAsAttendee ? 'Exit attendee view' : 'View as attendee' }}
         </button>
         <button
-          type="button"
-          class="btn btn-secondary btn-sm"
-          :disabled="inviteBusy"
-          title="Copy the participant join link"
-          @click="copyInviteLink"
-        >
-          {{ inviteCopied ? 'Link copied' : 'Invite / share link' }}
-        </button>
-        <button
           v-if="isSupervisor"
           type="button"
           class="btn btn-secondary btn-sm"
@@ -422,9 +413,6 @@ let fullscreenNoticeTimer = null;
 const waitingAgenda = ref([]);
 const showHostLeaveModal = ref(false);
 const endingBusy = ref(false);
-const inviteBusy = ref(false);
-const inviteCopied = ref(false);
-let inviteCopiedTimer = null;
 const agendaOpen = ref(true);
 const attendanceOpen = ref(true);
 const transcriptOpen = ref(true);
@@ -618,45 +606,6 @@ function confirmEndForAll() {
   endingBusy.value = true;
   showHostLeaveModal.value = false;
   emit('leave', { endForAll: true });
-}
-
-async function copyInviteLink() {
-  inviteBusy.value = true;
-  try {
-    let link = String(props.participantJoinUrl || '').trim();
-    if (!link) {
-      const sid = numericSessionId.value || props.supervisionSessionId;
-      const resp = await api.get(`/supervision/join-info/${encodeURIComponent(sid)}`, {
-        skipAuthRedirect: true,
-        skipGlobalLoading: true
-      });
-      link = String(
-        resp?.data?.joinUrl
-        || resp?.data?.participantJoinUrl
-        || resp?.data?.participant_join_url
-        || ''
-      ).trim();
-      if (!link && resp?.data?.joinToken) {
-        const origin = window.location.origin;
-        const slug = String(resp.data.orgSlug || '').trim();
-        link = slug
-          ? `${origin}/${slug}/join/supervision/${encodeURIComponent(resp.data.joinToken)}`
-          : `${origin}/join/supervision/${encodeURIComponent(resp.data.joinToken)}`;
-      }
-    }
-    if (!link) link = window.location.href;
-    await navigator.clipboard.writeText(link);
-    inviteCopied.value = true;
-    if (inviteCopiedTimer) clearTimeout(inviteCopiedTimer);
-    inviteCopiedTimer = setTimeout(() => {
-      inviteCopied.value = false;
-      inviteCopiedTimer = null;
-    }, 2200);
-  } catch (e) {
-    console.warn('[GroupSupervision] copy invite failed', e?.message || e);
-  } finally {
-    inviteBusy.value = false;
-  }
 }
 
 /** Presenter remotes are labeled "Presenter · Name" from the server-issued token role. */

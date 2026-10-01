@@ -32,4 +32,8 @@ export async function attachPublisherAudioDevice(publisher, deviceId) {
   }
   if (!deviceId) throw new Error('No microphone device was available.');
   await publisher.setAudioSource(deviceId);
+  const track = publisher.getAudioSource?.();
+  if (!track || track.readyState === 'ended') {
+    throw new Error('The selected microphone did not provide a live audio track. Choose another input.');
+  }
 }

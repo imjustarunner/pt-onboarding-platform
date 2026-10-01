@@ -31,3 +31,9 @@ export function normalizeMeetingSettings(raw, defaults = defaultMeetingSettings(
   }
   return result;
 }
+
+export function meetingTypeForEvent(event = {}) {
+  const subtype = String(event.meeting_subtype || 'general').toLowerCase();
+  return String(event.kind || '').toUpperCase() === 'HUDDLE' && !['cpa', 'mentorship'].includes(subtype)
+    ? 'huddle' : subtype;
+}

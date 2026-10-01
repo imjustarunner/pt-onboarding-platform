@@ -147,14 +147,6 @@
             >
               Join
             </a>
-            <button
-              type="button"
-              class="aip-inline-btn"
-              :title="copiedLink ? 'Copied' : 'Copy join link'"
-              @click="copyVirtualLink"
-            >
-              {{ copiedLink ? 'Copied' : 'Copy link' }}
-            </button>
           </div>
           <div v-else class="aip-v">
             <a :href="virtualLink" target="_blank" rel="noopener noreferrer" class="aip-link">{{ virtualLink }}</a>
@@ -327,21 +319,6 @@ const participantDisplaySummary = computed(() => {
   return `${names.length} people`;
 });
 
-const copiedLink = ref(false);
-let copiedTimer = null;
-
-async function copyVirtualLink() {
-  const text = String(props.virtualLink || '').trim();
-  if (!text) return;
-  try {
-    await navigator.clipboard?.writeText(text);
-    copiedLink.value = true;
-    if (copiedTimer) clearTimeout(copiedTimer);
-    copiedTimer = setTimeout(() => { copiedLink.value = false; }, 1800);
-  } catch {
-    // ignore — clipboard may be blocked
-  }
-}
 </script>
 
 <style scoped>

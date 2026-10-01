@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "output_directory": "/tmp/meeting-launch-release-check",
+  "node_heap_limit_mb": 8192,
+  "warnings": [
+    "Some production chunks exceed the build size warning threshold."
+  ],
+  "completion": "\u2713 built in 1m 14s"
+}

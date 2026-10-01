@@ -1,3 +1,4 @@
+import { requirePersonalSupervisionInvitation, hasActiveMeetingMembership } from '../services/meetingJoinPolicy.service.js';
 /**
  * Video meeting activity: chat, polls, Q&A.
  * Persists messages for meeting owners to access later.
@@ -30,6 +31,7 @@ async function isSupervisionPresenter(sessionId, userId) {
 async function canFacilitateSupervisionSession(req, session) {
   const actorId = Number(req.user?.id || 0);
   if (!actorId || !session) return false;
+  if (!await hasActiveMeetingMembership(session?.agency_id, actorId)) return false;
   if (actorId === Number(session.supervisor_user_id || 0)) return true;
   if (actorId === Number(session.co_facilitator_user_id || 0)) return true;
   if (await isSupervisionPresenter(session.id, actorId)) return true;
@@ -43,6 +45,7 @@ async function canFacilitateSupervisionSession(req, session) {
 async function canAccessSupervisionActivity(req, session) {
   const actorId = Number(req.user?.id || 0);
   if (!actorId) return false;
+  if (!await hasActiveMeetingMembership(session?.agency_id, actorId)) return false;
   const sid = Number(session?.id || 0);
   const supervisorId = Number(session?.supervisor_user_id || 0);
   const superviseeId = Number(session?.supervisee_user_id || 0);
@@ -50,7 +53,7 @@ async function canAccessSupervisionActivity(req, session) {
   if (actorId === supervisorId || actorId === superviseeId || actorId === coFacilitatorId) return true;
   if (await isSupervisionPresenter(sid, actorId)) return true;
   const [attendee] = await pool.execute(
-    `SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? LIMIT 1`,
+    `SELECT 1 FROM supervision_session_attendees WHERE session_id = ? AND user_id = ? AND status NOT IN ('DECLINED','REMOVED','CANCELLED','WITHDRAWN') LIMIT 1`,
     [sid, actorId]
   );
   if (attendee?.length) return true;
@@ -67,6 +70,7 @@ async function canAccessTeamMeetingActivity(req, event) {
   }
   const actorId = Number(req.user?.id || 0);
   if (!actorId) return false;
+  if (!await hasActiveMeetingMembership(event?.agency_id, actorId)) return false;
   const providerId = Number(event?.provider_id || 0);
   if (actorId === providerId) return true;
   const [attendee] = await pool.execute(
@@ -196,65 +200,15 @@ export const postSupervisionActivity = async (req, res, next) => {
  * Public guest activity list via opaque join token.
  * GET /api/supervision/guest-activity/:joinToken
  */
-export const getSupervisionGuestActivity = async (req, res, next) => {
-  try {
-    const ref = String(req.params.joinToken || '').trim();
-    if (!ref || /^\d+$/.test(ref)) {
-      return res.status(400).json({ error: { message: 'A secure join link is required' } });
-    }
-    const session = await SupervisionSession.resolveByJoinRef(ref);
-    if (!session?.id) return res.status(404).json({ error: { message: 'Session not found' } });
-    const limit = parseInt(req.query?.limit, 10) || 500;
-    let activity = [];
-    try {
-      activity = await VideoMeetingActivity.list({ sessionId: session.id, limit: Math.min(limit, 1000) });
-    } catch (e) {
-      if (e?.code === 'ER_NO_SUCH_TABLE') return res.json({ ok: true, activity: [] });
-      throw e;
-    }
-    res.json({ ok: true, activity });
-  } catch (e) {
-    next(e);
-  }
-};
+// Anonymous supervision joins were replaced by account-bound personal invitations.
+export const getSupervisionGuestActivity = requirePersonalSupervisionInvitation;
 
 /**
  * Public guest Q&A / activity post via opaque join token.
  * POST /api/supervision/guest-activity/:joinToken
  */
-export const postSupervisionGuestActivity = async (req, res, next) => {
-  try {
-    const ref = String(req.params.joinToken || '').trim();
-    if (!ref || /^\d+$/.test(ref)) {
-      return res.status(400).json({ error: { message: 'A secure join link is required' } });
-    }
-    const session = await SupervisionSession.resolveByJoinRef(ref);
-    if (!session?.id) return res.status(404).json({ error: { message: 'Session not found' } });
-
-    const { activityType, payload, joinIdentity, displayName } = req.body || {};
-    const identity = String(joinIdentity || '').trim();
-    if (!identity.startsWith('guest-')) {
-      return res.status(400).json({ error: { message: 'guest joinIdentity required' } });
-    }
-    const type = String(activityType || 'question').toLowerCase();
-    if (!['chat', 'question'].includes(type)) {
-      return res.status(400).json({ error: { message: 'Guests may only post chat or questions' } });
-    }
-    const authorName = String(displayName || payload?.authorName || 'Guest').trim().slice(0, 80) || 'Guest';
-    const id = await VideoMeetingActivity.create({
-      sessionId: session.id,
-      eventId: null,
-      userId: null,
-      participantIdentity: identity,
-      activityType: type,
-      payload: { ...(payload || {}), authorName, text: payload?.text || payload?.question || '' }
-    });
-    if (!id) return res.status(400).json({ error: { message: 'Failed to save activity' } });
-    res.status(201).json({ ok: true, id });
-  } catch (e) {
-    next(e);
-  }
-};
+// Anonymous supervision joins were replaced by account-bound personal invitations.
+export const postSupervisionGuestActivity = requirePersonalSupervisionInvitation;
 
 /**
  * GET /api/supervision/sessions/:id/activity - list activity (for owner)

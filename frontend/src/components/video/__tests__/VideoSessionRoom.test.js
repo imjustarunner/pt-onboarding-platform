@@ -40,6 +40,47 @@ describe('VideoSessionRoom connection lifecycle', () => {
     videoSdk.initPublisher.mockReset();
   });
 
+  it('recovers a stopped input without restarting video, and preserves mute when changing headsets', async () => {
+    let audioTrack = Object.assign(new EventTarget(), { readyState: 'live', getSettings: () => ({}) });
+    const publisher = {
+      on: vi.fn(), destroy: vi.fn(), publishVideo: vi.fn(), publishAudio: vi.fn(),
+      getAudioSource: () => audioTrack,
+      setAudioSource: vi.fn(async () => { audioTrack = Object.assign(new EventTarget(), { readyState: 'live', getSettings: () => ({}) }); })
+    };
+    videoSdk.initPublisher.mockImplementation((_el, _opts, callback) => { queueMicrotask(() => callback(null)); return publisher; });
+    const wrapper = mount(VideoSessionRoom, { props: {
+      applicationId: '11111111-1111-4111-8111-111111111111', sessionId: 'audio-recovery', token: 'eyJ.test.token', playJoinTone: false
+    } });
+    await flushPromises(); await vi.dynamicImportSettled();
+    videoSdk.session.publish.mockImplementation((_publisher, callback) => callback(null));
+    videoSdk.connectCallback(null);
+    await flushPromises();
+    expect(wrapper.vm.publishAudio).toBe(true);
+    audioTrack.dispatchEvent(new Event('mute'));
+    await flushPromises();
+    expect(wrapper.text()).toContain('Microphone input paused');
+    audioTrack.dispatchEvent(new Event('unmute'));
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('Microphone input paused');
+    audioTrack.readyState = 'ended';
+    audioTrack.dispatchEvent(new Event('ended'));
+    await flushPromises();
+    expect(wrapper.vm.publishAudio).toBe(false);
+    expect(wrapper.text()).toContain('Microphone disconnected');
+    await wrapper.get('.vsr__ctrl--mic').trigger('click');
+    await flushPromises();
+    expect(publisher.setAudioSource).toHaveBeenCalledWith('default');
+    expect(publisher.publishAudio).toHaveBeenLastCalledWith(true);
+    expect(wrapper.vm.publishAudio).toBe(true);
+    await wrapper.get('.vsr__ctrl--mic').trigger('click');
+    await wrapper.get('.vsr__audio-settings button').trigger('click');
+    await flushPromises();
+    expect(publisher.publishAudio).toHaveBeenLastCalledWith(false);
+    expect(publisher.destroy).not.toHaveBeenCalled();
+    expect(videoSdk.initPublisher).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
   it('features the interview candidate after hosts join first, with every interviewer in a thumbnail', async () => {
     const wrapper = mount(VideoSessionRoom, {
       props: { applicationId: '11111111-1111-4111-8111-111111111111', sessionId: 'interview', token: 'eyJ.test.token',

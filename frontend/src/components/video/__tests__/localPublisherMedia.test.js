@@ -26,11 +26,15 @@ describe('local publisher media safety', () => {
     }
   });
 
+  it.each([null, { readyState: 'ended' }])('rejects a missing or stopped microphone after switching: %s', async (track) => {
+    await expect(attachPublisherAudioDevice({ setAudioSource: vi.fn().mockResolvedValue(), getAudioSource: () => track }, 'default')).rejects.toThrow('live audio track');
+  });
+
   it('attaches only the audio source without rebuilding or touching video', async () => {
     const setAudioSource = vi.fn().mockResolvedValue(undefined);
     const publishVideo = vi.fn();
     const destroy = vi.fn();
-    const publisher = { setAudioSource, publishVideo, destroy };
+    const publisher = { setAudioSource, publishVideo, destroy, getAudioSource: () => ({ readyState: 'live' }) };
 
     await attachPublisherAudioDevice(publisher, 'default-microphone-id');
 

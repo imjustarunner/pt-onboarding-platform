@@ -145,22 +145,6 @@ const isOpaqueJoinRef = computed(() => {
   return !!ref && !/^\d+$/.test(ref);
 });
 
-function stableGuestKey(joinToken) {
-  const tokenKey = String(joinToken || '').trim();
-  if (!tokenKey) return '';
-  const storageKey = `supv-guest-key:${tokenKey}`;
-  try {
-    let existing = sessionStorage.getItem(storageKey) || '';
-    if (!/^[a-zA-Z0-9]{8,32}$/.test(existing)) {
-      existing = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.slice(0, 24);
-      sessionStorage.setItem(storageKey, existing);
-    }
-    return existing;
-  } catch {
-    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`.slice(0, 24);
-  }
-}
-
 function applyTokenPayload(data) {
   const tok = (data.token || data.data?.token || '').trim();
   token.value = tok;
@@ -231,25 +215,11 @@ async function pollAdmissionStatus() {
   const sid = sessionId.value;
   if (!sid || !isInLobby.value) return;
   try {
-    let data = {};
-    if (isGuestJoin.value && isOpaqueJoinRef.value) {
-      const guestKey = stableGuestKey(sid);
-      const resp = await api.get(`/supervision/guest-admission/${encodeURIComponent(sid)}`, {
-        params: {
-          guestKey,
-          displayName: localDisplayName.value || undefined
-        },
-        skipAuthRedirect: true,
-        skipGlobalLoading: true
-      });
-      data = resp?.data || {};
-    } else {
-      const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/admission-status`, {
-        skipAuthRedirect: true,
-        skipGlobalLoading: true
-      });
-      data = resp?.data || {};
-    }
+    const resp = await api.get(`/supervision/sessions/${encodeURIComponent(sid)}/admission-status`, {
+      skipAuthRedirect: true,
+      skipGlobalLoading: true
+    });
+    const data = resp?.data || {};
     if (data.roomMode === 'ended' || data.sessionEnded) {
       stopAdmissionPolling();
       void finishLeave({ variant: 'host-ended', canRejoin: false });
@@ -270,8 +240,11 @@ async function pollAdmissionStatus() {
       // Keep heartbeat running (already started in lobby).
       startPresenceHeartbeat();
     }
-  } catch {
-    // ignore, will retry
+  } catch (e) {
+    if (Number(e?.response?.status) === 410) {
+      stopAdmissionPolling();
+      void finishLeave({ variant: 'host-ended', canRejoin: false });
+    }
   }
 }
 
@@ -300,23 +273,10 @@ function startPresenceHeartbeat() {
   presencePollInterval.value = setInterval(tick, 10000);
 }
 
-function presenceLeaveUrl(sid) {
-  const base = String(api?.defaults?.baseURL || '/api').replace(/\/$/, '');
-  return `${base}/supervision/sessions/${encodeURIComponent(sid)}/join-presence`;
-}
-
 async function leavePresence() {
   const sid = numericSessionId.value || sessionId.value;
   const identity = joinIdentity.value;
   if (!sid || !identity) return;
-  const body = JSON.stringify({ identity, action: 'leave' });
-  try {
-    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-      const blob = new Blob([body], { type: 'application/json' });
-      navigator.sendBeacon(presenceLeaveUrl(sid), blob);
-      return;
-    }
-  } catch { /* ignore */ }
   try {
     await api.post(
       `/supervision/sessions/${encodeURIComponent(sid)}/join-presence`,
@@ -508,21 +468,6 @@ async function resolveAndRedirect() {
   }
 }
 
-async function fetchGuestToken() {
-  const sid = sessionId.value;
-  const guestKey = stableGuestKey(sid);
-  const resp = await api.get(`/supervision/guest-join/${encodeURIComponent(sid)}`, {
-    params: {
-      guestKey,
-      displayName: localDisplayName.value || 'Guest'
-    },
-    skipAuthRedirect: true
-  });
-  applyTokenPayload(resp?.data || {});
-  startPresenceHeartbeat();
-  if (isInLobby.value) startAdmissionPolling();
-}
-
 function appearsLoggedInLocally() {
   if (authStore.isAuthenticated) return true;
   try {
@@ -572,27 +517,6 @@ async function fetchTokenAndJoin() {
   } catch (e) {
     const status = Number(e?.response?.status || 0);
     if (status === 401) {
-      if (isOpaqueJoinRef.value) {
-        try {
-          await fetchGuestToken();
-          return;
-        } catch (guestErr) {
-          const guestStatus = Number(guestErr?.response?.status || 0);
-          if (guestStatus === 409) {
-            error.value = guestErr?.response?.data?.error?.message
-              || 'This session is full right now. When someone leaves, try the link again.';
-            return;
-          }
-          // Prefer login CTA when we already look authenticated — guest path failed.
-          error.value = appearsLoggedInLocally()
-            ? (guestErr?.response?.data?.error?.message
-              || 'Could not join this session. Try Log in to join to refresh your session.')
-            : (guestErr?.response?.data?.error?.message
-              || 'Could not join as guest. Log in with your account, or ask the host for a fresh join link.');
-          showLoginFallback.value = true;
-          return;
-        }
-      }
       showLoginFallback.value = true;
       error.value = 'Please log in to join this session.';
       return;

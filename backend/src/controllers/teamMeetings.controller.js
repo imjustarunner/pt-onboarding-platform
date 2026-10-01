@@ -1,3 +1,4 @@
+import { canJoinTeamMeeting, hasActiveMeetingMembership, roomUnavailable } from '../services/meetingJoinPolicy.service.js';
 import { huddleHostServiceCode } from '../services/huddlePolicy.js';
 import { eventMeetingSettings } from '../services/meetingSettings.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
@@ -194,6 +195,8 @@ async function canAccessTeamMeeting(req, event) {
   if (isInterviewMeeting(event)) return canAccessInterviewMeeting(req, event);
   const actorId = Number(req.user?.id || 0);
   if (!actorId) return false;
+
+  if (!await hasActiveMeetingMembership(event?.agency_id, actorId)) return false;
 
   const agencyId = Number(event?.agency_id || 0);
   const providerId = Number(event?.provider_id || 0);
@@ -663,25 +666,16 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
     if (!orgSlug) return res.status(404).json({ error: { message: 'Event organization has no portal' } });
 
     const frontendUrl = await tenantMeetingBase(event.agency_id);
-    const participantKey = String(event.participant_join_token || event.join_token || event.id);
-    const maySeeHostLink = !isInterviewMeeting(event) || await canAccessInterviewMeeting(req, event);
-    const hostKey = maySeeHostLink ? String(event.host_join_token || '').trim() : '';
+    // Resolve branding without disclosing other participants' or host tokens.
+    const redirectKey = ref;
     const tokenRole = ProviderScheduleEvent.classifyJoinTokenRole(event, ref);
-    // Preserve the token the user opened so host links are not rewritten to participant links.
-    const redirectKey = tokenRole === 'host' && hostKey
-      ? hostKey
-      : (participantKey || String(event.id));
     res.json({
       orgSlug,
       canonicalJoinUrl: joinUrlForTeamMeeting(frontendUrl, redirectKey),
       eventId: Number(event.id),
       joinToken: redirectKey || null,
-      hostJoinToken: hostKey || null,
-      participantJoinToken: participantKey || null,
       joinPath: `/join/team-meeting/${encodeURIComponent(redirectKey)}`,
-      hostJoinPath: hostKey ? `/join/team-meeting/${encodeURIComponent(hostKey)}` : null,
-      joinUrl: joinUrlForTeamMeeting(frontendUrl, participantKey),
-      hostJoinUrl: hostKey ? joinUrlForTeamMeeting(frontendUrl, hostKey) : null,
+      joinUrl: joinUrlForTeamMeeting(frontendUrl, redirectKey),
       waitingRoomEnabled: isWaitingRoomEnabled(event),
       joinTokenRole: tokenRole,
       meetingSubtype: String(event.meeting_subtype || 'general').trim().toLowerCase(),
@@ -715,12 +709,15 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Event is not a team meeting or huddle' } });
     }
 
+    const unavailable = roomUnavailable({ ...row, meeting_completed_at: null });
+    if (unavailable) return res.status(unavailable.status).json({ error: unavailable.error });
+
     const actorUserId = Number(req.user?.id || 0);
     const guestJoin = await resolveInterviewGuestJoin(row, ref, actorUserId);
     if (actorUserId && !guestJoin) {
       const ok = isInterviewMeeting(row)
         ? await canAccessInterviewMeeting(req, row)
-        : await canAccessTeamMeeting(req, row);
+        : await canJoinTeamMeeting(row, actorUserId);
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     } else if (!guestJoin) {
       return res.status(401).json({ error: { message: 'Not authenticated' } });
@@ -744,20 +741,8 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     if (guestBlock) {
       return res.status(guestBlock.status).json(guestBlock.body);
     }
-    const actorRole = String(req.user?.role || '').toLowerCase();
-    const privilegedHost = [
-      'super_admin',
-      'superadmin',
-      'admin',
-      'support',
-      'schedule_manager',
-      'assistant_admin'
-    ].includes(actorRole);
-    const createdByUserId = Number(row.created_by_user_id || row.createdByUserId || 0);
-    // Host: calendar owner, meeting creator, or privileged scheduler (admin schedule).
-    // Interviews only: any logged-in agency staff is a host; unauthenticated guest-link users are candidates.
-    let isHost = await isMeetingHost(row,actorUserId)
-      || (tokenRole === 'host' && (actorUserId === createdByUserId || privilegedHost));
+    // Host privileges come from the account's assignment, not an old host URL.
+    let isHost = await isMeetingHost(row, actorUserId);
     if (
       !isHost
       && isInterviewMeeting(row)
@@ -929,20 +914,28 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
   try {
     const ref = String(req.params.eventId || '').trim();
     const actorUserId = Number(req.user?.id || 0) || null;
-    let identity = normalizeJoinIdentity(
-      req.body?.identity || req.body?.joinIdentity,
-      { userId: actorUserId }
-    );
     const action = String(req.body?.action || 'heartbeat').toLowerCase();
-    if (!ref || !identity) {
-      return res.status(400).json({ error: { message: 'identity required' } });
-    }
+    if (!ref) return res.status(400).json({ error: { message: 'Event required' } });
     const row = await ProviderScheduleEvent.resolveByJoinRef(ref);
-    if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
-    if (isInterviewMeeting(row)) {
-      const guestJoin = await resolveInterviewGuestJoin(row, ref, actorUserId);
-      if (!guestJoin && !(await canAccessInterviewMeeting(req, row))) return res.status(403).json({ error: { message: 'Access denied' } });
-      identity = guestJoin ? interviewGuestIdentityFromRow(row) : `user-${actorUserId}`;
+    if (!row?.id || !['TEAM_MEETING', 'HUDDLE'].includes(String(row.kind).toUpperCase())) {
+      return res.status(404).json({ error: { message: 'Event not found' } });
+    }
+    const guestJoin = await resolveInterviewGuestJoin(row, ref, actorUserId);
+    if (!guestJoin) {
+      if (!actorUserId) return res.status(401).json({ error: { message: 'Not authenticated' } });
+      const allowed = isInterviewMeeting(row)
+        ? await canAccessInterviewMeeting(req, row)
+        : await canJoinTeamMeeting(row, actorUserId);
+      if (!allowed) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+    const identity = guestJoin ? interviewGuestIdentityFromRow(row) : `user-${actorUserId}`;
+    if (action !== 'leave') {
+      const unavailable = roomUnavailable(row);
+      if (unavailable) return res.status(unavailable.status).json({ error: unavailable.error });
+      const guestBlock = await interviewGuestAccessBlock(row, {
+        actorUserId, tokenRole: ProviderScheduleEvent.classifyJoinTokenRole(row, ref)
+      });
+      if (guestBlock) return res.status(guestBlock.status).json(guestBlock.body);
     }
 
     const {
@@ -961,7 +954,7 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
       eventId: row.id,
       joinIdentity: identity,
       displayName: String(req.body?.displayName || '').trim() || null,
-      isGuest: !!req.body?.isGuest || identity.startsWith('guest-')
+      isGuest: !!guestJoin
     });
 
     const isHost = await isMeetingHost(row,actorUserId);
@@ -975,7 +968,7 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
     if (admitted) {
       opened = await openAttendanceSegment({
         eventId: row.id,
-        userId: actorUserId || userIdFromJoinIdentity(identity),
+        userId: guestJoin ? null : actorUserId,
         joinIdentity: identity,
         source: 'platform'
       });
@@ -1247,12 +1240,15 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
     const row = await ProviderScheduleEvent.resolveByJoinRef(ref);
     if (!row?.id) return res.status(404).json({ error: { message: 'Event not found' } });
 
+    const unavailable = roomUnavailable({ ...row, meeting_completed_at: null });
+    if (unavailable) return res.status(unavailable.status).json({ error: unavailable.error });
+
     const actorUserId = Number(req.user?.id || 0);
     const guestJoin = await resolveInterviewGuestJoin(row, ref, actorUserId);
     if (actorUserId && !guestJoin) {
       const ok = isInterviewMeeting(row)
         ? await canAccessInterviewMeeting(req, row)
-        : await canAccessTeamMeeting(req, row);
+        : await canJoinTeamMeeting(row, actorUserId);
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     } else if (!guestJoin) {
       return res.status(401).json({ error: { message: 'Not authenticated' } });

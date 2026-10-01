@@ -1,0 +1,195 @@
+{
+  "targeted_tests": 60,
+  "test_files": 11,
+  "browser": {
+    "measurements": [
+      {
+        "width": 1280,
+        "count": 0,
+        "boxes": [
+          {
+            "width": 245,
+            "height": 245
+          }
+        ]
+      },
+      {
+        "width": 1280,
+        "count": 1,
+        "boxes": [
+          {
+            "width": 245,
+            "height": 245
+          },
+          {
+            "width": 245,
+            "height": 245
+          }
+        ]
+      },
+      {
+        "width": 1280,
+        "count": 5,
+        "boxes": [
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          }
+        ]
+      },
+      {
+        "width": 768,
+        "count": 0,
+        "boxes": [
+          {
+            "width": 245,
+            "height": 245
+          }
+        ]
+      },
+      {
+        "width": 768,
+        "count": 1,
+        "boxes": [
+          {
+            "width": 245,
+            "height": 245
+          },
+          {
+            "width": 245,
+            "height": 245
+          }
+        ]
+      },
+      {
+        "width": 768,
+        "count": 5,
+        "boxes": [
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          }
+        ]
+      },
+      {
+        "width": 390,
+        "count": 0,
+        "boxes": [
+          {
+            "width": 166,
+            "height": 166
+          }
+        ]
+      },
+      {
+        "width": 390,
+        "count": 1,
+        "boxes": [
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          }
+        ]
+      },
+      {
+        "width": 390,
+        "count": 5,
+        "boxes": [
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          },
+          {
+            "width": 112,
+            "height": 112
+          }
+        ]
+      }
+    ],
+    "groupNames": [
+      "Denver",
+      "Staff"
+    ],
+    "errors": []
+  },
+  "calendar": {
+    "count": 5,
+    "bounds": {
+      "x": 901.796875,
+      "y": 476,
+      "width": 280,
+      "height": 440
+    },
+    "cellBounds": {
+      "x": 895.796875,
+      "y": 472,
+      "width": 261.59375,
+      "height": 55
+    },
+    "errors": []
+  },
+  "calendar_keyboard_expansion": "passed",
+  "live_audio_call": "Not performed; tests use simulated microphone tracks and SDK responses.",
+  "deployed": false,
+  "production_build": "passed (Node heap limit 8 GB)"
+}
