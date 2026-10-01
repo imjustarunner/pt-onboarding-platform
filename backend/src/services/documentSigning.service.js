@@ -111,7 +111,7 @@ class DocumentSigningService {
    */
   static async applyPacketBrandChromeToHtml(htmlContent, options = {}) {
     try {
-      const { resolvePacketBrandChrome } = await import('./packetBrandChrome.service.js');
+      const { resolvePacketBrandChrome, packetBodyFontCss } = await import('./packetBrandChrome.service.js');
       const { buildPdfChromeTemplates } = await import('./schoolPrintablePacket.service.js');
       const Agency = (await import('../models/Agency.model.js')).default;
       const agencyId = Number(options?.agencyId || options?.branding?.agencyId || 0) || null;
@@ -119,10 +119,14 @@ class DocumentSigningService {
       const brand = await resolvePacketBrandChrome(agency || {}, { packetKind: 'office' });
       const watermark = brand?.watermarkDataUrl || null;
       const includeVersion = options?.includeVersion !== false;
+      const originalStyles = [...String(htmlContent).matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map(match => match[1]).join('\n');
+      const bodyContent = String(htmlContent).match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1] || htmlContent;
       const wrapped = `<!DOCTYPE html>
 <html><head><meta charset="utf-8" />
 <style>
-  body { font-family: ${brand?.bodyFontFamily || "Arial, sans-serif"}; margin: 0; padding: 0.25in 0; color: #111; position: relative; }
+${originalStyles}
+  ${packetBodyFontCss(brand)}
+  body { font-family: ${brand?.bodyFontFamily || "Arial, sans-serif"} !important; margin: 0; padding: 0.25in 0; color: #111; position: relative; }
   .packet-watermark {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     width: 55%; max-width: 420px; opacity: 0.08; z-index: 0; pointer-events: none;
@@ -131,7 +135,7 @@ class DocumentSigningService {
 </style></head>
 <body>
   ${watermark ? `<img class="packet-watermark" src="${watermark}" alt="" />` : ''}
-  <div class="packet-body">${htmlContent}</div>
+  <div class="packet-body">${bodyContent}</div>
 </body></html>`;
       const { headerTemplate, footerTemplate } = buildPdfChromeTemplates({ brand, includeVersion });
       return {

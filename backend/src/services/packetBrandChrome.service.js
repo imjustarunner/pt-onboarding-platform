@@ -432,3 +432,9 @@ export function packetBrandAssetColumn(slot) {
   };
   return map[String(slot || '').trim().toLowerCase()] || null;
 }
+
+export function packetBodyFontCss(brand) {
+  const data = brand?.useItscoChrome ? firstExistingDataUrl([path.join(__dirname, '../assets/schoolPrintablePacket/fonts/Comfortaa-Variable.ttf')], 'font/ttf') : brand?.montserratRegularDataUrl;
+  const family = brand?.useItscoChrome ? 'Comfortaa' : 'Montserrat';
+  return data ? `@font-face { font-family: '${family}'; src: url('${data}'); font-weight: 100 900; font-style: normal; }` : '';
+}

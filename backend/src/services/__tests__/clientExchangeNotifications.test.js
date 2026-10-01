@@ -8,7 +8,7 @@ vi.mock('../../models/EmailSenderIdentity.model.js', () => ({ default: { list: m
 vi.mock('../providerClinicalFacets.service.js', () => ({ listClinicalFacetsForUsers: mocks.facets }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: mocks.send }));
 vi.mock('../notificationPreferences.service.js', () => ({ isNotificationChannelEnabled: mocks.enabled }));
-import { notifyExchangeMatches } from '../clientExchangeNotifications.service.js';
+import { notifyExchangeMatches, notifyExchangeClaim, notifyExchangeAssignment } from '../clientExchangeNotifications.service.js';
 const listing = { id: 44, agencyId: 2, currentProviderUserId: 9, postedByUserId: 9, demographics: { ageBand: '9' }, preferences: { modality: 'virtual' } };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -43,4 +43,18 @@ it('continues to other matches after one failed email', async () => {
   mocks.facets.mockResolvedValue(new Map([10, 11].map(id => [id, { ageGroups: ['Children (6-10)'] }])));
   mocks.send.mockRejectedValueOnce(new Error('Mail transport unavailable')).mockResolvedValueOnce({ sent: true });
   const result = await notifyExchangeMatches({ listing }); expect(result.failed).toBe(1); expect(result.sent).toBe(1);
+});
+
+it('notifies support and outgoing provider on claims without notifying the requesting provider', async () => {
+  mocks.execute.mockImplementation(async (sql, params) => sql.includes('SELECT DISTINCT u.id')
+    ? [[{ id: 12 }, { id: 10 }]] : [[{ id: params[1], role: 'support', email: `user${params[1]}@example.com` }]]);
+  await notifyExchangeClaim({ listing: { id: 44, agency_id: 2, current_provider_user_id: 9, posted_by_user_id: 9 }, requestingProviderUserId: 10 });
+  expect(mocks.notify.mock.calls.map(([arg]) => arg.userId).sort()).toEqual([12, 9].sort());
+  expect(mocks.send).toHaveBeenCalledTimes(2);
+});
+it('sends assignment confirmation to the requesting provider in both channels', async () => {
+  mocks.execute.mockResolvedValue([[{ id: 10, role: 'provider', work_email: 'provider@example.com' }]]);
+  await notifyExchangeAssignment({ listing: { id: 44, agency_id: 2 }, request: { requesting_provider_user_id: 10 }, actingUserId: 12 });
+  expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ userId: 10, type: 'client_exchange_assigned' }));
+  expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'provider@example.com', templateType: 'client_exchange_assigned' }));
 });

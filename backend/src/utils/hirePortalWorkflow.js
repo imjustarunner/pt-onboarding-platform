@@ -10,12 +10,12 @@ export const PREEMPLOYMENT_FIELDS = [
   ['mailing_address', 'Mailing address', 'textarea'],
   ['cell_number', 'Cell phone number', 'phone'],
   ['previous_addresses', 'Previous addresses', 'textarea'],
-  ['education_information', 'Education, specializations and years conferred', 'textarea']
+  ['education_information', 'Education and specializations', 'textarea']
 ].map(([key, label, type, required = false]) => ({ key, label, type, required }));
 
 export const PREEMPLOYMENT_KEYS = new Set(PREEMPLOYMENT_FIELDS.map((f) => f.key).concat([
   'legal_name', 'birthdate', 'dob', 'prior_name', 'previous_names', 'personal_phone',
-  'professional_headshot', 'headshot', 'resume', 'preferred_email_format'
+  'professional_headshot', 'headshot', 'resume', 'preferred_email_format', 'work_location'
 ]));
 export const jsonObject = (value) => {
   try { const parsed = typeof value === 'string' ? JSON.parse(value) : value; return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}; } catch { return {}; }

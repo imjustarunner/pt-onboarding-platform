@@ -3,8 +3,8 @@ const db = vi.hoisted(() => ({ execute: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: db }));
 vi.mock('../../models/OfficeLocation.model.js', () => ({ default: { findByAgencyMembership: vi.fn(async () => []), findByAgency: vi.fn(async () => []) } }));
 vi.mock('../../models/HiringResumeParse.model.js', () => ({ default: { findLatestStructuredByCandidateUserId: vi.fn(async () => null) } }));
-vi.mock('../../models/PayrollCompensationLevel.model.js', () => ({ default: { getForUser: vi.fn(async () => null), listForAgency: vi.fn(async () => []) } }));
-import { applyContractTokens, loadContractBundle, renderContractHtml, autofillTokensForCandidate } from '../contractMerge.service.js';
+vi.mock('../../models/PayrollCompensationLevel.model.js', () => ({ default: { getForUser: vi.fn(async () => null), listForAgency: vi.fn(async () => []), getLevelRatesForAgency: vi.fn(async () => ({})) } }));
+import { applyContractTokens, buildPayTableHtml, loadContractBundle, renderContractHtml, autofillTokensForCandidate } from '../contractMerge.service.js';
 import { findContractPlaceholders } from '../../utils/contractPlaceholders.js';
 beforeEach(() => vi.clearAllMocks());
 describe('contract merge validation', () => {
@@ -57,5 +57,31 @@ describe('contract merge validation', () => {
       COMPANY_NAME: 'Test Agency', COMPANY_ADDRESS: '123 Sample St, Denver, CO 80000',
       JOB_TITLE: 'Community Group Facilitator', ROLE_LABEL: 'Facilitator', EMPLOYEE_FULL_NAME: 'Test Candidate'
     });
+  });
+});
+
+import PayrollCompensationLevel from '../../models/PayrollCompensationLevel.model.js';
+describe('hiring QA contract regressions', () => {
+  it('uses configured service rates even when the legacy summary is zero', async () => {
+    PayrollCompensationLevel.listForAgency.mockResolvedValue([{ category: 2, level: 1, direct_rate: 0 }]);
+    PayrollCompensationLevel.getLevelRatesForAgency.mockResolvedValue({ '2:1': [{ serviceCode: '90791', rateAmount: 40, rateUnit: 'per_unit' }] });
+    const html = await buildPayTableHtml({ agencyId: 2, category: 2, level: 1, payMode: 'ffs' });
+    expect(html).toContain('90791'); expect(html).toContain('$40.00'); expect(html).not.toContain('$0.00');
+  });
+  it('blocks an agreement with missing compensation instead of silently promising zero', async () => {
+    PayrollCompensationLevel.listForAgency.mockResolvedValue([{ category: 2, level: 1, direct_rate: 0 }]);
+    await expect(buildPayTableHtml({ agencyId: 2, category: 2, level: 1, payMode: 'hourly' })).rejects.toThrow('Configure compensation');
+  });
+  it('retains receiving supervision but omits supervisor compensation when unchecked', async () => {
+    db.execute.mockResolvedValueOnce([[{ is_active: 1, pay_mode: 'none', clause_keys_json: ['SUPERVISION', 'SUP_COMP', 'SIG_BLOCK'] }]])
+      .mockResolvedValueOnce([[
+        { clause_key: 'SUPERVISION', body_html: '<p>Assigned supervisor: {{SUPERVISOR_NAME}} (the “Provider”_).</p>' },
+        { clause_key: 'SUP_COMP', body_html: '<p>Supervisory services $65</p>' },
+        { clause_key: 'SIG_BLOCK', title: 'SIG_BLOCK', body_html: '<p>IN WITNESS WHEREOF the parties agree.</p><p>Signature: __________</p><p>Date: ______</p>' }
+      ]]);
+    const result = await renderContractHtml({ agencyId: 1, configId: 1, tokens: { INCLUDE_SUPERVISION: '1', IS_SUPERVISOR: '0', SUPERVISOR_NAME: 'Test Supervisor' } });
+    expect(result.html).toContain('Assigned supervisor: Test Supervisor');
+    expect(result.html).not.toContain('Provider”_'); expect(result.html).not.toContain('Supervisory services'); expect(result.html).not.toContain('SIG_BLOCK'); expect(result.html).not.toContain('__________');
+    expect(result.html).toContain('IN WITNESS WHEREOF'); expect(result.html).toContain('Electronic signatures');
   });
 });

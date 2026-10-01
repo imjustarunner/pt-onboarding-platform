@@ -15,13 +15,7 @@
         </div>
 
         <nav class="pto-wizard" aria-label="Onboarding setup"><button v-for="(label, index) in wizardSteps" :key="label" :aria-current="wizardStep === index ? 'step' : undefined" @click="wizardStep = index">{{ index + 1 }}. {{ label }}</button></nav>
-        <!-- Work email gate -->
-        <div v-if="!candidate.work_email" class="pto-gate-banner">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          <span>A <strong>work email</strong> is required before promoting to Onboarding. Set it on the candidate's profile first.</span>
-        </div>
-
-        <div :class="{ 'pto-body-disabled': !candidate.work_email }" class="pto-body">
+        <div class="pto-body">
           <!-- Applied role read-only -->
           <div class="pto-field-row" v-if="candidate.applied_role && wizardStep === 0">
             <label class="pto-label">Job Applied For</label>
@@ -66,7 +60,7 @@
             <HireWorkflowEditor v-model="portalWorkflow" phase="onboarding" :templates="documentTemplates" :editor-url="documentEditUrl" heading="Additional onboarding steps" />
           </div>
           <!-- Credential delivery -->
-          <div v-show="wizardStep === 1" class="pto-section">
+          <div v-show="wizardStep === 1" class="pto-section"><OnboardingAccessSetup :user-id="Number(candidate.id)" />
             <label class="pto-section-label">How to deliver access</label>
             <div class="pto-radio-group">
               <label class="pto-radio-card" :class="{ active: sendMethod === 'token' }">
@@ -118,10 +112,10 @@
         <div class="pto-footer">
           <button class="pto-btn pto-btn-secondary" @click="$emit('close')">Cancel</button>
           <button v-if="wizardStep" class="pto-btn pto-btn-secondary" @click="wizardStep--">Back</button>
-          <button v-if="wizardStep < 2" class="pto-btn pto-btn-primary" :disabled="!candidate.work_email || !selectedPackageId || (!packageContents || Number(packageContents.id) !== Number(selectedPackageId))" @click="wizardStep++">Continue →</button>
+          <button v-if="wizardStep < 2" class="pto-btn pto-btn-primary" :disabled="!selectedPackageId || (!packageContents || Number(packageContents.id) !== Number(selectedPackageId))" @click="wizardStep++">Continue →</button>
           <button v-if="wizardStep === 2"
             class="pto-btn pto-btn-primary"
-            :disabled="!candidate.work_email || promoting || !selectedPackageId || (!packageContents || Number(packageContents.id) !== Number(selectedPackageId))"
+            :disabled="promoting || !selectedPackageId || (!packageContents || Number(packageContents.id) !== Number(selectedPackageId))"
             @click="confirm"
           >
             <svg v-if="promoting" class="pto-spinner" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
@@ -136,6 +130,7 @@
 </template>
 
 <script setup>
+import OnboardingAccessSetup from './OnboardingAccessSetup.vue';
 import { ref, computed, onMounted } from 'vue';
 import api from '../../services/api';
 import { useRoute } from 'vue-router';
@@ -224,7 +219,7 @@ onMounted(async () => {
 
 // ── Confirm ───────────────────────────────────────────────────────────────────
 const confirm = async () => {
-  if (!props.candidate.work_email || !selectedPackageId.value || Number(packageContents.value?.id) !== Number(selectedPackageId.value) || wizardStep.value !== 2) return;
+  if (!selectedPackageId.value || Number(packageContents.value?.id) !== Number(selectedPackageId.value) || wizardStep.value !== 2) return;
   promoting.value = true;
   errorMsg.value = '';
   try {

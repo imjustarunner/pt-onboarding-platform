@@ -7,6 +7,7 @@
       <p>{{ errorCode === 'STATUS_ADVANCED' ? 'Sign in to your employee account to access your retained hire packages in your library.' : 'Try opening your link again, or contact People Operations for help.' }}</p>
       <button v-if="errorCode !== 'STATUS_ADVANCED'" class="btn-primary" @click="loadPortal">Try again</button>
     </div>
+    <div v-else-if="portalIdle.locked.value" class="portal-splash" role="dialog" aria-modal="true" aria-label="Portal paused"><h2>Your portal is paused</h2><p>We hid your information after 15 minutes without activity. Saved work is retained; unsaved entries may need to be entered again.</p><button class="btn-primary" @click="resumePortal">Continue securely</button></div>
     <template v-else-if="portalData">
       <p v-if="submissionError && !showSubmitConfirm" class="panel-error" role="alert">{{ submissionError }}</p>
       <HirePortalWorkspace :data="portalData" :token="String(token)" :http="portalApi"
@@ -103,6 +104,7 @@
                 </p>
                 <template v-if="!jdAcknowledged && !closed">
                 <AdaptiveSignatureCapture
+                  ref="jdSignatureCapture"
                   v-model="jdSignature"
                   title="Acknowledge job description"
                   :signer-name="candidateDisplayName"
@@ -242,7 +244,7 @@
                   <h2>Choose your work username</h2>
                   <p>
                     Pick an available address at @{{ accountDomain || 'your organization' }}.
-                    This becomes your app username and Google Group mailbox.
+                    All email correspondence is managed entirely within the portal. Access the Communications tab in the portal to compose, send, and review your messages.
                     You will set your password after completing the required onboarding steps — recovery always uses your personal email.
                   </p>
                 </div>
@@ -254,13 +256,6 @@
                     <option disabled value="">Select an email</option>
                     <option v-for="s in accountSuggestions" :key="s.email" :value="s.email">{{ s.email }}</option>
                   </select>
-                </label>
-                <label>
-                  <span>Or type a local part</span>
-                  <div class="portal-email-row">
-                    <input v-model="accountForm.localPart" type="text" placeholder="firstnameL" @blur="checkTypedEmail" />
-                    <span class="portal-email-domain">@{{ accountDomain }}</span>
-                  </div>
                 </label>
                 <p v-if="emailCheckMessage" :class="emailAvailable ? 'cred-ok' : 'cred-warn'">{{ emailCheckMessage }}</p>
                 <button
@@ -576,6 +571,7 @@ import { useRoute, useRouter } from 'vue-router';
 import DOMPurify from 'dompurify';
 import axios from 'axios';
 import PreHirePortalChat from '../components/prehire/PreHirePortalChat.vue';
+import { usePortalIdle } from '../composables/usePortalIdle.js';
 import AdaptiveSignatureCapture from '../components/adaptive-intake/AdaptiveSignatureCapture.vue';
 import JobDescriptionSections from '../components/careers/JobDescriptionSections.vue';
 import { buildFormUrl } from '../utils/publicIntakeUrl.js';
@@ -641,8 +637,10 @@ function onWorkspaceSection(section, step) {
 const viewingPrehire = computed(() => selectedProcess.value === 'pre_hire' || candidate.value.status !== 'ONBOARDING');
 const processClosed = computed(() => viewingPrehire.value ? ['PREHIRE_REVIEW', 'ONBOARDING'].includes(candidate.value.status) : !!portalData.value?.journey?.onboardingCompletedAt);
 const tasks = computed(() => viewingPrehire.value && candidate.value.status === 'ONBOARDING' ? portalData.value?.prehireTasks || [] : portalData.value?.tasks || []);
-const activityEnabled = computed(() => candidate.value.status === 'ONBOARDING' && !viewingPrehire.value && !processClosed.value && !embeddedTraining.value && ['dashboard', 'tasks', 'handbook', 'submissions', 'messages', 'help'].includes(activeSection.value));
-const activity = useOnboardingActivity({ enabled: activityEnabled, token, http: portalApi, playingVideo: embeddedVideoPlaying });
+const portalIdle = usePortalIdle();
+const resumePortal = async () => { await loadPortal(); if (!errorCode.value) portalIdle.resume(); };
+const activityEnabled = computed(() => !portalIdle.locked.value && candidate.value.status === 'ONBOARDING' && !viewingPrehire.value && !processClosed.value && !embeddedTraining.value && ['dashboard', 'tasks', 'handbook', 'submissions', 'messages', 'help'].includes(activeSection.value));
+const activity = useOnboardingActivity({ enabled: activityEnabled, token, http: portalApi, playingVideo: embeddedVideoPlaying, onCredit: seconds => { if (portalData.value?.journey?.time) portalData.value.journey.time.seconds = Number(portalData.value.journey.time.seconds || 0) + seconds; } });
 const progress = computed(() => portalData.value?.progress || { total: 0, completed: 0, allDone: false });
 const portalPhase = computed(() => portalData.value?.portalPhase || 'pre_hire');
 const hireAccountMode = computed(() => portalData.value?.hireAccountMode || null);
@@ -678,6 +676,7 @@ const bgForm = ref({
   signatureData: ''
 });
 const jdSignature = ref('');
+const jdSignatureCapture = ref(null);
 const jdSaving = ref(false);
 const jdError = ref('');
 const jdAcknowledgedLocal = ref(false);
@@ -911,6 +910,7 @@ const submitBackgroundCheck = async () => {
 
 const acknowledgeJobDescription = async () => {
   jdError.value = '';
+  jdSignatureCapture.value?.capture?.();
   if (!jdSignature.value) {
     jdError.value = 'Please capture your signature.';
     return;
@@ -1542,6 +1542,10 @@ const loadPortal = async () => {
     const res = await portalApi.get(`/prehire-portal/${token.value}`);
     portalData.value = res.data;
     if (!selectedProcess.value) selectedProcess.value = res.data?.candidate?.status === 'ONBOARDING' ? 'onboarding' : 'pre_hire';
+    const profile = res.data?.workflow?.profile || {};
+    for (const [target, source] of Object.entries({ dateOfBirth: 'date_of_birth', currentAddress: 'mailing_address', previousAddresses: 'previous_addresses', otherNames: 'prior_names' })) {
+      if (!bgForm.value[target] && profile[source]) bgForm.value[target] = profile[source];
+    }
     if (!bgForm.value.legalName) {
       bgForm.value.legalName = `${res.data?.candidate?.firstName || ''} ${res.data?.candidate?.lastName || ''}`.trim();
     }

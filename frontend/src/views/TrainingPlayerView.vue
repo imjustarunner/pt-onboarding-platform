@@ -9,7 +9,7 @@
         <div class="splash-card">
           <p class="crumb">{{ courseTitle }}</p>
           <h1>{{ module.title }}</h1>
-          <p class="muted">{{ module.description || (isPrehireMode ? 'Complete this form to continue.' : 'When you start, your progress and time are saved automatically.') }}</p>
+          <p class="muted">{{ (String(module.description || '').startsWith('FORM_SPEC:') ? '' : module.description) || (isPrehireMode ? 'Complete this form to continue.' : 'When you start, your progress and time are saved automatically.') }}</p>
           <div class="splash-actions">
             <button type="button" class="btn btn-primary btn-lg" :disabled="starting" @click="startModule">
               {{ starting ? 'Starting…' : (isPrehireMode ? 'Start Form' : 'Start Lesson') }}

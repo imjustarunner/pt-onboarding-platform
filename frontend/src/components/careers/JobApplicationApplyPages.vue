@@ -146,7 +146,7 @@
 
     <div v-else class="jap-page">
       <section class="jap-card">
-        <h1>Professional references</h1>
+        <h1>Professional references</h1><p>Each reference you provide will receive an email with a link to a digital reference form. Please let them know to expect it.</p>
         <p class="jap-hint">Three people. Name and email are required for each.</p>
         <div v-for="(ref, idx) in references" :key="`ref-${idx}`" class="jap-ref">
           <h3>Reference {{ idx + 1 }}</h3>

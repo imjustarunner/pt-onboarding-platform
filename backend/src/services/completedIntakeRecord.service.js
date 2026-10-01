@@ -240,7 +240,7 @@ function formatDateTime(value) {
   if (!value) return '';
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' });
+  return date.toLocaleString('en-US', { timeZone: 'America/Denver', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
 }
 
 function fieldIndex(link) {
@@ -847,7 +847,7 @@ export function buildCompletedIntakeRecord({
     byKey,
     locale,
     link,
-    skipKeys: new Set(['whoFor', 'this_is_for', 'formLocale', 'acknowledgments', 'termsUrl', 'privacyUrl', ...SKIP_BAG_KEYS]),
+    skipKeys: new Set(['needs_clinical_review', 'needsClinicalReview', 'whoFor', 'this_is_for', 'formLocale', 'acknowledgments', 'termsUrl', 'privacyUrl', ...SKIP_BAG_KEYS]),
     values: interviewValues
   }, leftoverSubmission, printed);
   const coverLetterRaw = String(

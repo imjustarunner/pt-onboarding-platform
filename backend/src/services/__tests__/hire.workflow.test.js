@@ -4,7 +4,7 @@ vi.mock('../../config/database.js', () => ({ default: mocks }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: mocks.findUser } }));
 vi.mock('../hireJourney.service.js', () => ({ journeyTasks: mocks.journeyTasks, getJourney: mocks.getJourney }));
 import { composeWorkflow, sanitizeWorkflow, validatePreemployment, summarizeSteps, onboardingPasswordReady } from '../../utils/hirePortalWorkflow.js';
-import { portalPacket, buildPortalWorkflow, savePortalStep, requiredSubmissionKeys, assertPortalStepCompletion, assertOnboardingPasswordReady } from '../hirePortalWorkflow.service.js';
+import { uniquePortalTasks, portalPacket, buildPortalWorkflow, savePortalStep, requiredSubmissionKeys, assertPortalStepCompletion, assertOnboardingPasswordReady } from '../hirePortalWorkflow.service.js';
 import { encryptGuardianIntake } from '../guardianIntakeEncryption.service.js';
 process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
 const db = { execute: mocks.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
@@ -53,8 +53,11 @@ describe('phase manifest', () => {
     mocks.execute.mockImplementation(async (sql) => sql.includes('config_json FROM') ? [[{ config_json: { workflow: { resources: [] }, handbookUrl: 'https://drive.google.com/file/d/book/view' } }]] : [[]]);
     const manifest = await buildPortalWorkflow({ user: { id: 1, status: 'PREHIRE_OPEN', first_name: 'Taylor', sso_password_override: '0' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: {}, hireAccountMode: 'group_password', journey: {} });
     expect(manifest.steps.pre_hire[0].kind).toBe('background');
-    expect(manifest.steps.pre_hire.map(s => s.kind)).toEqual(expect.arrayContaining(['profile', 'headshot', 'work-email', 'handbook']));
+    expect(manifest.steps.pre_hire.map(s => s.kind)).toEqual(expect.arrayContaining(['profile', 'headshot', 'handbook']));
     expect(manifest.steps.onboarding.map(s => s.kind)).not.toContain('profile');
+    expect(manifest.steps.pre_hire.map(s => s.kind)).not.toContain('work-email');
+    expect(manifest.steps.onboarding.map(s => s.kind)).toContain('work-email');
+    expect(manifest.steps.pre_hire.find(s => s.kind === 'handbook').required).toBe(false);
     expect(manifest.steps.onboarding.at(-2)).toMatchObject({ kind: 'account', complete: false });
     expect(manifest.steps.onboarding.at(-1).kind).toBe('review');
     expect(manifest.progress.pre_hire.allDone).toBe(false);
@@ -132,7 +135,7 @@ describe('final onboarding password step', () => {
 });
 
 it('checks saved onboarding tasks and acknowledgements before password preparation', async () => {
-  mocks.findUser.mockResolvedValue({ id: 1, status: 'ONBOARDING', role: 'staff' });
+  mocks.findUser.mockResolvedValue({ id: 1, status: 'ONBOARDING', role: 'staff', work_email: 'taylor@example.org' });
   mocks.getJourney.mockResolvedValue({ prehireCompletedAt: '2026-09-01' });
   mocks.journeyTasks.mockResolvedValue([{ id: 9, phase: 'onboarding', isRequired: true, status: 'pending' }]);
   mocks.execute.mockImplementation(async sql => sql.includes('FROM hire_portal_submissions')
@@ -142,4 +145,14 @@ it('checks saved onboarding tasks and acknowledgements before password preparati
   await expect(assertOnboardingPasswordReady(1, 2)).resolves.toBeUndefined();
   mocks.execute.mockResolvedValue([[]]);
   await expect(assertOnboardingPasswordReady(1, 2)).rejects.toMatchObject({ code: 'ONBOARDING_INCOMPLETE' });
+});
+
+it('consolidates duplicate documents and retains the signed copy while removing redundant background templates', () => {
+  const tasks = [
+    { id: 1, referenceId: 10, taskType: 'document', title: 'Agreement', status: 'pending', isRequired: true },
+    { id: 2, referenceId: 10, taskType: 'document', title: 'Agreement', status: 'completed', isRequired: false },
+    { id: 3, referenceId: 20, taskType: 'document', title: 'Hiring: Authorization for Background Check' }
+  ];
+  expect(uniquePortalTasks(tasks)).toEqual([{ ...tasks[1], isRequired: true }]);
+  expect(tasks[1].isRequired).toBe(false);
 });

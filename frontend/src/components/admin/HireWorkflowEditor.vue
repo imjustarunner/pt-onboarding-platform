@@ -35,7 +35,9 @@ const catalog = [
   { id: 'family-practice', title: 'Family practice information sheet', kind: 'acknowledgement' },
   { id: 'supervisor-meeting', title: 'Meet with your supervisor', kind: 'meeting' },
   { id: 'people-ops-meeting', title: 'Meet with People Operations', kind: 'meeting' },
-  { id: 'training-link', title: 'Training resources', kind: 'link' }
+  { id: 'training-link', title: 'Training resources', kind: 'link' },
+  { id: 'employee-folder', title: 'All Employee folder', kind: 'link', required: false },
+  { id: 'provider-guide', title: 'Provider’s Guide', kind: 'link', required: false }
 ].map(r => ({ phase: 'onboarding', required: true, url: '', ...r }));
 const availableCatalog = computed(() => catalog.filter(r => !props.phase || r.phase === props.phase));
 function templateEditorUrl(id) {

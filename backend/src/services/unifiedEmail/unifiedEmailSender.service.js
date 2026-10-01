@@ -245,7 +245,7 @@ async function finalizeOutboundContent({
   const tt = String(templateType || '').toLowerCase();
   // Wizard digests are manually sent on behalf of the department, not the operator.
   const appendUser =
-    generatedByUserId && tt !== 'compliance_digest' && !['billing', 'collections'].includes(identity?.identity_key) &&
+    generatedByUserId && !['compliance_digest', 'pre_hire_admin_review_access', 'prehire_portal_access'].includes(tt) && !['billing', 'collections'].includes(identity?.identity_key) &&
     (src === 'manual' || tt === 'hub_email');
   if (appendUser) {
     signed = await applyUserEmailSignatureBlock({

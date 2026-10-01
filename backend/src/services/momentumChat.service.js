@@ -47,7 +47,7 @@ function flattenUndoneStickyEntries(stickies) {
 export async function gatherMomentumContext(userId, { agencyId = null, programId = null } = {}) {
   const [checklist, tasks, stickies] = await Promise.all([
     UserChecklistAssignment.getUnifiedChecklist(userId, { agencyId, programId }).catch(() => ({})),
-    Task.findByUser(userId).catch(() => []),
+    Task.findByUser(userId, { view: 'assigned', agencyId }).catch(() => []),
     MomentumSticky.listByUserId(userId).catch(() => [])
   ]);
 
@@ -62,7 +62,9 @@ export async function gatherMomentumContext(userId, { agencyId = null, programId
 
   const checklistItems = flattenChecklistItems(checklist);
   const openTasks = (tasks || []).filter(
-    (t) => t.status !== 'completed' && t.status !== 'overridden'
+    (t) => Number(t.assigned_to_user_id) === Number(userId)
+      && (!agencyId || !t.assigned_to_agency_id || Number(t.assigned_to_agency_id) === Number(agencyId))
+      && t.status !== 'completed' && t.status !== 'overridden'
   );
   const openTickets = (ticketRows || []).filter(
     (t) => String(t?.status || '').toLowerCase() === 'open'
@@ -387,64 +389,20 @@ export async function generateDigest(userId, contextOptions = {}) {
 
   const payrollNotesCount = contextOptions.payrollNotesCount ?? 0;
   const notesToSignCount = contextOptions.notesToSignCount ?? 0;
-  const delinquencyScore = contextOptions.delinquencyScore ?? 0;
-  const escalateNotes = delinquencyScore >= 2 && payrollNotesCount > 0;
-  const payrollHint =
-    payrollNotesCount > 0
-      ? escalateNotes
-        ? `ESCALATION: User has delinquency score >= 2. Clinical notes MUST be #1. Add prompt: "Did you do your notes today?"`
-        : `COMPLIANCE: User has ${payrollNotesCount} unpaid clinical notes - these MUST be in the top 3.`
-      : '';
-  const notesToSignHint =
-    notesToSignCount > 0
-      ? `SUPERVISOR: User has ${notesToSignCount} supervisee notes awaiting their sign-off - include "Sign supervisee notes (N pending)" in top 3.`
-      : '';
-
-  const systemPrompt = `You are an ADHD-friendly focus assistant generating a daily digest.
-
-Given the user's context below, produce a prioritized list for ${focusLabel}.
-
-PRIORITY ORDER (strict): 1) Compliance & safety (clinical notes, payroll) 2) Notes to sign (supervisor) 3) Overdue tasks 4) Client-blocking 5) High priority 6) Assigned tickets 7) Checklist items 8) Undone sticky notes.
-
-${payrollHint}
-${notesToSignHint}
-
-Output format - ONLY these lines, nothing else:
-TOP: <item 1>
-TOP: <item 2>
-TOP: <item 3>
-RADAR: <item 4>
-RADAR: <item 5>
-(up to 3 TOP, up to 5 RADAR; use short actionable phrases)`;
-
-  const contextBlock = `
-CHECKLIST (incomplete): ${context.checklistItems.join('; ') || 'None'}
-TASKS (open): ${context.tasks.map((t) => t.title).join('; ') || 'None'}
-TICKETS (open): ${context.tickets.map((t) => t.subject).join('; ') || 'None'}
-UNDONE NOTES (stickies): ${context.undoneStickies.join('; ') || 'None'}
-`;
-
-  const prompt = `${systemPrompt}
-
-USER CONTEXT:
-${contextBlock}
-
-Generate the digest.`;
-
+  const candidates = [...new Set([
+    ...(payrollNotesCount > 0 ? [`Complete clinical notes (${payrollNotesCount} pending)`] : []),
+    ...(notesToSignCount > 0 ? [`Sign supervisee notes (${notesToSignCount} pending)`] : []),
+    ...context.tasks.map(t => t.title), ...context.tickets.map(t => t.subject),
+    ...context.checklistItems, ...context.undoneStickies
+  ].filter(Boolean))];
+  if (!candidates.length) return { topFocus: [], alsoOnRadar: [] };
   const { text } = await callGeminiText({
-    prompt,
-    temperature: 0.2,
-    maxOutputTokens: 300
-  });
-
-  const top = [];
-  const radar = [];
-  for (const line of String(text || '').split(/\n/)) {
-    const t = line.trim();
-    const topM = t.match(/^TOP:\s*(.+)$/i);
-    const radM = t.match(/^RADAR:\s*(.+)$/i);
-    if (topM) top.push({ label: topM[1].trim(), source: 'gemini' });
-    if (radM) radar.push({ label: radM[1].trim(), source: 'gemini' });
-  }
-  return { topFocus: top.slice(0, 3), alsoOnRadar: radar.slice(0, 5) };
+    prompt: `Prioritize these existing tasks for ${focusLabel}. Return only a comma-separated list of up to eight item numbers. Never create tasks. Compliance and safety come first.\n${candidates.map((label, i) => `${i + 1}: ${label}`).join('\n')}`,
+    temperature: 0, maxOutputTokens: 100
+  }).catch(() => ({ text: '' }));
+  const indices = [...new Set(String(text || '').split(/[,\s]+/).filter(value => /^\d+$/.test(value)).map(Number))]
+    .filter(index => index > 0 && index <= candidates.length);
+  const ranked = (indices.length ? indices : candidates.map((_, i) => i + 1)).slice(0, 8)
+    .map(index => ({ label: candidates[index - 1], source: 'gemini' }));
+  return { topFocus: ranked.slice(0, 3), alsoOnRadar: ranked.slice(3, 8) };
 }

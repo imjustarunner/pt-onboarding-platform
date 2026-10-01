@@ -78,7 +78,7 @@
           </label>
         </div>
         <p v-if="inferredPayLabel" class="muted small">Inferred: {{ inferredPayLabel }}</p>
-        <h3>Contract details</h3>
+        <h3>Contract details</h3><label>Assigned office<select v-model="contractOverrides.ASSIGNED_OFFICE_ID" @change="chooseContractOffice"><option value="">Select an office</option><option v-for="office in availableOffices" :key="office.id" :value="String(office.id)">{{ office.name }} — {{ office.address }}</option></select></label>
         <p class="muted">Employer name and address come from the agency profile. Job title and role label come from the job posting. Review these values and complete anything missing before previewing.</p>
         <div class="sph-grid"><label v-for="field in contractFields" :key="field.key">{{ field.label }}<input v-model="contractOverrides[field.key]" /></label></div>
         <p class="muted">Confirm these values against the candidate and your agency records.</p>
@@ -229,6 +229,9 @@ const wizardTokens = ref({});
 const contractConfigId = ref(null);
 const libraryContractTemplateId = ref(null);
 const contractConfigs = ref([]);
+const contractOffices = ref([]);
+const availableOffices = computed(() => { const city = String(detail.value?.jobDescription?.city || '').trim().toLowerCase(); return city ? contractOffices.value.filter(office => String(office.city || '').trim().toLowerCase() === city) : contractOffices.value; });
+function chooseContractOffice() { const office = contractOffices.value.find(office => String(office.id) === String(contractOverrides.ASSIGNED_OFFICE_ID)); contractOverrides.ASSIGNED_OFFICE_NAME = office?.name || ''; contractOverrides.ASSIGNED_OFFICE_ADDRESS = office?.address || ''; }
 const contractTaskId = ref(null);
 const portalWorkflow = ref({});
 const packetTemplateId = ref('');
@@ -362,6 +365,9 @@ const load = async () => {
     const roles = Array.isArray(rolesRes.data) ? rolesRes.data : [];
     signerAssignments.value = mapSignerRolesWithDefaults(roles, staffUsers.value);
     wizardTokens.value = wizardRes.data?.tokens || {};
+    contractOffices.value = wizardRes.data?.offices || [];
+    contractOverrides.ASSIGNED_OFFICE_ID = wizardTokens.value.ASSIGNED_OFFICE_ID || '';
+    if (!contractOverrides.ASSIGNED_OFFICE_ID && availableOffices.value.length === 1) { contractOverrides.ASSIGNED_OFFICE_ID = String(availableOffices.value[0].id); chooseContractOffice(); }
     for (const field of contractFields) contractOverrides[field.key] = wizardTokens.value[field.key] || '';
     contractOverrides.JOB_TITLE = wizardTokens.value.JOB_TITLE || jobTitle.value;
     currentPortalLink.value = (await api.get(`/hiring/candidates/${userId.value}/prehire-link`, { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} }))).data?.portalLink || '';
@@ -496,7 +502,7 @@ const resendInvitation = async () => {
 
 const setupSteps = ['Person & job', 'Pre-hire steps', 'Contract & cosigners', 'Review & invite'];
 const setupStep = ref(0), currentPortalLink = ref('');
-const builtInSteps = ['Background check authorization', 'Job description · review and sign', 'Employment agreement · review and sign', 'Choose work email', 'Pre-employment information', 'Professional headshot', 'Workplace handbook · review', 'Final review and submission'];
+const builtInSteps = ['Background check authorization', 'Job description · review and sign', 'Employment agreement · review and sign', 'Pre-employment information', 'Professional headshot', 'Workplace handbook · review', 'Final review and submission'];
 const contractFields = [{ key: 'COMPANY_NAME', label: 'Employer name' }, { key: 'COMPANY_ADDRESS', label: 'Employer address' }, { key: 'JOB_TITLE', label: 'Job title' }, { key: 'ROLE_LABEL', label: 'Role label' }, { key: 'SERVICE_FOCUS', label: 'Service focus' }, { key: 'LICENSE_TYPE', label: 'License / credential' }, { key: 'ASSIGNED_OFFICE_NAME', label: 'Assigned office' }, { key: 'ASSIGNED_OFFICE_ADDRESS', label: 'Office address' }];
 const contractOverrides = reactive({}), contractPreview = ref(null), contractReviewed = ref(false), previewBusy = ref(false), previewError = ref('');
 const contractsPath = computed(() => orgPath(`/admin/contracts?agencyId=${agencyId.value}&candidateUserId=${userId.value}`));
@@ -525,6 +531,7 @@ const missingResources = computed(() => (portalWorkflow.value.resources || []).f
 const readyToSend = computed(() => !missingResources.value.length && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && portalWorkflow.value.handbookUrl && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
 const chosenSignerNames = computed(() => [...signerAssignments.value.map(s => s.userId), adhocSignerUserId.value].filter(Boolean).map(id => { const u = staffUsers.value.find(u => String(u.id) === String(id)); return u ? `${u.first_name} ${u.last_name}` : ''; }).join(', '));
 async function previewContract() {
+  if (availableOffices.value.length > 1 && !contractOverrides.ASSIGNED_OFFICE_ID) { previewError.value = 'Choose the assigned office for this job before preparing the agreement.'; return; }
   previewBusy.value = true; previewError.value = ''; contractReviewed.value = false;
   const input = JSON.stringify(previewInput.value);
   try { const { data } = await api.post(`/contracts/candidates/${userId.value}/preview`, JSON.parse(input), { params: { agencyId: agencyId.value } }); if (input === JSON.stringify(previewInput.value)) { contractPreview.value = data; lastPreviewInput.value = input; } }

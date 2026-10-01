@@ -8,6 +8,7 @@ import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
  * no full login required. `req.portalUser` is the validated candidate.
  */
 import pool from '../config/database.js';
+import { isItscoPacketChromeAgency } from '../services/packetBrandChrome.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { savePrehireSignedReceipt } from '../services/prehireSignedReceipt.service.js';
 import { journeyTasks, getJourney, taskProgress, closePrehire, completeOnboarding, recordOnboardingActivity } from '../services/hireJourney.service.js';
@@ -38,9 +39,9 @@ function resolveLogoUrl(req, raw) {
   if (!raw) return null;
   if (raw.logo_url && String(raw.logo_url).startsWith('http')) return raw.logo_url;
   const baseUrl = resolveBaseUrl(req);
-  const cleaned = normalizeUploadsPath(raw.logo_path);
+  const cleaned = normalizeUploadsPath(raw.logo_path || raw.packet_logo_path);
   if (cleaned) return `${baseUrl}/uploads/${cleaned}`;
-  return raw.logo_url || null;
+  return raw.logo_url || (isItscoPacketChromeAgency(raw) ? '/assets/itsco/logo.png' : null);
 }
 
 function resolveProfilePhotoUrl(req, photoPath) {
@@ -65,7 +66,7 @@ function buildAgencyBranding(req, raw) {
       return {};
     }
   })();
-  const primaryColor = palette.primary || theme.primaryColor || theme.primary_color || '#1d4ed8';
+  const primaryColor = theme.hirePrimaryColor || (isItscoPacketChromeAgency(raw) ? '#086553' : palette.primary || theme.primaryColor || theme.primary_color || '#1d4ed8');
   const secondaryColor = palette.secondary || theme.secondaryColor || theme.secondary_color || primaryColor;
   const accentColor = palette.accent || theme.accentColor || theme.accent_color || secondaryColor || primaryColor;
   return {
@@ -84,7 +85,7 @@ function buildAgencyBranding(req, raw) {
     secondaryColor,
     accentColor,
     sidebarColor: theme.sidebarColor || theme.sidebar_color || palette.sidebar || null,
-    fontFamily: theme.fontFamily || palette.fontFamily || null,
+    fontFamily: theme.fontFamily || palette.fontFamily || (isItscoPacketChromeAgency(raw) ? 'Comfortaa, Arial, sans-serif' : null),
     palette,
     theme
   };
@@ -667,7 +668,7 @@ export const portalComplete = async (req, res, next) => {
       if (state.hireAccountMode === 'group_password' && !state.candidate.passwordFinalized) {
         return res.status(400).json({ error: { message: 'Set your password before submitting onboarding.' } });
       }
-      const journey = await completeOnboarding(req.portalUser.id, requiredSubmissionKeys(state.workflow.steps.onboarding));
+      const journey = await completeOnboarding(req.portalUser.id, requiredSubmissionKeys(state.workflow.steps.onboarding, !!state.candidate.workEmail));
       return res.json({ ok: true, journey, advancedTo: 'ONBOARDING', message: 'Onboarding submitted. People Operations will review and activate your account. Recorded time was submitted to payroll.' });
     }
     if (state.candidate.status === 'PREHIRE_REVIEW') return res.json({ ok: true, advancedTo: 'PREHIRE_REVIEW' });
@@ -1139,9 +1140,7 @@ export const getPortalAccountSuggestions = async (req, res, next) => {
       isGroupPasswordHireMode,
       suggestHireWorkEmails
     } = await import('../services/hireGroupAccount.service.js');
-    if (!isGroupPasswordHireMode(agency)) {
-      return res.json({ enabled: false, suggestions: [] });
-    }
+    if (user.status !== 'ONBOARDING') return res.json({ enabled: false, suggestions: [] });
     const result = await suggestHireWorkEmails({ user, agency });
     res.json({ enabled: true, ...result });
   } catch (e) { next(e); }
@@ -1164,12 +1163,17 @@ export const checkPortalAccountEmail = async (req, res, next) => {
 
 export const provisionPortalAccount = async (req, res, next) => {
   try {
+    if (req.portalUser.status !== 'ONBOARDING') return res.status(403).json({ error: { message: 'Work account setup opens during onboarding.' } });
     const workEmail = req.body?.workEmail || req.body?.email;
     const user = await User.findById(req.portalUser.id);
     if (!user) return res.status(404).json({ error: { message: 'User not found.' } });
     const agency = await loadPortalAgency(user.id);
     if (!agency) return res.status(400).json({ error: { message: 'No organization found.' } });
-    const { provisionHireGroupUsername } = await import('../services/hireGroupAccount.service.js');
+    const { provisionHireGroupUsername, suggestHireWorkEmails } = await import('../services/hireGroupAccount.service.js');
+    if (!user.work_email) {
+      const choices = await suggestHireWorkEmails({ user, agency });
+      if (!choices.suggestions.some(choice => choice.email === String(workEmail || '').trim().toLowerCase())) return res.status(400).json({ error: { message: 'Choose one of the available suggested addresses.' } });
+    }
     const result = await provisionHireGroupUsername({
       user,
       agency,
@@ -1552,7 +1556,7 @@ export const viewPortalSubmissionFile = async (req, res, next) => {
       [docId, userId]
     );
     const doc = rows[0];
-    if (!doc?.storage_path || !isCandidateSubmissionAdminDoc(doc, userId)) {
+    if (!doc?.storage_path || (!isCandidateSubmissionAdminDoc(doc, userId) && doc.doc_type !== 'prehire_upload')) {
       return res.status(404).json({ error: { message: 'Document file not found.' } });
     }
     const { resolveOwnedAdminDocStoragePath } = await import('../utils/candidateApplicationFile.js');

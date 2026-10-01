@@ -306,7 +306,7 @@
       <h3>Create job posting</h3>
       <div class="form-grid">
         <input v-model="createForm.title" class="input" type="text" placeholder="Job title" />
-        <input v-model="createForm.roleType" class="input" type="text" placeholder="Role type label, e.g. Provider, Facilitator, Intern" />
+        <label>Contract role label<input v-model="createForm.roleType" class="input" type="text" placeholder="Provider, Facilitator or Intern" /><small>This label identifies the employee’s role throughout their agreement.</small></label>
         <div class="job-icon-field">
           <label class="field-label">Job card icon <span class="field-hint">— pick from the careers icon library (page 2) or upload your own</span></label>
           <div class="job-icon-picker">
@@ -548,7 +548,7 @@
         <div class="modal-body">
           <div class="form-grid">
             <input v-model="editForm.title" class="input" type="text" placeholder="Job title" />
-            <input v-model="editForm.roleType" class="input" type="text" placeholder="Role type label, e.g. Provider, Facilitator, Intern" />
+            <label>Contract role label<input v-model="editForm.roleType" class="input" type="text" placeholder="Provider, Facilitator or Intern" /><small>This label identifies the employee’s role throughout their agreement.</small></label>
             <div class="job-icon-field">
               <label class="field-label">Job card icon <span class="field-hint">— pick from the careers icon library (page 2) or upload your own</span></label>
               <div class="job-icon-picker">

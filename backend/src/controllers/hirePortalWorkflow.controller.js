@@ -24,10 +24,15 @@ export async function saveWorkflowStep(req, res, next) {
     } else if (ctx.phase === 'onboarding' && ctx.step?.kind === 'clinical-profile') {
       if (req.body?.complete !== false && req.body?.reviewed !== true) fail('Confirm that you have reviewed all four sections.');
       value = { values: validateClinicalProfile(req.body?.values, ctx.step.fields), reviewed: req.body?.reviewed === true };
-    } else if (ctx.phase === 'pre_hire' && ctx.key === 'work-email') {
+    } else if (ctx.phase === 'onboarding' && ctx.key === 'work-email') {
       const email = String(req.body?.email || '').trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Enter your preferred work email.');
       if (ctx.state.hireAccountMode === 'group_password') fail('Select an available username using account setup.');
+      const { default: Agency } = await import('../models/Agency.model.js');
+      const { default: User } = await import('../models/User.model.js');
+      const { suggestHireWorkEmails } = await import('../services/hireGroupAccount.service.js');
+      const choices = await suggestHireWorkEmails({ user: await User.findById(ctx.userId), agency: await Agency.findById(ctx.agencyId) });
+      if (!choices.suggestions.some(choice => choice.email === email)) fail('Choose one of the available suggested work addresses.');
       value = { email, preferenceOnly: true };
     } else {
       if (!ctx.step || !['handbook', 'link', 'video', 'meeting', 'acknowledgement'].includes(ctx.step.kind)) fail('This item is completed by its form, upload or signature.', 403);
@@ -70,13 +75,14 @@ export async function uploadWorkflowFile(req, res, next) {
     if (!req.file || req.file.size > 10 * 1024 * 1024) fail('Choose one file up to 10 MB.');
     const mime = req.file.mimetype;
     const types = ctx.key === 'headshot' ? ['image/jpeg', 'image/png', 'image/webp'] : ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-    if (!types.includes(mime)) fail('Choose a supported image, PDF or Word file.');
+    if (!types.includes(mime)) fail(ctx.key === 'headshot' ? 'Choose a JPEG, PNG or WebP image for your headshot. Documents cannot be used as a photo.' : 'Choose a supported image, PDF or Word file.');
     // Decode headshots to exclude active content and invalid image uploads.
     let bytes = req.file.buffer;
     let ext = mime === 'application/pdf' ? 'pdf' : mime === 'image/jpeg' ? 'jpg' : mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : mime === 'application/msword' ? 'doc' : 'docx';
     if (ctx.key === 'headshot') {
       const sharp = (await import('sharp')).default;
-      bytes = await sharp(bytes, { limitInputPixels: 40000000 }).rotate().resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
+      try { bytes = await sharp(bytes, { limitInputPixels: 40000000 }).rotate().resize(1600, 1600, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer(); }
+      catch { fail('This image could not be opened. Choose a valid JPEG, PNG or WebP photo up to 10 MB.'); }
       ext = 'jpg';
     }
     const name = `hire-${ctx.key}-${randomUUID()}.${ext}`;

@@ -335,9 +335,16 @@ export async function previewCandidateContract({
     agencyId,
     candidateUserId,
     credentialOverride,
-    officeLocationId
+    officeLocationId: officeLocationId || tokens.ASSIGNED_OFFICE_ID || null
   });
   const merged = { ...autofill, ...tokens };
+  if (autofill.ASSIGNED_OFFICE_ID) {
+    merged.ASSIGNED_OFFICE_ID = autofill.ASSIGNED_OFFICE_ID;
+    merged.ASSIGNED_OFFICE_NAME = autofill.ASSIGNED_OFFICE_NAME;
+    merged.ASSIGNED_OFFICE_ADDRESS = autofill.ASSIGNED_OFFICE_ADDRESS;
+  }
+  if (compensationCategory != null) merged.COMPENSATION_CATEGORY = String(compensationCategory);
+  if (compensationLevel != null) merged.COMPENSATION_LEVEL = String(compensationLevel);
   const rendered = await renderContractHtml({
     agencyId,
     configId,
@@ -406,6 +413,13 @@ export async function generateAndAssignCandidateContract({
     }
     if (!isAmendment && !['PROSPECTIVE', 'PENDING_SETUP', 'PREHIRE_OPEN'].includes(user?.status)) {
       throw Object.assign(new Error('Reopen pre-hire before changing the employment agreement.'), { status: 409 });
+    }
+    const officeId = Number(preview.tokens.ASSIGNED_OFFICE_ID);
+    if (officeId) {
+      await db.execute('UPDATE user_office_locations SET is_primary = FALSE WHERE user_id = ?', [candidateUserId]);
+      await db.execute(`INSERT INTO user_office_locations (user_id, office_location_id, is_primary, is_active, linked_by_user_id)
+        VALUES (?, ?, TRUE, TRUE, ?) ON DUPLICATE KEY UPDATE is_primary = TRUE, is_active = TRUE, linked_by_user_id = VALUES(linked_by_user_id)`, [candidateUserId, officeId, createdByUserId || null]);
+      await db.execute('UPDATE users SET work_location = ? WHERE id = ?', [preview.tokens.ASSIGNED_OFFICE_NAME, candidateUserId]);
     }
     const name = title || `Employment Agreement — ${preview.tokens.EMPLOYEE_FULL_NAME || 'Candidate'}`;
     const [document] = await db.execute(

@@ -49,19 +49,26 @@ export function prehireInviteDelivery(result, recipientEmail) {
   };
 }
 
+export function formatOfferDate(value) {
+  const raw = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const date = new Date(`${raw}T12:00:00Z`);
+  return Number.isFinite(date.getTime()) ? date.toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric' }) : raw;
+}
+
 function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink, inviteDetails }) {
   const details = inviteDetails || {};
   const extraLines = [];
-  if (details.startDate) extraLines.push(`Start date: ${details.startDate}`);
-  if (details.expirationDate) extraLines.push(`Offer / contract expiration: ${details.expirationDate}`);
+  if (details.startDate) extraLines.push(`Start date: ${formatOfferDate(details.startDate)}`);
+  if (details.expirationDate) extraLines.push(`Offer / contract expiration: ${formatOfferDate(details.expirationDate)}`);
   if (details.minDays) extraLines.push(`Days per week: ${details.minDays}`);
   if (details.minHours) extraLines.push(`Minimum hours per week: ${details.minHours}`);
   const steps = Array.isArray(details.steps) ? details.steps.filter(Boolean) : [];
-  const subject = `You are hired! Complete your pre-hire forms — ${agencyName}`;
+  const subject = `Your job offer — Complete your pre-hire forms — ${agencyName}`;
   const text = [
     `Hi ${firstName},`,
     '',
-    `You are hired! We're thrilled to welcome you to the ${agencyName} team${jobTitle ? ` as ${jobTitle}` : ''}.`,
+    `We are excited to extend a job offer${jobTitle ? ` for the ${jobTitle} position` : ''} with ${agencyName}.`,
     '',
     extraLines.length ? extraLines.join('\n') : '',
     extraLines.length ? '' : '',
@@ -87,7 +94,7 @@ function buildDefaultInviteContent({ firstName, agencyName, jobTitle, portalLink
 
   const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#111;max-width:600px;">
     <p>Hi ${escHtml(firstName)},</p>
-    <p><strong>You are hired!</strong> We're thrilled to welcome you to the <strong>${escHtml(agencyName)}</strong> team${jobTitle ? ` as <strong>${escHtml(jobTitle)}</strong>` : ''}.</p>
+    <p>We are excited to extend a job offer${jobTitle ? ` for the <strong>${escHtml(jobTitle)}</strong> position` : ''} with <strong>${escHtml(agencyName)}</strong>.</p>
     ${extraHtml}
     <p>Please fill out your pre-hire forms using the private portal below. <strong>Save this link — it is your private link. Do not share it.</strong></p>
     <p>Once you complete the pre-hire process, you will continue onboarding at this same link. If we add additional documents later that are not yet available, we will email you again.</p>
@@ -179,7 +186,7 @@ export async function sendPrehirePortalInviteEmail({
   if (customSubjectTrim || customBodyTrim) {
     subject = customSubjectTrim
       || settings.invite_email_subject
-      || `You are hired! Complete your pre-hire forms — ${agencyName}`;
+      || `Your job offer — Complete your pre-hire forms — ${agencyName}`;
     const bodySource = customBodyTrim || settings.invite_email_body || '';
     text = applyCustomTokens(bodySource, { firstName, portalLink });
     html = textToHtml(text);
@@ -192,8 +199,8 @@ export async function sendPrehirePortalInviteEmail({
     html = fallback.html;
   } else if (inviteDetails) {
     const extraLines = [
-      inviteDetails.startDate ? `Start date: ${inviteDetails.startDate}` : '',
-      inviteDetails.expirationDate ? `Offer / contract expiration: ${inviteDetails.expirationDate}` : '',
+      inviteDetails.startDate ? `Start date: ${formatOfferDate(inviteDetails.startDate)}` : '',
+      inviteDetails.expirationDate ? `Offer / contract expiration: ${formatOfferDate(inviteDetails.expirationDate)}` : '',
       inviteDetails.minDays ? `Days per week: ${inviteDetails.minDays}` : '',
       inviteDetails.minHours ? `Minimum hours per week: ${inviteDetails.minHours}` : ''
     ].filter(Boolean);

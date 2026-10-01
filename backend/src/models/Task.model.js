@@ -467,7 +467,7 @@ class Task {
           WHERE u.id = ? AND u.role = t.assigned_to_role
           AND (t.assigned_to_agency_id IS NULL OR ua.agency_id = t.assigned_to_agency_id)
         ))
-        OR (t.assigned_to_agency_id IS NOT NULL AND t.assigned_to_user_id IS NULL AND EXISTS (
+        OR (t.assigned_to_agency_id IS NOT NULL AND t.assigned_to_user_id IS NULL AND t.assigned_to_role IS NULL AND EXISTS (
           SELECT 1 FROM user_agencies ua 
           WHERE ua.user_id = ? AND ua.agency_id = t.assigned_to_agency_id
         ))
@@ -535,7 +535,7 @@ class Task {
             WHERE u.id = ? AND u.role = t.assigned_to_role
             AND (t.assigned_to_agency_id IS NULL OR ua.agency_id = t.assigned_to_agency_id)
           ))
-          OR (t.assigned_to_agency_id IS NOT NULL AND t.assigned_to_user_id IS NULL AND EXISTS (
+          OR (t.assigned_to_agency_id IS NOT NULL AND t.assigned_to_user_id IS NULL AND t.assigned_to_role IS NULL AND EXISTS (
             SELECT 1 FROM user_agencies ua 
             WHERE ua.user_id = ? AND ua.agency_id = t.assigned_to_agency_id
           ))

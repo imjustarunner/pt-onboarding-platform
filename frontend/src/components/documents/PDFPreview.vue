@@ -187,9 +187,9 @@ const loadPdf = async () => {
     pdfDoc = await task.promise;
     totalPages.value = pdfDoc.numPages;
     loading.value = false;
-    emit('loaded', { totalPages: totalPages.value });
     await nextTick();
     await renderPage(1);
+    if (!error.value) emit('loaded', { totalPages: totalPages.value });
   } catch (e) {
     console.error('PDF load error:', e);
     error.value = e?.message || 'Failed to load PDF';

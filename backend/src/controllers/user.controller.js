@@ -10740,7 +10740,7 @@ export const promoteToOnboarding = async (req, res, next) => {
     if (!selectedAgencyId) return res.status(400).json({ error: { message: 'Select the employee’s agency before starting onboarding.' } });
     const [[agencyRow]] = await pool.execute(
       'SELECT a.* FROM agencies a JOIN user_agencies ua ON ua.agency_id = a.id WHERE ua.user_id = ? AND a.id = ? LIMIT 1', [id, selectedAgencyId]);
-    if (!agencyRow || !user.work_email) return res.status(400).json({ error: { message: 'Organization and work email are required.' } });
+    if (!agencyRow) return res.status(400).json({ error: { message: 'Organization is required.' } });
     if (req.user.role !== 'super_admin') {
       const agencies = await User.getAgencies(req.user.id);
       if (!agencies.some((a) => Number(a.id) === Number(agencyRow.id))) return res.status(403).json({ error: { message: 'Organization access required.' } });

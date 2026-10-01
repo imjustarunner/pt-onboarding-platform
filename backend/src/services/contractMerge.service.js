@@ -225,31 +225,24 @@ export function inferCompensationFromCredential({
   };
 }
 
-async function buildPayTableHtml({ agencyId, category, level, payMode }) {
+export async function buildPayTableHtml({ agencyId, category, level, payMode }) {
   if (payMode === 'none') return '';
-  const levels = await PayrollCompensationLevel.listForAgency(agencyId);
-  const row = levels.find(
-    (r) => Number(r.category) === Number(category) && Number(r.level) === Number(level)
-  );
-  if (!row) {
-    return '<p><em>Pay table: compensation level not configured.</em></p>';
+  const rows = await PayrollCompensationLevel.listForAgency(agencyId);
+  const row = rows.find(r => Number(r.category) === Number(category) && Number(r.level) === Number(level));
+  const codeRates = (await PayrollCompensationLevel.getLevelRatesForAgency(agencyId))[`${category}:${level}`] || [];
+  const money = value => `$${Number(value).toFixed(2)}`;
+  const validRate = value => value != null && value !== '' && Number.isFinite(Number(value)) && Number(value) > 0;
+  let cells;
+  if (payMode === 'ffs' && codeRates.length) {
+    if (codeRates.some(rate => !validRate(rate.rateAmount))) throw Object.assign(new Error('Configure a positive rate for every selected compensation service before preparing the agreement.'), { status: 400 });
+    cells = codeRates.map(rate => [escapeHtml(rate.serviceCode), money(rate.rateAmount), rate.rateUnit === 'per_hour' ? 'per hour' : 'per unit']);
+  } else {
+    const rate = payMode === 'ffs' ? row?.ffs_rate : row?.direct_rate;
+    if (!validRate(rate)) throw Object.assign(new Error(`Compensation Category ${category}, Level ${level} has no configured ${payMode === 'ffs' ? 'fee-for-service' : 'direct'} rate. Configure compensation before preparing the agreement.`), { status: 400 });
+    cells = [[payMode === 'ffs' ? 'Fee-for-service' : 'Direct services', money(rate), payMode === 'ffs' ? 'per unit' : 'per hour']];
+    if (validRate(row?.indirect_rate)) cells.push(['Indirect services', money(row.indirect_rate), 'per hour']);
   }
-
-  const cells = [
-    ['Category', escapeHtml(row.category)],
-    ['Level', escapeHtml(row.level)],
-    ['Label', escapeHtml(row.label || '')],
-    ['Direct rate', row.direct_rate != null ? `$${Number(row.direct_rate).toFixed(2)}` : '—'],
-    ['Indirect rate', row.indirect_rate != null ? `$${Number(row.indirect_rate).toFixed(2)}` : '—']
-  ];
-  if (payMode === 'ffs' || row.has_ffs) {
-    cells.push(['FFS rate', row.ffs_rate != null ? `$${Number(row.ffs_rate).toFixed(2)}` : '—']);
-  }
-
-  const rowsHtml = cells
-    .map(([k, v]) => `<tr><th style="text-align:left;padding:4px 8px;">${k}</th><td style="padding:4px 8px;">${v}</td></tr>`)
-    .join('');
-  return `<table border="1" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:12px 0;font-size:13px;"><tbody>${rowsHtml}</tbody></table>`;
+  return `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;margin:12px 0;width:100%;"><thead><tr><th>Service</th><th>Compensation</th><th>Unit</th></tr></thead><tbody>${cells.map(c => `<tr>${c.map(value => `<td>${value}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 }
 
 function resolveClauseKeys(rawKeys, jobDescClauseKey) {
@@ -328,6 +321,7 @@ export async function getAgencyBuilderDefaults(agencyId) {
     offices: (offices || []).map((o) => ({
       id: o.id,
       name: o.name,
+      city: o.city || '',
       address: formatOfficeAddress(o)
     })),
     credentialOptions: DISCLOSURE_LICENSE_TYPES
@@ -362,7 +356,7 @@ export async function autofillTokensForCandidate({
     const [hp] = await pool.execute(
       `SELECT hp.applied_role, hp.job_description_id,
               jd.title, jd.description_text, jd.job_desc_clause_key, jd.default_contract_config_id,
-              jd.role_type, jd.tags_json
+              jd.role_type, jd.tags_json, jd.city
        FROM hiring_profiles hp
        LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = ?
        WHERE hp.candidate_user_id = ?
@@ -375,7 +369,7 @@ export async function autofillTokensForCandidate({
       // Older intake applications did not always populate hiring_profiles.
       const [applications] = await pool.execute(
         `SELECT jd.id AS job_description_id, jd.title, jd.description_text,
-                jd.job_desc_clause_key, jd.default_contract_config_id, jd.role_type, jd.tags_json
+                jd.job_desc_clause_key, jd.default_contract_config_id, jd.role_type, jd.tags_json, jd.city
          FROM intake_submissions s
          JOIN intake_links il ON il.id = s.intake_link_id
          JOIN hiring_job_descriptions jd ON jd.id = il.job_description_id AND jd.agency_id = ?
@@ -421,17 +415,7 @@ export async function autofillTokensForCandidate({
   const officeId = Number(officeLocationId) || null;
   if (officeId) {
     assignedOffice = agencyDefaults.offices.find((o) => Number(o.id) === officeId) || null;
-    if (!assignedOffice) {
-      const [officeRows] = await pool.execute(
-        `SELECT id, name, street_address, city, state, postal_code
-         FROM office_locations WHERE id = ? LIMIT 1`,
-        [officeId]
-      );
-      const row = officeRows?.[0];
-      if (row) {
-        assignedOffice = { id: row.id, name: row.name, address: formatOfficeAddress(row) };
-      }
-    }
+    if (!assignedOffice) throw Object.assign(new Error('Choose an office belonging to the selected agency.'), { status: 400 });
   }
   if (!assignedOffice) {
     try {
@@ -445,12 +429,15 @@ export async function autofillTokensForCandidate({
         [candidateUserId]
       );
       const row = officeRows?.[0];
-      if (row) {
-        assignedOffice = { id: row.id, name: row.name, address: formatOfficeAddress(row) };
-      }
+      if (row) assignedOffice = agencyDefaults.offices.find(office => Number(office.id) === Number(row.id)) || null;
     } catch {
       assignedOffice = null;
     }
+  }
+
+  if (!assignedOffice && jobDescriptionRow?.city) {
+    const matches = agencyDefaults.offices.filter(office => office.city.trim().toLowerCase() === String(jobDescriptionRow.city).trim().toLowerCase());
+    if (matches.length === 1) assignedOffice = matches[0];
   }
 
   const today = new Date();
@@ -558,13 +545,23 @@ export async function renderContractHtml({
     mergedTokens.SUPERVISOR_NAME = '';
     mergedTokens.SUPERVISOR = '';
   }
-  const visibleClauses = includeSupervisor
-    ? clauses
-    : (clauses || []).filter((c) => !isSupervisorClause(c));
+  const visibleClauses = (clauses || []).filter(c => {
+    const key = String(c.clause_key || '').toUpperCase();
+    const supervisionPay = key === 'SUP_COMP' || /supervision compensation/i.test(c.title || '');
+    if (supervisionPay) return ['1', 'true'].includes(String(mergedTokens.IS_SUPERVISOR || '').toLowerCase());
+    return includeSupervisor || !isSupervisorClause(c);
+  });
 
   const missingFields = missingContractFields(visibleClauses.map(c => c.body_html).join('\n'), mergedTokens);
   const bodyParts = visibleClauses.map((c) => {
-    const body = replaceTokens(c.body_html, mergedTokens);
+    let body = replaceTokens(c.body_html, mergedTokens)
+      // Imported Markdown occasionally leaves a single emphasis marker after a quoted role.
+      .replace(/([”"'])_(?=[).,;:])/g, '$1');
+    if (['SIG_BLOCK', 'SIGNATURE_BLOCK'].includes(String(c.clause_key || '').toUpperCase())) {
+      body = body.replace(/<div[^>]*class=["']page-break["'][^>]*>\s*<\/div>/gi, '')
+        .replace(/<p[^>]*>\s*(?:By|Name|Title|Date|Signature|Employee|Company authorized signer):\s*(?:<[^>]+>|_|\s)*(?:Date:\s*_*)?\s*<\/p>/gi, '');
+      return `<section class="contract-signatures"><h2>Electronic signatures</h2>${body}<p>The parties sign electronically through the portal. Signatures and signing dates are recorded with the completed agreement.</p></section>`;
+    }
     if (/^\s*<h[1-3]/i.test(c.body_html || '') || /^\s*<p/i.test(body)) return body;
     const heading = c.title ? `<h2 style="margin-top:1.4em;">${escapeHtml(c.title)}</h2>` : '';
     return `${heading}${body}`;
@@ -574,7 +571,10 @@ export async function renderContractHtml({
     bodyParts.push(`<section class="supervisor-duties"><h2>Supervisory responsibilities</h2>${String(mergedTokens.SUPERVISOR_DUTIES).split(/\n+/).map((p) => `<p>${escapeHtml(p)}</p>`).join('')}</section>`);
   }
 
-  const font = template?.font_family || 'Georgia, serif';
+  const { resolvePacketBrandChrome, packetBodyFontCss } = await import('./packetBrandChrome.service.js');
+  const brand = await resolvePacketBrandChrome({ id: agencyId });
+  const font = brand.useItscoChrome ? brand.bodyFontFamily : template?.font_family || brand.bodyFontFamily;
+  const fontCss = packetBodyFontCss(brand);
   const css = template?.css_extras || '';
   const companyName = escapeHtml(mergedTokens.COMPANY_NAME || '');
   const companyAddress = escapeHtml(mergedTokens.COMPANY_ADDRESS || '');
@@ -608,6 +608,7 @@ export async function renderContractHtml({
       : '');
   const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><style>
+  ${fontCss}
   body { font-family: ${font}; color: #111; line-height: 1.45; max-width: 800px; margin: 0 auto; padding: 24px; }
   h1,h2,h3 { color: #0f172a; }
   table { width: 100%; }

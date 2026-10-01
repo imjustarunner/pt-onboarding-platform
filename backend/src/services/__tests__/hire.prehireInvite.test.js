@@ -30,7 +30,7 @@ describe('pre-hire invitation delivery', () => {
     expect(result).toMatchObject({ status: 'sent', deliveredTo: 'testing@itsco.health', originalTo: 'jordan@example.com' });
     const email = mocks.send.mock.calls[0][0];
     expect(email).toMatchObject({ source: 'manual', generatedByUserId: 7, userId: 22, to: 'jordan@example.com' });
-    for (const value of ['School Counselor', '2026-10-12', '12', 'Review employment agreement', args.portalLink]) {
+    for (const value of ['School Counselor', 'October 12, 2026', '12', 'Review employment agreement', args.portalLink]) {
       expect(email.text).toContain(value);
       expect(email.html).toContain(value);
     }

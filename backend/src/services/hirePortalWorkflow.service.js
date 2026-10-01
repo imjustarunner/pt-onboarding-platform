@@ -94,6 +94,19 @@ export async function savePortalStep({ userId, agencyId, phase, key, value, comp
   } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
 }
 
+export function uniquePortalTasks(tasks = []) {
+  const unique = new Map();
+  for (const task of tasks || []) {
+    // The portal collects this authorization once in its dedicated secure form.
+    if (/^(?:Hiring:\s*)?Authorization for Background Check$/i.test(String(task.title || '').trim())) continue;
+    const key = `${task.taskType}:${task.metadata?.contractGeneration ? 'contract' : 'template'}:${task.referenceId || task.id}`;
+    const previous = unique.get(key);
+    if (!previous || (task.status === 'completed' && previous.status !== 'completed')) unique.set(key, { ...task, isRequired: !!task.isRequired || !!previous?.isRequired });
+    else if (task.isRequired) previous.isRequired = true;
+  }
+  return [...unique.values()];
+}
+
 export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks, extras, backgroundCheck, handbookUrl, hireAccountMode, journey }) {
   const packet = await portalPacket(user.id, agencyId);
   const config = packet.workflow || {};
@@ -103,17 +116,17 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   const onboardingClosed = !!journey.onboardingCompletedAt;
   const steps = { pre_hire: [], onboarding: [] };
   const add = (phase, step) => steps[phase].push({ required: true, ...step });
-  const pTasks = user.status === 'ONBOARDING' ? prehireTasks : tasks;
+  const pTasks = uniquePortalTasks(user.status === 'ONBOARDING' ? prehireTasks : tasks);
   const contract = (pTasks || []).filter((t) => t.metadata?.contractGeneration || t.metadata?.employmentContract || t.metadata?.autoFromSendPreHire);
   add('pre_hire', { key: 'background', kind: 'background', title: 'Background check authorization', complete: !!backgroundCheck.signed });
   add('pre_hire', { key: 'job-description', kind: 'job-description', title: 'Your job description', complete: !!extras.jdAcknowledged });
   for (const task of contract) add('pre_hire', { key: `task-${task.id}`, kind: 'task', title: task.title, task, complete: task.status === 'completed' });
   if (!contract.length) add('pre_hire', { key: 'agreement', kind: 'unavailable', title: 'Employment agreement', complete: false, instructions: 'People Operations needs to prepare your employment agreement.' });
-  add('pre_hire', { key: 'work-email', kind: 'work-email', title: 'Choose your work email', complete: !!user.work_email || !!stored('pre_hire', 'work-email')?.completedAt });
+  add('onboarding', { key: 'work-email', kind: 'work-email', title: 'Choose your work email', complete: !!user.work_email || !!stored('onboarding', 'work-email')?.completedAt });
   if (!prehireClosed || stored('pre_hire', 'profile')) add('pre_hire', { key: 'profile', kind: 'profile', title: 'Pre-employment information', complete: !!stored('pre_hire', 'profile')?.completedAt });
   if (!prehireClosed || stored('pre_hire', 'headshot')) add('pre_hire', { key: 'headshot', kind: 'headshot', title: 'Your professional headshot', complete: !!stored('pre_hire', 'headshot')?.completedAt });
   const handbook = packet.handbookUrl || handbookUrl;
-  if (!prehireClosed || stored('pre_hire', 'handbook')) add('pre_hire', { key: 'handbook', kind: 'handbook', title: 'Workplace handbook', url: handbook, complete: !!stored('pre_hire', 'handbook')?.completedAt });
+  if (!prehireClosed || stored('pre_hire', 'handbook')) add('pre_hire', { key: 'handbook', kind: 'handbook', title: 'Workplace handbook', url: handbook, required: false, complete: !!stored('pre_hire', 'handbook')?.completedAt });
   for (const doc of extras.prehireDocs || []) {
     // Template-backed documents already have a signing task; do not ask twice.
     if (doc.kind === 'acknowledgement') continue; // Legacy alias for the built-in job-description signature.
@@ -128,7 +141,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
       instructions: 'Choose the specialties, ages, populations and approaches that reflect your experience.',
       complete: !!saved?.completedAt, ...form, values: saved?.value?.values || form.values });
   }
-  for (const task of user.status === 'ONBOARDING' ? tasks : []) add('onboarding', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });
+  for (const task of uniquePortalTasks(user.status === 'ONBOARDING' ? tasks : [])) add('onboarding', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });
   add('onboarding', { key: 'handbook', kind: 'handbook', title: 'Handbook acknowledgement', url: handbook, complete: !!stored('onboarding', 'handbook')?.completedAt });
   for (const resource of config.resources || []) {
     if (resource.kind === 'document') {
@@ -143,14 +156,34 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   for (const phase of ['pre_hire', 'onboarding']) {
     add(phase, { key: 'review', kind: 'review', title: 'Final review', required: false, complete: phase === 'pre_hire' ? prehireClosed : onboardingClosed });
   }
-  const profile = stored('pre_hire', 'profile')?.value || { personal_email: user.personal_email || user.email || '', full_legal_name: `${user.first_name || ''} ${user.last_name || ''}`.trim() };
-  const [[supervisor]] = await pool.execute(`SELECT u.id, u.first_name, u.last_name FROM supervisor_assignments sa JOIN users u ON u.id = sa.supervisor_id
+  const [info] = await pool.execute(`SELECT d.field_key, v.value FROM user_info_values v
+    JOIN user_info_field_definitions d ON d.id = v.field_definition_id
+    WHERE v.user_id = ? AND (d.agency_id = ? OR d.agency_id IS NULL)
+      AND d.field_key IN (${PREEMPLOYMENT_FIELDS.map(() => '?').join(',')}) ORDER BY d.agency_id ASC`, [user.id, agencyId, ...PREEMPLOYMENT_FIELDS.map(field => field.key)]);
+  const savedInfo = Object.fromEntries(info.map(row => [row.field_key, row.value]));
+  let background = {};
+  if (backgroundCheck.signed) {
+    const { decryptBackgroundCheckAuthorization } = await import('./backgroundCheckAuthorization.service.js');
+    const payload = await decryptBackgroundCheckAuthorization(user.id, agencyId);
+    // Only reusable profile fields leave the encrypted authorization; never SSN, DL or signature.
+    background = { full_legal_name: payload?.legalName, date_of_birth: payload?.dateOfBirth,
+      mailing_address: payload?.currentAddress, previous_addresses: payload?.previousAddresses,
+      prior_names: payload?.otherNames || payload?.aliases };
+  }
+  const savedProfile = stored('pre_hire', 'profile')?.value || {};
+  const profile = { personal_email: user.personal_email || user.email || '',
+    full_legal_name: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
+    preferred_name: user.preferred_name || '', cell_number: user.personal_phone || '',
+    ...savedInfo, ...Object.fromEntries(Object.entries(background).filter(([,value]) => value)), ...savedProfile };
+  const [[resume]] = await pool.execute(`SELECT id, original_name FROM user_admin_docs
+    WHERE user_id = ? AND doc_type = 'resume' ORDER BY id DESC LIMIT 1`, [user.id]);
+  const [[supervisor]] = await pool.execute(`SELECT u.id, u.first_name, u.last_name, u.profile_photo_path FROM supervisor_assignments sa JOIN users u ON u.id = sa.supervisor_id
     WHERE sa.supervisee_id = ? AND sa.agency_id = ? ORDER BY sa.is_primary DESC, sa.id ASC LIMIT 1`, [user.id, agencyId]);
-  return { config, steps, progress: { pre_hire: summarizeSteps(steps.pre_hire), onboarding: summarizeSteps(steps.onboarding) },
+  return { config, assignedOffice: user.work_location || '', steps, progress: { pre_hire: summarizeSteps(steps.pre_hire), onboarding: summarizeSteps(steps.onboarding) },
     profile, profileFields: PREEMPLOYMENT_FIELDS, headshot: stored('pre_hire', 'headshot')?.value ? { uploaded: true, version: stored('pre_hire', 'headshot').completedAt } : null,
-    resume: stored('pre_hire', 'resume')?.value ? { uploaded: true, name: stored('pre_hire', 'resume').value.name } : null,
-    preferredWorkEmail: stored('pre_hire', 'work-email')?.value?.email || '',
-    supervisor: supervisor ? { id: supervisor.id, name: `${supervisor.first_name} ${supervisor.last_name}` } : { name: config.supervisorName || '' } };
+    resume: resume ? { uploaded: true, name: resume.original_name, documentId: resume.id } : stored('pre_hire', 'resume')?.value ? { uploaded: true, name: stored('pre_hire', 'resume').value.name } : null,
+    preferredWorkEmail: stored('onboarding', 'work-email')?.value?.email || '',
+    supervisor: supervisor ? { id: supervisor.id, name: `${supervisor.first_name} ${supervisor.last_name}`, photoPath: supervisor.profile_photo_path || null } : { name: config.supervisorName || '' } };
 }
 
 export { validatePreemployment };

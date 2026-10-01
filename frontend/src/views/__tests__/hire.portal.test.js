@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { ref, nextTick } from 'vue';
 const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), defaults: { baseURL: '/api' } }));
+vi.mock('pdfjs-dist', () => ({ GlobalWorkerOptions: {} }));
 vi.mock('../../services/api', () => ({ default: http }));
 vi.mock('axios', () => ({ default: { create: () => http } }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { token: 'test-token' } }), useRouter: () => ({ push: vi.fn() }) }));

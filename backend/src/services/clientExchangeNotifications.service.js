@@ -60,18 +60,33 @@ export async function notifyExchangeMatches({ listing, client }) {
 
 async function exchangeActivityNotification({ listing, userId, type, title, message, actorUserId }) {
   const agency = await Agency.findById(listing.agency_id);
-  return Notification.create({
+  await Notification.create({
     type, severity: 'info', title, message, userId, agencyId: listing.agency_id,
     relatedEntityType: 'client_exchange_listing', relatedEntityId: listing.id, actorUserId,
     actorSource: 'client_exchange', audienceJson: { agencySlug: agency?.slug || agency?.portal_url }
   });
+  const [[recipient]] = await pool.execute(`SELECT u.id, u.role, u.work_email, u.email, u.personal_email FROM users u
+    JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ? WHERE u.id = ? AND COALESCE(u.is_active,1) = 1 AND COALESCE(u.is_archived,0) = 0 LIMIT 1`, [listing.agency_id, userId]);
+  if (!recipient || !await isNotificationChannelEnabled({ userId, userRole: recipient.role, agencyId: listing.agency_id, type, channel: 'email' })) return;
+  const identities = await EmailSenderIdentity.list({ agencyId: listing.agency_id, includePlatformDefaults: false, onlyActive: true });
+  const sender = identities.find(row => row.identity_key === 'notifications') || identities.find(row => /^notifications@/i.test(row.from_email || ''));
+  const to = recipient.work_email || recipient.email || recipient.personal_email;
+  if (!sender?.id || !to) throw new Error('Client Exchange notification email sender or recipient is unavailable.');
+  const link = `${buildPublicAppUrl(agency, 'client-exchange')}?listingId=${listing.id}&agencyId=${listing.agency_id}`;
+  const result = await sendEmailFromIdentity({ senderIdentityId: sender.id, to, userId, source: 'auto',
+    subject: title, text: `${message}\n\n${link}`, templateType: type, linkUrl: link });
+  if (result?.blocked || result?.skipped || result?.failed) throw new Error('Client Exchange email was not delivered.');
 }
 
 export async function notifyExchangeClaim({ listing, requestingProviderUserId }) {
-  const recipient = listing.current_provider_user_id || listing.posted_by_user_id;
-  if (!recipient || Number(recipient) === Number(requestingProviderUserId)) return;
-  await exchangeActivityNotification({ listing, userId: recipient, type: 'client_exchange_claim',
-    title: 'New Client Exchange request', message: 'A provider has requested your referral. Review all requests and choose a provider in Client Exchange.', actorUserId: requestingProviderUserId });
+  const [reviewers] = await pool.execute(`SELECT DISTINCT u.id FROM users u JOIN user_agencies ua ON ua.user_id = u.id
+    WHERE ua.agency_id = ? AND u.role IN ('admin','super_admin','support','staff')
+    AND COALESCE(u.is_active,1) = 1 AND COALESCE(u.is_archived,0) = 0`, [listing.agency_id]);
+  const recipients = new Set([listing.current_provider_user_id, listing.posted_by_user_id, ...reviewers.map(user => user.id)].filter(Boolean).map(Number));
+  recipients.delete(Number(requestingProviderUserId));
+  const results = await Promise.allSettled([...recipients].map(userId => exchangeActivityNotification({ listing, userId, type: 'client_exchange_claim',
+    title: 'New Client Exchange request', message: 'A provider has requested a referral. Review the request in Client Exchange.', actorUserId: requestingProviderUserId })));
+  if (results.some(result => result.status === 'rejected')) throw new Error('Some Client Exchange request notifications could not be delivered.');
 }
 
 export async function notifyExchangeAssignment({ listing, request, actingUserId }) {

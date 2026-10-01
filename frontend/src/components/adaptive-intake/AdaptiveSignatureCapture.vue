@@ -37,7 +37,7 @@
         type="text"
         :placeholder="placeholder"
         autocomplete="name"
-        @blur="emitTyped"
+        @input="invalidateTyped"
       />
       <div class="ai-consent-card-actions" style="margin-top: 0.65rem;">
         <button type="button" class="df-btn df-btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 0.82rem;" @click="clearTyped">
@@ -94,6 +94,15 @@ watch(
   }
 );
 
+function invalidateTyped() {
+  captured.value = false;
+  emit('update:modelValue', '');
+}
+watch(() => props.modelValue, value => { captured.value = !!value; });
+watch(mode, () => { captured.value = false; emit('update:modelValue', ''); });
+// Called only by an explicit parent signing/acknowledgement action.
+defineExpose({ capture: () => { if (mode.value === 'type') emitTyped(); } });
+
 function clearTyped() {
   typedName.value = '';
   captured.value = false;
@@ -143,6 +152,7 @@ function renderTypedSignature(name) {
   clip: rect(0, 0, 0, 0);
   border: 0;
 }
+.df-btn-primary { background: #086553; color: #fff; border: 1px solid #086553; border-radius: 6px; }
 .ai-signature-panel-head {
   margin-bottom: 0.75rem;
 }
