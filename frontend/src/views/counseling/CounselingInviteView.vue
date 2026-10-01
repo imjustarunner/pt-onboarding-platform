@@ -11,6 +11,7 @@
 import { onMounted, ref, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { acceptCounselingInvite } from '../../services/counselingApi.js';
+import { saveCounselingAccess } from '../../utils/counselingInvitationAccess';
 import { useAgencyStore } from '../../store/agency';
 
 const route = useRoute();
@@ -30,6 +31,7 @@ onMounted(async () => {
   try {
     const token = String(route.params.token || '').trim();
     const data = await acceptCounselingInvite(token);
+    if(data.counselingAccess)saveCounselingAccess(data.counselingAccess);
     const key = data?.session?.publicId || data?.session?.id;
     if (!key) throw new Error('Invalid invite response');
     const path = orgSlug.value

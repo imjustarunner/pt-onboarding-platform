@@ -1,5 +1,6 @@
 import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
 import pool from '../config/database.js';
+import { agreementsForUser, agreementPublic } from './supervisionAgreement.service.js';
 import { CLINICAL_PROFILE_FIELDS, needsClinicalProfile, clinicalProfileForm } from '../utils/hireClinicalProfile.js';
 import { listClinicalFacetsForUser } from './providerClinicalFacets.service.js';
 import { encryptGuardianIntake, decryptGuardianIntake } from './guardianIntakeEncryption.service.js';
@@ -122,6 +123,13 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   }
   for (const task of pTasks || []) if (!contract.includes(task)) add('pre_hire', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });
   add('onboarding', { key: 'account', kind: 'account', title: 'Account setup', required: hireAccountMode === 'group_password', complete: [true, 1, '1'].includes(user.sso_password_override), instructions: 'Set your password and review your login and supervisor.' });
+  if (user.status === 'ONBOARDING') {
+    const agreements = await agreementsForUser(user.id, agencyId);
+    for (const row of agreements.filter(a => Number(a.supervisee_user_id) === Number(user.id))) {
+      const agreement = agreementPublic(row,user.id);
+      add('onboarding', {key:`supervision-agreement-${row.id}`,kind:'supervision-agreement',title:`Supervision agreement · ${agreement.document.parties[0].name}`,agreement,complete:agreement.complete});
+    }
+  }
   if ((needsClinicalProfile(user) && !onboardingClosed) || stored('onboarding', 'clinical-profile')) {
     const saved = stored('onboarding', 'clinical-profile');
     const form = clinicalProfileForm(await listClinicalFacetsForUser(user.id, { agencyId }));

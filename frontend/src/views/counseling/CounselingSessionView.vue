@@ -1,5 +1,12 @@
 <template>
   <div class="cs" :class="{ 'cs--provider': participantRole === 'provider', 'cs--activity': inActivityMode }">
+    <ClientRecordingConsentPanel v-if="session && phase !== 'ended'" :base-url="transcriptionBase" :is-provider="participantRole === 'provider'" />
+    <ConsentedTranscriptionPanel v-if="phase === 'connected'" ref="transcriptionPanel" :base-url="transcriptionBase" :connected="videoConnected" :is-host="participantRole === 'provider'" :get-stream="getTranscriptionStream" />
+    <label v-if="participantRole === 'provider' && phase !== 'joining'" class="cs__note-type">Note type for a recorded session
+      <select v-model="noteAidId"><option value="">Use appointment service code</option><option value="psychotherapy">Individual psychotherapy progress note</option><option value="h0004_note">H0004 note</option><option value="h2014_individual">H2014 individual progress note</option><option value="h2014_group">H2014 group progress note</option></select>
+    </label>
+    <p v-if="noteMessage" role="status">{{ noteMessage }}</p>
+    <button v-if="noteRetry" class="cs__btn" @click="createTranscriptNote">Retry creating clinical draft</button>
     <!-- Pre-session -->
     <div v-if="phase === 'pre'" class="cs__pre">
       <h1>{{ session?.title || 'Counseling Session' }}</h1>
@@ -36,7 +43,7 @@
           >
             {{ inviteCopied ? 'Link copied' : 'Copy invite link' }}
           </button>
-          <button type="button" class="cs__btn cs__btn--danger" @click="confirmEnd">End Session</button>
+          <button type="button" class="cs__btn cs__btn--danger" @click="confirmEnd">{{ participantRole === 'provider' ? 'End session' : 'Leave session' }}</button>
         </div>
       </header>
 
@@ -56,6 +63,9 @@
 
         <main class="cs__main">
           <VideoSessionRoom
+            ref="videoRoomRef"
+            @connected="videoConnected = true"
+            @disconnected="videoConnected = false"
             v-if="videoCreds"
             :key="`${videoCreds.sessionId}:${String(videoCreds.token || '').slice(-12)}`"
             :application-id="videoCreds.applicationId"
@@ -203,6 +213,11 @@ import VideoSessionRoom from '../../components/video/VideoSessionRoom.vue';
 import ActivityHost from '../../components/counseling/ActivityHost.vue';
 import ActivityLibrary from '../../components/counseling/ActivityLibrary.vue';
 import * as counselingApi from '../../services/counselingApi.js';
+import api from '../../services/api';
+import {finishMeetingTranscription} from '../../utils/finishMeetingTranscription';
+import { counselingAccessFor } from '../../utils/counselingInvitationAccess';
+import ClientRecordingConsentPanel from '../../components/video/ClientRecordingConsentPanel.vue';
+import ConsentedTranscriptionPanel from '../../components/video/ConsentedTranscriptionPanel.vue';
 import { launchActivity } from '../../services/launchActivity.js';
 
 const route = useRoute();
@@ -212,6 +227,10 @@ const auth = useAuthStore();
 const sessionId = computed(() => route.params.sessionId);
 const orgSlug = computed(() => route.params.organizationSlug || null);
 
+const videoRoomRef = ref(null), transcriptionPanel = ref(null), videoConnected = ref(false);
+const noteAidId = ref(''), noteMessage = ref(''), noteRetry = ref(false);
+const transcriptionBase = computed(() => `/counseling/sessions/${sessionId.value}`);
+const getTranscriptionStream = () => videoRoomRef.value?.getTranscriptionStream?.();
 const phase = ref('pre');
 const joining = ref(false);
 const preError = ref('');
@@ -238,7 +257,7 @@ let previewStream = null;
 let pollTimer = null;
 let clockTimer = null;
 
-const localName = computed(() => auth.user?.name || auth.user?.email || 'You');
+const localName = computed(() => counselingAccessFor(sessionId.value)?.displayName || auth.user?.name || auth.user?.email || 'You');
 const providerDisplayName = computed(() => 'Your provider');
 
 const isMobileLayout = ref(
@@ -351,6 +370,7 @@ async function doJoin() {
 }
 
 async function loadActivities() {
+  if (participantRole.value !== 'provider') return;
   activitiesLoading.value = true;
   try {
     const agencyId = session.value?.agencyId || auth.user?.agencyId;
@@ -471,11 +491,27 @@ async function copyInviteLink() {
   }
 }
 
+async function createTranscriptNote() {
+  noteRetry.value = false; noteMessage.value = 'Preparing the clinical draft…';
+  try {
+    const {data} = await api.post(`${transcriptionBase.value}/transcription/note`, {noteAidId:noteAidId.value || undefined});
+    noteMessage.value = data.draftId ? 'Clinical draft saved in Note Aid. Review and sign it there.' : 'No recorded transcript was available to create a note.';
+  } catch(e) { noteMessage.value = e.response?.data?.error?.message || 'The draft could not be created. Your transcript is saved; retry when connected.'; noteRetry.value = true; }
+}
 async function confirmEnd() {
-  if (!window.confirm('End this counseling session for everyone?')) return;
-  await counselingApi.endCounselingSession(sessionId.value);
-  stopPolling();
-  phase.value = 'ended';
+  const provider = participantRole.value === 'provider';
+  if (!window.confirm(provider ? 'End this counseling session for everyone?' : 'Leave this session?')) return;
+  const recorded = !!transcriptionPanel.value?.getState()?.requested;
+  if(provider && recorded) {
+    noteMessage.value='Saving both participants’ final transcript segments…';
+    try { await finishMeetingTranscription(transcriptionBase.value); }
+    catch(e){noteMessage.value=e.response?.data?.error?.message||e.message;return;}
+  }
+  await transcriptionPanel.value?.flush();
+  if(recorded) await api.post(`${transcriptionBase.value}/transcription/control`,{action:'drained'}).catch(()=>{});
+  if (provider) await counselingApi.endCounselingSession(sessionId.value);
+  stopPolling(); videoConnected.value = false; phase.value = 'ended';
+  if (provider && recorded) await createTranscriptNote();
 }
 
 watch(inActivityMode, (v) => {
@@ -505,7 +541,8 @@ onMounted(async () => {
       phase.value = 'ended';
       return;
     }
-    await startPreview();
+    if (counselingAccessFor(sessionId.value)) await doJoin();
+    else await startPreview();
   } catch (err) {
     preError.value = err?.response?.data?.error?.message || 'Unable to load session.';
   }

@@ -1,5 +1,6 @@
 import { saveWorkflowStep, uploadWorkflowFile, viewWorkflowFile, previewPortalDocument } from '../controllers/hirePortalWorkflow.controller.js';
 import express from 'express';
+import { listSupervisionAgreements, signAgreement, downloadAgreement } from '../controllers/supervisionAgreement.controller.js';
 import { portalTrainingAction } from '../controllers/portalTraining.controller.js';
 import multer from 'multer';
 import { body } from 'express-validator';
@@ -61,6 +62,9 @@ const prehireDocUpload = multer({
 
 // All routes validated by the pre-hire token — token is the :token route param
 router.use('/:token', authenticatePrehireToken, enforcePortalWritePhase);
+router.get('/:token/supervision-agreements', listSupervisionAgreements);
+router.post('/:token/supervision-agreements/:agreementId/sign', signAgreement);
+router.get('/:token/supervision-agreements/:agreementId/pdf', downloadAgreement);
 
 const workflowUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
 router.post('/:token/workflow/:stepKey', saveWorkflowStep);

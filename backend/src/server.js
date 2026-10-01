@@ -335,6 +335,8 @@ app.use(cors({
     'Content-Type',
     'Authorization',
     'X-User-Authorization',
+    'X-Supervision-Access',
+    'X-Counseling-Access',
     'X-Requested-With',
     'X-Agency-Id',
     'X-Quick-View-Session',

@@ -1001,7 +1001,7 @@ const routes = [
     name: 'PersonalMeetingInvitation',
     alias: '/:organizationSlug/join/invitation/:token',
     component: () => import('../views/teamMeeting/PersonalMeetingInvitationView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: false }
   },
   {
     path: '/join/team-meeting/:eventId',
@@ -1681,19 +1681,19 @@ const routes = [
     path: '/:organizationSlug/counseling/session/:sessionId',
     name: 'OrganizationCounselingSession',
     component: () => import('../views/counseling/CounselingSessionView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { requiresAuth: false, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/counseling/join/:sessionId',
     name: 'OrganizationCounselingJoin',
     component: () => import('../views/counseling/CounselingSessionView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { requiresAuth: false, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/counseling/invite/:token',
     name: 'OrganizationCounselingInvite',
     component: () => import('../views/counseling/CounselingInviteView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
+    meta: { requiresAuth: false, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/guardian',
@@ -3273,19 +3273,19 @@ const routes = [
     path: '/counseling/session/:sessionId',
     name: 'CounselingSession',
     component: () => import('../views/counseling/CounselingSessionView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: false }
   },
   {
     path: '/counseling/join/:sessionId',
     name: 'CounselingJoin',
     component: () => import('../views/counseling/CounselingSessionView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: false }
   },
   {
     path: '/counseling/invite/:token',
     name: 'CounselingInvite',
     component: () => import('../views/counseling/CounselingInviteView.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: false }
   },
   {
     path: '/club-store/:orgId',

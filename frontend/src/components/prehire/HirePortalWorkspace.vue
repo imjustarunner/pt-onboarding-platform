@@ -61,6 +61,7 @@
               </template><div v-else class="notice"><Icon name="clock" /><p>People Operations needs to attach this resource. Message the team so they can help you continue.</p></div>
             </div>
             <div v-else-if="step.kind === 'clinical-profile'" class="card"><HireClinicalProfile :step="step" :busy="busy" :readonly="closed" @save="save(step.key, $event)" /></div>
+            <SupervisionAgreementCard v-else-if="step.kind === 'supervision-agreement'" :agreement="step.agreement" :http="http" :base-url="`/prehire-portal/${token}/supervision-agreements`" @signed="emit('reload')" />
             <div v-else-if="step.kind === 'task' && step.task.taskType === 'training'" class="card embedded-training"><iframe :key="step.key" :src="`/pre-hire/${token}/module/${step.task.referenceId}?embedded=1`" :title="step.title" /></div>
             <div v-else-if="step.kind === 'task' && step.task.taskType === 'intake_form'" class="card"><iframe v-if="intakeUrl(step.task)" class="resource-frame" :src="intakeUrl(step.task)" :title="step.title" /><button v-if="!closed && !step.complete" class="primary" @click="$emit('complete-task', step.task)">Check form submission</button></div>
             <div v-else-if="step.kind === 'task'" class="card"><p>{{ step.task.description }}</p><button class="primary" :disabled="closed && !step.complete" @click="step.task.taskType === 'custom' ? $emit('complete-task', step.task) : $emit('document', step.task)"><Icon />{{ step.complete ? 'View saved document' : step.task.taskType === 'custom' ? 'Mark complete' : 'Open, review and sign' }}</button></div>
@@ -86,6 +87,7 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Icon from './HirePortalIcon.vue';
 import HireClinicalProfile from './HireClinicalProfile.vue';
+import SupervisionAgreementCard from '../supervision/SupervisionAgreementCard.vue';
 import AdaptiveSignatureCapture from '../adaptive-intake/AdaptiveSignatureCapture.vue';
 import { buildFormUrl } from '../../utils/publicIntakeUrl.js';
 const props = defineProps({ data: { type: Object, required: true }, token: { type: String, required: true }, http: { type: Object, required: true } });

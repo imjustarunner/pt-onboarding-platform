@@ -9,15 +9,16 @@ import {
   listUpcomingMeetings
 } from '../controllers/meetingAgendas.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticateSupervisionAgenda } from '../middleware/supervisionInvitationAccess.middleware.js';
 
 const router = express.Router();
 
-router.get('/', authenticate, getAgendaForMeeting);
+router.get('/', authenticateSupervisionAgenda, getAgendaForMeeting);
 router.get('/meetings', authenticate, listUpcomingMeetings);
-router.post('/', authenticate, createAgenda);
-router.post('/:agendaId/items', authenticate, addAgendaItem);
-router.post('/:agendaId/items/bulk', authenticate, addAgendaItemsBulk);
-router.patch('/:agendaId/items/:itemId', authenticate, updateAgendaItem);
-router.delete('/:agendaId/items/:itemId', authenticate, deleteAgendaItem);
+router.post('/', authenticateSupervisionAgenda, createAgenda);
+router.post('/:agendaId/items', authenticateSupervisionAgenda, addAgendaItem);
+router.post('/:agendaId/items/bulk', authenticateSupervisionAgenda, addAgendaItemsBulk);
+router.patch('/:agendaId/items/:itemId', authenticateSupervisionAgenda, updateAgendaItem);
+router.delete('/:agendaId/items/:itemId', authenticateSupervisionAgenda, deleteAgendaItem);
 
 export default router;

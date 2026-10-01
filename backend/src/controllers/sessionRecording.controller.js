@@ -1,3 +1,4 @@
+import { requireClinicalRecordingConsent } from '../services/recordingConsentPolicy.service.js';
 import multer from 'multer';
 import { validationResult } from 'express-validator';
 
@@ -445,6 +446,12 @@ export const patchRecording = async (req, res, next) => {
     const existing = await SessionRecording.findByIdForUser({ id, userId: req.user.id, agencyId });
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
 
+    const nextRecording = {...existing,client_id:req.body?.clientId !== undefined ? safeInt(req.body.clientId) : existing.client_id,session_kind:req.body?.sessionKind || existing.session_kind};
+    if (existing.client_id && req.body?.clientId !== undefined && Number(existing.client_id)!==Number(req.body.clientId)) return res.status(400).json({error:{message:'Start a new recording when changing clients.'}});
+    if (['recording','processing'].includes(req.body?.status) || req.body?.transcriptText !== undefined || ['recording','processing'].includes(existing.status)) await requireClinicalRecordingConsent(nextRecording);
+    if (existing.session_kind === 'clinical' && req.body?.sessionKind && req.body.sessionKind !== 'clinical') {
+      return res.status(400).json({error:{message:'A clinical recording cannot be reclassified to bypass consent.'}});
+    }
     const patch = {};
     for (const key of [
       'clientId',
@@ -487,6 +494,7 @@ export const appendTranscript = async (req, res, next) => {
     if (!(await requireSessionRecordingAccess(req, res, agencyId))) return;
     const existing = await SessionRecording.findByIdForUser({ id, userId: req.user.id, agencyId });
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
+    await requireClinicalRecordingConsent(existing);
 
     const chunk = String(req.body?.chunk || '').trim();
     const speakerLabel = String(req.body?.speakerLabel || '').trim();
@@ -513,6 +521,7 @@ export const startRecording = async (req, res, next) => {
     if (!(await requireSessionRecordingAccess(req, res, agencyId))) return;
     const existing = await SessionRecording.findByIdForUser({ id, userId: req.user.id, agencyId });
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
+    await requireClinicalRecordingConsent(existing);
     const updated = await SessionRecording.update(id, {
       status: 'recording',
       startedAt: existing.started_at || new Date()
@@ -531,6 +540,7 @@ export const transcribeRecordingAudio = async (req, res, next) => {
     if (!(await requireSessionRecordingAccess(req, res, agencyId))) return;
     const existing = await SessionRecording.findByIdForUser({ id, userId: req.user.id, agencyId });
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
+    await requireClinicalRecordingConsent(existing);
     if (!req.file?.buffer) return res.status(400).json({ error: { message: 'audio file is required' } });
 
     const transcript = await transcribeLongAudio({
@@ -568,6 +578,7 @@ export const endAndSummarizeRecording = async (req, res, next) => {
     if (!(await requireSessionRecordingAccess(req, res, agencyId))) return;
     const existing = await SessionRecording.findByIdForUser({ id, userId: req.user.id, agencyId });
     if (!existing) return res.status(404).json({ error: { message: 'Recording not found' } });
+    await requireClinicalRecordingConsent(existing);
 
     await SessionRecording.update(id, { status: 'processing' });
 
@@ -929,12 +940,12 @@ export const finalizeConsent = async (req, res, next) => {
     } else if (signedDocumentId) {
       const pool = (await import('../config/database.js')).default;
       const [rows] = await pool.execute(
-        `SELECT signed_pdf_path FROM signed_documents WHERE id = ? LIMIT 1`,
-        [signedDocumentId]
+        `SELECT signed_pdf_path FROM signed_documents WHERE id = ? AND task_id = ? AND pdf_hash IS NOT NULL LIMIT 1`,
+        [signedDocumentId, consent.task_id]
       );
       signedPdfPath = rows?.[0]?.signed_pdf_path || null;
     }
-    if (!signedDocumentId) {
+    if (!signedDocumentId || !signedPdfPath) {
       return res.status(400).json({ error: { message: 'Consent is not finalized yet' } });
     }
 

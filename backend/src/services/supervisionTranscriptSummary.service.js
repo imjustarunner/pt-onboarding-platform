@@ -56,6 +56,7 @@ export async function triggerSupervisionSummaryFromTranscript(sessionId) {
   const prompt = buildSupervisionSummaryPrompt(transcriptText);
   const summaryResp = await callGeminiText({
     prompt,
+    vertexOnly: true, sensitive: true,
     temperature: 0.1,
     maxOutputTokens: 1200
   });

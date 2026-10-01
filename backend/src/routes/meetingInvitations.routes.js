@@ -8,6 +8,7 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import pool from '../config/database.js';
 import { invitationEvents, resolvePersonalMeetingInvitation } from '../services/meetingInvitations.service.js';
 import { activeMeetingPrompts } from '../services/activeMeetingPrompts.service.js';
+import { resolveSupervisionInvitationAccess } from '../services/supervisionInvitationAccess.service.js';
 
 const router = express.Router();
 router.post('/interview/:token/rsvp', async (req,res,next) => {
@@ -52,7 +53,16 @@ router.post('/:token/rsvp', authenticate, async (req,res,next) => {
     res.json({ok:true,response:req.body.response});
   }catch(error){next(error);}
 });
-router.get('/:token', authenticate, async (req,res,next) => {
+router.get('/:token', async (req,res,next) => {
+  res.set({ 'Cache-Control':'no-store', 'Referrer-Policy':'no-referrer' });
+  try {
+    if (!req.query.details) {
+      const supervision = await resolveSupervisionInvitationAccess(req.params.token);
+      if (supervision) return res.json(supervision);
+    }
+    return authenticate(req,res,next);
+  } catch (error) { next(error); }
+}, async (req,res,next) => {
   res.set('Cache-Control','no-store');
   res.set('Referrer-Policy','no-referrer');
   try {

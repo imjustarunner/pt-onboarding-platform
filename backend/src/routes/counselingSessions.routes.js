@@ -1,5 +1,9 @@
 import express from 'express';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticateCounselingSession } from '../middleware/counselingInvitationAccess.middleware.js';
+import { exchangeCounselingInvitation } from '../services/counselingInvitationAccess.service.js';
+import { getClientRecordingConsent,requestClientRecordingConsent,signClientRecordingConsent,previewClientConsentPdf,withdrawClientRecordingConsent } from '../controllers/counselingRecordingConsent.controller.js';
+import { getMeetingTranscription,setMeetingTranscription,saveMeetingAudio,meetingAudioUpload } from '../controllers/meetingTranscription.controller.js';
+import { createCounselingTranscriptNote } from '../controllers/counselingTranscriptNote.controller.js';
 import {
   listActivities,
   startPracticeActivity,
@@ -22,21 +26,28 @@ import {
   exitActivity,
   findOrCreateFromAppointment,
   getShareLink,
-  acceptInvite,
   rollActivity
 } from '../controllers/counselingSessions.controller.js';
 
 const router = express.Router();
 
-router.use(authenticate);
+router.post('/invite/:token/accept',async(req,res,next)=>{try{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'}).json(await exchangeCounselingInvitation(req.params.token));}catch(e){next(e);}});
+router.use(authenticateCounselingSession);
+router.get('/sessions/:sessionId/recording-consent',getClientRecordingConsent);
+router.post('/sessions/:sessionId/recording-consent/request',requestClientRecordingConsent);
+router.post('/sessions/:sessionId/recording-consent/sign',signClientRecordingConsent);
+router.get('/sessions/:sessionId/recording-consent/pdf',previewClientConsentPdf);
+router.post('/sessions/:sessionId/recording-consent/withdraw',withdrawClientRecordingConsent);
+router.get('/sessions/:sessionId/transcription',getMeetingTranscription);
+router.post('/sessions/:sessionId/transcription/control',setMeetingTranscription);
+router.post('/sessions/:sessionId/transcription/audio',meetingAudioUpload.single('audio'),saveMeetingAudio);
+router.post('/sessions/:sessionId/transcription/note',createCounselingTranscriptNote);
 
 // Unified activity registry
 router.get('/activities', listActivities);
 // Solo practice / Tools preview (no video, no client)
 router.post('/activities/:activityId/practice', startPracticeActivity);
 
-// Invite accept (authenticated guest)
-router.post('/invite/:token/accept', acceptInvite);
 
 // Sessions
 router.get('/sessions', listSessions);

@@ -1,5 +1,7 @@
 <template>
   <div class="user-supervision-tab" data-tour="dash-my-supervision">
+    <ManualSupervisionPanel :user-id="userId" :agency-id="scopeOrgId" @saved="fetchAll" />
+    <SupervisionAgreementsPanel :user-id="userId" :agency-id="scopeOrgId" />
     <header class="ust-header">
       <div>
         <h2 class="ust-title">My Supervision</h2>
@@ -406,6 +408,8 @@
 </template>
 
 <script setup>
+import ManualSupervisionPanel from '../supervision/ManualSupervisionPanel.vue';
+import SupervisionAgreementsPanel from '../supervision/SupervisionAgreementsPanel.vue';
 import SupervisionDocumentationPanel from '../supervision/SupervisionDocumentationPanel.vue';
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';

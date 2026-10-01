@@ -66,6 +66,7 @@
 import { computed, ref } from 'vue';
 import VideoSessionRoom from '../video/VideoSessionRoom.vue';
 import { useAuthStore } from '../../store/auth';
+import { supervisionAccessFor } from '../../utils/supervisionInvitationAccess';
 
 const videoRoomRef = ref(null);
 
@@ -159,7 +160,8 @@ const localName = computed(() => {
     return '';
   };
   // Prefer real person name over email / stale "Guest" labels.
-  const name = preferName(authPerson, fromProp, authName);
+  const name = supervisionAccessFor(props.sessionId)
+    ? preferName(fromProp) : preferName(authPerson, fromProp, authName);
   let roleSafe = role;
   // Prefer an explicit role label (e.g. Host / Participant for team meetings).
   if (props.isHost && !roleSafe) roleSafe = 'Supervisor';
@@ -178,11 +180,13 @@ const localName = computed(() => {
 const localProfilePhotoUrl = computed(() => {
   const fromProp = String(props.localProfilePhotoUrl || '').trim();
   if (fromProp) return fromProp;
+  if (supervisionAccessFor(props.sessionId)) return '';
   const u = authStore.user || {};
   return String(u.profile_photo_url || u.profilePhotoUrl || '').trim();
 });
 
 defineExpose({
+  getTranscriptionStream: () => videoRoomRef.value?.getTranscriptionStream?.(),
   toggleMic: (...args) => videoRoomRef.value?.toggleMic?.(...args),
   toggleCamera: (...args) => videoRoomRef.value?.toggleCamera?.(...args),
   toggleScreenShare: (...args) => videoRoomRef.value?.toggleScreenShare?.(...args),

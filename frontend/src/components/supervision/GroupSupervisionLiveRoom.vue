@@ -234,6 +234,7 @@
             <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': transcriptOpen }">▾</span>
           </button>
           <div v-show="transcriptOpen" class="gsl__section-body">
+            <button type="button" class="btn btn-secondary" @click="transcriptPaused ? resumeLiveTranscript() : pauseLiveTranscript()">{{transcriptPaused ? 'Resume transcription' : 'Pause transcription'}}</button>
             <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
             <pre v-if="transcriptCombined" class="gsl__transcript">{{ transcriptCombined }}</pre>
             <p v-else class="gsl__transcript-empty">Transcript will appear here once speech is detected.</p>
@@ -383,6 +384,7 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
+import { supervisionAccessFor } from '../../utils/supervisionInvitationAccess';
 import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
 import SupervisionVideoLobbyPanel from './SupervisionVideoLobbyPanel.vue';
@@ -453,6 +455,9 @@ const {
   viewAsAttendee,
   transcriptHint,
   transcriptCapturing,
+  transcriptPaused,
+  pauseLiveTranscript,
+  resumeLiveTranscript,
   liveTranscriptPreview,
   sessionTranscriptPreview,
   currentSlide,
@@ -473,7 +478,7 @@ const {
   onVideoConnected,
   prevSlide,
   nextSlide
-} = useSupervisionLiveSession(props, emit, { enablePresentation: true, enableActivityFeed: false });
+} = useSupervisionLiveSession(props, emit, { enablePresentation: true, enableActivityFeed: false,getAudioStream:()=>videoRoomRef.value?.getTranscriptionStream?.() });
 
 const editingSlide = ref(false);
 const slideEditDraft = reactive({ bodyHtml: '', presenterNotes: '' });
@@ -574,6 +579,7 @@ const canFacilitate = computed(() => (
 const canEditAgenda = computed(() => {
   if (viewAsAttendee.value) return false;
   if (props.isSupervisor) return true;
+  if (supervisionAccessFor(props.supervisionSessionId)) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support', 'clinical_practice_assistant'].includes(role);
 });
@@ -585,6 +591,7 @@ const canShareScreenByDefault = computed(() => (
 const canGrantScreenShare = computed(() => {
   if (viewAsAttendee.value) return false;
   if (props.isSupervisor) return true;
+  if (supervisionAccessFor(props.supervisionSessionId)) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
   return ['super_admin', 'admin', 'support'].includes(role);
 });

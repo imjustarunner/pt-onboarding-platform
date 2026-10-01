@@ -163,6 +163,8 @@ export async function completeOnboarding(userId, requiredStepKeys = []) {
     if (journey.onboarding_completed_at) { await db.commit(); return getJourney(userId); }
     const { assertPortalStepCompletion } = await import('./hirePortalWorkflow.service.js');
     await assertPortalStepCompletion(userId, 'onboarding', requiredStepKeys, db);
+    const { assertOnboardingSupervisionAgreements } = await import('./supervisionAgreement.service.js');
+    await assertOnboardingSupervisionAgreements(userId, journey.agency_id, db);
     const tasks = (await journeyTasks(userId, user.status, db)).filter((t) => t.phase === 'onboarding');
     if ((!tasks.length && !requiredStepKeys.length) || !taskProgress(tasks).allDone) {
       throw Object.assign(new Error('Complete all required onboarding items before submitting.'), { status: 400 });

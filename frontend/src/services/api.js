@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { attachSupervisionAccess } from '../utils/supervisionInvitationAccess';
+import { attachCounselingAccess } from '../utils/counselingInvitationAccess';
 import { begin as beginGlobalLoading, end as endGlobalLoading } from '../utils/pageLoader';
 import {
   isSchoolOnboardingDemoActive,
@@ -132,6 +134,8 @@ api.interceptors.request.use(
     // Circuit-breaker check must run before anything else (incl. global loading),
     // so a tripped request never begins a loading overlay or touches the network.
     checkRequestStorm(config);
+    attachSupervisionAccess(config);
+    attachCounselingAccess(config);
 
     // School-onboarding Hogwarts demo: rewrite school-portal calls to public demo APIs
     // so the real SchoolPortalView can render without a live login.

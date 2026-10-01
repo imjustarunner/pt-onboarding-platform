@@ -5,7 +5,7 @@
     "video",
     "scheduling"
   ],
-  "status": "Scoped audit and local fixes complete; live launch verification pending",
+  "status": "Scoped fixes and consent implementation complete locally; deployment and live acceptance still required",
   "deployed": false,
   "findings": [
     {
@@ -23,7 +23,7 @@
       "id": "M02",
       "severity": "High",
       "issue": "Anonymous supervision access bypassed personal invitations",
-      "resolution": "Retired guest join, admission, activity and transcript handlers now require sign-in. Removed the browser fallback from failed authentication to anonymous supervision. Candidate-specific interview access remains supported.",
+      "resolution": "Shared anonymous supervision routes remain retired. A recipient-specific invitation exchanges for a short-lived, session-limited grant; it uses the named supervisor/supervisee identity for room role and attendance without a separate app login.",
       "status": "fixed_locally",
       "files": [
         "backend/src/routes/supervisionSessions.routes.js",
@@ -34,7 +34,7 @@
       "id": "M03",
       "severity": "High",
       "issue": "Attendance accepted caller-supplied participant identities",
-      "resolution": "Presence now authorizes the current account and derives its identity on the server. Interview candidate identity is derived from the validated interview token. Unauthenticated ordinary meetings cannot create or close another person\u2019s attendance.",
+      "resolution": "Presence now authorizes the current account and derives its identity on the server. Interview candidate identity is derived from the validated interview token. Unauthenticated ordinary meetings cannot create or close another person\u2019s attendance. Supervision time now starts on a confirmed main-room connection heartbeat, not on token issuance or lobby admission.",
       "status": "fixed_locally",
       "files": [
         "backend/src/controllers/teamMeetings.controller.js",
@@ -139,11 +139,46 @@
         "frontend/src/components/schedule/MeetingLocationOptions.vue",
         "frontend/src/components/schedule/TeamMeetingBody.vue"
       ]
+    },
+    {
+      "id": "M13",
+      "severity": "High",
+      "issue": "Client transcription depended on UI-only consent checks",
+      "resolution": "Provider opt-in and verified signed consent are enforced at audio capture and transcription endpoints. Reuse existing agency audio_recording_consent templates; signed PDFs attach to the client file and support later sessions. Consent withdrawal stops current/future recording until signed again.",
+      "status": "implemented_locally"
+    },
+    {
+      "id": "M14",
+      "severity": "High",
+      "issue": "Browser transcription bypassed configured processing and pause boundaries",
+      "resolution": "Supervision browser speech upload is retired. Selected microphone audio is normalized to WAV (including Safari AAC), sent to configured Cloud Speech, and stored encrypted. Both participants can pause; changed revisions reject in-flight recognition. Final segments drain before host exit/note creation.",
+      "status": "implemented_locally"
+    },
+    {
+      "id": "M15",
+      "severity": "High",
+      "issue": "Supervision agreements were absent from the assignment/onboarding flow",
+      "resolution": "The supplied text is versioned, agency-branded and bound to typed/drawn signatures and private PDFs. The current assigned supervisor and supervisee both sign. Required during onboarding, never prehire; scoped to clinical roles in mental-health agencies. Existing assignments are lazily created on access; a repeatable backfill command is included.",
+      "status": "implemented_locally"
+    },
+    {
+      "id": "M16",
+      "severity": "High",
+      "issue": "Off-platform supervision needed a traceable exception workflow",
+      "resolution": "The Supervision tab accepts manual entries with required reason, modality and validated duration. In-person microphone transcription uses the same consent gates. Hours await current supervisor approval and pass through existing attendance/hour-credit finalization; overlapping attended/manual records are rejected.",
+      "status": "implemented_locally"
+    },
+    {
+      "id": "M17",
+      "severity": "High",
+      "issue": "Client transcripts did not feed the existing clinical writer",
+      "resolution": "Recorded client transcripts call the existing Note Info/Note Aid generation controller. Long transcripts are summarized using Vertex before note generation; saved results are unsigned clinical drafts for provider review. The session stores the draft id to prevent duplicate generation on retries.",
+      "status": "implemented_locally"
     }
   ],
   "retained_compatibility": [
     "Existing room-token columns and old calendar/bookmark routes remain for compatibility. They are not invitations to share and do not independently grant ordinary meeting access.",
-    "Personal invitation tokens still validate the recipient account and current meeting roster on every resolution. Forwarding a personal invitation does not impersonate its recipient.",
+    "Personal supervision and client invitations now act as private bearer links for their named recipient, without an app login. Treat them as private credentials: forwarding permits the recipient\u2019s session identity. They cannot be used as app-wide login tokens. Current roster/client assignment, link rotation and expiry are rechecked on every scoped request.",
     "Interview candidate guest links and clinical client/guardian invitations serve external participants and are distinct from obsolete anonymous staff-supervision access.",
     "Vonage project-key compatibility and historically named roomSid/twilio_room_sid storage remain: the active video adapter uses Vonage. Removing these names without migrating stored sessions could break existing meetings.",
     "Legacy stored reminder settings remain supported without bypassing notification opt-outs. Existing records are not bulk-emailed by this change.",
@@ -158,30 +193,60 @@
     {
       "check": "Database and migration verification",
       "status": "not_performed",
-      "acceptance": "Verify deployed meeting migrations including 1000, 1048, 1473, 1477 and 1478 and current schema compatibility. Run disposable MySQL integration tests with SCHEDULING_TEST_MYSQL_PORT configured; 21 such tests were skipped locally. No production migration or data mutation was performed."
+      "acceptance": "Verify deployed meeting migrations including 1000, 1048, 1473, 1477 and 1478 and current schema compatibility. Run disposable MySQL integration tests with SCHEDULING_TEST_MYSQL_PORT configured; 21 such tests were skipped locally. No production migration or data mutation was performed. Apply 1517_supervision_and_clinical_recording_consent.sql before deploying the new API, then run backend/src/scripts/backfillSupervisionAgreements.js --apply for existing assignments. Confirm PDF storage and encryption keys."
     },
     {
       "check": "Invitation and provider end-to-end smoke test",
       "status": "not_performed",
-      "acceptance": "In staging, create/edit/cancel single and recurring meetings, receive personal invitations for owner and invitee, reject a forwarded link/wrong account and removed invitee, verify reminder opt-outs, test Google Meet selection and candidate access, and check attendance after waiting, leaving and rejoining."
+      "acceptance": "In staging, create/edit/cancel single and recurring meetings, receive personal invitations for owner and invitee, verify personal bearer-link identity and reject a rotated link, removed invitee, or changed appointment client, verify reminder opt-outs, test Google Meet selection and candidate access, and check attendance after waiting, leaving and rejoining."
     },
     {
       "check": "Deployment",
       "status": "not_performed",
-      "acceptance": "Changes are local. Release and verify the frontend and backend together before launch; already-issued SDK credentials may remain valid until disconnect/expiry."
+      "acceptance": "Commit/push does not deploy. Release schema, backend and frontend together. Verify unsigned consent blocks recording, both signatures are retained, pause during cloud processing rejects the segment, two-party audio is captured, manual approved hours count once, and a reviewed clinical draft is created."
+    },
+    {
+      "check": "Cloud processing and health-data configuration",
+      "status": "not_verified_in_production",
+      "acceptance": "Confirm executed BAAs and eligible Cloud Speech/Vertex services, disabled speech data logging, private audio/PDF storage, retention/deletion policy and encryption keys. Code changes alone do not certify HIPAA compliance. Test actual Cloud Speech, signed-PDF upload and Vertex generation in staging."
     }
   ],
   "verification": {
-    "backend_passed": 320,
+    "backend_passed": 394,
     "backend_database_tests_skipped": 21,
-    "frontend_passed": 61,
+    "frontend_passed": 81,
     "attendance_node_test_passed": 1,
     "production_build": "passed",
-    "production_build_command": "NODE_OPTIONS=--max-old-space-size=8192 ./node_modules/.bin/vite build --outDir /tmp/meeting-launch-release-check",
+    "production_build_command": "NODE_OPTIONS=--max-old-space-size=8192 node --input-type=module -e 'import {build} from \"./frontend/node_modules/vite/dist/node/index.js\"; await build({configFile:\"frontend/vite.config.js\",build:{outDir:\"/tmp/meeting-consent-build\",copyPublicDir:false}})'",
     "backend_command": "../frontend/node_modules/.bin/vitest run --config vitest.meeting-launch.config.js",
-    "frontend_command": "./node_modules/.bin/vitest run src/components/video/__tests__ src/components/schedule/__tests__ src/components/supervision/__tests__/SupervisionVideoLobbyPanel.test.js",
+    "frontend_command": "./node_modules/.bin/vitest run src/components/video/__tests__ src/components/schedule/__tests__ src/components/supervision/__tests__/SupervisionVideoLobbyPanel.test.js src/components/supervision/__tests__/SupervisionPersonalIdentity.test.js src/composables/__tests__/supervisionPersonalEntry.test.js src/composables/__tests__/consentedAudioCapture.test.js src/utils/__tests__/meetingAudio.test.js src/utils/__tests__/supervisionInvitationAccess.test.js src/views/teamMeeting/__tests__/personalInvitation.test.js",
     "attendance_command": "NODE_ENV=test node --test --test-force-exit src/services/__tests__/meetingAttendanceSegments.service.test.js",
     "browser_evidence": "../meeting-cleanup-verification/verification.json",
     "limitations": "Tests use synthetic data, mocked database/provider calls and simulated media tracks. The Node attendance calculation check passed with test-mode database connection disabled; force-exit avoids the existing pool timer. No real participant audio, real email delivery, production database or deployment was exercised."
-  }
+  },
+  "personal_entry_and_consent_checks": {
+    "backend_passed": 394,
+    "backend_database_skipped": 21,
+    "frontend_passed": 81,
+    "build_passed": true,
+    "build_note": "Production JavaScript bundle, copyPublicDir=false to avoid copying unchanged static assets on the nearly full local disk; existing chunk-size warnings remain.",
+    "browser": {
+      "url": "http://localhost:5189/counseling/session/test-client-session",
+      "loggedIn": false,
+      "personalJoinRequested": true,
+      "sessionRequestsScoped": true,
+      "unsignedWaiverHidden": true,
+      "errors": []
+    },
+    "pdf_preview": "supervision-agreement-example.pdf",
+    "live_audio_and_cloud_calls": "not performed",
+    "database_migration": "not applied",
+    "attendance_passed": 1,
+    "commit_candidate_backend_passed": 394,
+    "migration_parser_statements": 12
+  },
+  "health_data_sources": [
+    "https://www.hhs.gov/hipaa/for-professionals/special-topics/health-information-technology/cloud-computing/index.html",
+    "https://docs.cloud.google.com/docs/security/compliance/hipaa"
+  ]
 }

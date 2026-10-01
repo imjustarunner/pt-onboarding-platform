@@ -68,17 +68,20 @@ export async function sendMeetingScheduleChange(rawEvents, action) {
 // Re-check the live roster on every click/send. Removed invitees cannot reuse an old link.
 export async function invitationEvents(invitation) {
   if (invitation.meeting_type === 'supervision') {
-    const [rows] = await pool.execute(`SELECT s.*, COALESCE(s.event_timezone,(SELECT timezone FROM agencies WHERE id=s.agency_id),'America/Denver') AS event_timezone FROM supervision_sessions s
+    const [rows] = await pool.execute(`SELECT s.*, COALESCE(s.event_timezone,(SELECT timezone FROM agencies WHERE id=s.agency_id),'America/Denver') AS event_timezone,
+      EXISTS(SELECT 1 FROM supervision_session_join_presence presence WHERE presence.session_id=s.id
+        AND presence.left_at IS NULL AND presence.last_seen_at>DATE_SUB(UTC_TIMESTAMP(),INTERVAL 2 MINUTE)) AS has_live_presence
+      FROM supervision_sessions s
       JOIN supervision_sessions anchor ON anchor.id=?
       WHERE s.agency_id=? AND s.supervisor_user_id=? AND s.status IN ('SCHEDULED','IN_PROGRESS')
         AND EXISTS(SELECT 1 FROM agencies org WHERE org.id=s.agency_id AND org.is_active=1)
         AND (s.id=anchor.id OR (anchor.recurrence_series_id IS NOT NULL AND s.recurrence_series_id=anchor.recurrence_series_id))
-        AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR
+        AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR s.supervisee_user_id=? OR
           EXISTS(SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=? AND a.status NOT IN ('DECLINED','REMOVED','CANCELLED','WITHDRAWN')))
         AND EXISTS(SELECT 1 FROM users u WHERE u.id=?
           AND (u.role IN ('super_admin','superadmin') OR EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=s.agency_id AND ua.is_active=1))
           AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED'))
-      ORDER BY s.start_at,s.id`,[invitation.event_id,invitation.agency_id,invitation.provider_id,invitation.user_id,invitation.user_id,invitation.user_id,invitation.user_id]);
+      ORDER BY s.start_at,s.id`,[invitation.event_id,invitation.agency_id,invitation.provider_id,invitation.user_id,invitation.user_id,invitation.user_id,invitation.user_id,invitation.user_id]);
     return rows.map(normalizeInvitationEvent);
   }
   const [rows] = await pool.execute(`SELECT p.*,

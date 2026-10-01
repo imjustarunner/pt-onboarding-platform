@@ -2970,6 +2970,10 @@ function unlockAllMics() {
 }
 
 defineExpose({
+  getTranscriptionStream: () => {
+    const track = publisher?.getAudioSource?.();
+    return publishAudio.value && track?.readyState === 'live' ? new MediaStream([track]) : null;
+  },
   connect,
   disconnect,
   toggleMic,

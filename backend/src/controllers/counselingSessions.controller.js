@@ -86,7 +86,7 @@ async function loadAgencyFlags(agencyId) {
   return parseFeatureFlags(rows?.[0]?.feature_flags);
 }
 
-async function assertSessionAccess(req, sessionIdOrPublic, { allowOpenClientSeat = false } = {}) {
+export async function assertSessionAccess(req, sessionIdOrPublic, { allowOpenClientSeat = false } = {}) {
   const session = await CounselingSession.findByIdOrPublicId(sessionIdOrPublic);
   if (!session) {
     const err = new Error('Session not found');
@@ -97,6 +97,10 @@ async function assertSessionAccess(req, sessionIdOrPublic, { allowOpenClientSeat
   if (!session.public_id) {
     const ensured = await CounselingSession.ensurePublicId(session.id);
     if (ensured) Object.assign(session, ensured);
+  }
+  if (req.counselingInvitationAccess) {
+    if(Number(req.counselingInvitationAccess.sessionId)!==Number(session.id))throw Object.assign(new Error('Access denied.'),{status:403});
+    return {session,participantRole:'client'};
   }
   const role = String(req.user?.role || '').toLowerCase();
   if (role === 'super_admin') {
@@ -563,6 +567,7 @@ export async function joinSession(req, res) {
     // Clients must enter via invite token accept first (sets client_user_id).
     // Guessing /session/123 must not auto-claim an empty seat.
     const { session, participantRole } = await assertSessionAccess(req, req.params.sessionId);
+    if(session.status==='ended')return res.status(410).json({error:{message:'This session has ended.'}});
     let vonageSessionId = session.vonage_session_id;
     let roomUniqueName = session.room_unique_name || `counseling-${session.id}`;
 
@@ -600,6 +605,7 @@ export async function getVideoToken(req, res) {
   try {
     // Strict participant check — never allow "open seat" claim via video-token.
     const { session, participantRole } = await assertSessionAccess(req, req.params.sessionId);
+    if(session.status==='ended')return res.status(410).json({error:{message:'This session has ended.'}});
     if (!isVideoConfigured()) {
       return res.status(503).json({
         error: { message: 'Video is not configured' },
@@ -658,7 +664,7 @@ export async function getVideoToken(req, res) {
       });
     }
 
-    const identity = `user-${req.user.id}-${participantRole}`;
+    const identity = req.counselingInvitationAccess ? `client-${req.counselingInvitationAccess.clientId}` : `user-${req.user.id}-${participantRole}`;
     const token = await createAccessTokenAsync({
       roomSid: vonageSessionId,
       identity,
@@ -698,7 +704,7 @@ export async function endSession(req, res) {
   try {
     const { session, participantRole } = await assertSessionAccess(req, req.params.sessionId);
     if (participantRole !== 'provider' && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
-      // Client may end with confirmation — allowed per spec
+      return res.status(403).json({error:{message:'Only the provider can end this session for everyone.'}});
     }
     const updated = await CounselingSession.update(session.id, {
       status: 'ended',

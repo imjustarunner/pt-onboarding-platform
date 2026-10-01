@@ -284,11 +284,11 @@
       <div class="isl__transcript-drawer-head">
         <h2>Transcript</h2>
         <div class="isl__card-actions">
-          <template v-if="isSupervisor">
+          <template>
             <button type="button" class="isl__ghost" @click="onTranscriptPauseResume">
               {{ transcriptPaused ? 'Resume' : 'Pause' }}
             </button>
-            <button type="button" class="isl__ghost" @click="onTranscriptStop">Stop</button>
+            <button v-if="isSupervisor" type="button" class="isl__ghost" @click="onTranscriptStop">Stop</button>
           </template>
           <button type="button" class="isl__ghost" @click="transcriptOpen = false">Close</button>
         </div>
@@ -299,7 +299,7 @@
         class="isl__label"
       >
         {{ isSupervisor
-          ? 'Listening on your mic. Supervisee speech only appears if their browser is also capturing.'
+          ? 'Transcribing your microphone. Other participants’ speech appears while their microphone transcription is active.'
           : 'Only your mic is transcribed on this device — if this stays empty while you talk, reload after joining.' }}
       </p>
       <pre v-if="transcriptCombined" class="isl__transcript-pre">{{ transcriptCombined }}</pre>
@@ -373,7 +373,7 @@ const {
   postTopic,
   postChat,
   upvote
-} = useSupervisionLiveSession(props, emit, { enablePresentation: false });
+} = useSupervisionLiveSession(props, emit, { enablePresentation: false, getAudioStream:()=>videoRoomRef.value?.getTranscriptionStream?.() });
 
 const showTranscriptionNotice = computed(() => (
   !transcriptionNoticeDismissed.value
@@ -647,23 +647,11 @@ function onParticipantLeft() {
 }
 
 async function onTranscriptPauseResume() {
-  if (transcriptPaused.value) {
-    await resumeLiveTranscript();
-    videoRoomRef.value?.signalTranscriptControl?.({ action: 'resume' });
-    try {
-      await api.post(`/supervision/sessions/${numericSessionId.value || props.supervisionSessionId}/transcript-control`, {
-        action: 'resume'
-      }, { skipGlobalLoading: true });
-    } catch { /* ignore */ }
-  } else {
-    await pauseLiveTranscript();
-    videoRoomRef.value?.signalTranscriptControl?.({ action: 'pause' });
-    try {
-      await api.post(`/supervision/sessions/${numericSessionId.value || props.supervisionSessionId}/transcript-control`, {
-        action: 'pause'
-      }, { skipGlobalLoading: true });
-    } catch { /* ignore */ }
-  }
+  try {
+    const action = transcriptPaused.value ? 'resume' : 'pause';
+    if (action === 'pause') await pauseLiveTranscript(); else await resumeLiveTranscript();
+    videoRoomRef.value?.signalTranscriptControl?.({ action });
+  } catch (e) { transcriptHint.value = e.response?.data?.error?.message || 'Unable to change transcription.'; }
 }
 
 async function onTranscriptStop() {

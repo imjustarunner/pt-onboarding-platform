@@ -1,3 +1,4 @@
+import { setMeetingTranscription } from './meetingTranscription.controller.js';
 import { requirePersonalSupervisionInvitation, canJoinSupervision, hasActiveMeetingMembership, roomUnavailable } from '../services/meetingJoinPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
@@ -160,51 +161,6 @@ async function ensureSupervisionAttendanceSegmentOpen({
     joinIdentity: identity,
     eventType: 'joined'
   });
-}
-
-/**
- * When supervision commences, align attendance for everyone actively in the main room.
- * People who are only waiting in the lobby are deliberately excluded.
- */
-async function commenceSupervisionAttendance({ sessionRow, sessionId, includeUserIds = [] }) {
-  const sid = Number(sessionId || sessionRow?.id || 0);
-  if (!sid || !sessionRow) return { opened: 0 };
-  const activeIds = await getActiveSupervisionPresenceUserIds(sid);
-  const userIds = new Set([
-    ...(activeIds || []),
-    ...(includeUserIds || [])
-  ].map(Number).filter((uid) => uid > 0));
-  const facilitatorIds = new Set([
-    Number(sessionRow.supervisor_user_id || 0),
-    Number(sessionRow.co_facilitator_user_id || 0)
-  ].filter((uid) => uid > 0));
-
-  let opened = 0;
-  for (const uid of userIds) {
-    const identity = `user-${uid}`;
-    // eslint-disable-next-line no-await-in-loop
-    const isMainRoom = facilitatorIds.has(uid) || await isUserAdmittedToSupervision({
-      sessionId: sid,
-      userId: uid,
-      joinIdentity: identity
-    });
-    if (!isMainRoom) continue;
-    // Facilitators normally receive an admission on token mint; repair it if necessary so
-    // the attendance helper uses one consistent main-room rule.
-    if (facilitatorIds.has(uid)) {
-      // eslint-disable-next-line no-await-in-loop
-      await admitSupervisionJoinIdentity({ sessionId: sid, userId: uid, joinIdentity: identity });
-    }
-    // eslint-disable-next-line no-await-in-loop
-    const result = await ensureSupervisionAttendanceSegmentOpen({
-      sessionRow,
-      sessionId: sid,
-      userId: uid,
-      joinIdentity: identity
-    });
-    if (result) opened += 1;
-  }
-  return { opened };
 }
 
 async function loadSupervisionPresenceByUser(sessionId, {
@@ -1224,7 +1180,7 @@ async function recomputeAttendanceRollupForUser({
   };
 }
 
-async function finalizeSupervisionSession({
+export async function finalizeSupervisionSession({
   sessionId,
   actorUserId = null,
   source = 'manual_submit',
@@ -1235,6 +1191,11 @@ async function finalizeSupervisionSession({
   const row = await SupervisionSession.findById(sid);
   if (!row) return null;
   const status = String(row.status || '').trim().toUpperCase();
+  if (status === 'MANUAL_RECORDING') throw Object.assign(new Error('Finish the in-person recording first.'), {status:409});
+  if (status === 'MANUAL_PENDING') {
+    const [[entry]] = await pool.execute('SELECT approved_at FROM supervision_manual_entries WHERE session_id=?',[sid]);
+    if (!entry?.approved_at) throw Object.assign(new Error('The assigned supervisor must approve this manual entry.'), {status:403});
+  }
   if (status === 'CANCELLED' || status === 'RESCHEDULED') {
     return { skipped: true, reason: 'not_finalizable', session: row };
   }
@@ -2262,7 +2223,7 @@ export const postSupervisionJoinPresence = async (req, res, next) => {
       });
       if (userId) {
         const admitted = await isUserAdmittedToSupervision({ sessionId: id, userId, joinIdentity: identity });
-        if (admitted) {
+        if (admitted && req.body?.inMainRoom === true) {
           await ensureSupervisionAttendanceSegmentOpen({
             sessionRow: row,
             sessionId: id,
@@ -2550,9 +2511,9 @@ export const getSupervisionVideoToken = async (req, res, next) => {
     const displayName = displayNameFromUser(actorProfile || req.user) || identity;
     const profilePhotoUrl = await profilePhotoUrlForUserId(actorUserId);
 
-    // Host and assigned presenters always bypass the waiting room so their presence/attendance
-    // accrues immediately — a presenter should never be missing from the attendance list.
-    if (isSupervisor || isPresenter) {
+    // Hosts and presenters bypass the waiting room. Attendance starts only after
+    // the browser confirms a successful main-room video connection.
+    if (isSupervisor || isPresenter || !waitingRoomOn) {
       try {
         await admitSupervisionJoinIdentity({
           sessionId: id,
@@ -2564,7 +2525,7 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       }
     }
 
-    const admitted = isSupervisor || isPresenter
+    const admitted = isSupervisor || isPresenter || !waitingRoomOn
       || await isUserAdmittedToSupervision({ sessionId: id, userId: actorUserId, joinIdentity: identity });
 
     // Hosts and presenters always main. Everyone else waits in lobby when waiting room is on
@@ -2646,19 +2607,6 @@ export const getSupervisionVideoToken = async (req, res, next) => {
       displayName,
       isGuest: false
     });
-
-    if (!useLobby && admitted) {
-      try {
-        await ensureSupervisionAttendanceSegmentOpen({
-          sessionRow: row,
-          sessionId: id,
-          userId: actorUserId,
-          joinIdentity: identity
-        });
-      } catch {
-        /* ignore */
-      }
-    }
 
     const sessionTitle = await buildSupervisionSessionTitle(id, row);
     const hostStatus = useLobby && !isSupervisor ? await buildWaitingRoomHostStatus(row) : null;
@@ -2825,25 +2773,12 @@ export const admitToMainRoom = async (req, res, next) => {
       return res.status(500).json({ error: { message: 'Failed to admit participant' } });
     }
 
-    let attendance = null;
-    if (userIdNum) {
-      try {
-        attendance = await commenceSupervisionAttendance({
-          sessionRow: row,
-          sessionId: id,
-          includeUserIds: [userIdNum]
-        });
-      } catch {
-        /* ignore */
-      }
-    }
-
     res.json({
       ok: true,
       admitted: userIdNum || joinIdentity,
       joinIdentity,
       meetingCommenced: true,
-      attendanceStartedCount: Number(attendance?.opened || 0)
+      attendanceStartedCount: 0
     });
   } catch (e) {
     next(e);
@@ -2885,29 +2820,8 @@ export const setSupervisionWaitingRoomLive = async (req, res, next) => {
         });
         if (ok) {
           admittedCount += 1;
-          if (p.userId) {
-            try {
-              // eslint-disable-next-line no-await-in-loop
-              await ensureSupervisionAttendanceSegmentOpen({
-                sessionRow: row,
-                sessionId: id,
-                userId: p.userId,
-                joinIdentity: p.joinIdentity
-              });
-            } catch {
-              /* ignore */
-            }
-          }
-        }
-      }
-    }
 
-    let attendance = null;
-    if (!enabled && admitWaiting) {
-      try {
-        attendance = await commenceSupervisionAttendance({ sessionRow: row, sessionId: id });
-      } catch (e) {
-        console.warn('[supervision] attendance open on waiting-room release failed', e?.message || e);
+        }
       }
     }
 
@@ -2917,7 +2831,7 @@ export const setSupervisionWaitingRoomLive = async (req, res, next) => {
       waitingRoomEnabled: isWaitingRoomEnabled(fresh || row),
       admittedCount,
       meetingCommenced: !enabled && admitWaiting,
-      attendanceStartedCount: Number(attendance?.opened || 0)
+      attendanceStartedCount: 0
     });
   } catch (e) {
     next(e);
@@ -3075,16 +2989,6 @@ export const getAdmissionStatus = async (req, res, next) => {
     if (!payload) {
       return res.status(500).json({ error: { message: 'Failed to get main room' } });
     }
-    try {
-      await ensureSupervisionAttendanceSegmentOpen({
-        sessionRow: row,
-        sessionId: id,
-        userId: actorUserId,
-        joinIdentity: identity
-      });
-    } catch {
-      /* ignore */
-    }
     res.json(payload);
   } catch (e) {
     next(e);
@@ -3112,40 +3016,10 @@ async function upsertSessionTranscriptText({
     ? `[${label}] ${chunk}`
     : chunk;
 
-  await SupervisionSessionArtifact.ensureTagged({ sessionId: sid });
-  const existing = await SupervisionSessionArtifact.findBySessionId(sid);
-  if (!replace) {
-    if (existing?.transcript_stopped_at) {
-      const err = new Error('Transcription was stopped for this session.');
-      err.status = 409;
-      err.transcriptStoppedAt = existing.transcript_stopped_at;
-      err.transcriptStoppedByName = existing.transcript_stopped_by_name || null;
-      throw err;
-    }
-    if (existing?.transcript_paused === 1 || existing?.transcript_paused === true) {
-      const err = new Error('Transcription is paused.');
-      err.status = 409;
-      err.transcriptPaused = true;
-      throw err;
-    }
-  }
-
-  // Re-read immediately before write to reduce lost updates when both parties flush.
-  const fresh = await SupervisionSessionArtifact.findBySessionId(sid);
-  let nextText = stamped;
-  if (!replace) {
-    const prev = String(fresh?.transcript_text || existing?.transcript_text || '').trim();
-    if (prev) {
-      if (prev.includes(stamped)) nextText = prev;
-      else nextText = `${prev}\n${stamped}`;
-    }
-  }
-
-  await SupervisionSessionArtifact.upsertBySessionId({
-    sessionId: sid,
-    transcriptText: nextText.slice(0, 120000),
-    updatedByUserId: updatedByUserId ? Number(updatedByUserId) : null
-  });
+  const saved = replace
+    ? await SupervisionSessionArtifact.upsertBySessionId({ sessionId: sid, transcriptText: stamped.slice(0, 120000), updatedByUserId })
+    : await SupervisionSessionArtifact.appendTranscriptChunk({ sessionId: sid, text: stamped, updatedByUserId });
+  const nextText = String(saved?.transcriptText || saved?.transcript_text || '');
 
   // Mid-session: do not block the flush on Gemini (was locking in one-sided summaries).
   // Final flush / finalize: regenerate after a short delay so peer chunks can land.
@@ -3176,136 +3050,10 @@ function scheduleSupervisionTranscriptSummary(sessionId, { force = false, delayM
   supervisionSummaryTimers.set(sid, { timer, force: !!force });
 }
 
-export const saveClientTranscript = async (req, res, next) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
-
-    const row = await SupervisionSession.findById(id);
-    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
-
-    const ok = await canScheduleSession(req, {
-      agencyId: row.agency_id,
-      supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id,
-      sessionId: id
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const transcript = String(req.body?.transcript || '').trim();
-    if (!transcript) return res.status(400).json({ error: { message: 'transcript is required' } });
-
-    const out = await upsertSessionTranscriptText({
-      sessionId: id,
-      transcript,
-      speakerLabel: req.body?.speakerLabel || req.body?.displayName || null,
-      updatedByUserId: Number(req.user?.id || 0) || null,
-      replace: req.body?.replace === true,
-      final: req.body?.final === true
-    });
-
-    res.json({ ok: true, sessionId: id, chars: out?.chars || 0 });
-  } catch (e) {
-    if (e?.status === 409) {
-      return res.status(409).json({
-        error: { message: e.message },
-        transcriptPaused: !!e.transcriptPaused,
-        transcriptStoppedAt: e.transcriptStoppedAt || null,
-        transcriptStoppedByName: e.transcriptStoppedByName || null
-      });
-    }
-    next(e);
-  }
-};
+export const saveClientTranscript = async (req, res) => res.status(410).json({error:{message:'Browser speech transcription has been retired. Reopen the session to use consent-controlled audio transcription.'}});
 
 /** POST /api/supervision/sessions/:id/transcript-control — pause | resume | stop (supervisor) */
-export const postSupervisionTranscriptControl = async (req, res, next) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (!id) return res.status(400).json({ error: { message: 'Invalid session id' } });
-    const row = await SupervisionSession.findById(id);
-    if (!row) return res.status(404).json({ error: { message: 'Session not found' } });
-
-    const actorId = Number(req.user?.id || 0);
-    if (!actorId) return res.status(401).json({ error: { message: 'Not authenticated' } });
-
-    const canControl = await canFacilitateSupervisionRow(req, row);
-    if (!canControl) {
-      return res.status(403).json({ error: { message: 'Only the supervisor/facilitator can control transcription.' } });
-    }
-
-    const action = String(req.body?.action || '').trim().toLowerCase();
-    if (!['pause', 'resume', 'stop'].includes(action)) {
-      return res.status(400).json({ error: { message: "action must be 'pause', 'resume', or 'stop'" } });
-    }
-
-    await SupervisionSessionArtifact.ensureTagged({ sessionId: id, updatedByUserId: actorId });
-    const existing = await SupervisionSessionArtifact.findBySessionId(id);
-    if (existing?.transcript_stopped_at && action !== 'stop') {
-      return res.status(400).json({
-        error: { message: 'Transcription was stopped and cannot be resumed.' },
-        transcriptStoppedAt: existing.transcript_stopped_at,
-        transcriptStoppedByName: existing.transcript_stopped_by_name || null
-      });
-    }
-
-    const displayName = String(
-      req.body?.displayName
-        || `${req.user?.firstName || req.user?.first_name || ''} ${req.user?.lastName || req.user?.last_name || ''}`.trim()
-        || req.user?.email
-        || ''
-    ).trim().slice(0, 255) || `User ${actorId}`;
-
-    const now = mysqlNowDateTime();
-    if (action === 'pause') {
-      await pool.execute(
-        `UPDATE supervision_session_artifacts
-         SET transcript_paused = 1, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE session_id = ? LIMIT 1`,
-        [actorId, id]
-      );
-    } else if (action === 'resume') {
-      await pool.execute(
-        `UPDATE supervision_session_artifacts
-         SET transcript_paused = 0, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE session_id = ? LIMIT 1`,
-        [actorId, id]
-      );
-    } else {
-      await pool.execute(
-        `UPDATE supervision_session_artifacts
-         SET transcript_paused = 0,
-             transcript_stopped_at = COALESCE(transcript_stopped_at, ?),
-             transcript_stopped_by_user_id = COALESCE(transcript_stopped_by_user_id, ?),
-             transcript_stopped_by_name = COALESCE(transcript_stopped_by_name, ?),
-             updated_by_user_id = ?,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE session_id = ? LIMIT 1`,
-        [now, actorId, displayName, actorId, id]
-      );
-    }
-
-    const artifact = await SupervisionSessionArtifact.findBySessionId(id);
-    res.json({
-      ok: true,
-      sessionId: id,
-      action,
-      transcriptPaused: !!(artifact?.transcript_paused === 1 || artifact?.transcript_paused === true),
-      transcriptStoppedAt: artifact?.transcript_stopped_at || null,
-      transcriptStoppedByUserId: artifact?.transcript_stopped_by_user_id
-        ? Number(artifact.transcript_stopped_by_user_id)
-        : null,
-      transcriptStoppedByName: artifact?.transcript_stopped_by_name || null
-    });
-  } catch (e) {
-    if (e?.code === 'ER_BAD_FIELD_ERROR') {
-      return res.status(503).json({
-        error: { message: 'Transcript control requires migration 1095.' }
-      });
-    }
-    next(e);
-  }
-};
+export const postSupervisionTranscriptControl = setMeetingTranscription;
 
 /**
  * Public guest transcript flush (opaque join_token only).
@@ -3609,6 +3357,10 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
     const transcriptTextInput = req.body?.transcriptText;
     const summaryTextInput = req.body?.summaryText;
     const autoSummarize = req.body?.autoSummarize === true;
+    if (req.supervisionInvitationAccess
+      && (transcriptUrlInput !== undefined || transcriptTextInput !== undefined || summaryTextInput !== undefined || autoSummarize)) {
+      return res.status(403).json({ error: { message: 'Personal session links can add live speech but cannot replace the transcript or summary.' } });
+    }
     const focusTitleInput = req.body?.focusTitle ?? req.body?.focus_title;
     const goalsInput = req.body?.goals ?? req.body?.goalsJson ?? req.body?.goals_json;
     const actionItemsInput = req.body?.actionItems ?? req.body?.actionItemsJson ?? req.body?.action_items_json;
@@ -4194,7 +3946,7 @@ export const createSupervisionSession = async (req, res, next) => {
     let invitationWarning = null;
     if (notifyParticipants) {
       const attendees = await SupervisionSession.listAttendees(created.id);
-      const delivery = await queueMeetingInvitations(out,[supervisorUserId,...attendees.map(a=>a.user_id)]);
+      const delivery = await queueMeetingInvitations(out,[supervisorUserId,out.supervisee_user_id,out.co_facilitator_user_id,...attendees.map(a=>a.user_id)]);
       if (delivery.failed) invitationWarning = 'Session saved, but some app invitations could not be queued. Please contact support before relying on email delivery.';
     }
 
