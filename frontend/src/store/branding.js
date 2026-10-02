@@ -1489,6 +1489,37 @@ export const useBrandingStore = defineStore('branding', () => {
     return parent || org;
   };
 
+  // Keep icon scope aligned with the route/host branding, even while a stale
+  // tenant remains in localStorage. Prefer hydrated rows over membership summaries.
+  const dashboardIconOrganization = computed(() => {
+    const slug = settingsTenantPickerBrandingActive.value ? '' : normalizePortalKey(activeWorkspaceSlug.value);
+    const rows = [agencyStore.currentAgency, ...(agencyStore.agencies || []), ...(agencyStore.userAgencies || [])];
+    const match = slug ? rows.find((org) => agencyPortalKey(org) === slug) : agencyStore.currentAgency;
+    if (!match) return null;
+    const full = (agencyStore.agencies || []).find((org) => Number(org.id) === Number(match.id));
+    return { ...match, ...full };
+  });
+
+  const dashboardIconEditingTarget = computed(() => {
+    if (dashboardIconOrganization.value) return dashboardIconOrganization.value;
+    // A tenant theme still loading must never turn an edit into a platform write.
+    if (activeWorkspaceSlug.value || !platformBranding.value?.id) return null;
+    return { id: null, name: platformBranding.value.organization_name || 'Plot Twist HQ', isPlatform: true };
+  });
+  const getDashboardIconOverrideId = (surface, key, organization = undefined) => {
+    const org = organization === undefined ? dashboardIconOrganization.value : resolveOrganizationParamForIcons(organization);
+    if (org) return parseThemeSettingsObject(org)?.dashboardIconOverrides?.[surface]?.[key] || null;
+    const raw = platformBranding.value?.dashboard_icon_overrides;
+    try {
+      const overrides = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      return overrides?.[surface]?.[key] || null;
+    } catch { return null; }
+  };
+  const getDashboardIconOverrideUrl = (surface, key, organization = undefined) => {
+    const id = getDashboardIconOverrideId(surface, key, organization);
+    return id ? iconUrlById(id) : null;
+  };
+
   // Get icon URL for a specific "My Dashboard" card
   // Priority: org-level icon > platform-level icon > null
   // organization param is tri-state:
@@ -1526,7 +1557,7 @@ export const useBrandingStore = defineStore('branding', () => {
 
     const idField = field.replace(/_icon_path$/, '_icon_id');
     const orgParam = resolveOrganizationParamForIcons(organization);
-    const orgBase = orgParam === undefined ? agencyStore.currentAgency : orgParam;
+    const orgBase = orgParam === undefined ? dashboardIconOrganization.value : orgParam;
     const org = resolveIconSourceOrganization(orgBase);
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
@@ -1629,7 +1660,7 @@ export const useBrandingStore = defineStore('branding', () => {
     if (!field) return null;
     const idField = field.replace(/_icon_path$/, '_icon_id');
 
-    const org = resolveIconSourceOrganization(agencyOverride || agencyStore.currentAgency);
+    const org = resolveIconSourceOrganization(agencyOverride || dashboardIconOrganization.value);
     if (org?.[field]) return toUploadsUrl(org[field]);
     if (org?.[idField]) {
       const url = iconUrlById(org[idField]);
@@ -1775,6 +1806,10 @@ export const useBrandingStore = defineStore('branding', () => {
     getNotificationIconUrl,
     getOrganizationChromeIconUrl,
     getOrganizationOwnIconUrl,
+    dashboardIconOrganization,
+    dashboardIconEditingTarget,
+    getDashboardIconOverrideId,
+    getDashboardIconOverrideUrl,
     getDashboardCardIconUrl,
     getSchoolPortalCardIconUrl,
     getAdminQuickActionIconUrl,

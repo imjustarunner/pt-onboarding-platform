@@ -1,3 +1,4 @@
+import { updatePlatformDashboardIcon } from '../controllers/dashboardIcons.controller.js';
 import express from 'express';
 import multer from 'multer';
 import { publishLegalDocument } from '../controllers/platformLegalDocuments.controller.js';
@@ -18,6 +19,7 @@ router.get('/', getPlatformBranding);
 // Update requires authentication and super admin role
 router.use(authenticate);
 router.use(requireSuperAdmin);
+router.put('/dashboard-icons', updatePlatformDashboardIcon);
 
 const legalUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024, files: 1, fields: 1 } }).single('file');
 router.post('/legal-documents/:docType', (req, res, next) => {

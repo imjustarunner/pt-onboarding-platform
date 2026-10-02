@@ -32,8 +32,8 @@
 
     <!-- Teleport out of parent forms/fieldsets so Select isn't blocked by nested modals -->
     <Teleport to="body">
-    <div v-if="showModal" class="modal-overlay" @click.self="closeModal">
-      <div class="modal-content large" @click.stop>
+    <div v-if="showModal" class="modal-overlay" @click.self="closeModal" @keydown.esc.stop="closeModal">
+      <div class="modal-content large" role="dialog" aria-modal="true" aria-label="Select icon" @click.stop>
         <div class="modal-header">
           <h3>Select Icon</h3>
           <button type="button" @click="closeModal" class="btn-close">×</button>
@@ -108,7 +108,11 @@
               v-for="icon in filteredIcons"
               :key="icon.id"
               :class="['icon-item', { selected: tempSelectedIcon?.id === icon.id || iconIdsMatch(props.modelValue, icon.id) }]"
+              role="button"
+              tabindex="0"
               @click="selectIcon(icon)"
+              @keydown.enter.prevent="selectIcon(icon)"
+              @keydown.space.prevent="selectIcon(icon)"
             >
               <img :src="getIconUrl(icon)" :alt="icon.name" class="icon-img" />
               <span v-if="useSummitClubIcons && icon.scope" class="icon-scope-badge">{{ summitScopeLabel(icon) }}</span>

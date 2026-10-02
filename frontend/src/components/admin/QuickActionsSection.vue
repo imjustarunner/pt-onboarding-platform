@@ -32,9 +32,8 @@
     </div>
 
     <div class="actions-grid">
+      <div v-for="action in displayedActions" :key="action.id" class="action-entry">
       <router-link
-        v-for="action in displayedActions"
-        :key="action.id"
         :to="action.to"
         class="action-card"
         :class="`heat-${heatLevel(action.id)}`"
@@ -43,7 +42,8 @@
       >
         <div class="action-icon-wrap">
           <img
-            v-if="iconUrl(action) && !failedIconIds.has(String(action.id))"
+            v-if="iconUrl(action) && !failedIconIds.has(iconUrl(action))"
+            :key="iconUrl(action)"
             :src="iconUrl(action)"
             :alt="`${action.title} icon`"
             class="action-icon"
@@ -66,6 +66,8 @@
           </span>
         </div>
       </router-link>
+      <DashboardIconEditor surface="admin" :icon-key="String(action.id)" :label="action.title" :current-url="iconUrl(action)" />
+      </div>
     </div>
 
     <!-- Customizer modal -->
@@ -155,6 +157,8 @@
 
 <script setup>
 import { computed, ref, watch, onMounted } from 'vue';
+import DashboardIconEditor from './DashboardIconEditor.vue';
+import { useBrandingStore } from '../../store/branding';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { fireTabEvent } from '../../utils/tabEventBeacon.js';
@@ -188,6 +192,7 @@ const props = defineProps({
 
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const brandingStore = useBrandingStore();
 
 const showCustomizer = ref(false);
 const search = ref('');
@@ -263,6 +268,8 @@ const failedIconIds = ref(new Set());
 
 const iconUrl = (action) => {
   try {
+    const override = brandingStore.getDashboardIconOverrideUrl('admin', action.id);
+    if (override) return override;
     if (typeof props.iconResolver === 'function') return props.iconResolver(action);
   } catch {
     // ignore
@@ -272,7 +279,7 @@ const iconUrl = (action) => {
 
 const onIconError = (action, event) => {
   try {
-    failedIconIds.value.add(String(action?.id));
+    failedIconIds.value.add(iconUrl(action));
     // best-effort debugging
     console.warn('[QuickActions] Icon failed to load', {
       actionId: action?.id,
@@ -450,6 +457,11 @@ defineExpose({ openCustomizer });
 </script>
 
 <style scoped>
+.action-entry { position: relative; display: flex; }
+.action-entry > .action-card { flex: 1; min-width: 0; }
+.action-entry :deep(.dashboard-icon-edit) { left: 33px; width: 64px; height: 64px; }
+.compact .action-entry :deep(.dashboard-icon-edit) { left: 21px; width: 48px; height: 48px; }
+.dense .action-entry :deep(.dashboard-icon-edit) { left: 8px; width: 30px; height: 30px; }
 .header {
   display: flex;
   align-items: center;

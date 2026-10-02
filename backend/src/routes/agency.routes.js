@@ -1,3 +1,4 @@
+import { updateDashboardIcon } from '../controllers/dashboardIcons.controller.js';
 import express from 'express';
 import { body } from 'express-validator';
 import { getAllAgencies, getAgencyById, getAgencyBySlug, createAgency, updateAgency, archiveAgency, restoreAgency, deleteAgencyHard, getArchivedAgencies, getAgencyByPortalUrl, getThemeByPortalUrl, getLoginThemeByPortalUrl, listAffiliatedOrganizations, resolvePortalByHost, getAgencyNotificationSender, putAgencyNotificationSender } from '../controllers/agency.controller.js';
@@ -712,6 +713,8 @@ router.post('/:id/book-club/books', authenticate, createBookClubBook);
 router.put('/:id/book-club/books/:bookId', authenticate, updateBookClubBook);
 router.get('/:id/book-club/interests', authenticate, listBookClubInterests);
 router.post('/', authenticate, requireBackofficeAdmin, validateCreateAgency, createAgency);
+router.put('/:id/dashboard-icons', authenticate, requireSuperAdmin, updateDashboardIcon);
+
 router.put('/:id', authenticate, requireBackofficeAdminOrClubManagerForAgency, validateUpdateAgency, updateAgency);
 router.post('/:id/archive', authenticate, requireSuperAdmin, archiveAgency);
 router.post('/:id/restore', authenticate, requireSuperAdmin, restoreAgency);

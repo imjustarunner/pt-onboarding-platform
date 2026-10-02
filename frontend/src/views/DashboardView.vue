@@ -329,7 +329,8 @@
             <div class="rail-card-left">
               <div class="rail-card-icon">
                 <img
-                  v-if="card.iconUrl && !failedRailIconIds.has(String(card.id))"
+                  v-if="card.iconUrl && !failedRailIconIds.has(card.iconUrl)"
+                  :key="card.iconUrl"
                   :src="card.iconUrl"
                   :alt="`${card.label} icon`"
                   class="rail-card-icon-img"
@@ -361,6 +362,8 @@
               <span v-else class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
             </div>
           </button>
+          <DashboardIconEditor :icon-key="String(card.id)" :label="card.label" :current-url="card.iconUrl"
+            :disabled="previewMode" />
           <div
             v-if="card.id === 'clients' && clientActionItemCount > 0"
             class="rail-clients-action-bubble"
@@ -435,7 +438,8 @@
               >
                 <span class="dashboard-mobile-drawer__icon">
                   <img
-                    v-if="card.iconUrl && !failedRailIconIds.has(String(card.id))"
+                    v-if="card.iconUrl && !failedRailIconIds.has(card.iconUrl)"
+                    :key="card.iconUrl"
                     :src="card.iconUrl"
                     alt=""
                   />
@@ -444,6 +448,8 @@
                 <span class="dashboard-mobile-drawer__label">{{ card.label }}</span>
                 <span v-if="card.badgeCount" class="dashboard-mobile-drawer__badge">{{ card.badgeCount }}</span>
               </button>
+              <DashboardIconEditor :icon-key="String(card.id)" :label="card.label" :current-url="card.iconUrl"
+                :disabled="previewMode" />
             </li>
           </ul>
         </nav>
@@ -1290,6 +1296,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
+import DashboardIconEditor from '../components/admin/DashboardIconEditor.vue';
 import SchoolMarketingSplash from '../components/marketing/SchoolMarketingSplash.vue';
 import AnnouncementMarquee from '../components/common/AnnouncementMarquee.vue';
 import { useRouter, useRoute } from 'vue-router';
@@ -1852,7 +1859,7 @@ const employeeSchedulePickerUsersRaw = ref([]);
 const failedRailIconIds = ref(new Set());
 const onRailIconError = (card, event) => {
   try {
-    failedRailIconIds.value.add(String(card?.id));
+    failedRailIconIds.value.add(card?.iconUrl);
     console.warn('[Dashboard] Icon failed to load', {
       cardId: card?.id,
       label: card?.label,
@@ -2357,11 +2364,13 @@ const announcementAgencyId = computed(() => {
   return Number(org.id || 0) || null;
 });
 
-/** Per-org branding for dashboard rail icons and StaffCard; undefined when no org is selected. */
+/** Dashboard icons follow the visible workspace, including dedicated tenant hosts. */
 const cardIconOrgOverride = computed(() => {
-  const id = Number(currentAgencyId.value || 0);
-  return id > 0 ? id : undefined;
+  return brandingStore.dashboardIconOrganization;
 });
+watch(() => brandingStore.dashboardIconOrganization?.id, (id) => {
+  if (id) agencyStore.hydrateAgencyById(id);
+}, { immediate: true });
 
 watch(currentAgencyId, () => {
   failedRailIconIds.value = new Set();
@@ -4286,7 +4295,10 @@ const railCardsForDisplay = computed(() => {
       }
     }
   }
-  return out;
+  return out.map((card) => ({
+    ...card,
+    iconUrl: brandingStore.getDashboardIconOverrideUrl('dashboard', card.id) || card.iconUrl
+  }));
 });
 
 const activeRailLabel = computed(() => {
@@ -6391,6 +6403,10 @@ h1 {
   gap: 8px;
   position: relative;
 }
+.dashboard-mobile-drawer__list > li { position: relative; }
+.dashboard-mobile-drawer__list > li:has(.nested) :deep(.dashboard-icon-edit) { left: 28px; }
+.dashboard-rail.rail-collapsed .rail-card-row :deep(.dashboard-icon-edit) { left: 50%; transform: translate(-50%, -50%); }
+.rail-card-row--nested :deep(.dashboard-icon-edit) { left: 24px; }
 .rail-card-row--nested {
   margin-left: 10px;
   padding-left: 8px;

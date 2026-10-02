@@ -1743,7 +1743,7 @@ const quickActionBadges = computed(() => ({
 
 const resolveQuickActionIcon = (action) => {
   try {
-    return brandingStore.getAdminQuickActionIconUrl(action?.iconKey || action?.id, agencyStore.currentAgency || null);
+    return brandingStore.getAdminQuickActionIconUrl(action?.iconKey || action?.id, brandingStore.dashboardIconOrganization);
   } catch {
     return null;
   }

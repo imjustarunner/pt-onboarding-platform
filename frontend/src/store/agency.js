@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import api from '../services/api';
-import { getCached, setCached } from '../utils/adminApiCache';
+import { getCached, setCached, clearAdminApiCache } from '../utils/adminApiCache';
 import {
   DEMO_WINDOW_AGENCY_KEY,
   getDemoWindowAgency,
@@ -549,6 +549,12 @@ export const useAgencyStore = defineStore('agency', () => {
     getAgencyTracks,
     setCurrentAgency,
     setPlatformMode,
+    applyBrandingResponse(full) {
+      if (!full?.id) return;
+      clearAdminApiCache();
+      _applyHydrated(full);
+      setCached(`/agencies/${full.id}`, {}, full);
+    },
     hydrateAgencyById,
     applyLoginAgencies,
     fetchAgencies,
