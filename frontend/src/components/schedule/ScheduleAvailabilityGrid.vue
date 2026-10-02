@@ -1868,6 +1868,7 @@
               'supv-info-layout--with-workspace': showSupervisionAgendaWorkspace
             }"
           >
+            <GuardianAppointmentRequests v-if="Number(editorAppointmentId || 0) > 0" :appointment-id="Number(editorAppointmentId)" />
             <AppointmentInfoPanel
               :when-label="editorInfoWhenLabel"
               :when-date-label="editorInfoWhenDateLabel"
@@ -5905,6 +5906,7 @@ import AppointmentEditorShell from './AppointmentEditorShell.vue';
 import AppointmentChangeWizard from './AppointmentChangeWizard.vue';
 import AppointmentWaiverReviewQueue from './AppointmentWaiverReviewQueue.vue';
 import AppointmentInfoPanel from './AppointmentInfoPanel.vue';
+import GuardianAppointmentRequests from './GuardianAppointmentRequests.vue';
 import AppointmentBillingPanel from './AppointmentBillingPanel.vue';
 import AppointmentPackageSettlement from './AppointmentPackageSettlement.vue';
 import AppointmentClinicalPanel from './AppointmentClinicalPanel.vue';

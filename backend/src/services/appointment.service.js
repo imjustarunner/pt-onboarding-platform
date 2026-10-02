@@ -373,6 +373,10 @@ export async function createAppointment({
 export async function updateAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
+  if ((patch.status && patch.status !== existing.status) || patch.startAt != null || patch.endAt != null) {
+    const { requireAppointmentRequestProvider } = await import('./guardianAppointments.service.js');
+    await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
+  }
   let moved = false;
 
   if (patch.packageEntitlementId !== undefined && Number(patch.packageEntitlementId || 0) !== Number(existing.packageEntitlementId || 0)) {
@@ -488,6 +492,8 @@ export async function cancelAppointment(appointmentId, {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
 
+  const { requireAppointmentRequestProvider, recordGuardianAppointmentApproval } = await import('./guardianAppointments.service.js');
+  await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
   if (!String(reason || notes || '').trim()) throw Object.assign(new Error('Cancellation reason is required'), { status: 400 });
   if (status && !['canceled_by_provider', 'canceled_by_client', 'canceled_by_guardian', 'canceled_by_organization', 'late_canceled', 'rescheduled'].includes(status)) {
     throw Object.assign(new Error('Invalid cancellation status'), { status: 400 });
@@ -584,6 +590,7 @@ export async function cancelAppointment(appointmentId, {
   const { releaseAppointmentCalendar } = await import('./appointmentCalendarMaintenance.service.js');
   await releaseAppointmentCalendar(existing, actorUserId);
 
+  await recordGuardianAppointmentApproval(appointmentId, actorUserId);
   return { ...bundle, cancellationEvaluation: evaluation };
 }
 

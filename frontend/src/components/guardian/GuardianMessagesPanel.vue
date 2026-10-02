@@ -56,12 +56,14 @@
                 class="gmsg-bubble"
                 :class="{ mine: m.isMine }"
               >
-                <div class="gmsg-meta">{{ formatTime(m.created_at) }}</div>
+                <div class="gmsg-meta">{{ m.senderName || (m.isMine ? 'You' : 'Care conversation') }} · {{ formatTime(m.created_at) }}</div>
                 <div class="gmsg-body">{{ m.body }}</div>
               </div>
               <div v-if="!messages.length" class="muted">No messages yet. Say hello.</div>
             </div>
-            <div class="gmsg-composer">
+            <p v-if="selectedType === 'secure'" class="muted pad" role="note">Messages about your child are shared with all authorized parents or guardians and the assigned care team. Please use this conversation for child-related messages.</p>
+            <p v-if="selectedType === 'email' && threads.some(t => t.shared)" class="muted pad">Reply about your child in their shared care conversation so all authorized guardians can see it. Select that child’s Secure conversation from the list.</p>
+            <div v-else class="gmsg-composer">
               <textarea
                 v-model="draft"
                 rows="2"
@@ -314,6 +316,7 @@ const selectedTitle = computed(() => {
 
 const selectedSubtitle = computed(() => {
   if (selectedType.value === 'email') return 'Email with your care team';
+  if (selected.value?.participants?.length) return 'Visible to: ' + selected.value.participants.map(p => p.name).join(', ');
   const p = selected.value?.provider;
   return p ? `Secure · ${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Secure message';
 });
@@ -367,6 +370,7 @@ async function selectEmail(item) {
       id: m.id,
       body: m.body,
       created_at: m.created_at,
+      senderName: [m.sender_first_name, m.sender_last_name].filter(Boolean).join(' '),
       isMine: !!m.isMine
     }));
     if (selectedEmail.value) selectedEmail.value.unread = false;
@@ -400,6 +404,8 @@ async function selectThread(t) {
         ...t,
         thread_id: opened.data?.thread_id,
         available: !!opened.data?.thread_id,
+        participants: opened.data?.participants || t.participants,
+        shared: opened.data?.shared || t.shared,
         provider: opened.data?.provider || t.provider
       };
       const idx = threads.value.findIndex((x) => x.client_id === t.client_id);
@@ -415,6 +421,7 @@ async function selectThread(t) {
       id: m.id,
       body: m.body,
       created_at: m.created_at,
+      senderName: [m.sender_first_name, m.sender_last_name].filter(Boolean).join(' '),
       isMine: Number(m.sender_user_id) === Number(meId.value)
     }));
     await nextTick();

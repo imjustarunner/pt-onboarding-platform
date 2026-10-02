@@ -5,6 +5,8 @@ vi.mock('../../models/ClinicalRecordRef.model.js', () => ({ default: { upsert: v
 vi.mock('../appointmentWaiver.service.js', () => ({ queueAppointmentWaiver: vi.fn() }));
 vi.mock('../appointmentClinicalLink.service.js', () => ({ ensureAppointmentClinicalLink: vi.fn() }));
 vi.mock('../appointmentChangeNote.service.js', () => ({ assertAppointmentChangeDocumentation: vi.fn(), blockAppointmentChangeClaims: vi.fn(), attachAppointmentChangeNotes: vi.fn() }));
+vi.mock('../guardianAppointments.service.js',()=>({requireAppointmentRequestProvider:vi.fn(),recordGuardianAppointmentApproval:vi.fn()}));
+import {requireAppointmentRequestProvider,recordGuardianAppointmentApproval} from '../guardianAppointments.service.js';
 import pool from '../../config/database.js';
 import Appointment from '../../models/Appointment.model.js';
 import { queueAppointmentWaiver } from '../appointmentWaiver.service.js';
@@ -34,6 +36,16 @@ beforeEach(() => {
   pool.getConnection.mockResolvedValue(conn);
 });
 describe('durable appointment change', () => {
+  it('cannot apply a guardian request when the assigned provider has not approved',async()=>{
+    requireAppointmentRequestProvider.mockRejectedValueOnce(Object.assign(new Error('Assigned provider required'),{status:403}));
+    await expect(run()).rejects.toMatchObject({status:403});
+    expect(applyChange).not.toHaveBeenCalled();expect(recordGuardianAppointmentApproval).not.toHaveBeenCalled();
+  });
+  it('retries recording guardian approval without applying the signed change twice',async()=>{
+    recordGuardianAppointmentApproval.mockRejectedValueOnce(new Error('Decision unavailable'));
+    await expect(run()).rejects.toThrow('Decision unavailable');
+    await run();expect(applyChange).toHaveBeenCalledOnce();expect(recordGuardianAppointmentApproval).toHaveBeenCalledTimes(2);
+  });
   it('saves a draft without consequences or signing', async () => {
     expect(await saveAppointmentChangeDraft(1, facts, 8)).toMatchObject({ status: 'draft', facts });
     expect(applyChange).not.toHaveBeenCalled(); expect(attachAppointmentChangeNotes).not.toHaveBeenCalled();

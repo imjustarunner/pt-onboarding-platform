@@ -2439,6 +2439,20 @@ if (!isBootstrap) {
     setInterval(scheduleSkillBuildersSessionCloseout, 24 * 60 * 60 * 1000);
   }, getMsUntilMidnight());
 
+// Routine new-balance notifications are independent of automatic charging.
+let balanceNotificationsRunning = false;
+const balanceNotificationTimer = setInterval(async () => {
+  if (balanceNotificationsRunning) return;
+  balanceNotificationsRunning = true;
+  try {
+    const { sendPendingBalanceNotifications } = await import('./services/familyLedger/balanceNotifications.js');
+    const outcomes = await sendPendingBalanceNotifications();
+    for (const outcome of outcomes) if (outcome.status !== 'sent') console.warn('[guardian billing notifications]', outcome.agencyId, outcome.status);
+  } catch (error) { console.warn('[guardian billing notifications] Needs review', error.code || 'delivery_configuration'); }
+  finally { balanceNotificationsRunning = false; }
+}, 5 * 60 * 1000);
+balanceNotificationTimer.unref();
+
 // Automatic billing is tenant opt-in. This worker never sends collection emails.
 if (process.env.FAMILY_BILLING_AUTOMATION_ENABLED === 'true') {
   let familyBillingTickRunning = false;

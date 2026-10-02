@@ -20,14 +20,16 @@
         </section>
       </div>
     </div>
+    <GuardianAppointmentsPanel v-if="clientId" :client-id="clientId" :preview="preview" />
     <div class="home-bottom">
-      <section class="home-card"><div class="home-card-head"><h2>Secure messages</h2><PortalIcon name="messages" /></div><p class="home-muted">Stay in touch with your team in your private portal.</p><button class="home-link" @click="$emit('navigate','messages')">Open your conversations →</button></section>
+      <section class="home-card"><div class="home-card-head"><h2>Secure messages</h2><PortalIcon name="messages" /></div><p class="home-muted">Messages about your child are shared with authorized guardians and the care team.</p><button class="home-link" @click="$emit('navigate','messages')">Open your conversations →</button></section>
       <section class="home-card"><div class="home-card-head"><h2>Your programs</h2><PortalIcon name="child" /></div><button v-for="program in programs" :key="program.id" class="home-program" @click="$emit('program',program)">{{ program.name }} <span aria-hidden="true">→</span></button><p v-if="!programs.length" class="home-muted">Your linked programs will appear here.</p></section>
       <section class="home-card"><div class="home-card-head"><h2>Invoices &amp; receipts</h2><PortalIcon name="billing" /></div><p class="home-muted">View your assigned balances, payment plans, and downloadable receipts.</p><button class="home-link" @click="$emit('navigate','billing')">Open billing &amp; receipts →</button></section>
     </div>
   </div>
 </template>
 <script setup>
+import GuardianAppointmentsPanel from '../guardian/GuardianAppointmentsPanel.vue';
 import { ref, watch } from 'vue';
 import api from '../../services/api';
 import PortalIcon from './PortalIcon.vue';

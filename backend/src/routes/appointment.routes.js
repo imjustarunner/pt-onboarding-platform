@@ -32,9 +32,11 @@ import {
   patchPendingAppointmentUpdate
 } from '../controllers/sessionNotification.controller.js';
 
+import * as guardianAppointments from '../controllers/guardianAppointments.controller.js';
 const router = express.Router();
 
 router.use(authenticate, requireActiveStatus);
+router.use((req,res,next)=>{if(req.method!=='GET'&&['client_guardian','guardian'].includes(req.user?.role))return res.status(403).json({error:{message:'Please request appointment changes through your guardian portal for provider approval.'}});next();});
 router.get('/waiver-reviews', listAppointmentWaiversHandler);
 
 // Timeline, reminders and change previews share the same financial boundary as the appointment.
@@ -51,6 +53,8 @@ router.use('/:id', async (req, res, next) => {
 
 router.get('/', listAppointments);
 router.post('/', createAppointmentHandler);
+router.get('/:id/guardian-requests', guardianAppointments.providerList);
+router.post('/:id/guardian-requests/:requestId/decline', guardianAppointments.providerDecline);
 router.get('/:id', getAppointment);
 router.post('/:id/context', getAppointmentContext);
 router.patch('/:id', updateAppointmentHandler);

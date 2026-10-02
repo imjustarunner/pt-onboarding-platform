@@ -53,6 +53,8 @@ import {
   deleteClientAffiliatedContact
 } from '../controllers/clientContactAffiliation.controller.js';
 
+import * as guardianAppointments from '../controllers/guardianAppointments.controller.js';
+
 const router = express.Router();
 
 router.use(authenticate);
@@ -81,6 +83,8 @@ router.use('/clients/:clientId/intake-documents', async(req,res,next)=>{try{
   }next();
 }catch(e){next(e);}});
 
+router.get('/clients/:clientId/appointments', guardianAppointments.list);
+router.post('/clients/:clientId/appointments/:appointmentId/requests', guardianAppointments.requestChange);
 router.get('/clients', listMyGuardianClients);
 router.get('/messages', listGuardianMessageThreads);
 router.post('/messages/open', openGuardianClientThread);

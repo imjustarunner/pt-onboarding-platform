@@ -1,0 +1,30 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
+vi.mock('../familyLedger/views.js',()=>({listBalances:vi.fn()}));
+vi.mock('../familyLedger/senders.js',()=>({requireReadySender:vi.fn()}));
+vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:vi.fn()}));
+import pool from '../../config/database.js';
+import {listBalances} from '../familyLedger/views.js';
+import {requireReadySender} from '../familyLedger/senders.js';
+import {sendEmailFromIdentity} from '../unifiedEmail/unifiedEmailSender.service.js';
+import {sendPendingBalanceNotifications} from '../familyLedger/balanceNotifications.js';
+let db;
+beforeEach(()=>{
+ vi.resetAllMocks();pool.execute.mockResolvedValue([[{agency_id:2,guardian_user_id:3}]]);
+ db={release:vi.fn(),execute:vi.fn(async sql=>{
+  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
+  if(sql.includes('SELECT id,receivable_id'))return [[{id:11,receivable_id:22}]];
+  if(sql.includes('SELECT email'))return [[{email:'parent@example.test'}]];
+  if(sql.includes('SELECT name,slug'))return [[{name:'Tenant',slug:'tenant'}]];
+  return [{affectedRows:1}];
+ })};pool.getConnection.mockResolvedValue(db);
+ listBalances.mockResolvedValue([{receivableId:22,billingState:'due',dueCents:1000}]);
+ requireReadySender.mockResolvedValue({id:9,from_email:'billing@tenant.test'});
+ sendEmailFromIdentity.mockResolvedValue({id:'accepted',communicationId:77});
+});
+it('sends a generic billing notice from billing without clinical or card information',async()=>{expect(await sendPendingBalanceNotifications()).toEqual([{agencyId:2,userId:3,status:'sent'}]);expect(requireReadySender).toHaveBeenCalledWith(2,'billing');expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({senderIdentityId:9,replyToOverride:'billing@tenant.test',to:'parent@example.test',usedFallbackSender:false}));expect(sendEmailFromIdentity.mock.calls[0][0].text).not.toContain('1000');expect(db.release).toHaveBeenCalled();});
+it('skips a notice if the balance is paid or access has been revoked',async()=>{listBalances.mockResolvedValue([]);await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("status='skipped'"),[11]);});
+it('keeps a queued email held rather than claiming it was sent',async()=>{sendEmailFromIdentity.mockResolvedValue({queued:true,communicationId:77});expect(await sendPendingBalanceNotifications()).toEqual([{agencyId:2,userId:3,status:'held'}]);});
+it('does not fall back to another sender when billing is unavailable',async()=>{requireReadySender.mockRejectedValue(new Error('Billing sender unavailable'));await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();});
+it('marks uncertain delivery for review rather than automatic resend',async()=>{sendEmailFromIdentity.mockRejectedValue(new Error('Network interrupted'));await sendPendingBalanceNotifications();expect(db.execute).toHaveBeenCalledWith(expect.stringContaining("IF(status='sending','unknown','held')"),[11]);});
+it('does not send concurrently when another worker owns the recipient lock',async()=>{db.execute.mockResolvedValue([[{acquired:0}]]);await sendPendingBalanceNotifications();expect(sendEmailFromIdentity).not.toHaveBeenCalled();expect(db.release).toHaveBeenCalled();});

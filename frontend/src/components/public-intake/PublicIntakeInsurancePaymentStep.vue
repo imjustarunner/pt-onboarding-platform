@@ -26,7 +26,7 @@
       </div>
 
       <!-- Clinical: Use Insurance vs Self-Pay -->
-      <section v-if="!paymentOnly" class="pi-ip-section">
+      <section v-if="!paymentOnly && !insuranceOnFile" class="pi-ip-section">
         <h3 class="pi-ip-section-title">{{ tx('How would you like to pay?') }}</h3>
         <div class="pi-ip-choice-row">
           <button
@@ -60,7 +60,7 @@
       </section>
 
       <!-- Existing insurance UI (hidden for payment-only / collapsed when self-pay handled inside child) -->
-      <section v-if="!paymentOnly" class="pi-ip-section pi-ip-section--insurance">
+      <section v-if="!paymentOnly && !insuranceOnFile" class="pi-ip-section pi-ip-section--insurance">
         <PublicIntakeInsuranceStep
           ref="insuranceRef"
           :model-value="insuranceInfo"
@@ -84,6 +84,20 @@
         />
       </section>
 
+      <section class="pi-ip-section">
+        <h3>{{ tx('Your payment arrangement') }}</h3>
+        <p>{{ tx('Tell us what you propose for copays or other patient responsibility. This is a request for review, not permission to charge your card or change another parent’s agreement.') }}</p>
+        <label>{{ tx('I am willing to') }}
+          <select :value="paymentInfo.arrangement || 'discuss'" @change="emit('update:paymentInfo', { ...paymentInfo, arrangement: $event.target.value })">
+            <option value="discuss">{{ tx('Discuss payment with the office') }}</option>
+            <option value="all">{{ tx('Pay all of the verified patient responsibility') }}</option>
+            <option value="part">{{ tx('Pay part of the verified patient responsibility') }}</option>
+            <option value="alternate">{{ tx('Alternate sessions with another parent') }}</option>
+          </select>
+        </label>
+        <label>{{ tx('Agreement details or proposed share') }}<textarea :value="paymentInfo.arrangementNotes || ''" maxlength="2000" rows="2" @input="emit('update:paymentInfo', { ...paymentInfo, arrangementNotes: $event.target.value })" /></label>
+      </section>
+
       <!-- Payment method: clinical non-Medicaid/self-pay OR always for payment-only channels -->
       <section v-if="showPaymentSection" class="pi-ip-section">
         <h3 class="pi-ip-section-title">{{ tx('Payment Method') }}</h3>
@@ -103,7 +117,7 @@
             <span class="pi-ip-choice-sub">{{ tx('Save card for payments.') }}</span>
           </button>
           <button
-            v-if="stepConfig.paymentRequired === false"
+            v-if="stepConfig.paymentRequired === false || insuranceOnFile"
             type="button"
             class="pi-ip-choice"
             :class="{ 'pi-ip-choice--active': paymentChoice === 'later' }"
@@ -114,7 +128,7 @@
             <span class="pi-ip-choice-sub">{{ tx('You can add a card anytime.') }}</span>
           </button>
           <button
-            v-if="stepConfig.paymentRequired === false"
+            v-if="stepConfig.paymentRequired === false || insuranceOnFile"
             type="button"
             class="pi-ip-choice"
             :class="{ 'pi-ip-choice--active': paymentChoice === 'na' }"
@@ -147,7 +161,7 @@
         </p>
       </section>
 
-      <section v-else-if="!paymentOnly && isMedicaid" class="pi-ip-section pi-ip-medicaid-note">
+      <section v-else-if="!paymentOnly && !insuranceOnFile && isMedicaid" class="pi-ip-section pi-ip-medicaid-note">
         <strong>{{ tx('Medicaid coverage detected') }}</strong>
         <p>{{ tx('No payment card is required at this time. We will verify benefits and follow up if needed.') }}</p>
       </section>
@@ -158,7 +172,7 @@
         <p class="pi-ip-section-lead">{{ tx('By checking the box below, I certify that:') }}</p>
         <ul class="pi-ip-auth-list">
           <li>{{ tx('The information I provided is accurate and complete to the best of my knowledge.') }}</li>
-          <li v-if="!paymentOnly && !isSelfPay">
+          <li v-if="!paymentOnly && !insuranceOnFile && !isSelfPay">
             {{ tx('I authorize this organization to release information necessary to verify benefits and bill my insurance.') }}
           </li>
           <li v-if="!isMedicaid">{{ tx('I understand the office will explain any patient responsibility and applicable payment terms before collecting payment.') }}</li>
@@ -211,7 +225,7 @@
           <span>{{ tx('Package fee') }}</span>
           <strong>{{ formatPrice(selectedPackage.priceCents) }}</strong>
         </div>
-        <div v-if="!paymentOnly && !isSelfPay" class="pi-ip-side-row">
+        <div v-if="!paymentOnly && !insuranceOnFile && !isSelfPay" class="pi-ip-side-row">
           <span>{{ tx('Est. insurance coverage') }}</span>
           <strong>{{ isMedicaid ? tx('Medicaid') : tx('Pending') }}</strong>
         </div>
@@ -225,7 +239,7 @@
       <div class="pi-ip-side-card">
         <div class="pi-ip-side-kicker">{{ tx('What happens next?') }}</div>
         <ul class="pi-ip-side-list">
-          <li v-if="!paymentOnly">{{ tx('Our office will review your insurance and confirm benefits.') }}</li>
+          <li v-if="!paymentOnly && !insuranceOnFile">{{ tx('Our office will review your insurance and confirm benefits.') }}</li>
           <li>{{ tx('We will contact you if we need more information.') }}</li>
           <li>{{ tx("You'll receive a benefits or payment summary as applicable.") }}</li>
         </ul>
@@ -251,6 +265,8 @@ const props = defineProps({
   stepConfig: { type: Object, default: () => ({}) },
   selectedPackage: { type: Object, default: null },
   paymentOnly: { type: Boolean, default: false },
+  insuranceOnFile: { type: Boolean, default: false },
+  paymentCollectionAvailable: { type: Boolean, default: true },
   guardianName: { type: String, default: '' },
   guardianRelationship: { type: String, default: '' },
   guardianPhone: { type: String, default: '' },
@@ -303,6 +319,8 @@ const isMedicaid = computed(() => {
 });
 
 const showPaymentSection = computed(() => {
+  if (!props.paymentCollectionAvailable) return false;
+  if (props.insuranceOnFile) return true;
   if (props.paymentOnly) return true;
   if (isMedicaid.value) return false;
   if (isSelfPay.value) return true;
@@ -316,7 +334,7 @@ const insuranceStepConfig = computed(() => ({
   hideSelfPayToggle: true
 }));
 
-const paymentStepConfig = computed(() => props.stepConfig || {});
+const paymentStepConfig = computed(() => ({ ...props.stepConfig, ...(props.insuranceOnFile ? { paymentRequired: false } : {}) }));
 
 const estimatedCostLabel = computed(() => {
   if (isMedicaid.value) return tx('Not required');

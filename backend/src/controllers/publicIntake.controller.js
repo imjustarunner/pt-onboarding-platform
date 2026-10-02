@@ -1223,6 +1223,9 @@ const persistGuardianProfileForClient = async ({
 } = {}) => {
   const cid = Number(clientId || 0);
   if (!cid) return;
+  // The second parent's answers remain on their own encrypted submission.
+  // Do not replace the first parent's chart contact/prefill with those answers.
+  if (payload?.coGuardianToken) return;
   const profile = extractGuardianProfileFromPayload({ payload, intakeData, submission });
   if (!profile) return;
   await ClientGuardianIntakeProfile.upsertForClient({
@@ -1788,13 +1791,14 @@ const ensureGuardianAccountLinkedForClient = async ({ clientId, profile = {}, ac
       message: err?.message || err
     });
   }
+  const existingLink = await ClientGuardian.getLink({clientId:cid,guardianUserId:Number(guardianUser.id)});
   await ClientGuardian.upsertLink({
     clientId: cid,
     guardianUserId: Number(guardianUser.id),
     relationshipType: 'guardian',
     relationshipTitle: String(profile?.relationship || 'Guardian').trim() || 'Guardian',
-    accessEnabled: !!accessEnabled,
-    permissionsJson: { intakeLinkGuardianProfile: true },
+    accessEnabled: existingLink ? Number(existingLink.access_enabled) === 1 : !!accessEnabled,
+    permissionsJson: { ...(existingLink?.permissions_json || {}), intakeLinkGuardianProfile: true },
     createdByUserId: null
   });
   if (accessEnabled) {
@@ -6307,6 +6311,9 @@ export const createPublicIntakeSession = async (req, res, next) => {
     if (!link.is_active && !issuedRoiLink) {
       return res.status(404).json({ error: { message: 'This link is no longer active. Please contact the school for a new link.' } });
     }
+    if (req.body?.coGuardianToken) await CoGuardianInvite.resolveCoGuardianIntakeBinding(req.body.coGuardianToken, {
+      agencyId: await resolveAgencyIdForLink(link), publicKey
+    });
     const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
     const isClientBoundRoiLink = !!issuedRoiLink?.client_id;
     const needsCaptcha = !isSmartSchoolRoiForm(link) && !isClientBoundRoiLink && requiresCaptchaForLink(organization, agency);
@@ -7514,10 +7521,25 @@ export const finalizePublicIntake = async (req, res, next) => {
     if (!submission || submission.intake_link_id !== link.id) {
       return res.status(404).json({ error: { message: 'Submission not found' } });
     }
+    const coGuardianToken = String(req.body?.coGuardianToken || '').trim();
+    const coGuardianBinding = coGuardianToken ? await CoGuardianInvite.resolveCoGuardianIntakeBinding(coGuardianToken, {
+      agencyId: await resolveAgencyIdForLink(link), publicKey
+    }) : null;
+    if (coGuardianBinding) {
+      if (!matchesIntakeSession(String(req.body?.sessionToken || req.headers['x-intake-session'] || ''), submission.session_token)) {
+        return res.status(403).json({ error: { message: 'A valid intake session is required' } });
+      }
+      if (!coGuardianBinding.clients.length) return res.status(410).json({ error: { message: 'This invitation no longer has a linked dependent. Contact the care team.' } });
+      const invitedEmail = String(coGuardianBinding.invite.invited_email || '').toLowerCase();
+      if (String(req.body?.guardian?.email || '').trim().toLowerCase() !== invitedEmail) {
+        return res.status(400).json({ error: { message: 'Use the email address on your invitation, or request a corrected invitation.' } });
+      }
+    }
+
     const billingSteps = (Array.isArray(link.intake_steps) ? link.intake_steps : []).some(step => ['insurance_info','payment_collection'].includes(step.type));
     if (billingSteps) {
       if (!matchesIntakeSession(String(req.body?.sessionToken || req.headers['x-intake-session'] || ''), submission.session_token)) return res.status(403).json({ error: { message: 'A valid intake session is required' } });
-      if (String(submission.status) !== 'submitted') await validateIntakeBilling({ link, submission, intakeData: req.body?.intakeData || submission.intake_data, agencyId: await resolveAgencyIdForLink(link) });
+      if (String(submission.status) !== 'submitted') await validateIntakeBilling({ link, submission, intakeData: req.body?.intakeData || submission.intake_data, agencyId: await resolveAgencyIdForLink(link), insuranceOnFileApproved: !!coGuardianBinding?.clients?.length && coGuardianBinding.clients.every(c => c.insurance_on_file) });
     }
 
     const allAllowedTemplates = await loadAllowedTemplates(link);
@@ -8705,19 +8727,22 @@ export const finalizePublicIntake = async (req, res, next) => {
     let createdClients = [];
     let returningAutoMatchInitialsForEmail = '';
     let coGuardianInviteResult = null;
-    const coGuardianToken = String(req.body?.coGuardianToken || '').trim();
-    if (coGuardianToken) {
-      try {
-        const binding = await CoGuardianInvite.resolveCoGuardianIntakeBinding(coGuardianToken);
-        if (binding?.clients?.length) {
-          createdClients = binding.clients;
-          updatedSubmission = await IntakeSubmission.updateById(submissionId, {
-            client_id: createdClients[0].id,
-            guardian_user_id: binding.acceptedUserId || updatedSubmission.guardian_user_id || null
-          });
-        }
-      } catch (bindErr) {
-        console.warn('[publicIntake] co-guardian binding skipped', bindErr?.message || bindErr);
+    if (coGuardianBinding) {
+      const accepted = await CoGuardianInvite.acceptCoGuardianInvite({ token: coGuardianToken,
+        contact: req.body?.guardian || {}, createPortal: !!link.create_guardian, enrollmentCompleted: true });
+      createdClients = coGuardianBinding.clients;
+      const guardian = accepted.portalAccess ? await User.findByEmail(accepted.portalAccess.email) : null;
+      updatedSubmission = await IntakeSubmission.updateById(submissionId, {
+        client_id: createdClients[0].id,
+        guardian_user_id: guardian?.id || coGuardianBinding.acceptedUserId || null
+      });
+      newGuardianCreated = accepted.created === true;
+      newGuardianTemporaryPassword = accepted.portalAccess?.password || null;
+      const preference = intakeData?.responses?.submission?.paymentInfo || intakeData?.submission?.paymentInfo;
+      if (guardian?.id && preference?.arrangement) {
+        const { saveGuardianPaymentPreference } = await import('../services/familyLedger/guardianPreferences.js');
+        for (const client of createdClients) await saveGuardianPaymentPreference({agencyId:client.agency_id,clientId:client.id,userId:guardian.id,
+          arrangement:preference.arrangement,percent:preference.arrangementPercent,notes:preference.arrangementNotes});
       }
     }
     if (link.create_client && !createdClients.length) {

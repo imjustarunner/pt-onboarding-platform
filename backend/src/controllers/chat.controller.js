@@ -311,6 +311,8 @@ async function assertAgencyOrOrgAccess(reqUser, agencyId, organizationId = null)
 }
 
 async function assertThreadAccess(reqUserId, threadId) {
+  const { assertSharedChildThreadAccess } = await import('../services/guardianSharedMessages.service.js');
+  await assertSharedChildThreadAccess(reqUserId, threadId);
   const [rows] = await pool.execute(
     'SELECT 1 FROM chat_thread_participants WHERE thread_id = ? AND user_id = ? LIMIT 1',
     [threadId, reqUserId]
@@ -824,6 +826,8 @@ async function resolveActiveAgencyIdForOrg(orgId) {
 
 export const listMyThreads = async (req, res, next) => {
   try {
+    const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
+    await refreshSharedChildMemberships(req.user.id);
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
 
     let agencyIds = [];
@@ -1358,6 +1362,8 @@ export const sendMessage = async (req, res, next) => {
     if (!body && incomingAttachments.length === 0) {
       return res.status(400).json({ error: { message: 'body or attachments required' } });
     }
+    const { assertSharedGuardianSend } = await import('../services/guardianSharedMessages.service.js');
+    await assertSharedGuardianSend(req.user.id, threadId);
     await assertThreadAccess(req.user.id, threadId);
     const { assertManagedChatPost } = await import('../services/managedWorkspaceGroupAccess.service.js');
     await assertManagedChatPost(threadId, req.user.id);
@@ -1679,6 +1685,8 @@ export const sendMessage = async (req, res, next) => {
  */
 export const listThreadsInbox = async (req, res, next) => {
   try {
+    const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
+    await refreshSharedChildMemberships(req.user.id);
     if (!(await hasParentMessageColumn())) {
       return res.json({ items: [] });
     }
@@ -1789,6 +1797,8 @@ export const listThreadsInbox = async (req, res, next) => {
  */
 export const listMentionsInbox = async (req, res, next) => {
   try {
+    const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
+    await refreshSharedChildMemberships(req.user.id);
     if (!(await hasChatMessageMentionsTable())) {
       return res.json({ items: [] });
     }
@@ -2219,6 +2229,8 @@ async function tableExists(name) {
 /** GET /api/chat/inbox/files */
 export const listFilesInbox = async (req, res, next) => {
   try {
+    const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
+    await refreshSharedChildMemberships(req.user.id);
     if (!(await tableExists('chat_message_attachments'))) {
       return res.json({ files: [] });
     }
@@ -2274,6 +2286,8 @@ export const listFilesInbox = async (req, res, next) => {
 /** GET /api/chat/inbox/bookmarks */
 export const listBookmarksInbox = async (req, res, next) => {
   try {
+    const { refreshSharedChildMemberships } = await import('../services/guardianSharedMessages.service.js');
+    await refreshSharedChildMemberships(req.user.id);
     if (!(await tableExists('chat_message_bookmarks'))) {
       return res.json({ bookmarks: [] });
     }

@@ -3,11 +3,12 @@ import { assertFamilyBillingEncryption } from './familyBillingEncryption.service
 import { billingError } from './familyBillingPolicy.service.js';
 import { insuranceForIntakeClient } from './clientInsurance.service.js';
 import { hasMedicaidCoverage, shouldSuppressInsurancePayment } from '../utils/insurancePaymentPolicy.js';
-export async function validateIntakeBilling({ link, submission, intakeData, agencyId }) {
+export async function validateIntakeBilling({ link, submission, intakeData, agencyId, insuranceOnFileApproved = false }) {
   const steps = Array.isArray(link?.intake_steps) ? link.intake_steps : [];
   const data = typeof intakeData === 'string' ? JSON.parse(intakeData) : (intakeData || {});
   const bag = data.responses?.submission || data.submission || data;
   const info = bag.insuranceInfo;
+  if (info?.useInsuranceOnFile && !insuranceOnFileApproved) throw billingError(400, 'The care team must verify the insurance on file before this section can be skipped.');
   const clientCount = Math.max(1,data.responses?.clients?.length || data.clients?.length || 1);
   if (info && (!info.isSelfPay || hasMedicaidCoverage(info)) && info.primary?.insurerName) {
     assertFamilyBillingEncryption();
@@ -28,6 +29,7 @@ export async function validateIntakeBilling({ link, submission, intakeData, agen
   const learningResponses = data.responses || data;
   if (link.master_channel === 'tutoring' && [learningResponses.submission?.learning, ...(learningResponses.clients || []).map(client => client?.learning)].some(learning => learning?.program === 'bridge')) return;
   const paymentStep = steps.find(s => s.type === 'payment_collection' || (s.type === 'insurance_info' && (s.paymentOnly || Number(link.inherits_office_master) === 1)));
+  if (insuranceOnFileApproved && info?.useInsuranceOnFile) return; // Existing coverage is reviewed before requesting an additional payer’s card.
   if (!paymentStep || paymentStep.paymentRequired === false || shouldSuppressInsurancePayment(info, link.master_channel)) return;
   const [merchant] = await pool.execute("SELECT stripe_connect_account_id FROM agency_billing_accounts WHERE agency_id = ? AND stripe_connect_status = 'active'",[agencyId]);
   if (!merchant[0]?.stripe_connect_account_id) return; // Collection not activated yet.

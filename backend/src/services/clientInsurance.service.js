@@ -23,7 +23,7 @@ export function claimInsuranceIssues(primary = {}) {
   return [['insurerName','Insurance carrier'], ['payerId','Claim.MD payer ID'], ['memberId','Member ID'], ['subscriberFirstName','Subscriber legal first name'], ['subscriberLastName','Subscriber legal last name'], ['subscriberDob','Subscriber date of birth'], ['relationshipToSubscriber','Relationship to subscriber'], ['subscriberAddressLine1','Subscriber address'], ['subscriberCity','Subscriber city'], ['subscriberState','Subscriber state'], ['subscriberPostalCode','Subscriber postal code']].filter(([key]) => !String(primary[key] || '').trim()).map(([, label]) => `${label} is missing`);
 }
 export function insuranceForIntakeClient(info, clientIndex, clientCount) {
-  if (!info || (info.isSelfPay && !hasMedicaidCoverage(info))) return null;
+  if (!info || info.useInsuranceOnFile === true || (info.isSelfPay && !hasMedicaidCoverage(info))) return null;
   const assignment = Array.isArray(info.clientCoverages) ? info.clientCoverages.find(c => Number(c.clientIndex) === clientIndex && c.confirmed === true) : null;
   const medicaid = info.medicaidByClient?.find(c => Number(c.clientIndex) === clientIndex && String(c.memberId || '').trim());
   // A single-child legacy form is unambiguous. Multi-child forms require an

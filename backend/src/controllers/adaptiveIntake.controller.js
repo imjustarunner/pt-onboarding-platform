@@ -314,7 +314,7 @@ export async function emailPublicPortalLogin(req, res, next) {
     const agency = await resolveAgencyFromSlug(req.params.agencySlug);
     if (!agency) return res.status(404).json({ error: { message: 'Organization not found' } });
     const email = String(req.body?.email || '').trim();
-    await CoGuardianInvite.emailPortalLoginInfo({
+    const delivery = await CoGuardianInvite.emailPortalLoginInfo({
       to: email,
       agency,
       username: String(req.body?.username || email).trim(),
@@ -322,7 +322,7 @@ export async function emailPublicPortalLogin(req, res, next) {
       portalPath: req.body?.portalPath || `/${encodeURIComponent(agency.portal_url || agency.slug || '')}/login`,
       clientId: req.body?.clientId || null
     });
-    return res.json({ ok: true });
+    return res.status(delivery.sent ? 200 : 202).json({ ok: delivery.sent, sent: delivery.sent, queued: !!delivery.queued, deliveryStatus: delivery.deliveryStatus });
   } catch (e) {
     const msg = e?.message || 'Unable to email login details';
     if (/email|valid/i.test(msg)) return res.status(400).json({ error: { message: msg } });

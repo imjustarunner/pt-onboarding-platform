@@ -21,6 +21,7 @@ export async function provisionBillingSenders({agencyId,actorUserId,adoptExistin
   const [users]=await pool.execute("SELECT u.* FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE ua.agency_id=? AND (ua.has_billing_access=1 OR u.role IN ('admin','agency_admin','backoffice_admin')) AND u.status NOT IN ('ARCHIVED','INACTIVE_EMPLOYEE')",[agencyId]);
   const members=[];for(const user of users){await requireBillingStaff(user,agencyId);const email=String(user.work_email||user.email||'').toLowerCase();if(email.endsWith(`@${domain}`))members.push(email);}
   if(!members.length)throw billingError(409,'Assign an active billing staff member with a Workspace address before creating financial mailboxes');
+  const transport=String(getImpersonatedUser()||'').trim().toLowerCase();
   const results=[];
   for(const row of rows){
     const expected=`${row.identity_key}@${domain}`;
@@ -33,7 +34,7 @@ export async function provisionBillingSenders({agencyId,actorUserId,adoptExistin
       await Directory.applyGroupAccessSettings({groupEmail:expected,allowExternalMembers:false,whoCanJoin:'INVITED_CAN_JOIN',whoCanViewMembership:'ALL_MANAGERS_CAN_VIEW',whoCanViewGroup:'ALL_MEMBERS_CAN_VIEW',whoCanPostMessage:'ANYONE_CAN_POST',includeInGlobalAddressList:false,isArchived:false});
       const existing=await Directory.listGroupMembers(expected,{maxResults:5000});
       if((existing||[]).length>=5000)throw billingError(409,'Group membership requires manual review');
-      if((existing||[]).some(m=>(m.type&&m.type!=='USER')||!members.includes(String(m.email||'').toLowerCase())))throw billingError(409,'The group has members outside authorized billing staff. Review its membership before activating it.');
+      if((existing||[]).some(m=>(m.type&&m.type!=='USER')||!(members.includes(String(m.email||'').toLowerCase()) || (String(m.email||'').toLowerCase()===transport && ['MANAGER','OWNER'].includes(m.role)))))throw billingError(409,'The group has members outside authorized billing staff. Review its membership before activating it.');
       for(const email of [...new Set(members)])await Directory.addGroupMember({groupEmail:expected,memberEmail:email,role:'MEMBER'});
       let identity=await EmailSenderIdentity.findByAgencyAndIdentityKey(agencyId,row.identity_key);
       if(identity&&identity.from_email.toLowerCase()!==expected)throw billingError(409,'Review the existing sender address before changing it');

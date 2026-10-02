@@ -1,0 +1,12 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
+vi.mock('../../models/Appointment.model.js',()=>({default:{findById:vi.fn()}}));
+import pool from '../../config/database.js';
+import Appointment from '../../models/Appointment.model.js';
+import {validateGuardianAppointmentRequest,requireAppointmentRequestProvider,recordGuardianAppointmentApproval} from '../guardianAppointments.service.js';
+beforeEach(()=>{vi.clearAllMocks();Appointment.findById.mockResolvedValue({id:1,providerUserId:7,status:'scheduled'});});
+it.each(['', '   ', 'x'.repeat(2001)])('requires a useful bounded reason',reason=>{expect(()=>validateGuardianAppointmentRequest({type:'cancel',reason})).toThrow('reason');});
+it('accepts a cancellation or reschedule request without changing an appointment',()=>{expect(validateGuardianAppointmentRequest({type:'reschedule',reason:'  School event  '})).toEqual({type:'reschedule',reason:'School event'});expect(pool.execute).not.toHaveBeenCalled();});
+it('allows only the assigned provider to decide',async()=>{await expect(requireAppointmentRequestProvider(1,8)).rejects.toMatchObject({status:403});await expect(requireAppointmentRequestProvider(1,7)).resolves.toMatchObject({id:1});});
+it('does not record approval before the actual appointment change',async()=>{await recordGuardianAppointmentApproval(1,7);expect(pool.execute).not.toHaveBeenCalled();});
+it('records approval only after provider cancellation',async()=>{Appointment.findById.mockResolvedValue({id:1,providerUserId:7,status:'canceled_by_guardian'});pool.execute.mockResolvedValue([{affectedRows:1}]);await recordGuardianAppointmentApproval(1,7);expect(pool.execute).toHaveBeenCalledWith(expect.stringContaining("status='approved'"),[7,1]);});

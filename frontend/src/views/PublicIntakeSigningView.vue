@@ -1611,6 +1611,10 @@
         </div>
 
         <div v-if="currentFlowStep?.type === 'insurance_info'" class="insurance-step">
+          <div v-if="coGuardianInsuranceOnFile" class="notice">
+            <p>{{ tx('We have insurance on file already. Those details are private; you do not need to enter them again.') }}</p>
+            <label><input v-model="addCoGuardianInsurance" type="checkbox" /> {{ tx('Add my own additional or secondary insurance for review') }}</label>
+          </div>
           <PublicIntakeInsurancePaymentStep
             v-if="isOfficeInDepthIntake || isPaymentOnlyEnrollmentChannel"
             ref="insurancePaymentStepRef"
@@ -1618,6 +1622,8 @@
             :payment-info="intakeResponses.submission.paymentInfo || {}"
             :step-config="currentFlowStep"
             :selected-package="intakeResponses.submission.selectedPackageInfo?.selectedPackage || null"
+            :insurance-on-file="useCoGuardianInsuranceOnFile"
+            :payment-collection-available="coGuardianPaymentCollectionAvailable"
             :payment-only="isPaymentOnlyEnrollmentChannel || !!currentFlowStep?.paymentOnly"
             :guardian-name="guardianDisplayNameForInsurance"
             :guardian-relationship="guardianRelationship"
@@ -6952,6 +6958,12 @@ async function uploadOtherGuardianCourtFiles() {
   }
 }
 const isCoGuardianInvitee = computed(() => Boolean(String(route.query.coGuardian || '').trim()));
+const coGuardianInviteError = ref('');
+const coGuardianDependents = ref([]);
+const coGuardianPaymentCollectionAvailable = ref(true);
+const coGuardianInsuranceOnFile = computed(() => isCoGuardianInvitee.value && coGuardianDependents.value.length > 0 && coGuardianDependents.value.every(dep => dep.insuranceOnFile));
+const addCoGuardianInsurance = ref(false);
+const useCoGuardianInsuranceOnFile = computed(() => coGuardianInsuranceOnFile.value && !addCoGuardianInsurance.value);
 const officeCopyEmail = ref('');
 const officeEmailSending = ref(false);
 const officeEmailStatus = ref('');
@@ -7423,7 +7435,10 @@ async function applyCoGuardianInviteFromQuery() {
   try {
     const { data } = await api.get(`/public/adaptive-intake/co-guardian/${encodeURIComponent(token)}`);
     const invite = data?.invite;
-    if (!invite) return;
+    if (!invite) throw new Error('This invitation could not be loaded.');
+    coGuardianInviteError.value = '';
+    coGuardianDependents.value = invite.dependents || [];
+    coGuardianPaymentCollectionAvailable.value = invite.paymentCollectionAvailable !== false;
     intakeForSelf.value = false;
     whoForError.value = '';
     if (invite.contact) {
@@ -7441,8 +7456,10 @@ async function applyCoGuardianInviteFromQuery() {
         dateOfBirth: ''
       }));
     }
-  } catch {
-    /* keep the normal start page if the token is invalid */
+  } catch (error) {
+    coGuardianInviteError.value = error?.response?.data?.error?.message || 'This invitation could not be verified. Please contact the care team for a new link.';
+    whoForError.value = coGuardianInviteError.value;
+    beginError.value = coGuardianInviteError.value;
   }
 }
 
@@ -10972,6 +10989,7 @@ const completeInsuranceStep = async () => {
     || insuranceStepRef.value?.getInsuranceEntryState?.()
     || {};
   const paymentOnlyMode = isPaymentOnlyEnrollmentChannel.value || !!step.paymentOnly;
+  const insuranceOnFile = useCoGuardianInsuranceOnFile.value;
   const insInfo = intakeResponses.submission.insuranceInfo;
   if (!insInfo.primary || typeof insInfo.primary !== 'object') {
     insInfo.primary = {
@@ -10983,9 +11001,10 @@ const completeInsuranceStep = async () => {
       isMedicaid: false
     };
   }
-  if (paymentOnlyMode) {
-    insInfo.isSelfPay = true;
-    if (!String(insInfo.primary.insurerName || '').trim()) {
+  if (paymentOnlyMode || insuranceOnFile) {
+    insInfo.useInsuranceOnFile = insuranceOnFile;
+    insInfo.isSelfPay = !insuranceOnFile;
+    if (!insuranceOnFile && !String(insInfo.primary.insurerName || '').trim()) {
       insInfo.primary.insurerName = 'Self-Pay';
     }
     // Persist payment choice from combined step
@@ -13135,6 +13154,7 @@ watch(
 );
 
 async function createIntakeSession() {
+  if (coGuardianInviteError.value) { beginError.value = coGuardianInviteError.value; return false; }
   if (sessionToken.value) return true;
   if (requiresCaptchaAtStart.value) {
     if (captchaWidgetFailed.value) {
@@ -13148,6 +13168,7 @@ async function createIntakeSession() {
     }
   }
   const resp = await api.post(`/public-intake/${publicKey}/session`, {
+    coGuardianToken: String(route.query.coGuardian || '').trim() || undefined,
     captchaToken: String(captchaToken.value || '').trim() || undefined
   }, { skipGlobalLoading: true });
   const token = String(resp.data?.sessionToken || '').trim();

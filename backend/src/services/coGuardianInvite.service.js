@@ -3,7 +3,7 @@ import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
-import EmailService from './email.service.js';
+import { sendGuardianNotificationEmail } from './guardianNotificationEmail.service.js';
 import { SUPPORT_TICKET_SOURCE_KEYS, normalizeSupportTicketSourceKey } from '../constants/supportTicketSources.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
 
@@ -28,11 +28,22 @@ function noViewPermissionsForInvite(inviteId, existing = null) {
     return {
       ...prior,
       isolatedIntake: true,
-      noViewOtherGuardian: true,
+      hideOtherGuardianAnswers: true,
       coGuardianInviteId: inviteId || prior.coGuardianInviteId || null
     };
   }
-  return { ...NO_VIEW_GUARDIAN_PERMISSIONS, coGuardianInviteId: inviteId || null };
+  return { ...NO_VIEW_GUARDIAN_PERMISSIONS, coGuardianInviteRestricted: true, coGuardianInviteId: inviteId || null };
+}
+
+export function completedCoGuardianPermissions(inviteId, existing) {
+  const p = noViewPermissionsForInvite(inviteId, existing);
+  // Only release the restriction this invitation created. Never override a
+  // care-team restriction on an existing guardian relationship.
+  if (!existing || (existing.coGuardianInviteRestricted === true && Number(existing.coGuardianInviteId) === Number(inviteId))) {
+    return { ...p, noView: false, noViewOtherGuardian: false, hideOtherGuardianAnswers: true,
+      coGuardianInviteRestricted: false, canViewDocs: true, canSignDocs: true, canMessage: true };
+  }
+  return p;
 }
 
 function hashToken(token) {
@@ -111,6 +122,19 @@ export async function createCoGuardianInvite({
   const ids = [...new Set((Array.isArray(clientIds) ? clientIds : []).map((id) => Number(id)).filter(Boolean))];
   if (!ids.length) throw new Error('At least one dependent is required.');
 
+  const [scopedClients] = await pool.execute(
+    `SELECT id FROM clients WHERE agency_id = ? AND id IN (${ids.map(() => '?').join(',')})`,
+    [Number(agencyId), ...ids]
+  );
+  if (scopedClients.length !== ids.length) throw new Error('Dependent not found in this organization.');
+
+  if (!publicKey && source === 'office') {
+    const { findFullIntakePublicKey } = await import('./adaptiveIntake.service.js');
+    const packet = await findFullIntakePublicKey(agencyId);
+    if (!packet?.publicKey) throw new Error('Publish the full enrollment packet before inviting another guardian.');
+    publicKey = packet.publicKey;
+  }
+
   const token = crypto.randomBytes(TOKEN_BYTES).toString('hex');
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + INVITE_DAYS * 24 * 60 * 60 * 1000);
@@ -153,9 +177,9 @@ export async function createCoGuardianInvite({
   });
 
   const inviteUrl = invitePublicUrl({ agency, token, publicKey });
-  let emailed = false;
+  let delivery = { sent: false, queued: false, deliveryStatus: 'not_requested' };
   if (sendEmail !== false && person.sendInvite !== false) {
-    emailed = await emailCoGuardianInvite({
+    delivery = await emailCoGuardianInvite({
       agency,
       to: person.email,
       firstName: person.firstName,
@@ -167,8 +191,10 @@ export async function createCoGuardianInvite({
     inviteId,
     token,
     inviteUrl,
-    emailed,
-    queued: !emailed,
+    emailed: delivery.sent,
+    queued: !!delivery.queued,
+    deliveryStatus: delivery.deliveryStatus,
+    communicationId: delivery.communicationId || null,
     expiresAt: expiresAt.toISOString(),
     email: person.email
   };
@@ -406,10 +432,17 @@ export async function maybeCreateFromIntakeGuardian({
   return inviteResult;
 }
 
-export async function resolveCoGuardianIntakeBinding(token) {
-  const row = await loadInviteByToken(token);
-  if (!row) return null;
-  if (String(row.status) !== 'pending' && String(row.status) !== 'accepted') return null;
+export function assertActiveCoGuardianInvite(row, { agencyId, publicKey } = {}) {
+  const fail = (message, statusCode = 410) => { const error = new Error(message); error.statusCode = statusCode; error.status = statusCode; throw error; };
+  if (!row) fail('This invite link is not valid.', 404);
+  if (!['pending', 'accepted'].includes(String(row.status))) fail('This invite is no longer active.');
+  if (!row.expires_at || new Date(row.expires_at).getTime() <= Date.now() || !Number.isFinite(new Date(row.expires_at).getTime())) fail('This invitation expired. Please contact the care team for a new invitation.');
+  if ((agencyId && Number(row.agency_id) !== Number(agencyId)) || (publicKey && row.public_key && String(row.public_key) !== String(publicKey))) fail('This invitation belongs to a different enrollment packet.', 403);
+  return row;
+}
+
+export async function resolveCoGuardianIntakeBinding(token, scope = {}) {
+  const row = assertActiveCoGuardianInvite(await loadInviteByToken(token), scope);
   const clients = await loadInviteClients(row.id);
   return {
     invite: row,
@@ -418,7 +451,7 @@ export async function resolveCoGuardianIntakeBinding(token) {
   };
 }
 
-async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, clientId }) {
+export async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, clientId }) {
   const org = String(agency?.official_name || agency?.name || 'our care team').trim();
   const greeting = firstName ? `Hi ${firstName},` : 'Hello,';
   const subject = `${org}: complete your guardian intake`;
@@ -435,7 +468,7 @@ async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, clientI
     'This message may contain protected health information. If you received it in error, delete it.'
   ].join('\n');
   try {
-    await EmailService.sendEmail({
+    return await sendGuardianNotificationEmail({
       to,
       subject,
       text,
@@ -445,10 +478,9 @@ async function emailCoGuardianInvite({ agency, to, firstName, inviteUrl, clientI
       templateType: 'co_guardian_invite',
       linkUrl: inviteUrl
     });
-    return true;
   } catch (err) {
     console.warn('Co-guardian invite email skipped:', err?.message || err);
-    return false;
+    return { sent: false, queued: false, deliveryStatus: 'failed' };
   }
 }
 
@@ -463,9 +495,11 @@ async function loadInviteByToken(token) {
 
 async function loadInviteClients(inviteId) {
   const [rows] = await pool.execute(
-    `SELECT c.id, c.full_name, c.initials, c.date_of_birth
+    `SELECT c.id, c.agency_id, c.full_name, c.initials, c.date_of_birth,
+       (c.billing_insurance_payload IS NOT NULL OR NULLIF(c.primary_insurer_name, '') IS NOT NULL) AS insurance_on_file
        FROM co_guardian_invite_clients ic
-       JOIN clients c ON c.id = ic.client_id
+       JOIN co_guardian_invites i ON i.id = ic.invite_id
+       JOIN clients c ON c.id = ic.client_id AND c.agency_id = i.agency_id
       WHERE ic.invite_id = ?`,
     [Number(inviteId)]
   );
@@ -478,25 +512,17 @@ function firstNameOnly(fullName) {
 
 export async function getPublicCoGuardianInvite(token) {
   const row = await loadInviteByToken(token);
-  if (!row) {
-    const err = new Error('This invite link is not valid.');
-    err.statusCode = 404;
-    throw err;
-  }
-  if (String(row.status) !== 'pending' && String(row.status) !== 'accepted') {
-    const err = new Error('This invite is no longer active.');
-    err.statusCode = 410;
-    throw err;
-  }
-  if (row.expires_at && new Date(row.expires_at).getTime() < Date.now() && String(row.status) === 'pending') {
-    const err = new Error('This access token expired. Use Contact us or Access token expired? on the login page if you need a new token.');
-    err.statusCode = 410;
-    err.expiredToken = true;
-    throw err;
-  }
+  assertActiveCoGuardianInvite(row);
   const agency = await Agency.findById(row.agency_id);
   const clients = await loadInviteClients(row.id);
+  const { readClientInsurance } = await import('./clientInsurance.service.js');
+  const { hasMedicaidCoverage } = await import('../utils/insurancePaymentPolicy.js');
+  let paymentCollectionAvailable = true;
+  for (const client of clients) {
+    if (hasMedicaidCoverage(await readClientInsurance(client.id, row.agency_id))) paymentCollectionAvailable = false;
+  }
   return {
+    paymentCollectionAvailable,
     status: row.status,
     source: row.source,
     publicKey: row.public_key || null,
@@ -515,28 +541,25 @@ export async function getPublicCoGuardianInvite(token) {
     dependents: clients.map((c) => ({
       id: c.id,
       firstName: firstNameOnly(c.full_name),
-      initials: c.initials || null
+      initials: c.initials || null,
+      insuranceOnFile: !!c.insurance_on_file
     })),
     expiresAt: row.expires_at
   };
 }
 
-export async function acceptCoGuardianInvite({ token, contact = {}, answers = null, createPortal = null }) {
+export async function acceptCoGuardianInvite({ token, contact = {}, answers = null, createPortal = null, enrollmentCompleted = false }) {
   const row = await loadInviteByToken(token);
-  if (!row) {
-    const err = new Error('This invite link is not valid.');
-    err.statusCode = 404;
-    throw err;
-  }
-  if (row.expires_at && new Date(row.expires_at).getTime() < Date.now() && String(row.status) === 'pending') {
-    const err = new Error('This access token expired. Use Contact us or Access token expired? on the login page if you need a new token.');
-    err.statusCode = 410;
-    err.expiredToken = true;
-    throw err;
+  assertActiveCoGuardianInvite(row);
+  if (row.public_key && row.source === 'office' && !enrollmentCompleted) {
+    throw Object.assign(new Error('Complete and sign your enrollment packet before activating guardian access.'), {status:409,statusCode:409});
   }
   const firstName = String(contact.firstName || row.invited_first_name || '').trim() || 'Guardian';
   const lastName = String(contact.lastName || row.invited_last_name || '').trim();
   const email = String(contact.email || row.invited_email || '').trim().toLowerCase();
+  if (email !== String(row.invited_email || '').trim().toLowerCase()) {
+    throw Object.assign(new Error('Please use the invited email address, or ask the care team for a corrected invitation.'), { statusCode: 400, status: 400 });
+  }
   const phone = String(contact.phone || row.invited_phone || '').trim() || null;
   if (!email || !email.includes('@')) {
     throw new Error('Email is required to complete this intake.');
@@ -608,9 +631,17 @@ export async function acceptCoGuardianInvite({ token, contact = {}, answers = nu
       guardianUserId: user.id,
       relationshipType: 'guardian',
       relationshipTitle: String(contact.relationship || row.relationship_title || existing?.relationship_title || 'Guardian').trim() || 'Guardian',
-      accessEnabled: true,
-      permissionsJson: noViewPermissionsForInvite(row.id, existing?.permissions_json)
+      accessEnabled: existing ? Number(existing.access_enabled) === 1 : true,
+      permissionsJson: completedCoGuardianPermissions(row.id, existing?.permissions_json)
     });
+  }
+
+  if (['yes', 'shared'].includes(String(row.legal_authority || '').toLowerCase())) {
+    for (const client of clients) await pool.execute(
+      `INSERT INTO guardian_portal_policies (agency_id,client_id,shared_billing,source_invite_id) VALUES (?,?,1,?)
+       ON DUPLICATE KEY UPDATE shared_billing=1,source_invite_id=VALUES(source_invite_id)`,
+      [row.agency_id,client.id,row.id]
+    );
   }
 
   try {
@@ -687,7 +718,7 @@ export async function emailPortalLoginInfo({
     '',
     'You can skip portal setup for now, but an account may still be needed for medical records.'
   ];
-  await EmailService.sendEmail({
+  const delivery = await sendGuardianNotificationEmail({
     to: email,
     subject: `${org}: your parent/guardian portal login`,
     text: lines.join('\n'),
@@ -696,5 +727,5 @@ export async function emailPortalLoginInfo({
     source: 'guardian_portal_login_info',
     templateType: 'guardian_portal_login_info'
   });
-  return { ok: true };
+  return { ok: delivery.sent, ...delivery };
 }

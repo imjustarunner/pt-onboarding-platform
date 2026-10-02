@@ -13,6 +13,7 @@ import ClientGuardian from '../models/ClientGuardian.model.js';
 import Agency from '../models/Agency.model.js';
 import ClientNotes from '../models/ClientNotes.model.js';
 import EmailService from './email.service.js';
+import { sendGuardianNotificationEmail } from './guardianNotificationEmail.service.js';
 import { pickTenantWelcomeUrl } from '../content/tenantBrandAssets.js';
 import {
   SELF_QUICK_CONCERN_OPTIONS,
@@ -1590,6 +1591,7 @@ export async function convertProspectiveToFullIntake({
 
   let emailed = false;
   let emailedTo = null;
+  let deliveryStatus = 'not_requested';
   if (sendEmail) {
     const to = String(prefill.guardianEmail || '').trim();
     if (!to) throw new Error('No email on file for this inquiry');
@@ -1610,7 +1612,7 @@ export async function convertProspectiveToFullIntake({
       '',
       'This message may contain protected health information. If you received it in error, delete it.'
     ].join('\n');
-    await EmailService.sendEmail({
+    const delivery = await sendGuardianNotificationEmail({
       to,
       subject,
       text,
@@ -1620,9 +1622,11 @@ export async function convertProspectiveToFullIntake({
       templateType: 'adaptive_full_intake_invite',
       linkUrl: inviteUrl
     });
-    emailed = true;
+    emailed = delivery.sent;
+    deliveryStatus = delivery.deliveryStatus;
     emailedTo = to;
-    nextMeta.conversionEmailSentAt = new Date().toISOString();
+    if (emailed) nextMeta.conversionEmailSentAt = new Date().toISOString();
+    nextMeta.conversionEmailDeliveryStatus = deliveryStatus;
     nextMeta.conversionEmailTo = to;
     try {
       await pool.execute(`UPDATE clients SET adaptive_intake_meta_json = ? WHERE id = ?`, [
@@ -1638,7 +1642,7 @@ export async function convertProspectiveToFullIntake({
           {
             client_id: id,
             author_id: actingUserId,
-            message: `Emailed full intake link to ${to}.`,
+            message: `${emailed ? 'Emailed' : 'Prepared'} full intake link to ${to}. Delivery: ${deliveryStatus}.`,
             is_internal_only: true,
             category: 'administrative',
             urgency: 'low'
@@ -1658,6 +1662,7 @@ export async function convertProspectiveToFullIntake({
     inviteUrl,
     emailed,
     emailedTo,
+    deliveryStatus,
     prefill,
     meta: nextMeta
   };

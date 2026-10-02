@@ -67,6 +67,8 @@ export async function revokeClinicalGrant({agencyId,clientId,guardianUserId,user
 }
 
 export async function requireGuardianThreadDisclosure(userId,threadId){
+ const {assertSharedChildThreadAccess}=await import('./guardianSharedMessages.service.js');
+ if(await assertSharedChildThreadAccess(userId,threadId)) return;
  const [rows]=await pool.execute("SELECT c.id,c.agency_id FROM clients c JOIN client_guardians cg ON cg.client_id=c.id JOIN chat_threads t ON t.agency_id=c.agency_id WHERE t.id=? AND cg.guardian_user_id=? AND cg.access_enabled=1 AND c.client_type IN ('clinical','mental_health')",[threadId,userId]);
  for(const row of rows)await requireClinicalScope({agencyId:row.agency_id,clientId:row.id,userId,scope:'clinical_messages'});
 }

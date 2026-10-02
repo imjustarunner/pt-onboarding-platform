@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
+import { ensureSharedChildThread } from '../services/guardianSharedMessages.service.js';
 import {
   findOrCreateDirectThread,
   listMessages as listChatMessages,
@@ -115,13 +116,11 @@ export const listGuardianMessageThreads = async (req, res, next) => {
         continue;
       }
       let threadId = null;
+      let participants = [];
       try {
-        threadId = await findOrCreateDirectThread(
-          c.agency_id,
-          c.organization_id || null,
-          req.user.id,
-          provider.id
-        );
+        const shared = await ensureSharedChildThread({ clientId: c.client_id, agencyId: c.agency_id, userId: req.user.id });
+        threadId = shared.threadId;
+        participants = shared.participants;
       } catch {
         threadId = null;
       }
@@ -138,6 +137,8 @@ export const listGuardianMessageThreads = async (req, res, next) => {
           email: provider.email
         },
         thread_id: threadId,
+        participants,
+        shared: true,
         available: !!threadId
       });
     }
@@ -239,6 +240,10 @@ export const replyGuardianEmail = async (req, res, next) => {
     if (req.guardianPreviewMode) {
       return res.status(403).json({ error: { message: 'Preview cannot send messages' } });
     }
+    const children = await ClientGuardian.listClientsForGuardian({guardianUserId:req.user.id});
+    if (children.some(child => child.relationship_type !== 'self')) {
+      return res.status(409).json({error:{message:'Please reply in the child’s shared care conversation so all authorized guardians can see the message.'}});
+    }
     const conversationId = parseInt(req.params.conversationId, 10);
     const { replyPortalEmail } = await import('../services/portalMailbox.service.js');
     const out = await replyPortalEmail({
@@ -326,13 +331,11 @@ export const openGuardianClientThread = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'No assigned provider for this child yet' } });
     }
 
-    const threadId = await findOrCreateDirectThread(
-      client.agency_id,
-      client.organization_id || null,
-      req.user.id,
-      provider.id
-    );
+    const shared = await ensureSharedChildThread({ clientId, agencyId: client.agency_id, userId: req.user.id });
+    const threadId = shared.threadId;
     res.json({
+      shared: true,
+      participants: shared.participants,
       thread_id: threadId,
       agency_id: client.agency_id,
       organization_id: client.organization_id,

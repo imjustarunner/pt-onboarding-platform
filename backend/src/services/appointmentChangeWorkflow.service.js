@@ -44,10 +44,15 @@ export async function saveAppointmentChangeDraft(appointmentId, facts, actorUser
 }
 
 export async function runSignedAppointmentChange(appointmentId, facts, actor, { previewChange, applyChange }) {
+  const { requireAppointmentRequestProvider, recordGuardianAppointmentApproval } = await import('./guardianAppointments.service.js');
+  await requireAppointmentRequestProvider(appointmentId, actor.actorUserId, { onlyPending: true });
   if (facts.signatureConfirmed !== true) fail('Review the generated note and confirm your signature.', 400);
   return withLock(appointmentId, async (conn) => {
     let workflow = await getAppointmentChangeWorkflow(appointmentId, conn);
-    if (workflow?.status === 'completed') return workflow.result;
+    if (workflow?.status === 'completed') {
+      await recordGuardianAppointmentApproval(appointmentId, actor.actorUserId);
+      return workflow.result;
+    }
     if (workflow && workflow.status !== 'draft' && Number(workflow.signed_by_user_id) !== Number(actor.actorUserId)) {
       fail('The signing user must finish this appointment change.');
     }
@@ -90,6 +95,7 @@ export async function runSignedAppointmentChange(appointmentId, facts, actor, { 
     await queueAppointmentWaiver({ appointmentId, agencyId: linked.agencyId, facts: workflow.facts, actorUserId: workflow.signed_by_user_id }, conn);
     await conn.execute("UPDATE appointment_change_workflows SET status = 'completed', result_json = ?, narrative = ? WHERE appointment_id = ?",
       [JSON.stringify(result), result.narrative, appointmentId]);
+    await recordGuardianAppointmentApproval(appointmentId, actor.actorUserId);
     return result;
   });
 }

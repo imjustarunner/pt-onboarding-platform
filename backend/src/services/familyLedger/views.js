@@ -1,24 +1,24 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import pool from '../../config/database.js';
-import { billingError, requireResponsiblePayer, linkAllowsBilling, auditBilling } from '../familyBillingPolicy.service.js';
+import { billingError, requireStatementAccess, linkAllowsBilling, auditBilling } from '../familyBillingPolicy.service.js';
 import { decryptFamilyBilling } from '../familyBillingEncryption.service.js';
 import { parseJson, today, assertCollectible } from './policy.js';
 import { findReceivable, sourcePayload } from './receivables.js';
 import { presentBalance } from './presentation.js';
 
-export async function listBalances({agencyId,userId,clientId=null,staff=false,overdueOnly=false}) {
+export async function listBalances({agencyId,userId,clientId=null,staff=false,overdueOnly=false,allForStatement=false}) {
   const args=[agencyId];
   let filter='';
   if(clientId){filter+=' AND r.client_id=?';args.push(clientId);}
-  if(!staff){filter+=` AND (a.payer_user_id=? OR EXISTS(SELECT 1 FROM family_statement_shares s WHERE s.agency_id=r.agency_id AND s.client_id=r.client_id AND s.guardian_user_id=? AND s.active=1)) AND EXISTS(SELECT 1 FROM client_guardians cg WHERE cg.client_id=r.client_id AND cg.guardian_user_id=? AND cg.access_enabled=1)`;args.push(userId,userId,userId);}
+  if(!staff){filter+=` AND (a.payer_user_id=? OR EXISTS(SELECT 1 FROM family_statement_shares s WHERE s.agency_id=r.agency_id AND s.client_id=r.client_id AND s.guardian_user_id=? AND s.active=1) OR EXISTS(SELECT 1 FROM guardian_portal_policies gp WHERE gp.agency_id=r.agency_id AND gp.client_id=r.client_id AND gp.shared_billing=1)) AND EXISTS(SELECT 1 FROM client_guardians cg WHERE cg.client_id=r.client_id AND cg.guardian_user_id=? AND cg.access_enabled=1)`;args.push(userId,userId,userId);}
   if(overdueOnly)filter+=" AND r.status='open' AND r.due_date<CURRENT_DATE AND r.disputed_at IS NULL AND r.hold_reason IS NULL AND a.amount_cents>a.paid_cents";
-  const [rows]=await pool.execute(`SELECT r.id AS receivableId,r.client_id AS clientId,r.source_type AS sourceType,r.source_key AS sourceKey,r.service_domain AS serviceDomain,r.service_date AS serviceDate,r.amount_cents AS totalCents,r.due_date AS dueDate,r.currency,r.status,j.status AS fulfillmentStatus,j.last_error AS fulfillmentError,r.hold_reason AS holdReason,r.disputed_at AS disputedAt,a.id AS allocationId,a.payer_user_id AS payerUserId,a.amount_cents AS amountCents,a.paid_cents AS paidCents,u.first_name AS payerFirst,u.last_name AS payerLast FROM family_receivables r JOIN family_receivable_allocations a ON a.receivable_id=r.id LEFT JOIN users u ON u.id=a.payer_user_id LEFT JOIN family_fulfillment_jobs j ON j.receivable_id=r.id WHERE r.agency_id=?${filter} ORDER BY r.due_date,r.id,a.id LIMIT 500`,args);
+  const [rows]=await pool.execute(`SELECT r.id AS receivableId,r.client_id AS clientId,r.source_type AS sourceType,r.source_key AS sourceKey,r.service_domain AS serviceDomain,r.service_date AS serviceDate,r.amount_cents AS totalCents,r.due_date AS dueDate,r.currency,r.status,j.status AS fulfillmentStatus,j.last_error AS fulfillmentError,r.hold_reason AS holdReason,r.disputed_at AS disputedAt,a.id AS allocationId,a.payer_user_id AS payerUserId,a.amount_cents AS amountCents,a.paid_cents AS paidCents,u.first_name AS payerFirst,u.last_name AS payerLast FROM family_receivables r JOIN family_receivable_allocations a ON a.receivable_id=r.id LEFT JOIN users u ON u.id=a.payer_user_id LEFT JOIN family_fulfillment_jobs j ON j.receivable_id=r.id WHERE r.agency_id=?${filter} ORDER BY r.due_date,r.id,a.id${allForStatement && clientId ? "" : " LIMIT 500"}`,args);
   const allowed=new Map();
   const receivables=new Map();
   const result=[];
   for(const row of rows){
     if(!staff){
-      if(!allowed.has(row.clientId)) {try{await requireResponsiblePayer(userId,row.clientId,agencyId);allowed.set(row.clientId,true);}catch(e){if(e.status!==403)throw e;allowed.set(row.clientId,false);}}
+      if(!allowed.has(row.clientId)) {try{await requireStatementAccess(userId,row.clientId,agencyId);allowed.set(row.clientId,true);}catch(e){if(e.status!==403)throw e;allowed.set(row.clientId,false);}}
       if(!allowed.get(row.clientId))continue;
     }
     if(!receivables.has(row.receivableId)) {
@@ -49,7 +49,7 @@ export async function receiptFor({agencyId,paymentId,userId,staff=false}) {
     const [links]=await pool.execute('SELECT * FROM client_guardians WHERE client_id=? AND guardian_user_id=? AND access_enabled=1',[row.client_id,userId]);
     const link=links[0];const permissions=parseJson(link?.permissions_json,{});
     self=!!link&&link.relationship_type==='self'&&!permissions.noView&&!permissions.noViewOtherGuardian;
-    if(!self){await requireResponsiblePayer(userId,row.client_id,agencyId);if(Number(row.payer_user_id)!==Number(userId)){const [shared]=await pool.execute('SELECT 1 FROM family_statement_shares WHERE agency_id=? AND client_id=? AND guardian_user_id=? AND active=1',[agencyId,row.client_id,userId]);if(!shared.length)throw billingError(403,'Receipt is private to its payer');}}
+    if(!self){await requireStatementAccess(userId,row.client_id,agencyId);if(Number(row.payer_user_id)!==Number(userId)){const [shared]=await pool.execute('SELECT 1 FROM family_statement_shares WHERE agency_id=? AND client_id=? AND guardian_user_id=? AND active=1 UNION ALL SELECT 1 FROM guardian_portal_policies WHERE agency_id=? AND client_id=? AND shared_billing=1',[agencyId,row.client_id,userId,agencyId,row.client_id]);if(!shared.length)throw billingError(403,'Receipt is private to its payer');}}
   }
   const receipt=decryptFamilyBilling(row.receipt_encrypted,`receipt:${agencyId}:${row.payer_user_id}`);
   if(!staff&&Number(row.payer_user_id)!==Number(userId))delete receipt.method;
@@ -60,7 +60,7 @@ export async function receiptFor({agencyId,paymentId,userId,staff=false}) {
 }
 export async function listReceipts({agencyId,userId,staff=false,clientId=null}) {
   const args=[agencyId];let filter='';if(clientId){filter+=' AND r.client_id=?';args.push(clientId);}
-  if(!staff){filter+=' AND (p.payer_user_id=? OR EXISTS(SELECT 1 FROM family_statement_shares s WHERE s.agency_id=r.agency_id AND s.client_id=r.client_id AND s.guardian_user_id=? AND s.active=1) OR EXISTS(SELECT 1 FROM client_guardians cg WHERE cg.client_id=r.client_id AND cg.guardian_user_id=? AND cg.relationship_type=\'self\' AND cg.access_enabled=1))';args.push(userId,userId,userId);}
+  if(!staff){filter+=' AND (p.payer_user_id=? OR EXISTS(SELECT 1 FROM family_statement_shares s WHERE s.agency_id=r.agency_id AND s.client_id=r.client_id AND s.guardian_user_id=? AND s.active=1) OR EXISTS(SELECT 1 FROM guardian_portal_policies gp WHERE gp.agency_id=r.agency_id AND gp.client_id=r.client_id AND gp.shared_billing=1) OR EXISTS(SELECT 1 FROM client_guardians cg WHERE cg.client_id=r.client_id AND cg.guardian_user_id=? AND cg.relationship_type=\'self\' AND cg.access_enabled=1))';args.push(userId,userId,userId);}
   const [rows]=await pool.execute(`SELECT p.id FROM family_ledger_payments p JOIN family_receivable_allocations a ON a.id=p.allocation_id JOIN family_receivables r ON r.id=a.receivable_id WHERE p.agency_id=? AND p.status='succeeded'${filter} ORDER BY p.received_at DESC LIMIT 100`,args);
   const result=[];for(const row of rows){try{result.push({paymentId:row.id,...await receiptFor({agencyId,paymentId:row.id,userId,staff})});}catch(e){if(e.status!==403)throw e;}}
   return result;
@@ -89,5 +89,21 @@ export async function renderReceiptPdf(receipt) {
     ...(receipt.method?[`Payment method: ${receipt.method}`]:[]),
     ...(receipt.refundedCents?[`Refunded: ${money(receipt.refundedCents)}`,`Net paid: ${money(receipt.netPaidCents)}`]:[]),
     'This is a payment receipt, not a new bill or a superbill. See your portal for the current balance. Clinical notes and diagnoses are not included.'
+  ]});
+}
+
+/** Downloadable service statement; includes only balances the signed-in payer may view. */
+export async function guardianStatementPdf({agencyId,userId,clientId,receivableId=null}) {
+  await requireStatementAccess(userId,clientId,agencyId);
+  const balances=(await listBalances({agencyId,userId,clientId,allForStatement:true})).filter(b=>!receivableId||Number(b.receivableId)===Number(receivableId));
+  if(receivableId&&!balances.length)throw billingError(404,'Statement not found');
+  const [[agency]]=await pool.execute('SELECT name FROM agencies WHERE id=?',[agencyId]);
+  const money=v=>v==null?'Under review':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v)/100);
+  return renderPrivatePdf({title:'Service and payment statement',agencyName:agency?.name||'Care team',lines:[
+    `Prepared: ${today()}`,
+    ...balances.flatMap(b=>[`Service date: ${b.serviceDate?(b.serviceDate instanceof Date ? b.serviceDate.toISOString().slice(0,10) : String(b.serviceDate).slice(0,10)):'Not recorded'} · Reference ${b.receivableId}`,
+      `${b.description} · Payer: ${b.payerName||'Awaiting assignment'}`,
+      `Assigned amount: ${money(b.amountCents)} · Paid: ${money(b.paidCents)} · Due: ${money(b.dueCents)}`,b.explanation]),
+    'This statement records services and payments. It is not a superbill for insurance reimbursement. Contact billing for an insurance-ready superbill.'
   ]});
 }

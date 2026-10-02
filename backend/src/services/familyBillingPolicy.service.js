@@ -43,3 +43,13 @@ export async function recordBillingConsent({ userId, agencyId, clientId = null, 
     [agencyId, userId, clientId, cardId, submissionId, purpose, BILLING_TERMS_VERSION, crypto.createHash('sha256').update(BILLING_TERMS).digest('hex'), encryptFamilyBilling(evidence, `consent:${agencyId}:${userId}`)]);
   return r.insertId;
 }
+
+/** Shared statements grant read access, never liability or permission to charge. */
+export async function requireStatementAccess(userId, clientId, agencyId, db = pool) {
+  await requireBillingLink(userId, clientId, agencyId, db);
+  const [rows] = await db.execute(`SELECT 1 FROM client_billing_payers WHERE agency_id=? AND client_id=? AND guardian_user_id=? AND status='active'
+    UNION ALL SELECT 1 FROM guardian_portal_policies WHERE agency_id=? AND client_id=? AND shared_billing=1
+    UNION ALL SELECT 1 FROM family_statement_shares WHERE agency_id=? AND client_id=? AND guardian_user_id=? AND active=1`,
+    [agencyId,clientId,userId,agencyId,clientId,agencyId,clientId,userId]);
+  if (!rows.length) throw billingError(403,'Statement access is not authorized for this client');
+}

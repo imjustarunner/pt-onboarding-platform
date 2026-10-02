@@ -60,6 +60,10 @@ export async function createReceivable(input, connection = null) {
   for (const row of allocated) await db.execute('INSERT INTO family_receivable_allocations (agency_id,receivable_id,payer_user_id,amount_cents) VALUES (?,?,?,?)', [agencyId, id, row.payerUserId, row.amountCents]);
   await auditBilling({ agencyId, clientId, userId: input.actorUserId, action: 'receivable_created', objectId: id }, db);
   if (status === 'paid') await db.execute('INSERT IGNORE INTO family_fulfillment_jobs (agency_id,receivable_id) VALUES (?,?)', [agencyId,id]);
+  if (status === 'open') {
+    const { queueBalanceNotifications } = await import('./balanceNotifications.js');
+    await queueBalanceNotifications({ agencyId, receivableId: id, clientId }, db);
+  }
   return findReceivable(agencyId, id, db);
 }
 export function sourcePayload(row) { return row.source_payload ? decryptFamilyBilling(row.source_payload, `receivable:${row.agency_id}:${row.client_id}`) : {}; }
@@ -90,6 +94,10 @@ export async function allocateBalance({ agencyId, receivableId, shares, actorUse
     else await db.execute('INSERT INTO family_receivable_allocations (agency_id,receivable_id,payer_user_id,amount_cents) VALUES (?,?,?,?)',[agencyId,row.id,s.payerUserId,s.amountCents]);
   }
   if(row.hold_reason==='payer_assignment') await db.execute("UPDATE family_receivables SET status=?,hold_reason=NULL WHERE id=?",[paid===Number(row.amount_cents)?'paid':'open',row.id]);
+  if(row.hold_reason==='payer_assignment' && paid<Number(row.amount_cents)) {
+    const {queueBalanceNotifications}=await import('./balanceNotifications.js');
+    await queueBalanceNotifications({agencyId,receivableId:row.id,clientId:row.client_id},db);
+  }
   if(reason)await db.execute('UPDATE family_receivables SET source_payload=? WHERE id=?',[encryptFamilyBilling({...sourcePayload(row),allocationReview:{reason:String(reason).slice(0,2000),shares,actorUserId,at:new Date().toISOString()}},`receivable:${agencyId}:${row.client_id}`),row.id]);
   await auditBilling({agencyId,clientId:row.client_id,userId:actorUserId,action:'payer_shares_updated',objectId:row.id},db);
 }
@@ -113,6 +121,7 @@ export async function updateBalanceReview({ agencyId, receivableId, actorUserId,
     if(verificationBasis&&!insuranceReviewed)throw billingError(400,'Verify patient responsibility before changing the remittance basis');
     await db.execute('UPDATE family_receivables SET status=?,insurance_reviewed=?,disputed_at=?,hold_reason=?,source_payload=? WHERE id=?',[release?updates.status:row.status,updates.insurance_reviewed,updates.disputed_at,release?null:row.hold_reason,encryptFamilyBilling({...sourcePayload(row),...claimReview,...(verificationBasis?{verificationBasis}:{}),reviewReason:String(reason).slice(0,2000),reviewedBy:actorUserId},`receivable:${agencyId}:${row.client_id}`),row.id]);
     await auditBilling({agencyId,clientId:row.client_id,userId:actorUserId,action:'balance_reviewed',objectId:row.id},db);
+    if (release && updates.status === 'open') { const {queueBalanceNotifications}=await import('./balanceNotifications.js');await queueBalanceNotifications({agencyId,receivableId:row.id,clientId:row.client_id},db); }
     if (insuranceReviewed === true) await db.execute('UPDATE family_receivables SET insurance_fingerprint=? WHERE id=?',[updates.insurance_fingerprint,row.id]);
   });
 }
