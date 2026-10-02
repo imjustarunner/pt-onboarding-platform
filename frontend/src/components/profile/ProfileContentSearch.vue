@@ -22,9 +22,9 @@
   </div>
 </template>
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import { destinationKey, searchProfileContent } from '../../navigation/profileContentSearch.js';
-const props = defineProps({ targets:{type:Array,default:()=>[]}, label:{type:String,default:'Search this profile'}, inputId:{type:String,default:'profile-content-search'}, loading:Boolean, error:String, scopeKey:[String,Number] });
+const props = defineProps({ targets:{type:Array,default:()=>[]}, label:{type:String,default:'Search this profile'}, inputId:{type:String,default:'profile-content-search'}, loading:Boolean, error:String, scopeKey:[String,Number], keyboardShortcut:Boolean });
 const emit=defineEmits(['select','load']);
 const query=ref(''),open=ref(false),highlight=ref(0),searchRoot=ref(null);
 const results=computed(()=>searchProfileContent(query.value,props.targets));
@@ -35,6 +35,14 @@ function onFocus(){open.value=true;emit('load');}
 function move(delta){open.value=true;if(results.value.length)highlight.value=(highlight.value+delta+results.value.length)%results.value.length;}
 function choose(hit){if(!hit)return;open.value=false;query.value='';emit('select',hit);}
 function onBlur(event){if(!searchRoot.value?.contains(event.relatedTarget))open.value=false;}
+function onShortcut(event) {
+  if (!props.keyboardShortcut || !(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 'k') return;
+  const input = searchRoot.value?.querySelector('input');
+  if (event.target !== input && event.target?.closest?.('input,textarea,select,[contenteditable="true"]')) return;
+  event.preventDefault(); input?.focus();
+}
+onMounted(() => window.addEventListener('keydown', onShortcut));
+onUnmounted(() => window.removeEventListener('keydown', onShortcut));
 </script>
 <style scoped>
 .profile-content-search{position:relative;max-width:760px;margin:12px 0 20px;z-index:30}.search-label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;color:var(--text-secondary,#475569)}input{box-sizing:border-box;width:100%;padding:11px 14px;border:1px solid var(--border-color,#b8c7c3);border-radius:10px;background:var(--bg-primary,#fff);color:var(--text-primary,#172b24);font:inherit}input:focus{outline:2px solid #458c79;outline-offset:2px}.search-results{position:absolute;top:100%;left:0;right:0;max-height:420px;overflow:auto;background:var(--bg-primary,#fff);border:1px solid var(--border-color,#cbd5e1);border-radius:10px;box-shadow:0 12px 30px #0002}ul{list-style:none;margin:0;padding:4px}li{padding:10px 12px;border-radius:6px;cursor:pointer;color:var(--text-primary,#182d25)}li.selected,li:hover{background:var(--bg-secondary,#edf7f3)}.result-heading{display:flex;gap:12px;justify-content:space-between}.result-heading small{font-size:11px;white-space:nowrap;color:var(--text-secondary,#526c60)}.result-path,.result-snippet{display:block;margin-top:4px;font-size:12px;line-height:1.4}.result-path{color:var(--text-secondary,#526c60)}p{padding:8px 12px;font-size:13px;margin:0}

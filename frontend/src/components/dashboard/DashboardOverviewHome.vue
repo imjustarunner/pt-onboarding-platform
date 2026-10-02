@@ -38,17 +38,7 @@
       </div>
     </header>
 
-    <OverviewQuickNav
-      class="ov-quick-nav"
-      :is-club-context="false"
-      :kudos-enabled="kudosEnabled"
-      :show-schedule="showSchedule"
-      :show-payroll="showPayroll"
-      :show-claims="showClaims"
-      :show-supervision="showSupervision"
-      :show-my-supervision="showMySupervision"
-      :show-chats="showChats"
-    />
+    <slot name="search" />
 
     <OverviewEmailDrafts v-if="showChats" :agency-id="agencyId" :enabled="enabled" />
 
@@ -183,7 +173,6 @@ import OverviewEventsCard from './OverviewEventsCard.vue';
 import OverviewNotesSnapshot from './OverviewNotesSnapshot.vue';
 import OverviewRecentActivity from './OverviewRecentActivity.vue';
 import OverviewQuickActions from './OverviewQuickActions.vue';
-import OverviewQuickNav from './OverviewQuickNav.vue';
 import OverviewEmailDrafts from './OverviewEmailDrafts.vue';
 import OverviewTodaysFocus from './OverviewTodaysFocus.vue';
 import FocusSessionModal from '../tasks/FocusSessionModal.vue';

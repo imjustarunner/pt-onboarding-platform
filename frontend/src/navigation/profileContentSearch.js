@@ -86,7 +86,7 @@ export function searchProfileContent(query, targets, limit = 16) {
     const hay = `${label} ${aliases} ${content} ${breadcrumb}`;
     if (!parts.every(p => hay.includes(p))) continue;
     const titleMatch = parts.every(p => `${label} ${aliases}`.includes(p));
-    const score = (label === q ? 200 : label.startsWith(q) ? 150 : titleMatch ? 110 : 50) + (target.fieldId ? 70 : target.sectionId ? 8 : 0);
+    const score = (label === q ? 200 : label.startsWith(q) ? 150 : label.replace(/^my /, '').startsWith(q) ? 145 : titleMatch ? 110 : 50) + (target.fieldId ? 70 : target.sectionId ? 8 : 0);
     const raw = String(target.content || '');
     const index = searchText(raw).indexOf(parts.find(p => content.includes(p)) || q);
     const start = Math.max(0, index - 45);
@@ -102,6 +102,9 @@ export function collectRenderedSearchTargets(root, route = {}) {
   const targets = [], counts = new Map();
   for (const el of root.querySelectorAll('.info-section, .acct-card, .field-item, .form-group, section[id], [data-search-section], h2, h3, h4, label, dt')) {
     if (el.closest('[data-profile-search], nav, .profile-tabs, .ci-subtabs, .category-tabs, [role="dialog"], [data-search-private]')) continue;
+    // A section and its own heading are one destination, not two search results.
+    const parentSection = el.parentElement?.closest('.info-section, .acct-card, .field-item, .form-group, section[id], [data-search-section]');
+    if (el.matches('h2,h3,h4,label') && parentSection && root.contains(parentSection) && parentSection.querySelector('h2,h3,h4,label,legend') === el) continue;
     const label = el.querySelector('h2,h3,h4,label,legend')?.textContent || (el.matches('label,dt,h2,h3,h4') ? el.textContent : el.getAttribute('aria-label'));
     if (!label?.trim() || sensitive.test(label)) continue;
     const mySection = el.closest('[data-profile-my-section]')?.dataset.profileMySection;

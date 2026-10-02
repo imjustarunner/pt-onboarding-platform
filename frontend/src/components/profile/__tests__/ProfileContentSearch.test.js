@@ -18,4 +18,14 @@ describe('profile content search control',()=>{
   const w=mount(Search,{props:{targets,error:'Some content could not be loaded.'}});await w.get('input').setValue('business');
   expect(w.text()).toContain('Some content could not be loaded');expect(w.findAll('[role=option]')).toHaveLength(1);w.unmount();
  });
+ it('preserves the overview keyboard shortcut without hijacking text editing',async()=>{
+  const w=mount(Search,{props:{targets,keyboardShortcut:true},attachTo:document.body});
+  window.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true,cancelable:true}));
+  expect(document.activeElement).toBe(w.get('input').element);
+  const other=document.createElement('textarea');document.body.append(other);other.focus();
+  other.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true,bubbles:true,cancelable:true}));
+  expect(document.activeElement).toBe(other);
+  w.unmount();other.remove();
+ });
+
 });

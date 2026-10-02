@@ -63,7 +63,7 @@
       </button>
     </div>
 
-    <ProfileContentSearch v-if="!previewMode" :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
+    <ProfileContentSearch v-if="!previewMode && !(isOnboardingComplete && !isClubContext && activeTab === 'overview')" :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
       :error="dashboardContentIndex.loadError.value" :scope-key="dashboardSearchScope" label="Search My Dashboard" input-id="dashboard-profile-search"
       @load="dashboardContentIndex.load" @select="jumpToDashboardSearchResult" />
 
@@ -524,7 +524,14 @@
               @join-event="onOverviewJoinEvent"
               @book-schedule="onOverviewBookSchedule"
               @book-virtual="onOverviewBookVirtual"
-            />
+            >
+              <template #search>
+                <ProfileContentSearch :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
+                  :error="dashboardContentIndex.loadError.value" :scope-key="dashboardSearchScope"
+                  label="Search My Dashboard" input-id="overview-profile-search" data-tour="dash-overview-search" keyboard-shortcut
+                  @load="dashboardContentIndex.load" @select="jumpToDashboardSearchResult" />
+              </template>
+            </DashboardOverviewHome>
           </div>
 
           <div
@@ -1315,6 +1322,8 @@
 <script setup>
 import { ref, onMounted, onUnmounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
 import ProfileContentSearch from '../components/profile/ProfileContentSearch.vue';
+import { buildQuickNavContext, getAccessibleQuickNavEntries, resolveQuickNavRoute } from '../navigation/quickNavCatalog.js';
+import { mergeDashboardSearchTargets, dashboardAccountSection, dashboardTabQuery } from '../navigation/dashboardSearchNavigation.js';
 import { accountSearchTargets, fieldSearchTargets, recordSearchTargets } from '../navigation/profileContentSearch.js';
 import { useProfileContentSearch, revealProfileSearchTarget } from '../composables/useProfileContentSearch.js';
 import DashboardIconEditor from '../components/admin/DashboardIconEditor.vue';
@@ -4441,7 +4450,10 @@ const handleCardClick = (card) => {
   if (props.previewMode) return;
   // When leaving Overview push a new history entry so Back returns here.
   const leavingOverview = activeTab.value === 'overview';
-  const navFn = (loc) => leavingOverview ? router.push(loc) : router.replace(loc);
+  const navFn = (loc) => {
+    const destination = loc.query?.tab ? { ...loc, query: dashboardTabQuery(loc.query, loc.query.tab) } : loc;
+    return leavingOverview ? router.push(destination) : router.replace(destination);
+  };
   selectedRailCardId.value = String(card?.id || '');
   if (card.id === 'start_new_season' && isClubContext.value) {
     closeInlineProgramHub();
@@ -4666,14 +4678,21 @@ const dashboardSearchBase = computed(() => {
   const pages = flattenSearchCards(railCards.value);
   if (!pages.some(t => t.tabId === 'my')) return pages;
   const canPrintCards = ['super_admin','admin','assistant_admin','support','staff','provider','provider_plus','clinical_practice_assistant','supervisor','intern','intern_plus','facilitator','tutor','clinician','school_staff'].includes(authStore.user?.role);
-  return [...pages, ...recordSearchTargets(authStore.user,'self'), ...accountSearchTargets({ isClub: isClubContext.value, canSeeKudos: canSeeKudosWidget.value, canManageAvailability:!!currentAgencyId.value && (['provider','provider_plus','intern','intern_plus','facilitator','supervisor','clinical_practice_assistant','admin','super_admin'].includes(authStore.user?.role) || !!authStore.user?.has_provider_access), canPrintCards, publicProfile:['provider','supervisor','intern','facilitator','provider_plus'].includes(authStore.user?.role) || !!authStore.user?.has_provider_access || !!authStore.user?.hasProviderAccess }),
+  const targets = [...pages, ...recordSearchTargets(authStore.user,'self'), ...accountSearchTargets({ isClub: isClubContext.value, canSeeKudos: canSeeKudosWidget.value, canManageAvailability:!!currentAgencyId.value && (['provider','provider_plus','intern','intern_plus','facilitator','supervisor','clinical_practice_assistant','admin','super_admin'].includes(authStore.user?.role) || !!authStore.user?.has_provider_access), canPrintCards, publicProfile:['provider','supervisor','intern','facilitator','provider_plus'].includes(authStore.user?.role) || !!authStore.user?.has_provider_access || !!authStore.user?.hasProviderAccess }),
     ...(!isClubContext.value ? fieldSearchTargets(dashboardContentIndex.fields.value, {mode:'self', categories:dashboardContentIndex.categories.value, hideNpiId:!['admin','super_admin'].includes(authStore.user?.role)}) : [])];
+  const context = buildQuickNavContext({ user: authStore.user, isClubContext: isClubContext.value, kudosEnabled: canSeeKudosWidget.value, isOnboardingComplete: isOnboardingComplete.value, ...overviewFlags.value });
+  return mergeDashboardSearchTargets(targets, getAccessibleQuickNavEntries(context));
 });
 const dashboardContentIndex = useProfileContentSearch({ root: dashboardSearchRoot, scopeKey: dashboardSearchScope, userId: computed(() => authStore.user?.id),
   activeTarget: computed(() => ({tabId:activeTab.value, ...(activeTab.value==='my'?{mySection:myTab.value}:{}), breadcrumb:railCards.value.find(c=>c.id===activeTab.value)?.label || 'My Dashboard'})),
   baseTargets: dashboardSearchBase, canLoadFields:computed(() => isOnboardingComplete.value && !isClubContext.value) });
 let dashboardSearchJump = 0;
 async function jumpToDashboardSearchResult(hit) {
+  if (hit.quickNavEntry) {
+    const destination = resolveQuickNavRoute(hit.quickNavEntry, { currentPath: route.path, orgSlug: route.params.organizationSlug || agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url, currentQuery: route.query, dashboardPath: route.path });
+    if (destination) await router.push(destination);
+    return;
+  }
   const generation = ++dashboardSearchJump;
   const scope = dashboardSearchScope.value;
   if (hit.card) { handleCardClick(hit.card); return; }
@@ -4794,7 +4813,7 @@ const syncFromQuery = () => {
     }
   }
 
-  const qMy = route.query?.my;
+  const qMy = dashboardAccountSection(route.query);
   if (
     typeof qMy === 'string' &&
     ['account', 'availability', 'credentials', 'documents', 'life-balance', 'payroll', 'compensation', 'benefits', 'kudos', 'preferences', 'support'].includes(qMy)
