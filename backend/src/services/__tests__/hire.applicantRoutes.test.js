@@ -8,12 +8,15 @@ vi.mock('../../models/User.model.js', () => ({ default: { findById: m.user } }))
 vi.mock('../../models/ProviderScheduleEvent.model.js', () => ({ default: { findById: m.event } }));
 vi.mock('../../models/HiringInterview.model.js', () => ({ default: { findByScheduleEventId: m.interview } }));
 vi.mock('../../models/VideoMeetingActivity.model.js', () => ({ default: { list: m.list, create: m.create } }));
+vi.mock('../meetingCalendarGuest.service.js',()=>({calendarMeeting:async()=>({id:7,title:'Interview',meeting_subtype:'interview'})}));
 vi.mock('../../controllers/teamMeetings.controller.js', () => ({
   getTeamMeetingVideoToken: (req, res) => { m.actor(req.user); res.json({ token: 'video', sessionId: 'room', displayName: 'Jamie', roleLabel: 'Applicant', roomMode: 'lobby', hostJoinUrl: 'secret', meetingSettings: { private: true } }); },
   getTeamMeetingAdmissionStatus: (req, res) => { m.actor(req.user); res.json({ admitted: true, token: 'admitted-video', roomMode: 'main', goals: ['private'], agenda: ['private'], transcriptState: { private: true } }); },
   postTeamMeetingJoinPresence: (req, res) => { m.actor(req.user); res.json({ ok: true }); }
 }));
 import routes from '../../routes/interviewApplicant.routes.js';
+import calendarRoutes from '../../routes/meetingCalendar.routes.js';
+import { interviewCalendarReference } from '../../utils/interviewCalendarLink.js';
 import { getInterviewSharedChat, postInterviewSharedChat } from '../../controllers/interviewSharedChat.controller.js';
 let server, base;
 beforeAll(async () => {
@@ -21,6 +24,7 @@ beforeAll(async () => {
   // Even an upstream/stale staff identity must not change applicant authority.
   app.use((req, res, next) => { req.user = { id: 99, role: 'super_admin' }; next(); });
   app.use('/applicant/:eventId', routes);
+  app.use('/calendar',calendarRoutes);
   app.get('/staff/:eventId/chat', getInterviewSharedChat); app.post('/staff/:eventId/chat', postInterviewSharedChat);
   app.use((e, req, res, next) => res.status(e.status || 500).json({ error: { message: e.message } }));
   server = app.listen(0, '127.0.0.1'); await new Promise((resolve,reject) => { server.once('listening', resolve); server.once('error', reject); });
@@ -40,6 +44,12 @@ beforeEach(() => {
   ]);
 });
 describe('HTTP applicant boundary and shared chat', () => {
+  it('does not mistake personal tokens beginning c- for generic calendar links',async()=>{
+    const applicant=await fetch(`${base}/calendar/team-meeting/c-${'a'.repeat(30)}`);
+    expect(await applicant.json()).toMatchObject({interview:true});
+    const calendar=await fetch(`${base}/calendar/team-meeting/${interviewCalendarReference(7)}`);
+    expect(await calendar.json()).toMatchObject({interview:false});
+  });
   it.each([{}, { Cookie: 'authToken=stale-onboarding-cookie', Authorization: 'Bearer expired-staff-token' }])('issues applicant credentials independently of login headers', async headers => {
     const response = await fetch(`${base}/applicant/${'a'.repeat(32)}/video-token`, { headers });
     expect(response.status).toBe(200); expect(m.actor).toHaveBeenCalledWith(undefined);
