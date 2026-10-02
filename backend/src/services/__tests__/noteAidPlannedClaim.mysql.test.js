@@ -9,11 +9,13 @@ vi.mock('../supervisedBillingPolicy.service.js',()=>({validDate:v=>/^\d{4}-\d{2}
 import {linkImportedPlannedServices} from '../noteAidPlannedClaim.service.js';
 
 it.skipIf(process.env.PLANNED_CLAIM_MYSQL_TEST!=='1')('concurrent imports and queue rebuilds retain one planned encounter without manufacturing a note or claim',async()=>{
-  expect(process.env.DB_HOST).toBe('127.0.0.1');expect(process.env.DB_PORT).toBe('33316');
-  const admin=await mysql.createConnection({host:'127.0.0.1',port:33316,user:'root',database:'mysql'});
+  expect(process.env.DB_HOST).toBe('127.0.0.1');
+  const testPort = Number(process.env.PLANNED_CLAIM_MYSQL_PORT || 33316);
+  expect(Number(process.env.DB_PORT)).toBe(testPort);
+  const admin=await mysql.createConnection({host:'127.0.0.1',port:testPort,user:'root',database:'mysql'});
   const schema=`planned_claim_test_${randomUUID().replaceAll('-','')}`;
   await admin.query(`CREATE DATABASE ${schema}`);
-  const db=mysql.createPool({host:'127.0.0.1',port:33316,user:'root',database:schema,connectionLimit:5,multipleStatements:true});
+  const db=mysql.createPool({host:'127.0.0.1',port:testPort,user:'root',database:schema,connectionLimit:5,multipleStatements:true});
   try {
     // Each run owns its synthetic schema; never reset a shared fixture or application database.
     for(const file of ['001_create_clinical_data_plane.sql','002_medical_billing_foundations.sql','003_session_service_code_location.sql','004_billing_encounter_clinical_sessions.sql']) await db.query(await readFile(new URL(`../../../../database/clinical_migrations/${file}`,import.meta.url),'utf8'));

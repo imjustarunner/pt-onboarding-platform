@@ -83,3 +83,11 @@ it('does not request a nonexistent primary Google calendar for app-managed group
  const result=await Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:true,includeExternalBusy:false,materializeOfficeEvents:false});
  expect(Google.freeBusy).not.toHaveBeenCalled();expect(result.calendarWarnings).toEqual([]);
 });
+
+it.each(['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'TEAM_MEETING', 'INDIRECT_SERVICES'])('subtracts local %s from both modalities without Google', async kind => {
+ Hours.listForProvider.mockResolvedValue([{dayOfWeek:'Monday',startTime:'17:00',endTime:'18:00',availableForIntake:true}]);
+ const original = pool.execute.getMockImplementation();
+ pool.execute.mockImplementation((sql, args) => sql.includes('FROM provider_schedule_events p')
+   ? Promise.resolve([[{ id: 55, kind, all_day: 0, start_at: event.start_at, end_at: event.end_at }]]) : original(sql,args));
+ const result = await compute(); expect(result.virtualSlots).toEqual([]); expect(result.inPersonSlots).toEqual([]);
+});

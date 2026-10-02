@@ -1,6 +1,7 @@
 import * as review from '../controllers/providerUpdateReview.controller.js';
 import { licenseUpload } from '../middleware/licenseUpload.middleware.js';
 import express from 'express';
+import { previewProviderUpdate } from '../controllers/providerUpdatePreview.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import * as ctrl from '../controllers/providerUpdate.controller.js';
 import * as hb from '../controllers/workplaceHandbook.controller.js';
@@ -16,6 +17,7 @@ router.post('/pushes/:pushId/send', authenticate, ctrl.sendPushHandler);
 router.get('/pushes/:pushId/export', authenticate, ctrl.exportPushHandler);
 router.post('/pushes/:pushId/submit-payroll', authenticate, ctrl.submitPayrollHandler);
 router.get('/eligible-providers', authenticate, ctrl.listEligibleProvidersHandler);
+router.post('/providers/:providerUserId/preview', authenticate, previewProviderUpdate);
 router.get('/providers/:providerUserId/fall-actions', authenticate, ctrl.fallActionsForRecipient);
 router.get('/me/fall-actions', authenticate, ctrl.fallActionsMine);
 

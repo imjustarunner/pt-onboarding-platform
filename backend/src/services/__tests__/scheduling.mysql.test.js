@@ -1,6 +1,9 @@
 /** Opt-in tests for a disposable localhost MySQL container; never uses backend/.env. */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import mysql from 'mysql2/promise';
+import { randomBytes } from 'node:crypto';
+vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64', randomBytes(32).toString('base64'));
+vi.stubEnv('CLINICAL_NOTE_ENCRYPTION', 'true');
 import { readFile } from 'node:fs/promises';
 import { splitSqlStatements, stripSqlLineComments } from '../../../../database/migrationSqlUtils.js';
 vi.mock('../../config/database.js', async () => ({ onTableWrite: () => {}, default: (await import('mysql2/promise')).default.createPool({
@@ -13,6 +16,7 @@ vi.mock('../../config/clinicalDatabase.js', async () => ({ default: (await impor
 }) }));
 vi.mock('../schedulingBillingAccess.service.js', () => ({ hasSchedulingBillingAccess: async (user, agencyId) => user?.billingAgencies?.includes(Number(agencyId)) || false }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendNotificationEmail: vi.fn() }));
+import { withAppointmentWindow } from '../appointmentConflict.service.js';
 import { resolveSelfPayQuote, getAgencySelfPayOnly } from '../selfPayRates.service.js';
 import pool from '../../config/database.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
@@ -34,12 +38,16 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       created.push(name);
     }
     const mainDdl = [
-      `CREATE TABLE office_events (id INT PRIMARY KEY, office_location_id INT, room_id INT, start_at DATETIME, end_at DATETIME, status VARCHAR(30), status_outcome VARCHAR(30), standing_assignment_id INT, booking_plan_id INT, assigned_provider_id INT, booked_provider_id INT, client_id INT, clinical_session_id INT, updated_at DATETIME)`,
+      `CREATE TABLE provider_schedule_event_attendees (event_id INT, user_id INT)`,
+      `CREATE TABLE office_rooms (id INT PRIMARY KEY)`,
+      `CREATE TABLE provider_virtual_slot_availability (id INT PRIMARY KEY, source_event_id INT, is_active BOOLEAN)`,
+      `CREATE TABLE provider_in_person_slot_availability (id INT PRIMARY KEY, source_event_id INT, is_active BOOLEAN)`,
+      `CREATE TABLE office_events (id INT AUTO_INCREMENT PRIMARY KEY, created_by_user_id INT, google_sync_status VARCHAR(30), office_location_id INT, room_id INT, start_at DATETIME, end_at DATETIME, status VARCHAR(30), status_outcome VARCHAR(30), standing_assignment_id INT, booking_plan_id INT, assigned_provider_id INT, booked_provider_id INT, client_id INT, clinical_session_id INT, updated_at DATETIME)`,
       `CREATE TABLE appointments (id INT PRIMARY KEY, agency_id INT, provider_user_id INT, office_event_id INT, provider_schedule_event_id INT, package_entitlement_id INT, room_id INT, start_at DATETIME, end_at DATETIME, title VARCHAR(200), cancellation_fee_cents INT, status VARCHAR(30), updated_by_user_id INT, updated_at DATETIME)`,
-      `CREATE TABLE provider_schedule_events (id INT PRIMARY KEY, provider_id INT, start_at DATETIME, end_at DATETIME, status VARCHAR(30), updated_at DATETIME)`,
+      `CREATE TABLE provider_schedule_events (id INT PRIMARY KEY, all_day BOOLEAN DEFAULT FALSE, start_date DATE, end_date DATE, event_timezone VARCHAR(80), provider_id INT, start_at DATETIME, end_at DATETIME, status VARCHAR(30), updated_at DATETIME)`,
       `CREATE TABLE office_booking_plans (id INT PRIMARY KEY, standing_assignment_id INT, booking_start_date DATE, active_until_date DATE, skipped_dates_json JSON, is_active BOOLEAN DEFAULT TRUE)`,
       `CREATE TABLE office_booking_requests (id INT PRIMARY KEY)`,
-      `CREATE TABLE office_standing_assignments (id INT PRIMARY KEY, room_id INT, weekday INT, hour INT, provider_id INT, available_since_date DATE, temporary_until_date DATE, last_two_week_confirmed_at DATETIME)`,
+      `CREATE TABLE office_standing_assignments (id INT PRIMARY KEY, office_location_id INT DEFAULT 2, is_active BOOLEAN DEFAULT TRUE, availability_mode VARCHAR(32), room_id INT, weekday INT, hour INT, provider_id INT, available_since_date DATE, temporary_until_date DATE, last_two_week_confirmed_at DATETIME)`,
       `CREATE TABLE booking_packages (id INT PRIMARY KEY, name VARCHAR(100), consume_on VARCHAR(20), allowed_tenant_service_ids_json JSON, package_type VARCHAR(30), price_cents INT, domain_config_json JSON)`,
       `CREATE TABLE booking_package_entitlements (id INT PRIMARY KEY AUTO_INCREMENT, agency_id INT, package_id INT, client_id INT, business_type VARCHAR(64), learning_program_class_id INT, sessions_purchased INT, payment_status VARCHAR(30), practitioner_entitlement_id INT, purchaser_user_id INT, stripe_payment_intent_id VARCHAR(200), activated_at DATETIME, created_by_user_id INT, sessions_remaining INT, sessions_reserved INT, status VARCHAR(30))`,
       `CREATE TABLE booking_package_ledger (id INT PRIMARY KEY AUTO_INCREMENT, agency_id INT, entitlement_id INT, client_id INT, appointment_id INT, direction VARCHAR(20), quantity INT, reason_code VARCHAR(50), metadata_json JSON, created_by_user_id INT)`
@@ -64,6 +72,8 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
   }, 20000);
   beforeEach(async () => {
     for (const table of ['self_pay_service_rates', 'agency_self_pay_settings', 'appointment_change_waivers', 'appointment_billing', 'clinical_record_refs', 'clients', 'users', 'practitioner_session_credit_ledger', 'practitioner_client_package_entitlements', 'practitioner_session_packages', 'appointment_change_workflows', 'office_events', 'appointments', 'provider_schedule_events', 'office_booking_plans', 'office_standing_assignments', 'booking_packages', 'booking_package_entitlements', 'booking_package_ledger']) await pool.query(`DELETE FROM ${table}`);
+    await pool.query('DELETE FROM office_rooms');
+    await pool.query('INSERT INTO office_rooms VALUES (4), (5)');
     await clinicalPool.query('DELETE FROM clinical_claims');
     await clinicalPool.query('DELETE FROM clinical_notes');
     await clinicalPool.query('DELETE FROM clinical_sessions');
@@ -73,7 +83,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
       VALUES (20, 2, 4, '2099-01-05 17:00:00', '2099-01-05 18:00:00', 'BOOKED', 7, 3, 9, 9, 8, 30)`);
     await pool.query(`INSERT INTO appointments (id, agency_id, provider_user_id, office_event_id, provider_schedule_event_id, room_id, start_at, end_at, status)
       VALUES (10, 1, 9, 20, 40, 4, '2099-01-05 17:00:00', '2099-01-05 18:00:00', 'scheduled')`);
-    await pool.query(`INSERT INTO provider_schedule_events VALUES (40, 9, '2099-01-05 17:00:00', '2099-01-05 18:00:00', 'ACTIVE', NULL)`);
+    await pool.query(`INSERT INTO provider_schedule_events (id, provider_id, start_at, end_at, status, updated_at) VALUES (40, 9, '2099-01-05 17:00:00', '2099-01-05 18:00:00', 'ACTIVE', NULL)`);
     await clinicalPool.query(`INSERT INTO clinical_sessions (id, agency_id, client_id, office_event_id, appointment_id, scheduled_start_at, scheduled_end_at) VALUES (30, 1, 8, 20, 10, '2099-01-05 17:00:00', '2099-01-05 18:00:00')`);
     await pool.query(`INSERT INTO booking_packages (id, name, consume_on) VALUES (2, 'Test package', 'reserve')`);
     await pool.query(`INSERT INTO booking_package_entitlements (id, agency_id, package_id, client_id, sessions_remaining, sessions_reserved, status) VALUES (6, 1, 2, 8, 1, 0, 'ACTIVE')`);
@@ -162,11 +172,24 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     await expect(move()).rejects.toThrow('signed note');
   });
   it('moves a standing series while preserving its final date and IDs', async () => {
-    await moveOfficeSessionSeries({ assignment: { id: 7, weekday: 1, provider_id: 9 }, newRoomId: 5, newWeekday: 2, newHour: 11, timeZone: 'America/Denver', actorUserId: 9 });
+    await moveOfficeSessionSeries({ assignment: { id: 7, office_location_id: 2, room_id: 4, weekday: 1, hour: 10, provider_id: 9 }, newRoomId: 5, newWeekday: 2, newHour: 11, timeZone: 'America/Denver', actorUserId: 9 });
     const [[plan]] = await pool.query('SELECT * FROM office_booking_plans WHERE id = 3');
     expect(plan.active_until_date.toISOString().slice(0, 10)).toBe('2099-01-20');
     const [[event]] = await pool.query('SELECT id, room_id FROM office_events WHERE id = 20');
     expect(event).toMatchObject({ id: 20, room_id: 5 });
+  });
+  it('serializes concurrent appointment saves across agencies and permits adjacent slots', async () => {
+    const row = { providerUserId: 90, startAt: '2099-01-06 18:00:00', endAt: '2099-01-06 19:00:00', status: 'scheduled' };
+    const save = id => withAppointmentWindow(pool, row, null, () => pool.execute("INSERT INTO appointments (id, agency_id, provider_user_id, start_at, end_at, status) VALUES (?, ?, ?, ?, ?, 'scheduled')", [id, id, 90, row.startAt, row.endAt]));
+    const results = await Promise.allSettled([save(101), save(102)]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find(result => result.status === 'rejected').reason.code).toBe('PROVIDER_TIME_CONFLICT');
+    await expect(withAppointmentWindow(pool, { ...row, startAt: row.endAt, endAt: '2099-01-06 20:00:00' }, null, async () => 'adjacent')).resolves.toBe('adjacent');
+  });
+  it('blocks app-only calendar holds and allows the appointment’s own linked calendar event', async () => {
+    const row = { providerUserId: 9, startAt: '2099-01-05 17:00:00', endAt: '2099-01-05 18:00:00' };
+    await expect(withAppointmentWindow(pool, row, 10, async () => 'saved')).rejects.toMatchObject({ code: 'PROVIDER_TIME_CONFLICT' });
+    await expect(withAppointmentWindow(pool, { ...row, providerScheduleEventId: 40 }, 10, async () => 'saved')).resolves.toBe('saved');
   });
   it('allows only one concurrent booking to reserve the last package session', async () => {
     const results = await Promise.allSettled([10, 11].map((appointmentId) => BookingPackage.applyAppointmentUsage({ entitlementId: 6, agencyId: 1, appointmentId, mode: 'reserve' })));

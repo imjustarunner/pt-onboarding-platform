@@ -303,13 +303,26 @@
           <div class="full-top">
             <div>
               <strong>Preview full</strong>
-              <p class="muted">Provider Update overview with currently enabled sections</p>
+              <p class="muted">Read-only draft preview. No update is sent, no contracts are assigned, and no completion time is recorded.</p>
             </div>
             <button type="button" class="btn" @click="previewFullOpen = false">Close</button>
           </div>
+          <div class="toolbar">
+            <label class="field grow"><span>Preview as</span>
+              <select v-model="previewProviderId" class="input" @change="loadPersonPreview">
+                <option value="">Sample layout</option>
+                <option v-for="person in eligibleProviders" :key="person.provider_user_id" :value="person.provider_user_id">{{ person.last_name }}, {{ person.first_name }}</option>
+              </select>
+            </label>
+            <button type="button" class="btn" :disabled="previewLoading || !previewProviderId" @click="loadPersonPreview">Refresh person’s details</button>
+          </div>
+          <p v-if="previewLoading" role="status">Loading preview…</p>
+          <p v-if="previewError" class="err" role="alert">{{ previewError }}</p>
           <ProviderUpdateLivePreview
+            v-if="!previewProviderId || personPreview"
             overview-mode
-            :sections="enabledPreviewSections"
+            :person-preview="personPreview"
+            :sections="personPreview ? personPreview.sections : enabledPreviewSections"
             :agency-id="agencyId"
             :admin-update-id="draft.attachedAdminUpdateId"
           />
@@ -354,7 +367,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { PROVIDER_UPDATE_SECTIONS, PROVIDER_UPDATE_PAGES, defaultSectionConfig } from '../../utils/providerUpdate';
 import WorkplaceHandbookAdmin from '../handbook/WorkplaceHandbookAdmin.vue';
@@ -385,6 +398,23 @@ const error = ref('');
 const success = ref('');
 const previewKey = ref('');
 const previewFullOpen = ref(false);
+const previewProviderId = ref('');
+const personPreview = ref(null);
+const previewLoading = ref(false);
+const previewError = ref('');
+let previewRequest = 0;
+async function loadPersonPreview() {
+  const request = ++previewRequest;
+  personPreview.value = null; previewError.value = '';
+  if (!previewProviderId.value) { previewLoading.value = false; return; }
+  previewLoading.value = true;
+  try {
+    const { data } = await api.post(`/provider-update/providers/${previewProviderId.value}/preview`, pushPayload());
+    if (request === previewRequest) personPreview.value = data;
+  } catch (e) { if (request === previewRequest) previewError.value = e?.response?.data?.error?.message || 'Preview could not be loaded.'; }
+  finally { if (request === previewRequest) previewLoading.value = false; }
+}
+watch(previewFullOpen, open => { if (open && previewProviderId.value) void loadPersonPreview(); });
 const showDemoOnly = ref(false);
 const sendMode = ref('all');
 const selectedSendIds = ref([]);

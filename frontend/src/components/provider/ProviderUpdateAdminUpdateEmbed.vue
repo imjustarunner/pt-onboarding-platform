@@ -34,7 +34,7 @@
         <p v-if="editNote" class="ok">{{ editNote }}</p>
       </div>
 
-      <iframe class="au-embed-frame" title="Admin Update" :srcdoc="pageHtml" />
+      <iframe :sandbox="previewMode ? '' : undefined" class="au-embed-frame" title="Admin Update" :srcdoc="pageHtml" />
       <div v-if="!previewMode && !editable" class="au-embed-actions">
         <button type="button" class="au-btn" :disabled="busy" @click="$emit('complete', { adminUpdateId: updateId, viewed: true })">
           {{ busy ? 'Saving…' : 'I’ve reviewed this Admin Update' }}

@@ -13,7 +13,7 @@ beforeEach(()=>{setActivePinia(createPinia());localStorage.clear();m.route=react
 afterEach(()=>wrapper?.unmount());
 describe('My Schedule supervision controls',()=>{
  it('enables creation for a supervisor and sends the chosen recurrence to the supervision state',async()=>{
-  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true}}});await flushPromises();
+  wrapper=shallowMount(Grid,{props:{userId:7,agencyId:2},global:{stubs:{RouterLink:true,ClinicalWorkspaceFrame:{template:'<div><slot /></div>'}}}});await flushPromises();
   const s=wrapper.vm.$.setupState;
   await s.openSlotActionModal({dayName:'Monday',hour:10,dateYmd:'2026-10-05',preserveSelectionRange:false,initialRequestType:'supervision'});await flushPromises();
   expect(s.editorIsSupervision).toBe(true);

@@ -48,7 +48,8 @@ async function assertAgencyAdmin(reqUser, agencyId) {
   const aid = Number(agencyId);
   if (!aid) throw Object.assign(new Error('agencyId is required'), { status: 400 });
   const role = String(reqUser?.role || '').toLowerCase();
-  if (['super_admin', 'admin', 'support'].includes(role)) return aid;
+  if (['super_admin', 'superadmin'].includes(role)) return aid;
+  if (!['admin', 'support'].includes(role)) throw Object.assign(new Error('Administrator access required'), { status: 403 });
   const agencies = await User.getAgencies(reqUser.id);
   const ok = (agencies || []).some((a) => Number(a.id) === aid);
   if (!ok) throw Object.assign(new Error('Access denied'), { status: 403 });
@@ -73,6 +74,12 @@ export async function listEligibleProviders(agencyId, { includeDemoTesters = tru
       }
     ])
   );
+
+  const [agencyStaff] = await pool.execute(`SELECT u.id AS provider_user_id, u.first_name, u.last_name, u.email, u.role,
+      COALESCE(u.is_demo, 0) AS is_demo FROM users u JOIN user_agencies ua ON ua.user_id = u.id
+      WHERE ua.agency_id = ? AND COALESCE(u.is_archived, 0) = 0
+      AND u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','staff','admin','super_admin')`, [Number(agencyId)]);
+  for (const person of agencyStaff) byId.set(Number(person.provider_user_id), { ...person, source: 'agency_staff' });
 
   // Enrich roles / demo flags for school-assigned
   if (byId.size) {
@@ -239,7 +246,8 @@ export async function updatePush({ pushId, agencyId, title, sectionConfig, notes
   const nextCfg =
     sectionConfig != null ? normalizeSectionConfig(sectionConfig) : normalizeSectionConfig(push.section_config_json);
   const nextNotes = notes !== undefined ? (notes != null ? String(notes) : null) : push.notes;
-  const nextStatus = status && ['draft', 'sent', 'closed'].includes(status) ? status : push.status;
+  if (status === 'sent' && push.status !== 'sent') throw Object.assign(new Error('Use Send to providers to release a draft.'), { status: 409 });
+  const nextStatus = status && ['draft', 'closed'].includes(status) ? status : push.status;
   const nextAttached =
     attachedAdminUpdateId !== undefined
       ? (attachedAdminUpdateId ? Number(attachedAdminUpdateId) : null)
@@ -621,7 +629,7 @@ export async function getRecipientByToken(token) {
     [tok]
   );
   const row = rows?.[0];
-  if (!row) return null;
+  if (!row || row.push_status === 'draft') return null;
   if (row.locked_at) {
     throw Object.assign(new Error('This update link is locked'), { status: 410 });
   }
@@ -974,7 +982,7 @@ export async function getMyOpenRecipient(providerUserId, agencyId) {
      JOIN users u ON u.id = r.provider_user_id
      WHERE r.provider_user_id = ? AND r.agency_id = ?
        AND r.locked_at IS NULL
-       AND p.status IN ('sent', 'draft')
+       AND p.status = 'sent'
        AND (r.expires_at IS NULL OR r.expires_at > UTC_TIMESTAMP())
      ORDER BY COALESCE(p.sent_at, p.created_at) DESC
      LIMIT 1`,

@@ -1,3 +1,4 @@
+import { readProviderCalendarBusy } from './providerCalendarBusy.service.js';
 import {careTypes} from '../utils/availabilityCareTypes.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
 import {agencyFormatAllowed,agencyOfficeAllowed} from '../utils/providerAgencyAvailability.js';
@@ -225,8 +226,10 @@ export class ProviderAvailabilityService {
     const tz = await this.resolveAgencyTimeZone({ agencyId: aid });
 
     // Window for external busy (absolute instants)
-    const timeMinIso = `${weekStart}T00:00:00Z`;
-    const timeMaxIso = `${weekEnd}T00:00:00Z`;
+    const timeMinIso = ymdDayTimeToUtc({ ymd: weekStart, dayOfWeek: 'Monday', hhmm: '00:00', timeZone: tz }).toISOString();
+    const timeMaxIso = ymdDayTimeToUtc({ ymd: weekEnd, dayOfWeek: 'Monday', hhmm: '00:00', timeZone: tz }).toISOString();
+    const windowStartUtc = timeMinIso.slice(0, 19).replace('T', ' ');
+    const windowEndUtc = timeMaxIso.slice(0, 19).replace('T', ' ');
 
     const provider = await User.findById(pid);
     if (!provider) throw new Error('Provider not found');
@@ -416,7 +419,7 @@ export class ProviderAvailabilityService {
            AND e.end_at > ?
            AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
          ORDER BY e.start_at ASC`,
-        [aid, scheduleAid, pid, intakeOnlyFlag, aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+        [aid, scheduleAid, pid, intakeOnlyFlag, aid, pid, pid, windowEndUtc, windowStartUtc]
       );
       pushOfficeRows(rows, false);
     } catch (e) {
@@ -461,7 +464,7 @@ export class ProviderAvailabilityService {
            AND e.end_at > ?
            AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
          ORDER BY e.start_at ASC`,
-        [aid, pid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+        [aid, pid, pid, windowEndUtc, windowStartUtc]
       );
       // Legacy fallback when intake-toggle table does not exist yet:
       // keep prior behavior by treating in-person intake as enabled for assigned-available slots.
@@ -471,7 +474,7 @@ export class ProviderAvailabilityService {
     const [otherBookings]=await pool.execute(`SELECT start_at,end_at,client_id,clinical_session_id,billing_context_id,
       EXISTS(SELECT 1 FROM appointments a WHERE a.office_event_id=office_events.id) AS has_appointment FROM office_events
       WHERE (assigned_provider_id=? OR booked_provider_id=?) AND (UPPER(status)='BOOKED' OR slot_state='ASSIGNED_BOOKED')
-      AND COALESCE(UPPER(status),'')<>'CANCELLED' AND start_at<? AND end_at>?`,[pid,pid,`${weekEnd} 00:00:00`,`${weekStart} 00:00:00`]);
+      AND COALESCE(UPPER(status),'')<>'CANCELLED' AND start_at<? AND end_at>?`,[pid,pid,windowEndUtc,windowStartUtc]);
     for(const row of otherBookings) {
       if (!(row.client_id || row.clinical_session_id || row.billing_context_id || Number(row.has_appointment))) continue;
       const start=parseMySqlDateTime(row.start_at),end=parseMySqlDateTime(row.end_at);
@@ -507,7 +510,7 @@ export class ProviderAvailabilityService {
              AND v.start_at < ?
              AND v.end_at > ?
            ORDER BY v.start_at ASC`,
-          [scheduleAid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+          [scheduleAid, pid, windowEndUtc, windowStartUtc]
         );
         rows = r;
       } catch (colErr) {
@@ -533,7 +536,7 @@ export class ProviderAvailabilityService {
              AND v.start_at < ?
              AND v.end_at > ?
            ORDER BY v.start_at ASC`,
-          [scheduleAid, pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]
+          [scheduleAid, pid, windowEndUtc, windowStartUtc]
         );
         rows = r;
       }
@@ -658,16 +661,19 @@ export class ProviderAvailabilityService {
       WHERE provider_user_id = ? AND start_at < ? AND end_at > ?
         AND status NOT IN ('canceled_by_provider','canceled_by_client','canceled_by_guardian',
           'canceled_by_organization','late_canceled','rescheduled','voided')`,
-    [pid, `${weekEnd} 00:00:00`, `${weekStart} 00:00:00`]);
+    [pid, windowEndUtc, windowStartUtc]);
     const appointmentBusy = appointments.flatMap(row => {
       const start = utcPartsToDate(parseMySqlDateTime(row.start_at));
       const end = utcPartsToDate(parseMySqlDateTime(row.end_at));
       return start && end && end > start ? [{ start, end }] : [];
     });
 
+    const appCalendarBusy = await readProviderCalendarBusy(pool, { providerId: pid, startAt: timeMinIso, endAt: timeMaxIso, timeZone: tz });
+
     // Busy unions
     const busyAll = mergeIntervals([
       ...appointmentBusy,
+      ...appCalendarBusy,
       ...officeBookedBusy,
       ...selectionBusy,
       ...requestBusy,
@@ -731,7 +737,7 @@ export class ProviderAvailabilityService {
 
     const diagnostics = includeDiagnostics ? availabilityDiagnostics({
       bases: [...combinedVirtualBase.map(b => ({...b,format:'VIRTUAL'})), ...officePublishedCandidates.map(b => ({...b,format:'IN_PERSON'}))],
-      blockers: [['Client appointment', appointmentBusy], ['Appointment linked to an office reservation', officeBookedBusy],
+      blockers: [['Personal event, meeting or schedule hold', appCalendarBusy], ['Client appointment', appointmentBusy], ['Appointment linked to an office reservation', officeBookedBusy],
         ['Pending time selection', selectionBusy], ['Pending appointment request', requestBusy],
         ['School commitment', schoolBusy], ['External calendar busy time', externalBusyIntervals], ['Google Calendar busy time', googleBusyIntervals]],
       policy, formatAllowed: agencyFormatAllowed, officeAllowed: agencyOfficeAllowed, slotMinutes

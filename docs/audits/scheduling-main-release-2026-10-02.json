@@ -1,0 +1,93 @@
+{
+  "date": "2026-10-02",
+  "scope": "Meeting, video, scheduling, office reservation changes, appointment-to-claim linkage, and draft Provider Update preview",
+  "release_assessment": "Suitable for a controlled release of the verified improvements. Not a blanket production launch certification.",
+  "integration": {
+    "base": "3ac292ed7",
+    "preserve_newer_main": "36277ef0b",
+    "workspace": "isolated worktree; unrelated local changes excluded"
+  },
+  "findings_fixed": [
+    "Public openings now subtract app-only personal events, focus/schedule holds, indirect-service blocks and attended meetings even without Google sync.",
+    "Availability queries use the actual UTC boundaries of the local week, including daylight-saving changes.",
+    "Canonical appointment creates and time/provider changes recheck app appointments and local calendar blocks; concurrent appointment writes use the provider selection lock.",
+    "Stale appointment edits are rejected before overwriting another scheduling change.",
+    "Provider Update administrator access requires the admin/support role and agency membership, except global superadmins.",
+    "Provider Update drafts cannot be released through ordinary saves and are excluded from recipient access until sent.",
+    "Read-only per-person preview shows real agency-scoped office assignments, license fields, supervision totals and current compensation category/level/rates without generating tokens, signature tasks, messages or time entries.",
+    "Tax-ID settings tests now verify an empty edit field rather than requiring plaintext identifiers to be reloaded.",
+    "Supervision scheduler test now renders its workspace wrapper and verifies monthly recurrence and selected reminders."
+  ],
+  "workflow_review": [
+    {
+      "flow": "Assigned or booked office hours; unbook, partial release and future forfeiture",
+      "evidence": "officeRelease, officePlanLimits, officePublishedAvailability and officeMoveApproval regression suites; MySQL move/rollback tests",
+      "behavior": "Preserves original reservation pending approval and protects appointment/clinical links; occurrence release retains recurring assignment."
+    },
+    {
+      "flow": "Open availability and provider selections",
+      "evidence": "publicAvailability, agencyAvailability, availabilityWorkspace, publicationEdits, publicTranslation suites",
+      "behavior": "Explicit publications remain distinct from client appointments; provider-wide blockers subtract from both modalities."
+    },
+    {
+      "flow": "Personal events, holds, focus and indirect blocks",
+      "evidence": "calendarBusy tests and four local-calendar availability regressions",
+      "behavior": "Busy even when Google is unavailable; private event contents do not appear in public diagnostics."
+    },
+    {
+      "flow": "Client appointment and recurring session booking",
+      "evidence": "officeBinding, clinicalLink, recurrence, appointmentWriteGuard, scheduling.mysql suites",
+      "behavior": "Canonical IDs persist through office moves; signed documentation and completed encounters are protected."
+    },
+    {
+      "flow": "Clinical encounter and claims",
+      "evidence": "155 claim tests including isolated SQL planned-encounter retry/concurrency test",
+      "behavior": "Unsigned/nonbillable/mismatched notes, non-occurring appointments and self-pay-only encounters block insurance claims; planned imports do not manufacture notes or claims."
+    }
+  ],
+  "validation": {
+    "meeting_scheduling": {
+      "tests_passed": 604,
+      "includes_mysql": true
+    },
+    "claims": {
+      "tests_passed": 155,
+      "includes_mysql": true
+    },
+    "release_frontend": {
+      "tests_passed": 82
+    },
+    "timezone_node_tests": 6,
+    "route_imports": "passed",
+    "production_build": "passed; existing large-chunk warnings",
+    "mysql_runtime": "Disposable task-owned localhost MySQL 9.5 on port 33328; synthetic data only"
+  },
+  "broader_frontend": {
+    "initial_tests_passed": 1848,
+    "initial_tests_failed": 24,
+    "initial_failed_files": 12,
+    "fixed_or_updated_in_scope": [
+      "AgencyManagement.settings.test.js plaintext expectation",
+      "supervisionScheduler.test.js workspace stub"
+    ],
+    "remaining_baseline_failures": 22,
+    "remaining_failed_files": 10,
+    "comparison": "Remaining failures reproduced on original main source, including one suite blocked by missing DOMMatrix in its test environment. Existing public-directory, family and shared UI tests still need separate follow-up."
+  },
+  "limits": [
+    "No claim was submitted to a clearinghouse or payer; real enrollment, credentials, routing and acceptance are not proven by these local checks.",
+    "No full live multi-user browser matrix or video/headset/network-loss session was run during this release audit.",
+    "Concurrency evidence covers canonical appointment writes and public selection locking; it is not proof that every legacy calendar writer shares the same lock.",
+    "A cross-database clinical synchronization failure after a committed office move remains an explicit recoverable error, not a distributed transaction.",
+    "One-occurrence office moves remain limited to one hourly slot; recurring blocks support multi-hour moves.",
+    "Per-person amendment preview uses current profile compensation; final amendment wording and proposed individual terms remain draft."
+  ],
+  "provider_update": {
+    "sent": false,
+    "published": false,
+    "contracts_assigned": false,
+    "entry": "Admin \u2192 Provider Update \u2192 Compose \u2192 Preview full \u2192 Preview as",
+    "payroll_changes_applied": false
+  },
+  "data_context": "Earlier cleanup evidence applies to the connected onboarding_stage database only; no new production-data cleanup was performed in this turn."
+}

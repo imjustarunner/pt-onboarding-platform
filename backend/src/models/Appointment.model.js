@@ -1,5 +1,6 @@
 import { resolveClientProviderHolds } from '../services/publicProviderHold.service.js';
 import pool from '../config/database.js';
+import { withAppointmentWindow, appointmentOccupiesTime } from '../services/appointmentConflict.service.js';
 
 const LIVE_STATUSES = new Set([
   'draft',
@@ -200,6 +201,10 @@ class Appointment {
   }
 
   static async create(row) {
+    return withAppointmentWindow(pool, row, null, () => this.createInAvailableWindow(row));
+  }
+
+  static async createInAvailableWindow(row) {
     const othersPresentNames = row.othersPresentNames != null
       ? String(row.othersPresentNames).trim().slice(0, 500) || null
       : null;
@@ -294,6 +299,24 @@ class Appointment {
   static async update(id, patch = {}) {
     const existing = await this.findById(id);
     if (!existing) return null;
+    const next = { ...existing, ...patch };
+    const instant = value => value instanceof Date ? +value : Date.parse(String(value).replace(' ', 'T').replace(/Z?$/, 'Z'));
+    const changed = Number(existing.providerUserId) !== Number(next.providerUserId)
+      || instant(existing.startAt) !== instant(next.startAt) || instant(existing.endAt) !== instant(next.endAt)
+      || (!appointmentOccupiesTime(existing.status) && appointmentOccupiesTime(next.status));
+    return changed ? withAppointmentWindow(pool, next, Number(id), () => this.updateInAvailableWindow(id, patch, existing))
+      : this.updateInAvailableWindow(id, patch);
+  }
+
+  static async updateInAvailableWindow(id, patch = {}, expected = null) {
+    const existing = await this.findById(id);
+    if (!existing) return null;
+    const instant = value => value instanceof Date ? +value : Date.parse(String(value).replace(' ', 'T').replace(/Z?$/, 'Z'));
+    if (expected && (Number(existing.providerUserId) !== Number(expected.providerUserId)
+        || instant(existing.startAt) !== instant(expected.startAt) || instant(existing.endAt) !== instant(expected.endAt)
+        || existing.status !== expected.status)) {
+      throw Object.assign(new Error('This appointment changed while you were editing. Refresh before saving.'), { status: 409 });
+    }
     const next = { ...existing, ...patch };
     const recJson = next.cancellationRecommendationJson != null
       ? JSON.stringify(next.cancellationRecommendationJson)

@@ -21,8 +21,8 @@
           <div class="pu-secure-sub">Scoped update link</div>
         </div>
         <div class="pu-user">
-          <div class="pu-user-name">Alex Provider</div>
-          <div class="pu-user-role">External Staff</div>
+          <div class="pu-user-name">{{ personPreview ? `${personPreview.provider.first_name} ${personPreview.provider.last_name}` : 'Alex Provider' }}</div>
+          <div class="pu-user-role">{{ personPreview?.provider.title || personPreview?.provider.role || 'External Staff' }}</div>
         </div>
       </header>
 
@@ -95,7 +95,36 @@
               <p>{{ activePage?.description }}</p>
             </header>
 
-            <div v-if="activePage && !activePage.alone" class="demo-panel">
+            <div v-if="personPreview && activePage?.sections?.some(section => ['amendments','license','office_schedule','supervision_hours'].includes(section.key))" class="demo-panel">
+              <section v-for="section in activePage.sections" :key="section.key">
+                <h2>{{ section.meta?.title || section.key }}</h2>
+                <template v-if="section.key === 'amendments'">
+                  <h3>{{ personPreview.amendment.title }}</h3>
+                  <p>{{ personPreview.amendment.status }}</p>
+                  <p>Effective date: {{ personPreview.amendment.effectiveDate || 'Not selected' }}</p>
+                  <dl v-if="personPreview.compensation">
+                    <dt>Profile pay category / level</dt><dd>{{ personPreview.compensation.categoryLabel || personPreview.compensation.category }} / {{ personPreview.compensation.level ?? 'Not assigned' }}</dd>
+                    <dt>Direct rate</dt><dd>{{ money(personPreview.compensation.directRate) }}</dd>
+                    <dt>Indirect rate</dt><dd>{{ money(personPreview.compensation.indirectRate) }}</dd>
+                    <template v-if="personPreview.compensation.hasFfs"><dt>Fee-for-service rate</dt><dd>{{ money(personPreview.compensation.ffsRate) }}</dd></template>
+                  </dl>
+                  <p v-else>Pay category and level have not been assigned for this agency.</p>
+                  <p v-if="personPreview.compensation?.bypass">This profile bypasses the category rate table. Review individual pay terms before preparing the amendment.</p>
+                  <p>These are current profile values, not approved new compensation. Final amendment wording is still being developed.</p>
+                </template>
+                <template v-else-if="section.key === 'office_schedule'">
+                  <p>Review assigned hours, choose whether to keep or release them, then select in-person and virtual booking availability.</p>
+                  <table v-if="personPreview.offices.length"><thead><tr><th>Office / room</th><th>When</th><th>In-person</th><th>Virtual</th></tr></thead><tbody>
+                    <tr v-for="office in personPreview.offices" :key="office.id"><td>{{ office.title }}</td><td>{{ office.when }} ({{ office.timeZone }})</td><td>{{ office.inPerson ? 'Open' : 'Not open' }}</td><td>{{ office.virtual ? 'Open' : 'Not open' }}</td></tr>
+                  </tbody></table><p v-else>No active assignments in this agency.</p>
+                </template>
+                <dl v-else-if="section.key === 'license'"><dt>License</dt><dd>{{ personPreview.license.number || 'Not entered' }}</dd><dt>Issued</dt><dd>{{ personPreview.license.issued || 'Not entered' }}</dd><dt>Expires</dt><dd>{{ personPreview.license.expires || 'Not entered' }}</dd></dl>
+                <p v-else-if="section.key === 'supervision_hours'">Credited supervision: {{ personPreview.supervision?.totalHours ?? 'Not available' }} hours. The provider can confirm this or request a correction with a reason and evidence.</p>
+                <p v-else>{{ section.meta?.description }}</p>
+              </section>
+              <p>Preview only — editing, signatures, and submissions are disabled.</p>
+            </div>
+            <div v-else-if="activePage && !activePage.alone" class="demo-panel">
               <p class="muted">Items on this page (provider completes these together):</p>
               <ul>
                 <li v-for="s in activePage.sections" :key="s.key">
@@ -151,6 +180,7 @@ import ProviderUpdateAdminUpdateEmbed from './ProviderUpdateAdminUpdateEmbed.vue
 import WorkplaceHandbookReader from '../handbook/WorkplaceHandbookReader.vue';
 
 const props = defineProps({
+  personPreview: { type: Object, default: null },
   section: { type: Object, default: null },
   sections: { type: Array, default: () => [] },
   overviewMode: { type: Boolean, default: false },
@@ -192,7 +222,7 @@ const brandStyle = computed(() => {
 });
 
 const rawSections = computed(() => {
-  const source = props.sections?.length
+  const source = (props.personPreview || props.sections?.length)
     ? props.sections
     : props.section
       ? [props.section]
@@ -234,6 +264,8 @@ const urlLabel = computed(() =>
     ? '/provider-update/{token} · overview'
     : `/provider-update/{token} · ${activePage.value?.key || 'page'}`
 );
+
+function money(value) { return value == null ? 'Not configured' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value)); }
 
 function iconFor(icon) {
   const map = {

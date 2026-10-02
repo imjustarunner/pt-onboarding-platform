@@ -2,7 +2,7 @@ import { shallowMount, flushPromises } from '@vue/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRouter, createMemoryHistory } from 'vue-router';
 const state=vi.hoisted(()=>({
-  agency:{id:377,name:'Synthetic Practice',slug:'synthetic',organization_type:'agency',tax_id:'001234567',tax_id_type:'ein',is_active:true,feature_flags:{}},
+  agency:{id:377,name:'Synthetic Practice',slug:'synthetic',organization_type:'agency',tax_id:'001234567',has_tax_id:true,tax_id_last4:'4567',tax_id_type:'ein',is_active:true,feature_flags:{}},
   get:vi.fn(),post:vi.fn(),put:vi.fn()
 }));
 vi.mock('../../../services/api',()=>({default:{get:state.get,post:state.post,put:state.put}}));
@@ -21,7 +21,9 @@ describe('business settings editor',()=>{
   const w=shallowMount(AgencyManagement,{attachTo:document.body,props:{embeddedOrgId:377,embeddedTab:'contact',embeddedField:'tax-id',workspaceMode:true},global:{plugins:[router],stubs:{TaxIdInput:false}}});
   try {
    for(let i=0;i<5;i++)await flushPromises();
-   expect(w.find('#agency-tax-id').element.value).toBe('00-1234567');
+   expect(w.find('#agency-tax-id').element.value).toBe('');
+   expect(w.text()).toContain('Tax ID securely on file');
+   expect(w.html()).not.toContain('001234567');
    expect(document.activeElement.id).toBe('agency-tax-id');
    expect(w.text()).toContain('Editing settings for Synthetic Practice');
    for (const target of SETTINGS_FIELD_TARGETS) {

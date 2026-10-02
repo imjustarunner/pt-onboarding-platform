@@ -1,3 +1,4 @@
+import { assertAppointmentWindowAvailable } from './appointmentConflict.service.js';
 import {assertPackageProviderBinding,assertPackageExpiration} from './bookingPackagePricing.js';
 import { getAgencySelfPayOnly, resolveSelfPayQuote } from './selfPayRates.service.js';
 import pool from '../config/database.js';
@@ -281,7 +282,7 @@ export async function createAppointment({
   const settlementMode = packageEntitlementId ? 'package' : selfPayOnly ? 'self_pay_only' : (billing?.settlementMode || service?.billingMethod || 'self_pay');
   const selfPayQuote = !packageEntitlementId && ['self_pay', 'self_pay_only'].includes(settlementMode)
     ? await resolveSelfPayQuote({ agencyId: aid, providerId: providerUserId, service,
-      modality: modality || service.modality, durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000 }) : null;
+      modality: modality || service?.modality, durationMinutes: (new Date(end.replace(' ', 'T') + 'Z') - new Date(start.replace(' ', 'T') + 'Z')) / 60000 }) : null;
   const appt = await Appointment.create({
     agencyId: aid,
     parentAgencyId,
@@ -410,6 +411,12 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
     for (const code of codes) await validateSchedulingSelection({ agencyId: existing.agencyId, userRole: provider.role,
       providerCredentialText: provider.credential, appointmentTypeCode: 'SESSION', serviceCode: code,
       modality: patch.modality || existing.modality });
+  }
+  if (moved || (patch.providerUserId !== undefined && Number(patch.providerUserId) !== Number(existing.providerUserId))) {
+    await assertAppointmentWindowAvailable(pool, { ...existing, ...patch,
+      startAt: patch.startAt != null ? toMysqlDateTime(patch.startAt, patch.timeZone || existing.sourceTimezone) : existing.startAt,
+      endAt: patch.endAt != null ? toMysqlDateTime(patch.endAt, patch.timeZone || existing.sourceTimezone) : existing.endAt
+    }, existing.id);
   }
   if (moved && existing.officeEventId) {
     const { moveAppointmentOffice } = await import('./appointmentCalendarMaintenance.service.js');
