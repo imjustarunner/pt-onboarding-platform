@@ -204,7 +204,7 @@ router.post(
   requireClinicalChart,
   [
     body('agencyId').isInt({ min: 1 }),
-    body('clientId').isInt({ min: 1 }),
+    body('clientId').optional().isInt({ min: 1 }),
     body('text').optional().isString(),
     body('planText').optional().isString()
   ],

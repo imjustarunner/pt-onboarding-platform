@@ -155,6 +155,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api.js';
+import { extractSections } from '../../utils/noteAidUiHelpers.js';
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -210,14 +211,16 @@ async function parsePaste(raw) {
   try {
     const res = await api.post(
       '/medical-billing/treatment-plans/parse',
-      { text },
+      { agencyId: Number(props.agencyId), ...(applyClientId.value ? { clientId: Number(applyClientId.value) } : {}), text },
       { skipGlobalLoading: true }
     );
-    const parsed = res?.data?.plan || res?.data || null;
-    if (!parsed) throw new Error('Parse returned no plan.');
+    const parsed = res?.data?.parsed;
+    if (!parsed || !Array.isArray(parsed.goals) || !parsed.goals.length) {
+      throw new Error('No treatment goals were found. Add a goal and objective, then try again.');
+    }
     model.value = {
       effectiveDate: parsed.effectiveDate || todayIso(),
-      diagnosticJustification: parsed.diagnosticJustification || '',
+      diagnosticJustification: parsed.diagnosticJustification || (parsed.diagnoses || []).find((d) => d.isPrimary)?.justification || parsed.diagnoses?.[0]?.justification || '',
       presentingProblem: parsed.presentingProblem || '',
       prescribedFrequency: parsed.prescribedFrequency || '',
       dischargePlan: parsed.dischargePlan || '',
@@ -230,6 +233,14 @@ async function parsePaste(raw) {
   } finally {
     parsing.value = false;
   }
+}
+
+function generatedPlanText(data) {
+  // Generation returns outputJson.sections, matching the main Note Aid writer.
+  return Object.entries(extractSections(data?.outputJson))
+    .filter(([, text]) => typeof text === 'string' && text.trim())
+    .map(([heading, text]) => `${heading}:\n${text.trim()}`)
+    .join('\n\n');
 }
 
 async function generatePlan() {
@@ -245,10 +256,7 @@ async function generatePlan() {
     if (props.agencyId) fd.append('agencyId', String(props.agencyId));
     if (draftInitials.value) fd.append('initials', String(draftInitials.value).trim());
     const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
-    const panels = Array.isArray(res?.data?.panels) ? res.data.panels : [];
-    const blob = panels.length
-      ? panels.map((p) => `${p.title || p.name || 'Section'}:\n${p.content || p.text || ''}`).join('\n\n')
-      : String(res?.data?.text || '').trim();
+    const blob = generatedPlanText(res?.data);
     if (!blob) throw new Error('No plan returned.');
     await parsePaste(blob);
   } catch (e) {
@@ -284,10 +292,7 @@ async function generateUpdate() {
     if (props.agencyId) fd.append('agencyId', String(props.agencyId));
     if (draftInitials.value) fd.append('initials', String(draftInitials.value).trim());
     const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
-    const panels = Array.isArray(res?.data?.panels) ? res.data.panels : [];
-    const blob = panels.length
-      ? panels.map((p) => `${p.title || p.name || 'Section'}:\n${p.content || p.text || ''}`).join('\n\n')
-      : String(res?.data?.text || '').trim();
+    const blob = generatedPlanText(res?.data);
     if (!blob) throw new Error('No updated plan returned.');
     await parsePaste(blob);
   } catch (e) {

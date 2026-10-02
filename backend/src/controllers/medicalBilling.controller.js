@@ -586,9 +586,9 @@ export const voidPacketBootstrapTreatmentPlanDrafts = async (req, res, next) => 
 export const parseTreatmentPlanImport = async (req, res, next) => {
   try {
     const agencyId = parseIntValue(req.body.agencyId);
-    const clientId = parseIntValue(req.body.clientId);
-    if (!agencyId || !clientId) {
-      return res.status(400).json({ error: { message: 'agencyId and clientId are required' } });
+    // Parsing only structures submitted text; standalone library plans have no client yet.
+    if (!agencyId) {
+      return res.status(400).json({ error: { message: 'agencyId is required' } });
     }
     await ClinicalEligibilityService.ensureAgencyAccess({ reqUser: req.user, agencyId });
     const { parseTreatmentPlanText } = await import('../services/treatmentPlanImport.service.js');
