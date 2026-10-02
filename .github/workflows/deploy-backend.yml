@@ -178,6 +178,8 @@ jobs:
 
       - name: Deploy to Cloud Run
         env:
+          # Explicit operator attestation; unset preserves the deployed setting.
+          CLINICAL_AI_PRIVACY_APPROVED: ${{ vars.CLINICAL_AI_PRIVACY_APPROVED }}
           FAMILY_BILLING_ENCRYPTION_KEY_BASE64: ${{ secrets.FAMILY_BILLING_ENCRYPTION_KEY_BASE64 }}
           FAMILY_BILLING_ENCRYPTION_KEY_ID: ${{ secrets.FAMILY_BILLING_ENCRYPTION_KEY_ID }}
           FAMILY_BILLING_PREVIOUS_KEYS_JSON: ${{ secrets.FAMILY_BILLING_PREVIOUS_KEYS_JSON }}
@@ -355,6 +357,12 @@ jobs:
           if [ -n "${JWT_EXPIRES_IN}" ]; then ENV_VARS="${ENV_VARS}|JWT_EXPIRES_IN=${JWT_EXPIRES_IN}"; fi
           ENV_VARS="${ENV_VARS}|STORAGE_TYPE=gcs"
           ENV_VARS="${ENV_VARS}|GCS_PROJECT_ID=${GCP_PROJECT_ID}"
+          if [ -n "${CLINICAL_AI_PRIVACY_APPROVED}" ]; then
+            case "${CLINICAL_AI_PRIVACY_APPROVED}" in
+              true|false) ENV_VARS="${ENV_VARS}|CLINICAL_AI_PRIVACY_APPROVED=${CLINICAL_AI_PRIVACY_APPROVED}" ;;
+              *) echo "CLINICAL_AI_PRIVACY_APPROVED must be true, false, or unset"; exit 1 ;;
+            esac
+          fi
           ENV_VARS="${ENV_VARS}|GCS_BUCKET_NAME=${GCS_BUCKET_NAME}"
           ENV_VARS="${ENV_VARS}|PTONBOARDFILES=${GCS_BUCKET_NAME}"
 

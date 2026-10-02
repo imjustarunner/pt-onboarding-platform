@@ -89,6 +89,17 @@ Add these as GitHub Actions **repository secrets** so `deploy-backend.yml` can p
 - `CLIENT_CHAT_ENCRYPTION_KEY_ID`
 - `CLIENT_CHAT_ENCRYPTION_KEY_BASE64`
 
+Clinical AI writing also requires the explicit repository **variable**
+`CLINICAL_AI_PRIVACY_APPROVED=true` after the processing review described in
+[`docs/security/meeting-transcription-privacy.md`](../docs/security/meeting-transcription-privacy.md).
+The backend workflow forwards `true` or `false`; unset preserves the existing
+runtime setting and never implies approval. Enable `dlp.googleapis.com` in the
+configured project and ensure the runtime identity has `serviceusage.services.use`
+(for example, `roles/serviceusage.serviceUsageConsumer`). The existing Vertex
+permissions and a valid encryption key are also required. From the configured
+runtime, run `node src/scripts/checkClinicalAiReadiness.js` to verify encryption,
+inspection, generation and treatment-plan parsing using synthetic text only.
+
 ### Intake PHI encryption (REQUIRED after migration 725)
 Migration `725_intake_submissions_payload_encryption.sql` + the one-time backfill
 (`backend/src/scripts/backfillEncryptIntakeSubmissions.js`) encrypt

@@ -2,7 +2,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({call:vi.fn()}));
 vi.mock('../geminiText.service.js',()=>({callGeminiText:m.call}));
 vi.mock('google-auth-library',()=>({GoogleAuth:class{async getAccessToken(){return 'synthetic-token';}}}));
-import {createSessionPrivacyContext,callPrivateSessionText} from '../sessionAiPrivacy.service.js';
+import {createSessionPrivacyContext,callPrivateSessionText,sessionPrivacyConfigurationStatus,requireSessionPrivacyConfiguration} from '../sessionAiPrivacy.service.js';
 const ok=findings=>({ok:true,json:async()=>({result:{findings}})});
 beforeEach(()=>{vi.clearAllMocks();vi.stubEnv('GCP_PROJECT_ID','synthetic-project');vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED','true');vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));m.call.mockResolvedValue({text:'Summary',finishReason:'STOP'});});
 afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();});
@@ -29,9 +29,16 @@ describe('session AI privacy boundary',()=>{
  });
  it('blocks before network when encryption or operator approval is missing',async()=>{
   const fetchImpl=vi.fn();const privacyContext=createSessionPrivacyContext({fetchImpl});
-  vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED','');await expect(privacyContext.redact('evidence')).rejects.toThrow('Secure session processing');
-  vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED','true');vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64','');await expect(privacyContext.redact('evidence')).rejects.toThrow();
+  vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED','');await expect(privacyContext.redact('evidence')).rejects.toMatchObject({code:'SESSION_PRIVACY_UNAVAILABLE',details:{reason:'APPROVAL_REQUIRED'}});
+  vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED','true');vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64','');await expect(privacyContext.redact('evidence')).rejects.toMatchObject({details:{reason:'ENCRYPTION_REQUIRED'}});
   expect(fetchImpl).not.toHaveBeenCalled();expect(m.call).not.toHaveBeenCalled();
+ });
+ it('reports only configuration readiness, never key material, and accepts the deployed project alias',()=>{
+  vi.stubEnv('GCP_PROJECT_ID','');vi.stubEnv('GCS_PROJECT_ID','synthetic-project');
+  expect(sessionPrivacyConfigurationStatus()).toEqual({approved:true,projectConfigured:true,encryptionConfigured:true});
+  expect(requireSessionPrivacyConfiguration()).toBe('synthetic-project');
+  vi.stubEnv('GCS_PROJECT_ID','');vi.stubEnv('PROJECT_ID','');
+  expect(()=>requireSessionPrivacyConfiguration()).toThrow(expect.objectContaining({details:{reason:'PROJECT_REQUIRED'}}));
  });
  it('inspects overlapping windows without losing Unicode or leaking a name across their boundary',async()=>{
   const name='Zoë García',text='é'.repeat(11998)+name+' remaining';

@@ -13,6 +13,23 @@ beforeEach(() => {
   vi.mocked(callGeminiText).mockResolvedValue({ text: 'Subjective: Synthetic report\nObjective: Synthetic observation\nInterventions: Mindfulness\nPlan: Reviewed follow-up', modelName: 'synthetic', finishReason: 'STOP' });
 });
 describe('shared clinical writer', () => {
+  it('routes the standalone treatment plan through inspection and Vertex, and blocks before sending when approval is absent', async () => {
+    const tool = getNoteAidToolById('clinical_psychotherapy_plan');
+    const prompt = buildPromptForTool({ tool, inputText: 'Synthetic plan facts only.' });
+    vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED', '');
+    await expect(generateClinicalText({ tool, prompt })).rejects.toMatchObject({ code: 'SESSION_PRIVACY_UNAVAILABLE', details: { reason: 'APPROVAL_REQUIRED' } });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(callGeminiText).not.toHaveBeenCalled();
+    vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED', 'true');
+    await generateClinicalText({ tool, prompt });
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('dlp.googleapis.com'), expect.any(Object));
+    expect(callGeminiText).toHaveBeenCalledWith(expect.objectContaining({ vertexOnly: true, sensitive: true, maxOutputTokens: 8192, thinkingBudget: 2048 }));
+  });
+  it('rejects a cut-off treatment plan before callers can parse or save it', async () => {
+    const tool = getNoteAidToolById('clinical_psychotherapy_plan');
+    vi.mocked(callGeminiText).mockResolvedValue({ text: 'Goal 1: Incomplete', finishReason: 'MAX_TOKENS' });
+    await expect(generateClinicalText({ tool, prompt: 'Synthetic facts' })).rejects.toMatchObject({ status: 502, code: 'CLINICAL_PLAN_INCOMPLETE' });
+  });
   it('preserves the established full-suite prompt and model contract', async () => {
     const tool = getNoteAidToolById(input.aidId);
     const prompt = buildPromptForTool({ tool, inputText: input.facts });

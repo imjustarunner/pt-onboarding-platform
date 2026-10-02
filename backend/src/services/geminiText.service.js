@@ -227,6 +227,9 @@ export function translationGenerationConfig({ modelName, temperature, maxOutputT
   const config = { temperature, maxOutputTokens };
   if (thinkingBudget === 0 && /^gemini-2\.5-flash(?:-|$)/.test(modelName)) {
     config.thinkingConfig = { thinkingBudget: 0 };
+  } else if (Number.isInteger(thinkingBudget) && thinkingBudget >= 128 && /^gemini-2\.5-(?:pro|flash)(?:-|$)/.test(modelName)) {
+    const ceiling = /^gemini-2\.5-pro(?:-|$)/.test(modelName) ? 32768 : 24576;
+    config.thinkingConfig = { thinkingBudget: Math.min(thinkingBudget, ceiling) };
   }
   return config;
 }

@@ -25,8 +25,12 @@ export function clinicalWriterOptions(tool, { model, vertexOnly, sensitive } = {
     temperature: Number.isFinite(tool.temperature) ? tool.temperature : 0.2,
     maxOutputTokens: Math.max(
       Number.isFinite(tool.maxOutputTokens) ? tool.maxOutputTokens : 1600,
-      shouldUseGeminiPro(tool.id) ? 4000 : 0
+      shouldUseGeminiPro(tool.id) ? 4000 : 0,
+      tool.sectionSchema === 'treatment_plan' ? 8192 : 0
     ),
+    // Leave room for the actual plan; unbounded thinking can consume the old
+    // 4,000-token allowance before objectives and interventions are complete.
+    ...(tool.sectionSchema === 'treatment_plan' ? { thinkingBudget: 2048 } : {}),
     model: model || tool.model || (shouldUseGeminiPro(tool.id) ? 'gemini-2.5-pro' : null),
     ...(vertexOnly !== undefined ? { vertexOnly } : {}),
     ...(sensitive !== undefined ? { sensitive } : {})
@@ -34,5 +38,9 @@ export function clinicalWriterOptions(tool, { model, vertexOnly, sensitive } = {
 }
 
 export async function generateClinicalText({ tool, prompt, privacyContext, ...options }) {
-  return callPrivateSessionText({ prompt, privacyContext, ...clinicalWriterOptions(tool, options) });
+  const result = await callPrivateSessionText({ prompt, privacyContext, ...clinicalWriterOptions(tool, options) });
+  if (tool.sectionSchema === 'treatment_plan' && result.finishReason && result.finishReason !== 'STOP') {
+    throw Object.assign(new Error('The treatment plan was not completed. Please try again; no partial plan was saved.'), { status: 502, code: 'CLINICAL_PLAN_INCOMPLETE' });
+  }
+  return result;
 }

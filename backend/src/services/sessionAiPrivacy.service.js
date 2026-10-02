@@ -3,11 +3,29 @@ import { GoogleAuth } from 'google-auth-library';
 import { callGeminiText } from './geminiText.service.js';
 import { isChatEncryptionConfigured } from './chatEncryption.service.js';
 
-const fail = () => Object.assign(new Error('Secure session processing is unavailable. Check encryption, approved cloud services and privacy inspection configuration.'), { status:503, code:'SESSION_PRIVACY_UNAVAILABLE' });
+const PRIVACY_MESSAGES = {
+  APPROVAL_REQUIRED: 'AI writing is not enabled yet. An administrator must complete the privacy setup. Your text has not been sent to the AI model.',
+  PROJECT_REQUIRED: 'AI writing is unavailable because server setup is incomplete. Contact your administrator. Your text has not been sent to the AI model.',
+  ENCRYPTION_REQUIRED: 'AI writing is unavailable because secure storage is not configured. Contact your administrator. Your text has not been sent to the AI model.',
+  INSPECTION_UNAVAILABLE: 'Privacy inspection is unavailable. Please try again or contact your administrator. Your text has not been sent to the AI model.'
+};
+const fail = (reason = 'INSPECTION_UNAVAILABLE') => Object.assign(new Error(PRIVACY_MESSAGES[reason]), {
+  status:503, code:'SESSION_PRIVACY_UNAVAILABLE', details:{ reason }
+});
+export function sessionPrivacyConfigurationStatus() {
+  return {
+    approved: process.env.CLINICAL_AI_PRIVACY_APPROVED === 'true',
+    projectConfigured: !!String(process.env.GCP_PROJECT_ID || process.env.GCS_PROJECT_ID || process.env.PROJECT_ID || '').trim(),
+    encryptionConfigured: isChatEncryptionConfigured()
+  };
+}
 export function requireSessionPrivacyConfiguration() {
   const project = String(process.env.GCP_PROJECT_ID || process.env.GCS_PROJECT_ID || process.env.PROJECT_ID || '').trim();
   // This is an operator attestation, not a substitute for a signed BAA or a cloud configuration review.
-  if (process.env.CLINICAL_AI_PRIVACY_APPROVED !== 'true' || !project || !isChatEncryptionConfigured()) throw fail();
+  const status = sessionPrivacyConfigurationStatus();
+  if (!status.approved) throw fail('APPROVAL_REQUIRED');
+  if (!status.projectConfigured) throw fail('PROJECT_REQUIRED');
+  if (!status.encryptionConfigured) throw fail('ENCRYPTION_REQUIRED');
   return project;
 }
 const INFO_TYPES = ['PERSON_NAME','EMAIL_ADDRESS','PHONE_NUMBER','STREET_ADDRESS','DATE_OF_BIRTH',
