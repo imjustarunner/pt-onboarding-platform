@@ -7,7 +7,8 @@
         <ProviderAvailabilitySettings :provider-id="Number(userId)" :agency-id="Number(agencyId)" />
         <section class="assigned-services" aria-label="Assigned services">
           <h4>Services this person provides</h4>
-          <p>Choose this person’s services and billing codes for this agency. These assignments do not enable online booking.</p>
+          <p>Choose the services this person provides for this agency. Assignments do not grant clinical permissions or enable online booking.</p>
+          <p v-if="loaded"><strong>Clinical permission level: {{ credentialLabel }}</strong>{{ credential ? ` · ${credential}` : '' }}. Scheduling and documentation use the agency’s existing credential policy.</p>
           <p v-if="loading" role="status">Loading services…</p>
           <fieldset v-else-if="loaded" :disabled="saving">
             <legend>Agency service catalog</legend>
@@ -32,9 +33,11 @@ import ProviderAvailabilitySettings from '../availability/ProviderAvailabilitySe
 const props = defineProps({ userId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true } });
 const expanded = ref(false), loading = ref(false), loaded = ref(false), saving = ref(false);
 const services = ref([]), selected = ref([]), error = ref(''), notice = ref('');
+const credentialTier = ref(''), credential = ref('');
+const credentialLabel = computed(() => ({ bachelors: 'Bachelor’s level', qbha: 'QBHA', intern_plus: 'Intern / master’s / licensed level', unknown: 'Credential review needed' }[credentialTier.value] || 'Credential review needed'));
 const endpoint = computed(() => `/users/${props.userId}/agencies/${props.agencyId}/service-assignments`);
 let generation = 0;
-function apply(data) { services.value = data.services || []; selected.value = services.value.filter(s => Boolean(Number(s.assigned))).map(s => Number(s.id)); }
+function apply(data) { services.value = data.services || []; selected.value = services.value.filter(s => Boolean(Number(s.assigned))).map(s => Number(s.id)); credentialTier.value = data.credentialTier || ''; credential.value = data.credential || ''; }
 watch(() => [expanded.value, props.userId, props.agencyId], async () => {
   const request = ++generation;
   if (!expanded.value) return;

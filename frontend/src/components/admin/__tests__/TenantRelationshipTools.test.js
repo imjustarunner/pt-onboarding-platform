@@ -5,6 +5,14 @@ const api=vi.hoisted(()=>({get:vi.fn(),put:vi.fn()}));
 vi.mock('../../../services/api',()=>({default:api}));
 beforeEach(()=>vi.clearAllMocks());
 describe('agency service assignments',()=>{
+ it('shows the shared credential level separately from service assignments',async()=>{
+  api.get.mockResolvedValue({data:{credentialTier:'bachelors',credential:'BA',services:[{id:234,name:'Counseling',assigned:0},{id:239,name:'Skills training',assigned:0}]}});
+  const wrapper=shallowMount(TenantRelationshipTools,{props:{userId:538,agencyId:6}});
+  wrapper.get('details').element.open=true;await wrapper.get('details').trigger('toggle');await flushPromises();
+  expect(wrapper.text()).toContain('Clinical permission level: Bachelor’s level');
+  expect(wrapper.text()).toContain('Assignments do not grant clinical permissions');
+  expect(wrapper.findAll('input[type="checkbox"]').every(c=>!c.element.checked)).toBe(true);
+ });
  it('loads on expansion and saves choices only for the selected person and agency',async()=>{
   const data={services:[{id:234,name:'Individual counseling',service_code:'H0004',assigned:1},{id:239,name:'Skills training',service_code:'H2014',assigned:0}]};
   api.get.mockResolvedValue({data});api.put.mockResolvedValue({data});

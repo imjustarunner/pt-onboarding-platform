@@ -6,7 +6,8 @@
         <button class="btn btn-secondary" aria-label="Close business cards" @click="dialog.close()">Close</button>
       </header>
       <div class="card-toolbar">
-        <label>Organization<select v-model="agencyId" aria-label="Organization" :disabled="busy"><option value="">Choose an organization</option><option v-for="a in agencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label>
+        <label v-if="agencies.length > 1">Organization<select v-model="agencyId" aria-label="Organization" :disabled="busy"><option value="">Choose an organization</option><option v-for="a in agencies" :key="a.id" :value="String(a.id)">{{ a.name }}</option></select></label>
+        <p v-else class="card-organization"><strong>{{ agencies[0]?.name || 'No affiliated agency' }}</strong></p>
         <button class="btn btn-secondary" :disabled="!people.length || busy" @click="saveDraft">Save editable draft</button>
         <button class="btn btn-secondary" :disabled="!agencyId || busy" @click="loadOrganization(agencyId)">Reload from records</button>
         <label class="file-label">Load draft<input type="file" accept="application/json,.json" :disabled="!agencyId || busy" @change="loadDraft" /></label>
@@ -96,7 +97,8 @@ import { loadBusinessCardFonts } from '../../utils/businessCardFonts';
 const props = defineProps({ agencies: { type: Array, default: () => [] }, initialAgencyId: { type: [String, Number], default: '' }, selfOnly: { type: Boolean, default: false }, targetUserId: { type: [String, Number], default: null } });
 defineEmits(['close']);
 const singlePerson = computed(() => props.selfOnly || Boolean(props.targetUserId));
-const dialog = ref(null), agencyId = ref(String(props.initialAgencyId || '')), people = ref([]), editingId = ref('');
+const initialAgency = props.agencies.find(a => String(a.id) === String(props.initialAgencyId))?.id || (props.agencies.length === 1 ? props.agencies[0].id : '');
+const dialog = ref(null), agencyId = ref(String(initialAgency)), people = ref([]), editingId = ref('');
 const organization = reactive(organizationCardDefaults());
 const loading = ref(false), exporting = ref(false), error = ref(''), notice = ref(''), search = ref('');
 const printSettings = reactive(printSettingsDefaults()), guides = ref(false), canManage = ref(false), saving = ref(false);

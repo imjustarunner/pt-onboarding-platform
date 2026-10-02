@@ -18,11 +18,16 @@ beforeEach(() => {
     if (sql.startsWith('SELECT id,role')) return [[actor]];
     if (sql.startsWith('SELECT user_id')) return [(args[0] === 538 ? targetMember : actorMember) ? [{user_id:args[0]}] : []];
     if (sql.includes('FROM user_agencies ua JOIN agencies')) return [[{id:6,role:'admin',status:'ACTIVE_EMPLOYEE',is_active:1},{id:9,role:'client',status:'ACTIVE',is_active:1}]];
-    if (sql.includes('FROM tenant_services ts')) return [[{id:234,assigned:1}]];
+    if (sql.includes('FROM tenant_services ts')) return [[{id:234,service_code:'H0004',business_type:'mental_health',assigned:1},{id:239,service_code:'H2014',business_type:'mental_health',assigned:1},{id:222,service_code:'90791',business_type:'mental_health',assigned:0},{id:253,service_code:'TUTORING',business_type:'tutoring',assigned:0}]];
+    if (sql.startsWith('SELECT u.credential')) return [[{credential:'BA',working_role:'facilitator'}]];
     throw Error('Unexpected SQL '+sql);
   });
 });
 describe('staff tenant relationships', () => {
+  it('uses the same credential policy as scheduling, not a person-specific permission list', async () => {
+    const res=response(); await listStaffServiceAssignments(request(),res,vi.fn());
+    expect(res.json.mock.calls[0][0]).toMatchObject({credentialTier:'bachelors',credential:'BA'});
+  });
   it('lists actual memberships even for a superadmin and excludes non-staff accounts', async () => {
     const res=response(),next=vi.fn(); await listStaffCardAgencies(request({params:{id:'501'}}),res,next);
     expect(next).not.toHaveBeenCalled(); expect(res.json.mock.calls[0][0]).toHaveLength(1);

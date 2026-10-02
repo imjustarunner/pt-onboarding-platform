@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import { CARD_STAFF_ROLES, canManageBusinessCards } from '../services/businessCardSettings.service.js';
+import { deriveCredentialTier } from '../utils/clinicalServiceCodeEligibility.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const id=value=>/^\d+$/.test(String(value))&&Number(value)>0?Number(value):null;
 export async function staffTenantAccess(req,{write=false}={}) {
@@ -38,7 +39,10 @@ export async function listStaffServiceAssignments(req,res,next){try{
  const [services]=await pool.execute(`SELECT ts.id,ts.name,ts.service_code,ts.business_type,
   EXISTS(SELECT 1 FROM staff_service_assignments s WHERE s.agency_id=ts.agency_id AND s.tenant_service_id=ts.id AND s.user_id=? AND s.is_active=1) AS assigned
   FROM tenant_services ts WHERE ts.agency_id=? AND ts.is_active=1 ORDER BY ts.sort_order,ts.name,ts.id`,[userId,agencyId]);
- res.json({services});
+ const [[person]]=await pool.execute(`SELECT u.credential,COALESCE(NULLIF(ua.agency_role,''),u.role) AS working_role
+  FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? WHERE u.id=?`,[agencyId,userId]);
+ const credentialTier=deriveCredentialTier({userRole:person?.working_role,providerCredentialText:person?.credential});
+ res.json({services,credentialTier,credential:person?.credential||''});
 }catch(e){respond(e,res,next);}}
 export async function updateStaffServiceAssignments(req,res,next){try{
  const {userId,agencyId}=await staffTenantAccess(req,{write:true});

@@ -32,7 +32,8 @@ export function organizationCardDefaults(agency = {}, contact = {}) {
     mh4kidz: { primary: '#ce6605' },
     nlu: { primary: '#092e58', accent: '#6cc3b7', logo: '/assets/business-cards/nlu-brand-options.png', logoCrop: '25 5 700 300 2172 724', watermarkLogo: '/assets/nlu/icon.png' },
     plottwistco: { primary: '#a71111', accent: '#000000' },
-    tisi: { primary: '#13304e', accent: '#174b73', logo: '/assets/branding/innerstrength-mark.png' }
+    tisi: { primary: '#13304e', accent: '#174b73', logo: '/assets/branding/innerstrength-mark.png' },
+    kimi: { primary: '#4e624b', accent: '#c98d80', logo: '/assets/kimi/logo-print.png', watermarkLogo: '/assets/kimi/leaf-print.png' }
   }[String(agency.slug || '').toLowerCase()] || {};
   let colors = agency.color_palette || {};
   if (typeof colors === 'string') { try { colors = JSON.parse(colors); } catch { colors = {}; } }
