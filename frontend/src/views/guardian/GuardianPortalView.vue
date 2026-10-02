@@ -1,5 +1,6 @@
 <template>
-  <FamilyPortalShell :brand-name="currentAgencyName || tenantAgencyName" :brand-subtitle="dualBranding ? tenantAgencyName : ''" :logo-url="programLogoUrl || tenantAgencyLogoUrl || brandingStore.displayLogoUrl" :primary-color="brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
+  <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" :mode="guardianWorkspaceMode" :immersive="clinicalGuardianContext" :tenant-id="selectedChildAgencyId" :tenant-name="tenantAgencyName || currentAgencyName" :tenant-logo="tenantAgencyLogoUrl || programLogoUrl || ''" context-label="Family care" switchable :return-label="`Back to ${tenantAgencyName || currentAgencyName || 'family overview'}`" @update:mode="changeGuardianWorkspaceMode" @back="returnToFamilyOverview">
+  <FamilyPortalShell :brand-name="currentAgencyName || tenantAgencyName" :brand-subtitle="dualBranding ? tenantAgencyName : ''" :logo-url="programLogoUrl || tenantAgencyLogoUrl || brandingStore.displayLogoUrl" :primary-color="clinicalGuardianContext && guardianWorkspaceMode === 'clinical' ? '#2467a7' : brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
     <PlatformPreviewBanner
       v-if="isSuperadminPreview"
       :title="`Previewing ${currentAgencyName || 'tenant'} guardian portal`"
@@ -600,9 +601,12 @@
     @close="bookingDrawerOpen = false"
     @submitted="bookingDrawerOpen = false"
   />
+  </ClinicalWorkspaceFrame>
 </template>
 
 <script setup>
+import { isClinicalClient } from '../../utils/clinicalWorkspace';
+import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import FamilyPortalShell from '../../components/portal/FamilyPortalShell.vue';
 import FamilyPortalHome from '../../components/portal/FamilyPortalHome.vue';
@@ -756,6 +760,18 @@ const selectedChildAgencyId = computed(() => {
   if (fromChild) return fromChild;
   return Number(agencyStore.currentAgency?.id || 0) || null;
 });
+
+const clinicalGuardianContext = computed(() => !!selectedChild.value && isClinicalClient(selectedChild.value));
+const guardianWorkspaceMode = ref('clinical');
+function changeGuardianWorkspaceMode(mode) {
+  guardianWorkspaceMode.value = mode;
+}
+function returnToFamilyOverview() {
+  navigatePortal('overview');
+  guardianWorkspaceMode.value = 'overview';
+}
+watch(selectedChildId, () => { guardianWorkspaceMode.value = 'clinical'; });
+watch(activePanel, panel => { if (['plan','appointments','documents','billing','payment_methods','child'].includes(panel)) guardianWorkspaceMode.value = 'clinical'; });
 
 const selectedChildClientType = computed(() => {
   const explicit = String(selectedChild.value?.client_type || '').toLowerCase();

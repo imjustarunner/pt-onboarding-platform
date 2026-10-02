@@ -43,7 +43,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     const View = (await import('../ClinicalNoteGeneratorView.vue')).default;
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/note-aid', component: View }] });
     await router.push('/note-aid');
-    const wrapper = shallowMount(View, { global: { plugins: [router, createPinia()] } });
+    const wrapper = shallowMount(View, { global: { plugins: [router, createPinia()], stubs: { ClinicalWorkspaceFrame: { template: '<section><slot /></section>' } } } });
     await flushPromises();
     const state = wrapper.vm.$.setupState;
     state.derivedTier = 'intern_plus';
@@ -52,6 +52,22 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     await nextTick();
     return { wrapper, state };
   }
+
+  it('keeps learning clients and tutoring aids tenant branded without disabling documentation', async () => {
+    const { wrapper, state } = await workspace();
+    state.selectedClient = { id: 71, client_type: 'learning' };
+    await nextTick();
+    expect(state.canUseTool).toBe(true);
+    expect(state.clinicalWorkspaceBranding).toBe(false);
+    state.selectedClient = { id: 72, client_type: 'clinical' };
+    await nextTick();
+    expect(state.clinicalWorkspaceBranding).toBe(true);
+    state.selectedAidId = 'tpt_note';
+    await nextTick();
+    expect(state.clinicalWorkspaceBranding).toBe(false);
+    expect(state.canUseTool).toBe(true);
+    wrapper.unmount();
+  });
 
   it('loads provider-scoped billing locations and preserves their IDs in the draft context', async () => {
     const { wrapper, state } = await workspace();

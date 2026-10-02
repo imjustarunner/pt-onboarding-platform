@@ -37,7 +37,7 @@ const section = computed(() => String(route.params.section || 'overview'));
 const actorName = computed(() => [actor.value?.first_name, actor.value?.last_name].filter(Boolean).join(' ') || actor.value?.email || 'Superadmin');
 const isLogin = computed(() => route.name === 'login');
 const loginUrl = computed(() => `/login?redirect=${encodeURIComponent(isLogin.value ? appBase : window.location.pathname + window.location.search)}`);
-const navigation = [{key:'overview',label:'Overview'},{key:'appointments',label:'Appointments'},{key:'clients',label:'Clients'},{key:'documentation',label:'Documentation / Documentation Hub'},{key:'billing',label:'Billing'},{key:'providers',label:'Providers'}];
+const navigation = [{key:'overview',label:'Overview'},{key:'appointments',label:'Appointments'},{key:'clients',label:'Clients'},{key:'documentation',label:'Documentation Hub'},{key:'billing',label:'Billing'},{key:'providers',label:'Providers'}];
 let requestId = 0;
 async function load() {
   if (isLogin.value) { loading.value = false; return; }

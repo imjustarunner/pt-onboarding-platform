@@ -516,7 +516,7 @@
         </button>
         <div class="sp-topbar-titles">
           <h1 data-tour="school-header-title">{{ organizationDisplayName }} Portal</h1>
-          <p class="sp-topbar-subtitle">Schedule + roster</p>
+          <p class="sp-topbar-subtitle"><strong>{{ tenantBrandName }}</strong><span v-if="tenantBrandName"> · </span>SchoolCareBridge · Schedule + roster</p>
         </div>
         <div class="sp-topbar-right">
           <DistrictScheduleLinkButton
@@ -5254,10 +5254,9 @@ async function onSchoolLogoSelected(event) {
 const sidebarBrandLogoUrl = computed(() => schoolLogoUrl.value);
 
 const tenantBrandName = computed(() => {
-  if (!isPublicDemo.value) return '';
   return String(
-    brandingStore.portalAgency?.name ||
     cardIconOrg.value?.name ||
+    brandingStore.portalAgency?.name ||
     ''
   ).trim();
 });

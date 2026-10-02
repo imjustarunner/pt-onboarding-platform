@@ -540,12 +540,17 @@ export async function getSession(req, res) {
         ? await CounselingSession.ensureInviteToken(session.id)
         : session;
     const runtime = await CounselingSessionActivityRuntime.findActiveForSession(session.id);
+    // Expose only service context for the shell, after participant access is verified.
+    const appointment = session.appointment_id ? await Appointment.findById(session.appointment_id) : null;
     return res.json({
       ok: true,
-      session: CounselingSession.toPublic(withToken, {
-        includeInviteToken:
-          participantRole === 'provider' || String(req.user?.role || '').toLowerCase() === 'super_admin'
-      }),
+      session: {
+        ...CounselingSession.toPublic(withToken, {
+          includeInviteToken:
+            participantRole === 'provider' || String(req.user?.role || '').toLowerCase() === 'super_admin'
+        }),
+        businessType: appointment?.businessType || null
+      },
       participantRole,
       activityRuntime: runtime
         ? {

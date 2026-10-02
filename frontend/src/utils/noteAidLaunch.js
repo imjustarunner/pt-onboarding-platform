@@ -49,6 +49,7 @@ export function buildNoteAidQuery(ctx = {}) {
   const noteAid = cleanStr(ctx.noteAid) || null;
 
   const query = {};
+  if (['mental_health', 'tutoring', 'coaching', 'consulting'].includes(ctx.practiceCategory)) query.practiceCategory = ctx.practiceCategory;
   if (clientId) query.clientId = String(clientId);
   if (officeEventId) query.officeEventId = String(officeEventId);
   if (clinicalSessionId) query.clinicalSessionId = String(clinicalSessionId);

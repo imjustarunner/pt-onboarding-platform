@@ -3,7 +3,10 @@
     :class="fullPage ? 'cdp-page-shell' : 'cdp-chart-overlay'"
     @click.self="fullPage ? undefined : $emit('close')"
   >
-    <div
+    <ClinicalWorkspaceFrame
+      :enabled="clinicalBranding" :mode="workspaceMode" :tenant-id="tenantId" :tenant-name="tenantName"
+      :immersive="fullPage" switchable context-label="Client record" :return-label="returnLabel"
+      @back="$emit('close')" @update:mode="$emit('workspace-mode', $event)"
       class="client-chart"
       :class="fullPage ? 'cdp-page-body' : 'modal-content large'"
       @click.stop
@@ -69,12 +72,17 @@
 
       <slot name="footer" />
       <slot name="modals" />
-    </div>
+    </ClinicalWorkspaceFrame>
   </div>
 </template>
 
 <script setup>
+import ClinicalWorkspaceFrame from '../../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 defineProps({
+  clinicalBranding: Boolean,
+  workspaceMode: { type: String, default: 'clinical' },
+  tenantId: { type: [Number, String], default: null }, tenantName: { type: String, default: '' },
+  returnLabel: { type: String, default: '' },
   fullPage: { type: Boolean, default: false },
   tabs: { type: Array, default: () => [] },
   activeTab: { type: String, default: 'overview' },
@@ -83,7 +91,7 @@ defineProps({
   alertItems: { type: Array, default: () => [] }
 });
 
-defineEmits(['close', 'update:activeTab', 'update:activeSub', 'alert-click']);
+defineEmits(['close', 'update:activeTab', 'update:activeSub', 'alert-click', 'workspace-mode']);
 </script>
 
 <style scoped>

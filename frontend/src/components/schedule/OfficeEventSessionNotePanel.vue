@@ -1,4 +1,5 @@
 <template>
+  <ClinicalWorkspaceFrame :enabled="practiceCategory === 'mental_health'" compact :tenant-id="agencyId" :show-back="false" context-label="Documentation Hub · Session note">
   <div class="oesn" data-testid="office-event-session-note">
     <div v-if="hipaaBannerVisible" class="oesn-hipaa" role="status">
       HIPAA: Session notes contain protected health information. Viewing is logged for the assigned provider, supervisor, and admins.
@@ -81,9 +82,11 @@
       @update:ratings="sessionRatings = $event"
     />
   </div>
+  </ClinicalWorkspaceFrame>
 </template>
 
 <script setup>
+import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -97,6 +100,7 @@ import {
 import { buildNoteAidQuery, navigateToNoteAid, noteAidPath } from '../../utils/noteAidLaunch.js';
 
 const props = defineProps({
+  practiceCategory: { type: String, default: '' },
   agencyId: { type: [Number, String], default: 0 },
   clientId: { type: [Number, String], default: 0 },
   clientName: { type: String, default: '' },
@@ -283,6 +287,7 @@ async function openInNoteAid() {
   try {
     await persistDraft();
     const ctx = {
+      practiceCategory: props.practiceCategory,
       clientId: Number(props.clientId || 0),
       officeEventId: Number(props.officeEventId || 0) || undefined,
       clinicalSessionId: Number(props.clinicalSessionId || 0) || undefined,

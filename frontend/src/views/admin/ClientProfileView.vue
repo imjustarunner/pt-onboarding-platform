@@ -2,7 +2,7 @@
   <div class="cpv-shell">
     <div class="cpv-breadcrumb">
       <button type="button" class="cpv-back-btn" @click="goBack">
-        <span aria-hidden="true">←</span> Back to clients
+        <span aria-hidden="true">←</span> Back to workspace
       </button>
     </div>
 
@@ -29,11 +29,13 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { clinicalReturnPath } from '../../utils/clinicalWorkspace';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 
 const route = useRoute();
 const router = useRouter();
 
+const origin = window.history.state?.back;
 const clientId = computed(() => {
   const raw = route.params?.clientId;
   const n = parseInt(String(raw || ''), 10);
@@ -107,12 +109,8 @@ function onEncounterChange(encounterId) {
 
 function goBack() {
   const orgSlug = String(route.params?.organizationSlug || '').trim();
-  const back = orgSlug ? `/${orgSlug}/admin/clients` : '/admin/clients';
-  if (window.history.length > 1) {
-    router.back();
-  } else {
-    router.push(back);
-  }
+  const back = clinicalReturnPath({previous:origin,current:route.fullPath,slug:orgSlug});
+  router.push(back);
 }
 
 onMounted(fetchClient);

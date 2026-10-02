@@ -1,4 +1,5 @@
 <template>
+  <ClinicalWorkspaceFrame :enabled="clinicalSessionBranding" immersive :tenant-id="session?.agencyId || session?.agency_id" context-label="Counseling session" :back-disabled="phase !== 'pre' && phase !== 'ended'">
   <div class="cs" :class="{ 'cs--provider': participantRole === 'provider', 'cs--activity': inActivityMode }">
     <ClientRecordingConsentPanel v-if="session && phase !== 'ended'" :base-url="transcriptionBase" :is-provider="participantRole === 'provider'" />
     <ConsentedTranscriptionPanel v-if="phase === 'connected'" ref="transcriptionPanel" :base-url="transcriptionBase" :connected="videoConnected" :is-host="participantRole === 'provider'" :get-stream="getTranscriptionStream" />
@@ -204,9 +205,14 @@
       </router-link>
     </div>
   </div>
+  </ClinicalWorkspaceFrame>
 </template>
 
 <script setup>
+import { practiceCategoryForBusinessType } from '../../config/practiceCategories.js';
+import { useAgencyStore } from '../../store/agency';
+import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';
+import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -237,6 +243,17 @@ const phase = ref('pre');
 const joining = ref(false);
 const preError = ref('');
 const session = ref(null);
+const clinicalAgencyStore = useAgencyStore();
+const clinicalSessionBranding = computed(() => {
+  if (!session.value) return false;
+  const agencyId = Number(session.value.agencyId);
+  const tenant = [clinicalAgencyStore.currentAgency, ...(clinicalAgencyStore.userAgencies || [])].find(a => Number(a?.id) === agencyId);
+  // A booked tutoring/coaching call retains its tenant shell. Unbooked calls
+  // use explicit tenant context, never the viewer's provider role.
+  return isMentalHealthWorkspace({
+    practiceCategory: practiceCategoryForBusinessType(session.value.businessType), tenant
+  });
+});
 const participantRole = ref('client');
 const videoCreds = ref(null);
 const videoConfigured = ref(null);

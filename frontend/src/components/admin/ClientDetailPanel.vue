@@ -1,6 +1,10 @@
 <template>
   <ClientChartShell
     :full-page="props.fullPage"
+    :clinical-branding="showClinicalChartSurfaces" :workspace-mode="clinicalWorkspaceMode"
+    :tenant-id="selectedAgencyId || client.agency_id" :tenant-name="primaryAgencyDisplayName"
+    :return-label="props.schoolOrganizationId ? 'Back to school portal' : ''"
+    @workspace-mode="changeClinicalWorkspaceMode"
     :tabs="tabs"
     :active-tab="chartHub"
     :subnav="chartSubnav"
@@ -2883,6 +2887,12 @@ const onPractitionerPayPerSession = () => {
   alert('Send a packet that includes a pay-per-session package, or book sessions with PER_SESSION payment mode.');
 };
 
+const clinicalWorkspaceMode = ref('clinical');
+function changeClinicalWorkspaceMode(mode) {
+  // Keep the current pane mounted so switching the shell never discards an edit.
+  clinicalWorkspaceMode.value = mode;
+}
+watch(() => props.client?.id, () => { clinicalWorkspaceMode.value = 'clinical'; });
 const activeTab = ref('overview');
 const hubSub = ref('');
 const pendingChartViewKey = ref('');
@@ -2979,6 +2989,7 @@ function setChartNav(hubId, subId = '') {
   hubSub.value = target.hubSub;
 }
 function onHubChange(hubId) {
+  if (hubId !== 'overview') clinicalWorkspaceMode.value = 'clinical';
   setChartNav(hubId, '');
 }
 function onHubSubChange(subId) {

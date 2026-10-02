@@ -4,7 +4,7 @@
     <OfficeArrivalSplash v-if="isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" :key="user.id" />
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
-      <div id="app" :inert="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell }">
+      <div id="app" :inert="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
       <div v-if="pageLoading && !isLoginEntry && !isPublicOfficeRoute" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
@@ -2251,6 +2251,7 @@
 </template>
 
 <script setup>
+import { clinicalWorkspaceActive } from './composables/useClinicalWorkspace';
 import SchoolCareBridgeBrand from './components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import DashboardMeetings from './components/meetings/DashboardMeetings.vue';
 import AppearanceSelect from './components/AppearanceSelect.vue';
@@ -4001,6 +4002,7 @@ const hideGlobalNavForSchoolStaff = computed(() => {
 
 /** Team-meeting / supervision join rooms + Quick View — hide app chrome that squeezes mobile layout. */
 const isImmersiveJoinRoute = computed(() => {
+  if (clinicalWorkspaceActive.value) return true;
   if (['AdaptiveJoinHub','AdaptiveJoinService','OrganizationAdaptiveJoinAlt','OrganizationAdaptiveJoinService'].includes(route.name)) return true;
   if (route.path.startsWith('/schoolcarebridge') || route.meta?.publicQuickView === true || route.meta?.publicMarketingHub === true || route.meta?.publicPageDesignPreview === true) return true;
   const path = String(route.path || '');

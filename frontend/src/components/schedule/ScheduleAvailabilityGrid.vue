@@ -1750,7 +1750,10 @@
     </div>
 
     <div v-if="showRequestModal" class="modal-backdrop modal-backdrop--request" data-schedule-ui="v2" @click.self="requestCloseModal">
-      <div
+      <ClinicalWorkspaceFrame
+        :enabled="editorIsClinical && !showActionChooser && (!editorPracticeCategory || editorPracticeCategory === 'mental_health')"
+        :tenant-id="editorAgencyId || selectedActionAgencyId" context-label="Client session" return-label="Back to schedule" compact
+        @back="requestCloseModal"
         class="modal modal--request modal--new-request"
         :class="{ 'modal--chooser': showActionChooser || isAppointmentEditMode }"
         role="dialog"
@@ -2481,6 +2484,7 @@
 
           <div v-show="editorWorkspaceTab === 'session'" class="appt-workspace-panel appt-workspace-panel--flush">
             <OfficeEventSessionNotePanel
+              :practice-category="editorPracticeCategory || 'mental_health'"
               v-if="editorIsClinical"
               :agency-id="Number(editorAgencyId || selectedActionAgencyId || 0)"
               :client-id="editorInfoClientId"
@@ -4787,7 +4791,7 @@
             {{ submitting ? submitBusyLabel : submitActionLabel }}
           </button>
         </div>
-      </div>
+      </ClinicalWorkspaceFrame>
     </div>
 
     <div v-if="showSupvModal" class="modal-backdrop modal-backdrop--request" @click.self="closeSupvModal">
@@ -5810,6 +5814,7 @@
 </template>
 
 <script setup>
+import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
 import './schedule-new-request-modal.css';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -15300,6 +15305,7 @@ async function openEditorClinicalNote() {
   const clientId = Number(editorInfoClientId.value || 0);
   const officeEventId = Number(modalContext.value?.officeEventId || scheduleEventEditForm.value?.officeEventId || 0);
   const query = buildNoteAidQuery({
+    practiceCategory: editorPracticeCategory.value,
     clientId: clientId || undefined,
     clinicalSessionId: sessionId || undefined,
     noteId: noteId || undefined,

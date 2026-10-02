@@ -1,4 +1,5 @@
 <template>
+  <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="noteAidAgencyId || currentAgencyId" context-label="Documentation Hub">
   <div class="na-app" :class="{ 'na-app--embedded': isEmbedded }">
     <header v-if="!isEmbedded" class="na-topbar">
       <div class="na-brand">
@@ -1565,9 +1566,12 @@
     />
 
   </div>
+  </ClinicalWorkspaceFrame>
 </template>
 
 <script setup>
+import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';
+import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { DURATION_PRESETS, durationLabel, projectedDurationMonths, setObjectiveCompletionTime } from '../../utils/treatmentPlanDuration';
 import { intakeSection, intakeDiagnoses, intakeAssessments, mergeGeneratedAssessment, generatedTreatmentPlan, intakeSectionsForRecord } from '../../utils/noteAidIntakeIntegration';
@@ -2486,6 +2490,13 @@ const noteAidAgencyId = computed(() => {
   }
   return null;
 });
+
+const clinicalWorkspaceBranding = computed(() => isMentalHealthWorkspace({
+  client: selectedClient.value || (selectedClientId.value ? { client_type: 'unknown' } : null),
+  practiceCategory: route.query?.practiceCategory || (selectedAidId.value && !preferLearningSponsorForAid.value ? 'mental_health' : ''),
+  learningAid: preferLearningSponsorForAid.value,
+  tenant: agencyStore.currentAgency
+}));
 
 /** Tenant id for chart saves (plan import) — never null when client + workspace exist. */
 const chartAgencyIdForSave = computed(() => {
@@ -7074,6 +7085,7 @@ const onDocumentationQueueSelect = async (row) => {
     dateOfService: row.dateOfService || undefined,
     serviceCode: row.serviceCode || undefined
   };
+  delete nextQuery.practiceCategory;
   if (row.officeEventId) nextQuery.officeEventId = String(row.officeEventId);
   router.replace({ query: nextQuery }).catch(() => {});
   resetClientClinicalContext();
@@ -8190,6 +8202,7 @@ function findReusableLocalDraft(item) {
 
 function syncWorkQueueRouteQuery(item) {
   const nextQuery = { ...route.query, launchIntent: 'work_queue' };
+  delete nextQuery.practiceCategory;
   delete nextQuery.draftId;
   delete nextQuery.draft_id;
   delete nextQuery.clinicalNoteId;

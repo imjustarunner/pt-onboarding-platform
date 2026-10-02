@@ -1,0 +1,48 @@
+/* Local clinical palette. Never replace the tenant's root theme or school shell. */
+.auricwell-surface {
+  color-scheme:light;
+  --primary:#2467a7;--primary-color:#2467a7;--secondary:#213449;--secondary-color:#213449;
+  --accent:#997a38;--accent-color:#997a38;--bg:#fff;--bg-alt:#f5f8fc;--bg-card:#fff;
+  --bg-primary:#fff;--bg-secondary:#f5f8fc;--background-color:#fff;--bg-color:#fff;
+  --text-primary:#213449;--text-secondary:#53677a;--border:#dce5ee;--border-color:#dce5ee;
+  --agency-font-family:Inter,Arial,sans-serif;--font-body:Inter,Arial,sans-serif;--font-header:Inter,Arial,sans-serif;--font-display:Inter,Arial,sans-serif;
+  --cc-bg:#f5f8fc;--cc-card:#fff;--cc-border:#dce5ee;--cc-primary:#2467a7;--cc-secondary:#213449;--cc-accent:#997a38;
+  background:#fff;color:#213449;font-family:Inter,Arial,sans-serif;
+}
+.clinical-workspace { min-width:0; }
+.clinical-workspace__header { display:flex;align-items:center;gap:24px;flex-wrap:wrap;padding:18px 24px;border-bottom:1px solid #dce5ee;background:#fff;color:#213449;font-family:Inter,Arial,sans-serif;flex-shrink:0; }
+.clinical-workspace__identity { display:flex;gap:12px;align-items:center;min-width:0; }
+.clinical-workspace__tenant-logo { width:48px;height:48px;object-fit:contain; }
+.clinical-workspace__tenant { display:block;font-size:17px;font-weight:750;overflow-wrap:anywhere; }
+.clinical-workspace__context { display:block;margin-top:4px;font-size:12px;color:#53677a; }
+.clinical-workspace__product { border-left:1px solid #c9b685;padding-left:24px;display:flex;align-items:center;gap:10px; }
+.clinical-workspace__product img { width:56px;height:56px;object-fit:contain; }
+.clinical-workspace__product strong { display:block;font-size:20px;color:#163f79; }
+.clinical-workspace__product span { display:block;margin-top:3px; font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#705c2e; }
+.clinical-workspace__actions { margin-left:auto;display:flex;gap:12px;align-items:center;flex-wrap:wrap; }
+.clinical-workspace__header button { font:600 13px Inter,Arial,sans-serif;cursor:pointer;padding:10px 13px;border:1px solid #c6d6e5;border-radius:8px;background:#fff;color:#205b91;line-height:1.35;width:auto; }
+.clinical-workspace__header button:disabled { opacity:.55;cursor:default; }
+.clinical-workspace__switch { display:flex;gap:3px;padding:3px;background:#f1f5fa;border:1px solid #dce5ee;border-radius:10px; }
+.clinical-workspace__switch button { border-color:transparent;background:transparent; }
+.clinical-workspace__switch button[aria-pressed=true] { background:#2467a7;color:#fff; }
+.clinical-workspace__header button:focus-visible,.auricwell-surface :focus-visible { outline:3px solid #aa8738;outline-offset:3px; }
+.auricwell-surface .na-app { --na-teal:#2467a7!important;--na-teal-dark:#1b4e7e!important;--na-teal-soft:#e7f1fa!important;--na-canvas:#fff!important;--na-bg:#fff;--na-surface:#fff;background:#fff!important;font-family:Inter,Arial,sans-serif; }
+.auricwell-surface .cnl { --cnl-teal:#2467a7!important;--cnl-teal-dark:#1b4e7e!important; }
+.auricwell-surface .na-shell,.auricwell-surface .na-topbar,.auricwell-surface .cc-surface { background:#fff; }
+.auricwell-surface .na-app .na-archive-btn { background:#f3f7fc;color:#2467a7;border-color:#c7d8e9; }
+.auricwell-surface .cs { background:#fff;color:#213449; }
+.auricwell-surface .cs__pre,.auricwell-surface .cs__ended,.auricwell-surface .cs__side { background:#fff;color:#213449; }
+.auricwell-surface .cs__btn--primary { background:#2467a7;color:#fff; }
+.auricwell-surface .family-portal { --portal-primary:#2467a7;background:#fff; }
+.clinical-workspace--compact>.clinical-workspace__header { padding:12px 16px;gap:16px; }
+.clinical-workspace--compact .clinical-workspace__product img { width:44px;height:44px; }
+.is-clinical-workspace { background:#fff; }
+@media(max-width:700px){.clinical-workspace__header{padding:14px 16px;gap:14px}.clinical-workspace__tenant{font-size:15px}.clinical-workspace__product{margin-left:auto;padding-left:14px}.clinical-workspace__product img{width:105px;height:34px}.clinical-workspace__actions{margin:0;width:100%;justify-content:space-between;gap:8px}.clinical-workspace__header button{padding:9px 11px}.clinical-workspace__tenant-logo{width:36px;height:36px}}
+@media print{.clinical-workspace__actions{display:none}.clinical-workspace__header{break-after:avoid}}
+
+.auricwell-surface .na-app .na-wq-add { background:#2467a7; }
+.auricwell-surface .na-app .na-wq-mode.on { border-color:#2467a7;background:#e7f1fa;color:#205b91; }
+.auricwell-surface .na-app .na-wq-chip--pending { background:#e7f1fa;color:#205b91; }
+.auricwell-surface .na-app .na-start h1 { color:#213449; }
+
+.auricwell-surface.modal--new-request { --nr-purple:#2467a7;--nr-purple-deep:#1b4e7e;--nr-teal:#2467a7;--nr-cyan:#2467a7;--nr-ink:#213449; }

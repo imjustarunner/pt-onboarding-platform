@@ -1,4 +1,5 @@
 <template>
+  <ClinicalWorkspaceFrame :enabled="noteAidEnabled && clinicalWorkspaceBranding" immersive :tenant-id="currentAgencyId" context-label="Documentation Hub">
   <div class="container">
     <div class="page-header">
       <div>
@@ -127,9 +128,12 @@
       </template>
     </div>
   </div>
+  </ClinicalWorkspaceFrame>
 </template>
 
 <script setup>
+import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';
+import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
@@ -303,6 +307,10 @@ const clientsLoading = ref(false);
 const clientsError = ref('');
 const clientResults = ref([]);
 const selectedClientId = ref('');
+const clinicalWorkspaceBranding = computed(() => isMentalHealthWorkspace({
+  client: clientResults.value.find(c => String(c.id) === String(selectedClientId.value)),
+  tenant: agencyStore.currentAgency
+}));
 
 const noteCategory = ref('general');
 const noteUrgency = ref('low');
