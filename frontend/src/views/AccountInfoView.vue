@@ -8,7 +8,7 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     
     <div v-else class="account-info-content">
-      <div v-if="canPrintBusinessCards" class="info-section">
+      <div v-if="canPrintBusinessCards" id="my-business-cards" class="info-section">
         <div class="section-header"><h2 style="margin:0">My business cards</h2></div>
         <p class="hint">Print your current staff details and your organization’s QR back on Avery 35702 square cards.</p>
         <StaffBusinessCardsButton :user-id="userId" :agency-id="agencyStore.currentAgency?.id" self-only />
@@ -16,7 +16,7 @@
       <!-- Profile Photo -->
       <div class="info-section">
         <div class="section-header">
-          <h2 style="margin: 0;">Profile Photo</h2>
+          <h2 id="my-profile-photo" style="margin: 0;">Profile Photo</h2>
         </div>
         <div class="profile-photo-row">
           <div class="photo-preview">
@@ -57,7 +57,7 @@
       <!-- Email signature (tenant HTML) -->
       <div v-if="!isSsc" class="info-section">
         <div class="section-header">
-          <h2 style="margin: 0;">Email Signature</h2>
+          <h2 id="my-email-signature" style="margin: 0;">Email Signature</h2>
         </div>
         <p class="hint" style="margin-top: 8px; max-width: 36rem;">
           Automatically built from your profile (name, credentials, job title, email, extension, photo) and branded to the tenant you’re sending from. Appended on Hub email for providers, admins, and CPAs.
@@ -201,7 +201,7 @@
 
       <!-- Personal Information Section -->
       <div class="info-section">
-        <h2>Personal Information</h2>
+        <h2 id="my-contact-info">Personal Information</h2>
 
         <!-- ── SSTC: fully editable personal info form ────────────────── -->
         <div v-if="isSsc" class="card compact-card">
@@ -322,7 +322,7 @@
 
         <div class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
-            <h3 style="margin: 0;">Security</h3>
+            <h3 id="my-account-security" style="margin: 0;">Security</h3>
             <button
               v-if="!accountInfo.ssoRequired"
               class="btn btn-secondary btn-compact"
@@ -695,7 +695,7 @@
 
         <div class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
-            <h3 style="margin: 0;">Home Address</h3>
+            <h3 id="my-home-address" style="margin: 0;">Home Address</h3>
             <div style="display:flex; gap: 10px; flex-wrap: wrap;">
               <button
                 v-if="!editingHomeAddress"
@@ -755,7 +755,7 @@
 
         <div v-if="!isSsc" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
-            <h3 style="margin: 0;">Assigned Building Office(s)</h3>
+            <h3 id="my-assigned-offices" style="margin: 0;">Assigned Building Office(s)</h3>
           </div>
           <div class="hint" style="margin-top: 6px;">
             These building addresses are used by School Mileage mapping.
@@ -775,7 +775,7 @@
 
         <div v-if="isProviderLike" class="card compact-card" style="margin-top: 16px;">
           <div class="section-header">
-            <h3 style="margin: 0;">Public Provider Profile (Read Only)</h3>
+            <h3 id="my-public-profile" style="margin: 0;">Public Provider Profile (Read Only)</h3>
           </div>
           <div class="hint" style="margin-top: 6px;">
             This is what clients see in the external Find a Provider page. Admin updates these settings.
@@ -804,7 +804,7 @@
       <!-- Profile Information (filled via assigned onboarding/profile modules) – hidden for clubs -->
       <div v-if="!isClubContext" class="info-section">
         <div class="section-header">
-          <h2 style="margin: 0;">Profile Information</h2>
+          <h2 id="my-profile-information" style="margin: 0;">Profile Information</h2>
           <div style="display:flex; gap: 10px; flex-wrap: wrap;">
             <button class="btn btn-secondary btn-large" @click="$router.push('/dashboard?tab=training')">
               Go to My Training
@@ -842,7 +842,7 @@
           </div>
 
           <div v-else class="fields-grid" style="margin-top: 12px;">
-            <div v-for="field in myRenderableFields" :key="field.id" class="field-item">
+            <div v-for="field in myRenderableFields" :key="field.id" :id="`my-profile-field-${field.id}`" class="field-item">
               <label :for="`my-field-${field.id}`">
                 {{ field.field_label }}
                 <span v-if="field.is_required" class="required-asterisk">*</span>
@@ -1157,7 +1157,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, reactive } from 'vue';
+import { ref, onMounted, onUnmounted, computed, reactive } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../services/api';
 import { TIMEZONE_GROUPS, detectLocalTimezone } from '../utils/timezones.js';
@@ -2417,7 +2417,14 @@ const disableBiometric = async () => {
   biometricStatusLoading.value = false;
 };
 
+function onProfileSearchField(event) {
+  if (event.detail?.tabId !== 'my' || Number(event.detail?.userId) !== Number(userId.value)) return;
+  showEmptyMyFields.value = true;
+  activeMyCategoryKey.value = event.detail.categoryKey || '__all';
+}
+onUnmounted(() => window.removeEventListener('profile-search-field', onProfileSearchField));
 onMounted(() => {
+  window.addEventListener('profile-search-field', onProfileSearchField);
   if (userId.value) {
     fetchAccountInfo();
     fetchStravaStatus();

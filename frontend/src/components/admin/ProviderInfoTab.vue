@@ -122,7 +122,7 @@
           </div>
 
           <div v-show="embedded && section.key === '__clinical_panel' ? true : !isSectionCollapsed(section.key)" class="fields-grid">
-            <div v-for="field in section.fields" :key="field.id" class="field-item">
+            <div v-for="field in section.fields" :key="field.id" :id="`provider-profile-field-${field.id}`" class="field-item">
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px;">
                 <div style="display:flex; flex-direction:column; gap:2px;">
                   <label :for="`provider-field-${field.id}`" style="margin: 0;">
@@ -366,7 +366,7 @@
 <script setup>
 import LatinxDirectoryMembership from '../providerDirectory/LatinxDirectoryMembership.vue';
 import {SPECIALTIES, POPULATIONS, CLIENT_AGES, THERAPY_APPROACHES} from '../../constants/providerClinicalTaxonomy';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import StaffClientComfortPreferencesModal from '../tutoring/StaffClientComfortPreferencesModal.vue';
@@ -1308,7 +1308,14 @@ const installTemplate = async () => {
   }
 };
 
-onMounted(refresh);
+function onSearchField(event) {
+  if (event.detail?.tabId !== 'provider_info' || Number(event.detail?.userId) !== Number(props.userId)) return;
+  if (!event.detail?.fieldId) return;
+  showEmptyAssignedFields.value = true;
+  expandAllSections();
+}
+onMounted(() => { refresh(); window.addEventListener('profile-search-field', onSearchField); });
+onUnmounted(() => window.removeEventListener('profile-search-field', onSearchField));
 
 watch(
   () => [props.userId, props.fieldKeys, props.ensureEmptyFields],

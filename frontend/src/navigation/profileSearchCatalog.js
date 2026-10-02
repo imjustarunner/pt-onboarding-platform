@@ -7,6 +7,13 @@
  */
 
 export const PROFILE_SEARCH_TARGETS = [
+  { id: 'business-cards', tabId: 'account', sectionId: 'profile-business-cards', label: 'Business cards', aliases: ['business card', 'print cards', 'Avery', '35702', 'square cards', 'QR code', 'agency branding'] },
+  { id: 'payroll-hcbs-classification', tabId: 'account', sectionId: 'payroll-hcbs-classification', label: 'Payroll & HCBS classification', aliases: ['HCBS', 'bachelors', 'masters', 'prelicensed', 'hourly worker'] },
+  { id: 'application-history', tabId: 'account', sectionId: 'application-history', label: 'Application history', aliases: ['applications', 'hiring', 'interview'] },
+  { id: 'tasks', tabId: 'tasks', sectionId: '', label: 'Tasks', aliases: ['assigned tasks', 'to do', 'checklist', 'pending tasks'] },
+  { id: 'billing', tabId: 'billing', sectionId: '', label: 'Billing', aliases: ['self pay', 'rates', 'insurance rates', 'packages', 'cancellation policies'] },
+  { id: 'evaluations', tabId: 'evaluations', sectionId: '', label: 'Evaluations', aliases: ['performance', 'reviews', 'assessments', 'feedback'] },
+
   { id: 'overview', tabId: 'overview', sectionId: '', label: 'Overview', aliases: ['summary', 'home', 'snapshot'] },
   { id: 'account', tabId: 'account', sectionId: '', label: 'Account', aliases: ['account tab', 'profile tab'] },
   { id: 'account-info', tabId: 'account', sectionId: 'account-info', label: 'Account information', aliases: ['name', 'role', 'title', 'phone', 'contact', 'email', 'account info'] },

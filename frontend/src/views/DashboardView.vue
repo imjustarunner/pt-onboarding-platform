@@ -1,5 +1,5 @@
 <template>
-  <div :class="usePlatformShell ? 'pthq-personal' : undefined">
+  <div ref="dashboardSearchRoot" :class="usePlatformShell ? 'pthq-personal' : undefined">
     <header v-if="usePlatformShell" class="pthq-personal-top">
       <div class="pthq-personal-brand">
         <div class="pthq-personal-mark" aria-hidden="true">PT</div>
@@ -62,6 +62,10 @@
         Share club with staff?
       </button>
     </div>
+
+    <ProfileContentSearch v-if="!previewMode" :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
+      :error="dashboardContentIndex.loadError.value" :scope-key="dashboardSearchScope" label="Search My Dashboard" input-id="dashboard-profile-search"
+      @load="dashboardContentIndex.load" @select="jumpToDashboardSearchResult" />
 
     <!-- My SSTC Clubs lives in AgencySelector (portal strip) — do not duplicate here. -->
 
@@ -1310,6 +1314,9 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
+import ProfileContentSearch from '../components/profile/ProfileContentSearch.vue';
+import { accountSearchTargets, fieldSearchTargets, recordSearchTargets } from '../navigation/profileContentSearch.js';
+import { useProfileContentSearch, revealProfileSearchTarget } from '../composables/useProfileContentSearch.js';
 import DashboardIconEditor from '../components/admin/DashboardIconEditor.vue';
 import DashboardRailEditor from '../components/dashboard/DashboardRailEditor.vue';
 import DashboardRailMoveButtons from '../components/dashboard/DashboardRailMoveButtons.vue';
@@ -4639,6 +4646,40 @@ const onOverviewJoinEvent = (ev) => {
   window.location.assign(url);
 };
 
+const dashboardSearchRoot = ref(null);
+const dashboardSearchScope = computed(() => `${authStore.user?.id || ''}:${currentAgencyId.value || ''}:${isClubContext.value}:${railCards.value.map(c=>c.id).join(',')}:${canSeeKudosWidget.value}`);
+function flattenSearchCards(cards, parent = '') {
+  return (cards || []).flatMap(card => [{ id: `dashboard-${card.id}`, tabId: card.id, label: card.label, content: card.description || '', kind: card.kind === 'nest' ? 'Category' : 'Page', breadcrumb: parent || 'My Dashboard', card }, ...flattenSearchCards(card.children, card.label)]);
+}
+const dashboardSearchBase = computed(() => {
+  const pages = flattenSearchCards(railCards.value);
+  if (!pages.some(t => t.tabId === 'my')) return pages;
+  const canPrintCards = ['super_admin','admin','assistant_admin','support','staff','provider','provider_plus','clinical_practice_assistant','supervisor','intern','intern_plus','facilitator','tutor','clinician','school_staff'].includes(authStore.user?.role);
+  return [...pages, ...recordSearchTargets(authStore.user,'self'), ...accountSearchTargets({ isClub: isClubContext.value, canSeeKudos: canSeeKudosWidget.value, canManageAvailability:!!currentAgencyId.value && (['provider','provider_plus','intern','intern_plus','facilitator','supervisor','clinical_practice_assistant','admin','super_admin'].includes(authStore.user?.role) || !!authStore.user?.has_provider_access), canPrintCards, publicProfile:['provider','supervisor','intern','facilitator','provider_plus'].includes(authStore.user?.role) || !!authStore.user?.has_provider_access || !!authStore.user?.hasProviderAccess }),
+    ...(!isClubContext.value ? fieldSearchTargets(dashboardContentIndex.fields.value, {mode:'self', categories:dashboardContentIndex.categories.value, hideNpiId:!['admin','super_admin'].includes(authStore.user?.role)}) : [])];
+});
+const dashboardContentIndex = useProfileContentSearch({ root: dashboardSearchRoot, scopeKey: dashboardSearchScope, userId: computed(() => authStore.user?.id),
+  activeTarget: computed(() => ({tabId:activeTab.value, ...(activeTab.value==='my'?{mySection:myTab.value}:{}), breadcrumb:railCards.value.find(c=>c.id===activeTab.value)?.label || 'My Dashboard'})),
+  baseTargets: dashboardSearchBase, canLoadFields:computed(() => isOnboardingComplete.value && !isClubContext.value) });
+let dashboardSearchJump = 0;
+async function jumpToDashboardSearchResult(hit) {
+  const generation = ++dashboardSearchJump;
+  const scope = dashboardSearchScope.value;
+  if (hit.card) { handleCardClick(hit.card); return; }
+  if (hit.mySection) await setMyTab(hit.mySection);
+  else { const card=flattenSearchCards(railCards.value).find(t=>t.tabId===hit.tabId)?.card; if(!card)return;handleCardClick(card); }
+  await nextTick();
+  if(hit.sectionId || hit.fieldId) await router.replace({query:{...route.query,tab:hit.tabId,my:hit.mySection || undefined,section:hit.sectionId || undefined,profileField:hit.fieldId || undefined,profileCategory:hit.categoryKey || undefined}});
+  await revealProfileSearchTarget(dashboardSearchRoot, hit, {userId:authStore.user?.id,isCurrent:()=>generation===dashboardSearchJump && scope===dashboardSearchScope.value && activeTab.value===hit.tabId});
+}
+watch(() => [route.query.section,route.query.profileField,route.query.profileCategory], async () => {
+  if (!route.query.section || route.query.tab !== 'my') return;
+  const scope = dashboardSearchScope.value;
+  const section = String(route.query.section);
+  await nextTick();
+  await revealProfileSearchTarget(dashboardSearchRoot,{tabId:'my',sectionId:String(route.query.section),fieldId:Number(route.query.profileField)||undefined,categoryKey:route.query.profileCategory},{userId:authStore.user?.id,isCurrent:()=>scope===dashboardSearchScope.value && String(route.query.section||'')===section && activeTab.value==='my'});
+}, {flush:'post',immediate:true});
+
 const setMyTab = (tab) => {
   closeInlineProgramHub();
   myTab.value = tab;
@@ -4646,7 +4687,7 @@ const setMyTab = (tab) => {
   previousContentTab.value = 'my';
   selectedRailCardId.value = 'my';
   if (props.previewMode) return;
-  router.replace({ query: { ...route.query, tab: 'my', my: tab } });
+  return router.replace({ query: { ...route.query, tab: 'my', my: tab, section: undefined, profileField: undefined, profileCategory: undefined } });
 };
 
 const syncFromQuery = () => {
