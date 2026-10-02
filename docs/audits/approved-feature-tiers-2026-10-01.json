@@ -1,0 +1,30 @@
+{
+  "approvedFeatures": 52,
+  "search": true,
+  "productFilter": true,
+  "mobileScroll": true,
+  "checklist": true,
+  "revisionPersistence": true,
+  "errors": [],
+  "approvedChoices": "deliverables/approved-feature-tiers.json",
+  "tierCounts": {
+    "basic": 23,
+    "premium": 8,
+    "premium_plus": 8,
+    "separate": 13
+  },
+  "sharedFeatureScope": "agency",
+  "tests": {
+    "backendPassed": 21,
+    "frontendPassed": 5
+  },
+  "runtimeEnforcement": {
+    "privateOffice": "Enforced from approved catalog by existing meeting plan service.",
+    "sharedFeatures": "Approved policy recorded; existing add-on and feature gates are not yet migrated to the three-tier agency policy."
+  },
+  "deployment": "Not deployed. AuricWell uses the shared component locally; its base app remains outside this commit.",
+  "builds": {
+    "platform": "Passed with Node heap limit 8192 MB",
+    "auricwellLocal": "Passed"
+  }
+}

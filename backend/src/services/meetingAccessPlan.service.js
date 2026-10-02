@@ -1,9 +1,13 @@
 import pool from '../config/database.js';
-export const MEETING_PLANS = Object.freeze([
- { id: 'basic', name: 'Basic', aiNoteAid: true, privateOffice: false, multipleOfficeGuests: false },
- { id: 'premium', name: 'Premium', aiNoteAid: true, privateOffice: true, multipleOfficeGuests: false },
- { id: 'premium_plus', name: 'Premium Plus', aiNoteAid: true, privateOffice: true, multipleOfficeGuests: true }
-]);
+import { PLAN_TIERS } from '../constants/productPlanCatalog.js';
+import { planIncludesFeature } from './productPlanPolicy.js';
+export const MEETING_PLANS = Object.freeze(PLAN_TIERS.map(tier => Object.freeze({
+ ...tier,
+ // Preserve the API field used by existing clients; public name is Documentation Hub.
+ aiNoteAid: true,
+ privateOffice: planIncludesFeature({ individualTier: tier.id }, 'private_office'),
+ multipleOfficeGuests: planIncludesFeature({ individualTier: tier.id }, 'multiple_office_guests')
+})));
 export function meetingPlan(tier) { return MEETING_PLANS.find(p => p.id === tier) || MEETING_PLANS[0]; }
 export async function getMeetingPlan(userId, db = pool) {
  const [rows] = await db.execute('SELECT tier,source FROM meeting_access_plans WHERE user_id=?', [userId]);
