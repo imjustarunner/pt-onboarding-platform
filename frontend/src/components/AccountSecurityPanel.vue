@@ -38,8 +38,8 @@
         </div>
         <form v-if="setup || (authenticatorEnabled && (!state.verified || state.canReviewPrivacy))" @submit.prevent="verify">
           <label>{{ useRecoveryCode ? 'One-use recovery code' : 'Authenticator code' }}<input v-model="code" :inputmode="useRecoveryCode ? 'text' : 'numeric'" autocomplete="one-time-code" :maxlength="useRecoveryCode ? 40 : 6" required /></label>
-          <label v-if="!setup" class="check"><input v-model="useRecoveryCode" type="checkbox" @change="code = ''" />Use a recovery code instead</label>
-          <label v-if="!useRecoveryCode && state.rememberDays" class="check"><input v-model="remember" type="checkbox" />Remember this personal device for {{ state.rememberDays }} days</label>
+          <label v-if="!setup" class="security-checkbox"><input v-model="useRecoveryCode" type="checkbox" @change="code = ''" /><span>Use a recovery code instead</span></label>
+          <label v-if="!useRecoveryCode && state.rememberDays" class="security-checkbox"><input v-model="remember" type="checkbox" /><span>Remember this personal device for {{ state.rememberDays }} days</span></label>
           <p v-if="!useRecoveryCode && state.rememberDays" class="hint">Leave this unchecked on a shared school or public computer. Signing out will still end your app session.</p>
           <label v-if="remember && !useRecoveryCode">Device name<input v-model="deviceLabel" maxlength="100" placeholder="My laptop" /></label>
           <button class="btn btn-primary" :disabled="busy">{{ busy ? 'Checking…' : setup ? 'Enable two-step verification' : 'Verify sign-in' }}</button>
@@ -57,8 +57,8 @@
             <label>Confirm your account password<input v-model="replacementPassword" type="password" autocomplete="current-password" /></label>
             <p class="hint">A Google sign-in within the last five minutes also satisfies password confirmation.</p>
             <label>{{ replacementRecovery ? 'Unused recovery code' : 'Current authenticator code' }}<input v-model="replacementCode" autocomplete="one-time-code" required maxlength="40" /></label>
-            <label class="check"><input v-model="replacementRecovery" type="checkbox" />Use an unused recovery code</label>
-            <label class="check"><input v-model="confirmReplacement" type="checkbox" required />End my sessions and replace my authenticator</label>
+            <label class="security-checkbox"><input v-model="replacementRecovery" type="checkbox" /><span>Use an unused recovery code</span></label>
+            <label class="security-checkbox"><input v-model="confirmReplacement" type="checkbox" required /><span>End my sessions and replace my authenticator</span></label>
             <button :disabled="busy || !confirmReplacement">Replace authenticator and sign out</button>
           </form>
         </details>
@@ -138,7 +138,9 @@ onBeforeUnmount(() => { emailCode.value = ''; password.value = ''; code.value = 
 h1 { font-size: 1.7rem; } h2 { font-size: 1.2rem; } h3 { font-size: 1rem; }
 label { display: flex; flex-direction: column; gap: .4rem; margin: 1rem 0; max-width: 420px; }
 input { padding: .65rem; border: 1px solid var(--border, #aaa); border-radius: 6px; font: inherit; min-width: 0; }
-.check { flex-direction: row; align-items: flex-start; } .check input { margin-top: .25rem; }
+.security-checkbox { flex-direction: row; align-items: flex-start; gap: .6rem; line-height: 1.5; }
+.security-checkbox input { flex: 0 0 auto; width: 1rem; height: 1rem; margin: .25rem 0 0; padding: 0; }
+.security-checkbox span { min-width: 0; overflow-wrap: anywhere; }
 .hint, small { font-size: .88rem; color: var(--text-secondary, #475569); } small { display: block; overflow-wrap: anywhere; }
 .actions { display: flex; flex-wrap: wrap; gap: .6rem; margin: .7rem 0; }
 button { cursor: pointer; padding: .6rem .8rem; border-radius: 6px; border: 1px solid var(--border, #aaa); font: inherit; background: var(--bg-secondary, #f1f5f9); color: inherit; }

@@ -1,18 +1,23 @@
 <template>
  <section class="protection-panel" aria-label="Activity protection">
-  <h2>{{ review ? 'Security alerts & file-access requests' : 'Additional client-file access' }}</h2>
-  <p v-if="!review">You can open five distinct client files within 15 minutes. Additional files require a privacy review. Explain the work purpose here. A designated privacy reviewer must approve the request before you continue. Do not include client names or other private details.</p>
-  <p v-else>These are review leads, not proof that the account owner acted maliciously. Limits apply to administrators too. Approval does not grant access to otherwise restricted clients.</p>
+  <h2>{{ review ? 'Security alerts & file-access requests' : data.unlimitedFileViews ? 'Additional downloads & exports' : 'Additional client-file access' }}</h2>
+  <template v-if="!review">
+   <p v-if="data.unlimitedFileViews">Your role allows unlimited client-document views. Every view is logged. Downloads, exports, and printing remain subject to review; viewing does not use that allowance.</p>
+   <p v-else>You can open five distinct client files within 15 minutes, or 25 within 24 hours. Additional files require a privacy review.</p>
+   <p v-if="data.unlimitedFileViews">The standard allowance is five distinct files within 15 minutes, or 25 within 24 hours. Bulk exports and printing require review.</p>
+   <p>Explain the work purpose here. A designated privacy reviewer must approve the request before you continue. Do not include client names or other private details. Verifying your sign-in does not clear a file-access hold.</p>
+  </template>
+  <p v-else>These are review leads, not proof that the account owner acted maliciously. Admin, support, and superadmin client-document views are logged without a volume limit. Download, export, and print limits still apply. Approval does not grant access to otherwise restricted clients.</p>
   <p v-if="error" role="alert" class="error">{{ error }}</p><p v-if="message" role="status">{{ message }}</p>
   <button @click="load" :disabled="busy">Refresh</button>
   <template v-if="!review">
-   <p v-for="hold in data.holds || []" :key="hold.kind" class="hold">{{ hold.kind === 'email' ? 'Email delivery' : 'Additional client-file access' }} is paused for security review.</p>
+   <p v-for="hold in data.holds || []" :key="hold.kind" class="hold">{{ hold.kind === 'email' ? 'Email delivery' : data.unlimitedFileViews ? 'Download, export, and print access' : 'Additional client-file access' }} is paused for security review.</p>
    <form @submit.prevent="requestAccess">
-    <label>Why do you need multiple client files?<textarea v-model.trim="reason" minlength="20" maxlength="2000" required placeholder="Describe the task, who needs the files, and how you will handle them securely." /></label>
+    <label>{{ data.unlimitedFileViews ? 'Why do you need additional downloads or exports?' : 'Why do you need multiple client files?' }}<textarea v-model.trim="reason" minlength="20" maxlength="2000" required placeholder="Describe the task, who needs the files, and how you will handle them securely." /></label>
     <label>Number of additional file operations (up to 20)<input v-model.number="units" type="number" min="1" max="20" required /></label>
     <button :disabled="busy">Submit review ticket</button>
    </form>
-   <p>Approved access lasts one hour, applies to this sign-in only, and has a limited quantity. Opening a file can also allow saving or printing it, so file views count toward the limit.</p>
+   <p>Approved access lasts one hour, applies to this sign-in only, and has a limited quantity. <template v-if="data.unlimitedFileViews">Saving from the browser’s document viewer cannot be distinguished from viewing by the app.</template><template v-else>Opening a file can also allow saving or printing it, so file views count toward the limit.</template></p>
    <article v-for="ticket in data.tickets || []" :key="ticket.id">
     <strong>Request {{ ticket.id.slice(0,8) }} · {{ ticket.status }}</strong><p>{{ ticket.reason }}</p>
     <p>Requested: {{ ticket.requested_units }} · Used: {{ ticket.used_units }} of {{ ticket.allowed_units }} approved<span v-if="ticket.expires_at"> · Expires {{ time(ticket.expires_at) }}</span></p>

@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import { evidenceRequestContext } from '../utils/evidenceRequestContext.js';
 import { networkEvidence, safeRequestPath, sessionReference, resourceEvidence } from '../utils/securityEvidence.js';
 import { appendSecurityEvidence, mirrorSecurityEvidence } from './securityEvidence.service.js';
+import { hasUnlimitedFileViews, isClientFileView } from '../utils/fileAccessPolicy.js';
 
 export const PROTECTION_POLICY = Object.freeze({ fileWindowMinutes: 15, filesPerWindow: 5, filesPerDay: 25, emailPerMessage: 50, emailPerWindow: 50, emailPerDay: 200, approvalMaxUnits: 20, approvalMinutes: 60 });
 export const resourceReference = value => crypto.createHash('sha256').update(String(value)).digest('hex');
@@ -34,6 +35,12 @@ export async function authorizeProtectedActivity(req,{kind,resource,units=1,forc
   if(!['client_file','email'].includes(kind) || !Number.isSafeInteger(units) || units<1) throw protectionError('Invalid protected operation.');
   const userId=protectionActor(req), ref=resourceReference(resource), event=protectionEvent(req,'activity_reserved','allowed',{kind,resourceRef:ref,units});
   if(!userId && !hardLimit) return; // Background per-account limits require an explicit initiating identity.
+  if(kind==='client_file' && !hardLimit && hasUnlimitedFileViews(req) && isClientFileView(req)) {
+    // Keep durable evidence before serving a view, including storage reads for
+    // the packet. Views neither spend download allowances nor release holds.
+    await appendSecurityEvidence({...event,action:'file_view_requested',details:{...event.details,fileAccessIntent:'view'}});
+    return;
+  }
   const db=await pool.getConnection(); let committed=false, denied=false, recorded;
   try {
     await db.beginTransaction();
@@ -63,7 +70,7 @@ export async function authorizeProtectedActivity(req,{kind,resource,units=1,forc
     }
     await db.commit();committed=true;mirrorSecurityEvidence(recorded,recorded.eventId);
   } catch(e) {if(!committed)await db.rollback();throw e;} finally {db.release();}
-  if(denied) throw protectionError(kind==='email'?'Email delivery paused for security review. No more than 50 recipients are allowed per message.':'To protect client privacy, additional file access is paused. Submit a request in Security & sign-in activity explaining why you need multiple files.');
+  if(denied) throw protectionError(kind==='email'?'Email delivery paused for security review. No more than 50 recipients are allowed per message.':hasUnlimitedFileViews(req)?'Additional downloads, exports, and printing are paused for security review. You can still view client documents. Request additional access in Security & sign-in activity.':'To protect client privacy, additional file access is paused. Submit a request in Security & sign-in activity explaining why you need multiple files.');
 }
 export async function protectFileResource(resource, {req=evidenceRequestContext.getStore(),forceReview=false}={}) {
   if(!protectionActor(req)||['client_guardian','guardian','client','participant'].includes(req?.user?.role))return;

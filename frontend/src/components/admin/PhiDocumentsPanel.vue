@@ -286,6 +286,7 @@
           </div>
           <div v-if="s.documentType" class="audit-line">Type: {{ s.documentType }}</div>
           <div class="audit-line">Uploaded: {{ formatDateTime(s.uploadedAt) }}{{ s.uploadedBy ? ` by ${s.uploadedBy}` : '' }}</div>
+          <div class="audit-line">Opened for viewing: {{ s.viewedAt ? formatDateTime(s.viewedAt) : '—' }}{{ s.viewedBy ? ` by ${s.viewedBy}` : '' }}</div>
           <div class="audit-line">Downloaded: {{ s.downloadedAt ? formatDateTime(s.downloadedAt) : '—' }}{{ s.downloadedBy ? ` by ${s.downloadedBy}` : '' }}</div>
           <div class="audit-line">Exported to Therapy Notes: {{ s.exportedToEhrAt ? formatDateTime(s.exportedToEhrAt) : '—' }}{{ s.exportedToEhrBy ? ` by ${s.exportedToEhrBy}` : '' }}</div>
           <div class="audit-line">

@@ -827,7 +827,7 @@ export const viewPhiDocument = async (req, res, next) => {
         await PhiDocumentAuditLog.create({
           documentId: doc.id,
           clientId: doc.client_id,
-          action: 'downloaded',
+          action: 'viewed',
           actorUserId: req.user.id,
           actorLabel: req.user?.email || req.user?.name || null,
           ipAddress: ip
@@ -851,7 +851,7 @@ export const viewPhiDocument = async (req, res, next) => {
         await PhiDocumentAuditLog.create({
           documentId: doc.id,
           clientId: doc.client_id,
-          action: 'downloaded',
+          action: 'viewed',
           actorUserId: req.user.id,
           actorLabel: req.user?.email || req.user?.name || null,
           ipAddress: ip
@@ -978,7 +978,7 @@ export const viewPhiDocument = async (req, res, next) => {
       await PhiDocumentAuditLog.create({
         documentId: doc.id,
         clientId: doc.client_id,
-        action: 'download_link_issued',
+        action: 'view_link_issued',
         actorUserId: req.user.id,
         actorLabel: req.user?.email || req.user?.name || null,
         ipAddress: ip
@@ -1054,6 +1054,7 @@ export const listClientPhiDocumentAudit = async (req, res, next) => {
     const statements = visibleDocs.map(doc => {
       const docLogs = logsByDoc.get(doc.id) || [];
       const uploaded = docLogs.find(l => l.action === 'uploaded') || null;
+      const viewed = docLogs.find(l => ['viewed', 'view_link_issued'].includes(l.action)) || null;
       const downloaded = docLogs.find(l => l.action === 'downloaded') || null;
       const exported = docLogs.find(l => l.action === 'exported_to_ehr') || null;
       const removed = docLogs.find(l => l.action === 'removed') || null;
@@ -1064,6 +1065,8 @@ export const listClientPhiDocumentAudit = async (req, res, next) => {
         documentType: doc.document_type || null,
         uploadedAt: uploaded?.created_at || doc.uploaded_at || null,
         uploadedBy: uploaded?.actor_label || null,
+        viewedAt: viewed?.created_at || null,
+        viewedBy: viewed?.actor_label || null,
         downloadedAt: downloaded?.created_at || null,
         downloadedBy: downloaded?.actor_label || null,
         exportedToEhrAt: doc.exported_to_ehr_at || exported?.created_at || null,

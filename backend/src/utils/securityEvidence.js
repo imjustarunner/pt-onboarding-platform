@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { isClientFileView } from './fileAccessPolicy.js';
 import net from 'node:net';
 
 export const sessionReference = (value) => value ? crypto.createHash('sha256').update(String(value)).digest('hex') : null;
@@ -88,7 +89,7 @@ export function responseEvidence(req, res) {
       if (total !== null) transfer.resourceBytes = total;
     }
   }
-  return { transfer };
+  return { transfer, ...(isClientFileView(req) ? { fileAccessIntent: 'view' } : {}) };
 }
 
 // Inspect only for the existence of a storage signature; never retain the URL or

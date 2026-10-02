@@ -7,6 +7,15 @@ import Assignments from '../admin/PrivacyReviewerAssignments.vue';
 const ticket={id:'ticket-1',actor_email:'staff@example.invalid',user_id:1,reason:'Prepare care coordination documents.',requested_units:2,status:'pending',created_at:'2026-09-16T18:00:00Z'};
 beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue({data:{required:true,tickets:[],alerts:[],holds:[]}});});
 describe('activity protection workflow',()=>{
+ it('explains that a staff download hold does not prevent audited document views',async()=>{
+  api.get.mockResolvedValue({data:{unlimitedFileViews:true,tickets:[],holds:[{kind:'client_file'}]}});
+  const w=mount(Panel);await flushPromises();
+  expect(w.text()).toContain('Your role allows unlimited client-document views. Every view is logged.');
+  expect(w.text()).toContain('Download, export, and print access is paused for security review.');
+  expect(w.text()).not.toContain('file views count toward the limit');
+  expect(w.text()).toContain('Verifying your sign-in does not clear a file-access hold.');
+  w.unmount();
+ });
  it('submits a bounded justification without claiming automatic approval',async()=>{
   api.post.mockResolvedValue({data:{id:'12345678-1234',pending:true}});const w=mount(Panel);await flushPromises();await w.find('textarea').setValue('Prepare required records for the review meeting.');await w.find('input[type="number"]').setValue(2);await w.find('form').trigger('submit');await flushPromises();
   expect(api.post).toHaveBeenCalledWith('/account-security/activity-protection/requests',{reason:'Prepare required records for the review meeting.',units:2},{headers:{'X-Account-Security':'1'}});expect(w.text()).toContain('Access remains paused until approved.');expect(w.text()).toContain('Do not include client names');w.unmount();

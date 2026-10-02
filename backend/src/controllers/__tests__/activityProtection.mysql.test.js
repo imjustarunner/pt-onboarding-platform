@@ -12,7 +12,7 @@ import {requestFileAccess,reviewTicket,reviewAlert,ownProtection,reviewQueue,req
 import {evidenceRequestContext} from '../../utils/evidenceRequestContext.js';
 import {enforceActivityProtection} from '../../middleware/activityProtection.middleware.js';
 const socket=process.env.EVIDENCE_TEST_SOCKET;
-const req=(id=1,session=`session-${id}`)=>({user:{id,role:'super_admin',email:`user${id}@example.invalid`,sessionId:session},sessionSecurity:{key:`key-${id}`},method:'GET',originalUrl:'/api/phi-documents/1/view',headers:{},socket:{remoteAddress:'192.0.2.1'},body:{},params:{},query:{},evidenceContext:{requestId:crypto.randomUUID(),method:'GET',route:'/api/phi-documents/:id/view',clientIp:'192.0.2.1',ipSource:'direct_peer',peerIp:'192.0.2.1',forwardedIps:[]}});
+const req=(id=1,session=`session-${id}`)=>({user:{id,role:'super_admin',email:`user${id}@example.invalid`,sessionId:session},sessionSecurity:{key:`key-${id}`},method:'GET',originalUrl:'/api/documents/1/download',headers:{},socket:{remoteAddress:'192.0.2.1'},body:{},params:{},query:{},evidenceContext:{requestId:crypto.randomUUID(),method:'GET',route:'/api/documents/:id/download',clientIp:'192.0.2.1',ipSource:'direct_peer',peerIp:'192.0.2.1',forwardedIps:[]}});
 async function call(fn,request){const response={setHeader:vi.fn(),status:vi.fn().mockReturnThis(),json:vi.fn()};let error;await fn(request,response,e=>{error=e;});if(error)throw error;return response.json.mock.calls[0]?.[0];}
 const file=(request,resource,extra={})=>authorizeProtectedActivity(request,{kind:'client_file',resource,...extra});
 describe.skipIf(!socket)('shared activity protection integration',()=>{
@@ -31,7 +31,7 @@ describe.skipIf(!socket)('shared activity protection integration',()=>{
   await state.db.query("INSERT INTO account_mfa_sessions VALUES ('key-1',UTC_TIMESTAMP(3),NULL),('key-2',UTC_TIMESTAMP(3),NULL)");
  });
  afterAll(async()=>{if(state.db){await state.db.query('DROP DATABASE activity_protection_test');await state.db.end();}});
- it('allows five distinct files and records a persistent block for the sixth, including superadmins',async()=>{
+ it('allows five distinct downloads and records a persistent block for the sixth, including superadmins',async()=>{
   for(let i=0;i<5;i++)await file(req(),`first-${i}`);await expect(file(req(),'file-two')).rejects.toMatchObject({code:'ACTIVITY_REVIEW_REQUIRED'});
   await expect(file(req(1,'new-session'),'file-three')).rejects.toMatchObject({code:'ACTIVITY_REVIEW_REQUIRED'});
   const [[alert]]=await state.db.query('SELECT * FROM activity_protection_alerts ORDER BY occurred_at LIMIT 1');expect(alert.user_id).toBe(1);expect(alert.reason).toBe('volume_limit');expect(alert.client_ip).toBe('192.0.2.1');
@@ -68,6 +68,19 @@ describe.skipIf(!socket)('shared activity protection integration',()=>{
   const results=await Promise.allSettled(Array.from({length:8},(_,i)=>file(req(),`file-${i}`)));
   expect(results.filter(x=>x.status==='fulfilled')).toHaveLength(5);
   const [[usage]]=await state.db.query('SELECT SUM(units) n FROM activity_protection_usage');expect(Number(usage.n)).toBe(5);
+ });
+ it.each(['admin','support','super_admin'])('allows audited views during a download hold for %s without releasing it',async role=>{
+  for(let i=0;i<5;i++)await file(req(),`download-${i}`);
+  await expect(file(req(),'sixth-download')).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');
+  for(let i=0;i<30;i++){
+   const viewer=req();viewer.user.role=role;viewer.authClaims={authMethod:'google'};viewer.originalUrl=`/api/phi-documents/${i+1}/view`;
+   await file(viewer,`view-${i}`);
+  }
+  const [[usage]]=await state.db.query("SELECT SUM(units) n FROM activity_protection_usage WHERE kind='client_file'");expect(Number(usage.n)).toBe(5);
+  const [[views]]=await state.db.query("SELECT COUNT(*) n FROM security_evidence WHERE action='file_view_requested' AND actor_role=?",[role]);expect(Number(views.n)).toBeGreaterThanOrEqual(30);
+  const [[hold]]=await state.db.query("SELECT held_at FROM activity_protection_state WHERE user_id=1 AND kind='client_file'");expect(hold.held_at).not.toBeNull();
+  expect((await call(ownProtection,{...req(),user:{...req().user,role}})).unlimitedFileViews).toBe(true);
+  await expect(file(req(),'another-download')).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');
  });
  it('permits repeated access to the same file before a hold, but not arbitrary new file IDs',async()=>{
   await file(req(),'same');await file(req(),'same');for(let i=0;i<4;i++)await file(req(),`extra-${i}`);await expect(file(req(),'different')).rejects.toHaveProperty('code','ACTIVITY_REVIEW_REQUIRED');

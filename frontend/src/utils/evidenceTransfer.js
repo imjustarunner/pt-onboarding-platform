@@ -12,5 +12,5 @@ export function transferDescription(value) {
 }
 
 export function evidenceLabel(value) {
-  return ({ file_metadata: 'File metadata request', metadata_only: 'Metadata only', not_modified: 'Cache check — no new file data', no_content: 'No response content', redirected: 'Redirected', response_sent: 'Response sent', issued: 'Link issued' })[value] || String(value || '').replaceAll('_', ' ');
+  return ({ file_view_requested: 'Document view requested', file_metadata: 'File metadata request', metadata_only: 'Metadata only', not_modified: 'Cache check — no new file data', no_content: 'No response content', redirected: 'Redirected', response_sent: 'Response sent', issued: 'Link issued' })[value] || String(value || '').replaceAll('_', ' ');
 }
