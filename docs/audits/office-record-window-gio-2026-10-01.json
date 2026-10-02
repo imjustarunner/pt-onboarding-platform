@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-01",
+  "policy": {
+    "ongoingOfficeReservations": "Preserved; generated office-event records limited to the next calendar year in office local time.",
+    "clientSessionSeries": "Bounded to one calendar year from series start and must fit within the record-generation window. Renewal requires an explicit booking action.",
+    "existingRecords": "No existing session, note, claim, or historical record is deleted by the horizon change."
+  },
+  "gioReview": {
+    "providerId": 522,
+    "assignmentId": 1170,
+    "eventId": 20687,
+    "room": 4,
+    "date": "2026-10-05",
+    "localStart": "17:00",
+    "localEnd": "18:00",
+    "timezone": "America/Denver",
+    "originalRequests": [
+      {
+        "requestId": 763,
+        "date": "2026-08-17",
+        "recurrence": "ONCE"
+      },
+      {
+        "requestId": 779,
+        "date": "2026-08-24",
+        "recurrence": "ONCE"
+      },
+      {
+        "requestId": 817,
+        "date": "2026-10-05",
+        "recurrence": "ONCE",
+        "approvedAt": "2026-09-21T21:34:32Z"
+      }
+    ],
+    "finding": "October 5 was explicitly requested and approved; the resolved standing assignment retained an August 24 temporary expiration. No other overlapping office reservation was found in current or legacy assignment records.",
+    "linkedClient": false,
+    "linkedAppointment": false,
+    "linkedClinicalSession": false,
+    "linkedBillingContext": false,
+    "action": "No data changed. Awaiting user keep/cancel decision after presenting approval history."
+  },
+  "validation": {
+    "targetedTestsPassed": 12,
+    "mysqlIntegrationTestsSkipped": 21,
+    "isolatedSchedulingTestsPassed": 223
+  },
+  "releaseStatus": "Source changes prepared; not deployed."
+}

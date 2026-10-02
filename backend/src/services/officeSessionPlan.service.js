@@ -1,3 +1,4 @@
+import { withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import pool from '../config/database.js';
 import BookingPackage from '../models/BookingPackage.model.js';
 import OfficeScheduleMaterializer, { shouldBookOnDate, shouldBookByCount, isAssignmentActiveOnDate } from './officeScheduleMaterializer.service.js';
@@ -38,6 +39,9 @@ export async function saveOfficeSessionPlanContext(planId, context, actorUserId 
     const candidate = { ...plan, session_context_json: context };
     const dates = officeSessionPlanDates(candidate, assignment);
     if (!dates.length) throw fail('This office plan has no bookable occurrences');
+    if (dates.some(date => !withinOfficeRecordWindow(date, assignment.timezone))) {
+      throw fail('Create client sessions within the next year. Choose an earlier end date or fewer occurrences, then renew the series later.');
+    }
     const [existing] = await conn.execute(
       `SELECT a.id, a.package_entitlement_id, e.start_at, e.client_id FROM appointments a
        JOIN office_events e ON e.id = a.office_event_id WHERE e.booking_plan_id = ? AND e.standing_assignment_id = ? AND a.status IN ('scheduled', 'confirmed')`, [planId, plan.standing_assignment_id]);

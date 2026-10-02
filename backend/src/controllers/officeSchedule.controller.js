@@ -1,3 +1,4 @@
+import { withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import {officeBookingNeedsSession} from '../utils/officeBookingSessionLink.js';
 import { bookOfficeForAppointmentRequest } from '../services/officeAppointmentBinding.service.js';
@@ -1543,7 +1544,7 @@ export const getWeeklyGrid = async (req, res, next) => {
               try {
                 const slotStartAt = mysqlDateTimeForDateHour(date, hour, officeTz);
                 const slotEndAt = mysqlDateTimeForDateHour(date, Number(hour) + 1, officeTz);
-                if (slotStartAt && slotEndAt) {
+                if (slotStartAt && slotEndAt && withinOfficeRecordWindow(date, officeTz)) {
                   // eslint-disable-next-line no-await-in-loop
                   const healed = await OfficeEvent.upsertSlotState({
                     officeLocationId: officeLocationIdNum,
