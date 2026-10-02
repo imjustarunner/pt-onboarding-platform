@@ -2,6 +2,7 @@
  * People-first Messaging Hub: search, method availability, timeline merge, send dispatch helpers.
  */
 import pool from '../config/database.js';
+import { enrichHubSchoolStaff } from './hubSchoolProfiles.service.js';
 import { listMessageReactions } from './hubMessageReactions.service.js';
 import { searchCommunicationDirectory, listCommunicationDirectoryByKind } from './communicationDirectory.service.js';
 import { findPersonalInbox, ensurePersonalMailbox } from './personalMailbox.service.js';
@@ -688,7 +689,7 @@ async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false } = 
     }
   }
 
-  for (const person of map.values()) {
+  for (const person of await enrichHubSchoolStaff([...map.values()])) {
     const aid = person.agencyId;
     const hasAppInbox = aid ? !!inboxByAgency.get(Number(aid)) : [...inboxByAgency.values()].some(Boolean);
     const { methods, preferredMethod, secureDefault, isActiveClient, canInviteToPortal, portalReady } =
@@ -1573,7 +1574,7 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
             : TEAM_ROLES.has(role)
               ? ['employee', 'staff', 'team']
               : ['employee'];
-    const isAgencyStaff = TEAM_ROLES.has(role);
+    const isAgencyStaff = TEAM_ROLES.has(role) || role === 'school_staff';
     seed = {
       ...seed,
       displayName: [u.first_name, u.last_name].filter(Boolean).join(' ') || u.email,
@@ -1722,6 +1723,7 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     };
   }
 
+  [seed] = await enrichHubSchoolStaff([seed]);
   let photoUrl = null;
   let title = seed.title || null;
   if (seed.userId) {
@@ -1949,7 +1951,7 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
       `SELECT m.id, m.thread_id, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.created_at, m.sender_user_id,
               m.subject, m.topic_id, m.parent_message_id,
               u.first_name AS sender_first_name, u.last_name AS sender_last_name,
-              u.profile_photo_path AS sender_profile_photo_path
+              u.profile_photo_path AS sender_profile_photo_path, u.role AS sender_role, u.title AS sender_title
        FROM chat_messages m LEFT JOIN users u ON u.id = m.sender_user_id
        WHERE m.thread_id IN (${ph})
          ${Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0 ? 'AND m.id < ' + Number(beforeId) : ''}
@@ -2049,6 +2051,9 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
         /* ignore */
       }
     }
+    const schoolSenders = await enrichHubSchoolStaff((rows || []).filter(m => m.sender_role === 'school_staff')
+      .map(m => ({ userId: m.sender_user_id, agencyId, kinds: ['school_staff'] })));
+    const schoolsBySender = new Map(schoolSenders.map(p => [Number(p.userId), p.schoolNames]));
     const items = [];
     for (const m of rows || []) {
       let body = m.body;
@@ -2094,6 +2099,8 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
               firstName: m.sender_first_name || '',
               lastName: m.sender_last_name || '',
               displayName: senderName,
+              title: m.sender_title || null,
+              schoolNames: schoolsBySender.get(senderId) || [],
               photoPath: m.sender_profile_photo_path || null
             }
           : null,

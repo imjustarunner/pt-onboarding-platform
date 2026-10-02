@@ -5,7 +5,7 @@
         <div><strong>{{ panel.subject || 'New email' }}</strong><small>{{ panel.recipient || 'Choose recipients' }} · {{ panel.status || 'Opening…' }}</small></div>
         <button type="button" @click="minimize(panel)" title="Minimize draft" aria-label="Minimize draft">−</button>
         <button type="button" @click="expanded=!expanded" :aria-label="expanded ? 'Restore draft size' : 'Expand draft'">{{ expanded ? '↙' : '⛶' }}</button>
-        <button type="button" :disabled="panel.busy || !panel.draftId" @click="popOut(panel)" title="Open in a separate window" aria-label="Pop out draft">↗</button>
+        <button type="button" :disabled="panel.busy || panel.loading || !panel.draftId" @click="popOut(panel)" title="Open in a separate window" aria-label="Pop out draft">↗</button>
         <button type="button" :disabled="panel.busy" @click="editors[panel.id]?.saveAndClose()" title="Save and close" aria-label="Save and close draft">×</button>
       </header>
       <EmailComposer :ref="el=>editors[panel.id]=el" :compose-context="panel.context" @composer-state="Object.assign(panel,$event)" @close="remove(panel.id)" />
@@ -18,10 +18,10 @@
   </aside>
 </template>
 <script setup>
-import { defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { composerUrl } from '../../utils/emailComposerWindow';
-const EmailComposer=defineAsyncComponent(()=>import('../../views/EmailComposerView.vue'));
+import EmailComposer from '../../views/EmailComposerView.vue';
 const props=defineProps({locked:Boolean,ownerId:[Number,String]});
 const router=useRouter(),panels=ref([]),active=ref(null),expanded=ref(false),editors={};
 let serial=0;

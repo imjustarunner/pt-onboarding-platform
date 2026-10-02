@@ -55,7 +55,7 @@ async function checkDelivery(){busy.value=true;try{const {data}=await request('g
 let saved='',timer=null,saveTask=null,undoTimer=null;
 const config=()=>{const session=context.session || sessionStorage.getItem('plottwist.quickViewSession');return messagingRequestOptions({withCredentials:true,headers:qv && session && session!=='cookie' ? {'X-Quick-View-Session':session} : {}});};
 const request=(method,path,data)=>qv ? axios({method,url:`/api/quick-view${path}`,data,...config()}) : api({method,url:`/communications${path}`,data,...config()});
-const notify=(change='draft')=>{window.dispatchEvent(new CustomEvent('email-workspace-changed',{detail:{change}}));try{window.opener?.postMessage({type:'email-drafts-changed',change},window.location.origin);}catch{/* opener may be closed */}};
+const notify=(change='draft')=>{window.dispatchEvent(new CustomEvent('email-workspace-changed',{detail:{change,draft:record.value ? {id:record.value.id,agencyId:record.value.agency_id,mode:record.value.mode,state:record.value.state,to:draft.value.to,subject:draft.value.subject} : null}}));try{window.opener?.postMessage({type:'email-drafts-changed',change},window.location.origin);}catch{/* opener may be closed */}};
 async function save() {
   clearTimeout(timer);
   if(saveTask) { await saveTask; return save(); }
@@ -82,7 +82,8 @@ async function openDraft(){
     else {
       const mode=String(context.mode || 'new');let agencyId=Number(context.agencyId);const cid=Number(context.conversationId);draft.value.to=String(context.to || '');
       if(cid){const {data}=await request('get',`/conversations/${cid}?markRead=0`);const c=data.conversation;agencyId=c.agency_id;fromEmail.value=c.inbox_from_email || '';const addresses=emailReplyRecipients(data.messages,{mode,inboxEmail:fromEmail.value});draft.value.to=addresses.to.join(', ');draft.value.cc=addresses.cc.join(', ');draft.value.subject=`${mode==='forward'?'Fwd:':'Re:'} ${String(c.subject || '').replace(/^(?:(?:re|fwd?)\s*:\s*)+/i,'')}`;draft.value.quotedText=quoteEmailHistory(data.messages);}
-      else if(!qv){const {data}=await request('get',`/inboxes?agencyId=${agencyId}`);fromEmail.value=data.inboxes?.find(i=>i.kind==='personal')?.from_email || '';}
+      // Creating a draft must not wait for Workspace mailbox provisioning.
+      // Sender validation runs independently after the draft is editable.
       const {data}=await request('post','/drafts',{agencyId,conversationId:cid || null,mode,draft:draft.value});record.value=data.draft;draft.value={...draft.value,...data.draft.draft};await setDraftRoute(record.value.id);notify();
     }
     fromEmail.value=record.value.from_email || fromEmail.value;sendResult.value=record.value.result || sendResult.value;
@@ -103,7 +104,7 @@ onMounted(()=>{
 });
 onUnmounted(()=>{clearTimeout(timer);clearTimeout(undoTimer);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('online',retrySave);document.removeEventListener('visibilitychange',onHidden);});
 async function preparePopout(){if(busy.value||loading.value)return null;busy.value=true;try{await save();return record.value?.id;}finally{busy.value=false;}}
-watch([status,error,busy,loading,()=>record.value?.id,()=>draft.value.subject,()=>draft.value.to],()=>emit('composer-state',{draftId:record.value?.id,conversationId:record.value?.conversation_id,mode:record.value?.mode,subject:draft.value.subject,recipient:draft.value.to,status:error.value?'Needs attention':status.value,busy:busy.value||loading.value}),{immediate:true});
+watch([status,error,busy,loading,()=>record.value?.id,()=>draft.value.subject,()=>draft.value.to],()=>emit('composer-state',{draftId:record.value?.id,conversationId:record.value?.conversation_id,mode:record.value?.mode,subject:draft.value.subject,recipient:draft.value.to,status:error.value?'Needs attention':status.value,busy:busy.value,loading:loading.value}),{immediate:true});
 defineExpose({save,saveAndClose,preparePopout});
 </script>
 <style scoped>

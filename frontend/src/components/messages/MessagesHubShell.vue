@@ -187,6 +187,9 @@
                 <p class="msg-hub-snippet">Start a conversation with a subject</p>
               </div>
             </li>
+            <li v-for="draft in personNewDrafts" :key="draft.id" class="msg-hub-row msg-hub-row--compact" @click="openEmailComposer(router, { draftId: draft.id })">
+              <div class="msg-hub-row-body"><strong>Draft · {{ draft.subject || 'New email' }}</strong><p class="msg-hub-snippet">Continue writing</p></div>
+            </li>
             <li
               v-for="thread in filteredPersonThreads"
               :key="thread.key"
@@ -538,7 +541,7 @@
                           />
                           <span v-else>{{ initials(hubMsgName(msg)) }}</span>
                         </div>
-                        <span class="msg-hub-bubble-name">{{ hubMsgName(msg) }}</span>
+                        <span class="msg-hub-bubble-name">{{ hubMsgName(msg) }}<small v-if="msg.sender?.schoolNames?.length" class="msg-hub-sender-school">{{ msg.sender.schoolNames.join(' · ') }}<template v-if="msg.sender.title"> · {{ msg.sender.title }}</template></small></span>
                         <time class="msg-hub-bubble-time">{{ formatTime(msg.createdAt) }}</time>
                         <span
                           v-if="msg.meta?.sendStatus === 'scheduled'"
@@ -638,7 +641,7 @@
                         />
                         <span v-else>{{ initials(hubMsgName(msg)) }}</span>
                       </div>
-                      <span class="msg-hub-bubble-name">{{ hubMsgName(msg) }}</span>
+                      <span class="msg-hub-bubble-name">{{ hubMsgName(msg) }}<small v-if="msg.sender?.schoolNames?.length" class="msg-hub-sender-school">{{ msg.sender.schoolNames.join(' · ') }}<template v-if="msg.sender.title"> · {{ msg.sender.title }}</template></small></span>
                       <time class="msg-hub-bubble-time">{{ formatTime(msg.createdAt) }}</time>
                       <span
                         v-if="msg.meta?.sendStatus === 'scheduled'"
@@ -1240,6 +1243,7 @@
               </div>
               <ul class="msg-hub-kv">
                 <li v-if="agencyLabel(selected)"><span>Agency</span><strong>{{ agencyLabel(selected) }}</strong></li>
+                <li v-if="selected.schoolNames?.length"><span>School</span><strong>{{ selected.schoolNames.join(' · ') }}</strong></li>
                 <template v-if="isAgencyStaffSelection">
                   <li>
                     <span>Work email</span>
@@ -1413,7 +1417,7 @@
       v-if="showNew"
       :agency-id="agencyId"
       @close="showNew = false"
-      @pick="pickPerson"
+      @pick="startConversationWithPerson"
       @open-group="onOpenGroupFromModal"
     />
 
@@ -1559,6 +1563,8 @@ const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = re
 let inboxRequest=0,emailReadRequest=0,mailPollTimer=null,hoverTimer=null,hidePreviewTimer=null;
 let inboxController=null,emailReadController=null;
 const loadingEmail = ref(false);
+const openNewDrafts = ref([]);
+const personNewDrafts = computed(() => openNewDrafts.value.filter(d => selected.value?.email && [Number(selected.value.agencyId), Number(agencyId.value)].includes(Number(d.agencyId)) && String(d.to || '').split(/[,;]/).some(address => address.trim().toLowerCase() === selected.value.email.toLowerCase())));
 function selectInboxChannel(channel){inboxChannel.value=channel;selectNav('inbox',isConversationMode.value && (!['drafts','needs_attention'].includes(navId.value) || ['all','email'].includes(channel)) ? navId.value : 'inbox');}
 function composeEmail(mode='new') {
   const conversationId=selectedConversation.value?.conversationId || selectedConversation.value?.id || emailSubjectThreads.value.find(t=>t.key===activeEmailThreadKey.value)?.conversationId;
@@ -1594,6 +1600,11 @@ function onComposerMessage(event) {
   onWorkspaceChanged({detail:event.data});
 }
 function onWorkspaceChanged(event) {
+  const draft = event.detail?.draft;
+  if (draft?.id && draft.mode === 'new') {
+    openNewDrafts.value = openNewDrafts.value.filter(d => d.id !== draft.id);
+    if (draft.state === 'editing') openNewDrafts.value.unshift(draft);
+  }
   // Keystroke autosaves only affect Drafts. They must not keep rebuilding the
   // inbox or a readable thread in the parent window.
   if (event.detail?.change === 'draft' && navId.value !== 'drafts') return;
@@ -3499,6 +3510,7 @@ function kindsLabel(kinds) {
 
 function personRoleLabel(person) {
   if (!person) return '';
+  if (person.schoolNames?.length) return [person.title || 'School staff', ...person.schoolNames].join(' · ');
   if (person.title) return formatRoleLabel(person.title);
   if (person.relationshipMeta) {
     const meta = String(person.relationshipMeta);
@@ -4189,6 +4201,20 @@ async function loadList() {
 function setListFilter(id) {
   listFilter.value = id;
   loadList();
+}
+
+async function startConversationWithPerson(person) {
+  showNew.value = false;
+  const method = inboxChannel.value === 'email' ? 'email' : person.preferredMethod;
+  if (method === 'email' && person.email) {
+    openEmailComposer(router, { mode: 'new', agencyId: agencyId.value || person.agencyId, to: person.email });
+    void pickPerson(person);
+    return;
+  }
+  await pickPerson(person);
+  if (selected.value?.personKey !== person.personKey) return;
+  startNewSubjectCompose();
+  mobileShowThread.value = true;
 }
 
 async function openNewConversation() {
@@ -5035,6 +5061,7 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 </script>
 
 <style scoped>
+.msg-hub-sender-school { display: block; font-size: .8rem; font-weight: normal; }
 .msg-hub-email-recipients { margin: 4px 0 8px; font-size: 0.75rem; color: #64748b; overflow-wrap: anywhere; }
 .msg-hub {
   --mh-primary: var(--primary, var(--agency-primary-color, #1f6b4a));

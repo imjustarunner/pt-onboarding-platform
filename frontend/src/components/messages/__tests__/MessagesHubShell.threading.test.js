@@ -173,3 +173,25 @@ it('remembers the selected folder and channel using an account-and-agency prefer
 it('keeps Mentions search local instead of turning it into an unfiltered email search',()=>{
  state.navId='mentions';state.inboxChannel='email';expect(state.emailSearchEnabled).toBe(false);
 });
+
+it('opens a new email immediately after choosing a person even when history is slow', async () => {
+  api.get.mockImplementation(() => new Promise(() => {}));
+  await state.startConversationWithPerson(person);
+  expect(openEmailComposer).toHaveBeenCalledWith(expect.anything(), { mode:'new', agencyId:2, to:'alice@example.org' });
+  expect(state.showNew).toBe(false);
+});
+it('places a new draft before existing subjects and removes it after sending', async () => {
+  state.selected=person;
+  state.onWorkspaceChanged({detail:{change:'draft',draft:{id:'new-1',agencyId:2,mode:'new',state:'editing',to:person.email,subject:'New topic'}}});
+  await nextTick();
+  expect(state.personNewDrafts[0].subject).toBe('New topic');
+  expect(wrapper.text()).toContain('Draft · New topic');
+  state.onWorkspaceChanged({detail:{change:'delivery',draft:{id:'new-1',agencyId:2,mode:'new',state:'sent'}}});
+  expect(state.personNewDrafts).toHaveLength(0);
+});
+it('shows the school in the person profile and internal message author', async () => {
+  state.selected={...person,kinds:['school_staff'],schoolNames:['Cheyenne El'],title:'School counselor'};
+  state.sendMethod='internal';state.timeline=[{id:'chat-7',channel:'internal',direction:'inbound',bodyPreview:'Hello',createdAt:'2026-10-01',sender:{displayName:'Ava',schoolNames:['Cheyenne El'],title:'School counselor'},meta:{threadId:1}}];
+  await nextTick();expect(wrapper.text()).toContain('Cheyenne El');
+  expect(wrapper.find('.msg-hub-sender-school').text()).toBe('Cheyenne El · School counselor');
+});
