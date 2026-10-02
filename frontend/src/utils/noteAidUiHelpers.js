@@ -1,5 +1,5 @@
 /**
- * Helpers for Note Aid workspace: SOAP mapping, treatment plans, interventions, copy text.
+ * Helpers for Documentation Hub workspace: SOAP mapping, treatment plans, interventions, copy text.
  */
 
 export const INTAKE_SECTION_TITLES = [

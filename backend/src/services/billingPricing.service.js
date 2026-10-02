@@ -69,7 +69,7 @@ const DEFAULT_FEATURE_CATALOG = {
   ),
   geminiNoteAid: createFeatureCatalogEntry(
     'geminiNoteAid',
-    'Gemini Note Aid',
+    'Gemini Documentation Hub',
     'AI note helper access billed per active employee when this feature is ready.',
     {
       pricingModel: 'usage',

@@ -8,7 +8,7 @@
     <template v-else>
       <h3 class="sbep-clinical-title">Clinical (H2014 group)</h3>
       <p class="muted small sbep-clinical-lead">
-        Provider-only session notes. Note Aid uses the <strong>extracted text</strong> from the session PDF you upload under
+        Provider-only session notes. Documentation Hub uses the <strong>extracted text</strong> from the session PDF you upload under
         <strong>Materials</strong>, plus your clinical summary below.
       </p>
     </template>
@@ -163,7 +163,7 @@
       <template v-else>
         <div class="sbep-composer">
           <div class="sbep-composer-head">
-            <p class="sbep-composer-title">Note Aid writer</p>
+            <p class="sbep-composer-title">Documentation Hub writer</p>
             <p class="sbep-composer-hint muted small">Optional audio transcription, then your clinical summary.</p>
           </div>
 

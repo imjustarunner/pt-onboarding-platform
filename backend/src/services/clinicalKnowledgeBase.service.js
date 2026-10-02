@@ -3,14 +3,14 @@ import { extractResumeTextFromUpload } from './resumeTextExtraction.service.js';
 
 const DEFAULT_REFRESH_MINUTES = 30;
 const DEFAULT_MAX_DOCS = 100;
-/** Allow large Note Aid / coding PDFs; text is still truncated after extract. */
+/** Allow large Documentation Hub / coding PDFs; text is still truncated after extract. */
 const DEFAULT_MAX_DOC_BYTES = 25_000_000;
 /** Keep enough extracted text that example / guide PDFs are not clipped away. */
 const DEFAULT_MAX_DOC_CHARS = 200_000;
 const DEFAULT_SNIPPET_CHARS = 1200;
 
 /**
- * Note Aid generation: include every document from the tool's KB folders.
+ * Documentation Hub generation: include every document from the tool's KB folders.
  * Examples / guides are packed first at full extracted length.
  */
 const NOTE_AID_MAX_CHARS = 150_000;
@@ -169,7 +169,7 @@ export function buildKnowledgeBaseContextFromDocs(
     codeHints = [],
     titleHints = [],
     prioritizeStyleDocs = false,
-    /** When true (Note Aid): include every folder doc; never drop examples/training. */
+    /** When true (Documentation Hub): include every folder doc; never drop examples/training. */
     includeAllTrainingDocs = false,
     maxSnippetChars = DEFAULT_SNIPPET_CHARS
   } = {}
@@ -274,7 +274,7 @@ export function buildKnowledgeBaseContextFromDocs(
   return safeTruncate(chunks.join('\n\n'), maxChars);
 }
 
-/** Defaults used by Note Aid / clinical note generation — all folder training, full examples. */
+/** Defaults used by Documentation Hub / clinical note generation — all folder training, full examples. */
 export function noteAidKnowledgeBaseOptions(overrides = {}) {
   return {
     maxChars: NOTE_AID_MAX_CHARS,

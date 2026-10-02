@@ -308,7 +308,7 @@ async function resolveSummaryText({ clientId, intakeSubmissionId = null }) {
 
 async function runIntakeGemini({ scrubbedText, toolId }) {
   const tool = getNoteAidToolById(toolId) || getNoteAidToolById('clinical_90791_intake_plan');
-  if (!tool) throw new Error(`Note Aid tool not configured: ${toolId}`);
+  if (!tool) throw new Error(`Documentation Hub tool not configured: ${toolId}`);
   const systemPrompt = String(tool.systemPrompt || '').trim();
   const outputInstructions = String(tool.outputInstructions || '').trim();
   const prompt = [

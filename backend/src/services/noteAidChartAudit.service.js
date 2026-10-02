@@ -2,7 +2,7 @@ import { logClientAccess } from './clientAccessLog.service.js';
 import { logAuditEvent } from './auditEvent.service.js';
 
 /**
- * Record Note Aid / chart documentation events on the client audit trail
+ * Record Documentation Hub / chart documentation events on the client audit trail
  * (client_access_logs) and the platform activity log.
  */
 export async function logNoteAidChartEvent(req, {

@@ -1597,7 +1597,7 @@ export const useBrandingStore = defineStore('branding', () => {
       progress_dashboard: 'progress_dashboard_icon_path',
       manage_clients: 'manage_clients_icon_path',
       manage_agencies: 'manage_agencies_icon_path',
-      // Reuse the "My Dashboard" icon for Note Aid / Tools & Aids quick action.
+      // Reuse the "My Dashboard" icon for Documentation Hub / Tools & Aids quick action.
       clinical_note_generator: 'my_dashboard_clinical_note_generator_icon_path',
       tools_aids: 'my_dashboard_clinical_note_generator_icon_path',
       school_overview: 'school_overview_icon_path',

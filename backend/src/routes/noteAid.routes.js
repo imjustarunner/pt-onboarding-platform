@@ -30,7 +30,7 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 }
 });
 
-// Note Aid is a logged-in tool; also block archived/expired users.
+// Documentation Hub is a logged-in tool; also block archived/expired users.
 router.use(authenticate, requireActiveStatus);
 
 router.get('/tools', [query('agencyId').isInt({ min: 1 })], listNoteAidTools);

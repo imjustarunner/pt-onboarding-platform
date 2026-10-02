@@ -26,7 +26,7 @@ export function appointmentProgress({ claim = null, note = null, prepared = null
     else if (prepared?.readiness?.ready) { status='awaiting_submission'; label='Awaiting billing approval and submission'; step=1; }
     else { status='review'; label='Billing review required'; actions.push('The billing team must complete claim, coverage and content checks.'); }
   }
-  if (!note) actions.push('Create the service note in Note Aid.');
+  if (!note) actions.push('Create the service note in Documentation Hub.');
   else if (!note.provider_signed_at) actions.push('Complete and sign the service note.');
   else if (!claim) { status='awaiting_preparation'; label='Signed — awaiting claim preparation'; actions.push('Billing must prepare the claim from the signed service note.'); }
   if (cosignPending) {

@@ -47,7 +47,7 @@ export async function linkImportedPlannedServices(items, user, source = clinical
           AND service_code=? ORDER BY id`, [agencyId,clientId,user.id,date,date,code]);
         const requested = Number(item.clinicalSessionId || 0);
         if (requested && !candidates.some(row => Number(row.id) === requested)) throw fail(409, 'The selected session does not match this imported service');
-        if (!requested && candidates.length) throw fail(409, 'A session already exists for this client, provider, date and code. Open that session in Note Aid or link its session before importing; no duplicate was created.');
+        if (!requested && candidates.length) throw fail(409, 'A session already exists for this client, provider, date and code. Open that session in Documentation Hub or link its session before importing; no duplicate was created.');
         sessionId = requested;
         if (!sessionId) {
           const [insert] = await db.execute(`INSERT INTO clinical_sessions

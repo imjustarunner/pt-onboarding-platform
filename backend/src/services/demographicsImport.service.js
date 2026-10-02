@@ -193,7 +193,7 @@ function collectBlock(lines, startIndex) {
 }
 
 /**
- * Parse Note Aid demographics paste into structured fields.
+ * Parse Documentation Hub demographics paste into structured fields.
  * Handles labeled TherapyNotes-style exports (Legal Name / Date of Birth / Address / …).
  */
 export function parseDemographicsPaste(rawText) {

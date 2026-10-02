@@ -479,7 +479,7 @@
 
     <section class="preferences-section" id="prefs-note-aid">
       <div class="section-header">
-        <h2>Note Aid</h2>
+        <h2>Documentation Hub</h2>
         <p class="section-description">
           Manual writing and autosign after content review.
         </p>
@@ -534,7 +534,7 @@
               Allow skip AI / write sections manually
             </label>
             <div class="field-help">
-              When off, this provider must use Note Aid generate for SOAP or freeform sections (admin-controlled).
+              When off, this provider must use Documentation Hub generate for SOAP or freeform sections (admin-controlled).
             </div>
             <label class="field checkbox" style="margin-top: 12px;">
               <input

@@ -2,7 +2,7 @@ import { CLINICAL_INTERVENTION_SEED } from './clinicalInterventionSeed.js';
 import { TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS } from './treatmentPlanTimeframe.js';
 
 /**
- * Shared Note Aid output contracts.
+ * Shared Documentation Hub output contracts.
  *
  * Progress notes (90837, H0004, family, H2014, …) share one SOIP panel pipeline:
  * Subjective / Objective / Interventions / Plan — same copy UX, different tone/directions.
@@ -10,7 +10,7 @@ import { TREATMENT_PLAN_TIMEFRAME_INSTRUCTIONS } from './treatmentPlanTimeframe.
  * Treatment plans share one Goal/Objective/Projected Time/Discharge structure with
  * mandatory 1–10 scales (same form/function as paste-import review).
  *
- * Updating these constants applies to every Note Aid consumer (generate API, Session
+ * Updating these constants applies to every Documentation Hub consumer (generate API, Session
  * Recording, Quick View) because tools load through applySharedNoteAidToolContracts().
  */
 
@@ -100,7 +100,7 @@ export const TREATMENT_PLAN_FOCUS_AND_INTERVENTIONS = [
   'For a new intake or re-intake plan, use the CURRENT intake assessment, revised diagnosis, presenting problem and clinician corrections as the source of truth. Previous chart plans and diagnoses are historical context only; do not carry forward outdated goals, targets or interventions when the diagnosis or therapy focus has changed.',
   'Reassess every goal and objective against the current formulation. Retain a prior objective only if it remains relevant and supported by current information. Never invent missing baseline ratings.',
   'After EVERY Objective N.M, emit a separate Interventions N.M: heading followed by one intervention name per line. Recommend interventions appropriate to that objective, current assessment, service line and provider scope; these are proposed treatment interventions for provider review, not claims that they were performed.',
-  'Choose intervention names from this shared Note Aid catalog where applicable. Preserve clinician-specified additions. Do not copy the entire catalog or require the provider to paste a list:',
+  'Choose intervention names from this shared Documentation Hub catalog where applicable. Preserve clinician-specified additions. Do not copy the entire catalog or require the provider to paste a list:',
   CLINICAL_INTERVENTION_SEED.join('; ')
 ].join('\n');
 

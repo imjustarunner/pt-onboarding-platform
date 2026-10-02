@@ -53,7 +53,7 @@
         :disabled="!agencyId || !clientId"
         @click="openInNoteAid"
       >
-        Open in Note Aid
+        Open in Documentation Hub
       </button>
       <button
         type="button"
@@ -67,7 +67,7 @@
         {{ generating ? 'Generating…' : 'Generate Note' }}
       </button>
     </div>
-    <p class="oesn-hint">Add session notes in the box above or record dictation. This text is the same blurb Note Aid uses for this session.</p>
+    <p class="oesn-hint">Add session notes in the box above or record dictation. This text is the same blurb Documentation Hub uses for this session.</p>
     <p v-if="statusMsg" class="oesn-status">{{ statusMsg }}</p>
     <p v-if="errorMsg" class="oesn-error">{{ errorMsg }}</p>
 
@@ -227,7 +227,7 @@ async function persistDraft() {
     inputText: String(inputText.value || '')
   };
   if (!draftId.value && !String(payload.inputText || '').trim()) {
-    // Still create an empty draft when session context exists so Open in Note Aid
+    // Still create an empty draft when session context exists so Open in Documentation Hub
     // can always start documentation for this appointment.
     const hasContext = !!(
       payload.officeEventId
@@ -301,7 +301,7 @@ async function openInNoteAid() {
       window.location.href = `${noteAidPath()}?${q.toString()}`;
     }
   } catch (e) {
-    errorMsg.value = e?.response?.data?.error?.message || e?.message || 'Could not open Note Aid';
+    errorMsg.value = e?.response?.data?.error?.message || e?.message || 'Could not open Documentation Hub';
   }
 }
 
@@ -333,7 +333,7 @@ async function generateNote() {
     const res = await api.post('/clinical-notes/generate', fd, { skipGlobalLoading: true });
     if (res.data?.draft?.id) draftId.value = res.data.draft.id;
     await persistRatings();
-    statusMsg.value = 'Note generated. Open Note Aid to copy SOAP sections or keep documenting here.';
+    statusMsg.value = 'Note generated. Open Documentation Hub to copy SOAP sections or keep documenting here.';
   } catch (e) {
     errorMsg.value = e?.response?.data?.error?.message || 'Failed to generate note';
   } finally {

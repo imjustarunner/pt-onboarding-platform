@@ -8,7 +8,7 @@ import {
 } from '../clinicalKnowledgeBase.service.js';
 
 describe('clinicalKnowledgeBase style selection', () => {
-  it('boosts approved examples and Note Aid guides over generic PDFs', () => {
+  it('boosts approved examples and Documentation Hub guides over generic PDFs', () => {
     assert.ok(
       styleDocBoost('psychotherapy/Approved and Verified Examples - 90832 90834 90837.pdf') >
         styleDocBoost('shared/Common Diagnoses and DSM Criteria.pdf')
@@ -48,7 +48,7 @@ describe('clinicalKnowledgeBase style selection', () => {
       },
       {
         name: 'shared/CLINICAL NOTE AID GUIDE.pdf',
-        text: 'Note Aid guide shared training content for clinical phrasing.'
+        text: 'Documentation Hub guide shared training content for clinical phrasing.'
       },
       {
         name: 'shared/Common Diagnoses and DSM Criteria.pdf',
@@ -90,7 +90,7 @@ describe('clinicalKnowledgeBase style selection', () => {
     assert.equal((ctx.match(/Clinical Progress Note SOP Guide\.pdf/g) || []).length, 1);
   });
 
-  it('uses full-folder training options for Note Aid', () => {
+  it('uses full-folder training options for Documentation Hub', () => {
     const opts = noteAidKnowledgeBaseOptions();
     assert.equal(opts.includeAllTrainingDocs, true);
     assert.ok(opts.maxChars >= 100000);

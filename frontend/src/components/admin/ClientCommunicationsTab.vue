@@ -4,12 +4,13 @@
       <div>
         <h3 style="margin: 0;">Communications</h3>
         <p class="muted" style="margin: 6px 0 0 0;">
-          Every email and text we've sent on this client's behalf — including messages addressed to a linked guardian.
+          Emails, replies, texts, and shared care conversations filed for this client.
           <span v-if="counts.opened > 0" style="color: #166534; font-weight: 700;">
             {{ counts.opened }} opened
           </span>
         </p>
       </div>
+      <button type="button" class="btn btn-secondary" @click="printRecord()">Print / Download communication record</button>
       <div class="filter-controls" v-if="!loading && items.length">
         <select v-model="channelFilter" class="form-select">
           <option value="">All channels ({{ counts.total }})</option>
@@ -92,9 +93,24 @@
       </ul>
     </section>
 
+    <section v-if="conversations.length" aria-label="Client conversations">
+      <h4>Conversations</h4>
+      <article v-for="thread in conversations" :key="thread.id" class="communication-card">
+        <strong>{{ thread.subject || '(No subject)' }}</strong>
+        <p>{{ thread.message_count }} messages · {{ formatDate(thread.last_message_at) }}</p>
+        <button type="button" class="btn btn-primary" @click="openClientThread(thread)">Read thread</button>
+        <button type="button" class="btn btn-secondary" @click="printRecord(thread.id)">Print / Save thread</button>
+      </article>
+    </section>
+    <div v-if="viewingThread" class="modal-overlay" @click.self="viewingThread=null">
+      <div class="modal-content" style="height:85vh;display:flex;flex-direction:column">
+        <button type="button" class="btn-close" aria-label="Close conversation" @click="viewingThread=null">×</button>
+        <EmailThreadReader :conversation="viewingThread" :messages="viewingThread.messages" read-only can-print @print="printRecord(viewingThread.id)" />
+      </div>
+    </div>
     <div v-if="loading" class="loading">Loading communications…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else-if="!filteredItems.length" class="empty-state">
+    <div v-else-if="!filteredItems.length && !conversations.length" class="empty-state">
       <p v-if="!items.length">No emails or texts have been sent to this client (or their guardians) yet.</p>
       <p v-else>No communications match the current filters.</p>
     </div>
@@ -327,11 +343,16 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import api from '../../services/api';
+import EmailThreadReader from '../messages/EmailThreadReader.vue';
+import {openCommunicationPrint} from '../../utils/communicationPrint';
 
 const props = defineProps({
   clientId: { type: Number, required: true }
 });
 
+const conversations=ref([]),viewingThread=ref(null);
+async function openClientThread(thread){try{const {data}=await api.get(`/clients/${props.clientId}/communications/conversations/${thread.id}`);viewingThread.value=data;}catch(e){error.value=e.response?.data?.error?.message || 'Could not load conversation';}}
+async function printRecord(conversationId=null){try{await openCommunicationPrint(()=>api.get(`/clients/${props.clientId}/communications/export`,{params:{conversationId:conversationId || undefined},responseType:'text'}),`client-${props.clientId}-communications.html`);}catch(e){error.value=e.response?.data?.error?.message || 'Could not prepare the communication record';}}
 const items = ref([]);
 const guardians = ref([]);
 const counts = ref({ total: 0, email: 0, sms: 0, opened: 0, failed: 0 });
@@ -439,6 +460,7 @@ const loadCommunications = async () => {
   try {
     const resp = await api.get(`/clients/${props.clientId}/communications`);
     const data = resp.data || {};
+    conversations.value = data.conversations || [];
     items.value = Array.isArray(data.items) ? data.items : [];
     guardians.value = Array.isArray(data.guardians) ? data.guardians : [];
     counts.value = data.counts || { total: 0, email: 0, sms: 0, opened: 0, failed: 0 };

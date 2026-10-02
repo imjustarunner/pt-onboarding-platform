@@ -48,7 +48,7 @@ function requiredItemsForNote(noteType, toolId = '') {
  * @param {string} opts.notePayload
  * @param {string} [opts.noteType]
  * @param {string} [opts.toolId]
- * @param {boolean} [opts.aiGenerated] — Note Aid writer produced the body
+ * @param {boolean} [opts.aiGenerated] — Documentation Hub writer produced the body
  */
 export function evaluateNoteContentReview({
   notePayload = '',

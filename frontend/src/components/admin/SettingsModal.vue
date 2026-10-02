@@ -877,7 +877,7 @@ const allCategories = [
     items: [
       {
         id: 'note-aid-kb',
-        label: 'Note Aid KB',
+        label: 'Documentation Hub KB',
         icon: '🧠',
         component: 'NoteAidKnowledgeBaseSettings',
         roles: ['super_admin', 'admin'],
@@ -887,7 +887,7 @@ const allCategories = [
       },
       {
         id: 'note-aid-catalog',
-        label: 'Note Aid Catalog',
+        label: 'Documentation Hub Catalog',
         icon: '🧰',
         component: 'NoteAidCatalogSettings',
         roles: ['super_admin', 'admin'],
@@ -1217,7 +1217,7 @@ const tenantHubSecondaryBlocks = computed(() => {
     });
   };
   pushWholeCategory('Look & brand', 'Colors, logos, templates, and shared creative assets.', 'theming');
-  pushWholeCategory('AI tools', 'Note Aid and related AI configuration.', 'ai');
+  pushWholeCategory('AI tools', 'Documentation Hub and related AI configuration.', 'ai');
 
   const systemCat = roleFilteredCategories.value.find((x) => x.id === 'system');
   if (systemCat?.items?.length) {
@@ -1274,8 +1274,8 @@ const HUB_CARD_DESC = computed(() => ({
   'branding-config': `Colors, fonts, logos — usually edited per ${contextNoun.value}.`,
   'branding-templates': 'Email and document templates.',
   assets: 'Icons, fonts, and shared creative assets.',
-  'note-aid-kb': `Note Aid knowledge base — ${contextNoun.value} with Note Aid enabled.`,
-  'note-aid-catalog': `Enable/disable Note Aids, custom aids, people scope, and session/claim attach flags.`,
+  'note-aid-kb': `Documentation Hub knowledge base — ${contextNoun.value} with Documentation Hub enabled.`,
+  'note-aid-catalog': `Enable/disable Documentation Hubs, custom aids, people scope, and session/claim attach flags.`,
   'tenant-support':
     `Contact organization support or Plot Twist Co platform support for this ${contextNoun.value}.`,
   communications: 'Transactional email templates.',
@@ -1315,7 +1315,7 @@ const platformHubSecondaryBlocks = computed(() => {
     'Brand and creative assets are applied per tenant after you choose one above.',
     'theming'
   );
-  pushBlock('AI tools', 'Options appear when platform and tenant flags allow Note Aid and related features.', 'ai');
+  pushBlock('AI tools', 'Options appear when platform and tenant flags allow Documentation Hub and related features.', 'ai');
   pushBlock(
     'System & communications',
     'Email, texting, integrations, and archive. Audit and viewport live under Platform home.',

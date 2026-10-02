@@ -1,3 +1,6 @@
+import {canAccessHubClient} from '../services/hubPeopleAccess.service.js';
+import {listClientEmailThreads,clientEmailThread,clientSecureThreads,listClientCommunicationThreads,clientCommunicationThread} from '../services/clientConversationRecord.service.js';
+import {communicationPrintDocument} from '../services/communicationPrint.service.js';
 /**
  * Aggregated communications view for a single client.
  *
@@ -27,6 +30,10 @@ const isBackofficeRole = (role) => {
 async function ensureClientAccess({ userId, role, clientId }) {
   const client = await Client.findById(clientId, { includeSensitive: true });
   if (!client) return { ok: false, status: 404, message: 'Client not found', client: null };
+  if (!isBackofficeRole(role)) {
+    const ok=await canAccessHubClient({userId,clientId,agencyId:client.agency_id});
+    return {ok,client,status:ok?200:403,message:ok?null:'You do not have access to this client'};
+  }
   if (String(role || '').toLowerCase() === 'super_admin') return { ok: true, client };
 
   const orgs = await User.getAgencies(userId);
@@ -241,10 +248,6 @@ export const listClientCommunications = async (req, res, next) => {
     if (!Number.isFinite(clientId) || clientId <= 0) {
       return res.status(400).json({ error: { message: 'Invalid client id' } });
     }
-    if (!isBackofficeRole(req.user?.role)) {
-      // Communications can include guardian-PII; restrict to backoffice for now.
-      return res.status(403).json({ error: { message: 'Admin access required' } });
-    }
     const access = await ensureClientAccess({
       userId: req.user.id,
       role: req.user.role,
@@ -255,10 +258,11 @@ export const listClientCommunications = async (req, res, next) => {
     const limitRaw = parseInt(String(req.query?.limit || ''), 10);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 200;
 
-    const [emailRows, smsItems, guardians] = await Promise.all([
+    const [emailRows, smsItems, guardians, conversations] = await Promise.all([
       UserCommunication.listForClient(clientId, { limit }),
       fetchSmsForClient(clientId),
-      fetchClientGuardiansSummary(clientId)
+      fetchClientGuardiansSummary(clientId),
+      listClientCommunicationThreads(clientId)
     ]);
 
     const emailItems = (emailRows || []).map(shapeEmailRow);
@@ -286,6 +290,7 @@ export const listClientCommunications = async (req, res, next) => {
         full_name: callerCanSeeFullName ? (access.client.full_name || null) : null
       },
       guardians,
+      conversations,
       counts,
       items
     });
@@ -343,9 +348,6 @@ export const getClientCommunicationBody = async (req, res, next) => {
     if (!Number.isFinite(clientId) || !Number.isFinite(commId)) {
       return res.status(400).json({ error: { message: 'Invalid id(s)' } });
     }
-    if (!isBackofficeRole(req.user?.role)) {
-      return res.status(403).json({ error: { message: 'Admin access required' } });
-    }
 
     const access = await ensureClientAccess({
       userId: req.user.id,
@@ -372,8 +374,7 @@ export const getClientCommunicationBody = async (req, res, next) => {
 
     const belongsToClient =
       Number(row.client_id) === clientId
-      || row.is_client_guardian_recipient === 1
-      || row.is_client_guardian_recipient === true;
+      || (!row.client_id && row.is_client_guardian_recipient && (await UserCommunication.listForClient(clientId,{limit:500})).some(r=>Number(r.id)===commId));
     if (!belongsToClient) {
       return res.status(404).json({ error: { message: 'Communication not found' } });
     }
@@ -394,4 +395,38 @@ export const getClientCommunicationBody = async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+};
+
+export const getClientEmailConversation = async (req,res,next) => {
+  try{
+    const clientId=Number(req.params.id),conversationId=String(req.params.conversationId);
+    const access=await ensureClientAccess({userId:req.user.id,role:req.user.role,clientId});
+    if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
+    res.set('Cache-Control','private, no-store');
+    res.json(await clientCommunicationThread(clientId,conversationId));
+  }catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}
+};
+
+export const exportClientCommunications = async (req,res,next) => {
+  try{
+    const clientId=Number(req.params.id);
+    const access=await ensureClientAccess({userId:req.user.id,role:req.user.role,clientId});
+    if(!access.ok)return res.status(access.status).json({error:{message:access.message}});
+    let threads=[];
+    if(req.query.conversationId)threads=[await clientCommunicationThread(clientId,String(req.query.conversationId))];
+    else{
+      const linked=await listClientEmailThreads(clientId);
+      for(const thread of linked)threads.push(await clientEmailThread(clientId,thread.id));
+      threads.push(...await clientSecureThreads(clientId));
+      const [automated]=await pool.execute(`SELECT uc.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM user_communications uc LEFT JOIN users u ON u.id=uc.generated_by_user_id WHERE uc.client_id=? ORDER BY COALESCE(uc.sent_at,uc.generated_at),uc.id`,[clientId]);
+      const messageIds=new Set(threads.flatMap(t=>t.messages.map(m=>m.internet_message_id)).filter(Boolean));
+      for(const m of automated) if(!m.external_message_id || !messageIds.has(m.external_message_id)) threads.push({subject:m.subject || 'Notification',messages:[{...m,body_text:String(m.body || '').replace(/<[^>]*>/g,' '),recipientAddress:m.recipient_address,sentAt:m.sent_at || m.generated_at,deliveryStatus:m.delivery_status}]});
+      const [sms]=await pool.execute('SELECT ml.*,u.first_name AS author_first_name,u.last_name AS author_last_name FROM message_logs ml LEFT JOIN users u ON u.id=ml.user_id WHERE ml.client_id=? ORDER BY ml.created_at,ml.id',[clientId]);
+      if(sms.length)threads.push({subject:'Text messages',messages:sms.map(m=>({...m,from:m.from_number,to:m.to_number,body_text:m.body,send_status:m.delivery_status}))});
+    }
+    res.set('Cache-Control','private, no-store');
+    res.set('Content-Type','text/html; charset=utf-8');
+    res.set('Content-Disposition',`attachment; filename="client-${clientId}-communications.html"`);
+    res.send(communicationPrintDocument(`Communication record — ${access.client.full_name || access.client.initials || clientId}`,threads));
+  }catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}
 };

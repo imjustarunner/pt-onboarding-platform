@@ -1,3 +1,5 @@
+import { communicationPrintDocument } from './communicationPrint.service.js';
+import { resolveEmailClientFiling, linkConversationClients } from './clientConversationRecord.service.js';
 import { planEmailDelivery, recordEmailDeliveryChoice } from './emailDeliveryChoice.service.js';
 import { resolveEmailSendMailbox } from './emailSendMailbox.service.js';
 import { persistOutboundAttachments, loadOutboundAttachments } from './communicationAttachments.service.js';
@@ -771,7 +773,13 @@ export async function isAddressBlocked(agencyId, address, { ownerUserId = null }
 export async function exportConversation(conversationId, { format = 'html' } = {}) {
   const detail = await getConversationDetail(conversationId, { markRead: false });
   if (!detail) throw new Error('Conversation not found');
-  const { conversation: conv, messages } = detail;
+  const { conversation: conv } = detail;
+  let messages = [...detail.messages];
+  while (messages.length && messages.length % 200 === 0) {
+    const older=await CommunicationConversation.listMessages(conversationId,{beforeId:Math.min(...messages.map(m=>Number(m.id))),limit:200});
+    if(!older.length)break; messages=[...older,...messages];
+    if(older.length<200)break;
+  }
   const title = conv.subject || `Conversation #${conv.id}`;
   if (format === 'txt') {
     const lines = [
@@ -790,26 +798,8 @@ export async function exportConversation(conversationId, { format = 'html' } = {
     return { contentType: 'text/plain; charset=utf-8', filename: `conversation-${conv.id}.txt`, body: lines.join('\n') };
   }
 
-  const parts = (messages || [])
-    .map((m) => {
-      const when = m.sent_at || m.created_at || '';
-      const who = m.from?.name || m.from?.email || (m.is_internal_note ? 'Internal note' : m.direction);
-      const body = m.body_html || `<pre>${escapeHtml(m.body_text || '')}</pre>`;
-      return `<section style="margin:16px 0;padding:12px;border:1px solid #e2e8f0;border-radius:8px">
-        <header style="font-size:12px;color:#64748b;margin-bottom:8px"><strong>${escapeHtml(who)}</strong> · ${escapeHtml(String(when))}</header>
-        <div>${body}</div>
-      </section>`;
-    })
-    .join('\n');
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
-    <style>body{font-family:system-ui,sans-serif;max-width:800px;margin:24px auto;color:#0f172a}</style>
-    </head><body>
-    <h1>${escapeHtml(title)}</h1>
-    <p style="color:#64748b">Channel: ${escapeHtml(conv.channel || '')} · Status: ${escapeHtml(conv.status || '')}</p>
-    ${parts}
-    <script>window.onload=function(){setTimeout(function(){window.print()},200)}</script>
-    </body></html>`;
-  return { contentType: 'text/html; charset=utf-8', filename: `conversation-${conv.id}.html`, body: html };
+  const html = communicationPrintDocument(title,[{subject:title,messages:messages.filter(m=>!m.is_internal_note)}]);
+  return { contentType:'text/html; charset=utf-8', filename:`conversation-${conv.id}.html`, body:html };
 }
 
 function escapeHtml(s) {
@@ -846,6 +836,7 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     new Set([...to, ...cc].map((t) => t.email.toLowerCase()))
   );
   const subject = payload.subject || '(no subject)';
+  const clientFiling = await resolveEmailClientFiling({agencyId,userId,to,cc,bcc,clientIds:payload.clientIds || (payload.clientId ? [payload.clientId] : []),defer:payload.deferClientFiling});
 
   for (const addr of [...to, ...cc, ...bcc]) {
     const blocked = await isAddressBlocked(agencyId, addr.email, { ownerUserId: userId });
@@ -898,6 +889,8 @@ export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
     lastMessageAt: new Date(),
     lastMessagePreview: previewText(payload.text || payload.html)
   });
+
+  await linkConversationClients(conv.id, clientFiling.clientIds, {deferred:clientFiling.deferred});
 
   for (const [index, recipient] of [...to, ...cc].entries()) {
     await CommunicationConversation.upsertParticipant(conv.id, {

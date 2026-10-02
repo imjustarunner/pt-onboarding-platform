@@ -3,7 +3,7 @@
     <div class="page-header">
       <div>
         <router-link :to="orgTo('/admin')" class="back-link">← Back to Admin</router-link>
-        <h1>Note Aid</h1>
+        <h1>Documentation Hub</h1>
         <p class="subtitle">Paste or dictate text, run an AI tool, then copy or save the result.</p>
       </div>
     </div>
@@ -11,11 +11,11 @@
     <div class="content-card">
       <div v-if="!currentAgencyId" class="empty-state">
         <strong>Select an agency</strong>
-        <div class="muted">Note Aid is enabled/disabled per agency. Switch to an agency context first.</div>
+        <div class="muted">Documentation Hub is enabled/disabled per agency. Switch to an agency context first.</div>
       </div>
 
       <div v-else-if="!noteAidEnabled" class="empty-state">
-        <strong>Note Aid is disabled for this agency</strong>
+        <strong>Documentation Hub is disabled for this agency</strong>
         <div class="muted">A super admin can enable it under Settings → Agencies → Feature toggles.</div>
       </div>
 
@@ -481,7 +481,7 @@ select {
   flex-wrap: wrap;
 }
 
-/* Keep Note Aid controls compact if global .btn changes. */
+/* Keep Documentation Hub controls compact if global .btn changes. */
 .content-card .btn {
   width: auto;
   min-width: 0;

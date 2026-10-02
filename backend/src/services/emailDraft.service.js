@@ -1,3 +1,4 @@
+import { resolveEmailClientFiling } from './clientConversationRecord.service.js';
 import { planEmailDelivery } from './emailDeliveryChoice.service.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
@@ -12,6 +13,9 @@ export function validateEmailDraft(raw = {}) {
   const data = Object.fromEntries(['to','cc','bcc','subject','text','quotedText'].map((key) => [key, String(raw[key] || '')]));
   if (data.subject.length > 998 || ['to','cc','bcc'].some((k) => /[\r\n]/.test(data[k]))) throw fail('Invalid email headers');
   if (data.text.length + data.quotedText.length > 1_000_000) throw fail('Message is too long');
+  data.clientIds = [...new Set((Array.isArray(raw.clientIds) ? raw.clientIds : []).map(Number).filter(n=>Number.isSafeInteger(n)&&n>0))];
+  if(data.clientIds.length>50) throw fail('Too many client records selected');
+  data.deferClientFiling = raw.deferClientFiling === true;
   const attachments = raw.attachments || [];
   if (!Array.isArray(attachments) || attachments.length > 50) throw fail('Too many attachments');
   let bytes = 0;
@@ -125,6 +129,7 @@ export async function sendEmailDraft(actor,id,version,deliveryChoice=null) {
   const recipients = [draft.draft.to,draft.draft.cc,draft.draft.bcc].flatMap(value => String(value || '').split(/[,;]/).map(s=>s.trim()).filter(Boolean));
   if (recipients.some(email=>! /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email))) throw fail('Use complete email addresses separated by commas');
   const deliveryPlan = await planEmailDelivery({agencyId:draft.agency_id,userId:actor.id,...draft.draft,choice:deliveryChoice,requireChoice:true});
+  if (['new','forward'].includes(draft.mode)) await resolveEmailClientFiling({agencyId:draft.agency_id,userId:actor.id,...draft.draft,defer:draft.draft.deferClientFiling});
   const [claim] = await pool.execute("UPDATE communication_email_drafts SET state='sending' WHERE id=? AND user_id=? AND version=? AND state='editing'",[id,actor.id,Number(version)||0]);
   if (!claim.affectedRows) throw fail('This draft is already being submitted or changed in another window',409);
   const payload = { ...draft.draft, text: [draft.draft.text,draft.draft.quotedText].filter(Boolean).join('\n\n'), mode:draft.mode, undoDelaySeconds:20, deliveryPlan };
@@ -162,5 +167,7 @@ export async function listEmailAttention(actor, agencyId) {
   const [failed] = await pool.execute(`SELECT m.id AS messageId,c.id AS conversationId,m.subject,m.created_at AS updatedAt,'Send failed' AS deliveryLabel
     FROM communication_messages m JOIN communication_conversations c ON c.id=m.conversation_id
     WHERE c.agency_id=? AND m.author_user_id=? AND m.channel='email' AND m.direction='outbound' AND m.send_status='failed' ORDER BY m.id DESC LIMIT 100`,[agencyId,actor.id]);
-  return [...drafts,...failed].sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt));
+  const [filing]=await pool.execute(`SELECT c.id AS conversationId,c.subject,c.updated_at AS updatedAt,'Choose client for filing' AS deliveryLabel FROM communication_conversations c JOIN communication_links l ON l.conversation_id=c.id AND l.entity_type='client_filing_review'
+    WHERE c.agency_id=? AND (c.owner_user_id=? OR EXISTS (SELECT 1 FROM communication_inboxes i WHERE i.id=c.inbox_id AND i.kind='personal' AND i.owner_user_id=?)) ORDER BY c.updated_at DESC LIMIT 100`,[agencyId,actor.id,actor.id]);
+  return [...drafts,...failed,...filing].sort((a,b)=>new Date(b.updatedAt)-new Date(a.updatedAt));
 }

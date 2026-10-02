@@ -180,7 +180,7 @@
 
         <section class="rco-card rco-note-aid">
           <div class="rco-card__row">
-            <h4>Clinical Note Aid</h4>
+            <h4>Clinical Documentation Hub</h4>
             <span class="rco-badge rco-badge--ok">Connected</span>
           </div>
           <p class="muted tiny">Write session notes or update treatment plans for this client.</p>
@@ -189,7 +189,7 @@
             <li>Intake → plan → progress note spine</li>
           </ul>
           <div class="rco-note-aid-actions">
-            <button type="button" class="cdp-btn-primary" @click="openNoteAid()">Open Note Aid</button>
+            <button type="button" class="cdp-btn-primary" @click="openNoteAid()">Open Documentation Hub</button>
             <button type="button" class="cdp-btn-soft" @click="openNoteAid({ launchIntent: 'update_treatment_plan', noteAid: 'psychotherapy_plan' })">
               Update treatment plan
             </button>

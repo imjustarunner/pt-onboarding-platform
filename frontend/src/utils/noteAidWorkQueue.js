@@ -1,5 +1,5 @@
 /**
- * Note Aid work-queue helpers.
+ * Documentation Hub work-queue helpers.
  *
  * PHI policy: client names / todo actions must NEVER be written to localStorage
  * or sessionStorage. Queue state is persisted on the server (encrypted payload)

@@ -2,7 +2,7 @@
   <section class="card">
     <div class="section-head">
       <div>
-        <h2>Note Aid</h2>
+        <h2>Documentation Hub</h2>
         <p>Quick launch + text draft save</p>
       </div>
       <button class="btn btn-secondary btn-sm" type="button" :disabled="loading" @click="load">
@@ -12,7 +12,7 @@
 
     <div class="actions">
       <router-link class="btn btn-primary btn-sm" :to="noteAidRoute">
-        Open Full Note Aid
+        Open Full Documentation Hub
       </router-link>
     </div>
 

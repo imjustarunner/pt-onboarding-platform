@@ -2207,6 +2207,19 @@ if (!isBootstrap) {
   schedulePresenceExpiryTick();
   setInterval(schedulePresenceExpiryTick, 5 * 60 * 1000);
 
+  // Keep chart attribution recoverable even if an inbound request's filing hook failed.
+  let clientFilingBusy = false;
+  const reconcileClientFiling = async () => {
+    if (clientFilingBusy) return;
+    clientFilingBusy = true;
+    try {
+      const {reconcileClientEmailFiling} = await import('./services/clientConversationRecord.service.js');
+      await reconcileClientEmailFiling({limit:50});
+    } catch (e) { console.warn('[Client communication filing retry]', e.code || 'failed'); }
+    finally { clientFilingBusy = false; }
+  };
+  setInterval(reconcileClientFiling, 60_000).unref();
+
   // Unified Inbox scheduled / undo-delayed outbound email + Hub secure/SMS queue
   const scheduleUnifiedOutbound = async () => {
     try {

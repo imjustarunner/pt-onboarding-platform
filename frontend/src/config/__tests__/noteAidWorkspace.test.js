@@ -53,7 +53,7 @@ describe('note aid kinds', () => {
     expect(aidAttachesQuestionnaires(findNoteAidById('treatment_summary')?.aid)).toBe(true);
   });
 
-  it('keeps psychotherapy / H0004 note / H2014 progress aids in Note Aid', () => {
+  it('keeps psychotherapy / H0004 note / H2014 progress aids in Documentation Hub', () => {
     expect(findNoteAidById('psychotherapy')?.aid?.toolId).toBe('clinical_psychotherapy_note');
     expect(findNoteAidById('h0004_note')?.aid?.toolId).toBe('clinical_h0004_note');
     expect(findNoteAidById('h2014_group')?.aid?.toolId).toBe('clinical_h2014_group');
@@ -110,7 +110,7 @@ describe('note aid kinds', () => {
     expect(isSocialDeterminantCode('F41.1')).toBe(false);
   });
 
-  it('keeps treatment plans in Note Aid', () => {
+  it('keeps treatment plans in Documentation Hub', () => {
     expect(findNoteAidById('h0004_plan')?.aid?.toolId).toBe('clinical_h0004_plan');
     expect(findNoteAidById('psychotherapy_plan')?.aid?.toolId).toBe('clinical_psychotherapy_plan');
     expect(findNoteAidById('tpt_plan')?.aid?.toolId).toBe('clinical_tpt_plan');

@@ -1,7 +1,7 @@
 /**
- * Wipe Note Aid test noise for one client OR an entire agency:
+ * Wipe Documentation Hub test noise for one client OR an entire agency:
  * - All scale-over-time objective ratings
- * - Auto "Intake Treatment Plan — …" chart plans (not Note Aid imported plans)
+ * - Auto "Intake Treatment Plan — …" chart plans (not Documentation Hub imported plans)
  *
  * Does NOT delete: imported treatment plans, intake notes, diagnoses, demographics,
  * signed progress notes, or client records.
@@ -162,7 +162,7 @@ if (parsed.mode === 'agency') {
   const [agencyRows] = await pool.execute('SELECT id, name FROM agencies WHERE id = ? LIMIT 1', [agencyId]);
   const agencyName = agencyRows?.[0]?.name || `Agency #${agencyId}`;
   const clientIds = await listAgencyClientIds(agencyId);
-  console.log(`Wiping Note Aid test noise for ${agencyName} (agency_id=${agencyId}), ${clientIds.length} client(s).`);
+  console.log(`Wiping Documentation Hub test noise for ${agencyName} (agency_id=${agencyId}), ${clientIds.length} client(s).`);
 
   // Agency-scoped rating wipe covers any orphan rows even if client list drifts.
   const [ratingResult] = await clinicalPool.execute(
@@ -198,7 +198,7 @@ if (!Number.isInteger(clientId) || clientId <= 0) {
   process.exit(1);
 }
 
-console.log(`Wiping Note Aid test noise for client_id=${clientId}${agencyId ? ` agency_id=${agencyId}` : ''}.`);
+console.log(`Wiping Documentation Hub test noise for client_id=${clientId}${agencyId ? ` agency_id=${agencyId}` : ''}.`);
 const result = await wipeClient({ clientId, agencyId });
 console.log(`Done. Removed ${result.plansDeleted} intake auto treatment plan(s). Imported plans and client files kept.`);
 process.exit(0);

@@ -16,7 +16,7 @@ export const AVAILABLE_AGENCY_FEATURE_KEYS = [
     /** Opt-in: gates the full People Ops nav suite (Training, On-Demand, Progress). Hiring is a separate add-on. */
     defaultAvailable: false
   },
-  { key: 'noteAidEnabled', label: 'Note Aid' },
+  { key: 'noteAidEnabled', label: 'Documentation Hub' },
   {
     key: 'csNoteBuildEnabled',
     label: 'CSNoteBuild (Colorado step-by-step notes)',

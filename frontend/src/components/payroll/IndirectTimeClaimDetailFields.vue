@@ -27,7 +27,7 @@
     </div>
 
     <div v-if="payload?.noteAidUsedDuringSession" class="field">
-      <label>Note Aid</label>
+      <label>Documentation Hub</label>
       <div>Used during this session</div>
     </div>
   </div>

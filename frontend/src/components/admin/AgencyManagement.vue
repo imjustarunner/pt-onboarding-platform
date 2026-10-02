@@ -1300,10 +1300,10 @@
             </div>
             <TreatmentPlanRenewalSettings v-if="editingAgency?.id && ['agency', 'clinical'].includes(agencyForm.organizationType || editingAgency.organization_type || 'agency')" :agency-id="editingAgency.id" @saved="agencyForm.featureFlags.treatmentPlanRenewal = $event" />
             <div v-if="isFeatureAvailable('noteAidEnabled')" class="toggle-row" style="margin-top: 10px;">
-              <span>Enable Note Aid (Gemini tools)</span>
+              <span>Enable Documentation Hub (Gemini tools)</span>
               <ToggleSwitch v-model="agencyForm.featureFlags.noteAidEnabled" compact />
             </div>
-            <small class="hint">Enables the Note Aid page (AI note helpers). Requires GEMINI_API_KEY in backend.</small>
+            <small class="hint">Enables the Documentation Hub page (AI note helpers). Requires GEMINI_API_KEY in backend.</small>
 
             <div
               v-if="isFeatureAvailable('csNoteBuildEnabled') || userRole === 'super_admin'"
@@ -1354,7 +1354,7 @@
               <ToggleSwitch v-model="agencyForm.featureFlags.medicalBillingEnabled" compact />
             </div>
             <small v-if="isFeatureAvailable('medicalBillingEnabled')" class="hint">
-              Turns on clinical chart, note signing/cosign, medical claims, fee schedules, and Claim.MD. Off by default — does not change payroll or Note Aid drafts. Claim.MD still needs BAA + AccountKey before production use.
+              Turns on clinical chart, note signing/cosign, medical claims, fee schedules, and Claim.MD. Off by default — does not change payroll or Documentation Hub drafts. Claim.MD still needs BAA + AccountKey before production use.
             </small>
 
             <div v-if="agencyForm.id" class="sunset-booking-types-note" style="margin-top: 14px;">

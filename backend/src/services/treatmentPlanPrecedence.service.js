@@ -1,6 +1,6 @@
 /**
  * Treatment-plan clinical fields take precedence over intake when both exist.
- * Note Aid imports use source_tool_id = note_aid_plan_import.
+ * Documentation Hub imports use source_tool_id = note_aid_plan_import.
  */
 
 export const NOTE_AID_PLAN_IMPORT_TOOL = 'note_aid_plan_import';
@@ -22,7 +22,7 @@ export function isPacketBootstrapDraftPlan(plan) {
 }
 
 /**
- * Prefer Note Aid imported plans, then any non-intake / non-bootstrap draft, else null.
+ * Prefer Documentation Hub imported plans, then any non-intake / non-bootstrap draft, else null.
  * @param {Array<object>} plans
  * @returns {object|null}
  */

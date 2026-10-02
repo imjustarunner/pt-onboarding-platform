@@ -307,14 +307,14 @@
           <label class="scm-field">
             <span>Link to client (optional)</span>
             <input v-model="clientQuery" type="search" placeholder="Search clients by name or school…" @input="searchClients" />
-            <small>Providers: your assigned clients. Admin/support: agency clients. Search to find clients beyond the initial list.</small>
+            <small>Providers: your clients. Supervisors: also your supervisees’ clients. Admin/support: agency clients. Search to find clients beyond the initial list.</small>
           </label>
           <p v-if="selectedClient" class="scm-selected-client">Linked to {{ selectedClient.displayName }} <button type="button" @click="clearClient">Remove</button></p>
           <p v-if="clientLoading" class="scm-muted">Searching clients…</p>
           <p v-if="clientError" class="scm-error" role="alert">{{ clientError }}</p>
           <div class="scm-client-results" aria-label="Clients available to link">
             <button v-for="c in clientOptions" :key="c.personKey" type="button" class="scm-person" :aria-pressed="String(c.clientId) === externalForm.clientId" @click="selectClient(c)">
-              <span class="scm-person-text"><strong>{{ c.displayName }}</strong><small>{{ c.schoolName || c.relationshipMeta }}</small></span>
+              <span class="scm-person-text"><strong>{{ c.displayName }}</strong><small>{{ [c.schoolName, c.accessLabel].filter(Boolean).join(' · ') || c.relationshipMeta }}</small></span>
             </button>
             <p v-if="!clientLoading && !clientOptions.length && !clientError" class="scm-muted">No accessible clients match this search.</p>
           </div>

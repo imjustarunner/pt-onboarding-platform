@@ -11,7 +11,7 @@
           :disabled="busy"
           @click="$emit('open-notes')"
         >
-          Open in Note Aid
+          Open in Documentation Hub
         </button>
 
         <button type="button" class="bulk-bar__btn bulk-bar__btn--complete" :disabled="busy" @click="$emit('complete')">

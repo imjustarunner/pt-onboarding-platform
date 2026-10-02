@@ -7,7 +7,7 @@
           Edit sections, then add information below and regenerate. Finalize intake before finalizing the treatment plan.
         </p>
       </div>
-      <button type="button" class="na-link-btn" @click="emit('close')">Back to Note Aid</button>
+      <button type="button" class="na-link-btn" @click="emit('close')">Back to Documentation Hub</button>
     </header>
 
     <p v-if="loading" class="muted">Loading intake draft…</p>

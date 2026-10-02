@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import ClinicalNote from '../../models/clinical/ClinicalNote.model.js';
 
-test('signed Note Aid intakes satisfy the plan gate using scoped, non-deleted signed notes', async (t) => {
+test('signed Documentation Hub intakes satisfy the plan gate using scoped, non-deleted signed notes', async (t) => {
   let rows = [];
   const execute = t.mock.method(clinicalPool, 'execute', async (sql, params) => {
     assert.deepEqual(params, [7, 202]);

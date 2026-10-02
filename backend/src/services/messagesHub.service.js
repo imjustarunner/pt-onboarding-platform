@@ -2,6 +2,7 @@
  * People-first Messaging Hub: search, method availability, timeline merge, send dispatch helpers.
  */
 import pool from '../config/database.js';
+import { hubClientScope, hubContactScope, scopeHubPeople, canAccessHubClient, canAccessHubContact, ownEmailCorrespondent } from './hubPeopleAccess.service.js';
 import { enrichHubSchoolStaff } from './hubSchoolProfiles.service.js';
 import { listMessageReactions } from './hubMessageReactions.service.js';
 import { searchCommunicationDirectory, listCommunicationDirectoryByKind } from './communicationDirectory.service.js';
@@ -441,19 +442,7 @@ async function actorHasAppInbox(agencyId, userId) {
   }
 }
 
-const CASELOAD_CLIENT_SQL = `
-  (
-    c.provider_id = ?
-    OR EXISTS (
-      SELECT 1 FROM client_provider_assignments cpa
-      WHERE cpa.client_id = c.id
-        AND cpa.provider_user_id = ?
-        AND (cpa.is_active = 1 OR cpa.is_active IS TRUE)
-    )
-  )
-`;
-
-async function listGuardians({ agencyId, limit, q = '', viewerUserId = null, caseloadOnly = true } = {}) {
+async function listGuardians({ agencyId, limit, q = '', viewerUserId = null } = {}) {
   const query = String(q || '').trim();
   const like = query.length >= 2 ? likeParam(query) : null;
   try {
@@ -466,11 +455,9 @@ async function listGuardians({ agencyId, limit, q = '', viewerUserId = null, cas
          )`
       : '';
     const searchParams = like ? [like, like, like, like, like, like, like] : [];
-    const caseloadClause =
-      caseloadOnly && viewerUserId
-        ? `AND ${CASELOAD_CLIENT_SQL}`
-        : '';
-    const caseloadParams = caseloadOnly && viewerUserId ? [viewerUserId, viewerUserId] : [];
+    const scope = hubClientScope(viewerUserId);
+    const caseloadClause = `AND ${scope.sql}`;
+    const caseloadParams = scope.params;
     // Include all linked guardians (portal on or off). Messaging needs parents
     // even when they have no portal access yet.
     const [rows] = await pool.execute(
@@ -506,24 +493,24 @@ async function listGuardians({ agencyId, limit, q = '', viewerUserId = null, cas
 }
 
 async function searchGuardians({ agencyId, q, limit, viewerUserId = null }) {
-  // Search stays broader (agency-wide) so staff can still find guardians outside caseload.
-  return listGuardians({ agencyId, limit, q, viewerUserId, caseloadOnly: false });
+  return listGuardians({ agencyId, limit, q, viewerUserId });
 }
 
-async function searchClients({ agencyId, q, limit }) {
+async function searchClients({ agencyId, q, limit, userId }) {
   const like = likeParam(q);
+  const scope = hubClientScope(userId);
   try {
     const [rows] = await pool.execute(
       `SELECT ${CLIENT_SELECT_ONE}, c.provider_id
        ${CLIENT_FROM_JOIN}
-       WHERE c.agency_id = ?
+       WHERE c.agency_id = ? AND ${scope.sql}
          AND (
            c.full_name LIKE ? OR c.initials LIKE ? OR c.identifier_code LIKE ?
            OR c.contact_phone LIKE ? OR c.email LIKE ?
          )
        ORDER BY c.full_name ASC
        LIMIT ${limit}`,
-      [agencyId, like, like, like, like, like]
+      [agencyId, ...scope.params, like, like, like, like, like]
     );
     return rows || [];
   } catch {
@@ -531,42 +518,6 @@ async function searchClients({ agencyId, q, limit }) {
   }
 }
 
-async function searchContacts({ agencyId, q, limit }) {
-  const like = likeParam(q);
-  try {
-    const [rows] = await pool.execute(
-      `SELECT id, full_name, email, phone, client_id
-       FROM agency_contacts
-       WHERE agency_id = ? AND is_active = TRUE
-         AND (
-           full_name LIKE ?
-           OR email LIKE ?
-           OR COALESCE(email_alt, '') LIKE ?
-           OR phone LIKE ?
-         )
-       ORDER BY full_name ASC
-       LIMIT ${limit}`,
-      [agencyId, like, like, like, like]
-    );
-    return rows || [];
-  } catch (e) {
-    if (!String(e?.message || '').includes('email_alt')) return [];
-    try {
-      const [rows] = await pool.execute(
-        `SELECT id, full_name, email, phone, client_id
-         FROM agency_contacts
-         WHERE agency_id = ? AND is_active = TRUE
-           AND (full_name LIKE ? OR email LIKE ? OR phone LIKE ?)
-         ORDER BY full_name ASC
-         LIMIT ${limit}`,
-        [agencyId, like, like, like]
-      );
-      return rows || [];
-    } catch {
-      return [];
-    }
-  }
-}
 
 function upsertPerson(map, key, patch) {
   const existing = map.get(key) || {
@@ -664,7 +615,7 @@ function upsertClientRow(map, c, agencyId, agencyName, agencyIcon = null) {
   });
 }
 
-async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false } = {}) {
+async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false, userId } = {}) {
   const people = [];
   const userIds = [...new Set([...map.values()].map((p) => Number(p.userId)).filter((n) => n > 0))];
   const photoByUser = new Map();
@@ -687,7 +638,7 @@ async function finalizePeople(map, inboxByAgency, lim, { sortRecent = false } = 
     }
   }
 
-  for (const person of await enrichHubSchoolStaff([...map.values()])) {
+  for (const person of await enrichHubSchoolStaff(await scopeHubPeople([...map.values()], userId))) {
     const aid = person.agencyId;
     const hasAppInbox = aid ? !!inboxByAgency.get(Number(aid)) : [...inboxByAgency.values()].some(Boolean);
     const { methods, preferredMethod, secureDefault, isActiveClient, canInviteToPortal, portalReady } =
@@ -1023,8 +974,6 @@ export async function browseHubPeople({
   if (!ids.length || !userId) return [];
   const lim = Math.min(Math.max(Number(limit) || 30, 1), 80);
   const mode = String(browse || 'suggested').toLowerCase();
-  const role = String(viewerRole || '').toLowerCase();
-  const agencyWidePeople = ['admin', 'super_admin', 'support'].includes(role);
   const nameMap = await loadAgencyNameMap(ids);
   const inboxByAgency = await buildInboxMap(ids, userId);
   const map = new Map();
@@ -1034,7 +983,7 @@ export async function browseHubPeople({
   if (mode === 'contacts') {
     const contacts = await listMyAgencyContactsAsPeople({ agencyIds: ids, userId, limit: lim, q: query });
     for (const contact of contacts) upsertPerson(map, contact.personKey, contact);
-    return finalizePeople(map, inboxByAgency, lim);
+    return finalizePeople(map, inboxByAgency, lim, { userId });
   }
 
   if (mode === 'staff' || mode === 'school_staff') {
@@ -1082,7 +1031,7 @@ export async function browseHubPeople({
         });
       }
     }
-    const people = await finalizePeople(map, inboxByAgency, lim, { sortRecent: false });
+    const people = await finalizePeople(map, inboxByAgency, lim, { userId, sortRecent: false });
     return query.length >= 2 ? rankPeopleByQuery(people, query).slice(0, lim) : people;
   }
 
@@ -1093,8 +1042,7 @@ export async function browseHubPeople({
         agencyId: aid,
         limit: lim,
         q: query,
-        viewerUserId: userId,
-        caseloadOnly: !agencyWidePeople
+        viewerUserId: userId
       });
       for (const g of rows || []) {
         const clientLabel = g.client_name || g.client_initials || `Client #${g.client_id}`;
@@ -1117,7 +1065,7 @@ export async function browseHubPeople({
         });
       }
     }
-    const people = await finalizePeople(map, inboxByAgency, lim, { sortRecent: false });
+    const people = await finalizePeople(map, inboxByAgency, lim, { userId, sortRecent: false });
     return query.length >= 2 ? rankPeopleByQuery(people, query).slice(0, lim) : people;
   }
 
@@ -1168,7 +1116,7 @@ export async function browseHubPeople({
             const kinds =
               role === 'school_staff'
                 ? ['school_staff']
-                : role === 'client_guardian'
+                : ['client_guardian','guardian'].includes(role)
                   ? ['guardian']
                   : ['employee', 'staff', 'team'];
             const { publicUploadsUrlFromStoredPath } = await import('../utils/uploads.js');
@@ -1240,7 +1188,7 @@ export async function browseHubPeople({
         const kinds =
           role === 'school_staff'
             ? ['school_staff']
-            : role === 'client_guardian'
+            : ['client_guardian','guardian'].includes(role)
               ? ['guardian']
               : role === 'client'
                 ? ['client']
@@ -1264,24 +1212,15 @@ export async function browseHubPeople({
       console.warn('[browseHubPeople] sent chat:', e?.message || e);
     }
 
-    return finalizePeople(map, inboxByAgency, lim, { sortRecent: true });
+    return finalizePeople(map, inboxByAgency, lim, { userId, sortRecent: true });
   }
 
   if (wantCaseload) {
     const clientSearch = query ? 'AND (c.full_name LIKE ? OR c.initials LIKE ? OR org.name LIKE ?)' : '';
     const searchParams = query ? [likeParam(query), likeParam(query), likeParam(query)] : [];
     try {
-      const caseloadFilter = agencyWidePeople
-        ? ''
-        : `AND (
-             c.provider_id = ?
-             OR EXISTS (
-               SELECT 1 FROM client_provider_assignments cpa
-               WHERE cpa.client_id = c.id
-                 AND cpa.provider_user_id = ?
-                 AND cpa.is_active = 1
-             )
-           )`;
+      const scope = hubClientScope(userId);
+      const caseloadFilter = `AND ${scope.sql}`;
       const [rows] = await pool.execute(
         `SELECT ${CLIENT_SELECT_CORE}
          ${CLIENT_FROM_JOIN}
@@ -1291,7 +1230,7 @@ export async function browseHubPeople({
            ${clientSearch}
            ORDER BY COALESCE(c.full_name, c.initials) ASC
            LIMIT ${lim}`,
-          [...(agencyWidePeople ? ids : [...ids, userId, userId]), ...searchParams]
+          [...ids, ...scope.params, ...searchParams]
         );
         for (const c of rows || []) {
           const aid = Number(c.agency_id);
@@ -1299,17 +1238,8 @@ export async function browseHubPeople({
         }
     } catch {
       try {
-        const fallbackFilter = agencyWidePeople
-          ? ''
-          : `AND (
-               c.provider_id = ?
-               OR EXISTS (
-                 SELECT 1 FROM client_provider_assignments cpa
-                 WHERE cpa.client_id = c.id
-                   AND cpa.provider_user_id = ?
-                   AND (cpa.is_active = 1 OR cpa.is_active IS TRUE)
-               )
-             )`;
+        const scope = hubClientScope(userId);
+        const fallbackFilter = `AND ${scope.sql}`;
         const [rows] = await pool.execute(
           `SELECT ${CLIENT_SELECT_CORE}
            ${CLIENT_FROM_JOIN}
@@ -1318,7 +1248,7 @@ export async function browseHubPeople({
              ${clientSearch}
            ORDER BY COALESCE(c.full_name, c.initials, c.identifier_code) ASC
            LIMIT ${lim}`,
-          [...(agencyWidePeople ? ids : [...ids, userId, userId]), ...searchParams]
+          [...ids, ...scope.params, ...searchParams]
         );
         for (const c of rows || []) {
           const aid = Number(c.agency_id);
@@ -1428,7 +1358,7 @@ export async function browseHubPeople({
   }
 
   return finalizePeople(map, inboxByAgency, lim, {
-    sortRecent: mode === 'recent' || mode === 'suggested' || mode === 'sent'
+    userId, sortRecent: mode === 'recent' || mode === 'suggested' || mode === 'sent'
   });
 }
 
@@ -1451,9 +1381,9 @@ export async function searchHubPeople({ agencyId, agencyIds = null, userId, q, l
     const agencyName = agencyDisplayName(nameMap, aid);
     const [dir, guardians, clients, contacts] = await Promise.all([
       searchCommunicationDirectory({ agencyId: aid, q: query, limit: lim }),
-      searchGuardians({ agencyId: aid, q: query, limit: lim }),
-      searchClients({ agencyId: aid, q: query, limit: lim }),
-      searchContacts({ agencyId: aid, q: query, limit: lim })
+      searchGuardians({ agencyId: aid, q: query, limit: lim, viewerUserId: userId }),
+      searchClients({ agencyId: aid, q: query, limit: lim, userId }),
+      listMyAgencyContactsAsPeople({ agencyIds: [aid], q: query, limit: lim, userId })
     ]);
 
     for (const d of dir || []) {
@@ -1502,23 +1432,10 @@ export async function searchHubPeople({ agencyId, agencyIds = null, userId, q, l
       upsertClientRow(map, c, aid, agencyName, agencyIconUrl(nameMap, aid));
     }
 
-    for (const c of contacts) {
-      upsertPerson(map, formatPersonKey('contact', c.id, aid), {
-        displayName: c.full_name || c.email || c.phone || `Contact #${c.id}`,
-        kinds: ['contact', 'external'],
-        contactId: c.id,
-        clientId: c.client_id || null,
-        email: c.email,
-        phone: c.phone,
-        relationshipMeta: 'Agency contact',
-        smsOptIn: !!c.phone,
-        agencyId: aid,
-        agencyName
-      });
-    }
+    for (const contact of contacts) upsertPerson(map, contact.personKey, contact);
   }
 
-  return rankPeopleByQuery(await finalizePeople(map, inboxByAgency, lim * 2), query).slice(0, lim);
+  return rankPeopleByQuery(await finalizePeople(map, inboxByAgency, lim * 2, { userId }), query).slice(0, lim);
 }
 
 /**
@@ -1731,6 +1648,10 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     };
   }
 
+  const originalPerson = seed;
+  [seed] = await scopeHubPeople([seed], userId);
+  if (!seed) seed = await ownEmailCorrespondent(originalPerson, userId);
+  if (!seed) return null;
   [seed] = await enrichHubSchoolStaff([seed]);
   let photoUrl = null;
   let title = seed.title || null;
@@ -3488,27 +3409,21 @@ async function listMyAgencyContactsAsPeople({ agencyIds, userId, limit = 40, q =
   if (!ids.length || !userId) return [];
   const lim = Math.min(Math.max(Number(limit) || 40, 1), 80);
   const ph = ids.map(() => '?').join(',');
+  const scope = hubContactScope(userId);
   const search = String(q || '').trim();
-  const searchSql = search ? 'AND (ac.full_name LIKE ? OR ac.email LIKE ?)' : '';
-  const searchArgs = search ? [likeParam(search), likeParam(search)] : [];
+  const searchSql = search ? 'AND (ac.full_name LIKE ? OR ac.email LIKE ? OR ac.phone LIKE ?)' : '';
+  const searchArgs = search ? [likeParam(search), likeParam(search), likeParam(search)] : [];
   try {
     const [rows] = await pool.execute(
       `SELECT ac.id, ac.agency_id, ac.full_name, ac.email, ac.phone, ac.client_id, ac.relationship_type
        FROM agency_contacts ac
        WHERE ac.agency_id IN (${ph})
          AND ac.is_active = TRUE
-         AND (
-           ac.created_by_user_id = ?
-           OR ac.share_with_all = 1
-           OR EXISTS (
-             SELECT 1 FROM contact_provider_assignments cpa
-             WHERE cpa.contact_id = ac.id AND cpa.provider_user_id = ?
-           )
-         )
+         AND ${scope.sql}
        ${searchSql}
        ORDER BY COALESCE(ac.updated_at, ac.created_at) DESC
        LIMIT ${lim}`,
-      [...ids, userId, userId, ...searchArgs]
+      [...ids, ...scope.params, ...searchArgs]
     );
     return (rows || []).map((c) => ({
       personKey: formatPersonKey('contact', c.id, c.agency_id),
@@ -3532,18 +3447,11 @@ async function listMyAgencyContactsAsPeople({ agencyIds, userId, limit = 40, q =
          FROM agency_contacts ac
          WHERE ac.agency_id IN (${ph})
            AND ac.is_active = TRUE
-           AND (
-             ac.created_by_user_id = ?
-             OR ac.share_with_all = 1
-             OR EXISTS (
-               SELECT 1 FROM contact_provider_assignments cpa
-               WHERE cpa.contact_id = ac.id AND cpa.provider_user_id = ?
-             )
-           )
+           AND ${scope.sql}
          ${searchSql}
        ORDER BY COALESCE(ac.updated_at, ac.created_at) DESC
          LIMIT ${lim}`,
-        [...ids, userId, userId, ...searchArgs]
+        [...ids, ...scope.params, ...searchArgs]
       );
       return (rows || []).map((c) => ({
         personKey: formatPersonKey('contact', c.id, c.agency_id),
@@ -3612,21 +3520,8 @@ export async function ensureHubExternalContact({
 
   let allowedClientId = null;
   if (clientId) {
-    const { resolveClientRecordAccess } = await import('./clientRecordAccess.service.js');
-    const access = await resolveClientRecordAccess({
-      userId: uid,
-      role,
-      clientId: Number(clientId)
-    });
-    if (!access?.ok) {
-      const err = new Error(
-        access?.message || 'You do not have access to attach this contact to that client'
-      );
-      err.status = access?.status || 403;
-      throw err;
-    }
-    if (Number(access.client?.agency_id) !== aid) {
-      throw Object.assign(new Error('Choose a client in this agency'), { status: 403 });
+    if (!(await canAccessHubClient({userId: uid, clientId: Number(clientId), agencyId: aid}))) {
+      throw Object.assign(new Error('You do not have access to attach this contact to that client'), {status:403});
     }
     allowedClientId = Number(clientId);
   }
@@ -3673,7 +3568,6 @@ export async function ensureHubExternalContact({
   }
 
   let contact = null;
-  const { userCanSeeContact } = await import('./contactAccess.service.js');
 
   if (existingContactId) {
     contact = await AgencyContact.findById(Number(existingContactId));
@@ -3682,7 +3576,7 @@ export async function ensureHubExternalContact({
       err.status = 404;
       throw err;
     }
-    if (!(await userCanSeeContact(contact, uid, role))) {
+    if (!(await canAccessHubContact({userId:uid,contactId:contact.id,agencyId:aid}))) {
       const err = new Error(
         'That contact is not available to you. Create a new personal contact instead.'
       );
@@ -3696,7 +3590,7 @@ export async function ensureHubExternalContact({
     const byEmail = normEmail ? await AgencyContact.findByEmail(normEmail, aid) : null;
     const byPhone = !byEmail && normPhone ? await AgencyContact.findByPhone(normPhone, aid) : null;
     const candidate = byEmail || byPhone;
-    if (candidate && (await userCanSeeContact(candidate, uid, role))) {
+    if (candidate && (await canAccessHubContact({userId:uid,contactId:candidate.id,agencyId:aid}))) {
       contact = candidate;
     }
     // Invisible agency match → create a personal duplicate below
@@ -3800,7 +3694,7 @@ export async function lookupHubExternalIdentity({
     }
     for (const aid of ids) {
       const c = await AgencyContact.findByEmail(normEmail, aid);
-      if (c) {
+      if (c && await canAccessHubContact({userId,contactId:c.id,agencyId:aid})) {
         contacts.push({
           contactId: Number(c.id),
           agencyId: Number(c.agency_id),
@@ -3842,7 +3736,7 @@ export async function lookupHubExternalIdentity({
     }
     for (const aid of ids) {
       const c = await AgencyContact.findByPhone(normPhone, aid);
-      if (c) {
+      if (c && await canAccessHubContact({userId,contactId:c.id,agencyId:aid})) {
         contacts.push({
           contactId: Number(c.id),
           agencyId: Number(c.agency_id),
@@ -3855,7 +3749,8 @@ export async function lookupHubExternalIdentity({
     }
   }
 
-  return { users, contacts };
+  const scopedUsers = await scopeHubPeople(users.map(u=>({...u,kinds:['client','guardian','client_guardian'].includes(u.role) ? [u.role==='client' ? 'client' : 'guardian'] : ['staff']})), userId);
+  return { users: scopedUsers, contacts };
 }
 
 /**

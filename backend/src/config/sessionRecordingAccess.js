@@ -52,7 +52,7 @@ export function canUseSessionRecordingRole({ role, agencyId }) {
 export const SESSION_RECORDING_NOTE_AIDS = [
   {
     id: 'psychotherapy',
-    label: 'Progress Note Aid (Individual Psychotherapy)',
+    label: 'Progress Documentation Hub (Individual Psychotherapy)',
     toolId: 'clinical_psychotherapy_note',
     serviceCode: '90837'
   },

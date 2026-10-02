@@ -269,7 +269,7 @@ export const ASSESSMENT_TOOLS = [
 export const AI_TOOLS = [
   {
     id: 'note-aid',
-    title: 'Note Aid',
+    title: 'Documentation Hub',
     littleName: 'Clinical documentation',
     description: 'Generate structured clinical notes from text or audio and keep a short Active / Archived shelf.',
     clinicalKind: 'clinical',

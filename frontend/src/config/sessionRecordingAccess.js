@@ -1,5 +1,5 @@
 /**
- * Session Recording access — Tools product separate from Note Aid.
+ * Session Recording access — Tools product separate from Documentation Hub.
  * ITSCO: admin, super_admin, CPA, provider_plus only.
  * NLU: all employee roles (tutoring rollout).
  */
@@ -55,11 +55,11 @@ export function canUseSessionRecordingRole({ role, agencyId }) {
   return SESSION_RECORDING_EMPLOYEE_ROLES.includes(r);
 }
 
-/** Note aids Session Recording can generate after a live session (same gems as Note Aid). */
+/** Note aids Session Recording can generate after a live session (same gems as Documentation Hub). */
 export const SESSION_RECORDING_NOTE_AIDS = [
   {
     id: 'psychotherapy',
-    label: 'Progress Note Aid (Individual Psychotherapy)',
+    label: 'Progress Documentation Hub (Individual Psychotherapy)',
     toolId: 'clinical_psychotherapy_note',
     serviceCode: '90837',
     codeGroupId: 'psychotherapy',
@@ -74,7 +74,7 @@ export const SESSION_RECORDING_NOTE_AIDS = [
   },
   {
     id: 'h2014_group',
-    label: 'Group Program (12-Week Program) Progress Note Aid (Skill Builders)',
+    label: 'Group Program (12-Week Program) Progress Documentation Hub (Skill Builders)',
     toolId: 'clinical_h2014_group',
     serviceCode: 'H2014',
     needsProgram: true,
@@ -82,7 +82,7 @@ export const SESSION_RECORDING_NOTE_AIDS = [
   },
   {
     id: 'h2014_individual',
-    label: 'Individual (or group non-program) Progress Note Aid (H2014/H2015/H2016)',
+    label: 'Individual (or group non-program) Progress Documentation Hub (H2014/H2015/H2016)',
     toolId: 'clinical_h2014_individual',
     serviceCode: 'H2014',
     guidance: 'Type in all information that occurred during the session, your interpretation of the client’s participation, progress, whether they’re benefitting etc.'

@@ -150,7 +150,7 @@
                 No claim / billing info attached. Importing a billing report for this date and service code will attach to this session instead of creating a duplicate.
               </template>
               <template v-else>
-                Clinical notes are authored in Note Aid and linked to this session.
+                Clinical notes are authored in Documentation Hub and linked to this session.
               </template>
             </p>
           </template>
@@ -173,9 +173,9 @@
             <p class="muted tiny" style="margin: 0;">
               {{
                 selectedRow.note_status === 'signed'
-                  ? 'This note is signed. Open it in Note Aid to review.'
+                  ? 'This note is signed. Open it in Documentation Hub to review.'
                   : selectedRow.note_status === 'draft'
-                    ? 'A draft note exists. Continue editing in Note Aid.'
+                    ? 'A draft note exists. Continue editing in Documentation Hub.'
                     : 'No note has been started for this session yet.'
               }}
             </p>

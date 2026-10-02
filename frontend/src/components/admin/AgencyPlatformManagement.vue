@@ -73,7 +73,7 @@
           <div class="form-group checkbox">
             <label>
               <input v-model="form.featureFlags.noteAidEnabled" type="checkbox" />
-              Note Aid enabled
+              Documentation Hub enabled
             </label>
           </div>
           <div class="form-group checkbox">

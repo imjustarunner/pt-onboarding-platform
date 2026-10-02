@@ -75,6 +75,8 @@ import { listClientGuardians, upsertClientGuardian, updateClientGuardian, remove
 import { getClientGuardianWaiverAudit } from '../controllers/guardianWaiver.controller.js';
 import {
   listClientCommunications,
+  getClientEmailConversation,
+  exportClientCommunications,
   getClientCommunicationBody,
   listClientSmsAudit
 } from '../controllers/clientCommunications.controller.js';
@@ -163,7 +165,7 @@ router.get('/provider-onboarding-queue', getProviderOnboardingQueue);
 // DELETE /api/clients/bulk-import?agencyId=123&confirm=true
 router.delete('/bulk-import', deleteBulkImportedClients);
 
-// Note Aid: claim unassigned minimal clients (must be before /:id)
+// Documentation Hub: claim unassigned minimal clients (must be before /:id)
 router.post('/note-aid/claim-unassigned', postNoteAidClaimUnassigned);
 
 // Bulk actions
@@ -195,7 +197,7 @@ router.post('/:id/terminate', terminateClient);
 // Update client status
 router.put('/:id/status', updateClientStatus);
 
-// Note Aid: promote to current after chart setup (demographics + intake + plan + diagnosis)
+// Documentation Hub: promote to current after chart setup (demographics + intake + plan + diagnosis)
 router.post('/:id/note-aid-setup-complete', postNoteAidSetupComplete);
 
 // Assign provider
@@ -223,6 +225,8 @@ router.get('/:id/access-log', getClientAccessLog);
 // Communications history (emails + SMS sent on behalf of / about this client,
 // including messages addressed to linked guardians).
 router.get('/:id/communications', listClientCommunications);
+router.get('/:id/communications/export', exportClientCommunications);
+router.get('/:id/communications/conversations/:conversationId', getClientEmailConversation);
 router.get('/:id/communications/email/:commId/body', getClientCommunicationBody);
 router.get('/:id/sms-audit', listClientSmsAudit);
 

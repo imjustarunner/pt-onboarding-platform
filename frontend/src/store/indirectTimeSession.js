@@ -47,7 +47,7 @@ export const useIndirectTimeSessionStore = defineStore('indirectTimeSession', ()
   /** Closed session handoff for Log Time after timedown clock-out. */
   const lastClosedSession = ref(null);
   /**
-   * Soft session extras (not a separate timer): e.g. Note Aid opened while clocked in.
+   * Soft session extras (not a separate timer): e.g. Documentation Hub opened while clocked in.
    * Time still counts on the main clock; we only remember that documentation work happened.
    */
   const noteAidUsedDuringSession = ref(false);

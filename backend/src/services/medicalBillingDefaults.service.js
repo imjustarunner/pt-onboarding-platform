@@ -129,7 +129,7 @@ function buildDefaultMedicalServiceCodes() {
       description: 'Comprehensive community support (day) — 1 unit when duration ≥ 4 hours 8 minutes'
     });
   }
-  // Cap 90837 before extended-encounter handling in Note Aid (75+ → 90834 ×2).
+  // Cap 90837 before extended-encounter handling in Documentation Hub (75+ → 90834 ×2).
   if (patchByCode.has('90837')) {
     Object.assign(patchByCode.get('90837'), {
       maxMinutes: 74

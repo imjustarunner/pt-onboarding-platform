@@ -66,7 +66,7 @@
             <input v-model="form.dateOfService" type="date" :readonly="!editingOverview" />
           </label>
           <label v-if="!isTutoringTenant">
-            Note Aid template
+            Documentation Hub template
             <select v-model="form.noteAidId">
               <option value="">— None (summary only) —</option>
               <option v-for="a in noteAids" :key="a.id" :value="a.id">{{ a.label }}</option>
@@ -131,7 +131,7 @@
           <li :class="{ ok: micReady }">Microphone connected and working</li>
           <li class="ok">Environment is quiet and private</li>
           <li v-if="!isTutoringTenant" :class="{ ok: !!form.noteAidId || !form.generateStructuredNote }">
-            Note Aid template selected (or structured note off)
+            Documentation Hub template selected (or structured note off)
           </li>
         </ul>
 
@@ -167,7 +167,7 @@
       </section>
 
       <section v-if="!isTutoringTenant && selectedNoteAid" class="sr-card">
-        <h2>Selected Note Aid</h2>
+        <h2>Selected Documentation Hub</h2>
         <p><strong>{{ selectedNoteAid.label }}</strong></p>
         <p class="hint">{{ selectedNoteAid.guidance || 'Structured progress note from the session summary.' }}</p>
       </section>
@@ -209,7 +209,7 @@
             <span>{{ form.modalityLabel || '—' }}</span>
             <span>{{ form.dateOfService || '—' }}</span>
           </div>
-          <p v-if="selectedNoteAid" class="hint">Note Aid: {{ selectedNoteAid.label }}</p>
+          <p v-if="selectedNoteAid" class="hint">Documentation Hub: {{ selectedNoteAid.label }}</p>
         </section>
 
         <section class="sr-card waveform">

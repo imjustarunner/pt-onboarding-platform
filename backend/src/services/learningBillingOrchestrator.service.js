@@ -237,7 +237,7 @@ export class LearningBillingOrchestrator {
   }
 
   /**
-   * Chart / Note Aid self-pay: create a learning session shell + PENDING charge
+   * Chart / Documentation Hub self-pay: create a learning session shell + PENDING charge
    * (Stripe path via learning_session_charges — no clinical_claims).
    */
   static async createSelfPayChargeFromChart({

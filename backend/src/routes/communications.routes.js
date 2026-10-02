@@ -1,3 +1,4 @@
+import {conversationFilingChoices,fileExistingConversation} from '../services/clientConversationRecord.service.js';
 import { reactToHubMessage } from '../services/hubMessageReactions.service.js';
 import emailDraftRoutes from './emailDraft.routes.js';
 import { conversationAccessMiddleware } from '../services/communicationAccess.service.js';
@@ -104,6 +105,8 @@ router.post('/conversations/:id/reply', postUnifiedReply);
 router.post('/conversations/:id/mark-known', postMarkSenderKnown);
 router.post('/conversations/:id/resolve-unknown', postResolveUnknownSender);
 router.get('/conversations/:id/export', getConversationExport);
+router.get('/conversations/:id/client-filing',async(req,res,next)=>{try{res.json(await conversationFilingChoices(Number(req.params.id),req.user.id));}catch(e){next(e);}});
+router.post('/conversations/:id/client-filing',async(req,res,next)=>{try{res.json(await fileExistingConversation(Number(req.params.id),req.user.id,req.body.clientIds));}catch(e){if(e.status)return res.status(e.status).json({error:{message:e.message}});next(e);}});
 router.post('/conversations/:id/ai/draft', postAiDraft);
 router.post('/conversations/:id/ai/insight', postAiInsight);
 router.post('/conversations/:id/links', postConversationLink);

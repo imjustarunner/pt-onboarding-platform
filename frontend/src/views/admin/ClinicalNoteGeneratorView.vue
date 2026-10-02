@@ -10,14 +10,14 @@
           </svg>
         </span>
         <div>
-          <div class="na-brand-title">AI Note Aid</div>
+          <div class="na-brand-title">Documentation Hub</div>
           <div class="na-brand-sub">Note Assistant</div>
         </div>
       </div>
       <p class="na-tagline">Spend less time on notes. <em>More time with your clients.</em></p>
       <div class="na-topbar-actions">
       <div class="na-topbar-counts" aria-live="polite">
-        <span><strong>{{ workQueueTodoCount }}</strong> queue</span>
+        <span><strong>{{ workQueueTodoCount + contactDocumentationCount }}</strong> to do</span>
         <span class="na-topbar-counts__sep" aria-hidden="true">·</span>
         <span><strong>{{ inProgressDraftCount }}</strong> in progress</span>
       </div>
@@ -46,11 +46,13 @@
       </div>
     </header>
 
+    <ContactDocumentationQueue v-if="canUseTool" :agency-id="Number(noteAidAgencyId || currentAgencyId) || null" @pending-count="contactDocumentationCount = $event" />
+
     <NoteAidTerminationOutcomes v-if="canUseTool && !isEmbedded" :agency-id="Number(noteAidAgencyId || currentAgencyId) || null" />
 
     <div v-if="fromIndirectSession" class="na-indirect-banner" role="status">
       <span>
-        You’re still clocked in on Log Time — Note Aid (Tools &amp; Aids → AI Tools) counts on that session.
+        You’re still clocked in on Log Time — Documentation Hub (Tools &amp; Aids → AI Tools) counts on that session.
         Use the clock chip or Back to Log Time when you’re done.
       </span>
       <button type="button" class="na-indirect-back" @click="returnToLogTime">
@@ -63,7 +65,7 @@
         <strong>Not available</strong>
         <p>
           This tool is not enabled for your current organization.
-          Ask an admin to enable <strong>Clinical Note Generator</strong> or <strong>Note Aid</strong> in Organization Settings.
+          Ask an admin to enable <strong>Clinical Note Generator</strong> or <strong>Documentation Hub</strong> in Organization Settings.
         </p>
       </div>
     </div>
@@ -320,7 +322,7 @@
               Skip AI aid — write sections manually
             </label>
             <p v-else-if="manualWriteDisabledByProfile" class="na-field-hint">
-              Manual-only writing is disabled on this profile — use Note Aid generate.
+              Manual-only writing is disabled on this profile — use Documentation Hub generate.
             </p>
           </div>
           <div class="na-aid-bar-actions">
@@ -1176,7 +1178,7 @@
               v-model="revisionInstruction"
               class="na-textarea na-textarea--compact"
               rows="2"
-              placeholder="Tell Note Aid what to add or revise while keeping the same transcript…"
+              placeholder="Tell Documentation Hub what to add or revise while keeping the same transcript…"
             />
             <div class="na-revision-actions">
               <button
@@ -1585,6 +1587,7 @@ import NoteAidTreatmentPlanImportReview from '../../components/clinical/NoteAidT
 import NoteAidIntakeImportReview from '../../components/clinical/NoteAidIntakeImportReview.vue';
 import NoteAidIntakeDraftEditor from '../../components/clinical/NoteAidIntakeDraftEditor.vue';
 import NoteAidDemographicsImportReview from '../../components/clinical/NoteAidDemographicsImportReview.vue';
+import ContactDocumentationQueue from '../../components/clinical/ContactDocumentationQueue.vue';
 import NoteAidWorkQueuePanel from '../../components/clinical/NoteAidWorkQueuePanel.vue';
 import NoteAidTodoListImportModal from '../../components/clinical/NoteAidTodoListImportModal.vue';
 import AppointmentBillingPanel from '../../components/schedule/AppointmentBillingPanel.vue';
@@ -1731,7 +1734,7 @@ const props = defineProps({
   embedAgencyId: { type: [Number, String], default: null },
   /** When false, embedded new notes do not auto-open the aid library. */
   embedOpenLibrary: { type: Boolean, default: true },
-  /** Prefers Note Aid library filter to this kind (progress, intake, termination, …). */
+  /** Prefers Documentation Hub library filter to this kind (progress, intake, termination, …). */
   embedInitialKind: { type: String, default: '' },
   /** Optional launch intent (e.g. update_treatment_plan). */
   embedLaunchIntent: { type: String, default: '' },
@@ -1758,6 +1761,7 @@ function returnToLogTime() {
   router.push({ path: orgTo('/dashboard'), query: { tab: 'log_time' } }).catch(() => {});
 }
 
+const contactDocumentationCount = ref(0);
 const currentAgencyId = computed(() => agencyStore.currentAgency?.id || null);
 const bookingContext = computed(() => {
   const officeEventId = Number(route.query?.officeEventId || route.query?.office_event_id || 0) || null;
@@ -2720,7 +2724,7 @@ function onQuickSessionServiceCode(code) {
   selectedServiceCode.value = next;
   otherServiceCode.value = '';
   applyParticipantsDefaultForServiceCode(next);
-  // Autoselect matching Note Aid when the clinician changes the service code.
+  // Autoselect matching Documentation Hub when the clinician changes the service code.
   let hit = findNoteAidByToolOrCode({ serviceCode: next === '90834' && extended ? '90837' : next });
   if (hit?.aid && !aidIsEligible(hit.aid)) {
     hit = ['90832', '90834', '90837', EXTENDED_ENCOUNTER_CODE].includes(raw)
@@ -3068,7 +3072,7 @@ const selectedAudioAgreementTemplateId = ref('');
 const recordingConsentError = ref('');
 const downloadingAudioAgreementTemplate = ref(false);
 const recordingPurpose = ref('dictation');
-/** Session capture lives in Session Recording tool; Note Aid speak mode is dictation-only. */
+/** Session capture lives in Session Recording tool; Documentation Hub speak mode is dictation-only. */
 const isSessionRecording = computed(() => false);
 const recordSessionModalOpen = ref(false);
 const recordSessionIntentHandled = ref(false);
@@ -3743,7 +3747,7 @@ async function promoteNoteAidClientIfSetupComplete() {
     }
   } catch (e) {
     noteAidSetupPromotedIds.delete(cid);
-    console.warn('Note Aid setup promote failed:', e?.response?.data?.error?.message || e.message);
+    console.warn('Documentation Hub setup promote failed:', e?.response?.data?.error?.message || e.message);
   }
 }
 
@@ -3755,7 +3759,7 @@ async function claimUnassignedNoteAidClients() {
       { skipGlobalLoading: true }
     );
   } catch (e) {
-    console.warn('Note Aid claim unassigned failed:', e?.response?.data?.error?.message || e.message);
+    console.warn('Documentation Hub claim unassigned failed:', e?.response?.data?.error?.message || e.message);
   }
 }
 
@@ -5146,7 +5150,7 @@ function formatCreatedDisplay(raw) {
 
 const canDeleteCurrentDraft = computed(() => {
   if (!draftId.value) return false;
-  // Note Aid drafts are never provider-signed clinical notes; signed session notes live elsewhere.
+  // Documentation Hub drafts are never provider-signed clinical notes; signed session notes live elsewhere.
   const row = (recentDrafts.value || []).find((d) => String(d.id) === String(draftId.value));
   if (row?.provider_signed_at || row?.signed_at) return false;
   return true;
@@ -5882,7 +5886,7 @@ const generateNote = async () => {
     }
     if (selectedAid.value?.isCustom && (selectedAid.value.systemPrompt || selectedAid.value.trainingNotes)) {
       const customBits = [
-        'Custom Note Aid training directions for this organization:',
+        'Custom Documentation Hub training directions for this organization:',
         selectedAid.value.systemPrompt || '',
         selectedAid.value.trainingNotes || ''
       ].filter(Boolean).join('\n');
@@ -6791,7 +6795,7 @@ const loadClientIntakeSummary = async (clientId) => {
     const data = blocksRes?.data || {};
     // API returns { demographics, clinicalDeidentified, intakeNarrative } — not blocks[]
     if (data.clinicalDeidentified || data.intakeNarrative) {
-      // Never put demographics PHI into the Note Aid intake preview / paste path.
+      // Never put demographics PHI into the Documentation Hub intake preview / paste path.
       intakeSummary.value = [
         data.clinicalDeidentified ? `Clinical (de-identified)\n${data.clinicalDeidentified}` : '',
         data.intakeNarrative ? `Intake narrative\n${data.intakeNarrative}` : ''
@@ -8923,9 +8927,9 @@ const draftSections = (draftRow) => {
 
 onMounted(async () => {
   speechSupported.value = !!(privateSpeechRecognition());
-  // Scrub any pre-fix PHI left in browser storage from older Note Aid builds.
+  // Scrub any pre-fix PHI left in browser storage from older Documentation Hub builds.
   scrubLegacyWorkQueueSessionStash();
-  // Always open library + work queue when Note Aid loads (user can still hide).
+  // Always open library + work queue when Documentation Hub loads (user can still hide).
   libraryCollapsed.value = false;
   libraryExpanded.value = false;
   workQueueCollapsed.value = false;

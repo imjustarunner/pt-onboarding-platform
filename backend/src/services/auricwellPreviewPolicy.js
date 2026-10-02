@@ -27,6 +27,8 @@ export function previewRouteAllowed(method, path) {
     /^\/auricwell-preview(?:\/context|\/providers)?$/,
     /^\/clinical-notes\/(?:context|programs|recent|work-queue|termination-outcomes)$/,
     /^\/note-aid\/(?:catalog|tools)$/,
+    /^\/clinical-notes\/contact-documentation(?:\/(?:email|secure)\/[1-9][0-9]*)?$/,
+    /^\/clients\/\d+\/communications(?:\/export|\/conversations\/(?:secure-)?[1-9][0-9]*)?$/,
     /^\/me\/notes-to-sign(?:\/count)?$/,
     /^\/medical-billing\/(?:workspace|service-locations|service-codes|config|supervised-payer-policies|supervised-provider-readiness|payer-eft|claims|claimmd|reports|clients|notes|treatment-plans|treatment-frequencies|agencies)(?:\/|$)/,
     /^\/clients(?:\/\d+(?:\/(?:guardians|records-copy-blocks|intake-note|clinical-responses))?)?$/,
@@ -40,6 +42,7 @@ export function previewRouteAllowed(method, path) {
   // until the complete AuricWell revenue-cycle acceptance is finished.
   return [
     ['POST', /^\/clinical-notes\/(?:drafts|audit|generate|interactive-complexity)$/],
+    ['POST', /^\/clinical-notes\/contact-documentation\/(?:email|secure)\/[1-9][0-9]*$/],
     ['PATCH', /^\/clinical-notes\/drafts\/\d+$/]
   ].some(([verb, pattern]) => verb === method && pattern.test(path));
 }

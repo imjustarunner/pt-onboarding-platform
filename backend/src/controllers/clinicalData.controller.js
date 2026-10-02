@@ -155,7 +155,7 @@ export const bootstrapClinicalSession = async (req, res, next) => {
       if (!sessionId) {
         return res.status(500).json({ error: { message: 'Could not create note-only clinical session' } });
       }
-      // Tag session for Note Aid eligibility without calendar attachment.
+      // Tag session for Documentation Hub eligibility without calendar attachment.
       try {
         const clinicalPool = (await import('../config/clinicalDatabase.js')).default;
         await clinicalPool.execute(
@@ -314,7 +314,7 @@ export const createSessionNote = async (req, res, next) => {
       notePayload: notePayloadRaw || '',
       noteType: noteTypeRaw || '',
       toolId: metadata.toolId || '',
-      // AI Note Aid writers auto-pass content checklist; manual writers are checked.
+      // Documentation Hub writers auto-pass content checklist; manual writers are checked.
       aiGenerated
     });
     metadata.contentReview = contentReview;

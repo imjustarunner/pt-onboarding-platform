@@ -273,7 +273,7 @@ export const getMedicalBillingStatus = async (req, res, next) => {
   }
 };
 
-/** Load a single treatment plan (goals/objectives) for Note Aid draft editor. */
+/** Load a single treatment plan (goals/objectives) for Documentation Hub draft editor. */
 export const getTreatmentPlanById = async (req, res, next) => {
   try {
     const planId = parseIntValue(req.params.planId);
@@ -365,7 +365,7 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
       });
     }
 
-    // Allow creating/updating primary dx inline from Note Aid
+    // Allow creating/updating primary dx inline from Documentation Hub
     if (!primaryDiagnosisId && req.body.icd10Code) {
       primaryDiagnosisId = await upsertPrimaryClinicalDiagnosis({
         agencyId,
@@ -496,7 +496,7 @@ export const saveTreatmentPlanToChart = async (req, res, next) => {
   }
 };
 
-/** Discard a chart treatment-plan draft (not a Note Aid clinical_note_drafts row). */
+/** Discard a chart treatment-plan draft (not a Documentation Hub clinical_note_drafts row). */
 export const discardTreatmentPlanDraft = async (req, res, next) => {
   try {
     const agencyId = parseIntValue(req.body.agencyId);
@@ -2852,7 +2852,7 @@ export const checkClaimMdEligibility = async (req, res) => {
   return res.status(410).json({ error: { message: 'Use the client insurance verification screen so eligibility evidence is scoped and saved to the client and date of service.' } });
 };
 
-/** Parse Note Aid panels into goals array for saveTreatmentPlanToChart. */
+/** Parse Documentation Hub panels into goals array for saveTreatmentPlanToChart. */
 export function panelsToTreatmentPlanGoals(panels = []) {
   const goals = [];
   let current = null;

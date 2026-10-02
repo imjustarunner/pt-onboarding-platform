@@ -130,10 +130,10 @@
               v-if="Number(effectiveAgencyId || 0) > 0"
               type="button"
               class="sched-command__outline"
-              title="Open Note Aid"
+              title="Open Documentation Hub"
               @click="openScheduleNoteAid"
             >
-              Note Aid
+              Documentation Hub
             </button>
             <button
               v-if="canOpenMyRoomLobby"
@@ -293,10 +293,10 @@
             v-if="Number(effectiveAgencyId || 0) > 0"
             class="sched-nav-btn"
             type="button"
-            title="Open Note Aid"
+            title="Open Documentation Hub"
             @click="openScheduleNoteAid"
           >
-            Note Aid
+            Documentation Hub
           </button>
           <div class="sched-span-switch" role="group" aria-label="Schedule view">
             <button type="button" class="sched-span-btn" :class="{ on: scheduleSpanMode === 'day' }" title="One-day timeline grid" @click="setScheduleSpanMode('day')">Day</button>
@@ -5297,7 +5297,7 @@
               <p v-if="item.therapyNoteAid" class="muted">External calendar entry. Viewing this does not start a session or create a claim. Use the linked app appointment for clinical documentation.</p>
               <div v-if="item.therapyNoteAid && !isViewingOtherUserSchedule" class="stack-details-actions" style="margin-top: 8px;">
                 <button type="button" class="btn btn-primary btn-sm" @click.stop="openTherapyNoteAid(item)">
-                  Open Note Aid
+                  Open Documentation Hub
                 </button>
               </div>
               <button
@@ -13342,7 +13342,7 @@ const submitActionLabel = computed(() => {
     intake_virtual_off: 'Disable virtual intake',
     intake_inperson_on: 'Enable in-person intake',
     intake_inperson_off: 'Disable in-person intake',
-    booked_note: 'Open Note Aid',
+    booked_note: 'Open Documentation Hub',
     start_video: 'Start video session',
     booked_record: 'Open recorder',
     unbook_slot: 'Unbook selected slot(s)'
@@ -15324,7 +15324,7 @@ function openEditorClinicalClaim(linkedClaimId = null) {
   const role = String(authStore.user?.role || '').toLowerCase();
   const aid = Number(editorAgencyId.value || effectiveAgencyId.value || 0);
   if (['provider', 'provider_plus'].includes(role) || (!['admin', 'super_admin'].includes(role) && !(authStore.user?.billingAgencyIds || []).map(Number).includes(aid))) {
-    modalError.value = 'Billing access is required to open the billing desk. You can sign the note and prepare its claim in Note Aid.';
+    modalError.value = 'Billing access is required to open the billing desk. You can sign the note and prepare its claim in Documentation Hub.';
     return;
   }
   const claimId = Number(linkedClaimId || editorClaimId.value || 0);
@@ -20644,12 +20644,12 @@ const openTherapyNoteAid = (item) => {
 const openNoteAidFromContext = (launchIntent = 'note') => {
   const ctx = modalContext.value || {};
   const officeEventId = Number(ctx.officeEventId || 0);
-  if (!officeEventId) throw new Error('Booked office event context is required for Note Aid.');
+  if (!officeEventId) throw new Error('Booked office event context is required for Documentation Hub.');
   const officeId = Number(ctx.officeLocationId || 0) || null;
   const roomId = Number(ctx.roomId || 0) || null;
   const top = officeTopEvent(modalDay.value, modalHour.value, officeId, roomId) || null;
   const clientId = Number(top?.clientId || 0);
-  if (!clientId) throw new Error('Booked slot needs a client before opening Note Aid.');
+  if (!clientId) throw new Error('Booked slot needs a client before opening Documentation Hub.');
   const intent = String(launchIntent || 'note');
   if (intent === 'record_session' || intent === 'record') {
     const query = new URLSearchParams({

@@ -89,7 +89,7 @@ async function attachClientLabels(sessions = []) {
 }
 
 /**
- * Signed clinical notes used to retire leftover Note Aid drafts and mark
+ * Signed clinical notes used to retire leftover Documentation Hub drafts and mark
  * matching work-queue items done.
  */
 export async function listSignedNoteSessions({ userId = null, clientIds = [], agencyId = null, limit = 400 } = {}) {

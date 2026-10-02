@@ -528,7 +528,7 @@ export function clientTenantLabel(client, agencyLookup = {}) {
 }
 
 /**
- * Normalize a client list row for Note Aid pickers.
+ * Normalize a client list row for Documentation Hub pickers.
  */
 export function normalizeNoteAidClientRow(row, agencyLookup = {}) {
   if (!row) return null;
@@ -567,7 +567,7 @@ export function initialsLikelyMatch(typed, client) {
 }
 
 /**
- * Resolve which tenant a Note Aid draft should belong to.
+ * Resolve which tenant a Documentation Hub draft should belong to.
  * Ownership order:
  * 1) Client tenant memberships (primary + assignments)
  * 2) Intersect with provider-accessible tenants (when provided)
@@ -657,7 +657,7 @@ export function noteAidPrefersLearningSponsor(aid, { categoryId = '' } = {}) {
   );
 }
 
-/** Tenant rows for Note Aid filters (memberships, or full catalog for super_admin). */
+/** Tenant rows for Documentation Hub filters (memberships, or full catalog for super_admin). */
 export function noteAidTenantOptions(agencyStore, { role = '' } = {}) {
   const roleNorm = String(role || '').toLowerCase();
   const memberships = Array.isArray(agencyStore?.userAgencies) ? agencyStore.userAgencies : [];

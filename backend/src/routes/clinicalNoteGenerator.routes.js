@@ -1,3 +1,4 @@
+import * as contactDocumentation from '../controllers/contactDocumentation.controller.js';
 import express from 'express';
 import multer from 'multer';
 import { body, param, query } from 'express-validator';
@@ -52,6 +53,10 @@ const transcribeUpload = multer({
 router.get('/context', apiLimiter, [query('agencyId').isInt({ min: 1 })], getClinicalNotesContext);
 router.get('/termination-outcomes', apiLimiter, getTerminationOutcomeStats);
 router.post('/interactive-complexity', apiLimiter, generateInteractiveComplexitySentence);
+
+router.get('/contact-documentation', apiLimiter, contactDocumentation.list);
+router.get('/contact-documentation/:type/:id', apiLimiter, contactDocumentation.detail);
+router.post('/contact-documentation/:type/:id', apiLimiter, contactDocumentation.save);
 
 router.get('/work-queue', apiLimiter, listNoteAidWorkQueue);
 

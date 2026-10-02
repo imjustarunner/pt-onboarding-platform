@@ -9,7 +9,7 @@ import {
   noteAidTenantOptions
 } from '../noteAidTreatmentHelpers.js';
 
-describe('Note Aid multi-tenant client helpers', () => {
+describe('Documentation Hub multi-tenant client helpers', () => {
   it('prefers full_name for display', () => {
     expect(
       clientDisplayName({ full_name: 'Alex Morgan', first_name: 'A', last_name: 'M', initials: 'AM' })

@@ -22,7 +22,7 @@ api.interceptors.request.use(config => {
   config.cookieAuthOnly = true;
   config.skipAuthRedirect = true;
   config.skipGlobalLoading = true;
-  // Note Aid uses multipart for optional audio. Plain-text generation uses the
+  // Documentation Hub uses multipart for optional audio. Plain-text generation uses the
   // existing JSON handler; file upload remains held until preview acceptance.
   if (config.data instanceof FormData && config.url === '/clinical-notes/generate') {
     const entries = [...config.data.entries()];

@@ -824,7 +824,7 @@ export const generateClientIntakeNote = async (req, res, next) => {
     const { serviceCode, toolId } = tierInfo;
     const tool = getNoteAidToolById(toolId);
     if (!tool) {
-      return res.status(500).json({ error: { message: `Note Aid tool not configured: ${toolId}` } });
+      return res.status(500).json({ error: { message: `Documentation Hub tool not configured: ${toolId}` } });
     }
 
     const intakeSubmissionId = safeInt(req.body?.intakeSubmissionId);

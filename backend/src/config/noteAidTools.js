@@ -1,6 +1,6 @@
 import { CLINICAL_NOTE_AGENT_TOOLS } from './clinicalNoteAgentTools.js';
 
-// Global (platform-wide) Note Aid tools.
+// Global (platform-wide) Documentation Hub tools.
 // These are “Gem-like” prompt templates, defined in code for predictability.
 //
 // IMPORTANT:

@@ -279,7 +279,7 @@
             >POS override</button>
           </li>
         </ul>
-        <p v-else class="muted">No claims yet. Signed Note Aid notes draft claims here for billing review (no auto Claim.MD submit).</p>
+        <p v-else class="muted">No claims yet. Signed Documentation Hub notes draft claims here for billing review (no auto Claim.MD submit).</p>
 
         <h3 style="margin-top: 1.25rem;">Billing overrides (claim-side)</h3>
         <p class="muted">

@@ -38,7 +38,7 @@
           :href="fullNoteAidHref"
           target="_blank"
           rel="noopener"
-        >Open in Note Aid</a>
+        >Open in Documentation Hub</a>
       </header>
 
       <ClientNoteTypePicker
@@ -305,7 +305,7 @@ async function ensureSessionDraft({ kind = '', launchIntent = '' } = {}) {
       clinicalSessionId = Number(res.data.draft.clinical_session_id) || clinicalSessionId;
     }
   } catch {
-    /* open Note Aid without draft id */
+    /* open Documentation Hub without draft id */
   }
   return { draftId, dateOfService, officeEventId, clinicalSessionId, serviceCode, kind, launchIntent };
 }
@@ -375,7 +375,7 @@ const rows = computed(() => {
   const out = [];
   const activePlanId = Number(chart.value.plans?.[0]?.id || 0);
 
-  // Note Aid in-progress drafts stay in the Note Aid library — not the client file.
+  // Documentation Hub in-progress drafts stay in the Documentation Hub library — not the client file.
   for (const n of chart.value.notes || []) {
     const providerSigned = !!n.provider_signed_at;
     const supervisorSigned = !!n.supervisor_cosigned_at;

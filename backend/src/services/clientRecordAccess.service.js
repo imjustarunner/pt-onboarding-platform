@@ -5,6 +5,7 @@
  * (school org vs parent agency mismatch).
  */
 import pool from '../config/database.js';
+import {canAccessHubClient} from './hubPeopleAccess.service.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
 
@@ -40,7 +41,9 @@ export async function providerHasAssignedClientAccess({ userId, clientId, client
     if (!missing) throw e;
   }
 
-  return parseInt(client?.provider_id || 0, 10) === uid;
+  if (parseInt(client?.provider_id || 0, 10) === uid) return true;
+  if (client?.agency_id) return canAccessHubClient({userId:uid,clientId:cid,agencyId:client.agency_id});
+  return false;
 }
 
 /**

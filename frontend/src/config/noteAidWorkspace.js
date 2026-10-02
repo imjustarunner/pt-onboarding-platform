@@ -1,5 +1,5 @@
 /**
- * Note Aid workspace categories — mirrors the Gemini Gems catalog page.
+ * Documentation Hub workspace categories — mirrors the Gemini Gems catalog page.
  * toolId values must match CLINICAL_NOTE_AGENT_TOOLS in
  * backend/src/config/clinicalNoteAgentTools.js (AGENT_PROMPTS = gem instructions).
  */
@@ -65,7 +65,7 @@ export const NOTE_AID_CATEGORIES = [
         autoSelect: true,
         pinToTop: true,
         guidance:
-          'Type or speak everything that happened in the session (participation, progress, benefit). The Code Decider picks the best eligible billing code for your credential (including intern_plus) and writes the progress note. Use this when you are not sure which Note Aid to open.'
+          'Type or speak everything that happened in the session (participation, progress, benefit). The Code Decider picks the best eligible billing code for your credential (including intern_plus) and writes the progress note. Use this when you are not sure which Documentation Hub to open.'
       },
       {
         id: 'h0023',
@@ -183,7 +183,7 @@ export const NOTE_AID_CATEGORIES = [
       },
       {
         id: 'psychotherapy',
-        label: 'Progress Note Aid (Individual Psychotherapy)',
+        label: 'Progress Documentation Hub (Individual Psychotherapy)',
         toolId: 'clinical_psychotherapy_note',
         serviceCode: '90837',
         codeGroupId: 'psychotherapy',
@@ -202,7 +202,7 @@ export const NOTE_AID_CATEGORIES = [
       },
       {
         id: 'family',
-        label: 'Progress Note Aid (Family or Couples Psychotherapy)',
+        label: 'Progress Documentation Hub (Family or Couples Psychotherapy)',
         toolId: 'clinical_family_note',
         serviceCode: '90847',
         codeGroupId: 'family_couples',
@@ -237,7 +237,7 @@ export const NOTE_AID_CATEGORIES = [
     aids: [
       {
         id: 'h2014_group',
-        label: 'Group Program (12-Week Program) Progress Note Aid (Skill Builders)',
+        label: 'Group Program (12-Week Program) Progress Documentation Hub (Skill Builders)',
         toolId: 'clinical_h2014_group',
         serviceCode: 'H2014',
         needsProgram: true,
@@ -246,7 +246,7 @@ export const NOTE_AID_CATEGORIES = [
       },
       {
         id: 'h2014_individual',
-        label: 'Individual (or group non-program) Progress Note Aid (H2014/H2015/H2016)',
+        label: 'Individual (or group non-program) Progress Documentation Hub (H2014/H2015/H2016)',
         toolId: 'clinical_h2014_individual',
         serviceCode: 'H2014',
         codeGroupId: 'h2015_h2016',
@@ -277,7 +277,7 @@ export const NOTE_AID_CATEGORIES = [
     aids: [
       {
         id: 'tpt_note',
-        label: 'Progress Note Aid (Therapy + Tutoring)',
+        label: 'Progress Documentation Hub (Therapy + Tutoring)',
         toolId: 'clinical_tpt_note',
         serviceCode: null,
         guidance:
@@ -293,7 +293,7 @@ export const NOTE_AID_CATEGORIES = [
       },
       {
         id: 'nlu_assessment',
-        label: 'Intake Assessment Note Aid (Therapy + Tutoring)',
+        label: 'Intake Assessment Documentation Hub (Therapy + Tutoring)',
         toolId: 'clinical_nlu_assessment',
         serviceCode: null,
         guidance:
@@ -314,11 +314,11 @@ export const NOTE_AID_CATEGORIES = [
       },
       {
         id: 'pcp_note',
-        label: 'PCP Note Aid',
+        label: 'PCP Documentation Hub',
         toolId: 'clinical_pcp_note',
         serviceCode: null,
         disabledByDefault: true,
-        guidance: 'Document Parent–Child Partnership session content in the approved PCP note format. Disabled by default — enable per tenant in Note Aid settings if needed.'
+        guidance: 'Document Parent–Child Partnership session content in the approved PCP note format. Disabled by default — enable per tenant in Documentation Hub settings if needed.'
       },
       {
         id: 'nlu_docs',

@@ -472,7 +472,7 @@ function buildAppEntries() {
     {
       id: 'workspace-note-aid',
       routeName: 'NoteAid',
-      label: 'Note Aid',
+      label: 'Documentation Hub',
       description: 'AI clinical note assistant for documentation.',
       group: 'workspace',
       keywords: ['note aid', 'noteaid', 'clinical note', 'documentation'],

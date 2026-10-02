@@ -555,7 +555,7 @@ export const getQuickListTasks = async (req, res, next) => {
   }
 };
 
-/** Note Aid — tools + execute; client attach reserved for main app. */
+/** Documentation Hub — tools + execute; client attach reserved for main app. */
 export const qvListNoteAidTools = wrap(async (req, res, next) => {
   if (!req.query.agencyId && req.quickView.agencyId) {
     req.query.agencyId = String(req.quickView.agencyId);

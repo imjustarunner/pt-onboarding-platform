@@ -79,7 +79,7 @@
         <button type="button" :class="{ on: tab === 'home' }" @click="tab = 'home'; loadHome()">Messages</button>
         <button type="button" :class="{ on: tab === 'tasks' }" @click="switchTasks">Tasks</button>
         <button type="button" :class="{ on: tab === 'calendar' }" @click="switchCalendar">Calendar</button>
-        <button type="button" :class="{ on: tab === 'noteaid' }" @click="switchNoteAid">Note Aid</button>
+        <button type="button" :class="{ on: tab === 'noteaid' }" @click="switchNoteAid">Documentation Hub</button>
         <button type="button" :class="{ on: tab === 'presence' }" @click="tab = 'presence'">Presence</button>
         <button type="button" :class="{ on: tab === 'contacts' }" @click="loadContacts">Contacts</button>
       </nav>
@@ -344,7 +344,7 @@
       <div v-else-if="tab === 'noteaid'" class="qv-pane">
         <div class="qv-pad" style="padding-bottom:8px;">
           <p class="muted" style="margin:0 0 10px;">
-            Same Note Aid tools as the full app. Use initials only here — attaching clients is saved for the main app.
+            Same Documentation Hub tools as the full app. Use initials only here — attaching clients is saved for the main app.
           </p>
           <div class="qv-na-row">
             <div class="qv-na-field">
@@ -370,7 +370,7 @@
           </div>
           <label class="muted">Tool</label>
           <select v-model="noteAidToolId" class="qv-date" style="width:100%;margin:6px 0 10px;">
-            <option disabled value="">Select a Note Aid tool</option>
+            <option disabled value="">Select a Documentation Hub tool</option>
             <option v-for="t in noteAidTools" :key="t.id" :value="t.id">{{ t.name || t.label || t.id }}</option>
           </select>
           <div class="qv-suite" style="padding:0 0 8px;">
@@ -1723,7 +1723,7 @@ async function switchNoteAid() {
       noteAidToolId.value = noteAidTools.value[0].id;
     }
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Note Aid unavailable';
+    error.value = e?.response?.data?.error?.message || 'Documentation Hub unavailable';
     noteAidTools.value = [];
   }
 }
@@ -1906,7 +1906,7 @@ async function runNoteAid() {
     parseNoteAidSections(output);
     pushNoteAidToDrawer();
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Note Aid failed';
+    error.value = e?.response?.data?.error?.message || 'Documentation Hub failed';
   } finally {
     noteAidBusy.value = false;
   }
@@ -1927,7 +1927,7 @@ async function copyTextSafe(text, key) {
 }
 
 async function copyNoteAidSection(panel) {
-  // Match full Note Aid: copy section body only (not the S/O/I/P title)
+  // Match full Documentation Hub: copy section body only (not the S/O/I/P title)
   await copyTextSafe(panel?.text, panel?.id || 'section');
 }
 

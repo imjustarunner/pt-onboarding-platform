@@ -428,7 +428,7 @@ class ClinicalNoteDraft {
     return Number(result?.affectedRows || 0);
   }
 
-  /** Hard-delete every Note Aid draft for one clinician (does not touch chart notes). */
+  /** Hard-delete every Documentation Hub draft for one clinician (does not touch chart notes). */
   static async deleteAllForUser({ userId }) {
     const uid = safeInt(userId);
     if (!uid) throw new Error('Invalid userId');

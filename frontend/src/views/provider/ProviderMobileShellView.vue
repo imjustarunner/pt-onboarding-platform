@@ -17,7 +17,7 @@
     <nav class="mobile-tabs">
       <router-link :to="orgTo('/provider-mobile/schedule')" class="tab">Schedule</router-link>
       <router-link :to="orgTo('/provider-mobile/payroll')" class="tab">Payroll</router-link>
-      <router-link :to="orgTo('/provider-mobile/note-aid')" class="tab">Note Aid</router-link>
+      <router-link :to="orgTo('/provider-mobile/note-aid')" class="tab">Documentation Hub</router-link>
       <router-link :to="orgTo('/provider-mobile/communications')" class="tab">Comms</router-link>
     </nav>
   </div>

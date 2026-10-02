@@ -33,7 +33,7 @@
         >
           Team chat
         </button>
-        <button type="button" class="btn btn-primary" @click="openNewConversation()" :disabled="inboxChannel === 'sms'" :title="inboxChannel === 'sms' ? 'SMS is coming soon' : newMessageLabel">
+        <button type="button" class="btn btn-primary" @click="openNewConversation()" :disabled="channelComingSoon" :title="newMessageLabel">
           + {{ newMessageLabel }}
         </button>
       </div>
@@ -340,6 +340,7 @@
                     {{ personRoleLabel(p) }}
                   </template>
                 </p>
+                <p v-if="p.accessLabel" class="msg-hub-snippet">{{ p.accessLabel }}</p>
                 <div v-if="peopleChannelChips(p).length" class="msg-hub-chip-row">
                   <span
                     v-for="ch in peopleChannelChips(p)"
@@ -363,7 +364,7 @@
               v-if="navSection !== 'tools'"
               type="button"
               class="btn btn-primary"
-              @click="openNewConversation()" :disabled="inboxChannel === 'sms'" :title="inboxChannel === 'sms' ? 'SMS is coming soon' : newMessageLabel"
+              @click="openNewConversation()" :disabled="channelComingSoon" :title="newMessageLabel"
             >
               + {{ newMessageLabel }}
             </button>
@@ -1178,10 +1179,17 @@
                 Mark known &amp; add to contacts
               </button>
             </div>
+            <section v-if="threadFiling && threadFiling.conversationId === conversationPreview.conversation?.id" class="msg-hub-empty" role="dialog" aria-label="File conversation with clients">
+              <p>Select every client discussed in this thread. Existing record links are retained.</p>
+              <label v-for="client in threadFiling.clients" :key="client.id"><input type="checkbox" v-model="threadFiling.clientIds" :value="client.id" /> {{ client.name }}</label>
+              <p v-if="!threadFiling.clients.length">No accessible client records match these participants. You can still read and reply to the email.</p>
+              <button type="button" class="btn btn-primary" :disabled="!threadFiling.clientIds.length" @click="saveThreadFiling">Save to selected client records</button>
+              <button type="button" class="btn" @click="threadFiling=null">Close</button>
+            </section>
             <EmailThreadReader v-if="conversationPreview.conversation?.channel === 'email'" :conversation="conversationPreview.conversation" :messages="conversationPreview.messages || []"
               :has-older="!!conversationPreview.nextBeforeId" :loading-older="loadingEmailHistory"
               @compose="composeEmail" @unread="markSelectedUnread" @older="loadEarlierEmail"
-              @attachment="downloadReaderAttachment" @like="likeReaderMessage" />
+              :can-print="true" :can-file="true" @file="openThreadFiling" @print="printReaderThread" @attachment="downloadReaderAttachment" @like="likeReaderMessage" />
             <div v-else class="msg-hub-timeline"><article v-for="msg in conversationPreview.messages || []" :key="msg.id" class="msg-hub-bubble"><p class="msg-hub-bubble-body">{{ msg.body_text || msg.subject }}</p><time>{{ formatTime(msg.sent_at || msg.created_at) }}</time></article>
               <form v-if="conversationPreview.conversation?.channel === 'sms'" @submit.prevent="replyReaderSms"><textarea v-model="readerSmsText" aria-label="Text message reply" required /><button type="submit" :disabled="sending">Send text</button></form>
             </div>
@@ -1196,7 +1204,7 @@
             <p>
               Browse your clients by name or school, open someone recent, or search by name, email, or phone.
             </p>
-            <button type="button" class="btn btn-primary" @click="openNewConversation()" :disabled="inboxChannel === 'sms'" :title="inboxChannel === 'sms' ? 'SMS is coming soon' : newMessageLabel">
+            <button type="button" class="btn btn-primary" @click="openNewConversation()" :disabled="channelComingSoon" :title="newMessageLabel">
               + {{ newMessageLabel }}
             </button>
           </div>
@@ -1543,6 +1551,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api, { messagingError } from '../../services/messagingApi';
 import { useSessionLockStore } from '../../store/sessionLock';
+import {openCommunicationPrint} from '../../utils/communicationPrint';
 import EmailThreadReader from './EmailThreadReader.vue';
 import { emailPreviewText } from '../../utils/emailReading';
 import { openEmailComposer } from '../../utils/emailComposerWindow';
@@ -1557,8 +1566,9 @@ import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
 
 const inboxChannel = ref('all');
 const newConversationChannel = ref('all');
-const newMessageLabel = computed(() => ({email:'New email',internal:'New internal message',secure:'New secure message',sms:'New SMS · Coming soon',group:'New group'})[inboxChannel.value] || 'New conversation');
-const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'group',label:'Groups'}];
+const newMessageLabel = computed(() => ({email:'New email',internal:'New internal message',secure:'New secure message',sms:'New SMS · Coming soon',calls:'Calls / Voicemails · Coming soon',group:'New group'})[inboxChannel.value] || 'New conversation');
+const channelComingSoon = computed(() => ['sms','calls'].includes(inboxChannel.value));
+const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS · Coming soon'},{id:'calls',label:'Calls / Voicemails · Coming soon'},{id:'group',label:'Groups'}];
 const readerSmsText=ref('');
 async function replyReaderSms(){const cid=conversationPreview.value?.conversation?.id;if(!cid||sending.value)return;sending.value=true;try{await api.post(`/communications/conversations/${cid}/reply`,{text:readerSmsText.value,mode:'reply'},{skipGlobalLoading:true});readerSmsText.value='';await refreshMail();}catch(e){error.value=e.response?.data?.error?.message||'Could not send text';}finally{sending.value=false;}}
 const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = ref(null);
@@ -1624,6 +1634,14 @@ function previewEmail(c,event){
 async function loadEarlierEmail(){
   const id=conversationPreview.value?.conversation?.id,beforeId=conversationPreview.value?.nextBeforeId;if(!id||!beforeId)return;loadingEmailHistory.value=true;
   try{const {data}=await api.get(`/communications/conversations/${id}/messages`,{params:{beforeId},skipGlobalLoading:true});if(conversationPreview.value?.conversation?.id===id){conversationPreview.value.messages=[...data.messages,...conversationPreview.value.messages];conversationPreview.value.nextBeforeId=data.nextBeforeId;}}catch(e){error.value='Could not load earlier emails';}finally{loadingEmailHistory.value=false;}
+}
+const threadFiling=ref(null);
+async function openThreadFiling(){const id=conversationPreview.value?.conversation?.id;try{const {data}=await api.get(`/communications/conversations/${id}/client-filing`);if(conversationPreview.value?.conversation?.id===id)threadFiling.value={...data,conversationId:id};}catch{error.value='Could not load client filing options';}}
+async function saveThreadFiling(){const filing=threadFiling.value;if(!filing)return;try{await api.post(`/communications/conversations/${filing.conversationId}/client-filing`,{clientIds:filing.clientIds});threadFiling.value=null;await loadInboxCounts();}catch(e){error.value=e.response?.data?.error?.message || 'Could not save client filing';}}
+
+async function printReaderThread(){
+  try{await openCommunicationPrint(()=>api.get(`/communications/conversations/${conversationPreview.value.conversation.id}/export`,{responseType:'text'}));}
+  catch{error.value='Could not load the printable conversation. Please try again.';}
 }
 async function downloadReaderAttachment(file){
   try{const {data}=await api.get(`/communications/conversations/${conversationPreview.value.conversation.id}/attachments/${file.id}`,{responseType:'blob',skipGlobalLoading:true});const url=URL.createObjectURL(data);const a=document.createElement('a');a.href=url;a.download=file.filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch{error.value='Could not download attachment';}
@@ -2004,6 +2022,7 @@ const filteredConversations = computed(() => {
 });
 
 const emptyListCopy = computed(() => {
+  if (channelComingSoon.value) return inboxChannel.value === 'calls' ? 'Calls and voicemails are coming soon.' : 'SMS is coming soon.';
   if (navSection.value === 'tools' && navId.value === 'calls') {
     return 'Calls & voicemail are coming soon.';
   }
@@ -2162,6 +2181,7 @@ async function sendPortalInviteForGuardian(g) {
 }
 
 function peopleRowTitle(p) {
+  if (p?.guardianClientNames?.length) return p.guardianClientNames.join(', ');
   if (p?.clientMessaging?.clientName) return p.clientMessaging.clientName;
   if ((p?.kinds || []).includes('client')) return p.displayName;
   if ((p?.kinds || []).includes('guardian') && p.relationshipMeta) {
@@ -3724,6 +3744,7 @@ async function loadConversations({ quiet = false, append = false } = {}) {
       conversations.value = [];
       return;
     }
+    if (channelComingSoon.value) { conversations.value = []; hasMoreEmailResults.value = false; return; }
     const id = navId.value;
     if (id === 'needs_attention') {
       const {data} = await api.get('/communications/drafts/attention', {params:{agencyId:agencyId.value},signal:controller.signal});
@@ -4222,7 +4243,7 @@ async function startConversationWithPerson(person) {
 }
 
 async function openNewConversation(channel = inboxChannel.value) {
-  if (channel === 'sms') return;
+  if (['sms','calls'].includes(channel)) return;
   newConversationChannel.value = channel;
   showNew.value = true;
 }

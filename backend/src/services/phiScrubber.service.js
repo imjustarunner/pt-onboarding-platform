@@ -25,7 +25,7 @@ function toClientCode(first, last) {
  * This is intentionally conservative; it will not attempt to rewrite all capitalized words.
  */
 /**
- * Scrub intake free-text before sending to Gemini/Note Aid.
+ * Scrub intake free-text before sending to Gemini/Documentation Hub.
  *
  * Removes / replaces:
  *  - Email addresses

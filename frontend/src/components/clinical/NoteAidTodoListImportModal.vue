@@ -86,7 +86,7 @@ import {
 } from '../../utils/noteAidWorkQueue.js';
 
 const ALLOWED_ORG_TYPES = new Set([
-  // Note Aid ToDo import: clinical / coaching portals only — never schools.
+  // Documentation Hub ToDo import: clinical / coaching portals only — never schools.
   'program',
   'learning',
   'clinical',

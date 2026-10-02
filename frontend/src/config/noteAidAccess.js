@@ -1,5 +1,5 @@
 /**
- * Note Aid / Tools & Aids access — shared across dashboard, router, and quick nav.
+ * Documentation Hub / Tools & Aids access — shared across dashboard, router, and quick nav.
  * Employee roles only (excludes client / client_guardian).
  */
 export const NOTE_AID_EMPLOYEE_ROLES = [

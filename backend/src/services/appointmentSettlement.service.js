@@ -1,6 +1,6 @@
 /**
  * Phase 5 settlement: package autodeduct / no-show forfeit / invoice-pending fee.
- * Separate from clinical Note Aid / medical claims — reuses booking + practitioner package ledgers.
+ * Separate from clinical Documentation Hub / medical claims — reuses booking + practitioner package ledgers.
  */
 import Appointment from '../models/Appointment.model.js';
 import BookingPackage from '../models/BookingPackage.model.js';

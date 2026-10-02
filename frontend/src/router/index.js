@@ -1708,7 +1708,7 @@ const routes = [
   {
     path: '/:organizationSlug/note-aid',
     name: 'OrganizationNoteAid',
-    // Note Aid now runs the Clinical Director Agent note generator.
+    // Documentation Hub now runs the Clinical Director Agent note generator.
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
     meta: {
       requiresAuth: true,
@@ -3632,7 +3632,7 @@ const routes = [
   {
     path: '/note-aid',
     name: 'NoteAid',
-    // Note Aid now runs the Clinical Director Agent note generator.
+    // Documentation Hub now runs the Clinical Director Agent note generator.
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
     meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
   },
@@ -3688,7 +3688,7 @@ const routes = [
     component: () => import('../views/admin/AgencyManagementTeamView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
   },
-  // Backward compatible: old route now redirects to Note Aid.
+  // Backward compatible: old route now redirects to Documentation Hub.
   {
     path: '/admin/clinical-note-generator',
     name: 'ClinicalNoteGenerator',
@@ -5733,7 +5733,7 @@ router.beforeEach(async (to, from, next) => {
   ) {
     const path = String(to.path || '');
     const isProviderMobileRoute = path.includes('/provider-mobile');
-    // Tools & Aids hub (My Dashboard → AI Tools) must stay reachable; Note Aid was already allowlisted.
+    // Tools & Aids hub (My Dashboard → AI Tools) must stay reachable; Documentation Hub was already allowlisted.
     const isAllowedExternalRoute =
       path.includes('/note-aid') ||
       path.includes('/admin/note-aid') ||

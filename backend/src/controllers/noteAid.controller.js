@@ -75,12 +75,12 @@ async function requireNoteAidEnabled(req, res, agencyId) {
     const explicitlyOff =
       flags?.noteAidEnabled === false && flags?.clinicalNoteGeneratorEnabled === false;
     if (explicitlyOff) {
-      res.status(403).json({ error: { message: 'Note Aid is disabled for this organization' } });
+      res.status(403).json({ error: { message: 'Documentation Hub is disabled for this organization' } });
       return false;
     }
     return true;
   } catch {
-    res.status(403).json({ error: { message: 'Note Aid is disabled for this organization' } });
+    res.status(403).json({ error: { message: 'Documentation Hub is disabled for this organization' } });
     return false;
   }
 }
@@ -218,7 +218,7 @@ export const executeNoteAidTool = async (req, res, next) => {
     if (e?.status) {
       return res.status(e.status).json({
         error: {
-          message: e.message || 'Note Aid execution failed',
+          message: e.message || 'Documentation Hub execution failed',
           ...(e.details ? { details: e.details } : null)
         }
       });

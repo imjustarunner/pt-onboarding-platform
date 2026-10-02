@@ -1,15 +1,15 @@
 <template>
   <div class="na-catalog-settings">
     <header class="na-catalog-head">
-      <h2>Note Aid catalog</h2>
+      <h2>Documentation Hub catalog</h2>
       <p>
-        Manage Note Aids for <strong>this organization only</strong>. Enable built-in tools, add custom
+        Manage Documentation Hubs for <strong>this organization only</strong>. Enable built-in tools, add custom
         writers (e.g. tutoring) with your own instructions, attach PDF/TXT reference materials, and
         limit who can use each aid — everyone with access, or only specific people.
       </p>
     </header>
 
-    <p v-if="!agencyId" class="na-catalog-warn">Select an organization to manage Note Aids.</p>
+    <p v-if="!agencyId" class="na-catalog-warn">Select an organization to manage Documentation Hubs.</p>
     <p v-if="loadError" class="na-catalog-err">{{ loadError }}</p>
     <p v-if="saveMessage" class="na-catalog-ok">{{ saveMessage }}</p>
 
@@ -137,7 +137,7 @@
           <small class="hint">
             Uploads to folder
             <code>{{ primaryFolder(row) }}</code>
-            (same Note Aid knowledge base used for learning materials).
+            (same Documentation Hub knowledge base used for learning materials).
           </small>
         </div>
       </div>
@@ -149,7 +149,7 @@
         <h3>Who can use — {{ peopleTitle }}</h3>
         <p class="hint">
           Scoped to this tenant. Leave everyone unchecked to allow all providers who otherwise have
-          Note Aid access. Check specific people to limit the aid to only those users.
+          Documentation Hub access. Check specific people to limit the aid to only those users.
         </p>
         <input v-model="peopleFilter" class="na-catalog-search" placeholder="Filter people…" />
         <ul class="na-catalog-assign-list">
@@ -401,7 +401,7 @@ async function uploadReference(row) {
 function openPeople(catalogAidId, customAidId, title) {
   peopleCatalogAidId.value = catalogAidId;
   peopleCustomAidId.value = customAidId;
-  peopleTitle.value = title || 'Note Aid';
+  peopleTitle.value = title || 'Documentation Hub';
   peopleFilter.value = '';
   peopleOpen.value = true;
 }

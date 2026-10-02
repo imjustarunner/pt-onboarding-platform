@@ -80,7 +80,7 @@ export const SETTINGS_SEARCH_DESCRIPTIONS = {
   'branding-config': 'Brand colors, fonts, logos, dashboard icons, and school portal card icons.',
   'branding-templates': 'Email and document templates.',
   assets: 'Icons, fonts, and shared creative assets.',
-  'note-aid-kb': 'Note Aid knowledge base.',
+  'note-aid-kb': 'Documentation Hub knowledge base.',
   'tenant-support': 'Organization help desk and Plot Twist Co platform tickets.',
   communications: 'Transactional email templates.',
   'sms-numbers': 'Texting numbers — tenant-scoped.',

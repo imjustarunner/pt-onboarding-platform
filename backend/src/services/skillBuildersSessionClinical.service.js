@@ -205,7 +205,7 @@ function splitH2014GroupOutputToSections(raw) {
   if (!text) return { Output: '' };
   const sections = {};
 
-  // Primary: "1. **Section Title**\n" + body (matches Note Aid output instructions)
+  // Primary: "1. **Section Title**\n" + body (matches Documentation Hub output instructions)
   const reBold = /\n?(\d+)\.\s*\*\*([^*]+)\*\*\s*\n([\s\S]*?)(?=\n\d+\.\s*\*\*|\s*$)/g;
   let m;
   while ((m = reBold.exec(text)) !== null) {

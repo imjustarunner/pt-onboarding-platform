@@ -6,7 +6,7 @@
         <p class="hint">
           <template v-if="isLearning">
             Goals and measurable objectives for this student, with progress over time.
-            Open Note Aid to write or update a learning plan.
+            Open Documentation Hub to write or update a learning plan.
           </template>
           <template v-else>
             Structured goals and measurable objectives. Every treatment plan must be acknowledged
@@ -16,7 +16,7 @@
       </div>
       <div class="ctp-actions">
         <button type="button" class="cdp-btn-soft" @click="openNoteAidUpdater">
-          Update in Note Aid
+          Update in Documentation Hub
         </button>
         <button type="button" class="cdp-btn-soft" @click="$emit('navigate', 'notes')">
           {{ isLearning ? 'Learning notes' : 'Notes' }}
@@ -34,7 +34,7 @@
     <div v-else-if="!plans.length" class="muted">
       No {{ isLearning ? 'learning' : 'treatment' }} plans on file yet.
       <button type="button" class="cdp-text-link" style="margin-left: 6px;" @click="openNoteAidUpdater">
-        Write a plan in Note Aid →
+        Write a plan in Documentation Hub →
       </button>
     </div>
 
@@ -88,7 +88,7 @@
           </article>
           <p v-if="!currentPlans.length" class="muted tiny" style="padding: 8px 4px;">
             No active or in-progress treatment plan.
-            <button type="button" class="cdp-text-link" @click="openNoteAidUpdater">Write or update in Note Aid →</button>
+            <button type="button" class="cdp-text-link" @click="openNoteAidUpdater">Write or update in Documentation Hub →</button>
           </p>
         </div>
 
@@ -261,7 +261,7 @@
             </article>
           </div>
           <p v-else class="muted">
-            This plan has no structured goals on the chart yet. Use Note Aid to write or paste a plan, then save to chart.
+            This plan has no structured goals on the chart yet. Use Documentation Hub to write or paste a plan, then save to chart.
           </p>
 
           <section v-if="planSections.dischargePlan" class="ctp-goal ctp-plan-section"><h4>Discharge plan</h4><p>{{ planSections.dischargePlan }}</p></section>

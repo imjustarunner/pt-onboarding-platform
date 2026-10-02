@@ -47,7 +47,7 @@ export const apiLimiter = rateLimit({
 export const noteAidLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: isDevelopment ? 60 : 12, // higher in dev; conservative in prod
-  message: { error: { message: 'Too many Note Aid requests, please try again later' } },
+  message: { error: { message: 'Too many Documentation Hub requests, please try again later' } },
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => `note-aid:${req.user?.id || req.ip}`,

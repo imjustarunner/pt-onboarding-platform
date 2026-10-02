@@ -135,7 +135,7 @@ router.post('/chat/threads/:threadId/read', requireQuickViewSession, qvMarkChatR
 router.get('/focus-music/catalog', requireQuickViewSession, qvFocusMusicCatalog);
 router.get('/focus-music/stream/:slug', requireQuickViewSession, qvFocusMusicStream);
 
-// Note Aid (initials / free text only — no client attach)
+// Documentation Hub (initials / free text only — no client attach)
 router.get('/note-aid/tools', requireQuickViewSession, qvListNoteAidTools);
 router.post('/note-aid/execute', requireQuickViewSession, qvExecuteNoteAid);
 

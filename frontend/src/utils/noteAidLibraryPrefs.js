@@ -21,7 +21,7 @@ function writeJson(key, value) {
   }
 }
 
-/** Library chrome prefs — default open so library + queue are visible on Note Aid open. */
+/** Library chrome prefs — default open so library + queue are visible on Documentation Hub open. */
 export function loadNoteLibraryUiPrefs(userId) {
   const raw = readJson(LIBRARY_UI_KEY(userId), null);
   return {

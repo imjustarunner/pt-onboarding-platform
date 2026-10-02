@@ -86,7 +86,7 @@ class UserCommunication {
   /**
    * Aggregate email rows that should appear on a client's Communications tab. Includes:
    *   * rows directly tagged with `client_id = :clientId`
-   *   * rows whose `user_id` is one of this client's linked guardians (via `client_guardians`)
+   *   * unlinked rows for a guardian with only this child in the same agency
    * Results are returned newest-first with guardian display fields when available.
    */
   static async listForClient(clientId, { limit = 200 } = {}) {
@@ -94,15 +94,8 @@ class UserCommunication {
     if (!Number.isFinite(cid) || cid <= 0) return [];
     const lim = Math.min(Math.max(Number(limit) || 200, 1), 500);
 
-    // Three match arms — the first two are the original matches, the third
-    // catches "orphaned" historical rows that were sent to a known guardian
-    // *email address* before that guardian's user account existed (or before
-    // client_guardians was linked, or because the sender forgot to pass
-    // client_id / user_id). Without this clause those rows would never appear
-    // on the Communications tab even though they're clearly addressed to this
-    // client's parent. Also includes a 4th arm that reaches sister-children
-    // sharing an intake_submission so a packet email tagged to one child shows
-    // for the other(s) too (multi-child intake parity).
+    // Explicit client attribution wins. Infer an unlinked historical notification
+    // only when the guardian has one child in this tenant; never cross-file siblings.
     const [rows] = await pool.execute(
       `SELECT uc.id, uc.user_id, uc.client_id, uc.agency_id, uc.template_type, uc.template_id,
               uc.channel, uc.subject, uc.recipient_address, uc.delivery_status,
@@ -124,27 +117,13 @@ class UserCommunication {
        LEFT JOIN users gb ON uc.generated_by_user_id = gb.id
        LEFT JOIN agencies a ON uc.agency_id = a.id
        WHERE uc.client_id = ?
-          OR (uc.user_id IS NOT NULL AND uc.user_id IN (
-               SELECT guardian_user_id FROM client_guardians WHERE client_id = ?
-             ))
-          OR (uc.recipient_address IS NOT NULL AND LOWER(uc.recipient_address) COLLATE utf8mb4_unicode_ci IN (
-               SELECT LOWER(u2.email) COLLATE utf8mb4_unicode_ci
-                 FROM client_guardians cg2
-                 JOIN users u2 ON u2.id = cg2.guardian_user_id
-                WHERE cg2.client_id = ? AND u2.email IS NOT NULL
-             ))
-          OR (uc.client_id IS NOT NULL AND uc.client_id IN (
-               SELECT isc2.client_id
-                 FROM intake_submission_clients isc2
-                WHERE isc2.intake_submission_id IN (
-                  SELECT isc3.intake_submission_id
-                    FROM intake_submission_clients isc3
-                   WHERE isc3.client_id = ?
-                )
-             ))
+          OR (uc.client_id IS NULL AND uc.agency_id = (SELECT agency_id FROM clients WHERE id = ?)
+            AND EXISTS (SELECT 1 FROM client_guardians only_guardian JOIN users recipient ON recipient.id=only_guardian.guardian_user_id
+              WHERE only_guardian.client_id=? AND (recipient.id=uc.user_id OR LOWER(recipient.email) COLLATE utf8mb4_unicode_ci=LOWER(uc.recipient_address) COLLATE utf8mb4_unicode_ci)
+              AND NOT EXISTS (SELECT 1 FROM client_guardians sibling JOIN clients sibling_client ON sibling_client.id=sibling.client_id WHERE sibling.guardian_user_id=recipient.id AND sibling.client_id<>only_guardian.client_id AND sibling_client.agency_id=uc.agency_id)))
        ORDER BY COALESCE(uc.sent_at, uc.generated_at) DESC, uc.id DESC
        LIMIT ${lim}`,
-      [cid, cid, cid, cid, cid]
+      [cid, cid, cid, cid]
     );
     return rows || [];
   }

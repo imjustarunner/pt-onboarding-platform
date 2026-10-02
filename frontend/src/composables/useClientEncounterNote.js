@@ -4,7 +4,7 @@ import api from '../services/api';
 import { buildNoteAidQuery, navigateToNoteAid, toDateOfService } from '../utils/noteAidLaunch.js';
 
 /**
- * Bootstrap clinical session + navigate to Note Aid for a medical-record row.
+ * Bootstrap clinical session + navigate to Documentation Hub for a medical-record row.
  */
 export function useClientEncounterNote() {
   const router = useRouter();
@@ -63,7 +63,7 @@ export function useClientEncounterNote() {
     }
 
     if (!encounterId) {
-      window.alert('This session is not ready to open in Note Aid yet.');
+      window.alert('This session is not ready to open in Documentation Hub yet.');
       return;
     }
 

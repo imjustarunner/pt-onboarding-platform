@@ -32,7 +32,7 @@
         </header>
 
         <p class="nac-body">
-          Clock in now so Note Aid documentation counts on your Log Time session.
+          Clock in now so Documentation Hub documentation counts on your Log Time session.
           Your timer keeps running while you write notes — no separate tracker.
         </p>
 
@@ -53,7 +53,7 @@
             :disabled="busy"
             @click="chooseClockIn"
           >
-            {{ busy ? 'Clocking in…' : 'Clock in & open Note Aid' }}
+            {{ busy ? 'Clocking in…' : 'Clock in & open Documentation Hub' }}
           </button>
         </footer>
       </div>
@@ -99,7 +99,7 @@ async function chooseClockIn() {
     error.value =
       e?.response?.data?.error?.message ||
       e?.message ||
-      'Could not clock in. You can still open Note Aid without a session.';
+      'Could not clock in. You can still open Documentation Hub without a session.';
     busy.value = false;
   }
 }

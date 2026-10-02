@@ -20,6 +20,9 @@ describe('AuricWell administrator preview', () => {
   });
   it('holds unrelated workflows, signatures, transmissions, files, and destructive operations', () => {
     for(const [method,path] of [['GET','/payroll'],['GET','/users'],['GET','/uploads/private.pdf'],['POST','/clinical-notes/transcribe'],['POST','/clinical-data/sessions/7/notes'],['POST','/medical-billing/claimmd/claims/3/submit'],['DELETE','/clients/9'],['PUT','/clinical-notes/work-queue']]) expect(previewRouteAllowed(method,path),`${method} ${path}`).toBe(false);
+    expect(previewRouteAllowed('GET','/clinical-notes/contact-documentation')).toBe(true);
+    expect(previewRouteAllowed('POST','/clinical-notes/contact-documentation/email/8')).toBe(true);
+    expect(previewRouteAllowed('DELETE','/clinical-notes/contact-documentation/email/8')).toBe(false);
     expect(previewRouteAllowed('GET','/medical-billing/workspace')).toBe(true);
     expect(previewRouteAllowed('POST','/clinical-notes/drafts')).toBe(true);
     expect(previewRouteAllowed('PATCH','/clinical-notes/drafts/8')).toBe(true);

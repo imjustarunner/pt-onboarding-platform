@@ -1,5 +1,5 @@
 /**
- * Note Aid minimal clients: promote after chart setup, claim unassigned creates.
+ * Documentation Hub minimal clients: promote after chart setup, claim unassigned creates.
  */
 import pool from '../config/database.js';
 import Client from '../models/Client.model.js';
@@ -66,7 +66,7 @@ export async function promoteNoteAidClientAfterSetup({ clientId, actorUserId = n
     clientId: cid,
     statusKey: LIFECYCLE_STATUS_KEYS.CURRENT,
     actorUserId,
-    note: 'Note Aid chart setup complete — moved to current / active caseload'
+    note: 'Documentation Hub chart setup complete — moved to current / active caseload'
   });
 
   return {

@@ -558,7 +558,7 @@ const quickActions = computed(() => {
   {
     id: 'tools_aids',
     title: 'Tools & Aids',
-    description: 'Note Aid and upcoming clinical tools',
+    description: 'Documentation Hub and upcoming clinical tools',
     to: '/admin/tools-aids',
     emoji: '🩺',
     iconKey: 'tools_aids',
@@ -568,7 +568,7 @@ const quickActions = computed(() => {
   },
   {
     id: 'clinical_note_generator',
-    title: 'Note Aid',
+    title: 'Documentation Hub',
     description: 'Clinical Director Agent (audio + text)',
     to: '/admin/note-aid',
     emoji: '🩺',
@@ -879,7 +879,7 @@ const quickActions = computed(() => {
   return base.filter((a) => {
     if (String(a?.id) === 'school_portals') return canSeeSchoolPortalsQuickAction.value;
     if (String(a?.id) === 'program_overview') return hasAffiliatedPrograms.value;
-    // Super admin always sees Tools & Aids / Note Aid when no agency; others need agency feature flag
+    // Super admin always sees Tools & Aids / Documentation Hub when no agency; others need agency feature flag
     const showToolsOrNoteAid = clinicalNoteGeneratorEnabledForAgency.value || !currentAgency.value;
     if (String(a?.id) === 'tools_aids' || String(a?.id) === 'clinical_note_generator') return showToolsOrNoteAid;
     return true;

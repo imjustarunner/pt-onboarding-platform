@@ -53,7 +53,7 @@ function catalogItems() {
     },
     {
       id: 'note-aid-kb',
-      label: 'Note Aid KB',
+      label: 'Documentation Hub KB',
       categoryId: 'ai',
       categoryLabel: 'AI TOOLS'
     }

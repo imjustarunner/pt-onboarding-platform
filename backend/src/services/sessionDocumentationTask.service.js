@@ -142,7 +142,7 @@ export async function runSessionDocumentationTaskTick() {
       const task = await Task.create({
         taskType: 'session_note',
         title,
-        description: `Session documentation due for ${clientLabel}. Open in Note Aid to generate and sign.`,
+        description: `Session documentation due for ${clientLabel}. Open in Documentation Hub to generate and sign.`,
         assignedToUserId: providerId,
         assignedByUserId: providerId,
         assignedToAgencyId: metadata.agencyId,

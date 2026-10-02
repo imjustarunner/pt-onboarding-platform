@@ -157,7 +157,7 @@ function isTruthyFlag(v) {
 function requireNotSchoolStaff(req, res) {
   if (String(req.user?.role || '').toLowerCase() === 'school_staff') {
     res.status(403).json({
-      error: { message: 'Clinical Note Aid is not available for school staff accounts.' }
+      error: { message: 'Clinical Documentation Hub is not available for school staff accounts.' }
     });
     return false;
   }
@@ -543,7 +543,7 @@ export const listClinicalNotePrograms = async (req, res, next) => {
 };
 
 /**
- * Create a consent signing task for Note Aid workflow.
+ * Create a consent signing task for Documentation Hub workflow.
  * Clinicians (provider, intern, intern_plus, etc.) can create this without admin.
  * MUST work regardless of whether a client is present: provider can always open the form,
  * sign/download, and upload manually to EHR.
@@ -604,7 +604,7 @@ export const createConsentTask = async (req, res, next) => {
 
     const task = await TaskAssignmentService.assignDocumentTask({
       title,
-      description: 'Auto-created by Note Aid consent workflow before audio recording.',
+      description: 'Auto-created by Documentation Hub consent workflow before audio recording.',
       documentTemplateId: templateId,
       assignedByUserId: userId,
       assignedToUserId,
@@ -1180,7 +1180,7 @@ export const generateClinicalNote = async (req, res, next) => {
       : tierCodes;
     const requestedToolId = req.body?.toolId ? String(req.body.toolId).trim() : '';
     const effectiveAutoSelect = !requestedToolId && (autoSelectCode || tier === 'unknown');
-    // Billing code optional when an explicit Note Aid tool (gem) is selected (plans / termination / diagnosis).
+    // Billing code optional when an explicit Documentation Hub tool (gem) is selected (plans / termination / diagnosis).
     if (!effectiveAutoSelect && !serviceCode && !requestedToolId) {
       return res.status(400).json({
         error: { message: 'serviceCode or toolId is required unless autoSelectCode is true' }
@@ -1279,7 +1279,7 @@ export const generateClinicalNote = async (req, res, next) => {
       ? objectiveRatingsContext
       : '';
 
-    // Explicit toolId (Note Aid category → gem) wins over service-code routing.
+    // Explicit toolId (Documentation Hub category → gem) wins over service-code routing.
     const toolId = effectiveAutoSelect
       ? 'clinical_code_decider'
       : (requestedToolId || resolveClinicalToolId({ serviceCode, programId }));
@@ -1291,7 +1291,7 @@ export const generateClinicalNote = async (req, res, next) => {
     const agencyRow = await Agency.findById(agencyId);
     const featureFlags = parseFlags(agencyRow?.feature_flags);
 
-    // Tenant custom Note Aids: instructions + reference folders (PDF/TXT learning materials).
+    // Tenant custom Documentation Hubs: instructions + reference folders (PDF/TXT learning materials).
     let customAidRow = null;
     const aidIdRaw = String(req.body?.aidId || '').trim();
     const customAidMatch = aidIdRaw.match(/^custom_(\d+)$/);
@@ -1299,11 +1299,11 @@ export const generateClinicalNote = async (req, res, next) => {
       const customId = Number(customAidMatch[1]);
       customAidRow = await NoteAidAgencyCatalog.findCustomAid(customId, agencyId);
       if (!customAidRow || !customAidRow.enabled) {
-        return res.status(404).json({ error: { message: 'Custom Note Aid not found for this organization' } });
+        return res.status(404).json({ error: { message: 'Custom Documentation Hub not found for this organization' } });
       }
       const allowed = await NoteAidAgencyCatalog.userCanAccessCustomAid(agencyId, req.user.id, customId);
       if (!allowed) {
-        return res.status(403).json({ error: { message: 'You are not assigned to this custom Note Aid' } });
+        return res.status(403).json({ error: { message: 'You are not assigned to this custom Documentation Hub' } });
       }
     }
 
@@ -1316,7 +1316,7 @@ export const generateClinicalNote = async (req, res, next) => {
       ].filter(Boolean);
       if (customBits.length) {
         prompt = [
-          'Organization custom Note Aid training / learning directions (follow these for this tool):',
+          'Organization custom Documentation Hub training / learning directions (follow these for this tool):',
           ...customBits,
           '',
           prompt

@@ -1,5 +1,5 @@
 /**
- * Frontend PHI guard helpers for Note Aid dictation / typing.
+ * Frontend PHI guard helpers for Documentation Hub dictation / typing.
  * Backend still scrubs before Gemini; this prompts clinicians to use roles.
  */
 

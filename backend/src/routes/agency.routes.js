@@ -550,7 +550,7 @@ router.get('/', authenticate, getAllAgencies);
 router.get('/archived', authenticate, requireSuperAdmin, getArchivedAgencies);
 router.get('/management-team/eligible-users', authenticate, requireSuperAdmin, listEligibleUsers);
 router.get('/management-team/role-types', authenticate, getRoleTypes);
-// Providers creating clients (e.g. Note Aid) need this list; controller still enforces agency membership.
+// Providers creating clients (e.g. Documentation Hub) need this list; controller still enforces agency membership.
 router.get('/:id/affiliated-organizations', authenticate, listAffiliatedOrganizations);
 router.get('/:id/settings-people-snapshot', authenticate, requireBackofficeAdmin, getTenantPeopleSnapshot);
 router.get('/:id/disclosure-settings', authenticate, getAgencyDisclosureSettings);

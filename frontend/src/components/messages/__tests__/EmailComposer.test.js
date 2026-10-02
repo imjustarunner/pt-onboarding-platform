@@ -102,3 +102,16 @@ it('saves all To, Cc and Bcc recipients before queuing the provider email', asyn
  expect(calls.findIndex(c=>c===saved)).toBeLessThan(calls.findIndex(c=>c.url.endsWith('/send')));
  expect(state.record.state).toBe('sent');
 });
+
+it('allows filing one conversation under both children and saves the selection before retrying send',async()=>{
+ state.draft.text='About both children';await nextTick();
+ const original=mock.api.getMockImplementation();let prompted=false;
+ mock.api.mockImplementation(async request=>{
+  if(request.url.endsWith('/send') && !prompted){prompted=true;throw {response:{data:{error:{code:'CLIENT_FILING_CHOICE_REQUIRED',clients:[{id:1,name:'First child'},{id:2,name:'Second child'}]}}}};}
+  return original(request);
+ });
+ await state.send();await flushPromises();expect(wrapper.text()).toContain('Select every child discussed');
+ await wrapper.findAll('button').find(b=>b.text()==='Select all listed children').trigger('click');
+ await state.send();await flushPromises();
+ expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({method:'put',data:expect.objectContaining({draft:expect.objectContaining({clientIds:[1,2]})})}));
+});

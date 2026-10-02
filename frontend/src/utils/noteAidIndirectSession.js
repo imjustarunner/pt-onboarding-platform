@@ -61,7 +61,7 @@ function askClockInViaModal() {
 }
 
 /**
- * For hourly workers opening Note Aid without a Log Time clock-in:
+ * For hourly workers opening Documentation Hub without a Log Time clock-in:
  * offer a modal to start a session so documentation can count on the clock.
  *
  * @param {{ skipPrompt?: boolean }} [opts]

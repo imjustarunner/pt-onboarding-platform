@@ -579,7 +579,7 @@ export const getClients = async (req, res, next) => {
       new Map(allClients.map(c => [c.id, c])).values()
     );
 
-    // Attach tenant display name for multi-tenant pickers (Note Aid, etc.)
+    // Attach tenant display name for multi-tenant pickers (Documentation Hub, etc.)
     try {
       if (agencyIds.length) {
         const ph = agencyIds.map(() => '?').join(',');
@@ -1001,7 +1001,7 @@ const enrichClientGradeFromIntakeIfMissing = async (client) => {
   return client;
 };
 
-/** Flag + redact ciphertext so Note Aid can detect "on file" without shipping PHI envelope. */
+/** Flag + redact ciphertext so Documentation Hub can detect "on file" without shipping PHI envelope. */
 async function attachDemographicsOnFileFlag(client) {
   if (!client) return client;
   try {
@@ -1311,7 +1311,7 @@ export const createClient = async (req, res, next) => {
       });
     }
 
-    // Note Aid / admin create may still send tenant root as organization_id — resolve to clinical/program child.
+    // Documentation Hub / admin create may still send tenant root as organization_id — resolve to clinical/program child.
     const peekOrgForResolve = await Agency.findById(parsedOrganizationId);
     const peekTypeForResolve = String(peekOrgForResolve?.organization_type || '').toLowerCase();
     const intakeOrgTypes = ['school', 'program', 'learning', 'clinical', 'life_coach', 'consultant'];
@@ -1613,7 +1613,7 @@ export const createClient = async (req, res, next) => {
     }
 
     // Provider-created contacts should always be owned by that provider.
-    // Note Aid todo / minimal create: assign the creating user so the caseload
+    // Documentation Hub todo / minimal create: assign the creating user so the caseload
     // is owned by whoever imported or created the client.
     // Agency staff/admin can still set provider_id explicitly.
     let resolvedProviderId = null;
@@ -1692,7 +1692,7 @@ export const createClient = async (req, res, next) => {
         : false
     };
 
-    // Note Aid / EHR list creates: reuse an active same-agency initials match instead of duplicating.
+    // Documentation Hub / EHR list creates: reuse an active same-agency initials match instead of duplicating.
     if (
       !forceCreate
       && normalizedInitials
@@ -1744,7 +1744,7 @@ export const createClient = async (req, res, next) => {
           }
         }
       } catch (reuseErr) {
-        console.warn('[createClient] Note Aid reuse check failed:', reuseErr?.message || reuseErr);
+        console.warn('[createClient] Documentation Hub reuse check failed:', reuseErr?.message || reuseErr);
       }
     }
 
@@ -3648,7 +3648,7 @@ export const updateClientStatus = async (req, res, next) => {
 };
 
 /**
- * Promote a Note Aid minimal client to current/active after chart setup completes.
+ * Promote a Documentation Hub minimal client to current/active after chart setup completes.
  * POST /api/clients/:id/note-aid-setup-complete
  */
 export const postNoteAidSetupComplete = async (req, res, next) => {
@@ -3680,13 +3680,13 @@ export const postNoteAidSetupComplete = async (req, res, next) => {
     if (error?.status) {
       return res.status(error.status).json({ error: { message: error.message } });
     }
-    console.error('Note Aid setup complete error:', error);
+    console.error('Documentation Hub setup complete error:', error);
     next(error);
   }
 };
 
 /**
- * Claim unassigned Note Aid minimal clients (provider_id = created_by_user_id).
+ * Claim unassigned Documentation Hub minimal clients (provider_id = created_by_user_id).
  * POST /api/clients/note-aid/claim-unassigned
  * Body/query: agencyId (optional), allCreators (admin/staff — default true for those roles)
  */
@@ -3742,7 +3742,7 @@ export const postNoteAidClaimUnassigned = async (req, res, next) => {
     });
     res.json(result);
   } catch (error) {
-    console.error('Note Aid claim unassigned error:', error);
+    console.error('Documentation Hub claim unassigned error:', error);
     next(error);
   }
 };
@@ -4069,7 +4069,7 @@ export const assignProvider = async (req, res, next) => {
     const userRole = req.user.role;
 
     // Permission check: agency-side admin/staff/support/super_admin can assign providers.
-    // Providers may assign themselves (e.g. Note Aid todo import claiming an unassigned chart).
+    // Providers may assign themselves (e.g. Documentation Hub todo import claiming an unassigned chart).
     const roleNorm = String(userRole || '').toLowerCase();
     const providerIdPreview = provider_id === null || provider_id === '' || provider_id === undefined
       ? null

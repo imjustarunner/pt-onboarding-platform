@@ -56,13 +56,13 @@ describe('Messages hub thread interactions', () => {
     expect(openEmailComposer).toHaveBeenCalledWith(expect.anything(), {mode:'new', agencyId:2, to:person.email});
     expect(api.post).not.toHaveBeenCalledWith('/messages/hub/send',expect.anything(),expect.anything());
   });
-  it.each([['all','New conversation'],['email','New email'],['internal','New internal message'],['secure','New secure message'],['sms','New SMS'],['group','New group']])('matches the primary action to %s', async (channel, label) => {
+  it.each([['all','New conversation'],['email','New email'],['internal','New internal message'],['secure','New secure message'],['sms','New SMS'],['calls','Calls / Voicemails'],['group','New group']])('matches the primary action to %s', async (channel, label) => {
     state.inboxChannel = channel;
     await nextTick();
     const button = wrapper.find('.msg-hub-head-actions .btn-primary');
     expect(button.text()).toContain(label);
-    expect(button.element.disabled).toBe(channel === 'sms');
-    if (channel !== 'sms') {
+    expect(button.element.disabled).toBe(['sms','calls'].includes(channel));
+    if (!['sms','calls'].includes(channel)) {
       await button.trigger('click');
       expect(state.newConversationChannel).toBe(channel);
       expect(state.showNew).toBe(true);

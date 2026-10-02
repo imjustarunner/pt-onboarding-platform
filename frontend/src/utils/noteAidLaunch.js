@@ -2,7 +2,7 @@ import { workspaceNoteAidPath } from '../config/noteAidAccess.js';
 import { resolveTreatmentPlanAidId } from '../config/noteAidWorkspace.js';
 
 /**
- * Shared Note Aid launch contract for schedule / medical record / client chart.
+ * Shared Documentation Hub launch contract for schedule / medical record / client chart.
  *
  * Progress notes should pass clientId + (clinicalSessionId OR officeEventId).
  * Treatment plan updater can pass clientId + launchIntent/noteAid only.
@@ -32,7 +32,7 @@ export function toDateOfService(value) {
 }
 
 /**
- * Build a normalized Note Aid query object (string values only).
+ * Build a normalized Documentation Hub query object (string values only).
  * @param {object} ctx
  */
 export function buildNoteAidQuery(ctx = {}) {
@@ -65,7 +65,7 @@ export function buildNoteAidQuery(ctx = {}) {
 }
 
 /**
- * Resolve Note Aid path with optional org slug.
+ * Resolve Documentation Hub path with optional org slug.
  * @param {{ organizationSlug?: string }} opts
  */
 export function noteAidPath(opts = {}) {
@@ -73,7 +73,7 @@ export function noteAidPath(opts = {}) {
 }
 
 /**
- * Navigate to Note Aid with a normalized query.
+ * Navigate to Documentation Hub with a normalized query.
  * Falls back to named route, then absolute path.
  */
 export function navigateToNoteAid(router, ctx = {}, opts = {}) {
@@ -125,7 +125,7 @@ export function treatmentPlanUpdaterQuery(clientId, extra = {}) {
   return query;
 }
 
-/** Open Note Aid focused on an intake draft (sections + addendum regenerate). */
+/** Open Documentation Hub focused on an intake draft (sections + addendum regenerate). */
 export function intakeDraftEditorQuery(clientId, extra = {}) {
   const draftId = cleanId(extra.intakeDraftId || extra.draftId);
   const query = buildNoteAidQuery({

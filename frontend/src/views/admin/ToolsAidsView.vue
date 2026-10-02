@@ -157,7 +157,7 @@
     <div class="cta-banner">
       <div>
         <strong>Need a recommendation?</strong>
-        <p>Browse assessments by population, try a session game, or open Note Aid for documentation.</p>
+        <p>Browse assessments by population, try a session game, or open Documentation Hub for documentation.</p>
       </div>
       <button type="button" class="btn-cta" @click="setTab(activeTab === 'assessments' ? 'ai' : 'assessments')">
         Explore {{ activeTab === 'assessments' ? 'AI Tools' : 'Assessments & Evaluations' }}

@@ -1,5 +1,5 @@
 <template>
-  <aside class="na-wq" :class="{ 'na-wq--collapsed': collapsed }" aria-label="Note Aid work queue">
+  <aside class="na-wq" :class="{ 'na-wq--collapsed': collapsed }" aria-label="Documentation Hub work queue">
     <template v-if="collapsed">
       <button
         type="button"

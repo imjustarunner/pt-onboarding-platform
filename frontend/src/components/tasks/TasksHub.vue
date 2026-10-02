@@ -37,7 +37,7 @@
             type="button"
             class="view-btn"
             :class="{ active: notesTodoOpen }"
-            title="Show pending Note Aid todos"
+            title="Show pending Documentation Hub todos"
             @click="notesTodoOpen = !notesTodoOpen"
           >
             Todo<span v-if="pendingSessionNoteCount"> ({{ pendingSessionNoteCount }})</span>
@@ -438,12 +438,12 @@
         </template>
       </div>
 
-      <aside v-if="notesTodoOpen" class="notes-todo-rail" aria-label="Note Aid todos">
+      <aside v-if="notesTodoOpen" class="notes-todo-rail" aria-label="Documentation Hub todos">
         <header class="notes-todo-rail__head">
-          <h2>Note Aid to-do</h2>
+          <h2>Documentation Hub to-do</h2>
           <button type="button" class="btn-close" @click="notesTodoOpen = false">Close</button>
         </header>
-        <p class="notes-todo-rail__hint">Click a note to open it in Note Aid.</p>
+        <p class="notes-todo-rail__hint">Click a note to open it in Documentation Hub.</p>
         <ul v-if="pendingSessionNoteTasks.length" class="notes-todo-list">
           <li v-for="t in pendingSessionNoteTasks" :key="t.id">
             <button type="button" class="notes-todo-item" @click="openNotesTasksInNoteAid([t])">
@@ -1528,7 +1528,7 @@ async function openNotesTasksInNoteAid(tasks) {
   try {
     await appendWorkQueueToApi(authStore.user?.id, items);
   } catch (e) {
-    console.warn('Note Aid work queue handoff save failed:', e?.response?.data?.error?.message || e.message);
+    console.warn('Documentation Hub work queue handoff save failed:', e?.response?.data?.error?.message || e.message);
   }
   navigateToNoteAid(router, { launchIntent: 'work_queue' });
 }

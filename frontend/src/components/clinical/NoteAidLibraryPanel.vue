@@ -1,7 +1,7 @@
 <template>
   <div class="nal">
     <aside class="nal-nav">
-      <h2 class="nal-nav-title">Note Aid Library</h2>
+      <h2 class="nal-nav-title">Documentation Hub Library</h2>
       <nav class="nal-cats" aria-label="Aid families">
         <button
           type="button"

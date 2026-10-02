@@ -506,7 +506,7 @@ async function createTranscriptNote() {
   noteRetry.value = false; noteMessage.value = 'Preparing the clinical draft…';
   try {
     const {data} = await api.post(`${transcriptionBase.value}/transcription/note`, {noteAidId:noteAidId.value || undefined});
-    noteMessage.value = data.draftId ? 'Clinical draft saved in Note Aid. Review and sign it there.' : 'No recorded transcript was available to create a note.';
+    noteMessage.value = data.draftId ? 'Clinical draft saved in Documentation Hub. Review and sign it there.' : 'No recorded transcript was available to create a note.';
   } catch(e) { noteMessage.value = e.response?.data?.error?.message || 'The draft could not be created. Your transcript is saved; retry when connected.'; noteRetry.value = true; }
 }
 async function confirmEnd() {
