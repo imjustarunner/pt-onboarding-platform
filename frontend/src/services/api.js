@@ -1,3 +1,4 @@
+import { attachTeamMeetingAccess } from '../utils/teamMeetingInvitationAccess';
 import axios from 'axios';
 import { attachSupervisionAccess } from '../utils/supervisionInvitationAccess';
 import { attachCounselingAccess } from '../utils/counselingInvitationAccess';
@@ -135,6 +136,7 @@ api.interceptors.request.use(
     // so a tripped request never begins a loading overlay or touches the network.
     checkRequestStorm(config);
     attachSupervisionAccess(config);
+    attachTeamMeetingAccess(config);
     attachCounselingAccess(config);
 
     // School-onboarding Hogwarts demo: rewrite school-portal calls to public demo APIs

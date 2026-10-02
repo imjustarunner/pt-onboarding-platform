@@ -1,0 +1,78 @@
+{
+  "date": "2026-10-01",
+  "scope": [
+    "calendar versus personal meeting identity",
+    "private virtual office",
+    "three-tier access",
+    "feature assignment review"
+  ],
+  "confirmed_tiers": {
+    "basic": [
+      "AI Note Aid"
+    ],
+    "premium": [
+      "AI Note Aid",
+      "private virtual office, one guest"
+    ],
+    "premium_plus": [
+      "AI Note Aid",
+      "private virtual office, multiple individually admitted guests"
+    ]
+  },
+  "existing_accounts": "Migration 1522 freezes the existing user population and grants Premium Plus once. New accounts default to Basic. Existing AuricWell accounts retain this grant when their shared provider identity is connected.",
+  "identity": [
+    "Personal supervision and team email tokens exchange for scoped, roster-checked identity without creating an app login. The email says not to share or forward the link.",
+    "Unsigned visitors using shared calendar URLs are guests with independent opaque credentials; they receive no staff attendance credit or client identity from their display name.",
+    "Signed-in calendar visitors use their account and existing roster checks. Cached personal grants are not attached on shared calendar routes.",
+    "Supervision calendar attachments and calendar composer links use shared meeting references, never personal invitation tokens.",
+    "Interview calendars use a separate signed calendar reference instead of the candidate bearer token. Candidate email links remain personal.",
+    "Client invitation-to-client binding is preserved; regression tests pass.",
+    "Calendar guests follow the ordinary meeting waiting-room policy. Supervision transcription pauses while an admitted anonymous calendar guest cannot be tied to a signed supervision agreement."
+  ],
+  "office": [
+    "Stable provider URL exposed by a top Meetings button with hover details.",
+    "Guest camera snapshot and acknowledgement required; images encrypted at rest and disclosed only to the owning provider.",
+    "Unpredictable guest credentials protect status and video requests. Public form fields cannot assign client or staff IDs.",
+    "Provider must connect first. Office has no open-room or admit-all endpoint.",
+    "Admission and token issue use an office row transaction lock. Premium admits one guest; Premium Plus allows additional individually admitted guests.",
+    "Ending or reopening a stale office rotates the media session and invalidates prior visit admissions; completed visit snapshots are removed.",
+    "No automatic clinical recording in a private office; a photo and display name do not bind a guest to a client chart."
+  ],
+  "feature_review": {
+    "catalog": "deliverables/feature-tier-inventory.json",
+    "interactive_checklist": "deliverables/feature-tier-review.html",
+    "features": 52,
+    "confirmed": 3,
+    "pending_user_assignment": 49,
+    "existing_prices_changed": false,
+    "other_feature_entitlements_changed": false
+  },
+  "website": {
+    "platform": "Public /plans comparison and login link implemented. Only confirmed assignments are published.",
+    "auricwell": "Local website and office integration built successfully. AuricWell base application is untracked, separate work; narrow integration patch preserved in docs/audits/auricwell-office-integration.patch rather than committing the unrelated base application."
+  },
+  "validation": {
+    "isolated_backend_tests": 435,
+    "invitation_email_tests": 69,
+    "invitation_suite_overlap_with_backend": 8,
+    "isolated_frontend_tests": 39,
+    "mysql_integration_tests_skipped": 21,
+    "platform_build": "passed from HEAD plus only proposed files",
+    "auricwell_build": "passed locally",
+    "browser_host": "Premium Plus individual admission, two guests, no admit-all, mobile layout, End action, comparison table; no page errors",
+    "browser_guest": "snapshot, acknowledgement, private credential, waiting without video token, connection after admission; no page errors",
+    "migration": "8 statements parsed; not executed against a database"
+  },
+  "release_requirements": [
+    "Apply migration 1522 after prior required migrations, including 1403 and the existing meeting/consent migrations.",
+    "Configure Vonage video and CLIENT_CHAT_ENCRYPTION_KEY_BASE64; missing encryption fails closed.",
+    "Deploy the platform changes; these checks did not deploy or change production data.",
+    "Land the separate AuricWell base application and its preserved integration patch before deploying AuricWell.",
+    "Review and return the remaining feature tier assignments."
+  ],
+  "limits": [
+    "Previously delivered calendar files containing personal links cannot be rewritten; replace those invitations when rolling out the new links. No historical email tokens were silently revoked.",
+    "Database checks used mocked transactions; a staging database and real multi-browser Vonage smoke test remain release checks.",
+    "Media expiry prevents late connection with an issued token, but is not a guaranteed billing cutoff for an already-connected frozen browser."
+  ]
+}

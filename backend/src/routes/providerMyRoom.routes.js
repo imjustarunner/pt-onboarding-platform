@@ -1,27 +1,19 @@
 import express from 'express';
-import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
-import {
-  getMyRoomMe,
-  getMyRoomLobby,
-  getMyRoomPublic,
-  joinMyRoomLobby,
-  getMyRoomLobbyGuestStatus,
-  admitMyRoomLobbyGuest,
-  dismissMyRoomLobbyGuest,
-  myRoomPhotoUpload
-} from '../controllers/providerMyRoom.controller.js';
-
-const router = express.Router();
-
-// Authenticated host routes first (avoid /:slug capturing "me")
-router.get('/me', authenticate, requireActiveStatus, getMyRoomMe);
-router.get('/me/lobby', authenticate, requireActiveStatus, getMyRoomLobby);
-router.post('/lobby/:lobbyId/admit', authenticate, requireActiveStatus, admitMyRoomLobbyGuest);
-router.post('/lobby/:lobbyId/dismiss', authenticate, requireActiveStatus, dismissMyRoomLobbyGuest);
-
-// Public (no auth) — room name only; joining never auto-admits
-router.get('/:slug/public', getMyRoomPublic);
-router.get('/:slug/lobby/:lobbyId', getMyRoomLobbyGuestStatus);
-router.post('/:slug/lobby', myRoomPhotoUpload, joinMyRoomLobby);
-
+import rateLimit from 'express-rate-limit';
+import { authenticate, requireActiveStatus, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import * as c from '../controllers/providerMyRoom.controller.js';
+const router=express.Router();
+router.get('/me/plan',authenticate,requireActiveStatus,c.getMyRoomPlan);
+router.put('/plans/:userId',authenticate,requireActiveStatus,requireSuperAdmin,c.putMyRoomPlan);
+router.get('/me',authenticate,requireActiveStatus,c.getMyRoomMe);
+router.get('/me/lobby',authenticate,requireActiveStatus,c.getMyRoomLobby);
+router.post('/me/video-token',authenticate,requireActiveStatus,c.getMyRoomHostVideo);
+router.post('/me/heartbeat',authenticate,requireActiveStatus,c.postMyRoomHeartbeat);
+router.post('/me/end',authenticate,c.endMyRoom);
+router.post('/lobby/:lobbyId/admit',authenticate,requireActiveStatus,c.admitMyRoomLobbyGuest);
+router.post('/lobby/:lobbyId/dismiss',authenticate,requireActiveStatus,c.dismissMyRoomLobbyGuest);
+router.get('/:slug/public',c.getMyRoomPublic);
+router.post('/:slug/lobby',rateLimit({windowMs:60000,max:6,standardHeaders:true,legacyHeaders:false}),c.joinMyRoomLobby);
+router.get('/:slug/lobby/:lobbyId',c.getMyRoomLobbyGuestStatus);
+router.post('/:slug/lobby/:lobbyId/video-token',c.getMyRoomGuestVideo);
 export default router;

@@ -1,3 +1,4 @@
+import meetingCalendarRoutes from './routes/meetingCalendar.routes.js';
 import faxIntakeRoutes from './routes/faxIntake.routes.js';
 import clientReferralLinksRoutes from './routes/clientReferralLinks.routes.js';
 import {publicRouter as publicWebsiteChatRoutes,staffRouter as websiteChatStaffRoutes} from './routes/publicWebsiteChat.routes.js';
@@ -336,6 +337,9 @@ app.use(cors({
     'Authorization',
     'X-User-Authorization',
     'X-Supervision-Access',
+    'X-Team-Meeting-Access',
+    'X-Office-Visit',
+    'X-Calendar-Guest',
     'X-Counseling-Access',
     'X-Requested-With',
     'X-Agency-Id',
@@ -970,6 +974,7 @@ app.use('/api/medical-billing', medicalBillingRoutes);
 app.use('/api/tenant-booking', tenantServicesRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/my-room', providerMyRoomRoutes);
+app.use('/api/meeting-calendar', meetingCalendarRoutes);
 app.use('/api/offices', officeSettingsRoutes);
 app.use('/api/office-slots', officeSlotActionsRoutes);
 app.use('/api/office-review', officeReviewRoutes);

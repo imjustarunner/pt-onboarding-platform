@@ -1,3 +1,6 @@
+import SupervisionSession from '../models/SupervisionSession.model.js';
+import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
+import { resolveTeamMeetingInvitationAccess } from '../services/teamMeetingInvitationAccess.service.js';
 import express from 'express';
 import { huddleTitle } from '../services/huddlePolicy.js';
 import { supervisionCalendar, supervisionEmailPeople } from '../services/supervisionEmail.service.js';
@@ -27,7 +30,8 @@ router.get('/:token/calendar.ics', async (req,res,next) => {
     if(!rows[0])return res.sendStatus(404);
     const event=(await invitationEvents(rows[0])).find(e=>Number(e.id)===Number(req.query.eventId));
     if(!event || (rows[0].meeting_type!=='supervision' && event.kind!=='HUDDLE'))return res.sendStatus(404);
-    const calendar=supervisionCalendar(event,`${await tenantMeetingBase(event.agency_id)}/join/invitation/${req.params.token}`);
+    const calendarEvent=event.participant_join_token||event.join_token?event:await (event.kind==='HUDDLE'?ProviderScheduleEvent:SupervisionSession).resolveByJoinRef(String(event.id));
+    const calendar=supervisionCalendar({...event,...calendarEvent},`${await tenantMeetingBase(event.agency_id)}/join/invitation/${req.params.token}`);
     if(!calendar)return res.sendStatus(404);
     res.set({'Content-Type':'text/calendar; charset=utf-8','Content-Disposition':`attachment; filename="${event.kind==='HUDDLE'?'huddle':'supervision'}.ics"`,'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'}).send(calendar.ics);
   }catch(error){next(error);}
@@ -59,6 +63,8 @@ router.get('/:token', async (req,res,next) => {
     if (!req.query.details) {
       const supervision = await resolveSupervisionInvitationAccess(req.params.token);
       if (supervision) return res.json(supervision);
+      const team=await resolveTeamMeetingInvitationAccess(req.params.token);
+      if(team) return res.json(team);
     }
     return authenticate(req,res,next);
   } catch (error) { next(error); }

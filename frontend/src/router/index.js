@@ -986,7 +986,7 @@ const routes = [
   {
     path: '/join/supervision/:sessionId',
     name: 'JoinSupervision',
-    component: () => import('../views/supervision/JoinSupervisionView.vue'),
+    component: () => import('../views/MeetingJoinEntry.vue'),
     meta: { requiresGuest: false }
   },
   // Join team meeting (no org slug): resolve event → redirect to /{slug}/join/team-meeting/:id
@@ -1006,9 +1006,11 @@ const routes = [
   {
     path: '/join/team-meeting/:eventId',
     name: 'JoinTeamMeeting',
-    component: () => import('../views/teamMeeting/JoinTeamMeetingView.vue'),
+    component: () => import('../views/MeetingJoinEntry.vue'),
     meta: { requiresGuest: false }
   },
+  { path: '/plans', name: 'PlatformPlans', component: () => import('../views/public/PlatformPlansView.vue'), meta: { requiresAuth: false } },
+  { path: '/my-virtual-office', alias: '/:organizationSlug/my-virtual-office', name: 'PrivateVirtualOffice', component: () => import('../views/PrivateVirtualOfficeView.vue'), meta: { requiresAuth: true } },
   // Provider My Room public lobby join (photo required; never auto-admits)
   {
     path: '/join/my-room/:slug',
@@ -1446,7 +1448,7 @@ const routes = [
   {
     path: '/:organizationSlug/join/supervision/:sessionId',
     name: 'OrganizationJoinSupervision',
-    component: () => import('../views/supervision/JoinSupervisionView.vue'),
+    component: () => import('../views/MeetingJoinEntry.vue'),
     meta: { requiresGuest: false, organizationSlug: true }
   },
   {
@@ -1458,7 +1460,7 @@ const routes = [
   {
     path: '/:organizationSlug/join/team-meeting/:eventId',
     name: 'OrganizationJoinTeamMeeting',
-    component: () => import('../views/teamMeeting/JoinTeamMeetingView.vue'),
+    component: () => import('../views/MeetingJoinEntry.vue'),
     // Match supervision join: allow the view to hydrate session / redirect to login
     // with ?redirect= so email & calendar app links do not force a hard logout loop.
     meta: { requiresGuest: false, organizationSlug: true }

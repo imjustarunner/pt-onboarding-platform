@@ -1,3 +1,4 @@
+import {interviewCalendarEventId} from '../utils/interviewCalendarLink.js';
 import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import { assertProviderEventCanMove, syncAppointmentFromProviderEvent, moveOfficeFromProviderEvent, cancelAppointmentsFromCalendar } from '../services/appointmentScheduleSync.service.js';
 import pool from '../config/database.js';
@@ -205,7 +206,8 @@ class ProviderScheduleEvent {
   }
 
   static async resolveByJoinRef(ref) {
-    const raw = String(ref || '').trim();
+    const calendarId=interviewCalendarEventId(ref);
+    const raw = calendarId ? String(calendarId) : String(ref || '').trim();
     if (!raw) return null;
     let row = null;
     if (/^\d+$/.test(raw)) {

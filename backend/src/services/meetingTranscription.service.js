@@ -15,6 +15,10 @@ export async function transcriptionState(context,db=pool) {
   if(type==='counseling' && Number((await counselingClient(session,db)).id)!==Number(client.id))fail('The appointment client changed. Open the current session again.',409);
   const closed=!!session.live_ended_at || ['ENDED','FINALIZED','CANCELLED','MISSED','RESCHEDULED','MANUAL_PENDING'].includes(String(session.status).toUpperCase());
   const consent=type==='supervision'?await supervisionRecordingConsent(session,db):{allowed:!!(Number(session.recording_requested)&&await SessionRecordingConsent.findOnFile({agencyId:session.agency_id,clientId:client.id},db)),reason:'The provider must request recording and the client must sign the audio consent first.'};
+  if(type==='supervision'){
+    const [anonymous]=await db.execute("SELECT COUNT(*) count FROM meeting_calendar_guests WHERE meeting_type='supervision' AND meeting_id=? AND status='admitted' AND expires_at>UTC_TIMESTAMP() AND last_seen_at>DATE_SUB(UTC_TIMESTAMP(),INTERVAL 90 SECOND)",[session.id]);
+    if(Number(anonymous[0]?.count)>0){consent.allowed=false;consent.reason='Calendar guests must use their personal invitation or sign in before supervision can be transcribed.';}
+  }
   const [rows]=await db.execute('SELECT * FROM meeting_transcription_controls WHERE meeting_type=? AND meeting_id=?',[type,session.id]);
   const row=rows[0]||{};
   const configured=isChatEncryptionConfigured()&&!!(process.env.CLINICAL_AUDIO_BUCKET||process.env.PTONBOARDFILES);

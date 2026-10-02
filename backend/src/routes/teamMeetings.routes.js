@@ -1,3 +1,5 @@
+import {calendarHostList,calendarHostAdmit} from './meetingCalendar.routes.js';
+import { authenticateTeamMeeting, authenticateTeamMeetingOptional } from '../middleware/teamMeetingInvitationAccess.middleware.js';
 import express from 'express';
 import { downloadInterviewCalendar } from '../controllers/interviewCalendar.controller.js';
 import { authenticate, authenticateOptional } from '../middleware/auth.middleware.js';
@@ -33,21 +35,23 @@ import { getTeamMeetingActivity, postTeamMeetingActivity } from '../controllers/
 const router = express.Router();
 
 // Public: resolve event to org slug for join redirect (no auth)
-router.get('/join-info/:eventId', authenticateOptional, getTeamMeetingJoinInfo);
+router.get('/join-info/:eventId', authenticateTeamMeetingOptional, getTeamMeetingJoinInfo);
 // Presence heartbeat (guest-safe; auth optional so we can normalize user-{id})
-router.post('/:eventId/join-presence', authenticateOptional, postTeamMeetingJoinPresence);
+router.post('/:eventId/join-presence', authenticateTeamMeetingOptional, postTeamMeetingJoinPresence);
 // Interview candidate join links work without an account (opaque participant token only).
-router.get('/:eventId/video-token', authenticateOptional, getTeamMeetingVideoToken);
-router.get('/:eventId/admission-status', authenticateOptional, getTeamMeetingAdmissionStatus);
+router.get('/:eventId/video-token', authenticateTeamMeetingOptional, getTeamMeetingVideoToken);
+router.get('/:eventId/admission-status', authenticateTeamMeetingOptional, getTeamMeetingAdmissionStatus);
 router.get('/:eventId/calendar.ics', downloadInterviewCalendar);
 
-router.use(authenticate);
+router.use(authenticateTeamMeeting);
 
 // Static paths before /:eventId
 router.get('/admin-log', listAdminMeetingsLog);
 router.get('/types', getMeetingTypeSettings);
 router.put('/types/:typeKey', putMeetingTypeSettings);
 
+router.get('/:eventId/calendar-guests',calendarHostList('team-meeting'));
+router.post('/:eventId/calendar-guests/:guestId/admit',calendarHostAdmit('team-meeting'));
 router.get('/:eventId/lobby-participants', getTeamMeetingLobbyParticipants);
 router.post('/:eventId/admit/:userId', admitTeamMeetingParticipant);
 router.post('/:eventId/attendees', addTeamMeetingAttendee);

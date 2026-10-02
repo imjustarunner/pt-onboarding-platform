@@ -1,4 +1,5 @@
 <template>
+  <CalendarGuestLobby v-if="isSupervisor && sessionId" :session-id="sessionId" :meeting-kind="meetingKind" />
   <div
     v-if="isSupervisor && sessionId && waitingRoomEnabled"
     class="lobby-panel"
@@ -57,6 +58,7 @@
 <script setup>
 import { computed, ref, onUnmounted, watch } from 'vue';
 import api from '../../services/api';
+import CalendarGuestLobby from '../meetings/CalendarGuestLobby.vue';
 
 const props = defineProps({
   sessionId: { type: [Number, String], default: null },

@@ -1,5 +1,6 @@
 <template>
-  <section v-if="meetings.length" class="dashboard-meetings" aria-label="Upcoming meetings">
+  <section class="dashboard-meetings" aria-label="Upcoming meetings">
+    <RouterLink class="office-button" :to="`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-virtual-office`" title="Your permanent private office link. Every guest supplies a snapshot and waits for your individual admission. Premium: one guest. Premium Plus: couples and families." @click="notifyNavigation">My virtual office ↗</RouterLink>
     <h2>Your meetings</h2>
     <article v-for="meeting in meetings.slice(0, 4)" :key="meeting.key" :class="{ ready: canJoin(meeting) }">
       <div><strong>{{ meeting.title }}</strong><p>{{ formatTime(meeting.start) }} · {{ meeting.end <= now ? 'Ended' : meeting.start <= now ? 'In progress' : 'Upcoming' }}</p></div>
@@ -37,5 +38,6 @@ async function load(){try{const userId=auth.user?.id;if(!userId)return;const age
 onMounted(()=>{void load();timer=setInterval(()=>{now.value=Date.now();void load();},30000);});onUnmounted(()=>clearInterval(timer));
 </script>
 <style scoped>
+.office-button{display:block;padding:14px;margin-bottom:16px;background:#245b44;color:#fff;border-radius:10px;font-weight:700;text-decoration:none}
 .dashboard-meetings{padding:16px;border:1px solid #b4d5cb;border-radius:12px;margin:12px 0;background:#f6fcf9;color:#173f39}.dashboard-meetings h2{font-size:1.1rem;margin:0 0 10px;color:inherit}.dashboard-meetings article{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;border-radius:9px}.dashboard-meetings article.ready{background:#d9f5e7;border:2px solid #2d6a50}.dashboard-meetings p{margin:5px 0;font-size:.85rem}.meeting-join{display:inline-flex;padding:14px 24px;border-radius:8px;background:#245b44;color:white;font-size:1.05rem;font-weight:800;white-space:nowrap}@media(max-width:600px){.dashboard-meetings article{flex-wrap:wrap}.meeting-join{width:100%;justify-content:center}}
 </style>

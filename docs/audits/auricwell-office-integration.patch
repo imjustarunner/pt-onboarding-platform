@@ -1,0 +1,114 @@
+--- a/auricwell/src/Marketing.vue
++++ b/auricwell/src/Marketing.vue
+@@ -48,6 +48,7 @@
+           </article>
+         </div>
+       </section>
++      <PlanComparisonTable />
+       <section class="onboarding-banner">
+         <div>
+           <span class="eyebrow">Room to begin. A path to move.</span>
+@@ -80,6 +81,7 @@
+   </div>
+ </template>
+ <script setup>
++import PlanComparisonTable from '../../frontend/src/components/meetings/PlanComparisonTable.vue';
+ import { computed } from "vue";
+ import { useRoute } from "vue-router";
+ const route = useRoute();
+--- a/auricwell/src/Workspace.vue
++++ b/auricwell/src/Workspace.vue
+@@ -10,6 +10,7 @@
+         }}</span
+         ><strong>{{ practice?.name || "Your practice" }}</strong>
+       </div>
++      <button v-if="!patientPortal && can('clinical')" class="outline" title="Permanent private office link. Snapshot review and individual admission required. Premium: one guest. Premium Plus: couples and families." @click="showOffice=true">My virtual office ↗</button>
+       <nav aria-label="Practice">
+         <RouterLink
+           v-for="item in navigation"
+@@ -608,6 +609,7 @@
+         AuricWell <span>Care, connected.</span>
+       </footer>
+     </div>
++    <div v-if="showOffice" class="modal-backdrop"><section class="modal" style="max-width:1250px;width:95vw"><button class="outline" @click="showOffice=false">Close office</button><PrivateVirtualOffice :request="officeRequest" /></section></div>
+     <div v-if="video" class="modal-backdrop">
+       <section class="modal">
+         <div class="section-heading">
+@@ -636,6 +638,9 @@
+ import StructuredNoteFields from "./StructuredNoteFields.vue";
+ import BillingSetup from "./BillingSetup.vue";
+ import Payments from "./Payments.vue";
++import PrivateVirtualOffice from '../../frontend/src/components/meetings/PrivateVirtualOffice.vue';
++const showOffice=ref(false);
++const officeRequest=(path,options)=>api(`${base}/office${path}`,options);
+ const EmptyState = (props) =>
+   h("div", { class: "empty" }, [
+     h("span", { class: "empty-icon" }, "◇"),
+--- a/auricwell/src/main.js
++++ b/auricwell/src/main.js
+@@ -8,6 +8,8 @@
+ const router = createRouter({
+   history: createWebHistory(),
+   routes: [
++    { path: "/join/my-room/:slug", component: () => import("./PrivateOfficeJoin.vue") },
++    { path: "/plans", component: Marketing },
+     { path: "/", component: Marketing },
+     { path: "/product", component: Marketing },
+     { path: "/security", component: Marketing },
+--- a/auricwell/src/api.js
++++ b/auricwell/src/api.js
+@@ -1,9 +1,9 @@
+-export async function api(path, { method = "GET", body, signal } = {}) {
++export async function api(path, { method = "GET", body, signal, headers = {} } = {}) {
+   const response = await fetch(`/api/auricwell${path}`, {
+     method,
+     credentials: "same-origin",
+     signal,
+-    headers: { "Content-Type": "application/json", "X-AuricWell": "1" },
++    headers: { "Content-Type": "application/json", "X-AuricWell": "1", ...headers },
+     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+   });
+   const data = await response.json();
+--- a/auricwell/vite.config.js
++++ b/auricwell/vite.config.js
+@@ -2,6 +2,7 @@
+ import vue from "@vitejs/plugin-vue";
+ export default defineConfig({
+   plugins: [vue()],
++  resolve: { dedupe: ["vue", "vue-router"] },
+   server: {
+     port: 5174,
+     proxy: {
+--- a/backend/src/routes/auricwell.routes.js
++++ b/backend/src/routes/auricwell.routes.js
+@@ -1,3 +1,5 @@
++import auricwellOfficeRoutes from './auricwellOffice.routes.js';
++import officePublicRoutes from './officePublic.routes.js';
+ import express from "express";
+ import rateLimit from "express-rate-limit";
+ import {
+@@ -143,6 +145,7 @@
+     });
+   }),
+ );
++router.use('/office-public',officePublicRoutes);
+ router.use(authenticate);
+ router.get("/auth/status", (req, res) =>
+   res.json({
+@@ -193,6 +196,7 @@
+   run(async (req, res) => res.json(await applyConsolidation(req.aw, req.body))),
+ );
+ const p = "/practices/:slug";
++router.use(`${p}/office`,auricwellOfficeRoutes);
+ router.get(
+   `${p}/intake-templates`,
+   run(async (req, res) => res.json(await intake.intakeTemplates(req.aw))),
+--- /dev/null
++++ b/auricwell/src/PrivateOfficeJoin.vue
+@@ -0,0 +1,6 @@
++<template><PrivateOfficeGuest :key="route.params.slug" :slug="String(route.params.slug)" :request="request" /></template>
++<script setup>
++import {useRoute} from 'vue-router';import {api} from './api';
++import PrivateOfficeGuest from '../../frontend/src/components/meetings/PrivateOfficeGuest.vue';
++const route=useRoute();const request=(url,options)=>api(url.replace('/my-room/','/office-public/'),options);
++</script>

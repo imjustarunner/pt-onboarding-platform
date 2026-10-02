@@ -8,6 +8,7 @@ export function interviewInvitationBody({ firstName, candidateName, agencyName, 
   const round = String(title || 'Interview').split(' — ')[0];
   const people = interviewers.length ? interviewers.map(person => `<tr><td style="padding:5px 0;"><div style="font-size:17px;font-weight:bold;color:#183d31;">${escapeHtml(person.name)}</div>${person.email ? `<a href="mailto:${escapeHtml(person.email)}" style="font-size:13px;color:#52665e;text-decoration:none;overflow-wrap:anywhere;word-break:break-word;">${escapeHtml(person.email)}</a>` : ''}</td></tr>`).join('') : '<tr><td>Our hiring team</td></tr>';
   return `<div style="font-family:Arial,Helvetica,sans-serif;color:#33443d;font-size:16px;line-height:1.6;">
+    <p><strong>Your email join link is personal. Do not share or forward it.</strong> Calendar links join as a guest unless you are signed in.</p>
     <p style="margin:0 0 14px;color:#53655e;">Hi ${escapeHtml(firstName)},</p>
     <h1 style="margin:0 0 16px;font-size:34px;line-height:1.15;letter-spacing:-1px;color:#103e2f;">Interview invitation</h1>
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;"><tr><td width="54" height="4" bgcolor="#47885f" style="border-radius:2px;font-size:0;line-height:0;">&nbsp;</td></tr></table>

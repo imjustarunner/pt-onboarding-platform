@@ -1,3 +1,4 @@
+import {calendarHostList,calendarHostAdmit} from './meetingCalendar.routes.js';
 import {listManualSupervision,createManualSupervision,finishManualSupervision} from '../controllers/supervisionManual.controller.js';
 import { requirePersonalSupervisionInvitation } from '../services/meetingJoinPolicy.service.js';
 import { listSupervisionAgreements, signAgreement, downloadAgreement } from '../controllers/supervisionAgreement.controller.js';
@@ -137,6 +138,8 @@ router.post('/sessions/:id/finalize', finalizeSupervisionSessionBySubmit);
 router.get('/sessions/:id/video-token', getSupervisionVideoToken);
 router.get('/sessions/:id/live-attendance', getSupervisionLiveAttendance);
 router.post('/sessions/:id/end-live', endSupervisionLiveSession);
+router.get('/sessions/:id/calendar-guests',calendarHostList('supervision'));
+router.post('/sessions/:id/calendar-guests/:guestId/admit',calendarHostAdmit('supervision'));
 router.get('/sessions/:id/lobby-participants', getLobbyParticipants);
 router.get('/sessions/:id/admission-status', getAdmissionStatus);
 router.post('/sessions/:id/admit/:userId', admitToMainRoom);

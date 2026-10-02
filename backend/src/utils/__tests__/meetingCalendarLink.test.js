@@ -1,0 +1,4 @@
+import {it,expect} from 'vitest';import {sharedCalendarJoinUrl} from '../meetingCalendarLink.js';
+it('never copies the personal email token into a calendar invitation',()=>{const personal='private-personal-token';const shared='s'.repeat(32);expect(sharedCalendarJoinUrl({join_token:shared},`https://tenant.example/agency/join/invitation/${personal}?details=1`)).toBe(`https://tenant.example/agency/join/supervision/${shared}`);});
+it('uses the shared huddle participant token, never the host token',()=>{expect(sharedCalendarJoinUrl({kind:'HUDDLE',participant_join_token:'p'.repeat(32),host_join_token:'h'.repeat(32)},'https://tenant.example/join/invitation/personal')).toBe('https://tenant.example/join/team-meeting/'+'p'.repeat(32));});
+it('does not fall back to a personal token or numeric meeting ID',()=>{expect(sharedCalendarJoinUrl({id:8},'https://tenant.example/join/invitation/private')).toBeNull();});

@@ -1,3 +1,4 @@
+import {interviewCalendarJoinUrl} from '../utils/interviewCalendarLink.js';
 import { interviewInvitationBody } from '../utils/interviewInvitationBody.js';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 /**
@@ -69,6 +70,7 @@ export async function prepareHiringInterviewInviteEmail({
   whenLabel,
   startsAt, endsAt, timezone = 'America/Denver', interviewId,
   publicJoinUrl,
+  eventId = null,
   interviewerRows = [],
   jobDescriptionId = null,
   jobTitle = ''
@@ -89,7 +91,8 @@ export async function prepareHiringInterviewInviteEmail({
 
   const attachments = [];
   const { interviewCalendar } = await import('../utils/interviewCalendar.js');
-  const calendar = interviewCalendar({ startsAt, endsAt, timezone, title, publicJoinUrl, interviewId });
+  if(!eventId && Number(interviewId)){const [rows]=await pool.execute('SELECT provider_schedule_event_id FROM hiring_interviews WHERE id=? AND agency_id=?',[Number(interviewId),agencyId]);eventId=rows[0]?.provider_schedule_event_id;}
+  const calendar = eventId ? interviewCalendar({ startsAt, endsAt, timezone, title, publicJoinUrl:interviewCalendarJoinUrl(publicJoinUrl,eventId), interviewId }) : null;
   if (calendar) {
     whenLabel = calendar.whenLabel;
     attachments.push({ filename: 'interview.ics', contentType: 'text/calendar; charset=utf-8', contentBase64: Buffer.from(calendar.ics).toString('base64') });
@@ -185,6 +188,7 @@ export async function prepareHiringInterviewInviteEmail({
     `Invited from ${agencyBrandOrName(agency)}: ${interviewerLine}`,
     '',
     `Join link: ${publicJoinUrl}`,
+    'This is your personal interview link. Do not share or forward it. Calendar links join as a guest unless signed in.',
     `Confirm attendance or decline: ${rsvpUrl}`,
     ...(calendar ? [`Add to Google Calendar: ${calendar.googleUrl}`, `Add to Outlook: ${calendar.outlookUrl}`, calendar.downloadUrl ? `Apple Calendar / iCal: ${calendar.downloadUrl}` : 'Apple Calendar / iCal: open the attached interview.ics file.'] : []),
     '',
