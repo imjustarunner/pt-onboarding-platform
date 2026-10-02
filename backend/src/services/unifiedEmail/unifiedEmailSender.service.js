@@ -1299,6 +1299,7 @@ export async function sendEmailFromIdentity({
   } catch (sendErr) {
     const agencyIdForFail = identity?.agency_id || null;
     if (comm?.id) {
+      sendErr.communicationId = comm.id;
       await pool
         .execute(
           `UPDATE user_communications SET delivery_status = 'failed', error_message = ? WHERE id = ?`,

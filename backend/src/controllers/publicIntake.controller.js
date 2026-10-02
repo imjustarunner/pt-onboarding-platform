@@ -1,3 +1,4 @@
+import { sendPacketCompletionNotification } from '../services/packetCompletionNotification.service.js';
 import {allowsProviderPreference,stripIneligibleProviderPreference} from '../utils/intakeProviderPreference.js';
 import { applicationSnapshot, enrichApplicationRecord, issueApplicationReceiptToken, appendApplicationJobDescription } from '../services/jobApplicationRecord.service.js';
 import learningReflections from '../../../frontend/src/navigation/learningReflection.js';
@@ -2520,15 +2521,12 @@ const deliverPacketCompletionEmail = async ({
   scopeType,
   templateType = 'intake_packet_completion',
   submissionId,
-  flowLabel = 'public_intake',
-  fromAddress = null
+  flowLabel = 'public_intake'
 }) => {
   const result = { sent: false, skipped: false, error: null, errorMessage: null };
   // @example.com and other demo fakes are redirected to testing@itsco.health
   // by the shared outbound rewrite — do not block them here.
-  // Same attachment shape both branches used: actual PDF bytes on the email
-  // so the family always has the packet on hand even if the signed download
-  // URL eventually expires.
+  // Keep the actual PDF on the receipt even after its download link expires.
   const packetAttachments = packetPdfBuffer
     ? [{
         filename: `intake-packet-${submissionId}.pdf`,
@@ -2538,52 +2536,20 @@ const deliverPacketCompletionEmail = async ({
     : null;
 
   try {
-    const identity = await resolveIntakeSenderIdentity({ organizationId, scopeType });
-    let sendResult = null;
-    if (identity?.id) {
-      sendResult = await sendEmailFromIdentity({
-        senderIdentityId: identity.id,
-        to,
-        subject,
-        text,
-        html,
-        attachments: packetAttachments,
-        source: 'auto',
-        clientId,
-        templateType,
-        intakeSubmissionId: submissionId || null,
-        intakeLinkId: link?.id || null
-      });
-    } else {
-      if (!EmailService.isConfigured()) {
-        throw new Error('email_not_configured');
-      }
-      const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({ organizationId, scopeType });
-      const signed = applyIdentitySignatureBlock({
-        identity: fallbackSignatureIdentity,
-        text,
-        html
-      });
-      const fromName = await resolveRegistrationFromName({ link, agencyId, organizationId, scopeType });
-      sendResult = await EmailService.sendEmail({
-        to,
-        subject,
-        text: signed.text,
-        html: signed.html,
-        fromName,
-        fromAddress: fromAddress
-          || (linkLooksLikeOfficeIntake(link) ? 'support@itsco.health' : null)
-          || process.env.GOOGLE_WORKSPACE_FROM_ADDRESS
-          || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM
-          || null,
-        replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-        attachments: packetAttachments,
-        source: 'auto',
-        agencyId: organizationId || agencyId,
-        clientId,
-        templateType
-      });
-    }
+    const sendResult = await sendPacketCompletionNotification({
+      agencyId: agencyId || link?.agency_id || null,
+      organizationId,
+      scopeType,
+      to,
+      subject,
+      text,
+      html,
+      attachments: packetAttachments,
+      clientId,
+      templateType,
+      intakeSubmissionId: submissionId || null,
+      intakeLinkId: link?.id || null
+    });
     if (sendResult?.skipped) {
       result.skipped = true;
       result.error = `skipped_${sendResult.reason || 'gate'}`;
@@ -2594,9 +2560,15 @@ const deliverPacketCompletionEmail = async ({
         reason: sendResult.reason,
         to
       });
-    } else {
+    } else if (sendResult?.sent) {
       result.sent = true;
+    } else {
+      result.error = sendResult?.queued || sendResult?.pendingApproval ? 'pending_approval' : 'send_not_accepted';
+      result.errorMessage = sendResult?.queued || sendResult?.pendingApproval
+        ? 'Confirmation is awaiting approval; it has not been sent.'
+        : 'The email service did not confirm sending this confirmation.';
     }
+    result.communicationId = sendResult?.communicationId || null;
   } catch (sendErr) {
     const isUnconfigured = String(sendErr?.message || '').includes('email_not_configured');
     result.error = isUnconfigured ? 'email_not_configured' : 'send_failed';
@@ -2608,22 +2580,24 @@ const deliverPacketCompletionEmail = async ({
       message: sendErr?.message || String(sendErr || ''),
       stack: sendErr?.stack || null
     });
-    // Defensive Communications-tab row — the per-service pre-log SHOULD
-    // already have one for sends that made it as far as the Gmail client,
-    // but bootstrap/auth failures throw before the pre-log row is ever
-    // written. Without this, a failed send is invisible to staff.
-    await logSkippedOrFailedEmail({
-      to,
-      subject: `${subject || 'Intake completion'} (failed)`,
-      text: `Completion email could not be sent: ${sendErr?.message || 'unknown failure'}`,
-      html: null,
-      agencyId: agencyId || link?.agency_id || link?.organization_id || null,
-      clientId,
-      templateType,
-      deliveryStatus: isUnconfigured ? 'skipped' : 'failed',
-      errorMessage: result.errorMessage || result.error,
-      metadata: { submissionId, reason: result.error, flow: flowLabel }
-    });
+    // Reuse the sender's failed record; do not create a second error-only email
+    // that a later retry might accidentally send to the parent.
+    result.communicationId = sendErr?.communicationId || null;
+    if (!result.communicationId) {
+      await logSkippedOrFailedEmail({
+        to,
+        subject: subject || 'Intake completion',
+        text,
+        html,
+        agencyId: agencyId || link?.agency_id || null,
+        clientId,
+        templateType,
+        deliveryStatus: isUnconfigured ? 'skipped' : 'failed',
+        errorMessage: result.errorMessage || result.error,
+        metadata: { intakeSubmissionId: submissionId, intakeLinkId: link?.id || null, reason: result.error, flow: flowLabel,
+          ...(packetAttachments ? { hadAttachments: true, attachmentCount: packetAttachments.length } : {}) }
+      });
+    }
   }
   return result;
 };
@@ -2669,7 +2643,7 @@ const mirrorPacketCompletionRowToSiblings = async ({
     deliveryStatus = 'skipped';
     errorMessage = outcome.errorMessage || outcome.error || 'skipped';
   } else if (outcome && outcome.sent === false) {
-    deliveryStatus = 'failed';
+    deliveryStatus = outcome.error === 'pending_approval' ? 'pending' : 'failed';
     errorMessage = outcome.errorMessage || outcome.error || 'send_failed';
   }
   let mirrored = 0;
@@ -10260,8 +10234,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             scopeType: link?.scope_type || null,
             templateType: 'intake_packet_completion',
             submissionId,
-            flowLabel: 'school-roi',
-            fromAddress: linkLooksLikeOfficeIntake(link) ? 'support@itsco.health' : completionEmailFromAddress
+            flowLabel: 'school-roi'
           });
           emailDelivery.sent = sendOutcome.sent;
           if (!sendOutcome.sent) {
