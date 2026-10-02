@@ -1,5 +1,5 @@
 <template>
-  <ClinicalWorkspaceFrame :enabled="noteAidEnabled && clinicalWorkspaceBranding" immersive :tenant-id="currentAgencyId" :context-label="noteWorkspaceLabel">
+  <ClinicalWorkspaceFrame :enabled="noteAidEnabled && clinicalWorkspaceBranding" immersive :tenant-id="currentAgencyId" :context-label="noteWorkspaceLabel" return-label="Back to app">
   <div class="container">
     <div class="page-header">
       <div>

@@ -1945,7 +1945,7 @@
         </div>
 
         <!-- Use path (not fullPath) so query-only updates don't destroy/recreate the page (avoids flash + repeated dashboard_view logs). -->
-        <ProviderAvailabilityNotice v-if="isAuthenticated && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
+        <ProviderAvailabilityNotice v-if="isAuthenticated && !clinicalWorkspaceActive && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
         <DashboardMeetings v-if="authStore.isAuthenticated && /dashboard/i.test(route.path)" />
         <SchoolCareBridgeBrand v-if="route.path.startsWith('/schoolcarebridge/app/') && !route.meta.schoolCareBridgeEntry && route.name !== 'SchoolCareBridgeOperations'" style="margin: 10px auto" />
         <router-view :key="route.path" />
@@ -1954,7 +1954,7 @@
       <PublicWebsiteEditorBar v-if="route.meta?.publicMarketingHub" />
       <PublicWebsiteAnalytics v-if="route.meta?.publicMarketingHub" />
       <PublicWebsiteChat v-if="route.meta?.publicMarketingHub && !isAuthenticated" />
-      <WebsiteChatDesk v-if="isAuthenticated && ['admin','support','super_admin'].includes(String(user?.role||'').toLowerCase()) && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
+      <WebsiteChatDesk v-if="isAuthenticated && !clinicalWorkspaceActive && ['admin','support','super_admin'].includes(String(user?.role||'').toLowerCase()) && !route.meta?.publicMarketingHub && !hideGlobalNavForSchoolStaff" />
       <MomentumStickiesOverlay v-if="showMomentumStickiesShell" />
       <AddStickyFab v-if="showMomentumStickiesShell" />
       <AddToStickyContextMenu v-if="showMomentumStickiesShell" />
@@ -1963,8 +1963,8 @@
       <BetaFeedbackWidget v-if="isAuthenticated && !isNative && !isImmersiveJoinRoute && !hideGlobalNavForSchoolStaff" />
       <EmailComposerDock v-if="!applicantInterviewMode" :owner-id="user?.id" :locked="sessionLockStore.isLocked || sessionLockStore.warningActive" />
       <FloatingMeetingBar v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
-      <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
-      <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome && !hideGlobalNavForSchoolStaff" />
+      <SuperAdminBuilderPanel v-if="isAuthenticated && !clinicalWorkspaceActive && brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
+      <TourManager v-if="isAuthenticated && !clinicalWorkspaceActive && !isSummitStatsChallengeChrome && !hideGlobalNavForSchoolStaff" />
       <!-- School staff get DM-only Messages (no global nav); other hidden-chrome verticals stay without it.
            Side rail is opt-in (default off) — enable from full Team chat. -->
       <PlatformChatDrawer

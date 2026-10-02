@@ -62,7 +62,7 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       expect(wrapper.find('[data-workspace="auricwell"]').exists()).toBe(true);
       expect(wrapper.find('.clinical-workspace__product').text()).toContain('AuricWell');
       expect(wrapper.find('.clinical-workspace__tenant').text()).toBe('ITSCO');
-      expect(wrapper.find('.clinical-workspace__back').text()).toContain('Back to ITSCO');
+      expect(wrapper.find('.clinical-workspace__back').text()).toContain('Back to app');
       expect(clinicalWorkspaceActive.value).toBe(true);
 
       // Changing to a tutoring note keeps the editor available and restores tenant chrome.

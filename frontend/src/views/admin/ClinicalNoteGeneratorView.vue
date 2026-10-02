@@ -1,5 +1,5 @@
 <template>
-  <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="noteAidAgencyId || currentAgencyId" :context-label="noteWorkspaceLabel">
+  <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="noteAidAgencyId || currentAgencyId" :context-label="noteWorkspaceLabel" return-label="Back to app">
   <div class="na-app" :class="{ 'na-app--embedded': isEmbedded }">
     <header v-if="!isEmbedded" class="na-topbar">
       <div class="na-brand">

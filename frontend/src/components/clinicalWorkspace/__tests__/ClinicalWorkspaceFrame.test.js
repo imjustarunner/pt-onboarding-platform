@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
 import { defineComponent, ref } from 'vue';
 import { createRouter, createMemoryHistory } from 'vue-router';
 import Frame from '../ClinicalWorkspaceFrame.vue';
@@ -12,6 +12,31 @@ async function mountView(component, options={}) {
   return mount(component, {...options, global:{plugins:[router]}});
 }
 describe('clinical workspace frame', () => {
+  it('takes over the page and restores app navigation when returning to the tenant dashboard', async () => {
+    const notes = defineComponent({ components: { Frame }, template: '<Frame immersive return-label="Back to app">Practice Notes</Frame>' });
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: '/:organizationSlug/note-aid', component: notes },
+      { path: '/:organizationSlug/dashboard', component: { template: '<p>My Dashboard</p>' } }
+    ] });
+    const shell = defineComponent({
+      setup: () => ({ clinicalWorkspaceActive }),
+      template: '<nav v-if="!clinicalWorkspaceActive" aria-label="App navigation">App navigation</nav><router-view />'
+    });
+    await router.push('/tenant/note-aid');
+    const wrapper = mount(shell, { global: { plugins: [router] } });
+    try {
+      await flushPromises();
+      expect(wrapper.find('[aria-label="App navigation"]').exists()).toBe(false);
+      expect(wrapper.find('.clinical-workspace__back').text()).toBe('← Back to app');
+      await wrapper.find('.clinical-workspace__back').trigger('click');
+      await flushPromises();
+      expect(router.currentRoute.value.fullPath).toBe('/tenant/dashboard');
+      expect(wrapper.text()).toContain('My Dashboard');
+      expect(wrapper.find('[aria-label="App navigation"]').exists()).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
+  });
   it('changes branding without remounting draft content and cleans up immersive mode', async () => {
     const editor=defineComponent({setup:()=>({text:ref('')}),template:'<textarea v-model="text" />'});
     const wrapper=await mountView(Frame,{props:{immersive:true,switchable:true},slots:{default:editor}});
