@@ -7,55 +7,55 @@
     :user-role-label="userRoleLabel"
     @select-section="$emit('select-section', $event)"
   >
-    <div v-show="activeSection === 'account'" class="acct-hub__pane">
+    <div data-profile-my-section="account" v-show="activeSection === 'account'" class="acct-hub__pane">
       <AccountInfoView />
       <ProviderBillingSettings v-if="canSetOwnRates" :agency-id="agencyId" :provider-id="userId" />
       <router-link v-if="canSetOwnRates && Number(agencyStore.currentAgency?.account_owner_user_id) === Number(userId)" class="btn btn-secondary" :to="`/${agencyStore.currentAgency.slug}/admin/package-catalog`">Manage coaching packages and cancellation policies</router-link>
       <FamilyLedgerPanel v-if="agencyId && ['client','client_guardian'].includes(authStore.user?.role)" :agency-id="agencyId" />
     </div>
-    <div v-if="flags.workforce" v-show="activeSection === 'credentials'" class="acct-hub__pane">
+    <div v-if="flags.workforce" data-profile-my-section="credentials" v-show="activeSection === 'credentials'" class="acct-hub__pane">
       <CredentialsView />
     </div>
-    <div v-show="activeSection === 'documents'" class="acct-hub__pane">
+    <div data-profile-my-section="documents" v-show="activeSection === 'documents'" class="acct-hub__pane">
       <DocumentsTab @update-count="$emit('documents-count', $event)" />
     </div>
     <div
       v-if="flags.workforce"
-      v-show="activeSection === 'evaluations'"
+      data-profile-my-section="evaluations" v-show="activeSection === 'evaluations'"
       class="acct-hub__pane"
     >
       <MyEvaluationsPanel v-if="agencyId" :agency-id="Number(agencyId)" />
       <p v-else class="acct-hub__empty">Select an organization to view evaluations.</p>
     </div>
-    <div v-show="activeSection === 'life-balance'" class="acct-hub__pane">
+    <div data-profile-my-section="life-balance" v-show="activeSection === 'life-balance'" class="acct-hub__pane">
       <MyLifeBalanceTab :agency-id="agencyId" :user-id="userId" />
     </div>
     <div
       v-if="flags.workforce"
-      v-show="activeSection === 'payroll'"
+      data-profile-my-section="payroll" v-show="activeSection === 'payroll'"
       class="acct-hub__pane acct-hub__pane--payroll my-panel--payroll-hub"
     >
       <MyPayrollTab />
     </div>
-    <div v-if="flags.workforce" v-show="activeSection === 'compensation'" class="acct-hub__pane">
+    <div v-if="flags.workforce" data-profile-my-section="compensation" v-show="activeSection === 'compensation'" class="acct-hub__pane">
       <MyCompensationTab />
     </div>
-    <div v-if="flags.workforce" v-show="activeSection === 'benefits'" class="acct-hub__pane">
+    <div v-if="flags.workforce" data-profile-my-section="benefits" v-show="activeSection === 'benefits'" class="acct-hub__pane">
       <MyBenefitsTab />
     </div>
-    <div v-show="activeSection === 'kudos'" class="acct-hub__pane">
+    <div data-profile-my-section="kudos" v-show="activeSection === 'kudos'" class="acct-hub__pane">
       <MyKudosTab v-if="flags.kudos && agencyId" :agency-id="Number(agencyId)" />
       <p v-else class="acct-hub__empty">Kudos are not enabled for this organization.</p>
     </div>
-    <section v-if="canManageOwnAvailability && activeSection === 'availability'" class="acct-hub__pane">
+    <section data-profile-my-section="availability" v-if="canManageOwnAvailability && activeSection === 'availability'" class="acct-hub__pane">
       <h2>My availability</h2><p>Choose the services you offer, who can request appointments, and your published openings for this agency.</p>
       <ProviderAvailabilitySettings :provider-id="Number(userId)" :agency-id="Number(agencyId)" />
       <details><summary>Add or edit my virtual openings</summary><VirtualWorkingHoursEditor :provider-id="Number(userId)" :agency-id="Number(agencyId)" /></details>
     </section>
-    <div v-show="activeSection === 'preferences'" class="acct-hub__pane">
+    <div data-profile-my-section="preferences" v-show="activeSection === 'preferences'" class="acct-hub__pane">
       <UserPreferencesHub v-if="userId" :user-id="userId" :is-club-context="isClubContext" />
     </div>
-    <div v-show="activeSection === 'support'" class="acct-hub__pane">
+    <div data-profile-my-section="support" v-show="activeSection === 'support'" class="acct-hub__pane">
       <StaffOrgSupportPanel />
     </div>
   </AccountHubPanel>

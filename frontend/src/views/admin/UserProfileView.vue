@@ -1,5 +1,5 @@
 <template>
-  <div class="container">
+  <div class="container" ref="profileSearchRoot">
     <div class="page-header">
       <router-link :to="backToUsersList" class="back-link" data-tour="user-profile-back">{{ backLinkLabel }}</router-link>
 
@@ -93,41 +93,7 @@
 
           </div>
 
-          <div class="ph-search-wrap" data-tour="user-profile-search">
-            <input
-              v-model="profileSearchQuery"
-              type="search"
-              class="ph-search-input"
-              placeholder="Search tabs, settings, and sections..."
-              autocomplete="off"
-              @focus="profileSearchOpen = true"
-              @keydown.down.prevent="profileSearchMove(1)"
-              @keydown.up.prevent="profileSearchMove(-1)"
-              @keydown.enter.prevent="profileSearchSelectHighlighted"
-              @keydown.esc="closeProfileSearch"
-            />
-            <div
-              v-if="profileSearchOpen && profileSearchResults.length"
-              class="ph-search-dropdown"
-              role="listbox"
-            >
-              <button
-                v-for="(hit, idx) in profileSearchResults"
-                :key="hit.id"
-                type="button"
-                class="ph-search-option"
-                :class="{ on: idx === profileSearchHighlight }"
-                role="option"
-                @mousedown.prevent="jumpToProfileSection(hit)"
-              >
-                <span class="ph-search-option-label">{{ hit.label }}</span>
-                <span class="ph-search-option-tab">{{ hit.tabLabel }}</span>
-              </button>
-            </div>
-            <p v-else-if="profileSearchOpen && profileSearchQuery.trim() && !profileSearchResults.length" class="ph-search-empty">
-              No matching sections
-            </p>
-          </div>
+
         </div>
 
         <div v-if="user.status || headerServiceFocus || headerLanguages" class="ph-panel-col">
@@ -216,6 +182,9 @@
       </div>
     </div>
 
+          <ProfileContentSearch v-if="user && !loading" :targets="profileContentIndex.targets.value" :loading="profileContentIndex.loading.value" :error="profileContentIndex.loadError.value"
+            :scope-key="profileSearchScope" label="Search this user’s profile" input-id="admin-profile-search" data-tour="user-profile-search"
+            @load="profileContentIndex.load" @select="jumpToProfileSection" />
     <div v-if="loading" class="loading">Loading user profile...</div>
     <div v-else-if="error" class="error">{{ error }}</div>
     <div v-else class="profile-content">
@@ -273,6 +242,10 @@
         />
 
         <div v-if="activeTab === 'account'" class="tab-panel">
+          <section v-if="canPrintProfileCards" id="profile-business-cards" class="card" style="padding:18px;margin-bottom:18px">
+            <h3>Business cards</h3><p>Print this person’s cards with their affiliated agency’s branding.</p>
+            <StaffBusinessCardsButton :user-id="userId" :agency-id="profileOverviewAgencyId" />
+          </section>
           <h2 v-if="isViewingGuardian || isSscMemberProfileMode">Account Information</h2>
 
           <!-- Guardian-specific info banner -->
@@ -2944,7 +2917,10 @@ import AdminUserEvaluationsPanel from '../../components/evaluations/AdminUserEva
 import UserSupervisionTab from '../../components/admin/UserSupervisionTab.vue';
 import UserLifecycleTab from '../../components/admin/UserLifecycleTab.vue';
 import UserBenefitsTab from '../../components/admin/UserBenefitsTab.vue';
-import { filterProfileSearchTargets } from '../../navigation/profileSearchCatalog.js';
+import ProfileContentSearch from '../../components/profile/ProfileContentSearch.vue';
+import { adminSearchTargets, recordSearchTargets } from '../../navigation/profileContentSearch.js';
+import { useProfileContentSearch, revealProfileSearchTarget } from '../../composables/useProfileContentSearch.js';
+import StaffBusinessCardsButton from '../../components/admin/StaffBusinessCardsButton.vue';
 import SupervisorAssignmentManager from '../../components/admin/SupervisorAssignmentManager.vue';
 import MovePendingToActiveModal from '../../components/admin/MovePendingToActiveModal.vue';
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
@@ -3047,9 +3023,7 @@ const activeAffiliationSection = ref(_initialProfileTab.affiliationSection);
 // Initialize activeTab from query parameter or default to 'overview' (employee profiles)
 const activeTab = ref(_initialProfileTab.tab);
 const pendingProfileSection = ref(_initialProfileTab.section || '');
-const profileSearchQuery = ref('');
-const profileSearchOpen = ref(false);
-const profileSearchHighlight = ref(0);
+const profileSearchRoot = ref(null);
 const saving = ref(false);
 const memberSeasonHistoryLoading = ref(false);
 const memberSeasonHistoryError = ref('');
@@ -7899,43 +7873,21 @@ const copyAllCredentials = async () => {
 
 const tabIds = computed(() => (tabs.value || []).map((t) => t.id));
 
-/** Jump targets for in-profile search (tab + optional DOM section id). */
-const profileSearchResults = computed(() => {
-  const q = String(profileSearchQuery.value || '').trim();
-  if (!q) return [];
-  const tabLabelById = Object.fromEntries((tabs.value || []).map((t) => [t.id, t.label]));
-  return filterProfileSearchTargets(q, tabIds.value).map((t) => ({
-    ...t,
-    tabLabel: tabLabelById[t.tabId] || t.tabId,
-  }));
-});
-
-watch(profileSearchResults, () => {
-  profileSearchHighlight.value = 0;
-});
-
-function closeProfileSearch() {
-  profileSearchOpen.value = false;
-  profileSearchHighlight.value = 0;
-}
-
-function profileSearchMove(delta) {
-  const n = profileSearchResults.value.length;
-  if (!n) return;
-  profileSearchOpen.value = true;
-  profileSearchHighlight.value = (profileSearchHighlight.value + delta + n) % n;
-}
-
-function profileSearchSelectHighlighted() {
-  const hit = profileSearchResults.value[profileSearchHighlight.value];
-  if (hit) jumpToProfileSection(hit);
-}
-
-function jumpToProfileSection(hit) {
-  if (!hit) return;
-  profileSearchQuery.value = '';
-  closeProfileSearch();
-  selectTab(hit.tabId, hit.sectionId || '', hit.clinicalSubTab || '');
+const canPrintProfileCards = computed(() => !!user.value && !isViewingGuardian.value && !isSscMemberProfileMode.value && ['admin','super_admin','support'].includes(authStore.user?.role));
+const profileSearchScope = computed(() => `${userId.value}:${agencyStore.currentAgency?.id || ''}:${tabIds.value.join(',')}`);
+const profileSearchBase = computed(() => [...adminSearchTargets(tabs.value, { fields: profileContentIndex.fields.value, categories: profileContentIndex.categories.value, canPrintCards: canPrintProfileCards.value }), ...recordSearchTargets({...user.value,...accountInfo.value}).filter(t=>tabIds.value.includes(t.tabId))]);
+const profileContentIndex = useProfileContentSearch({ root: profileSearchRoot, scopeKey: profileSearchScope, userId,
+  activeTarget: computed(() => ({ tabId: activeTab.value, breadcrumb: tabs.value.find(t=>t.id===activeTab.value)?.label || '' })),
+  baseTargets: profileSearchBase, canLoadFields: computed(() => tabIds.value.includes('provider_info')) });
+let searchJumpGeneration = 0;
+async function jumpToProfileSection(hit) {
+  if (!hit || !tabIds.value.includes(hit.tabId)) return;
+  const generation = ++searchJumpGeneration;
+  const scope = profileSearchScope.value;
+  selectTab(hit.tabId, '', hit.clinicalSubTab || '');
+  await nextTick();
+  await router.replace({ query: { ...route.query, tab: hit.tabId, section: hit.sectionId || undefined, clinicalSubTab: hit.clinicalSubTab || undefined, profileField: hit.fieldId || undefined } });
+  await revealProfileSearchTarget(profileSearchRoot, hit, { userId: userId.value, isCurrent: () => generation === searchJumpGeneration && scope === profileSearchScope.value && activeTab.value === hit.tabId });
 }
 
 const selectTab = (tabId, sectionId = '', clinicalSubTab = '') => {
@@ -8001,12 +7953,12 @@ const onProfileJumpEvent = (event) => {
 
 // Honor ?tab=&section= when assistant (or links) update the query while already on this profile.
 watch(
-  () => [route.query.tab, route.query.section],
-  ([tab, section], [prevTab, prevSection]) => {
+  () => [route.query.tab, route.query.section, route.query.clinicalSubTab, route.query.profileField],
+  ([tab, section, clinical, field], [prevTab, prevSection, prevClinical, prevField]) => {
     let nextTab = String(tab || '').trim();
     const nextSection = String(section || '').trim();
     if (!nextTab && !nextSection) return;
-    if (String(prevTab || '') === nextTab && String(prevSection || '') === nextSection) return;
+    if (String(prevTab || '') === nextTab && String(prevSection || '') === nextSection && clinical===prevClinical && field===prevField) return;
     if (LEGACY_AFFILIATION_TAB_IDS.includes(nextTab)) {
       activeAffiliationSection.value = nextTab;
       nextTab = 'assignments';
@@ -8014,7 +7966,9 @@ watch(
       nextTab = 'assignments';
     }
     if (nextTab && tabIds.value.includes(nextTab)) {
-      selectTab(nextTab, nextSection);
+      selectTab(nextTab, '', String(route.query.clinicalSubTab || ''));
+      const scope = profileSearchScope.value;
+      revealProfileSearchTarget(profileSearchRoot, { tabId: nextTab, sectionId: nextSection, fieldId: Number(field) || undefined }, { userId: userId.value, isCurrent: () => scope === profileSearchScope.value && activeTab.value === nextTab && String(route.query.section || '') === nextSection });
     } else if (nextSection) {
       selectTab(activeTab.value, nextSection);
     }
@@ -8166,27 +8120,25 @@ watch(
   { immediate: true }
 );
 
-const onProfileSearchDocClick = (e) => {
-  const wraps = document.querySelectorAll('[data-tour="user-profile-search"]');
-  for (const wrap of wraps) {
-    if (wrap.contains(e.target)) return;
-  }
-  closeProfileSearch();
-};
+
 
 onMounted(() => {
   void Promise.allSettled([fetchSupervisees(), fetchSupervisors()]);
   if (pendingProfileSection.value) {
     const section = pendingProfileSection.value;
     pendingProfileSection.value = '';
-    nextTick(() => selectTab(activeTab.value, section));
+    nextTick(() => {
+      selectTab(activeTab.value, '', String(route.query.clinicalSubTab || ''));
+      revealProfileSearchTarget(profileSearchRoot,{tabId:activeTab.value,sectionId:section,fieldId:Number(route.query.profileField)||undefined},{userId:userId.value,isCurrent:()=>String(route.query.section||'')===section});
+    });
   }
-  document.addEventListener('click', onProfileSearchDocClick);
+
+  if(route.query.clinicalSubTab && !pendingProfileSection.value) nextTick(()=>selectTab(activeTab.value,'',String(route.query.clinicalSubTab)));
   window.addEventListener('pt-profile-jump', onProfileJumpEvent);
 });
 
 onUnmounted(() => {
-  document.removeEventListener('click', onProfileSearchDocClick);
+
   window.removeEventListener('pt-profile-jump', onProfileJumpEvent);
 });
 </script>

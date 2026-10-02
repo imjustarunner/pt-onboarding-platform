@@ -1,5 +1,5 @@
 <template>
-  <div class="clinical-information-tab">
+  <div class="clinical-information-tab" :data-profile-clinical-subtab="activeSubTab">
     <div class="ci-header">
       <div class="ci-header-text">
         <h2>Clinical Information</h2>
