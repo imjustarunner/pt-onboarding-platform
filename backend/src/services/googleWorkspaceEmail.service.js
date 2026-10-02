@@ -1,7 +1,7 @@
 import { assertVerifiedGmailSender } from './unifiedEmail/verifiedSender.js';
 import { protectOutboundEmail } from './activityProtection.service.js';
-import { google } from 'googleapis';
-import { getWorkspaceClientsForEmployee, logGoogleUnauthorizedHint } from './googleWorkspaceAuth.service.js';
+import { logGoogleUnauthorizedHint } from './googleWorkspaceAuth.service.js';
+import { getGmailClient, getImpersonatedUser } from './unifiedEmail/gmailClient.js';
 import { PLOTTWIST_HEADQUARTERS_NAME } from '../constants/platformBranding.js';
 import { base64UrlEncode, buildMimeMessage } from './unifiedEmail/mime.js';
 import { rewriteHogwartsOutboundRecipient } from '../utils/hogwartsTestEmail.js';
@@ -22,18 +22,11 @@ function parseServiceAccountJson() {
   }
 }
 
-function getImpersonatedUser() {
-  return (
-    process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER ||
-    process.env.GMAIL_IMPERSONATE_USER ||
-    null
-  );
-}
-
 class GoogleWorkspaceEmailService {
   static isConfigured() {
     const sa = parseServiceAccountJson();
-    const impersonate = getImpersonatedUser();
+    let impersonate;
+    try { impersonate = getImpersonatedUser(); } catch { return false; }
     return !!(
       sa?.client_email &&
       sa?.private_key &&
@@ -96,7 +89,7 @@ class GoogleWorkspaceEmailService {
     // Uses GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON_BASE64 and the full scope list (calendar + gmail).
     let gmail;
     try {
-      ({ gmail } = await getWorkspaceClientsForEmployee({ subjectEmail: impersonate }));
+      gmail = await getGmailClient();
     } catch (e) {
       logGoogleUnauthorizedHint(e, { context: 'GoogleWorkspaceEmailService.sendEmail' });
       throw e;

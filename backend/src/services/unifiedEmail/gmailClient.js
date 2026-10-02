@@ -1,4 +1,5 @@
 import { guardGmailClient } from './gmailTrafficGuard.js';
+import { resolveAppEmailTransport } from './transportMailbox.js';
 import { google } from 'googleapis';
 import {
   buildImpersonatedJwtClient,
@@ -9,11 +10,7 @@ import {
 let cached = null;
 
 export function getImpersonatedUser() {
-  return (
-    process.env.GMAIL_IMPERSONATE_USER ||
-    process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER ||
-    'ai@plottwistco.com'
-  );
+  return resolveAppEmailTransport();
 }
 
 export async function getGmailClient() {
@@ -38,4 +35,3 @@ export async function getGmailClient() {
   cached = { cacheKey, gmail };
   return gmail;
 }
-

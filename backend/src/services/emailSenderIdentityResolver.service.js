@@ -14,10 +14,10 @@ export function pickPreferredSenderIdentity(list = [], preferredKeys = []) {
     const match = (list || []).find((identity) => normalizeKey(identity?.identity_key) === key);
     if (match) return match;
   }
-  return (list || [])[0] || null;
+  return null;
 }
 
-/** Like pickPreferredSenderIdentity but never returns an unrelated first-active identity. */
+/** Explicit alias retained for callers that require preferred-key selection. */
 export function pickPreferredSenderIdentityStrict(list = [], preferredKeys = []) {
   const normalizedPreferred = (preferredKeys || []).map(normalizeKey).filter(Boolean);
   for (const key of normalizedPreferred) {
@@ -105,7 +105,7 @@ export async function resolveConfiguredSenderIdentity({
 
 export async function resolvePreferredSenderIdentityForAgency({
   agencyId = null,
-  preferredKeys = [],
+  preferredKeys = ['notifications', 'system'],
   templateType = null,
   triggerKey = null,
   includePlatformDefaults = true,

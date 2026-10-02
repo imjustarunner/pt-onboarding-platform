@@ -1,4 +1,5 @@
 import { guardGmailClient } from './unifiedEmail/gmailTrafficGuard.js';
+import { resolveAppEmailTransport } from './unifiedEmail/transportMailbox.js';
 /**
  * Gmail Send-as alias automation (impersonated mailbox).
  * Requires DWD scope: https://www.googleapis.com/auth/gmail.settings.sharing
@@ -12,16 +13,6 @@ import {
 
 export const GMAIL_SETTINGS_SHARING_SCOPE = 'https://www.googleapis.com/auth/gmail.settings.sharing';
 
-function resolveImpersonateUser() {
-  return String(
-    process.env.GMAIL_IMPERSONATE_USER ||
-      process.env.GOOGLE_WORKSPACE_IMPERSONATE_USER ||
-      'ai@plottwistco.com'
-  )
-    .trim()
-    .toLowerCase();
-}
-
 /**
  * Ensure a Send-as alias exists on the impersonated Gmail mailbox.
  */
@@ -32,7 +23,7 @@ export async function ensureSendAsAlias({
   treatAsAlias = true,
   replyToAddress = null
 } = {}) {
-  const subject = String(impersonateUser || resolveImpersonateUser()).trim().toLowerCase();
+  const subject = resolveAppEmailTransport(process.env, impersonateUser);
   const email = String(sendAsEmail || '').trim().toLowerCase();
   if (!email.includes('@')) throw new Error('sendAsEmail is required');
 
@@ -87,7 +78,7 @@ export async function ensureSendAsAlias({
 }
 
 export async function listSendAsAliases({ impersonateUser = null } = {}) {
-  const subject = String(impersonateUser || resolveImpersonateUser()).trim().toLowerCase();
+  const subject = resolveAppEmailTransport(process.env, impersonateUser);
   const auth = await buildImpersonatedJwtClient({
     subjectEmail: subject,
     scopes: [...GOOGLE_WORKSPACE_SCOPES, GMAIL_SETTINGS_SHARING_SCOPE]
