@@ -3,8 +3,8 @@
     <div class="scm-card" role="dialog" aria-labelledby="scm-title">
       <header class="scm-header">
         <div>
-          <h3 id="scm-title">Start a conversation</h3>
-          <p class="scm-sub">Search for a person or group to message.</p>
+          <h3 id="scm-title">{{ dialogTitle }}</h3>
+          <p class="scm-sub">{{ channel === 'email' ? 'Choose someone below, or enter a new email address. Add more people in To, Cc, or Bcc when writing.' : 'Search for a person or group to message.' }}</p>
         </div>
         <button type="button" class="scm-close" aria-label="Close" @click="emitClose">×</button>
       </header>
@@ -17,7 +17,8 @@
             v-model="query"
             type="search"
             class="scm-search"
-            placeholder="Search clients, guardians, staff, school staff, or groups…"
+            @keydown.enter.prevent
+            placeholder="Search people, groups, or enter an email address…"
             @input="onSearchInput"
           />
         </div>
@@ -35,6 +36,7 @@
           </button>
         </div>
 
+        <p v-if="directoryError" class="scm-error" role="alert">{{ directoryError }} <button type="button" @click="loadDirectory">Try again</button></p>
         <div v-if="loading" class="scm-muted">Loading…</div>
         <div v-else class="scm-sections">
           <template v-if="activeChip === 'all' && !searching">
@@ -50,7 +52,7 @@
                   type="button"
                   class="scm-person"
                   :class="{ selected: pendingPick?.personKey === p.personKey }"
-                  @click="pick(p)"
+                  :disabled="!canPick(p)" :title="!canPick(p) ? unavailableHint(p) : meta(p)" @click="pick(p)"
                 >
                   <span class="scm-avatar">{{ initials(p.displayName) }}</span>
                   <span class="scm-person-text">
@@ -113,7 +115,7 @@
                     type="button"
                     class="scm-person"
                     :class="{ selected: pendingPick?.personKey === p.personKey }"
-                    @click="pick(p)"
+                    :disabled="!canPick(p)" :title="!canPick(p) ? unavailableHint(p) : meta(p)" @click="pick(p)"
                   >
                     <span class="scm-avatar">{{ initials(p.displayName) }}</span>
                     <span class="scm-person-text">
@@ -134,7 +136,7 @@
                   type="button"
                   class="scm-person"
                   :class="{ selected: pendingPick?.personKey === p.personKey }"
-                  @click="pick(p)"
+                  :disabled="!canPick(p)" :title="!canPick(p) ? unavailableHint(p) : meta(p)" @click="pick(p)"
                 >
                   <span class="scm-avatar">{{ initials(p.displayName) }}</span>
                   <span class="scm-person-text">
@@ -172,7 +174,7 @@
                   type="button"
                   class="scm-person"
                   :class="{ selected: pendingPick?.personKey === p.personKey }"
-                  @click="pick(p)"
+                  :disabled="!canPick(p)" :title="!canPick(p) ? unavailableHint(p) : meta(p)" @click="pick(p)"
                 >
                   <span class="scm-avatar">{{ initials(p.displayName) }}</span>
                   <span class="scm-person-text">
@@ -189,11 +191,11 @@
             </section>
           </template>
 
-          <section class="scm-external">
+          <section v-if="['all', 'email', 'sms'].includes(channel)" class="scm-external">
             <h4>Can’t find the person?</h4>
             <p class="scm-muted">Start a new conversation with someone outside your system.</p>
             <div class="scm-external-grid">
-              <button type="button" class="scm-external-card" @click="openExternal('email')">
+              <button v-if="channel !== 'sms'" type="button" class="scm-external-card" @click="openExternal('email')">
                 <span class="scm-ext-icon" aria-hidden="true">✉</span>
                 <span>
                   <strong>Send an email to</strong>
@@ -201,10 +203,10 @@
                   <small>New external contact</small>
                 </span>
               </button>
-              <button type="button" class="scm-external-card" @click="openExternal('sms')">
+              <button v-if="channel !== 'email'" type="button" class="scm-external-card" disabled title="SMS is coming soon">
                 <span class="scm-ext-icon" aria-hidden="true">☎</span>
                 <span>
-                  <strong>Send a text to</strong>
+                  <strong>SMS · Coming soon</strong>
                   <em>{{ externalHint?.channel === 'sms' ? externalHint.value : 'new number…' }}</em>
                   <small>New external contact</small>
                 </span>
@@ -277,7 +279,7 @@
             :key="`u-${u.userId}`"
             type="button"
             class="scm-person"
-            @click="linkExistingUser(u)"
+            :disabled="savingExternal" @click="linkExistingUser(u)"
           >
             <span class="scm-avatar">{{ initials(u.displayName) }}</span>
             <span class="scm-person-text">
@@ -290,7 +292,7 @@
             :key="`c-${c.contactId}`"
             type="button"
             class="scm-person"
-            @click="linkExistingContact(c)"
+            :disabled="savingExternal" @click="linkExistingContact(c)"
           >
             <span class="scm-avatar">{{ initials(c.displayName) }}</span>
             <span class="scm-person-text">
@@ -304,13 +306,19 @@
           <h5>Or create new contact</h5>
           <label class="scm-field">
             <span>Link to client (optional)</span>
-            <select v-model="externalForm.clientId">
-              <option value="">None</option>
-              <option v-for="c in clientOptions" :key="c.personKey" :value="String(c.clientId)">
-                {{ c.displayName }}
-              </option>
-            </select>
+            <input v-model="clientQuery" type="search" placeholder="Search clients by name or school…" @input="searchClients" />
+            <small>Providers: your assigned clients. Admin/support: agency clients. Search to find clients beyond the initial list.</small>
           </label>
+          <p v-if="selectedClient" class="scm-selected-client">Linked to {{ selectedClient.displayName }} <button type="button" @click="clearClient">Remove</button></p>
+          <p v-if="clientLoading" class="scm-muted">Searching clients…</p>
+          <p v-if="clientError" class="scm-error" role="alert">{{ clientError }}</p>
+          <div class="scm-client-results" aria-label="Clients available to link">
+            <button v-for="c in clientOptions" :key="c.personKey" type="button" class="scm-person" :aria-pressed="String(c.clientId) === externalForm.clientId" @click="selectClient(c)">
+              <span class="scm-person-text"><strong>{{ c.displayName }}</strong><small>{{ c.schoolName || c.relationshipMeta }}</small></span>
+            </button>
+            <p v-if="!clientLoading && !clientOptions.length && !clientError" class="scm-muted">No accessible clients match this search.</p>
+          </div>
+
           <label v-if="externalForm.clientId" class="scm-field">
             <span>Relationship to client</span>
             <select v-model="externalForm.relationshipType">
@@ -335,7 +343,7 @@
           :disabled="savingExternal"
           @click="createAndContinue"
         >
-          {{ savingExternal ? 'Saving…' : 'Continue' }}
+          {{ savingExternal ? 'Saving…' : (channel === 'email' ? 'Save contact & continue' : 'Continue') }}
         </button>
         <button
           v-else-if="step === 'create-group'"
@@ -361,13 +369,17 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
-import api from '../../services/api';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import api from '../../services/messagingApi';
 
 const props = defineProps({
-  agencyId: { type: [Number, String], default: null }
+  agencyId: { type: [Number, String], default: null },
+  channel: { type: String, default: 'all' },
+  initialEmail: { type: String, default: '' },
+  contactOnly: Boolean
 });
 
+const dialogTitle = computed(() => props.contactOnly ? 'Add contact' : ({email:'New email',internal:'New internal message',secure:'New secure message',group:'New group'})[props.channel] || 'Start a conversation');
 const emit = defineEmits(['close', 'pick', 'open-group']);
 
 const previewCount = 3;
@@ -377,10 +389,15 @@ const loading = ref(false);
 const sections = ref({});
 const externalHint = ref(null);
 const searching = ref(false);
-const activeChip = ref('all');
+const activeChip = ref(props.channel === 'group' ? 'groups' : 'all');
 const pendingPick = ref(null);
 const step = ref('browse'); // browse | external | create-group
-const clientOptions = ref([]);
+const clientOptions = ref([]), clientQuery = ref(''), selectedClient = ref(null), clientLoading = ref(false), clientError = ref('');
+const directoryError = ref('');
+let clientTimer = null, clientRequest = 0, directoryRequest = 0;
+function searchClients() { clearTimeout(clientTimer); ++clientRequest; clientLoading.value = true; clientTimer = setTimeout(loadClientOptions, 220); }
+function selectClient(client) { selectedClient.value = client; externalForm.value.clientId = String(client.clientId); }
+function clearClient() { selectedClient.value = null; externalForm.value.clientId = ''; }
 
 const newGroupName = ref('');
 const newGroupPrivate = ref(false);
@@ -406,27 +423,29 @@ const externalError = ref('');
 
 let searchTimer = null;
 
-const chips = [
+const chips = computed(() => [
   { id: 'all', label: 'Recent' },
+  { id: 'contacts', label: 'Contacts & email groups' },
   { id: 'clients', label: 'Clients' },
   { id: 'guardians', label: 'Guardians' },
   { id: 'staff', label: 'Staff' },
   { id: 'school_staff', label: 'School Staff' },
   { id: 'groups', label: 'Groups' }
-];
+].filter(chip => props.channel !== 'email' || chip.id !== 'groups'));
 
-const categorySections = [
+const categorySections = computed(() => [
+  { id: 'contacts', label: 'Contacts & email groups' },
   { id: 'clients', label: 'Clients' },
   { id: 'guardians', label: 'Guardians' },
   { id: 'staff', label: 'Staff' },
   { id: 'school_staff', label: 'School staff' },
   { id: 'groups', label: 'Groups' }
-];
+].filter(section => props.channel !== 'email' || section.id !== 'groups'));
 
 const chipTitle = computed(() => {
   if (searching.value) return 'Search results';
   if (activeChip.value === 'recent') return 'Recent people';
-  return chips.find((c) => c.id === activeChip.value)?.label || 'People';
+  return chips.value.find((c) => c.id === activeChip.value)?.label || 'People';
 });
 
 const chipPeople = computed(() => {
@@ -455,6 +474,7 @@ function isSchoolStaff(p) {
 }
 
 function kindPred(id) {
+  if (id === 'contacts') return p => (p.kinds || []).some(k => ['contact','external'].includes(k));
   if (id === 'clients') return isClient;
   if (id === 'guardians') return isGuardian;
   if (id === 'staff') return isStaff;
@@ -500,7 +520,14 @@ function setChip(id) {
   pendingPick.value = null;
 }
 
+function canPick(p) {
+  if (props.channel === 'email') return !!p.email;
+  if (['internal','secure','sms'].includes(props.channel)) return (p.methods || []).some(m => m.id === props.channel && m.available);
+  return true;
+}
+function unavailableHint(p) { return props.channel === 'email' ? 'No email on file — select a guardian or another contact' : 'This channel is not available for this person'; }
 function pick(p) {
+  if (!canPick(p)) return;
   pendingPick.value = p;
   if ((p.kinds || []).includes('group')) {
     emit('open-group', p);
@@ -610,30 +637,35 @@ async function openSmartGroup(g) {
 
 async function loadDirectory() {
   if (!props.agencyId) return;
-  loading.value = true;
+  const request = ++directoryRequest;
+  loading.value = true; directoryError.value = '';
   try {
     const { data } = await api.get('/messages/hub/start-directory', {
       params: {
         agencyId: props.agencyId,
         q: query.value.trim() || undefined,
-        allAgencies: true,
+        allAgencies: false,
         perSection: previewCount
       },
       skipGlobalLoading: true
     });
+    if (request !== directoryRequest) return;
     sections.value = data?.sections || {};
     externalHint.value = data?.externalHint || null;
     searching.value = !!data?.searching;
     if (searching.value) activeChip.value = 'all';
   } catch {
+    if (request !== directoryRequest) return;
+    directoryError.value = 'Could not load people. Try again, or add a new contact.';
     sections.value = {};
     externalHint.value = null;
   } finally {
-    loading.value = false;
+    if (request === directoryRequest) loading.value = false;
   }
 }
 
 function onSearchInput() {
+  ++directoryRequest;
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     loadDirectory();
@@ -642,23 +674,27 @@ function onSearchInput() {
 
 async function loadClientOptions() {
   if (!props.agencyId) return;
+  const request = ++clientRequest; clientLoading.value = true; clientError.value = '';
   try {
     const { data } = await api.get('/messages/hub/people', {
-      params: { agencyId: props.agencyId, browse: 'caseload', limit: 80, allAgencies: true },
+      params: { agencyId: props.agencyId, browse: 'caseload', q: clientQuery.value.trim() || undefined, limit: 40, allAgencies: false },
       skipGlobalLoading: true
     });
+    if (request !== clientRequest) return;
     clientOptions.value = (data?.results || []).filter((p) => (p.kinds || []).includes('client') && p.clientId);
   } catch {
-    clientOptions.value = [];
-  }
+    if (request !== clientRequest) return;
+    clientOptions.value = []; clientError.value = 'Could not search clients. Please try again.';
+  } finally { if (request === clientRequest) clientLoading.value = false; }
 }
 
 function openExternal(channel) {
   step.value = 'external';
   externalError.value = '';
+  clearClient(); clientQuery.value = ''; void loadClientOptions();
   externalForm.value = {
     channel,
-    email: channel === 'email' && externalHint.value?.channel === 'email' ? externalHint.value.value : '',
+    email: channel === 'email' ? (props.initialEmail || (externalHint.value?.channel === 'email' ? externalHint.value.value : query.value.includes('@') ? query.value.trim() : '')) : '',
     phone: channel === 'sms' && externalHint.value?.channel === 'sms' ? externalHint.value.value : '',
     fullName: '',
     clientId: '',
@@ -685,7 +721,7 @@ async function runLookup() {
         agencyId: props.agencyId,
         email: email || undefined,
         phone: phone || undefined,
-        allAgencies: true
+        allAgencies: false
       },
       skipGlobalLoading: true
     });
@@ -711,12 +747,14 @@ async function linkExistingUser(u) {
         email: externalForm.value.email || undefined,
         phone: externalForm.value.phone || undefined,
         fullName: externalForm.value.fullName || undefined,
-        linkUserId: u.userId
+        linkUserId: u.userId,
+        clientId: externalForm.value.clientId || undefined,
+        relationshipType: externalForm.value.clientId ? externalForm.value.relationshipType : undefined
       },
       { skipGlobalLoading: true }
     );
     if (data?.person) {
-      emit('pick', data.person);
+      emit('pick', { ...data.person, composeChannel: externalForm.value.channel });
       emit('close');
     }
   } catch (e) {
@@ -735,12 +773,14 @@ async function linkExistingContact(c) {
       {
         agencyId: props.agencyId,
         channel: externalForm.value.channel,
-        existingContactId: c.contactId
+        existingContactId: c.contactId,
+        clientId: externalForm.value.clientId || undefined,
+        relationshipType: externalForm.value.clientId ? externalForm.value.relationshipType : undefined
       },
       { skipGlobalLoading: true }
     );
     if (data?.person) {
-      emit('pick', data.person);
+      emit('pick', { ...data.person, composeChannel: externalForm.value.channel });
       emit('close');
     }
   } catch (e) {
@@ -753,8 +793,8 @@ async function linkExistingContact(c) {
 async function createAndContinue() {
   externalError.value = '';
   const ch = externalForm.value.channel;
-  if (ch === 'email' && !externalForm.value.email.trim()) {
-    externalError.value = 'Enter an email address';
+  if (ch === 'email' && !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(externalForm.value.email.trim())) {
+    externalError.value = 'Enter a valid email address';
     return;
   }
   if (ch === 'sms' && !externalForm.value.phone.trim()) {
@@ -779,7 +819,7 @@ async function createAndContinue() {
       { skipGlobalLoading: true }
     );
     if (data?.person) {
-      emit('pick', data.person);
+      emit('pick', { ...data.person, composeChannel: externalForm.value.channel });
       emit('close');
     } else {
       externalError.value = 'Contact saved but could not open conversation';
@@ -792,52 +832,58 @@ async function createAndContinue() {
 }
 
 watch(activeChip, async (id) => {
-  if (id === 'all' || searching.value) return;
+  if (id === 'all' || searching.value) { ++directoryRequest; loading.value = false; return; }
   if (!props.agencyId) return;
-  loading.value = true;
+  const request = ++directoryRequest;
+  loading.value = true; directoryError.value = '';
   try {
     if (id === 'groups') {
       const { data } = await api.get('/messages/hub/start-directory', {
-        params: { agencyId: props.agencyId, allAgencies: true, perSection: 40 },
+        params: { agencyId: props.agencyId, allAgencies: false, perSection: 40 },
         skipGlobalLoading: true
       });
+      if (request !== directoryRequest) return;
       sections.value = { ...sections.value, groups: data?.sections?.groups || [] };
     } else if (id === 'recent') {
       const { data } = await api.get('/messages/hub/people', {
-        params: { agencyId: props.agencyId, browse: 'recent', limit: 60, allAgencies: true },
+        params: { agencyId: props.agencyId, browse: 'recent', limit: 60, allAgencies: false },
         skipGlobalLoading: true
       });
+      if (request !== directoryRequest) return;
       sections.value = { ...sections.value, recent: data?.results || [] };
     } else {
       const browse = id === 'clients' ? 'caseload' : id;
       const pred = kindPred(id);
       const [{ data: browseData }, { data: recentData }] = await Promise.all([
         api.get('/messages/hub/people', {
-          params: { agencyId: props.agencyId, browse, limit: 60, allAgencies: true },
+          params: { agencyId: props.agencyId, browse, limit: 60, allAgencies: false },
           skipGlobalLoading: true
         }),
         api.get('/messages/hub/people', {
-          params: { agencyId: props.agencyId, browse: 'recent', limit: 60, allAgencies: true },
+          params: { agencyId: props.agencyId, browse: 'recent', limit: 60, allAgencies: false },
           skipGlobalLoading: true
         })
       ]);
       let fill = browseData?.results || [];
       if (id === 'clients') fill = fill.filter(isClient);
       const recentPool = recentData?.results || sections.value.recent || [];
+      if (request !== directoryRequest) return;
       sections.value = {
         ...sections.value,
         [id]: mergeRecentFirst(recentPool, fill, pred)
       };
     }
   } catch {
-    /* keep existing preview */
+    if (request === directoryRequest) directoryError.value = 'Could not load this list. Please try again.';
   } finally {
-    loading.value = false;
+    if (request === directoryRequest) loading.value = false;
   }
 });
 
+onUnmounted(() => { clearTimeout(searchTimer); clearTimeout(clientTimer); ++directoryRequest; ++clientRequest; });
 onMounted(async () => {
-  await Promise.all([loadDirectory(), loadClientOptions(), loadSmartGroups()]);
+  if (props.contactOnly) { openExternal('email'); return; }
+  await Promise.all([loadDirectory(), ...(props.channel === 'email' ? [] : [loadSmartGroups()])]);
   await nextTick();
   searchEl.value?.focus?.();
 });
@@ -853,6 +899,8 @@ watch(
 </script>
 
 <style scoped>
+.scm-client-results { max-height: 190px; overflow: auto; display: grid; gap: 6px; }
+.scm-person:disabled { opacity: .55; cursor: not-allowed; }
 .scm-overlay {
   position: fixed;
   inset: 0;

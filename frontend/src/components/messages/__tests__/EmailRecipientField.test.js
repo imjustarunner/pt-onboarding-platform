@@ -56,3 +56,23 @@ describe('email recipient entry', () => {
     expect(wrapper.find('form').element.checkValidity()).toBe(false); wrapper.unmount();
   });
 });
+
+describe('recipient directory and saved contacts', () => {
+  it.each(['To','Cc','Bcc'])('adds a directory recipient to %s without replacing existing addresses', async label => {
+    const wrapper=mount(EmailRecipientField,{props:{modelValue:'existing@example.com',label,agencyId:2},global:{stubs:{teleport:true,StartConversationModal:{name:'StartConversationModal',props:['agencyId','channel','contactOnly','initialEmail'],emits:['pick','close'],template:'<div class="picker" />'}}}});
+    await wrapper.find('.choose-recipient').trigger('click');
+    const picker=wrapper.findComponent({name:'StartConversationModal'});
+    expect(picker.props()).toMatchObject({agencyId:2,channel:'email',contactOnly:false});
+    picker.vm.$emit('pick',{email:'chosen@example.com'}); await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('update:modelValue').at(-1)).toEqual(['existing@example.com, chosen@example.com']);
+    expect(wrapper.find('.picker').exists()).toBe(false); wrapper.unmount();
+  });
+  it('opens contact creation with the selected address, without dropping other recipients', async () => {
+    const wrapper=mount(EmailRecipientField,{props:{modelValue:'new@example.com, other@example.com',label:'Cc',agencyId:2},global:{stubs:{teleport:true,StartConversationModal:{name:'StartConversationModal',props:['agencyId','channel','contactOnly','initialEmail'],emits:['pick','close'],template:'<div class="picker" />'}}}});
+    await wrapper.find('[aria-label="Save new@example.com as a contact"]').trigger('click');
+    const picker=wrapper.findComponent({name:'StartConversationModal'});
+    expect(picker.props()).toMatchObject({contactOnly:true,initialEmail:'new@example.com'});
+    picker.vm.$emit('pick',{email:'new@example.com'}); await wrapper.vm.$nextTick();
+    expect(wrapper.emitted('update:modelValue').at(-1)).toEqual(['new@example.com, other@example.com']); wrapper.unmount();
+  });
+});

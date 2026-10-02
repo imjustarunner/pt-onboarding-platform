@@ -46,11 +46,27 @@ describe('Messages hub thread interactions', () => {
     expect(state.replyMailboxEmail).toBe('thughes@itsco.health');
     expect(state.composeSenderAlias.fromEmail).toBe('messages@itsco.health');
   });
-  it('opens New email in a detached composer without a previous conversation ID', () => {
+  it('opens the recipient list first, then a new draft without reusing the open thread', async () => {
     state.selectedConversation = { id:10 }; state.activeEmailThreadKey='email:10';
     state.startNewSubjectCompose();
-    expect(openEmailComposer).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({mode:'new',conversationId:undefined}));
+    expect(state.showNew).toBe(true);
+    expect(state.newConversationChannel).toBe('email');
+    expect(openEmailComposer).not.toHaveBeenCalled();
+    await state.startConversationWithPerson(person);
+    expect(openEmailComposer).toHaveBeenCalledWith(expect.anything(), {mode:'new', agencyId:2, to:person.email});
     expect(api.post).not.toHaveBeenCalledWith('/messages/hub/send',expect.anything(),expect.anything());
+  });
+  it.each([['all','New conversation'],['email','New email'],['internal','New internal message'],['secure','New secure message'],['sms','New SMS'],['group','New group']])('matches the primary action to %s', async (channel, label) => {
+    state.inboxChannel = channel;
+    await nextTick();
+    const button = wrapper.find('.msg-hub-head-actions .btn-primary');
+    expect(button.text()).toContain(label);
+    expect(button.element.disabled).toBe(channel === 'sms');
+    if (channel !== 'sms') {
+      await button.trigger('click');
+      expect(state.newConversationChannel).toBe(channel);
+      expect(state.showNew).toBe(true);
+    }
   });
   it('opens the exact clicked email directly without resolving an unrelated person', async () => {
     api.get.mockResolvedValue({data:{conversation:{id:20,channel:'email',subject:'Twenty'},messages:[{id:200,body_text:'Readable'}]}});

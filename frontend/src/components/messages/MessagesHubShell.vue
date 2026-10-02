@@ -25,7 +25,6 @@
       </div>
       <div class="msg-hub-head-actions">
         <button type="button" class="btn btn-secondary" :disabled="refreshing" @click="refreshMail">{{ refreshing ? 'Refreshing…' : '↻ Refresh' }}</button>
-        <button type="button" class="btn btn-primary" @click="composeEmail('new')">+ New email</button>
         <button
           v-if="isDrawerLayout"
           type="button"
@@ -34,8 +33,8 @@
         >
           Team chat
         </button>
-        <button type="button" class="btn btn-primary" @click="openNewConversation">
-          + New conversation
+        <button type="button" class="btn btn-primary" @click="openNewConversation()" :disabled="inboxChannel === 'sms'" :title="inboxChannel === 'sms' ? 'SMS is coming soon' : newMessageLabel">
+          + {{ newMessageLabel }}
         </button>
       </div>
     </header>
@@ -364,9 +363,9 @@
               v-if="navSection !== 'tools'"
               type="button"
               class="btn btn-primary"
-              @click="openNewConversation"
+              @click="openNewConversation()" :disabled="inboxChannel === 'sms'" :title="inboxChannel === 'sms' ? 'SMS is coming soon' : newMessageLabel"
             >
-              + New conversation
+              + {{ newMessageLabel }}
             </button>
           </div>
         </section>
@@ -1197,8 +1196,8 @@
             <p>
               Browse your clients by name or school, open someone recent, or search by name, email, or phone.
             </p>
-            <button type="button" class="btn btn-primary" @click="openNewConversation">
-              + New conversation
+            <button type="button" class="btn btn-primary" @click="openNewConversation()" :disabled="inboxChannel === 'sms'" :title="inboxChannel === 'sms' ? 'SMS is coming soon' : newMessageLabel">
+              + {{ newMessageLabel }}
             </button>
           </div>
         </section>
@@ -1416,6 +1415,7 @@
     <StartConversationModal
       v-if="showNew"
       :agency-id="agencyId"
+      :channel="newConversationChannel"
       @close="showNew = false"
       @pick="startConversationWithPerson"
       @open-group="onOpenGroupFromModal"
@@ -1556,6 +1556,8 @@ import ResolveUnknownSenderModal from './ResolveUnknownSenderModal.vue';
 import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
 
 const inboxChannel = ref('all');
+const newConversationChannel = ref('all');
+const newMessageLabel = computed(() => ({email:'New email',internal:'New internal message',secure:'New secure message',sms:'New SMS · Coming soon',group:'New group'})[inboxChannel.value] || 'New conversation');
 const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'group',label:'Groups'}];
 const readerSmsText=ref('');
 async function replyReaderSms(){const cid=conversationPreview.value?.conversation?.id;if(!cid||sending.value)return;sending.value=true;try{await api.post(`/communications/conversations/${cid}/reply`,{text:readerSmsText.value,mode:'reply'},{skipGlobalLoading:true});readerSmsText.value='';await refreshMail();}catch(e){error.value=e.response?.data?.error?.message||'Could not send text';}finally{sending.value=false;}}
@@ -1567,6 +1569,7 @@ const openNewDrafts = ref([]);
 const personNewDrafts = computed(() => openNewDrafts.value.filter(d => selected.value?.email && [Number(selected.value.agencyId), Number(agencyId.value)].includes(Number(d.agencyId)) && String(d.to || '').split(/[,;]/).some(address => address.trim().toLowerCase() === selected.value.email.toLowerCase())));
 function selectInboxChannel(channel){inboxChannel.value=channel;selectNav('inbox',isConversationMode.value && (!['drafts','needs_attention'].includes(navId.value) || ['all','email'].includes(channel)) ? navId.value : 'inbox');}
 function composeEmail(mode='new') {
+  if (mode === 'new') return openNewConversation('email');
   const conversationId=selectedConversation.value?.conversationId || selectedConversation.value?.id || emailSubjectThreads.value.find(t=>t.key===activeEmailThreadKey.value)?.conversationId;
   if(mode !== 'new' && !conversationId){error.value='Open an email conversation first.';return;}
   openEmailComposer(router,{mode,agencyId:agencyId.value,conversationId:mode==='new'?undefined:conversationId,to:mode==='new'?selected.value?.email:undefined});
@@ -2020,7 +2023,7 @@ const emptyListCopy = computed(() => {
     return 'Nothing in this inbox view yet.';
   }
   if (listFilter.value === 'contacts') {
-    return 'No contacts yet. Use + New conversation to message someone, or save an external email/phone as a contact.';
+    return `No contacts yet. Use + ${newMessageLabel.value} to message someone, or save an external email/phone as a contact.`;
   }
   if (listFilter.value === 'caseload' || listFilter.value === 'clients') {
     return 'No clients assigned to you across your agencies yet. Try Search, or open New conversation → Clients.';
@@ -4205,19 +4208,22 @@ function setListFilter(id) {
 
 async function startConversationWithPerson(person) {
   showNew.value = false;
-  const method = inboxChannel.value === 'email' ? 'email' : person.preferredMethod;
+  const requested = newConversationChannel.value !== 'all' ? newConversationChannel.value : inboxChannel.value;
+  const method = person.composeChannel || (['email','internal','secure','sms'].includes(requested) ? requested : person.preferredMethod);
   if (method === 'email' && person.email) {
     openEmailComposer(router, { mode: 'new', agencyId: agencyId.value || person.agencyId, to: person.email });
     void pickPerson(person, { method: 'email' });
     return;
   }
-  await pickPerson(person);
+  await pickPerson(person, { method });
   if (selected.value?.personKey !== person.personKey) return;
   startNewSubjectCompose();
   mobileShowThread.value = true;
 }
 
-async function openNewConversation() {
+async function openNewConversation(channel = inboxChannel.value) {
+  if (channel === 'sms') return;
+  newConversationChannel.value = channel;
   showNew.value = true;
 }
 

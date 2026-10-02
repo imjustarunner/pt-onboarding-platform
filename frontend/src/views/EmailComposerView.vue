@@ -9,8 +9,8 @@
       <p v-if="senderPreviewUnavailable" role="status">Sender details are temporarily unavailable. Your draft can still be saved; sending will recheck the mailbox.</p>
       <template v-if="record.state === 'editing'">
         <form @submit.prevent="send"><fieldset :disabled="busy">
-          <div class="to-row"><EmailRecipientField v-model="draft.to" label="To" required /><button v-if="!draft.cc && !draft.bcc" type="button" :aria-expanded="showCopyFields" @click="showCopyFields=!showCopyFields">Cc / Bcc</button></div>
-          <div v-show="showCopyFields || draft.cc || draft.bcc" class="recipients"><EmailRecipientField v-model="draft.cc" label="Cc" /><EmailRecipientField v-model="draft.bcc" label="Bcc" /></div>
+          <div class="to-row"><EmailRecipientField :agency-id="qv ? null : record.agency_id" v-model="draft.to" label="To" required /><button v-if="!draft.cc && !draft.bcc" type="button" :aria-expanded="showCopyFields" @click="showCopyFields=!showCopyFields">Cc / Bcc</button></div>
+          <div v-show="showCopyFields || draft.cc || draft.bcc" class="recipients"><EmailRecipientField :agency-id="qv ? null : record.agency_id" v-model="draft.cc" label="Cc" /><EmailRecipientField :agency-id="qv ? null : record.agency_id" v-model="draft.bcc" label="Bcc" /></div>
           <label>Subject<input v-model="draft.subject" maxlength="998" /></label>
           <label>Your message<textarea ref="bodyInput" v-model="draft.text" placeholder="Write your message…" rows="12" /></label>
           <label class="files">Attach files<input type="file" multiple @change="attach" /></label>

@@ -5,7 +5,7 @@ import pool from '../config/database.js';
 import { enrichHubSchoolStaff } from './hubSchoolProfiles.service.js';
 import { listMessageReactions } from './hubMessageReactions.service.js';
 import { searchCommunicationDirectory, listCommunicationDirectoryByKind } from './communicationDirectory.service.js';
-import { findPersonalInbox, ensurePersonalMailbox } from './personalMailbox.service.js';
+import { findPersonalInbox } from './personalMailbox.service.js';
 import {
   shouldDefaultToSecureMessage
 } from './secureMessagingPolicy.service.js';
@@ -433,10 +433,8 @@ function buildMethods({
 
 async function actorHasAppInbox(agencyId, userId) {
   try {
-    let inbox = await findPersonalInbox({ agencyId, userId });
-    if (!inbox) {
-      inbox = await ensurePersonalMailbox({ agencyId, userId });
-    }
+    // Directory/reader lookups must never provision mailboxes or wait on Workspace.
+    const inbox = await findPersonalInbox({ agencyId, userId });
     return !!inbox?.id;
   } catch {
     return false;
@@ -1033,6 +1031,12 @@ export async function browseHubPeople({
   const ph = ids.map(() => '?').join(',');
   const query = String(q || '').trim();
 
+  if (mode === 'contacts') {
+    const contacts = await listMyAgencyContactsAsPeople({ agencyIds: ids, userId, limit: lim, q: query });
+    for (const contact of contacts) upsertPerson(map, contact.personKey, contact);
+    return finalizePeople(map, inboxByAgency, lim);
+  }
+
   if (mode === 'staff' || mode === 'school_staff') {
     const { publicUploadsUrlFromStoredPath } = await import('../utils/uploads.js');
     let browseIds = ids;
@@ -1264,6 +1268,8 @@ export async function browseHubPeople({
   }
 
   if (wantCaseload) {
+    const clientSearch = query ? 'AND (c.full_name LIKE ? OR c.initials LIKE ? OR org.name LIKE ?)' : '';
+    const searchParams = query ? [likeParam(query), likeParam(query), likeParam(query)] : [];
     try {
       const caseloadFilter = agencyWidePeople
         ? ''
@@ -1282,9 +1288,10 @@ export async function browseHubPeople({
          WHERE c.agency_id IN (${ph})
            AND (c.compliance_archived_at IS NULL)
            ${caseloadFilter}
+           ${clientSearch}
            ORDER BY COALESCE(c.full_name, c.initials) ASC
            LIMIT ${lim}`,
-          agencyWidePeople ? [...ids] : [...ids, userId, userId]
+          [...(agencyWidePeople ? ids : [...ids, userId, userId]), ...searchParams]
         );
         for (const c of rows || []) {
           const aid = Number(c.agency_id);
@@ -1308,9 +1315,10 @@ export async function browseHubPeople({
            ${CLIENT_FROM_JOIN}
            WHERE c.agency_id IN (${ph})
              ${fallbackFilter}
+             ${clientSearch}
            ORDER BY COALESCE(c.full_name, c.initials, c.identifier_code) ASC
            LIMIT ${lim}`,
-          agencyWidePeople ? [...ids] : [...ids, userId, userId]
+          [...(agencyWidePeople ? ids : [...ids, userId, userId]), ...searchParams]
         );
         for (const c of rows || []) {
           const aid = Number(c.agency_id);
@@ -3393,12 +3401,13 @@ export async function getStartConversationDirectory({
     };
   }
 
-  const [recent, clients, guardians, staff, schoolStaff, groups] = await Promise.all([
+  const [recent, clients, guardians, staff, schoolStaff, contacts, groups] = await Promise.all([
     browseHubPeople({ ...common, browse: 'recent', limit: Math.max(recentN, fillN) }),
     browseHubPeople({ ...common, browse: 'caseload', limit: fillN }),
     browseHubPeople({ ...common, browse: 'guardians', limit: fillN }),
     browseHubPeople({ ...common, browse: 'staff', limit: fillN }),
     browseHubPeople({ ...common, browse: 'school_staff', limit: fillN }),
+    browseHubPeople({ ...common, browse: 'contacts', limit: fillN }),
     listHubChatGroups({ agencyIds: ids, userId, limit: Math.max(n, 12) })
   ]);
 
@@ -3413,6 +3422,7 @@ export async function getStartConversationDirectory({
       guardians: mergeRecentFirst(recentList, guardians, isGuardian, n),
       staff: mergeRecentFirst(recentList, staff, isStaff, n),
       school_staff: mergeRecentFirst(recentList, schoolStaff, isSchoolStaff, n),
+      contacts: contacts.slice(0, n),
       groups: (groups || []).slice(0, n)
     },
     externalHint: null
@@ -3473,11 +3483,14 @@ export async function browseHubContacts({
   return [...map.values()].slice(0, lim);
 }
 
-async function listMyAgencyContactsAsPeople({ agencyIds, userId, limit = 40 } = {}) {
+async function listMyAgencyContactsAsPeople({ agencyIds, userId, limit = 40, q = '' } = {}) {
   const ids = [...new Set((agencyIds || []).map(Number).filter((n) => n > 0))];
   if (!ids.length || !userId) return [];
   const lim = Math.min(Math.max(Number(limit) || 40, 1), 80);
   const ph = ids.map(() => '?').join(',');
+  const search = String(q || '').trim();
+  const searchSql = search ? 'AND (ac.full_name LIKE ? OR ac.email LIKE ?)' : '';
+  const searchArgs = search ? [likeParam(search), likeParam(search)] : [];
   try {
     const [rows] = await pool.execute(
       `SELECT ac.id, ac.agency_id, ac.full_name, ac.email, ac.phone, ac.client_id, ac.relationship_type
@@ -3492,9 +3505,10 @@ async function listMyAgencyContactsAsPeople({ agencyIds, userId, limit = 40 } = 
              WHERE cpa.contact_id = ac.id AND cpa.provider_user_id = ?
            )
          )
+       ${searchSql}
        ORDER BY COALESCE(ac.updated_at, ac.created_at) DESC
        LIMIT ${lim}`,
-      [...ids, userId, userId]
+      [...ids, userId, userId, ...searchArgs]
     );
     return (rows || []).map((c) => ({
       personKey: formatPersonKey('contact', c.id, c.agency_id),
@@ -3526,9 +3540,10 @@ async function listMyAgencyContactsAsPeople({ agencyIds, userId, limit = 40 } = 
                WHERE cpa.contact_id = ac.id AND cpa.provider_user_id = ?
              )
            )
-         ORDER BY COALESCE(ac.updated_at, ac.created_at) DESC
+         ${searchSql}
+       ORDER BY COALESCE(ac.updated_at, ac.created_at) DESC
          LIMIT ${lim}`,
-        [...ids, userId, userId]
+        [...ids, userId, userId, ...searchArgs]
       );
       return (rows || []).map((c) => ({
         personKey: formatPersonKey('contact', c.id, c.agency_id),
@@ -3595,6 +3610,27 @@ export async function ensureHubExternalContact({
       ? 'other'
       : null;
 
+  let allowedClientId = null;
+  if (clientId) {
+    const { resolveClientRecordAccess } = await import('./clientRecordAccess.service.js');
+    const access = await resolveClientRecordAccess({
+      userId: uid,
+      role,
+      clientId: Number(clientId)
+    });
+    if (!access?.ok) {
+      const err = new Error(
+        access?.message || 'You do not have access to attach this contact to that client'
+      );
+      err.status = access?.status || 403;
+      throw err;
+    }
+    if (Number(access.client?.agency_id) !== aid) {
+      throw Object.assign(new Error('Choose a client in this agency'), { status: 403 });
+    }
+    allowedClientId = Number(clientId);
+  }
+
   // Link to an existing platform user → prefer messaging that user, also ensure a contact row
   if (linkUserId) {
     const linked = Number(linkUserId);
@@ -3619,7 +3655,7 @@ export async function ensureHubExternalContact({
           agencyId: aid,
           createdByUserId: uid,
           shareWithAll: false,
-          clientId: clientId ? Number(clientId) : null,
+          clientId: allowedClientId,
           fullName: fullName || person.displayName,
           email: normEmail || person.email || null,
           phone: normPhone || person.phone || null,
@@ -3655,23 +3691,6 @@ export async function ensureHubExternalContact({
     }
   }
 
-  let allowedClientId = null;
-  if (clientId) {
-    const { resolveClientRecordAccess } = await import('./clientRecordAccess.service.js');
-    const access = await resolveClientRecordAccess({
-      userId: uid,
-      role,
-      clientId: Number(clientId)
-    });
-    if (!access?.ok) {
-      const err = new Error(
-        access?.message || 'You do not have access to attach this contact to that client'
-      );
-      err.status = access?.status || 403;
-      throw err;
-    }
-    allowedClientId = Number(clientId);
-  }
 
   if (!contact) {
     const byEmail = normEmail ? await AgencyContact.findByEmail(normEmail, aid) : null;
