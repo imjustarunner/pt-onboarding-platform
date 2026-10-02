@@ -516,6 +516,6 @@ describe('ClinicalNoteGeneratorView smoke', () => {
       throw captured;
     }
     expect(wrapper.exists()).toBe(true);
-    expect(wrapper.text()).toMatch(/Documentation Hub|Not available|AI Note/i);
+    expect(wrapper.text()).toMatch(/Documentation Hub|Practice Notes|Notes Workspace|Not available|AI Note/i);
   });
 });

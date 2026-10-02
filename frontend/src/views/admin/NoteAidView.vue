@@ -1,10 +1,10 @@
 <template>
-  <ClinicalWorkspaceFrame :enabled="noteAidEnabled && clinicalWorkspaceBranding" immersive :tenant-id="currentAgencyId" context-label="Documentation Hub">
+  <ClinicalWorkspaceFrame :enabled="noteAidEnabled && clinicalWorkspaceBranding" immersive :tenant-id="currentAgencyId" :context-label="noteWorkspaceLabel">
   <div class="container">
     <div class="page-header">
       <div>
         <router-link :to="orgTo('/admin')" class="back-link">← Back to Admin</router-link>
-        <h1>Documentation Hub</h1>
+        <h1>{{ noteWorkspaceLabel }}</h1>
         <p class="subtitle">Paste or dictate text, run an AI tool, then copy or save the result.</p>
       </div>
     </div>
@@ -12,11 +12,11 @@
     <div class="content-card">
       <div v-if="!currentAgencyId" class="empty-state">
         <strong>Select an agency</strong>
-        <div class="muted">Documentation Hub is enabled/disabled per agency. Switch to an agency context first.</div>
+        <div class="muted">{{ noteWorkspaceLabel }} is enabled/disabled per agency. Switch to an agency context first.</div>
       </div>
 
       <div v-else-if="!noteAidEnabled" class="empty-state">
-        <strong>Documentation Hub is disabled for this agency</strong>
+        <strong>{{ noteWorkspaceLabel }} is disabled for this agency</strong>
         <div class="muted">A super admin can enable it under Settings → Agencies → Feature toggles.</div>
       </div>
 
@@ -133,15 +133,24 @@
 
 <script setup>
 import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';
+import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 const route = useRoute();
+
+const noteWorkspaceLabel = computed(() => noteAidWorkspaceLabel({
+  role: authStore.user?.role,
+  tenant: agencyStore.currentAgency,
+  auricwell: route.meta?.auricwellPreview === true
+}));
 
 const orgTo = (path) => {
   const slug = route.params.organizationSlug;
@@ -528,4 +537,3 @@ select {
   background: var(--bg-alt);
 }
 </style>
-

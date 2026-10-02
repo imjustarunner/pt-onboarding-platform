@@ -17,7 +17,7 @@
     <nav class="mobile-tabs">
       <router-link :to="orgTo('/provider-mobile/schedule')" class="tab">Schedule</router-link>
       <router-link :to="orgTo('/provider-mobile/payroll')" class="tab">Payroll</router-link>
-      <router-link :to="orgTo('/provider-mobile/note-aid')" class="tab">Documentation Hub</router-link>
+      <router-link :to="orgTo('/provider-mobile/note-aid')" class="tab">{{ noteWorkspaceLabel }}</router-link>
       <router-link :to="orgTo('/provider-mobile/communications')" class="tab">Comms</router-link>
     </nav>
   </div>
@@ -27,10 +27,13 @@
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
+import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 
 const route = useRoute();
 const router = useRouter();
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 
 const orgSlug = computed(() => (
   typeof route.params.organizationSlug === 'string' ? route.params.organizationSlug : ''
@@ -44,6 +47,12 @@ const organizationLabel = computed(() => {
   if (orgSlug.value) return orgSlug.value.toUpperCase();
   return 'Mobile workspace';
 });
+
+const noteWorkspaceLabel = computed(() => noteAidWorkspaceLabel({
+  role: authStore.user?.role,
+  tenant: agencyStore.currentAgency,
+  auricwell: route.meta?.auricwellPreview === true
+}));
 
 const goToDesktop = () => {
   router.push(orgTo('/dashboard'));

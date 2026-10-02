@@ -1321,7 +1321,12 @@ import DashboardIconEditor from '../components/admin/DashboardIconEditor.vue';
 import DashboardRailEditor from '../components/dashboard/DashboardRailEditor.vue';
 import DashboardRailMoveButtons from '../components/dashboard/DashboardRailMoveButtons.vue';
 import { useDashboardRailOrder } from '../composables/useDashboardRailOrder';
-import { isNoteAidEmployeeRole, isNoteAidEnabledForAgencyFlags, workspaceNoteAidPath } from '../config/noteAidAccess';
+import {
+  isNoteAidEmployeeRole,
+  isNoteAidEnabledForAgencyFlags,
+  noteAidWorkspaceLabel,
+  workspaceNoteAidPath
+} from '../config/noteAidAccess';
 import SchoolMarketingSplash from '../components/marketing/SchoolMarketingSplash.vue';
 import AnnouncementMarquee from '../components/common/AnnouncementMarquee.vue';
 import { useRouter, useRoute } from 'vue-router';
@@ -2359,6 +2364,12 @@ const respondToCompanyEvent = async (event, responseKey) => {
 };
 
 const currentAgency = computed(() => agencyStore.currentAgency?.value || agencyStore.currentAgency || null);
+
+const noteWorkspaceLabel = computed(() => noteAidWorkspaceLabel({
+  role: authStore.user?.role,
+  tenant: cardIconOrgOverride.value || currentAgency.value,
+  auricwell: route.meta?.auricwellPreview === true
+}));
 
 const currentAgencyId = computed(() => {
   return currentAgency.value?.id || null;
@@ -4211,11 +4222,11 @@ const dashboardCards = computed(() => {
   const tools = cards.find((card) => card.id === 'tools_nest');
   if (tools && isNoteAidEmployeeRole(role) && isNoteAidEnabledForAgencyFlags(agencyFlags.value)) {
     cards.push({
-      id: 'documentation_hub', label: 'Documentation Hub', kind: 'link',
+      id: 'documentation_hub', label: noteWorkspaceLabel.value, kind: 'link',
       to: workspaceNoteAidPath(orgSlug), badgeCount: 0,
       iconUrl: brandingStore.getDashboardCardIconUrl('clinical_note_generator', iconOrg)
         || brandingStore.getDashboardCardIconUrl('documents', iconOrg),
-      description: 'Open clinical notes and documentation tools.'
+      description: `Open ${noteWorkspaceLabel.value.toLowerCase()} and documentation tools.`
     });
   }
   return cards;

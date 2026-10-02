@@ -1,5 +1,5 @@
 <template>
-  <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="noteAidAgencyId || currentAgencyId" context-label="Documentation Hub">
+  <ClinicalWorkspaceFrame :enabled="canUseTool && clinicalWorkspaceBranding" :immersive="!isEmbedded" :compact="isEmbedded" :show-back="!isEmbedded" :tenant-id="noteAidAgencyId || currentAgencyId" :context-label="noteWorkspaceLabel">
   <div class="na-app" :class="{ 'na-app--embedded': isEmbedded }">
     <header v-if="!isEmbedded" class="na-topbar">
       <div class="na-brand">
@@ -11,7 +11,7 @@
           </svg>
         </span>
         <div>
-          <div class="na-brand-title">Documentation Hub</div>
+          <div class="na-brand-title">{{ noteWorkspaceLabel }}</div>
           <div class="na-brand-sub">Note Assistant</div>
         </div>
       </div>
@@ -53,7 +53,7 @@
 
     <div v-if="fromIndirectSession" class="na-indirect-banner" role="status">
       <span>
-        You’re still clocked in on Log Time — Documentation Hub (Tools &amp; Aids → AI Tools) counts on that session.
+        You’re still clocked in on Log Time — {{ noteWorkspaceLabel }} (Tools &amp; Aids → AI Tools) counts on that session.
         Use the clock chip or Back to Log Time when you’re done.
       </span>
       <button type="button" class="na-indirect-back" @click="returnToLogTime">
@@ -1571,6 +1571,7 @@
 
 <script setup>
 import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';
+import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { DURATION_PRESETS, durationLabel, projectedDurationMonths, setObjectiveCompletionTime } from '../../utils/treatmentPlanDuration';
@@ -1749,6 +1750,11 @@ const props = defineProps({
 });
 const isEmbedded = computed(() => !!props.embedded);
 const isAuricWell = computed(() => route.meta?.auricwellPreview === true);
+const noteWorkspaceLabel = computed(() => noteAidWorkspaceLabel({
+  role: authStore.user?.role,
+  tenant: agencyStore.currentAgency,
+  auricwell: isAuricWell.value
+}));
 
 const orgTo = (path) => {
   const slug = route.params.organizationSlug;

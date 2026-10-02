@@ -2,7 +2,7 @@
   <section class="card">
     <div class="section-head">
       <div>
-        <h2>Documentation Hub</h2>
+        <h2>{{ noteWorkspaceLabel }}</h2>
         <p>Quick launch + text draft save</p>
       </div>
       <button class="btn btn-secondary btn-sm" type="button" :disabled="loading" @click="load">
@@ -12,7 +12,7 @@
 
     <div class="actions">
       <router-link class="btn btn-primary btn-sm" :to="noteAidRoute">
-        Open Full Documentation Hub
+        Open Full {{ noteWorkspaceLabel }}
       </router-link>
     </div>
 
@@ -49,10 +49,18 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';
+import { useAuthStore } from '../../store/auth';
+import { noteAidWorkspaceLabel } from '../../config/noteAidAccess.js';
 
 const route = useRoute();
 const agencyStore = useAgencyStore();
+const authStore = useAuthStore();
 
+const noteWorkspaceLabel = computed(() => noteAidWorkspaceLabel({
+  role: authStore.user?.role,
+  tenant: agencyStore.currentAgency,
+  auricwell: route.meta?.auricwellPreview === true
+}));
 const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
