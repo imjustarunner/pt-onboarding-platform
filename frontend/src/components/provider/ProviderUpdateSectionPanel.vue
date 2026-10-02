@@ -65,6 +65,7 @@
       :agency-id="agencyId"
       :mode="mode"
       :token="token"
+      :data="section.data"
       @complete="markComplete"
     />
 
@@ -95,10 +96,32 @@
       </div>
     </div>
 
+    <div v-else-if="section.key === 'supervision_hours'" class="pu-panel">
+      <p v-if="reviewLoading">Loading supervision hours…</p>
+      <template v-else-if="reviewContext.supervised">
+        <p>Recorded supervision: <strong>{{ reviewContext.supervision?.totalHours ?? 0 }} hours</strong></p>
+        <label class="field"><span>Review</span><select v-model="supervisionReview.decision" class="input"><option value="confirmed">These hours are correct</option><option value="correction_requested">Request a correction</option></select></label>
+        <template v-if="supervisionReview.decision === 'correction_requested'">
+          <label class="field"><span>Requested total hours</span><input v-model.number="supervisionReview.requestedHours" type="number" min="0" step="0.01" class="input" /></label>
+          <label class="field"><span>Why should the hours change?</span><textarea v-model="supervisionReview.reason" class="input" /></label>
+          <label class="field"><span>Supporting record (optional)</span><input type="file" accept="application/pdf,image/*" @change="uploadReviewFile($event, 'supervision')" /></label>
+          <p>Submitted corrections are reviewed before the supervision ledger changes.</p>
+        </template>
+      </template>
+      <p v-else-if="!reviewLoading">No supervisor is currently assigned for this agency.</p>
+      <p v-if="supervisionReview.documentId">Supporting record saved to your file.</p>
+      <p v-if="localError" class="err">{{ localError }}</p>
+      <button :disabled="saving || reviewLoading || !!localError" class="pu-btn primary" @click="markComplete({ ...supervisionReview })">{{ supervisionReview.decision === 'correction_requested' ? 'Submit correction for review' : 'Confirm supervision review' }}</button>
+    </div>
+
     <!-- License -->
     <div v-else-if="section.key === 'license'" class="pu-panel">
       <p class="mode-tag">See and update license details</p>
       <label class="field"><span>License type / number</span><input v-model="license.number" class="input" /></label>
+      <label class="field"><span>Issue date</span><input v-model="license.issued" type="date" class="input" /></label>
+      <label class="field"><span>License document</span><input type="file" accept="application/pdf,image/*" @change="uploadReviewFile($event, 'license')" /></label>
+      <p v-if="license.hasUpload">License document is saved in your file.</p>
+      <p v-if="localError" class="err">{{ localError }}</p>
       <label class="field"><span>Expiration date</span><input v-model="license.expires" type="date" class="input" /></label>
       <div class="pu-actions">
         <button type="button" class="pu-btn primary" :disabled="saving" @click="saveLicense">
@@ -315,7 +338,11 @@ const updatingPin = ref(false);
 const hasWorkHours = ref(true);
 const blurb = ref('');
 const specialtiesText = ref('');
-const license = reactive({ number: '', expires: '' });
+const license = reactive({ number: '', issued: '', expires: '', hasUpload: false });
+const reviewContext = ref({});
+const reviewLoading = ref(false);
+const supervisionReview = reactive({ decision: 'confirmed', requestedHours: null, reason: '', documentId: null, ...(props.section.key === 'supervision_hours' ? props.section.data : {}) });
+const reviewBase = computed(() => props.mode === 'token' ? `/public/provider-update/${encodeURIComponent(props.token)}` : '/provider-update/me');
 const contact = reactive({ phone: '', address: '', emergency: '' });
 const credential = ref('');
 const preferredDays = ref([]);
@@ -446,6 +473,30 @@ async function saveBlurb() {
 async function saveSpecialties() {
   await markComplete({ specialties: specialtiesText.value });
 }
+
+async function uploadReviewFile(event, kind) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  saving.value = true; localError.value = '';
+  try {
+    const body = new FormData(); body.append('file', file); body.append('agencyId', String(props.agencyId));
+    if (kind === 'license' && license.expires) body.append('expirationDate', license.expires);
+    const { data } = await api.post(`${reviewBase.value}/documents/${kind}`, body);
+    if (kind === 'license') license.hasUpload = true;
+    else supervisionReview.documentId = data.documentId;
+  } catch(e) { localError.value = e.response?.data?.error?.message || 'Could not upload this document.'; }
+  finally { saving.value = false; }
+}
+onMounted(async () => {
+  if (!['license', 'supervision_hours'].includes(props.section.key)) return;
+  reviewLoading.value = true;
+  try {
+    const { data } = await api.get(`${reviewBase.value}/review-context`, { params: { agencyId: props.agencyId } });
+    reviewContext.value = data;
+    Object.assign(license, data.license, props.section.data?.license || {});
+  } catch(e) { localError.value = e.response?.data?.error?.message || 'Could not load your current records.'; }
+  finally { reviewLoading.value = false; }
+});
 
 async function saveLicense() {
   await markComplete({ license: { ...license } });

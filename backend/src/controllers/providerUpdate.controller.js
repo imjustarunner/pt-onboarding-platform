@@ -1,3 +1,4 @@
+import { persistReviewSection } from './providerUpdateReview.controller.js';
 import {
   assertAgencyAdmin,
   createPush,
@@ -190,6 +191,7 @@ export const updatePublicSection = async (req, res, next) => {
   try {
     const recipient = await getRecipientByToken(req.params.token);
     if (!recipient) return res.status(404).json({ error: { message: 'Link not found' } });
+    await persistReviewSection(recipient, req.params.sectionKey, req.body.data, !!req.body.completed);
     await updateSectionProgress({
       recipientId: recipient.id,
       sectionKey: req.params.sectionKey,
@@ -255,6 +257,7 @@ export const updateMySection = async (req, res, next) => {
     const agencyId = Number(req.body.agencyId);
     const recipient = await getMyOpenRecipient(req.user.id, agencyId);
     if (!recipient) return res.status(404).json({ error: { message: 'No open Provider Update' } });
+    await persistReviewSection(recipient, req.params.sectionKey, req.body.data, !!req.body.completed);
     await updateSectionProgress({
       recipientId: recipient.id,
       sectionKey: req.params.sectionKey,
@@ -291,7 +294,7 @@ export const officeSchedulePublic = async (req, res, next) => {
   try {
     const recipient = await getRecipientByToken(req.params.token);
     if (!recipient) return res.status(404).json({ error: { message: 'Link not found' } });
-    const items = await listOpenForBookingForProvider(recipient.provider_user_id);
+    const items = await listOpenForBookingForProvider(recipient.provider_user_id, recipient.agency_id);
     res.json({ items, reason: 'ok' });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -301,7 +304,7 @@ export const officeSchedulePublic = async (req, res, next) => {
 
 export const officeScheduleMine = async (req, res, next) => {
   try {
-    const items = await listOpenForBookingForProvider(req.user.id);
+    const items = await listOpenForBookingForProvider(req.user.id, Number(req.query.agencyId) || null);
     res.json({ items, reason: 'ok' });
   } catch (e) {
     next(e);

@@ -1,3 +1,4 @@
+import { publishOfficeAssignmentEvent } from './officeAssignmentBookingAvailability.service.js';
 import { legacyOfficeAvailabilityDuplicates } from '../utils/officeLegacyDuplicates.js';
 import { retireExpiredOfficeAssignment } from './officeAssignmentExpiry.service.js';
 import { standingOfficeConflict, eventOfficeConflict } from '../utils/officeMoveConflict.js';
@@ -9,13 +10,14 @@ import { utcDateToZonedParts, wallMysqlToUtcMysql, dateToMysqlUtcDateTime } from
 const fail = (message) => Object.assign(new Error(message), { status: 409 });
 const utc = (value) => value instanceof Date ? value : new Date(`${String(value).replace(' ', 'T').replace(/Z$/, '')}Z`);
 
-export async function moveOfficeSessionOccurrence({ eventId, newRoomId, startAt, endAt, timeZone, actorUserId }) {
+export async function moveOfficeSessionOccurrence({ eventId, newRoomId, startAt, endAt, timeZone, actorUserId, approvalRequestId = null }) {
   if (!(utc(startAt).getTime() > Date.now()) || !(utc(endAt) > utc(startAt))) throw fail('Choose a valid future session time');
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    if (approvalRequestId) await lockMoveApproval(conn, approvalRequestId);
     const [[event]] = await conn.execute('SELECT * FROM office_events WHERE id = ? FOR UPDATE', [eventId]);
-    if (!event || event.status !== 'BOOKED') throw fail('Only booked office sessions can be moved');
+    if (!event || !['BOOKED', 'RELEASED'].includes(event.status)) throw fail('Only active office reservations can be moved');
     if (['COMPLETED', 'NO_SHOW', 'CANCELLED', 'CANCELED'].includes(String(event.status_outcome || '').toUpperCase())) throw fail('Completed and canceled sessions cannot be moved');
     const [appointments] = await conn.execute('SELECT id, status FROM appointments WHERE office_event_id = ? FOR UPDATE', [eventId]);
     if (appointments.some((a) => !['scheduled', 'confirmed'].includes(a.status))) throw fail('Completed and canceled sessions cannot be moved');
@@ -44,9 +46,17 @@ export async function moveOfficeSessionOccurrence({ eventId, newRoomId, startAt,
       await conn.execute('UPDATE office_booking_plans SET skipped_dates_json = ? WHERE id = ?', [JSON.stringify([...new Set([...skips, originalDate])]), event.booking_plan_id]);
     }
     await conn.execute('UPDATE office_events SET room_id = ?, start_at = ?, end_at = ?, standing_assignment_id = NULL, assigned_provider_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newRoomId, startAt, endAt, providerId, eventId]);
+    if (event.standing_assignment_id && (Number(newRoomId) !== Number(event.room_id) || utc(startAt).getTime() !== utc(event.start_at).getTime())) {
+      await conn.execute(`INSERT INTO office_events (office_location_id, room_id, start_at, end_at, status, standing_assignment_id, assigned_provider_id, created_by_user_id)
+        VALUES (?, ?, ?, ?, 'CANCELLED', ?, ?, ?)`, [event.office_location_id, event.room_id, event.start_at, event.end_at, event.standing_assignment_id, providerId, actorUserId]);
+    }
+    for (const table of ['provider_virtual_slot_availability', 'provider_in_person_slot_availability']) {
+      await conn.execute(`UPDATE ${table} SET is_active = FALSE WHERE source_event_id = ?`, [eventId]);
+    }
     await conn.execute(`UPDATE provider_schedule_events p JOIN appointments a ON a.provider_schedule_event_id = p.id
       SET p.start_at = ?, p.end_at = ?, p.updated_at = CURRENT_TIMESTAMP WHERE a.office_event_id = ?`, [startAt, endAt, eventId]);
     await conn.execute(`UPDATE appointments SET room_id = ?, start_at = ?, end_at = ?, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE office_event_id = ?`, [newRoomId, startAt, endAt, actorUserId, eventId]);
+    if (approvalRequestId) await conn.execute("UPDATE office_booking_requests SET status = 'APPROVED', decided_by_user_id = ?, decided_at = UTC_TIMESTAMP(), updated_at = CURRENT_TIMESTAMP WHERE id = ?", [actorUserId, approvalRequestId]);
     await conn.commit();
   } catch (error) {
     await conn.rollback();
@@ -80,11 +90,12 @@ export function movedOfficeWindow(event, { oldWeekday, newWeekday, newHour, time
 }
 
 /** Move the existing occurrences, appointments and session links; never recreate patient sessions. */
-export async function moveOfficeSessionSeries({ assignment, assignments = [assignment], newRoomId, newWeekday, newHour, timeZone, actorUserId, bookingAgencyId = null }) {
+export async function moveOfficeSessionSeries({ assignment, assignments = [assignment], newRoomId, newWeekday, newHour, timeZone, actorUserId, bookingAgencyId = null, approvalRequestId = null }) {
   const conn = await pool.getConnection();
   let moves = [];
   try {
     await conn.beginTransaction();
+    if (approvalRequestId) await lockMoveApproval(conn, approvalRequestId);
     const assignmentIds = assignments.map(row => Number(row.id));
     const assignmentPlaceholders = assignmentIds.map(() => '?').join(',');
     // Serialize moves into the target room, including slots with no materialized events.
@@ -173,6 +184,17 @@ export async function moveOfficeSessionSeries({ assignment, assignments = [assig
       await conn.execute(`UPDATE office_booking_plans SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?) WHERE standing_assignment_id IN (${assignmentPlaceholders}) AND is_active = TRUE`, [bookingAgencyId, ...assignmentIds]);
       await conn.execute(`UPDATE office_events SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?) WHERE standing_assignment_id IN (${assignmentPlaceholders}) AND start_at >= UTC_TIMESTAMP() AND client_id IS NULL AND clinical_session_id IS NULL`, [bookingAgencyId, ...assignmentIds]);
     }
+    if (moves.length) {
+      const ids = moves.map(move => move.event.id), ph = ids.map(() => '?').join(',');
+      for (const table of ['provider_virtual_slot_availability', 'provider_in_person_slot_availability']) {
+        await conn.execute(`UPDATE ${table} SET is_active = FALSE WHERE source_event_id IN (${ph})`, ids);
+      }
+    }
+    for (const move of moves) {
+      const source = assignments.find(row => Number(row.id) === Number(move.event.standing_assignment_id));
+      await publishOfficeAssignmentEvent({ ...source, room_id: newRoomId, booking_agency_id: bookingAgencyId || source.booking_agency_id },
+        { ...move.event, room_id: newRoomId, start_at: move.startAt, end_at: move.endAt }, conn, actorUserId);
+    }
     const deltaDays = newWeekday - Number(assignment.weekday);
     const [plans] = await conn.execute(`SELECT id, skipped_dates_json FROM office_booking_plans WHERE standing_assignment_id IN (${assignmentPlaceholders}) AND is_active = TRUE FOR UPDATE`, assignmentIds);
     for (const plan of plans) {
@@ -182,6 +204,7 @@ export async function moveOfficeSessionSeries({ assignment, assignments = [assig
     }
     for (const source of [...assignments].sort((a, b) => (newHour > Number(assignment.hour) ? -1 : 1) * (Number(a.hour) - Number(b.hour)))) await conn.execute('UPDATE office_standing_assignments SET room_id = ?, weekday = ?, hour = ?, available_since_date = DATE_ADD(available_since_date, INTERVAL ? DAY), temporary_until_date = DATE_ADD(temporary_until_date, INTERVAL ? DAY), last_two_week_confirmed_at = NOW() WHERE id = ?',
       [newRoomId, newWeekday, newHour + Number(source.hour) - Number(assignment.hour), deltaDays, deltaDays, source.id]);
+    if (approvalRequestId) await conn.execute("UPDATE office_booking_requests SET status = 'APPROVED', decided_by_user_id = ?, decided_at = UTC_TIMESTAMP(), updated_at = CURRENT_TIMESTAMP WHERE id = ?", [actorUserId, approvalRequestId]);
     await conn.commit();
   } catch (error) {
     await conn.rollback();
@@ -191,4 +214,17 @@ export async function moveOfficeSessionSeries({ assignment, assignments = [assig
   // The clinical plane is a separate database. Preserve IDs and make any synchronization failure explicit.
   await synchronizeMovedOfficeSessions(moves);
   return moves.map((move) => Number(move.event.id));
+}
+
+async function lockMoveApproval(conn, requestId) {
+  const [[request]] = await conn.execute('SELECT * FROM office_booking_requests WHERE id = ? FOR UPDATE', [requestId]);
+  if (!request || request.status !== 'PENDING') throw fail('This change request is no longer pending.');
+  const meta = typeof request.requester_notes === 'string' ? JSON.parse(request.requester_notes) : request.requester_notes;
+  for (const expected of meta.sources || []) {
+    const table = request.request_type === 'MOVE_ASSIGNMENT' ? 'office_standing_assignments' : 'office_events';
+    const [[current]] = await conn.execute(`SELECT * FROM ${table} WHERE id = ? FOR UPDATE`, [expected.id]);
+    if (!current || Object.entries(expected).some(([key, value]) => (current[key] instanceof Date ? current[key].toISOString() : String(current[key] ?? '')) !== (value instanceof Date ? value.toISOString() : String(value ?? '')))) {
+      throw fail('The original reservation changed after this request. It has been kept; ask the provider to submit a fresh request.');
+    }
+  }
 }

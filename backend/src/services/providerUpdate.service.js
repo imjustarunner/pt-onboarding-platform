@@ -660,6 +660,7 @@ export async function getRecipientBundle(recipient) {
       enabledKeys = enabledKeys.filter((k) => k !== 'client_fall_update');
     }
   }
+  if (enabledKeys.includes('supervision_hours') && !(await User.getSupervisors(recipient.provider_user_id, recipient.agency_id)).length) enabledKeys = enabledKeys.filter(key => key !== 'supervision_hours');
   enabledKeys = enabledKeys.filter((key) =>
     recipientSeesSection(key, audience, recipient.provider_user_id)
   );
@@ -834,7 +835,8 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
   if (recipient.locked_at) return recipient;
 
   const push = await getPush(recipient.push_id);
-  const enabledKeys = enabledSectionKeys(push.section_config_json);
+  const bundle = await getRecipientBundle({ ...recipient, section_config_json: push.section_config_json });
+  const enabledKeys = bundle.sections.map(section => section.key);
   const [sections] = await pool.execute(
     `SELECT section_key, completed FROM provider_update_section_progress WHERE recipient_id = ?`,
     [recipientId]
@@ -987,7 +989,7 @@ export async function getMyOpenRecipient(providerUserId, agencyId) {
 }
 
 
-export async function listOpenForBookingForProvider(providerUserId) {
+export async function listOpenForBookingForProvider(providerUserId, agencyId = null) {
   const uid = Number(providerUserId);
   if (!uid) return [];
   try {
@@ -1000,6 +1002,10 @@ export async function listOpenForBookingForProvider(providerUserId) {
               osa.assigned_frequency,
               osa.availability_mode,
               osa.temporary_until_date,
+              osa.booking_agency_id,
+              COALESCE(osa.bookable_in_person, EXISTS(SELECT 1 FROM provider_in_person_slot_availability av JOIN office_events ev ON ev.id = av.source_event_id WHERE ev.standing_assignment_id = osa.id AND av.is_active = TRUE AND av.end_at > UTC_TIMESTAMP())) AS bookable_in_person,
+              COALESCE(osa.bookable_virtual, EXISTS(SELECT 1 FROM provider_virtual_slot_availability av JOIN office_events ev ON ev.id = av.source_event_id WHERE ev.standing_assignment_id = osa.id AND av.is_active = TRUE AND av.end_at > UTC_TIMESTAMP())) AS bookable_virtual,
+              ol.timezone,
               ol.name AS office_name,
               r.name AS room_name,
               r.label AS room_label
@@ -1008,20 +1014,10 @@ export async function listOpenForBookingForProvider(providerUserId) {
        JOIN office_rooms r ON r.id = osa.room_id
        WHERE osa.provider_id = ?
          AND osa.is_active = TRUE
-         AND (
-           (osa.availability_mode = 'AVAILABLE' AND NOT EXISTS (
-             SELECT 1 FROM office_booking_plans bp
-             WHERE bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
-               AND (bp.active_until_date IS NULL OR bp.active_until_date >= CURDATE())
-           ))
-           OR
-           (osa.availability_mode = 'TEMPORARY'
-             AND osa.temporary_until_date IS NOT NULL
-             AND osa.temporary_until_date <= DATE_ADD(CURDATE(), INTERVAL 14 DAY))
-         )
+         AND (? IS NULL OR osa.booking_agency_id = ?)
        ORDER BY osa.weekday ASC, osa.hour ASC
-       LIMIT 80`,
-      [uid]
+`,
+      [uid, agencyId, agencyId]
     );
     const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     return (rows || []).map((row) => {
@@ -1036,7 +1032,10 @@ export async function listOpenForBookingForProvider(providerUserId) {
         title: `${String(row.office_name || 'Office').trim()} · ${String(row.room_label || row.room_name || 'Room').trim()}`,
         when: `${weekdayNames[wd] || `Day ${wd}`} · ${hour}:00 · ${String(row.assigned_frequency || 'WEEKLY').toUpperCase()}`,
         availabilityMode: mode,
-        needsOpen: true,
+        weekday: wd, hour, timeZone: row.timezone || 'America/Denver',
+        agencyId: Number(row.booking_agency_id) || null,
+        inPerson: !!row.bookable_in_person, virtual: !!row.bookable_virtual,
+        needsOpen: !row.bookable_in_person && !row.bookable_virtual,
         reason: mode === 'TEMPORARY' ? 'temporary_expiring' : 'needs_open_for_booking'
       };
     });

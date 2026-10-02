@@ -1,3 +1,4 @@
+import { publishOfficeAssignmentEvent } from './officeAssignmentBookingAvailability.service.js';
 import { officePlanHasClient, officeYearBoundary, withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import pool from '../config/database.js';
@@ -424,6 +425,7 @@ export class OfficeScheduleMaterializer {
                 sessionEvent.id, sessionContext.clientId]
             );
           }
+          await publishOfficeAssignmentEvent(a, sessionEvent);
           upsertedCount += 1;
         }
       }
