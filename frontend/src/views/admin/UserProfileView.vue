@@ -1622,7 +1622,8 @@
                                   </div>
             
                                   <div class="aa-section">
-                                    <h4 class="aa-section__title"><span>1</span> Access &amp; Identity</h4>
+                                    <h4 class="aa-section__title"><span>1</span> Agency role &amp; identity</h4>
+                                    <p class="aa-hint">The position and working role below apply to this agency. Superadmin access remains platform-wide.</p>
                                     <div class="aa-section__grid">
                                       <label class="aa-field">
                                         <span>Login Email</span>
@@ -1645,7 +1646,7 @@
                                         />
                                       </label>
                                       <label class="aa-field">
-                                        <span>Role</span>
+                                        <span>Working role at this agency</span>
                                         <select
                                           class="agency-select"
                                           :value="agencyRoleFor(agency)"
@@ -1681,6 +1682,8 @@
                                     </div>
                                   </div>
             
+                                  <TenantRelationshipTools v-if="['admin', 'super_admin'].includes(authStore.user?.role) && ![0, false, '0'].includes(agency.membership_is_active)" :user-id="userId" :agency-id="agency.id" />
+
                                   <div v-if="canEditUser && canShowH0032Mode" class="aa-section">
                                     <h4 class="aa-section__title"><span>2</span> Clinical &amp; Billing Setup</h4>
                                     <div class="aa-section__grid aa-section__grid--billing">
@@ -2947,6 +2950,7 @@ import MovePendingToActiveModal from '../../components/admin/MovePendingToActive
 import LeaveOfAbsenceModal from '../../components/admin/LeaveOfAbsenceModal.vue';
 import UserPreferencesHub from '../../components/UserPreferencesHub.vue';
 import ProviderAvailabilitySettings from '../../components/availability/ProviderAvailabilitySettings.vue';
+import TenantRelationshipTools from '../../components/admin/TenantRelationshipTools.vue';
 import TypicalAvailabilityInput from '../../components/publicServices/TypicalAvailabilityInput.vue';
 import ScheduleAvailabilityGrid from '../../components/schedule/ScheduleAvailabilityGrid.vue';
 import {
@@ -3978,7 +3982,7 @@ const canViewSchoolAffiliation = computed(() => {
     u.has_provider_access === 1 ||
     u.has_provider_access === '1' ||
     u.hasProviderAccess === true;
-  const providerLikeRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'admin', 'super_admin', 'clinical_practice_assistant'];
+  const providerLikeRoles = ['provider', 'provider_plus', 'intern', 'intern_plus', 'admin', 'super_admin', 'assistant_admin', 'clinical_practice_assistant', 'support', 'staff', 'supervisor', 'facilitator', 'tutor', 'clinician', 'school_staff'];
   return providerLikeRoles.includes(role) || hasProviderAccess;
 });
 

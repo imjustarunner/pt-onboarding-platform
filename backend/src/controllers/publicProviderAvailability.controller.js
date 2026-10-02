@@ -11,6 +11,7 @@ import PublicIntakeClientService, {
 } from '../services/publicIntakeClient.service.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import Notification from '../models/Notification.model.js';
+import { scopeProviderRow } from '../utils/providerAgencyAvailability.js';
 
 function parseIntSafe(v) {
   const n = parseInt(v, 10);
@@ -139,22 +140,26 @@ async function requireProviderInAgency(req, res, { agencyId, providerId }) {
 
 async function listAgencyClientFacingProviders({ agencyId }) {
   const [rows] = await pool.execute(
-    `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path, u.service_focus, u.provider_accepting_new_clients
+    `SELECT DISTINCT u.id, u.first_name, u.last_name, u.role, u.profile_photo_path, u.service_focus, u.provider_accepting_new_clients,
+       u.sees_clients, p.public_details_json AS service_details
      FROM users u
      JOIN user_agencies ua ON ua.user_id = u.id
-     WHERE ua.agency_id = ? AND u.sees_clients=1 AND COALESCE(ua.is_active,1)=1
+     LEFT JOIN provider_public_profiles p ON p.user_id = u.id
+     WHERE ua.agency_id = ? AND COALESCE(ua.is_active,1)=1
        AND (u.is_active IS NULL OR u.is_active = TRUE)
        AND (u.is_archived IS NULL OR u.is_archived = FALSE)
        AND (u.status IS NULL OR UPPER(u.status) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING'))
        AND (
-         u.role IN ('provider', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff', 'support')
+         COALESCE(NULLIF(ua.agency_role, ''), u.role) IN ('provider', 'provider_plus', 'intern', 'intern_plus', 'facilitator', 'supervisor', 'clinical_practice_assistant', 'admin', 'super_admin', 'staff', 'support')
          OR u.has_provider_access = TRUE
        )
        AND LOWER(COALESCE(u.role, '')) NOT IN ('guardian', 'school_support')
      ORDER BY u.last_name ASC, u.first_name ASC`,
     [Number(agencyId)]
   );
-  return rows || [];
+  return (rows || []).map(row => scopeProviderRow(row, agencyId))
+    .filter(row => row.sees_clients === true || Number(row.sees_clients) === 1)
+    .map(({ service_details, ...row }) => row);
 }
 
 function dedupeSlots(slots) {
@@ -778,4 +783,3 @@ export const createPublicAppointmentRequest = async (req, res, next) => {
     next(e);
   }
 };
-

@@ -8,6 +8,11 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     
     <div v-else class="account-info-content">
+      <div v-if="canPrintBusinessCards" class="info-section">
+        <div class="section-header"><h2 style="margin:0">My business cards</h2></div>
+        <p class="hint">Print your current staff details and your organization’s QR back on Avery 35702 square cards.</p>
+        <StaffBusinessCardsButton :user-id="userId" :agency-id="agencyStore.currentAgency?.id" self-only />
+      </div>
       <!-- Profile Photo -->
       <div class="info-section">
         <div class="section-header">
@@ -1161,6 +1166,7 @@ import { useAgencyStore } from '../store/agency';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
 import QuickViewPrivacyPanel from '../components/account/QuickViewPrivacyPanel.vue';
+import StaffBusinessCardsButton from '../components/admin/StaffBusinessCardsButton.vue';
 import {
   isNativePlatform,
   checkBiometricAvailability,
@@ -1179,6 +1185,7 @@ const prefsLink = computed(() => ({
 }));
 
 const agencyStore = useAgencyStore();
+const canPrintBusinessCards = computed(() => ['super_admin', 'admin', 'assistant_admin', 'support', 'staff', 'provider', 'provider_plus', 'clinical_practice_assistant', 'supervisor', 'intern', 'intern_plus', 'facilitator', 'tutor', 'clinician', 'school_staff'].includes(String(authStore.user?.role || '').toLowerCase()));
 const isClubContext = computed(() => {
   const t = String(agencyStore.currentAgency?.organization_type || agencyStore.currentAgency?.organizationType || '').toLowerCase();
   return t === 'affiliation' || t === 'clubwebapp';
@@ -3281,4 +3288,3 @@ onMounted(() => {
   margin-top: 12px;
 }
 </style>
-

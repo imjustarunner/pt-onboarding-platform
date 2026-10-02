@@ -131,6 +131,7 @@ import {
   updateBookClubBook
 } from '../controllers/bookClub.controller.js';
 import { authenticate, requireBackofficeAdmin, requireBackofficeAdminOrClubManagerForAgency, requireSuperAdmin } from '../middleware/auth.middleware.js';
+import { getBusinessCardTemplate, putBusinessCardTemplate, getEmployeeBusinessCard } from '../controllers/businessCards.controller.js';
 
 const router = express.Router();
 
@@ -552,6 +553,9 @@ router.get('/management-team/eligible-users', authenticate, requireSuperAdmin, l
 router.get('/management-team/role-types', authenticate, getRoleTypes);
 // Providers creating clients (e.g. Documentation Hub) need this list; controller still enforces agency membership.
 router.get('/:id/affiliated-organizations', authenticate, listAffiliatedOrganizations);
+router.get('/:id/business-cards', authenticate, getBusinessCardTemplate);
+router.put('/:id/business-cards', authenticate, putBusinessCardTemplate);
+router.get('/:id/business-cards/people/:userId', authenticate, getEmployeeBusinessCard);
 router.get('/:id/settings-people-snapshot', authenticate, requireBackofficeAdmin, getTenantPeopleSnapshot);
 router.get('/:id/disclosure-settings', authenticate, getAgencyDisclosureSettings);
 router.put('/:id/disclosure-settings', authenticate, putAgencyDisclosureSettings);

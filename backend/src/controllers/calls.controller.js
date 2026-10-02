@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { isVoiceCallingConfigured } from '../services/staffPhoneAvailability.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
@@ -163,7 +164,7 @@ export const updateCallSettings = async (req, res, next) => {
 };
 
 export const startOutboundCall = async (req, res, next) => {
-  return res.status(503).json({ error: { message: 'Voice calling is not configured on this account.' } });
+  if (!isVoiceCallingConfigured()) return res.status(503).json({ error: { message: 'Voice calling is not configured on this account.' } });
   try { // eslint-disable-line no-unreachable
     const userId = parseIntOrNull(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
@@ -283,7 +284,7 @@ export const startOutboundCall = async (req, res, next) => {
 };
 
 export const startConferenceCall = async (req, res, next) => {
-  return res.status(503).json({ error: { message: 'Voice calling is not configured on this account.' } });
+  if (!isVoiceCallingConfigured()) return res.status(503).json({ error: { message: 'Voice calling is not configured on this account.' } });
   try { // eslint-disable-line no-unreachable
     const userId = parseIntOrNull(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });

@@ -1002,6 +1002,7 @@ export async function getStaffSignaturePreview({ userId, agencyId = null } = {})
       email: ctx.email,
       extension: ctx.extension,
       photoUrl: ctx.photoUrl,
+      logoUrl: ctx.logoUrl?.replace(/^https?:\/\/[^/]+\/(email-signatures\/.*)$/i, '/$1') || null,
       orgShortName: ctx.orgShortName,
       phone: ctx.phone,
       website: ctx.website

@@ -1,4 +1,5 @@
 import express from 'express';
+import { listStaffCardAgencies, listStaffServiceAssignments, updateStaffServiceAssignments, guardAgencyMembershipUpdate } from '../controllers/staffTenantCards.controller.js';
 import { getCurrentUser, getAllUsers, getGuardianUsers, getGuardianLinkedClients, getGuardianEvents, getGuardiansBulkDeletePreview, bulkDeleteGuardians, aiQueryUsers, getUserById, getUserStravaConnection, updateUser, updateUserStatus, requireSkillBuilderConfirmNextLogin, getUserAgencies, getSuperviseePortalSlugs, getProvidersForSupport, getAffiliatedPortals, assignUserToAgency, setUserDefaultAgency, removeUserFromAgency, setUserAgencyPayrollAccess, setUserAgencyBillingAccess, setUserAgencyDepartmentAccess, getUserDepartmentAccess, setUserAgencyH0032Mode, setUserAgencyMembershipRole, setUserAgencySupervisionPrelicensed, getSupervisionPrelicensedClassification, generateInvitationToken, generateTemporaryPassword, setCustomTemporaryPassword, resetPasswordlessToken, sendInitialSetupLink, resendSetupLink, sendResetPasswordLink, sendResetPasswordLinkSms, getUserCredentials, getAccountInfo, getProfileOverview, downloadCompletionPackage, getOnboardingChecklist, markChecklistItemComplete, markUserComplete, markUserTerminated, markUserActive, getOnboardingDocument, archiveUser, setStaffInactive, restoreUser, deleteUser, deleteMe, getArchivedUsers, deactivateUser, markPendingComplete, checkPendingCompletionStatus, movePendingToActive, getPendingCompletionSummary, wipePendingUserData, changePassword, toggleSupervisorPrivileges, promoteToOnboarding, createCurrentEmployee, getUserLoginEmailAliases, addUserLoginEmailAlias, removeUserLoginEmailAlias, getUserScheduleSummary, listUserMeetingCandidates, createUserMeetingInviteGroup, updateUserMeetingInviteGroupMembers, listUserVirtualSessionClients, createUserScheduleEvent, getUserScheduleEventNotificationPlan, updateUserScheduleEvent, deleteUserScheduleEvent, getUserGoogleEvent, patchUserGoogleEvent, deleteUserGoogleEvent, getUserExternalCalendars, createUserExternalCalendar, addUserExternalCalendarFeed, patchUserExternalCalendar, patchUserExternalCalendarFeed, setSsoPasswordOverride } from '../controllers/user.controller.js';
 import {
   getPeopleDuplicates,
@@ -170,7 +171,10 @@ router.put('/:id/billing-access', authenticate, requireBackofficeAdmin, setUserA
 router.get('/:id/department-access', authenticate, getUserDepartmentAccess);
 router.put('/:id/department-access', authenticate, requireBackofficeAdmin, setUserAgencyDepartmentAccess);
 router.put('/:id/h0032-mode', authenticate, requireBackofficeAdmin, setUserAgencyH0032Mode);
-router.put('/:id/agency-membership', authenticate, requireBackofficeAdmin, setUserAgencyMembershipRole);
+router.get('/:id/business-card-agencies', authenticate, listStaffCardAgencies);
+router.get('/:id/agencies/:agencyId/service-assignments', authenticate, listStaffServiceAssignments);
+router.put('/:id/agencies/:agencyId/service-assignments', authenticate, requireBackofficeAdmin, updateStaffServiceAssignments);
+router.put('/:id/agency-membership', authenticate, requireBackofficeAdmin, guardAgencyMembershipUpdate, setUserAgencyMembershipRole);
 router.put('/:id/supervision-prelicensed', authenticate, requireBackofficeAdmin, setUserAgencySupervisionPrelicensed);
 router.get('/:id/supervision-prelicensed-classification', authenticate, requireBackofficeAdmin, getSupervisionPrelicensedClassification);
 
