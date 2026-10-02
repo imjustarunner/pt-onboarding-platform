@@ -20,7 +20,7 @@
         </aside>
       </div>
     </template>
-    <div v-else-if="plan && !plan.privateOffice"><p>Your plan includes AI Note Aid. Upgrade to Premium for a private office, or Premium Plus for multiple office guests.</p></div>
+    <div v-else-if="plan && !plan.privateOffice"><p>Your plan includes Documentation Hub. Upgrade to Premium for a private office, or Premium Plus for multiple office guests.</p></div>
     <p v-if="plan?.grandfathered">Your existing account includes Premium Plus.</p>
   </section>
 </template>
