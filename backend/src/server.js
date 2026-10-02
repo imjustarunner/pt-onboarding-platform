@@ -2,6 +2,7 @@ import officeLobbyRoutes from './routes/officeLobby.routes.js';
 import officeArrivalPublicRoutes from './routes/officeArrivalPublic.routes.js';
 import auricwellPreviewRoutes from './routes/auricwellPreview.routes.js';
 import { auricwellPreviewBoundary } from './middleware/auricwellPreview.middleware.js';
+import { protectTaxIdResponses } from './utils/privateTaxId.js';
 import meetingCalendarRoutes from './routes/meetingCalendar.routes.js';
 import faxIntakeRoutes from './routes/faxIntake.routes.js';
 import clientReferralLinksRoutes from './routes/clientReferralLinks.routes.js';
@@ -361,6 +362,7 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
 }));
 app.use(cookieParser());
+app.use('/api', protectTaxIdResponses);
 
 // Stripe webhooks MUST be mounted before express.json() so they receive the raw body.
 // Stripe's signature verification requires the exact raw bytes.

@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import GoogleCalendarService from './googleCalendar.service.js';
+import { auditExpiredOfficeAssignments, retireInactiveOfficePlans } from './officeAssignmentExpiry.service.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
 
 /**
@@ -23,93 +23,13 @@ export async function deactivateStaleStandingAssignments() {
   let rematerializedOffices = 0;
   let orphanLogged = 0;
 
-  // ── Case A: expired TEMPORARY windows only ────────────────────────────────
-  const [expiredTempRows] = await pool.execute(
-    `SELECT sa.id, sa.provider_id, sa.office_location_id, sa.weekday, sa.hour,
-            sa.availability_mode, sa.assigned_frequency, sa.temporary_until_date
-     FROM office_standing_assignments sa
-     WHERE sa.is_active = TRUE
-       AND UPPER(COALESCE(sa.availability_mode, '')) = 'TEMPORARY'
-       AND sa.temporary_until_date IS NOT NULL
-       AND sa.temporary_until_date < CURDATE()
-       AND (sa.available_since_date IS NULL OR sa.available_since_date < DATE_SUB(CURDATE(), INTERVAL 2 DAY))
-       AND (sa.updated_at IS NULL OR sa.updated_at < DATE_SUB(NOW(), INTERVAL 48 HOUR))
-       AND (sa.last_two_week_confirmed_at IS NULL OR sa.last_two_week_confirmed_at < DATE_SUB(NOW(), INTERVAL 48 HOUR))`
-  );
-
-  const assignmentIds = (expiredTempRows || [])
-    .map((r) => Number(r.id))
-    .filter((n) => Number.isInteger(n) && n > 0);
-
-  for (const row of expiredTempRows || []) {
-    console.info('[staleStandingCleanup]', JSON.stringify({
-      action: 'deactivate_expired_temporary',
-      assignmentId: Number(row.id) || null,
-      providerId: Number(row.provider_id) || null,
-      officeLocationId: Number(row.office_location_id) || null,
-      weekday: row.weekday,
-      hour: row.hour,
-      reason: 'temporary_until_date_passed',
-      temporaryUntilDate: row.temporary_until_date
-        ? String(row.temporary_until_date).slice(0, 10)
-        : null,
-      planPresent: null,
-      futureEventCount: null
-    }));
-  }
-
-  if (assignmentIds.length) {
-    const ph = assignmentIds.map(() => '?').join(',');
-
-    const [futureEvents] = await pool.execute(
-      `SELECT id
-       FROM office_events
-       WHERE standing_assignment_id IN (${ph})
-         AND start_at >= NOW()
-         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
-      assignmentIds
-    );
-
-    for (const row of futureEvents || []) {
-      const eid = Number(row.id);
-      if (!eid) continue;
-      try {
-        // eslint-disable-next-line no-await-in-loop
-        const r = await GoogleCalendarService.cancelBookedOfficeEvent({ officeEventId: eid });
-        if (r?.ok) googleCancelled += 1;
-      } catch {
-        // best-effort
-      }
-    }
-
-    const [assignResult] = await pool.execute(
-      `UPDATE office_standing_assignments
-       SET is_active = FALSE, updated_at = NOW()
-       WHERE id IN (${ph})
-         AND is_active = TRUE`,
-      assignmentIds
-    );
-    assignmentsDeactivated = Number(assignResult?.affectedRows || 0);
-
-    const [planResult] = await pool.execute(
-      `UPDATE office_booking_plans bp
-       JOIN office_standing_assignments sa ON sa.id = bp.standing_assignment_id
-       SET bp.is_active = FALSE, bp.updated_at = NOW()
-       WHERE sa.id IN (${ph})
-         AND bp.is_active = TRUE`,
-      assignmentIds
-    );
-    plansDeactivated = Number(planResult?.affectedRows || 0);
-
-    await pool.execute(
-      `UPDATE office_events
-       SET status = 'CANCELLED', updated_at = NOW()
-       WHERE standing_assignment_id IN (${ph})
-         AND start_at >= NOW()
-         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
-      assignmentIds
-    );
-  }
+  // Only release expired temporary reservations without ongoing or future events.
+  // Inconsistent rows with live events require review; never cancel their sessions.
+  const expiry = await auditExpiredOfficeAssignments({ apply: true });
+  const assignmentIds = expiry.expired;
+  assignmentsDeactivated = assignmentIds.length;
+  plansDeactivated = expiry.plansDeactivated + await retireInactiveOfficePlans();
+  if (expiry.protectedByEvents.length) console.warn('[staleStandingCleanup] expired assignments with live events', expiry.protectedByEvents);
 
   // ── Case B: AVAILABLE weekly/biweekly missing future events — rematerialize ──
   // NOTE: Missing booking_plan is normal for AVAILABLE (unbooked) standing rows.

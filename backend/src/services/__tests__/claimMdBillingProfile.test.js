@@ -8,7 +8,7 @@ import { getClaimMdBillingProfile, resolveClaimMdBillingProfile, assertClaimBill
 const office = { id: 8, agency_id: 377, name: 'Office A', practice_name: 'Test Group LLC', practice_npi: '1306688650', street_address: '1 Test Lane', city: 'Test City', state: 'CO', postal_code: '80000', phone: '5555550100' };
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.main.mockImplementation(async sql => [sql.includes('agency_service_locations') ? [{ billing_office_location_id: 8 }] : [office]]);
+  mocks.main.mockImplementation(async sql => [sql.startsWith('SELECT tax_id,') ? [{ tax_id: '123456789' }] : sql.includes('agency_service_locations') ? [{ billing_office_location_id: 8 }] : [office]]);
   mocks.clinical.mockResolvedValue([[{ id: 10, billing_office_location_id: 8, service_location_id: 20 }]]);
   mocks.agency.mockResolvedValue({ tax_id: '123456789', tax_id_type: 'ein', name: 'Agency label', street_address: 'Wrong agency address' });
 });
@@ -18,7 +18,8 @@ describe('Claim.MD office billing identity', () => {
     expect(p.billingNpi).toBe('1306688650');
     expect(p.practice).toEqual(expect.objectContaining({ name: 'Test Group LLC', street_address: '1 Test Lane', tax_id: '123456789' }));
     expect(mocks.clinical).toHaveBeenCalledWith(expect.stringContaining('agency_id = ?'), [10, 377]);
-    expect(mocks.main).toHaveBeenLastCalledWith(expect.stringContaining('agency_id = ?'), [8, 377]);
+    expect(mocks.main).toHaveBeenCalledWith(expect.stringContaining('agency_id = ?'), [8, 377]);
+    expect(mocks.main).toHaveBeenLastCalledWith(expect.stringContaining('FROM agencies WHERE id = ?'), [377]);
   });
   it('uses the service location mapping when the session has no billing office', async () => {
     mocks.clinical.mockResolvedValue([[{ id: 10, service_location_id: 20 }]]);

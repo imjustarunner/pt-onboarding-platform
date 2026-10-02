@@ -1,3 +1,4 @@
+import { isPrivateTaxField } from '../utils/privateTaxId.js';
 import {normalizeClinicalFacets} from '../utils/providerFacetNormalization.js';
 import {CLINICAL_INDEX_FIELD_KEYS as INDEX_FIELD_KEYS,listClinicalFacetsForUser,bucketForFieldKey} from '../services/providerClinicalFacets.service.js';
 import pool from '../config/database.js';
@@ -63,6 +64,7 @@ class ProviderSearchIndex {
 
     for (const r of rows || []) {
       const rawKey = String(r.field_key || '').trim();
+      if (isPrivateTaxField(rawKey)) continue;
       const fieldKey = FIELD_ALIASES[rawKey] || rawKey;
       const fieldType = String(r.field_type || '').trim();
       const value = r.value;

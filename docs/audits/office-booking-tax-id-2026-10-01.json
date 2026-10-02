@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-01",
+  "scope": [
+    "office booking edits and conflicts",
+    "booking recurrence and agency ownership",
+    "organization tax ID storage and profile exposure"
+  ],
+  "database": "onboarding_stage (configured connection)",
+  "dataRepairsApplied": {
+    "expiredTemporaryAssignmentsRetired": 83,
+    "expiredAssignmentPlansRetired": 51,
+    "orphanActivePlansRetired": 279,
+    "legacyDuplicateAvailabilityCopiesCancelled": 36,
+    "historicalEventsDeleted": 0,
+    "clientSessionsDeleted": 0,
+    "unambiguousAssignmentAgenciesBackfilled": 126,
+    "userConfirmedRoomRule": {
+      "NLU": [
+        12,
+        14,
+        15
+      ],
+      "otherAmbiguousRooms": "ITSCO",
+      "NLUAssignments": 12,
+      "ITSCOAssignments": 75
+    },
+    "explicitException": {
+      "assignmentIds": [
+        702,
+        703,
+        704
+      ],
+      "agencyId": 6,
+      "room": 11,
+      "weekday": "Thursday",
+      "start": "15:00",
+      "end": "18:00",
+      "timeZone": "America/Denver",
+      "existingFutureEventIdsPreserved": 48
+    },
+    "taxIdProfileValuesEncrypted": 6,
+    "taxIdSearchIndexCopiesRemoved": 2,
+    "migrationApplied": "1523_office_assignment_booking_agency.sql"
+  },
+  "verification": {
+    "activeOfficeAssignments": 216,
+    "missingAssignmentAgency": 0,
+    "assignmentsOutsideITSCOAndNLU": 0,
+    "activePlansOnInactiveAssignments": 0,
+    "plaintextTaxIdsInAuditedStores": 0,
+    "taxIdSearchCopies": 0,
+    "isolatedBackendTestsPassed": 237,
+    "mysqlIntegrationTestsSkipped": 21,
+    "isolatedFrontendTestsPassed": 17,
+    "isolatedFrontendBuild": "passed with 8 GiB Node heap; existing large-chunk warnings"
+  },
+  "guards": [
+    "Preserve active reservations regardless of role or missing generated events.",
+    "Retire expired temporary holds only without ongoing/future noncancelled events; use office-local expiry dates.",
+    "Move selected multi-hour blocks transactionally and preserve session IDs, clinical links and signed history.",
+    "Report provider and exact overlapping time for standing and event conflicts.",
+    "Repair only proven unlinked legacy availability duplicates; reject ambiguous session duplicates.",
+    "Persist explicit agency ownership and require agency selection when unresolved.",
+    "Allow ongoing office plans without implicit one-year or six-occurrence limits; preserve explicit limits.",
+    "Mark moved calendar events pending for durable Google retry instead of blocking saves on all external syncs.",
+    "Fail closed on missing tax-ID encryption; redact identifiers from responses, request logs and profile search."
+  ],
+  "reviewRequired": [
+    {
+      "standingAssignmentId": 1170,
+      "eventId": 20687,
+      "reason": "Temporary assignment expired August 24 but has a booked October 5 occurrence. Preserved the booking; no automatic cancellation.",
+      "room": 4,
+      "weekday": "Monday",
+      "start": "17:00",
+      "end": "18:00",
+      "timeZone": "America/Denver"
+    }
+  ],
+  "releaseStatus": "Database repairs applied. Source changes require deployment; this report is not evidence of a deployed release."
+}

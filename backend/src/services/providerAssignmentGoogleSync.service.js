@@ -216,7 +216,7 @@ export async function retryFailedProviderAssignmentGoogleSync({ horizonDays = 28
            (slot_state = 'ASSIGNED_BOOKED' AND booked_provider_id IS NOT NULL)
            OR (slot_state = 'ASSIGNED_AVAILABLE' AND assigned_provider_id IS NOT NULL)
          )
-         AND (google_provider_event_id IS NULL OR google_sync_status = 'FAILED')`,
+         AND (google_provider_event_id IS NULL OR google_sync_status IN ('FAILED', 'PENDING'))`,
       [...SYNCABLE_OFFICE_SLOT_STATES, startAt, endAt]
     );
     officeIds = (officeRows || []).map((r) => Number(r.id)).filter((n) => n > 0);

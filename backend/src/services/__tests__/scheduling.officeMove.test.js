@@ -4,7 +4,7 @@ vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn()
 import pool from '../../config/database.js';
 import clinicalPool from '../../config/clinicalDatabase.js';
 import { movedOfficeWindow, moveOfficeSessionSeries } from '../officeSessionMove.service.js';
-const input = { assignment: { id: 1, weekday: 1, provider_id: 9 }, newRoomId: 2, newWeekday: 3, newHour: 10, timeZone: 'America/Denver', actorUserId: 9 };
+const input = { assignment: { id: 1, room_id: 1, hour: 9, office_location_id: 1, weekday: 1, provider_id: 9 }, newRoomId: 2, newWeekday: 3, newHour: 10, timeZone: 'America/Denver', actorUserId: 9 };
 let conn;
 let conflict;
 describe('move future office sessions', () => {
@@ -12,8 +12,9 @@ describe('move future office sessions', () => {
     vi.clearAllMocks();
     conflict = false;
     conn = { beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn(), execute: vi.fn(async (sql) => {
-      if (sql.startsWith('SELECT * FROM office_events')) return [[{ id: 8, start_at: '2099-01-05 16:00:00', end_at: '2099-01-05 17:00:00' }]];
-      if (sql.startsWith('SELECT id FROM office_events WHERE room_id')) return [conflict ? [{ id: 99 }] : []];
+      if (sql.startsWith('SELECT id, room_id, weekday, hour')) return [[{...input.assignment}]];
+      if (sql.startsWith('SELECT * FROM office_events')) return [[{ id: 8, standing_assignment_id: 1, start_at: '2099-01-05 16:00:00', end_at: '2099-01-05 17:00:00' }]];
+      if (sql.startsWith('SELECT e.id, e.start_at')) return [conflict ? [{ id: 99, start_at: '2099-01-07 17:00:00', end_at: '2099-01-07 18:00:00', first_name: 'Test', last_name: 'Provider' }] : []];
       if (sql.includes('SELECT id, skipped_dates_json')) return [[{ id: 2, skipped_dates_json: '["2099-01-12"]' }]];
       return [[]];
     }) };

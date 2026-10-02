@@ -21,11 +21,13 @@ export async function getClaimMdBillingProfile(agencyId, officeId, { requireComp
   if (requireComplete && !/^\d{10}$/.test(String(office.practice_npi || ''))) throw fail('Save the billing office’s group NPI before using Claim.MD.');
   const agency = await Agency.findById(agencyId);
   if (!agency) throw fail('Agency not found.');
+  const [[taxRow]] = await pool.execute(`SELECT tax_id, tax_id_ciphertext, tax_id_iv, tax_id_auth_tag, tax_id_key_id
+    FROM agencies WHERE id = ?`, [agencyId]);
   // Tax identity remains agency-specific; never copy it from a shared office.
   const practice = {
     name: office.practice_name, phone_number: office.phone || agency.phone_number,
     street_address: office.street_address, city: office.city, state: office.state, postal_code: office.postal_code,
-    tax_id: agency.tax_id, tax_id_type: agency.tax_id_type
+    tax_id: unpackAgencyTaxId(taxRow || {}), tax_id_type: agency.tax_id_type
   };
   const missing = ['name', 'phone_number', 'street_address', 'city', 'state', 'postal_code'].filter(k => !String(practice[k] || '').trim());
   if (requireComplete && missing.length) throw fail(`Complete the billing office profile: ${missing.join(', ')}.`);

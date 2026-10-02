@@ -1628,7 +1628,7 @@
             <div class="form-group" data-setting-field="tax-id">
               <label for="agency-tax-id">Tax ID · {{ agencyForm.taxIdType === 'ssn' ? 'SSN' : 'EIN' }}</label>
               <TaxIdInput id="agency-tax-id" v-model="agencyForm.taxId" :type="agencyForm.taxIdType || 'ein'" />
-              <small class="hint">Enter nine digits; dashes are added automatically.</small>
+              <small class="hint">{{ editingAgency?.has_tax_id ? 'Tax ID securely on file. Leave blank to keep it.' : 'Stored encrypted; never shown on staff profiles.' }}</small>
               <small v-if="editingAgency?.tax_id_last4" class="hint">On file ending in {{ editingAgency.tax_id_last4 }}</small>
             </div>
           </div>
@@ -8358,7 +8358,7 @@ const editAgency = async (agency) => {
       || (typeof agency.theme_settings === 'object' ? agency.theme_settings?.publicWebsiteUrl : '')
       || '',
     taxIdType: agency.tax_id_type || '',
-    taxId: agency.tax_id || '',
+    taxId: '',
     schoolProfile: {
       districtName: normalizeSchoolDistrictOption(agency?.school_profile?.district_name || ''),
       schoolNumber: agency?.school_profile?.school_number || '',
@@ -9393,7 +9393,7 @@ const saveAgency = async () => {
       accountOwnerUserId: Number(agencyForm.value.accountOwnerUserId || 0) || null,
       websiteUrl: agencyForm.value.websiteUrl?.trim() || null,
       taxIdType: agencyForm.value.taxIdType || null,
-      taxId: agencyForm.value.taxId?.trim() || null,
+      ...(agencyForm.value.taxId?.trim() ? { taxId: agencyForm.value.taxId.trim() } : {}),
       streetAddress: agencyForm.value.streetAddress?.trim() || null,
       city: agencyForm.value.city?.trim() || null,
       state: agencyForm.value.state?.trim() || null,
