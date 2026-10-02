@@ -3,6 +3,15 @@ import { isClinicalClient, isMentalHealthWorkspace, clinicalReturnPath } from '.
 import { buildNoteAidQuery } from '../noteAidLaunch.js';
 
 describe('clinical workspace presentation boundaries', () => {
+  it('opens a mental-health agency in AuricWell before a client or note is selected', () => {
+    expect(isMentalHealthWorkspace({ tenant: { organization_type: 'agency' } })).toBe(true);
+    expect(isMentalHealthWorkspace({ tenant: { businessTypes: [{ businessType: 'healthcare', isEnabled: true }] } })).toBe(true);
+    expect(isMentalHealthWorkspace({ tenant: { feature_flags: '{"clinicalChartEnabled":true}' } })).toBe(true);
+    expect(isMentalHealthWorkspace({ auricwell: true })).toBe(true);
+  });
+  it.each(['tutoring', 'coaching', 'consulting'])('keeps a %s agency landing page tenant branded', business_type => {
+    expect(isMentalHealthWorkspace({ tenant: { organization_type: 'agency', business_type } })).toBe(false);
+  });
   it.each(['learning', 'basic_nonclinical', 'tutoring'])('keeps %s clients out of clinical branding', client_type => {
     expect(isClinicalClient({ client_type, organization_type: 'school' })).toBe(false);
     expect(isMentalHealthWorkspace({ client: { client_type }, tenant: { organization_type: 'clinical' } })).toBe(false);

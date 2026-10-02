@@ -2501,7 +2501,8 @@ const clinicalWorkspaceBranding = computed(() => isMentalHealthWorkspace({
   client: selectedClient.value || (selectedClientId.value ? { client_type: 'unknown' } : null),
   practiceCategory: route.query?.practiceCategory || (selectedAidId.value && !preferLearningSponsorForAid.value ? 'mental_health' : ''),
   learningAid: preferLearningSponsorForAid.value,
-  tenant: agencyStore.currentAgency
+  tenant: agencyStore.currentAgency,
+  auricwell: isAuricWell.value
 }));
 
 /** Tenant id for chart saves (plan import) — never null when client + workspace exist. */

@@ -4,6 +4,7 @@ import { nextTick } from 'vue';
 import api from '../../../services/api';
 import { createPinia, setActivePinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
+import { clinicalWorkspaceActive } from '../../../composables/useClinicalWorkspace.js';
 
 vi.mock('../../../services/api', () => ({
   default: {
@@ -17,7 +18,7 @@ vi.mock('../../../services/api', () => ({
 
 vi.mock('../../../store/agency', () => ({
   useAgencyStore: () => ({
-    currentAgency: { id: 7, name: 'ITSCO', feature_flags: { noteAidEnabled: true, clinicalNoteGeneratorEnabled: true } },
+    currentAgency: { id: 7, name: 'ITSCO', organization_type: 'agency', feature_flags: { noteAidEnabled: true, clinicalNoteGeneratorEnabled: true } },
     currentAgencyId: 7,
     selectedAgencyId: 7,
     userAgencies: [{ id: 7, name: 'ITSCO', feature_flags: { noteAidEnabled: true, medicalBillingEnabled: true } }],
@@ -39,11 +40,11 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     vi.mocked(api.get).mockReset().mockResolvedValue({ data: {} });
   });
 
-  async function workspace(aid = 'psychotherapy') {
+  async function workspace(aid = 'psychotherapy', { realFrame = false } = {}) {
     const View = (await import('../ClinicalNoteGeneratorView.vue')).default;
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/note-aid', component: View }] });
     await router.push('/note-aid');
-    const wrapper = shallowMount(View, { global: { plugins: [router, createPinia()], stubs: { ClinicalWorkspaceFrame: { template: '<section><slot /></section>' } } } });
+    const wrapper = shallowMount(View, { global: { plugins: [router, createPinia()], stubs: { ClinicalWorkspaceFrame: realFrame ? false : { template: '<section><slot /></section>' } } } });
     await flushPromises();
     const state = wrapper.vm.$.setupState;
     state.derivedTier = 'intern_plus';
@@ -52,6 +53,32 @@ describe('ClinicalNoteGeneratorView smoke', () => {
     await nextTick();
     return { wrapper, state };
   }
+
+  it('opens the dashboard notes landing page with the same AuricWell frame as a clinical client record', async () => {
+    const { wrapper, state } = await workspace('', { realFrame: true });
+    try {
+      expect(state.selectedClient).toBeFalsy();
+      expect(state.selectedAidId).toBe('');
+      expect(wrapper.find('[data-workspace="auricwell"]').exists()).toBe(true);
+      expect(wrapper.find('.clinical-workspace__product').text()).toContain('AuricWell');
+      expect(wrapper.find('.clinical-workspace__tenant').text()).toBe('ITSCO');
+      expect(wrapper.find('.clinical-workspace__back').text()).toContain('Back to ITSCO');
+      expect(clinicalWorkspaceActive.value).toBe(true);
+
+      // Changing to a tutoring note keeps the editor available and restores tenant chrome.
+      state.selectedAidId = 'tpt_note';
+      await nextTick();
+      expect(state.canUseTool).toBe(true);
+      expect(wrapper.find('[data-workspace="auricwell"]').exists()).toBe(false);
+      expect(clinicalWorkspaceActive.value).toBe(false);
+      state.selectedAidId = '';
+      await nextTick();
+      expect(clinicalWorkspaceActive.value).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
+    expect(clinicalWorkspaceActive.value).toBe(false);
+  });
 
   it('keeps learning clients and tutoring aids tenant branded without disabling documentation', async () => {
     const { wrapper, state } = await workspace();

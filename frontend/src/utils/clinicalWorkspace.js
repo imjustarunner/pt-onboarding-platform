@@ -1,3 +1,5 @@
+import { isMentalHealthPractice } from '../config/noteAidAccess.js';
+
 // Presentation decisions only. These helpers never authorize records or features.
 export function isClinicalClient(record = {}) {
   const type = String(record?.client_type || '').trim().toLowerCase();
@@ -19,13 +21,14 @@ export function clinicalReturnPath({ previous, current, slug = '', guardian = fa
 }
 
 // A selected nonclinical service/client always wins over the tenant's clinical work.
-// Unknown or mixed-purpose hubs stay tenant branded until a clinical context is selected.
-export function isMentalHealthWorkspace({ client, practiceCategory, learningAid = false, tenant } = {}) {
+// Before selecting a note, use the same practice classification as the dashboard.
+export function isMentalHealthWorkspace({ client, practiceCategory, learningAid = false, tenant, auricwell = false } = {}) {
   const category = String(practiceCategory || '').trim().toLowerCase();
   if (learningAid || (category && category !== 'mental_health')) return false;
   if (client) return isClinicalClient(client);
   if (category === 'mental_health') return true;
-  const type = String(tenant?.organization_type || '').toLowerCase();
+  if (auricwell) return true;
+  const type = String(tenant?.organization_type || tenant?.organizationType || '').trim().toLowerCase();
   if (['learning', 'school', 'program', 'life_coach', 'consultant'].includes(type)) return false;
-  return type === 'clinical' || tenant?.business_type === 'mental_health';
+  return isMentalHealthPractice(tenant);
 }
