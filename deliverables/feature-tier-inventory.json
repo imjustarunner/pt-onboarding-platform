@@ -32,7 +32,7 @@
     "category": "Scheduling",
     "description": "Schedule appointments and meetings, recurring dates, availability and reminders.",
     "source": "frontend/src/views/MyScheduleView.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -41,7 +41,7 @@
     "category": "Scheduling",
     "description": "Calendar invitations and external busy time.",
     "source": "backend/src/services/googleCalendar.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium",
     "products": "Platform + AuricWell"
   },
   {
@@ -50,7 +50,7 @@
     "category": "Scheduling",
     "description": "Physical rooms, office availability and booking.",
     "source": "frontend/src/views/OfficeScheduleView.vue",
-    "minimumTier": "",
+    "minimumTier": "premium_plus",
     "products": "Platform + AuricWell"
   },
   {
@@ -59,7 +59,7 @@
     "category": "Meetings",
     "description": "Video, square camera tiles, screen sharing and waiting rooms.",
     "source": "frontend/src/components/video/VideoSessionRoom.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -68,7 +68,7 @@
     "category": "Meetings",
     "description": "Individual email links and attendance identity.",
     "source": "backend/src/services/meetingInvitations.service.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -77,7 +77,7 @@
     "category": "Meetings",
     "description": "Consent-gated session audio transcription.",
     "source": "backend/src/controllers/meetingTranscription.controller.js",
-    "minimumTier": "",
+    "minimumTier": "premium",
     "products": "Platform + AuricWell"
   },
   {
@@ -86,7 +86,7 @@
     "category": "Clinical",
     "description": "Create draft clinical notes using signed-consent session transcripts.",
     "source": "backend/src/controllers/counselingTranscriptNote.controller.js",
-    "minimumTier": "",
+    "minimumTier": "premium",
     "products": "Platform + AuricWell"
   },
   {
@@ -95,7 +95,7 @@
     "category": "Meetings",
     "description": "Personal notes, summaries and meeting history.",
     "source": "frontend/src/views/MyMeetingsView.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -104,7 +104,7 @@
     "category": "Supervision",
     "description": "Supervisor/supervisee sessions, history and tracked attendance.",
     "source": "backend/src/controllers/supervisionSessions.controller.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -113,7 +113,7 @@
     "category": "Supervision",
     "description": "Log off-platform supervision with reasons and in-person transcription.",
     "source": "backend/src/controllers/supervisionManual.controller.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -122,7 +122,7 @@
     "category": "Supervision",
     "description": "Onboarding agreements and supervisor countersignatures.",
     "source": "backend/src/controllers/supervisionAgreement.controller.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -131,7 +131,7 @@
     "category": "Clinical",
     "description": "Practice-scoped client records and treatment information.",
     "source": "frontend/src/views/admin/ClientManagementView.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -140,7 +140,7 @@
     "category": "Clinical",
     "description": "Structured notes, signing and cosigning.",
     "source": "auricwell/src/NoteWorkspace.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -149,7 +149,7 @@
     "category": "Clinical",
     "description": "Client intake, digital waivers and signatures.",
     "source": "auricwell/src/Intake.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -158,7 +158,7 @@
     "category": "Clinical",
     "description": "Patient access, appointments and guardian workflows.",
     "source": "backend/src/services/auricwell/policy.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -167,7 +167,7 @@
     "category": "Communication",
     "description": "Practice and client messaging.",
     "source": "auricwell/src/Workspace.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -176,7 +176,7 @@
     "category": "Billing",
     "description": "Balances, invoices and payment workflows.",
     "source": "auricwell/src/Payments.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -185,7 +185,7 @@
     "category": "Billing",
     "description": "Claims, remittances, fee schedules and payer configuration.",
     "source": "auricwell/src/BillingSetup.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -194,7 +194,7 @@
     "category": "Practice",
     "description": "Reviewed provider, client and historical record import.",
     "source": "auricwell/src/Imports.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -203,7 +203,7 @@
     "category": "Practice",
     "description": "Operational and financial reporting.",
     "source": "auricwell/src/Workspace.vue",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform + AuricWell"
   },
   {
@@ -212,7 +212,7 @@
     "category": "Platform catalog",
     "description": "External/public provider availability pages and provider finder publishing.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium_plus",
     "products": "Platform"
   },
   {
@@ -221,7 +221,7 @@
     "category": "Platform catalog",
     "description": "Momentum Stickies, digest, and focus assistant billed per active employee.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform"
   },
   {
@@ -230,7 +230,7 @@
     "category": "Platform catalog",
     "description": "Shift-based programs, scheduling workflows, and related operational publishing.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform"
   },
   {
@@ -239,7 +239,7 @@
     "category": "Platform catalog",
     "description": "Payroll management tools and related admin workflows.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium",
     "products": "Platform"
   },
   {
@@ -248,7 +248,7 @@
     "category": "Platform catalog",
     "description": "Onboarding packages, checklist templates, intake forms, and related tenant workflows.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium_plus",
     "products": "Platform"
   },
   {
@@ -257,7 +257,7 @@
     "category": "Platform catalog",
     "description": "Gemini-assisted training modules from handbook uploads and source documents (Module Manager).",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium_plus",
     "products": "Platform"
   },
   {
@@ -266,7 +266,7 @@
     "category": "Platform catalog",
     "description": "School overview dashboard, school-scoped portal routes, digital intakes hub, and school staff sign-in for assigned school organizations.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -275,7 +275,7 @@
     "category": "Platform catalog",
     "description": "School/program Skill Builders calendar, event portal, skills groups roster, provider hub program events, and related APIs.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -284,7 +284,7 @@
     "category": "Platform catalog",
     "description": "Budget planning, fiscal year tracking, expense management, and related finance workflows.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -293,7 +293,7 @@
     "category": "Platform catalog",
     "description": "Applicant tracking, candidate pipelines, and hiring workflow management.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium_plus",
     "products": "Platform"
   },
   {
@@ -302,7 +302,7 @@
     "category": "Platform catalog",
     "description": "Full HR and People Ops suite: On-Demand Training, Training Modules, and Progress tracking.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium_plus",
     "products": "Platform"
   },
   {
@@ -311,7 +311,7 @@
     "category": "Platform catalog",
     "description": "Gemini-powered provider search and smart directory filtering.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform"
   },
   {
@@ -320,7 +320,7 @@
     "category": "Platform catalog",
     "description": "Presence statuses, team board visibility, and availability signaling for staff.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform"
   },
   {
@@ -329,7 +329,7 @@
     "category": "Platform catalog",
     "description": "Reply to app@tenant with office availability, school coverage (privileged), and task creation. SMS replies planned later.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -338,7 +338,7 @@
     "category": "Platform catalog",
     "description": "Peer recognition, points, and reward-oriented appreciation tools.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium",
     "products": "Platform"
   },
   {
@@ -347,7 +347,7 @@
     "category": "Platform catalog",
     "description": "Medication cancellation claim submissions and related notifications.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform"
   },
   {
@@ -356,7 +356,7 @@
     "category": "Platform catalog",
     "description": "School mileage and other in-school claims submission workflows.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -365,7 +365,7 @@
     "category": "Platform catalog",
     "description": "Google sign-in rules and enforced Workspace login for selected roles.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -374,7 +374,7 @@
     "category": "Platform catalog",
     "description": "Provision Google Workspace accounts and related pre-hire automation.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -383,7 +383,7 @@
     "category": "Platform catalog",
     "description": "Tenant-wide book club, voting, meetings, and public preview experiences.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "basic",
     "products": "Platform"
   },
   {
@@ -392,7 +392,7 @@
     "category": "Platform catalog",
     "description": "Learning standards, goals, and progress tracking workflows.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -401,7 +401,7 @@
     "category": "Platform catalog",
     "description": "Learning class sessions, moderation tools, and live class telemetry.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -410,7 +410,7 @@
     "category": "Platform catalog",
     "description": "Guardian waivers and kiosk check-in eligibility gating.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -419,7 +419,7 @@
     "category": "Platform catalog",
     "description": "Inclusion in platform-shared marketing and event promotion surfaces.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -428,7 +428,7 @@
     "category": "Platform catalog",
     "description": "Public registration catalogs and marketing enrollment links for this tenant.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   },
   {
@@ -437,7 +437,7 @@
     "category": "Platform catalog",
     "description": "Access to the mental health games platform and enabled game titles.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium_plus",
     "products": "Platform"
   },
   {
@@ -446,7 +446,7 @@
     "category": "Platform catalog",
     "description": "Focus Music playlists plus Focus Session (timeline focus mode, quote images, and session audio).",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium",
     "products": "Platform"
   },
   {
@@ -455,7 +455,7 @@
     "category": "Platform catalog",
     "description": "Legacy Focus Music add-on; superseded by Focus Package.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "premium",
     "products": "Platform"
   },
   {
@@ -464,7 +464,7 @@
     "category": "Platform catalog",
     "description": "Custom project billing for registration, kiosk check-ins, staffing, and operational setup.",
     "source": "backend/src/services/billingPricing.service.js",
-    "minimumTier": "",
+    "minimumTier": "separate",
     "products": "Platform"
   }
 ]

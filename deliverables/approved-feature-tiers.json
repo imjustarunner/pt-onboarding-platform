@@ -1,0 +1,271 @@
+{
+  "plans": [
+    "Basic",
+    "Premium",
+    "Premium Plus"
+  ],
+  "existingAccounts": "premium_plus",
+  "features": [
+    {
+      "key": "ai_note_aid",
+      "feature": "Documentation Hub",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "private_office",
+      "feature": "Private virtual office",
+      "minimumTier": "premium"
+    },
+    {
+      "key": "multiple_office_guests",
+      "feature": "Multiple private-office guests",
+      "minimumTier": "premium_plus"
+    },
+    {
+      "key": "schedule",
+      "feature": "Calendar and scheduling",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "calendar_sync",
+      "feature": "Google Calendar integration",
+      "minimumTier": "premium"
+    },
+    {
+      "key": "office_booking",
+      "feature": "Office and room reservations",
+      "minimumTier": "premium_plus"
+    },
+    {
+      "key": "video_meetings",
+      "feature": "Scheduled video meetings",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "personal_join",
+      "feature": "Personal meeting invitations",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "recording_transcription",
+      "feature": "Recording and transcription",
+      "minimumTier": "premium"
+    },
+    {
+      "key": "transcript_notes",
+      "feature": "Notes from session transcripts",
+      "minimumTier": "premium"
+    },
+    {
+      "key": "meeting_notes",
+      "feature": "Meeting notes and summaries",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "supervision",
+      "feature": "Supervision scheduling and history",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "supervision_manual",
+      "feature": "Manual and in-person supervision",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "supervision_agreements",
+      "feature": "Supervision agreements",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "client_records",
+      "feature": "Client charts and records",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "clinical_signing",
+      "feature": "Clinical documentation and signatures",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "intake",
+      "feature": "Intake and digital forms",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "client_portal",
+      "feature": "Client and guardian portal",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "messages",
+      "feature": "Secure messaging",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "payments",
+      "feature": "Client payments",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "insurance_claims",
+      "feature": "Insurance billing and claims",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "imports",
+      "feature": "Data import and migration",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "practice_reports",
+      "feature": "Practice reports",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "publicAvailability",
+      "feature": "Public Provider Finder",
+      "minimumTier": "premium_plus"
+    },
+    {
+      "key": "momentumList",
+      "feature": "My Work",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "officeSchedulingPublishing",
+      "feature": "Shift Programs",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "payrollWorkspace",
+      "feature": "Payroll workspace",
+      "minimumTier": "premium"
+    },
+    {
+      "key": "onboardingTraining",
+      "feature": "Onboarding & Training",
+      "minimumTier": "premium_plus"
+    },
+    {
+      "key": "trainingAiModuleBuilder",
+      "feature": "Training AI Module Builder",
+      "minimumTier": "premium_plus"
+    },
+    {
+      "key": "schoolPortals",
+      "feature": "School portals & school overview",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "skillBuildersSchoolProgram",
+      "feature": "Skill Builders school program",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "budgetManagementEnabled",
+      "feature": "Budget Management",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "hiringEnabled",
+      "feature": "Hiring Process",
+      "minimumTier": "premium_plus"
+    },
+    {
+      "key": "peopleOpsEnabled",
+      "feature": "People Operations",
+      "minimumTier": "premium_plus"
+    },
+    {
+      "key": "aiProviderSearchEnabled",
+      "feature": "AI Provider Search",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "presenceEnabled",
+      "feature": "Presence / Team Board",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "emailAppAssistant",
+      "feature": "Email App Assistant",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "kudosEnabled",
+      "feature": "Kudos",
+      "minimumTier": "premium"
+    },
+    {
+      "key": "medcancelEnabled",
+      "feature": "Med Cancel",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "inSchoolSubmissionsEnabled",
+      "feature": "In-School Submissions",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "googleSsoEnabled",
+      "feature": "Google Workspace SSO",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "workspaceProvisioningEnabled",
+      "feature": "Workspace Provisioning",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "bookClubEnabled",
+      "feature": "Book Club",
+      "minimumTier": "basic"
+    },
+    {
+      "key": "standardsLearningEnabled",
+      "feature": "Standards-Aligned Learning",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "groupClassSessionsEnabled",
+      "feature": "Group Class Sessions",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "guardianWaiversEnabled",
+      "feature": "Guardian Waivers",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "platformSharedMarketingEnabled",
+      "feature": "Shared Marketing",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "platformPublicRegistrationEnabled",
+      "feature": "Public Registration Links",
+      "minimumTier": "separate"
+    },
+    {
+      "key": "gamesPlatformEnabled",
+      "feature": "Games Platform",
+      "minimumTier": "premium_plus"
+    },
+    {
+      "key": "focusPackage",
+      "feature": "Focus Package",
+      "minimumTier": "premium"
+    },
+    {
+      "key": "focusMusic",
+      "feature": "Focus Music (legacy)",
+      "minimumTier": "premium"
+    },
+    {
+      "key": "summerProgramManagement",
+      "feature": "Summer program management",
+      "minimumTier": "separate"
+    }
+  ],
+  "sharedFeatureScope": "agency"
+}
