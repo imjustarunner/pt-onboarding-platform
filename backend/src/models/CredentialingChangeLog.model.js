@@ -1,3 +1,4 @@
+import { isPrivateTaxField, encryptProfileTaxValue } from '../utils/privateTaxId.js';
 import pool from '../config/database.js';
 
 /**
@@ -19,6 +20,10 @@ class CredentialingChangeLog {
     changedByUserId = null,
     insuranceCredentialingDefinitionId = null
   }) {
+    if (isPrivateTaxField(fieldChanged)) {
+      oldValue = encryptProfileTaxValue(oldValue);
+      newValue = encryptProfileTaxValue(newValue);
+    }
     const [result] = await pool.execute(
       `INSERT INTO credentialing_change_log
        (user_id, agency_id, field_changed, old_value, new_value, changed_by_user_id, insurance_credentialing_definition_id)

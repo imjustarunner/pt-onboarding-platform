@@ -1,3 +1,6 @@
+import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
+import { auditExpiredOfficeAssignments } from '../services/officeAssignmentExpiry.service.js';
+import { officeBookingUntil, officeBookingCount } from '../utils/officeBookingLimits.js';
 import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import { moveOfficeSessionSeries, moveOfficeSessionOccurrence } from '../services/officeSessionMove.service.js';
 import { wallMysqlToUtcMysql, normalizeWallMysqlDatetime, utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
@@ -178,7 +181,7 @@ function weekdayHourFromSqlDateTime(value) {
 }
 
 function weekdayHourInTz(dateLike, timeZone) {
-  const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  const d = dateLike instanceof Date ? dateLike : new Date(String(dateLike).replace(' ', 'T').replace(/Z$/, '') + 'Z');
   if (Number.isNaN(d.getTime())) return null;
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -222,7 +225,7 @@ function mysqlDateTimeFromValue(value) {
 }
 
 async function requireOfficeAccess(req, officeLocationId) {
-  if (req.user.role === 'super_admin') return true;
+  if (['super_admin', 'superadmin'].includes(String(req.user.role).toLowerCase())) return true;
   const agencies = await User.getAgencies(req.user.id);
   return await OfficeLocationAgency.userHasAccess({ officeLocationId, agencyIds: agencies.map((a) => a.id) });
 }
@@ -233,9 +236,13 @@ async function resolveAgencyForProviderOffice({ providerId, officeLocationId, pr
   const providerAgencyIds = new Set((providerAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isInteger(n) && n > 0));
   const officeAgencyIds = (officeAgencies || []).map((a) => Number(a.id)).filter((n) => Number.isInteger(n) && n > 0);
   const preferred = Number(preferredAgencyId || 0);
-  if (preferred && providerAgencyIds.has(preferred) && officeAgencyIds.includes(preferred)) return preferred;
-  const match = officeAgencyIds.find((id) => providerAgencyIds.has(id));
-  return match || officeAgencyIds[0] || null;
+  if (preferred) {
+    if (providerAgencyIds.has(preferred) && officeAgencyIds.includes(preferred)) return preferred;
+    throw Object.assign(new Error('The selected agency must include this provider and have access to this office.'), { status: 403 });
+  }
+  const matches = [...new Set(officeAgencyIds.filter(id => providerAgencyIds.has(id)))];
+  if (matches.length === 1) return matches[0];
+  throw Object.assign(new Error(matches.length ? 'Select the agency for this office booking.' : 'This provider has no agency with access to this office.'), { status: 400 });
 }
 
 async function cancelGoogleForOfficeEventIds(eventIds = [], actorUserId = null) {
@@ -276,21 +283,8 @@ function addDaysYmd(ymd, days) {
   return d.toISOString().slice(0, 10);
 }
 
-function normalizeRecurringUntilDate(bookingStartDate, rawUntil) {
-  const start = ymdFromDateLike(bookingStartDate, null);
-  const maxAllowed = addDaysYmd(start, 364);
-  const candidate = ymdFromDateLike(rawUntil, null);
-  if (!candidate || !/^\d{4}-\d{2}-\d{2}$/.test(candidate)) return maxAllowed;
-  if (candidate <= start) return maxAllowed;
-  return candidate > maxAllowed ? maxAllowed : candidate;
-}
-
-function normalizeBookedOccurrenceCount(rawCount) {
-  if (rawCount === null || rawCount === undefined || rawCount === '') return 6;
-  const n = parseInt(rawCount, 10);
-  if (!Number.isInteger(n) || n < 1) return 6;
-  return Math.min(n, 104);
-}
+const normalizeRecurringUntilDate = officeBookingUntil;
+const normalizeBookedOccurrenceCount = officeBookingCount;
 
 function weekdayIndexFromYmd(ymd) {
   const m = String(ymd || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -493,11 +487,9 @@ async function deactivateStandingAssignmentIfReleased(standingAssignmentId, from
   if (!sid) return false;
   const assignment = await OfficeStandingAssignment.findById(sid);
   if (!assignment?.id || !assignment.is_active) return false;
-  const futureCount = await countFutureNonCancelledEventsForStandingAssignment(sid, fromDateYmd);
-  if (futureCount > 0) return false;
-  await OfficeBookingPlan.deactivateByAssignmentId(sid);
-  await OfficeStandingAssignment.update(sid, { is_active: false });
-  return true;
+  const result = await auditExpiredOfficeAssignments({ apply: true, officeLocationId: assignment.office_location_id, roomId: assignment.room_id });
+  return result.expired.includes(sid);
+
 }
 
 async function deactivateStandingAssignmentsByIds(assignmentIds = []) {
@@ -682,7 +674,7 @@ export const setBookingPlan = async (req, res, next) => {
     const selection = bookingSelectionFromBody(req.body);
     const provider = await User.findById(assignment.provider_id);
     const agencyId = await resolveAgencyForProviderOffice({ providerId: assignment.provider_id, officeLocationId,
-      preferredAgencyId: Number(req.body?.agencyId || 0) || null });
+      preferredAgencyId: Number(req.body?.agencyId || assignment.booking_agency_id || 0) || null });
     const clientId = Number(req.body?.clientId || 0) || null;
     if (clientId) await assertAppointmentClients(agencyId, [{ clientId }]);
     const validated = await validateSchedulingSelection({ agencyId, userRole: provider.role,
@@ -697,6 +689,7 @@ export const setBookingPlan = async (req, res, next) => {
       bookedOccurrenceCount,
       createdByUserId: req.user.id
     });
+    await pool.execute("UPDATE office_booking_plans SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?, '$.bookingLimitsExplicit', TRUE) WHERE id = ?", [agencyId, plan.id]);
     if (clientId) await OfficeBookingPlan.setSessionContext(plan.id, { agencyId, clientId, ...validated,
       serviceLocationId: selection.serviceLocationId || null, tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null });
     try {
@@ -718,7 +711,9 @@ export const setBookingPlan = async (req, res, next) => {
     // Clear last_forfeit_warning_at so the warning clock resets now that a booking plan exists.
     await OfficeStandingAssignment.update(sid, {
       last_two_week_confirmed_at: new Date(),
-      last_forfeit_warning_at: null
+      last_forfeit_warning_at: null,
+      assigned_frequency: freq,
+      booking_agency_id: agencyId
     });
 
     // Also mark the selected occurrence booked immediately so UI reflects assigned_booked now.
@@ -765,12 +760,7 @@ export const setBookingPlan = async (req, res, next) => {
       // Best-effort immediate occurrence mark; plan save remains source of truth.
     }
 
-    await materializeOfficeWeeks({
-      officeLocationId,
-      startDateYmd: bookingStartDate,
-      createdByUserId: req.user.id,
-      weeks: 12
-    });
+    // The saved plan is durable; requested calendar weeks materialize on read.
 
     res.json({ ok: true, bookingPlan: plan });
   } catch (e) {
@@ -808,20 +798,6 @@ export const setAssignmentRecurrence = async (req, res, next) => {
     });
 
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-    const bookingStartDate = ymdFromDateLike(
-      assignment.available_since_date,
-      new Date().toISOString().slice(0, 10)
-    );
-    try {
-      await materializeOfficeWeeks({
-        officeLocationId,
-        startDateYmd: bookingStartDate,
-        createdByUserId: req.user.id,
-        weeks: 12
-      });
-    } catch (matErr) {
-      console.warn('[setAssignmentRecurrence] materialize failed:', matErr?.message || matErr);
-    }
 
     return res.json({ ok: true, recurrenceFrequency, standingAssignment: updated });
   } catch (e) {
@@ -1223,7 +1199,7 @@ export const staffBookEvent = async (req, res, next) => {
       const policyAgencyId = await resolveAgencyForProviderOffice({
         providerId: bookedProviderId,
         officeLocationId,
-        preferredAgencyId: Number(req.body?.agencyId || req.query?.agencyId || 0) || null
+        preferredAgencyId: Number(req.body?.agencyId || req.query?.agencyId || officeBookingAgencyId(ev) || 0) || null
       });
       validatedSelection = await validateSchedulingSelection({
         agencyId: policyAgencyId,
@@ -1697,8 +1673,32 @@ export const setEventBookingPlan = async (req, res, next) => {
 
     const loc = await OfficeLocation.findById(officeLocationId);
     const tz = String(loc?.timezone || 'America/New_York');
-    const wh = weekdayHourFromSqlDateTime(ev.start_at) || weekdayHourInTz(ev.start_at, tz);
+    const wh = weekdayHourInTz(ev.start_at, tz);
     if (!wh) return res.status(400).json({ error: { message: 'Invalid event start time' } });
+
+    const provider = await User.findById(providerId);
+    if (!provider) {
+      return res.status(404).json({ error: { message: 'Assigned provider not found' } });
+    }
+    const rawSelection = bookingSelectionFromBody(req.body);
+    const policyAgencyId = await resolveAgencyForProviderOffice({
+      providerId,
+      officeLocationId,
+      preferredAgencyId: Number(req.body?.agencyId || req.query?.agencyId || officeBookingAgencyId(ev) || 0) || null
+    });
+    const validatedSelection = await validateSchedulingSelection({
+      agencyId: policyAgencyId,
+      userRole: provider.role,
+      providerCredentialText: provider.credential,
+      appointmentTypeCode: rawSelection.appointmentTypeCode || ev.appointment_type_code || null,
+      appointmentSubtypeCode: rawSelection.appointmentSubtypeCode || ev.appointment_subtype_code || null,
+      serviceCode: rawSelection.serviceCode || ev.service_code || null,
+      modality: rawSelection.modality || ev.modality || null,
+      scheduledStartAt: ev.start_at || null,
+      scheduledEndAt: ev.end_at || null
+    });
+    const planClientId = Number(req.body?.clientId || ev.client_id || 0) || null;
+    if (planClientId) await assertAppointmentClients(policyAgencyId, [{ clientId: planClientId }]);
 
     let assignment = await OfficeStandingAssignment.findActiveBySlot({
       officeLocationId,
@@ -1752,30 +1752,9 @@ export const setEventBookingPlan = async (req, res, next) => {
       bookedOccurrenceCount,
       createdByUserId: req.user.id
     });
-    const provider = await User.findById(providerId);
-    if (!provider) {
-      return res.status(404).json({ error: { message: 'Assigned provider not found' } });
-    }
-    const rawSelection = bookingSelectionFromBody(req.body);
-    const policyAgencyId = await resolveAgencyForProviderOffice({
-      providerId,
-      officeLocationId,
-      preferredAgencyId: Number(req.body?.agencyId || req.query?.agencyId || 0) || null
-    });
-    const validatedSelection = await validateSchedulingSelection({
-      agencyId: policyAgencyId,
-      userRole: provider.role,
-      providerCredentialText: provider.credential,
-      appointmentTypeCode: rawSelection.appointmentTypeCode || ev.appointment_type_code || null,
-      appointmentSubtypeCode: rawSelection.appointmentSubtypeCode || ev.appointment_subtype_code || null,
-      serviceCode: rawSelection.serviceCode || ev.service_code || null,
-      modality: rawSelection.modality || ev.modality || null,
-      scheduledStartAt: ev.start_at || null,
-      scheduledEndAt: ev.end_at || null
-    });
-    const planClientId = Number(req.body?.clientId || ev.client_id || 0) || null;
+    await pool.execute("UPDATE office_booking_plans SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?, '$.bookingLimitsExplicit', TRUE) WHERE id = ?", [policyAgencyId, plan.id]);
+    await OfficeStandingAssignment.update(assignment.id, { assigned_frequency: freq, booking_agency_id: policyAgencyId });
     if (planClientId) {
-      await assertAppointmentClients(policyAgencyId, [{ clientId: planClientId }]);
       await OfficeBookingPlan.setSessionContext(plan.id, { agencyId: policyAgencyId, clientId: planClientId,
         ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null });
     }
@@ -1796,12 +1775,7 @@ export const setEventBookingPlan = async (req, res, next) => {
        WHERE id = ?`,
       [plan.id, assignment.id, bookedEvent?.id || eid]
     );
-    await materializeOfficeWeeks({
-      officeLocationId,
-      startDateYmd: bookingStartDate,
-      createdByUserId: req.user.id,
-      weeks: 12
-    });
+    // The saved plan is durable; requested calendar weeks materialize on read.
     const clientId = Number(req.body?.clientId || ev.client_id || 0) || null;
     if (clientId) {
       try {
@@ -1864,7 +1838,7 @@ export const setEventRecurrence = async (req, res, next) => {
 
     const loc = await OfficeLocation.findById(officeLocationId);
     const tz = String(loc?.timezone || 'America/New_York');
-    const wh = weekdayHourFromSqlDateTime(ev.start_at) || weekdayHourInTz(ev.start_at, tz);
+    const wh = weekdayHourInTz(ev.start_at, tz);
     if (!wh) return res.status(400).json({ error: { message: 'Invalid event start time' } });
 
     const roomId = Number(ev.room_id || 0) || null;
@@ -3036,13 +3010,15 @@ export const rescheduleOfficeEvent = async (req, res, next) => {
 };
 
 async function refreshMovedOfficeNotifications(eventIds) {
+  if (!eventIds.length) return [];
+  // The transaction marks events PENDING, so the watchdog retries after restarts.
+  // A series must not keep the save request waiting for dozens of Google calls.
+  void syncOfficeEventsToGoogleBestEffort(eventIds);
+  const [appointments] = await pool.execute(`SELECT id FROM appointments WHERE office_event_id IN (${eventIds.map(() => '?').join(',')})`, eventIds);
   const warnings = [];
-  for (const id of eventIds) {
-    try {
-      await GoogleCalendarService.upsertBookedOfficeEvent({ officeEventId: id });
-      const appointment = await Appointment.findByOfficeEventId(id);
-      if (appointment) await scheduleSessionNotifications(appointment.id, { replace: true });
-    } catch { warnings.push(`Session ${id} moved; calendar or reminder synchronization needs a retry.`); }
+  for (const appointment of appointments) {
+    try { await scheduleSessionNotifications(appointment.id, { replace: true }); }
+    catch { warnings.push('The time changed; a session reminder needs synchronization.'); }
   }
   return warnings;
 }
@@ -3057,7 +3033,7 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
     const ok = await requireOfficeAccess(req, officeLocationId);
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
-    const assignment = await OfficeStandingAssignment.findById(sid);
+    let assignment = await OfficeStandingAssignment.findById(sid);
     if (!assignment || Number(assignment.office_location_id) !== Number(officeLocationId)) {
       return res.status(404).json({ error: { message: 'Standing assignment not found' } });
     }
@@ -3087,52 +3063,43 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Room not found for this office' } });
     }
 
-    const sameSlot = Number(assignment.room_id) === Number(newRoomId)
-      && Number(assignment.weekday) === Number(newWeekday)
-      && Number(assignment.hour) === Number(newHour);
-    if (!sameSlot) {
-      const targetConflict = await OfficeStandingAssignment.findActiveBySlot({
-        officeLocationId,
-        roomId: newRoomId,
-        weekday: newWeekday,
-        hour: newHour
-      });
-      if (targetConflict?.id && Number(targetConflict.id) !== Number(sid)) {
-        const conflictDetail = await buildStandingSlotConflictDetail({
-          officeLocationId,
-          roomId: newRoomId,
-          weekday: newWeekday,
-          hour: newHour
-        });
-        return res.status(409).json({
-          error: {
-            code: 'STANDING_SLOT_CONFLICT',
-            message: conflictDetail?.message || 'The target slot is already assigned.',
-            conflict: conflictDetail?.conflict || null
-          }
-        });
-      }
+    const blockHours = Number(req.body?.blockHours || 1);
+    if (!Number.isInteger(blockHours) || blockHours < 1 || blockHours > 24 || newHour + blockHours > 24) {
+      return res.status(400).json({ error: { message: 'Choose a whole-hour office block within one day.' } });
     }
-
+    const sourceStartHour = Number(req.body?.sourceStartHour ?? assignment.hour);
+    if (!Number.isInteger(sourceStartHour) || sourceStartHour < 0 || sourceStartHour + blockHours > 24
+      || Number(assignment.hour) < sourceStartHour || Number(assignment.hour) >= sourceStartHour + blockHours) {
+      return res.status(400).json({ error: { message: 'The selected source block must include this assignment.' } });
+    }
+    let assignments = [assignment];
+    if (blockHours > 1) {
+      const [rows] = await pool.execute(`SELECT * FROM office_standing_assignments
+        WHERE office_location_id = ? AND room_id = ? AND provider_id = ? AND weekday = ? AND hour >= ? AND hour < ? AND is_active = TRUE ORDER BY hour`,
+        [officeLocationId, assignment.room_id, assignment.provider_id, assignment.weekday, sourceStartHour, sourceStartHour + blockHours]);
+      if (rows.length !== blockHours || rows.some((row, index) => Number(row.hour) !== sourceStartHour + index)) {
+        return res.status(409).json({ error: { message: 'This block includes unavailable or unassigned hours. Refresh and select the complete office block.' } });
+      }
+      assignments = rows;
+      assignment = rows[0];
+    }
+    // The move service checks every target hour under a room lock, retires expired
+    // temporary assignments with no upcoming events, and returns precise conflicts.
+    const bookingAgencyId = req.body?.agencyId ? await resolveAgencyForProviderOffice({ providerId: assignment.provider_id, officeLocationId, preferredAgencyId: Number(req.body.agencyId) }) : null;
     const oldWeekday = Number(assignment.weekday);
     const oldHour = Number(assignment.hour);
     const oldRoomId = Number(assignment.room_id);
     const providerId = Number(assignment.provider_id);
     const todayYmd = new Date().toISOString().slice(0, 10);
 
-    const movedEventIds = await moveOfficeSessionSeries({ assignment, newRoomId, newWeekday, newHour,
-      timeZone: await resolveTimezoneForStandingAssignment(sid), actorUserId: req.user.id });
+    const movedEventIds = await moveOfficeSessionSeries({ assignment, assignments, newRoomId, newWeekday, newHour,
+      timeZone: await resolveTimezoneForStandingAssignment(sid), actorUserId: req.user.id, bookingAgencyId });
     const cancelledEventIds = [];
     const updated = await OfficeStandingAssignment.findById(sid);
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
     const warnings = await refreshMovedOfficeNotifications(movedEventIds);
 
-    await materializeOfficeWeeks({
-      officeLocationId,
-      startDateYmd: todayYmd,
-      createdByUserId: req.user.id,
-      weeks: 4
-    });
+    // Existing occurrences moved atomically; future grid weeks materialize on read.
 
     const oldRoom = oldRoomId !== newRoomId ? await OfficeRoom.findById(oldRoomId) : room;
     const oldRoomLabel = String(oldRoom?.label || oldRoom?.name || '').trim() || `Room #${oldRoomId}`;
@@ -3143,7 +3110,7 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
     let notificationSent = false;
     if (notifyProvider && providerId) {
       try {
-        const agencyId = await resolveAgencyForProviderOffice({ providerId, officeLocationId });
+        const agencyId = bookingAgencyId || await resolveAgencyForProviderOffice({ providerId, officeLocationId });
         const actor = await User.findById(req.user.id);
         const actorName = formatProviderName(actor, req.user.id);
         const reasonSuffix = reason ? ` Reason: ${reason}` : '';
@@ -3176,6 +3143,7 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
       to: { roomId: newRoomId, weekday: newWeekday, hour: newHour, label: newSlotLabel }
     });
   } catch (e) {
+    if (e.code === 'OFFICE_MOVE_CONFLICT') return res.status(409).json({ error: { message: e.message, code: e.code, conflict: e.conflict } });
     next(e);
   }
 };

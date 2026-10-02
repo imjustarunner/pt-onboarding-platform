@@ -453,12 +453,13 @@
         </div>
 
         <div v-if="showBookedUntil" class="ahf-field">
-          <span class="ahf-label">Booked until</span>
+          <span class="ahf-label">Booked until (optional)</span>
           <input
             v-if="canEditBookedUntil"
             class="ahf-input"
             type="date"
             :value="bookedUntil"
+            title="Leave blank for no end date"
             :disabled="disabled"
             @change="emit('update:bookedUntil', String($event.target.value || ''))"
           />

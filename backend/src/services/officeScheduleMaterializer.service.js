@@ -1,3 +1,4 @@
+import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import pool from '../config/database.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
@@ -141,13 +142,18 @@ function isPlanDateSkipped(plan, dateStr) {
   return planSkippedDates(plan).includes(normalizeYmd(dateStr));
 }
 
+function hasExplicitBookingLimits(plan) {
+  let context = plan?.session_context_json;
+  if (typeof context === 'string') { try { context = JSON.parse(context); } catch { return true; } }
+  // Adding tenant metadata must not activate old, previously ignored intake caps.
+  return !!(context?.clientId || context?.bookingLimitsExplicit);
+}
+
 export function shouldBookOnDate(plan, assignment, dateStr) {
   if (!plan || plan.is_active === 0) return false;
   const start = normalizeYmd(plan.booking_start_date);
   if (!start) return false;
   if (dateStr < start) return false;
-  const planHardLimit = addDays(start, 365);
-  if (planHardLimit && dateStr > planHardLimit) return false;
   // Single-occurrence cancels land here so rematerialize does not resurrect them.
   if (isPlanDateSkipped(plan, dateStr)) return false;
   // Open-ended weekly on an AVAILABLE standing assignment: ignore historical
@@ -155,7 +161,7 @@ export function shouldBookOnDate(plan, assignment, dateStr) {
   const openEndedWeekly =
     String(plan.booked_frequency || '').toUpperCase() === 'WEEKLY'
     && String(assignment?.availability_mode || '').toUpperCase() !== 'TEMPORARY'
-    && !plan.session_context_json;
+    && !hasExplicitBookingLimits(plan);
   const configuredUntil = openEndedWeekly ? null : normalizeYmd(plan.active_until_date);
   if (configuredUntil && dateStr > configuredUntil) return false;
 
@@ -194,9 +200,8 @@ export function shouldBookOnDate(plan, assignment, dateStr) {
 function bookingOccurrenceNumberForDate(plan, assignment, dateStr) {
   const start = normalizeYmd(plan?.booking_start_date);
   if (!start || dateStr < start) return 0;
-  const planHardLimit = addDays(start, 365);
-  const configuredUntil = String(plan?.active_until_date || '').slice(0, 10);
-  const upperBound = [dateStr, planHardLimit, configuredUntil]
+  const configuredUntil = normalizeYmd(plan?.active_until_date);
+  const upperBound = [dateStr, configuredUntil]
     .filter((x) => String(x || '').length === 10)
     .sort()[0] || dateStr;
 
@@ -216,7 +221,7 @@ export function shouldBookByCount(plan, assignment, dateStr) {
   const openEndedWeekly =
     String(plan?.booked_frequency || '').toUpperCase() === 'WEEKLY'
     && String(assignment?.availability_mode || '').toUpperCase() !== 'TEMPORARY'
-    && !plan?.session_context_json;
+    && !hasExplicitBookingLimits(plan);
   if (openEndedWeekly) return true;
   const maxCountRaw = Number(plan?.booked_occurrence_count || 0);
   if (!Number.isInteger(maxCountRaw) || maxCountRaw <= 0) return true;
@@ -369,6 +374,7 @@ export class OfficeScheduleMaterializer {
           if (desiredPlanId && plan?.session_context_json) {
             sessionContext = typeof plan.session_context_json === 'string' ? JSON.parse(plan.session_context_json) : plan.session_context_json;
           }
+          if (!sessionContext?.agencyId && a.booking_agency_id) sessionContext = { ...sessionContext, agencyId: Number(a.booking_agency_id) };
           const hasMatchingRow = existingRows.some((ev) =>
             String(ev?.status || '').toUpperCase() !== 'CANCELLED'
             && String(ev?.slot_state || '').toUpperCase() === String(slotState || '').toUpperCase()
@@ -376,6 +382,7 @@ export class OfficeScheduleMaterializer {
             && Number(ev?.booking_plan_id || 0) === desiredPlanId
             && Number(ev?.assigned_provider_id || 0) === Number(a.provider_id || 0)
             && Number(ev?.booked_provider_id || 0) === desiredBookedProviderId
+            && (!sessionContext?.agencyId || officeBookingAgencyId(ev) === Number(sessionContext.agencyId))
             && (!sessionContext?.clientId || Number(ev?.client_id || 0) === Number(sessionContext.clientId))
             && (!sessionContext?.serviceCode || String(ev?.service_code || '') === String(sessionContext.serviceCode))
             && (!sessionContext?.packageEntitlementId || !!ev?.session_context_json)
@@ -398,6 +405,9 @@ export class OfficeScheduleMaterializer {
             // Never resurrect explicit cancellations — occurrence cancels + forfeits must stick.
             replaceCancelled: false
           });
+          if (sessionEvent?.id && sessionContext?.agencyId && !sessionContext?.clientId) {
+            await pool.execute("UPDATE office_events SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?) WHERE id = ? AND client_id IS NULL AND clinical_session_id IS NULL", [sessionContext.agencyId, sessionEvent.id]);
+          }
           if (sessionEvent?.id && sessionContext?.clientId) {
             await pool.execute(
               `UPDATE office_events SET client_id = ?, appointment_type_code = ?, appointment_subtype_code = ?,

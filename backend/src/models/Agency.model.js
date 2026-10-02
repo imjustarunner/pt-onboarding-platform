@@ -477,18 +477,13 @@ class Agency {
     }
 
     if (agency) {
-      try {
-        const { unpackAgencyTaxId } = await import('../services/agencyTaxId.service.js');
-        const plainTax = unpackAgencyTaxId(agency);
-        agency.tax_id = plainTax || null;
-        // Never expose ciphertext blobs to clients
-        delete agency.tax_id_ciphertext;
-        delete agency.tax_id_iv;
-        delete agency.tax_id_auth_tag;
-        delete agency.tax_id_key_id;
-      } catch {
-        // optional until migration 1407
-      }
+      agency.has_tax_id = !!(agency.tax_id_ciphertext || agency.tax_id);
+      delete agency.tax_id;
+      delete agency.tax_id_ciphertext;
+      delete agency.tax_id_iv;
+      delete agency.tax_id_auth_tag;
+      delete agency.tax_id_key_id;
+      delete agency.tax_id_last4;
       if (agency.account_owner_user_id) {
         try {
           const [ownerRows] = await pool.execute(
@@ -1622,7 +1617,7 @@ class Agency {
         values.push(t === 'ein' || t === 'ssn' ? t : null);
       }
       if (agencyData.taxId !== undefined || agencyData.tax_id !== undefined) {
-        try {
+        {
           const { packAgencyTaxId } = await import('../services/agencyTaxId.service.js');
           const packed = packAgencyTaxId(agencyData.taxId ?? agencyData.tax_id);
           updates.push(
@@ -1641,8 +1636,6 @@ class Agency {
             packed.tax_id_key_id,
             packed.tax_id_last4
           );
-        } catch {
-          // optional encryption path
         }
       }
     }

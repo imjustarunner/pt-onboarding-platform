@@ -1,3 +1,4 @@
+import { isPrivateTaxField } from './privateTaxId.js';
 /**
  * Sanitize request body by redacting sensitive fields
  * 
@@ -102,7 +103,10 @@ export function sanitizeRequestBody(body) {
 
   // Recursively sanitize nested objects
   Object.keys(sanitized).forEach(key => {
-    if (sanitized[key] && typeof sanitized[key] === 'object' && !Array.isArray(sanitized[key])) {
+    if (isPrivateTaxField(key) || (['value', 'oldValue', 'newValue', 'old_value', 'new_value'].includes(key)
+      && (body.fieldDefinitionId || body.field_definition_id || isPrivateTaxField(body.field_key || body.fieldKey || body.fieldChanged || body.field_changed)))) {
+      sanitized[key] = '[REDACTED]';
+    } else if (sanitized[key] && typeof sanitized[key] === 'object') {
       sanitized[key] = sanitizeRequestBody(sanitized[key]);
     }
   });

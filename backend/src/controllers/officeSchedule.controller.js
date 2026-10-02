@@ -1,3 +1,4 @@
+import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import {officeBookingNeedsSession} from '../utils/officeBookingSessionLink.js';
 import { bookOfficeForAppointmentRequest } from '../services/officeAppointmentBinding.service.js';
 import pool from '../config/database.js';
@@ -1351,6 +1352,7 @@ export const getWeeklyGrid = async (req, res, next) => {
                 displayStatus: 'COMPANY HOLD',
                 holdTitle,
                 eventId: e.id,
+                bookingAgencyId: officeBookingAgencyId(e),
                 learningSessionId: null,
                 learningLinked: false,
                 standingAssignmentId: null,
@@ -1438,6 +1440,7 @@ export const getWeeklyGrid = async (req, res, next) => {
               state,
               displayStatus: toDisplayStatus({ status: e.status, slotState: st }),
               eventId: e.id,
+              bookingAgencyId: officeBookingAgencyId(e),
               learningSessionId: learningByOfficeEventId.get(Number(e.id)) || null,
               learningLinked: learningByOfficeEventId.has(Number(e.id)),
               standingAssignmentId: e.standing_assignment_id || null,
@@ -1572,6 +1575,7 @@ export const getWeeklyGrid = async (req, res, next) => {
                 state,
                 displayStatus: bookedToday ? 'BOOKED' : 'AVAILABLE',
                 eventId: healedEventId,
+                bookingAgencyId: officeBookingAgencyId(standingHit),
                 standingOverlayOnly: !healedEventId,
                 learningSessionId: null,
                 learningLinked: false,

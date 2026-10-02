@@ -323,6 +323,7 @@ class OfficeEvent {
          au.first_name AS assigned_provider_first_name,
          au.last_name AS assigned_provider_last_name,
          sa.provider_id AS standing_assignment_provider_id,
+         sa.booking_agency_id,
          su.first_name AS standing_provider_first_name,
          su.last_name AS standing_provider_last_name
        FROM office_events e

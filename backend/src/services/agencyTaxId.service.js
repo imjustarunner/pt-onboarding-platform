@@ -1,5 +1,5 @@
 /**
- * Encrypt / decrypt agency tax IDs (EIN or SSN) at rest when chat encryption is configured.
+ * Encrypt tax IDs at rest. Never fall back to plaintext storage.
  */
 import { encryptChatText, decryptChatText, isChatEncryptionConfigured } from './chatEncryption.service.js';
 
@@ -38,33 +38,28 @@ export function packAgencyTaxId(plainTaxId) {
     };
   }
   const last4 = taxIdLast4(plain);
-  if (isChatEncryptionConfigured()) {
-    try {
-      const enc = encryptChatText(plain);
-      return {
-        tax_id: null,
-        tax_id_ciphertext: enc.ciphertextB64,
-        tax_id_iv: enc.ivB64,
-        tax_id_auth_tag: enc.authTagB64,
-        tax_id_key_id: enc.keyId || null,
-        tax_id_last4: last4
-      };
-    } catch {
-      // fall through to plaintext storage
-    }
+  if (normalizeTaxIdDigits(plain).length !== 9) {
+    throw Object.assign(new Error('Tax ID must contain nine digits.'), { status: 400 });
   }
+  if (!isChatEncryptionConfigured()) {
+    throw Object.assign(new Error('Tax ID encryption is unavailable. The tax ID was not saved.'), { status: 503 });
+  }
+  const enc = encryptChatText(plain);
   return {
-    tax_id: plain.slice(0, 32),
-    tax_id_ciphertext: null,
-    tax_id_iv: null,
-    tax_id_auth_tag: null,
-    tax_id_key_id: null,
+    tax_id: null,
+    tax_id_ciphertext: enc.ciphertextB64,
+    tax_id_iv: enc.ivB64,
+    tax_id_auth_tag: enc.authTagB64,
+    tax_id_key_id: enc.keyId || null,
     tax_id_last4: last4
   };
 }
 
 export function unpackAgencyTaxId(row = {}) {
-  if (row?.tax_id_ciphertext && row?.tax_id_iv && row?.tax_id_auth_tag) {
+  if (row?.tax_id_ciphertext || row?.tax_id_iv || row?.tax_id_auth_tag) {
+    if (!row.tax_id_ciphertext || !row.tax_id_iv || !row.tax_id_auth_tag) {
+      throw Object.assign(new Error('Tax ID could not be decrypted. Check encryption configuration.'), { status: 503 });
+    }
     try {
       const plain = decryptChatText({
         ciphertextB64: row.tax_id_ciphertext,
@@ -74,8 +69,9 @@ export function unpackAgencyTaxId(row = {}) {
       });
       if (plain) return plain;
     } catch {
-      // fall through
+      throw Object.assign(new Error('Tax ID could not be decrypted. Check encryption configuration.'), { status: 503 });
     }
+    return null;
   }
   return row?.tax_id ? String(row.tax_id) : null;
 }

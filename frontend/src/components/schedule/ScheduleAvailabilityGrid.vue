@@ -2999,14 +2999,14 @@
               <span v-else class="nr-info-value">{{ modalOccupiedSlotSummary.statusLabel || '—' }}</span>
             </div>
             <div class="nr-booking-strip-cell">
-              <span class="nr-info-label">Booked until</span>
+              <span class="nr-info-label">Booked until (optional)</span>
               <input
                 v-if="canEditBookingStrip"
                 v-model="bookingStripUntil"
                 class="nr-info-select"
                 type="date"
                 :disabled="bookingStripSaving || bookingStripFrequency === 'ONCE'"
-                :title="bookingStripFrequency === 'ONCE' ? 'One-time bookings apply to this occurrence only' : 'Leave blank for ongoing'"
+                :title="bookingStripFrequency === 'ONCE' ? 'One-time bookings apply to this occurrence only' : 'Optional: leave blank for no end date'"
               />
               <span v-else class="nr-info-value">{{ modalOccupiedSlotSummary.bookedUntilLabel || '—' }}</span>
             </div>
@@ -3026,6 +3026,7 @@
               >
                 {{ bookingStripSaving ? 'Saving…' : 'Update booking' }}
               </button>
+              <div v-if="bookingStripMessage" role="status">{{ bookingStripMessage }}</div>
               <div v-if="bookingStripError" class="error" style="margin-top: 4px; font-size: 12px;">{{ bookingStripError }}</div>
             </div>
           </div>
@@ -13199,7 +13200,8 @@ const onChooserWhenChanged = () => {
       });
     }
     selectedActionSlots.value = slots;
-    modalContext.value = buildModalContext({
+    // Preserve the source booking while editing its destination time.
+    if (!modalContext.value?.standingAssignmentId && !modalContext.value?.officeEventId) modalContext.value = buildModalContext({
       dayName: modalDay.value,
       hour: start,
       roomId,
@@ -16286,6 +16288,7 @@ const bookingStripStatus = ref('ASSIGNED');
 const bookingStripUntil = ref('');
 const bookingStripSaving = ref(false);
 const bookingStripError = ref('');
+const bookingStripMessage = ref('');
 const bookingStripBaseline = ref({ frequency: 'WEEKLY', status: 'ASSIGNED', until: '' });
 
 const canEditBookingStrip = computed(() => {
@@ -16299,10 +16302,13 @@ const bookingStripDirty = computed(() => {
   const b = bookingStripBaseline.value || {};
   return String(bookingStripFrequency.value || '') !== String(b.frequency || '')
     || String(bookingStripStatus.value || '') !== String(b.status || '')
-    || String(bookingStripUntil.value || '') !== String(b.until || '');
+    || String(bookingStripUntil.value || '') !== String(b.until || '')
+    || editorStartTime.value !== b.startTime || editorEndTime.value !== b.endTime
+    || modalDay.value !== b.day || Number(editorAgencyId.value) !== Number(b.agencyId);
 });
 
 const syncBookingStripFromContext = () => {
+  bookingStripMessage.value = '';
   const sum = modalOccupiedSlotSummary.value || {};
   const freq = String(sum.frequencyKey || 'WEEKLY').toUpperCase();
   const status = String(sum.statusKey || 'ASSIGNED').toUpperCase();
@@ -16314,7 +16320,9 @@ const syncBookingStripFromContext = () => {
   bookingStripBaseline.value = {
     frequency: bookingStripFrequency.value,
     status: bookingStripStatus.value,
-    until: bookingStripUntil.value
+    until: bookingStripUntil.value,
+    startTime: editorStartTime.value, endTime: editorEndTime.value,
+    day: modalDay.value, agencyId: editorAgencyId.value
   };
 };
 
@@ -16337,7 +16345,9 @@ watch(
 );
 
 const saveBookingStripEdits = async () => {
+  if (bookingStripSaving.value) return;
   bookingStripError.value = '';
+  bookingStripMessage.value = '';
   const ctx = modalContext.value || {};
   const officeLocationId = Number(ctx.officeLocationId || selectedOfficeLocationId.value || 0);
   const standingId = Number(ctx.standingAssignmentId || 0);
@@ -16354,7 +16364,7 @@ const saveBookingStripEdits = async () => {
   let freq = String(bookingStripFrequency.value || 'WEEKLY').toUpperCase();
   let status = String(bookingStripStatus.value || 'ASSIGNED').toUpperCase();
   const until = String(bookingStripUntil.value || '').slice(0, 10);
-  const startYmd = String(ctx.bookingStartDate || ctx.dateYmd || '').slice(0, 10)
+  let startYmd = String(ctx.bookingStartDate || ctx.dateYmd || '').slice(0, 10)
     || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
 
   // Monthly only exists on booking plans.
@@ -16364,57 +16374,75 @@ const saveBookingStripEdits = async () => {
     bookingStripUntil.value = '';
   }
 
+  const baseline = bookingStripBaseline.value;
+  const agencyId = Number(editorAgencyId.value || ctx.agencyId || 0);
+  const whenChanged = baseline.startTime !== editorStartTime.value || baseline.endTime !== editorEndTime.value || baseline.day !== modalDay.value;
+  let moved = false;
+  const saveOptions = { timeout: 30000 };
+  const post = (url, body) => api.post(url, { ...body, agencyId }, saveOptions);
   bookingStripSaving.value = true;
   try {
-    if (standingId > 0) {
+    if (whenChanged) {
+      const minutes = time => Number(time.split(':')[0]) * 60 + Number(time.split(':')[1]);
+      const oldDuration = minutes(baseline.endTime) - minutes(baseline.startTime);
+      const newDuration = minutes(editorEndTime.value) - minutes(editorStartTime.value);
+      if (standingId && (oldDuration !== newDuration || oldDuration % 60 || minutes(editorStartTime.value) % 60)) {
+        throw new Error('Moving a recurring office block preserves its duration and uses whole hours. Select the complete block and change its start time.');
+      }
+      if (standingId) {
+        await post(`/office-slots/${officeLocationId}/assignments/${standingId}/reschedule`, {
+          newRoomId: Number(ctx.roomId), newWeekday: (dayIdxFromWeekStartMonday(modalDay.value) + 1) % 7,
+          newHour: Number(editorStartTime.value.split(':')[0]), blockHours: oldDuration / 60, sourceStartHour: Number(baseline.startTime.split(':')[0])
+        });
+      } else {
+        const date = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
+        await post(`/office-slots/${officeLocationId}/events/${eventId}/reschedule`, {
+          roomId: Number(ctx.roomId), startAt: `${date}T${editorStartTime.value}:00`, endAt: `${date}T${editorEndTime.value}:00`, scope: 'single'
+        });
+      }
+      moved = true;
+      startYmd = addDaysYmd(startYmd, dayIdxFromWeekStartMonday(modalDay.value) - dayIdxFromWeekStartMonday(baseline.day));
+    }
+    const bookingOptionsChanged = String(bookingStripFrequency.value) !== String(baseline.frequency) || String(bookingStripStatus.value) !== String(baseline.status) || String(bookingStripUntil.value) !== String(baseline.until) || Number(agencyId) !== Number(baseline.agencyId);
+    if (bookingOptionsChanged && standingId > 0) {
       if (status === 'TEMPORARY') {
-        await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/temporary`, {
+        await post(`/office-slots/${officeLocationId}/assignments/${standingId}/temporary`, {
           untilDate: until || undefined,
           weeks: until ? undefined : 4
         });
       } else if (status === 'ASSIGNED') {
         const current = String(ctx.slotState || '').toUpperCase();
         if (current === 'ASSIGNED_BOOKED' || Number(ctx.bookingPlanId || 0) > 0) {
-          await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/downgrade`, { to: 'assigned' });
+          await post(`/office-slots/${officeLocationId}/assignments/${standingId}/downgrade`, { to: 'assigned' });
         }
         if (String(ctx.assignmentAvailabilityMode || '').toUpperCase() === 'TEMPORARY' || current === 'ASSIGNED_TEMPORARY') {
-          await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/keep-available`, { acknowledged: true });
+          await post(`/office-slots/${officeLocationId}/assignments/${standingId}/keep-available`, { acknowledged: true });
         }
         if (RECURRING_FREQUENCIES.includes(freq)) {
-          await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/recurrence`, {
+          await post(`/office-slots/${officeLocationId}/assignments/${standingId}/recurrence`, {
             recurrenceFrequency: freq
           });
         } else if (freq === 'ONCE') {
-          await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/temporary`, {
+          await post(`/office-slots/${officeLocationId}/assignments/${standingId}/temporary`, {
             untilDate: startYmd
           });
         }
       } else if (status === 'BOOKED') {
         const bookedFreq = freq === 'ONCE' ? 'WEEKLY' : freq;
-        await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/booking-plan`, {
+        await post(`/office-slots/${officeLocationId}/assignments/${standingId}/booking-plan`, {
           bookedFrequency: RECURRING_FREQUENCIES.includes(bookedFreq) ? bookedFreq : 'WEEKLY',
           bookingStartDate: startYmd,
-          recurringUntilDate: until || undefined,
+          recurringUntilDate: until || null,
           bookedOccurrenceCount: freq === 'ONCE' ? 1 : undefined
         });
-        if (RECURRING_FREQUENCIES.includes(freq)) {
-          await api.post(`/office-slots/${officeLocationId}/assignments/${standingId}/recurrence`, {
-            recurrenceFrequency: freq
-          });
-        }
       }
-    } else if (eventId > 0) {
+    } else if (bookingOptionsChanged && eventId > 0) {
       if (status === 'BOOKED' || freq !== 'ONCE') {
-        await api.post(`/office-slots/${officeLocationId}/events/${eventId}/booking-plan`, {
+        await post(`/office-slots/${officeLocationId}/events/${eventId}/booking-plan`, {
           bookedFrequency: freq === 'ONCE' ? 'WEEKLY' : freq,
           bookingStartDate: startYmd,
-          recurringUntilDate: until || undefined,
+          recurringUntilDate: until || null,
           bookedOccurrenceCount: freq === 'ONCE' ? 1 : undefined
-        });
-      }
-      if (RECURRING_FREQUENCIES.includes(freq)) {
-        await api.post(`/office-slots/${officeLocationId}/events/${eventId}/recurrence`, {
-          recurrenceFrequency: freq
         });
       }
     }
@@ -16422,13 +16450,19 @@ const saveBookingStripEdits = async () => {
     bookingStripBaseline.value = {
       frequency: bookingStripFrequency.value,
       status: bookingStripStatus.value,
-      until: bookingStripUntil.value
+      until: bookingStripUntil.value,
+      startTime: editorStartTime.value, endTime: editorEndTime.value,
+      day: modalDay.value, agencyId
     };
+    bookingStripMessage.value = moved ? 'Office time moved. Refreshing the calendar…' : 'Booking saved. Refreshing the calendar…';
+    // Saving finished. Calendar refresh is separate from the write spinner.
+    bookingStripSaving.value = false;
     await loadSelectedOfficeGrid();
     await load({ forceRefresh: true });
+    bookingStripMessage.value = moved ? 'Office time moved.' : 'Booking saved.';
     // Re-open context from refreshed grid if possible
-    const ymd = String(ctx.dateYmd || startYmd).slice(0, 10);
-    const hour = Number(ctx.hour ?? modalHour.value);
+    const ymd = moved ? addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value)) : String(ctx.dateYmd || startYmd).slice(0, 10);
+    const hour = moved ? Number(editorStartTime.value.split(':')[0]) : Number(ctx.hour ?? modalHour.value);
     const roomId = Number(ctx.roomId || 0);
     const slot = lookupOfficeGridSlot(ymd, hour, roomId);
     if (slot) {
@@ -16442,7 +16476,8 @@ const saveBookingStripEdits = async () => {
       syncBookingStripFromContext();
     }
   } catch (e) {
-    bookingStripError.value = e?.response?.data?.error?.message || e?.message || 'Could not update booking.';
+    const message = e?.code === 'ECONNABORTED' ? 'The request took too long. Refresh the calendar to check whether the change saved before trying again.' : (e?.response?.data?.error?.message || e?.message || 'Could not update booking.');
+    bookingStripError.value = moved ? `The time change saved, but the remaining update did not finish. ${message}` : message;
   } finally {
     bookingStripSaving.value = false;
   }
@@ -18312,7 +18347,7 @@ const buildModalContext = ({ dayName, hour, roomId = 0, slot = null, dateYmd = n
     dayName: String(dayName),
     dateYmd: String(dateYmd || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dayName))).slice(0, 10),
     hour: Number(hour),
-    agencyId: Number(slot?._agencyId || top?._agencyId || 0) || null,
+    agencyId: Number(slot?.bookingAgencyId || slot?.agencyId || slot?._agencyId || top?.bookingAgencyId || top?.agencyId || top?._agencyId || 0) || null,
     officeEventId: Number(slot?.eventId || slot?.officeEventId || top?.id || 0) || null,
     officeLocationId: Number(
       slot?.officeLocationId
@@ -18567,7 +18602,7 @@ const openSlotActionModal = async ({
       officeLocationId: officeLocIdForTenant,
       slotAgencyId: contextAgencyId,
       providerId: providerForTenant,
-      preferredAgencyId: Number(selectedActionAgencyId.value || 0)
+      preferredAgencyId: Number(agencyStore.currentAgency?.id || selectedActionAgencyId.value || 0)
     }) || Number(effectiveAgencyIds.value[0] || 0) || 0;
   } else {
     const bookingIds = new Set((bookingAgencyOptions.value || []).map((row) => Number(row?.id || 0)).filter((n) => n > 0));
@@ -21561,7 +21596,8 @@ const submitRequest = async () => {
               bookedFrequency: recurrence,
               bookedOccurrenceCount: Number(occurrenceCount || 7),
               bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
-              recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)), 364),
+              recurringUntilDate: null,
+              agencyId: Number(editorAgencyId.value || effectiveAgencyId.value || 0) || undefined,
               ...normalizeBookingSelectionPayload()
             });
             if (officeEventId > 0) {
@@ -21581,7 +21617,8 @@ const submitRequest = async () => {
               bookedFrequency: recurrence,
               bookedOccurrenceCount: Number(occurrenceCount || 7),
               bookingStartDate: String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)),
-              recurringUntilDate: addDaysYmd(String(ctx?.dateYmd || '').slice(0, 10) || addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(dn)), 364),
+              recurringUntilDate: null,
+              agencyId: Number(editorAgencyId.value || effectiveAgencyId.value || 0) || undefined,
               ...normalizeBookingSelectionPayload()
             });
             // eslint-disable-next-line no-await-in-loop

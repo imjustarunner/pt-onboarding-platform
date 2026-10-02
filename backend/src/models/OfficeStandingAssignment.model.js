@@ -1,159 +1,17 @@
 import pool from '../config/database.js';
-import { utcDateToZonedParts } from '../utils/zonedWallTime.util.js';
-import { resolveOfficeTimeZone, parseUtcDate } from '../utils/officeEventDateTime.util.js';
-
-/** Roles that must not own standing provider slots (use company hold instead). */
-const STAFF_HOLD_ROLES = new Set([
-  'super_admin',
-  'superadmin',
-  'admin',
-  'staff',
-  'support',
-  'clinical_practice_assistant'
-]);
-
+import { auditExpiredOfficeAssignments } from '../services/officeAssignmentExpiry.service.js';
+import { standingOfficeConflict } from '../utils/officeMoveConflict.js';
 class OfficeStandingAssignment {
   static async findById(id) {
     const [rows] = await pool.execute(`SELECT * FROM office_standing_assignments WHERE id = ? LIMIT 1`, [id]);
     return rows?.[0] || null;
   }
 
-  static isStaffHoldRole(role) {
-    return STAFF_HOLD_ROLES.has(String(role || '').trim().toLowerCase());
-  }
-
-  /**
-   * True when the standing row has a real future booking (not just materializer
-   * ASSIGNED_AVAILABLE placeholders). Staff holds often materialize empty events
-   * that previously blocked provider approvals while staying hidden on the grid.
-   *
-   * Matches weekday/hour in office wall time — never MySQL HOUR()/DAYOFWEEK() on UTC.
-   */
-  static async hasLiveBookedFutureEvents({
-    roomId,
-    hour,
-    weekday,
-    standingAssignmentId,
-    providerId,
-    officeTimeZone = null,
-    officeLocationId = null
-  }) {
-    let tz = String(officeTimeZone || '').trim() || null;
-    if (!tz && officeLocationId) {
-      try {
-        const [tzRows] = await pool.execute(
-          `SELECT timezone FROM office_locations WHERE id = ? LIMIT 1`,
-          [officeLocationId]
-        );
-        tz = String(tzRows?.[0]?.timezone || '').trim() || null;
-      } catch {
-        tz = null;
-      }
-    }
-    tz = resolveOfficeTimeZone(tz);
-
-    const [liveRows] = await pool.execute(
-      `SELECT start_at
-       FROM office_events
-       WHERE room_id = ?
-         AND start_at >= NOW()
-         AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
-         AND (
-           UPPER(COALESCE(status, '')) = 'BOOKED'
-           OR UPPER(COALESCE(slot_state, '')) = 'ASSIGNED_BOOKED'
-         )
-         AND (
-           standing_assignment_id = ?
-           OR booked_provider_id = ?
-           OR assigned_provider_id = ?
-         )
-       ORDER BY start_at ASC
-       LIMIT 40`,
-      [roomId, standingAssignmentId, providerId, providerId]
-    );
-    const wantHour = Number(hour);
-    const wantWeekday = Number(weekday);
-    for (const row of liveRows || []) {
-      const d = parseUtcDate(row.start_at);
-      if (!d) continue;
-      const parts = utcDateToZonedParts(d, tz);
-      if (!parts) continue;
-      // JS getUTCDay-style: 0=Sun … 6=Sat from zoned parts via Date.UTC
-      const localDow = new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
-      if (localDow === wantWeekday && Number(parts.hour) === wantHour) return true;
-    }
-    return false;
-  }
-
-  /**
-   * Deactivate an active standing row (and its booking plan) so another provider
-   * can take the physical slot. Used for staff holds and orphaned assignments.
-   */
-  static async deactivateStandingHold(assignmentId) {
-    const id = Number(assignmentId || 0);
-    if (!id) return;
-    await pool.execute(
-      `UPDATE office_standing_assignments
-       SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?`,
-      [id]
-    );
-    try {
-      await pool.execute(
-        `UPDATE office_booking_plans
-         SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
-         WHERE standing_assignment_id = ? AND is_active = TRUE`,
-        [id]
-      );
-    } catch {
-      // booking_plans table / column may be missing in older envs
-    }
-  }
-
-  /**
-   * Clear displaceable blockers at a physical slot before assigning a real provider.
-   * Staff/admin standing holds always yield. Other providers yield only when they
-   * have no live booked future events (orphaned materializations).
-   * @returns {object|null} first hard conflict that must block, or null if clear
-   */
+  /** Active reservations always block, regardless of role or generated events. */
   static async clearDisplaceableSlotBlockers({ officeLocationId, roomId, weekday, hour, excludeAssignmentId = null }) {
-    const conflicts = await this.findActiveConflictsBySlot({
-      officeLocationId,
-      roomId,
-      weekday,
-      hour,
-      excludeAssignmentId
-    });
-    for (const conflict of conflicts || []) {
-      const role = conflict.provider_role || conflict.role || null;
-      let roleResolved = role;
-      if (!roleResolved) {
-        const [uRows] = await pool.execute(
-          `SELECT role FROM users WHERE id = ? LIMIT 1`,
-          [conflict.provider_id]
-        );
-        roleResolved = uRows?.[0]?.role || null;
-      }
-      const isStaffHold = this.isStaffHoldRole(roleResolved);
-      if (isStaffHold) {
-        await this.deactivateStandingHold(conflict.id);
-        continue;
-      }
-      const hasBooked = await this.hasLiveBookedFutureEvents({
-        roomId,
-        hour: Number(conflict.hour ?? hour),
-        weekday: Number(conflict.weekday ?? weekday),
-        standingAssignmentId: conflict.id,
-        providerId: conflict.provider_id,
-        officeLocationId
-      });
-      if (!hasBooked) {
-        await this.deactivateStandingHold(conflict.id);
-        continue;
-      }
-      return conflict;
-    }
-    return null;
+    await auditExpiredOfficeAssignments({ apply: true, officeLocationId, roomId });
+    const conflicts = await this.findActiveConflictsBySlot({ officeLocationId, roomId, weekday, hour, excludeAssignmentId });
+    return conflicts[0] || null;
   }
 
   static async create({
@@ -191,8 +49,7 @@ class OfficeStandingAssignment {
       });
     }
 
-    // Staff/admin holds (e.g. Super Admin test assigns) and orphaned materializations
-    // are hidden on the grid but still blocked approvals — clear them first.
+    // Retire expired temporary holds; preserve all active reservations.
     const hardConflict = await this.clearDisplaceableSlotBlockers({
       officeLocationId,
       roomId,
@@ -381,7 +238,7 @@ class OfficeStandingAssignment {
   /**
    * Handle ER_DUP_ENTRY on standing-assignment insert.
    * Prefer reactivating the same provider's historical row; otherwise take over an
-   * orphaned active physical slot (no live future events) so approvals don't fail
+   * explicitly expired temporary hold with no live events so approvals don't fail
    * with a raw unique-key error while the grid looks empty.
    */
   static async resolveDuplicateSlotInsert({
@@ -427,8 +284,7 @@ class OfficeStandingAssignment {
       return reactivateOwn(ownSlotRows[0].id);
     }
 
-    // 3) Active physical-slot key held by another provider — displace staff holds /
-    // orphaned materializations; only hard-block real booked provider conflicts.
+    // 3) Another provider holds the slot. Only explicitly expired temporary holds can yield.
     const hardConflict = await this.clearDisplaceableSlotBlockers({
       officeLocationId,
       roomId,
@@ -521,12 +377,13 @@ class OfficeStandingAssignment {
   }
 
   static conflictError(conflict = null) {
-    const providerName = conflict
-      ? `${conflict.provider_first_name || ''} ${conflict.provider_last_name || ''}`.trim()
-      : '';
-    const err = new Error(providerName
-      ? `That recurring office slot is already assigned to ${providerName}.`
-      : 'That recurring office slot is already assigned.');
+    if (conflict) {
+      const err = standingOfficeConflict({ ...conflict, first_name: conflict.provider_first_name || conflict.first_name, last_name: conflict.provider_last_name || conflict.last_name },
+        { weekday: Number(conflict.weekday), startHour: Number(conflict.hour), endHour: Number(conflict.hour) + 1 });
+      err.code = 'STANDING_SLOT_CONFLICT';
+      return err;
+    }
+    const err = new Error('That recurring office slot is already assigned.');
     err.status = 409;
     err.code = 'STANDING_SLOT_CONFLICT';
     err.conflict = conflict || null;
@@ -634,6 +491,7 @@ class OfficeStandingAssignment {
 
   static async update(id, updates = {}) {
     const allowed = [
+      'booking_agency_id',
       'room_id',
       'weekday',
       'hour',

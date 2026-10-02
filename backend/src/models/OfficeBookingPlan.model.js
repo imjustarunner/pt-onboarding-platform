@@ -1,3 +1,4 @@
+import { officeBookingUntil } from '../utils/officeBookingLimits.js';
 import pool from '../config/database.js';
 
 /**
@@ -28,12 +29,7 @@ function addDaysYmd(ymd, days) {
 }
 
 function normalizeActiveUntilDate({ bookingStartDate, activeUntilDate }) {
-  const start = normalizeYmd(bookingStartDate);
-  const maxAllowed = addDaysYmd(start, 364);
-  const requested = normalizeYmd(activeUntilDate);
-  if (!requested || !/^\d{4}-\d{2}-\d{2}$/.test(requested)) return maxAllowed;
-  if (!maxAllowed || requested <= start) return maxAllowed;
-  return requested > maxAllowed ? maxAllowed : requested;
+  return officeBookingUntil(normalizeYmd(bookingStartDate), activeUntilDate);
 }
 
 class OfficeBookingPlan {

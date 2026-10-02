@@ -1,3 +1,4 @@
+import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import { huddleSubtype, HUDDLE_SUBTYPES } from '../services/huddlePolicy.js';
 import { randomUUID } from 'node:crypto';
 import { captureMeetingChange, queueMeetingChange } from '../services/meetingScheduleChanges.service.js';
@@ -4369,6 +4370,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         `SELECT
            e.id,
            e.office_location_id,
+           e.session_context_json,
+           osa.booking_agency_id,
            e.standing_assignment_id,
            e.booking_plan_id,
            e.assigned_provider_id,
@@ -4459,8 +4462,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         displayStatus: toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
-        // Scope badge to the agency used for the office_location_agencies join (provider context).
-        agencyId: Number(agencyId || 0) || null,
+        // Use the booking tenant, not the building owner or whichever tenant was fetched first.
+        agencyId: officeBookingAgencyId(r),
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
         bookingPlanId: Number(r.booking_plan_id || 0) || null,
         recurrenceGroupId: String(r.assignment_recurrence_group_id || '').trim() || null,
@@ -4507,6 +4510,8 @@ export const getUserScheduleSummary = async (req, res, next) => {
         `SELECT
            e.id,
            e.office_location_id,
+           e.session_context_json,
+           osa.booking_agency_id,
            e.standing_assignment_id,
            e.assigned_provider_id,
            e.booked_provider_id,
@@ -4567,7 +4572,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         displayStatus: toDisplayStatus({ status: r.status, slotState: normalizedSlotState }),
         id: r.id,
         buildingId: r.office_location_id,
-        agencyId: Number(agencyId || 0) || null,
+        agencyId: officeBookingAgencyId(r),
         standingAssignmentId: Number(r.standing_assignment_id || 0) || null,
         bookingPlanId: null,
         recurrenceGroupId: null,

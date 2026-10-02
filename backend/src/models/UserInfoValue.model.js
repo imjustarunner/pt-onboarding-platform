@@ -1,3 +1,4 @@
+import { isPrivateTaxField, encryptProfileTaxValue } from '../utils/privateTaxId.js';
 import {withClinicalFieldOptions} from '../utils/providerClinicalFieldOptions.js';
 import pool from '../config/database.js';
 import {
@@ -142,6 +143,7 @@ class UserInfoValue {
 
   static async createOrUpdate(userId, fieldDefinitionId, value) {
     const fk = await this._getFieldKeyForDefinitionId(fieldDefinitionId);
+    if (isPrivateTaxField(fk)) value = encryptProfileTaxValue(value);
 
     // Check if value exists
     const existing = await this.findByUserAndField(userId, fieldDefinitionId);
@@ -330,7 +332,7 @@ class UserInfoValue {
     }
 
     // Combine best definitions with values and parse options
-    return Array.from(bestDefByKey.values()).map(field => {
+    return Array.from(bestDefByKey.values()).filter(field => !isPrivateTaxField(field.field_key)).map(field => {
       const fk = String(field.field_key || '').trim();
       const rawValue = valueByFieldKey.has(fk) ? valueByFieldKey.get(fk) : null;
 
