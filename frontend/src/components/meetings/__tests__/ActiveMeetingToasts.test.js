@@ -1,6 +1,7 @@
 import {flushPromises,mount} from '@vue/test-utils';
 import {reactive} from 'vue';
 import {beforeEach,afterEach,describe,expect,it,vi} from 'vitest';
+import { startLiveMeetingPresence } from '../../../utils/liveMeetingPresence';
 import ActiveMeetingToasts from '../ActiveMeetingToasts.vue';
 const mock=vi.hoisted(()=>({get:vi.fn(),push:vi.fn(),route:{},mini:{}}));
 vi.mock('../../../services/api',()=>({default:{get:mock.get}}));
@@ -39,4 +40,15 @@ describe('active meeting notices',()=>{
     mock.get.mockResolvedValue({data:{prompts:[]}});await vi.advanceTimersByTimeAsync(15000);
     expect(w.find('aside').exists()).toBe(false);w.unmount();
   });
+});
+
+it('suppresses join prompts while another tab is connected, then restores them after leaving',async()=>{
+  localStorage.clear();localStorage.setItem('user','{"id":7}');localStorage.setItem('sessionId','login-one');
+  mock.route=reactive({path:'/dashboard'});mock.mini=reactive({active:false});
+  mock.get.mockResolvedValue({data:{prompts:[{key:'team_meeting:1',title:'Meeting',joinUrl:'/join/team-meeting/1'}]}});
+  const stop=startLiveMeetingPresence();
+  const w=mount(ActiveMeetingToasts,{props:{userId:7}});await flushPromises();
+  expect(w.find('aside').exists()).toBe(false);stop();
+  window.dispatchEvent(new Event('focus'));await flushPromises();
+  expect(w.find('aside').exists()).toBe(true);w.unmount();localStorage.clear();
 });

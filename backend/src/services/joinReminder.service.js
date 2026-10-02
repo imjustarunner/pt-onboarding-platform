@@ -49,7 +49,7 @@ async function recordSent(sessionType, sessionId, recipientKey, userId = null) {
   );
 }
 
-async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessionType, sessionId }) {
+async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessionType, sessionId, reminderKey = null }) {
   const db = await pool.getConnection();
   const lock = `join-reminder:${sessionType}:${sessionId}:${userId}`;
   let acquired = false;
@@ -57,16 +57,16 @@ async function sendJoinReminderToUser({ userId, agencyId, joinUrl, label, sessio
     const [rows] = await db.execute('SELECT GET_LOCK(?,0) AS acquired',[lock]);
     acquired = !!rows[0].acquired;
     if (!acquired) return {email:false,sms:false};
-    return await deliverJoinReminderToUser({userId,agencyId,joinUrl,label,sessionType,sessionId});
+    return await deliverJoinReminderToUser({userId,agencyId,joinUrl,label,sessionType,sessionId,reminderKey});
   } finally {
     if (acquired) await db.execute('SELECT RELEASE_LOCK(?)',[lock]);
     db.release();
   }
 }
 
-async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, sessionType, sessionId }) {
+async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, sessionType, sessionId, reminderKey = null }) {
   if (!joinUrl || !userId || !agencyId) return { email: false, sms: false };
-  const recipientKey = `u:${userId}`;
+  const recipientKey = `u:${userId}${reminderKey ? `:r:${reminderKey}` : ''}`;
   if (await alreadySent(sessionType, sessionId, recipientKey)) return { email: false, sms: false };
 
   const user = await User.findById(userId);
@@ -267,20 +267,22 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
     const [supvRows] = await pool.execute(
       `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
               ss.google_meet_link, ss.join_token, ss.enrollment_mode, ss.notify_participants,
+              ss.start_at, ss.event_timezone, ss.reminder_minutes, ss.meeting_settings_json,
               CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
        FROM supervision_sessions ss
        JOIN users sup ON sup.id = ss.supervisor_user_id
        WHERE (ss.status IS NULL OR ss.status <> 'CANCELLED')
-         AND ss.reminder_minutes IS NOT NULL
+         AND (ss.reminder_minutes IS NOT NULL OR ss.meeting_settings_json IS NOT NULL)
          AND ss.status='SCHEDULED'
          AND ss.start_at > ?
-         AND DATE_SUB(ss.start_at, INTERVAL ss.reminder_minutes MINUTE) <= ?
-         AND DATE_SUB(ss.start_at, INTERVAL ss.reminder_minutes MINUTE) > DATE_SUB(?, INTERVAL 3 MINUTE)
+         AND ss.start_at < DATE_ADD(?, INTERVAL 8 DAY)
        ORDER BY ss.start_at ASC`,
-      [toSqlDatetimeUtc(now),toSqlDatetimeUtc(now),toSqlDatetimeUtc(now)]
+      [toSqlDatetimeUtc(now),toSqlDatetimeUtc(now)]
     );
 
     for (const r of supvRows || []) {
+      const due = meetingReminderSchedule(r).filter(reminder => reminder.at <= now && now - reminder.at <= 180000);
+      if (!due.length) continue;
       const sessionId = Number(r.id);
       // Honor the persisted notification opt-out.
       if (r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0') {
@@ -318,15 +320,11 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
         }
       }
 
-      for (const uid of userIds) {
+      for (const reminder of due) for (const uid of userIds) {
         if (!uid) continue;
         await sendJoinReminderToUser({
-          userId: uid,
-          agencyId,
-          joinUrl,
-          label,
-          sessionType: 'supervision',
-          sessionId
+          userId: uid, agencyId, joinUrl, label, sessionType: 'supervision', sessionId,
+          reminderKey: r.meeting_settings_json ? `${reminder.key}:${toSqlDatetimeUtc(parseUtcDate(r.start_at))}` : null
         });
       }
     }

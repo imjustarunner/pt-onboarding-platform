@@ -93,6 +93,7 @@
               class="vsr__media"
               :ref="(el) => setRemoteMediaEl(r.streamId, el)"
             />
+            <span v-if="r.videoIssue" class="vsr__connection-issue" role="status">{{ r.videoIssue }}</span>
             <div v-if="!useSplitCamOffLayout && !r.hasVideo" class="vsr__avatar" aria-hidden="true">
               <img v-if="r.profilePhotoUrl" :src="r.profilePhotoUrl" alt="" class="vsr__avatar-img" />
               <span v-else class="vsr__avatar-initials">{{ initialsFromLabel(r.name) }}</span>
@@ -484,6 +485,7 @@
 </template>
 
 <script setup>
+import { startLiveMeetingPresence } from '../../utils/liveMeetingPresence';
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { updateRemoteVideoState } from './remoteVideoState.js';
 import { mediaElement, tileGrid, createSpeakerTracker } from './meetingPresentation.js';
@@ -596,8 +598,6 @@ const forceMutedByHost = ref(false);
 const micLockedByHost = ref(false);
 /** Participants can unmute themselves unless the host has hard-locked all mics. */
 const canSelfUnmute = computed(() => !micLockedByHost.value);
-/** Tracks whether a screen share subscription has already been retried. */
-let screenSubscribeRetried = false;
 /** Non-blocking mic toggle feedback (do not use errorMessage — that unmounts the room). */
 const micActionHint = ref('');
 let micHintTimer = null;
@@ -683,11 +683,23 @@ const selectedRemoteStreamId = ref('');
 const focusedRemoteStreamId = computed(() => stageRemotes.value.some((r) => r.streamId === selectedRemoteStreamId.value)
   ? selectedRemoteStreamId.value
   : (props.focusCandidate && stageRemotes.value.find(r => r.isInterviewCandidate)?.streamId) || stageRemotes.value[0]?.streamId || '');
+let stopMeetingPresence = null;
+watch(() => sessionReady.value && !props.lobbyMode, (connected) => {
+  stopMeetingPresence?.();
+  stopMeetingPresence = connected ? startLiveMeetingPresence() : null;
+});
+onBeforeUnmount(() => stopMeetingPresence?.());
 const stageEl = ref(null);
 const stageSize = ref({ width: 960, height: 540 });
 let stageResizeObserver = null;
 const stageGridStyle = computed(() => {
-  if (screenFocused.value || ['remote', 'local', 'speaker'].includes(props.tileFocus)) {
+  if (screenFocused.value) {
+    const columns = Math.max(1, stageVideoCount.value);
+    const side = Math.max(1, Math.min(100, Math.floor((stageSize.value.width - 6 * (columns - 1)) / columns), Math.floor(stageSize.value.height * 0.22)));
+    return { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+      gridTemplateRows: `minmax(0, 1fr) ${side}px`, '--vsr-thumbnail-side': `${side}px` };
+  }
+  if (['remote', 'local', 'speaker'].includes(props.tileFocus)) {
     const thumbnails = Math.max(0, stageVideoCount.value - (screenFocused.value ? 0 : 1));
     const columns = Math.max(1, Math.min(thumbnails, Math.floor(stageSize.value.width / 144)));
     const rows = Math.ceil(thumbnails / columns);
@@ -702,7 +714,7 @@ const stageGridStyle = computed(() => {
   const { width, height } = stageSize.value;
   const grid = tileGrid(count, width, height, props.compact ? 'mini' : tileSizePreset.value);
   const side = Math.max(1, Math.floor(Math.min((width - 6 * (grid.columns - 1)) / grid.columns,
-    Math.max(112, (height - 6 * (grid.rows - 1)) / grid.rows))));
+    Math.max(1, (height - 6 * (grid.rows - 1)) / grid.rows))));
   return { gridTemplateColumns: `repeat(${grid.columns}, ${side}px)`, gridTemplateRows: `repeat(${grid.rows}, ${side}px)`,
     '--vsr-camera-side': `${side}px`, justifyContent: 'center',
     alignContent: side * grid.rows + 6 * (grid.rows - 1) > height ? 'start' : 'center', overflowY: 'auto' };
@@ -1662,7 +1674,7 @@ function forceMediaFill(container) {
     el.style.maxWidth = 'none';
     el.style.maxHeight = 'none';
     if (el.tagName === 'VIDEO') {
-      el.style.objectFit = props.preserveVideoAspect ? 'contain' : 'cover';
+      el.style.objectFit = container === screenEl.value || container === screenPublisherHost || props.preserveVideoAspect ? 'contain' : 'cover';
     }
   });
 }
@@ -1680,6 +1692,31 @@ const intentionallyDisconnectedSessions = new WeakSet();
 let OTApi = null;
 const subscribers = new Map();
 const pendingSubscriptions = new Map();
+const availableStreams = new Map();
+const subscriptionRetries = new Map();
+function forgetStream(id) {
+  availableStreams.delete(id);
+  clearTimeout(subscriptionRetries.get(id)?.timer);
+  subscriptionRetries.delete(id);
+}
+function retrySubscription(stream, owner) {
+  const id = String(stream?.streamId || '');
+  if (session !== owner || !availableStreams.has(id)) return;
+  const previous = subscriptionRetries.get(id) || { attempts: 0 };
+  if (previous.timer || previous.attempts >= 5) return;
+  const attempts = previous.attempts + 1;
+  const timer = setTimeout(() => {
+    subscriptionRetries.set(id, { attempts });
+    if (session !== owner || !availableStreams.has(id)) return;
+    void subscribeToStream(stream);
+  }, Math.min(1000 * 2 ** (attempts - 1), 10000));
+  subscriptionRetries.set(id, { attempts, timer });
+}
+function reconcileSubscriptions() {
+  for (const stream of availableStreams.values()) {
+    if (!subscribers.has(String(stream.streamId)) && !isScreenStream(stream)) void subscribeToStream(stream);
+  }
+}
 let screenSubscriber = null;
 let pendingUnmuteAfterPublish = false;
 let micToggleInFlight = false;
@@ -1746,9 +1783,13 @@ async function subscribeToStream(stream) {
   const streamId = String(stream?.streamId || '');
   const owner = session;
   if (!owner || !streamId || isOwnStream(stream) || pendingSubscriptions.has(streamId)) return;
+  availableStreams.set(streamId, stream);
   pendingSubscriptions.set(streamId, owner);
   try {
     await subscribeStreamOnce(stream, owner);
+  } catch (error) {
+    console.warn('[VideoSessionRoom] subscription interrupted', error?.message);
+    retrySubscription(stream, owner);
   } finally {
     if (pendingSubscriptions.get(streamId) === owner) pendingSubscriptions.delete(streamId);
   }
@@ -1773,7 +1814,7 @@ async function subscribeStreamOnce(stream, owner) {
     const targetEl = screenEl.value;
     if (!targetEl) return;
     targetEl.innerHTML = '';
-    screenSubscribeRetried = false;
+
     const doScreenSubscribe = () => {
       const sub = session.subscribe(
         stream,
@@ -1788,17 +1829,15 @@ async function subscribeStreamOnce(stream, owner) {
           style: { buttonDisplayMode: 'off', nameDisplayMode: 'off' }
         },
         (err) => {
+          if (session !== owner || !availableStreams.has(streamId)) return;
           if (err) {
             console.warn('[VideoSessionRoom] screen subscribe error', err?.message || err);
-            if (!screenSubscribeRetried) {
-              screenSubscribeRetried = true;
-              try { session.unsubscribe(sub); } catch { /* ignore */ }
-              if (targetEl) targetEl.innerHTML = '';
-              setTimeout(doScreenSubscribe, 2000);
-            } else {
-              showConnectionNotice('Screen share could not load. Ask the presenter to stop and restart sharing.');
-            }
+            screenSubscriber = null;
+            try { owner.unsubscribe(sub); } catch { /* already gone */ }
+            retrySubscription(stream, owner);
           } else {
+            clearTimeout(subscriptionRetries.get(streamId)?.timer);
+            subscriptionRetries.delete(streamId);
             forceMediaFill(targetEl);
           }
         }
@@ -1826,6 +1865,7 @@ async function subscribeStreamOnce(stream, owner) {
       try { session.unsubscribe(oldSubscriber); } catch { /* ignore */ }
       subscribers.delete(remote.streamId);
     }
+    forgetStream(remote.streamId);
     remoteMediaEls.delete(remote.streamId);
   }
   if (superseded.length) {
@@ -1864,7 +1904,7 @@ async function subscribeStreamOnce(stream, owner) {
   }
   if (!targetEl) {
     console.error('[VideoSessionRoom] remote media target missing', { streamId });
-    remotes.value = remotes.value.filter((r) => r.streamId !== streamId);
+    retrySubscription(stream, owner);
     return;
   }
 
@@ -1885,10 +1925,20 @@ async function subscribeStreamOnce(stream, owner) {
     (err) => {
       if (err) {
         console.error('[VideoSessionRoom] subscribe error', err);
-        remotes.value = remotes.value.filter((r) => r.streamId !== streamId);
+        if (session !== owner || !availableStreams.has(streamId)) return;
+        const failed = subscribers.get(streamId);
         subscribers.delete(streamId);
+        try { if (failed) owner.unsubscribe(failed); } catch { /* already gone */ }
+        const remote = remotes.value.find(r => r.streamId === streamId);
+        if (remote) remote.videoIssue = 'Reconnecting video…';
+        retrySubscription(stream, owner);
         return;
       }
+      if (session !== owner || !availableStreams.has(streamId)) return;
+      clearTimeout(subscriptionRetries.get(streamId)?.timer);
+      subscriptionRetries.delete(streamId);
+      const remote = remotes.value.find(r => r.streamId === streamId);
+      if (remote) remote.videoIssue = '';
       forceMediaFill(targetEl);
       try {
         if (typeof sub?.subscribeToAudio === 'function') sub.subscribeToAudio(true);
@@ -1905,10 +1955,24 @@ async function subscribeStreamOnce(stream, owner) {
     hasAudio: stream?.hasAudio !== false
   });
   sub.on?.('videoEnabled', () => {
+    const remote = remotes.value.find(r => r.streamId === streamId);
+    if (remote) remote.videoIssue = '';
     setRemoteVideoState({ streamId, hasVideo: true });
   });
-  sub.on?.('videoDisabled', () => {
-    setRemoteVideoState({ streamId, hasVideo: false });
+  sub.on?.('videoDisabled', (event) => {
+    // Quality fallback is local to this subscriber, not a camera-off event.
+    if (!event?.reason || event.reason === 'publishVideo') {
+      setRemoteVideoState({ streamId, hasVideo: false });
+    } else {
+      const remote = remotes.value.find(r => r.streamId === streamId);
+      if (remote) remote.videoIssue = event.reason === 'codecNotSupported'
+        ? 'Video format unavailable in this browser' : 'Video paused by connection quality; audio continues';
+    }
+  });
+  sub.on?.('destroyed', () => {
+    if (subscribers.get(streamId) !== sub) return;
+    subscribers.delete(streamId);
+    retrySubscription(stream, owner);
   });
   // Fallback: some SDK builds emit property changes instead of videoEnabled/Disabled.
   sub.on?.('streamPropertyChanged', (event) => {
@@ -1934,7 +1998,7 @@ async function subscribeStreamOnce(stream, owner) {
 function clearScreenShareTile() {
   hasScreenShare.value = false;
   screenShareLabel.value = '';
-  screenSubscribeRetried = false;
+
   if (screenSubscriber) {
     try { session?.unsubscribe(screenSubscriber); } catch { /* ignore */ }
     screenSubscriber = null;
@@ -2118,6 +2182,7 @@ async function connect() {
     session.on('streamDestroyed', (event) => {
       const stream = event.stream;
       const streamId = String(stream?.streamId || '');
+      forgetStream(streamId);
       if (isScreenStream(stream) || (screenSubscriber && String(screenSubscriber.streamId || '') === streamId)) {
         clearScreenShareTile();
       } else if (streamId) {
@@ -2143,6 +2208,10 @@ async function connect() {
       emit('stream-destroyed', event);
     });
 
+    session.on('sessionReconnected', () => {
+      reconcileSubscriptions();
+      handleVisibilityResume();
+    });
     const connectedSession = session;
     session.on('sessionDisconnected', () => {
       if (intentionallyDisconnectedSessions.has(connectedSession)) {
@@ -2150,6 +2219,7 @@ async function connect() {
         return;
       }
       connecting.value = false;
+      sessionReady.value = false;
       emit('disconnected');
     });
 
@@ -2608,6 +2678,7 @@ function disconnect(emitEvent = true) {
     if (localPublisherHostEl.value) localPublisherHostEl.value.innerHTML = '';
     clearRemote();
     pendingSubscriptions.clear();
+    for (const id of availableStreams.keys()) forgetStream(id);
     speakingByKey.value = {};
     speakerTracker.clear();
     voiceIsolationStatus.value = '';
@@ -2917,6 +2988,7 @@ function handleVisibilityResume() {
   if (typeof document !== 'undefined' && document.hidden) return;
   try { joinToneCtx?.resume?.(); } catch { /* ignore */ }
   if (!publisher || !sessionReady.value) return;
+  reconcileSubscriptions();
   try { publisher.publishAudio(!!publishAudio.value); } catch { /* ignore */ }
   try { publisher.publishVideo(!!publishVideo.value); } catch { /* ignore */ }
   for (const r of remotes.value) {
@@ -4179,7 +4251,7 @@ defineExpose({
   }
 }
 .vsr .vsr__stage > .vsr__tile.vsr__tile--pip {
-  width: 100px !important; height: 100px !important; max-width: 100% !important;
+  width: var(--vsr-thumbnail-side, 100px) !important; height: var(--vsr-thumbnail-side, 100px) !important; max-width: 100% !important;
   aspect-ratio: 1; justify-self: center;
 }
 /* Camera geometry is independent of the available wide stage and parent sizing. */
@@ -4198,4 +4270,5 @@ defineExpose({
 .vsr__audio-settings select { max-width: 100%; padding: 6px; background: #12151c; color: white; }
 .vsr__audio-settings meter { width: 130px; }
 .vsr__audio-problem { padding: 8px 12px; color: #fef3c7; background: #78350f; }
+.vsr__connection-issue { position:absolute; inset:30% 4px auto; z-index:4; padding:6px; background:#101827dd; font-size:.75rem; border-radius:6px; text-align:center; }
 </style>

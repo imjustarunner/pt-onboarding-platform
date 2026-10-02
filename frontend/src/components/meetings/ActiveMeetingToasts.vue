@@ -12,6 +12,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { navigateToJoinLink } from '../../utils/appJoinNavigation';
+import { hasLiveMeeting } from '../../utils/liveMeetingPresence';
 import { useActiveMeeting } from '../../composables/useActiveMeeting';
 const props = defineProps({ userId: { type: [Number,String], required: true } });
 const route = useRoute();
@@ -22,13 +23,15 @@ const storageKey=()=>`meeting-dismissals:${props.userId}`;
 function savedDismissals(){try{const value=JSON.parse(localStorage.getItem(storageKey())||'{}');return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}}
 const dismissed = ref(savedDismissals());
 const now = ref(Date.now());
-const inMeeting = computed(() => route.meta?.publicMarketingHub || mini.state.active || /\/join\/(team-meeting|supervision|invitation)(\/|$)/.test(route.path));
+const meetingElsewhere = ref(hasLiveMeeting());
+const inMeeting = computed(() => meetingElsewhere.value || route.meta?.publicMarketingHub || mini.state.active || /\/join\/(team-meeting|supervision|invitation)(\/|$)/.test(route.path));
 const visible = computed(() => prompts.value.filter(m => !(dismissed.value[m.key] > now.value)));
 let timer;
 let inFlight = false;
 let mounted = true;
 async function refresh() {
   now.value = Date.now();
+  meetingElsewhere.value = hasLiveMeeting();
   if (inFlight || !props.userId) return;
   const uid = props.userId;
   inFlight = true;

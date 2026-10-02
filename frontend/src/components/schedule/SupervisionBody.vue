@@ -109,18 +109,9 @@
         </div>
       </div>
 
-      <div v-if="showNotifyOption && notifyParticipants && showControls" class="supb-row">
-        <label class="supb-label">App reminder</label>
-        <select aria-label="App reminder" class="supb-select" :value="reminderMinutes ?? 'off'" :disabled="disabled" @change="emit('update:reminderMinutes', $event.target.value === 'off' ? null : Number($event.target.value))">
-          <option value="off">No reminder</option>
-          <option :value="5">5 minutes before (default)</option>
-          <option :value="10">10 minutes before</option>
-          <option :value="15">15 minutes before</option>
-          <option :value="30">30 minutes before</option>
-          <option :value="60">1 hour before</option>
-          <option :value="1440">1 day before</option>
-        </select>
-      </div>
+      <MeetingReminderEditor v-if="showNotifyOption && notifyParticipants && showControls"
+        :model-value="reminderOffsets ?? (reminderMinutes == null ? [] : [reminderMinutes])" :disabled="disabled"
+        @update:model-value="emit('update:reminderOffsets', $event)" />
       <template v-if="showDetails">
         <template v-if="groupMode && canBookGroup">
           <div class="supb-row">
@@ -307,6 +298,7 @@
 </template>
 
 <script setup>
+import MeetingReminderEditor from './MeetingReminderEditor.vue';
 import { computed, ref } from 'vue';
 
 const props = defineProps({
@@ -314,6 +306,7 @@ const props = defineProps({
   waitingRoomEnabled: { type: Boolean, default: true },
   /** When false: no branded app invitation or join reminder emails. */
   notifyParticipants: { type: Boolean, default: true },
+  reminderOffsets: { type: Array, default: null },
   reminderMinutes: { type: Number, default: 5 },
   showNotifyOption: { type: Boolean, default: true },
   groupMode: { type: Boolean, default: false },
@@ -344,6 +337,7 @@ const emit = defineEmits([
   'update:waitingRoomEnabled',
   'update:notifyParticipants',
   'update:reminderMinutes',
+  'update:reminderOffsets',
   'update:groupMode',
   'update:signupOnly',
   'update:facilitatorUserId',

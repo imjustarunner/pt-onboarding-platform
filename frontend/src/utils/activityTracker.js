@@ -1,5 +1,6 @@
 /** Shared inactivity deadlines. Only real activity or server-verified resume can renew them. */
 import { unref } from 'vue';
+import { hasLiveMeeting } from './liveMeetingPresence';
 import { useAuthStore } from '../store/auth';
 import { useSessionLockStore } from '../store/sessionLock';
 import { usePresenceSessionStore } from '../store/presenceSession';
@@ -121,7 +122,7 @@ export async function resumeSession(pin) {
   }
 }
 function markActivity() {
-  if (!isTracking || !initialized || timeoutInFlight || document.visibilityState !== 'visible') return;
+  if (!isTracking || !initialized || timeoutInFlight || (document.visibilityState !== 'visible' && !hasLiveMeeting())) return;
   readShared();
   // Check elapsed deadlines before accepting the first click after sleep.
   if (!state || phaseAt(state) !== 'active') { reconcile(); return; }
@@ -219,9 +220,9 @@ function onSecurityResponse(event) {
 function tick() {
   readShared(); reconcile();
   void sendHeartbeats();
-  // A visible live meeting is ongoing use, but hidden tabs cannot indefinitely
-  // suspend security deadlines. Background polling is never counted as activity.
-  if (inactivitySuspendCount > 0 && document.visibilityState === 'visible') markActivity();
+  // A connected call is ongoing use in every tab of this login, including
+  // while sharing another tab. Expired leases cannot extend a closed call.
+  if (hasLiveMeeting() || (inactivitySuspendCount > 0 && document.visibilityState === 'visible')) markActivity();
 }
 function onFocusIn(event) {
   const store = useSessionLockStore();
