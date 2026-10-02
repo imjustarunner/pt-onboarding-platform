@@ -181,7 +181,7 @@ async function saveDraft() {
         initials: String(draftInitials.value || '').trim() || null
       }, { skipGlobalLoading: true });
     }
-    message.value = 'Saved to In Progress (not attached to a client).';
+    message.value = 'Saved to Done without a client attachment.';
     emit('saved', draft);
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Save failed';

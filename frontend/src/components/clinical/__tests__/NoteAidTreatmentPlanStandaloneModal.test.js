@@ -2,6 +2,7 @@ import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import Writer from '../NoteAidTreatmentPlanStandaloneModal.vue';
 import api from '../../../services/api.js';
+import { deriveDraftDocStatus, DOC_STATUS } from '../../../utils/noteAidDocumentationStatus.js';
 import { parseNoteSections } from '../../../../../backend/src/services/clinicalNoteSections.service.js';
 import { parseTreatmentPlanText } from '../../../../../backend/src/services/treatmentPlanImport.service.js';
 
@@ -65,6 +66,10 @@ it('reviews the real generation response without selecting a client, then saves 
   expect(saved.diagnosticJustification).toContain('Synthetic example');
   expect(saved.dischargePlan).toContain('Sustained independent coping');
   expect(wrapper.emitted('saved')[0][0].id).toBe(43);
+  const [, createBody] = api.post.mock.calls.find(([url]) => url === '/clinical-notes/drafts');
+  expect(createBody.clientId).toBeNull();
+  expect(deriveDraftDocStatus({ ...createBody, ...patch })).toBe(DOC_STATUS.COMPLETED);
+  expect(wrapper.find('.na-tp-ok').text()).toBe('Saved to Done without a client attachment.');
 });
 
 it('reviews the real update response with a selected client', async () => {

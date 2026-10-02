@@ -2100,9 +2100,9 @@ const standaloneModalClients = computed(() => {
 async function onStandaloneDraftSaved() {
   showDiagnosisWriterModal.value = false;
   showTreatmentPlanWriterModal.value = false;
-  approvalMessage.value = 'Saved to In Progress.';
+  approvalMessage.value = 'Saved to Done without a client attachment.';
   await loadRecent();
-  sidebarTab.value = DOC_STATUS.STARTED;
+  sidebarTab.value = DOC_STATUS.COMPLETED;
 }
 
 async function onStandalonePlanApplied() {
