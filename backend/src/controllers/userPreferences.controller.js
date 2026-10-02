@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import { sanitizeDashboardRailOrder } from '../utils/dashboardRailOrder.js';
 import pool from '../config/database.js';
 import UserPreferences from '../models/UserPreferences.model.js';
 import User from '../models/User.model.js';
@@ -407,6 +408,14 @@ export const updateUserPreferences = async (req, res, next) => {
       } else {
         updates.documents_category_order_json = sanitizeDocumentsCategoryOrder(raw);
       }
+    }
+
+    if ('dashboard_rail_order_json' in updates) {
+      const raw = updates.dashboard_rail_order_json;
+      if (raw !== null && !Array.isArray(raw)) {
+        return res.status(400).json({ error: { message: 'dashboard_rail_order_json must be an array of section ids' } });
+      }
+      updates.dashboard_rail_order_json = raw === null ? null : sanitizeDashboardRailOrder(raw);
     }
 
     if ('dashboard_glance_order_json' in updates || 'dashboardGlanceOrder' in updates) {

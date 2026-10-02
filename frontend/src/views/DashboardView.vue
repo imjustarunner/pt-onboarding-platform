@@ -286,6 +286,9 @@
             <span v-else class="rail-dark-mode-icon" aria-hidden="true">🌙</span>
           </label>
         </div>
+        <div class="desktop-rail-editor"><DashboardRailEditor v-if="authStore.user?.id && !previewMode" :editing="railOrderEditing"
+          :loading="railOrderLoading" :saving="railOrderSaving" :error="railOrderError"
+          @start="startRailEdit" @save="saveRailOrder" @cancel="cancelRailEdit" @reset="resetRailOrder" /></div>
         <div
           data-tour="dash-rail"
           class="dashboard-rail"
@@ -362,6 +365,10 @@
               <span v-else class="rail-card-cta">{{ card.kind === 'link' || card.kind === 'modal' ? 'Open' : (card.kind === 'action' ? 'Open' : 'View') }}</span>
             </div>
           </button>
+          <DashboardRailMoveButtons v-if="railOrderEditing" :label="card.label" :disabled="railOrderSaving"
+            :first="railCardSiblings(card)[0]?.id === card.id"
+            :last="railCardSiblings(card).at(-1)?.id === card.id"
+            @move="(delta) => moveRailCard(card, delta)" />
           <DashboardIconEditor :icon-key="String(card.id)" :label="card.label" :current-url="card.iconUrl"
             :disabled="previewMode" />
           <div
@@ -425,6 +432,9 @@
             <h2>Dashboard sections</h2>
             <button type="button" class="dashboard-mobile-drawer__close" aria-label="Close" @click="mobileSectionsOpen = false">×</button>
           </header>
+          <DashboardRailEditor v-if="authStore.user?.id && !previewMode" :editing="railOrderEditing"
+          :loading="railOrderLoading" :saving="railOrderSaving" :error="railOrderError"
+          @start="startRailEdit" @save="saveRailOrder" @cancel="cancelRailEdit" @reset="resetRailOrder" />
           <ul class="dashboard-mobile-drawer__list">
             <li v-for="card in railCardsForDisplay" :key="`mob-${card.id}`">
               <button
@@ -448,6 +458,10 @@
                 <span class="dashboard-mobile-drawer__label">{{ card.label }}</span>
                 <span v-if="card.badgeCount" class="dashboard-mobile-drawer__badge">{{ card.badgeCount }}</span>
               </button>
+              <DashboardRailMoveButtons v-if="railOrderEditing" :label="card.label" :disabled="railOrderSaving"
+            :first="railCardSiblings(card)[0]?.id === card.id"
+            :last="railCardSiblings(card).at(-1)?.id === card.id"
+            @move="(delta) => moveRailCard(card, delta)" />
               <DashboardIconEditor :icon-key="String(card.id)" :label="card.label" :current-url="card.iconUrl"
                 :disabled="previewMode" />
             </li>
@@ -1297,6 +1311,10 @@
 <script setup>
 import { ref, onMounted, onUnmounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
 import DashboardIconEditor from '../components/admin/DashboardIconEditor.vue';
+import DashboardRailEditor from '../components/dashboard/DashboardRailEditor.vue';
+import DashboardRailMoveButtons from '../components/dashboard/DashboardRailMoveButtons.vue';
+import { useDashboardRailOrder } from '../composables/useDashboardRailOrder';
+import { isNoteAidEmployeeRole, isNoteAidEnabledForAgencyFlags, workspaceNoteAidPath } from '../config/noteAidAccess';
 import SchoolMarketingSplash from '../components/marketing/SchoolMarketingSplash.vue';
 import AnnouncementMarquee from '../components/common/AnnouncementMarquee.vue';
 import { useRouter, useRoute } from 'vue-router';
@@ -1362,7 +1380,7 @@ import { getDashboardRailCardDescriptors } from '../tutorial/tours/dashboard.tou
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { resolveHostImpliedPortalSlug } from '../utils/orgScopedPath.js';
-import { setThemePreference, persistThemePreference, applyDarkMode } from '../utils/darkMode';
+import { setThemePreference, persistThemePreference } from '../utils/darkMode';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
 import { usePlotTwistHqShell } from '../composables/usePlotTwistHqShell';
 import { isBookClubAgency as isBookClubPortalOrg } from '../utils/bookClubAgency.js';
@@ -1414,14 +1432,6 @@ async function handlePlatformShellLogout() {
     platformShellLoggingOut.value = false;
   }
 }
-
-watch(
-  usePlatformShell,
-  (on) => {
-    if (on) applyDarkMode(true);
-  },
-  { immediate: true }
-);
 
 /** SSTC / affiliation portal: hide HR-style tabs and schedule tooling. Declared early — many computeds depend on it. */
 const isClubContext = computed(() => {
@@ -1557,6 +1567,12 @@ function openSkillBuilderAvailabilityFromHub() {
 
 const subCoordinatorProgramOrgs = ref([]);
 const providerAssignedProgramOrgs = ref([]);
+
+const {
+  editing: railOrderEditing, loading: railOrderLoading, saving: railOrderSaving,
+  error: railOrderError, applyOrder: applyRailOrder, move: moveRailSection,
+  start: startRailEdit, cancel: cancelRailEdit, reset: resetRailOrder, save: saveRailOrder
+} = useDashboardRailOrder(computed(() => props.previewMode ? null : authStore.user?.id));
 
 const railCollapsedMode = ref(false);
 const railHoverExpanded = ref(false);
@@ -4185,10 +4201,20 @@ const dashboardCards = computed(() => {
     // Program coordinator + Skill Builders admin hubs live under portalsNestCard children.
   }
 
+  const tools = cards.find((card) => card.id === 'tools_nest');
+  if (tools && isNoteAidEmployeeRole(role) && isNoteAidEnabledForAgencyFlags(agencyFlags.value)) {
+    cards.push({
+      id: 'documentation_hub', label: 'Documentation Hub', kind: 'link',
+      to: workspaceNoteAidPath(orgSlug), badgeCount: 0,
+      iconUrl: brandingStore.getDashboardCardIconUrl('clinical_note_generator', iconOrg)
+        || brandingStore.getDashboardCardIconUrl('documents', iconOrg),
+      description: 'Open clinical notes and documentation tools.'
+    });
+  }
   return cards;
 });
 
-const railCards = computed(() => {
+const defaultRailCards = computed(() => {
   const cards = (dashboardCards.value || []).slice();
   const hasMy = cards.some((c) => String(c?.id) === 'my');
 
@@ -4212,6 +4238,7 @@ const railCards = computed(() => {
         momentum_nest: 2,
         checklist: 2.1,
         tasks_hub: 2.2,
+        documentation_hub: 2.3,
         chats: 3,
         submit: 4,
         tools_nest: 5,
@@ -4241,6 +4268,7 @@ const railCards = computed(() => {
     if (k.startsWith('sub_coord_program_')) return 6;
     return ({
       checklist: 0,
+      documentation_hub: 0.5,
       documents: 1,
       training: 2,
       my_schedule: 3,
@@ -4278,6 +4306,15 @@ const railCards = computed(() => {
     return String(a?.label || '').localeCompare(String(b?.label || ''));
   });
 });
+
+const railCards = computed(() => applyRailOrder(defaultRailCards.value).map((card) => ({
+  ...card,
+  ...(Array.isArray(card.children) ? { children: applyRailOrder(card.children) } : {})
+})));
+const railCardSiblings = (card) => card.nestedUnder
+  ? (railCards.value.find((parent) => parent.id === card.nestedUnder)?.children || [])
+  : railCards.value;
+const moveRailCard = (card, delta) => moveRailSection(card.id, delta, railCardSiblings(card));
 
 /** Flatten nest children into the rail when expanded. */
 const railCardsForDisplay = computed(() => {
@@ -5711,7 +5748,7 @@ function updateRailCollapsedMode() {
 
 // Effective collapsed: auto-collapsed but not when user pinned expand or hovering.
 const railEffectiveCollapsed = computed(() =>
-  railCollapsedMode.value && !railExpandPinned.value && !railHoverExpanded.value
+  railCollapsedMode.value && !railExpandPinned.value && !railHoverExpanded.value && !railOrderEditing.value
 );
 
 watch(railExpandPinned, (v) => {
@@ -5899,7 +5936,7 @@ h1 {
 /* Split view: rail + detail — stretch columns so the rail can grow with the main pane (scroll only when rail content overflows). */
 .dashboard-shell {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: fit-content(26rem) minmax(0, 1fr);
   gap: 14px;
   align-items: stretch;
   margin-bottom: 16px;
@@ -5922,14 +5959,14 @@ h1 {
   grid-template-columns: 88px minmax(0, 1fr);
 }
 .dashboard-shell.schedule-focus.rail-expanded {
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: fit-content(26rem) minmax(0, 1fr);
 }
 .dashboard-shell.messages-focus {
   grid-template-columns: 88px minmax(0, 1fr);
   gap: 6px;
 }
 .dashboard-shell.messages-focus.rail-expanded {
-  grid-template-columns: 320px minmax(0, 1fr);
+  grid-template-columns: fit-content(26rem) minmax(0, 1fr);
 }
 /* When rail is collapsed (any tab), shrink grid column so content fills the space */
 .dashboard-shell.rail-collapsed {
@@ -5937,6 +5974,7 @@ h1 {
 }
 
 .dashboard-rail-wrap {
+  min-width: 0;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -6403,7 +6441,8 @@ h1 {
   gap: 8px;
   position: relative;
 }
-.dashboard-mobile-drawer__list > li { position: relative; }
+.dashboard-mobile-drawer__list > li { position: relative; display: flex; align-items: center; gap: 6px; }
+.dashboard-mobile-drawer__item { flex: 1; min-width: 0; }
 .dashboard-mobile-drawer__list > li:has(.nested) :deep(.dashboard-icon-edit) { left: 28px; }
 .dashboard-rail.rail-collapsed .rail-card-row :deep(.dashboard-icon-edit) { left: 50%; transform: translate(-50%, -50%); }
 .rail-card-row--nested :deep(.dashboard-icon-edit) { left: 24px; }
@@ -6781,8 +6820,9 @@ h1 {
     grid-template-columns: 72px minmax(0, 1fr);
   }
   .dashboard-shell.rail-expanded {
-    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-columns: fit-content(26rem) minmax(0, 1fr);
   }
+  .dashboard-shell.rail-expanded .dashboard-rail { width: 100%; min-width: 0; }
   .dashboard-rail {
     width: 72px;
     min-width: 72px;
@@ -6804,12 +6844,13 @@ h1 {
     gap: 10px;
   }
 
-  .dashboard-mobile-sections-bar {
+  .dashboard-shell .dashboard-mobile-sections-bar {
     display: block;
   }
 
   .dashboard-rail,
   .rail-dark-mode-toggle,
+  .desktop-rail-editor,
   .rail-expand-btn {
     display: none !important;
   }

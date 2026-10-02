@@ -15,22 +15,36 @@
 
 <script setup>
 import { useNavShortcuts } from '../../composables/useNavShortcuts.js';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 
 const props = defineProps({
   limit: { type: Number, default: 6 },
 });
 
 const route = useRoute();
+const router = useRouter();
 const { topShortcuts } = useNavShortcuts({ limit: props.limit });
 
 function resolvePath(path) {
-  if (!path) return '/admin';
-  const slug = route.params?.organizationSlug;
-  if (slug && path.startsWith('/admin')) {
-    return `/${slug}${path}`;
-  }
-  return path;
+  // History is shared across workspaces. A frequent page is a shortcut within
+  // this workspace, not a switch to whichever tenant supplied the most visits.
+  const slug = String(route.params?.organizationSlug || '').trim();
+  const home = `${slug ? `/${slug}` : ''}/admin`;
+  if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return home;
+  const saved = router.resolve(path);
+  if (!saved.meta.requiresAuth) return home;
+  const savedSlug = String(saved.params?.organizationSlug || '');
+  const prefix = savedSlug ? `/${savedSlug}` : '';
+  const localPath = prefix && saved.path.startsWith(`${prefix}/`)
+    ? saved.path.slice(prefix.length)
+    : saved.path;
+  const query = { ...saved.query };
+  // Legacy Settings links use agencyId as a workspace switch in the router.
+  // Do not replay that switch from another visit's shortcut.
+  if (localPath === '/admin/settings') delete query.agencyId;
+  // On dedicated tenant hosts and in HQ, routes stay flat. On shared-host
+  // tenant routes, always use the current route's tenant prefix.
+  return { path: `${slug ? `/${slug}` : ''}${localPath}`, query, hash: saved.hash };
 }
 </script>
 

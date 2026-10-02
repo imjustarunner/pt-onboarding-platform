@@ -62,6 +62,7 @@ class UserPreferences {
           'documents_category_order_json',
           'schedule_display_prefs',
           'dashboard_glance_order_json',
+          'dashboard_rail_order_json',
           'note_aid_allow_manual_write',
           'note_aid_autosign_after_review'
         ];
@@ -82,7 +83,8 @@ class UserPreferences {
               field === 'toast_preferences' ||
               field === 'documents_category_order_json' ||
               field === 'schedule_display_prefs' ||
-              field === 'dashboard_glance_order_json'
+              field === 'dashboard_glance_order_json' ||
+              field === 'dashboard_rail_order_json'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {
@@ -135,6 +137,7 @@ class UserPreferences {
           'documents_category_order_json',
           'schedule_display_prefs',
           'dashboard_glance_order_json',
+          'dashboard_rail_order_json',
           'note_aid_allow_manual_write',
           'note_aid_autosign_after_review'
         ];
@@ -156,7 +159,8 @@ class UserPreferences {
               field === 'toast_preferences' ||
               field === 'documents_category_order_json' ||
               field === 'schedule_display_prefs' ||
-              field === 'dashboard_glance_order_json'
+              field === 'dashboard_glance_order_json' ||
+              field === 'dashboard_rail_order_json'
             ) {
               values.push(JSON.stringify(preferences[field]));
             } else {
