@@ -1,3 +1,4 @@
+import { officePlanHasClient, officeYearBoundary, withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import pool from '../config/database.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
@@ -154,6 +155,9 @@ export function shouldBookOnDate(plan, assignment, dateStr) {
   const start = normalizeYmd(plan.booking_start_date);
   if (!start) return false;
   if (dateStr < start) return false;
+  // A patient series requires an explicit renewal after one year. Never roll
+  // its clinical records forward merely because the office stays assigned.
+  if (officePlanHasClient(plan) && dateStr >= officeYearBoundary(start)) return false;
   // Single-occurrence cancels land here so rematerialize does not resurrect them.
   if (isPlanDateSkipped(plan, dateStr)) return false;
   // Open-ended weekly on an AVAILABLE standing assignment: ignore historical
@@ -287,7 +291,9 @@ export class OfficeScheduleMaterializer {
     const runner = (async () => {
       const loc = await OfficeLocation.findById(officeId);
       const officeTz = loc?.timezone || 'America/Denver';
-      const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+      const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+        .filter(date => withinOfficeRecordWindow(date, officeTz));
+      if (!days.length) return { ok: true, upsertedCount: 0, cancelledCount: 0, reason: 'beyond_record_window' };
       const windowStart = mysqlDateTimeForDateHour(weekStart, 0, officeTz) || `${weekStart} 00:00:00`;
       const windowEnd = mysqlDateTimeForDateHour(addDays(weekStart, 7), 0, officeTz) || `${addDays(weekStart, 7)} 00:00:00`;
       let upsertedCount = 0;

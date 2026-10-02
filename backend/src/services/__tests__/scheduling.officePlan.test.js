@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { getConnection: vi.fn(), execute: vi.fn() } }));
 vi.mock('../../config/clinicalDatabase.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../appointmentContext.service.js', () => ({ ensureAppointmentContext: vi.fn() }));
@@ -24,9 +24,12 @@ describe('finite office client series', () => {
   });
 });
 describe('office series package finalization', () => {
+  afterEach(() => vi.useRealTimers());
   let conn;
   let existing;
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2099-01-01T12:00:00Z'));
     vi.clearAllMocks();
     existing = [];
     vi.spyOn(Materializer, 'materializeWeek').mockResolvedValue({ ok: true });
@@ -41,6 +44,11 @@ describe('office series package finalization', () => {
     pool.getConnection.mockResolvedValue(conn);
     BookingPackage.findEntitlementById.mockResolvedValue({ id: 2, clientId: 4, sessionsRemaining: 3, status: 'ACTIVE' });
     ensureAppointmentContext.mockResolvedValue({ ensured: true });
+  });
+  it('rejects a patient series beyond the generation window before writing context', async () => {
+    vi.setSystemTime(new Date('2097-01-01T12:00:00Z'));
+    await expect(saveOfficeSessionPlanContext(plan.id, context)).rejects.toThrow('within the next year');
+    expect(conn.execute.mock.calls.some(([sql]) => sql.startsWith('UPDATE'))).toBe(false);
   });
   it('rejects an undersized package before changing patient context or reserving any occurrence', async () => {
     BookingPackage.findEntitlementById.mockResolvedValue({ clientId: 4, sessionsRemaining: 2, status: 'ACTIVE' });
