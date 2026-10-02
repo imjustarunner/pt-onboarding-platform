@@ -496,6 +496,7 @@
               <img src="/branding/google-g.png" alt="" width="22" height="22" /> Continue with Google
             </button>
           </template>
+          <RouterLink v-if="isPlatformLogin" to="/plans" class="help-link">Compare Basic, Premium and Premium Plus</RouterLink>
           <div v-if="!isPlatformLogin" class="login-help">
             <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
             <span class="help-separator">|</span>

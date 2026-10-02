@@ -1,3 +1,4 @@
+import {interviewCalendarJoinUrl,interviewCalendarReference} from '../../utils/interviewCalendarLink.js';
 vi.mock('../meetingRecipientIdentity.service.js',()=>({resolveMeetingRecipient:async({user})=>({email:user.email,displayName:[user.first_name,user.last_name].filter(Boolean).join(' '),calendarAccountEmail:user.email})}));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 const m = vi.hoisted(() => ({ sender: vi.fn(), send: vi.fn(), wrap: vi.fn(), agency: vi.fn() }));
@@ -16,17 +17,19 @@ const args = { agencyId: 4, candidate: { id: 30, email: 'candidate@example.org',
 beforeEach(() => { vi.clearAllMocks(); m.agency.mockResolvedValue({ name: 'Tenant' }); m.sender.mockResolvedValue({ id: 7, from_email: 'po@tenant.org', reply_to: 'unrelated@tenant.org' }); m.wrap.mockImplementation(async ({ html }) => `<header>Tenant header</header>${html}<footer>Tenant footer</footer>`); m.send.mockResolvedValue({ id: 'provider-message' }); });
 describe('branded interview invitation', () => {
   it('includes local 12-hour time and working calendar links with the candidate join link', async () => {
-    await sendHiringInterviewInviteEmail({ ...args, startsAt: '2026-09-19 21:00:00', endsAt: '2026-09-19 22:00:00', timezone: 'America/Denver', interviewId: 9 });
+    await sendHiringInterviewInviteEmail({ ...args, startsAt: '2026-09-19 21:00:00', endsAt: '2026-09-19 22:00:00', timezone: 'America/Denver', interviewId: 9, eventId: 240 });
     const email = m.send.mock.calls[0][0];
     expect(email.html).toContain('3:00 PM MDT');
     expect(email.html).toContain('Thank you for your interest in Tenant');
     expect(email.html).toContain('calendar.google.com/calendar/render');
     expect(email.html).toContain('outlook.live.com');
-    expect(email.html).toContain('https://tenant.org/api/team-meetings/guest/calendar.ics');
+    expect(email.html).toContain(`https://tenant.org/api/team-meetings/${interviewCalendarReference(240)}/calendar.ics`);
+    expect(email.html).toContain('Do not share or forward');
     const calendar = email.attachments.find(a => a.filename === 'interview.ics');
-    const ics = Buffer.from(calendar.contentBase64, 'base64').toString();
+    const ics = Buffer.from(calendar.contentBase64, 'base64').toString().replace(/\r\n /g,'');
     expect(ics).toContain('DTSTART:20260919T210000Z');
-    expect(ics).toContain(`URL:${args.publicJoinUrl}`);
+    expect(ics).toContain(`URL:${interviewCalendarJoinUrl(args.publicJoinUrl,240)}`);
+    expect(ics).not.toContain(args.publicJoinUrl);
   });
   it('previews sender, branding, and all interviewers without sending', async () => { const preview = await sendHiringInterviewInviteEmail({ ...args, preview: true }); expect(preview.from).toBe('po@tenant.org'); expect(preview.html).toContain('Tenant header'); expect(preview.html).toContain('Tenant footer'); expect(preview.html).toContain('Elena Cruz'); expect(preview.html).toContain('Alex Rivera'); expect(preview.html).toContain('A &amp; B'); expect(m.send).not.toHaveBeenCalled(); });
   it('uses PO From and Reply-To with the normal signature and tenant branding pipeline', async () => { await sendHiringInterviewInviteEmail(args); expect(m.send.mock.calls[0][0]).toMatchObject({ senderIdentityId: 7, replyToOverride: 'po@tenant.org', fromDisplayNameOverride: 'Tenant People Operations', templateType: 'hiring_interview_invite' }); expect(m.send.mock.calls[0][0].html).toContain('Join Interview'); expect(m.send.mock.calls[0][0].html).not.toContain('<header>'); });

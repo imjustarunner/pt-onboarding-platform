@@ -1,3 +1,6 @@
+import { sharedCalendarJoinUrl } from '../utils/meetingCalendarLink.js';
+import SupervisionSession from '../models/SupervisionSession.model.js';
+import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import { priorityEventEmailRecipient } from './priorityEventEmail.service.js';
 import { huddleTitle } from './huddlePolicy.js';
 import pool from '../config/database.js';
@@ -12,7 +15,9 @@ import { ensureTenantMessageMailboxes } from './tenantMessageMailboxes.service.j
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 
 export function supervisionCalendar(session, joinUrl) {
- const calendar=interviewCalendar({startsAt:session.start_at,endsAt:session.end_at,timezone:session.event_timezone||'America/Denver',title:session.kind==='HUDDLE'?huddleTitle(session,session.host_role):session.session_type==='group'?'Group supervision':'Individual supervision',publicJoinUrl:joinUrl,uid:`${session.kind==='HUDDLE'?'huddle':'supervision'}-${session.agency_id}-${session.id}@meetings`,description:`Your personal session link: ${joinUrl}`});
+ const calendarJoinUrl=sharedCalendarJoinUrl(session,joinUrl);
+ if (!calendarJoinUrl) return null;
+ const calendar=interviewCalendar({startsAt:session.start_at,endsAt:session.end_at,timezone:session.event_timezone||'America/Denver',title:session.kind==='HUDDLE'?huddleTitle(session,session.host_role):session.session_type==='group'?'Group supervision':'Individual supervision',publicJoinUrl:calendarJoinUrl,uid:`${session.kind==='HUDDLE'?'huddle':'supervision'}-${session.agency_id}-${session.id}@meetings`,description:'Calendar links join as a guest unless you are signed in. Use the private link in your email to join as yourself without signing in.'});
  if(calendar){const url=new URL(joinUrl);calendar.downloadUrl=`${url.origin}/api/meeting-invitations/${encodeURIComponent(url.pathname.split('/').pop())}/calendar.ics?eventId=${session.id}`;}
  return calendar;
 }
@@ -38,7 +43,8 @@ export async function prepareSupervisionEmail({session,user,joinUrl,kind='invita
  const base=await tenantMeetingBase(session.agency_id);
  const personal=joinUrl||(await personalMeetingInvitation(session,user.id)).url;
  const hostRole=hosts[0]?.role;
- const calendar=supervisionCalendar({...session,host_role:hostRole},personal);
+ const calendarSession=session.participant_join_token||session.join_token?session:await (huddle?ProviderScheduleEvent:SupervisionSession).resolveByJoinRef(String(session.id));
+ const calendar=supervisionCalendar({...session,...calendarSession,host_role:hostRole},personal);
  if(!calendar) return {skipped:true,reason:'invalid_dates'};
  const recipientIdentity=await resolveMeetingRecipient({agencyId:session.agency_id,user});
  const mailboxes=await ensureTenantMessageMailboxes(session.agency_id);

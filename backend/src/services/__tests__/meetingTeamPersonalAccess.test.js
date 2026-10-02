@@ -1,0 +1,16 @@
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';import jwt from 'jsonwebtoken';
+const m=vi.hoisted(()=>({execute:vi.fn(),events:vi.fn(),canJoin:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../config/config.js',()=>({default:{jwt:{secret:'test-login-secret'}}}));
+vi.mock('../meetingInvitations.service.js',()=>({invitationEvents:m.events}));
+vi.mock('../meetingJoinPolicy.service.js',()=>({canJoinTeamMeeting:m.canJoin,roomUnavailable:()=>null}));
+vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async()=> 'https://tenant.example'}));
+import {resolveTeamMeetingInvitationAccess,validateTeamMeetingAccess,teamMeetingRequest} from '../teamMeetingInvitationAccess.service.js';
+let invitation,event;
+beforeEach(()=>{vi.clearAllMocks();vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-01T15:00:00Z'));invitation={id:3,user_id:8,meeting_type:'team_meeting',join_token:'p'.repeat(32)};event={id:9,agency_id:2,end_at:'2026-10-01 16:00:00',platform_video_link:1};m.events.mockResolvedValue([event]);m.canJoin.mockResolvedValue(true);m.execute.mockImplementation(async sql=>sql.includes('meeting_email_invitations')?[[invitation]]:[[{id:8,role:'provider',first_name:'Pat'}]]);});
+afterEach(()=>vi.useRealTimers());
+it('exchanges a personal email token for meeting-only identity without a login token',async()=>{const result=await resolveTeamMeetingInvitationAccess(invitation.join_token);expect(result.joinUrl).toBe('https://tenant.example/join/team-meeting/9');const access=await validateTeamMeetingAccess(result.teamMeetingAccess.token,{eventId:9,action:'video-token'});expect(access.user.id).toBe(8);expect(()=>jwt.verify(result.teamMeetingAccess.token,'test-login-secret')).toThrow();});
+it('rejects unrelated meeting IDs and general account actions',async()=>{const {teamMeetingAccess}=await resolveTeamMeetingInvitationAccess(invitation.join_token);await expect(validateTeamMeetingAccess(teamMeetingAccess.token,{eventId:10,action:'video-token'})).rejects.toMatchObject({status:403});expect(teamMeetingRequest('PUT','/9/participants/7')).toBeNull();expect(teamMeetingRequest('GET','/users/8')).toBeNull();});
+it('rechecks the current roster on each request',async()=>{const {teamMeetingAccess}=await resolveTeamMeetingInvitationAccess(invitation.join_token);m.canJoin.mockResolvedValue(false);await expect(validateTeamMeetingAccess(teamMeetingAccess.token,{eventId:9,action:'video-token'})).rejects.toMatchObject({status:403});});
+it('revokes a previously issued grant when its personal token rotates',async()=>{const {teamMeetingAccess}=await resolveTeamMeetingInvitationAccess(invitation.join_token);invitation.join_token='r'.repeat(32);await expect(validateTeamMeetingAccess(teamMeetingAccess.token,{eventId:9,action:'video-token'})).rejects.toMatchObject({status:410});});
+it('allows calendar guest admission only through its own scoped meeting path',()=>{expect(teamMeetingRequest('POST','/9/calendar-guests/4/admit')).toEqual({eventId:9,action:'calendar-guests/4/admit'});});

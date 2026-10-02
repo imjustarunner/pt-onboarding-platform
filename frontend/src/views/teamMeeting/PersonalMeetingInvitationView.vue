@@ -23,6 +23,7 @@
 import { onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
+import { saveTeamMeetingAccess } from '../../utils/teamMeetingInvitationAccess';
 import { saveSupervisionAccess } from '../../utils/supervisionInvitationAccess';
 const route = useRoute(), router = useRouter(), error = ref('');
 const meeting = ref(null), rsvpSaved=ref(''),saving=ref(false);
@@ -34,13 +35,14 @@ onMounted(async () => {
     const { data } = await api.get(`/meeting-invitations/${encodeURIComponent(route.params.token)}`, {skipAuthRedirect:true,params: route.query.details ? {details:1,eventId:route.query.eventId} : {}});
     if (!data.joinUrl && data.meeting) { meeting.value = data.meeting; return; }
     const url = new URL(data.joinUrl);
-    if (data.supervisionAccess) {
+    if (data.supervisionAccess || data.teamMeetingAccess) {
       if (url.origin !== window.location.origin) {
         // Exchange on the destination origin; never put the session grant in a URL.
         window.location.replace(`${url.origin}/join/invitation/${encodeURIComponent(route.params.token)}`);
         return;
       }
-      saveSupervisionAccess(data.supervisionAccess);
+      if(data.supervisionAccess) saveSupervisionAccess(data.supervisionAccess);
+      if(data.teamMeetingAccess) saveTeamMeetingAccess(data.teamMeetingAccess);
     }
     if (url.origin === window.location.origin) await router.replace(url.pathname + url.search);
     else window.location.replace(url.href);

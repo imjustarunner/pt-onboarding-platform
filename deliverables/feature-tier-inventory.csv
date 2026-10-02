@@ -1,0 +1,53 @@
+key,feature,category,description,source,minimumTier,products
+ai_note_aid,AI Note Aid,Clinical,AI assistance for drafting notes; clinician reviews and signs.,frontend/src/views/admin/NoteAidView.vue,basic,Platform + AuricWell
+private_office,Private virtual office,Meetings,"Permanent office URL, photo review and individual admission; one guest.",backend/src/services/privateVirtualOffice.service.js,premium,Platform + AuricWell
+multiple_office_guests,Multiple private-office guests,Meetings,Individually admit additional guests for couples and families.,backend/src/services/privateVirtualOffice.service.js,premium_plus,Platform + AuricWell
+schedule,Calendar and scheduling,Scheduling,"Schedule appointments and meetings, recurring dates, availability and reminders.",frontend/src/views/MyScheduleView.vue,,Platform + AuricWell
+calendar_sync,Google Calendar integration,Scheduling,Calendar invitations and external busy time.,backend/src/services/googleCalendar.service.js,,Platform + AuricWell
+office_booking,Office and room reservations,Scheduling,"Physical rooms, office availability and booking.",frontend/src/views/OfficeScheduleView.vue,,Platform + AuricWell
+video_meetings,Scheduled video meetings,Meetings,"Video, square camera tiles, screen sharing and waiting rooms.",frontend/src/components/video/VideoSessionRoom.vue,,Platform + AuricWell
+personal_join,Personal meeting invitations,Meetings,Individual email links and attendance identity.,backend/src/services/meetingInvitations.service.js,,Platform + AuricWell
+recording_transcription,Recording and transcription,Meetings,Consent-gated session audio transcription.,backend/src/controllers/meetingTranscription.controller.js,,Platform + AuricWell
+transcript_notes,Notes from session transcripts,Clinical,Create draft clinical notes using signed-consent session transcripts.,backend/src/controllers/counselingTranscriptNote.controller.js,,Platform + AuricWell
+meeting_notes,Meeting notes and summaries,Meetings,"Personal notes, summaries and meeting history.",frontend/src/views/MyMeetingsView.vue,,Platform + AuricWell
+supervision,Supervision scheduling and history,Supervision,"Supervisor/supervisee sessions, history and tracked attendance.",backend/src/controllers/supervisionSessions.controller.js,,Platform + AuricWell
+supervision_manual,Manual and in-person supervision,Supervision,Log off-platform supervision with reasons and in-person transcription.,backend/src/controllers/supervisionManual.controller.js,,Platform + AuricWell
+supervision_agreements,Supervision agreements,Supervision,Onboarding agreements and supervisor countersignatures.,backend/src/controllers/supervisionAgreement.controller.js,,Platform + AuricWell
+client_records,Client charts and records,Clinical,Practice-scoped client records and treatment information.,frontend/src/views/admin/ClientManagementView.vue,,Platform + AuricWell
+clinical_signing,Clinical documentation and signatures,Clinical,"Structured notes, signing and cosigning.",auricwell/src/NoteWorkspace.vue,,Platform + AuricWell
+intake,Intake and digital forms,Clinical,"Client intake, digital waivers and signatures.",auricwell/src/Intake.vue,,Platform + AuricWell
+client_portal,Client and guardian portal,Clinical,"Patient access, appointments and guardian workflows.",backend/src/services/auricwell/policy.js,,Platform + AuricWell
+messages,Secure messaging,Communication,Practice and client messaging.,auricwell/src/Workspace.vue,,Platform + AuricWell
+payments,Client payments,Billing,"Balances, invoices and payment workflows.",auricwell/src/Payments.vue,,Platform + AuricWell
+insurance_claims,Insurance billing and claims,Billing,"Claims, remittances, fee schedules and payer configuration.",auricwell/src/BillingSetup.vue,,Platform + AuricWell
+imports,Data import and migration,Practice,"Reviewed provider, client and historical record import.",auricwell/src/Imports.vue,,Platform + AuricWell
+practice_reports,Practice reports,Practice,Operational and financial reporting.,auricwell/src/Workspace.vue,,Platform + AuricWell
+publicAvailability,Public Provider Finder,Platform catalog,External/public provider availability pages and provider finder publishing.,backend/src/services/billingPricing.service.js,,Platform
+momentumList,My Work,Platform catalog,"Momentum Stickies, digest, and focus assistant billed per active employee.",backend/src/services/billingPricing.service.js,,Platform
+officeSchedulingPublishing,Shift Programs,Platform catalog,"Shift-based programs, scheduling workflows, and related operational publishing.",backend/src/services/billingPricing.service.js,,Platform
+payrollWorkspace,Payroll workspace,Platform catalog,Payroll management tools and related admin workflows.,backend/src/services/billingPricing.service.js,,Platform
+onboardingTraining,Onboarding & Training,Platform catalog,"Onboarding packages, checklist templates, intake forms, and related tenant workflows.",backend/src/services/billingPricing.service.js,,Platform
+trainingAiModuleBuilder,Training AI Module Builder,Platform catalog,Gemini-assisted training modules from handbook uploads and source documents (Module Manager).,backend/src/services/billingPricing.service.js,,Platform
+schoolPortals,School portals & school overview,Platform catalog,"School overview dashboard, school-scoped portal routes, digital intakes hub, and school staff sign-in for assigned school organizations.",backend/src/services/billingPricing.service.js,,Platform
+skillBuildersSchoolProgram,Skill Builders school program,Platform catalog,"School/program Skill Builders calendar, event portal, skills groups roster, provider hub program events, and related APIs.",backend/src/services/billingPricing.service.js,,Platform
+budgetManagementEnabled,Budget Management,Platform catalog,"Budget planning, fiscal year tracking, expense management, and related finance workflows.",backend/src/services/billingPricing.service.js,,Platform
+hiringEnabled,Hiring Process,Platform catalog,"Applicant tracking, candidate pipelines, and hiring workflow management.",backend/src/services/billingPricing.service.js,,Platform
+peopleOpsEnabled,People Operations,Platform catalog,"Full HR and People Ops suite: On-Demand Training, Training Modules, and Progress tracking.",backend/src/services/billingPricing.service.js,,Platform
+aiProviderSearchEnabled,AI Provider Search,Platform catalog,Gemini-powered provider search and smart directory filtering.,backend/src/services/billingPricing.service.js,,Platform
+presenceEnabled,Presence / Team Board,Platform catalog,"Presence statuses, team board visibility, and availability signaling for staff.",backend/src/services/billingPricing.service.js,,Platform
+emailAppAssistant,Email App Assistant,Platform catalog,"Reply to app@tenant with office availability, school coverage (privileged), and task creation. SMS replies planned later.",backend/src/services/billingPricing.service.js,,Platform
+kudosEnabled,Kudos,Platform catalog,"Peer recognition, points, and reward-oriented appreciation tools.",backend/src/services/billingPricing.service.js,,Platform
+medcancelEnabled,Med Cancel,Platform catalog,Medication cancellation claim submissions and related notifications.,backend/src/services/billingPricing.service.js,,Platform
+inSchoolSubmissionsEnabled,In-School Submissions,Platform catalog,School mileage and other in-school claims submission workflows.,backend/src/services/billingPricing.service.js,,Platform
+googleSsoEnabled,Google Workspace SSO,Platform catalog,Google sign-in rules and enforced Workspace login for selected roles.,backend/src/services/billingPricing.service.js,,Platform
+workspaceProvisioningEnabled,Workspace Provisioning,Platform catalog,Provision Google Workspace accounts and related pre-hire automation.,backend/src/services/billingPricing.service.js,,Platform
+bookClubEnabled,Book Club,Platform catalog,"Tenant-wide book club, voting, meetings, and public preview experiences.",backend/src/services/billingPricing.service.js,,Platform
+standardsLearningEnabled,Standards-Aligned Learning,Platform catalog,"Learning standards, goals, and progress tracking workflows.",backend/src/services/billingPricing.service.js,,Platform
+groupClassSessionsEnabled,Group Class Sessions,Platform catalog,"Learning class sessions, moderation tools, and live class telemetry.",backend/src/services/billingPricing.service.js,,Platform
+guardianWaiversEnabled,Guardian Waivers,Platform catalog,Guardian waivers and kiosk check-in eligibility gating.,backend/src/services/billingPricing.service.js,,Platform
+platformSharedMarketingEnabled,Shared Marketing,Platform catalog,Inclusion in platform-shared marketing and event promotion surfaces.,backend/src/services/billingPricing.service.js,,Platform
+platformPublicRegistrationEnabled,Public Registration Links,Platform catalog,Public registration catalogs and marketing enrollment links for this tenant.,backend/src/services/billingPricing.service.js,,Platform
+gamesPlatformEnabled,Games Platform,Platform catalog,Access to the mental health games platform and enabled game titles.,backend/src/services/billingPricing.service.js,,Platform
+focusPackage,Focus Package,Platform catalog,"Focus Music playlists plus Focus Session (timeline focus mode, quote images, and session audio).",backend/src/services/billingPricing.service.js,,Platform
+focusMusic,Focus Music (legacy),Platform catalog,Legacy Focus Music add-on; superseded by Focus Package.,backend/src/services/billingPricing.service.js,,Platform
+summerProgramManagement,Summer program management,Platform catalog,"Custom project billing for registration, kiosk check-ins, staffing, and operational setup.",backend/src/services/billingPricing.service.js,,Platform

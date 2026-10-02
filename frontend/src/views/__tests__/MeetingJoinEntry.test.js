@@ -1,0 +1,16 @@
+import {mount,flushPromises} from '@vue/test-utils';import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({route:{params:{eventId:'s'.repeat(32)},fullPath:'/join/team-meeting/shared'},get:vi.fn(),post:vi.fn(),setAuth:vi.fn(),teamAccess:vi.fn(),supervisionAccess:vi.fn()}));
+vi.mock('vue-router',()=>({useRoute:()=>m.route}));
+vi.mock('../../store/auth',()=>({useAuthStore:()=>({setAuth:m.setAuth})}));
+vi.mock('../../services/api',()=>({default:{get:m.get,post:m.post}}));
+vi.mock('../../utils/teamMeetingInvitationAccess',()=>({teamMeetingAccessFor:m.teamAccess}));
+vi.mock('../../utils/supervisionInvitationAccess',()=>({supervisionAccessFor:m.supervisionAccess}));
+vi.mock('../teamMeeting/JoinTeamMeetingView.vue',()=>({__esModule:true,default:{template:'<div>Identified meeting workspace</div>'}}));
+vi.mock('../supervision/JoinSupervisionView.vue',()=>({__esModule:true,default:{template:'<div>Identified supervision workspace</div>'}}));
+import Entry from '../MeetingJoinEntry.vue';
+beforeEach(()=>{vi.clearAllMocks();m.route.params={eventId:'s'.repeat(32)};m.teamAccess.mockReturnValue(null);m.supervisionAccess.mockReturnValue(null);m.get.mockImplementation(async url=>{if(url==='/users/me')throw {response:{status:401}};return {data:{title:'Team meeting',interview:false}};});});
+afterEach(()=>vi.useRealTimers());
+const mountEntry=()=>mount(Entry,{global:{stubs:{RouterLink:{template:'<a><slot /></a>'},VideoSessionRoom:true}}});
+it('keeps an unsigned calendar visitor a guest even with a cached personal invitation',async()=>{m.teamAccess.mockReturnValue({token:'previous-invite'});const w=mountEntry();await flushPromises();expect(w.text()).toContain('Request to join as guest');expect(m.teamAccess).not.toHaveBeenCalled();expect(m.setAuth).not.toHaveBeenCalled();w.unmount();});
+it('uses the signed-in account for a calendar link',async()=>{m.get.mockResolvedValue({data:{id:8,role:'provider'}});const w=mountEntry();await flushPromises();await flushPromises();expect(m.setAuth).toHaveBeenCalledWith(null,{id:8,role:'provider'},null);await vi.waitFor(()=>expect(w.text()).toContain('Identified meeting workspace'));w.unmount();});
+it('uses a scoped email grant without creating an app login',async()=>{m.route.params={eventId:'9'};m.teamAccess.mockReturnValue({token:'personal-scope'});const w=mountEntry();await flushPromises();await flushPromises();await vi.waitFor(()=>expect(w.text()).toContain('Identified meeting workspace'));expect(m.get).not.toHaveBeenCalled();expect(m.setAuth).not.toHaveBeenCalled();w.unmount();});

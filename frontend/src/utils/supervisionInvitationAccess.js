@@ -22,6 +22,8 @@ export function supervisionAccessFor(sessionId) {
 }
 
 export function attachSupervisionAccess(config) {
+  const pageRef = /\/join\/supervision\/([^/]+)\/?$/.exec(window.location.pathname)?.[1];
+  if (pageRef && !/^\d+$/.test(pageRef)) return config;
   // Only relative session API calls receive this credential, never external URLs.
   const match = /^\/supervision\/sessions\/(\d+)(?:\/|$)/.exec(String(config.url || ''));
   let sessionId = match?.[1];

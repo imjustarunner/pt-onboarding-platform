@@ -1,5 +1,6 @@
 <template>
   <section class="dashboard-meetings" aria-label="Upcoming meetings">
+    <RouterLink class="office-button" :to="`${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-virtual-office`" title="Your permanent private office link. Every guest supplies a snapshot and waits for your individual admission. Premium: one guest. Premium Plus: couples and families." @click="notifyNavigation">My virtual office ↗</RouterLink>
     <h2>Your meetings</h2>
     <RouterLink :to="{ path: `${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-meetings`, query: {} }" @click="notifyNavigation">My meetings · attended meetings and notes</RouterLink>
     <article v-for="meeting in meetings.slice(0, 4)" :key="meeting.key" :class="{ ready: canJoin(meeting) }">
@@ -47,5 +48,6 @@ onMounted(()=>{void load();timer=setInterval(()=>{now.value=Date.now();void load
 .meeting-details:focus-visible { outline:2px solid currentColor; outline-offset:3px; }
 [data-theme="dark"] .dashboard-meetings { background:var(--bg-card); color:var(--text-primary); border-color:var(--border); }
 [data-theme="dark"] .dashboard-meetings article.ready { background:var(--bg-alt); }
+.office-button{display:block;padding:14px;margin-bottom:16px;background:#245b44;color:#fff;border-radius:10px;font-weight:700;text-decoration:none}
 .dashboard-meetings{padding:16px;border:1px solid #b4d5cb;border-radius:12px;margin:12px 0;background:#f6fcf9;color:#173f39}.dashboard-meetings h2{font-size:1.1rem;margin:0 0 10px;color:inherit}.dashboard-meetings article{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px;border-radius:9px}.dashboard-meetings article.ready{background:#d9f5e7;border:2px solid #2d6a50}.dashboard-meetings p{margin:5px 0;font-size:.85rem}.meeting-join{display:inline-flex;padding:14px 24px;border-radius:8px;background:#245b44;color:white;font-size:1.05rem;font-weight:800;white-space:nowrap}@media(max-width:600px){.dashboard-meetings article{flex-wrap:wrap}.meeting-join{width:100%;justify-content:center}}
 </style>

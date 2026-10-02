@@ -1,3 +1,4 @@
+import {interviewCalendarJoinUrl} from '../utils/interviewCalendarLink.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import GoogleCalendar from './googleCalendar.service.js';
@@ -30,7 +31,7 @@ export async function syncHiringInterviewCalendar(interview, { notify = true } =
     try { existing = (await calendar.events.get({calendarId:'primary',eventId})).data; }
     catch(error) { if (Number(error.code || error.response?.status)!==404) throw error; }
     if (existing?.status === 'cancelled') throw new Error('The Google invitation was cancelled. Schedule a new interview instead.');
-    const description = [`Join interview: ${interview.public_join_url}`, 'Interviewers: sign in with your staff account to open the private workspace.', '', 'Participants:', ...people.map(p=>`${p.displayName} <${p.email}>`)].join('\n');
+    const description = [`Join interview as a guest, or sign in: ${interviewCalendarJoinUrl(interview.public_join_url,event.id)}`, 'Interviewers: sign in with your staff account to open the private workspace.', '', 'Participants:', ...people.map(p=>`${p.displayName} <${p.email}>`)].join('\n');
     const requestBody = {
       summary:event.title, description, visibility:'private', colorId:'3',
       start:{dateTime:parseUtcDate(event.start_at).toISOString(),timeZone:event.event_timezone || 'America/Denver'},
