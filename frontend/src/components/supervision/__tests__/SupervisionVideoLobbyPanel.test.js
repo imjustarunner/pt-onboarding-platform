@@ -39,6 +39,7 @@ describe('SupervisionVideoLobbyPanel admit-all behavior', () => {
 
     const admitAll = wrapper.find('.lobby-panel-admit-all');
     expect(admitAll.text()).toContain('Admit all & open room (2)');
+    expect(wrapper.get('[role="status"]').text()).toContain('One, Two joined the waiting room. 2 waiting for admission.');
     await admitAll.trigger('click');
     await flushPromises();
 

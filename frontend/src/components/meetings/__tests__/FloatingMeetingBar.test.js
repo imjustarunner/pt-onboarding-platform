@@ -33,6 +33,13 @@ describe('Mini meeting continuity', () => {
     expect(mocks.post).toHaveBeenCalledWith('/team-meetings/9/join-presence', expect.objectContaining({ action: 'heartbeat', identity: 'participant-9' }), expect.anything());
     await vi.advanceTimersByTimeAsync(15000);
     expect(mocks.post).toHaveBeenCalledTimes(2);
+    video.vm.$emit('disconnected', { reason: 'alone-timeout' });
+    await flushPromises();
+    expect(useActiveMeeting().state.connected).toBe(false);
+    expect(mocks.post).toHaveBeenLastCalledWith('/team-meetings/9/join-presence', expect.objectContaining({ action: 'leave' }), expect.anything());
+    const callsAfterLeaving = mocks.post.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(mocks.post).toHaveBeenCalledTimes(callsAfterLeaving);
     await wrapper.get('[title="Leave meeting"]').trigger('click');
     expect(mocks.resume).toHaveBeenCalledOnce();
     expect(useActiveMeeting().state.active).toBe(false);

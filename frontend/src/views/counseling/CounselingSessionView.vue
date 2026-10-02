@@ -62,10 +62,12 @@
         </nav>
 
         <main class="cs__main">
+          <p v-if="videoRejoinError" role="alert">{{ videoRejoinError }}</p>
           <VideoSessionRoom
             ref="videoRoomRef"
             @connected="videoConnected = true"
             @disconnected="videoConnected = false"
+            @request-rejoin="rejoinVideo"
             v-if="videoCreds"
             :key="`${videoCreds.sessionId}:${String(videoCreds.token || '').slice(-12)}`"
             :application-id="videoCreds.applicationId"
@@ -326,6 +328,15 @@ async function loadSessionMeta() {
   }
 }
 
+const videoRejoinError = ref('');
+async function rejoinVideo() {
+  videoRejoinError.value = '';
+  try { await refreshVideoToken(); }
+  catch (error) {
+    videoRejoinError.value = error?.response?.data?.error?.message || 'Unable to rejoin. Please try again.';
+    if (error?.response?.status === 410) { stopPolling(); phase.value = 'ended'; }
+  }
+}
 async function refreshVideoToken({ recreateRoom = false } = {}) {
   const tok = await counselingApi.getCounselingVideoToken(sessionId.value, { recreateRoom });
   const projectId = tok.applicationId || tok.apiKey || '';

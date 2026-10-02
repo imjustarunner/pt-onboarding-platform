@@ -46,7 +46,8 @@
         hide-controls
         :play-join-tone="false"
         @connected="startPresence"
-        @disconnected="stopPresence"
+        @disconnected="onDisconnected"
+        @request-rejoin="expandMeeting"
         @meeting-ended="leaveMeeting"
         @transcript-control="onTranscriptControl"
       />
@@ -75,7 +76,7 @@ import api from '../../services/api';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
 
 const router = useRouter();
-const { state: meeting, clearMiniMode, saveReturnMedia } = useActiveMeeting();
+const { state: meeting, clearMiniMode, saveReturnMedia, setMiniConnected } = useActiveMeeting();
 const videoRoom = ref(null);
 const transcriptionActive = ref(false);
 let presenceTimer = null;
@@ -94,13 +95,19 @@ async function sendPresence(action = 'heartbeat') {
 }
 function startPresence() {
   stopPresence();
+  setMiniConnected(true);
   // Use the same visible-meeting activity rules as the full room.
   suspendInactivityTimeout();
   activityHeld = true;
   void sendPresence();
   presenceTimer = setInterval(() => { void sendPresence(); }, 15000);
 }
+function onDisconnected() {
+  stopPresence();
+  void sendPresence('leave');
+}
 function stopPresence() {
+  setMiniConnected(false);
   clearInterval(presenceTimer);
   presenceTimer = null;
   if (activityHeld) { resumeInactivityTimeout(); activityHeld = false; }

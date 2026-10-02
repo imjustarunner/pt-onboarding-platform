@@ -28,12 +28,26 @@ describe('active meeting notices',()=>{
     expect(w.text()).not.toContain('Leadership');
     mock.route.path='/brand/join/team-meeting/opaque';await flushPromises();expect(w.find('aside').exists()).toBe(false);
     mock.route.path='/dashboard';mock.mini.active=true;await flushPromises();expect(w.find('aside').exists()).toBe(false);
+    mock.mini.connected=false;await flushPromises();expect(w.text()).toContain('Supervision');
     mock.mini.active=false;await flushPromises();expect(w.text()).toContain('Supervision');w.unmount();
     const count=mock.get.mock.calls.length;await vi.advanceTimersByTimeAsync(60000);expect(mock.get).toHaveBeenCalledTimes(count);
   });
   it('keeps dismissals after remount and isolates them by account',async()=>{
     let w=mount(ActiveMeetingToasts,{props:{userId:7}});await flushPromises();await w.get('[aria-label="Dismiss Leadership for this meeting"]').trigger('click');w.unmount();
     w=mount(ActiveMeetingToasts,{props:{userId:7}});await flushPromises();expect(w.text()).not.toContain('Leadership');await w.setProps({userId:8});await flushPromises();expect(w.text()).toContain('Leadership');w.unmount();
+  });
+  it('announces a new arrival and waiting count, resurfacing a dismissed meeting once per arrival', async () => {
+    const meeting={key:'team_meeting:1',title:'Supervisors meeting',isLive:true,presentCount:2,waitingCount:1,
+      latestJoin:{key:'user-8:first',displayName:'Rachel',joinedAt:new Date().toISOString()}};
+    mock.get.mockResolvedValue({data:{prompts:[meeting]}});
+    const w=mount(ActiveMeetingToasts,{props:{userId:7}});await flushPromises();
+    expect(w.text()).toContain('Rachel joined the meeting.');expect(w.text()).toContain('2 people here');expect(w.text()).toContain('1 waiting for admission');
+    await w.get('[aria-label="Dismiss Supervisors meeting for this meeting"]').trigger('click');
+    await vi.advanceTimersByTimeAsync(15000);expect(w.find('aside').exists()).toBe(false);
+    meeting.latestJoin={key:'user-8:rejoined',displayName:'Rachel',joinedAt:new Date().toISOString()};
+    await vi.advanceTimersByTimeAsync(15000);expect(w.text()).toContain('Rachel joined the meeting.');
+    expect(w.find('.active-meeting-toast--arrival').exists()).toBe(true);
+    await vi.advanceTimersByTimeAsync(90000);expect(w.text()).not.toContain('Rachel joined the meeting.');w.unmount();
   });
   it('clears ended meetings on the next poll',async()=>{
     const w=mount(ActiveMeetingToasts,{props:{userId:7}});await flushPromises();

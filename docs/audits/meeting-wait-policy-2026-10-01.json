@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-01",
+  "scope": "Lone-participant timeout and meeting arrival notices",
+  "behavior": {
+    "prompt_after_seconds_alone": 120,
+    "prompt_response_seconds": 30,
+    "extension_seconds": 120,
+    "maximum_seconds_alone": 600,
+    "another_person_joins": "Cancel the waiting deadline; start a fresh waiting period if they leave.",
+    "timeout": "Disconnect the SDK session, destroy publishers and subscriptions, release microphone tracks, clear the live-meeting lease, and stop attendance heartbeats.",
+    "completion": "Timeout does not mark the meeting complete. Hosts have a separate explicit End meeting for everyone action.",
+    "rejoin": "Request fresh access through the meeting entry flow; completed sessions remain closed.",
+    "counting": "Unique connection identities, including audio-only participants; camera and screen-share streams do not count as separate people.",
+    "arrivals": "Named join notices in the video room; named lobby arrivals with waiting counts; app toasts include presence and admission counts and resurface on a new arrival after dismissal."
+  },
+  "validation": {
+    "isolated_commit_candidate": true,
+    "backend_tests_passed": 403,
+    "frontend_tests_passed": 77,
+    "database_integration_tests_skipped": 21,
+    "production_build": "passed with existing Vite warnings",
+    "browser": {
+      "twoMinutePrompt": true,
+      "extensions": true,
+      "tenMinuteDisconnect": true,
+      "rejoinAvailable": true,
+      "errors": []
+    },
+    "browser_scope": "Local Chromium, mocked SDK, accelerated clock"
+  },
+  "deployment": {
+    "performed": false,
+    "new_migration_required": false
+  },
+  "limits": [
+    "Timeout enforcement is in the video client, using absolute deadlines checked by timer and on tab resume. It is not a provider-side billing cutoff while a browser process is fully suspended.",
+    "App presence notices poll every 15 seconds and exclude presence older than 90 seconds.",
+    "Live provider billing and real-device sleep/reconnect behavior require verification.",
+    "Unrelated workspace changes are excluded."
+  ]
+}

@@ -38,7 +38,7 @@
       @update:video-fullscreen="$emit('update:videoFullscreen', $event)"
       @activity-notice-click="$emit('activity-notice-click', $event)"
       @leave-request="$emit('leave-request')"
-      @disconnected="$emit('disconnected')"
+      @disconnected="$emit('disconnected', $event)"
       @connected="$emit('connected', $event)"
       @error="$emit('error', $event)"
       @recreate-room="$emit('recreate-room')"

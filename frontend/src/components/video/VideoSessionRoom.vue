@@ -41,7 +41,21 @@
       session.connect()/publisher setup finishes; unmounting these nodes during that window
       made subscriptions lose their target and left each participant seeing only themselves.
     -->
-    <template v-if="!errorMessage">
+    <section v-if="aloneTimedOut" class="vsr__alone-ended" role="status">
+      <h2>You left the video room</h2>
+      <p>No one else joined while you were waiting. Your camera, microphone, and video connection have stopped.</p>
+      <p>The meeting is still open. You can rejoin when someone is ready.</p>
+      <button type="button" class="vsr__btn" @click="emit('request-rejoin')">Rejoin meeting</button>
+    </section>
+    <div v-if="aloneWait.phase === 'prompt'" class="vsr__alone-prompt" role="alertdialog" aria-labelledby="alone-wait-title" aria-describedby="alone-wait-body">
+      <h2 id="alone-wait-title">Waiting for someone?</h2>
+      <p id="alone-wait-body">You’re the only person here. Video will disconnect in {{ aloneWait.secondsRemaining }} seconds to avoid an unattended call.</p>
+      <p>You can wait up to 10 minutes alone, then rejoin when ready.</p>
+      <button v-if="aloneWait.canExtend" type="button" class="vsr__btn" @click="extendAloneWait">Keep waiting</button>
+      <button type="button" class="vsr__btn" @click="leaveAloneRoom">Leave meeting now</button>
+    </div>
+    <p v-else-if="aloneWait.phase === 'waiting'" class="vsr__alone-waiting" role="status">Waiting for someone to join · 1 person here</p>
+    <template v-if="!errorMessage && !aloneTimedOut">
       <div class="vsr__viewport" :class="{ 'vsr__viewport--split': useSplitCamOffLayout }">
         <div
           ref="stageEl"
@@ -485,6 +499,7 @@
 </template>
 
 <script setup>
+import { createMeetingWaitPolicy, participantIdentity } from './meetingWaitPolicy';
 import { startLiveMeetingPresence } from '../../utils/liveMeetingPresence';
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import { updateRemoteVideoState } from './remoteVideoState.js';
@@ -559,6 +574,7 @@ const props = defineProps({
 const emit = defineEmits([
   'connected',
   'disconnected',
+  'request-rejoin',
   'error',
   'stream-created',
   'stream-destroyed',
@@ -689,6 +705,44 @@ watch(() => sessionReady.value && !props.lobbyMode, (connected) => {
   stopMeetingPresence = connected ? startLiveMeetingPresence() : null;
 });
 onBeforeUnmount(() => stopMeetingPresence?.());
+const transportConnected = ref(false);
+const aloneTimedOut = ref(false);
+const aloneWait = ref({ phase: 'inactive' });
+const waitPolicy = createMeetingWaitPolicy();
+const roomConnections = new Map();
+let waitTimer = null;
+function otherParticipantCount() {
+  const own = participantIdentity(session?.connection).key;
+  return new Set([...roomConnections.values()].map(participantIdentity).map(p => p.key).filter(key => key && key !== own)).size;
+}
+function updateAloneWait() {
+  aloneWait.value = waitPolicy.update({ connected: transportConnected.value, others: otherParticipantCount() });
+  if (aloneWait.value.phase === 'expired') leaveAloneRoom();
+}
+function extendAloneWait() { aloneWait.value = waitPolicy.extend(); }
+function leaveAloneRoom() {
+  aloneTimedOut.value = true;
+  disconnect(false);
+  emit('disconnected', { reason: 'alone-timeout' });
+}
+function observeConnection(connection, announce = true) {
+  const id = connectionIdFrom(connection);
+  if (!id || id === connectionIdFrom(session?.connection)) return;
+  const person = participantIdentity(connection);
+  const known = [...roomConnections.values()].some(c => participantIdentity(c).key === person.key);
+  roomConnections.set(id, connection);
+  updateAloneWait();
+  if (!known && announce) {
+    showConnectionNotice(`${person.name} joined the meeting. ${otherParticipantCount() + 1} people here.`);
+    playJoinChime();
+  }
+}
+watch(transportConnected, (ready) => {
+  clearInterval(waitTimer);
+  updateAloneWait();
+  if (ready) waitTimer = setInterval(updateAloneWait, 1000);
+});
+onBeforeUnmount(() => clearInterval(waitTimer));
 const stageEl = ref(null);
 const stageSize = ref({ width: 960, height: 540 });
 let stageResizeObserver = null;
@@ -1783,6 +1837,7 @@ async function subscribeToStream(stream) {
   const streamId = String(stream?.streamId || '');
   const owner = session;
   if (!owner || !streamId || isOwnStream(stream) || pendingSubscriptions.has(streamId)) return;
+  observeConnection(stream.connection, false);
   availableStreams.set(streamId, stream);
   pendingSubscriptions.set(streamId, owner);
   try {
@@ -1992,7 +2047,6 @@ async function subscribeStreamOnce(stream, owner) {
   sub.on?.('audioDisabled', () => {
     setRemoteAudioState({ streamId, hasAudio: false });
   });
-  playJoinChime();
 }
 
 function clearScreenShareTile() {
@@ -2132,6 +2186,7 @@ const diagnosticHints = computed(() => {
 });
 
 async function connect() {
+  aloneTimedOut.value = false;
   errorMessage.value = '';
   errorMeta.value = null;
   const projectId = resolveProjectId();
@@ -2155,7 +2210,21 @@ async function connect() {
     // Vonage Video JWT tokens: first arg must be Application ID (not account API key).
     session = OT.initSession(projectId, props.sessionId);
 
+    session.on('connectionCreated', (event) => observeConnection(event.connection));
+    session.on('connectionDestroyed', (event) => {
+      const id = connectionIdFrom(event.connection);
+      const previous = roomConnections.get(id);
+      roomConnections.delete(id);
+      updateAloneWait();
+      if (previous && ![...roomConnections.values()].some(c => participantIdentity(c).key === participantIdentity(previous).key)) {
+        const person = participantIdentity(previous);
+        showConnectionNotice(`${person.name} left the meeting.`);
+        playLeaveChime();
+        emit('participant-left', { displayName: person.name, connectionId: id });
+      }
+    });
     session.on('streamCreated', (event) => {
+      observeConnection(event.stream?.connection);
       void subscribeToStream(event.stream).then(() => {
         // New peer may have missed our earlier mic_state signal — nudge them.
         rebroadcastLocalMediaState();
@@ -2195,15 +2264,7 @@ async function connect() {
         remotes.value = remotes.value.filter((r) => r.streamId !== streamId);
         remoteMediaEls.delete(streamId);
         if (gone?.connectionId) setHandState(gone.connectionId, false);
-        if (gone) {
-          playLeaveChime();
-          showConnectionNotice(`${gone.name || 'A participant'} left the session.`);
-          emit('participant-left', {
-            displayName: gone.name || 'Participant',
-            connectionId: gone.connectionId || '',
-            streamId
-          });
-        }
+
       }
       emit('stream-destroyed', event);
     });
@@ -2220,6 +2281,7 @@ async function connect() {
       }
       connecting.value = false;
       sessionReady.value = false;
+      transportConnected.value = false;
       emit('disconnected');
     });
 
@@ -2357,6 +2419,7 @@ async function connect() {
       session.connect(props.token, (err) => (err ? reject(err) : resolve()));
     });
 
+    transportConnected.value = true;
     await nextTick();
     const publisherMountEl = localMediaStageEl.value || localPublisherHostEl.value;
     if (publisherMountEl) publisherMountEl.innerHTML = '';
@@ -2535,6 +2598,7 @@ async function connect() {
     });
     connecting.value = false;
     sessionReady.value = false;
+    disconnect(false);
     const sanitized = sanitizeVideoError(err);
     errorMessage.value = sanitized.message;
     errorMeta.value = sanitized;
@@ -2634,6 +2698,11 @@ async function toggleScreenShare() {
 }
 
 function disconnect(emitEvent = true) {
+  transportConnected.value = false;
+  clearInterval(waitTimer);
+  roomConnections.clear();
+  waitPolicy.reset();
+  aloneWait.value = { phase: 'inactive' };
   try {
     stopMonitoringMicrophone();
     monitoredAudioTrack = null;
@@ -2985,6 +3054,7 @@ watch(
 );
 
 function handleVisibilityResume() {
+  updateAloneWait();
   if (typeof document !== 'undefined' && document.hidden) return;
   try { joinToneCtx?.resume?.(); } catch { /* ignore */ }
   if (!publisher || !sessionReady.value) return;
@@ -4271,4 +4341,10 @@ defineExpose({
 .vsr__audio-settings meter { width: 130px; }
 .vsr__audio-problem { padding: 8px 12px; color: #fef3c7; background: #78350f; }
 .vsr__connection-issue { position:absolute; inset:30% 4px auto; z-index:4; padding:6px; background:#101827dd; font-size:.75rem; border-radius:6px; text-align:center; }
+.vsr__alone-prompt, .vsr__alone-ended { padding: 20px; background: #1a2334; color: #f8fafc; border: 1px solid #eab308; border-radius: 12px; z-index: 20; }
+.vsr__alone-prompt { position: absolute; inset: 12px 12px auto; box-shadow: 0 8px 30px #0008; }
+.vsr__alone-prompt h2 { font-size: 1rem; margin: 0 0 8px; }
+.vsr__alone-prompt p, .vsr__alone-ended p { font-size: .875rem; line-height: 1.4; }
+.vsr__alone-prompt button { margin: 4px; }
+.vsr__alone-waiting { margin: 0; padding: 4px 10px; font-size: .8rem; color: #cbd5e1; }
 </style>

@@ -9,6 +9,9 @@
       :banner-dismissed="exitBannerDismissed"
       :closed-by-name="meetingClosedByName"
       :closed-at="liveEndedAt"
+      :can-end-meeting="isSupervisor && !sessionHasEnded"
+      :ending="endingFromExit"
+      @end-meeting="endFromExit"
       @rejoin="rejoinSession"
       @go-to-schedule="goToScheduleFromExit"
       @dismiss-banner="dismissHostEndedBanner"
@@ -344,6 +347,17 @@ async function rejoinSession() {
   await fetchTokenAndJoin();
 }
 
+const endingFromExit = ref(false);
+async function endFromExit() {
+  if (endingFromExit.value || !isSupervisor.value || sessionHasEnded.value) return;
+  endingFromExit.value = true;
+  try {
+    if (await endLiveSessionForEveryone()) {
+      liveEndedAt.value = liveEndedAt.value || new Date().toISOString();
+      await finishLeave({ variant: 'ended-by-you', canRejoin: false });
+    }
+  } finally { endingFromExit.value = false; }
+}
 async function endLiveSessionForEveryone() {
   const sid = numericSessionId.value || sessionId.value;
   if (!sid) return;
@@ -386,10 +400,10 @@ function onMeetingEnded(payload = {}) {
   void finishLeave({ variant: 'host-ended', canRejoin: false });
 }
 
-function onVideoDisconnected() {
+function onVideoDisconnected(payload = {}) {
   if (intentionalLeave.value || sessionExit.value) return;
   videoConnected.value = false;
-  void finishLeave({ variant: 'left', canRejoin: true });
+  void finishLeave({ variant: payload?.reason === 'alone-timeout' ? 'alone-timeout' : 'left', canRejoin: !sessionHasEnded.value });
 }
 
 function onVideoConnected() {
