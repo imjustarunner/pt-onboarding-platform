@@ -1,7 +1,7 @@
 [
   {
     "key": "ai_note_aid",
-    "feature": "AI Note Aid",
+    "feature": "Documentation Hub",
     "category": "Clinical",
     "description": "AI assistance for drafting notes; clinician reviews and signs.",
     "source": "frontend/src/views/admin/NoteAidView.vue",

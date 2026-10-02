@@ -1,5 +1,5 @@
 key,feature,category,description,source,minimumTier,products
-ai_note_aid,AI Note Aid,Clinical,AI assistance for drafting notes; clinician reviews and signs.,frontend/src/views/admin/NoteAidView.vue,basic,Platform + AuricWell
+ai_note_aid,Documentation Hub,Clinical,AI assistance for drafting notes; clinician reviews and signs.,frontend/src/views/admin/NoteAidView.vue,basic,Platform + AuricWell
 private_office,Private virtual office,Meetings,"Permanent office URL, photo review and individual admission; one guest.",backend/src/services/privateVirtualOffice.service.js,premium,Platform + AuricWell
 multiple_office_guests,Multiple private-office guests,Meetings,Individually admit additional guests for couples and families.,backend/src/services/privateVirtualOffice.service.js,premium_plus,Platform + AuricWell
 schedule,Calendar and scheduling,Scheduling,"Schedule appointments and meetings, recurring dates, availability and reminders.",frontend/src/views/MyScheduleView.vue,,Platform + AuricWell
