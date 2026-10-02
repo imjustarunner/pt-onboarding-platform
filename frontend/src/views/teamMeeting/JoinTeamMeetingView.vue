@@ -990,7 +990,9 @@ const displayMeetingTitle = computed(() => {
   const subtype = String(meetingSubtype.value || '').toLowerCase();
   if (kind === 'HUDDLE') return isGroupHuddle.value ? 'Group Huddle' : 'Huddle';
   if (subtype === 'admin') return 'Admin Meeting';
-  if (['town_hall','leadership_circle','supervisors_meeting'].includes(subtype)) return 'Town Hall';
+  if (subtype === 'town_hall') return 'Town Hall';
+  if (subtype === 'leadership_circle') return 'Leadership Circle';
+  if (subtype === 'supervisors_meeting') return 'Supervisors meeting';
   if (subtype === 'interview') return 'Interview';
   if (subtype === 'evaluation') return 'Employee Evaluation';
   if (kind === 'TEAM_MEETING') return isMultiParticipant.value ? 'Group Meeting' : 'Meeting';
@@ -2557,12 +2559,6 @@ onUnmounted(() => {
   flex: 1 1 0;
   min-height: 0 !important;
   height: auto !important;
-}
-.join-video :deep(.vsr__stage--solo .vsr__tile),
-.join-video :deep(.vsr__stage--duo .vsr__tile),
-.join-video :deep(.vsr__stage--grid .vsr__tile) {
-  min-height: 0 !important;
-  height: 100% !important;
 }
 .join-video--lobby :deep(.vsr__viewport) { aspect-ratio: 1; height: auto; min-height: 0; }
 .join-video--lobby :deep(.vsr__stage:not(.vsr__stage--strip)) { flex: 1 1 auto; height: 100% !important; }

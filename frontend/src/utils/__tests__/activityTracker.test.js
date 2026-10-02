@@ -9,6 +9,7 @@ vi.mock('../statusPromptBridge', () => ({ closeStatusPrompt: mocks.close }));
 vi.mock('../loginRedirect', () => ({ getLoginUrlForRedirect: () => '/login', getCurrentPortalSlugFromHostCache: () => '', getCurrentPortalSlugFromPath: () => '' }));
 vi.mock('../sessionTimeoutBranding', () => ({ resolveSessionTimeoutTenantKey: () => 'test', rememberSessionEndedContext: vi.fn(), markSessionEndedRedirecting: vi.fn() }));
 import { startActivityTracking, stopActivityTracking, resumeSession, pauseIdleForSessionExtend, applyClockedInTimeoutOverride } from '../activityTracker';
+import { startLiveMeetingPresence } from '../liveMeetingPresence';
 import { sessionStorageKey } from '../sessionDeadline';
 import { useSessionLockStore } from '../../store/sessionLock';
 
@@ -216,5 +217,27 @@ describe('shared activity tracking', () => {
     applyClockedInTimeoutOverride();
     await vi.advanceTimersByTimeAsync(120000);
     expect(mocks.logout).toHaveBeenCalled();
+  });
+});
+
+describe('connected meetings across tabs',()=>{
+  it('renews the server deadline while hidden and resumes normal timeout after leaving',async()=>{
+    const stopMeeting=startLiveMeetingPresence();
+    Object.defineProperty(document,'visibilityState',{configurable:true,value:'hidden'});
+    await startActivityTracking();
+    await vi.advanceTimersByTimeAsync(180000);
+    expect(mocks.logout).not.toHaveBeenCalled();
+    expect(mocks.post.mock.calls.filter(([url])=>url==='/auth/session-activity').length).toBeGreaterThan(5);
+    stopMeeting();
+    await vi.advanceTimersByTimeAsync(150000);
+    expect(mocks.logout).toHaveBeenCalledTimes(1);
+  });
+  it('does not unlock an already locked account merely because a meeting lease exists',async()=>{
+    serverSession={...serverSession,phase:'timedown',lockAt:Date.now()-1000,expiresAt:Date.now()+60000};
+    const stopMeeting=startLiveMeetingPresence();
+    await startActivityTracking();await vi.advanceTimersByTimeAsync(2000);
+    expect(useSessionLockStore().warningActive).toBe(true);
+    expect(mocks.post.mock.calls.some(([url])=>url==='/auth/session-activity')).toBe(false);
+    stopMeeting();
   });
 });

@@ -1935,7 +1935,7 @@
           :title="modalEditorTitle"
           :subtitle="modalScheduleSubtitle"
           :hide-chrome="true"
-          :disabled="submitting || scheduleEventSaving || (editorIsSupervision && !canSaveSelectedSupvSession)"
+          :disabled="submitting || scheduleEventSaving || (isSupervisionEditMode && !canSaveSelectedSupvSession)"
           :show-virtual="editorShowVirtual || editorIsMeeting"
           :show-virtual-options="editorIsMeeting"
           v-model:virtual-is-virtual="editorMeetingIsVirtual"
@@ -2069,6 +2069,7 @@
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
               v-model:reminder-minutes="meetingReminderMinutes"
+              v-model:reminder-offsets="supervisionReminderOffsets"
               v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
@@ -3599,6 +3600,7 @@
               v-model:is-virtual="editorSupervisionIsVirtual"
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
               v-model:reminder-minutes="meetingReminderMinutes"
+              v-model:reminder-offsets="supervisionReminderOffsets"
               v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
@@ -4765,6 +4767,7 @@
           </button>
         </div>
         <div v-else-if="!showActionChooser && !isAppointmentEditMode && !intakeConfirmStep && requestType !== 'admin_assign' && requestType !== 'cancel_booking' && requestType !== 'slot_details'" class="nr-footer">
+          <div v-if="modalError" class="error nr-footer__error" role="alert">{{ modalError }}</div>
           <div v-if="showRequestSubmitBlockedBanner" class="nr-blocked-reason" style="flex: 1 1 100%; margin-bottom: 8px;">
             {{ requestSubmitBlockedReason }}
           </div>
@@ -7454,6 +7457,8 @@ const clearScheduleActionQuery = () => {
   if (!route.query?.scheduleAction) return;
   const nextQuery = { ...route.query };
   delete nextQuery.scheduleAction;
+  delete nextQuery.scheduleSuperviseeId;
+  delete nextQuery.scheduleAgencyId;
   router.replace({ query: nextQuery }).catch(() => {});
 };
 
@@ -7500,10 +7505,21 @@ const waitForScheduleReady = async (timeoutMs = 4500) => {
 
 const consumeScheduleActionQuery = async () => {
   const action = String(route.query?.scheduleAction || '').trim().toLowerCase();
-  if (!action || (action !== 'book' && action !== 'book_virtual')) return;
+  if (!['book', 'book_virtual', 'supervision'].includes(action)) return;
+  const superviseeId = Number(route.query?.scheduleSuperviseeId || 0);
+  const agencyId = Number(route.query?.scheduleAgencyId || 0);
   clearScheduleActionQuery();
   // Wait for schedule/office locations so session booking can preselect an office when possible.
   await waitForScheduleReady();
+  if (action === 'supervision') {
+    const dateYmd = String(todayLocalYmd.value || weekStart.value).slice(0, 10);
+    await openSlotActionModal({ dayName: dayNameForDateYmd(dateYmd), hour: Math.max(7, Math.min(20, new Date().getHours())),
+      dateYmd, preserveSelectionRange: false, initialRequestType: 'supervision', actionSource: 'supervision_history' });
+    if (agencyId) selectedActionAgencyId.value = agencyId;
+    await loadSupervisionProviders();
+    if (superviseeId && availableSupervisionParticipants.value.some(row => Number(row.id) === superviseeId)) selectedSupervisionParticipantId.value = superviseeId;
+    return;
+  }
   await openQuickBook({ virtual: action === 'book_virtual' });
 };
 
@@ -8111,21 +8127,13 @@ const isTodayDay = (dayName) => {
 };
 
 const dayNameForDateYmd = (dateYmd) => {
-  const g = officeGrid.value;
-  const d = String(dateYmd || '').slice(0, 10);
-  if (g && Array.isArray(g.days)) {
-    const idx = g.days.findIndex((x) => String(x || '').slice(0, 10) === d);
-    if (idx >= 0) return ALL_DAYS[idx] || null;
-  }
-  // Fallback: offset from the visible week anchor (Mon or Sun based on preference).
-  const ws = String(weekStart.value || '').slice(0, 10);
-  const [y1, m1, d1] = ws.split('-').map(Number);
-  const [y2, m2, d2] = d.split('-').map(Number);
-  const a = new Date(y1, (m1 || 1) - 1, d1 || 1);
-  const b = new Date(y2, (m2 || 1) - 1, d2 || 1);
-  const diff = Math.floor((b - a) / (1000 * 60 * 60 * 24));
-  const days = orderedDays.value?.length ? orderedDays.value : ALL_DAYS;
-  return days[diff] ?? null;
+  const value = String(dateYmd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  // Calendar dates are independent of the visible week and daylight-saving offsets.
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.toISOString().slice(0, 10) !== value) return null;
+  return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][date.getUTCDay()];
 };
 
 const onOfficeLayoutCellClick = ({ dateYmd, hour, roomId, slot, event, alreadyRequested }) => {
@@ -12221,6 +12229,7 @@ const scheduleEventPrivate = ref(false);
 const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | EVERY_3_WEEKS | EVERY_4_WEEKS | MONTHLY
 const scheduleEventRecurrenceEndMode = ref('count'); // count | indefinite
 const scheduleEventOccurrenceCount = ref(7); // 1–104 for recurring meeting/huddle
+const supervisionReminderOffsets = ref([5]);
 const supervisionRecurrence = ref('ONCE');
 const supervisionRecurrenceEndMode = ref('count'); // count | indefinite
 const supervisionOccurrenceCount = ref(6);
@@ -13180,7 +13189,7 @@ const onChooserWhenChanged = () => {
   const syncGridSelection = modalChooserTimeEditable.value
     || (isScheduleEventRequestType.value && !isScheduleEventAllDayUi.value);
   if (syncGridSelection) {
-    const dateYmd = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
+    const dateYmd = editorIsSupervision.value ? editorDateYmd.value : addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
     const roomId = Number(selectedOfficeRoomId.value || modalContext.value?.roomId || 0);
     const slots = [];
     for (let h = start; h < end; h += 1) {
@@ -13715,6 +13724,8 @@ const editorDateYmd = computed(() => {
   if (isSupervisionEditMode.value && supvStartIsoLocal.value) {
     return String(supvStartIsoLocal.value).slice(0, 10);
   }
+  const selectedDate = String(modalContext.value?.dateYmd || '').slice(0, 10);
+  if (editorIsSupervision.value && selectedDate && dayNameForDateYmd(selectedDate) === modalDay.value) return selectedDate;
   try {
     return addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
   } catch {
@@ -14572,6 +14583,7 @@ function onEditorDateYmd(ymd) {
     supvEndIsoLocal.value = `${value}T${endT}`;
     return;
   }
+  if (editorIsSupervision.value) modalContext.value = { ...modalContext.value, dateYmd: value };
   const weekAnchor = startOfWeekForPreference(value);
   if (weekAnchor && weekAnchor !== weekStart.value) {
     weekStart.value = weekAnchor;
@@ -14720,13 +14732,13 @@ function onEditorBookedUntil(value) {
   if (canEditBookingStrip.value) bookingStripUntil.value = String(value || '');
 }
 function onEditorRecurrenceFrequency(v) {
-  scheduleEventRecurrence.value = String(v || 'ONCE').toUpperCase();
+  editorRecurrenceFrequency.value = v;
 }
 function onEditorRecurrenceEndMode(v) {
-  scheduleEventRecurrenceEndMode.value = String(v || 'count');
+  editorRecurrenceEndMode.value = v;
 }
 function onEditorRecurrenceOccurrenceCount(v) {
-  scheduleEventOccurrenceCount.value = Math.max(1, Number(v || 1));
+  editorRecurrenceOccurrenceCount.value = v;
 }
 function onEditorRequestOffice() {
   editorAttachOfficeRequest.value = true;
@@ -18448,6 +18460,7 @@ const openSlotActionModal = async ({
   meetingSettings.value = null;
   notifyMeetingChanges.value = true;
   meetingReminderMinutes.value = 5;
+  supervisionReminderOffsets.value = [5];
   notifyMeetingParticipants.value = true;
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
@@ -20546,6 +20559,7 @@ const closeModal = () => {
   meetingSettings.value = null;
   notifyMeetingChanges.value = true;
   meetingReminderMinutes.value = 5;
+  supervisionReminderOffsets.value = [5];
   notifyMeetingParticipants.value = true;
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
@@ -22116,7 +22130,7 @@ const submitRequest = async () => {
       }
       const dayIdx = orderedDays.value.indexOf(String(dn)) - (effectiveWeekStartsOn.value === 'sunday' ? 1 : 0);
       if (dayIdx < -1) throw new Error('Invalid day');
-      const dateYmd = addDaysYmd(weekStart.value, dayIdx);
+      const dateYmd = String(editorDateYmd.value || addDaysYmd(weekStart.value, dayIdx)).slice(0, 10);
       const recurrence = String(supervisionRecurrence.value || 'ONCE').trim().toUpperCase();
       const recurringRecurrences = [...RECURRING_FREQUENCIES];
       const occurrenceCount = recurringRecurrences.includes(recurrence)
@@ -22157,6 +22171,7 @@ const submitRequest = async () => {
           modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
           waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
           reminderMinutes: meetingReminderMinutes.value,
+      reminderOffsets: supervisionReminderOffsets.value,
                   meetingSettings: meetingSettings.value,
                   notifyChanges: notifyMeetingChanges.value,
           notifyParticipants: !!notifyMeetingParticipants.value,
@@ -22415,7 +22430,7 @@ watch(requestType, (t) => {
     if (!ALL_RECURRENCE_FREQUENCIES.includes(String(supervisionRecurrence.value || '').toUpperCase())) {
       supervisionRecurrence.value = 'ONCE';
     }
-    if (!['count', 'indefinite'].includes(String(supervisionRecurrenceEndMode.value || ''))) {
+    if (!['count', 'until', 'indefinite'].includes(String(supervisionRecurrenceEndMode.value || ''))) {
       supervisionRecurrenceEndMode.value = 'count';
     }
     supervisionOccurrenceCount.value = Math.min(104, Math.max(1, Number(supervisionOccurrenceCount.value) || 6));
@@ -23678,6 +23693,7 @@ const openSupvModal = (dayName, hour) => {
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
   supvNotes.value = String(first.notes || '');
   meetingReminderMinutes.value = first.reminderMinutes === undefined ? 5 : first.reminderMinutes;
+  supervisionReminderOffsets.value = first.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
   notifyMeetingParticipants.value = first.notifyParticipants !== false;
   supvCreateMeetLink.value = false;
   editTimingBaseline.value = {
@@ -23725,6 +23741,7 @@ watch(selectedSupvSessionId, (id) => {
   if (!ev) return;
   supvNotes.value = String(ev.notes || '');
   meetingReminderMinutes.value = ev.reminderMinutes === undefined ? 5 : ev.reminderMinutes;
+  supervisionReminderOffsets.value = ev.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
   notifyMeetingParticipants.value = ev.notifyParticipants !== false;
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.startAt));
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.endAt));
@@ -23897,6 +23914,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       modality: editorSupervisionIsVirtual.value ? 'virtual' : 'in_person',
       waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
       reminderMinutes: meetingReminderMinutes.value,
+      reminderOffsets: supervisionReminderOffsets.value,
                   meetingSettings: meetingSettings.value,
                   notifyChanges: notifyMeetingChanges.value,
       notifyParticipants: !!notifyMeetingParticipants.value,
@@ -25010,6 +25028,7 @@ const beginEditScheduleStackItem = async (item) => {
       && item?.notify_participants !== false
       && item?.notify_participants !== 0;
     meetingReminderMinutes.value = item?.reminderMinutes === undefined ? 5 : item.reminderMinutes;
+    supervisionReminderOffsets.value = item?.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
     if (agencyId > 0) void loadMeetingCandidates();
   } else if (agencyId > 0) {
     void loadVirtualSessionClients(agencyId);
@@ -25481,6 +25500,7 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0) => {
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(first.endAt));
   supvNotes.value = String(first.notes || '');
   meetingReminderMinutes.value = first.reminderMinutes === undefined ? 5 : first.reminderMinutes;
+  supervisionReminderOffsets.value = first.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
   notifyMeetingParticipants.value = first.notifyParticipants !== false;
   supvCreateMeetLink.value = false;
   editTimingBaseline.value = {

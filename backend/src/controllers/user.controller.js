@@ -2,7 +2,7 @@ import { huddleSubtype, HUDDLE_SUBTYPES } from '../services/huddlePolicy.js';
 import { randomUUID } from 'node:crypto';
 import { captureMeetingChange, queueMeetingChange } from '../services/meetingScheduleChanges.service.js';
 import { saveEventMeetingSettings, assertMeetingCompensationSetting } from '../services/meetingSettings.service.js';
-import { ADMIN_ONLY_MEETING_TYPES, meetingTypeForEvent, normalizeMeetingSettings } from '../services/meetingSettingsPolicy.js';
+import { ADMIN_ONLY_MEETING_TYPES, meetingTypeForEvent, normalizeMeetingSettings, parseMeetingSettings } from '../services/meetingSettingsPolicy.js';
 import { getPasswordRecoverySsoState, passwordRecoveryRequiresSupport } from '../services/passwordRecoveryPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
@@ -4795,6 +4795,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           joinUrl: joinableSession ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), joinKey) : null,
           participantJoinUrl: joinableSession ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), joinKey) : null,
           reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
+          reminderOffsets: parseMeetingSettings(r.meeting_settings_json).reminders,
           timeZone: r.event_timezone || null,
           hostJoinUrl: joinableSession && hostJoinToken
             ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), hostJoinToken)
@@ -4957,6 +4958,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           waitingRoomEnabled: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? waitingRoomEnabled : null,
           notifyParticipants: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? notifyParticipants : null,
           reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
+          reminderOffsets: parseMeetingSettings(r.meeting_settings_json).reminders,
           status: String(r.status || 'ACTIVE').trim().toUpperCase() || 'ACTIVE',
           isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
           isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,
@@ -6612,7 +6614,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
       if (delivery.failed) invitationWarning = 'Meeting saved, but some app invitations could not be queued. Please contact support before relying on email delivery.';
     }
     // Notify attendees / host counterparts so their schedule can refresh.
-    if (notifyParticipants && saved?.id && (kind === 'TEAM_MEETING' || kind === 'HUDDLE')) {
+    if (notifyParticipants && saved?.id && (!recurrenceSeriesId || Number(recurrenceIndex || 0) === 0) && (kind === 'TEAM_MEETING' || kind === 'HUDDLE')) {
       try {
         const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
         const actorName = `${String(req.user?.first_name || req.user?.firstName || '').trim()} ${String(req.user?.last_name || req.user?.lastName || '').trim()}`.trim()
@@ -6629,7 +6631,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
         await Promise.all(recipientIds.map((uid) => createNotificationAndDispatch({
           type: 'team_meeting_scheduled',
           severity: 'info',
-          title: `${kind === 'HUDDLE' ? 'Huddle' : 'Meeting'} scheduled`,
+          title: `${kind === 'HUDDLE' ? 'Huddle' : 'Meeting'}${recurrenceSeriesId ? ' series' : ''} scheduled`,
           message: `${actorName} scheduled “${titleText}” for ${whenLabel}. Open My Schedule to see it.`,
           userId: uid,
           agencyId,

@@ -2,6 +2,7 @@ import { setMeetingTranscription } from './meetingTranscription.controller.js';
 import { requirePersonalSupervisionInvitation, canJoinSupervision, hasActiveMeetingMembership, roomUnavailable } from '../services/meetingJoinPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
+import { normalizeMeetingSettings, parseMeetingSettings } from '../services/meetingSettingsPolicy.js';
 import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.model.js';
@@ -3721,6 +3722,8 @@ export const createSupervisionSession = async (req, res, next) => {
       || req.body?.sendCalendarInvites === 'false'
     );
     const meetingReminderMinutes = normalizeMeetingReminder(req.body?.reminderMinutes);
+    const reminderSettings = req.body?.reminderOffsets === undefined ? null
+      : normalizeMeetingSettings({reminders:req.body.reminderOffsets});
     const created = await SupervisionSession.create({
       agencyId,
       supervisorUserId,
@@ -3746,7 +3749,7 @@ export const createSupervisionSession = async (req, res, next) => {
       autoCancelIfEmpty: isSignupOnly
     });
 
-    await pool.execute('UPDATE supervision_sessions SET reminder_minutes=?,event_timezone=? WHERE id=?',[meetingReminderMinutes,supervisionTimeZone,created.id]);
+    await pool.execute('UPDATE supervision_sessions SET reminder_minutes=?,event_timezone=?,meeting_settings_json=? WHERE id=?',[meetingReminderMinutes,supervisionTimeZone,reminderSettings ? JSON.stringify({reminders:reminderSettings.reminders}) : null,created.id]);
     // Ensure newly scheduled sessions immediately appear in supervision rosters.
     if (!isSignupOnly) {
       await SupervisorAssignment.ensure(
@@ -3843,8 +3846,8 @@ export const createSupervisionSession = async (req, res, next) => {
       console.warn('[supervision] Failed to seed case presentations:', presErr?.message || presErr);
     }
 
-    // Notify counterparts so their schedule can refresh / toast.
-    if (notifyParticipants) {
+    // Announce a recurring series once; occurrence reminders remain separate.
+    if (notifyParticipants && (!recurrenceSeriesId || Number(recurrenceIndex || 0) === 0)) {
       try {
         const { createNotificationAndDispatch } = await import('../services/notificationDispatcher.service.js');
         const actorId = Number(req.user?.id || 0);
@@ -3861,7 +3864,7 @@ export const createSupervisionSession = async (req, res, next) => {
         await Promise.all(recipientIds.map((uid) => createNotificationAndDispatch({
           type: 'supervision_session_scheduled',
           severity: 'info',
-          title: `${typeLabel} scheduled`,
+          title: `${typeLabel}${recurrenceSeriesId ? ' series' : ''} scheduled`,
           message: `${actorName} scheduled ${typeLabel.toLowerCase()} for ${whenLabel}. Open My Schedule to see it.`,
           userId: uid,
           agencyId,
@@ -4072,6 +4075,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     if (String(nextEnd) <= String(nextStart)) return res.status(400).json({ error: { message: 'endAt must be after startAt' } });
 
     const nextReminderMinutes = req.body?.reminderMinutes === undefined ? undefined : normalizeMeetingReminder(req.body.reminderMinutes);
+    const nextReminderOffsets = req.body?.reminderOffsets === undefined ? undefined : normalizeMeetingSettings({reminders:req.body.reminderOffsets}).reminders;
     const scope = String(req.body?.scope || 'single').trim().toLowerCase();
     if (!['single', 'future'].includes(scope)) {
       return res.status(400).json({ error: { message: 'scope must be single or future' } });
@@ -4134,6 +4138,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       });
       if (occId === id) updated = rowUpdated;
       if (nextReminderMinutes !== undefined) await pool.execute('UPDATE supervision_sessions SET reminder_minutes=? WHERE id=?',[nextReminderMinutes,occId]);
+      if (nextReminderOffsets !== undefined) await pool.execute('UPDATE supervision_sessions SET meeting_settings_json=? WHERE id=?',[JSON.stringify({...parseMeetingSettings(occ.meeting_settings_json),reminders:nextReminderOffsets}),occId]);
       if (timingChanged) await pool.execute('UPDATE supervision_sessions SET event_timezone=? WHERE id=?',[supervisionTimeZone,occId]);
       if (req.body?.notifyParticipants !== undefined) await pool.execute('UPDATE supervision_sessions SET notify_participants=? WHERE id=?',[notifyParticipants?1:0,occId]);
     }
@@ -4565,24 +4570,15 @@ export const getSuperviseeSessions = async (req, res, next) => {
     const role = String(req.user?.role || '').toLowerCase();
     const aId = Number.isFinite(agencyId) && agencyId > 0 ? agencyId : null;
 
-    if (role !== 'super_admin' && role !== 'admin' && role !== 'support' && role !== 'staff' && role !== 'clinical_practice_assistant') {
-      const [rows] = await pool.execute(
-        `SELECT agency_id FROM supervision_sessions
-         WHERE supervisee_user_id = ? OR EXISTS (
-           SELECT 1 FROM supervision_session_attendees ssa
-           WHERE ssa.session_id = supervision_sessions.id AND ssa.user_id = ? AND ssa.participant_role = 'supervisee'
-         )
-         LIMIT 1`,
-        [superviseeId, superviseeId]
-      );
-      const agencyIdFromSession = rows?.[0]?.agency_id;
-      const checkAgencyId = aId || Number(agencyIdFromSession || 0);
-      const ok = await canScheduleSession(req, {
-        agencyId: checkAgencyId || 1,
-        supervisorUserId: 0,
-        superviseeUserId: superviseeId
-      });
-      if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    // History access follows the current assignment, not permission to book a
+    // hypothetical session with supervisor id 0. Always constrain the tenant.
+    if (!aId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const activeMember = await hasActiveMeetingMembership(aId, actorId);
+    const privileged = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
+    const assigned = !privileged && actorId !== superviseeId
+      ? await User.supervisorHasAccess(actorId, superviseeId, aId) : false;
+    if (!activeMember || !(privileged || actorId === superviseeId || assigned)) {
+      return res.status(403).json({ error: { message: 'Access denied' } });
     }
     await autoFinalizeOverdueSessions({ agencyId: aId, actorUserId: actorId });
 

@@ -374,3 +374,34 @@ describe('VideoSessionRoom connection lifecycle', () => {
     expect(remotes[0].hasVideo).toBe(false);
   });
 });
+
+describe('remote subscription recovery',()=>{
+  it('retries a failed subscription without removing the participant, and cancels after they leave',async()=>{
+    const w=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'retry-test',token:'eyJ.test.token',playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();vi.useFakeTimers();
+    const callbacks=[];
+    videoSdk.session.subscribe=vi.fn((stream,target,options,done)=>{callbacks.push(done);return {element:target,streamId:stream.streamId,on:vi.fn()};});
+    const stream={streamId:'retry-person',name:'Participant',hasVideo:true,hasAudio:true,connection:{connectionId:'peer'}};
+    videoSdk.session._handlers.streamCreated({stream});await flushPromises();
+    callbacks[0](new Error('Temporary network failure'));await flushPromises();
+    expect(w.findAll('.vsr__tile--remote')).toHaveLength(1);
+    expect(w.text()).toContain('Reconnecting video');
+    await vi.advanceTimersByTimeAsync(1000);await flushPromises();
+    expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(2);
+    callbacks[1](new Error('Still reconnecting'));
+    videoSdk.session._handlers.streamDestroyed({stream});
+    await vi.advanceTimersByTimeAsync(12000);await flushPromises();
+    expect(videoSdk.session.subscribe).toHaveBeenCalledTimes(2);
+    expect(w.findAll('.vsr__tile--remote')).toHaveLength(0);w.unmount();vi.useRealTimers();
+  });
+  it('keeps a locally degraded camera in the gallery until video recovers',async()=>{
+    const w=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'quality-test',token:'eyJ.test.token',playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();const handlers={};
+    videoSdk.session.subscribe=vi.fn((stream,target)=>({element:target,streamId:stream.streamId,on:(name,handler)=>{handlers[name]=handler;}}));
+    videoSdk.session._handlers.streamCreated({stream:{streamId:'quality-person',hasVideo:true,hasAudio:true,connection:{connectionId:'peer'}}});await flushPromises();
+    handlers.videoDisabled({reason:'quality'});await flushPromises();
+    expect(w.vm.remotes[0].hasVideo).toBe(true);expect(w.text()).toContain('audio continues');
+    handlers.videoEnabled({reason:'quality'});await flushPromises();expect(w.text()).not.toContain('audio continues');
+    vi.useFakeTimers();handlers.videoDisabled({reason:'publishVideo'});await vi.advanceTimersByTimeAsync(500);await flushPromises();vi.useRealTimers();expect(w.find('.vsr__cam-off-chip, .vsr__tile--cam-off').exists()).toBe(true);w.unmount();
+  });
+});

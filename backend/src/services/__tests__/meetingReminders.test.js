@@ -31,6 +31,8 @@ describe('editable meeting reminders',()=>{
     await runJoinReminderTick({now:new Date('2026-09-28T21:30:00Z')});
     const queries=m.execute.mock.calls.filter(([sql])=>sql.includes('INTERVAL') && sql.includes('reminder_minutes'));
     expect(queries).toHaveLength(2);
-    for(const [sql,args] of queries){expect(sql).toContain('reminder_minutes IS NOT NULL');expect(sql).toContain('INTERVAL 3 MINUTE');expect(args).toEqual(['2026-09-28 21:30:00','2026-09-28 21:30:00','2026-09-28 21:30:00']);}
+    expect(queries[0][0]).toContain('meeting_settings_json');
+    expect(queries[0][1]).toEqual(['2026-09-28 21:30:00','2026-09-28 21:30:00']);
+    expect(queries[1][0]).toContain('INTERVAL 3 MINUTE');
   });
 });

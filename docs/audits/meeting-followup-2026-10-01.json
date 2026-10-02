@@ -1,0 +1,195 @@
+{
+  "date": "2026-10-01",
+  "scope": "Meeting, video, and supervision scheduling follow-up",
+  "reports": [
+    {
+      "items": [
+        1
+      ],
+      "finding": "Subscriber quality fallback hid camera tiles; failed subscriptions removed participants.",
+      "change": "Retain tiles with recovery feedback; retry missing subscriptions with bounded backoff; reconcile after reconnect or tab resume."
+    },
+    {
+      "items": [
+        2,
+        3,
+        4
+      ],
+      "finding": "Only visible meeting tabs suspended inactivity; other tabs did not know about the connected call.",
+      "change": "Short-lived, login-scoped meeting leases renew normal activity and suppress rejoin prompts across tabs; closing the call restores inactivity behavior; locked sessions remain locked."
+    },
+    {
+      "items": [
+        5,
+        "5.1",
+        "5.2"
+      ],
+      "finding": "New supervision used edit-only save permission; recurrence handlers updated team-meeting state; date lookup depended on the visible week.",
+      "change": "Separate creation from edit permission, route recurrence to supervision state, preserve explicit dates, display submission errors, and save/deliver multiple reminder offsets."
+    },
+    {
+      "items": [
+        6
+      ],
+      "finding": "History authorization checked scheduling permission against supervisor id zero.",
+      "change": "Authorize current assigned supervisor, supervisee, or agency administrator with active agency membership and tenant-constrained history queries."
+    },
+    {
+      "items": [
+        7,
+        8
+      ],
+      "finding": "Parent height override stretched tiles; minimum tile sizes and thumbnail rows consumed the screen-share area.",
+      "change": "Remove stretch override, fit square tiles to available space, and reserve a single thumbnail row under prioritized screen content."
+    },
+    {
+      "items": [
+        9
+      ],
+      "finding": "The room heading mapped three distinct meeting types to Town Hall.",
+      "change": "Display separate Town Hall, Leadership Circle, and Supervisors meeting labels without changing stored meeting type."
+    },
+    {
+      "items": [
+        10
+      ],
+      "change": "Remove the separate supervision booking form. Schedule supervision above recent sessions opens My Schedule with supervision and the selected supervisee/agency."
+    },
+    {
+      "items": [
+        11
+      ],
+      "change": "Send the initial in-app scheduling announcement only for occurrence zero of a recurring supervision or team-meeting series; preserve individual occurrence reminders."
+    }
+  ],
+  "validation": {
+    "isolated_candidate": true,
+    "backend_tests_passed": 402,
+    "frontend_tests_passed": 89,
+    "database_integration_tests_skipped": 21,
+    "production_build": "Passed, with existing Vite chunk/import warnings",
+    "browser_layout": {
+      "results": [
+        {
+          "width": 960,
+          "height": 620,
+          "tiles": [
+            {
+              "width": 193,
+              "height": 193
+            },
+            {
+              "width": 193,
+              "height": 193
+            },
+            {
+              "width": 193,
+              "height": 193
+            },
+            {
+              "width": 193,
+              "height": 193
+            },
+            {
+              "width": 193,
+              "height": 193
+            },
+            {
+              "width": 193,
+              "height": 193
+            }
+          ]
+        },
+        {
+          "width": 480,
+          "height": 380,
+          "tiles": [
+            {
+              "width": 73,
+              "height": 73
+            },
+            {
+              "width": 73,
+              "height": 73
+            },
+            {
+              "width": 73,
+              "height": 73
+            },
+            {
+              "width": 73,
+              "height": 73
+            },
+            {
+              "width": 73,
+              "height": 73
+            },
+            {
+              "width": 73,
+              "height": 73
+            }
+          ]
+        },
+        {
+          "width": 320,
+          "height": 320,
+          "tiles": [
+            {
+              "width": 73,
+              "height": 73
+            },
+            {
+              "width": 73,
+              "height": 73
+            },
+            {
+              "width": 73,
+              "height": 73
+            },
+            {
+              "width": 73,
+              "height": 73
+            },
+            {
+              "width": 73,
+              "height": 73
+            },
+            {
+              "width": 73,
+              "height": 73
+            }
+          ]
+        }
+      ],
+      "screen": {
+        "x": 5.59375,
+        "y": 5.59375,
+        "width": 468.8125,
+        "height": 154.265625
+      },
+      "stage": {
+        "x": 0,
+        "y": 0,
+        "width": 480,
+        "height": 215.046875
+      },
+      "errors": []
+    },
+    "browser_scope": "Local Chromium with mocked video SDK; six participants, three viewport sizes, and screen priority."
+  },
+  "deployment": {
+    "required_migration": "database/migrations/1520_supervision_multiple_reminders.sql",
+    "production_migration_applied": false,
+    "production_deployment_performed": false
+  },
+  "remaining_live_verification": [
+    "Multi-person call on real devices and networks, including screen sharing and reconnecting a participant.",
+    "Stay in a call beyond the inactivity threshold while using a second app tab.",
+    "Deploy the migration and verify recurring supervision plus reminder delivery against the deployment database."
+  ],
+  "limitations": [
+    "Live Vonage audio/video and Safari device behavior were not exercised.",
+    "Previously delivered duplicate notifications are retained.",
+    "Unrelated workspace changes are excluded from this commit."
+  ]
+}

@@ -326,69 +326,9 @@
               @uploaded="onDocumentUploaded"
             />
             <section class="supervision-detail-section">
-              <h3>Chat &amp; Schedule meeting</h3>
+              <h3>Supervision meetings</h3>
               <div class="supervision-actions-row">
                 <a :href="chatsLink" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Chat with supervisee</a>
-              </div>
-              <div class="schedule-meeting-form" style="margin-top: 1rem;">
-                <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Schedule supervision meeting</h4>
-                <form @submit.prevent="submitScheduleMeeting" class="supervision-form">
-                  <div class="form-row">
-                    <div class="form-group">
-                      <label>Start *</label>
-                      <input v-model="scheduleStartAt" type="datetime-local" required class="input" />
-                    </div>
-                    <div class="form-group">
-                      <label>End *</label>
-                      <input v-model="scheduleEndAt" type="datetime-local" required class="input" />
-                    </div>
-                  </div>
-                  <div class="form-group">
-                    <label>Session type</label>
-                    <select v-model="scheduleSessionType" class="input">
-                      <option value="individual">Individual</option>
-                      <option value="triadic">Triadic</option>
-                      <option v-if="canBookGroupSupervision" value="group">Group</option>
-                    </select>
-                    <p v-if="!canBookGroupSupervision" class="form-hint">Group supervision booking requires admin/CPA/support access or group supervision eligibility.</p>
-                  </div>
-                  <div v-if="availableAdditionalAttendees.length > 0 && scheduleSessionType !== 'individual'" class="form-row">
-                    <div class="form-group">
-                      <label>Required attendees</label>
-                      <select v-model="scheduleRequiredAttendeeIds" class="input" multiple size="4">
-                        <option v-for="opt in availableAdditionalAttendees" :key="`req-${opt.id}`" :value="opt.id">
-                          {{ opt.label }}
-                        </option>
-                      </select>
-                    </div>
-                    <div class="form-group">
-                      <label>Optional attendees</label>
-                      <select v-model="scheduleOptionalAttendeeIds" class="input" multiple size="4">
-                        <option v-for="opt in availableAdditionalAttendees" :key="`opt-${opt.id}`" :value="opt.id">
-                          {{ opt.label }}
-                        </option>
-                      </select>
-                    </div>
-                  </div>
-                  <div v-if="presenterCandidateOptions.length > 0 && scheduleSessionType !== 'individual'" class="form-group">
-                    <label>Presenter(s) (up to 2)</label>
-                    <select v-model="schedulePresenterIds" class="input" multiple size="3">
-                      <option v-for="opt in presenterCandidateOptions" :key="`presenter-${opt.id}`" :value="opt.id">
-                        {{ opt.label }}
-                      </option>
-                    </select>
-                  </div>
-                  <div class="form-group">
-                    <label>Modality (optional)</label>
-                    <input v-model="scheduleModality" type="text" class="input" placeholder="e.g. In-person, Video" />
-                  </div>
-                  <div class="form-group">
-                    <label>Notes (optional)</label>
-                    <textarea v-model="scheduleNotes" rows="2" class="input"></textarea>
-                  </div>
-                  <div v-if="scheduleError" class="supervision-error-inline" style="margin-bottom: 0.5rem;">{{ scheduleError }}</div>
-                  <button type="submit" class="btn btn-primary btn-sm" :disabled="scheduleSaving">Schedule meeting</button>
-                </form>
               </div>
               <div v-if="upcomingSessions.length > 0" class="upcoming-sessions" style="margin-top: 1rem;">
                 <h4 style="margin: 0 0 0.5rem 0; font-size: 0.95rem;">Upcoming sessions (this week)</h4>
@@ -535,6 +475,7 @@
               <div class="upcoming-sessions" style="margin-top: 1rem;">
                 <div class="supervision-actions-row" style="justify-content: space-between; align-items: center;">
                   <h4 style="margin: 0; font-size: 0.95rem;">Recent sessions (audit trail)</h4>
+                  <button type="button" class="btn btn-primary btn-sm" @click="openSupervisionScheduler">Schedule supervision</button>
                   <button
                     type="button"
                     class="btn btn-secondary btn-sm"
@@ -786,7 +727,6 @@ import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
-import { canScheduleGroupSupervision } from '../../utils/helpers.js';
 import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
 import ClientModal from '../school/redesign/ClientModal.vue';
@@ -800,7 +740,6 @@ const route = useRoute();
 const router = useRouter();
 
 const authStore = useAuthStore();
-const canBookGroupSupervision = computed(() => canScheduleGroupSupervision(authStore.user));
 const agencyStore = useAgencyStore();
 
 const loading = ref(true);
@@ -844,15 +783,6 @@ const showUploadDocumentDialog = ref(false);
 const selectedModuleForAssign = ref('');
 const assignableModules = ref([]);
 const showModuleAssignmentDialog = ref(false);
-const scheduleStartAt = ref('');
-const scheduleEndAt = ref('');
-const scheduleSessionType = ref('individual');
-const scheduleRequiredAttendeeIds = ref([]);
-const scheduleOptionalAttendeeIds = ref([]);
-const schedulePresenterIds = ref([]);
-const scheduleModality = ref('');
-const scheduleNotes = ref('');
-const scheduleSaving = ref(false);
 const meetingTrackerSaving = ref(false);
 const trackedMeetingWindow = ref(null);
 const trackedMeetingPoll = ref(null);
@@ -900,6 +830,15 @@ const chatsLink = computed(() => {
   const q = params.toString();
   return q ? `${base}?${q}` : base;
 });
+
+function openSupervisionScheduler() {
+  const slug = route.params?.organizationSlug || '';
+  router.push({ path: slug ? `/${slug}/dashboard` : '/dashboard', query: {
+    tab: 'my_schedule', scheduleAction: 'supervision',
+    scheduleSuperviseeId: String(selectedSupervisee.value?.supervisee_id || ''),
+    scheduleAgencyId: String(selectedSuperviseeAgencyId.value || '')
+  }});
+}
 
 const superviseeFullScheduleLink = computed(() => {
   const slug = route.params?.organizationSlug || '';
@@ -1367,85 +1306,6 @@ function openAgendaForSession(sessionId) {
   showAgendaPanel.value = !!agendaSessionId.value;
 }
 
-async function submitScheduleMeeting() {
-  const s = selectedSupervisee.value;
-  const agencyId = selectedSuperviseeAgencyId.value;
-  if (!s?.supervisee_id || !agencyId) return;
-  const startAt = scheduleStartAt.value?.trim();
-  const endAt = scheduleEndAt.value?.trim();
-  const requiredIds = Array.from(new Set((scheduleRequiredAttendeeIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0)));
-  const optionalIds = Array.from(new Set((scheduleOptionalAttendeeIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0 && !requiredIds.includes(n))));
-  const presenterIds = Array.from(new Set((schedulePresenterIds.value || []).map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))).slice(0, 2);
-  if (!startAt || !endAt) {
-    scheduleError.value = 'Start and end are required.';
-    return;
-  }
-  if (scheduleSessionType.value === 'group' && !canBookGroupSupervision.value) {
-    scheduleError.value = 'Only group-supervision-eligible supervisors can book group sessions.';
-    return;
-  }
-  if (scheduleSessionType.value === 'triadic') {
-    const totalSupervisees = 1 + requiredIds.length + optionalIds.length;
-    if (totalSupervisees !== 2) {
-      scheduleError.value = 'Triadic sessions must include exactly two supervisees total.';
-      return;
-    }
-  }
-  scheduleSaving.value = true;
-  scheduleError.value = '';
-  try {
-    await api.post('/supervision/sessions', {
-      agencyId,
-      supervisorUserId: authStore.user?.id,
-      superviseeUserId: s.supervisee_id,
-      sessionType: scheduleSessionType.value,
-      requiredAttendeeUserIds: requiredIds,
-      optionalAttendeeUserIds: optionalIds,
-      presenterUserIds: presenterIds,
-      startAt: startAt.replace('T', ' ').slice(0, 19),
-      endAt: endAt.replace('T', ' ').slice(0, 19),
-      modality: scheduleModality.value?.trim() || null,
-      notes: scheduleNotes.value?.trim() || null
-    });
-    scheduleStartAt.value = '';
-    scheduleEndAt.value = '';
-    scheduleSessionType.value = 'individual';
-    scheduleRequiredAttendeeIds.value = [];
-    scheduleOptionalAttendeeIds.value = [];
-    schedulePresenterIds.value = [];
-    scheduleModality.value = '';
-    scheduleNotes.value = '';
-    await fetchScheduleSummary();
-    await fetchSuperviseeExtras();
-    await fetchSessionHistory();
-  } catch (err) {
-    scheduleError.value = err?.response?.data?.error?.message || 'Failed to schedule meeting.';
-  } finally {
-    scheduleSaving.value = false;
-  }
-}
-
-watch(scheduleSessionType, (next) => {
-  if (next === 'individual') {
-    scheduleRequiredAttendeeIds.value = [];
-    scheduleOptionalAttendeeIds.value = [];
-    schedulePresenterIds.value = [];
-  }
-});
-
-watch(scheduleRequiredAttendeeIds, (next) => {
-  const req = new Set((next || []).map((n) => Number(n)));
-  scheduleOptionalAttendeeIds.value = (scheduleOptionalAttendeeIds.value || []).filter((n) => !req.has(Number(n)));
-}, { deep: true });
-
-watch([scheduleRequiredAttendeeIds, scheduleOptionalAttendeeIds, selectedSupervisee], () => {
-  const allowed = new Set((presenterCandidateOptions.value || []).map((p) => Number(p.id)));
-  schedulePresenterIds.value = (schedulePresenterIds.value || [])
-    .map((n) => Number(n))
-    .filter((n) => allowed.has(n))
-    .slice(0, 2);
-}, { deep: true });
-
 watch(upcomingSessions, (list) => {
   for (const row of list || []) {
     const sid = Number(row?.id || 0);
@@ -1467,40 +1327,6 @@ const currentAgencyId = computed(() => {
 const selectedSuperviseeAgencyId = computed(() => {
   const selectedAgencyId = selectedSupervisee.value?.agency_id;
   return selectedAgencyId || currentAgencyId.value || null;
-});
-
-const availableAdditionalAttendees = computed(() => {
-  const selectedId = Number(selectedSupervisee.value?.supervisee_id || 0);
-  const agencyId = Number(selectedSuperviseeAgencyId.value || 0);
-  const rows = Array.isArray(supervisees.value) ? supervisees.value : [];
-  return rows
-    .filter((r) => Number(r?.supervisee_id || 0) !== selectedId && Number(r?.agency_id || 0) === agencyId)
-    .map((r) => ({
-      id: Number(r?.supervisee_id || 0),
-      label: `${String(r?.supervisee_last_name || '').trim()}, ${String(r?.supervisee_first_name || '').trim()}`.replace(/^,\s*/, '').trim()
-    }))
-    .filter((r) => r.id > 0);
-});
-
-const presenterCandidateOptions = computed(() => {
-  const s = selectedSupervisee.value;
-  const primaryId = Number(s?.supervisee_id || 0);
-  const map = new Map();
-  if (primaryId) {
-    map.set(primaryId, {
-      id: primaryId,
-      label: selectedSuperviseeDisplayName.value || 'Primary supervisee'
-    });
-  }
-  for (const row of availableAdditionalAttendees.value || []) {
-    map.set(Number(row.id), { id: Number(row.id), label: row.label });
-  }
-  const included = new Set([
-    primaryId,
-    ...(scheduleRequiredAttendeeIds.value || []).map((n) => Number(n)),
-    ...(scheduleOptionalAttendeeIds.value || []).map((n) => Number(n))
-  ]);
-  return Array.from(map.values()).filter((r) => included.has(Number(r.id)));
 });
 
 const affiliatedPortalsByOrgId = computed(() => {

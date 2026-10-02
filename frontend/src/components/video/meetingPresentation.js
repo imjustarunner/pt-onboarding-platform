@@ -7,7 +7,9 @@ export function mediaElement(owner) {
 export function tileGrid(count, width, height, size = 'm') {
   if (!count) return { columns: 1, rows: 1 };
   const minWidth = { mini: 80, s: 150, m: 240, l: 340 }[size] || 240;
-  const maxColumns = Math.min(count, Math.max(1, Math.floor(width / minWidth)));
+  const preferredColumns = Math.max(1, Math.floor(width / minWidth));
+  const constrained = height / Math.ceil(count / preferredColumns) < minWidth;
+  const maxColumns = Math.min(count, Math.max(1, Math.floor(width / (constrained ? 72 : minWidth))));
   let best = { columns: 1, rows: count, score: -Infinity };
   for (let columns = 1; columns <= maxColumns; columns += 1) {
     const rows = Math.ceil(count / columns);
