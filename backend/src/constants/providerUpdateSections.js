@@ -64,7 +64,7 @@ export const PROVIDER_UPDATE_SECTIONS = [
     title: 'Office Schedule',
     shortTitle: 'Office',
     description: 'Review office schedule and open slots for booking.',
-    checklist: ['Review current office schedule', 'Identify slots needing open-for-booking', 'Quick-add openings'],
+    checklist: ['Confirm in-person, virtual and online booking preferences', 'Review and release or change assigned hours', 'Choose recurring bookable hours'],
     mode: 'embedded',
     icon: 'office',
     defaultEnabled: true,
@@ -80,6 +80,13 @@ export const PROVIDER_UPDATE_SECTIONS = [
     icon: 'clients',
     defaultEnabled: true,
     previewHint: 'Deep link into client fall confirmation / Fall Update clients work.'
+  },
+  {
+    key: 'supervision_hours', title: 'Supervision Hours', shortTitle: 'Supervision',
+    description: 'Confirm credited supervision hours or submit a correction with a reason and supporting evidence.',
+    checklist: ['Review credited hours', 'Confirm or request correction', 'Upload supporting records if needed'],
+    mode: 'embedded', icon: 'hours', defaultEnabled: true,
+    previewHint: 'Shows the supervision ledger for assigned supervisees. Corrections require review and do not automatically change credited hours.'
   },
   {
     key: 'license',
@@ -226,7 +233,7 @@ export const PROVIDER_UPDATE_PAGES = [
     description: 'Manage your account and scheduling details.',
     checklist: ['Set four-digit PIN', 'Set work hours', 'Review office schedule', 'Update license'],
     icon: 'hours',
-    sectionKeys: ['pin', 'work_hours', 'office_schedule', 'license', 'contact_info', 'preferred_days', 'notification_prefs', 'training_ack', 'pay_portal']
+    sectionKeys: ['pin', 'work_hours', 'office_schedule', 'supervision_hours', 'license', 'contact_info', 'preferred_days', 'notification_prefs', 'training_ack', 'pay_portal']
   },
   {
     key: 'profile_specialties',

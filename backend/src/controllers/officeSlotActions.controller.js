@@ -1,4 +1,5 @@
 import {publishOfficeAvailability} from '../services/publishOfficeAvailability.service.js';
+import { releaseOfficeReservation } from '../services/officeReservationRelease.service.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import { auditExpiredOfficeAssignments } from '../services/officeAssignmentExpiry.service.js';
 import { officeBookingUntil, officeBookingCount } from '../utils/officeBookingLimits.js';
@@ -527,7 +528,7 @@ async function resolveStandingAssignmentIdsForEvent(ev, officeLocationId, { appl
   if (!standingAssignmentId) {
     const providerIdFallback = Number(ev?.assigned_provider_id || ev?.booked_provider_id || 0) || null;
     const roomIdFallback = Number(ev?.room_id || 0) || null;
-    const wh = weekdayHourFromSqlDateTime(startAt);
+    const wh = weekdayHourInTz(startAt, await resolveOfficeTimezone(officeLocationId));
     if (providerIdFallback && roomIdFallback && wh) {
       const [rows] = await pool.execute(
         `SELECT id, recurrence_group_id
@@ -592,7 +593,7 @@ async function resolveStandingAssignmentIdsForEvent(ev, officeLocationId, { appl
 
   if (!targetAssignmentIds.length) {
     const roomId = Number(ev?.room_id || 0) || null;
-    const wh = weekdayHourFromSqlDateTime(startAt);
+    const wh = weekdayHourInTz(startAt, await resolveOfficeTimezone(officeLocationId));
     if (roomId && wh) {
       const [rows] = await pool.execute(
         `SELECT id
@@ -678,8 +679,9 @@ export const setBookingPlan = async (req, res, next) => {
       preferredAgencyId: Number(req.body?.agencyId || assignment.booking_agency_id || 0) || null });
     const clientId = Number(req.body?.clientId || 0) || null;
     if (clientId) await assertAppointmentClients(agencyId, [{ clientId }]);
-    const validated = await validateSchedulingSelection({ agencyId, userRole: provider.role,
-      providerCredentialText: provider.credential, ...selection });
+    const validated = await validateSchedulingSelection({ agencyId, providerId: provider.id, userRole: provider.role,
+      providerCredentialText: provider.credential,
+      providerId: provider.id, ...selection });
     const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
     const bookedOccurrenceCount = normalizeBookedOccurrenceCount(req.body?.bookedOccurrenceCount);
     const plan = await OfficeBookingPlan.upsertActive({
@@ -903,82 +905,10 @@ export const snoozeStandingReview = async (req, res, next) => {
  * - booked → assigned (clear booking plan, keep standing)
  * - assigned → open (deactivate standing; room becomes open)
  */
-export const downgradeStandingAssignment = async (req, res, next) => {
-  try {
-    const { officeId, assignmentId } = req.params;
-    const officeLocationId = parseInt(officeId, 10);
-    const sid = parseInt(assignmentId, 10);
-    if (!officeLocationId || !sid) return res.status(400).json({ error: { message: 'Invalid ids' } });
-
-    const ok = await requireOfficeAccess(req, officeLocationId);
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-    if (!canManageSchedule(req.user.role)) {
-      return res.status(403).json({ error: { message: 'Only schedule managers can downgrade standing assignments' } });
-    }
-
-    const assignment = await OfficeStandingAssignment.findById(sid);
-    if (!assignment || Number(assignment.office_location_id) !== Number(officeLocationId)) {
-      return res.status(404).json({ error: { message: 'Standing assignment not found' } });
-    }
-
-    const target = String(req.body?.to || req.body?.target || '').trim().toLowerCase();
-    const plan = await OfficeBookingPlan.findActiveByAssignmentId(sid);
-    const hasBooking = !!plan?.id;
-
-    if (target === 'assigned' || target === 'unbooked' || (!target && hasBooking)) {
-      if (!hasBooking) {
-        return res.status(400).json({ error: { message: 'Slot is already assigned (not booked). Use to=open to release.' } });
-      }
-      await OfficeBookingPlan.deactivateByAssignmentId(sid);
-      await pool.execute(
-        `UPDATE office_events
-         SET booking_plan_id = NULL,
-             status = 'RELEASED',
-             slot_state = 'ASSIGNED_AVAILABLE',
-             booked_provider_id = NULL,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE standing_assignment_id = ?
-           AND start_at >= NOW()
-           AND (status IS NULL OR UPPER(status) <> 'CANCELLED')`,
-        [sid]
-      );
-      await OfficeStandingAssignment.update(sid, {
-        last_six_week_checked_at: new Date(),
-        last_forfeit_warning_at: null
-      });
-      OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-      await materializeOfficeWeeks({
-        officeLocationId,
-        startDateYmd: ymdFromDateLike(assignment.available_since_date, new Date().toISOString().slice(0, 10)),
-        createdByUserId: req.user.id,
-        weeks: 12
-      });
-      return res.json({ ok: true, downgradedTo: 'assigned', standingAssignmentId: sid });
-    }
-
-    if (target === 'open' || target === 'release') {
-      await OfficeBookingPlan.deactivateByAssignmentId(sid);
-      await OfficeStandingAssignment.update(sid, { is_active: false, last_forfeit_warning_at: null });
-      OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
-      try {
-        await materializeOfficeWeeks({
-          officeLocationId,
-          startDateYmd: new Date().toISOString().slice(0, 10),
-          createdByUserId: req.user.id,
-          weeks: 12
-        });
-      } catch {
-        // best-effort
-      }
-      return res.json({ ok: true, downgradedTo: 'open', standingAssignmentId: sid });
-    }
-
-    return res.status(400).json({
-      error: { message: 'to must be "assigned" (booked→assigned) or "open" (assigned→open)' }
-    });
-  } catch (e) {
-    next(e);
-  }
+export const downgradeStandingAssignment = (req, res, next) => {
+  const target = String(req.body?.to || req.body?.target || 'assigned').toLowerCase();
+  if (!['assigned', 'unbooked', 'open', 'release'].includes(target)) return res.status(400).json({ error: { message: 'Choose assigned or open.' } });
+  return releaseReservation(req, res, next, { keepAssigned: ['assigned', 'unbooked'].includes(target), defaultScope: 'future' });
 };
 
 export const setTemporary = async (req, res, next) => {
@@ -1097,42 +1027,7 @@ export const extendTemporary = async (req, res, next) => {
   }
 };
 
-export const forfeitAssignment = async (req, res, next) => {
-  try {
-    const { officeId, assignmentId } = req.params;
-    const officeLocationId = parseInt(officeId, 10);
-    const sid = parseInt(assignmentId, 10);
-    if (!officeLocationId || !sid) return res.status(400).json({ error: { message: 'Invalid ids' } });
-
-    const assignment = await OfficeStandingAssignment.findById(sid);
-    if (!assignment || assignment.office_location_id !== officeLocationId) {
-      return res.status(404).json({ error: { message: 'Standing assignment not found' } });
-    }
-
-    const isOwner = req.user.id === assignment.provider_id;
-    const hasOfficeAccess = isOwner ? true : await requireOfficeAccess(req, officeLocationId);
-    if (!hasOfficeAccess) return res.status(403).json({ error: { message: 'Access denied' } });
-    if (!isOwner && !canManageSchedule(req.user.role)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-
-    const acknowledged = req.body?.acknowledged === true || req.body?.acknowledged === 'true';
-    if (!acknowledged) {
-      return res.status(400).json({ error: { message: 'acknowledged is required to forfeit' } });
-    }
-
-    const scope = String(req.body?.scope || 'future').trim().toLowerCase();
-    if (scope !== 'future') {
-      return res.status(400).json({ error: { message: 'Assignment-level forfeit only supports scope=future' } });
-    }
-
-    await OfficeBookingPlan.deactivateByAssignmentId(sid);
-    await OfficeStandingAssignment.update(sid, { is_active: false, last_forfeit_warning_at: null });
-    res.json({ ok: true, scope: 'future' });
-  } catch (e) {
-    next(e);
-  }
-};
+export const forfeitAssignment = (req, res, next) => releaseReservation(req, res, next, { defaultScope: 'future' });
 
 export const staffBookEvent = async (req, res, next) => {
   try {
@@ -1185,6 +1080,7 @@ export const staffBookEvent = async (req, res, next) => {
     }
 
     const shouldBook = req.body?.booked !== false && String(req.body?.booked || '').toLowerCase() !== 'false';
+    if (!shouldBook) return releaseReservation(req, res, next, { keepAssigned: true });
     let validatedSelection = {
       appointmentTypeCode: null,
       appointmentSubtypeCode: null,
@@ -1206,6 +1102,7 @@ export const staffBookEvent = async (req, res, next) => {
         agencyId: policyAgencyId,
         userRole: provider.role,
         providerCredentialText: provider.credential,
+        providerId: provider.id,
         appointmentTypeCode: rawSelection.appointmentTypeCode || ev.appointment_type_code || null,
         appointmentSubtypeCode: rawSelection.appointmentSubtypeCode || ev.appointment_subtype_code || null,
         serviceCode: rawSelection.serviceCode || ev.service_code || null,
@@ -1672,6 +1569,7 @@ export const setEventBookingPlan = async (req, res, next) => {
       agencyId: policyAgencyId,
       userRole: provider.role,
       providerCredentialText: provider.credential,
+      providerId: provider.id,
       appointmentTypeCode: rawSelection.appointmentTypeCode || ev.appointment_type_code || null,
       appointmentSubtypeCode: rawSelection.appointmentSubtypeCode || ev.appointment_subtype_code || null,
       serviceCode: rawSelection.serviceCode || ev.service_code || null,
@@ -2602,352 +2500,23 @@ export const cancelAssignment = async (req, res, next) => {
   }
 };
 
-export const forfeitEvent = async (req, res, next) => {
+async function releaseReservation(req, res, next, { keepAssigned = false, defaultScope = 'occurrence' } = {}) {
   try {
-    const { officeId, eventId } = req.params;
-    const officeLocationId = parseInt(officeId, 10);
-    const eid = parseInt(eventId, 10);
-    if (!officeLocationId || !eid) return res.status(400).json({ error: { message: 'Invalid ids' } });
-
-    const ev = await OfficeEvent.findById(eid);
-    if (!ev || Number(ev.office_location_id) !== Number(officeLocationId)) {
-      return res.status(404).json({ error: { message: 'Event not found' } });
-    }
-
-    const acknowledged = req.body?.acknowledged === true || req.body?.acknowledged === 'true';
-    if (!acknowledged) {
-      return res.status(400).json({ error: { message: 'acknowledged is required to forfeit' } });
-    }
-
-    let providerId = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
-    if (!providerId) {
-      const standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
-      if (standingAssignmentId) {
-        const standingAssignment = await OfficeStandingAssignment.findById(standingAssignmentId);
-        providerId = Number(standingAssignment?.provider_id || 0) || null;
-      }
-    }
-    const isOwner = Number(req.user?.id || 0) === providerId;
-    const hasOfficeAccess = isOwner ? true : await requireOfficeAccess(req, officeLocationId);
-    if (!hasOfficeAccess) return res.status(403).json({ error: { message: 'Access denied' } });
-    if (!isOwner && !canManageSchedule(req.user?.role)) {
-      return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-
-    const scope = String(req.body?.scope || 'occurrence').trim().toLowerCase();
-    if (!['occurrence', 'future'].includes(scope)) {
-      return res.status(400).json({ error: { message: 'scope must be occurrence or future' } });
-    }
-
-    const startAt = mysqlDateTimeFromValue(ev.start_at);
-    if (!startAt) return res.status(400).json({ error: { message: 'Event has invalid start time' } });
-    const endAt = mysqlDateTimeFromValue(ev.end_at);
-    const wh = weekdayHourFromSqlDateTime(startAt);
-
-    const collectProviderIds = async () => {
-      const ids = new Set();
-      const fromAssigned = Number(ev.assigned_provider_id || 0) || null;
-      const fromBooked = Number(ev.booked_provider_id || 0) || null;
-      const fromStanding = Number(ev.standing_assignment_id || 0) || null;
-      if (fromAssigned) ids.add(fromAssigned);
-      if (fromBooked) ids.add(fromBooked);
-      if (fromStanding) {
-        const standing = await OfficeStandingAssignment.findById(fromStanding);
-        const sidProvider = Number(standing?.provider_id || 0) || null;
-        if (sidProvider) ids.add(sidProvider);
-      }
-      if (providerId) ids.add(Number(providerId));
-      return ids;
-    };
-    const providerIdsForResponse = Array.from((await collectProviderIds()).values());
-
-    const removeLegacyAssignmentOverlap = async ({ rangeStart, rangeEndExclusive = null } = {}) => {
-      const roomId = Number(ev.room_id || 0) || null;
-      const providerIds = await collectProviderIds();
-      const start = mysqlDateTimeFromValue(rangeStart || startAt);
-      const endExclusive = rangeEndExclusive ? mysqlDateTimeFromValue(rangeEndExclusive) : null;
-      if (!roomId || !start || providerIds.size === 0) return 0;
-      try {
-        let removed = 0;
-        for (const pid of providerIds) {
-          let result;
-          if (endExclusive) {
-            [result] = await pool.execute(
-              `DELETE FROM office_room_assignments
-               WHERE room_id = ?
-                 AND assigned_user_id = ?
-                 AND start_at < ?
-                 AND (end_at IS NULL OR end_at > ?)`,
-              [roomId, pid, endExclusive, start]
-            );
-          } else {
-            [result] = await pool.execute(
-              `DELETE FROM office_room_assignments
-               WHERE room_id = ?
-                 AND assigned_user_id = ?
-                 AND (end_at IS NULL OR end_at > ?)`,
-              [roomId, pid, start]
-            );
-          }
-          removed += Number(result?.affectedRows || 0);
-        }
-        return removed;
-      } catch (e) {
-        if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-        return 0;
-      }
-    };
-
-    if (scope === 'occurrence') {
-      const updated = await OfficeEvent.cancelOccurrence({ eventId: eid });
-      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(eid);
-      await cancelGoogleForOfficeEventIds([eid], req.user.id);
-      const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap({ rangeStart: startAt, rangeEndExclusive: endAt });
-      return res.json({
-        ok: true,
-        scope: 'occurrence',
-        event: updated,
-        legacyAssignmentRowsRemoved,
-        diagnostics: {
-          roomId: Number(ev.room_id || 0) || null,
-          startAt,
-          endAt,
-          providerIds: providerIdsForResponse
-        }
-      });
-    }
-
-    let standingAssignmentId = Number(ev.standing_assignment_id || 0) || null;
-    let recurrenceGroupId = ev.recurrence_group_id || null;
-    if (!standingAssignmentId) {
-      const bookingPlanId = Number(ev.booking_plan_id || 0) || null;
-      if (bookingPlanId) {
-        const [rows] = await pool.execute(
-          `SELECT standing_assignment_id AS id
-           FROM office_booking_plans
-           WHERE id = ?
-             AND standing_assignment_id IS NOT NULL
-           LIMIT 1`,
-          [bookingPlanId]
-        );
-        standingAssignmentId = Number(rows?.[0]?.id || 0) || null;
-      }
-    }
-    if (!standingAssignmentId) {
-      const providerIdFallback = Number(ev.assigned_provider_id || ev.booked_provider_id || 0) || null;
-      const roomIdFallback = Number(ev.room_id || 0) || null;
-      const wh = weekdayHourFromSqlDateTime(startAt);
-      if (providerIdFallback && roomIdFallback && wh) {
-        const [rows] = await pool.execute(
-          `SELECT id, recurrence_group_id
-           FROM office_standing_assignments
-           WHERE office_location_id = ?
-             AND room_id = ?
-             AND provider_id = ?
-             AND weekday = ?
-             AND hour = ?
-           ORDER BY is_active DESC, id DESC
-           LIMIT 1`,
-          [officeLocationId, roomIdFallback, providerIdFallback, wh.weekdayIndex, wh.hour]
-        );
-        if (rows?.[0]) {
-          standingAssignmentId = Number(rows[0].id || 0) || null;
-          if (!recurrenceGroupId && rows[0].recurrence_group_id) recurrenceGroupId = rows[0].recurrence_group_id;
-        }
-      }
-    }
-    if (!recurrenceGroupId && standingAssignmentId) {
-      const [rows] = await pool.execute(
-        `SELECT recurrence_group_id
-         FROM office_standing_assignments
-         WHERE id = ?
-         LIMIT 1`,
-        [standingAssignmentId]
-      );
-      recurrenceGroupId = rows?.[0]?.recurrence_group_id || null;
-    }
-    let eventIds = [];
-    if (standingAssignmentId) {
-      const [rows] = await pool.execute(
-        `SELECT id
-         FROM office_events
-         WHERE standing_assignment_id = ?
-           AND start_at >= ?`,
-        [standingAssignmentId, startAt]
-      );
-      eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
-      await OfficeBookingPlan.deactivateByAssignmentId(standingAssignmentId);
-      await OfficeStandingAssignment.update(standingAssignmentId, { is_active: false });
-      await OfficeEvent.cancelFutureByStandingAssignment({ standingAssignmentId, startAt });
-    } else if (recurrenceGroupId) {
-      const [rows] = await pool.execute(
-        `SELECT id
-         FROM office_events
-         WHERE recurrence_group_id = ?
-           AND start_at >= ?`,
-        [recurrenceGroupId, startAt]
-      );
-      eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
-      await OfficeEvent.cancelFutureByRecurrenceGroup({ recurrenceGroupId, startAt });
-    } else {
-      // No standing-assignment / recurrence-group linkage available (legacy/hung rows).
-      // Still honor future-scope by cancelling same provider+room+time signature forward.
-      const providerIds = await collectProviderIds();
-      const roomId = Number(ev.room_id || 0) || null;
-      if (roomId && wh && providerIds.size > 0 && endAt) {
-        const pids = Array.from(providerIds.values());
-        const pidPlaceholders = pids.map(() => '?').join(',');
-        const [rows] = await pool.execute(
-          `SELECT e.id
-           FROM office_events e
-           LEFT JOIN office_standing_assignments sa ON sa.id = e.standing_assignment_id
-           WHERE e.office_location_id = ?
-             AND e.room_id = ?
-             AND e.start_at >= ?
-             AND e.start_at < DATE_ADD(?, INTERVAL 365 DAY)
-             AND DAYOFWEEK(e.start_at) = ?
-             AND TIME(e.start_at) = TIME(?)
-             AND TIME(e.end_at) = TIME(?)
-             AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-             AND (
-               e.assigned_provider_id IN (${pidPlaceholders})
-               OR e.booked_provider_id IN (${pidPlaceholders})
-               OR sa.provider_id IN (${pidPlaceholders})
-             )`,
-          [officeLocationId, roomId, startAt, startAt, wh.weekdayIndex + 1, startAt, endAt, ...pids, ...pids, ...pids]
-        );
-        eventIds = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
-        if (eventIds.length) {
-          await pool.execute(
-            `UPDATE office_events
-             SET status = 'CANCELLED',
-                 slot_state = NULL,
-                 booked_provider_id = NULL,
-                 booking_plan_id = NULL,
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE id IN (${eventIds.map(() => '?').join(',')})`,
-            eventIds
-          );
-        }
-      }
-    }
-
-    for (const id of eventIds) {
-      // eslint-disable-next-line no-await-in-loop
-      await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
-    }
-    const legacyAssignmentRowsRemoved = await removeLegacyAssignmentOverlap({ rangeStart: startAt, rangeEndExclusive: null });
-
-    // Hard cleanup for historical stuck series:
-    // force-cancel future rows that still match this exact provider+room+weekday+time signature.
-    // This catches legacy "once" rows that were mistakenly materialized indefinitely.
-    let strictCleanupEventCount = 0;
-    let strictCleanupAssignmentCount = 0;
-    try {
-      const providerIds = await collectProviderIds();
-      const roomId = Number(ev.room_id || 0) || null;
-      if (roomId && wh && providerIds.size > 0 && endAt) {
-        const pids = Array.from(providerIds.values());
-        const pidPlaceholders = pids.map(() => '?').join(',');
-        const [strictAssignmentRows] = await pool.execute(
-          `SELECT id
-           FROM office_standing_assignments
-           WHERE office_location_id = ?
-             AND room_id = ?
-             AND weekday = ?
-             AND hour = ?
-             AND provider_id IN (${pidPlaceholders})`,
-          [officeLocationId, roomId, wh.weekdayIndex, wh.hour, ...pids]
-        );
-        const strictAssignmentIds = (strictAssignmentRows || [])
-          .map((r) => Number(r.id || 0))
-          .filter((n) => Number.isInteger(n) && n > 0);
-        strictCleanupAssignmentCount = strictAssignmentIds.length;
-        for (const sid of strictAssignmentIds) {
-          // eslint-disable-next-line no-await-in-loop
-          await OfficeBookingPlan.deactivateByAssignmentId(sid);
-          // eslint-disable-next-line no-await-in-loop
-          await OfficeStandingAssignment.update(sid, { is_active: false });
-        }
-
-        const [strictRows] = await pool.execute(
-          `SELECT e.id
-           FROM office_events e
-           LEFT JOIN office_standing_assignments sa ON sa.id = e.standing_assignment_id
-           WHERE e.office_location_id = ?
-             AND e.room_id = ?
-             AND e.start_at >= ?
-             AND e.start_at < DATE_ADD(?, INTERVAL 365 DAY)
-             AND DAYOFWEEK(e.start_at) = ?
-             AND TIME(e.start_at) = TIME(?)
-             AND TIME(e.end_at) = TIME(?)
-             AND (e.status IS NULL OR UPPER(e.status) <> 'CANCELLED')
-             AND (
-               e.assigned_provider_id IN (${pidPlaceholders})
-               OR e.booked_provider_id IN (${pidPlaceholders})
-               OR sa.provider_id IN (${pidPlaceholders})
-             )`,
-          [officeLocationId, roomId, startAt, startAt, wh.weekdayIndex + 1, startAt, endAt, ...pids, ...pids, ...pids]
-        );
-        const strictEventIds = (strictRows || [])
-          .map((r) => Number(r.id || 0))
-          .filter((n) => Number.isInteger(n) && n > 0);
-        strictCleanupEventCount = strictEventIds.length;
-        if (strictEventIds.length) {
-          await pool.execute(
-            `UPDATE office_events
-             SET status = 'CANCELLED',
-                 slot_state = NULL,
-                 booked_provider_id = NULL,
-                 booking_plan_id = NULL,
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE id IN (${strictEventIds.map(() => '?').join(',')})`,
-            strictEventIds
-          );
-          for (const id of strictEventIds) {
-            // eslint-disable-next-line no-await-in-loop
-            await ProviderVirtualSlotAvailability.deactivateBySourceEventId(id);
-          }
-          try {
-            await pool.execute(
-              `UPDATE provider_in_person_slot_availability
-               SET is_active = FALSE,
-                   updated_at = CURRENT_TIMESTAMP
-               WHERE source_event_id IN (${strictEventIds.map(() => '?').join(',')})`,
-              strictEventIds
-            );
-          } catch (e) {
-            if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
-          }
-          await cancelGoogleForOfficeEventIds(strictEventIds, req.user.id);
-        }
-      }
-    } catch (strictCleanupError) {
-      // Do not fail core forfeit if strict cleanup best-effort pass fails.
-    }
-    await cancelGoogleForOfficeEventIds(eventIds, req.user.id);
-
-    return res.json({
-      ok: true,
-      scope: 'future',
-      forfeitedEventCount: eventIds.length,
-      standingAssignmentId: standingAssignmentId || null,
-      legacyAssignmentRowsRemoved,
-      strictCleanupEventCount,
-      strictCleanupAssignmentCount,
-      diagnostics: {
-        roomId: Number(ev.room_id || 0) || null,
-        startAt,
-        endAt,
-        weekday: wh?.weekdayIndex ?? null,
-        hour: wh?.hour ?? null,
-        providerIds: providerIdsForResponse
-      }
-    });
-  } catch (e) {
-    next(e);
-  }
-};
+    const officeLocationId = Number(req.params.officeId);
+    if (!(await requireOfficeAccess(req, officeLocationId))) return res.status(403).json({ error: { message: 'Access denied' } });
+    if (!keepAssigned && req.body?.acknowledged !== true && req.body?.acknowledged !== 'true') return res.status(400).json({ error: { message: 'Acknowledge releasing this office time.' } });
+    const result = await releaseOfficeReservation({ officeLocationId, assignmentId: Number(req.params.assignmentId) || null,
+      eventId: Number(req.params.eventId) || null, date: req.body?.date, scope: req.body?.scope || defaultScope,
+      keepAssigned, actorUserId: req.user.id, canManage: canManageSchedule(req.user.role) });
+    OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
+    // The database change is complete; external calendar requests must not hold the save spinner open.
+    void cancelGoogleForOfficeEventIds(result.eventIds, req.user.id).catch(() => {});
+    return res.json({ ...result, booked: false, downgradedTo: keepAssigned ? 'assigned' : 'open',
+      forfeitedEventCount: result.eventIds.length, cancelledEventCount: result.eventIds.length,
+      event: req.params.eventId ? await OfficeEvent.findById(Number(req.params.eventId)) : undefined });
+  } catch (error) { next(error); }
+}
+export const forfeitEvent = (req, res, next) => releaseReservation(req, res, next);
 
 export const rescheduleOfficeEvent = async (req, res, next) => {
   try {
@@ -2980,8 +2549,16 @@ export const rescheduleOfficeEvent = async (req, res, next) => {
       return rescheduleStandingAssignment(req, res, next);
     }
     if (req.body.scope && req.body.scope !== 'single' && req.body.scope !== 'occurrence') return res.status(400).json({ error: { message: 'Choose one occurrence or all upcoming sessions' } });
+    if (!canManageSchedule(req.user.role)) {
+      const request = await OfficeBookingRequest.create({ requestType: 'MOVE_OCCURRENCE', officeLocationId,
+        roomId: newRoomId, requestedProviderId: providerId, startAt, endAt,
+        requesterNotes: JSON.stringify({ eventId: event.id, body: req.body, sources: [{ id: event.id, room_id: event.room_id,
+          start_at: event.start_at, end_at: event.end_at, status: event.status, booked_provider_id: event.booked_provider_id,
+          assigned_provider_id: event.assigned_provider_id }], summary: `Move this occurrence to ${startWall}–${endWall}. Current reservation remains until approval.` }) });
+      return res.status(202).json({ ok: true, pendingApproval: true, request, message: 'Change requested. Your current reservation remains in place until approval.' });
+    }
     await OfficeScheduleMaterializer.materializeWeek({ officeLocationId, weekStartRaw: startWall.slice(0, 10), createdByUserId: req.user.id, force: true });
-    const movedEventIds = await moveOfficeSessionOccurrence({ eventId: event.id, newRoomId, startAt, endAt, timeZone, actorUserId: req.user.id });
+    const movedEventIds = await moveOfficeSessionOccurrence({ eventId: event.id, newRoomId, startAt, endAt, timeZone, actorUserId: req.user.id, approvalRequestId: req.officeMoveApprovalId || null });
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
     const warnings = await refreshMovedOfficeNotifications(movedEventIds);
     return res.json({ ok: true, movedEventIds, warnings });
@@ -3074,8 +2651,21 @@ export const rescheduleStandingAssignment = async (req, res, next) => {
     const providerId = Number(assignment.provider_id);
     const todayYmd = new Date().toISOString().slice(0, 10);
 
+    if (!canManageSchedule(req.user.role)) {
+      const timeZone = await resolveOfficeTimezone(officeLocationId);
+      const today = new Date().toLocaleDateString('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+      const date = addDaysYmd(today, (newWeekday - new Date(`${today}T12:00:00Z`).getUTCDay() + 7) % 7);
+      const startAt = mysqlDateTimeForDateHour(date, newHour, timeZone);
+      const request = await OfficeBookingRequest.create({ requestType: 'MOVE_ASSIGNMENT', officeLocationId,
+        roomId: newRoomId, requestedProviderId: providerId, startAt,
+        endAt: mysqlDateTimeForDateHour(date, newHour + blockHours, timeZone), recurrence: 'WEEKLY',
+        requesterNotes: JSON.stringify({ assignmentId: sid, body: req.body, sources: assignments.map(row => ({
+          id: row.id, room_id: row.room_id, weekday: row.weekday, hour: row.hour, provider_id: row.provider_id, is_active: row.is_active
+        })), summary: `Move ${oldSlotLabelForRequest(assignment)} to ${WEEKDAY_NAMES[newWeekday]} ${formatHourLabel(newHour)}–${formatHourLabel(newHour + blockHours)}. Current reservation remains until approval.` }) });
+      return res.status(202).json({ ok: true, pendingApproval: true, request, message: 'Change requested. Your current reservation remains in place until approval.' });
+    }
     const movedEventIds = await moveOfficeSessionSeries({ assignment, assignments, newRoomId, newWeekday, newHour,
-      timeZone: await resolveTimezoneForStandingAssignment(sid), actorUserId: req.user.id, bookingAgencyId });
+      timeZone: await resolveTimezoneForStandingAssignment(sid), actorUserId: req.user.id, bookingAgencyId, approvalRequestId: req.officeMoveApprovalId || null });
     const cancelledEventIds = [];
     const updated = await OfficeStandingAssignment.findById(sid);
     OfficeScheduleMaterializer.invalidateOffice(officeLocationId);
@@ -3632,3 +3222,5 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     next(e);
   }
 };
+
+function oldSlotLabelForRequest(assignment) { return `${WEEKDAY_NAMES[assignment.weekday]} ${formatHourLabel(assignment.hour)}`; }

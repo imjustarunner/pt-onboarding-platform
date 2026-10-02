@@ -1,3 +1,5 @@
+import * as review from '../controllers/providerUpdateReview.controller.js';
+import { licenseUpload } from '../middleware/licenseUpload.middleware.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import * as ctrl from '../controllers/providerUpdate.controller.js';
@@ -45,5 +47,9 @@ router.put('/handbook/digests/:digestId', authenticate, hb.updateDigestHandler);
 router.post('/handbook/digests/:digestId/entries', authenticate, hb.saveDigestEntryHandler);
 router.delete('/handbook/digests/:digestId/entries/:entryId', authenticate, hb.deleteDigestEntryHandler);
 router.post('/handbook/digests/:digestId/publish', authenticate, hb.publishDigestHandler);
+
+router.get('/me/review-context', authenticate, review.reviewContext);
+router.post('/me/office-assignments/:assignmentId/:action', authenticate, review.officeReviewAction);
+router.post('/me/documents/:kind', authenticate, licenseUpload.single('file'), review.uploadReviewDocument);
 
 export default router;

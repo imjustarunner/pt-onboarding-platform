@@ -207,7 +207,7 @@
               @click="approve(selected)"
               :disabled="actingId === selected.id"
             >
-              {{ isDropRequest(selected) ? 'Release slot' : 'Approve booking' }}
+              {{ ['MOVE_ASSIGNMENT','MOVE_OCCURRENCE'].includes(selected?.request_type) ? 'Approve move' : isDropRequest(selected) ? 'Release slot' : 'Approve booking' }}
             </button>
             <button
               class="btn"
@@ -311,6 +311,7 @@ const isDropRequest = (r) => String(r?.request_type || '').toUpperCase() === 'DR
 const isDeleteRequest = (r) => String(r?.request_type || '').toUpperCase() === 'DELETE_EVENT';
 
 const requestTypeLabel = (r) => {
+  if (['MOVE_ASSIGNMENT','MOVE_OCCURRENCE'].includes(r?.request_type)) return 'Move reservation';
   if (isDropRequest(r)) return 'Release slot';
   if (isDeleteRequest(r)) return 'Delete event';
   return 'Booking';
@@ -361,7 +362,7 @@ const notesText = (r) => {
   const raw = r?.requester_notes || '';
   try {
     const parsed = JSON.parse(raw);
-    return typeof parsed === 'object' ? '' : raw;
+    return typeof parsed === 'object' ? (parsed.summary || '') : raw;
   } catch {
     return raw;
   }

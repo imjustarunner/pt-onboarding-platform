@@ -1,3 +1,5 @@
+import * as review from '../controllers/providerUpdateReview.controller.js';
+import { licenseUpload } from '../middleware/licenseUpload.middleware.js';
 import express from 'express';
 import * as ctrl from '../controllers/providerUpdate.controller.js';
 import * as hb from '../controllers/workplaceHandbook.controller.js';
@@ -15,5 +17,9 @@ router.get('/:token/fall-actions', ctrl.fallActionsPublic);
 router.get('/:token/handbook', hb.publicPublishedByToken);
 router.post('/:token/handbook/views', hb.publicTrackByToken);
 router.post('/:token/handbook/questions', hb.publicAskByToken);
+
+router.get('/:token/review-context', review.reviewContext);
+router.post('/:token/office-assignments/:assignmentId/:action', review.officeReviewAction);
+router.post('/:token/documents/:kind', licenseUpload.single('file'), review.uploadReviewDocument);
 
 export default router;

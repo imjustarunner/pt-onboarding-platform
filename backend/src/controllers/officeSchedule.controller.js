@@ -1,6 +1,7 @@
 import {officeAvailabilityWindows} from '../services/officeAvailabilityWindow.service.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
 import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
+import { rescheduleStandingAssignment, rescheduleOfficeEvent } from './officeSlotActions.controller.js';
 import { withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import {officeBookingNeedsSession} from '../utils/officeBookingSessionLink.js';
@@ -628,7 +629,8 @@ async function buildProviderBookingContext({ providerId, officeLocationId, start
   const sameTimeEvents = nearbyEvents.filter((e) =>
     intervalsOverlap(timeMs(e.startAt), timeMs(e.endAt), requestStartMs, requestEndMs)
   );
-  const wh = weekdayHourFromSqlDateTime(startAt);
+  const location = await OfficeLocation.findById(officeLocationId);
+  const wh = weekdayHourInTz(startAt, location?.timezone || 'America/Denver');
   let activeAssignments = [];
   if (wh) {
     const [rows] = await pool.execute(
@@ -710,7 +712,7 @@ async function buildOfficeBookingRequestDecisionContext(row = {}) {
   const startAt = normalizeMysqlDateTime(row.start_at) || String(row.start_at || '');
   const endAt = normalizeMysqlDateTime(row.end_at) || String(row.end_at || '');
   const officeTimeZone = String(row.office_timezone || 'America/New_York');
-  const wh = weekdayHourFromSqlDateTime(startAt);
+  const wh = weekdayHourInTz(startAt, officeTimeZone);
   const selectedRoomIds = requestedRoomId
     ? [requestedRoomId]
     : (await OfficeRoom.findByLocation(officeLocationId)).map((r) => Number(r.id)).filter((n) => n > 0);
@@ -1535,7 +1537,7 @@ export const getWeeklyGrid = async (req, res, next) => {
           const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
           const standingCandidates = standingByRoomWeekdayHour.get(`${Number(room.id)}:${dow}:${Number(hour)}`) || [];
           const standingHit = standingCandidates.find((sa) => isAssignmentActiveOnDate(sa, date));
-          if (standingHit) {
+          if (standingHit && !cancelledLegacyBySlotProvider.has(`${Number(room.id)}:${date}:${hour}:${Number(standingHit.provider_id)}`)) {
             const plan = planByStandingId.get(Number(standingHit.id)) || null;
             // Booking plan off-week (e.g. weekly assign + biweekly book): leave open for others.
             if (plan && !shouldBookOnDate(plan, standingHit, date)) {
@@ -1560,7 +1562,7 @@ export const getWeeklyGrid = async (req, res, next) => {
                     assignedProviderId: Number(standingHit.provider_id),
                     bookedProviderId: bookedToday ? Number(standingHit.provider_id) : null,
                     createdByUserId: req.user?.id || 1,
-                    replaceCancelled: true
+                    replaceCancelled: false
                   });
                   healedEventId = Number(healed?.id || 0) || null;
                 }
@@ -3146,6 +3148,15 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
         agencyIds: userAgencies.map((a) => a.id)
       });
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
+    }
+
+    if (['MOVE_ASSIGNMENT', 'MOVE_OCCURRENCE'].includes(reqRow.request_type)) {
+      const meta = parseJsonSafely(reqRow.requester_notes) || {};
+      req.officeMoveApprovalId = reqRow.id;
+      req.params = { officeId: String(loc.id), assignmentId: String(meta.assignmentId || ''), eventId: String(meta.eventId || '') };
+      req.body = meta.body || {};
+      return reqRow.request_type === 'MOVE_ASSIGNMENT'
+        ? rescheduleStandingAssignment(req, res, next) : rescheduleOfficeEvent(req, res, next);
     }
 
     if (String(reqRow.request_type || '').toUpperCase() === DELETE_EVENT_REQUEST_TYPE) {

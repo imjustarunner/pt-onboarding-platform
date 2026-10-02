@@ -2989,7 +2989,7 @@
             <div class="nr-booking-strip-cell">
               <span class="nr-info-label">Booking</span>
               <select
-                v-if="canEditBookingStrip"
+                v-if="canEditBookingStrip && canManageOffices"
                 v-model="bookingStripFrequency"
                 class="nr-info-select"
                 :disabled="bookingStripSaving"
@@ -3001,7 +3001,7 @@
             <div class="nr-booking-strip-cell">
               <span class="nr-info-label">Status</span>
               <select
-                v-if="canEditBookingStrip"
+                v-if="canEditBookingStrip && canManageOffices"
                 v-model="bookingStripStatus"
                 class="nr-info-select"
                 :disabled="bookingStripSaving"
@@ -3015,7 +3015,7 @@
             <div class="nr-booking-strip-cell">
               <span class="nr-info-label">Booked until (optional)</span>
               <input
-                v-if="canEditBookingStrip"
+                v-if="canEditBookingStrip && canManageOffices"
                 v-model="bookingStripUntil"
                 class="nr-info-select"
                 type="date"
@@ -3026,8 +3026,15 @@
             </div>
             <div class="nr-booking-strip-cell">
               <span class="nr-info-label">Room</span>
-              <span class="nr-info-value">{{ modalOccupiedSlotSummary.roomDisplay || '—' }}</span>
+              <select v-if="canEditBookingStrip && bookingMoveRooms.length" v-model.number="bookingStripRoom" class="nr-info-select">
+                <option v-for="room in bookingMoveRooms" :key="room.id" :value="Number(room.id)">{{ room.label || room.name || `Room ${room.id}` }}</option>
+              </select>
+              <span v-else class="nr-info-value">{{ modalOccupiedSlotSummary.roomDisplay || '—' }}</span>
             </div>
+            <label v-if="canEditBookingStrip && modalContext?.officeEventId" class="nr-booking-strip-cell">
+              <span class="nr-info-label">Move applies to</span>
+              <select v-model="bookingMoveScope" class="nr-info-select"><option value="future">Recurring time</option><option value="occurrence">This occurrence only</option></select>
+            </label>
             <div
               v-if="canEditBookingStrip"
               class="nr-booking-strip-actions"
@@ -3038,7 +3045,7 @@
                 :disabled="bookingStripSaving || !bookingStripDirty"
                 @click="saveBookingStripEdits"
               >
-                {{ bookingStripSaving ? 'Saving…' : 'Update booking' }}
+                {{ bookingStripSaving ? 'Saving…' : canManageOffices ? 'Update booking' : 'Request time change' }}
               </button>
               <div v-if="bookingStripMessage" role="status">{{ bookingStripMessage }}</div>
               <div v-if="bookingStripError" class="error" style="margin-top: 4px; font-size: 12px;">{{ bookingStripError }}</div>
@@ -4012,8 +4019,8 @@
           <div v-if="requestType === 'forfeit_slot'" style="margin-top: 10px;">
             <label class="lbl">Forfeit scope</label>
             <select v-model="forfeitScope" class="input" style="margin-bottom: 8px;">
-              <option value="occurrence">Forfeit this occurrence only</option>
-              <option value="future" :disabled="!hasFutureForfeitSupport">Forfeit this and all future recurring</option>
+              <option value="occurrence">Release selected hours on this day; keep recurring assignment</option>
+              <option value="future" :disabled="!hasFutureForfeitSupport">Give up selected hours from this day forward</option>
             </select>
             <label class="forfeit-ack" :class="{ 'forfeit-ack--on': ackForfeit, 'forfeit-ack--needed': !ackForfeit }">
               <input type="checkbox" v-model="ackForfeit" class="forfeit-ack__box" />
@@ -16303,12 +16310,16 @@ const bookingStripFrequency = ref('WEEKLY');
 const bookingStripStatus = ref('ASSIGNED');
 const bookingStripUntil = ref('');
 const bookingStripSaving = ref(false);
+const bookingMoveScope = ref('future');
+const bookingStripRoom = ref(0);
+const bookingMoveRooms = computed(() => (officeGrid.value?.rooms || officeRooms.value || []).filter(room => !room.location_id || Number(room.location_id) === Number(modalContext.value?.officeLocationId)));
 const bookingStripError = ref('');
 const bookingStripMessage = ref('');
 const bookingStripBaseline = ref({ frequency: 'WEEKLY', status: 'ASSIGNED', until: '' });
 
 const canEditBookingStrip = computed(() => {
-  if (!canManageOffices.value) return false;
+  const owner = Number(modalContext.value?.assignedProviderId || modalContext.value?.bookedProviderId || 0) === Number(authStore.user?.id);
+  if (!canManageOffices.value && !owner) return false;
   if (!modalOccupiedSlotSummary.value?.showBookingMeta) return false;
   return Number(modalContext.value?.standingAssignmentId || 0) > 0
     || Number(modalContext.value?.officeEventId || 0) > 0;
@@ -16320,10 +16331,13 @@ const bookingStripDirty = computed(() => {
     || String(bookingStripStatus.value || '') !== String(b.status || '')
     || String(bookingStripUntil.value || '') !== String(b.until || '')
     || editorStartTime.value !== b.startTime || editorEndTime.value !== b.endTime
-    || modalDay.value !== b.day || Number(editorAgencyId.value) !== Number(b.agencyId);
+    || modalDay.value !== b.day || Number(editorAgencyId.value) !== Number(b.agencyId)
+    || Number(bookingStripRoom.value) !== Number(modalContext.value?.roomId);
 });
 
 const syncBookingStripFromContext = () => {
+  bookingMoveScope.value = 'future';
+  bookingStripRoom.value = Number(modalContext.value?.roomId || 0);
   bookingStripMessage.value = '';
   const sum = modalOccupiedSlotSummary.value || {};
   const freq = String(sum.frequencyKey || 'WEEKLY').toUpperCase();
@@ -16372,8 +16386,8 @@ const saveBookingStripEdits = async () => {
     bookingStripError.value = 'Missing office booking context.';
     return;
   }
-  if (!canManageOffices.value) {
-    bookingStripError.value = 'Only schedule managers can edit this booking.';
+  if (!canEditBookingStrip.value) {
+    bookingStripError.value = 'You can only edit your own office reservation.';
     return;
   }
 
@@ -16392,7 +16406,7 @@ const saveBookingStripEdits = async () => {
 
   const baseline = bookingStripBaseline.value;
   const agencyId = Number(editorAgencyId.value || ctx.agencyId || 0);
-  const whenChanged = baseline.startTime !== editorStartTime.value || baseline.endTime !== editorEndTime.value || baseline.day !== modalDay.value;
+  const whenChanged = baseline.startTime !== editorStartTime.value || baseline.endTime !== editorEndTime.value || baseline.day !== modalDay.value || Number(bookingStripRoom.value) !== Number(ctx.roomId);
   let moved = false;
   const saveOptions = { timeout: 30000 };
   const post = (url, body) => api.post(url, { ...body, agencyId }, saveOptions);
@@ -16405,16 +16419,22 @@ const saveBookingStripEdits = async () => {
       if (standingId && (oldDuration !== newDuration || oldDuration % 60 || minutes(editorStartTime.value) % 60)) {
         throw new Error('Moving a recurring office block preserves its duration and uses whole hours. Select the complete block and change its start time.');
       }
-      if (standingId) {
-        await post(`/office-slots/${officeLocationId}/assignments/${standingId}/reschedule`, {
-          newRoomId: Number(ctx.roomId), newWeekday: (dayIdxFromWeekStartMonday(modalDay.value) + 1) % 7,
+      if (standingId && bookingMoveScope.value === 'occurrence' && oldDuration !== 60) throw new Error('Select one hourly slot to move just that occurrence. Use recurring time to move this whole block.');
+      let moveResponse;
+      if (standingId && bookingMoveScope.value !== 'occurrence') {
+        moveResponse = await post(`/office-slots/${officeLocationId}/assignments/${standingId}/reschedule`, {
+          newRoomId: Number(bookingStripRoom.value || ctx.roomId), newWeekday: (dayIdxFromWeekStartMonday(modalDay.value) + 1) % 7,
           newHour: Number(editorStartTime.value.split(':')[0]), blockHours: oldDuration / 60, sourceStartHour: Number(baseline.startTime.split(':')[0])
         });
       } else {
         const date = addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value));
-        await post(`/office-slots/${officeLocationId}/events/${eventId}/reschedule`, {
-          roomId: Number(ctx.roomId), startAt: `${date}T${editorStartTime.value}:00`, endAt: `${date}T${editorEndTime.value}:00`, scope: 'single'
+        moveResponse = await post(`/office-slots/${officeLocationId}/events/${eventId}/reschedule`, {
+          roomId: Number(bookingStripRoom.value || ctx.roomId), startAt: `${date}T${editorStartTime.value}:00`, endAt: `${date}T${editorEndTime.value}:00`, scope: 'single'
         });
+      }
+      if (moveResponse?.data?.pendingApproval) {
+        bookingStripMessage.value = moveResponse.data.message;
+        return;
       }
       moved = true;
       startYmd = addDaysYmd(startYmd, dayIdxFromWeekStartMonday(modalDay.value) - dayIdxFromWeekStartMonday(baseline.day));
@@ -16479,7 +16499,7 @@ const saveBookingStripEdits = async () => {
     // Re-open context from refreshed grid if possible
     const ymd = moved ? addDaysYmd(weekStart.value, dayIdxFromWeekStartMonday(modalDay.value)) : String(ctx.dateYmd || startYmd).slice(0, 10);
     const hour = moved ? Number(editorStartTime.value.split(':')[0]) : Number(ctx.hour ?? modalHour.value);
-    const roomId = Number(ctx.roomId || 0);
+    const roomId = Number(bookingStripRoom.value || ctx.roomId || 0);
     const slot = lookupOfficeGridSlot(ymd, hour, roomId);
     if (slot) {
       modalContext.value = buildModalContext({
@@ -22334,14 +22354,12 @@ const submitRequest = async () => {
             acknowledged: true,
             scope
           });
-        } else if (standingAssignmentId > 0 && scope === 'future') {
+        } else if (standingAssignmentId > 0) {
           // eslint-disable-next-line no-await-in-loop
           await api.post(`/office-slots/${officeLocationId}/assignments/${standingAssignmentId}/forfeit`, {
             acknowledged: true,
-            scope: 'future'
+            scope, date: ctx.dateYmd
           });
-        } else if (standingAssignmentId > 0) {
-          throw new Error('This slot only supports forfeit all future (no single occurrence).');
         }
       }
       forceRefreshSummary = true;

@@ -413,6 +413,10 @@ class OfficeEvent {
           || (incomingProviderId && incomingProviderId !== existingProviderId);
 
         if (shouldReactivateCancelledSlot) {
+          const [linkedAppointments] = await pool.execute('SELECT id FROM appointments WHERE office_event_id = ? LIMIT 1', [existing.id]);
+          if (existing.client_id || existing.clinical_session_id || existing.billing_context_id || existing.note_context_id || linkedAppointments.length) {
+            throw Object.assign(new Error('This cancelled occurrence has a client record. Preserve it and schedule through the appointment workflow.'), { status: 409 });
+          }
           await pool.execute(
             `UPDATE office_events
              SET office_location_id = ?,
