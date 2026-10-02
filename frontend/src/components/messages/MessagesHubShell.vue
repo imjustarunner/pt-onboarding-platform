@@ -4208,7 +4208,7 @@ async function startConversationWithPerson(person) {
   const method = inboxChannel.value === 'email' ? 'email' : person.preferredMethod;
   if (method === 'email' && person.email) {
     openEmailComposer(router, { mode: 'new', agencyId: agencyId.value || person.agencyId, to: person.email });
-    void pickPerson(person);
+    void pickPerson(person, { method: 'email' });
     return;
   }
   await pickPerson(person);
@@ -4296,6 +4296,7 @@ async function pickPerson(person, opts = {}) {
   const isClientish = kinds.includes('client') || kinds.includes('guardian');
   const available = (person.methods || []).find((m) => m.available);
   sendMethod.value =
+    opts.method ||
     person.preferredMethod ||
     (isClientish
       ? (person.methods || []).find((m) => m.available && (m.id === 'secure' || m.id === 'email'))?.id

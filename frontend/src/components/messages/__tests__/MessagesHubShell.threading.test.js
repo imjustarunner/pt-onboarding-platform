@@ -195,3 +195,10 @@ it('shows the school in the person profile and internal message author', async (
   await nextTick();expect(wrapper.text()).toContain('Cheyenne El');
   expect(wrapper.find('.msg-hub-sender-school').text()).toBe('Cheyenne El · School counselor');
 });
+
+it('keeps the Email channel selected when choosing school staff who normally prefer internal chat', async () => {
+  state.inboxChannel='email';
+  await state.startConversationWithPerson({...person,kinds:['school_staff'],preferredMethod:'internal'});
+  expect(state.sendMethod).toBe('email');
+  expect(openEmailComposer).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({mode:'new',to:person.email}));
+});
