@@ -76,10 +76,16 @@ export async function listTicketAttachments(ticketId) {
   const tid = Number(ticketId || 0);
   if (!tid) return [];
   const [rows] = await pool.execute(
-    `SELECT id, ticket_id, file_name, file_path, mime_type, file_size, created_at
-     FROM support_ticket_attachments
-     WHERE ticket_id = ?
-     ORDER BY id ASC`,
+    `SELECT a.id, a.ticket_id, a.file_name, a.file_path, a.mime_type, a.file_size, a.created_at,
+       t.client_id AS client_document_client_id,
+       (SELECT d.id FROM client_phi_documents d
+        WHERE d.client_id = t.client_id AND d.removed_at IS NULL
+          AND d.storage_path = CONCAT('phi-documents/', t.agency_id, '/', t.client_id, '/ticket-', t.id, '-attachment-', a.id)
+        LIMIT 1) AS client_document_id
+     FROM support_ticket_attachments a
+     JOIN support_tickets t ON t.id = a.ticket_id
+     WHERE a.ticket_id = ?
+     ORDER BY a.id ASC`,
     [tid]
   );
   return (rows || []).map((row) => ({

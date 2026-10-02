@@ -354,19 +354,16 @@
                     </div>
                     <div class="bubble-body">{{ m.body || '(deleted)' }}</div>
                   </div>
-                  <div v-if="ticketAttachments.length" class="thread-attachments">
-                    <div class="thread-attachments-label">Attachments</div>
-                    <button
-                      v-for="att in ticketAttachments"
-                      :key="att.id"
-                      type="button"
-                      class="attachment-chip"
-                      @click="openTicketAttachment(att)"
-                    >
-                      <span class="attachment-icon">{{ att.is_pdf ? 'PDF' : 'FILE' }}</span>
-                      <span class="attachment-name">{{ att.file_name || 'Attachment' }}</span>
-                    </button>
-                  </div>
+                  <TicketAttachmentFiling
+                    v-if="ticketAttachments.length"
+                    :key="selected.id"
+                    :ticket="selected"
+                    :attachments="ticketAttachments"
+                    :can-file="canAnswer"
+                    :linking-client-id="linkingClientId"
+                    @open="openTicketAttachment"
+                    @link-client="linkTicketClient($event, { addToSchool: false })"
+                  />
                   <div v-if="!originalInquiry && !messages.length && !ticketAttachments.length" class="muted pad">No messages yet.</div>
                 </div>
               </template>
@@ -1047,6 +1044,7 @@
 </template>
 
 <script setup>
+import TicketAttachmentFiling from './TicketAttachmentFiling.vue';
 import { publicTicketOriginalInquiry, websiteTicket, ticketAgencyColor, ticketAgencyLogo } from '../../utils/publicTicketPresentation';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -1323,6 +1321,7 @@ async function linkTicketClient(cand, { addToSchool = false } = {}) {
       { clientId, addToSchool },
       { skipGlobalLoading: true }
     );
+    if (Number(selected.value?.id) !== ticketId) return;
     if (selected.value) {
       selected.value = {
         ...selected.value,

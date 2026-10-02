@@ -11,7 +11,7 @@ import {
 import StorageService from '../services/storage.service.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
-import multer from 'multer';
+import { receiveClientDocument } from '../middleware/clientDocumentUpload.middleware.js';
 import DocumentEncryptionService from '../services/documentEncryption.service.js';
 import PhiDocumentAuditLog from '../models/PhiDocumentAuditLog.model.js';
 import { decryptIntakeSubmissionRows } from '../services/intakeResponsesEncryption.service.js';
@@ -109,17 +109,6 @@ async function resolveClinicalSummaryText({ doc, storedText, intakeData = null, 
   }
   return storedText;
 }
-
-// Upload (authenticated): PDF/JPG/PNG up to 10MB
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    const allowedMimes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-    if (allowedMimes.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('Invalid file type. Only PDF, JPG, and PNG files are allowed.'), false);
-  }
-});
 
 async function providerHasAssignedClientAccess({ requestingUserId, client }) {
   const uid = Number(requestingUserId || 0);
@@ -246,7 +235,7 @@ function schoolStaffMayOpenPhiDocument(doc, { userId, state }) {
 }
 
 export const uploadClientPhiDocument = [
-  upload.single('file'),
+  receiveClientDocument,
   async (req, res, next) => {
     try {
       const clientId = parseInt(req.params.clientId, 10);

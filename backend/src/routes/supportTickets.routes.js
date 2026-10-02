@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireAgencyAccess } from '../middleware/agencyAccess.middleware.js';
+import { addTicketAttachmentToClient } from '../controllers/ticketAttachmentFiling.controller.js';
 import {
   listMySupportTickets,
   listSupportTicketsQueue,
@@ -112,6 +113,7 @@ router.get('/:id/client-search', requireAgencyAccess, searchSupportTicketClients
 router.post('/:id/link-client', requireAgencyAccess, linkSupportTicketClient);
 router.get('/:id/attachments', requireAgencyAccess, listSupportTicketAttachments);
 router.get('/:id/attachments/:attachmentId/download', requireAgencyAccess, downloadSupportTicketAttachment);
+router.post('/:id/attachments/:attachmentId/add-to-client', requireAgencyAccess, addTicketAttachmentToClient);
 
 export default router;
 

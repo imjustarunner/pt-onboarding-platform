@@ -135,7 +135,7 @@
             {{ uploading ? 'Uploading files…' : 'Drop files here to attach them to this client' }}
           </div>
           <div class="drop-zone-subtitle">
-            PDF, PNG, and JPG only. You can drop multiple files at once.
+            PDF, PNG, and JPG only, up to 25 MB per file. You can drop multiple files at once.
           </div>
         </div>
       </div>
@@ -730,6 +730,11 @@ const resetUploadFields = () => {
 const uploadFiles = async (fileList) => {
   const files = Array.from(fileList || []).filter(Boolean);
   if (!files.length) return;
+  if (files.some(file => file.size > 25 * 1024 * 1024)) {
+    error.value = 'Each file must be 25 MB or smaller. No files were uploaded.';
+    isDragActive.value = false;
+    return;
+  }
   try {
     uploading.value = true;
     error.value = '';
