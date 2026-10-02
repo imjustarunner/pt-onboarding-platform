@@ -4,6 +4,9 @@
     class="lobby-panel"
     :class="{ 'lobby-panel--dark': theme === 'dark' }"
   >
+    <div v-if="recentArrivals.length" :key="arrivalVersion" class="lobby-panel-arrival" role="status" aria-live="polite">
+      {{ recentArrivals.slice(0, 2).map(p => p.displayName).join(', ') }}{{ recentArrivals.length > 2 ? ' and others' : '' }} joined the waiting room. {{ participants.length }} waiting for admission.
+    </div>
     <div class="lobby-panel-head">
       <h4 class="lobby-panel-title">Waiting room — Admit participants</h4>
       <div class="lobby-panel-actions">
@@ -52,7 +55,7 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted, watch } from 'vue';
+import { computed, ref, onUnmounted, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
@@ -82,6 +85,11 @@ function admitPath(pathId) {
 }
 
 const participants = ref([]);
+const arrivalKeys = ref([]);
+const arrivalVersion = ref(0);
+const recentArrivals = computed(() => participants.value.filter(p => arrivalKeys.value.includes(p.joinIdentity)));
+let arrivalTimer = null;
+onUnmounted(() => clearTimeout(arrivalTimer));
 const initialLoading = ref(false);
 const admittingKey = ref(null);
 const admittingAll = ref(false);
@@ -109,6 +117,7 @@ async function fetchLobbyParticipants() {
     if (resp?.data?.waitingRoomEnabled != null) {
       waitingRoomEnabled.value = !!resp.data.waitingRoomEnabled;
     }
+    const previous = new Set(participants.value.map(p => p.joinIdentity));
     const list = resp?.data?.participants || [];
     participants.value = list.map((p) => {
       const identity = String(p.joinIdentity || p.identity || '');
@@ -124,6 +133,13 @@ async function fetchLobbyParticipants() {
         admitKey
       };
     }).filter((p) => p.admitKey);
+    const arrivals = participants.value.filter(p => !previous.has(p.joinIdentity));
+    if (arrivals.length) {
+      arrivalKeys.value = arrivals.map(p => p.joinIdentity);
+      arrivalVersion.value += 1;
+      clearTimeout(arrivalTimer);
+      arrivalTimer = setTimeout(() => { arrivalKeys.value = []; }, 8000);
+    }
     hasLoadedOnce = true;
     loadError.value = '';
     emit('update:waitingCount', participants.value.length);
@@ -331,4 +347,7 @@ onUnmounted(stopPolling);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.lobby-panel-arrival { padding: 10px 12px; margin-bottom: 10px; border: 1px solid #34d399; border-radius: 8px; animation: lobby-arrival 1s ease-in-out 3; }
+@keyframes lobby-arrival { 50% { box-shadow: 0 0 0 3px #34d39955; } }
+@media (prefers-reduced-motion: reduce) { .lobby-panel-arrival { animation: none; } }
 </style>

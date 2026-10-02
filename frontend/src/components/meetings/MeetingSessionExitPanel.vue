@@ -22,7 +22,9 @@
         <strong>{{ closureSummary }}</strong>
         <span v-if="formattedClosedAt">{{ formattedClosedAt }}</span>
       </div>
+      <p v-if="actionError" role="alert">{{ actionError }}</p>
       <div class="mse__actions">
+        <button v-if="variant === 'alone-timeout' && canEndMeeting" type="button" class="btn btn-secondary" :disabled="ending" @click="$emit('end-meeting')">{{ ending ? 'Ending…' : 'End meeting for everyone' }}</button>
         <button
           v-if="canRejoin"
           type="button"
@@ -48,7 +50,10 @@
 import { computed } from 'vue';
 
 const props = defineProps({
-  /** left | host-ended | ended-by-you */
+  canEndMeeting: Boolean,
+  ending: Boolean,
+  actionError: { type: String, default: '' },
+  /** left | alone-timeout | host-ended | ended-by-you */
   variant: { type: String, default: 'left' },
   canRejoin: { type: Boolean, default: true },
   meetingLabel: { type: String, default: 'meeting' },
@@ -59,7 +64,7 @@ const props = defineProps({
   closedAt: { type: [String, Date], default: null }
 });
 
-defineEmits(['rejoin', 'go-to-schedule', 'dismiss-banner']);
+defineEmits(['rejoin', 'go-to-schedule', 'dismiss-banner', 'end-meeting']);
 
 const isSupervision = computed(() => String(props.sessionKind || '').toLowerCase() === 'supervision');
 const hostNoun = computed(() => (isSupervision.value ? 'facilitator' : 'host'));
@@ -101,11 +106,13 @@ const bannerText = computed(() => (
 ));
 
 const headline = computed(() => {
+  if (props.variant === 'alone-timeout') return 'You left the video room';
   if (isClosed.value) return isSupervision.value ? 'Session was closed' : 'Team meeting was closed';
   return isSupervision.value ? 'You left the session' : 'You left the meeting';
 });
 
 const bodyText = computed(() => {
+  if (props.variant === 'alone-timeout') return 'No one else joined while you were waiting, so your video connection was stopped. The meeting has not been marked complete. You can rejoin when someone is ready.';
   if (props.variant === 'host-ended') {
     return `This ${sessionNoun.value} is no longer live. Head back to your portal, or close this tab.`;
   }

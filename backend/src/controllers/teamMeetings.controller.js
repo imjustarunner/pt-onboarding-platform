@@ -255,6 +255,8 @@ async function upsertJoinPresence({ eventId, joinIdentity, displayName, isGuest 
        ON DUPLICATE KEY UPDATE
          display_name = VALUES(display_name),
          is_guest = VALUES(is_guest),
+         joined_at = CASE WHEN left_at IS NOT NULL OR last_seen_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 90 SECOND)
+           THEN UTC_TIMESTAMP() ELSE joined_at END,
          last_seen_at = UTC_TIMESTAMP(),
          left_at = NULL`,
       [eid, identity, displayName || null, isGuest ? 1 : 0]

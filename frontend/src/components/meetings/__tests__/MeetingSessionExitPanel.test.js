@@ -20,3 +20,15 @@ describe('MeetingSessionExitPanel', () => {
     expect(wrapper.text()).not.toContain('Rejoin meeting');
   });
 });
+
+
+it('offers rejoin after a solo timeout and keeps ending the meeting an explicit host action', async () => {
+  const wrapper=mount(MeetingSessionExitPanel,{props:{variant:'alone-timeout',canRejoin:true,canEndMeeting:true}});
+  expect(wrapper.text()).toContain('meeting has not been marked complete');
+  expect(wrapper.emitted('end-meeting')).toBeUndefined();
+  await wrapper.findAll('button').find(b=>b.text()==='End meeting for everyone').trigger('click');
+  expect(wrapper.emitted('end-meeting')).toHaveLength(1);
+  await wrapper.setProps({canEndMeeting:false});
+  expect(wrapper.text()).not.toContain('End meeting for everyone');
+  wrapper.unmount();
+});

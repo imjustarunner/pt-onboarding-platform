@@ -109,7 +109,7 @@
             :local-profile-photo-url="localProfilePhotoUrl"
             layout="standard"
             :promote-local-when-alone="true"
-            @disconnected="$emit('disconnected')"
+            @disconnected="$emit('disconnected', $event)"
             @connected="onVideoConnected"
             @meeting-ended="$emit('meeting-ended', $event)"
           />
@@ -135,7 +135,7 @@
           :local-role-label="localRoleLabel"
           :local-profile-photo-url="localProfilePhotoUrl"
           layout="standard"
-          @disconnected="$emit('disconnected')"
+          @disconnected="$emit('disconnected', $event)"
           @connected="onVideoConnected"
           @meeting-ended="$emit('meeting-ended', $event)"
         />
@@ -184,7 +184,7 @@
             v-model:video-fullscreen="videoFullscreen"
             :activity-notice="videoFullscreenActivityNotice"
             :raised-hands-notice="videoFullscreenHandsNotice"
-            @disconnected="$emit('disconnected')"
+            @disconnected="$emit('disconnected', $event)"
             @connected="onVideoConnected"
             @hands-map-change="onHandsMapChange"
             @audio-map-change="onAudioMapChange"

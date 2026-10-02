@@ -6,7 +6,7 @@
     @leave="$emit('leave', $event)"
     @connected="$emit('connected', $event)"
     @meeting-ended="$emit('meeting-ended', $event)"
-    @disconnected="$emit('disconnected')"
+    @disconnected="$emit('disconnected', $event)"
     @guest-login="$emit('guest-login')"
   />
   <GroupSupervisionLiveRoom
@@ -16,7 +16,7 @@
     @leave="$emit('leave', $event)"
     @connected="$emit('connected', $event)"
     @meeting-ended="$emit('meeting-ended', $event)"
-    @disconnected="$emit('disconnected')"
+    @disconnected="$emit('disconnected', $event)"
     @guest-login="$emit('guest-login')"
   />
 </template>

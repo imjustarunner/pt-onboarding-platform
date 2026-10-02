@@ -4,7 +4,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:mocks.execute}}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:mocks.base}));
 import { activeMeetingPrompts } from '../activeMeetingPrompts.service.js';
 describe('invited active meeting prompts',()=>{
-  beforeEach(()=>{vi.clearAllMocks();mocks.base.mockResolvedValue('https://tenant.example');});
+  beforeEach(()=>{vi.clearAllMocks();mocks.base.mockResolvedValue('https://tenant.example');mocks.execute.mockResolvedValue([[]]);});
   it('returns all meeting types with distinct keys and rejoin state across tenants',async()=>{
     mocks.execute.mockResolvedValueOnce([[{id:4,agency_id:2,title:'Leadership',meeting_type:'team_meeting',join_token:'personal-room',start_at:'2026-01-01 10:00:00',previously_joined:1}]]);
     mocks.execute.mockResolvedValueOnce([[{id:4,agency_id:3,title:'Supervision',meeting_type:'supervision',join_token:'supervision-room',start_at:'2026-01-01 10:00:00',previously_joined:0}]]);
@@ -24,6 +24,19 @@ describe('invited active meeting prompts',()=>{
     expect(teamArgs).toEqual(['user-9',9,9,9]);
     expect(mocks.execute.mock.calls[1][0]).toContain('s.live_ended_at IS NULL');
     expect(mocks.execute.mock.calls[1][0]).toContain("'DECLINED','REMOVED','CANCELLED'");
+  });
+  it('returns named arrivals and accurate live/waiting counts only within authorized meetings', async () => {
+    mocks.execute.mockResolvedValueOnce([[{id:4,agency_id:2,provider_id:9,waiting_room_enabled:1,meeting_type:'team_meeting',start_at:'2026-10-01 18:00:00'}]])
+      .mockResolvedValueOnce([[]]).mockResolvedValueOnce([[
+        {meeting_id:4,join_identity:'user-9',display_name:'Host',joined_at:'2026-10-01 18:03:00',admitted:0},
+        {meeting_id:4,join_identity:'user-8',display_name:'Rachel',joined_at:'2026-10-01 18:02:00',admitted:0},
+        {meeting_id:4,join_identity:'user-7',display_name:'Randy',joined_at:'2026-10-01 18:01:00',admitted:1}
+      ]]);
+    const [prompt] = await activeMeetingPrompts(9);
+    expect(prompt).toMatchObject({presentCount:3,waitingCount:1,latestJoin:{displayName:'Rachel',joinedAt:'2026-10-01T18:02:00.000Z'}});
+    const [sql,args] = mocks.execute.mock.calls[2];
+    expect(args).toEqual([4]);expect(sql).toContain('p.event_id IN (?)');expect(sql).toContain('p.left_at IS NULL');
+    expect(sql).toContain('INTERVAL 90 SECOND');expect(prompt.latestJoin.key).toContain('user-8:');
   });
   it('never queries for unauthenticated/invalid user IDs',async()=>{
     expect(await activeMeetingPrompts(0)).toEqual([]);

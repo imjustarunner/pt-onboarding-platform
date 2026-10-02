@@ -1,5 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import VideoSessionRoom from '../VideoSessionRoom.vue';
 import { updateRemoteVideoState } from '../remoteVideoState.js';
 import { acquireNativeAudioSource } from '../nativeAudioCapture.js';
@@ -403,5 +403,51 @@ describe('remote subscription recovery',()=>{
     expect(w.vm.remotes[0].hasVideo).toBe(true);expect(w.text()).toContain('audio continues');
     handlers.videoEnabled({reason:'quality'});await flushPromises();expect(w.text()).not.toContain('audio continues');
     vi.useFakeTimers();handlers.videoDisabled({reason:'publishVideo'});await vi.advanceTimersByTimeAsync(500);await flushPromises();vi.useRealTimers();expect(w.find('.vsr__cam-off-chip, .vsr__tile--cam-off').exists()).toBe(true);w.unmount();
+  });
+});
+
+
+describe('alone-room disconnect and arrivals', () => {
+  let wrapper, publisher;
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    publisher={on:vi.fn(),destroy:vi.fn(),publishAudio:vi.fn(),publishVideo:vi.fn()};
+    videoSdk.initPublisher.mockReset().mockImplementation((_el,_opts,cb)=>{queueMicrotask(()=>cb(null));return publisher;});
+    wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'alone',token:'eyJ.test.token',playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    videoSdk.session.connection={connectionId:'local',data:JSON.stringify({identity:'user-7',displayName:'You'})};
+    videoSdk.session.publish.mockImplementation((_pub,cb)=>cb(null));
+    videoSdk.connectCallback(null);await flushPromises();
+  });
+  afterEach(()=>{wrapper?.unmount();vi.useRealTimers();});
+  it('prompts, tears down paid media, and emits a rejoinable timeout without completing the meeting',async()=>{
+    const session=videoSdk.session;
+    await vi.advanceTimersByTimeAsync(120000);
+    expect(wrapper.find('[role="alertdialog"]').text()).toContain('Waiting for someone?');
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(session.disconnect).toHaveBeenCalled();expect(publisher.destroy).toHaveBeenCalled();
+    expect(wrapper.emitted('disconnected').at(-1)).toEqual([{reason:'alone-timeout'}]);
+    expect(wrapper.emitted('meeting-ended')).toBeUndefined();
+    expect(wrapper.text()).toContain('Rejoin meeting');
+  });
+  it('announces a person once, counts audio-only connections, and cancels the pending timeout on arrival',async()=>{
+    await vi.advanceTimersByTimeAsync(120000);
+    const person={connectionId:'rachel',data:JSON.stringify({identity:'user-8',displayName:'Rachel'})};
+    videoSdk.session._handlers.connectionCreated({connection:person});await flushPromises();
+    expect(wrapper.text()).toContain('Rachel joined the meeting. 2 people here.');
+    expect(wrapper.find('[role="alertdialog"]').exists()).toBe(false);
+    await vi.advanceTimersByTimeAsync(700000);expect(wrapper.emitted('disconnected')).toBeUndefined();
+    videoSdk.session._handlers.connectionDestroyed({connection:person});await flushPromises();
+    await vi.advanceTimersByTimeAsync(120000);expect(wrapper.find('[role="alertdialog"]').exists()).toBe(true);
+  });
+  it('disconnects at the hard ten-minute limit despite repeated extensions',async()=>{
+    for(let i=0;i<4;i++){
+      await vi.advanceTimersByTimeAsync(120000);
+      await wrapper.findAll('button').find(b=>b.text()==='Keep waiting').trigger('click');
+    }
+    await vi.advanceTimersByTimeAsync(90000);
+    expect(wrapper.findAll('button').some(b=>b.text()==='Keep waiting')).toBe(false);
+    await vi.advanceTimersByTimeAsync(30000);
+    expect(wrapper.emitted('disconnected').at(-1)).toEqual([{reason:'alone-timeout'}]);
   });
 });

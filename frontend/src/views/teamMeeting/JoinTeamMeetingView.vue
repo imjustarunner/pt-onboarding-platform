@@ -22,6 +22,10 @@
       :banner-dismissed="exitBannerDismissed"
       :closed-by-name="meetingClosedByName"
       :closed-at="meetingCompletedAt"
+      :can-end-meeting="isHost && !meetingCompletedAt"
+      :ending="completing"
+      :action-error="completeError"
+      @end-meeting="markCompletedAndLeave"
       @rejoin="rejoinMeeting"
       @go-to-schedule="goToScheduleFromExit"
       @dismiss-banner="dismissHostEndedBanner"
@@ -1967,9 +1971,13 @@ async function endInterviewGuestFromLeaveModal() {
   }
 }
 
-async function onDisconnected() {
+async function onDisconnected(payload = {}) {
   if (intentionalLeave.value || sessionExit.value || interviewGuestEnded.value) return;
   videoConnected.value = false;
+  if (payload?.reason === 'alone-timeout') {
+    await finishLeave({ variant: 'alone-timeout', canRejoin: !meetingCompletedAt.value });
+    return;
+  }
   if (meetingCompletedAt.value) {
     void finishLeave({ variant: 'host-ended', canRejoin: false });
     return;

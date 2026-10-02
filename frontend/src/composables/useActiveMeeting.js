@@ -8,6 +8,7 @@ import { reactive, readonly } from 'vue';
 
 const state = reactive({
   active: false,
+  connected: false,
   token: '',
   vonageSessionId: '',
   applicationId: '',
@@ -30,6 +31,7 @@ let returnMedia = null;
 export function useActiveMeeting() {
   function setMiniMode(params = {}) {
     state.active = true;
+    state.connected = true;
     state.token = String(params.token || '');
     state.vonageSessionId = String(params.vonageSessionId || '');
     state.applicationId = String(params.applicationId || '');
@@ -50,6 +52,7 @@ export function useActiveMeeting() {
 
   function clearMiniMode() {
     state.active = false;
+    state.connected = false;
     state.token = '';
     state.vonageSessionId = '';
     state.applicationId = '';
@@ -66,5 +69,5 @@ export function useActiveMeeting() {
     returnMedia = null;
     return preferences;
   }
-  return { state: readonly(state), setMiniMode, clearMiniMode, saveReturnMedia, takeReturnMedia };
+  return { state: readonly(state), setMiniConnected: (connected) => { state.connected = !!connected; }, setMiniMode, clearMiniMode, saveReturnMedia, takeReturnMedia };
 }
