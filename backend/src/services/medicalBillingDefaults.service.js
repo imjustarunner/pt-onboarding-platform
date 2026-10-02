@@ -1,3 +1,4 @@
+import { isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
 /**
  * Default medical service codes + service locations for agencies with medical billing.
  * Idempotent: only inserts codes/locations that are missing.
@@ -75,6 +76,7 @@ function buildDefaultMedicalServiceCodes() {
     let allowedCredentialTiers = TIER_ALL;
     if (INTERN_ONLY.has(code)) allowedCredentialTiers = TIER_INTERN;
     else if (BACHELORS_UP.has(code)) allowedCredentialTiers = TIER_BACHELORS_UP;
+    allowedCredentialTiers = allowedCredentialTiers.filter(tier => !isServiceCodeDeniedForTier(tier, code));
 
     out.push({
       serviceCode: code,
@@ -305,6 +307,6 @@ export function filterCodesForProviderTier(codeRows, providerTier) {
     const allowed = parseAllowedCredentialTiers(
       row.allowed_credential_tiers_json ?? row.allowedCredentialTiers ?? null
     );
-    return tierAllows(allowed, providerTier);
+    return !isServiceCodeDeniedForTier(providerTier, row.service_code ?? row.serviceCode ?? row.code) && tierAllows(allowed, providerTier);
   });
 }

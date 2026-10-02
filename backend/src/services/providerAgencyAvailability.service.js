@@ -1,3 +1,4 @@
+import { agencyAvailability } from '../utils/providerAgencyAvailability.js';
 import {validateAgencyAvailability} from '../utils/providerAgencyAvailability.js';
 import {listPublicProviderOffices} from './publicProviderOffices.service.js';
 
@@ -12,7 +13,7 @@ export async function availabilityEditingContext(database,providerId,agencyId,ac
  }
  if(!allowed.some(a=>Number(a.id)===Number(agencyId)))throw Object.assign(new Error('Active agency membership required'),{status:403});
  const offices=(await listPublicProviderOffices(agencyId,[providerId],database)).get(Number(providerId))||[];
- return {agencies:allowed,offices,canApplyToAll:allowed.length===memberships.length,agencyName:memberships.find(a=>Number(a.id)===Number(agencyId))?.name};
+ return {agencies:allowed,offices,canManageCareAssignment:['admin','super_admin'].includes(actor.role),canApplyToAll:allowed.length===memberships.length,agencyName:memberships.find(a=>Number(a.id)===Number(agencyId))?.name};
 }
 
 export async function saveAgencyAvailability(database,{providerId,agencyId,actor,body}) {
@@ -29,7 +30,15 @@ export async function saveAgencyAvailability(database,{providerId,agencyId,actor
   // The current selection stays local; other agencies use their assigned offices.
   map[String(agency.id)]={...policy,officeIds:Number(agency.id)===Number(agencyId)?policy.officeIds:null};
  }
- await database.execute('SELECT id FROM users WHERE id=? FOR UPDATE',[providerId]);
+ const [[person]]=await database.execute('SELECT id,sees_clients FROM users WHERE id=? FOR UPDATE',[providerId]);
+ const [[profile]]=await database.execute('SELECT public_details_json FROM provider_public_profiles WHERE user_id=?',[providerId]);
+ // Availability self-service must never grant or revoke a care-provider assignment.
+ if(!context.canManageCareAssignment)for(const agency of agencies){
+  const prior=agencyAvailability(profile?.public_details_json,agency.id);
+  const seesClients=prior?prior.seesClients===true:[true,1,'1'].includes(person?.sees_clients);
+  if(policy.seesClients!==seesClients)throw Object.assign(new Error('Only administrators can change Sees clients for an agency.'),{status:403});
+ }
+
  await database.execute(`INSERT INTO provider_public_profiles (user_id,public_details_json) VALUES (?,?)
  ON DUPLICATE KEY UPDATE public_details_json=JSON_MERGE_PATCH(COALESCE(public_details_json,JSON_OBJECT()),VALUES(public_details_json)),updated_at=CURRENT_TIMESTAMP`,
  [providerId,JSON.stringify({availabilityByAgency:map})]);

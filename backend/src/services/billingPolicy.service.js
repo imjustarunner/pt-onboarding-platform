@@ -1,3 +1,4 @@
+import { isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import StorageService from './storage.service.js';
@@ -712,6 +713,7 @@ function selectEligibilityForTier(eligibilityRows, credentialTier) {
 export async function resolvePolicyRuleForServiceCode({ agencyId, serviceCode, credentialTier = null }) {
   const code = normalizeCode(serviceCode);
   if (!code) return null;
+  if (isServiceCodeDeniedForTier(credentialTier, code)) return { serviceCode: code, enabledForAgency: true, allowedForCredentialTier: false };
   const profile = await resolvePolicyProfileForAgency({ agencyId });
   if (!profile?.id) return null;
 
@@ -825,7 +827,7 @@ export async function listEligiblePolicyServiceCodes({ agencyId, credentialTier 
         }
       }
       const enabled = agencyCodeEnabled.has(code) ? agencyCodeEnabled.get(code) : true;
-      if (enabled && allowedForTier) out.push(code);
+      if (enabled && allowedForTier && !isServiceCodeDeniedForTier(tier, code)) out.push(code);
     }
     return out;
   } catch (error) {

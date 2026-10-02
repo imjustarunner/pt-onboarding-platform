@@ -6,7 +6,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:
 const types=[{service_type:'counseling',display_name:'Counseling'},{service_type:'tutoring',display_name:'Tutoring'}];
 let conn,person,enrollments;
 beforeEach(()=>{
- vi.resetAllMocks();person={role:'admin',status:'ACTIVE_EMPLOYEE',agency_name:'NLU',public_details_json:{serviceOfferingsByAgency:{'3':['tutoring']}}};enrollments=[];
+ vi.resetAllMocks();person={role:'admin',agency_role:'facilitator',is_active:1,membership_active:1,sees_clients:1,credential:'BA',status:'ACTIVE_EMPLOYEE',agency_name:'NLU',public_details_json:{serviceOfferingsByAgency:{'3':['tutoring']}}};enrollments=[];
  conn={execute:vi.fn(async(sql,args)=>{
   if(sql.startsWith('SELECT service_type,display_name'))return [types];
   if(sql.startsWith('SELECT service_type,is_active'))return [enrollments];
@@ -19,6 +19,12 @@ beforeEach(()=>{
  pool.getConnection.mockResolvedValue(conn);pool.execute.mockImplementation(conn.execute);
 });
 describe('service offerings',()=>{
+ it('does not offer or enroll services for a non-care employee with a degree',async()=>{
+  person.agency_role='staff';person.credential='MA';enrollments=[{service_type:'counseling',is_active:1}];
+  const result=await readProviderServices(9,2);expect(result.services.every(s=>!s.offered&&!s.onlineScheduling)).toBe(true);
+  await expect(saveProviderServices(9,2,['counseling'])).rejects.toMatchObject({status:403});
+  expect(conn.commit).not.toHaveBeenCalled();
+ });
  it('enables online requests only for explicitly selected services in the current agency',async()=>{
   const result=await saveProviderServices(9,2,['counseling','tutoring'],['counseling']);
   expect(result.services.map(s=>s.onlineScheduling)).toEqual([true,false]);

@@ -1,3 +1,4 @@
+import { readStaffCareEligibility, requireStaffCareEligibility } from './staffCareEligibility.service.js';
 import pool from '../config/database.js';
 import { providerServiceSettings, validateProviderServices } from '../utils/providerServiceOfferings.js';
 
@@ -7,7 +8,12 @@ export async function readProviderServices(providerId, agencyId, database = pool
   const [[person]] = await database.execute(`SELECT u.role,u.status,u.has_provider_access,ua.agency_role,a.name AS agency_name,a.organization_type,p.public_details_json
     FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? JOIN agencies a ON a.id=ua.agency_id
     LEFT JOIN provider_public_profiles p ON p.user_id=u.id WHERE u.id=?`, [agencyId, providerId]);
-  return { agencyId, agencyName: person?.agency_name || '', services: providerServiceSettings(person, agencyId, types, enrollments) };
+  const careEligibility = await readStaffCareEligibility(providerId, agencyId, database);
+  const services = providerServiceSettings(person, agencyId, types, enrollments).map(service => ({
+    ...service, offered: careEligibility.canProvideCare && service.offered,
+    onlineScheduling: careEligibility.canProvideCare && service.onlineScheduling
+  }));
+  return { agencyId, careEligibility, agencyName: person?.agency_name || '', services };
 }
 
 export async function saveProviderServices(providerId, agencyId, selected, onlineScheduling) {
@@ -17,6 +23,7 @@ export async function saveProviderServices(providerId, agencyId, selected, onlin
     await connection.execute('SELECT id FROM users WHERE id=? FOR UPDATE', [providerId]);
     const current = await readProviderServices(providerId, agencyId, connection);
     const services = validateProviderServices(selected, current.services.map(s => s.serviceType));
+    if (services.length) await requireStaffCareEligibility(providerId, agencyId, connection);
     const online = onlineScheduling === undefined ? null : validateProviderServices(onlineScheduling, services);
     // Update only this tenant's choices; never overwrite the rest of the public profile.
     await connection.execute(`INSERT INTO provider_public_profiles (user_id,public_details_json)

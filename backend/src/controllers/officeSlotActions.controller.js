@@ -686,7 +686,7 @@ export const setBookingPlan = async (req, res, next) => {
       preferredAgencyId: Number(req.body?.agencyId || 0) || null });
     const clientId = Number(req.body?.clientId || 0) || null;
     if (clientId) await assertAppointmentClients(agencyId, [{ clientId }]);
-    const validated = await validateSchedulingSelection({ agencyId, userRole: provider.role,
+    const validated = await validateSchedulingSelection({ agencyId, providerId: provider.id, userRole: provider.role,
       providerCredentialText: provider.credential, ...selection });
     const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
     const bookedOccurrenceCount = normalizeBookedOccurrenceCount(req.body?.bookedOccurrenceCount);
@@ -1230,6 +1230,7 @@ export const staffBookEvent = async (req, res, next) => {
         agencyId: policyAgencyId,
         userRole: provider.role,
         providerCredentialText: provider.credential,
+        providerId: provider.id,
         appointmentTypeCode: rawSelection.appointmentTypeCode || ev.appointment_type_code || null,
         appointmentSubtypeCode: rawSelection.appointmentSubtypeCode || ev.appointment_subtype_code || null,
         serviceCode: rawSelection.serviceCode || ev.service_code || null,
@@ -1748,6 +1749,7 @@ export const setEventBookingPlan = async (req, res, next) => {
       agencyId: policyAgencyId,
       userRole: provider.role,
       providerCredentialText: provider.credential,
+        providerId: provider.id,
       appointmentTypeCode: rawSelection.appointmentTypeCode || ev.appointment_type_code || null,
       appointmentSubtypeCode: rawSelection.appointmentSubtypeCode || ev.appointment_subtype_code || null,
       serviceCode: rawSelection.serviceCode || ev.service_code || null,

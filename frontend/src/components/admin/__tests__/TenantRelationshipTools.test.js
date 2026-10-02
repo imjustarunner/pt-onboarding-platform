@@ -9,12 +9,20 @@ describe('agency service assignments',()=>{
   api.get.mockResolvedValue({data:{credentialTier:'bachelors',credential:'BA',services:[{id:234,name:'Counseling',assigned:0},{id:239,name:'Skills training',assigned:0}]}});
   const wrapper=shallowMount(TenantRelationshipTools,{props:{userId:538,agencyId:6}});
   wrapper.get('details').element.open=true;await wrapper.get('details').trigger('toggle');await flushPromises();
-  expect(wrapper.text()).toContain('Clinical permission level: Bachelor’s level');
+  expect(wrapper.text()).toContain('Credential classification: Bachelor’s level');
   expect(wrapper.text()).toContain('Assignments do not grant clinical permissions');
   expect(wrapper.findAll('input[type="checkbox"]').every(c=>!c.element.checked)).toBe(true);
  });
+ it('shows credentials without enabling services for non-care staff',async()=>{
+  api.get.mockResolvedValue({data:{credentialTier:'intern_plus',credential:'MA',canProvideCare:false,reason:'Sees clients is off for this agency.',services:[{id:1,name:'Counseling',assigned:0}]}});
+  const wrapper=shallowMount(TenantRelationshipTools,{props:{userId:12,agencyId:6}});
+  wrapper.get('details').element.open=true;await wrapper.get('details').trigger('toggle');await flushPromises();
+  expect(wrapper.text()).toContain('Care services not enabled for this agency');
+  expect(wrapper.text()).toContain('Credentials alone do not grant care permissions');
+  expect(wrapper.get('fieldset').attributes('disabled')).toBeDefined();
+ });
  it('loads on expansion and saves choices only for the selected person and agency',async()=>{
-  const data={services:[{id:234,name:'Individual counseling',service_code:'H0004',assigned:1},{id:239,name:'Skills training',service_code:'H2014',assigned:0}]};
+  const data={canProvideCare:true,services:[{id:234,name:'Individual counseling',service_code:'H0004',assigned:1},{id:239,name:'Skills training',service_code:'H2014',assigned:0}]};
   api.get.mockResolvedValue({data});api.put.mockResolvedValue({data});
   const wrapper=shallowMount(TenantRelationshipTools,{props:{userId:538,agencyId:6}});
   expect(api.get).not.toHaveBeenCalled();

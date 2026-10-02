@@ -1,3 +1,5 @@
+vi.mock('../staffCareEligibility.service.js', () => ({ requireStaffCareEligibility: vi.fn().mockResolvedValue({ canProvideCare: true }) }));
+import { requireStaffCareEligibility } from '../staffCareEligibility.service.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn().mockResolvedValue([[]]) } }));
 vi.mock('../../models/AgencyServiceLocation.model.js', () => ({ default: {} }));
@@ -32,6 +34,11 @@ beforeEach(() => {
   Appointment.listParticipants.mockResolvedValue(args.participants); Appointment.getBilling.mockResolvedValue({});
 });
 describe('self-pay booking integration', () => {
+  it('requires a care assignment for self-pay care too', async () => {
+    requireStaffCareEligibility.mockRejectedValueOnce(Object.assign(new Error('Care assignment required'), {status:403}));
+    await expect(createAppointment(args)).rejects.toMatchObject({status:403});
+    expect(Appointment.create).not.toHaveBeenCalled();
+  });
   it('records the duration-based provider charge and creates a note context without insurance coding', async () => {
     await createAppointment(args);
     expect(resolveSelfPayQuote).toHaveBeenCalledWith(expect.objectContaining({ durationMinutes: 50, agencyId: 1, providerId: 9 }));

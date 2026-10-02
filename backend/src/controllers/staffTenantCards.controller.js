@@ -1,6 +1,7 @@
+import { isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import pool from '../config/database.js';
 import { CARD_STAFF_ROLES, canManageBusinessCards } from '../services/businessCardSettings.service.js';
-import { deriveCredentialTier } from '../utils/clinicalServiceCodeEligibility.js';
+import { readStaffCareEligibility, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
 const fail=(status,message)=>Object.assign(new Error(message),{status});
 const id=value=>/^\d+$/.test(String(value))&&Number(value)>0?Number(value):null;
 export async function staffTenantAccess(req,{write=false}={}) {
@@ -39,10 +40,8 @@ export async function listStaffServiceAssignments(req,res,next){try{
  const [services]=await pool.execute(`SELECT ts.id,ts.name,ts.service_code,ts.business_type,
   EXISTS(SELECT 1 FROM staff_service_assignments s WHERE s.agency_id=ts.agency_id AND s.tenant_service_id=ts.id AND s.user_id=? AND s.is_active=1) AS assigned
   FROM tenant_services ts WHERE ts.agency_id=? AND ts.is_active=1 ORDER BY ts.sort_order,ts.name,ts.id`,[userId,agencyId]);
- const [[person]]=await pool.execute(`SELECT u.credential,COALESCE(NULLIF(ua.agency_role,''),u.role) AS working_role
-  FROM users u JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=? WHERE u.id=?`,[agencyId,userId]);
- const credentialTier=deriveCredentialTier({userRole:person?.working_role,providerCredentialText:person?.credential});
- res.json({services,credentialTier,credential:person?.credential||''});
+ const eligibility=await readStaffCareEligibility(userId,agencyId);
+ res.json({services:services.map(service=>({...service,allowedForCredential:!isServiceCodeDeniedForTier(eligibility.credentialTier,service.service_code)})),...eligibility});
 }catch(e){respond(e,res,next);}}
 export async function updateStaffServiceAssignments(req,res,next){try{
  const {userId,agencyId}=await staffTenantAccess(req,{write:true});
@@ -53,8 +52,10 @@ export async function updateStaffServiceAssignments(req,res,next){try{
   await connection.beginTransaction();
   const [[member]]=await connection.execute('SELECT user_id FROM user_agencies WHERE user_id=? AND agency_id=? AND COALESCE(is_active,1)=1 FOR UPDATE',[userId,agencyId]);
   if(!member)throw fail(409,'Agency relationship changed. Refresh before saving.');
-  const [available]=await connection.execute('SELECT id FROM tenant_services WHERE agency_id=? AND is_active=1 FOR UPDATE',[agencyId]);
+  const eligibility=wanted.length?await requireStaffCareEligibility(userId,agencyId,connection):null;
+  const [available]=await connection.execute('SELECT id,service_code FROM tenant_services WHERE agency_id=? AND is_active=1 FOR UPDATE',[agencyId]);
   if(wanted.some(id=>!available.some(s=>Number(s.id)===id)))throw fail(400,'Choose only active services from this agency.');
+  if(available.some(s=>wanted.includes(Number(s.id))&&isServiceCodeDeniedForTier(eligibility?.credentialTier,s.service_code)))throw fail(403,'Bachelor’s-level providers cannot be assigned 9-series service codes.');
   // Change only this employee's active catalog choices; preserve office/modality settings.
   for(const service of available){
    const active=wanted.includes(Number(service.id));

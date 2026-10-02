@@ -21,6 +21,8 @@ describe('agency-specific publication',()=>{
 });
 let database,writes;
 beforeEach(()=>{writes=[];database={execute:vi.fn(async(sql,args)=>{
+ if(sql.includes('SELECT id,sees_clients FROM users'))return [[{id:9,sees_clients:1}]];
+ if(sql.includes('SELECT public_details_json FROM provider_public_profiles'))return [[{public_details_json:{availabilityByAgency:{2:{...open,seesClients:false}}}}]];
  if(sql.includes('SELECT a.id,a.name'))return [[{id:1,name:'A'},{id:2,name:'B'}]];
  if(sql.includes('SELECT agency_id FROM user_agencies'))return [[{agency_id:1}]];
  if(sql.includes('FROM office_standing_assignments'))return [[{provider_id:9,id:8,name:'Shared office',city:'Denver'}]];
@@ -34,7 +36,15 @@ describe('authorized availability edits',()=>{
  const sql=database.execute.mock.calls.map(c=>c[0]).join('\n');expect(sql).not.toMatch(/DELETE|UPDATE users|UPDATE office_events|UPDATE provider_(virtual|in_person)/);
  });
  it('shares settings and source schedule across memberships but keeps offices agency-local',async()=>{
- await save({applyToAll:true,officeIds:[8]});expect(writes[0].availabilityByAgency).toMatchObject({1:{scheduleAgencyId:1,officeIds:[8]},2:{scheduleAgencyId:1,officeIds:null}});
+ await save({applyToAll:true,officeIds:[8]},{id:10,role:'super_admin'});expect(writes[0].availabilityByAgency).toMatchObject({1:{scheduleAgencyId:1,officeIds:[8]},2:{scheduleAgencyId:1,officeIds:null}});
+ });
+ it('prevents self-service changes to care status, including apply-to-all across tenants',async()=>{
+ await expect(save({seesClients:false})).rejects.toMatchObject({status:403});
+ await expect(save({applyToAll:true})).rejects.toMatchObject({status:403});
+ expect(writes).toHaveLength(0);
+ });
+ it('allows an administrator to change the care assignment explicitly',async()=>{
+ await save({seesClients:false},{id:10,role:'admin'});expect(writes[0].availabilityByAgency[1].seesClients).toBe(false);
  });
  it('rejects a manager updating an unauthorized agency or using its schedule',async()=>{
  const actor={id:10,role:'admin'};
