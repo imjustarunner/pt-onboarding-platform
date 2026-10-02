@@ -4,8 +4,8 @@
     <OfficeArrivalSplash v-if="isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" :key="user.id" />
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
-      <div id="app" :inert="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
-      <div v-if="pageLoading && !isLoginEntry && !isPublicOfficeRoute" class="agency-loading-overlay" aria-label="Loading">
+      <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
+      <div v-if="pageLoading && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
           <div class="agency-loading-text">{{ loadingText }}</div>
@@ -1961,7 +1961,7 @@
       <!-- <RegistrationPromoToastRail v-if="isAuthenticated" /> -->
       <HelperWidget v-if="isAuthenticated && !isImmersiveJoinRoute && !hideGlobalNavForSchoolStaff" />
       <BetaFeedbackWidget v-if="isAuthenticated && !isNative && !isImmersiveJoinRoute && !hideGlobalNavForSchoolStaff" />
-      <EmailComposerDock :owner-id="user?.id" :locked="sessionLockStore.isLocked || sessionLockStore.warningActive" />
+      <EmailComposerDock v-if="!applicantInterviewMode" :owner-id="user?.id" :locked="sessionLockStore.isLocked || sessionLockStore.warningActive" />
       <FloatingMeetingBar v-if="isAuthenticated && !hideGlobalNavForSchoolStaff" />
       <SuperAdminBuilderPanel v-if="isAuthenticated && brandingStore.isSuperAdmin && !hideGlobalNavForSchoolStaff" />
       <TourManager v-if="isAuthenticated && !isSummitStatsChallengeChrome && !hideGlobalNavForSchoolStaff" />
@@ -1971,7 +1971,7 @@
         v-if="sideChatRailEnabled && isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
       />
       <SessionLockScreen
-        v-if="authStore.isAuthenticated && (!isLoginEntry || sessionLockStore.lockConfig)"
+        v-if="!applicantInterviewMode && authStore.isAuthenticated && (!isLoginEntry || sessionLockStore.lockConfig)"
         :is-locked="sessionLockStore.isLocked"
         @unlock="onSessionUnlock"
         @logout="onSessionLockLogout"
@@ -1979,11 +1979,11 @@
       <!-- Branded 10‑min Timedown stays visible for everyone. Privileged roles also get
            StatusPromptModal on top (Away / Meal / stay signed in up to 2h). -->
       <InactivityWarningModal
-        v-if="isAuthenticated || (sessionLockStore.warningActive && (!isLoginEntry || sessionLockStore.lockConfig))"
+        v-if="!applicantInterviewMode && (isAuthenticated || (sessionLockStore.warningActive && (!isLoginEntry || sessionLockStore.lockConfig)))"
         :suppress-actions="statusPromptOpenForActions || sessionLockStore.isLocked"
       />
       <NoteAidClockInPromptModal v-if="isAuthenticated" />
-      <StatusPromptModal />
+      <StatusPromptModal v-if="!applicantInterviewMode" />
       <PlannedOutLoginConflictModal
         :open="plannedOutConflictOpen"
         :planned-out="plannedOutConflict"
@@ -2277,6 +2277,7 @@ import { resolveHostImpliedPortalSlug } from './utils/orgScopedPath.js';
 import { resolvePreferredAgencySlug } from './utils/demoTenant.js';
 import AppVersionReloadBanner from './components/AppVersionReloadBanner.vue';
 import { isLoginEntryRoute } from './utils/loginHandoff';
+import { applicantInterviewMode } from './utils/applicantInterviewMode';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
 import { canSeeClientExchangeNav } from './utils/clientExchangeNav.js';
@@ -3859,7 +3860,7 @@ const navTitleText = computed(() => {
 });
 
 const isLoginEntry = computed(() => isLoginEntryRoute(route));
-const isAuthenticated = computed(() => authStore.isAuthenticated && !isLoginEntry.value);
+const isAuthenticated = computed(() => authStore.isAuthenticated && !isLoginEntry.value && !applicantInterviewMode.value);
 
 const passwordExpiryBannerDismissed = ref(false);
 const showPasswordExpiryBanner = computed(() =>

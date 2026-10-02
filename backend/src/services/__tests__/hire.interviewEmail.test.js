@@ -25,6 +25,8 @@ describe('branded interview invitation', () => {
     expect(email.html).toContain('outlook.live.com');
     expect(email.html).toContain(`https://tenant.org/api/team-meetings/${interviewCalendarReference(240)}/calendar.ics`);
     expect(email.html).toContain('Do not share or forward');
+    expect(email.html).toContain('No account or sign-in is needed');
+    expect(email.text).toContain('No account or sign-in is needed');
     const calendar = email.attachments.find(a => a.filename === 'interview.ics');
     const ics = Buffer.from(calendar.contentBase64, 'base64').toString().replace(/\r\n /g,'');
     expect(ics).toContain('DTSTART:20260919T210000Z');

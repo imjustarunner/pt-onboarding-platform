@@ -686,6 +686,7 @@ export const getTeamMeetingJoinInfo = async (req, res, next) => {
       joinTokenRole: tokenRole,
       meetingSubtype: String(event.meeting_subtype || 'general').trim().toLowerCase(),
       guestJoinAllowed: isInterviewParticipantGuestJoin(event, ref),
+      isInterviewer: isInterviewMeeting(event) && await canAccessInterviewMeeting(req, event),
       meetingCompleted: !!meetingCompletedAt,
       meetingCompletedAt
     });
@@ -799,7 +800,7 @@ export const getTeamMeetingVideoToken = async (req, res, next) => {
     let profilePhotoUrl = null;
     if (guestJoin) {
       displayName = await interviewGuestDisplayName(row);
-      roleLabel = 'Candidate';
+      roleLabel = 'Applicant';
     } else {
       const actor = await User.findById(actorUserId);
       displayName = displayNameFromUser(actor) || `User ${actorUserId}`;
@@ -959,7 +960,7 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
     await upsertJoinPresence({
       eventId: row.id,
       joinIdentity: identity,
-      displayName: String(req.body?.displayName || '').trim() || null,
+      displayName: guestJoin ? await interviewGuestDisplayName(row) : (String(req.body?.displayName || '').trim() || null),
       isGuest: !!guestJoin
     });
 
@@ -1340,7 +1341,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
 
     if (!admitted) {
       const hostStatus = await buildTeamMeetingHostStatus(row);
-      const waitingPrep = await buildTeamMeetingWaitingPrep(row.id, {
+      const waitingPrep = guestJoin ? {} : await buildTeamMeetingWaitingPrep(row.id, {
         sessionTitle: String(row.title || '').trim() || null,
         kind: row.kind
       });
@@ -1390,7 +1391,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       identity,
       metadata: {
         role: 'participant',
-        roleLabel: 'Participant',
+        roleLabel: guestJoin ? 'Applicant' : 'Participant',
         eventId: row.id,
         displayName,
         profilePhotoUrl
@@ -1434,7 +1435,7 @@ export const getTeamMeetingAdmissionStatus = async (req, res, next) => {
       roomSid: vonageSessionId,
       identity,
       displayName,
-      roleLabel: 'Participant',
+      roleLabel: guestJoin ? 'Applicant' : 'Participant',
       profilePhotoUrl,
       isHost: false,
       eventId: Number(row.id),

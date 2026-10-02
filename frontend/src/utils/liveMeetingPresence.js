@@ -1,4 +1,5 @@
 // Short-lived, login-scoped leases. No credentials or participant data are shared.
+import { applicantInterviewMode } from './applicantInterviewMode';
 const PREFIX = 'pt-live-meeting:';
 export const LIVE_MEETING_TTL = 45000;
 function identity() {
@@ -22,6 +23,7 @@ export function hasLiveMeeting(now = Date.now()) {
   return false;
 }
 export function startLiveMeetingPresence() {
+  if (applicantInterviewMode.value) return () => {};
   const login = identity();
   if (!login) return () => {};
   const key = PREFIX + login + (globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2));

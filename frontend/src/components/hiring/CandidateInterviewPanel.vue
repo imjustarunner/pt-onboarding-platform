@@ -183,7 +183,7 @@
         <div class="v">
           <a :href="selected.public_join_url" target="_blank" rel="noopener">{{ selected.public_join_url }}</a>
           <button type="button" class="btn btn-secondary btn-sm" @click="copy(selected.public_join_url)">Copy</button>
-          <p class="muted small" style="margin:6px 0 0;">Candidates join as guests. Assigned interviewers sign in with their staff account on the same link.</p>
+          <p class="muted small" style="margin:6px 0 0;">Applicants use their personal interview link without an account or sign-in. Assigned interviewers sign in to access private team chat and the interview workspace.</p>
         </div>
       </div>
       <div class="kv"><div class="k">Invitation</div><div class="v">

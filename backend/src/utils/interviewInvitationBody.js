@@ -24,7 +24,7 @@ export function interviewInvitationBody({ firstName, candidateName, agencyName, 
     <p style="margin:0 0 6px;color:#53655e;">You’ll meet with</p>
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;">${people}</table>
     ${button('Join Interview', joinUrl, true)}
-    <p style="margin:10px 0 22px;font-size:13px;text-align:center;color:#63736b;">This is your personal interview link. Join a few minutes early; your interviewer will welcome you from the lobby.</p>
+    <p style="margin:10px 0 22px;font-size:13px;text-align:center;color:#63736b;">No account or sign-in is needed. This personal link identifies you as the applicant. Do not share or forward it. Join a few minutes early; your interviewer will welcome you from the lobby.</p>
     ${button('Confirm attendance or decline', rsvpUrl)}
     ${calendar ? `<p style="margin:24px 0 10px;font-size:18px;font-weight:bold;color:#183d31;">Add to your calendar</p>
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="padding-bottom:8px;">${button('Google Calendar', calendar.googleUrl)}</td></tr><tr><td style="padding-bottom:8px;">${button('Outlook Calendar', calendar.outlookUrl)}</td></tr>${calendar.downloadUrl ? `<tr><td>${button('Apple Calendar / iCal', calendar.downloadUrl)}</td></tr>` : ''}</table>

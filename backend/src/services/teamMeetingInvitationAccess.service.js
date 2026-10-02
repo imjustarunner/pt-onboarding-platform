@@ -24,7 +24,7 @@ export async function resolveTeamMeetingInvitationAccess(token,now=new Date()){
 export function teamMeetingRequest(method,path){
  const info=/^\/join-info\/(\d+)$/.exec(String(path||''));if(method==='GET'&&info)return {eventId:Number(info[1]),action:'join-info'};
  const m=/^\/(\d+)\/(.+?)\/?$/.exec(String(path||'').split('?')[0]);if(!m)return null;
- const allowed={GET:/^(calendar-guests|video-token|admission-status|lobby-participants|workspace|participants|activity|attendance|transcription)$/,POST:/^(calendar-guests\/\d+\/admit|join-presence|admit\/\d+|waiting-room|activity|workspace|complete|client-transcript|transcript-control|transcription\/audio)$/};
+ const allowed={GET:/^(calendar-guests|video-token|admission-status|lobby-participants|workspace|participants|activity|interview-chat|attendance|transcription)$/,POST:/^(calendar-guests\/\d+\/admit|join-presence|admit\/\d+|waiting-room|activity|interview-chat|workspace|complete|client-transcript|transcript-control|transcription\/audio)$/};
  return allowed[String(method).toUpperCase()]?.test(m[2])?{eventId:Number(m[1]),action:m[2]}:null;
 }
 export async function validateTeamMeetingAccess(token,request,body={}){

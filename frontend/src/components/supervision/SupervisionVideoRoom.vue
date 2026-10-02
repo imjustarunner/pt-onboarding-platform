@@ -160,7 +160,7 @@ const localName = computed(() => {
     return '';
   };
   // Prefer real person name over email / stale "Guest" labels.
-  const name = supervisionAccessFor(props.sessionId)
+  const name = role.toLowerCase() === 'applicant' || supervisionAccessFor(props.sessionId)
     ? preferName(fromProp) : preferName(authPerson, fromProp, authName);
   let roleSafe = role;
   // Prefer an explicit role label (e.g. Host / Participant for team meetings).
@@ -180,7 +180,7 @@ const localName = computed(() => {
 const localProfilePhotoUrl = computed(() => {
   const fromProp = String(props.localProfilePhotoUrl || '').trim();
   if (fromProp) return fromProp;
-  if (supervisionAccessFor(props.sessionId)) return '';
+  if (props.localRoleLabel.toLowerCase() === 'applicant' || supervisionAccessFor(props.sessionId)) return '';
   const u = authStore.user || {};
   return String(u.profile_photo_url || u.profilePhotoUrl || '').trim();
 });

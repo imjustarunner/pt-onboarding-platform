@@ -2,6 +2,8 @@ import { listMyMeetings, getMyMeeting, saveMyMeetingNote, retryMyMeetingSummary 
 import {calendarHostList,calendarHostAdmit} from './meetingCalendar.routes.js';
 import { authenticateTeamMeeting, authenticateTeamMeetingOptional } from '../middleware/teamMeetingInvitationAccess.middleware.js';
 import express from 'express';
+import interviewApplicantRoutes from './interviewApplicant.routes.js';
+import { getInterviewSharedChat, postInterviewSharedChat } from '../controllers/interviewSharedChat.controller.js';
 import multer from 'multer';
 import { downloadInterviewCalendar } from '../controllers/interviewCalendar.controller.js';
 import { authenticate, authenticateOptional } from '../middleware/auth.middleware.js';
@@ -37,6 +39,8 @@ import {
 import { getTeamMeetingActivity, postTeamMeetingActivity } from '../controllers/videoMeetingActivity.controller.js';
 
 const router = express.Router();
+// Applicant token access is independent of staff login / onboarding cookies.
+router.use('/interview-applicant/:eventId', interviewApplicantRoutes);
 
 // Public: resolve event to org slug for join redirect (no auth)
 router.get('/join-info/:eventId', authenticateTeamMeetingOptional, getTeamMeetingJoinInfo);
@@ -48,6 +52,8 @@ router.get('/:eventId/admission-status', authenticateTeamMeetingOptional, getTea
 router.get('/:eventId/calendar.ics', downloadInterviewCalendar);
 
 router.use(authenticateTeamMeeting);
+router.get('/:eventId/interview-chat', getInterviewSharedChat);
+router.post('/:eventId/interview-chat', postInterviewSharedChat);
 
 // Static paths before /:eventId
 router.get('/my-meetings', listMyMeetings);

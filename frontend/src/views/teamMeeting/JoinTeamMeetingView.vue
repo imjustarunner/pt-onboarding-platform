@@ -288,6 +288,8 @@
               @leave-request="requestLeave"
             />
           </div>
+          <InterviewSharedChat v-if="isInterviewMeeting && canSeeFullWorkspace && !isInLobby && resolvedEventId && !videoFullscreen"
+            :endpoint="`/team-meetings/${resolvedEventId}/interview-chat`" />
           <section
             v-if="resolvedEventId && !isInLobby && !isInterviewMeeting"
             class="join-live-activity"
@@ -627,6 +629,7 @@ import MeetingNotesPanel from '../../components/meetings/MeetingNotesPanel.vue';
 import MeetingLiveActivityPanel from '../../components/meetings/MeetingLiveActivityPanel.vue';
 import MeetingSessionExitPanel from '../../components/meetings/MeetingSessionExitPanel.vue';
 import InterviewLiveWorkspace from '../../components/hiring/InterviewLiveWorkspace.vue';
+import InterviewSharedChat from '../../components/hiring/InterviewSharedChat.vue';
 import InterviewEndedGuestPanel from '../../components/hiring/InterviewEndedGuestPanel.vue';
 import EmployeeEvaluationWorkspace from '../../components/evaluations/EmployeeEvaluationWorkspace.vue';
 import BrandingLogo from '../../components/BrandingLogo.vue';

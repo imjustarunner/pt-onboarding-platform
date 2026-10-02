@@ -1,7 +1,7 @@
 import {beforeEach,describe,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),event:vi.fn(),artifact:vi.fn(),ensure:vi.fn(),append:vi.fn(),participants:vi.fn(),open:vi.fn(),close:vi.fn(),rebuild:vi.fn(),interview:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),event:vi.fn(),artifact:vi.fn(),ensure:vi.fn(),append:vi.fn(),participants:vi.fn(),open:vi.fn(),close:vi.fn(),rebuild:vi.fn(),interview:vi.fn(),videoToken:vi.fn(),user:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
-vi.mock('../../models/User.model.js',()=>({default:{}}));
+vi.mock('../../models/User.model.js',()=>({default:{findById:m.user}}));
 vi.mock('../../models/ProviderScheduleEvent.model.js',()=>({default:{findById:m.event,resolveByJoinRef:m.event,classifyJoinTokenRole:(row,ref)=>ref===row.host_join_token?'host':ref===row.participant_join_token?'participant':null}}));
 vi.mock('../../models/ProviderScheduleEventAttendee.model.js',()=>({default:{}}));
 vi.mock('../../models/ProviderScheduleEventArtifact.model.js',()=>({default:{findByEventId:m.artifact,ensureTagged:m.ensure,appendTranscriptChunk:m.append}}));
@@ -12,7 +12,7 @@ vi.mock('../../services/meetingParticipants.service.js',()=>({meetingParticipant
 vi.mock('../../services/hiringInterviewAccess.service.js',()=>({canAccessHiringInterview:vi.fn()}));
 vi.mock('../../services/meetingAttendanceSegments.service.js',()=>({isAttendanceTrackingEnabledForEvent:()=>false,openAttendanceSegment:m.open,closeAttendanceSegment:m.close,rebuildAttendanceRollupsFromSegments:m.rebuild}));
 vi.mock('../interviewHub.controller.js',()=>({buildInterviewEndedGuestPayload:vi.fn()}));
-vi.mock('../../services/video.service.js',()=>({isVideoConfigured:()=>true,createOrGetRoomByUniqueName:vi.fn(),createAccessTokenAsync:vi.fn(),completeRoom:vi.fn(),setHostOnlyRecordingRules:vi.fn(),setRecordAllRecordingRules:vi.fn(),resolveVideoProjectId:vi.fn(),getVideoClientDiagnostics:vi.fn()}));
+vi.mock('../../services/video.service.js',()=>({isVideoConfigured:()=>true,createOrGetRoomByUniqueName:vi.fn(),createAccessTokenAsync:m.videoToken,completeRoom:vi.fn(),setHostOnlyRecordingRules:vi.fn(),setRecordAllRecordingRules:vi.fn(),resolveVideoProjectId:()=> 'test-project',getVideoClientDiagnostics:vi.fn()}));
 
 import { getTeamMeetingJoinInfo, getTeamMeetingVideoToken, getTeamMeetingAdmissionStatus, postTeamMeetingJoinPresence } from '../teamMeetings.controller.js';
 const response=()=>({json:vi.fn(),status:vi.fn().mockReturnThis()});
@@ -71,5 +71,17 @@ describe('launch room and presence boundaries',()=>{
     m.event.mockResolvedValue({...event,status:'CANCELLED'});const request=req();request.body.action='leave';
     await postTeamMeetingJoinPresence(request,response(),vi.fn());
     expect(m.close).toHaveBeenCalledWith({eventId:9,joinIdentity:'user-7'});expect(m.open).not.toHaveBeenCalled();
+  });
+  it('mints applicant video credentials and retains their identity after waiting-room admission',async()=>{
+    m.event.mockResolvedValue({...event,meeting_subtype:'interview',twilio_room_sid:'interview-room'});
+    m.interview.mockResolvedValue({candidate_user_id:30}); m.user.mockResolvedValue({first_name:'Jamie',last_name:'Applicant'});
+    m.videoToken.mockResolvedValue('applicant-video-token');
+    for(const handler of [getTeamMeetingVideoToken,getTeamMeetingAdmissionStatus]){
+      const res=response(),next=vi.fn();await handler(req('PRIVATE-PARTICIPANT',null),res,next);
+      expect(next).not.toHaveBeenCalled();expect(res.status).not.toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({token:'applicant-video-token',sessionId:'interview-room',isHost:false,displayName:'Jamie Applicant',roleLabel:'Applicant'}));
+    }
+    expect(m.videoToken).toHaveBeenCalledWith(expect.objectContaining({identity:expect.stringMatching(/^guest-iv-/),metadata:expect.objectContaining({role:'participant',roleLabel:'Applicant'})}));
+    expect(m.open).not.toHaveBeenCalled();
   });
 });

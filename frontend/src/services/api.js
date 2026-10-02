@@ -2,6 +2,7 @@ import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from '../utils/schoolC
 import { sameDayServiceWarningMessage } from '../utils/sameDayServiceWarning.js';
 import { attachTeamMeetingAccess } from '../utils/teamMeetingInvitationAccess';
 import axios from 'axios';
+import { applicantInterviewMode } from '../utils/applicantInterviewMode';
 import { attachSupervisionAccess } from '../utils/supervisionInvitationAccess';
 import { attachCounselingAccess } from '../utils/counselingInvitationAccess';
 import { begin as beginGlobalLoading, end as endGlobalLoading } from '../utils/pageLoader';
@@ -257,15 +258,15 @@ api.interceptors.response.use(
     if (error.response?.data instanceof Blob && error.response.data.type.includes('json')) {
       try { error.response.data = JSON.parse(await error.response.data.text()); } catch { /* Keep the original response if it is not JSON. */ }
     }
-    if (error.response?.data?.error?.code === 'ACTIVITY_REVIEW_REQUIRED') {
+    if (!applicantInterviewMode.value && error.response?.data?.error?.code === 'ACTIVITY_REVIEW_REQUIRED') {
       window.dispatchEvent(new CustomEvent('activity-protection-required'));
     }
-    if (error.response?.data?.error?.code === 'MFA_REQUIRED') {
+    if (!applicantInterviewMode.value && error.response?.data?.error?.code === 'MFA_REQUIRED') {
       window.dispatchEvent(new Event('account-security-required'));
     }
     const securityCode = error.response?.data?.error?.code;
     if (securityCode === 'SESSION_LOCKED' || securityCode === 'SESSION_EXPIRED') {
-      window.dispatchEvent(new CustomEvent('pt:session-security', { detail: error.response.data }));
+      if (!applicantInterviewMode.value) window.dispatchEvent(new CustomEvent('pt:session-security', { detail: error.response.data }));
       // Tracker owns the branded timeout redirect, including background requests.
       error.config = { ...error.config, skipAuthRedirect: true };
     }

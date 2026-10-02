@@ -188,7 +188,7 @@ export async function prepareHiringInterviewInviteEmail({
     `Invited from ${agencyBrandOrName(agency)}: ${interviewerLine}`,
     '',
     `Join link: ${publicJoinUrl}`,
-    'This is your personal interview link. Do not share or forward it. Calendar links join as a guest unless signed in.',
+    'No account or sign-in is needed. This personal link identifies you as the applicant. Do not share or forward it. Calendar links join as a guest unless signed in.',
     `Confirm attendance or decline: ${rsvpUrl}`,
     ...(calendar ? [`Add to Google Calendar: ${calendar.googleUrl}`, `Add to Outlook: ${calendar.outlookUrl}`, calendar.downloadUrl ? `Apple Calendar / iCal: ${calendar.downloadUrl}` : 'Apple Calendar / iCal: open the attached interview.ics file.'] : []),
     '',
