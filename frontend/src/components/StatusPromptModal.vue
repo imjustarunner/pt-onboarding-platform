@@ -55,12 +55,13 @@ watch(
   () => ({
     warning: sessionLockStore.warningActive,
     locked: sessionLockStore.isLocked,
-    extended: presenceSession.isExtended,
     mode: presenceSession.promptMode || getStatusPromptMode()
   }),
-  ({ warning, extended, mode }) => {
+  ({ warning, mode }) => {
     if (sessionLockStore.isLocked) { closeStatusPrompt(); return; }
-    if (!warning || extended) return;
+    // Away is a team status, not a session unlock. Always expose the resume
+    // controls when inactivity takes over, even with an Away timer running.
+    if (!warning) return;
     if (!presenceSession.shouldUseStatusPrompt(authStore.user?.role)) return;
     if (mode === 'timedown') return;
     // Re-open if Timedown is showing and the chooser was lost (navigate/HMR/stacking).
@@ -71,16 +72,21 @@ watch(
 
 registerStatusPromptHandlers({
   async onStillHere() {
-    if (!await resumeSession()) return;
-    try {
-      await presenceSession.clearAway();
-    } catch {
-      /* ignore */
-    }
+    if (!await resumeSession()) throw new Error('Could not resume your session. Please try again.');
+    await presenceSession.clearAway();
     clearSessionExtendPause({ reschedule: true });
     sessionLockStore.dismissWarning();
     resetActivityTimer();
     reportTimedownDismissed();
+  },
+
+  async onBack() {
+    if (sessionLockStore.isLocked || sessionLockStore.warningActive) {
+      throw new Error('Resume or unlock your session before changing your status.');
+    }
+    await presenceSession.clearAway();
+    clearSessionExtendPause({ reschedule: true });
+    resetActivityTimer();
   },
 
   async onSetStatus({
@@ -92,7 +98,9 @@ registerStatusPromptHandlers({
     timerMode = 'reset'
   }) {
     if (!reason) return {};
-    if (sessionLockStore.warningActive && !await resumeSession()) return {};
+    if (sessionLockStore.warningActive && !await resumeSession()) {
+      throw new Error('Could not resume your session. Please try again.');
+    }
 
     if (reason === 'out_day' || reason === 'available_offline') {
       await presenceSession.applyAway({

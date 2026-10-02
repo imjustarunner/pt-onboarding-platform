@@ -128,7 +128,7 @@ function subFor(mode) {
     return 'Let the team know if you are out. You can also leave without setting a status.';
   }
   if (mode === 'change') {
-    return 'Update why you are away without coming back. Reset the timer, or keep the time you already have left.';
+    return 'Choose “I’m back” to return now. To stay away, keep your current return time or choose a new duration starting now.';
   }
   return 'Your status shows your availability and how others can reach you across the platform.';
 }
@@ -225,6 +225,7 @@ function renderPromptDom(mode) {
   removePromptDom();
   const b = getBridge();
   const sessionPage = mode === 'timedown' && b.sessionContext?.enabled;
+  const promptVersion = b.promptVersion;
   b.outReason = b.outReason || 'meal';
   b.durationMinutes = b.durationMinutes || 60;
   if (b.reachable === undefined) b.reachable = null;
@@ -444,7 +445,7 @@ function renderPromptDom(mode) {
       b.timerMode = 'continue';
       renderPromptDom(mode);
     });
-    const resetBtn = chipBtn('Reset time', b.timerMode === 'reset');
+    const resetBtn = chipBtn('Change return time', b.timerMode === 'reset');
     resetBtn.addEventListener('click', () => {
       b.timerMode = 'reset';
       renderPromptDom(mode);
@@ -461,7 +462,7 @@ function renderPromptDom(mode) {
   if (showDuration) {
     const durSection = document.createElement('div');
     durSection.className = 'pt-sp-section';
-    durSection.appendChild(sectionHeader(mode === 'change' ? 'New duration' : 'How long?'));
+    durSection.appendChild(sectionHeader(mode === 'change' ? 'Return in (from now)' : 'How long?'));
     const durChips = document.createElement('div');
     durChips.className = 'pt-sp-chips';
     DURATION_CHIPS.forEach((d) => {
@@ -501,19 +502,58 @@ function renderPromptDom(mode) {
 
   const actions = document.createElement('div');
   actions.className = 'pt-sp-actions';
+  const actionError = document.createElement('p');
+  actionError.setAttribute('role', 'alert');
+  actionError.style.color = '#b42318';
+  actionError.hidden = true;
+  actions.appendChild(actionError);
+  async function runAction(handlerName, payload) {
+    if (b.submitting) return;
+    b.submitting = true;
+    actionError.hidden = true;
+    const buttons = [...root.querySelectorAll('button')];
+    const priorDisabled = buttons.map(button => button.disabled);
+    buttons.forEach(button => { button.disabled = true; });
+    try {
+      const handler = b.handlers?.[handlerName];
+      if (typeof handler !== 'function') throw new Error('Status controls are not ready. Reload the page and try again.');
+      const result = await handler(payload);
+      // A lock/resume can replace this dialog while the request is pending.
+      if (b.promptVersion !== promptVersion || b.mode !== mode) return;
+      if (result?.proceedLogout) resolveLogoutStatusPrompt(true);
+      else closeStatusPrompt();
+    } catch (e) {
+      if (b.promptVersion !== promptVersion || b.mode !== mode) return;
+      const errorNode = document.getElementById(ROOT_ID)?.querySelector('[role=alert]');
+      if (errorNode) {
+        errorNode.textContent = e.response?.data?.error?.message || e.message || 'Could not update your status. Please try again.';
+        errorNode.hidden = false;
+        errorNode.scrollIntoView?.({ block: 'nearest' });
+      }
+    } finally {
+      if (b.promptVersion === promptVersion) {
+        b.submitting = false;
+        if (root.isConnected) buttons.forEach((button, index) => { button.disabled = priorDisabled[index]; });
+        else document.getElementById(ROOT_ID)?.querySelectorAll('button').forEach(button => { button.disabled = false; });
+      }
+    }
+  }
+
+  if (mode === 'change') {
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'pt-sp-btn-primary';
+    back.textContent = "I'm back";
+    back.addEventListener('click', () => runAction('onBack'));
+    actions.appendChild(back);
+  }
 
   if (mode === 'timedown') {
     const still = document.createElement('button');
     still.type = 'button';
     still.className = 'pt-sp-btn-primary';
     still.textContent = sessionPage ? "I'm still here — stay logged in" : "I'm still here";
-    still.addEventListener('click', async () => {
-      try {
-        await b.handlers?.onStillHere?.();
-      } finally {
-        closeStatusPrompt();
-      }
-    });
+    still.addEventListener('click', () => runAction('onStillHere'));
     actions.appendChild(still);
   }
 
@@ -529,16 +569,14 @@ function renderPromptDom(mode) {
         : 'Set unavailable for the day';
   } else if (mode === 'change') {
     setStatus.textContent =
-      b.timerMode === 'continue' ? 'Update status · keep timer' : 'Update status · reset timer';
+      b.timerMode === 'continue' ? 'Update status · keep timer' : 'Update status · change return time';
   } else {
     setStatus.textContent = 'Set Away status';
   }
   setStatus.disabled = !b.outReason;
-  setStatus.addEventListener('click', async () => {
-    setStatus.disabled = true;
-    try {
+  setStatus.addEventListener('click', () => {
       const isCustom = !!(b.customOutId || b.customLabel);
-      const result = await b.handlers?.onSetStatus?.({
+      void runAction('onSetStatus', {
         mode,
         reason: b.outReason === 'out_day' ? 'out_day' : isCustom ? 'custom' : b.outReason,
         durationMinutes: b.durationMinutes,
@@ -546,15 +584,6 @@ function renderPromptDom(mode) {
         customLabel: isCustom ? b.customLabel : null,
         timerMode: mode === 'change' ? b.timerMode || 'continue' : 'reset'
       });
-      if (result?.proceedLogout) {
-        resolveLogoutStatusPrompt(true);
-        return;
-      }
-      closeStatusPrompt();
-    } catch (e) {
-      console.error('[statusPromptBridge] onSetStatus failed', e);
-      setStatus.disabled = false;
-    }
   });
   actions.appendChild(setStatus);
 
@@ -594,6 +623,7 @@ function renderPromptDom(mode) {
   card.appendChild(guide);
   card.appendChild(privacy);
   root.appendChild(card);
+  if (b.submitting) root.querySelectorAll('button').forEach(button => { button.disabled = true; });
   document.body.appendChild(root);
   if (sessionPage) {
     const buttons = [...root.querySelectorAll('button:not(:disabled)')];
@@ -620,6 +650,8 @@ export function openStatusPrompt(
   } = {}
 ) {
   const b = getBridge();
+  b.promptVersion = (b.promptVersion || 0) + 1;
+  b.submitting = false;
   b.mode = mode || null;
   b.userId = userId;
   b.outReason = initialReason || 'meal';

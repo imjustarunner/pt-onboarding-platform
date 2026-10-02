@@ -11,6 +11,7 @@
           <span class="away-countdown-label">Returns in</span>
           <span class="away-countdown-value">{{ clock }}</span>
         </div>
+        <p v-if="error" class="away-error" role="alert">{{ error }}</p>
         <button type="button" class="away-btn" :disabled="busy" @click="onBack">
           I'm back
         </button>
@@ -23,17 +24,36 @@
 </template>
 
 <script setup>
-import { computed, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useAuthStore } from '../store/auth';
 import { usePresenceSessionStore } from '../store/presenceSession';
 import { clearSessionExtendPause, resetActivityTimer } from '../utils/activityTracker';
 import { useSessionLockStore } from '../store/sessionLock';
 import { AWAY_REASONS } from '../utils/presenceStatus';
 
 const presenceSession = usePresenceSessionStore();
+const authStore = useAuthStore();
 const sessionLockStore = useSessionLockStore();
 const nowMs = ref(Date.now());
 const busy = ref(false);
+const error = ref('');
 let tick = null;
+let refreshTimer = null;
+
+function refreshStatus(event) {
+  if (event?.type === 'storage' && event.key !== 'presence:sessionExtendUntil') return;
+  if (authStore.isAuthenticated && document.visibilityState !== 'hidden') void presenceSession.refreshFromServer();
+}
+
+onMounted(() => {
+  refreshStatus();
+  window.addEventListener('focus', refreshStatus);
+  window.addEventListener('storage', refreshStatus);
+  document.addEventListener('visibilitychange', refreshStatus);
+  refreshTimer = window.setInterval(() => {
+    if (presenceSession.sessionExtendUntil) refreshStatus();
+  }, 30000);
+});
 
 const untilMs = computed(() => {
   const raw = presenceSession.sessionExtendUntil;
@@ -42,7 +62,8 @@ const untilMs = computed(() => {
   return Number.isFinite(t) ? t : 0;
 });
 
-const active = computed(() => !sessionLockStore.warningActive && !sessionLockStore.isLocked && untilMs.value > nowMs.value);
+const active = computed(() => authStore.isAuthenticated && !presenceSession.promptOpen && !sessionLockStore.warningActive && !sessionLockStore.isLocked && untilMs.value > nowMs.value);
+watch(untilMs, () => { nowMs.value = Date.now(); error.value = ''; });
 
 const remainingSec = computed(() => Math.max(0, Math.ceil((untilMs.value - nowMs.value) / 1000)));
 
@@ -86,14 +107,24 @@ watch(
   { immediate: true }
 );
 
-onUnmounted(stopTick);
+onUnmounted(() => {
+  stopTick();
+  clearInterval(refreshTimer);
+  window.removeEventListener('focus', refreshStatus);
+  window.removeEventListener('storage', refreshStatus);
+  document.removeEventListener('visibilitychange', refreshStatus);
+});
 
 async function onBack() {
+  if (busy.value) return;
   busy.value = true;
+  error.value = '';
   try {
     await presenceSession.clearAway();
     clearSessionExtendPause({ reschedule: true });
     resetActivityTimer();
+  } catch (e) {
+    error.value = e.response?.data?.error?.message || 'Could not update your status. Please try “I’m back” again.';
   } finally {
     busy.value = false;
   }
@@ -193,4 +224,5 @@ function onChangeStatus() {
   opacity: 0.55;
   cursor: not-allowed;
 }
+.away-error { color: #b42318; }
 </style>

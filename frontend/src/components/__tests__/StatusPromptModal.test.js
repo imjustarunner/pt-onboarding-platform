@@ -13,6 +13,7 @@ vi.mock('../../utils/activityTracker', () => ({
 }));
 import StatusPromptModal from '../StatusPromptModal.vue';
 import { useSessionLockStore } from '../../store/sessionLock';
+import { usePresenceSessionStore } from '../../store/presenceSession';
 import { closeStatusPrompt } from '../../utils/statusPromptBridge';
 let wrapper;
 beforeEach(() => {
@@ -51,5 +52,24 @@ describe('status prompt security integration', () => {
     await flushPromises(); await nextTick();
     expect(useSessionLockStore().warningActive).toBe(true);
     expect(root()).not.toBeNull();
+    expect(root().querySelector('[role=alert]').textContent).toContain('Could not resume');
+  });
+  it('exposes resume when a running Away timer reaches inactivity timeout', async () => {
+    const presence = usePresenceSessionStore();
+    presence.setLocalExtend(new Date(Date.now() + 3600000).toISOString());
+    useSessionLockStore().warningActive = false;
+    wrapper = mount(StatusPromptModal);
+    presence.openChangeStatusPrompt();
+    expect(root().textContent).toContain('Change your Away status');
+    useSessionLockStore().warningActive = true;
+    await nextTick();
+    expect(root().textContent).toContain("I'm still here — stay logged in");
+    expect(presence.promptMode).toBe('timedown');
+    mocks.resume.mockResolvedValue(true);
+    root().querySelector('.pt-sp-btn-primary').click();
+    await flushPromises();
+    expect(presence.sessionExtendUntil).toBeNull();
+    expect(useSessionLockStore().warningActive).toBe(false);
+    expect(root()).toBeNull();
   });
 });

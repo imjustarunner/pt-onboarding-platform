@@ -13,6 +13,8 @@ export const usePresenceSessionStore = defineStore('presenceSession', () => {
   const myReason = ref(null);
   const promptMode = ref(null); // null | 'timedown' | 'logout' | 'manual' | 'change'
   const promptBusy = ref(false);
+  let statusRevision = 0;
+  let refreshSequence = 0;
   let _logoutResolve = null;
   let _logoutReject = null;
 
@@ -37,6 +39,7 @@ export const usePresenceSessionStore = defineStore('presenceSession', () => {
   }
 
   function setLocalExtend(iso) {
+    statusRevision += 1;
     sessionExtendUntil.value = iso || null;
     try {
       if (iso) localStorage.setItem(EXTEND_KEY, iso);
@@ -53,8 +56,14 @@ export const usePresenceSessionStore = defineStore('presenceSession', () => {
   }
 
   async function refreshFromServer() {
+    const revision = statusRevision;
+    const sequence = ++refreshSequence;
+    const userId = currentUserId();
     try {
-      const resp = await api.get('/presence/me', { skipGlobalLoading: true, skipAuthRedirect: true });
+      const resp = await api.get('/presence/me', { skipGlobalLoading: true, skipAuthRedirect: true, timeout: 10000 });
+      // A refresh started before "I'm back" must never put the old Away timer
+      // back on screen. Nor may another user's or an older refresh's response.
+      if (revision !== statusRevision || sequence !== refreshSequence || userId !== currentUserId() || promptBusy.value) return null;
       const data = resp.data || {};
       myStatusLabel.value = data.status_label || data.presence_display_label || null;
       myReason.value = data.presence_reason || null;
@@ -155,6 +164,7 @@ export const usePresenceSessionStore = defineStore('presenceSession', () => {
     customLabel = null,
     timerMode = 'reset'
   } = {}) {
+    statusRevision += 1;
     promptBusy.value = true;
     try {
       const resp = await api.post(
@@ -168,25 +178,28 @@ export const usePresenceSessionStore = defineStore('presenceSession', () => {
           customLabel,
           timerMode: timerMode === 'continue' ? 'continue' : 'reset'
         },
-        { skipGlobalLoading: true }
+        { skipGlobalLoading: true, timeout: 10000 }
       );
       const until = resp.data?.session_extend_until || null;
       myStatusLabel.value = resp.data?.status_label || resp.data?.display_label || null;
       myReason.value = reason;
       if (until) setLocalExtend(until);
-      else if (reason === 'out_day') clearLocalExtend();
+      else clearLocalExtend();
       return resp.data;
     } finally {
+      statusRevision += 1;
       promptBusy.value = false;
     }
   }
 
   async function clearAway() {
+    statusRevision += 1;
     promptBusy.value = true;
     try {
-      await api.post('/presence/status/clear', {}, { skipGlobalLoading: true });
+      await api.post('/presence/status/clear', {}, { skipGlobalLoading: true, timeout: 10000 });
       clearLocalExtend();
     } finally {
+      statusRevision += 1;
       promptBusy.value = false;
     }
   }

@@ -10,6 +10,47 @@ beforeEach(() => { localStorage.clear(); updateStatusPromptSession(null); });
 afterEach(() => { closeStatusPrompt(); registerStatusPromptHandlers(null); updateStatusPromptSession(null); });
 
 describe('non-hourly admin timeout status page', () => {
+  it('returns directly from the change-status editor', async () => {
+    const onBack = vi.fn().mockResolvedValue({});
+    registerStatusPromptHandlers({ onBack });
+    openStatusPrompt('change');
+    button("I'm back").click();
+    await vi.waitFor(() => expect(root()).toBeNull());
+    expect(onBack).toHaveBeenCalledOnce();
+  });
+  it('shows a failed update, keeps selections, and allows retry without a silent close', async () => {
+    const onSetStatus = vi.fn().mockRejectedValueOnce({ response: { data: { error: { message: 'Connection interrupted. Try again.' } } } }).mockResolvedValue({});
+    registerStatusPromptHandlers({ onSetStatus });
+    openStatusPrompt('change');
+    button('Change return time').click();
+    button('30 min').click();
+    button('Update status · change return time').click();
+    await vi.waitFor(() => expect(root().querySelector('[role=alert]').hidden).toBe(false));
+    expect(root().textContent).toContain('Connection interrupted. Try again.');
+    expect(button('30 min').classList.contains('active')).toBe(true);
+    button('Update status · change return time').click();
+    await vi.waitFor(() => expect(root()).toBeNull());
+    expect(onSetStatus).toHaveBeenLastCalledWith(expect.objectContaining({ timerMode: 'reset', durationMinutes: 30 }));
+  });
+  it('disables repeated submissions and timer changes while saving', async () => {
+    let finish;
+    const onSetStatus = vi.fn(() => new Promise(resolve => { finish = resolve; }));
+    registerStatusPromptHandlers({ onSetStatus });
+    openStatusPrompt('change');
+    button('Update status · keep timer').click();
+    button('Update status · keep timer').click();
+    expect(button('Change return time').disabled).toBe(true);
+    expect(onSetStatus).toHaveBeenCalledOnce();
+    finish({});
+    await vi.waitFor(() => expect(root()).toBeNull());
+  });
+  it('does not report success when status handlers are unavailable', async () => {
+    registerStatusPromptHandlers(null);
+    openStatusPrompt('change');
+    button('Update status · keep timer').click();
+    await vi.waitFor(() => expect(root().querySelector('[role=alert]').hidden).toBe(false));
+    expect(root().textContent).toContain('Status controls are not ready');
+  });
   it('shows branding and the live countdown without replacing controls or losing selections', () => {
     updateStatusPromptSession(context);
     openStatusPrompt('timedown', { userId: 7 });
