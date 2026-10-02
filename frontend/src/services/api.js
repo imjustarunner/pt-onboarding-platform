@@ -1,4 +1,5 @@
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from '../utils/schoolCareBridge';
+import { sameDayServiceWarningMessage } from '../utils/sameDayServiceWarning.js';
 import axios from 'axios';
 import { attachSupervisionAccess } from '../utils/supervisionInvitationAccess';
 import { attachCounselingAccess } from '../utils/counselingInvitationAccess';
@@ -273,6 +274,16 @@ api.interceptors.response.use(
       // ignore
     }
 
+    if (error.response?.status === 409 && error.response?.data?.error?.code === 'SAME_DAY_SERVICE_WARNING'
+      && /^\/(?:appointments(?:\/\d+)?|office-schedule\/booking-requests)$/.test(String(error.config?.url || ''))
+      && ['post','patch'].includes(String(error.config?.method || '').toLowerCase()) && !error.config?.__sameDayAcknowledged) {
+      if (window.confirm(sameDayServiceWarningMessage(error.response.data))) {
+        const payload = typeof error.config.data === 'string' ? JSON.parse(error.config.data) : error.config.data;
+        return api.request({ ...error.config, __sameDayAcknowledged: true, data: { ...payload, acknowledgeSameDayServices: true } });
+      }
+      error.response.data.error.message = 'Booking was not saved. Choose an alternate date of service.';
+      return Promise.reject(error);
+    }
     if (error.response?.data?.error?.code === 'MFA_REQUIRED') return Promise.reject(error);
     // Cloud Run / edge 429 — trip global cooldown so tabs stop the death spiral.
     if (error?.response?.status === 429 && !error?.__rateLimited) {

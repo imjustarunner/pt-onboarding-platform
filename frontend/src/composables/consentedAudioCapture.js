@@ -3,7 +3,7 @@ import {meetingAudioWav} from '../utils/meetingAudio';
 
 // Audio goes only to the authenticated app endpoint and its configured Cloud
 // Speech service. Browser SpeechRecognition is intentionally not used here.
-export function createConsentedAudioCapture({baseUrl,getStream,isHost=false,onHint,onCapturing,onState}={}) {
+export function createConsentedAudioCapture({baseUrl,getStream,isHost=false,onHint,onCapturing,onState,listeningHint='Transcription is on. Either participant can pause it.'}={}) {
   let wanted=false,timer=null,segmentTimer=null,recorder=null,stream=null,currentState=null,polling=false;
   let pending=Promise.resolve(),settleSegment=null,discard=false,queued=0;
   const options={skipGlobalLoading:true,skipAuthRedirect:true};
@@ -27,7 +27,7 @@ export function createConsentedAudioCapture({baseUrl,getStream,isHost=false,onHi
       settleSegment?.();settleSegment=null;if(wanted)void poll();
     };
     active.onerror=()=>{onHint?.('Microphone recording was interrupted. Check your microphone and resume.');stopSegment(true);};
-    active.start();onCapturing?.(true);onHint?.('Transcription is on. Either participant can pause it.');
+    active.start();onCapturing?.(true);onHint?.(listeningHint);
     segmentTimer=setTimeout(()=>stopSegment(),10000);
     return finished;
   }

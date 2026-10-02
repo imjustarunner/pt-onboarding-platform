@@ -75,17 +75,20 @@
           <p v-if="loading" class="muted">Loading session transcript…</p>
           <pre v-else-if="transcript" class="snp-readonly">{{ transcript }}</pre>
           <p v-else class="muted snp-empty">
-            No transcript yet. Transcript is captured automatically when participants join through the app video room.
+            No transcript saved yet. Transcription must be started in the meeting with the required consent.
           </p>
         </section>
 
         <section class="snp-section">
           <h4 class="snp-label">AI summary</h4>
+          <RouterLink :to="{path:`${route?.params?.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-meetings`,query:{type:'supervision',meetingId:sessionId}}">Open full meeting record</RouterLink>
+          <p v-if="['queued','generating'].includes(summaryState)" role="status">Summary still generating… You can return later.</p>
+          <p v-else-if="summaryState === 'failed'">Summary generation failed. Open the meeting record to retry.</p>
           <p v-if="loading" class="muted">Loading session summary…</p>
           <div
-            v-else-if="summary"
+            v-else-if="generatedSummary || summary"
             class="snp-readonly snp-readonly--summary markdown-body"
-            v-html="renderedSummary(summary)"
+            v-html="renderedSummary(generatedSummary || summary)"
           />
           <p v-else class="muted snp-empty">
             No summary yet. Summary is generated automatically after the session is finalized.
@@ -110,7 +113,9 @@
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
+const route = useRoute();
 import api from '../../services/api';
 
 const props = defineProps({
@@ -131,6 +136,25 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['join', 'open-agenda']);
+const summaryState = ref(null), generatedSummary = ref('');
+let summaryTimer = null;
+async function refreshSummary() {
+  const sid = Number(props.sessionId);
+  if (!sid) return;
+  try {
+    const { data } = await api.get(`/supervision/sessions/${sid}/artifacts`, { skipGlobalLoading: true });
+    if (sid !== Number(props.sessionId)) return;
+    summaryState.value = data.summaryStatus;
+    generatedSummary.value = data.artifact?.summary_text || '';
+  } catch { /* The existing panel retains its supplied summary when unavailable. */ }
+}
+watch(() => props.sessionId, () => {
+  clearInterval(summaryTimer); summaryState.value = null; generatedSummary.value = '';
+  void refreshSummary();
+  summaryTimer = setInterval(() => { if (['queued','generating'].includes(summaryState.value)) void refreshSummary(); },5000);
+}, { immediate:true });
+onUnmounted(() => clearInterval(summaryTimer));
+
 
 const panelTitle = computed(() => {
   if (props.viewerRole === 'presenter') return 'Presenter prep notes';

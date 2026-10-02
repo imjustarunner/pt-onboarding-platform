@@ -1,3 +1,7 @@
+import { requireSessionPrivacyConfiguration } from '../services/sessionAiPrivacy.service.js';
+import { transcribeLongAudio } from '../services/speechTranscription.service.js';
+import { resolveArtifactPlainFields } from '../services/supervisionArtifactEncryption.service.js';
+import { meetingSummaryStatus } from '../services/meetingSummaryJobs.service.js';
 import { canJoinTeamMeeting, hasActiveMeetingMembership, roomUnavailable } from '../services/meetingJoinPolicy.service.js';
 import { huddleHostServiceCode } from '../services/huddlePolicy.js';
 import { eventMeetingSettings } from '../services/meetingSettings.service.js';
@@ -1523,6 +1527,9 @@ export const saveTeamMeetingClientTranscript = async (req, res, next) => {
     await ProviderScheduleEventArtifact.ensureTagged({ eventId });
     try {
       const control = await ProviderScheduleEventArtifact.findByEventId(eventId);
+      if (kindNorm === 'TEAM_MEETING' && String(row.meeting_subtype || 'general').toLowerCase() === 'general' && !control?.transcript_started_at && !replace) {
+        return res.status(409).json({ error: { message: 'The host must start transcription for this meeting.' } });
+      }
       if (control?.transcript_stopped_at && !replace) {
         return res.status(409).json({
           error: { message: 'Transcription was stopped for this meeting.' },
@@ -1544,9 +1551,9 @@ export const saveTeamMeetingClientTranscript = async (req, res, next) => {
       return res.status(409).json({error:{message:'Transcription is paused or stopped.'}});
     }
     // Ordinary live captions must not wait for an AI request per speaker/chunk.
-    // Complete-meeting already generates the final summary; retain the existing
-    // explicit replacement and interview intelligence behavior.
-    if (replace || isInterviewMeeting(row)) {
+    // Completion queues the final summary. Manual edits and late caption chunks
+    // queue another pass so the shared summary reflects the saved transcript.
+    if (replace || row.meeting_completed_at) {
       const { triggerTeamMeetingSummaryFromTranscript } = await import('../services/teamMeetingTranscriptSummary.service.js');
       await triggerTeamMeetingSummaryFromTranscript(eventId).catch((e) => {
         console.error('[TeamMeeting] AI summary from client transcript:', e?.message);
@@ -2081,27 +2088,27 @@ export const postTeamMeetingTranscriptControl = async (req, res, next) => {
 
     if (action === 'start') {
       await pool.execute(`UPDATE provider_schedule_event_artifacts
-        SET transcript_started_at=COALESCE(transcript_started_at,UTC_TIMESTAMP()),
+        SET transcript_revision=transcript_revision+1, transcript_started_at=COALESCE(transcript_started_at,UTC_TIMESTAMP()),
             transcript_paused=0, updated_by_user_id=?, updated_at=CURRENT_TIMESTAMP
         WHERE event_id=? AND transcript_stopped_at IS NULL`,[actorId,eventId]);
     } else if (action === 'pause') {
       await pool.execute(
         `UPDATE provider_schedule_event_artifacts
-         SET transcript_paused = 1, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         SET transcript_revision=transcript_revision+1, transcript_paused = 1, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
          WHERE event_id = ? LIMIT 1`,
         [actorId, eventId]
       );
     } else if (action === 'resume') {
       await pool.execute(
         `UPDATE provider_schedule_event_artifacts
-         SET transcript_paused = 0, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+         SET transcript_revision=transcript_revision+1, transcript_paused = 0, updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
          WHERE event_id = ? LIMIT 1`,
         [actorId, eventId]
       );
     } else {
       await pool.execute(
         `UPDATE provider_schedule_event_artifacts
-         SET transcript_paused = 0,
+         SET transcript_revision=transcript_revision+1, transcript_paused = 0,
              transcript_stopped_at = COALESCE(transcript_stopped_at, ?),
              transcript_stopped_by_user_id = COALESCE(transcript_stopped_by_user_id, ?),
              transcript_stopped_by_name = COALESCE(transcript_stopped_by_name, ?),
@@ -2182,6 +2189,7 @@ export const listAdminMeetingsLog = async (req, res, next) => {
          COALESCE(att.total_seconds, 0) AS attendance_total_seconds,
          COALESCE(att.max_seconds, 0) AS attendance_max_seconds,
          COALESCE(att.participant_count, 0) AS participant_count,
+         a.sensitive_ciphertext,a.sensitive_iv,a.sensitive_auth_tag,a.encryption_key_id,
          CASE
            WHEN TRIM(COALESCE(a.transcript_text, '')) <> ''
              OR TRIM(COALESCE(a.transcript_url, '')) <> '' THEN 1
@@ -2219,6 +2227,12 @@ export const listAdminMeetingsLog = async (req, res, next) => {
     );
 
     const meetings = (rows || []).map((r) => {
+      if (r.sensitive_ciphertext) {
+        const content = resolveArtifactPlainFields(r);
+        r.has_transcript = !!(content.transcriptText || content.transcriptUrl);
+        r.has_summary = !!content.summaryText;
+        r.has_workspace = !!(content.focusTitle || content.goals.length || content.actionItems.length);
+      }
       const startMs = r.start_at ? new Date(r.start_at).getTime() : NaN;
       const endRaw = r.meeting_completed_at || r.end_at;
       const endMs = endRaw ? new Date(endRaw).getTime() : NaN;
@@ -2513,6 +2527,7 @@ export const getTeamMeetingNotes = async (req, res, next) => {
       eventId,
       transcript: artifact?.transcript_text || '',
       summary: artifact?.summary_text || '',
+      summaryStatus: await meetingSummaryStatus('team', eventId),
       meetingSubtype: String(event.meeting_subtype || 'general').toLowerCase(),
       kind: String(event.kind || '').toUpperCase(),
       transcriptPaused: !!(artifact?.transcript_paused === 1 || artifact?.transcript_paused === true),
@@ -2577,5 +2592,47 @@ export const putMeetingParticipantPreferences = async (req,res,next) => {
     if(candidate.length&&req.body.isCohost)return res.status(400).json({error:{message:'An interview candidate cannot be a cohost.'}});
     await pool.execute(`INSERT INTO meeting_participant_preferences (event_id,user_id,is_required,is_cohost) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE is_required=VALUES(is_required),is_cohost=VALUES(is_cohost)`,[event.id,person.id,Number(req.body.isRequired),Number(req.body.isCohost)]);
     res.json({ok:true});
+  }catch(error){next(error);}
+};
+
+
+async function secureTeamTranscriptionContext(req) {
+  const eventId = Number(req.params.eventId);
+  const event = await ProviderScheduleEvent.findById(eventId);
+  if (!event || !['TEAM_MEETING','HUDDLE'].includes(String(event.kind).toUpperCase()) || !await canAccessTeamMeeting(req,event)) {
+    throw Object.assign(new Error('Meeting not found or access denied.'),{status:403});
+  }
+  requireSessionPrivacyConfiguration();
+  if (eventMeetingSettings(event)?.transcription === false || event.meeting_completed_at || String(event.status).toUpperCase()==='CANCELLED') {
+    throw Object.assign(new Error('Transcription is unavailable for this meeting.'),{status:409});
+  }
+  await ProviderScheduleEventArtifact.ensureTagged({eventId});
+  const artifact = await ProviderScheduleEventArtifact.findByEventId(eventId);
+  const manual = String(event.kind).toUpperCase()==='TEAM_MEETING' && String(event.meeting_subtype || 'general').toLowerCase()==='general';
+  return {event,artifact,state:{allowed:!manual || !!artifact?.transcript_started_at,requested:!manual || !!artifact?.transcript_started_at,
+    paused:!!Number(artifact?.transcript_paused),stopped:!!artifact?.transcript_stopped_at,revision:Number(artifact?.transcript_revision || 0),
+    reason:manual && !artifact?.transcript_started_at ? 'The host must start transcription.' : null}};
+}
+export const getTeamMeetingTranscriptionState = async(req,res,next) => {
+  try { res.json((await secureTeamTranscriptionContext(req)).state); } catch(error){next(error);}
+};
+export const appendTeamMeetingAudio = async(req,res,next) => {
+  try {
+    const {event,state} = await secureTeamTranscriptionContext(req);
+    const revision=Number(req.body?.revision);
+    const ensure = current => {
+      if (!current.allowed || current.paused || current.stopped || !Number.isInteger(revision) || current.revision!==revision) {
+        throw Object.assign(new Error('Transcription is paused, stopped, or its controls changed.'),{status:409});
+      }
+    };
+    ensure(state);
+    if (!req.file?.buffer?.length || req.file.buffer.length>10*1024*1024 || !/^(audio\/(webm|ogg|wav|mpeg|mp4)|video\/webm)(;.*)?$/i.test(req.file.mimetype || '')) {
+      return res.status(400).json({error:{message:'Send a supported audio segment up to 10 MB.'}});
+    }
+    const text=String(await transcribeLongAudio({buffer:req.file.buffer,mimeType:req.file.mimetype,languageCode:'en-US'})).trim();
+    ensure((await secureTeamTranscriptionContext(req)).state);
+    if(text)await ProviderScheduleEventArtifact.appendTranscriptChunk({eventId:event.id,
+      text:`[${displayNameFromUser(req.user) || 'Participant'}] ${text}`,updatedByUserId:req.user.id,expectedRevision:revision});
+    res.json({ok:true,saved:true});
   }catch(error){next(error);}
 };

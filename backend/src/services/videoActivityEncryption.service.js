@@ -12,16 +12,10 @@ export function isVideoActivityEncryptionConfigured() {
 /**
  * Encrypt a payload object for storage.
  * @param {object} payload
- * @returns {{ ciphertextB64: string, ivB64: string, authTagB64: string, keyId: string } | null}
+ * @returns {{ ciphertextB64: string, ivB64: string, authTagB64: string, keyId: string }}
  */
 export function encryptPayload(payload) {
-  if (!isVideoActivityEncryptionConfigured()) return null;
-  try {
-    const plaintext = JSON.stringify(payload || {});
-    return encryptChatText(plaintext);
-  } catch {
-    return null;
-  }
+  return encryptChatText(JSON.stringify(payload || {}));
 }
 
 /**
@@ -36,33 +30,15 @@ export function decryptPayload(row, fallbackPayload = {}) {
   const tag = row?.payload_auth_tag ?? row?.payloadAuthTag;
   const keyId = row?.encryption_key_id ?? row?.encryptionKeyId;
 
-  if (!ciphertext || !iv || !tag) {
+  if (!ciphertext && !iv && !tag) {
     try {
       const raw = row?.payload_json ?? row?.payloadJson;
-      return raw ? JSON.parse(raw) : fallbackPayload;
+      return raw && typeof raw === 'object' ? raw : raw ? JSON.parse(raw) : fallbackPayload;
     } catch {
       return fallbackPayload;
     }
   }
 
-  if (!isVideoActivityEncryptionConfigured()) {
-    try {
-      const raw = row?.payload_json ?? row?.payloadJson;
-      return raw ? JSON.parse(raw) : fallbackPayload;
-    } catch {
-      return fallbackPayload;
-    }
-  }
-
-  try {
-    const plaintext = decryptChatText({
-      ciphertextB64: ciphertext,
-      ivB64: iv,
-      authTagB64: tag,
-      keyId
-    });
-    return JSON.parse(plaintext);
-  } catch {
-    return fallbackPayload;
-  }
+  const plaintext = decryptChatText({ ciphertextB64: ciphertext, ivB64: iv, authTagB64: tag, keyId });
+  return JSON.parse(plaintext);
 }

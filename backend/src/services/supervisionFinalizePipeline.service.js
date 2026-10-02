@@ -897,7 +897,7 @@ export async function maybePullTranscriptAndSummarize({ session, actorUserId = n
     console.warn('[supervisionFinalize] AI summary failed', e?.message || e);
     return { ok: false };
   });
-  return { ok: !!summary?.ok, summarized: !!summary?.ok, regenerated: true };
+  return { ok: !!summary?.ok, summarized: false, summaryStatus: summary?.status || null, queued: summary?.status === 'queued' };
 }
 
 export async function reverseSupervisionFinalizeSideEffects({ session } = {}) {

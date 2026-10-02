@@ -15,7 +15,9 @@ export function packSensitiveArtifactFields({
   focusTitle = null,
   goals = null,
   actionItems = null,
-  privateNotesText = null
+  privateNotesText = null,
+  recordingUrl = null,
+  recordingPath = null
 } = {}) {
   return {
     transcriptUrl: transcriptUrl || null,
@@ -24,17 +26,14 @@ export function packSensitiveArtifactFields({
     focusTitle: focusTitle || null,
     goals: Array.isArray(goals) ? goals : (goals || null),
     actionItems: Array.isArray(actionItems) ? actionItems : (actionItems || null),
-    privateNotesText: privateNotesText || null
+    privateNotesText: privateNotesText || null,
+    recordingUrl: recordingUrl || null,
+    recordingPath: recordingPath || null
   };
 }
 
 export function encryptSensitiveArtifact(fields) {
-  if (!isSupervisionArtifactEncryptionConfigured()) return null;
-  try {
-    return encryptChatText(JSON.stringify(packSensitiveArtifactFields(fields)));
-  } catch {
-    return null;
-  }
+  return encryptChatText(JSON.stringify(packSensitiveArtifactFields(fields)));
 }
 
 export function decryptSensitiveArtifact(row) {
@@ -43,21 +42,9 @@ export function decryptSensitiveArtifact(row) {
   const tag = row?.sensitive_auth_tag ?? row?.sensitiveAuthTag;
   const keyId = row?.encryption_key_id ?? row?.encryptionKeyId;
 
-  if (!ciphertext || !iv || !tag) return null;
-  if (!isSupervisionArtifactEncryptionConfigured()) return null;
-
-  try {
-    const plaintext = decryptChatText({
-      ciphertextB64: ciphertext,
-      ivB64: iv,
-      authTagB64: tag,
-      keyId
-    });
-    const parsed = JSON.parse(plaintext || '{}');
-    return packSensitiveArtifactFields(parsed);
-  } catch {
-    return null;
-  }
+  if (!ciphertext && !iv && !tag) return null;
+  const plaintext = decryptChatText({ ciphertextB64: ciphertext, ivB64: iv, authTagB64: tag, keyId });
+  return packSensitiveArtifactFields(JSON.parse(plaintext));
 }
 
 /** Merge encrypted payload over plaintext legacy columns for API consumers. */
@@ -78,6 +65,8 @@ export function resolveArtifactPlainFields(row) {
       goals: Array.isArray(decrypted.goals) ? decrypted.goals : [],
       actionItems: Array.isArray(decrypted.actionItems) ? decrypted.actionItems : [],
       privateNotesText: decrypted.privateNotesText,
+      recordingUrl: decrypted.recordingUrl,
+      recordingPath: decrypted.recordingPath,
       isEncrypted: true
     };
   }
@@ -90,6 +79,8 @@ export function resolveArtifactPlainFields(row) {
     goals: parseJson(row?.goals_json, []),
     actionItems: parseJson(row?.action_items_json, []),
     privateNotesText: row?.private_notes_text ?? null,
+    recordingUrl: row?.recording_url ?? null,
+    recordingPath: row?.recording_path ?? null,
     isEncrypted: false
   };
 }

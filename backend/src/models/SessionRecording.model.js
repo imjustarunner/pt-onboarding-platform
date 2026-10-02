@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 
 function safeInt(v) {
   const n = Number(v);
@@ -113,9 +114,9 @@ class SessionRecording {
       highlightInterventions: ['highlight_interventions', (v) => (v ? 1 : 0)],
       transcriptText: ['transcript_text', (v) => (v == null ? null : String(v))],
       summaryText: ['summary_text', (v) => (v == null ? null : String(v))],
-      topicsJson: ['topics_json', (v) => (v == null ? null : JSON.stringify(v))],
-      techniquesJson: ['techniques_json', (v) => (v == null ? null : JSON.stringify(v))],
-      markersJson: ['markers_json', (v) => (v == null ? null : JSON.stringify(v))],
+      topicsJson: ['topics_json', (v) => (v == null ? null : maybeEncryptNotePayload(JSON.stringify(v)))],
+      techniquesJson: ['techniques_json', (v) => (v == null ? null : maybeEncryptNotePayload(JSON.stringify(v)))],
+      markersJson: ['markers_json', (v) => (v == null ? null : maybeEncryptNotePayload(JSON.stringify(v)))],
       optionsJson: ['options_json', (v) => (v == null ? null : JSON.stringify(v))],
       consentId: ['consent_id', (v) => safeInt(v)],
       errorMessage: ['error_message', (v) => clampText(v, 500)]
@@ -145,9 +146,9 @@ class SessionRecording {
     };
     return {
       ...row,
-      topics_json: parseJson(row.topics_json),
-      techniques_json: parseJson(row.techniques_json),
-      markers_json: parseJson(row.markers_json),
+      topics_json: parseJson(maybeDecryptNotePayload(typeof row.topics_json === 'object' ? JSON.stringify(row.topics_json) : row.topics_json)),
+      techniques_json: parseJson(maybeDecryptNotePayload(typeof row.techniques_json === 'object' ? JSON.stringify(row.techniques_json) : row.techniques_json)),
+      markers_json: parseJson(maybeDecryptNotePayload(typeof row.markers_json === 'object' ? JSON.stringify(row.markers_json) : row.markers_json)),
       options_json: parseJson(row.options_json)
     };
   }

@@ -1,6 +1,7 @@
 <template>
-  <section v-if="meetings.length" class="dashboard-meetings" aria-label="Upcoming meetings">
+  <section class="dashboard-meetings" aria-label="Upcoming meetings">
     <h2>Your meetings</h2>
+    <RouterLink :to="{ path: `${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-meetings`, query: {} }" @click="notifyNavigation">My meetings · attended meetings and notes</RouterLink>
     <article v-for="meeting in meetings.slice(0, 4)" :key="meeting.key" :class="{ ready: canJoin(meeting) }">
       <div><strong>{{ meeting.title }}</strong><p>{{ formatTime(meeting.start) }} · {{ meeting.end <= now ? 'Ended' : meeting.start <= now ? 'In progress' : 'Upcoming' }}</p></div>
       <button v-if="inspectInPlace" type="button" class="meeting-details" @click="emit('inspect', { ...meeting, to: scheduleLink(meeting) })">

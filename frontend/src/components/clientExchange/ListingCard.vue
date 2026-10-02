@@ -31,6 +31,7 @@
 
       <ClientExchangeSummary :listing="listing" />
 
+      <p>{{ listing.referralKind === 'additional_service' ? 'Additional services · current therapist retained' : 'Transfer' }} · {{ listing.serviceType || 'individual' }} <span v-if="listing.targetProviderUserId">· Direct referral</span></p>
       <p v-if="listing.notes" class="lc-notes">{{ listing.notes }}</p>
 
       <div class="lc-current" v-if="listing.currentProviderName">

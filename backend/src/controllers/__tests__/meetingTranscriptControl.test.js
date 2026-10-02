@@ -1,5 +1,7 @@
+vi.mock('../../services/speechTranscription.service.js',()=>({transcribeLongAudio:m.speech}));
+vi.mock('../../services/sessionAiPrivacy.service.js',()=>({requireSessionPrivacyConfiguration:m.privacy}));
 import {beforeEach,describe,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),event:vi.fn(),artifact:vi.fn(),ensure:vi.fn(),append:vi.fn(),participants:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),event:vi.fn(),artifact:vi.fn(),ensure:vi.fn(),append:vi.fn(),participants:vi.fn(),speech:vi.fn(),privacy:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../../models/User.model.js',()=>({default:{}}));
 vi.mock('../../models/ProviderScheduleEvent.model.js',()=>({default:{findById:m.event,resolveByJoinRef:m.event,classifyJoinTokenRole:()=>null}}));
@@ -13,7 +15,7 @@ vi.mock('../../services/hiringInterviewAccess.service.js',()=>({canAccessHiringI
 vi.mock('../../services/meetingAttendanceSegments.service.js',()=>({isAttendanceTrackingEnabledForEvent:()=>false}));
 vi.mock('../interviewHub.controller.js',()=>({buildInterviewEndedGuestPayload:vi.fn()}));
 vi.mock('../../services/video.service.js',()=>({isVideoConfigured:vi.fn(),createOrGetRoomByUniqueName:vi.fn(),createAccessTokenAsync:vi.fn(),completeRoom:vi.fn(),setHostOnlyRecordingRules:vi.fn(),setRecordAllRecordingRules:vi.fn(),resolveVideoProjectId:vi.fn(),getVideoClientDiagnostics:vi.fn()}));
-import {postTeamMeetingTranscriptControl,getTeamMeetingAdmissionStatus,saveTeamMeetingClientTranscript,putMeetingParticipantPreferences} from '../teamMeetings.controller.js';
+import {appendTeamMeetingAudio,getTeamMeetingTranscriptionState,postTeamMeetingTranscriptControl,getTeamMeetingAdmissionStatus,saveTeamMeetingClientTranscript,putMeetingParticipantPreferences} from '../teamMeetings.controller.js';
 const response=()=>{const res={json:vi.fn(),status:vi.fn()};res.status.mockReturnValue(res);return res;};
 describe('room-wide transcript opt-in',()=>{
   beforeEach(()=>{
@@ -41,6 +43,13 @@ describe('room-wide transcript opt-in',()=>{
     await postTeamMeetingTranscriptControl({params:{eventId:'9'},user:{id:8,role:'provider'},body:{action:'start'}},res,vi.fn());
     expect(res.status).toHaveBeenCalledWith(403);expect(m.execute.mock.calls.some(([sql])=>/^(UPDATE|INSERT)/.test(sql))).toBe(false);
   });
+  it('does not auto-capture general meetings even when transcription capability is enabled',async()=>{
+    m.event.mockResolvedValue({id:9,agency_id:2,provider_id:7,kind:'TEAM_MEETING',meeting_subtype:'general',meeting_settings_json:{transcription:true}});
+    m.artifact.mockResolvedValue({transcript_started_at:null,transcript_paused:0});
+    const res=response();
+    await saveTeamMeetingClientTranscript({params:{eventId:'9'},user:{id:7},body:{transcript:'Not consented'}},res,vi.fn());
+    expect(res.status).toHaveBeenCalledWith(409);expect(m.append).not.toHaveBeenCalled();
+  });
   it('acknowledges live captions after atomic saving without an AI summary dependency',async()=>{
     m.append.mockResolvedValue({transcript_text:'[Alex] Hello'});
     const res=response(),next=vi.fn();
@@ -64,4 +73,22 @@ describe('room-wide transcript opt-in',()=>{
     await putMeetingParticipantPreferences(req,res,next);expect(next).not.toHaveBeenCalled();expect(res.json).toHaveBeenCalledWith({ok:true});
     m.execute.mockResolvedValue([[{candidate:1}]]);const denied=response();await putMeetingParticipantPreferences(req,denied,next);expect(denied.status).toHaveBeenCalledWith(400);
   });
+});
+
+
+describe('approved team audio transcription',()=>{
+ beforeEach(()=>{vi.clearAllMocks();m.privacy.mockReset();m.speech.mockResolvedValue('Private words');m.execute.mockResolvedValue([[{active:1}]]);m.event.mockResolvedValue({id:9,agency_id:2,provider_id:7,kind:'TEAM_MEETING',meeting_subtype:'general'});m.artifact.mockResolvedValue({transcript_started_at:'2026-10-01',transcript_revision:2,transcript_paused:0});});
+ const req=()=>({params:{eventId:'9'},user:{id:7,role:'staff',firstName:'Alex'},body:{revision:'2'},file:{buffer:Buffer.from('synthetic'),mimetype:'audio/wav'}});
+ it('does not send audio before manual general-meeting start',async()=>{
+  m.artifact.mockResolvedValue({transcript_revision:2});const next=vi.fn();await appendTeamMeetingAudio(req(),response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.speech).not.toHaveBeenCalled();
+ });
+ it('blocks processing without approved privacy configuration',async()=>{
+  m.privacy.mockImplementation(()=>{throw Object.assign(new Error('Unavailable'),{status:503});});const next=vi.fn();await appendTeamMeetingAudio(req(),response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:503}));expect(m.speech).not.toHaveBeenCalled();
+ });
+ it('discards in-flight audio when pause and resume changes the revision',async()=>{
+  m.speech.mockImplementation(async()=>{m.artifact.mockResolvedValue({transcript_started_at:'2026-10-01',transcript_revision:4,transcript_paused:0});return 'Private words';});const next=vi.fn();await appendTeamMeetingAudio(req(),response(),next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));expect(m.append).not.toHaveBeenCalled();
+ });
+ it('saves with a locked revision check and sends no transcript back in the upload response',async()=>{
+  const res=response(),next=vi.fn();await appendTeamMeetingAudio(req(),res,next);expect(next).not.toHaveBeenCalled();expect(m.append).toHaveBeenCalledWith(expect.objectContaining({eventId:9,expectedRevision:2,updatedByUserId:7}));expect(res.json).toHaveBeenCalledWith({ok:true,saved:true});
+ });
 });

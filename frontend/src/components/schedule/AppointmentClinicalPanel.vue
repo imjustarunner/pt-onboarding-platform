@@ -122,6 +122,7 @@
 </template>
 
 <script setup>
+import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
 const props = defineProps({
@@ -149,7 +150,7 @@ const dictationError = ref('');
 let recognition = null;
 
 const speechSupported = computed(() => (
-  typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+  typeof window !== 'undefined' && !!(privateSpeechRecognition())
 ));
 
 const selectedService = computed(() => (
@@ -201,7 +202,7 @@ function toggleDictation() {
     listening.value = false;
     return;
   }
-  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const Ctor = privateSpeechRecognition();
   recognition = new Ctor();
   recognition.lang = recognition.lang || (typeof navigator !== 'undefined' ? navigator.language : 'en-US') || 'en-US';
   recognition.continuous = true;

@@ -11,6 +11,7 @@ router.post('/referrals', ctrl.createReferral);
 
 router.get('/clients/:clientId/summary', authenticate, ctrl.previewClientSummary);
 router.put('/clients/:clientId/schedule', authenticate, ctrl.saveClientSchedule);
+router.get('/providers', authenticate, ctrl.listReferralProviders);
 router.get('/listings', authenticate, ctrl.listListings);
 router.post('/listings', authenticate, ctrl.createListing);
 router.get('/listings/:id', authenticate, ctrl.getListing);

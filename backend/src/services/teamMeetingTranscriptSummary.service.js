@@ -3,7 +3,8 @@
  * Interview meetings use interviewTranscriptIntelligence.service.js instead.
  */
 
-import { callGeminiText } from './geminiText.service.js';
+import { generateMeetingSummaryContent } from './meetingSummaryContent.service.js';
+import { enqueueMeetingSummary } from './meetingSummaryJobs.service.js';
 import ProviderScheduleEventArtifact from '../models/ProviderScheduleEventArtifact.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 
@@ -14,30 +15,6 @@ async function isInterviewEvent(eventId) {
   } catch {
     return false;
   }
-}
-
-function buildTeamMeetingSummaryPrompt(transcriptText) {
-  const cleaned = String(transcriptText || '').trim().slice(0, 15000);
-  return [
-    'You are generating a staff/team meeting summary for internal documentation.',
-    'Cover every topic discussed in the transcript (and any agenda items mentioned). Do not omit substantive threads.',
-    'Return concise markdown with these sections only:',
-    '- Key updates',
-    '- Decisions made',
-    '- Suggested action items by person',
-    '- Follow-ups',
-    '',
-    'Rules:',
-    '- Be factual, no invented details.',
-    '- Keep each section to 2-8 bullets as needed to cover all topics.',
-    '- In "Suggested action items by person", format bullets as "Name: action 1; action 2".',
-    '- Attribute ownership when speakers say phrases like "remind me", "add to my list", "I\'ll take", "I can own", "put that on my list", or similar — assign that item to the speaker (use their labeled name from the transcript when present).',
-    '- If a person is not named but the speaker clearly volunteers, use their speaker label.',
-    '- If information is missing, state "Not discussed".',
-    '',
-    'Transcript:',
-    cleaned
-  ].join('\n');
 }
 
 function mysqlNowDateTime() {
@@ -51,7 +28,7 @@ function mysqlNowDateTime() {
  * @param {number} eventId - provider_schedule_events.id
  * @returns {Promise<{ ok: boolean }>}
  */
-export async function triggerTeamMeetingSummaryFromTranscript(eventId) {
+export async function generateTeamMeetingSummaryFromTranscript(eventId) {
   const eid = Number(eventId || 0);
   if (!eid) return { ok: false };
 
@@ -71,12 +48,7 @@ export async function triggerTeamMeetingSummaryFromTranscript(eventId) {
     return { ok: false };
   }
 
-  const prompt = buildTeamMeetingSummaryPrompt(transcriptText);
-  const summaryResp = await callGeminiText({
-    prompt,
-    temperature: 0.1,
-    maxOutputTokens: 1200
-  });
+  const summaryResp = await generateMeetingSummaryContent(transcriptText, 'staff / CPA');
   const summaryText = String(summaryResp?.text || '').trim();
   const summaryModel = String(summaryResp?.modelName || '').trim() || null;
 
@@ -89,4 +61,10 @@ export async function triggerTeamMeetingSummaryFromTranscript(eventId) {
   });
 
   return { ok: true };
+}
+
+export async function triggerTeamMeetingSummaryFromTranscript(eventId) {
+  const artifact = await ProviderScheduleEventArtifact.findByEventId(eventId);
+  if (!String(artifact?.transcript_text || '').trim()) return { ok: false, reason: 'no_transcript' };
+  return enqueueMeetingSummary('team', eventId);
 }

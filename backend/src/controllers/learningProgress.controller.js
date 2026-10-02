@@ -1,3 +1,4 @@
+import { maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import LearningGoal from '../models/LearningGoal.model.js';
 import LearningProgress from '../models/LearningProgress.model.js';
 import pool from '../config/database.js';
@@ -101,7 +102,7 @@ export const getStudentTutoringSessions = async (req, res, next) => {
       return {
         ...r,
         session_url: sessionUrl,
-        ai_summary_json: safeJson(r.ai_summary_json),
+        ai_summary_json: safeJson(maybeDecryptNotePayload(typeof r.ai_summary_json === 'object' ? JSON.stringify(r.ai_summary_json) : r.ai_summary_json)),
         standards_context_json: safeJson(r.standards_context_json)
       };
     });

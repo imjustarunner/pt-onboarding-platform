@@ -5,6 +5,7 @@
  * needing the full JoinTeamMeetingView route to remain mounted.
  */
 import { reactive, readonly } from 'vue';
+import { canUseMeetingMiniMode } from '../utils/meetingMiniMode.js';
 
 const state = reactive({
   active: false,
@@ -30,6 +31,7 @@ let returnMedia = null;
 
 export function useActiveMeeting() {
   function setMiniMode(params = {}) {
+    if (!canUseMeetingMiniMode()) return false;
     state.active = true;
     state.connected = true;
     state.token = String(params.token || '');
@@ -48,6 +50,7 @@ export function useActiveMeeting() {
     state.canShareScreen = !!params.canShareScreen;
     state.canGrantScreenShare = !!params.canGrantScreenShare;
     state.transcriptionActive = !!params.transcriptionActive;
+    return true;
   }
 
   function clearMiniMode() {

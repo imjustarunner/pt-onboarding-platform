@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserSpeechCapture } from '../browserSpeechCapture.js';
 
 class FakeSpeechRecognition {
+  get processLocally(){return this.localOnly;}
+  set processLocally(value){this.localOnly=value;}
   constructor() {
     this.continuous = false;
     this.interimResults = false;
@@ -37,6 +39,7 @@ describe('createBrowserSpeechCapture', () => {
     });
     expect(capture.start()).toBe(true);
     expect(instances).toHaveLength(1);
+    expect(instances[0].processLocally).toBe(true);
     instances[0].onerror?.({ error: 'audio-capture' });
     vi.advanceTimersByTime(3600);
     expect(instances).toHaveLength(2);

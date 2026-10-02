@@ -229,12 +229,9 @@ export async function finalizeInterview(interviewId, { transcriptSummary = undef
   } else if (interview.provider_schedule_event_id) {
     // Fallback: raw transcript if AI unavailable
     try {
-      const pool = (await import('../config/database.js')).default;
-      const [rows] = await pool.execute(
-        `SELECT transcript_text FROM provider_schedule_event_artifacts WHERE event_id = ? LIMIT 1`,
-        [interview.provider_schedule_event_id]
-      );
-      const transcriptText = String(rows?.[0]?.transcript_text || '').trim();
+      const Artifact = (await import('../models/ProviderScheduleEventArtifact.model.js')).default;
+      const row = await Artifact.findByEventId(interview.provider_schedule_event_id);
+      const transcriptText = String(row?.transcript_text || '').trim();
       if (transcriptText) patch.transcriptSummary = transcriptText.slice(0, 120000);
     } catch (err) {
       console.warn('[finalizeInterview] meeting transcript pull failed:', err?.message || err);

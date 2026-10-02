@@ -9,12 +9,13 @@ vi.mock('../../../utils/activityTracker', () => ({ suspendInactivityTimeout: moc
 
 describe('Mini meeting continuity', () => {
   beforeEach(() => {
+    vi.stubGlobal('innerWidth',1440);
     vi.useFakeTimers();
     vi.clearAllMocks();
     mocks.post.mockResolvedValue({ data: {} });
     useActiveMeeting().clearMiniMode();
   });
-  afterEach(() => { useActiveMeeting().clearMiniMode(); vi.useRealTimers(); });
+  afterEach(() => { useActiveMeeting().clearMiniMode(); vi.useRealTimers(); vi.unstubAllGlobals(); });
   it('preserves muted camera-off preferences and maintains presence and visible meeting activity', async () => {
     useActiveMeeting().setMiniMode({ eventId: 9, joinIdentity: 'participant-9', token: 'token',
       vonageSessionId: 'session', applicationId: 'app', startMuted: true, startVideoOff: true });

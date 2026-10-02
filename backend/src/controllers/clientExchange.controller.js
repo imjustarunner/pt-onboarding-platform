@@ -164,10 +164,15 @@ export async function createListing(req, res, next) {
       diagnoses: req.body?.diagnoses,
       preferences: req.body?.preferences,
       notes: req.body?.notes,
-      onlyUnassigned: req.body?.quickPost === true
+      onlyUnassigned: req.body?.quickPost === true,
+      referralKind: req.body?.referralKind,
+      serviceType: req.body?.serviceType,
+      targetProviderUserId: req.body?.targetProviderUserId ?? null,
+      viewerRole: req.user.role
     });
     res.status(201).json({ listing });
   } catch (e) {
+    if (e?.code === 'ER_DUP_ENTRY') return res.status(409).json({error:{message:'This client already has an open referral for this service'}});
     if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
     const msg = e?.message || 'Failed to create listing';
     if (/not found|already belongs|already has an open listing|does not belong/i.test(msg)) {
@@ -443,4 +448,13 @@ export async function publicOfficeIntakeCreate(req, res, next) {
     }
     next(e);
   }
+}
+
+export async function listReferralProviders(req, res, next) {
+  try {
+    const agencyId = safeInt(req.query.agencyId);
+    if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    if (!(await assertAgencyAccess(req, agencyId))) return res.status(403).json({ error: { message: 'Forbidden' } });
+    res.json({ providers: await ClientExchange.listReferralProviders(agencyId) });
+  } catch (error) { next(error); }
 }

@@ -17,7 +17,7 @@ it('locks the client and commits the clinical snapshot with its audit record', a
   expect(await insertExchangeListing(args)).toMatchObject({ listingId: 5, created: true });
   expect(mocks.execute.mock.calls[0][0]).toContain('FOR UPDATE');
   expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO client_exchange_listings'), expect.arrayContaining(['["F41.1"]', '["Concern"]']));
-  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO client_status_history'), [12, 7]);
+  expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO client_status_history'), [12, 7, 'Posted to Client Exchange for reassignment']);
   expect(mocks.commit).toHaveBeenCalledOnce();
 });
 it('reuses an open/requested listing on retry without inserting another', async () => {

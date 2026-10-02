@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
+export const mapMeetingAgendaItem = row => row ? { ...row, title:maybeDecryptNotePayload(row.title), notes:row.notes == null ? null : maybeDecryptNotePayload(row.notes) } : null;
 
 const STATUSES = ['pending', 'discussed', 'completed'];
 
@@ -12,7 +14,7 @@ class MeetingAgendaItem {
        ORDER BY i.sort_order ASC, i.id ASC`,
       [parseInt(agendaId, 10)]
     );
-    return rows || [];
+    return (rows || []).map(mapMeetingAgendaItem);
   }
 
   static async create({ meetingAgendaId, taskId, title, notes, sortOrder, createdByUserId }) {
@@ -26,8 +28,8 @@ class MeetingAgendaItem {
       [
         parseInt(meetingAgendaId, 10),
         taskId ? parseInt(taskId, 10) : null,
-        titleStr,
-        notes ? String(notes).trim() || null : null,
+        maybeEncryptNotePayload(titleStr),
+        notes ? maybeEncryptNotePayload(String(notes).trim()) || null : null,
         Number(sortOrder) || 0,
         createdByUserId ? Number(createdByUserId) : null
       ]
@@ -43,7 +45,7 @@ class MeetingAgendaItem {
        WHERE i.id = ?`,
       [parseInt(id, 10)]
     );
-    return rows?.[0] || null;
+    return mapMeetingAgendaItem(rows?.[0]);
   }
 
   static async updateStatus(id, status) {
@@ -66,11 +68,11 @@ class MeetingAgendaItem {
       const t = String(title || '').trim();
       if (!t) return null;
       updates.push('title = ?');
-      params.push(t);
+      params.push(maybeEncryptNotePayload(t));
     }
     if (notes !== undefined) {
       updates.push('notes = ?');
-      params.push(notes ? String(notes).trim() || null : null);
+      params.push(notes ? maybeEncryptNotePayload(String(notes).trim()) || null : null);
     }
     if (sortOrder !== undefined) {
       updates.push('sort_order = ?');

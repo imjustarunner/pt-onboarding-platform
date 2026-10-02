@@ -1,4 +1,4 @@
-import { callGeminiText } from './geminiText.service.js';
+import { callPrivateSessionText, createSessionPrivacyContext } from './sessionAiPrivacy.service.js';
 
 const SUMMARY_SYSTEM = `You are a session documentation assistant. From a labeled transcript, produce compact JSON (no markdown fences):
 {
@@ -21,7 +21,9 @@ export async function summarizeSessionRecording({
   transcriptText,
   sessionKind = 'standalone',
   providerLabel = 'Provider',
-  clientLabel = 'Client'
+  clientLabel = 'Client',
+  clientNames = [],
+  providerNames = []
 }) {
   const cleaned = String(transcriptText || '').trim().slice(0, 24000);
   if (!cleaned) {
@@ -42,8 +44,8 @@ export async function summarizeSessionRecording({
     'Return JSON only.'
   ].join('\n');
 
-  const { text, modelName, latencyMs } = await callGeminiText({
-    prompt,
+  const { text, modelName, latencyMs } = await callPrivateSessionText({
+    privacyContext:createSessionPrivacyContext({clientNames,providerNames}),prompt,
     model: 'gemini-2.5-flash',
     temperature: 0.2,
     maxOutputTokens: 1200

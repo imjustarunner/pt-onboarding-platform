@@ -1,4 +1,6 @@
+import { listMyMeetings, getMyMeeting, saveMyMeetingNote, retryMyMeetingSummary } from '../controllers/myMeetings.controller.js';
 import express from 'express';
+import multer from 'multer';
 import { downloadInterviewCalendar } from '../controllers/interviewCalendar.controller.js';
 import { authenticate, authenticateOptional } from '../middleware/auth.middleware.js';
 import {
@@ -10,6 +12,8 @@ import {
   getTeamMeetingVideoToken,
   setTeamMeetingRecordingRules,
   saveTeamMeetingClientTranscript,
+  getTeamMeetingTranscriptionState,
+  appendTeamMeetingAudio,
   postTeamMeetingJoinPresence,
   getTeamMeetingLobbyParticipants,
   admitTeamMeetingParticipant,
@@ -44,6 +48,10 @@ router.get('/:eventId/calendar.ics', downloadInterviewCalendar);
 router.use(authenticate);
 
 // Static paths before /:eventId
+router.get('/my-meetings', listMyMeetings);
+router.get('/my-meetings/:type/:id', getMyMeeting);
+router.put('/my-meetings/:type/:id/personal-note', saveMyMeetingNote);
+router.post('/my-meetings/:type/:id/summary', retryMyMeetingSummary);
 router.get('/admin-log', listAdminMeetingsLog);
 router.get('/types', getMeetingTypeSettings);
 router.put('/types/:typeKey', putMeetingTypeSettings);
@@ -53,6 +61,8 @@ router.post('/:eventId/admit/:userId', admitTeamMeetingParticipant);
 router.post('/:eventId/attendees', addTeamMeetingAttendee);
 router.post('/:eventId/waiting-room', setTeamMeetingWaitingRoomLive);
 router.post('/:eventId/recording-rules', setTeamMeetingRecordingRules);
+router.get('/:eventId/transcription', getTeamMeetingTranscriptionState);
+router.post('/:eventId/transcription/audio', multer({storage:multer.memoryStorage(),limits:{fileSize:10*1024*1024}}).single('audio'), appendTeamMeetingAudio);
 router.post('/:eventId/client-transcript', saveTeamMeetingClientTranscript);
 router.post('/:eventId/transcript-control', postTeamMeetingTranscriptControl);
 router.post('/:eventId/enable-attendance-tracking', enableTeamMeetingAttendanceTracking);

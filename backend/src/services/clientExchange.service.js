@@ -1,3 +1,4 @@
+import { providerHasAssignedClientAccess } from './clientRecordAccess.service.js';
 import { exchangeSafeValue, exchangeSafeText } from '../utils/clientExchangePrivacy.js';
 import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
 import { insertExchangeListing } from './clientExchangePosting.service.js';
@@ -66,6 +67,9 @@ function mapListingRow(row) {
     postedByName: [row.posted_by_first_name, row.posted_by_last_name].filter(Boolean).join(' ') || null,
     currentProviderUserId: row.current_provider_user_id != null ? Number(row.current_provider_user_id) : null,
     currentProviderName: [row.current_provider_first_name, row.current_provider_last_name].filter(Boolean).join(' ') || null,
+    referralKind: row.referral_kind || 'transfer',
+    serviceType: row.service_type || 'individual',
+    targetProviderUserId: row.target_provider_user_id ? Number(row.target_provider_user_id) : null,
     status: row.status,
     demographics: parseJsonColumn(row.demographics_json),
     presentingProblems: parseJsonColumn(row.presenting_problems_json),
@@ -117,6 +121,8 @@ function redactListing(listing, { viewerRole, viewerUserId }) {
   mapped.canManageClaims = ['admin', 'super_admin', 'support', 'staff'].includes(String(viewerRole || '').toLowerCase())
     || Number(viewerUserId) === Number(listing.current_provider_user_id)
     || (!listing.current_provider_user_id && Number(viewerUserId) === Number(listing.posted_by_user_id));
+  if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(viewerUserId)
+    && !isPrivilegedViewer({ viewerRole, viewerUserId, listing })) return null;
   if (isPrivilegedViewer({ viewerRole, viewerUserId, listing })) {
     return {
       ...mapped,
@@ -161,7 +167,7 @@ export async function listListings({ agencyId, status, viewerUserId, viewerRole 
   for (let i = 0; i < (rows || []).length; i += 5) {
     await Promise.all(rows.slice(i, i + 5).map(hydrateListingSummary));
   }
-  return (rows || []).map((row) => redactListing(row, { viewerUserId, viewerRole }));
+  return (rows || []).map((row) => redactListing(row, { viewerUserId, viewerRole })).filter(Boolean);
 }
 
 async function hydrateListingSummary(row) {
@@ -223,13 +229,16 @@ export async function createListing({
   agencyId,
   clientId,
   postedByUserId,
-  currentProviderUserId = null,
   demographics = null,
   presentingProblems = null,
   diagnoses = null,
   preferences = null,
   notes = null,
-  onlyUnassigned = false
+  onlyUnassigned = false,
+  referralKind = 'transfer',
+  serviceType = 'individual',
+  targetProviderUserId = null,
+  viewerRole = null
 }) {
   const aid = Number(agencyId);
   const cid = Number(clientId);
@@ -242,6 +251,18 @@ export async function createListing({
   if (!client) throw new Error('Client not found');
   if (Number(client.agency_id) !== aid) throw new Error('Client does not belong to this agency');
 
+  if (!['transfer', 'additional_service'].includes(referralKind)) throw Object.assign(new Error('Invalid referral purpose'), { status: 400 });
+  if (!['individual', 'family', 'couples', 'group', 'other'].includes(serviceType)) throw Object.assign(new Error('Invalid service type'), { status: 400 });
+  if (!['admin', 'super_admin', 'support', 'staff'].includes(String(viewerRole || '').toLowerCase())
+    && Number(client.provider_id) !== posterId && !(await providerHasAssignedClientAccess({ userId: posterId, clientId: cid, client }))) {
+    throw Object.assign(new Error('Only the assigned provider or office staff can refer this client'), { status: 403 });
+  }
+  if (referralKind === 'additional_service' && !client.provider_id) throw Object.assign(new Error('Assign the current therapist before referring for additional services'),{status:400});
+  if (targetProviderUserId != null) {
+    if (!Number.isInteger(Number(targetProviderUserId)) || Number(targetProviderUserId) <= 0) throw Object.assign(new Error('Invalid target provider'), { status: 400 });
+    await assertReferralProvider(aid, Number(targetProviderUserId));
+    if (Number(targetProviderUserId) === Number(client.provider_id)) throw Object.assign(new Error('Select a different provider'), { status: 400 });
+  }
   preferences = safeJson(preferences);
   if (preferences?.schedule != null) preferences = { ...preferences, schedule: normalizeExchangeSchedule(preferences.schedule) };
   const savedSummary = await loadClientExchangeSummary({ client });
@@ -255,7 +276,7 @@ export async function createListing({
   ({ demographics, preferences, presentingProblems, diagnoses } = sharedSummary);
 
   const inserted = await insertExchangeListing({ agencyId: aid, clientId: cid, postedByUserId: posterId,
-    summary: sharedSummary, notes, onlyUnassigned });
+    summary: sharedSummary, notes, onlyUnassigned, referralKind, serviceType, targetProviderUserId });
   const result = { insertId: inserted.listingId };
   const resolvedCurrentProvider = inserted.currentProviderId;
   if (!inserted.created) {
@@ -265,7 +286,7 @@ export async function createListing({
 
   try {
     const OfficeAcceptance = await import('./officeClientAcceptance.service.js');
-    await OfficeAcceptance.recordExchangePosted({
+    if (referralKind === 'transfer') await OfficeAcceptance.recordExchangePosted({
       clientId: cid,
       providerUserId: resolvedCurrentProvider || posterId,
       listingId: result.insertId,
@@ -278,7 +299,7 @@ export async function createListing({
   try {
     const SmartGroups = await import('./smartChatGroups.service.js');
     const previewBits = ['A new referral is available. Open Client Exchange to review it.'];
-    await SmartGroups.announceClientExchangeListing({
+    if (!targetProviderUserId) await SmartGroups.announceClientExchangeListing({
       agencyId: aid,
       listingId: result.insertId,
       postedByUserId: posterId,
@@ -363,6 +384,20 @@ export async function listMyRequests({ agencyId, requestingProviderUserId }) {
  * provider (logged via the normal status-history trail), closes the
  * listing, and auto-denies any other pending requests for the same listing.
  */
+export async function listReferralProviders(agencyId) {
+  const [rows] = await pool.execute(`SELECT DISTINCT u.id, u.first_name, u.last_name
+    FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+    WHERE ua.agency_id=? AND ua.is_active=1 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+    AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED','PROSPECTIVE','TERMINATED_PENDING')
+    AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant') OR u.has_provider_access=1)
+    ORDER BY u.first_name,u.last_name`, [Number(agencyId)]);
+  return rows;
+}
+async function assertReferralProvider(agencyId, userId) {
+  const providers = await listReferralProviders(agencyId);
+  if (!providers.some(p => Number(p.id) === Number(userId))) throw Object.assign(new Error('Select an active provider in this agency'), { status: 400 });
+}
+
 export async function resolveRequest(options) {
   const { listing, request } = await resolveExchangeClaim(options);
   if (options.action === 'approve') {

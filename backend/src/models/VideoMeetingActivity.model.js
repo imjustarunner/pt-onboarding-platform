@@ -1,7 +1,7 @@
 /**
  * Video meeting activity: chat, polls, Q&A persisted for meeting owners.
  * Supports supervision sessions (session_id) and team meetings (event_id).
- * When CLIENT_CHAT_ENCRYPTION_KEY_BASE64 is set, payload is encrypted at rest.
+ * Payload encryption is required for every write.
  */
 
 import pool from '../config/database.js';
@@ -24,9 +24,8 @@ export default class VideoMeetingActivity {
     }
 
     const enc = encryptPayload(payload || {});
-    // Keep payload_json populated for backward-compatible schemas where this
-    // column is NOT NULL even when encrypted columns are present.
-    const payloadJson = JSON.stringify(payload || {});
+    // Use an empty object for the legacy NOT NULL column; never duplicate content.
+    const payloadJson = '{}';
     const payloadCiphertext = enc?.ciphertextB64 ?? null;
     const payloadIv = enc?.ivB64 ?? null;
     const payloadAuthTag = enc?.authTagB64 ?? null;

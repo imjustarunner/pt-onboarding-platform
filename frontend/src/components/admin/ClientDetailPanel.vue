@@ -142,7 +142,7 @@
         </div>
 
         <div class="cdp-header-actions">
-          <button v-if="canPostClientToExchange" type="button" class="cdp-btn-primary" @click="openPostToExchangeModal">Post to Client Exchange</button>
+          <button v-if="canPostClientToExchange" type="button" class="btn btn-secondary" @click="openPostToExchangeModal">Internal referral</button>
           <button
             v-if="!props.fullPage && props.client?.id"
             class="cdp-btn-primary cdp-open-full"

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import LearningProgramClass from './LearningProgramClass.model.js';
 import { createOrGetRoom, createAccessTokenAsync } from '../services/video.service.js';
 
@@ -22,7 +23,8 @@ const normalize = (row) => {
   return {
     ...row,
     metadata_json: parseJsonMaybe(row.metadata_json),
-    ai_summary_json: parseJsonMaybe(row.ai_summary_json),
+    transcript_text:maybeDecryptNotePayload(row.transcript_text),
+    ai_summary_json: parseJsonMaybe(maybeDecryptNotePayload(typeof row.ai_summary_json === 'object' ? JSON.stringify(row.ai_summary_json) : row.ai_summary_json)),
     standards_context_json: parseJsonMaybe(row.standards_context_json)
   };
 };
@@ -121,7 +123,7 @@ class LearningClassSession {
     for (const [k, col] of Object.entries(map)) {
       if (patch[k] === undefined) continue;
       set.push(`${col} = ?`);
-      values.push(patch[k]);
+      values.push(['transcriptText','aiSummaryJson'].includes(k) && patch[k] != null ? maybeEncryptNotePayload(typeof patch[k] === 'object' ? JSON.stringify(patch[k]) : patch[k]) : patch[k]);
     }
     if (!set.length) return this.findById(id);
     values.push(id);
@@ -137,7 +139,7 @@ class LearningClassSession {
     const values = [];
     if (patch.aiSummaryJson !== undefined) {
       updates.push('ai_summary_json = ?');
-      values.push(patch.aiSummaryJson ? JSON.stringify(patch.aiSummaryJson) : null);
+      values.push(patch.aiSummaryJson ? maybeEncryptNotePayload(JSON.stringify(patch.aiSummaryJson)) : null);
     }
     if (patch.standardsContextJson !== undefined) {
       updates.push('standards_context_json = ?');
@@ -145,7 +147,7 @@ class LearningClassSession {
     }
     if (patch.transcriptText !== undefined) {
       updates.push('transcript_text = ?');
-      values.push(patch.transcriptText);
+      values.push(patch.transcriptText == null ? null : maybeEncryptNotePayload(patch.transcriptText));
     }
     if (updates.length > 0) {
       values.push(id);

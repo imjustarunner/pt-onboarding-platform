@@ -58,3 +58,11 @@ it('sends assignment confirmation to the requesting provider in both channels', 
   expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ userId: 10, type: 'client_exchange_assigned' }));
   expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'provider@example.com', templateType: 'client_exchange_assigned' }));
 });
+
+it('sends a direct referral only to its recipient even when matching preferences differ', async () => {
+  await notifyExchangeMatches({ listing: { ...listing, targetProviderUserId: 11 } });
+  expect(mocks.notify).toHaveBeenCalledTimes(1);
+  expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ userId: 11 }));
+  expect(mocks.send).toHaveBeenCalledTimes(1);
+  expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ userId: 11 }));
+});

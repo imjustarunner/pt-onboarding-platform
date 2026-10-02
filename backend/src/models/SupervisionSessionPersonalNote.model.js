@@ -38,7 +38,8 @@ class SupervisionSessionPersonalNote {
 
     const text = String(noteText || '').slice(0, 120000);
     const enc = encryptPersonalNoteText(text);
-    const useEncryption = !!enc && isSupervisionPersonalNoteEncryptionConfigured();
+    if (!enc) throw new Error('Personal note encryption is unavailable');
+    const useEncryption = true;
 
     await pool.execute(
       `INSERT INTO supervision_session_personal_notes

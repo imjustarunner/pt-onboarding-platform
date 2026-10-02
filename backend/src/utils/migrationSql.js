@@ -3,7 +3,7 @@
  */
 
 /**
- * Split a SQL string on `;` boundaries, respecting quoted strings and BEGIN…END blocks.
+ * Split SQL on `;` boundaries, respecting quotes, comments and BEGIN…END blocks.
  */
 export function splitSqlStatements(sql) {
   const out = [];
@@ -11,6 +11,9 @@ export function splitSqlStatements(sql) {
   let inSingle = false;
   let inDouble = false;
   let inBacktick = false;
+  let inBlockComment = false;
+  let preserveBlockComment = false;
+  let inLineComment = false;
   let beginDepth = 0;
   let wordBuf = '';
   let lastWord = '';
@@ -18,6 +21,20 @@ export function splitSqlStatements(sql) {
   for (let i = 0; i < sql.length; i += 1) {
     const ch = sql[i];
     const next = sql[i + 1];
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        if (preserveBlockComment) buf += '*/';
+        inBlockComment = false;
+        i += 1;
+      } else if (preserveBlockComment || ch === '\n') {
+        buf += ch;
+      }
+      continue;
+    }
+    if (inLineComment) {
+      if (ch === '\n') { inLineComment = false; buf += ch; }
+      continue;
+    }
     if (inSingle) {
       buf += ch;
       if (ch === '\\' && next != null) { buf += next; i += 1; continue; }
@@ -54,6 +71,20 @@ export function splitSqlStatements(sql) {
       wordBuf = '';
     }
 
+    if (ch === '/' && next === '*') {
+      inBlockComment = true;
+      // MySQL version directives and optimizer hints must reach the server.
+      preserveBlockComment = sql[i + 2] === '!' || sql[i + 2] === '+';
+      buf += preserveBlockComment ? '/*' : ' ';
+      i += 1;
+      continue;
+    }
+    if (ch === '#' || (ch === '-' && next === '-' && (sql[i + 2] == null || /\s/.test(sql[i + 2])))) {
+      inLineComment = true;
+      buf += ' ';
+      continue;
+    }
+
     if (ch === ';') {
       if (lastWord === 'END') {
         beginDepth = Math.max(0, beginDepth - 1);
@@ -70,6 +101,7 @@ export function splitSqlStatements(sql) {
     }
     buf += ch;
   }
+  if (inBlockComment) throw new Error('Unterminated SQL block comment');
   if (wordBuf) {
     const kw = wordBuf.toUpperCase();
     if (kw === 'BEGIN') beginDepth += 1;

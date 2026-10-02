@@ -760,6 +760,7 @@
 </template>
 
 <script setup>
+import { privateSpeechRecognition } from '../utils/privateSpeechRecognition.js';
 import { quickViewDeepLink } from '../utils/quickViewDeepLink';
 import QuickViewPresence from '../components/quickView/QuickViewPresence.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -868,7 +869,7 @@ let noteAidSpeakTimer = null;
 
 const speechSupported = computed(() => {
   try {
-    return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    return !!(privateSpeechRecognition());
   } catch {
     return false;
   }
@@ -1777,7 +1778,7 @@ function toggleNoteAidSpeak() {
   }
   stopNoteAidSpeak();
   noteAidMode.value = 'speak';
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SR = privateSpeechRecognition();
   const rec = new SR();
   noteAidRecognition = rec;
   rec.continuous = true;

@@ -31,6 +31,7 @@ afterEach(() => vi.useRealTimers());
 async function fixture(component, prefix = '') {
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/:organizationSlug?/dashboard', component: { template: '<div>Dashboard</div>' } },
+    { path: '/:organizationSlug?/my-meetings', component: { template: '<div>Meetings</div>' } },
     { path: '/:organizationSlug?/my-schedule', component: { template: '<div>Schedule</div>' } }
   ] });
   await router.push(`${prefix}/dashboard`);
@@ -51,7 +52,7 @@ describe.each([
     const { wrapper, router } = await fixture(component, prefix);
     try {
       expect(wrapper.find('.briefing-close').exists()).toBe(true);
-      await wrapper.get('.dashboard-meetings a').trigger('click');
+      await wrapper.get('.dashboard-meetings article a').trigger('click');
       await flushPromises();
       expect(router.currentRoute.value.path).toBe(`${prefix}/my-schedule`);
       expect(router.currentRoute.value.query).toMatchObject({ eventId: 'weekly', eventKind: 'TEAM_MEETING' });
@@ -62,7 +63,7 @@ describe.each([
       wrapper.vm.visible = true;
       await nextTick();
       await flushPromises();
-      await wrapper.get('.dashboard-meetings a').trigger('click');
+      await wrapper.get('.dashboard-meetings article a').trigger('click');
       await flushPromises();
       expect(wrapper.find('.briefing-close').exists()).toBe(false);
     } finally { wrapper.unmount(); }
@@ -71,7 +72,7 @@ describe.each([
   it('keeps the current briefing open for an open-in-new-tab click', async () => {
     const { wrapper, router } = await fixture(component);
     try {
-      await wrapper.get('.dashboard-meetings a').trigger('click', { ctrlKey: true });
+      await wrapper.get('.dashboard-meetings article a').trigger('click', { ctrlKey: true });
       await flushPromises();
       expect(router.currentRoute.value.path).toBe('/dashboard');
       expect(wrapper.find('.briefing-close').exists()).toBe(true);

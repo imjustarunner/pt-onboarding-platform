@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { requireSessionPrivacyConfiguration } from './sessionAiPrivacy.service.js';
 import StorageService from './storage.service.js';
 import { SpeechClient } from '@google-cloud/speech';
 
@@ -83,8 +84,7 @@ async function uploadTempAudio({ buffer, mimeType, userId }) {
   const storage = await StorageService.getGCSStorage();
   const bucket = storage.bucket(bucketName);
   const id = crypto.randomBytes(12).toString('hex');
-  const safeUser = Number.isInteger(Number(userId)) ? String(userId) : 'unknown';
-  const key = `clinical_audio/${safeUser}/${Date.now()}-${id}`;
+  const key = `clinical_audio/${id}`;
   const file = bucket.file(key);
 
   await file.save(buffer, {
@@ -114,6 +114,7 @@ export async function transcribeLongAudio({
     throw err;
   }
 
+  requireSessionPrivacyConfiguration();
   const { bucketName, key } = await uploadTempAudio({ buffer, mimeType, userId });
   const gcsUri = `gs://${bucketName}/${key}`;
 
@@ -158,6 +159,8 @@ export async function transcribeLongAudio({
       .trim();
 
     return transcript;
+  } catch {
+    throw Object.assign(new Error('Secure audio transcription failed.'),{status:502});
   } finally {
     try {
       const storage = await StorageService.getGCSStorage();

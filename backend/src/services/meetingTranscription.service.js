@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {requireSessionPrivacyConfiguration} from './sessionAiPrivacy.service.js';
 import {counselingClient} from './counselingInvitationAccess.service.js';
 import {supervisionRecordingConsent} from './supervisionAgreement.service.js';
 import SessionRecordingConsent from '../models/SessionRecordingConsent.model.js';
@@ -17,7 +18,9 @@ export async function transcriptionState(context,db=pool) {
   const consent=type==='supervision'?await supervisionRecordingConsent(session,db):{allowed:!!(Number(session.recording_requested)&&await SessionRecordingConsent.findOnFile({agencyId:session.agency_id,clientId:client.id},db)),reason:'The provider must request recording and the client must sign the audio consent first.'};
   const [rows]=await db.execute('SELECT * FROM meeting_transcription_controls WHERE meeting_type=? AND meeting_id=?',[type,session.id]);
   const row=rows[0]||{};
-  const configured=isChatEncryptionConfigured()&&!!(process.env.CLINICAL_AUDIO_BUCKET||process.env.PTONBOARDFILES);
+  let privacyConfigured=false;
+  try{requireSessionPrivacyConfiguration();privacyConfigured=true;}catch{}
+  const configured=privacyConfigured&&isChatEncryptionConfigured()&&!!(process.env.CLINICAL_AUDIO_BUCKET||process.env.PTONBOARDFILES);
   const [pending]=await db.execute('SELECT COUNT(*) AS count FROM meeting_transcription_publishers WHERE meeting_type=? AND meeting_id=? AND drained=0 AND last_seen_at>DATE_SUB(UTC_TIMESTAMP(),INTERVAL 45 SECOND)',[type,session.id]);
   return {finishing:!!Number(row.finishing),pendingPublishers:Number(pending[0]?.count||0),consentAllowed:consent.allowed,configured,allowed:!closed&&consent.allowed&&configured,reason:closed?'This session is no longer recording.':!consent.allowed?consent.reason:!configured?'Secure transcription storage is not configured.':null,
     requested:!!Number(row.requested),paused:row.paused==null?true:!!Number(row.paused),stopped:!!Number(row.stopped),revision:Number(row.revision||0)};

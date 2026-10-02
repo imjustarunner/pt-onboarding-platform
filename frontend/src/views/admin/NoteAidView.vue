@@ -130,6 +130,7 @@
 </template>
 
 <script setup>
+import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAgencyStore } from '../../store/agency';
 import { useRoute } from 'vue-router';
@@ -251,7 +252,7 @@ const copyOutput = async () => {
 const dictating = ref(false);
 let recognition = null;
 const speechSupported = computed(() => {
-  return !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  return !!(privateSpeechRecognition());
 });
 
 const toggleDictation = () => {
@@ -266,7 +267,7 @@ const toggleDictation = () => {
     return;
   }
 
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SR = privateSpeechRecognition();
   recognition = new SR();
   recognition.continuous = true;
   recognition.interimResults = false;

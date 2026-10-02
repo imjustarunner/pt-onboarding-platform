@@ -1819,6 +1819,12 @@ const routes = [
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
+    path: '/:organizationSlug/my-meetings',
+    name: 'OrganizationMyMeetings',
+    component: () => import('../views/MyMeetingsView.vue'),
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
     path: '/:organizationSlug/my-schedule',
     name: 'OrganizationMySchedule',
     component: () => import('../views/MyScheduleView.vue'),
@@ -3400,6 +3406,12 @@ const routes = [
     path: '/office/review',
     name: 'OfficeReviewLegacy2',
     redirect: '/buildings/review',
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/my-meetings',
+    name: 'MyMeetings',
+    component: () => import('../views/MyMeetingsView.vue'),
     meta: { requiresAuth: true }
   },
   {

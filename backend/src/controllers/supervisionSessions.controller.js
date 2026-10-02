@@ -1,3 +1,4 @@
+import { meetingSummaryStatus } from '../services/meetingSummaryJobs.service.js';
 import { setMeetingTranscription } from './meetingTranscription.controller.js';
 import { requirePersonalSupervisionInvitation, canJoinSupervision, hasActiveMeetingMembership, roomUnavailable } from '../services/meetingJoinPolicy.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
@@ -22,7 +23,6 @@ import {
 } from '../services/video.service.js';
 import PayrollRateCard from '../models/PayrollRateCard.model.js';
 import PayrollRate from '../models/PayrollRate.model.js';
-import { callGeminiText } from '../services/geminiText.service.js';
 import pool from '../config/database.js';
 import { isAdminLikeRole, isSupervisorActor } from '../utils/supervisorSchoolAccess.js';
 import { joinUrlForSupervision } from '../utils/joinToken.js';
@@ -1035,30 +1035,6 @@ function canViewTranscript(roleRaw) {
     'supervisor',
     'supervisee'
   ].includes(role);
-}
-
-function buildSupervisionSummaryPrompt(transcriptText) {
-  const cleaned = String(transcriptText || '').trim().slice(0, 15000);
-  return [
-    'You are generating a supervision meeting summary for internal documentation.',
-    'Cover every topic discussed in the transcript (and any agenda/goals mentioned). Do not omit substantive threads.',
-    'Return concise markdown with these sections only:',
-    '- Key updates',
-    '- Clinical/operational decisions',
-    '- Suggested action items by person',
-    '- Risks/follow-ups',
-    '',
-    'Rules:',
-    '- Be factual, no invented details.',
-    '- Keep each section to 2-8 bullets as needed to cover all topics.',
-    '- In "Suggested action items by person", format bullets as "Name: action 1; action 2".',
-    '- Attribute ownership when speakers say phrases like "remind me", "add to my list", "I\'ll take", "I can own", "put that on my list", or similar — assign that item to the speaker (use their labeled name from the transcript when present).',
-    '- If a person is not named but the speaker clearly volunteers, use their speaker label.',
-    '- If information is missing, state "Not discussed".',
-    '',
-    'Transcript:',
-    cleaned
-  ].join('\n');
 }
 
 function wallMysqlFromMs(ms) {
@@ -3328,7 +3304,7 @@ export const getSupervisionSessionArtifacts = async (req, res, next) => {
       }
       : null;
 
-    res.json({ ok: true, sessionId: id, artifact: payload });
+    res.json({ ok: true, sessionId: id, artifact: payload, summaryStatus: await meetingSummaryStatus('supervision', id) });
   } catch (e) {
     next(e);
   }
@@ -3394,23 +3370,6 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
       });
     }
 
-    if (autoSummarize && transcriptTextForPrompt) {
-      const prompt = buildSupervisionSummaryPrompt(transcriptTextForPrompt);
-      const summaryResp = await callGeminiText({
-        prompt,
-        temperature: 0.1,
-        maxOutputTokens: 1200
-      });
-      summaryText = String(summaryResp?.text || '').trim();
-      if (!summaryText) {
-        return res.status(502).json({
-          error: { message: 'Gemini returned an empty summary. Try again with more transcript text.' }
-        });
-      }
-      summaryModel = String(summaryResp?.modelName || '').trim() || null;
-      summaryGeneratedAt = mysqlNowDateTime();
-    }
-
     const normalizeChecklist = (raw) => {
       if (raw === undefined) return undefined;
       let list = raw;
@@ -3445,6 +3404,11 @@ export const upsertSupervisionSessionArtifacts = async (req, res, next) => {
       actionItems,
       updatedByUserId: Number(req.user?.id || 0) || null
     });
+
+    if (autoSummarize) {
+      const { triggerSupervisionSummaryFromTranscript } = await import('../services/supervisionTranscriptSummary.service.js');
+      await triggerSupervisionSummaryFromTranscript(id);
+    }
 
     if (artifact && !mayEditTranscript) {
       artifact = { ...artifact, transcript_url: null, transcript_text: null };

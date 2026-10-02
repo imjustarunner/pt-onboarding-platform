@@ -1,10 +1,11 @@
+import { privateSpeechRecognition } from '../utils/privateSpeechRecognition.js';
 /**
  * Web Speech API helper for live meeting transcripts.
  * Each client only hears its own mic — remote audio cannot be fed in.
  * Vonage + iPad often abort with audio-capture; retry instead of giving up.
  */
 
-const FATAL_ERRORS = new Set(['not-allowed', 'service-not-allowed']);
+const FATAL_ERRORS = new Set(['not-allowed', 'service-not-allowed', 'language-not-supported']);
 const RETRY_DELAY_MS = {
   'audio-capture': 3200,
   network: 1500,
@@ -67,10 +68,10 @@ export function createBrowserSpeechCapture({
   function start() {
     if (recognition) return true;
     const SR = typeof window !== 'undefined'
-      ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+      ? (privateSpeechRecognition())
       : null;
     if (!SR) {
-      setHint('Live transcript needs Chrome or Safari speech recognition (mic permission).');
+      setHint('Live captions require on-device speech recognition. Use secure session recording when on-device recognition is unavailable.');
       setCapturing(false);
       return false;
     }

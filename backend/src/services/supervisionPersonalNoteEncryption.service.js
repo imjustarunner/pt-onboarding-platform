@@ -6,12 +6,7 @@ export function isSupervisionPersonalNoteEncryptionConfigured() {
 
 export function encryptPersonalNoteText(text) {
   const value = String(text || '');
-  if (!isSupervisionPersonalNoteEncryptionConfigured()) return null;
-  try {
-    return encryptChatText(value);
-  } catch {
-    return null;
-  }
+  return encryptChatText(value);
 }
 
 export function decryptPersonalNoteText(row) {
@@ -19,18 +14,8 @@ export function decryptPersonalNoteText(row) {
   const iv = row?.note_iv ?? row?.noteIv;
   const tag = row?.note_auth_tag ?? row?.noteAuthTag;
   const keyId = row?.encryption_key_id ?? row?.encryptionKeyId;
-  if (!ciphertext || !iv || !tag) return null;
-  if (!isSupervisionPersonalNoteEncryptionConfigured()) return null;
-  try {
-    return decryptChatText({
-      ciphertextB64: ciphertext,
-      ivB64: iv,
-      authTagB64: tag,
-      keyId
-    });
-  } catch {
-    return null;
-  }
+  if (!ciphertext && !iv && !tag) return null;
+  return decryptChatText({ ciphertextB64: ciphertext, ivB64: iv, authTagB64: tag, keyId });
 }
 
 export function resolvePersonalNotePlaintext(row) {

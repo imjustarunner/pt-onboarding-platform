@@ -1,6 +1,8 @@
 import { huddleHostServiceCode } from './huddlePolicy.js';
 import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import pool from '../config/database.js';
+import TeamArtifact from '../models/ProviderScheduleEventArtifact.model.js';
+import { mapMeetingAgendaItem } from '../models/MeetingAgendaItem.model.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import PayrollRate from '../models/PayrollRate.model.js';
 import { isCompensationClaimMeeting } from './meetingCompensationClaims.service.js';
@@ -50,8 +52,8 @@ export async function meetingReplyTo(event) {
 export async function meetingEmailDetails(event) {
   if(event.meeting_type==='supervision' || event.meeting_subtype==='interview')return '';
   const settings=typeof event.meeting_settings_json==='string'?JSON.parse(event.meeting_settings_json):event.meeting_settings_json||{};
-  const [artifacts]=await pool.execute('SELECT goals_json,action_items_json FROM provider_schedule_event_artifacts WHERE event_id=?',[event.id]);
+  const artifacts=[await TeamArtifact.findByEventId(event.id)];
   const [agenda]=settings.agenda===false?[[]]:await pool.execute(`SELECT i.title FROM meeting_agenda_items i JOIN meeting_agendas a ON a.id=i.meeting_agenda_id WHERE a.meeting_type='provider_schedule_event' AND a.meeting_id=? ORDER BY i.sort_order,i.id`,[event.id]);
   const parse=raw=>{try{return typeof raw==='string'?JSON.parse(raw):raw||[];}catch{return [];}};
-  return [agenda.length?`Agenda: ${agenda.map(i=>i.title).join('; ')}`:'',settings.goals===false?'':`Goals: ${parse(artifacts[0]?.goals_json).map(i=>i.text).filter(Boolean).join('; ')}`,settings.actionItems===false?'':`Action items: ${parse(artifacts[0]?.action_items_json).map(i=>i.text).filter(Boolean).join('; ')}`].filter(line=>line&&!line.endsWith(': ')).join('\n');
+  return [agenda.length?`Agenda: ${agenda.map(mapMeetingAgendaItem).map(i=>i.title).join('; ')}`:'',settings.goals===false?'':`Goals: ${parse(artifacts[0]?.goals_json).map(i=>i.text).filter(Boolean).join('; ')}`,settings.actionItems===false?'':`Action items: ${parse(artifacts[0]?.action_items_json).map(i=>i.text).filter(Boolean).join('; ')}`].filter(line=>line&&!line.endsWith(': ')).join('\n');
 }

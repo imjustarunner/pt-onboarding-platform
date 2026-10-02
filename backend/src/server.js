@@ -2294,6 +2294,12 @@ if (!isBootstrap) {
     finally { meetingInvitationsInFlight = false; }
   };
   scheduleMeetingInvitations();
+  const summaryTick = async () => {
+    try { await (await import('./services/meetingSummaryJobs.service.js')).processMeetingSummaryJobs(); }
+    catch (error) { console.warn('[meetingSummaryJobs] worker unavailable:', error?.code || 'error'); }
+  };
+  void summaryTick();
+  setInterval(summaryTick, 30000).unref();
   setInterval(scheduleMeetingInvitations, 60 * 1000);
 
   let meetingExpiryInFlight = false;

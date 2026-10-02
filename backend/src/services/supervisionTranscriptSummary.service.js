@@ -3,34 +3,9 @@
  * Called after video room recording is transcribed (room-ended pipeline).
  */
 
-import { callGeminiText } from './geminiText.service.js';
+import { generateMeetingSummaryContent } from './meetingSummaryContent.service.js';
+import { enqueueMeetingSummary } from './meetingSummaryJobs.service.js';
 import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.model.js';
-
-function buildSupervisionSummaryPrompt(transcriptText) {
-  const cleaned = String(transcriptText || '').trim().slice(0, 15000);
-  return [
-    'You are generating a supervision meeting summary for internal documentation.',
-    'Cover every topic discussed in the transcript (and any agenda/goals mentioned). Do not omit substantive threads.',
-    'The transcript may include labeled speakers such as [Supervisor · Name] and [Supervisee · Name]. Attribute statements to the correct person.',
-    'If only one speaker is labeled, summarize what that person said and mark the other party as "Not captured in transcript" rather than inventing their words.',
-    'Return concise markdown with these sections only:',
-    '- Key updates',
-    '- Clinical/operational decisions',
-    '- Suggested action items by person',
-    '- Risks/follow-ups',
-    '',
-    'Rules:',
-    '- Be factual, no invented details.',
-    '- Keep each section to 2-8 bullets as needed to cover all topics.',
-    '- In "Suggested action items by person", format bullets as "Name: action 1; action 2".',
-    '- Attribute ownership when speakers say phrases like "remind me", "add to my list", "I\'ll take", "I can own", "put that on my list", or similar — assign that item to the speaker (use their labeled name from the transcript when present).',
-    '- If a person is not named but the speaker clearly volunteers, use their speaker label.',
-    '- If information is missing, state "Not discussed".',
-    '',
-    'Transcript:',
-    cleaned
-  ].join('\n');
-}
 
 function mysqlNowDateTime() {
   const d = new Date();
@@ -43,7 +18,7 @@ function mysqlNowDateTime() {
  * @param {number} sessionId - supervision_sessions.id
  * @returns {Promise<{ ok: boolean }>}
  */
-export async function triggerSupervisionSummaryFromTranscript(sessionId) {
+export async function generateSupervisionSummaryFromTranscript(sessionId) {
   const sid = Number(sessionId || 0);
   if (!sid) return { ok: false };
 
@@ -53,13 +28,7 @@ export async function triggerSupervisionSummaryFromTranscript(sessionId) {
     return { ok: false };
   }
 
-  const prompt = buildSupervisionSummaryPrompt(transcriptText);
-  const summaryResp = await callGeminiText({
-    prompt,
-    vertexOnly: true, sensitive: true,
-    temperature: 0.1,
-    maxOutputTokens: 1200
-  });
+  const summaryResp = await generateMeetingSummaryContent(transcriptText, 'supervision');
   const summaryText = String(summaryResp?.text || '').trim();
   const summaryModel = String(summaryResp?.modelName || '').trim() || null;
 
@@ -72,4 +41,10 @@ export async function triggerSupervisionSummaryFromTranscript(sessionId) {
   });
 
   return { ok: true };
+}
+
+export async function triggerSupervisionSummaryFromTranscript(sessionId) {
+  const artifact = await SupervisionSessionArtifact.findBySessionId(sessionId);
+  if (!String(artifact?.transcript_text || '').trim()) return { ok: false, reason: 'no_transcript' };
+  return enqueueMeetingSummary('supervision', sessionId);
 }

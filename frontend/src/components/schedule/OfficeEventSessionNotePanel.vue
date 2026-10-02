@@ -84,6 +84,7 @@
 </template>
 
 <script setup>
+import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -129,7 +130,7 @@ let recognition = null;
 let saveTimer = null;
 
 const speechSupported = computed(() => (
-  typeof window !== 'undefined' && !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+  typeof window !== 'undefined' && !!(privateSpeechRecognition())
 ));
 const activeGoals = computed(() => activePlanGoals(props.latestPlan));
 
@@ -351,7 +352,7 @@ function toggleDictation() {
     listening.value = false;
     return;
   }
-  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const Ctor = privateSpeechRecognition();
   recognition = new Ctor();
   recognition.continuous = true;
   recognition.interimResults = true;

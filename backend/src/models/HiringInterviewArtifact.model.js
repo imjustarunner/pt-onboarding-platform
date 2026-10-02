@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { maybeEncryptNotePayload, maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 
 function parseIntParam(v) {
   const n = parseInt(v, 10);
@@ -7,7 +8,7 @@ function parseIntParam(v) {
 
 function parseJsonMaybe(v, fallback = null) {
   if (v == null) return fallback;
-  if (typeof v === 'object') return v;
+  v = maybeDecryptNotePayload(typeof v === 'object' ? JSON.stringify(v) : v);
   if (typeof v === 'string') {
     try {
       return JSON.parse(v);
@@ -21,7 +22,7 @@ function parseJsonMaybe(v, fallback = null) {
 function toJsonParam(value) {
   if (value === undefined) return undefined;
   if (value === null) return null;
-  return typeof value === 'string' ? value : JSON.stringify(value);
+  return maybeEncryptNotePayload(typeof value === 'string' ? value : JSON.stringify(value));
 }
 
 function toSqlDatetime(value) {
@@ -39,6 +40,7 @@ class HiringInterviewArtifact {
       ...row,
       id: Number(row.id),
       hiring_interview_id: Number(row.hiring_interview_id),
+      transcript_summary:maybeDecryptNotePayload(row.transcript_summary),
       flow_state_json: parseJsonMaybe(row.flow_state_json, null),
       scorecard_json: parseJsonMaybe(row.scorecard_json, null),
       private_notes_json: parseJsonMaybe(row.private_notes_json, null),
@@ -75,7 +77,7 @@ class HiringInterviewArtifact {
       const summary = patch.transcriptSummary !== undefined ? patch.transcriptSummary : latest.transcript_summary;
       const items = patch.actionItemsJson !== undefined ? patch.actionItemsJson : latest.action_items_json;
       await conn.execute('UPDATE hiring_interview_artifacts SET average_score = ?, finalized_at = ?, transcript_summary = ?, action_items_json = ? WHERE hiring_interview_id = ?',
-        [averageScore, toSqlDatetime(patch.finalizedAt), summary || null, toJsonParam(items || []), hiringInterviewId]);
+        [averageScore, toSqlDatetime(patch.finalizedAt), summary ? maybeEncryptNotePayload(summary) : null, toJsonParam(items || []), hiringInterviewId]);
       await conn.commit();
       return { ...latest, average_score: averageScore, finalized_at: patch.finalizedAt, transcript_summary: summary, action_items_json: items };
     } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
@@ -95,7 +97,7 @@ class HiringInterviewArtifact {
           toJsonParam(patch.scorecardJson ?? null),
           toJsonParam(patch.privateNotesJson ?? null),
           toJsonParam(patch.teamChatJson ?? null),
-          patch.transcriptSummary != null ? String(patch.transcriptSummary) : null,
+          patch.transcriptSummary != null ? maybeEncryptNotePayload(patch.transcriptSummary) : null,
           toJsonParam(patch.actionItemsJson ?? null),
           patch.averageScore != null ? Number(patch.averageScore) : null,
           toSqlDatetime(patch.finalizedAt)
@@ -125,7 +127,7 @@ class HiringInterviewArtifact {
     }
     if (patch.transcriptSummary !== undefined) {
       updates.push('transcript_summary = ?');
-      params.push(patch.transcriptSummary != null ? String(patch.transcriptSummary) : null);
+      params.push(patch.transcriptSummary != null ? maybeEncryptNotePayload(patch.transcriptSummary) : null);
     }
     if (patch.actionItemsJson !== undefined) {
       updates.push('action_items_json = ?');

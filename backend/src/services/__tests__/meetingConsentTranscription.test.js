@@ -1,4 +1,4 @@
-import {beforeEach,describe,it,expect,vi} from 'vitest';
+import {afterEach,beforeEach,describe,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),consent:vi.fn(),clientConsent:vi.fn(),speech:vi.fn(),append:vi.fn(),commit:vi.fn(),rollback:vi.fn(),configured:vi.fn(),liveClient:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.execute,beginTransaction:async()=>{},commit:m.commit,rollback:m.rollback,release:()=>{}})}}));
 vi.mock('../counselingInvitationAccess.service.js',()=>({counselingClient:m.liveClient}));
@@ -11,6 +11,8 @@ vi.mock('../../models/SupervisionSessionArtifact.model.js',()=>({default:{ensure
 import {transcriptionState,controlTranscription,appendMeetingAudio} from '../meetingTranscription.service.js';
 let state,session,ctx;
 const audio={buffer:Buffer.from('audio'),mimeType:'audio/webm',revision:2,chunkKey:'segment-key-123'};
+beforeEach(()=>{vi.stubEnv('GCP_PROJECT_ID','test');vi.stubEnv('CLINICAL_AI_PRIVACY_APPROVED','true');});
+afterEach(()=>vi.unstubAllEnvs());
 beforeEach(()=>{vi.clearAllMocks();process.env.CLINICAL_AUDIO_BUCKET='test';state={requested:1,paused:0,stopped:0,revision:2};session={id:9,agency_id:2,status:'active',recording_requested:1};ctx={type:'supervision',session,userId:7,isHost:true,role:'supervisor',speakerKey:'user-7',speakerLabel:'Supervisor'};m.configured.mockReturnValue(true);m.consent.mockResolvedValue({allowed:true});m.clientConsent.mockResolvedValue({id:1});m.liveClient.mockResolvedValue({id:33});m.speech.mockResolvedValue('Spoken words');m.execute.mockImplementation(async sql=>{if(sql.includes('SELECT * FROM counseling_sessions')||sql.includes('SELECT * FROM supervision_sessions'))return [[session]];if(sql.includes('COUNT(*)'))return [[{count:0}]];if(sql.includes('SELECT * FROM meeting_transcription_controls'))return [[{...state}]];if(sql.includes('SELECT id FROM meeting_transcription_chunks'))return [[]];return [{affectedRows:1}];});});
 describe('recording consent and pause boundary',()=>{
  it('blocks audio before cloud processing until both supervision signatures exist',async()=>{m.consent.mockResolvedValue({allowed:false,reason:'Sign first'});await expect(appendMeetingAudio(ctx,audio)).rejects.toMatchObject({status:409});expect(m.speech).not.toHaveBeenCalled();});

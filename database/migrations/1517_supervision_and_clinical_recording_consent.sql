@@ -1,4 +1,4 @@
-/* Consent is an executed, versioned document; choosing recording never implies consent. */
+-- Consent is an executed, versioned document; choosing recording never implies consent.
 CREATE TABLE IF NOT EXISTS supervision_agreements (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   assignment_id INT NOT NULL,
@@ -72,8 +72,8 @@ ALTER TABLE counseling_sessions
   ADD COLUMN recording_consent_id BIGINT UNSIGNED NULL,
   ADD COLUMN recording_note_draft_id INT NULL;
 
-/* An invited client need not have an app account. The client identity is bound */
-/* to the invitation and appointment; no synthetic staff identity is substituted. */
+-- An invited client need not have an app account. The client identity is bound
+-- to the invitation and appointment; no synthetic staff identity is substituted.
 ALTER TABLE counseling_session_chat MODIFY COLUMN sender_user_id INT NULL;
 ALTER TABLE counseling_session_notes MODIFY COLUMN author_user_id INT NULL;
 

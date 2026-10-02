@@ -1,4 +1,6 @@
 import {officeAvailabilityWindows} from '../services/officeAvailabilityWindow.service.js';
+import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
+import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
 import {officeBookingNeedsSession} from '../utils/officeBookingSessionLink.js';
 import { bookOfficeForAppointmentRequest } from '../services/officeAppointmentBinding.service.js';
 import pool from '../config/database.js';
@@ -2634,6 +2636,12 @@ export const createOfficeBookingRequest = async (req, res, next) => {
     }
 
     const policyAgencyId = await resolveAuditAgencyIdForOffice(loc.id, req.user.id);
+    if (clientId && !req.body?.appointmentId && !req.body?.appointmentSeriesId) {
+      const occurrences = expandAppointmentRecurrence({ startAt: `${startAt.replace(' ', 'T')}Z`, endAt: `${endAt.replace(' ', 'T')}Z`,
+        recurrence: normalizedRecurrence, occurrenceCount: bookedOccurrenceCount || 1, timeZone: loc.timezone || 'America/Denver' });
+      if (!await confirmSameDayServiceWarnings(req,res,{ agencyId: Number(req.body?.agencyId || policyAgencyId),
+        participants:[{role:'client',clientId}],occurrences,timeZone:loc.timezone || 'America/Denver' })) return;
+    }
     const validatedSelection = {
       ...(await validateSchedulingSelection({
         agencyId: policyAgencyId,

@@ -5,7 +5,7 @@
       <div class="cep-header-copy">
         <h1 class="cep-title">Client Exchange</h1>
         <p class="cep-subtitle">
-          Post and request client referrals. Matching providers receive a notification and email when a client is added.
+          Refer a client for a transfer or additional services, through the exchange or directly to a therapist.
         </p>
       </div>
       <div class="cep-header-actions">
@@ -14,7 +14,7 @@
         </button>
         <button class="cep-btn cep-btn--primary" type="button" :disabled="!agencyId" @click="showNewReferral = true">+ New client referral</button>
         <button class="cep-btn cep-btn--primary" type="button" @click="openPostModal" :disabled="!agencyId">
-          Post an existing client
+          Internal referral
         </button>
       </div>
     </div>
@@ -219,6 +219,7 @@
           <p>{{ selectedListing.currentProviderName }}</p>
         </section>
 
+        <p>{{ selectedListing.referralKind === 'additional_service' ? 'Additional services · current therapist retained' : 'Transfer' }} · {{ selectedListing.serviceType || 'individual' }} <span v-if="selectedListing.targetProviderUserId">· Direct referral</span></p>
         <!-- Requests for this listing -->
         <section class="cep-detail-section">
           <div class="cep-detail-section-title">
@@ -401,7 +402,7 @@ function hasPendingClaim(listing) {
 function canRequest(listing) {
   const providerRole = ['provider', 'provider_plus', 'intern', 'intern_plus', 'supervisor', 'clinical_practice_assistant'].includes(authStore.user?.role) || authStore.user?.has_provider_access;
   if (!providerRole || !['open', 'requested'].includes(listing.status)) return false;
-  return !isCurrentProviderFor(listing) && !hasPendingClaim(listing);
+  return !isCurrentProviderFor(listing) && !hasPendingClaim(listing) && (!listing.targetProviderUserId || Number(listing.targetProviderUserId) === Number(currentUserId.value));
 }
 function clientRecordPath(listing) {
   const agency = agencies.value.find(a => Number(a.id) === Number(listing.agencyId));

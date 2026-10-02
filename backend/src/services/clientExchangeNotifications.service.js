@@ -26,9 +26,10 @@ export async function notifyExchangeMatches({ listing, client }) {
   const summary = { matched: 0, sent: 0, queued: 0, skipped: 0, failed: 0 };
   for (const user of users) {
     if (Number(user.id) === Number(listing.currentProviderUserId)) continue;
+    if (listing.targetProviderUserId && Number(user.id) !== Number(listing.targetProviderUserId)) continue;
     try {
       const profile = await Profile.getForProvider({ providerUserId: user.id, agencyId });
-      if (!matchesExchangeListing({ user, profile, facets: facets.get(Number(user.id)), listing, client })) continue;
+      if (!listing.targetProviderUserId && !matchesExchangeListing({ user, profile, facets: facets.get(Number(user.id)), listing, client })) continue;
       summary.matched++;
       await Notification.create({
         type: 'client_exchange_match', severity: 'info', title: 'New Client Exchange match',

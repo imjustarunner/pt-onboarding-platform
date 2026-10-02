@@ -1,3 +1,4 @@
+import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
@@ -134,6 +135,7 @@ export const createAppointmentHandler = async (req, res, next) => {
         return res.status(409).json({ error: { message: 'The package does not have enough sessions for this recurring booking' } });
       }
     }
+    if (!await confirmSameDayServiceWarnings(req,res,{agencyId,participants:req.body?.participants || [],occurrences,timeZone:req.body?.timeZone || 'America/Denver'})) return;
     const recurrenceSeriesId = occurrences.length > 1 ? randomUUID() : null;
     const createdAppointments = [];
     const calendarWarnings = [];
@@ -247,6 +249,10 @@ export const updateAppointmentHandler = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
     await assertBillingMutationAccess(req, existing.agencyId);
+    if (req.body?.startAt || req.body?.participants) {
+      const participants = req.body.participants || await Appointment.listParticipants(id);
+      if (!await confirmSameDayServiceWarnings(req,res,{agencyId:existing.agencyId,participants,occurrences:[{startAt:req.body.startAt || existing.startAt}],timeZone:req.body.timeZone || existing.sourceTimezone,excludeAppointmentId:id})) return;
+    }
     const bundle = await updateAppointment(id, req.body || {}, { actorUserId: req.user?.id || null });
     res.json(await schedulingResponseForUser(req.user, bundle.agencyId, { ok: true, appointment: bundle }));
   } catch (e) {

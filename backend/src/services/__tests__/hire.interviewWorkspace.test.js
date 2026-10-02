@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const db = vi.hoisted(() => ({ getConnection: vi.fn(), execute: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: db }));
 import { mergeInterviewWorkspace, interviewArtifactForViewer, saveInterviewWorkspace } from '../hiringInterviewWorkspace.service.js';
 import HiringInterviewArtifact from '../../models/HiringInterviewArtifact.model.js';
+beforeEach(()=>{vi.clearAllMocks();vi.stubEnv('CLIENT_CHAT_ENCRYPTION_KEY_BASE64',Buffer.alloc(32,7).toString('base64'));});
+afterEach(()=>vi.unstubAllEnvs());
 const actor = { id: 11, first_name: 'Elena', last_name: 'Cruz' };
 const base = () => ({ id: 1, flow_state_json: { sections: [{ key: 'standard', questions: [{ key: 'q1', text: 'Experience?' }] }], completed: { 'standard:q1': true } }, private_notes_json: { '22': 'Private colleague note' }, scorecard_json: { byInterviewer: { '22': { communication: 2 } } }, team_chat_json: [{ id: 'old', authorId: '22', text: 'Earlier' }] });
 describe('multi-interviewer persistence', () => {
@@ -53,6 +55,8 @@ describe('multi-interviewer persistence', () => {
     expect(conn.commit).toHaveBeenCalledOnce();
     expect(conn.release).toHaveBeenCalledOnce();
     expect(result.private_notes_json).toEqual({ '11': 'Saved' });
+    expect(JSON.stringify(conn.execute.mock.calls[1][1])).not.toContain('Saved');
+    expect(JSON.stringify(conn.execute.mock.calls[1][1])).not.toContain('Private colleague note');
   });
   it('finalizes the latest scorecard under the same row lock as teammate saves', async () => {
     const current = base(); current.scorecard_json.ratings = { communication: 3 };

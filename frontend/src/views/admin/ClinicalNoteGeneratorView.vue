@@ -1566,6 +1566,7 @@
 </template>
 
 <script setup>
+import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { DURATION_PRESETS, durationLabel, projectedDurationMonths, setObjectiveCompletionTime } from '../../utils/treatmentPlanDuration';
 import { intakeSection, intakeDiagnoses, intakeAssessments, mergeGeneratedAssessment, generatedTreatmentPlan, intakeSectionsForRecord } from '../../utils/noteAidIntakeIntegration';
 import { splitTreatmentPlanSections } from '../../utils/treatmentPlanSections.js';
@@ -5599,7 +5600,7 @@ const appendTranscript = (text) => {
 const startTranscription = () => {
   liveTranscript.value = '';
   transcribing.value = false;
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SpeechRec = privateSpeechRecognition();
   if (!SpeechRec) return;
   try {
     speechRecognition = new SpeechRec();
@@ -8921,7 +8922,7 @@ const draftSections = (draftRow) => {
 };
 
 onMounted(async () => {
-  speechSupported.value = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+  speechSupported.value = !!(privateSpeechRecognition());
   // Scrub any pre-fix PHI left in browser storage from older Note Aid builds.
   scrubLegacyWorkQueueSessionStash();
   // Always open library + work queue when Note Aid loads (user can still hide).

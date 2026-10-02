@@ -33,6 +33,7 @@ async function eligibleProvider(connection, userId, agencyId) {
 
 export async function createExchangeClaim({ listingId, requestingProviderUserId, message }) {
   return withListing(listingId, async (connection, listing) => {
+    if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(requestingProviderUserId)) throw fail('This referral is addressed to a different provider', 403);
     await eligibleProvider(connection, requestingProviderUserId, listing.agency_id);
     if (Number(requestingProviderUserId) === Number(listing.current_provider_user_id)) throw fail('You are already the current provider for this client');
     const [existing] = await connection.execute(`SELECT id FROM client_exchange_requests
@@ -75,20 +76,35 @@ export async function resolveExchangeClaim({ requestId, action, actingUserId, ac
       return { listing, request };
     }
     await eligibleProvider(connection, request.requesting_provider_user_id, listing.agency_id);
+    if (listing.target_provider_user_id && Number(listing.target_provider_user_id) !== Number(request.requesting_provider_user_id)) throw fail('Request does not match the referral recipient', 403);
     const providerId = request.requesting_provider_user_id;
+    const additional = listing.referral_kind === 'additional_service';
+    if (additional) {
+      if (!client.provider_id) throw fail('The primary provider is no longer assigned');
+      await ensureClientProviderAssignmentRow(connection, { clientId: client.id, organizationId: client.organization_id || listing.agency_id, providerUserId: client.provider_id, serviceDay: client.service_day, userId: actingUserId, isPrimary: true });
+      await connection.execute(`INSERT INTO client_service_assignments
+        (client_id,agency_id,provider_user_id,service_type,referral_listing_id,created_by_user_id)
+        VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE referral_listing_id=VALUES(referral_listing_id)`,
+        [client.id,listing.agency_id,providerId,listing.service_type,listing.id,actingUserId]);
+      await ensureClientProviderAssignmentRow(connection, { clientId: client.id, organizationId: client.organization_id || listing.agency_id, providerUserId: providerId, userId: actingUserId, isPrimary: false });
+      await connection.execute(`INSERT INTO client_status_history (client_id,changed_by_user_id,field_changed,from_value,to_value,note)
+        VALUES (?,?,'additional_service_provider',NULL,?,?)`, [client.id,actingUserId,String(providerId),`Added ${listing.service_type} services; primary provider retained`]);
+    } else {
     await connection.execute('UPDATE clients SET provider_id = ?, updated_by_user_id = ?, last_activity_at = CURRENT_TIMESTAMP WHERE id = ?', [providerId, actingUserId, client.id]);
     // Transfer the outgoing provider's caseload access; preserve other care-team assignments.
     if (client.provider_id) await connection.execute(`UPDATE client_provider_assignments SET is_active = FALSE, is_primary = FALSE,
-      updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE client_id = ? AND provider_user_id = ? AND is_active = TRUE`, [actingUserId, client.id, client.provider_id]);
+      updated_by_user_id = ?, updated_at = CURRENT_TIMESTAMP WHERE client_id = ? AND provider_user_id = ? AND is_active = TRUE
+      AND NOT EXISTS (SELECT 1 FROM client_service_assignments sa WHERE sa.client_id = client_provider_assignments.client_id AND sa.provider_user_id = client_provider_assignments.provider_user_id)`, [actingUserId, client.id, client.provider_id]);
     await ensureClientProviderAssignmentRow(connection, { clientId: client.id, organizationId: client.organization_id, providerUserId: providerId, serviceDay: client.service_day, userId: actingUserId, isPrimary: true });
     await afterLegacyProviderFieldsChanged(connection, { clientId: client.id, userId: actingUserId, providerUserId: providerId, serviceDay: client.service_day, isPrimary: true });
     await recordProviderAssignmentChange({ connection, clientId: client.id, agencyId: client.agency_id, clientType: client.client_type, oldProviderUserId: client.provider_id, newProviderUserId: providerId, actingUserId });
     await connection.execute(`INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
       VALUES (?, ?, 'provider_id', ?, ?, 'Assigned from Client Exchange request')`, [client.id, actingUserId, client.provider_id ? String(client.provider_id) : null, String(providerId)]);
+    }
     await connection.execute("UPDATE client_exchange_requests SET status = 'approved', resolved_by_user_id = ?, resolved_at = NOW() WHERE id = ?", [actingUserId, requestId]);
     await connection.execute(`UPDATE client_exchange_requests SET status = 'denied', resolved_by_user_id = ?, resolved_at = NOW(),
       denial_reason = 'Another provider was assigned this client' WHERE listing_id = ? AND status = 'pending' AND id != ?`, [actingUserId, listing.id, requestId]);
-    await connection.execute("UPDATE client_exchange_listings SET status = 'closed', closed_at = NOW(), closed_by_user_id = ?, current_provider_user_id = ? WHERE id = ?", [actingUserId, providerId, listing.id]);
+    await connection.execute("UPDATE client_exchange_listings SET status = 'closed', closed_at = NOW(), closed_by_user_id = ?, current_provider_user_id = ? WHERE id = ?", [actingUserId, additional ? client.provider_id : providerId, listing.id]);
     return { listing, request };
   });
 }

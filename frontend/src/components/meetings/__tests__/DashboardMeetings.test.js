@@ -15,8 +15,8 @@ describe('dashboard meeting entry',()=>{
    {id:2,kind:'TEAM_MEETING',title:'Five minutes',startAt:'2026-09-22T18:05:00Z',endAt:'2026-09-22T19:00:00Z',appJoinUrl:'/join/five'},
    {id:3,kind:'TEAM_MEETING',title:'Later',startAt:'2026-09-22T18:06:00Z',endAt:'2026-09-22T19:00:00Z',appJoinUrl:'/join/later'},
    {id:4,kind:'TEAM_MEETING',title:'Ended',startAt:'2026-09-22T17:00:00Z',endAt:'2026-09-22T18:00:00Z',appJoinUrl:'/join/ended'}]}});
-  const w=mount(DashboardMeetings,{global:{stubs:{RouterLink:{props:['to'],template:'<span class="schedule-link">{{to.query.eventId}} · View meeting</span>'}}}});await flushPromises();
-  expect(w.findAll('.meeting-join').map(a=>a.attributes('href'))).toEqual(['/join/current','/join/five']);expect(w.text()).not.toContain('Ended');expect(w.get('.schedule-link').text()).toContain('3');
+  const w=mount(DashboardMeetings,{global:{stubs:{RouterLink:{props:['to'],template:'<span class="schedule-link">{{to.query?.eventId}} · View meeting</span>'}}}});await flushPromises();
+  expect(w.findAll('.meeting-join').map(a=>a.attributes('href'))).toEqual(['/join/current','/join/five']);expect(w.text()).not.toContain('Ended');expect(w.get('article .schedule-link').text()).toContain('3');
   await vi.advanceTimersByTimeAsync(60000);expect(w.findAll('.meeting-join')).toHaveLength(3);w.unmount();
  });
 });

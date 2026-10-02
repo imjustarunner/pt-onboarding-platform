@@ -614,11 +614,16 @@ export const endAndSummarizeRecording = async (req, res, next) => {
     }
 
     const kind = String(existing.session_kind || 'standalone');
+    const clientRow = existing.client_id
+      ? await Client.findById(existing.client_id, { includeSensitive: true })
+      : null;
     const summary = await summarizeSessionRecording({
       transcriptText: transcript,
       sessionKind: kind,
       providerLabel: labels.providerLabel,
-      clientLabel: labels.clientLabel
+      clientLabel: labels.clientLabel,
+      clientNames:[clientRow?.full_name,clientRow?.first_name,clientRow?.last_name,clientRow?.initials],
+      providerNames:[req.user.first_name,req.user.last_name,req.user.firstName,req.user.lastName]
     });
 
     const started = existing.started_at ? new Date(existing.started_at) : null;
@@ -640,9 +645,6 @@ export const endAndSummarizeRecording = async (req, res, next) => {
     });
 
     let note = null;
-    const clientRow = existing.client_id
-      ? await Client.findById(existing.client_id, { includeSensitive: true }).catch(() => null)
-      : null;
     const initials = String(clientRow?.initials || '').trim() || null;
     const outputObj = sessionSummaryToNoteOutput({
       summary,

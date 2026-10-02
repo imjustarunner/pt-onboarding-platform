@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { encryptSensitiveArtifact } from '../services/supervisionArtifactEncryption.service.js';
+import { mapSupervisionArtifact } from './SupervisionSessionArtifact.model.js';
 
 function parseJsonArray(raw) {
   if (Array.isArray(raw)) return raw;
@@ -38,17 +40,20 @@ function normalizeActionItem(item, idx = 0) {
 }
 
 class ProviderScheduleEventArtifact {
-  static async findByEventId(eventId) {
+  static async findByEventId(eventId, db = pool, forUpdate = false) {
     const eid = parseInt(eventId, 10);
     if (!eid) return null;
-    const [rows] = await pool.execute(
+    const [rows] = await db.execute(
       `SELECT *
        FROM provider_schedule_event_artifacts
        WHERE event_id = ?
-       LIMIT 1`,
+       LIMIT 1${forUpdate ? ' FOR UPDATE' : ''}`,
       [eid]
     );
-    return rows?.[0] || null;
+    const row = rows?.[0];
+    if (!row) return null;
+    const mapped = mapSupervisionArtifact(row);
+    return { ...mapped, recording_url: mapped.recordingUrl, recording_path: mapped.recordingPath };
   }
 
   static toWorkspaceDto(row) {
@@ -79,81 +84,54 @@ class ProviderScheduleEventArtifact {
     return this.findByEventId(eid);
   }
 
-  static async upsertByEventId({
-    eventId,
-    taggedAt = null,
-    transcriptUrl = undefined,
-    transcriptText = undefined,
-    summaryText = undefined,
-    summaryModel = undefined,
-    summaryGeneratedAt = undefined,
-    recordingUrl = undefined,
-    recordingPath = undefined,
-    updatedByUserId = null
-  }) {
-    const eid = parseInt(eventId, 10);
+  static async upsertByEventId(fields, transaction = null) {
+    const { eventId, updatedByUserId = null } = fields;
+    const eid = Number(eventId);
     if (!eid) return null;
-    const updatedBy = updatedByUserId ? parseInt(updatedByUserId, 10) : null;
-
-    await pool.execute(
-      `INSERT INTO provider_schedule_event_artifacts
-        (
-          event_id,
-          tagged_at,
-          transcript_url,
-          transcript_text,
-          summary_text,
-          summary_model,
-          summary_generated_at,
-          recording_url,
-          recording_path,
-          updated_by_user_id
-        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         tagged_at = COALESCE(VALUES(tagged_at), tagged_at),
-         transcript_url = CASE WHEN VALUES(transcript_url) IS NULL THEN transcript_url ELSE VALUES(transcript_url) END,
-         transcript_text = CASE WHEN VALUES(transcript_text) IS NULL THEN transcript_text ELSE VALUES(transcript_text) END,
-         summary_text = CASE WHEN VALUES(summary_text) IS NULL THEN summary_text ELSE VALUES(summary_text) END,
-         summary_model = CASE WHEN VALUES(summary_model) IS NULL THEN summary_model ELSE VALUES(summary_model) END,
-         summary_generated_at = CASE
-           WHEN VALUES(summary_generated_at) IS NULL THEN summary_generated_at
-           ELSE VALUES(summary_generated_at)
-         END,
-         recording_url = CASE WHEN VALUES(recording_url) IS NULL THEN recording_url ELSE VALUES(recording_url) END,
-         recording_path = CASE WHEN VALUES(recording_path) IS NULL THEN recording_path ELSE VALUES(recording_path) END,
-         updated_by_user_id = VALUES(updated_by_user_id),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        eid,
-        taggedAt || null,
-        transcriptUrl === undefined ? null : (transcriptUrl || null),
-        transcriptText === undefined ? null : (transcriptText || null),
-        summaryText === undefined ? null : (summaryText || null),
-        summaryModel === undefined ? null : (summaryModel || null),
-        summaryGeneratedAt === undefined ? null : (summaryGeneratedAt || null),
-        recordingUrl === undefined ? null : (recordingUrl || null),
-        recordingPath === undefined ? null : (recordingPath || null),
-        updatedBy
-      ]
-    );
-
-    return this.findByEventId(eid);
+    const db = transaction || await pool.getConnection();
+    try {
+      if (!transaction) await db.beginTransaction();
+      await db.execute(`INSERT INTO provider_schedule_event_artifacts (event_id,tagged_at)
+        VALUES (?,NOW()) ON DUPLICATE KEY UPDATE event_id=VALUES(event_id)`, [eid]);
+      const existing = await this.findByEventId(eid, db, true);
+      const next = {};
+      const keys = { transcriptUrl:'transcript_url', transcriptText:'transcript_text', summaryText:'summary_text',
+        focusTitle:'focus_title', goals:'goals_json', actionItems:'action_items_json', recordingUrl:'recording_url', recordingPath:'recording_path' };
+      for (const [key,column] of Object.entries(keys)) next[key] = fields[key] === undefined ? existing?.[column] : fields[key];
+      const enc = encryptSensitiveArtifact(next);
+      await db.execute(`UPDATE provider_schedule_event_artifacts SET
+        tagged_at=COALESCE(?,tagged_at), transcript_url=NULL,transcript_text=NULL,summary_text=NULL,
+        focus_title=NULL,goals_json=NULL,action_items_json=NULL,recording_url=NULL,recording_path=NULL,
+        sensitive_ciphertext=?,sensitive_iv=?,sensitive_auth_tag=?,encryption_key_id=?,
+        summary_model=COALESCE(?,summary_model),summary_generated_at=COALESCE(?,summary_generated_at),
+        updated_by_user_id=?,updated_at=CURRENT_TIMESTAMP WHERE event_id=?`,
+        [fields.taggedAt || null,enc.ciphertextB64,enc.ivB64,enc.authTagB64,enc.keyId,
+          fields.summaryModel || null,fields.summaryGeneratedAt || null,updatedByUserId,eid]);
+      const result = await this.findByEventId(eid, db);
+      if (!transaction) await db.commit();
+      return result;
+    } catch (error) { if (!transaction) await db.rollback(); throw error; }
+    finally { if (!transaction) db.release(); }
   }
 
-  // Atomic append: concurrent participants must not overwrite one another's
-  // transcript. Pause/stop is checked in this same update, not only before it.
-  static async appendTranscriptChunk({ eventId, text, updatedByUserId = null }) {
-    const chunk = String(text || '').trim().slice(0, 120000);
+  // Serialize read/decrypt/append/encrypt with concurrent speakers and pause/stop.
+  static async appendTranscriptChunk({ eventId, text, updatedByUserId = null, expectedRevision = undefined }) {
+    const chunk = String(text || '').trim().slice(0,120000);
     if (!chunk) return this.findByEventId(eventId);
-    await pool.execute(`UPDATE provider_schedule_event_artifacts
-      SET transcript_text = CASE
-        WHEN LOCATE(?, COALESCE(transcript_text,'')) > 0 THEN transcript_text
-        ELSE LEFT(CONCAT_WS('\n',NULLIF(transcript_text,''),?),120000) END,
-        updated_by_user_id=?, updated_at=CURRENT_TIMESTAMP
-      WHERE event_id=? AND COALESCE(transcript_paused,0)=0 AND transcript_stopped_at IS NULL`,
-    [chunk,chunk,updatedByUserId,Number(eventId)]);
-    return this.findByEventId(eventId);
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      const existing = await this.findByEventId(eventId, db, true);
+      if (!existing || Number(existing.transcript_paused) || existing.transcript_stopped_at || (expectedRevision !== undefined && Number(existing.transcript_revision || 0) !== Number(expectedRevision))) {
+        throw Object.assign(new Error('Transcription is paused or stopped.'), { status:409 });
+      }
+      const previous = String(existing.transcript_text || '').trim();
+      const transcriptText = previous.includes(chunk) ? previous : [previous,chunk].filter(Boolean).join('\n').slice(0,120000);
+      const result = await this.upsertByEventId({eventId,transcriptText,updatedByUserId}, db);
+      await db.commit();
+      return result;
+    } catch (error) { await db.rollback(); throw error; }
+    finally { db.release(); }
   }
 
   static async upsertWorkspace({
@@ -184,29 +162,10 @@ class ProviderScheduleEventArtifact {
         .filter((a) => a.text)
         .slice(0, 50);
 
-    try {
-      await pool.execute(
-        `UPDATE provider_schedule_event_artifacts
-         SET focus_title = ?,
-             goals_json = ?,
-             action_items_json = ?,
-             updated_by_user_id = ?,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE event_id = ?
-         LIMIT 1`,
-        [
-          nextFocus || null,
-          JSON.stringify(nextGoals),
-          JSON.stringify(nextActions),
-          updatedByUserId ? Number(updatedByUserId) : null,
-          eid
-        ]
-      );
-    } catch (e) {
-      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
-      // Migration not applied yet — still return in-memory shape for graceful degrade.
-      return { focusTitle: nextFocus, goals: nextGoals, actionItems: nextActions };
-    }
+    await this.upsertByEventId({ eventId:eid, updatedByUserId,
+      ...(focusTitle === undefined ? {} : {focusTitle:nextFocus}),
+      ...(goals === undefined ? {} : {goals:nextGoals}),
+      ...(actionItems === undefined ? {} : {actionItems:nextActions}) });
 
     const row = await this.findByEventId(eid);
     const dto = this.toWorkspaceDto(row);

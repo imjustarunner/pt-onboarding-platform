@@ -197,7 +197,7 @@
           <span v-if="raisedHandCount" class="join-hand-chip" title="Hands raised">✋ {{ raisedHandCount }}</span>
           <span v-if="meetingCompletedAt" class="join-completed-chip">Session completed</span>
           <button
-            v-if="authStore.isAuthenticated && token && vonageSessionId && !isInLobby"
+            v-if="canUseMeetingMiniMode() && authStore.isAuthenticated && token && vonageSessionId && !isInLobby"
             type="button"
             class="btn btn-secondary btn-sm join-mini-btn"
             title="Collapse to mini view — stay in meeting while you use the app"
@@ -609,6 +609,7 @@
 </template>
 
 <script setup>
+import { canUseMeetingMiniMode } from '../../utils/meetingMiniMode.js';
 import { ref, onMounted, onUnmounted, computed, watch, provide } from 'vue';
 import { t } from '../../composables/useMeetingI18n.js';
 import { useRouter, useRoute } from 'vue-router';
@@ -645,7 +646,7 @@ const returnMediaPreferences = takeReturnMedia(route.fullPath);
 const miniHandoffBusy = ref(false);
 
 async function activateMiniMode() {
-  if (!token.value || !vonageSessionId.value || miniHandoffBusy.value) return;
+  if (!canUseMeetingMiniMode() || !token.value || !vonageSessionId.value || miniHandoffBusy.value) return;
   miniHandoffBusy.value = true;
   const params = {
     token: token.value,
@@ -811,6 +812,7 @@ const isAttendanceTrackingActive = computed(() => {
 /** General meetings need the host to opt-in to transcription separately. */
 const meetingSettings = ref(null);
 const isAutoTranscriptKind = computed(() => {
+  if (String(meetingKind.value || '').toUpperCase() === 'TEAM_MEETING' && String(meetingSubtype.value || 'general').toLowerCase() === 'general') return false;
   if (typeof meetingSettings.value?.transcription === 'boolean') return meetingSettings.value.transcription;
   const kind = String(meetingKind.value || '').toUpperCase();
   const subtype = String(meetingSubtype.value || '').toLowerCase();
@@ -823,6 +825,7 @@ const transcriptEnabled = computed(() => (
   && !isInLobby.value
   && !!Number(resolvedEventId.value || 0)
   && !intentionalLeave.value
+  && meetingSettings.value?.transcription !== false
   && (isAutoTranscriptKind.value || transcriptionExplicitlyEnabled.value)
 ));
 
@@ -840,6 +843,7 @@ const {
 } = useTeamMeetingLiveTranscript({
   eventId: resolvedEventId,
   enabled: transcriptEnabled,
+  getStream: () => videoRoomRef.value?.getTranscriptionStream?.(),
   displayName: localDisplayName
 });
 
@@ -1039,6 +1043,7 @@ const showEnableTranscriptionButton = computed(() => (
   && !isInLobby.value
   && !!token.value
   && isGeneralTeamMeeting.value
+  && meetingSettings.value?.transcription !== false
   && !transcriptionExplicitlyEnabled.value
   && !meetingCompletedAt.value
 ));
@@ -2898,4 +2903,8 @@ onUnmounted(() => {
   .interview-candidate-brief { order: 1; max-height: 40vh; flex: 0 0 auto; }
   .join-session-layout--interview .join-workspace { order: 2; min-height: 60vh; max-height: none; flex: 0 0 auto; }
 }
+</style>
+
+<style scoped>
+@media (max-width: 1024px), (pointer: coarse) { .join-mini-btn { display: none; } }
 </style>

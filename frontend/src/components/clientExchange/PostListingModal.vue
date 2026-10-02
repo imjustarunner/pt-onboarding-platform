@@ -2,7 +2,7 @@
   <div class="modal-backdrop" @click.self="$emit('close')">
     <div class="modal-card">
       <div class="modal-header">
-        <h3 style="margin: 0;">{{ lockClient ? 'Post client to the exchange' : 'Post a client to the exchange' }}</h3>
+        <h3 style="margin: 0;">Internal referral</h3>
         <button type="button" class="btn-link" @click="$emit('close')">Close</button>
       </div>
 
@@ -33,6 +33,38 @@
           <p v-else-if="summaryError" class="error">{{ summaryError }}</p>
           <ClientExchangeSummary v-else :listing="sharedSummary" />
         </section>
+        <label class="field">
+          <span class="label">Referral purpose</span>
+          <select v-model="referralKind" class="select">
+            <option value="transfer">Transfer to another therapist</option>
+            <option value="additional_service">Add services — keep current therapist assigned</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="label">Requested service</span>
+          <select v-model="serviceType" class="select">
+            <option value="individual">Individual therapy</option>
+            <option value="family">Family therapy</option>
+            <option value="couples">Couples therapy</option>
+            <option value="group">Group therapy</option>
+            <option value="other">Other services</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="label">Send referral to</span>
+          <select v-model="destination" class="select">
+            <option value="exchange">Client Exchange</option>
+            <option value="provider">A specific therapist</option>
+          </select>
+        </label>
+        <label v-if="destination === 'provider'" class="field">
+          <span class="label">Therapist</span>
+          <select v-model="targetProviderUserId" class="select">
+            <option value="" disabled>Select a therapist…</option>
+            <option v-for="provider in providers" :key="provider.id" :value="provider.id">{{ provider.first_name }} {{ provider.last_name }}</option>
+          </select>
+        </label>
+        <p class="muted">{{ referralKind === 'additional_service' ? 'The current therapist stays assigned. The receiving therapist is added for this service after acceptance and approval.' : 'The current therapist stays assigned until the transfer is accepted and approved.' }}</p>
 
         <div class="field-row">
           <label class="field">
@@ -79,8 +111,8 @@
         <div v-if="submitError" class="error">{{ submitError }}</div>
 
         <div class="modal-actions">
-          <button type="button" class="btn btn-primary" :disabled="!selectedClientId || submitting || posted || summaryLoading || !!summaryError" @click="submit">
-            {{ submitting ? 'Posting…' : 'Post to exchange' }}
+          <button type="button" class="btn btn-primary" :disabled="!selectedClientId || (destination === 'provider' && !targetProviderUserId) || submitting || posted || summaryLoading || !!summaryError" @click="submit">
+            {{ submitting ? 'Sending…' : 'Send referral' }}
           </button>
           <button type="button" class="btn btn-secondary" @click="posted ? $emit('posted') : $emit('close')">{{ posted ? 'Done' : 'Cancel' }}</button>
         </div>
@@ -112,6 +144,11 @@ const loadingClients = ref(false);
 const error = ref('');
 const clients = ref([]);
 const selectedClientId = ref('');
+const referralKind = ref('transfer');
+const serviceType = ref('individual');
+const destination = ref('exchange');
+const targetProviderUserId = ref('');
+const providers = ref([]);
 const ageBand = ref('');
 const gender = ref('');
 const presentingProblemsRaw = ref('');
@@ -189,6 +226,9 @@ async function submit() {
     const response = await api.post('/client-exchange/listings', {
       agencyId: props.agencyId,
       clientId: Number(selectedClientId.value),
+      referralKind: referralKind.value,
+      serviceType: serviceType.value,
+      targetProviderUserId: destination.value === 'provider' ? Number(targetProviderUserId.value) : null,
       demographics: {
         ageBand: ageBand.value || undefined,
         gender: gender.value || undefined
@@ -225,6 +265,9 @@ onMounted(async () => {
   loadingClients.value = true;
   try {
     await loadClients();
+    const { data } = await api.get('/client-exchange/providers', { params: { agencyId: props.agencyId } });
+    providers.value = data.providers || [];
+  } catch (e) { error.value = e?.response?.data?.error?.message || 'Failed to load referral options';
   } finally {
     loadingClients.value = false;
   }

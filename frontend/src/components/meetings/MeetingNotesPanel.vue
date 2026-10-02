@@ -57,14 +57,17 @@
         @input="onDisplayInput"
       />
       <div v-if="!readOnly" class="mnp__actions">
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || saving || importing" @click="importChat">
+        <button v-if="eventId" type="button" class="btn btn-secondary btn-sm" :disabled="loading || saving || importing" @click="importChat">
           {{ importing ? 'Importing…' : 'Import chat' }}
         </button>
         <button type="button" class="btn btn-primary btn-sm" :disabled="loading || saving || !transcript.trim()" @click="save">
           {{ saving ? 'Saving…' : 'Save & summarize' }}
         </button>
       </div>
+      <RouterLink :to="{ path: `${route?.params?.organizationSlug ? `/${route?.params?.organizationSlug}` : ''}/my-meetings`, query: { type: eventId ? 'team' : 'supervision', meetingId: eventId || sessionId } }">Open full meeting record</RouterLink>
       <label class="mnp__label">Summary</label>
+      <p v-if="['queued','generating'].includes(summaryStatus)" role="status">Summary still generating… You can leave this page and return later.</p>
+      <p v-else-if="summaryStatus === 'failed'" role="status">Summary generation failed. The transcript is saved; you can retry from My meetings.</p>
       <div class="mnp__summary" v-html="summaryHtml"></div>
       <p v-if="!summary && !loading && !transcript.trim()" class="muted">No transcript was saved. If speech was not captured during the meeting, it cannot be recovered here. You can paste meeting notes to create a summary.</p>
       <p v-else-if="!summary && !loading && transcript.trim()" class="muted">No summary yet. It is generated when the meeting is completed, or click Save &amp; summarize.</p>
@@ -75,6 +78,10 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import api from '../../services/api';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
+import { useRoute } from 'vue-router';
+const route = useRoute();
 
 const props = defineProps({
   eventId: { type: [Number, String], default: null },
@@ -100,6 +107,7 @@ const controlling = ref(false);
 const error = ref('');
 const transcript = ref('');
 const summary = ref('');
+const summaryStatus = ref(null);
 const dirty = ref(false);
 const expanded = ref(props.autoRefresh);
 const roomPaused = ref(false);
@@ -117,11 +125,7 @@ const stopLabel = computed(() => {
 const summaryHtml = computed(() => {
   const s = String(summary.value || '').trim();
   if (!s) return '';
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>');
+  return DOMPurify.sanitize(marked.parse(s));
 });
 
 function reverseLines(text) {
@@ -172,6 +176,7 @@ async function load({ force = false } = {}) {
       transcript.value = next;
       dirty.value = false;
     }
+    summaryStatus.value = data?.summaryStatus || null;
     summary.value = String(data?.summary || data?.artifact?.summary_text || data?.summary_text || '');
     const stoppedAt = data?.transcriptStoppedAt || data?.artifact?.transcript_stopped_at;
     const stoppedBy = data?.transcriptStoppedByName || data?.artifact?.transcript_stopped_by_name;
@@ -195,9 +200,11 @@ async function importChat() {
   importing.value = true;
   error.value = '';
   try {
-    await api.post(`/team-meetings/${eid}/notes/import-chat`, {}, { skipGlobalLoading: true });
-    dirty.value = false;
-    await load({ force: true });
+    const { data } = await api.get(`/team-meetings/${eid}/activity`, { params: { limit: 500 }, skipGlobalLoading: true });
+    const messages = (data.activity || []).filter(item => item.activityType === 'chat' && item.payload?.text)
+      .map(item => `[Chat · ${item.payload.authorName || item.participantIdentity || 'Participant'}] ${item.payload.text}`);
+    if (messages.length) { transcript.value = [transcript.value, ...messages].filter(Boolean).join('\n'); dirty.value = true; }
+
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to import chat';
   } finally {
@@ -207,13 +214,13 @@ async function importChat() {
 
 async function save() {
   const eid = Number(props.eventId || 0);
-  if (!eid) return;
+  const sid = Number(props.sessionId || 0);
+  if (!eid && !sid) return;
   saving.value = true;
   error.value = '';
   try {
-    await api.post(`/team-meetings/${eid}/notes`, {
-      transcript: transcript.value
-    }, { skipGlobalLoading: true });
+    if (eid) await api.post(`/team-meetings/${eid}/client-transcript`, { transcript: transcript.value, replace: true }, { skipGlobalLoading: true });
+    else await api.post(`/supervision/sessions/${sid}/artifacts`, { transcriptText: transcript.value, autoSummarize: true }, { skipGlobalLoading: true });
     dirty.value = false;
     await load({ force: true });
   } catch (e) {
@@ -264,9 +271,7 @@ watch(() => [props.eventId, props.sessionId], () => {
 
 onMounted(() => {
   void load({ force: true });
-  if (props.autoRefresh) {
-    refreshTimer = setInterval(() => { if (!loading.value) void load(); }, 5000);
-  }
+  refreshTimer = setInterval(() => { if (!loading.value && (props.autoRefresh || ['queued','generating'].includes(summaryStatus.value))) void load(); }, 5000);
 });
 
 onUnmounted(() => {

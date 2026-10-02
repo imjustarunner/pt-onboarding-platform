@@ -1,3 +1,4 @@
+import { privateSpeechRecognition } from '../utils/privateSpeechRecognition.js';
 /**
  * Composable for live speech-to-text via Web Speech API.
  * Use for transcribing into task inputs, chat, etc.
@@ -7,7 +8,7 @@ import { ref, onUnmounted } from 'vue';
 export function useSpeechToText(options = {}) {
   const { onFinal } = options;
   const isListening = ref(false);
-  const SpeechRec = typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
+  const SpeechRec = typeof window !== 'undefined' && (privateSpeechRecognition());
   const isSupported = !!SpeechRec;
   let recognition = null;
 

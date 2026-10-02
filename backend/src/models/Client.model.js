@@ -485,7 +485,7 @@ class Client {
    * @param {number} updated_by_user_id - User making the update
    * @returns {Promise<Object|null>} Updated client object or null
    */
-  static async update(id, clientData, updated_by_user_id = null) {
+  static async update(id, clientData, updated_by_user_id = null, { executor = pool, hydrate = true, agencyId = null } = {}) {
     const updates = [];
     const values = [];
 
@@ -600,21 +600,23 @@ class Client {
     }
 
     if (updates.length === 0) {
-      return this.findById(id);
+      return hydrate ? this.findById(id) : { id };
     }
 
     updates.push('last_activity_at = CURRENT_TIMESTAMP');
     values.push(id);
 
-    const query = `UPDATE clients SET ${updates.join(', ')} WHERE id = ?`;
-    await pool.execute(query, values);
+    if (agencyId !== null) values.push(agencyId);
+    const query = `UPDATE clients SET ${updates.join(', ')} WHERE id = ?${agencyId !== null ? ' AND agency_id = ?' : ''}`;
+    const [result] = await executor.execute(query, values);
+    if (!result.affectedRows && agencyId !== null) return null;
 
     if (clientData.provider_id !== undefined || clientData.service_day !== undefined) {
       try {
         const { afterLegacyProviderFieldsChanged } = await import(
           '../services/clientProviderAssignmentSync.service.js'
         );
-        await afterLegacyProviderFieldsChanged(pool, {
+        await afterLegacyProviderFieldsChanged(executor, {
           clientId: parseInt(id, 10),
           userId: updated_by_user_id,
           providerUserId: clientData.provider_id,
@@ -626,7 +628,7 @@ class Client {
       }
     }
 
-    return this.findById(id);
+    return hydrate ? this.findById(id) : { id };
   }
 
   /**

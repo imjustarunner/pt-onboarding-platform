@@ -3,7 +3,7 @@
  * (pay rates, hours/days, agreements) for hiring interviews.
  */
 
-import { callGeminiText } from './geminiText.service.js';
+import { callPrivateSessionText, createSessionPrivacyContext } from './sessionAiPrivacy.service.js';
 import HiringInterview from '../models/HiringInterview.model.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
 import ProviderScheduleEventArtifact from '../models/ProviderScheduleEventArtifact.model.js';
@@ -192,12 +192,14 @@ export async function generateInterviewIntelligenceFromTranscript({
   if (!cleaned) return { ok: false, reason: 'empty_transcript' };
 
   const prompt = buildInterviewIntelligencePrompt({ transcriptText: cleaned, candidateName, interviewerNames });
-  const resp = await callGeminiText({
-    prompt,
+  const privacyContext = createSessionPrivacyContext({contentType:'meeting'});
+  const generated = await callPrivateSessionText({
+    privacyContext,prompt,
     temperature: 0.1,
     maxOutputTokens: 2500
   });
 
+  const resp = {...generated,text:privacyContext.restore(generated.text)};
   const parsed = tryParseJson(resp?.text || '');
   if (!parsed) {
     const fallbackSummary = String(resp?.text || '').trim().slice(0, 8000);

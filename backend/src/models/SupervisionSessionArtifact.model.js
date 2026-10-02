@@ -36,6 +36,8 @@ export function mapSupervisionArtifact(row) {
     goals: plain.goals,
     actionItems: plain.actionItems,
     privateNotesText: plain.privateNotesText,
+    recordingUrl: plain.recordingUrl,
+    recordingPath: plain.recordingPath,
     transcriptUrl: plain.transcriptUrl,
     transcriptText: plain.transcriptText,
     summaryText: plain.summaryText,
@@ -142,7 +144,8 @@ class SupervisionSessionArtifact {
     };
 
     const enc = encryptSensitiveArtifact(next);
-    const useEncryption = !!enc && isSupervisionArtifactEncryptionConfigured();
+    if (!enc) throw new Error('Meeting content encryption is unavailable');
+    const useEncryption = true;
 
     await db.execute(
       `INSERT INTO supervision_session_artifacts

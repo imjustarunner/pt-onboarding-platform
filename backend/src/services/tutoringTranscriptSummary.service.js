@@ -6,7 +6,7 @@
  * Called on session end or via /agents/assist with tutoring context.
  */
 
-import { callGeminiText } from './geminiText.service.js';
+import { callPrivateSessionText } from './sessionAiPrivacy.service.js';
 import LearningClassSession from '../models/LearningClassSession.model.js';
 import pool from '../config/database.js';
 
@@ -135,7 +135,7 @@ export async function analyzeTutoringTranscript(sessionId) {
   );
 
   try {
-    const analysisResp = await callGeminiText({
+    const analysisResp = await callPrivateSessionText({
       prompt,
       temperature: 0.3,
       maxOutputTokens: 1200,

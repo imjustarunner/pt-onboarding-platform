@@ -1,3 +1,4 @@
+import { maybeEncryptNotePayload } from './clinicalNoteCrypto.service.js';
 import pool from '../config/database.js';
 import HiringInterviewArtifact from '../models/HiringInterviewArtifact.model.js';
 
@@ -73,7 +74,7 @@ export async function saveInterviewWorkspace(interviewId, body, actor) {
     const current = HiringInterviewArtifact.hydrate(rows[0]);
     const merged = mergeInterviewWorkspace(current, body, actor);
     await conn.execute(`UPDATE hiring_interview_artifacts SET flow_state_json = ?, private_notes_json = ?, scorecard_json = ?, team_chat_json = ?, finalized_at = NULL, average_score = NULL WHERE hiring_interview_id = ?`,
-      [JSON.stringify(merged.flow_state_json), JSON.stringify(merged.private_notes_json), JSON.stringify(merged.scorecard_json), JSON.stringify(merged.team_chat_json), interviewId]);
+      [maybeEncryptNotePayload(JSON.stringify(merged.flow_state_json)), maybeEncryptNotePayload(JSON.stringify(merged.private_notes_json)), maybeEncryptNotePayload(JSON.stringify(merged.scorecard_json)), maybeEncryptNotePayload(JSON.stringify(merged.team_chat_json)), interviewId]);
     await conn.commit();
     return interviewArtifactForViewer({ ...current, ...merged, finalized_at: null, average_score: null }, actor.id);
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }

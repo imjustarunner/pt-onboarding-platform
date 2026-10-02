@@ -30,7 +30,7 @@ export async function downloadAgreement(req,res,next) {
   try {
     const actor=await context(req);
     const [rows]=await pool.execute('SELECT * FROM supervision_agreements WHERE id=?',[req.params.agreementId]);
-    const a=rows[0];if(!a || ![Number(a.supervisor_user_id),Number(a.supervisee_user_id)].includes(Number(actor.id))fail('Agreement not found.',404);
+    const a=rows[0];if(!a || ![Number(a.supervisor_user_id),Number(a.supervisee_user_id)].includes(Number(actor.id)))fail('Agreement not found.',404);
     if(!await hasActiveMeetingMembership(a.agency_id,actor.id))fail('Access denied.');
     if(!a.signed_pdf_path)fail('No signature has been saved yet.',409);
     res.set({'Content-Type':'application/pdf','Cache-Control':'no-store','Content-Disposition':'attachment; filename="supervision-agreement.pdf"'}).send(await StorageService.readObject(a.signed_pdf_path));

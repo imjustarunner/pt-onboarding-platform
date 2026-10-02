@@ -19,6 +19,7 @@
   </section>
 </template>
 <script setup>
+import { privateSpeechRecognition } from '../../utils/privateSpeechRecognition.js';
 import { ref, watch, onUnmounted } from 'vue';
 const props=defineProps({http:{type:Function,required:true},householdId:{type:[Number,String],required:true},timezone:{type:String,required:true},initiallyOpen:Boolean});
 const emit=defineEmits(['draft','active','microphone-start']);
@@ -26,7 +27,7 @@ const expanded=ref(props.initiallyOpen),transcript=ref(''),listening=ref(false),
 // Do not start WebKit's page-level speech service on iPads/iPhones. Native keyboard
 // dictation keeps microphone ownership in the OS and cannot strand the event form.
 const appleTouch=/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
-const Speech=appleTouch?null:(window.SpeechRecognition || window.webkitSpeechRecognition);
+const Speech=appleTouch?null:(privateSpeechRecognition());
 const supported=!!Speech,wordsInput=ref(null);
 function dictateWithKeyboard(){emit('microphone-start');wordsInput.value?.focus();}
 let recognition=null,timer=null,stopTimer=null,startTimer=null,silenceTimer=null,controller=null,disposed=false;
