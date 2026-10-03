@@ -11,8 +11,8 @@ await page.route('**/api/**',async route=>{
  const req=route.request(),p=new URL(req.url()).pathname;
  // Never submit inquiries, messages, bookings or synthetic analytics on the live site.
  if(req.method()!=='GET') {writes.push(p);return route.fulfill({status:403,contentType:'application/json',body:'{"error":{"message":"Browser verification is read-only"}}'});}
- // The existing platform-branding preload also requests this bundled public logo as an upload.
- if(!p.startsWith('/api/public/') && !['/api/users/me','/api/platform-branding','/api/uploads/assets/ptco/logo-flat.webp'].includes(p))privateRequests.push(p);
+ // Allow the existing public host lookup and branding preload, plus the anonymous session check.
+ if(!p.startsWith('/api/public/') && !['/api/users/me','/api/platform-branding','/api/agencies/resolve','/api/uploads/assets/ptco/logo-flat.webp'].includes(p))privateRequests.push(p);
  if(live)return route.continue();
  let data={};
  if(p.endsWith('/public/marketing-pages/ptco'))data={page:{slug:'ptco',title:'Plot Twist Co.',branding:{landingTemplate:'ptco'},providerDirectories:[]}};
