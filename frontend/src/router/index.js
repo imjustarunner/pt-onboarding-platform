@@ -1,10 +1,6 @@
-import { routeRequiresSchoolPortalsFeature, routeRequiresProgramOverviewDashboard, routeRequiresSkillBuildersSchoolProgramFeature } from '../navigation/routeFeatures.js';
-import { isLoginEntryRoute, getSsoArrivalRoute } from '../utils/loginHandoff';
 import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowPath } from '../utils/schoolCareBridge.js';
-import { scopedSchoolCareBridgeDestination } from '../utils/schoolCareBridgeTenant.js';
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
-import { rememberVerifiedGoogleAccount } from '../utils/googleAccountMemory';
 import { createRouter, createWebHistory } from 'vue-router';
 import { publicDomainHistory, publicSupportSlugFromHost } from '../utils/publicDomainRouting.js';
 import { updateItscoDocumentMeta } from '../utils/itscoPublicSeo.js';
@@ -65,6 +61,38 @@ const SCHEDULE_HUB_ROLES = ['admin', 'support', 'super_admin', 'clinical_practic
 const SCHEDULE_HUB_VIEW_ROLES = [...SCHEDULE_HUB_ROLES, 'provider'];
 const STAFF_SCHEDULE_COMPARE_ROLES = ['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus', 'provider', 'staff'];
 
+/** School Overview (orgType=school) + All portals + hub + school clients + school digital intakes — not Program Overview (orgType=program). */
+function routeRequiresSchoolPortalsFeature(to) {
+  const n = String(to?.name || '');
+  if (n === 'SchoolPortals' || n === 'OrganizationSchoolPortals') return true;
+  if (n === 'SchoolPortalsHub' || n === 'OrganizationSchoolPortalsHub') return true;
+  if (n === 'SchoolOperations' || n === 'OrganizationSchoolOperations') return true;
+  if (n === 'SchoolClients' || n === 'OrganizationSchoolClients') return true;
+  if (n === 'SchoolPortalDigitalIntakes' || n === 'OrganizationSchoolPortalDigitalIntakes') return true;
+  if (n === 'SchoolReferralHub' || n === 'OrganizationSchoolReferralHub') return true;
+  if (n === 'SchoolOverviewDashboard' || n === 'OrganizationSchoolOverviewDashboard') {
+    return String(to.query?.orgType || 'school').toLowerCase() === 'school';
+  }
+  return false;
+}
+
+/** School overview “Program” tab — either school portals or Skill Builders school program must be provisioned. */
+function routeRequiresProgramOverviewDashboard(to) {
+  const n = String(to?.name || '');
+  if (n !== 'SchoolOverviewDashboard' && n !== 'OrganizationSchoolOverviewDashboard') return false;
+  return String(to.query?.orgType || '').toLowerCase() === 'program';
+}
+
+/** Authenticated Skill Builders school-program admin + event portal (not public/guardian SB pages). */
+function routeRequiresSkillBuildersSchoolProgramFeature(to) {
+  const n = String(to?.name || '');
+  if (n === 'SkillBuildersEventPortal') return true;
+  if (n === 'OrganizationSkillBuildersAvailability' || n === 'SkillBuildersAvailability') return true;
+  if (n === 'OrganizationSkillBuildersProgramsEvents' || n === 'SkillBuildersProgramsEvents') return true;
+  if (n === 'OrganizationSkillBuildersClientManagement' || n === 'SkillBuildersClientManagement') return true;
+  if (n === 'OrganizationSkillBuildersMyAvailability' || n === 'SkillBuildersMyAvailability') return true;
+  return false;
+}
 /** Matches Directory “Programs & events” access (nav + dedicated page). */
 const SKILL_BUILDERS_PROGRAM_EVENTS_ROLES = [
   'admin',
@@ -308,9 +336,6 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
-  { path: '/schoolcarebridge/app/operations', name: 'SchoolCareBridgeOperations', component: () => import('../views/school/SchoolCareBridgeOperationsView.vue'), meta: { requiresAuth: true } },
-  { path: '/admin/schoolcarebridge', name: 'SchoolCareBridgeProgram', component: () => import('../views/admin/SchoolCareBridgeProgramView.vue'), meta: { requiresAuth: true, requiresRole: ['super_admin'] } },
-  { path: '/schoolcarebridge/app/partners/:partnerSlug/:partnerSection?', name: 'SchoolCareBridgePartner', component: () => import('../views/school/SchoolCareBridgePartnerView.vue'), meta: { schoolCareBridgeEntry: true, schoolCareBridgePartner: true } },
   { path: '/schoolcarebridge/session-ended', name: 'SchoolCareBridgeSessionEnded', component: () => import('../views/school/SchoolCareBridgeSessionEnded.vue'), meta: { requiresGuest: false } },
   { path: '/schoolcarebridge/app', name: 'SchoolCareBridgeLogin', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true } },
   { path: '/schoolcarebridge/app/:organizationSlug', name: 'SchoolCareBridgeSchool', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true, organizationSlug: true } },
@@ -331,8 +356,7 @@ const routes = [
   { path: '/privacy-review', name: 'PrivacyReview', component: () => import('../components/ActivityProtectionPanel.vue'), props: { review: true }, meta: { requiresAuth: true, accountSecurity: true } },
   { path: '/account-security', name: 'AccountSecurity', component: () => import('../components/AccountSecurityPanel.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
-  {path:'/:organizationSlug/admin/family-billing',name:'FamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresBillingWorkspace:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},
-  {path:'/admin/family-billing',name:'PlatformFamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresBillingWorkspace:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},
+  {path:'/:organizationSlug/admin/family-billing',name:'FamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},
   // Public school finder (no auth). Must be before "/:organizationSlug".
   {
     path: '/schools',
@@ -384,6 +408,18 @@ const routes = [
     name: 'PtcoPublicWebsite',
     component: () => import('../views/public/PtcoPublicWebsite.vue'),
     meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Plot Twist Co. | Your Next Chapter' }
+  },
+  {
+    path: '/michael',
+    name: 'MichaelMendezPublicWebsite',
+    component: () => import('../views/public/MichaelMendezPublicWebsite.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Michael V. Mendez | Private Practice & AI Systems' }
+  },
+  {
+    path: '/michael/:page(services|packages|nonprofits|pay)',
+    name: 'MichaelMendezOfferPage',
+    component: () => import('../views/public/MichaelMendezPages.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Michael V. Mendez Consulting' }
   },
   // Public marketing hub — optional markdown subpages (must be before single-segment /p/:hubSlug).
   {
@@ -1710,7 +1746,7 @@ const routes = [
   {
     path: '/:organizationSlug/note-aid',
     name: 'OrganizationNoteAid',
-    // Documentation Hub now runs the Clinical Director Agent note generator.
+    // Note Aid now runs the Clinical Director Agent note generator.
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
     meta: {
       requiresAuth: true,
@@ -1843,12 +1879,6 @@ const routes = [
     name: 'OrganizationSchoolOperations',
     component: () => import('../views/SchoolOperationsHubView.vue'),
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES, organizationSlug: true }
-  },
-  {
-    path: '/:organizationSlug/finance-operations',
-    name: 'OrganizationFinanceOperations',
-    component: () => import('../views/FinanceOperationsView.vue'),
-    meta: { requiresAuth: true, organizationSlug: true }
   },
   {
     path: '/:organizationSlug/people-operations',
@@ -2899,16 +2929,9 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'], organizationSlug: true }
   },
   {
-    path: '/:organizationSlug/admin/credentialing/records',
-    name: 'OrganizationAgencyCredentialingRecords',
-    component: () => import('../views/admin/AgencyCredentialingView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing', organizationSlug: true }
-  },
-  {
     path: '/:organizationSlug/admin/credentialing',
     name: 'OrganizationAgencyCredentialing',
-    component: () => import('../views/admin/CredentialingWorkspaceView.vue'),
-    beforeEnter: to => to.query.panel ? ({ path: to.path + '/records', query: to.query }) : true,
+    component: () => import('../views/admin/AgencyCredentialingView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing', organizationSlug: true }
   },
   {
@@ -3435,12 +3458,6 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: SCHEDULE_HUB_ROLES }
   },
   {
-    path: '/finance-operations',
-    name: 'FinanceOperations',
-    component: () => import('../views/FinanceOperationsView.vue'),
-    meta: { requiresAuth: true }
-  },
-  {
     path: '/people-operations',
     name: 'PeopleOperations',
     component: () => import('../views/PeopleOperationsHubView.vue'),
@@ -3634,7 +3651,7 @@ const routes = [
   {
     path: '/note-aid',
     name: 'NoteAid',
-    // Documentation Hub now runs the Clinical Director Agent note generator.
+    // Note Aid now runs the Clinical Director Agent note generator.
     component: () => import('../views/admin/ClinicalNoteGeneratorView.vue'),
     meta: { requiresAuth: true, requiresRole: NOTE_AID_EMPLOYEE_ROLES }
   },
@@ -3690,7 +3707,7 @@ const routes = [
     component: () => import('../views/admin/AgencyManagementTeamView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff', 'super_admin'] }
   },
-  // Backward compatible: old route now redirects to Documentation Hub.
+  // Backward compatible: old route now redirects to Note Aid.
   {
     path: '/admin/clinical-note-generator',
     name: 'ClinicalNoteGenerator',
@@ -4482,16 +4499,9 @@ const routes = [
     meta: { requiresAuth: true, requiresRole: ['admin', 'support'] }
   },
   {
-    path: '/admin/credentialing/records',
-    name: 'AgencyCredentialingRecords',
-    component: () => import('../views/admin/AgencyCredentialingView.vue'),
-    meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing' }
-  },
-  {
     path: '/admin/credentialing',
     name: 'AgencyCredentialing',
-    component: () => import('../views/admin/CredentialingWorkspaceView.vue'),
-    beforeEnter: to => to.query.panel ? ({ path: to.path + '/records', query: to.query }) : true,
+    component: () => import('../views/admin/AgencyCredentialingView.vue'),
     meta: { requiresAuth: true, requiresRole: ['admin', 'support', 'staff'], requiresCapability: 'canManageCredentialing' }
   },
   {
@@ -4730,7 +4740,6 @@ const routes = [
 for (const route of routes) {
   if (['OrganizationResetPassword', 'OrganizationChangePassword', 'OrganizationSchoolProviderProfile', 'OrganizationDocumentSigning', 'OrganizationDocumentReview', 'OrganizationDocumentPrint', 'OrganizationSchoolReinitPublic'].includes(route.name)) {
     route.alias = [...(Array.isArray(route.alias) ? route.alias : route.alias ? [route.alias] : []), route.path.replace('/:organizationSlug', '/schoolcarebridge/app/:organizationSlug')];
-    if (['OrganizationChangePassword','OrganizationDocumentSigning','OrganizationDocumentReview','OrganizationDocumentPrint'].includes(route.name)) route.alias.push(route.path.replace('/:organizationSlug','/schoolcarebridge/app/partners/:organizationSlug'));
   }
 }
 const router = createRouter({
@@ -4839,15 +4848,6 @@ function isFreshLoginWindow(now = Date.now()) {
   }
 }
 
-// The AuricWell preview has its own frontend entry; SPA login redirects must
-// cross the document boundary rather than rendering it inside the staff shell.
-router.beforeEach((to) => {
-  if (/^\/auricwell(?:\/|$)/.test(to.path)) {
-    window.location.assign(to.fullPath);
-    return false;
-  }
-});
-
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore();
   const brandingStore = useBrandingStore();
@@ -4880,30 +4880,21 @@ router.beforeEach(async (to, from, next) => {
     }
   };
 
-  if (to.meta.requiresAuth && !isSchoolCareBridgePath(to.path)) {
-    await tryBootstrapAuthFromCookie();
-    if (authStore.isAuthenticated && authStore.user?.role !== 'super_admin') {
-      if (!agencyStore.userAgencies?.length) await agencyStore.fetchUserAgencies();
-      const scoped = scopedSchoolCareBridgeDestination(to, agencyStore.userAgencies || []);
-      if (scoped) { next({path:scoped,replace:true}); return; }
-    }
-  }
   // Keep links emitted by the shared school components on the SchoolCareBridge surface.
   if (isSchoolCareBridgePath(from.path) && !isSchoolCareBridgePath(to.path)) {
     if (['OrganizationDashboard', 'OrganizationLogin'].includes(String(to.name)) && to.params.organizationSlug) {
       next({ path: schoolCareBridgePath(String(to.params.organizationSlug)), query: to.query, hash: to.hash, replace: true }); return;
     }
-    const school = String(from.params.organizationSlug || from.params.partnerSlug || '');
+    const school = String(from.params.organizationSlug || '');
     const mapped = schoolCareBridgeWorkflowPath(to.path, school);
-    if (mapped) { const target = from.path.includes('/app/partners/') && /\/(tasks\/documents|change-password)(\/|$)/.test(mapped) ? mapped.replace('/app/','/app/partners/') : mapped; next({ path: target, query: to.query, hash: to.hash, replace: true }); return; }
+    if (mapped) { next({ path: mapped, query: to.query, hash: to.hash, replace: true }); return; }
     if (to.path === '/login') { next({ path: schoolCareBridgePath(school), query: to.query, replace: true }); return; }
   }
   if (to.meta.schoolCareBridgeEntry) {
     await tryBootstrapAuthFromCookie();
     if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
-      const school = String(to.params.organizationSlug || to.params.partnerSlug || '');
-      const passwordPath = to.meta.schoolCareBridgePartner ? `${schoolCareBridgePath()}/partners/${encodeURIComponent(school)}/change-password` : school ? schoolCareBridgePath(school, '/change-password') : '/change-password';
-      next({ path: passwordPath, query: { redirect: to.fullPath }, replace: true });
+      const school = String(to.params.organizationSlug || '');
+      next({ path: school ? schoolCareBridgePath(school, '/change-password') : '/change-password', query: { redirect: to.fullPath }, replace: true });
       return;
     }
     // The entry component checks /schoolcarebridge/access before mounting any school workflows.
@@ -4911,7 +4902,7 @@ router.beforeEach(async (to, from, next) => {
   }
   if (isSchoolCareBridgePath(to.path) && to.meta.requiresAuth && !authStore.isAuthenticated) {
     await tryBootstrapAuthFromCookie();
-    if (!authStore.isAuthenticated) { const loginPath = to.path.includes('/app/partners/') ? `${schoolCareBridgePath()}/partners/${encodeURIComponent(to.params.organizationSlug || '')}` : schoolCareBridgePath(String(to.params.organizationSlug || '')); next({ path: loginPath, query: { redirect: to.fullPath }, replace: true }); return; }
+    if (!authStore.isAuthenticated) { next({ path: schoolCareBridgePath(String(to.params.organizationSlug || '')), query: { redirect: to.fullPath }, replace: true }); return; }
   }
 
   if (isFamilyHost() && !to.meta?.familyCommandCenter) {
@@ -4925,14 +4916,6 @@ router.beforeEach(async (to, from, next) => {
   if (isQuickViewHost() && !to.meta?.publicQuickView) {
     next({ name: 'QuickViewLauncher', replace: true });
     return;
-  }
-
-  // SSO must hydrate the NEW cookie, even when localStorage still contains a user.
-  // Mount the public login first so its branding/loading remains visible throughout.
-  if (String(to.query?.sso || '') === '1') {
-    if (isLoginEntryRoute(to)) { next(); return; }
-    const arrival = getSsoArrivalRoute(to, brandingStore.portalHostPortalUrl || getCurrentPortalSlugFromHostCache());
-    if (arrival) { next(arrival); return; }
   }
 
   // Superadmin cross-host brand switch: consume one-time `bs` handoff before auth guards.
@@ -4964,12 +4947,6 @@ router.beforeEach(async (to, from, next) => {
               data.user.agencyIds = data.agencies;
             }
             authStore.setAuth(data.token || null, data.user, data.sessionId || null);
-            const portalSlug = brandingStore.portalHostPortalUrl || getCurrentPortalSlugFromHostCache()
-              || to.params?.organizationSlug || (data.agencies || []).find(a => Number(a.id) === Number(data.agencyId))?.portal_url;
-            rememberVerifiedGoogleAccount({
-              user: data.user, orgSlug: portalSlug, agencies: data.agencies,
-              authMethod: data.loginMemory?.authMethod, remember: data.loginMemory?.rememberGoogle === true
-            });
             try {
               sessionStorage.setItem('justLoggedIn', 'true');
               sessionStorage.setItem('justLoggedInAt', String(Date.now()));
@@ -5614,8 +5591,7 @@ router.beforeEach(async (to, from, next) => {
     !to.meta.organizationSlug &&
     !allowUnscopedDashboard &&
     !allowUnscopedNotifications &&
-    !allowUnscopedDocumentSigning &&
-    to.name !== 'SchoolCareBridgeOperations'
+    !allowUnscopedDocumentSigning
   ) {
     const slug = getDefaultOrganizationSlug();
     if (slug && !isPortalHostSlugRedundantInPath(brandingStore, slug)) {
@@ -5652,7 +5628,6 @@ router.beforeEach(async (to, from, next) => {
       'OrganizationSchoolReinitPublic'
     ]);
     const allowedUnscopedRouteNames = new Set([
-      'SchoolCareBridgeOperations',
       'DocumentSigning',
       'DocumentReview',
       'SchoolReinitPublic',
@@ -5735,7 +5710,7 @@ router.beforeEach(async (to, from, next) => {
   ) {
     const path = String(to.path || '');
     const isProviderMobileRoute = path.includes('/provider-mobile');
-    // Tools & Aids hub (My Dashboard → AI Tools) must stay reachable; Documentation Hub was already allowlisted.
+    // Tools & Aids hub (My Dashboard → AI Tools) must stay reachable; Note Aid was already allowlisted.
     const isAllowedExternalRoute =
       path.includes('/note-aid') ||
       path.includes('/admin/note-aid') ||
