@@ -1,6 +1,7 @@
 <template>
   <ProviderShowcase v-if="kind === 'providers'" />
   <ScheduleShowcase v-else-if="kind === 'schedule'" />
+  <KioskShowcase v-else-if="kind === 'kiosk'" />
   <div v-else class="actual-example">
     <div class="actual-example-label"><strong>The app’s treatment-objective ratings</strong><span>Actual component · synthetic data · changes are not saved</span></div>
       <p class="actual-example-hint">Use the real Start / Previous session / This session / Goal controls. Switch between clinician and client ratings, or mark an objective deferred.</p>
@@ -12,6 +13,7 @@
 import { ref } from 'vue';
 import ProviderShowcase from './ProviderShowcase.vue';
 import ScheduleShowcase from './ScheduleShowcase.vue';
+import KioskShowcase from './KioskShowcase.vue';
 import NoteAidObjectiveRatings from '../../components/clinical/NoteAidObjectiveRatings.vue';
 defineProps({kind: String});
 const ratings = ref([]), resetKey = ref(0);

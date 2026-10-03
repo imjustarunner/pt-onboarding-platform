@@ -19,7 +19,15 @@ try {
    const response = await page.goto(`${base}/auricwell${section ? `/${section}` : ''}`);
    assert.equal(response.status(),200);
    assert.equal(await page.locator('h1').count(),1);
-   assert(!/TherapyNotes/i.test(await page.locator('main').innerText()), 'Transitions must refer to the current EHR');
+   if (section === 'product') {
+    assert.match(await page.locator('#onboarding').innerText(), /current EHR/);
+    assert(!/TherapyNotes/i.test(await page.locator('#onboarding').innerText()), 'Onboarding must not be limited to one EHR');
+    assert.equal(await page.locator('.comparison-table tbody tr').count(),6);
+    assert.match(await page.locator('.comparison-table thead').innerText(), /AuricWell[\s\S]*TherapyNotes[\s\S]*SimplePractice/);
+    assert.match(await page.locator('#comparison-method').innerText(), /does not mean the vendor cannot/);
+    assert.equal(await page.locator('.faq-section .faq').count(),13);
+    assert(await page.locator('.comparison-scroll').evaluate(el=>el.scrollWidth>el.clientWidth || innerWidth>=1000));
+   }
    assert.equal(Math.round((await page.locator('main').boundingBox()).width), width, 'Main should fill the viewport');
    assert(await page.locator('meta[name=description]').getAttribute('content'));
    assert.equal(await page.locator('a.sign-in').getAttribute('href'),'/auricwell/app/login');
@@ -66,6 +74,40 @@ try {
   assert.equal(await page.locator('img[src="/auricwell/examples/note-editor.png"]').count(),1);
   assert(await page.locator('.app-screenshot img').first().evaluate(img=>img.complete && img.naturalWidth>0));
   assert.equal(await page.locator('.plan-card').count(),3);
+  const kiosk = page.locator('[data-actual-example=kiosk]');
+  await kiosk.scrollIntoViewIfNeeded();
+  await kiosk.locator('.provider-card .portrait img').evaluate(img=>img.decode());
+  assert.match(await kiosk.locator('.provider-card .choose').innerText(), /10:00 AM/);
+  await kiosk.locator('.provider-card .profile-link').click();
+  assert.match(await kiosk.locator('.kiosk-content').innerText(), /Fictional biography/);
+  await kiosk.getByRole('button',{name:'Back to providers'}).click();
+  await kiosk.locator('.provider-card .choose').focus();
+  await page.keyboard.press('Enter');
+  const checkIn = kiosk.getByRole('button',{name:'I’m here · Check in'});
+  assert(await checkIn.isDisabled(),'Check-in requires respondent selection');
+  await kiosk.getByLabel('I’m answering for my dependent',{exact:true}).check();
+  await checkIn.click();
+  assert.match(await kiosk.locator('.demo-local').innerText(), /No appointment was changed and no notification was sent/);
+  assert.match(await kiosk.locator('.app-alert').innerText(), /Guardian report/);
+  await kiosk.getByRole('button',{name:'Got it · I’ll meet them'}).click();
+  assert.match(await kiosk.locator('.app-alert [role=status]').innerText(), /email would be suppressed/);
+  await kiosk.getByRole('button',{name:'Email',exact:true}).click();
+  assert.match(await kiosk.locator('.email-example').innerText(), /Suppressed in this example/);
+  assert.match(await kiosk.locator('.email-body').innerText(), /Previous 7.5/);
+  await kiosk.getByRole('button',{name:'Provider SMS',exact:true}).click();
+  assert.match(await kiosk.locator('.sms-example').innerText(), /not active in the current office-kiosk flow/);
+  assert.match(await kiosk.locator('.sms-bubble').innerText(), /Office 204/);
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth), 'SMS example must not overflow');
+  await kiosk.getByRole('button',{name:'Reset example'}).click();
+  assert.match(await kiosk.locator('.kiosk-content').innerText(), /Make yourself/);
+  await kiosk.getByRole('button',{name:'Email',exact:true}).click();
+  assert.match(await kiosk.locator('.email-example').innerText(), /90 seconds/);
+  await kiosk.getByRole('button',{name:'In-app alert',exact:true}).click();
+  const comparisonLinks = await page.locator('.comparison-source').evaluateAll(links=>links.map(a=>a.href));
+  assert.equal(comparisonLinks.length,11);
+  assert(comparisonLinks.every(url=>['support.therapynotes.com','support.simplepractice.com'].includes(new URL(url).hostname)));
+  await page.locator('#faq summary').filter({hasText:'Can clients confirm appointments by text?'}).click();
+  assert.match(await page.locator('#faq details[open]').innerText(), /consent/);
   await page.screenshot({path:`/private/tmp/auricwell-feature-product-${width}.png`,fullPage:true});
  }
  await page.goto(`${base}/auricwell/contact`);
@@ -85,5 +127,5 @@ try {
  assert.equal(await page.getByRole('link',{name:'Continue to secure sign-in'}).getAttribute('href'),'/login?redirect=%2Fauricwell%2Fapp');
  assert.equal(apiRequests.length,0,'The public login landing must not fetch practice data');
  assert.equal(errors.length,0, errors.join('\n'));
- console.log('Website: 30 full-width responsive page checks; actual provider profiles, availability selection, schedule captures and goal controls, keyboard, plan comparison, contact, login and no clinical requests passed.');
+ console.log('Website: 30 responsive page checks; provider profiles, scheduling, goals, kiosk/arrival states, email suppression, labeled SMS preview, sourced EHR comparison, FAQs, keyboard access, contact/login and zero clinical requests passed.');
 } finally { await browser.close(); }
