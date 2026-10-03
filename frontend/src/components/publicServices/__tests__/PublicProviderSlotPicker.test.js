@@ -10,6 +10,14 @@ const mountPicker=async()=>{wrapper=mount(Picker,{props:{agencySlug:'test',provi
 beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2030-01-06T12:00:00Z'));sessionStorage.clear();api.get.mockReset().mockResolvedValue({data:{slots:[slot]}});api.post.mockReset().mockResolvedValue({data:{hold,active:true}});});
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();});
 describe('public opening selection',()=>{
+ it('reloads the requested week and format through the shared calendar controls',async()=>{
+  await mountPicker();
+  await wrapper.find('input[type=date]').setValue('2030-01-14');await flushPromises();
+  expect(api.get).toHaveBeenLastCalledWith(expect.any(String),expect.objectContaining({params:expect.objectContaining({weekStart:'2030-01-14',programType:'IN_PERSON'})}));
+  await wrapper.find('select').setValue('VIRTUAL');await flushPromises();
+  expect(api.get).toHaveBeenLastCalledWith(expect.any(String),expect.objectContaining({params:expect.objectContaining({weekStart:'2030-01-14',programType:'VIRTUAL'})}));
+  expect(api.post).not.toHaveBeenCalled();
+ });
  it('requires an office choice and only offers times at that office',async()=>{
   api.get.mockResolvedValue({data:{slots:[{...slot,buildingId:11,buildingName:'Springs'},{...slot,startAt:'2030-01-08T17:00:00Z',buildingId:12,buildingName:'Denver'}]}});
   wrapper=mount(Picker,{props:{agencySlug:'test',providerId:9,officeLocations:[{id:11,name:'Springs'},{id:12,name:'Denver'}]}});await flushPromises();

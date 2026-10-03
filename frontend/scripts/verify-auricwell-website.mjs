@@ -33,12 +33,29 @@ try {
   const providerDemo = page.locator('[data-actual-example=providers]');
   await providerDemo.locator('.provider-card').first().waitFor();
   assert.equal(await providerDemo.locator('.provider-card').count(),2);
-  await providerDemo.locator('button.slot-chip').first().focus();
+  await providerDemo.scrollIntoViewIfNeeded();
+  const photos = providerDemo.locator('.provider-card img');
+  assert.equal(await photos.count(),2);
+  await photos.evaluateAll(images => Promise.all(images.map(img => img.decode())));
+  await providerDemo.locator('.opening-day button').first().focus();
   await page.keyboard.press('Enter');
   assert.match(await providerDemo.getByRole('status').innerText(), /Avery Lane/);
   assert.match(await providerDemo.getByRole('status').innerText(), /no hold or appointment was created/);
   await providerDemo.locator('.provider-card').nth(1).getByRole('button',{name:'View availability'}).click();
-  assert.match(await providerDemo.getByRole('status').innerText(), /Jordan Reed selected/);
+  assert.equal(await providerDemo.locator('.showcase-detail header h3').innerText(),'Jordan Reed');
+  assert.match(await providerDemo.locator('.showcase-bio').innerText(), /I help adults/);
+  assert(!/Avery Lane/.test(await providerDemo.getByRole('status').innerText()),'Provider changes clear the prior selection');
+  await providerDemo.locator('.opening-day button').first().click();
+  assert.match(await providerDemo.getByRole('status').innerText(), /Jordan Reed/);
+  await providerDemo.getByRole('button',{name:'Clear selection'}).click();
+  assert.match(await providerDemo.getByRole('status').innerText(), /Select a sample opening/);
+  const scheduleDemo = page.locator('[data-actual-example=schedule]');
+  await scheduleDemo.getByRole('button',{name:'Book a session',exact:true}).click();
+  await scheduleDemo.locator('img').evaluate(img => img.decode());
+  assert.match(await scheduleDemo.locator('img').getAttribute('src'), /schedule-booking/);
+  await scheduleDemo.getByRole('button',{name:'Weekly calendar',exact:true}).click();
+  await scheduleDemo.locator('img').evaluate(img => img.decode());
+  assert.match(await scheduleDemo.locator('img').getAttribute('src'), /staff-calendar/);
   const goalDemo = page.locator('[data-actual-example=goals]');
   await goalDemo.getByRole('button',{name:'6',exact:true}).click();
   assert.match(await goalDemo.locator('.actual-example-actions').innerText(), /Nothing was saved/);
@@ -68,5 +85,5 @@ try {
  assert.equal(await page.getByRole('link',{name:'Continue to secure sign-in'}).getAttribute('href'),'/login?redirect=%2Fauricwell%2Fapp');
  assert.equal(apiRequests.length,0,'The public login landing must not fetch practice data');
  assert.equal(errors.length,0, errors.join('\n'));
- console.log('Website: 30 full-width responsive page checks; actual provider and goal components, screenshots, keyboard, plan comparison, contact, login and no clinical requests passed.');
+ console.log('Website: 30 full-width responsive page checks; actual provider profiles, availability selection, schedule captures and goal controls, keyboard, plan comparison, contact, login and no clinical requests passed.');
 } finally { await browser.close(); }

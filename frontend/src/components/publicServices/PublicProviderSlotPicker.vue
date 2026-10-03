@@ -2,13 +2,8 @@
   <section class="opening-picker" aria-label="Available times">
     <h2>Find a time that works</h2>
     <p>Choose an opening to hold this time at the displayed frequency until the team resolves your placement. This is not a confirmed appointment.</p>
-    <div class="opening-controls">
-      <label v-if="!fixedFormat">Session format<select v-model="format" @change="load"><option value="IN_PERSON">In person</option><option value="VIRTUAL">Telehealth</option></select></label>
-      <label>Week of<input v-model="week" type="date" :min="today" @change="load" /></label>
-    </div>
-    <PublicOfficeLocations v-if="format==='IN_PERSON' && officeLocations.length" v-model="selectedOffice" :offices="officeLocations" title="Appointment location"/>
+    <PublicProviderOpeningCalendar :days="days" :week="week" :min-date="today" :format="format" :fixed-format="!!fixedFormat" :office-id="selectedOffice" :office-locations="officeLocations" :time-zone="timezone" :loading="loading" :disabled="busy || active" @update:week="week = $event; load()" @update:format="format = $event; load()" @update:office-id="selectedOffice = $event" @select="select">
     <p v-if="needsOffice" role="status">Choose an office location to see appointment times.</p>
-    <p class="opening-timezone">Times shown in {{ timezone }}.</p>
     <p v-if="loading" role="status">Checking current openings…</p>
     <p v-if="error" role="alert">{{ error }} <button type="button" @click="load">Try again</button></p>
     <div v-if="hold" class="opening-held" role="status">
@@ -17,11 +12,7 @@
       <p>{{ active ? `${availabilityLabel(hold)} in ${hold.timeZone || timezone} until placement is resolved or the hold is released. This is not a booking.` : 'This time is no longer held. Check availability to choose again.' }}</p>
       <button v-if="active" type="button" :disabled="busy" @click="release">Release this time</button>
     </div>
-    <div v-if="!loading" class="opening-days">
-      <div v-for="[day, times] in days" :key="day" class="opening-day"><h3>{{ day }}</h3>
-        <button v-for="slot in times" :key="`${slot.startAt}-${slot.endAt}`" type="button" :disabled="busy || active" @click="select(slot)">{{ time(slot.startAt) }} · {{availabilityLabel(slot)}}<small v-if="slot.buildingName"> · {{slot.buildingName}}</small></button>
-      </div>
-    </div>
+    </PublicProviderOpeningCalendar>
     <p v-if="!loading && !error && !days.length && !active && !needsOffice">No published openings for this week and format. Try another week or continue with a provider preference.</p>
   </section>
 </template>
@@ -30,7 +21,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import {slotAllowsCare} from '../../utils/availabilityCareTypes.js';
 import {availabilityLabel} from '../../utils/availabilityLabel.js';
 import api from '../../services/api';
-import PublicOfficeLocations from './PublicOfficeLocations.vue';
+import PublicProviderOpeningCalendar from './PublicProviderOpeningCalendar.vue';
 const props = defineProps({ careType:{type:String,default:''},agencySlug: { type: String, required: true }, providerId: { type: Number, required: true }, serviceType: { type: String, default: 'counseling' }, officeId:{type:[String,Number],default:''},officeLocations:{type:Array,default:()=>[]},fixedFormat:{type:String,default:''},initialWeek:{type:String,default:''},timeZone:{type:String,default:''} });
 const emit = defineEmits(['hold']);
 const timezone = props.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -51,7 +42,6 @@ const days = computed(() => {
   }
   return [...groups];
 });
-const time = value => new Date(value).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit',timeZone:timezone });
 const weeklyTime = value => new Intl.DateTimeFormat(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit', timeZone: value.timeZone || timezone }).format(new Date(value.startAt));
 const dateTime = value => new Date(value).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short',timeZone:timezone });
 watch(()=>props.officeId,id=>{selectedOffice.value=String(id||'');});
