@@ -8,4 +8,5 @@ for (const section of Object.keys(pages)) {
 }
 copyFileSync(fileURLToPath(new URL('../src/auricwell/website/website.css', import.meta.url)), `${out}website.css`);
 copyFileSync(fileURLToPath(new URL('../public/auricwell/logo.png', import.meta.url)), `${out}logo.png`);
+copyFileSync(fileURLToPath(new URL('../src/auricwell/website/website-demo.js', import.meta.url)), `${out}website-demo.js`);
 console.log('Built five static AuricWell website pages.');

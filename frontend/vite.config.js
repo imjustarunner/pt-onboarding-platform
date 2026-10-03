@@ -19,6 +19,10 @@ export default defineConfig({
       server.middlewares.use((req, _res, next) => {
         const parsed = new URL(req.url || '/', 'http://localhost');
         const pathname = parsed.pathname.replace(/\/$/, '');
+        if (pathname === '/auricwell/website-demo.js') {
+          _res.setHeader('Content-Type', 'application/javascript');
+          return _res.end(readFileSync(path.join(rootDir, 'src/auricwell/website/website-demo.js')));
+        }
         if (pathname === '/auricwell/website.css') {
           _res.setHeader('Content-Type', 'text/css');
           return _res.end(readFileSync(path.join(rootDir, 'src/auricwell/website/website.css')));

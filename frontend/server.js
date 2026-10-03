@@ -116,6 +116,7 @@ app.use((req, res, next) => {
   }
   if (/^app(?:\/|$)/.test(section)) return res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(join(distPath, 'auricwell.html'));
   if (section.startsWith('site/')) return res.sendStatus(404);
+  if (section === 'website-demo.js') return res.set('Cache-Control', 'no-cache').sendFile(join(distPath, 'auricwell/website-demo.js'));
   if (section === 'website.css') return res.set('Cache-Control', 'no-cache').sendFile(join(distPath, 'auricwell/website.css'));
   if (section.includes('.')) return next();
   return res.redirect(301, `/auricwell/app/${section}` + req.originalUrl.slice(req.path.length));

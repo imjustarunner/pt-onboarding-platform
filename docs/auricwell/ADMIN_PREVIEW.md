@@ -38,3 +38,15 @@ Sign-in starts at `/auricwell/app/login`, continues through the existing HQ auth
 Contact opens an email to the user-designated `support@auricwell.com`; it is not a form submission or delivery confirmation. Configure that mailbox separately. No pricing, certifications, testimonials or launch dates are asserted. Moving to auricwell.com later requires deployment routing, canonical metadata and authenticated API configuration; changing DNS alone is not a validated deployment.
 
 Run `node frontend/scripts/verify-auricwell-website.mjs` (Chrome / Playwright; optional `AURICWELL_PREVIEW_URL`). Covers five pages at 1440, 768, 390 and 320 pixels, keyboard navigation, mobile links, contact and login handoff, with zero public clinical API requests. The preview browser check verifies old-link redirects and scoped practice switching. Production compilation and 30 shared Note Aid/billing component tests pass.
+
+## Website feature story (October 2, 2026)
+
+Marketing now describes transitions from the current EHR, with export compatibility reviewed before cutover. The page frame fills the viewport; paragraph widths stay readable. Home and Product describe guided AI documentation, configurable treatment plans, objective history, check-in feedback, multiple guardian relationships, intake, kiosk arrivals and virtual care. Shared-platform capabilities are distinguished from AuricWell rollout readiness.
+
+The plan comparison reads the approved `frontend/src/config/productPlanCatalog.js`, restricted to AuricWell features. It retains the catalog's Basic/Premium/Premium Plus names and separates agency entitlements from individual private offices. It does not publish prices or imply plan assignment activates an integration.
+
+Clinical wording is grounded in `clinicalNoteContentReview.service.js`, `clinicalNoteAmendment.service.js`, claim readiness/content review, treatment-plan services and objective ratings. Review-only notes may skip cosign; required document/amendment approvals remain. Do not publish guarantees of error-free billing or universal exemption from supervisor signatures. Arrival connection/progress scores are custom feedback, not validated outcome measures.
+
+The fictional provider-availability demonstration runs locally in the browser, with no API requests, storage, booking or patient information. Provider changes reset the selected time. Keyboard-operable controls and a live status region disclose that no appointment was booked. The separate static JavaScript asset uses revalidation rather than immutable caching. Games, whiteboards, waiting-room music and transcription are described as configured shared-platform/session capabilities, not universal private-office features.
+
+Validation includes generated HTML, all five pages at 2560/1920/1440/768/390/320 pixels, full viewport width, no horizontal overflow, provider/time selection and reset, keyboard activation, plan display, contact and login links, and zero public clinical API requests. Local validation uses a sparse checkout without unrelated media to avoid exhausting disk space.
