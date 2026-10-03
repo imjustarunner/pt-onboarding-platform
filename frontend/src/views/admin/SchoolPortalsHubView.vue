@@ -1,5 +1,6 @@
 <template>
-  <div class="container sph-page">
+  <div class="container sph-page scb-school-workspace">
+    <div class="scb-workspace-identity"><SchoolCareBridgeBrand compact/><p>School partnerships, providers and student support.</p></div>
     <header class="sph-header">
       <div>
         <h1>School Portals</h1>
@@ -71,10 +72,14 @@
 </template>
 
 <script setup>
+import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';
+import '../../styles/schoolCareBridgeWorkspaceBrand.css';
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
 
 const route = useRoute();
+useSchoolCareBridgeBranding('School portals');
 
 const orgPrefix = computed(() => {
   const slug = typeof route.params?.organizationSlug === 'string' ? route.params.organizationSlug.trim() : '';

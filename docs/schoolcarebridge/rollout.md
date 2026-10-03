@@ -82,3 +82,27 @@ The partner browser checks use synthetic API data. SQL validation was also perfo
 Release validation (2026-09-28): 44 focused backend tests and 52 frontend routing/editing tests passed, along with both browser scripts and the production frontend build. Migration 1505 was applied successfully to the configured app database. The existing MH4Kidz operator is linked; its authorized administrator membership still needs assignment before signatures can be issued. ITSCO is seeded as the sole public partner and its agreement remains a draft.
 
 Standalone SchoolCareBridge tenants are explicitly skipped by the existing monthly billing job and rejected by the central invoice generator before usage/ledger/PDF/payment work. Connected agencies retain their existing invoices. Partner signature and first-password-change routes reuse existing workflow components under `/app/partners/{agency}/…`, including expired-session return destinations.
+
+## Product family and existing school workspace branding (October 2026)
+
+Plot Twist HQ, AuricWell and SchoolCareBridge are presented as Plot Twist Co. products at `https://plottwistco.com/products`. Product ownership is distinct from the MH4Kidz program-operator relationship and the affiliated treating agencies. This release does not revise agreements, billing recipients, agency memberships or student access.
+
+The existing school portal, school sign-in, portal hub, school overview/all portals and digital-intake workspace use SchoolCareBridge presentation. School and agency names remain visible. Existing ITSCO school URLs and authentication continue to work; there is no account or record migration. Program and learning organization views retain their existing presentation.
+
+The website uses captures of the actual Vue school portal and agency overview, with an embedded working demo at `/schoolcarebridge/demo` (native `/demo` on the prepared SchoolCareBridge domain). The demo reuses `SchoolPortalView` and `SchoolOverviewDashboard`, including provider profiles, school schedules and student details. Its providers, students and organizations are fictional fixtures owned by this repository. It never reads the existing database-backed onboarding demo or production student records.
+
+The demo is a separate HTML document with its own Pinia stores, router and in-memory storage installed before shared modules load. Its Axios adapter resolves only fictional reads and rejects writes/unknown reads locally. A document CSP additionally disables network connections, child frames and form submission. Existing app credentials/preferences remain unchanged. The banner and inline feedback explain that messages, scheduling changes and other writes are not saved. Captures in `frontend/public/assets/schoolcarebridge/examples/` were produced from this working interface; they are not invented screen layouts.
+
+Verification without Docker (local Vite with `VITE_API_URL=/api`, port 5181):
+
+```
+node frontend/scripts/verify-schoolcarebridge-products.mjs
+node frontend/scripts/verify-product-family.mjs
+SCB_VERIFY_BASE=http://127.0.0.1:5181 SCB_BROWSER_EXECUTABLE='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' node frontend/scripts/verify-schoolcarebridge.mjs
+node frontend/scripts/verify-ptco-showcase.mjs
+npm --prefix frontend test -- src/schoolcarebridge/demo/__tests__/fixtures.test.js src/composables/__tests__/useSchoolCareBridgeBranding.test.js src/utils/__tests__/schoolCareBridge.test.js src/utils/__tests__/schoolCareBridgeTenant.test.js src/utils/__tests__/publicBrowserBranding.test.js src/utils/__tests__/publicDomainRouting.test.js
+```
+
+The product-demo browser check accepts `SCB_PRODUCT_BASE` for read-only live verification. It blocks every API request and checks that none occur; it also verifies same-tab sign-in storage isolation, blocked writes, provider/student navigation, the overview → all portals → school flow, and layouts at 320–1440px. The family-page check supplies synthetic website API responses and verifies the three products and the embedded portal. Production build outputs include a dedicated `schoolcarebridge-demo.html` entry, served with no-store/noindex on Nginx and the Node preview server.
+
+Release verification: 68 focused frontend tests passed; existing school login/access and Plot Twist Co. showcase browser checks passed. The product-family/embedded-demo check and full fictional-demo interaction, mobile and storage-isolation checks passed. The production frontend build completed without Docker.

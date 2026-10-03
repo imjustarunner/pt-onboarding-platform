@@ -33,6 +33,7 @@ await page.route('**/api/**', async route => {
     await route.fulfill({ contentType: 'text/html', body: '<p>Configured Google authentication would start here.</p>' }); return;
   } else if (path.endsWith('/public/marketing-pages/schoolcarebridge')) {
     data = { page: { slug: 'schoolcarebridge', title: 'SchoolCareBridge', heroTitle: 'Connecting Schools. Supporting Students.', heroImageUrl: '/assets/mh4kidz/teamwork.webp', branding: { schoolcarebridgeWebsite: {} } } };
+  } else if (path.endsWith('/schoolcarebridge/programs')) { data={programs:[]};
   } else if (path.endsWith('/schoolcarebridge/partners') || path.endsWith('/schoolcarebridge/my-partners')) { data={partners:[{id:2,name:'ITSCO',slug:'itsco',logoUrl:'/assets/itsco/logo.png',workspaceMode:'connected'}]};
   } else if (path.includes('/schoolcarebridge/schools/')) {
     if (path.endsWith('/unknown')) { status = 404; data = { error: { message: 'This school portal is unavailable.' } }; }
@@ -68,6 +69,10 @@ await page.route('**/api/**', async route => {
 async function visit(path) { await page.goto(base + path, { waitUntil: 'networkidle' }); }
 async function identify(email) { await page.locator('#username').fill(email); await page.locator('#username').press('Tab'); }
 try {
+  await visit('/ashley/login');
+  await page.locator('.login-card .scb-brand').waitFor();
+  assert.match(await page.title(), /SchoolCareBridge/);
+  assert.match(await page.locator('.login-card').innerText(), /Ashley Elementary/);
   for (const width of (process.env.SCB_VERIFY_QUICK ? [] : [1440, 390])) {
     await page.setViewportSize({ width, height: 1000 });
     for (const section of ['', 'for-schools', 'for-agencies', 'how-it-works', 'about', 'resources', 'security', 'partners']) {

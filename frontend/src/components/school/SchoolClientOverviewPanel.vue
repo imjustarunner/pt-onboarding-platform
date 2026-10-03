@@ -89,7 +89,7 @@
     </div>
 
     <p v-if="isSchoolStaff" class="sco-phi muted">
-      Reminder: Use initials only. Do not include PHI. This is not Therapy Notes.
+      Reminder: Use initials only. Do not include PHI. Keep clinical documentation in the authorized clinical workspace.
     </p>
 
     <div class="sco-grid">

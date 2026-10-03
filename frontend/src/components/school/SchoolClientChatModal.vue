@@ -110,7 +110,7 @@
       </div>
 
       <div class="phi-warning">
-        <strong>Reminder:</strong> Use initials only. Do not include PHI. This is not Therapy Notes.
+        <strong>Reminder:</strong> Use initials only. Do not include PHI. Keep clinical documentation in the authorized clinical workspace.
       </div>
 
       <div class="status-bar">

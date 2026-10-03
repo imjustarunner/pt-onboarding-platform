@@ -1,5 +1,5 @@
 <template>
-  <div class="container spd-page df-admin-page">
+  <div class="container spd-page df-admin-page scb-school-workspace">
     <div v-if="loading" class="muted">Loading…</div>
     <div v-else-if="!hasSchoolPortalsAccess" class="error spd-banner">
       School Portals is not enabled for this tenant, or you do not have access to this page.
@@ -7,6 +7,7 @@
     </div>
     <div v-else-if="loadError" class="error">{{ loadError }}</div>
     <template v-else>
+      <div class="scb-workspace-identity"><SchoolCareBridgeBrand compact/><p>School enrollment and digital forms</p></div>
       <header class="spd-header df-admin-header">
         <div>
           <h1>Digital intakes for this school</h1>
@@ -142,6 +143,10 @@
 </template>
 
 <script setup>
+import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';
+import '../../styles/schoolCareBridgeWorkspaceBrand.css';
+useSchoolCareBridgeBranding('School digital intakes');
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';

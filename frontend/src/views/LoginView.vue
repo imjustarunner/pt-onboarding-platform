@@ -82,6 +82,7 @@
         </div>
       </aside>
       <div class="login-card" :class="{ 'login-card--wide': intakesPanelOpen && showIntakesTrigger, 'login-card--app': isAppLike, 'login-card--ipad': isIpadPreviewMode }">
+        <SchoolCareBridgeBrand v-if="isLegacySchoolLogin" compact style="margin: 0 auto 18px" />
         <div v-if="isIpadPreviewMode && !loginParentBranding" class="ipad-hero-panel">
           <img
             v-if="displayLogoUrl"
@@ -695,6 +696,8 @@ import { PLATFORM_BRAND } from '../config/platformBrand.js';
 import { tenantFaviconUrl } from '../utils/tenantBrandAssets.js';
 import { resolveLoginPalette } from '../utils/loginPalette.js';
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import SchoolCareBridgeBrand from '../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import {useSchoolCareBridgeBranding} from '../composables/useSchoolCareBridgeBranding';
 import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeExternalPath } from '../utils/schoolCareBridge';
 import { useRouter, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
@@ -1019,6 +1022,9 @@ const isSchoolPortalOrg = computed(() =>
   SCHOOL_PORTAL_ORG_TYPES.includes(String(loginTheme.value?.agency?.organizationType || '').toLowerCase())
 );
 
+const isLegacySchoolLogin = computed(() => !isSchoolCareBridge.value && String(loginTheme.value?.agency?.organizationType || '').toLowerCase() === 'school');
+useSchoolCareBridgeBranding(() => `${loginTheme.value?.agency?.name || 'School'} sign in`, isLegacySchoolLogin);
+
 /** Username + password on one row for School Portal after verify (inputs stay mounted — no focus loss). */
 const schoolPortalCredentialsRow = computed(
   () => isSchoolPortalOrg.value && showPassword.value && !needsOrgChoice.value
@@ -1027,7 +1033,7 @@ const schoolPortalCredentialsRow = computed(
 const displayTitle = computed(() => {
   if (loginTheme.value?.agency?.name) {
     if (isSchoolPortalOrg.value) {
-      return `${loginTheme.value.agency.name} — School Portal`;
+      return `${loginTheme.value.agency.name} — ${String(loginTheme.value.agency.organizationType).toLowerCase()==='school' ? 'SchoolCareBridge' : 'School Portal'}`;
     }
     const term = (brandingStore.peopleOpsTerm || '').trim();
     return term ? `${loginTheme.value.agency.name} ${term}` : loginTheme.value.agency.name;
@@ -1044,6 +1050,7 @@ const loginParentBranding = computed(() => loginTheme.value?.agency?.parentBrand
 
 /** Dual-brand header: school sites use “School Portal”, not “Staff …”. */
 const portalLoginHeadline = computed(() => {
+  if (String(loginTheme.value?.agency?.organizationType || '').toLowerCase() === 'school') return 'SchoolCareBridge';
   if (isSchoolPortalOrg.value) return 'School Portal';
   const term = String(brandingStore.peopleOpsTerm || '').trim();
   return term ? `Staff ${term}` : 'Staff Portal';

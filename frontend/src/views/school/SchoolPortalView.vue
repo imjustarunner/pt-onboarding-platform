@@ -2,6 +2,7 @@
   <div
     class="school-portal"
     :class="{
+      'scb-school-workspace': schoolCareBridgeWorkspace,
       'sidebar-collapsed': sidebarCollapsed,
       'sidebar-mobile-open': sidebarMobileOpen
     }"
@@ -32,11 +33,12 @@
     <aside
       class="sp-sidebar"
       :class="{ collapsed: sidebarCollapsed }"
-      aria-label="School Portal navigation"
+      :aria-label="schoolCareBridgeWorkspace ? 'SchoolCareBridge navigation' : 'Portal navigation'"
       data-tour="school-nav-rail"
     >
       <div class="sp-sidebar-brand">
-        <div v-if="sidebarBrandLogoUrl" class="sp-sidebar-logo">
+        <SchoolCareBridgeBrand v-if="schoolCareBridgeWorkspace" compact />
+        <div v-else-if="sidebarBrandLogoUrl" class="sp-sidebar-logo">
           <img :src="sidebarBrandLogoUrl" alt="" />
         </div>
         <div v-else class="sp-sidebar-logo sp-sidebar-logo-fallback" aria-hidden="true">
@@ -2634,6 +2636,9 @@
 </template>
 
 <script setup>
+import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';
+import '../../styles/schoolCareBridgeWorkspaceBrand.css';
 import { computed, onMounted, onUnmounted, provide, reactive, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {
@@ -5252,6 +5257,8 @@ async function onSchoolLogoSelected(event) {
 }
 
 const sidebarBrandLogoUrl = computed(() => schoolLogoUrl.value);
+const schoolCareBridgeWorkspace = computed(() => String(organizationStore.currentOrganization?.organization_type || 'school').toLowerCase() === 'school');
+useSchoolCareBridgeBranding(organizationDisplayName, schoolCareBridgeWorkspace);
 
 const tenantBrandName = computed(() => {
   return String(

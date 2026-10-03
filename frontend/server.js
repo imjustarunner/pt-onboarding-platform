@@ -123,6 +123,8 @@ app.use((req, res, next) => {
   if (section.includes('.')) return next();
   return res.redirect(301, `/auricwell/app/${section}` + req.originalUrl.slice(req.path.length));
 });
+app.get(['/schoolcarebridge/demo','/schoolcarebridge/demo/','/schoolcarebridge-demo.html'], (_req,res)=>res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex').sendFile(join(distPath,'schoolcarebridge-demo.html')));
+app.get('/demo', (req,res,next)=>['schoolcarebridge.org','www.schoolcarebridge.org'].includes(req.hostname) ? res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex').sendFile(join(distPath,'schoolcarebridge-demo.html')) : next());
 app.get('/auricwell.html', (_req, res) => res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(join(distPath, 'auricwell.html')));
 
 // Serve static files from dist directory

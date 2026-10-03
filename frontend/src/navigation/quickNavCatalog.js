@@ -570,7 +570,7 @@ function buildAppEntries() {
     {
       id: 'admin-school-portals',
       routeName: 'SchoolPortalsHub',
-      label: 'School Portals',
+      label: 'SchoolCareBridge',
       description: 'School portals hub and overview.',
       group: 'admin',
       keywords: ['school', 'portals', 'school portals'],

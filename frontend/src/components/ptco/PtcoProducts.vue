@@ -1,0 +1,23 @@
+<template>
+ <section id="products" class="ptco-band ptco-products"><div class="ptco-wrap">
+  <div class="ptco-section-heading"><div><p class="ptco-eyebrow">Products by Plot Twist Co.</p><h2>One family.<br>Three focused workspaces.</h2></div><p>Plot Twist HQ, AuricWell and SchoolCareBridge are Plot Twist Co. products. Choose the workspace that fits your team, with connected services behind the scenes.</p></div>
+  <div class="ptco-product-family"><article v-for="product in products" :id="product.id" :key="product.id" :class="product.id">
+   <div class="product-mark"><img :src="product.logo" :alt="product.name"/><span>A Plot Twist Co. product</span></div>
+   <p class="ptco-eyebrow">{{product.audience}}</p><h3>{{product.name}}</h3><p>{{product.description}}</p>
+   <ul><li v-for="feature in product.features" :key="feature">{{feature}}</li></ul>
+   <p class="product-context">{{product.context}}</p><router-link v-if="product.id==='plottwisthq'" class="ptco-button" to="/p/ptco/hq">Explore Plot Twist HQ →</router-link><a v-else class="ptco-button" :href="product.url">Explore {{product.name}} ↗</a>
+   <a v-if="product.demo" class="ptco-text-link" :href="product.demo">Try the actual school portal ↗</a>
+  </article></div>
+  <p class="ptco-small">Your organization’s permissions, configured features, agreements and integrations determine access. The treating practice delivers care; product branding does not change the parties named in your agreements.</p>
+ </div></section>
+</template>
+<script setup>
+const products=[
+ {id:'plottwisthq',name:'Plot Twist HQ',audience:'The broader management suite',logo:'/assets/ptco/logo-flat.webp',description:'Connect client care with the work of running your organization.',features:['Clinical workflows, scheduling and billing','People operations, onboarding and payroll workflows','Programs, public websites and business operations'],context:'For organizations that need their business and service workflows together.'},
+ {id:'auricwell',name:'AuricWell',audience:'The focused EHR',logo:'/auricwell/logo.png',description:'A clean clinical workspace for therapy practices, built on the shared clinical services.',features:['Practice Notes, AI drafting and supervision','Clients, guardians, scheduling and billing','New-practice setup or a reviewed EHR transition'],context:'Focused on EHR work. Practice launch remains subject to workflow and integration readiness.',url:'https://plottwisthq.com/auricwell'},
+ {id:'schoolcarebridge',name:'SchoolCareBridge',audience:'School and agency coordination',logo:'/assets/schoolcarebridge/logo.png',description:'Bring schools and care teams together around enrollment, providers and student support.',features:['Working school portals and provider profiles','School schedules, student rosters and enrollment','Care-team messages and agency school overviews'],context:'A Plot Twist Co. product. MH4Kidz operates the program; affiliated agencies provide care.',url:'https://mh4kidz.org/schoolcarebridge',demo:'https://mh4kidz.org/schoolcarebridge/demo'}
+];
+</script>
+<style scoped>
+.ptco-product-family{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}.ptco-product-family article{display:flex;flex-direction:column;min-width:0;padding:26px;border:1px solid #e5dcde;border-top:4px solid #970e22;border-radius:12px;background:white}.ptco-product-family .auricwell{border-top-color:#0649ce}.ptco-product-family .schoolcarebridge{border-top-color:#139e61}.product-mark{display:flex;align-items:center;justify-content:space-between;gap:16px;height:95px;margin-bottom:24px}.product-mark img{width:105px;height:85px;object-fit:contain}.schoolcarebridge .product-mark img{width:160px;object-fit:cover}.product-mark span{font:11px/1.6 Inter,system-ui,sans-serif;color:#626b7e;max-width:85px}.ptco-product-family h3{font-size:29px;margin-bottom:18px}.ptco-product-family ul{padding-left:19px;margin:8px 0 24px;font-size:14px;line-height:1.8}.ptco-product-family .product-context{font-size:12px;line-height:1.7;margin-top:auto}.ptco-product-family .ptco-text-link{font-size:12px}.ptco-products .ptco-small{margin-top:22px;font-size:12px;max-width:115ch}@media(max-width:1000px){.ptco-product-family{grid-template-columns:1fr}.product-mark{justify-content:start}.product-mark span{max-width:none}.ptco-product-family article{padding:22px}.ptco-product-family .ptco-button{align-self:start}}
+</style>

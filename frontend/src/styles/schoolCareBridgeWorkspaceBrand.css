@@ -1,0 +1,11 @@
+.scb-school-workspace{--primary:#007cbd;--primary-color:#007cbd;--secondary:#139e61;--secondary-color:#139e61;--accent:#17638b;--accent-color:#17638b;--agency-primary-color:#007cbd;--agency-secondary-color:#139e61;--header-text-color:#fff}.scb-workspace-identity{display:flex;align-items:center;gap:24px;flex-wrap:wrap;padding:10px 0 16px;border-bottom:1px solid #dce9f0;margin-bottom:20px}.scb-workspace-identity p{margin:0;font-size:13px;color:#47647b}.scb-school-workspace .sp-sidebar-brand{background:#fff;padding:6px 14px!important;min-height:90px}.scb-school-workspace .sp-sidebar-brand .scb-brand{width:100%;max-width:210px}.scb-school-workspace .sp-sidebar-brand .scb-brand img{height:66px}.scb-school-workspace.sidebar-collapsed .sp-sidebar-brand .scb-brand span{display:none}.scb-school-workspace.sidebar-collapsed .sp-sidebar-brand{padding:6px!important;min-height:65px}.scb-school-workspace.sidebar-collapsed .sp-sidebar-brand .scb-brand img{object-fit:contain;height:45px}.scb-school-workspace .sp-topbar-subtitle{color:#42637b}
+
+@media (max-width: 700px) {
+  .scb-school-workspace.school-overview-page .control-search { min-width: 0; width: 100%; }
+  .scb-school-workspace.school-overview-page .search-row { flex-wrap: wrap; }
+  .scb-school-workspace.school-overview-page .control-input-search { min-width: 0; width: 100%; }
+  .scb-school-workspace .day-bar { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  .scb-school-workspace .day-bar .day { min-width: 0; padding: 12px 4px; font-size: 11px; }
+  .scb-school-workspace [id^="school-provider-panel-"] .header-line { flex-wrap: wrap; }
+  .scb-school-workspace [id^="school-provider-panel-"] .header-metrics { flex-wrap: wrap; flex: 1 1 100%; gap: 6px; }
+}

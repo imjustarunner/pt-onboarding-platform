@@ -410,14 +410,14 @@ export const APP_PAGES = [
 
   // Portals & Onboarding
   {
-    title: 'School Portals Overview',
+    title: 'SchoolCareBridge Overview',
     section: 'School Ops › Portals & Onboarding',
     path: '/admin/schools/overview?orgType=school',
     keywords: ['school portals', 'portals overview', 'school overview', 'metrics', 'staffing snapshot'],
     desc: 'Overview dashboard for school portals, metrics, and staffing.'
   },
   {
-    title: 'All School Portals',
+    title: 'SchoolCareBridge · All School Portals',
     section: 'School Ops › Portals & Onboarding',
     path: '/admin/school-portals',
     keywords: ['all school portals', 'school portals list', 'browse portals', 'portals'],
@@ -848,15 +848,15 @@ export const APP_PAGES = [
 
   // ─── School Portal Pages ──────────────────────────────────────────────────────
   {
-    title: 'School Portal',
-    section: 'School Portal',
+    title: 'SchoolCareBridge Portal',
+    section: 'SchoolCareBridge',
     path: '/admin/school-portals',
     keywords: ['school portal', 'school view', 'portal', 'school page'],
     desc: 'School-facing portal view.'
   },
   {
     title: 'School Portal Settings',
-    section: 'School Portal',
+    section: 'SchoolCareBridge',
     path: '/admin/school-portals-hub',
     keywords: ['school portal settings', 'group email', 'subscription', 'no email', 'digest', 'notification settings', 'school staff settings'],
     desc: 'Change school group email subscription and portal notification settings.'

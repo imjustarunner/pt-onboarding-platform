@@ -1,6 +1,7 @@
 <template>
-  <div class="school-overview-page">
+  <div class="school-overview-page" :class="{'scb-school-workspace':orgType==='school'}">
     <div class="school-overview-page__inner">
+    <div v-if="orgType==='school'" class="scb-workspace-identity"><SchoolCareBridgeBrand compact/><p>{{ isAllPortalsPage ? 'Your connected school portals' : 'Your school partnerships at a glance' }}</p></div>
     <div class="page-header" data-tour="schools-overview-header">
       <div class="page-header__title">
         <h1 data-tour="schools-overview-title">{{ pageTitle }}</h1>
@@ -864,6 +865,9 @@
 </template>
 
 <script setup>
+import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';
+import '../../styles/schoolCareBridgeWorkspaceBrand.css';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -1020,6 +1024,7 @@ const showAllPortalsTo = computed(() => {
   return slug ? `/${slug}/admin/school-portals` : '/admin/school-portals';
 });
 
+useSchoolCareBridgeBranding(() => isAllPortalsPage.value ? 'All school portals' : 'School overview', () => orgType.value === 'school');
 const pageTitle = computed(() => {
   if (isAllPortalsPage.value) return 'Show All School Portals';
   if (orgType.value === 'program') return 'Program Overview';

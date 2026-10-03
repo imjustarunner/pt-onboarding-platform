@@ -3825,7 +3825,7 @@ const portalsNestHubChildren = computed(() => {
     if (canSeeSchoolPortalsForCoordinator.value) {
       children.push({
         id: 'sub_coordinator_school_portals',
-        label: 'School Portals',
+        label: 'SchoolCareBridge',
         kind: 'link',
         to: '/admin/school-portals-hub',
         badgeCount: 0,

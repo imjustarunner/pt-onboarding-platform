@@ -1,5 +1,5 @@
 const image = name => `/assets/ptco/${name}.webp`;
-export const ptcoNav = [['Home',''],['About','about'],['Services','services'],['Plot Twist HQ','hq'],['Industries','industries'],['Resources','resources']];
+export const ptcoNav = [['Home',''],['About','about'],['Services','services'],['Products','products'],['Plot Twist HQ','hq'],['Industries','industries'],['Resources','resources']];
 export const ptcoServices = [
   {id:'business-setup', title:'Business Setup', icon:'rocket', body:'Turn your vision into a solid foundation.', detail:'Map your launch, clarify responsibilities, and organize the practical steps of starting your business.'},
   {id:'credentialing', title:'Credentialing', icon:'document', body:'Navigate the process with confidence.', detail:'Organize provider information, track requirements, and coordinate credentialing work with your team.'},

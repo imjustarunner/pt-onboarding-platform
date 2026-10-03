@@ -101,6 +101,8 @@ server {
  root /usr/share/nginx/html;
  location = /manifest.webmanifest { default_type application/manifest+json; add_header Cache-Control "no-cache"; try_files /manifest.webmanifest =404; }
  location = / { add_header Cache-Control "no-cache"; try_files /_public-sites/${slug}/home.html =404; }
+ location = /schoolcarebridge/demo/ { absolute_redirect off; return 301 /schoolcarebridge/demo$is_args$args; }
+ location = /schoolcarebridge/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
  ${slug === 'mh4kidz' ? 'location = /schoolcarebridge { add_header Cache-Control "no-cache"; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location = /schoolcarebridge/app { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/app/ { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/ { add_header Cache-Control "no-store"; try_files /_public-sites/schoolcarebridge/home.html =404; }' : ''}
  location = /login { return 302 https://app.${domain}/login$is_args$args; }
  location = /app { return 302 https://app.${domain}/login$is_args$args; }
@@ -124,6 +126,10 @@ writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-pub
 server {
  listen 8080;
  server_name schoolcarebridge.org www.schoolcarebridge.org;
+ location = /demo/ { absolute_redirect off; return 301 /demo$is_args$args; }
+ location = /demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
+ location = /schoolcarebridge/demo/ { absolute_redirect off; return 301 /schoolcarebridge/demo$is_args$args; }
+ location = /schoolcarebridge/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
  root /usr/share/nginx/html;
  add_header X-Content-Type-Options nosniff always;
  location ^~ /api/ { return 404; } # Route /api/* to the existing backend at the load balancer.

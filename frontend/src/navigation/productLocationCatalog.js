@@ -205,10 +205,10 @@ export const PRODUCT_LOCATIONS = [
   {
     id: 'school-portals',
     routeName: 'SchoolPortalsHub',
-    label: 'School Portals',
+    label: 'SchoolCareBridge',
     description: 'Hub for school / program portal links.',
     group: 'admin',
-    howToFind: 'Admin → School Portals',
+    howToFind: 'Admin → SchoolCareBridge',
     keywords: ['school portals', 'school portal', 'portals hub', 'program portals'],
     rolesAny: ['admin', 'support', 'staff', 'super_admin', 'provider_plus', 'clinical_practice_assistant']
   },
