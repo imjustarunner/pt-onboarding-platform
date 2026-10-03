@@ -326,6 +326,12 @@ async function applyMissedSessionPolicyLocked(db, {
     : null;
   const policy = pkg?.missed_session_policy || { type: 'forfeit', freeRebooks: 0 };
 
+  // Custom consulting terms require a human decision; never silently forfeit
+  // a paid session or create a fee from an unrecognized custom agreement.
+  if (policy.type === 'custom') {
+    return { applied: false, action: 'MANUAL_REVIEW', feeCents: 0, note: policy.note || null };
+  }
+
   if (policy.type === 'free_rebook' && Number(entitlement.free_rebooks_remaining || 0) > 0) {
     await db.execute(
       `UPDATE practitioner_client_package_entitlements

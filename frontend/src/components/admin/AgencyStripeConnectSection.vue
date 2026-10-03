@@ -7,7 +7,8 @@
         </svg>
         <h4>Stripe Connect — Client Payments</h4>
       </div>
-      <p class="stripe-connect-desc">
+      <p v-if="paymentContext === 'consulting'" class="stripe-connect-desc">Connect the payment account for this consulting practice. Stripe securely collects legal business and payout details. Client package payments stay with this tenant’s configured merchant; no account is connected automatically.</p>
+      <p v-else class="stripe-connect-desc">
         Set up this organization’s payment account so clients and guardians can pay verified copays and self-pay balances. Stripe collects the legal business details, owners, statement descriptor, and payout bank account securely.
       </p>
     </div>
@@ -26,7 +27,7 @@
       <div class="stripe-status-row">
         <span class="pill pill-off">Not connected</span>
         <span class="stripe-status-hint">
-          Parents cannot pay online until you connect a Stripe account.
+          Clients cannot pay online until you connect a Stripe account.
         </span>
       </div>
       <div class="stripe-actions">
@@ -90,7 +91,7 @@
     <!-- Disconnect confirm -->
     <div v-if="showDisconnectConfirm" class="stripe-disconnect-confirm">
       <p>
-        <strong>Disconnect Stripe?</strong> Parents will no longer be able to pay online through
+        <strong>Disconnect Stripe?</strong> Clients will no longer be able to pay online through
         intake forms for this agency. This does not delete your Stripe account.
       </p>
       <div class="stripe-actions">
@@ -108,7 +109,8 @@ import { ref, onMounted } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  agencyId: { type: [Number, String], required: true }
+  agencyId: { type: [Number, String], required: true },
+  paymentContext: { type: String, default: 'care' }
 });
 
 const emit = defineEmits(['status-changed']);

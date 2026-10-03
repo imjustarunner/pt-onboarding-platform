@@ -3,7 +3,7 @@
     org-type="consultant"
     :is-client="false"
     :organization-slug="slug"
-    brand-title="Elevate Consulting"
+    :brand-title="slug === 'michael' ? 'Michael V. Mendez Consulting' : 'Elevate Consulting'"
     :greeting="greeting"
     tagline="Your consulting command center."
     :profile-name="profileName"
@@ -20,7 +20,20 @@
       <router-link class="ps-btn primary" :to="`/${slug}/admin/public-services`">Public Booking</router-link>
     </template>
 
-    <section class="card booking-card">
+    <section v-if="slug === 'michael'" class="card booking-card">
+      <div class="card-head"><h2>Your consulting practice</h2><span class="free-pill">Managed by Plot Twist Co.</span></div>
+      <p class="booking-copy">Website inquiries arrive in your ticket inbox and are assigned to you. Arrange the fit conversation, agree on scope, then add the prospect as a client and send their private package invitation below.</p>
+      <div class="booking-actions">
+        <a class="ps-btn primary" href="/michael" target="_blank" rel="noopener">Open your website ↗</a>
+        <router-link class="ps-btn ghost" to="/michael/tickets">Website inquiries</router-link>
+        <router-link class="ps-btn ghost" to="/michael/admin/clients">Add / manage clients</router-link>
+        <a class="ps-btn ghost" href="/michael/packages" target="_blank" rel="noopener">Public packages</a>
+      </div>
+      <p class="booking-copy">The invitation catalog includes your six scoped offers. Confirm the final fee, deliverables, cancellation terms, and agreement before sending an invitation. Public starting prices do not authorize a charge.</p>
+      <AgencyStripeConnectSection v-if="resolveAgencyId()" :agency-id="resolveAgencyId()" payment-context="consulting" />
+    </section>
+
+    <section v-else class="card booking-card">
       <div class="card-head">
         <h2>Public discovery booking</h2>
         <span class="free-pill">Free discovery</span>
@@ -53,7 +66,7 @@
       </div>
       <p v-if="prospectiveError" class="muted">{{ prospectiveError }}</p>
       <p v-else-if="prospectiveLoading" class="muted">Loading…</p>
-      <p v-else-if="!prospectiveClients.length" class="muted">No prospectives yet. Public booking inquiries will appear here.</p>
+      <p v-else-if="!prospectiveClients.length" class="muted">No prospective clients yet. Website inquiries are in your ticket inbox; add a client after confirming fit.</p>
       <ul v-else class="prospective-list">
         <li v-for="c in prospectiveClients.slice(0, 6)" :key="c.id">
           <div>
@@ -219,6 +232,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
+import AgencyStripeConnectSection from '../../components/admin/AgencyStripeConnectSection.vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
@@ -243,6 +257,7 @@ const greeting = computed(() => {
 });
 
 const publicHubUrl = computed(() => {
+  if (slug.value === 'michael') return 'https://plottwisthq.com/michael';
   if (typeof window === 'undefined') return `/${slug.value}/services`;
   return `${window.location.origin}/${slug.value}/services`;
 });
@@ -253,7 +268,7 @@ const publicFinderUrl = computed(() => {
 const copied = ref(false);
 const copyPublicLink = async () => {
   try {
-    await navigator.clipboard.writeText(publicFinderUrl.value);
+    await navigator.clipboard.writeText(publicHubUrl.value);
     copied.value = true;
     setTimeout(() => { copied.value = false; }, 2000);
   } catch {
@@ -263,6 +278,7 @@ const copyPublicLink = async () => {
 
 const resolveAgencyId = () => {
   const current = agencyStore.currentAgency?.value ?? agencyStore.currentAgency;
+  if (slug.value === 'michael' && String(current?.slug || current?.portal_url || '') !== 'michael') return null;
   const id = Number(current?.id || 0);
   return id > 0 ? id : null;
 };
@@ -385,7 +401,7 @@ async function openPacket(c) {
   packetClient.value = c;
   packetError.value = '';
   packetSuccess.value = '';
-  packetForm.value = { clientEmail: '', offeredIds: [], intakeLinkIds: [], notes: '' };
+  packetForm.value = { clientEmail: c?.contact_email || c?.email || '', offeredIds: [], intakeLinkIds: [], notes: '' };
   packetOpen.value = true;
   catalogLoading.value = true;
   intakeLinksLoading.value = true;
@@ -396,7 +412,8 @@ async function openPacket(c) {
       api.get('/intake-links', { params: { scopeType: 'agency', organizationId: agencyId } }).catch(() => ({ data: [] }))
     ]);
     catalogPackages.value = (pkgRes.data?.packages || []).filter((p) => p.is_active);
-    packetForm.value.offeredIds = catalogPackages.value.slice(0, 3).map((p) => p.id);
+    // A proposal is an explicit choice, not the first three packages by accident.
+    packetForm.value.offeredIds = [];
     const links = Array.isArray(linkRes.data) ? linkRes.data : (linkRes.data?.links || []);
     intakeLinks.value = links.filter((l) => l.is_active !== false);
   } catch (e) {

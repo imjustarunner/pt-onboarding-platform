@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { readFileSync } from 'node:fs';
 import { pages, renderWebsite } from './src/auricwell/website/render.mjs';
+import {pages as michaelPages, renderSite as renderMichaelSite} from './src/michael/site.mjs';
+import {buildMichaelSite} from './scripts/build-michael-site.mjs';
 import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
@@ -14,6 +16,20 @@ export default defineConfig({
   // Always resolve root relative to this config file (works even when invoked from repo root).
   root: rootDir,
   plugins: [vue(), {
+    name: 'michael-consulting-site',
+    closeBundle: buildMichaelSite,
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const pathname = new URL(req.url || '/', 'http://localhost').pathname.replace(/\/$/, '');
+        const section = pathname === '/michael' ? '' : pathname.slice('/michael/'.length);
+        if (/^\/michael(?:\/|$)/.test(pathname) && Object.hasOwn(michaelPages, section)) {
+          res.setHeader('Content-Type', 'text/html');
+          return res.end(renderMichaelSite(section, {dev: true}));
+        }
+        next();
+      });
+    }
+  }, {
     name: 'auricwell-preview-entry',
     configureServer(server) {
       server.middlewares.use((req, _res, next) => {
@@ -80,4 +96,3 @@ export default defineConfig({
     }
   }
 });
-

@@ -270,6 +270,7 @@ function buildPublicConfig(agency, requestSlug = '', supportEmail = '') {
     ] : PUBLIC_SUPPORT_CATEGORIES.filter(category => slug === 'nlu' || !['academic_acceleration', 'bridge_program'].includes(category.id)),
     phiWarning: PHI_WARNING,
     recaptchaSiteKey: String(config.recaptcha?.siteKey || process.env.RECAPTCHA_SITE_KEY || '').trim() || null,
+    recaptchaUseEnterprise: !!config.recaptcha?.enterpriseApiKey,
     recaptchaRequired: recaptchaConfigured && config.nodeEnv === 'production'
   };
 }
