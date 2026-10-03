@@ -1,19 +1,7 @@
 import { PLAN_FEATURES, PLAN_TIERS } from '../../config/productPlanCatalog.js';
 
 export function providerExample() {
-  return `<section class="section provider-example tinted" id="provider-example">
-    <div class="section-heading"><div><p class="eyebrow">FROM YOUR WEBSITE TO THE RIGHT NEXT STEP</p><h2>Find a provider.<br> See a time. Get started.</h2></div><p>Bring provider availability into the first conversation with a client. Pair published availability with your practice’s enrollment links and forms.</p></div>
-    <div class="finder-demo" data-provider-demo>
-      <div class="demo-heading"><strong>Find your next appointment</strong><span class="quiet-tag">Interactive example · fictional providers</span></div>
-      <div class="finder-layout"><fieldset class="provider-options"><legend>1. Choose a provider</legend>
-        <label class="provider-option"><input type="radio" name="example-provider" value="avery" checked><span class="demo-avatar">AL</span><span><strong>Avery Lane, LPC</strong><small>Individual therapy · Virtual</small></span></label>
-        <label class="provider-option"><input type="radio" name="example-provider" value="jordan"><span class="demo-avatar gold-avatar">JR</span><span><strong>Jordan Reed, LCSW</strong><small>Individual therapy · In person</small></span></label>
-      </fieldset><div class="demo-times"><h3>2. Explore example availability</h3><p data-provider-name>Avery Lane · Virtual · Mountain Time</p>
-        <div class="slot-options" role="group" aria-label="Example appointment times"><button type="button" data-slot="Tuesday, 10:00 AM" aria-pressed="false">Tue <strong>10:00 AM</strong></button><button type="button" data-slot="Wednesday, 2:00 PM" aria-pressed="false">Wed <strong>2:00 PM</strong></button><button type="button" data-slot="Friday, 11:00 AM" aria-pressed="false">Fri <strong>11:00 AM</strong></button></div>
-        <p class="demo-result" role="status" aria-live="polite" data-selection>Select a time to see the next step.</p>
-      </div></div><div class="demo-disclosure"><span>Example only. No appointment is booked and no information is collected.</span><span>The next step in a configured workflow is the practice’s enrollment or appointment request.</span></div>
-    </div><noscript><p>This is a sample availability display. Interactive selection requires JavaScript; it never books an appointment.</p></noscript>
-  </section>`;
+ return `<section class="section provider-example tinted" id="provider-example"><div class="section-heading"><div><p class="eyebrow">THE PROVIDER FINDER, AS IT APPEARS IN THE APP</p><h2>Real availability controls.<br> A familiar first step.</h2></div><p>Explore the same provider cards used in the app: care focus, in-person or virtual availability, published openings and time requests. These examples use synthetic providers.</p></div><div data-actual-example="providers"><p>Loading the app’s provider cards…</p></div><noscript><p>Enable JavaScript to try the actual provider-card component with synthetic data. No appointment is created.</p></noscript></section>`;
 }
 
 function planSection() {
@@ -23,7 +11,7 @@ function planSection() {
 }
 
 function progressExample() {
- return `<figure class="progress-demo"><figcaption><span class="eyebrow">ILLUSTRATIVE CHECK-IN HISTORY</span><strong>See the story between visits.</strong></figcaption><div class="metric-row"><div><span>Connection with provider</span><strong>8 <small>/ 10</small></strong><span>Previous check-in: 7</span></div><div><span>Client-reported progress</span><strong>7 <small>/ 10</small></strong><span>Previous check-in: 6</span></div></div><div class="goal-history"><strong>Goal: use a coping strategy independently</strong><ol><li><span>Starting point</span><strong>With support</strong></li><li><span>Earlier review</span><strong>Some independence</strong></li><li><span>Latest review</span><strong>More consistent use</strong></li></ol></div><p>Fictional example. Check-in feedback is client-reported, not a validated clinical measure or proof of improvement.</p></figure>`;
+ return `<div data-actual-example="goals"><p>Loading the app’s treatment-objective controls…</p></div>`;
 }
 
 export function homeStory({hero, feature, link, pill, preview, availability}) {
@@ -39,6 +27,7 @@ export function productStory({hero, feature, link, preview}) {
  return `${hero('ONE CONNECTED CLINICAL WORKFLOW','Built to move<br> <em>care forward.</em>','Less re-entering. Less searching. More of the context providers and supervisors need, carried from enrollment through the visit, the note and the next review.',preview())}
  <nav class="product-jump" aria-label="Product sections"><a href="#documentation">Documentation</a><a href="#progress">Treatment progress</a><a href="#care-experience">Care experience</a><a href="#provider-example">Availability example</a><a href="#plans">Plans</a></nav>
  <section class="section" id="documentation"><div class="section-heading"><div><p class="eyebrow">PRACTICE NOTES · AI AT THE POINT OF WORK</p><h2>Go from a session<br> to a structured draft.</h2></div><p>AI assistance is built into the documentation workflow. Use clinical context and, where enabled with signed acknowledgement, session transcription to support a draft. The clinician reviews the content before signing.</p></div>
+ <figure class="app-screenshot editor-screenshot"><a href="/auricwell/examples/note-editor.png" target="_blank" rel="noopener" aria-label="View the actual guided note editor at full size"><img src="/auricwell/examples/note-editor.png" alt="Actual Practice Notes editor after choosing an individual psychotherapy aid, showing service details and guided documentation controls with synthetic initials." loading="lazy" width="1392" height="1030"></a><figcaption>Actual guided note editor · Synthetic example data · <a href="/auricwell/examples/note-editor.png" target="_blank" rel="noopener">View full size ↗</a></figcaption></figure>
  <ol class="workflow-steps"><li><span>01</span><h3>Set the context</h3><p>Confirm the client, service, timing and treatment focus.</p></li><li><span>02</span><h3>Work through the sections</h3><p>Guided prompts organize interventions, response, progress and next steps.</p></li><li><span>03</span><h3>Generate and review</h3><p>Use AI to support the narrative, then check and edit the clinical content.</p></li><li><span>04</span><h3>Resolve what remains</h3><p>Complete the review, signature and billing requirements that apply.</p></li></ol>
  <div class="features">${feature('shield','Requirements in the workflow','Step-by-step documentation and content review help address configured audit and billing-manual requirements. Timing, service and claim checks support accuracy; they do not guarantee payment or an error-free note.')}${feature('note','Amend without losing history','Add addenda, corrections and late entries to signed notes while retaining the original. Corrections return to the appropriate review workflow.')}${feature('people','Supervision without the chase','Review-only workflows can avoid a separate supervisor cosign where configured. Documents and amendments that require approval remain in the supervision queue.',true)}</div>
  </section>

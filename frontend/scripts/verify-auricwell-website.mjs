@@ -30,15 +30,24 @@ try {
  for (const width of [1920,320]) {
   await page.setViewportSize({width,height:1000});
   await page.goto(`${base}/auricwell/product`);
-  await page.locator('input[value=jordan]').check();
-  await page.locator('[data-slot]').first().focus();
+  const providerDemo = page.locator('[data-actual-example=providers]');
+  await providerDemo.locator('.provider-card').first().waitFor();
+  assert.equal(await providerDemo.locator('.provider-card').count(),2);
+  await providerDemo.locator('button.slot-chip').first().focus();
   await page.keyboard.press('Enter');
-  assert.match(await page.locator('[data-selection]').innerText(), /Jordan Reed, Monday, 9:00 AM/);
-  assert.match(await page.locator('[data-selection]').innerText(), /Nothing has been booked/);
-  assert.equal(await page.locator('[data-slot][aria-pressed=true]').count(),1);
-  await page.locator('input[value=avery]').check();
-  assert.equal(await page.locator('[data-slot][aria-pressed=true]').count(),0);
-  assert.match(await page.locator('[data-provider-name]').innerText(), /Avery Lane/);
+  assert.match(await providerDemo.getByRole('status').innerText(), /Avery Lane/);
+  assert.match(await providerDemo.getByRole('status').innerText(), /no hold or appointment was created/);
+  await providerDemo.locator('.provider-card').nth(1).getByRole('button',{name:'View availability'}).click();
+  assert.match(await providerDemo.getByRole('status').innerText(), /Jordan Reed selected/);
+  const goalDemo = page.locator('[data-actual-example=goals]');
+  await goalDemo.getByRole('button',{name:'6',exact:true}).click();
+  assert.match(await goalDemo.locator('.actual-example-actions').innerText(), /Nothing was saved/);
+  await goalDemo.getByRole('button',{name:'Reset example'}).click();
+  await goalDemo.getByRole('button',{name:'Client',exact:true}).click();
+  assert.equal((await goalDemo.locator('.na-scale-btn.prev').textContent()).trim(),'4');
+  assert.equal(await page.locator('img[src="/auricwell/examples/practice-notes.png"]').count(),1);
+  assert.equal(await page.locator('img[src="/auricwell/examples/note-editor.png"]').count(),1);
+  assert(await page.locator('.app-screenshot img').first().evaluate(img=>img.complete && img.naturalWidth>0));
   assert.equal(await page.locator('.plan-card').count(),3);
   await page.screenshot({path:`/private/tmp/auricwell-feature-product-${width}.png`,fullPage:true});
  }
@@ -59,5 +68,5 @@ try {
  assert.equal(await page.getByRole('link',{name:'Continue to secure sign-in'}).getAttribute('href'),'/login?redirect=%2Fauricwell%2Fapp');
  assert.equal(apiRequests.length,0,'The public login landing must not fetch practice data');
  assert.equal(errors.length,0, errors.join('\n'));
- console.log('Website: 30 full-width responsive page checks; interactive availability, keyboard, plan comparison, contact, login and no clinical requests passed.');
+ console.log('Website: 30 full-width responsive page checks; actual provider and goal components, screenshots, keyboard, plan comparison, contact, login and no clinical requests passed.');
 } finally { await browser.close(); }
