@@ -39,25 +39,25 @@ try{
  await page.getByRole('link',{name:'Open chart'}).click();
  await page.getByRole('heading',{name:'Synthetic Client'}).waitFor();
  await page.getByText('Existing progress note',{exact:true}).waitFor();
- await page.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Documentation / Note Aid'}).click();
+ await page.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Practice Notes'}).click();
  await page.locator('.na-app').waitFor({timeout:60000});
  await page.waitForTimeout(2000);
- await page.screenshot({path:'/private/tmp/auricwell-preview-notes.png',fullPage:true});
+ console.log('Authenticated Note Aid opened.');
  await page.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Billing',exact:true}).click();
  await page.getByRole('heading',{name:'Billing Workspace'}).waitFor();
  assert.equal(await page.getByTestId('organization-scope').count(),0);
- await page.screenshot({path:'/private/tmp/auricwell-preview-billing.png',fullPage:true});
+ console.log('Authenticated billing opened.');
  await page.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Providers',exact:true}).click();
  await page.getByText('Sample Clinician',{exact:true}).waitFor();
  await page.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Appointments',exact:true}).click();
  await page.getByText('90834',{exact:true}).waitFor();
  await page.setViewportSize({width:390,height:844});
- await page.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Documentation / Note Aid'}).click();
+ await page.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Practice Notes'}).click();
  await page.locator('.na-app').waitFor();
  assert((await page.locator('.na-main').boundingBox()).width >= 300, 'Mobile editor must keep usable width');
  assert((await page.locator('.cnl').boundingBox()).width >= 300, 'Mobile library must keep usable width');
- await page.screenshot({path:'/private/tmp/auricwell-preview-note-mobile.png',fullPage:true});
- await page.screenshot({path:'/private/tmp/auricwell-preview-mobile.png',fullPage:true});
+ console.log('Authenticated mobile Note Aid opened.');
+
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  const scoped=requests.filter(r=>!r.path.startsWith('/auricwell-preview/context'));
  assert(scoped.every(r=>r.headers['x-auricwell-practice']==='7'),JSON.stringify(scoped.filter(r=>r.headers['x-auricwell-practice']!=='7')));
@@ -72,4 +72,4 @@ try{
  assert.equal(await page.locator('.aw-nav').count(),0);
  assert.equal(await page.getByText('Second Practice Client',{exact:true}).count(),0);
  console.log(JSON.stringify({ok:true,requests:requests.length,errors,practiceSwitch:true,unauthenticated:true}));
-}finally{await browser.close();}
+}catch(error){console.error({error:String(error),url:page.url(),errors});throw error;}finally{await browser.close();}

@@ -1,0 +1,88 @@
+// Real shared Vue screens, fictional fixtures, and no backend traffic (local or live).
+import assert from 'node:assert/strict';
+import {chromium} from '../../node_modules/playwright/index.mjs';
+import {demoResponse,practice,actor,weekStart} from '../src/auricwell/demo/fixtures.js';
+for(const method of ['post','put','patch','delete']) assert.throws(()=>demoResponse('/clinical-notes/drafts',{method}),/nothing was saved/);
+assert.throws(()=>demoResponse('/clients',{params:{agencyId:1}}),/outside/);
+assert.throws(()=>demoResponse('/clients/1'),/outside/);
+assert.throws(()=>demoResponse('/users/1/schedule-summary'),/outside/);
+assert.throws(()=>demoResponse('/medical-billing/claimmd/claims/1/draft'),/outside/);
+assert.throws(()=>demoResponse('/unknown'),/not included/);
+const base=process.env.AURICWELL_DEMO_BASE||'http://127.0.0.1:5181';
+const browser=await chromium.launch({channel:'chrome',headless:true});
+const page=await browser.newPage({viewport:{width:1440,height:1000},timezoneId:'America/Denver'});
+const errors=[],requests=[];
+page.on('pageerror',e=>errors.push(e.message));
+await page.route('**/api/**',route=>{requests.push(route.request().url());return route.abort();});
+let visit=0;
+const open=async section=>{await page.goto(`${base}/auricwell/demo?verify=${++visit}#/meadowbrook/${section}`);await page.locator('.aw-nav').waitFor();};
+try {
+ await page.route('**/storage-sentinel',r=>r.fulfill({contentType:'text/html',body:'<p>Existing application storage</p>'}));
+ await page.goto(`${base}/storage-sentinel`);
+ await page.evaluate(()=>{localStorage.setItem('user','{"id":123,"role":"provider"}');sessionStorage.setItem('session-id','existing-session');});
+ await open('providers');
+ assert.equal(await page.locator('.aw-nav svg').count(),6);
+ await page.getByRole('button',{name:'Avery Lane',exact:true}).click();
+ await page.getByRole('region',{name:'Provider profile'}).waitFor();
+ assert.match(await page.locator('.aw-provider-profile').innerText(),/collaborative goal setting/);
+ await page.locator('.aw-provider-profile img').evaluate(img=>img.decode());
+ await open('clients');
+ await page.getByLabel('Find a client').fill('Emerson');await page.getByRole('button',{name:'Search',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelectorAll('.aw-table tbody tr').length===1);
+ await page.getByRole('link',{name:'Open chart',exact:false}).click();
+ await page.getByRole('heading',{name:'Emerson Cole'}).waitFor();
+ await page.getByText('Build confidence and strengthen coping strategies',{exact:false}).waitFor();
+ await page.getByRole('link',{name:'Open in Documentation Hub',exact:false}).first().click();
+ await page.getByText('Fictional session example:',{exact:false}).first().waitFor();
+ await open('documentation');
+ await page.getByRole('button',{name:'Select next in progress',exact:false}).click();
+ await page.getByRole('button',{name:'Show library',exact:true}).waitFor();
+ await page.getByRole('button',{name:'Show queue',exact:true}).waitFor();
+ await page.getByText('Build confidence using coping strategies.',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'Save Draft',exact:true}).click();
+ await page.locator('.aw-demo-notice').waitFor();
+ assert.match(await page.locator('.aw-demo-notice').innerText(),/nothing was saved/);
+ await open('appointments');
+ await page.getByText('E.C. · Individual therapy',{exact:false}).first().waitFor();
+ assert.match(await page.locator('.sched-wrap').innerText(),/Confirmed/);
+ await page.getByRole('button',{name:'Book session',exact:true}).click();
+ const booking=page.getByRole('dialog').last();await booking.waitFor();
+ await booking.getByLabel('Appointment date',{exact:true}).fill(weekStart);
+ await booking.locator('input[type=time]').nth(0).fill('10:00');await booking.locator('input[type=time]').nth(1).fill('10:50');
+ await booking.locator('select').filter({has:page.locator('option[value="90834"]')}).first().selectOption('90834');
+ await booking.locator('select').filter({has:page.locator('option[value="990121"]')}).first().selectOption('990121');
+ await booking.getByRole('button',{name:'Schedule & link video room',exact:true}).click();
+ await page.locator('.aw-demo-notice').waitFor();
+ assert.match(await page.locator('.aw-demo-notice').innerText(),/nothing was saved/);
+ await open('billing');
+ await page.getByRole('button',{name:'DEMO-101',exact:true}).click();
+ const claim=page.getByRole('dialog');await claim.getByText('Fictional claim prepared for review.',{exact:false}).waitFor();
+ await claim.getByRole('button',{name:'Edit billing fields',exact:true}).click();
+ await claim.getByRole('button',{name:'Save for review',exact:true}).waitFor();
+ await claim.getByRole('button',{name:'Review for submission',exact:true}).click();
+ await claim.getByText('Demo only: clearinghouse and payer enrollment are not connected.',{exact:true}).waitFor();
+ assert(await claim.getByRole('button',{name:/Approve and submit/}).isDisabled());
+ console.log('Provider, chart, note, calendar and claim interactions passed.');
+ for(const width of [1440,768,390,320]) {
+  await page.setViewportSize({width,height:1000});
+  for(const section of ['overview','providers','clients','appointments','documentation','billing']) {
+   await open(section);await page.waitForTimeout(250);
+   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${section} overflows at ${width}`);
+  }
+ }
+ await page.goto(`${base}/auricwell/demo#/another-practice/clients`);
+ await page.getByRole('heading',{name:'Care, connected.'}).waitFor();
+ assert.match(page.url(),/#\/meadowbrook/);
+ await page.goto(`${base}/auricwell/product`);
+ await page.locator('[data-actual-example=workspace]').getByRole('button',{name:'Explore here',exact:true}).click();
+ const embedded=page.frameLocator('iframe[title="Interactive AuricWell EHR demo"]');
+ await embedded.locator('.sched-wrap').waitFor();
+ await embedded.getByRole('navigation',{name:'Practice navigation'}).getByRole('link',{name:'Providers',exact:true}).click();
+ await embedded.getByRole('button',{name:'Avery Lane',exact:true}).click();
+ await embedded.locator('.aw-provider-profile').waitFor();
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Embedded preview must fit mobile');
+ await page.goto(`${base}/storage-sentinel`);
+ assert.deepEqual(await page.evaluate(()=>({user:localStorage.getItem('user'),session:sessionStorage.getItem('session-id')})),{user:'{"id":123,"role":"provider"}',session:'existing-session'});
+ assert.deepEqual(errors,[]);assert.deepEqual(requests,[],'Demo must make zero backend requests');
+ console.log('Passed: 320–1440px layouts, icons, unknown-practice guard, write rejection, no backend requests, and same-tab account storage isolation.');
+} catch(error) {console.error({errors,requests,url:page.url(),text:(await page.locator('body').innerText()).slice(-3500)});throw error;} finally {await browser.close();}

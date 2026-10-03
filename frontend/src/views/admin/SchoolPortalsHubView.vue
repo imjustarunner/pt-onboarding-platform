@@ -13,7 +13,7 @@
 
     <div class="sph-cards">
       <router-link class="sph-card" :to="toOverview">
-        <div class="sph-card-icon" aria-hidden="true">📊</div>
+        <div class="sph-card-icon" aria-hidden="true"><PortalIcon name="building" /></div>
         <h2 class="sph-card-title">School Overview</h2>
         <p class="sph-card-desc muted">
           Search, sort, and review staffing and slot-style stats across affiliated schools. Post announcements to selected
@@ -23,7 +23,7 @@
       </router-link>
 
       <router-link class="sph-card" :to="toAllPortals">
-        <div class="sph-card-icon" aria-hidden="true">🏫</div>
+        <div class="sph-card-icon" aria-hidden="true"><PortalIcon name="building" /></div>
         <h2 class="sph-card-title">All school portals</h2>
         <p class="sph-card-desc muted">
           Card grid of school (and related) portals — same layout as expanding school portal shortcuts on My Dashboard.
@@ -33,7 +33,7 @@
       </router-link>
 
       <router-link class="sph-card sph-card--settings" :to="toYearUpdateSettings">
-        <div class="sph-card-icon" aria-hidden="true">⚙️</div>
+        <div class="sph-card-icon" aria-hidden="true"><PortalIcon name="settings" /></div>
         <h2 class="sph-card-title">Year update settings</h2>
         <p class="sph-card-desc muted">
           Enable the collaborative fall year update, edit the questionnaire, push to schools, and track progress and scores.
@@ -42,7 +42,7 @@
       </router-link>
 
       <router-link class="sph-card sph-card--settings" :to="toProviderYearUpdate">
-        <div class="sph-card-icon" aria-hidden="true">📋</div>
+        <div class="sph-card-icon" aria-hidden="true"><PortalIcon name="tasks" /></div>
         <h2 class="sph-card-title">Provider Fall Update</h2>
         <p class="sph-card-desc muted">
           Enable and push the fall provider update, share textable links, and track progress, clicks, and materials requests.
@@ -51,7 +51,7 @@
       </router-link>
 
       <router-link class="sph-card sph-card--settings" :to="toProviderUpdate">
-        <div class="sph-card-icon" aria-hidden="true">✅</div>
+        <div class="sph-card-icon" aria-hidden="true"><PortalIcon name="tasks" /></div>
         <h2 class="sph-card-title">Provider Update</h2>
         <p class="sph-card-desc muted">
           Modular staff updates with section toggles, People Ops email, Workplace Handbook, time tracking, and payroll submit.
@@ -60,7 +60,7 @@
       </router-link>
 
       <router-link class="sph-card" :to="toSchoolOnboarding">
-        <div class="sph-card-icon" aria-hidden="true">🚀</div>
+        <div class="sph-card-icon" aria-hidden="true"><PortalIcon name="arrow" /></div>
         <h2 class="sph-card-title">School Onboarding</h2>
         <p class="sph-card-desc muted">
           Invite a new school contact by name, email, and school. They receive a secure link to set up their portal, password, and staff.
@@ -72,6 +72,7 @@
 </template>
 
 <script setup>
+import PortalIcon from '../../components/portal/PortalIcon.vue';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';
 import '../../styles/schoolCareBridgeWorkspaceBrand.css';
@@ -95,6 +96,7 @@ const toSchoolOnboarding = computed(() => `${orgPrefix.value}/admin/schools/over
 </script>
 
 <style scoped>
+.sph-card-icon svg{width:28px;height:28px;color:var(--primary);}
 .sph-page {
   padding-top: 1rem;
   padding-bottom: 2.5rem;

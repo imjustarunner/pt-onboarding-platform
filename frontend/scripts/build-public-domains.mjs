@@ -101,6 +101,9 @@ server {
  root /usr/share/nginx/html;
  location = /manifest.webmanifest { default_type application/manifest+json; add_header Cache-Control "no-cache"; try_files /manifest.webmanifest =404; }
  location = / { add_header Cache-Control "no-cache"; try_files /_public-sites/${slug}/home.html =404; }
+    location = /auricwell/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex, nofollow" always; add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always; try_files /auricwell-demo.html =404; }
+    location = /auricwell/demo/ { absolute_redirect off; return 301 /auricwell/demo$is_args$args; }
+    location = /auricwell-demo.html { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex, nofollow" always; add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always; try_files $uri =404; }
  location = /schoolcarebridge/demo/ { absolute_redirect off; return 301 /schoolcarebridge/demo$is_args$args; }
  location = /schoolcarebridge/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
  ${slug === 'mh4kidz' ? 'location = /schoolcarebridge { add_header Cache-Control "no-cache"; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location = /schoolcarebridge/app { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/app/ { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/ { add_header Cache-Control "no-store"; try_files /_public-sites/schoolcarebridge/home.html =404; }' : ''}
@@ -128,6 +131,9 @@ server {
  server_name schoolcarebridge.org www.schoolcarebridge.org;
  location = /demo/ { absolute_redirect off; return 301 /demo$is_args$args; }
  location = /demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
+    location = /auricwell/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex, nofollow" always; add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always; try_files /auricwell-demo.html =404; }
+    location = /auricwell/demo/ { absolute_redirect off; return 301 /auricwell/demo$is_args$args; }
+    location = /auricwell-demo.html { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex, nofollow" always; add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always; try_files $uri =404; }
  location = /schoolcarebridge/demo/ { absolute_redirect off; return 301 /schoolcarebridge/demo$is_args$args; }
  location = /schoolcarebridge/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
  root /usr/share/nginx/html;

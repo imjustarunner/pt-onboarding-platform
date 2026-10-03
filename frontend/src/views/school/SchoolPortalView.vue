@@ -56,7 +56,7 @@
         >
           <span class="sp-nav-icon">
             <img v-if="homeIconUrl" :src="homeIconUrl" alt="" class="sp-nav-icon-img" />
-            <span v-else aria-hidden="true">⌂</span>
+            <PortalIcon v-else name="dashboard" class="sp-nav-fallback" />
           </span>
           <span class="sp-nav-label">Portal Home</span>
         </button>
@@ -77,7 +77,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">DY</span>
+            <PortalIcon v-else name="sessions" class="sp-nav-fallback" />
           </span>
           <span class="sp-nav-label">Days / Schedule</span>
         </button>
@@ -98,7 +98,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">PR</span>
+            <PortalIcon v-else name="providers" class="sp-nav-fallback" />
           </span>
           <span class="sp-nav-label">Providers</span>
         </button>
@@ -117,7 +117,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">RS</span>
+            <PortalIcon v-else name="people" class="sp-nav-fallback" />
           </span>
           <span class="sp-nav-label">{{ isProvider ? 'My roster' : 'Roster' }}</span>
         </button>
@@ -137,7 +137,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">SG</span>
+            <PortalIcon v-else name="plan" class="sp-nav-fallback" />
           </span>
           <span class="sp-nav-label">Skill Builders</span>
         </button>
@@ -157,16 +157,7 @@
               class="sp-nav-icon-img"
             />
             <div v-else class="sp-nav-icon-fallback" aria-hidden="true">
-              <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none">
-                <defs>
-                  <linearGradient id="sp-nav-ev-grad" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stop-color="#14b8a6"/>
-                    <stop offset="55%" stop-color="#22c55e"/>
-                    <stop offset="100%" stop-color="#eab308"/>
-                  </linearGradient>
-                </defs>
-                <path fill="url(#sp-nav-ev-grad)" d="M16 2.5 19.6 10.2 28.1 11.4 22.1 17.2 23.5 25.7 16 21.9 8.5 25.7 9.9 17.2 3.9 11.4 12.4 10.2Z"/>
-              </svg>
+              <PortalIcon name="events" />
             </div>
           </span>
           <span class="sp-nav-label">Events</span>
@@ -187,25 +178,7 @@
               class="sp-nav-icon-img"
             />
             <div v-else class="sp-nav-icon-fallback" aria-hidden="true">
-              <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none">
-                <defs>
-                  <linearGradient id="sp-nav-cl-grad" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stop-color="#14b8a6"/>
-                    <stop offset="55%" stop-color="#22c55e"/>
-                    <stop offset="100%" stop-color="#eab308"/>
-                  </linearGradient>
-                </defs>
-                <rect x="4" y="7" width="24" height="21" rx="3" fill="url(#sp-nav-cl-grad)"/>
-                <rect x="4" y="7" width="24" height="9" rx="3" fill="url(#sp-nav-cl-grad)"/>
-                <rect x="4" y="12" width="24" height="4" fill="url(#sp-nav-cl-grad)"/>
-                <rect x="10" y="3" width="3" height="7" rx="1.5" fill="url(#sp-nav-cl-grad)"/>
-                <rect x="19" y="3" width="3" height="7" rx="1.5" fill="url(#sp-nav-cl-grad)"/>
-                <rect x="8" y="18" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
-                <rect x="14.5" y="18" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
-                <rect x="21" y="18" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
-                <rect x="8" y="23" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
-                <rect x="14.5" y="23" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
-              </svg>
+              <PortalIcon name="sessions" />
             </div>
           </span>
           <span class="sp-nav-label">School Calendar</span>
@@ -225,7 +198,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">SS</span>
+            <PortalIcon v-else name="people" class="sp-nav-fallback" />
             <span
               v-if="Number(store.portalStats?.school_staff_count) > 0"
               class="sp-nav-badge"
@@ -246,7 +219,7 @@
         >
           <span class="sp-nav-icon">
             <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="sp-nav-icon-img" />
-            <span v-else aria-hidden="true">⚙</span>
+            <PortalIcon v-else name="settings" class="sp-nav-fallback" />
           </span>
           <span class="sp-nav-label">Settings</span>
         </button>
@@ -265,7 +238,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">DO</span>
+            <PortalIcon v-else name="documents" class="sp-nav-fallback" />
             <span v-if="waiverGateLocked" class="waiver-pending-badge waiver-pending-badge--sm" aria-label="1 action required">1</span>
           </span>
           <span class="sp-nav-label">Docs / Links</span>
@@ -285,7 +258,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">FQ</span>
+            <PortalIcon v-else name="help" class="sp-nav-fallback" />
           </span>
           <span class="sp-nav-label">FAQ</span>
         </button>
@@ -304,7 +277,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">AN</span>
+            <PortalIcon v-else name="notifications" class="sp-nav-fallback" />
             <span
               v-if="notificationsUnreadCount > 0"
               class="sp-nav-badge pulse"
@@ -329,7 +302,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">CA</span>
+            <PortalIcon v-else name="support" class="sp-nav-fallback" />
           </span>
           <span class="sp-nav-label">Contact Admin</span>
         </button>
@@ -348,7 +321,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">CH</span>
+            <PortalIcon v-else name="messages" class="sp-nav-fallback" />
             <span
               v-if="messagesUnreadCount > 0"
               class="sp-nav-badge pulse"
@@ -373,7 +346,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">QR</span>
+            <PortalIcon v-else name="forms" class="sp-nav-fallback" />
           </span>
           <span class="sp-nav-label">Digital Forms</span>
         </button>
@@ -393,21 +366,7 @@
               class="sp-nav-icon-img"
             />
             <div v-else class="sp-nav-icon-fallback" aria-hidden="true">
-              <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" fill="none">
-                <defs>
-                  <linearGradient id="sp-nav-pr-grad" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0%" stop-color="#14b8a6"/>
-                    <stop offset="55%" stop-color="#22c55e"/>
-                    <stop offset="100%" stop-color="#eab308"/>
-                  </linearGradient>
-                </defs>
-                <rect x="10" y="2" width="12" height="9" rx="1.5" fill="url(#sp-nav-pr-grad)" opacity="0.55"/>
-                <rect x="4" y="9" width="24" height="13" rx="2.5" fill="url(#sp-nav-pr-grad)"/>
-                <rect x="7" y="13" width="4" height="3" rx="0.75" fill="white" opacity="0.55"/>
-                <rect x="9" y="19" width="14" height="11" rx="1.5" fill="url(#sp-nav-pr-grad)" opacity="0.55"/>
-                <rect x="11" y="22" width="10" height="1.5" rx="0.75" fill="url(#sp-nav-pr-grad)"/>
-                <rect x="11" y="25.5" width="7" height="1.5" rx="0.75" fill="url(#sp-nav-pr-grad)"/>
-              </svg>
+              <PortalIcon name="documents" />
             </div>
           </span>
           <span class="sp-nav-label">Printable Forms</span>
@@ -426,7 +385,7 @@
               alt=""
               class="sp-nav-icon-img"
             />
-            <span v-else aria-hidden="true">UP</span>
+            <PortalIcon v-else name="upload" class="sp-nav-fallback" />
           </span>
           <span class="sp-nav-label">Upload Packet</span>
         </button>
@@ -659,7 +618,7 @@
                 aria-label="Organization settings"
               >
                 <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="" class="btn-icon-img" />
-                <span v-else aria-hidden="true">⚙</span>
+                <PortalIcon v-else name="settings" class="sp-nav-fallback" />
               </button>
               <div class="codes-toggle" data-tour="school-codes-toggle">
                 <button
@@ -838,7 +797,7 @@
           <div class="home-snapshot" data-tour="school-home-snapshot">
             <div class="home-snapshot-grid">
               <button class="home-metric" type="button" @click="openNotificationsPanel">
-                <span class="home-metric-icon" aria-hidden="true">📣</span>
+                <span class="home-metric-icon" aria-hidden="true"><PortalIcon name="notifications" /></span>
                 <span class="home-metric-value">{{ notificationsUnreadCount }}</span>
                 <span class="home-metric-label">Notifications</span>
               </button>
@@ -849,12 +808,12 @@
                 :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
                 @click="openDaysPanel"
               >
-                <span class="home-metric-icon" aria-hidden="true">📅</span>
+                <span class="home-metric-icon" aria-hidden="true"><PortalIcon name="sessions" /></span>
                 <span class="home-metric-value">{{ atGlance.days }}</span>
                 <span class="home-metric-label">Days supported</span>
               </button>
               <button class="home-metric" type="button" @click="openRosterPanel()">
-                <span class="home-metric-icon" aria-hidden="true">👥</span>
+                <span class="home-metric-icon" aria-hidden="true"><PortalIcon name="people" /></span>
                 <span class="home-metric-value">{{ atGlance.clients }}</span>
                 <span class="home-metric-label">Clients being seen</span>
               </button>
@@ -865,22 +824,22 @@
                 :title="!canAccessSchedulingPanels ? schedulingDisabledReason : ''"
                 @click="openProvidersPanel"
               >
-                <span class="home-metric-icon" aria-hidden="true">📋</span>
+                <span class="home-metric-icon" aria-hidden="true"><PortalIcon name="tasks" /></span>
                 <span class="home-metric-value">{{ atGlance.slots }}</span>
                 <span class="home-metric-label">Slots available</span>
               </button>
               <button class="home-metric" type="button" @click="openRosterPanel('pending')">
-                <span class="home-metric-icon" aria-hidden="true">👤</span>
+                <span class="home-metric-icon" aria-hidden="true"><PortalIcon name="child" /></span>
                 <span class="home-metric-value">{{ atGlance.pending }}</span>
                 <span class="home-metric-label">Pending clients</span>
               </button>
               <button class="home-metric" type="button" @click="openRosterPanel('waitlist')">
-                <span class="home-metric-icon" aria-hidden="true">⏱</span>
+                <span class="home-metric-icon" aria-hidden="true"><PortalIcon name="sessions" /></span>
                 <span class="home-metric-value">{{ atGlance.waitlist }}</span>
                 <span class="home-metric-label">Waitlist clients</span>
               </button>
               <button class="home-metric" type="button" @click="setPortalMode('school_staff')">
-                <span class="home-metric-icon" aria-hidden="true">🏫</span>
+                <span class="home-metric-icon" aria-hidden="true"><PortalIcon name="building" /></span>
                 <span class="home-metric-value">{{ atGlance.staff }}</span>
                 <span class="home-metric-label">School staff</span>
               </button>
@@ -915,7 +874,7 @@
                     alt="Providers icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">PR</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="providers" /></div>
                 </div>
                 <div class="dash-card-title">Providers</div>
                 <div class="dash-card-desc">View provider cards, profiles, and messages.</div>
@@ -940,7 +899,7 @@
                     alt="Days icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">DY</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="sessions" /></div>
                 </div>
                 <div class="dash-card-title">Days</div>
                 <div class="dash-card-desc">Choose a weekday and view schedules.</div>
@@ -957,7 +916,7 @@
                     alt="Roster icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">RS</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="people" /></div>
                 </div>
                 <div class="dash-card-title">Roster</div>
                 <div class="dash-card-desc">View and sort the client roster.</div>
@@ -980,7 +939,7 @@
                     alt="Skills groups icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">SG</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="plan" /></div>
                 </div>
                 <div class="dash-card-title">Skill Builders</div>
                 <div class="dash-card-desc">After-school program groups, meetings, providers, and participants.</div>
@@ -1004,16 +963,7 @@
                     class="dash-card-icon-img"
                   />
                   <div v-else class="dash-card-icon-fallback" aria-hidden="true">
-                    <svg viewBox="0 0 32 32" width="32" height="32" xmlns="http://www.w3.org/2000/svg" fill="none">
-                      <defs>
-                        <linearGradient id="ev-grad" x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0%" stop-color="#14b8a6"/>
-                          <stop offset="55%" stop-color="#22c55e"/>
-                          <stop offset="100%" stop-color="#eab308"/>
-                        </linearGradient>
-                      </defs>
-                      <path fill="url(#ev-grad)" d="M16 2.5 19.6 10.2 28.1 11.4 22.1 17.2 23.5 25.7 16 21.9 8.5 25.7 9.9 17.2 3.9 11.4 12.4 10.2Z"/>
-                    </svg>
+                    <PortalIcon name="events" />
                   </div>
                 </div>
                 <div class="dash-card-title">Events</div>
@@ -1033,25 +983,7 @@
                     class="dash-card-icon-img"
                   />
                   <div v-else class="dash-card-icon-fallback" aria-hidden="true">
-                    <svg viewBox="0 0 32 32" width="32" height="32" xmlns="http://www.w3.org/2000/svg" fill="none">
-                      <defs>
-                        <linearGradient id="cl-grad" x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0%" stop-color="#14b8a6"/>
-                          <stop offset="55%" stop-color="#22c55e"/>
-                          <stop offset="100%" stop-color="#eab308"/>
-                        </linearGradient>
-                      </defs>
-                      <rect x="4" y="7" width="24" height="21" rx="3" fill="url(#cl-grad)"/>
-                      <rect x="4" y="7" width="24" height="9" rx="3" fill="url(#cl-grad)"/>
-                      <rect x="4" y="12" width="24" height="4" fill="url(#cl-grad)"/>
-                      <rect x="10" y="3" width="3" height="7" rx="1.5" fill="url(#cl-grad)"/>
-                      <rect x="19" y="3" width="3" height="7" rx="1.5" fill="url(#cl-grad)"/>
-                      <rect x="8" y="18" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
-                      <rect x="14.5" y="18" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
-                      <rect x="21" y="18" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
-                      <rect x="8" y="23" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
-                      <rect x="14.5" y="23" width="3" height="3" rx="0.75" fill="white" opacity="0.85"/>
-                    </svg>
+                    <PortalIcon name="sessions" />
                   </div>
                 </div>
                 <div class="dash-card-title">School calendar</div>
@@ -1070,7 +1002,7 @@
               <button data-tour="school-home-card-settings" class="dash-card" type="button" @click="setPortalMode('settings')">
                 <div class="dash-card-icon">
                   <img v-if="settingsIconUrl" :src="settingsIconUrl" alt="Settings icon" class="dash-card-icon-img" />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">⚙</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="settings" /></div>
                 </div>
                 <div class="dash-card-title">Settings</div>
                 <div class="dash-card-desc">Change your school group email subscription and notification settings.</div>
@@ -1087,7 +1019,7 @@
                     alt="School staff icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">SS</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="people" /></div>
                 </div>
                 <div class="dash-card-title">School staff</div>
                 <div class="dash-card-desc">Manage linked school staff accounts and requests.</div>
@@ -1107,7 +1039,7 @@
                     alt="Announcements icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">AN</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="notifications" /></div>
                 </div>
                 <div class="dash-card-title">Notifications</div>
                 <div class="dash-card-desc">
@@ -1129,7 +1061,7 @@
                     alt="Messages icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">CH</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="messages" /></div>
                 </div>
                 <div class="dash-card-title">Messages</div>
                 <div class="dash-card-desc">Chat with providers and school staff. New messages appear here.</div>
@@ -1149,7 +1081,7 @@
                     alt="Contact admin icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">CA</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="support" /></div>
                 </div>
                 <div class="dash-card-title">Contact admin</div>
                 <div class="dash-card-desc">Send a message to agency staff.</div>
@@ -1178,7 +1110,7 @@
                     alt="Public documents icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">DO</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="documents" /></div>
                   <span v-if="waiverGateLocked" class="waiver-pending-badge" aria-label="1 action required">1</span>
                 </div>
                 <div class="dash-card-title">Docs / Links</div>
@@ -1196,7 +1128,7 @@
                     alt="FAQ icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">FQ</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="help" /></div>
                 </div>
                 <div class="dash-card-title">FAQ</div>
                 <div class="dash-card-desc">Common questions and answers.</div>
@@ -1225,7 +1157,7 @@
                     alt="Digital intake icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">QR</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="forms" /></div>
                 </div>
                 <div class="dash-card-title">Digital forms</div>
                 <div class="dash-card-desc">Replaces the paper intake packet. Share QR code or link for parents to complete forms.</div>
@@ -1242,7 +1174,7 @@
                     alt="Upload packet icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true">UP</div>
+                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="upload" /></div>
                 </div>
                 <div class="dash-card-title">Upload packet</div>
                 <div class="dash-card-desc">Upload a referral packet (no PHI exposed on portal).</div>
@@ -1266,21 +1198,7 @@
                     class="dash-card-icon-img"
                   />
                   <div v-else class="dash-card-icon-fallback" aria-hidden="true">
-                    <svg viewBox="0 0 32 32" width="32" height="32" xmlns="http://www.w3.org/2000/svg" fill="none">
-                      <defs>
-                        <linearGradient id="pr-grad" x1="0" y1="0" x2="1" y2="1">
-                          <stop offset="0%" stop-color="#14b8a6"/>
-                          <stop offset="55%" stop-color="#22c55e"/>
-                          <stop offset="100%" stop-color="#eab308"/>
-                        </linearGradient>
-                      </defs>
-                      <rect x="10" y="2" width="12" height="9" rx="1.5" fill="url(#pr-grad)" opacity="0.55"/>
-                      <rect x="4" y="9" width="24" height="13" rx="2.5" fill="url(#pr-grad)"/>
-                      <rect x="7" y="13" width="4" height="3" rx="0.75" fill="white" opacity="0.55"/>
-                      <rect x="9" y="19" width="14" height="11" rx="1.5" fill="url(#pr-grad)" opacity="0.55"/>
-                      <rect x="11" y="22" width="10" height="1.5" rx="0.75" fill="url(#pr-grad)"/>
-                      <rect x="11" y="25.5" width="7" height="1.5" rx="0.75" fill="url(#pr-grad)"/>
-                    </svg>
+                    <PortalIcon name="documents" />
                   </div>
                 </div>
                 <div class="dash-card-title">Printable Forms</div>
@@ -2636,6 +2554,7 @@
 </template>
 
 <script setup>
+import PortalIcon from '../../components/portal/PortalIcon.vue';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';
 import '../../styles/schoolCareBridgeWorkspaceBrand.css';
@@ -6148,6 +6067,7 @@ watch(() => store.selectedWeekday, async (weekday) => {
 </script>
 
 <style scoped>
+.sp-nav-fallback,.sp-nav-icon-fallback svg{width:20px;height:20px;flex-shrink:0}.dash-card-icon-fallback svg{width:28px;height:28px}.home-metric-icon svg{width:21px;height:21px}
 .sp-inline-bootstrap-loading {
   display: flex;
   align-items: center;

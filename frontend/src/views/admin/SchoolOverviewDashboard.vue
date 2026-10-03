@@ -387,7 +387,7 @@
                     @click.stop="goToSchoolSkillsGroups(s)"
                   >
                     <img v-if="skillBuildersIconUrl" :src="skillBuildersIconUrl" alt="" class="sg-icon-img" />
-                    <span v-else aria-hidden="true" class="sg-icon-fallback">SB</span>
+                    <PortalIcon v-else name="plan" class="sg-icon-fallback" />
                   </button>
                   <template v-if="canSeeSkillBuildersSchoolOverviewUi">
                     <span
@@ -865,6 +865,7 @@
 </template>
 
 <script setup>
+import PortalIcon from '../../components/portal/PortalIcon.vue';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';
 import '../../styles/schoolCareBridgeWorkspaceBrand.css';

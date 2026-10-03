@@ -6,7 +6,7 @@
    <p class="ptco-eyebrow">{{product.audience}}</p><h3>{{product.name}}</h3><p>{{product.description}}</p>
    <ul><li v-for="feature in product.features" :key="feature">{{feature}}</li></ul>
    <p class="product-context">{{product.context}}</p><router-link v-if="product.id==='plottwisthq'" class="ptco-button" to="/p/ptco/hq">Explore Plot Twist HQ →</router-link><a v-else class="ptco-button" :href="product.url">Explore {{product.name}} ↗</a>
-   <a v-if="product.demo" class="ptco-text-link" :href="product.demo">Try the actual school portal ↗</a>
+   <a v-if="product.demo" class="ptco-text-link" :href="product.demo">{{ product.demoLabel }} ↗</a>
   </article></div>
   <p class="ptco-small">Your organization’s permissions, configured features, agreements and integrations determine access. The treating practice delivers care; product branding does not change the parties named in your agreements.</p>
  </div></section>
@@ -14,8 +14,8 @@
 <script setup>
 const products=[
  {id:'plottwisthq',name:'Plot Twist HQ',audience:'The broader management suite',logo:'/assets/ptco/logo-flat.webp',description:'Connect client care with the work of running your organization.',features:['Clinical workflows, scheduling and billing','People operations, onboarding and payroll workflows','Programs, public websites and business operations'],context:'For organizations that need their business and service workflows together.'},
- {id:'auricwell',name:'AuricWell',audience:'The focused EHR',logo:'/auricwell/logo.png',description:'A clean clinical workspace for therapy practices, built on the shared clinical services.',features:['Practice Notes, AI drafting and supervision','Clients, guardians, scheduling and billing','New-practice setup or a reviewed EHR transition'],context:'Focused on EHR work. Practice launch remains subject to workflow and integration readiness.',url:'https://plottwisthq.com/auricwell'},
- {id:'schoolcarebridge',name:'SchoolCareBridge',audience:'School and agency coordination',logo:'/assets/schoolcarebridge/logo.png',description:'Bring schools and care teams together around enrollment, providers and student support.',features:['Working school portals and provider profiles','School schedules, student rosters and enrollment','Care-team messages and agency school overviews'],context:'A Plot Twist Co. product. MH4Kidz operates the program; affiliated agencies provide care.',url:'https://mh4kidz.org/schoolcarebridge',demo:'https://mh4kidz.org/schoolcarebridge/demo'}
+ {id:'auricwell',name:'AuricWell',audience:'The focused EHR',logo:'/auricwell/logo.png',description:'A clean clinical workspace for therapy practices, built on the shared clinical services.',features:['Practice Notes, AI drafting and supervision','Clients, guardians, scheduling and billing','New-practice setup or a reviewed EHR transition'],context:'Focused on EHR work. Practice launch remains subject to workflow and integration readiness.',url:'https://plottwisthq.com/auricwell',demo:'https://plottwisthq.com/auricwell/demo',demoLabel:'Try the actual EHR workspace'},
+ {id:'schoolcarebridge',name:'SchoolCareBridge',audience:'School and agency coordination',logo:'/assets/schoolcarebridge/logo.png',description:'Bring schools and care teams together around enrollment, providers and student support.',features:['Working school portals and provider profiles','School schedules, student rosters and enrollment','Care-team messages and agency school overviews'],context:'A Plot Twist Co. product. MH4Kidz operates the program; affiliated agencies provide care.',url:'https://mh4kidz.org/schoolcarebridge',demo:'https://mh4kidz.org/schoolcarebridge/demo',demoLabel:'Try the actual school portal'}
 ];
 </script>
 <style scoped>

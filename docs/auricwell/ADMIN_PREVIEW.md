@@ -97,3 +97,31 @@ The browser verification checks all five pages at six widths, keyboard operation
 The examples use fictional records and local state. They neither call clinical APIs nor create bookings, check-ins, signatures or notifications. Provider arrival SMS remains an explicitly labeled design preview; this website change does not enable a delivery channel. Existing public marketing/chat configuration reads and the site’s anonymous session check remain unchanged.
 
 Run `node frontend/scripts/verify-ptco-showcase.mjs` against the frontend dev server on port 5181, or set `PTCO_PREVIEW_URL=https://plottwistco.com` for read-only deployed checks. It covers Home, HQ, Contact and Start at five widths, interactive examples, shared-image loading, keyboard access, source links, branding, FAQs and hash navigation. It blocks workflow writes and checks for unexpected private API requests. Also run `verify-auricwell-website.mjs` after changes to the shared components.
+
+## Public fictional workspace demo
+
+`/auricwell/demo` is a separate HTML entry with a hash router. It mounts the same
+AuricWell App, client chart/directory, Practice Notes, billing workspace and shared
+scheduling component with repository-owned fictional Meadowbrook Therapy records.
+The authenticated `/auricwell/app` entry still requires its existing server-verified
+administrator context. Demo access does not grant application access.
+
+The demo replaces local/session storage with isolated memory stores *before* shared
+modules load. Its Axios adapter has no network fallback: only explicit fixture
+reads are accepted; mutations, unknown reads and foreign IDs are rejected. CSP
+blocks connections, external scripts, frames and form submissions. Microphone and
+camera access are disabled by the demo route's Permissions-Policy; its bootstrap
+also rejects recording requests. AI, claims transmission, payments and delivery
+are not connected. Reset/reload discards browser-only edits.
+
+AuricWell home/product pages offer an opt-in iframe and full-workspace link, and
+Plot Twist Co.'s AuricWell product card links to the same demo. Website captures
+are taken from these real components with synthetic data. This does not establish
+production launch readiness for any workflow.
+
+Validation (no Docker): `node frontend/scripts/verify-auricwell-demo.mjs` accepts
+`AURICWELL_DEMO_BASE` for a locally served production build or the deployed origin.
+It covers provider bios, client charts, draft opening with both rails collapsed,
+blocked saving/booking, claim review, 320–1440px layouts, zero backend requests and
+same-tab session/preferences isolation. Existing preview and public website
+regression scripts remain separate.

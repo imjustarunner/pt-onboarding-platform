@@ -19,6 +19,7 @@ export default defineConfig({
       server.middlewares.use((req, _res, next) => {
         const parsed = new URL(req.url || '/', 'http://localhost');
         const pathname = parsed.pathname.replace(/\/$/, '');
+        if (pathname === '/auricwell/demo') {req.url='/auricwell-demo.html'+parsed.search;return next();}
         if (pathname === '/schoolcarebridge/demo') {req.url='/schoolcarebridge-demo.html'+parsed.search;return next();}
         if (pathname === '/auricwell/website-demo.js') {
           _res.setHeader('Content-Type', 'application/javascript');
@@ -75,7 +76,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     rollupOptions: {
-      input: { main: indexHtml, auricwell: fileURLToPath(new URL('./auricwell.html', import.meta.url)), schoolcarebridgeDemo: fileURLToPath(new URL('./schoolcarebridge-demo.html', import.meta.url)) }
+      input: { main: indexHtml, auricwell: fileURLToPath(new URL('./auricwell.html', import.meta.url)), auricwellDemo: fileURLToPath(new URL('./auricwell-demo.html', import.meta.url)), schoolcarebridgeDemo: fileURLToPath(new URL('./schoolcarebridge-demo.html', import.meta.url)) }
     }
   }
 });

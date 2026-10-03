@@ -114,6 +114,7 @@ app.use((req, res, next) => {
     if (pathname !== req.path) return res.redirect(301, pathname + req.originalUrl.slice(req.path.length));
     return res.set('Cache-Control', 'no-cache').sendFile(join(distPath, 'auricwell/site', `${section || 'home'}.html`));
   }
+  if (section === 'demo') return res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex, nofollow').set('Permissions-Policy','camera=(), microphone=(), geolocation=()').sendFile(join(distPath,'auricwell-demo.html'));
   if (/^app(?:\/|$)/.test(section)) return res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(join(distPath, 'auricwell.html'));
   if (section.startsWith('site/')) return res.sendStatus(404);
   if (section.startsWith('examples/')) return res.set('Cache-Control','no-cache').sendFile(join(distPath,'auricwell',section));
@@ -125,6 +126,7 @@ app.use((req, res, next) => {
 });
 app.get(['/schoolcarebridge/demo','/schoolcarebridge/demo/','/schoolcarebridge-demo.html'], (_req,res)=>res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex').sendFile(join(distPath,'schoolcarebridge-demo.html')));
 app.get('/demo', (req,res,next)=>['schoolcarebridge.org','www.schoolcarebridge.org'].includes(req.hostname) ? res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex').sendFile(join(distPath,'schoolcarebridge-demo.html')) : next());
+app.get('/auricwell-demo.html', (_req,res)=>res.set('Cache-Control','no-store').set('X-Robots-Tag','noindex, nofollow').set('Permissions-Policy','camera=(), microphone=(), geolocation=()').sendFile(join(distPath,'auricwell-demo.html')));
 app.get('/auricwell.html', (_req, res) => res.set('Cache-Control', 'no-store').set('X-Robots-Tag', 'noindex, nofollow').sendFile(join(distPath, 'auricwell.html')));
 
 // Serve static files from dist directory
