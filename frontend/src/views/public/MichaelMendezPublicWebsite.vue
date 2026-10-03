@@ -32,7 +32,7 @@
 
       <section class="mm-cta"><div><div class="mm-eyebrow mm-eyebrow-light">Ready when you are</div><h2>Bring the idea.<br><em>We’ll build the path.</em></h2></div><RouterLink class="mm-button mm-button-light" to="/michael/find-consultant">Book a conversation <span>↗</span></RouterLink></section>
     </main>
-    <footer class="mm-footer"><span>Michael V. Mendez Consulting</span><a class="mm-product" href="/p/ptco"><img src="/assets/ptco/logo-flat.webp" alt="Plot Twist Co."><span>A Plot Twist Co. product</span></a><span><a href="/michael/find-consultant">Book consulting</a></span></footer>
+    <footer class="mm-footer"><span>Michael V. Mendez Consulting</span><a class="mm-product" href="https://plottwistco.com"><img src="/assets/ptco/logo-flat.webp" alt="Plot Twist Co."><span>A Plot Twist Co. product</span></a><span><a href="/michael/find-consultant">Book consulting</a></span></footer>
   </div>
 </template>
 
