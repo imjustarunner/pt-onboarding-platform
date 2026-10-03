@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { ITSCO_PUBLIC_SECTIONS } from '../src/utils/publicDomainRouting.js';
 import { itscoPublicResponse, itscoSitemap, ITSCO_REDIRECTS, ITSCO_ORIGIN } from '../src/utils/itscoPublicSeo.js';
 import { buildShareMeta, injectShareMetaIntoHtml } from '../src/utils/sharePreview.js';
+import {sstcNginxServer} from './build-sstc-website.mjs';
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const out = `${dist}/_public-sites/itsco`;
 mkdirSync(out, {recursive:true});
@@ -120,6 +121,7 @@ server {
 }
 `;}).join('\n');
 writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + publicServers);
+writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + sstcNginxServer());
 
 // Prepared now; DNS, certificate and load-balancer activation are separate rollout steps.
 mkdirSync(`${dist}/_public-sites/schoolcarebridge`, {recursive:true});

@@ -7,6 +7,7 @@ import { existsSync, readdirSync, statSync, readFileSync } from 'fs';
 import { buildShareMeta, injectShareMetaIntoHtml } from './src/utils/sharePreview.js';
 
 import { isItscoPublicHost } from './src/utils/publicDomainRouting.js';
+import {isSstcPublicHost, sstcMarketingPage} from './src/sstc/website/routing.mjs';
 import { itscoPublicResponse, itscoSitemap, ITSCO_ORIGIN } from './src/utils/itscoPublicSeo.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,6 +16,14 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 8080;
 const distPath = join(__dirname, 'dist');
+app.use((req,res,next) => {
+  const page = sstcMarketingPage(req.headers.host, req.path);
+  if (page) return res.set('Cache-Control','no-cache').sendFile(join(distPath, '_public-sites', page.base ? 'sstc-alias' : 'sstc', `${page.section || 'home'}.html`));
+  if (isSstcPublicHost(req.headers.host) && ['/sitemap.xml','/robots.txt'].includes(req.path)) return res.sendFile(join(distPath, '_public-sites/sstc', req.path.slice(1)));
+  if (['/assets/sstc/site.css','/assets/sstc/browser.js'].includes(req.path)) return res.set('Cache-Control','no-cache').sendFile(join(distPath, req.path));
+  if (req.path.startsWith('/_public-sites/sstc')) return res.sendStatus(404);
+  next();
+});
 app.use((req,res,next)=>{
   const match=req.path.match(/^\/kiosk-welcome\/(1|6)\/?$/);
   const site=match?OFFICE_SITES.find(s=>s.locationId===Number(match[1])):req.path==='/'?officeSiteForHost(req.headers.host):null;

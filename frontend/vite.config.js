@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 import { pages, renderWebsite } from './src/auricwell/website/render.mjs';
 import {pages as michaelPages, renderSite as renderMichaelSite} from './src/michael/site.mjs';
 import {buildMichaelSite} from './scripts/build-michael-site.mjs';
+import {renderSstc} from './src/sstc/website/render.mjs';
+import {sstcMarketingPage} from './src/sstc/website/routing.mjs';
+import {buildSstcWebsite} from './scripts/build-sstc-website.mjs';
 import path from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 
@@ -16,6 +19,17 @@ export default defineConfig({
   // Always resolve root relative to this config file (works even when invoked from repo root).
   root: rootDir,
   plugins: [vue(), {
+    name: 'summit-stats-public-website',
+    closeBundle: buildSstcWebsite,
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const page = sstcMarketingPage(req.headers.host, req.url);
+        if (!page) return next();
+        res.setHeader('Content-Type', 'text/html');
+        res.end(renderSstc(page.section, {...page, dev:true}));
+      });
+    }
+  }, {
     name: 'michael-consulting-site',
     closeBundle: buildMichaelSite,
     configureServer(server) {

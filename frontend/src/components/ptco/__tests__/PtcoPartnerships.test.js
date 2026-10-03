@@ -9,14 +9,16 @@ const directory=[
  {slug:'itsco',name:'ITSCO',url:'https://www.itsco.health',logoUrl:null,relationship:'associate'},
  {slug:'michael',name:'Michael V. Mendez Consulting',url:'https://plottwisthq.com/michael',logoUrl:'https://plottwisthq.com/assets/michael/monogram.svg',relationship:'associate'},
  {slug:'rmmentors',name:'Rocky Mountain Mentors',url:'https://rmmentors.com',logoUrl:null,comingSoon:true,relationship:'associate'},
- {slug:'other',name:'Other organization',url:'https://example.org',logoUrl:'/assets/other.png',relationship:'subsidiary'}
+ {slug:'other',name:'Other organization',url:'https://example.org',logoUrl:'/assets/other.png',relationship:'subsidiary'},
+ {slug:'sstc',name:'Summit Stats Team Challenge',url:'https://summitstatstc.com',relationship:'subsidiary',comingSoon:true}
 ];
 async function render(){wrapper=mount(Partnerships);await flushPromises();}
 beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:{partners:directory.map(p=>({...p}))}});});
 afterEach(()=>wrapper?.unmount());
 describe('Plot Twist Co. organization directory',()=>{
- it('omits only the management company’s self-listing',async()=>{
+ it('omits the management company and the app listed in the product family',async()=>{
   await render();expect(wrapper.find('[data-partner="ptco"]').exists()).toBe(false);
+  expect(wrapper.find('[data-partner="sstc"]').exists()).toBe(false);
   expect(wrapper.findAll('.partner-card')).toHaveLength(4);
   expect(wrapper.find('[data-partner="other"] .partner-relationship').text()).toBe('Subsidiary');
  });

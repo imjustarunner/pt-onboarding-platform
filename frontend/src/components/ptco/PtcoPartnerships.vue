@@ -21,14 +21,15 @@ import {safeMarketingHref} from '../../utils/marketingPageQuality';
 const partners=ref([]),error=ref(false);
 // These supplied public-site assets also cover directory records without logos.
 // Keep this presentation mapping local: agency branding and relationship records
-// remain unchanged, and Plot Twist Co. can still appear in other directories.
+// remain unchanged. Plot Twist Co. is not its own partner, and Summit Stats
+// appears in the product family instead of duplicating an organization card.
 const directoryBrands={
  itsco:{logoUrl:'/assets/itsco/logo.png'},
  michael:{logoUrl:'/assets/michael/logo-horizontal.png',logoLayout:'horizontal'},
  rmmentors:{logoUrl:'/assets/rmmentors/logo.jpeg'}
 };
 const models=[{name:'Associate',body:'An independent business managed by PlotTwist under contract. PlotTwist holds no ownership.'},{name:'Affiliate',body:'A business in which PlotTwist holds an equity stake and provides management services.'},{name:'Subsidiary',body:'A majority-owned company within the PlotTwist umbrella. Subsidiaries receive management services within the affiliate scope.'}];
-async function load(){error.value=false;try{const{data}=await api.get('/public/marketing-pages/partners',{skipAuthRedirect:true,skipGlobalLoading:true});partners.value=(data.partners||[]).filter(p=>String(p.slug||'').toLowerCase()!=='ptco').map(p=>({...p,...directoryBrands[p.slug],url:safeMarketingHref(p.url),logoUrl:safeMarketingHref(directoryBrands[p.slug]?.logoUrl||p.logoUrl)}));}catch{error.value=true;}}
+async function load(){error.value=false;try{const{data}=await api.get('/public/marketing-pages/partners',{skipAuthRedirect:true,skipGlobalLoading:true});partners.value=(data.partners||[]).filter(p=>!['ptco','sstc'].includes(String(p.slug||'').toLowerCase())).map(p=>({...p,...directoryBrands[p.slug],url:safeMarketingHref(p.url),logoUrl:safeMarketingHref(directoryBrands[p.slug]?.logoUrl||p.logoUrl)}));}catch{error.value=true;}}
 onMounted(load);
 </script>
 <style scoped>

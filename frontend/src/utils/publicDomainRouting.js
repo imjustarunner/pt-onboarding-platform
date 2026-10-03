@@ -1,5 +1,6 @@
 import { officePaths } from './officeSite.js';
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
+import {isSstcPublicHost, sstcPublicPaths} from '../sstc/website/routing.mjs';
 /** Public-domain address adapter. App and Quick View hosts are deliberately excluded. */
 export const ITSCO_PUBLIC_HOSTS = ['itsco.health', 'www.itsco.health'];
 export const ITSCO_PUBLIC_SECTIONS = ['', 'community-standards', 'live-chat-support', 'services', 'providers', 'schools', 'about', 'growth', 'impact', 'team', 'insurance', 'resources', 'referral-network', 'contact', 'internships', 'founders', 'supervisors', 'internship-fair'];
@@ -36,6 +37,7 @@ export function publicSupportSlugFromHost(host = '') {
  return publicSiteSlug(host);
 }
 export function publicSitePaths(host) {
+ if (isSstcPublicHost(host)) return sstcPublicPaths;
  const office = officePaths(host);
  if (office) return office;
  if (isSchoolCareBridgeHost(host)) return {

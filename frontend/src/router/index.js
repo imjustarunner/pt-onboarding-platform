@@ -4742,6 +4742,13 @@ for (const route of routes) {
     route.alias = [...(Array.isArray(route.alias) ? route.alias : route.alias ? [route.alias] : []), route.path.replace('/:organizationSlug', '/schoolcarebridge/app/:organizationSlug')];
   }
 }
+routes.unshift({
+  path: '/p/sstc/:section(features|how-it-works|groups|tour|pricing|faq|about|contact)?',
+  name: 'SummitStatsWebsite',
+  component: () => import('../views/public/SummitStatsWebsiteEntry.vue'),
+  meta: {requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Summit Stats Team Challenge'}
+});
+
 const router = createRouter({
   history: publicDomainHistory(createWebHistory(), window.location.hostname),
   routes,
