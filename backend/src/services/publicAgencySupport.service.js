@@ -1,6 +1,7 @@
 import {resolveChatReferral} from './websiteChatReferral.service.js';
 import {getPublicWebsiteIdentity} from './publicWebsiteIdentity.service.js';
 import { routePublicWebsiteTicket } from './publicWebsiteTicketRouting.service.js';
+import { validateMichaelWebsiteInquiry } from './michaelInquiryPolicy.js';
 import pool from '../config/database.js';
 import { resolveInternshipContact, deliverInternshipInquiry, INTERNSHIP_INQUIRY_SUBJECT } from './itscoInternshipInquiry.service.js';
 import config from '../config/config.js';
@@ -437,6 +438,7 @@ export async function createPublicAgencySupportTicket(agencySlug, payload = {}, 
   }
 
   const name = String(payload.name || '').trim().slice(0, 120);
+  validateMichaelWebsiteInquiry(agency, payload);
   const email = String(payload.email || '').trim().toLowerCase().slice(0, 255);
   const phone = String(payload.phone || payload.callbackPhone || '').trim().slice(0, 40);
   const preferText = payload.preferText === true || payload.preferText === 'true' || payload.preferText === 1;

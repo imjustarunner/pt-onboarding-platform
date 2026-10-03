@@ -57,10 +57,10 @@ if (inquiry) {
       const fields = Object.fromEntries(new FormData(inquiry));
       const config = await jsonRequest('/api/public/agency-support/michael');
       const token = await captchaToken(config);
-      const message = [`Consulting interest: ${interest.selectedOptions[0].textContent}`, `Organization: ${fields.organization || 'Not provided'}`, `Timing: ${fields.timing || 'Not provided'}`, `Budget: ${fields.budget || 'Not provided'}`, '', fields.message].join('\n');
+      const message = [`Service interest: ${interest.selectedOptions[0].textContent}`, `Adult contact role: ${inquiry.elements.contactRole.selectedOptions[0].textContent}`, `Organization: ${fields.organization || 'Not provided'}`, `Timing: ${fields.timing || 'Not provided'}`, `Budget: ${fields.budget || 'Not provided'}`, '', fields.message].join('\n');
       const result = await jsonRequest('/api/public/agency-support/michael/tickets', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: fields.name, email: fields.email, category: 'other', message, website: fields.website, phiAcknowledged: fields.consent === 'on', captchaToken: token})
+        body: JSON.stringify({name: fields.name, email: fields.email, category: 'other', message, website: fields.website, phiAcknowledged: fields.consent === 'on', captchaToken: token, inquirySource: 'michael_website', interest: fields.interest, contactRole: fields.contactRole, adultContact: fields.adultContact === 'on'})
       });
       if (!result.ok || !result.ticketId) throw new Error('We could not confirm your inquiry was received. Please email Michael before submitting again.');
       inquiry.hidden = true;

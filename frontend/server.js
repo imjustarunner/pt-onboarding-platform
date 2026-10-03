@@ -106,7 +106,7 @@ app.use((req, res, next) => {
 });
 
 app.use((req, res, next) => {
-  const match = req.path.match(/^\/michael(?:\/(services|private-practice|scale-your-practice|ai-development|business-growth|nonprofits|packages|work|about|contact|pay|privacy|terms))?\/?$/);
+  const match = req.path.match(/^\/michael(?:\/(services|coaching|running-coaching|college-planning|college-coach-consulting|private-practice|scale-your-practice|ai-development|business-growth|nonprofits|packages|work|about|contact|pay|privacy|terms))?\/?$/);
   if (match) return res.set('Cache-Control', 'no-cache').sendFile(join(distPath, 'michael/site', `${match[1] || 'home'}.html`));
   if (req.path.startsWith('/michael/site/')) return res.sendStatus(404);
   if (['/michael/site.css','/michael/browser.js','/michael/sitemap.xml'].includes(req.path)) return res.set('Cache-Control', 'no-cache').sendFile(join(distPath, req.path));

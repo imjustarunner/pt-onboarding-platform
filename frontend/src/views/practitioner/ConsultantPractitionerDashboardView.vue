@@ -21,15 +21,17 @@
     </template>
 
     <section v-if="slug === 'michael'" class="card booking-card">
-      <div class="card-head"><h2>Your consulting practice</h2><span class="free-pill">Managed by Plot Twist Co.</span></div>
+      <div class="card-head"><h2>Your consulting & coaching practice</h2><span class="free-pill">Managed by Plot Twist Co.</span></div>
       <p class="booking-copy">Website inquiries arrive in your ticket inbox and are assigned to you. Arrange the fit conversation, agree on scope, then add the prospect as a client and send their private package invitation below.</p>
       <div class="booking-actions">
         <a class="ps-btn primary" href="/michael" target="_blank" rel="noopener">Open your website ↗</a>
         <router-link class="ps-btn ghost" to="/michael/tickets">Website inquiries</router-link>
         <router-link class="ps-btn ghost" to="/michael/admin/clients">Add / manage clients</router-link>
         <a class="ps-btn ghost" href="/michael/packages" target="_blank" rel="noopener">Public packages</a>
+        <a class="ps-btn ghost" href="/assets/michael/profile-workbook.html" target="_blank" rel="noopener">Profile & playbook workbook</a>
+        <a class="ps-btn ghost" href="/assets/michael/client-guide-review.pdf" target="_blank" rel="noopener">Review your client guide</a>
       </div>
-      <p class="booking-copy">The invitation catalog includes your six scoped offers. Confirm the final fee, deliverables, cancellation terms, and agreement before sending an invitation. Public starting prices do not authorize a charge.</p>
+      <p class="booking-copy">The invitation catalog includes business consulting, running coaching, student-athlete guidance, and recruiting strategy. Confirm the final fee, deliverables, cancellation terms, and agreement before sending an invitation. For a minor, confirm the guardian, consent, communication plan, and responsible payer before enrollment. Public starting prices do not authorize a charge.</p>
       <AgencyStripeConnectSection v-if="resolveAgencyId()" :agency-id="resolveAgencyId()" payment-context="consulting" />
     </section>
 

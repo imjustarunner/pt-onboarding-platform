@@ -416,7 +416,7 @@ const routes = [
     meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Michael V. Mendez | Private Practice & AI Systems' }
   },
   {
-    path: '/michael/:page(services|private-practice|scale-your-practice|ai-development|business-growth|nonprofits|packages|work|about|contact|pay|privacy|terms)',
+    path: '/michael/:page(services|coaching|running-coaching|college-planning|college-coach-consulting|private-practice|scale-your-practice|ai-development|business-growth|nonprofits|packages|work|about|contact|pay|privacy|terms)',
     name: 'MichaelMendezOfferPage',
     component: () => import('../views/public/MichaelWebsiteEntry.vue'),
     meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Michael V. Mendez Consulting' }
