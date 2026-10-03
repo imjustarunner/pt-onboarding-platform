@@ -1,3 +1,4 @@
+import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowPath } from '../utils/schoolCareBridge.js';
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { createRouter, createWebHistory } from 'vue-router';
@@ -335,6 +336,12 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  { path: '/schoolcarebridge/session-ended', name: 'SchoolCareBridgeSessionEnded', component: () => import('../views/school/SchoolCareBridgeSessionEnded.vue'), meta: { requiresGuest: false } },
+  { path: '/schoolcarebridge/app', name: 'SchoolCareBridgeLogin', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true } },
+  { path: '/schoolcarebridge/app/:organizationSlug', name: 'SchoolCareBridgeSchool', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true, organizationSlug: true } },
+  { path: '/schoolcarebridge/:section?', name: 'SchoolCareBridgeWebsite', component: () => import('../views/public/SchoolCareBridgeWebsite.vue'), meta: { publicMarketingHub: true } },
+  { path: '/p/schoolcarebridge/:section?', redirect: to => ({ path: '/schoolcarebridge' + (to.params.section ? '/' + to.params.section : ''), query: to.query, hash: to.hash }) },
+
   { path: '/latinx/:section?', name: 'LatinxProviderDirectory', component: () => import('../views/public/ProviderDirectoryView.vue'), meta: { requiresGuest: false, publicMarketingHub: true, hideNav: true, publicMarketingTitle: 'Latinx Therapist Project CO | Provider Directory' } },
   { path: '/provider-directory/:directorySlug/:section?', name: 'PublicProviderDirectory', component: () => import('../views/public/ProviderDirectoryView.vue'), meta: { requiresGuest: false, publicMarketingHub: true, hideNav: true, publicMarketingTitle: 'Provider Directory' } },
   { path: '/:organizationSlug/email-compose', name: 'OrganizationEmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { requiresAuth: true, hideNav: true, organizationSlug: true } },
@@ -401,6 +408,18 @@ const routes = [
     name: 'PtcoPublicWebsite',
     component: () => import('../views/public/PtcoPublicWebsite.vue'),
     meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Plot Twist Co. | Your Next Chapter' }
+  },
+  {
+    path: '/michael',
+    name: 'MichaelMendezPublicWebsite',
+    component: () => import('../views/public/MichaelMendezPublicWebsite.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Michael V. Mendez | Private Practice & AI Systems' }
+  },
+  {
+    path: '/michael/:page(services|packages|nonprofits|pay)',
+    name: 'MichaelMendezOfferPage',
+    component: () => import('../views/public/MichaelMendezPages.vue'),
+    meta: { requiresGuest: false, publicMarketingHub: true, publicMarketingTitle: 'Michael V. Mendez Consulting' }
   },
   // Public marketing hub — optional markdown subpages (must be before single-segment /p/:hubSlug).
   {
@@ -1414,7 +1433,9 @@ const routes = [
     component: () => import('../views/KioskView.vue'),
     meta: { requiresGuest: false }
   },
-  // Provider-First Welcome Kiosk (public lobby splash screen)
+  { path: '/office-support/:id', name: 'OfficeSupportMessage', component: () => import('../views/OfficeSupportMessageView.vue'), meta: { requiresAuth: true } },
+  { path: '/office-booking/:locationId', name: 'OfficeSelfBooking', component: () => import('../views/OfficeSelfBookingView.vue'), meta: { requiresAuth: true } },
+  // Client check-in and office directory (public lobby)
   {
     path: '/kiosk-welcome/:locationId',
     name: 'KioskWelcome',
@@ -1833,6 +1854,12 @@ const routes = [
     path: '/:organizationSlug/office/review',
     name: 'OrganizationOfficeReviewLegacy2',
     redirect: (to) => `/${to.params.organizationSlug}/buildings/review`,
+    meta: { requiresAuth: true, organizationSlug: true }
+  },
+  {
+    path: '/:organizationSlug/my-meetings',
+    name: 'OrganizationMyMeetings',
+    component: () => import('../views/MyMeetingsView.vue'),
     meta: { requiresAuth: true, organizationSlug: true }
   },
   {
@@ -3089,6 +3116,18 @@ const routes = [
     }
   },
   {
+    path: '/office-checkin-responses/:submissionId',
+    name: 'OfficeCheckinResponses',
+    component: () => import('../views/provider/OfficeCheckinResponsesView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/:organizationSlug/office-checkin-responses/:submissionId',
+    name: 'OrganizationOfficeCheckinResponses',
+    component: () => import('../views/provider/OfficeCheckinResponsesView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/dashboard',
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),
@@ -3392,6 +3431,12 @@ const routes = [
     path: '/office/review',
     name: 'OfficeReviewLegacy2',
     redirect: '/buildings/review',
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/my-meetings',
+    name: 'MyMeetings',
+    component: () => import('../views/MyMeetingsView.vue'),
     meta: { requiresAuth: true }
   },
   {
@@ -4691,6 +4736,12 @@ const routes = [
   }
 ];
 
+// Aliases retain existing route identity, role guards, and workflow components.
+for (const route of routes) {
+  if (['OrganizationResetPassword', 'OrganizationChangePassword', 'OrganizationSchoolProviderProfile', 'OrganizationDocumentSigning', 'OrganizationDocumentReview', 'OrganizationDocumentPrint', 'OrganizationSchoolReinitPublic'].includes(route.name)) {
+    route.alias = [...(Array.isArray(route.alias) ? route.alias : route.alias ? [route.alias] : []), route.path.replace('/:organizationSlug', '/schoolcarebridge/app/:organizationSlug')];
+  }
+}
 const router = createRouter({
   history: publicDomainHistory(createWebHistory(), window.location.hostname),
   routes,
@@ -4828,6 +4879,31 @@ router.beforeEach(async (to, from, next) => {
       return false;
     }
   };
+
+  // Keep links emitted by the shared school components on the SchoolCareBridge surface.
+  if (isSchoolCareBridgePath(from.path) && !isSchoolCareBridgePath(to.path)) {
+    if (['OrganizationDashboard', 'OrganizationLogin'].includes(String(to.name)) && to.params.organizationSlug) {
+      next({ path: schoolCareBridgePath(String(to.params.organizationSlug)), query: to.query, hash: to.hash, replace: true }); return;
+    }
+    const school = String(from.params.organizationSlug || '');
+    const mapped = schoolCareBridgeWorkflowPath(to.path, school);
+    if (mapped) { next({ path: mapped, query: to.query, hash: to.hash, replace: true }); return; }
+    if (to.path === '/login') { next({ path: schoolCareBridgePath(school), query: to.query, replace: true }); return; }
+  }
+  if (to.meta.schoolCareBridgeEntry) {
+    await tryBootstrapAuthFromCookie();
+    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
+      const school = String(to.params.organizationSlug || '');
+      next({ path: school ? schoolCareBridgePath(school, '/change-password') : '/change-password', query: { redirect: to.fullPath }, replace: true });
+      return;
+    }
+    // The entry component checks /schoolcarebridge/access before mounting any school workflows.
+    next(); return;
+  }
+  if (isSchoolCareBridgePath(to.path) && to.meta.requiresAuth && !authStore.isAuthenticated) {
+    await tryBootstrapAuthFromCookie();
+    if (!authStore.isAuthenticated) { next({ path: schoolCareBridgePath(String(to.params.organizationSlug || '')), query: { redirect: to.fullPath }, replace: true }); return; }
+  }
 
   if (isFamilyHost() && !to.meta?.familyCommandCenter) {
     next({ name: 'FamilyCommandCenter', query: to.query, hash: to.hash, replace: true });
@@ -5626,6 +5702,7 @@ router.beforeEach(async (to, from, next) => {
   // In installed mobile PWA mode, provider-access users should stay in the provider-mobile shell.
   if (
     authStore.isAuthenticated &&
+    !isSchoolCareBridgePath(to.path) &&
     hasProviderMobileAccess(authStore.user) &&
     isStandalonePwa() &&
     isLikelyMobileViewport() &&
