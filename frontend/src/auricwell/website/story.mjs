@@ -9,9 +9,9 @@ export function providerExample() {
  return `<section class="section provider-example tinted" id="provider-example"><div class="section-heading"><div><p class="eyebrow">FROM FINDING A PROVIDER TO FINDING A TIME</p><h2>Find the right fit.<br> See the next opening.</h2></div><p>Get to know a provider’s approach, explore their availability, and choose a time. Try the existing provider finder with fictional profiles and sample openings.</p></div><div data-actual-example="providers"><p>Loading the app’s provider cards…</p></div><noscript><p>Enable JavaScript to try the actual provider-card component with synthetic data. No appointment is created.</p></noscript></section>`;
 }
 
-function planSection() {
+export function planSection({product='auricwell'}={}) {
   const keys = ['ai_note_aid','client_records','clinical_signing','intake','client_portal','insurance_claims','video_meetings','supervision','recording_transcription','transcript_notes','calendar_sync','private_office','office_booking','multiple_office_guests'];
-  const selected = PLAN_FEATURES.filter(f => f.products.includes('auricwell') && keys.includes(f.key));
+  const selected = PLAN_FEATURES.filter(f => f.products.includes(product) && keys.includes(f.key));
   return `<section class="section" id="plans"><p class="eyebrow">AI DOCUMENTATION INCLUDED AS STANDARD</p><h2>One clinical foundation.<br> Room to add more.</h2><p class="section-intro">Core documentation, client records, intake and guardian access sit together. Premium adds transcription and a private virtual office; Premium Plus adds room reservations and multiple individually admitted office guests.</p><div class="plan-grid">${PLAN_TIERS.map((tier,i)=>`<article class="plan-card"><span class="number">0${i+1}</span><h3>${tier.name}</h3><p>${i===0?'The core clinical workflow.':i===1?'Everything in Basic, plus:':'Everything in Premium, plus:'}</p><ul>${selected.filter(f=>f.minimumTier===tier.id).map(f=>`<li>${f.label}</li>`).join('')}</ul></article>`).join('')}</div><p class="feature-note">Plan assignments follow the approved feature catalog. Shared features are assigned at practice level; private virtual offices are assigned to individual providers. Availability also depends on practice setup and rollout. Commercial terms are confirmed before contracting.</p></section>`;
 }
 

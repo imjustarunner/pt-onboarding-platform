@@ -87,3 +87,13 @@ AuricWell claims refer to the shared-platform implementation on main, not uncomm
 FAQs cover confirmations and consent, enrollment, multiple guardians, clinician AI review, required versus optional cosigning, amendments, configurable goals, new-practice setup, current-EHR transitions, rollout and contracting. They retain the limits on guarantees of error-free notes or claim payment. Website notification copy reflects configured shared-platform workflows; this change does not enable new channels in AuricWell or alter the production notification policy.
 
 The browser verification checks all five pages at six widths, keyboard operation, respondent-required sample check-in, guardian context, arrival acknowledgment, email suppression/reset, labeled SMS, sourced table links, FAQ expansion, no page overflow and zero API requests. The independently compiled public bundle is also exercised with its production JavaScript/CSS.
+
+## Shared PlotTwistCo showcase (October 3, 2026)
+
+`https://plottwistco.com/hq` now presents the same provider finder, calendar/booking captures, Practice Notes, objective-rating controls, kiosk and notification examples. Home links into the examples and comparison; Home and Contact also surface the FAQs. The existing business, people-operations and service content remains available.
+
+`PtcoPlatformShowcase.vue` reuses the AuricWell demonstration components and repository-owned FAQ/comparison renderers. Product parameters and CSS variables supply Plot Twist HQ names and burgundy styling while retaining the default AuricWell presentation. Clinical screenshots are explicitly labeled as the shared workspace in its AuricWell presentation. The plan display reads the platform entries in the approved plan catalog. The comparison covers clinical workflows, not every business service in the broader suite.
+
+The examples use fictional records and local state. They neither call clinical APIs nor create bookings, check-ins, signatures or notifications. Provider arrival SMS remains an explicitly labeled design preview; this website change does not enable a delivery channel. Existing public marketing/chat configuration reads and the site’s anonymous session check remain unchanged.
+
+Run `node frontend/scripts/verify-ptco-showcase.mjs` against the frontend dev server on port 5181, or set `PTCO_PREVIEW_URL=https://plottwistco.com` for read-only deployed checks. It covers Home, HQ, Contact and Start at five widths, interactive examples, shared-image loading, keyboard access, source links, branding, FAQs and hash navigation. It blocks workflow writes and checks for unexpected private API requests. Also run `verify-auricwell-website.mjs` after changes to the shared components.
