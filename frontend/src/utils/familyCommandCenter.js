@@ -5,7 +5,8 @@ import { familyEventTypes, familyEventCategories, familyStatuses, legacyFamilySt
 export { familyEventTypes, familyEventCategories, familyStatuses };
 export const normalizeFamilyStatus = status => legacyFamilyStatuses[status] || status;
 export const familyCalendarEntries = entries => entries.filter(e => ['event','status'].includes(e.kind));
-export const eventType = id => familyEventTypes.find(t => t.id === id) || familyEventTypes[0];
+const eventTypesById = new Map(familyEventTypes.map(type => [type.id,type]));
+export const eventType = id => eventTypesById.get(id) || familyEventTypes[0];
 export const eventArtworkChoices = id => {
   const type = eventType(id);
   return type.artworks || [{ id: 'default', label: type.label, artwork: type.artwork }];
@@ -31,28 +32,26 @@ export function entryType(entry) {
   const base=eventType(themes[label] || 'family');
   return {...base,label,icon:label==='Sleeping'?'🌙':label==='Awake'?'☀':base.icon};
 }
+const normalizeEventTitle = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const searchGroups = familyEventCategories.map(group=>({...group,entries:group.ids.map(id=>{
+  const type=eventType(id);
+  return {type,search:normalizeEventTitle([type.label,group.label,...(type.keywords || []),...(type.artworks || []).map(a=>a.label)].join(' '))};
+})}));
 export function searchFamilyEventGroups(query = '', category = '') {
-  const normalize=value=>String(value).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-  const words=normalize(query).split(' ').filter(Boolean);
-  return familyEventCategories.filter(g=>!category || g.label===category).map(g=>({...g,types:g.ids.map(id=>eventType(id)).filter(t=>words.every(w=>normalize([t.label,g.label,...(t.keywords || []),...(t.artworks || []).map(a=>a.label)].join(' ')).includes(w)))})).filter(g=>g.types.length);
+  const words=normalizeEventTitle(query).split(' ').filter(Boolean);
+  return searchGroups.filter(g=>!category || g.label===category).map(({entries,...group})=>({...group,types:entries.filter(e=>words.every(w=>e.search.includes(w))).map(e=>e.type)})).filter(g=>g.types.length);
 }
 
 // Match whole words/phrases so “park” cannot match “parking”. Specific activities
 // outrank generic pickup/travel/family labels; an explicit selection always wins.
-const normalizeEventTitle = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+const aliases = { 'scheels-shopping': ['scheels', 'scheel s'], airport: ['airport', 'flight', 'arrivals', 'departures'], zoo: ['zoo'], pickup: ['pick up', 'pickup'], 'drop-off': ['drop off'], 'school-pickup': ['school pickup', 'school pick up'], 'grocery-shopping': ['groceries', 'grocery shopping'], 'np-rocky-mountain': ['rocky mountain national park'], 'np-yellowstone': ['yellowstone'], camping: ['camping', 'campsite'], 'dog-walk': ['walk the dog', 'dog walk'] };
+const genericTypes = new Set(['family', 'pickup', 'drop-off', 'travel', 'trip', 'drive', 'park', 'work', 'appointment', 'practice', 'sports-practice', 'sports-game-competition', 'competition', 'lesson', 'class']);
+const titleMatches=familyEventTypes.flatMap(type=>[type.id.replaceAll('-', ' '),...type.label.split(/\s+\/\s+/),...(aliases[type.id] || [])].map(normalizeEventTitle).filter(phrase=>phrase.length>=3).map(phrase=>({type,phrase:` ${phrase} `,score:(genericTypes.has(type.id)?0:100)+phrase.length})));
 export function inferFamilyEventType(title) {
   const text = ` ${normalizeEventTitle(title)} `;
-  const aliases = { 'scheels-shopping': ['scheels', 'scheel s'], airport: ['airport', 'flight', 'arrivals', 'departures'], zoo: ['zoo'], pickup: ['pick up', 'pickup'], 'drop-off': ['drop off'], 'school-pickup': ['school pickup', 'school pick up'], 'grocery-shopping': ['groceries', 'grocery shopping'], 'np-rocky-mountain': ['rocky mountain national park'], 'np-yellowstone': ['yellowstone'], camping: ['camping', 'campsite'], 'dog-walk': ['walk the dog', 'dog walk'] };
   let best = null, bestScore = 0;
-  for (const type of familyEventTypes) {
-    const phrases = [type.id.replaceAll('-', ' '), ...type.label.split(/\s+\/\s+/), ...(aliases[type.id] || [])];
-    for (const phrase of phrases) {
-      const normalized = normalizeEventTitle(phrase);
-      if (normalized.length < 3 || !text.includes(` ${normalized} `)) continue;
-      const generic = ['family', 'pickup', 'drop-off', 'travel', 'trip', 'drive', 'park', 'work', 'appointment', 'practice', 'sports-practice', 'sports-game-competition', 'competition', 'lesson', 'class'].includes(type.id);
-      const score = (generic ? 0 : 100) + normalized.length;
-      if (score > bestScore) { best = type; bestScore = score; }
-    }
+  for (const match of titleMatches) {
+    if(match.score>bestScore && text.includes(match.phrase)){best=match.type;bestScore=match.score;}
   }
   return best || eventType('family');
 }

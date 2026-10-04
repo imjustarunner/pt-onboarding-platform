@@ -81,7 +81,7 @@
         <button class="fcc-modal-close" @click="closeModal" aria-label="Close">×</button>
         <form v-if="editor" @submit.prevent="saveEntry"><span class="eyebrow">MAKE ROOM FOR WHAT MATTERS</span><h2>{{ draft.id ? 'Edit' : 'Add' }} {{ draft.kind==='event'?'a personal event':draft.kind }}</h2>
           <FamilyVoiceEvent ref="eventVoice" v-if="draft.kind==='event' && !draft.id" :key="householdId" :http="http" :household-id="householdId" :timezone="dashboard.household.timezone" :initially-open="voiceOpen" @draft="applyVoiceDraft" @microphone-start="focusMusic?.pause?.()" />
-          <label v-if="draft.kind==='status'">Status<select v-model="draft.title"><option v-if="!familyStatuses.includes(draft.title)" :value="draft.title">{{ draft.title }}</option><option v-for="s in familyStatuses" :key="s">{{ s }}</option></select></label><label v-else>{{ draft.kind==='event'?'What’s happening?':'Title' }}<input v-model="draft.title" required maxlength="200" placeholder="Give it a name" :list="draft.kind==='event' ? 'family-event-titles' : undefined" @input="suggestEventTheme" /></label><datalist id="family-event-titles"><option v-for="type in familyEventTypes" :key="type.id" :value="type.label" /></datalist>
+          <label v-if="draft.kind==='status'">Status<select v-model="draft.title"><option v-if="!familyStatuses.includes(draft.title)" :value="draft.title">{{ draft.title }}</option><option v-for="s in familyStatuses" :key="s">{{ s }}</option></select></label><FamilyEventTitleInput v-else ref="eventTitle" :key="draft.kind+':'+(draft.id || 'new')" v-model="draft.title" :label="draft.kind==='event'?'What’s happening?':'Title'" :suggest-events="draft.kind==='event'" @change="suggestEventTheme" />
           <div class="fcc-form-pair"><label>For<select v-model="draft.memberUserId"><option :value="null">Everyone</option><option v-for="m in dashboard.members" :key="m.user_id" :value="m.user_id">{{ m.display_name }}</option></select></label><label>Color<input v-model="draft.metadata.color" type="color" /></label></div>
           <p v-if="['event','status','chore','meal'].includes(draft.kind)" class="fcc-small">Times shown in {{ dashboard.household.timezone }}.</p><label v-if="draft.kind==='event'" class="fcc-inline"><input v-model="draft.metadata.autoTheme" type="checkbox" @change="suggestEventTheme" /> Match picture and type to title automatically</label><FamilyEventTypePicker v-if="draft.kind==='event'" v-model="draft.metadata.eventType" @change="selectEventTheme" /><template v-if="draft.kind==='event'"><FamilyEventPicturePicker v-model="draft.metadata" /><label>Upload your own picture<input type="file" accept="image/jpeg,image/png,image/webp" @change="pickPhoto($event, 'artwork')" /></label></template>
           <label v-if="draft.kind==='event'" class="fcc-inline"><input v-model="draft.metadata.allDay" type="checkbox" @change="normalizeAllDay" /> All-day event</label><div v-if="draft.kind==='event'&&draft.metadata.allDay" class="fcc-form-pair"><label>First day<input type="date" :value="draft.startAt.slice(0,10)" @input="draft.startAt=$event.target.value+'T00:00'" required /></label><label>Last day<input type="date" :value="shiftCalendarDay(draft.endAt.slice(0,10),-1)" @input="draft.endAt=shiftCalendarDay($event.target.value,1)+'T00:00'" required /></label></div><div v-else-if="['event','status','chore','meal'].includes(draft.kind)" class="fcc-form-pair"><label>{{ draft.kind==='chore'?'Due':'Starts' }}<input v-model="draft.startAt" type="datetime-local" :required="['event','status'].includes(draft.kind)" /></label><label v-if="['event','status'].includes(draft.kind)">Ends<input v-model="draft.endAt" type="datetime-local" required /></label></div>
@@ -105,6 +105,7 @@ import { isoToZonedDatetimeLocal, zonedDatetimeLocalToIso } from '../utils/timez
 import FamilyVoiceEvent from '../components/family/FamilyVoiceEvent.vue';
 import FamilyPocket from '../components/family/FamilyPocket.vue';
 import FamilyPager from '../components/family/FamilyPager.vue';
+import FamilyEventTitleInput from '../components/family/FamilyEventTitleInput.vue';
 import FamilyEventTypePicker from '../components/family/FamilyEventTypePicker.vue';
 import FamilyEventPicturePicker from '../components/family/FamilyEventPicturePicker.vue';
 import FamilyHomeTools from '../components/family/FamilyHomeTools.vue';
@@ -114,7 +115,7 @@ import FamilyCalendarView from '../components/family/FamilyCalendarView.vue';
 import { shiftCalendarDay } from '../utils/familyCalendarInteraction';
 import { calendarEventStyle } from '../utils/familyCalendarDisplay';
 import CalendarSharing from '../components/CalendarSharing.vue';
-import { familyEventTypes, familyEventMetadata, familyStatuses, eventType, eventArtwork, entryType, memberStatus, familyCalendarEntries, normalizeFamilyStatus } from '../utils/familyCommandCenter';
+import { familyEventMetadata, familyStatuses, eventType, eventArtwork, entryType, memberStatus, familyCalendarEntries, normalizeFamilyStatus } from '../utils/familyCommandCenter';
 const http = axios.create({ baseURL:'/api/family', withCredentials:true });
 const session=ref(null), dashboard=ref(null), tenant=ref(null), loading=ref(true), busy=ref(false), refreshing=ref(false), error=ref(''), notice=ref('');
 const params=new URLSearchParams(window.location.search), organization=ref(params.get('organization') || ''), agencyId=ref(Number(params.get('agencyId')) || null), pin=ref(''), email=ref(''), needsEmail=ref(false);
@@ -125,6 +126,7 @@ try{navExpanded.value=localStorage.getItem('family-navigation-expanded')==='true
 watch(navExpanded,value=>{try{localStorage.setItem('family-navigation-expanded',String(value));}catch{}});
 watch(householdId,()=>{activeMember.value='all';googleHomeEvents.value=[];});
 const voiceOpen=ref(false),eventVoice=ref(null),focusMusic=ref(null);
+const eventTitle=ref(null);
 const editor=ref(false), detail=ref(null), redeem=ref(null), redeemUser=ref(null), draft=ref({}), modal=ref(null), newMember=ref({name:'',role:'member',color:'#9d8ace',photoUrl:null});
 let refreshTimer, clockTimer, noticeTimer, previousFocus, dashboardRequest=0;
 const nav=[{label:'Home',icon:'⌂'},{label:'On the go',icon:'↗'},{label:'Calendar',icon:'▦'},{label:'Chores',icon:'✓'},{label:'Rewards',icon:'☆'},{label:'Lists',icon:'☷'},{label:'Meals',icon:'♧'},{label:'Family',icon:'♡'},{label:'Smart home',icon:'⌘'},{label:'Focus music',icon:'♫'},{label:'Settings',icon:'⚙'}];
@@ -210,7 +212,7 @@ function openDetails(e){previousFocus=document.activeElement;detail.value=e;next
 function closeModal(){voiceOpen.value=false;editor.value=false;detail.value=null;redeem.value=null;previousFocus?.focus?.();}
 function editDetail(){draft.value={id:detail.value.id,kind:detail.value.kind,title:detail.value.kind==='status'?normalizeFamilyStatus(detail.value.title):detail.value.title,memberUserId:detail.value.member_user_id,startAt:detail.value.start_at?localInput(detail.value.start_at):'',endAt:detail.value.end_at?localInput(detail.value.end_at):'',metadata:JSON.parse(JSON.stringify(detail.value.metadata))};detail.value=null;editor.value=true;}
 function normalizeAllDay(){if(draft.value.metadata.allDay){const d=draft.value;d.startAt=d.startAt.slice(0,10)+'T00:00';d.endAt=(d.endAt.slice(0,10)>d.startAt.slice(0,10)?d.endAt.slice(0,10):shiftCalendarDay(d.startAt.slice(0,10),1))+'T00:00';}}
-async function saveEntry(){eventVoice.value?.cancel?.();await run(async()=>{
+async function saveEntry(){eventTitle.value?.flush?.();eventVoice.value?.cancel?.();await run(async()=>{
   const d=draft.value,id=householdId.value;
   const data={...d,startAt:d.startAt?zonedDatetimeLocalToIso(d.startAt,dashboard.value.household.timezone):null,endAt:d.endAt?zonedDatetimeLocalToIso(d.endAt,dashboard.value.household.timezone):null};
   const path=`/households/${id}/entries`;
