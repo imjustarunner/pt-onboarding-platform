@@ -129,6 +129,26 @@ try{
  await page.evaluate(()=>{delete navigator.platform;delete navigator.maxTouchPoints;delete window.webkitSpeechRecognition;});
  await page.evaluate(()=>[...document.querySelectorAll('.fcc-top-actions button')].find(b=>b.textContent.includes('Add event')).click());
  await page.waitForSelector('.fcc-modal');
+ // Exercise the reported name field under CPU pressure with a populated calendar behind it.
+ await page.setViewport({width:1194,height:834,deviceScaleFactor:1});
+ const typingCdp=await page.createCDPSession();await typingCdp.send('Emulation.setCPUThrottlingRate',{rate:6});
+ await page.evaluate(()=>{
+   window.fccInputFrames=[];
+   document.querySelector('.fcc-modal input[placeholder="Give it a name"]').addEventListener('input',()=>{
+     const started=performance.now();requestAnimationFrame(()=>window.fccInputFrames.push(performance.now()-started));
+   });
+ });
+ assert.equal(await page.$('.fcc-modal datalist'),null,'No native catalog suggestion menu while typing');
+ await page.type('.fcc-modal input[placeholder="Give it a name"]','Scheels',{delay:35});
+ assert.equal(await page.$eval('.fcc-modal input[placeholder="Give it a name"]',el=>el.value),'Scheels');
+ await page.waitForFunction(()=>document.querySelector('.fcc-art-preview')?.getAttribute('src')==='/assets/family-events/scheels-shopping.jpg');
+ assert.ok(await page.$$eval('.event-title-suggestions button',els=>els.length)<=6);
+ const typingFrames=await page.evaluate(()=>window.fccInputFrames);
+ console.log('Event-name input-to-frame milliseconds at 6x CPU slowdown:',JSON.stringify(typingFrames.map(Math.round)));
+ assert.ok(typingFrames.length>0 && Math.max(...typingFrames)<500,'Typing must not stall the page for half a second');
+ await page.screenshot({path:'/tmp/fcc-event-name-ipad.png',fullPage:false});
+ await typingCdp.send('Emulation.setCPUThrottlingRate',{rate:1});await typingCdp.detach();
+ await page.$eval('.fcc-modal input[placeholder="Give it a name"]',el=>{el.value='';el.dispatchEvent(new Event('input',{bubbles:true}));});
  await page.type('.fcc-modal input[placeholder="Give it a name"]','Manual event after voice');
  await page.click('.fcc-modal .fcc-primary');await page.waitForFunction(()=>!document.querySelector('.fcc-modal'));
  assert.ok(rows.some(e=>e.title==='Manual event after voice'),'Manual save still works after dictation closes');

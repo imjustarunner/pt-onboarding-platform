@@ -174,6 +174,7 @@ try{
   await clickText('.fcc-top-actions button','Add event');
   await page.waitForSelector('.fcc-modal input[placeholder="Give it a name"]');
   await page.type('.fcc-modal input[placeholder="Give it a name"]','Scheels');
+  await page.waitForFunction(()=>document.querySelector('.event-picture-picker .fcc-art-preview')?.getAttribute('src')==='/assets/family-events/scheels-shopping.jpg');
   assert.equal(await page.$eval('.event-picture-picker .fcc-art-preview',el=>el.getAttribute('src')),'/assets/family-events/scheels-shopping.jpg');
   assert.equal(await page.$$eval('.image-library-grid img',els=>els.length),0);
   await page.click('.picture-heading button');
