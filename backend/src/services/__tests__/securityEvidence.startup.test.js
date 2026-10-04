@@ -42,12 +42,29 @@ describe('evidence startup gate', () => {
     });
     await expect(assertEvidenceStorage()).rejects.toMatchObject({ code: 'ER_BAD_FIELD_ERROR', component: 'auth_session_security', requiredMigration: '1452,1458' });
   });
+  it('keeps missing clinical video storage fail-closed and identifies the main migration command', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    db.execute.mockImplementation(async sql => {
+      if (sql.includes('FROM clinical_video_sessions')) throw Object.assign(new Error('private database details'), { code: 'ER_NO_SUCH_TABLE' });
+      return [[]];
+    });
+    await expect(requireSecurityReadiness()).rejects.toMatchObject({
+      component: 'clinical_video_sessions', requiredMigration: '1531',
+      migrationCommands: ['npm run migrate -- --migration=1531'],
+      message: expect.stringContaining('From backend/')
+    });
+    expect(JSON.parse(log.mock.calls.at(-1)[0])).toMatchObject({
+      component: 'clinical_video_sessions', migrationCommands: ['npm run migrate -- --migration=1531']
+    });
+    expect(log.mock.calls.flat().join(' ')).not.toContain('private database details');
+  });
   it('refuses an absent MFA key even when the schema exists', async () => {
     db.execute.mockResolvedValue([[]]);
     vi.stubEnv('MFA_ENCRYPTION_KEY_BASE64', '');
     await expect(assertEvidenceStorage()).rejects.toMatchObject({ code: 'MFA_KEY_NOT_CONFIGURED', component: 'MFA_ENCRYPTION_KEY_BASE64' });
   });
   it('permits startup only after all checks pass', async () => {
+    vi.stubEnv('VONAGE_VIDEO_CALLBACK_SECRET', '');
     db.execute.mockImplementation(async sql => sql.includes('information_schema.TRIGGERS') ? [triggers] : [[]]);
     await expect(requireSecurityReadiness()).resolves.toBeUndefined();
   });

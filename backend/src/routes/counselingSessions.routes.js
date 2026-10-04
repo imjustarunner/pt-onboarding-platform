@@ -1,4 +1,6 @@
+import { requireClinicalStaffSecurity } from '../middleware/clinicalStaffSecurity.middleware.js';
 import express from 'express';
+import * as therapy from '../controllers/therapyWorkspace.controller.js';
 import { authenticateCounselingSession } from '../middleware/counselingInvitationAccess.middleware.js';
 import { exchangeCounselingInvitation } from '../services/counselingInvitationAccess.service.js';
 import { getClientRecordingConsent,requestClientRecordingConsent,signClientRecordingConsent,previewClientConsentPdf,withdrawClientRecordingConsent } from '../controllers/counselingRecordingConsent.controller.js';
@@ -33,6 +35,7 @@ const router = express.Router();
 
 router.post('/invite/:token/accept',async(req,res,next)=>{try{res.set({'Cache-Control':'no-store','Referrer-Policy':'no-referrer'}).json(await exchangeCounselingInvitation(req.params.token));}catch(e){next(e);}});
 router.use(authenticateCounselingSession);
+router.use(requireClinicalStaffSecurity);
 router.get('/sessions/:sessionId/recording-consent',getClientRecordingConsent);
 router.post('/sessions/:sessionId/recording-consent/request',requestClientRecordingConsent);
 router.post('/sessions/:sessionId/recording-consent/sign',signClientRecordingConsent);
@@ -58,6 +61,15 @@ router.post('/sessions/:sessionId/join', joinSession);
 router.get('/sessions/:sessionId/video-token', getVideoToken);
 router.get('/sessions/:sessionId/share-link', getShareLink);
 router.post('/sessions/:sessionId/end', endSession);
+
+router.get('/sessions/:sessionId/workspace',therapy.getWorkspace);
+router.get('/sessions/:sessionId/workspace/treatment-plans',therapy.getTreatmentPlans);
+router.post('/sessions/:sessionId/workspace/download',therapy.downloadArtifact);
+router.post('/sessions/:sessionId/workspace',therapy.postWorkspace);
+router.get('/sessions/:sessionId/disconnection',therapy.getDisconnection);
+router.get('/sessions/:sessionId/visits',therapy.getVisits);
+router.post('/sessions/:sessionId/visits/:visitId/admit',therapy.admitVisit);
+router.post('/sessions/:sessionId/leave',therapy.leaveVisit);
 
 // Notes (role-scoped)
 router.get('/sessions/:sessionId/notes', listNotes);

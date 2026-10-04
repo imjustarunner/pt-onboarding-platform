@@ -1,10 +1,10 @@
 <template>
   <div class="swr" :class="{ 'swr--pip': pip }">
     <video class="swr__bg swr__bg--portrait" autoplay muted loop playsinline>
-      <source src="/assets/video/waiting-room.mp4" type="video/mp4" />
+      <source :src="'/assets/video/waiting-room.mp4'" type="video/mp4" />
     </video>
     <video class="swr__bg swr__bg--landscape" autoplay muted loop playsinline>
-      <source src="/assets/video/horizontal-waiting-room.mp4" type="video/mp4" />
+      <source :src="'/assets/video/horizontal-waiting-room.mp4'" type="video/mp4" />
     </video>
     <div class="swr__shade" aria-hidden="true" />
     <div v-if="!pip" class="swr__overlay">
@@ -60,7 +60,7 @@
           </div>
         </div>
       </div>
-      <p class="swr__hint">Tap your video preview to prioritize your camera.</p>
+      <p v-if="showPreviewHint" class="swr__hint">Tap your video preview to prioritize your camera.</p>
     </div>
     <button
       v-else
@@ -70,7 +70,7 @@
       @click="$emit('show-waiting-room')"
     >
       <video autoplay muted loop playsinline>
-        <source src="/assets/video/waiting-room.mp4" type="video/mp4" />
+        <source :src="'/assets/video/waiting-room.mp4'" type="video/mp4" />
       </video>
       <span>Waiting room</span>
     </button>
@@ -99,6 +99,7 @@ const WAITING_ROOM_TRACKS = [
 const TRACK_INDEX_KEY = 'waitingRoomMusicTrackIndex:v1';
 
 const props = defineProps({
+  showPreviewHint: { type: Boolean, default: true },
   pip: { type: Boolean, default: false },
   meetingTitle: { type: String, default: '' },
   hostPresent: { type: Boolean, default: false },

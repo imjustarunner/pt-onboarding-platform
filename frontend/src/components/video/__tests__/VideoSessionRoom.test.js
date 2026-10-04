@@ -40,6 +40,17 @@ describe('VideoSessionRoom connection lifecycle', () => {
     videoSdk.initPublisher.mockReset();
   });
 
+  it('ignores participant end signals in clinical rooms and waits for an actual server disconnection', async () => {
+    const wrapper=mount(VideoSessionRoom,{props:{applicationId:'11111111-1111-4111-8111-111111111111',sessionId:'clinical',token:'eyJ.test.token',serverManagedEnd:true,playJoinTone:false}});
+    await flushPromises();await vi.dynamicImportSettled();
+    videoSdk.session._handlers['signal:meeting_ended']({data:'{}',from:{connectionId:'participant'}});
+    expect(wrapper.emitted('meeting-ended')).toBeUndefined();
+    expect(videoSdk.session.disconnect).not.toHaveBeenCalled();
+    videoSdk.session._handlers.sessionDisconnected();
+    expect(wrapper.emitted('disconnected')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
   it('recovers a stopped input without restarting video, and preserves mute when changing headsets', async () => {
     let audioTrack = Object.assign(new EventTarget(), { readyState: 'live', getSettings: () => ({}) });
     const publisher = {

@@ -39,12 +39,12 @@ function mapLobby(r) {
 }
 
 class ProviderMyRoom {
-  static async findByUserId(userId) {
+  static async findByUserId(userId, agencyId = null) {
     const uid = Number(userId || 0);
     if (!uid) return null;
     const [rows] = await pool.execute(
-      `SELECT * FROM provider_my_rooms WHERE user_id = ? LIMIT 1`,
-      [uid]
+      `SELECT * FROM provider_my_rooms WHERE user_id = ? ${agencyId ? "AND agency_id = ?" : ""} ORDER BY id LIMIT 1`,
+      agencyId ? [uid, Number(agencyId)] : [uid]
     );
     return mapRoom(rows?.[0]);
   }
@@ -73,7 +73,7 @@ class ProviderMyRoom {
     const uid = Number(userId || 0);
     if (!uid) throw Object.assign(new Error('userId is required'), { status: 400 });
 
-    const existing = await this.findByUserId(uid);
+    const existing = await this.findByUserId(uid, agencyId);
     if (existing) {
       if (agencyId && !existing.agencyId) {
         try {
@@ -81,7 +81,7 @@ class ProviderMyRoom {
             `UPDATE provider_my_rooms SET agency_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
             [Number(agencyId), existing.id]
           );
-          return this.findByUserId(uid);
+          return this.findByUserId(uid, agencyId);
         } catch {
           return existing;
         }
@@ -89,7 +89,7 @@ class ProviderMyRoom {
       return existing;
     }
 
-    const slug = `u-${uid}-${randomSlugSuffix(6)}`.toLowerCase();
+    const slug = `u-${uid}-${randomSlugSuffix(24)}`.toLowerCase();
     const joinToken = generateJoinToken().slice(0, 64);
     let displayName = null;
     try {
@@ -128,7 +128,7 @@ class ProviderMyRoom {
     } catch (e) {
       // Race: another request created the room
       if (e?.code === 'ER_DUP_ENTRY') {
-        return this.findByUserId(uid);
+        return this.findByUserId(uid, agencyId);
       }
       throw e;
     }

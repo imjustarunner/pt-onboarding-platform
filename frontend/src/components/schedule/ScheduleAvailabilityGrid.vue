@@ -21163,7 +21163,7 @@ const completePlatformVirtualSessionBooking = async ({
   let data = null;
   if (useMyRoom) {
     try {
-      const roomRes = await api.get('/my-room/me', { skipGlobalLoading: true });
+      const roomRes = await api.get('/my-room/me', { params:{agencyId:props.agencyId}, skipGlobalLoading: true });
       const slug = roomRes?.data?.room?.slug || roomRes?.data?.slug;
       if (slug) {
         virtualSessionShareUrl.value = `${window.location.origin}/join/my-room/${encodeURIComponent(slug)}`;

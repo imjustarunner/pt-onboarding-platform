@@ -1,6 +1,7 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalSessionBranding" immersive :tenant-id="session?.agencyId || session?.agency_id" context-label="Counseling session" :back-disabled="phase !== 'pre' && phase !== 'ended'">
   <div class="cs" :class="{ 'cs--provider': participantRole === 'provider', 'cs--activity': inActivityMode }">
+    <header v-if="phase !== 'connected'" class="clinical-brand"><img :src="'/assets/auricwell-session-logo.png'" alt="AuricWell" /><div><strong>AuricWell</strong><small>{{ branding?.agencyName || 'Virtual care' }}</small></div></header>
     <ClientRecordingConsentPanel v-if="session && phase !== 'ended'" :base-url="transcriptionBase" :is-provider="participantRole === 'provider'" />
     <ConsentedTranscriptionPanel v-if="phase === 'connected'" ref="transcriptionPanel" :base-url="transcriptionBase" :connected="videoConnected" :is-host="participantRole === 'provider'" :get-stream="getTranscriptionStream" />
     <label v-if="participantRole === 'provider' && phase !== 'joining'" class="cs__note-type">Note type for a recorded session
@@ -15,7 +16,7 @@
       <div class="cs__pre-preview">
         <video ref="previewVideoEl" class="cs__preview-video" autoplay muted playsinline />
       </div>
-      <p v-if="preError" class="cs__error">{{ preError }}</p>
+      <p v-if="preError" class="cs__error">{{ preError }}</p><a v-if="needsMfa" href="/account-security">Open Account security</a>
       <button type="button" class="cs__btn cs__btn--primary" :disabled="joining" @click="doJoin">
         {{ joining ? 'Connecting…' : 'Join session' }}
       </button>
@@ -27,179 +28,26 @@
       <p>Connecting to your session…</p>
     </div>
 
-    <!-- Connected -->
+    <section v-else-if="phase === 'waiting'" class="cs-waiting">
+      <SupervisionWaitingRoomStage :meeting-title="`AuricWell · ${branding?.agencyName || session?.title || 'Virtual care'}`" host-role-label="Provider" :host-present="session?.status==='active'" :show-preview-hint="false" />
+      <button class="waiting-leave cs__btn" @click="confirmEnd">Leave waiting room</button><p v-if="preError" role="alert">{{ preError }}</p>
+    </section>
     <template v-else-if="phase === 'connected'">
-      <header class="cs__header">
-        <div class="cs__brand">
-          <span class="cs__secure" title="Secure session">Secure</span>
-          <span class="cs__title">{{ session?.title || 'Counseling Session' }}</span>
-        </div>
-        <div class="cs__header-actions">
-          <span class="cs__timer">{{ durationLabel }}</span>
-          <button
-            v-if="participantRole === 'provider'"
-            type="button"
-            class="cs__btn"
-            @click="copyInviteLink"
-          >
-            {{ inviteCopied ? 'Link copied' : 'Copy invite link' }}
-          </button>
-          <button type="button" class="cs__btn cs__btn--danger" @click="confirmEnd">{{ participantRole === 'provider' ? 'End session' : 'Leave session' }}</button>
-        </div>
-      </header>
-
-      <div class="cs__body">
-        <nav v-if="participantRole === 'provider'" class="cs__nav" aria-label="Session navigation">
-          <button
-            v-for="tab in providerTabs"
-            :key="tab.id"
-            type="button"
-            class="cs__nav-item"
-            :class="{ 'cs__nav-item--active': activePanel === tab.id }"
-            @click="activePanel = tab.id"
-          >
-            {{ tab.label }}
-          </button>
-        </nav>
-
-        <main class="cs__main">
-          <p v-if="videoRejoinError" role="alert">{{ videoRejoinError }}</p>
-          <VideoSessionRoom
-            ref="videoRoomRef"
-            @connected="videoConnected = true"
-            @disconnected="videoConnected = false"
-            @request-rejoin="rejoinVideo"
-            v-if="videoCreds"
-            :key="`${videoCreds.sessionId}:${String(videoCreds.token || '').slice(-12)}`"
-            :application-id="videoCreds.applicationId"
-            :api-key="videoCreds.apiKey"
-            :session-id="videoCreds.sessionId"
-            :token="videoCreds.token"
-            :diagnostics="videoCreds.diagnostics"
-            :can-recreate-room="true"
-            :local-name="localName"
-            :layout="inActivityMode ? 'strip' : 'standard'"
-            :compact="inActivityMode"
-            class="cs__video"
-            @request-recreate-room="refreshVideoToken({ recreateRoom: true })"
-          />
-          <div v-else class="cs__video cs__video--placeholder">
-            <p>{{ videoConfigured === false ? 'Video is not configured for this environment.' : 'Loading video…' }}</p>
-          </div>
-
-          <section v-if="inActivityMode || activePanel === 'activity'" class="cs__activity">
-            <ActivityHost
-              :session-id="sessionId"
-              :role="participantRole"
-              :runtime="activityRuntime"
-              :layout="isMobileLayout ? 'mobile' : 'web'"
-              :provider-label="providerDisplayName"
-              @runtime-updated="onRuntimeUpdated"
-            >
-              <template #idle>
-                <ActivityLibrary
-                  :activities="activities"
-                  :loading="activitiesLoading"
-                  :can-launch-embedded="participantRole === 'provider'"
-                  @launch-embedded="launchEmbedded"
-                  @launch-standalone="launchStandalone"
-                />
-              </template>
-            </ActivityHost>
-          </section>
-
-          <section v-else-if="activePanel === 'session'" class="cs__session-home">
-            <p>You are connected. Use Activities when you want a shared check-in or tool.</p>
-            <button
-              v-if="participantRole === 'provider'"
-              type="button"
-              class="cs__btn cs__btn--primary"
-              @click="activePanel = 'activity'"
-            >
-              Open activities
-            </button>
-          </section>
-        </main>
-
-        <aside class="cs__side" :class="{ 'cs__side--open': sideOpen }">
-          <div class="cs__side-tabs">
-            <button
-              type="button"
-              class="cs__side-tab"
-              :class="{ 'cs__side-tab--active': sideTab === 'chat' }"
-              @click="sideTab = 'chat'; sideOpen = true"
-            >
-              Chat
-            </button>
-            <button
-              type="button"
-              class="cs__side-tab"
-              :class="{ 'cs__side-tab--active': sideTab === 'notes' }"
-              @click="sideTab = 'notes'; sideOpen = true"
-            >
-              Notes
-            </button>
-            <button
-              v-if="isMobileLayout"
-              type="button"
-              class="cs__side-tab"
-              @click="activePanel = 'activity'"
-            >
-              Activity
-            </button>
-          </div>
-
-          <div v-show="sideOpen || !isMobileLayout" class="cs__side-body">
-            <div v-if="sideTab === 'chat'" class="cs__chat">
-              <ul class="cs__chat-list">
-                <li v-for="m in chatMessages" :key="m.id" class="cs__chat-msg" :class="`cs__chat-msg--${m.senderRole}`">
-                  <span class="cs__chat-role">{{ m.senderRole }}</span>
-                  <span>{{ m.body }}</span>
-                </li>
-              </ul>
-              <form class="cs__chat-form" @submit.prevent="sendChat">
-                <input v-model="chatDraft" type="text" placeholder="Message…" maxlength="1000" />
-                <button type="submit" class="cs__btn cs__btn--primary" :disabled="!chatDraft.trim()">Send</button>
-              </form>
-            </div>
-
-            <div v-else class="cs__notes">
-              <ul class="cs__notes-list">
-                <li v-for="n in notes" :key="n.id" class="cs__note">
-                  <span class="cs__note-vis">{{ visibilityLabel(n.visibility) }}</span>
-                  <p>{{ n.body }}</p>
-                </li>
-              </ul>
-              <form class="cs__note-form" @submit.prevent="addNote">
-                <select v-if="participantRole === 'provider'" v-model="noteVisibility">
-                  <option value="provider_private">Private (provider only)</option>
-                  <option value="shared">Shared</option>
-                </select>
-                <select v-else v-model="noteVisibility">
-                  <option value="shared">Shared note</option>
-                  <option value="client_journal">My journal</option>
-                </select>
-                <textarea v-model="noteDraft" rows="3" placeholder="Write a note…" maxlength="4000" />
-                <button type="submit" class="cs__btn cs__btn--primary" :disabled="!noteDraft.trim()">
-                  Save note
-                </button>
-              </form>
-            </div>
-          </div>
-        </aside>
-      </div>
-
-      <nav v-if="isMobileLayout" class="cs__bottom-nav" aria-label="Mobile session navigation">
-        <button type="button" @click="activePanel = 'session'">Session</button>
-        <button type="button" @click="activePanel = 'activity'">Activity</button>
-        <button type="button" @click="sideTab = 'chat'; sideOpen = true">Chat</button>
-        <button type="button" @click="sideTab = 'notes'; sideOpen = true">Notes</button>
-      </nav>
+      <section v-if="participantRole==='provider'" class="client-admission"><strong>Waiting room</strong><p v-if="!visits.some(v=>v.status==='waiting')">No clients waiting.</p><div v-for="visit in visits.filter(v=>v.status==='waiting')" :key="visit.id"><span>{{ visit.displayName || 'Client' }} · {{ visit.ipAddress }}</span><button class="cs__btn cs__btn--primary" :disabled="!videoConnected" @click="admitClient(visit.id)">Admit client</button></div><details><summary>Attendance audit</summary><p v-for="visit in visits" :key="visit.id">{{ visit.actor }} · {{ visit.ipAddress }} · {{ visit.status }} · Admitted: {{ visit.durationSeconds == null ? 'In progress' : `${visit.durationSeconds}s` }} · Video: {{ visit.mediaDurationSeconds == null ? 'Not confirmed' : `${visit.mediaDurationSeconds}s` }}</p></details></section>
+      <TherapySessionWorkspace :is-host="participantRole==='provider'" :identified="true" :branding="branding" :request="workspaceRequest" :video-control="()=>videoRoomRef" @leave-request="confirmEnd">
+        <template #video>
+          <VideoSessionRoom v-if="videoCreds" ref="videoRoomRef" v-bind="videoCreds" :key="`${videoCreds.sessionId}:${String(videoCreds.token || '').slice(-12)}`" :local-name="localName" :hide-controls="true" :server-managed-end="true" :equal-tiles-when-remote="false" :is-host-or-cohost="participantRole==='provider'" :can-recreate-room="false" @connected="videoConnected=true" @disconnected="onClinicalDisconnected" @request-rejoin="rejoinVideo" @request-recreate-room="refreshVideoToken({recreateRoom:true})" @meeting-ended="phase='ended';stopPolling()" @leave-request="confirmEnd" />
+          <p v-else class="cs__video">{{ videoRejoinError || 'Connecting video…' }} <button class="cs__btn" @click="rejoinVideo">Retry video</button></p>
+        </template>
+        <details v-if="participantRole==='provider' || inActivityMode" :open="inActivityMode || undefined" class="clinical-extras"><summary>Therapy activity library</summary><ActivityHost :session-id="sessionId" :role="participantRole" :runtime="activityRuntime" :layout="isMobileLayout ? 'mobile' : 'web'" :provider-label="providerDisplayName" @runtime-updated="onRuntimeUpdated"><template #idle><ActivityLibrary :activities="activities" :loading="activitiesLoading" :can-launch-embedded="participantRole==='provider'" @launch-embedded="launchEmbedded" @launch-standalone="launchStandalone" /></template></ActivityHost></details>
+        <details class="clinical-extras"><summary>Session notes</summary><article v-for="n in notes" :key="n.id"><small>{{ visibilityLabel(n.visibility) }}</small><p>{{ n.body }}</p></article><form @submit.prevent="addNote"><select v-model="noteVisibility"><option v-if="participantRole==='provider'" value="provider_private">Provider private</option><option value="shared">Shared note</option><option v-if="participantRole!=='provider'" value="client_journal">My journal</option></select><textarea v-model="noteDraft" maxlength="4000" rows="3" aria-label="Note" /><button class="cs__btn" :disabled="!noteDraft.trim()">Save note</button></form></details>
+        <button v-if="participantRole==='provider'" class="cs__btn" @click="copyInviteLink">{{ inviteCopied ? 'Link copied' : 'Copy personal invitation' }}</button>
+      </TherapySessionWorkspace>
     </template>
 
     <div v-else-if="phase === 'ended'" class="cs__ended">
-      <h1>Session complete</h1>
-      <p>Thank you. You can close this window.</p>
+      <h1>{{ disconnection==='ending' ? 'Session ending' : 'Session complete' }}</h1><p v-if="disconnection==='ending'" role="status">Access is closed. The server is finishing disconnection for everyone.</p><button v-if="participantRole==='provider' && disconnection==='ending'" class="cs__btn" :disabled="endBusy" @click="retryEnd">Retry disconnection</button>
+      <p>Thank you. You can close this window.</p><SavedSessionArtifacts v-if="participantRole==='provider'" :request="workspaceRequest" />
       <router-link v-if="orgSlug" class="cs__btn cs__btn--primary" :to="`/${orgSlug}`">
         Back to portal
       </router-link>
@@ -217,6 +65,9 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { suspendInactivityTimeout, resumeInactivityTimeout } from '../../utils/activityTracker';
+import SavedSessionArtifacts from '../../components/meetings/SavedSessionArtifacts.vue';
+import TherapySessionWorkspace from '../../components/meetings/TherapySessionWorkspace.vue';
+import SupervisionWaitingRoomStage from '../../components/supervision/SupervisionWaitingRoomStage.vue';
 import VideoSessionRoom from '../../components/video/VideoSessionRoom.vue';
 import ActivityHost from '../../components/counseling/ActivityHost.vue';
 import ActivityLibrary from '../../components/counseling/ActivityLibrary.vue';
@@ -240,6 +91,13 @@ const noteAidId = ref(''), noteMessage = ref(''), noteRetry = ref(false);
 const transcriptionBase = computed(() => `/counseling/sessions/${sessionId.value}`);
 const getTranscriptionStream = () => videoRoomRef.value?.getTranscriptionStream?.();
 const phase = ref('pre');
+const branding=ref(null),visits=ref([]);
+const workspaceRequest=(_path,{method='GET',body}={})=>api({url:`/counseling/sessions/${sessionId.value}/workspace${_path}`,method,data:body,skipGlobalLoading:true}).then(r=>r.data);
+async function refreshVisits(){try{const {data}=await api.get(`/counseling/sessions/${sessionId.value}/visits`,{skipGlobalLoading:true});visits.value=data.visits||[];if(data.visit?.status==='ended'&&phase.value==='connected'){stopPolling();phase.value='ended';videoCreds.value=null;}return data.visit;}catch(error){if(participantRole.value==='client'&&[401,403,410].includes(error.response?.status)){stopPolling();phase.value='ended';videoCreds.value=null;}throw error;}}
+async function admitClient(id){try{await api.post(`/counseling/sessions/${sessionId.value}/visits/${id}/admit`);await refreshVisits();}catch(e){noteMessage.value=e.response?.data?.error?.message||e.message;}}
+let admissionTimer;
+function waitForAdmission(){clearInterval(admissionTimer);admissionTimer=setInterval(async()=>{try{const visit=await refreshVisits();if(visit?.status==='admitted'){clearInterval(admissionTimer);await enterConnected();}else if(visit?.status==='ended'){clearInterval(admissionTimer);phase.value='ended';}}catch(e){preError.value=e.response?.data?.error?.message||e.message;if([401,403,410].includes(e.response?.status)){clearInterval(admissionTimer);phase.value='ended';}}},3000);}
+async function enterConnected(){await loadSessionMeta();try{await refreshVideoToken();}catch(e){videoRejoinError.value=e.response?.data?.error?.message||e.message;}startedAtMs.value=Date.now();phase.value='connected';await Promise.allSettled([refreshNotes(),loadActivities()]);startPolling();}
 const joining = ref(false);
 const preError = ref('');
 const session = ref(null);
@@ -255,6 +113,7 @@ const clinicalSessionBranding = computed(() => {
   });
 });
 const participantRole = ref('client');
+const needsMfa=ref(false),endBusy=ref(false),disconnection=ref('ended');let closureTimer;
 const videoCreds = ref(null);
 const videoConfigured = ref(null);
 const activityRuntime = ref(null);
@@ -330,6 +189,7 @@ function stopPreview() {
 async function loadSessionMeta() {
   const data = await counselingApi.getCounselingSession(sessionId.value);
   session.value = data.session;
+  branding.value=data.branding;
   participantRole.value = data.participantRole || 'client';
   activityRuntime.value = data.activityRuntime;
   videoConfigured.value = data.videoConfigured;
@@ -346,6 +206,7 @@ async function loadSessionMeta() {
 }
 
 const videoRejoinError = ref('');
+function onClinicalDisconnected(){videoConnected.value=false;if(endBusy.value)return;if(participantRole.value==='client'){stopPolling();phase.value='ended';videoCreds.value=null;void api.post(`/counseling/sessions/${sessionId.value}/leave`).catch(()=>{});}}
 async function rejoinVideo() {
   videoRejoinError.value = '';
   try { await refreshVideoToken(); }
@@ -374,20 +235,9 @@ async function doJoin() {
   phase.value = 'joining';
   stopPreview();
   try {
-    await counselingApi.joinCounselingSession(sessionId.value);
-    await loadSessionMeta();
-    try {
-      await refreshVideoToken();
-      videoConfigured.value = true;
-    } catch (e) {
-      videoConfigured.value = false;
-      console.warn('[counseling] video token unavailable', e);
-    }
-    startedAtMs.value = Date.now();
-    phase.value = 'connected';
-    // Side panels must not bounce the user back to pre-join if they fail.
-    await Promise.allSettled([refreshChat(), refreshNotes(), loadActivities()]);
-    startPolling();
+    const joined=await counselingApi.joinCounselingSession(sessionId.value);
+    if(participantRole.value==='client' && joined.visit?.status!=='admitted'){phase.value='waiting';waitForAdmission();}
+    else await enterConnected();
   } catch (err) {
     phase.value = 'pre';
     preError.value = err?.response?.data?.error?.message || err?.message || 'Could not join session.';
@@ -446,7 +296,7 @@ function startPolling() {
   stopPolling();
   pollTimer = setInterval(async () => {
     try {
-      await Promise.all([refreshChat(), refreshRuntime()]);
+      await Promise.all([refreshRuntime(),refreshVisits()]);
     } catch {
       /* ignore transient */
     }
@@ -526,20 +376,31 @@ async function createTranscriptNote() {
     noteMessage.value = data.draftId ? 'Clinical draft saved in Documentation Hub. Review and sign it there.' : 'No recorded transcript was available to create a note.';
   } catch(e) { noteMessage.value = e.response?.data?.error?.message || 'The draft could not be created. Your transcript is saved; retry when connected.'; noteRetry.value = true; }
 }
+async function trackDisconnection() {
+  clearInterval(closureTimer);
+  const refresh=async()=>{try{disconnection.value=(await api.get(`/counseling/sessions/${sessionId.value}/disconnection`)).data.state;if(disconnection.value==='ended')clearInterval(closureTimer);}catch{noteMessage.value='Unable to confirm disconnection. Retry ending the session.';}};
+  await refresh();if(disconnection.value!=='ended')closureTimer=setInterval(refresh,5000);
+}
+async function retryEnd(){if(endBusy.value)return;endBusy.value=true;try{await counselingApi.endCounselingSession(sessionId.value);await trackDisconnection();}catch(e){noteMessage.value=e.response?.data?.error?.message||'Could not confirm disconnection. Please retry.';}finally{endBusy.value=false;}}
 async function confirmEnd() {
-  const provider = participantRole.value === 'provider';
-  if (!window.confirm(provider ? 'End this counseling session for everyone?' : 'Leave this session?')) return;
-  const recorded = !!transcriptionPanel.value?.getState()?.requested;
-  if(provider && recorded) {
-    noteMessage.value='Saving both participants’ final transcript segments…';
-    try { await finishMeetingTranscription(transcriptionBase.value); }
-    catch(e){noteMessage.value=e.response?.data?.error?.message||e.message;return;}
-  }
-  await transcriptionPanel.value?.flush();
-  if(recorded) await api.post(`${transcriptionBase.value}/transcription/control`,{action:'drained'}).catch(()=>{});
-  if (provider) await counselingApi.endCounselingSession(sessionId.value);
-  stopPolling(); videoConnected.value = false; phase.value = 'ended';
-  if (provider && recorded) await createTranscriptNote();
+  if(endBusy.value)return;
+  const provider=participantRole.value==='provider';
+  if(!window.confirm(provider?'End this counseling session for everyone?':'Leave this session?'))return;
+  endBusy.value=true;
+  const recorded=!!transcriptionPanel.value?.getState()?.requested;
+  try {
+    try {
+      if(provider&&recorded)await finishMeetingTranscription(transcriptionBase.value);
+      await transcriptionPanel.value?.flush();
+      if(recorded)await api.post(`${transcriptionBase.value}/transcription/control`,{action:'drained'});
+    }catch {noteMessage.value='Some transcript segments could not be confirmed. Ending the session now.';}
+    if(provider)await counselingApi.endCounselingSession(sessionId.value);
+    else await api.post(`/counseling/sessions/${sessionId.value}/leave`);
+    clearInterval(admissionTimer);stopPolling();videoConnected.value=false;phase.value='ended';
+    if(provider)await trackDisconnection();
+    if(provider&&recorded)await createTranscriptNote();
+  }catch(e){noteMessage.value=e.response?.data?.error?.message||'Could not confirm session ending. Please retry.';}
+  finally{endBusy.value=false;}
 }
 
 watch(inActivityMode, (v) => {
@@ -567,29 +428,36 @@ onMounted(async () => {
     await loadSessionMeta();
     if (session.value?.status === 'ended') {
       phase.value = 'ended';
+      if(participantRole.value==='provider')await trackDisconnection();
       return;
     }
-    if (counselingAccessFor(sessionId.value)) await doJoin();
+    if (participantRole.value==='client') await doJoin();
     else await startPreview();
   } catch (err) {
+    needsMfa.value=err?.response?.data?.error?.code==='MFA_REQUIRED';
     preError.value = err?.response?.data?.error?.message || 'Unable to load session.';
   }
 });
 
 onBeforeUnmount(() => {
   resumeInactivityTimeout();
+  clearInterval(closureTimer);
   if (mediaQuery && onMediaQueryChange) {
     mediaQuery.removeEventListener?.('change', onMediaQueryChange);
   }
   stopPreview();
   stopPolling();
+  clearInterval(admissionTimer);
+  if(participantRole.value==='client'&&['waiting','connected'].includes(phase.value))void api.post(`/counseling/sessions/${sessionId.value}/leave`).catch(()=>{});
 });
 </script>
 
 <style scoped>
+.clinical-brand{display:flex;align-items:center;gap:14px;padding:20px;background:white}.clinical-brand img{width:54px;height:54px;object-fit:contain}.clinical-brand strong{font-size:22px}.clinical-brand small{display:block;color:#64748b;margin-top:4px}
+.cs-waiting{position:relative;min-height:100vh}.waiting-leave{position:absolute;right:24px;top:24px;z-index:4}.client-admission,.clinical-extras{padding:18px;margin:12px;background:white;border:1px solid #e2e8f0;border-radius:14px}.clinical-extras textarea{display:block;width:100%;margin:12px 0}.cs-waiting :deep(.swr__overlay){max-width:640px}.cs-waiting :deep(.swr__sub){white-space:normal}
 .cs {
   min-height: 100vh;
-  background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 40%, #f1f5f9 100%);
+  background: #fff;
   color: #0f172a;
   display: flex;
   flex-direction: column;

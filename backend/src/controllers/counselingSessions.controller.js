@@ -1,3 +1,7 @@
+import { hasActiveMeetingMembership } from '../services/meetingJoinPolicy.service.js';
+import { counselingClinicalToken,endClinicalCounseling } from '../services/counselingClinicalVideo.service.js';
+import * as visitService from '../services/counselingSessionVisit.service.js';
+import {buildPublicFormBrandingForAgencyId} from '../services/publicFormBranding.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Appointment from '../models/Appointment.model.js';
@@ -7,10 +11,7 @@ import CounselingSessionChat from '../models/CounselingSessionChat.model.js';
 import CounselingSessionActivityRuntime from '../models/CounselingSessionActivityRuntime.model.js';
 import ActivityRegistry from '../models/ActivityRegistry.model.js';
 import {
-  createOrGetRoomByUniqueName,
-  createAccessTokenAsync,
   isVideoConfigured,
-  resolveVideoProjectId,
   getVideoClientDiagnostics
 } from '../services/video.service.js';
 import {
@@ -103,6 +104,7 @@ export async function assertSessionAccess(req, sessionIdOrPublic, { allowOpenCli
     return {session,participantRole:'client'};
   }
   const role = String(req.user?.role || '').toLowerCase();
+  if ((role==='super_admin'||Number(session.provider_user_id)===Number(req.user?.id)) && !await hasActiveMeetingMembership(session.agency_id,req.user.id)) throw Object.assign(new Error('Your access to this practice is no longer active.'),{status:403});
   if (role === 'super_admin') {
     return { session, participantRole: roleOfUserInSession(session, req.user.id) || 'provider' };
   }
@@ -337,14 +339,11 @@ export async function createSession(req, res) {
     await assertCanCreateCounselingSession(req, agencyId);
 
     const roomUniqueName = `counseling-${agencyId}-${Date.now()}`;
-    let vonageSessionId = null;
+    const vonageSessionId = null;
     const vonageApplicationId = isVideoConfigured()
       ? String(process.env.VONAGE_APPLICATION_ID || '').trim() || null
       : null;
-    if (isVideoConfigured()) {
-      const room = await createOrGetRoomByUniqueName(roomUniqueName);
-      vonageSessionId = room?.sid || null;
-    }
+    // Media is created under the encounter lock when the provider joins.
 
     const session = await CounselingSession.create({
       agencyId,
@@ -405,14 +404,11 @@ export async function findOrCreateFromAppointment(req, res) {
     let session = await CounselingSession.findByAppointmentId(appointmentId);
     if (!session) {
       const roomUniqueName = `counseling-appt-${appointmentId}-${Date.now()}`;
-      let vonageSessionId = null;
+      const vonageSessionId = null;
       const vonageApplicationId = isVideoConfigured()
         ? String(process.env.VONAGE_APPLICATION_ID || '').trim() || null
         : null;
-      if (isVideoConfigured()) {
-        const room = await createOrGetRoomByUniqueName(roomUniqueName);
-        vonageSessionId = room?.sid || null;
-      }
+      // Appointment creation does not issue or pre-create reusable media credentials.
       session = await CounselingSession.create({
         agencyId,
         providerUserId,
@@ -552,6 +548,7 @@ export async function getSession(req, res) {
         businessType: appointment?.businessType || null
       },
       participantRole,
+      branding:await buildPublicFormBrandingForAgencyId(session.agency_id),
       activityRuntime: runtime
         ? {
             ...runtime,
@@ -573,25 +570,9 @@ export async function joinSession(req, res) {
     // Guessing /session/123 must not auto-claim an empty seat.
     const { session, participantRole } = await assertSessionAccess(req, req.params.sessionId);
     if(session.status==='ended')return res.status(410).json({error:{message:'This session has ended.'}});
-    let vonageSessionId = session.vonage_session_id;
-    let roomUniqueName = session.room_unique_name || `counseling-${session.id}`;
-
-    if (!vonageSessionId && isVideoConfigured()) {
-      const room = await createOrGetRoomByUniqueName(roomUniqueName);
-      vonageSessionId = room?.sid || null;
-      await CounselingSession.setVideoRoom(session.id, {
-        vonageSessionId,
-        roomUniqueName,
-        vonageApplicationId: String(process.env.VONAGE_APPLICATION_ID || '').trim() || null
-      });
-    }
-
-    const nextStatus = session.status === 'ended' ? 'ended' : 'active';
-    const updates = { status: nextStatus };
-    if (!session.started_at && nextStatus === 'active') {
-      updates.started_at = new Date();
-    }
-    const updated = await CounselingSession.update(session.id, updates);
+    if(participantRole==='client')return res.json({ok:true,visit:await visitService.joinCounselingVisit(req,session),participantRole});
+    await counselingClinicalToken(req,session.id,participantRole,{token:false});
+    const updated=await CounselingSession.findByIdOrPublicId(session.id);
 
     return res.json({
       ok: true,
@@ -611,6 +592,7 @@ export async function getVideoToken(req, res) {
     // Strict participant check — never allow "open seat" claim via video-token.
     const { session, participantRole } = await assertSessionAccess(req, req.params.sessionId);
     if(session.status==='ended')return res.status(410).json({error:{message:'This session has ended.'}});
+    if(participantRole==='client')await visitService.requireCounselingAdmission(req,session);
     if (!isVideoConfigured()) {
       return res.status(503).json({
         error: { message: 'Video is not configured' },
@@ -619,82 +601,8 @@ export async function getVideoToken(req, res) {
       });
     }
 
-    const currentAppId = String(process.env.VONAGE_APPLICATION_ID || '').trim();
-    const projectId = resolveVideoProjectId();
-    if (!projectId) {
-      return res.status(503).json({
-        error: {
-          message:
-            'Vonage Video Application ID is missing. Set VONAGE_APPLICATION_ID (Dashboard → Applications).'
-        },
-        videoConfigured: false,
-        diagnostics: getVideoClientDiagnostics()
-      });
-    }
-
-    const recreateRoom =
-      req.query?.recreateRoom === '1' ||
-      req.query?.recreateRoom === 'true' ||
-      req.body?.recreateRoom === true;
-
-    let vonageSessionId = session.vonage_session_id;
-    const roomUniqueName = session.room_unique_name || `counseling-${session.id}`;
-    const storedAppId = String(session.vonage_application_id || '').trim();
-    const appMismatch = !!(vonageSessionId && storedAppId && currentAppId && storedAppId !== currentAppId);
-    // Legacy rows (no stored app id) may have been created under a different Application
-    // when local/stage/prod share a DB — recreate so token + session share the current app.
-    const legacyUnstamped = !!(vonageSessionId && !storedAppId);
-    const needsNewRoom =
-      !vonageSessionId || appMismatch || legacyUnstamped || (recreateRoom && !!vonageSessionId);
-
-    if (needsNewRoom) {
-      const room = await createOrGetRoomByUniqueName(
-        vonageSessionId || recreateRoom || appMismatch || legacyUnstamped
-          ? `${roomUniqueName}-${Date.now()}`
-          : roomUniqueName
-      );
-      vonageSessionId = room?.sid || null;
-      await CounselingSession.setVideoRoom(session.id, {
-        vonageSessionId,
-        roomUniqueName,
-        vonageApplicationId: currentAppId || null
-      });
-    }
-
-    if (!vonageSessionId) {
-      return res.status(503).json({
-        error: { message: 'Could not create video room' },
-        videoConfigured: true,
-        diagnostics: getVideoClientDiagnostics()
-      });
-    }
-
-    const identity = req.counselingInvitationAccess ? `client-${req.counselingInvitationAccess.clientId}` : `user-${req.user.id}-${participantRole}`;
-    const token = await createAccessTokenAsync({
-      roomSid: vonageSessionId,
-      identity,
-      metadata: {
-        role: participantRole,
-        sessionId: session.id,
-        displayName: req.user.name || req.user.email || identity
-      }
-    });
-
-    // Vonage Video JWT client tokens require Application ID in OT.initSession(...).
-    // Never return the account VONAGE_API_KEY here — it is not a Video project key.
-    return res.json({
-      ok: true,
-      token,
-      sessionId: vonageSessionId,
-      applicationId: projectId,
-      // Alias for older clients; same value as applicationId (never account API key).
-      apiKey: projectId,
-      identity,
-      participantRole,
-      videoConfigured: true,
-      roomRecreated: !!(needsNewRoom && (recreateRoom || appMismatch || legacyUnstamped || !session.vonage_session_id)),
-      diagnostics: getVideoClientDiagnostics({ token, sessionId: vonageSessionId })
-    });
+    const credentials=await counselingClinicalToken(req,session.id,participantRole);
+    return res.json({ok:true,...credentials,videoConfigured:true});
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: { message: err.message } });
     console.error('[counseling.videoToken]', err);
@@ -711,10 +619,8 @@ export async function endSession(req, res) {
     if (participantRole !== 'provider' && String(req.user?.role || '').toLowerCase() !== 'super_admin') {
       return res.status(403).json({error:{message:'Only the provider can end this session for everyone.'}});
     }
-    const updated = await CounselingSession.update(session.id, {
-      status: 'ended',
-      ended_at: new Date()
-    });
+    const closure=await endClinicalCounseling(req,session.id);
+    const updated=await CounselingSession.findByIdOrPublicId(session.id);
     const active = await CounselingSessionActivityRuntime.findActiveForSession(session.id);
     if (active) {
       await CounselingSessionActivityRuntime.update(active.id, {
@@ -722,7 +628,7 @@ export async function endSession(req, res) {
         pauseReason: 'session_ended'
       });
     }
-    return res.json({ ok: true, session: CounselingSession.toPublic(updated) });
+    return res.json({ ok: true, session: CounselingSession.toPublic(updated),disconnection:closure });
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: { message: err.message } });
     console.error('[counseling.end]', err);

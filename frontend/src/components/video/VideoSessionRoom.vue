@@ -551,6 +551,7 @@ const props = defineProps({
   muteOthersMode: { type: String, default: 'host' },
   /** Local user is host or co-host (for mute-others when mode is host) */
   isHostOrCohost: { type: Boolean, default: false },
+  serverManagedEnd: { type: Boolean, default: false },
   /** everyone | restricted — restricted requires canShareScreen or a host grant */
   screenShareMode: { type: String, default: 'everyone' },
   /** When mode is restricted: whether this user may share without a grant */
@@ -2287,6 +2288,8 @@ async function connect() {
 
     // Host/server broadcasts this when the meeting is marked completed.
     session.on('signal:meeting_ended', (event) => {
+      // Clinical closure is enforced by the backend. A participant signal is not authority to end it.
+      if (props.serverManagedEnd) return;
       let payload = null;
       try {
         payload = event?.data ? JSON.parse(event.data) : null;

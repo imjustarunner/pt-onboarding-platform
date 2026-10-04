@@ -85,6 +85,12 @@ Add these as GitHub Actions **repository secrets** so `deploy-backend.yml` can p
 - `VONAGE_VALIDATE_SIGNATURE` — optional, set to `true` to verify inbound webhooks
 - `VONAGE_SIGNATURE_SECRET` — from Vonage dashboard “Signed webhooks”, required if validation is enabled
 
+### Vonage clinical video
+- `VONAGE_VIDEO_CALLBACK_SECRET` — the signature secret configured under the Video application's Session Monitoring settings. Enable signed callbacks to `https://<your-backend-host>/api/clinical-video/events`. This is separate from `VONAGE_API_SECRET` and the SMS `VONAGE_SIGNATURE_SECRET`.
+- The same application's `VONAGE_APPLICATION_ID` and `VONAGE_PRIVATE_KEY` must also be configured.
+
+The deployment workflow passes the callback secret from GitHub Actions repository secrets to Cloud Run and preserves existing Secret Manager bindings. For local development, set it in `backend/.env`; callbacks still require a publicly reachable HTTPS backend. An absent callback secret blocks clinical video but does not cause the SQL startup error. Session security migrations 1530 and 1531 belong to the **main** database (`npm run migrate` from `backend/`), not `migrate-clinical`.
+
 ### Chat encryption
 - `CLIENT_CHAT_ENCRYPTION_KEY_ID`
 - `CLIENT_CHAT_ENCRYPTION_KEY_BASE64`

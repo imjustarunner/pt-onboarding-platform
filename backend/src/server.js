@@ -1,3 +1,5 @@
+import clinicalVideoCallbackRoutes from './routes/clinicalVideoCallback.routes.js';
+import clinicalSessionSecurityRoutes from './routes/clinicalSessionSecurity.routes.js';
 import officeLobbyRoutes from './routes/officeLobby.routes.js';
 import officeArrivalPublicRoutes from './routes/officeArrivalPublic.routes.js';
 import auricwellPreviewRoutes from './routes/auricwellPreview.routes.js';
@@ -369,6 +371,7 @@ app.use('/api', protectTaxIdResponses);
 // Handles both /api/stripe/webhook (direct) and /api/stripe/connect-webhook (Connect).
 app.use('/api/stripe', stripeWebhookRoutes);
 app.use('/api/claimmd/webhook', claimMdWebhookRoutes);
+app.use('/api/clinical-video/events', securityEvidenceMiddleware, clinicalVideoCallbackRoutes);
 
 // Body-parser limits.
 // The default express.json() limit is 100kb, which is not enough for the
@@ -384,11 +387,18 @@ app.use(['/api/communications/drafts', '/api/quick-view/drafts'], express.json({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Audit metadata before public clinical entry points; never record request bodies.
+app.use(securityEvidenceMiddleware);
+// Preserve the existing preview boundary on every public clinical entry point.
+app.use('/api', auricwellPreviewBoundary);
+// Public check-in must precede catch-all authentication and body logging.
+app.use('/api/my-room', providerMyRoomRoutes);
+
 // Request logging middleware with body sanitization
 // Must be after body parsing middleware (express.json, express.urlencoded)
 // This ensures req.body is available for sanitization
 app.use(requestLoggingMiddleware);
-app.use(securityEvidenceMiddleware);
+
 
 // Slow-request timing. Enable with TIMING_DEBUG=1; optionally set TIMING_DEBUG_MS
 // to change the threshold (default 300ms). Logs method, path, status, duration and
@@ -418,7 +428,6 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
-app.use('/api', auricwellPreviewBoundary);
 app.use('/api/auricwell-preview', auricwellPreviewRoutes);
 
 // Temporary diagnostics: logs high-signal details for unexpected 403s on key endpoints.
@@ -764,6 +773,7 @@ app.get('/api/app-version', (_req, res) => {
 app.use('/api/health-check', healthCheckRoutes);
 app.use('/api/security-evidence', securityEvidenceRoutes);
 app.use('/api/account-security', accountSecurityRoutes);
+app.use('/api/clinical-session-security', clinicalSessionSecurityRoutes);
 app.use('/api/privacy-review', privacyReviewRoutes);
 
 // Public APIs (no auth). Mount early so they never get blocked by future auth gates.
@@ -993,7 +1003,7 @@ app.use('/api/finance-operations', financeOperationsRoutes);
 app.use('/api/medical-billing', medicalBillingRoutes);
 app.use('/api/tenant-booking', tenantServicesRoutes);
 app.use('/api/appointments', appointmentRoutes);
-app.use('/api/my-room', providerMyRoomRoutes);
+
 app.use('/api/meeting-calendar', meetingCalendarRoutes);
 app.use('/api/offices', officeSettingsRoutes);
 app.use('/api/office-slots', officeSlotActionsRoutes);
@@ -1593,6 +1603,11 @@ if (!isBootstrap) {
 
   // Clinical Note Generator drafts: auto-archive >7 days; hard-delete >7 years.
   // Run daily at 2:00 AM (best-effort; safe if table doesn't exist yet).
+  let clinicalMaintenanceRunning=false;
+  const clinicalMaintenance=async()=>{if(clinicalMaintenanceRunning)return;clinicalMaintenanceRunning=true;try{const {runClinicalSessionMaintenance}=await import('./services/clinicalSessionRetention.service.js');await runClinicalSessionMaintenance();}catch(error){console.error('[clinical-session-maintenance]',error.code||'MAINTENANCE_FAILED');}finally{clinicalMaintenanceRunning=false;}};
+  void clinicalMaintenance();
+  setInterval(clinicalMaintenance,15000);
+
   const scheduleClinicalNoteDraftCleanup = async () => {
     try {
       const ClinicalNoteDraftCleanupService = (await import('./services/clinicalNoteDraftCleanup.service.js')).default;

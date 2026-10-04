@@ -25,13 +25,19 @@ export async function assertEvidenceStorage() {
     ['auth_session_security', '1452,1458', 'session_ref,started_at,client_ip,ip_source,user_agent,end_reason'],
     ['account_mfa', '1458', 'enabled_at,factor_version,pending_cipher'],
     ['account_mfa_devices', '1458', 'token_hash,expires_at,revoked_at'],
-    ['account_mfa_sessions', '1458', 'session_key,verified_at']
+    ['account_mfa_sessions', '1458', 'session_key,verified_at'],
+    ['clinical_video_sessions', '1531', 'media_id,state,empty_confirmed_at,legal_hold'],
+    ['clinical_video_grants', '1531', 'id,media_id,actor,expires_at,revoked_at'],
+    ['clinical_video_connections', '1531', 'media_id,connection_id,connected_at,disconnected_at'],
+    ['clinical_session_retention', '1531', 'agency_id,artifact_days'],
+    ['therapy_session_artifacts', '1530', 'session_kind,session_id,generation,agency_id,payload_envelope']
   ];
   for (const [component, requiredMigration, columns] of probes) {
     try { await pool.execute(`SELECT ${columns} FROM ${component} LIMIT 0`); }
     catch (error) {
-      throw Object.assign(new Error(`Security storage check failed: ${component}. Check database selection, permissions, and migration ${requiredMigration}.`), {
-        code: error.code || 'SECURITY_STORAGE_UNAVAILABLE', component, requiredMigration
+      const migrationCommands = requiredMigration.split(',').map(id => `npm run migrate -- --migration=${id}`);
+      throw Object.assign(new Error(`Security storage check failed: ${component}. Check the main database selection and permissions. From backend/, apply required migration(s): ${migrationCommands.join('; ')}. These use DB_* and database/migrations/, not migrate-clinical.`), {
+        code: error.code || 'SECURITY_STORAGE_UNAVAILABLE', component, requiredMigration, migrationCommands
       });
     }
   }
@@ -87,7 +93,8 @@ export function mirrorSecurityEvidence(event, id) {
 export function evidenceFailure(error, requestId, phase) {
   // SQL errors may contain bound values: log codes only.
   console.error(JSON.stringify({ severity: 'CRITICAL', type: 'security_evidence_failure', requestId, phase, code: error?.code || 'AUDIT_WRITE_FAILED',
-    ...(phase === 'startup' && error?.component ? { component: error.component, requiredMigration: error.requiredMigration } : {}),
+    ...(phase === 'startup' && error?.component ? { component: error.component, requiredMigration: error.requiredMigration,
+      ...(error.migrationCommands ? { migrationCommands: error.migrationCommands } : {}) } : {}),
     ...(phase === 'received' ? { component: 'security_evidence', requiredMigration: '1456' } : {})
   }));
 }

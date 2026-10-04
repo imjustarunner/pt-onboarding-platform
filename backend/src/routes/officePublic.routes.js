@@ -5,4 +5,7 @@ router.get('/:slug/public',c.getMyRoomPublic);
 router.post('/:slug/lobby',rateLimit({windowMs:60000,max:6,standardHeaders:true,legacyHeaders:false}),c.joinMyRoomLobby);
 router.get('/:slug/lobby/:lobbyId',c.getMyRoomLobbyGuestStatus);
 router.post('/:slug/lobby/:lobbyId/video-token',c.getMyRoomGuestVideo);
+router.post('/:slug/lobby/:lobbyId/leave',c.leaveMyRoom);
+router.get('/:slug/lobby/:lobbyId/workspace',c.getOfficeWorkspace);
+router.post('/:slug/lobby/:lobbyId/workspace',c.postOfficeWorkspace);
 export default router;

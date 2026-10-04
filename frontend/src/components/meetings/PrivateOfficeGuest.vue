@@ -1,40 +1,27 @@
 <template>
-  <div class="join-my-room">
+  <div class="join-my-room" :style="brandStyle">
     <div v-if="loading" class="jmr-card jmr-muted">Loading room…</div>
     <div v-else-if="error && !room" class="jmr-card jmr-error">{{ error }}</div>
     <template v-else>
       <div class="jmr-card">
         <p v-if="error" role="alert" class="jmr-error">{{ error }}</p>
-        <h1 class="jmr-title">{{ roomDisplayName }}</h1>
-        <p class="jmr-instruction">
-          Take a snapshot for the provider to review before admitting you. This link does not identify you as a client or sign you in.
-        </p>
-
+        <header class="visit-header"><div class="visit-brand"><img v-if="productName" :src="'/assets/auricwell-session-logo.png'" :alt="productName" /><img v-else-if="room?.branding?.logoUrl" :src="room.branding.logoUrl" alt="" /><div><strong>{{ productName || room?.branding?.agencyName || 'Virtual office' }}</strong><small v-if="productName">{{ room?.branding?.agencyName }}</small></div></div><ol class="visit-steps" aria-label="Visit progress"><li :class="{active:phase==='form'}">1 · Check-in</li><li :class="{active:phase==='waiting'}">2 · Waiting room</li><li :class="{active:phase==='video'}">3 · Visit</li></ol></header>
         <div v-if="phase === 'waiting'" class="jmr-waiting">
-          <div class="jmr-waiting-pulse" aria-hidden="true" />
-          <p><strong>Waiting for the provider to let you in…</strong></p>
-          <p class="jmr-muted">
-            You joined as {{ guestDisplayName || 'guest' }}. Keep this page open.
-          </p>
-          <p v-if="lobbyStatus === 'admitted'" class="jmr-ok">
-            You’ve been admitted. The provider will start the session shortly.
-          </p>
-          <p v-else-if="lobbyStatus === 'dismissed'" class="jmr-error">
-            The provider dismissed this request. You can refresh and try again if needed.
-          </p>
+          <SupervisionWaitingRoomStage :meeting-title="`${productName || room?.branding?.agencyName || 'Virtual office'} · ${roomDisplayName}`" :host-present="hostPresent" host-role-label="Provider" :show-preview-hint="false" />
+          <div class="waiting-identity"><img v-if="photoDataUrl" :src="photoDataUrl" alt="Your check-in photo" /><span>Joining as {{ guestDisplayName || 'Guest' }}</span><button class="jmr-btn" @click="leaveVisit">Leave waiting room</button></div>
         </div>
-
-        <div v-else-if="phase === 'video'"><VideoSessionRoom v-bind="video" @leave-request="leaveVisit" @disconnected="leaveVisit" @meeting-ended="leaveVisit" /></div>
-        <div v-else-if="phase === 'ended'"><p>This office visit has ended. You can request admission again.</p><button @click="startOver">Request a new visit</button></div>
+        <TherapySessionWorkspace v-else-if="phase === 'video'" :video="video" :branding="room?.branding" :product-name="productName" :request="workspaceRequest" @leave-request="leaveVisit" @disconnected="leaveVisit" @meeting-ended="leaveVisit" />
+        <div v-else-if="phase === 'ended'"><h1>Visit ended</h1><p>This office visit has ended. You can request admission again.</p><button class="jmr-btn" @click="startOver">Request a new visit</button></div>
         <form v-else class="jmr-form" @submit.prevent="submitJoin">
+          <div class="checkin-heading"><p class="eyebrow">VIRTUAL OFFICE VISIT</p><h1>Visit check-in</h1><p>Add a name and photo to help {{ roomDisplayName }} recognize you. Both are optional.</p></div>
+          <aside class="checkin-guide"><div class="provider-avatar">{{ roomDisplayName.slice(0,1) }}</div><h2>{{ roomDisplayName }}</h2><p>{{ room?.branding?.agencyName }}</p><hr /><h3>You’re almost ready</h3><p>You are not in the waiting room yet.</p><ol><li>Add your name and a photo if you wish.</li><li>Enter the waiting room and enjoy the music.</li><li>Your provider will review your request and let you in.</li></ol><p class="jmr-muted">Your photo is shown only to your provider and removed when your visit ends. A photo helps recognition; it does not verify identity.</p></aside>
           <label class="jmr-label">
-            Your display name
+            Your name (suggested)
             <input
               v-model="guestDisplayName"
               class="jmr-input"
               type="text"
               maxlength="120"
-              required
               autocomplete="name"
               placeholder="First and last name"
             />
@@ -80,12 +67,13 @@
                 Retake
               </button>
             </div>
+            <button v-if="photoDataUrl" type="button" class="jmr-btn jmr-btn--secondary" @click="photoDataUrl='';photoRequiredAck=false">Remove photo</button>
             <p v-if="cameraError" class="jmr-error">{{ cameraError }}</p>
           </div>
 
-          <label class="jmr-check">
+          <label v-if="photoDataUrl" class="jmr-check">
             <input v-model="photoRequiredAck" type="checkbox" required />
-            I understand a photo is required so the provider can confirm my identity.
+            I agree to show this photo to my provider for this visit.
           </label>
 
           <p v-if="error" class="jmr-error">{{ error }}</p>
@@ -95,7 +83,7 @@
             class="jmr-btn jmr-btn--block"
             :disabled="submitting || !canSubmit"
           >
-            {{ submitting ? 'Joining…' : 'Join waiting room' }}
+            {{ submitting ? 'Joining…' : 'Continue to waiting room' }}
           </button>
         </form>
       </div>
@@ -105,10 +93,12 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue';
-import VideoSessionRoom from '../video/VideoSessionRoom.vue';
+import TherapySessionWorkspace from './TherapySessionWorkspace.vue';
+import SupervisionWaitingRoomStage from '../supervision/SupervisionWaitingRoomStage.vue';
 
-const props=defineProps({slug:{type:String,required:true},request:{type:Function,required:true}});
+const props=defineProps({slug:{type:String,required:true},request:{type:Function,required:true},productName:{type:String,default:'AuricWell'}});
 const slug=computed(()=>props.slug);
+const brandStyle=computed(()=>{const color=room.value?.branding?.colorPalette?.primary;return {'--office-accent':props.productName?'#315c66':/^#[a-f0-9]{3,8}$/i.test(color||'')?color:'#087f5b'};});
 const api={get:(url,opts)=>props.request(url,{...opts,method:'GET'}).then(data=>({data})),post:(url,body,opts)=>props.request(url,{...opts,method:'POST',body}).then(data=>({data}))};
 
 const loading = ref(true);
@@ -124,7 +114,9 @@ const cameraError = ref('');
 const lobbyId = ref(null);
 const credential = ref(''), video = ref(null);
 const guestOptions = () => ({...publicOpts,headers:{'X-Office-Visit':credential.value}});
-function leaveVisit(){video.value=null;stopStatusPoll();phase.value='ended';}
+async function leaveVisit(){if(phase.value==='ended')return;video.value=null;stopStatusPoll();phase.value='ended';if(lobbyId.value)try{await api.post(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/leave`,{},guestOptions());}catch(e){error.value=e.response?.data?.error?.message||'Could not confirm departure.';}photoDataUrl.value='';}
+const workspaceRequest=(_path,options)=>props.request(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/workspace${_path}`,{...guestOptions(),...options});
+const hostPresent=ref(false);
 function startOver(){lobbyId.value=null;credential.value='';photoDataUrl.value='';photoRequiredAck.value=false;phase.value='form';error.value='';}
 const lobbyStatus = ref('waiting');
 const videoRef = ref(null);
@@ -138,11 +130,7 @@ const roomDisplayName = computed(() => {
   return name || 'Provider room';
 });
 
-const canSubmit = computed(() => (
-  !!String(guestDisplayName.value || '').trim()
-  && !!photoDataUrl.value
-  && !!photoRequiredAck.value
-));
+const canSubmit = computed(() => !photoDataUrl.value || photoRequiredAck.value);
 
 const publicOpts = { skipAuthRedirect: true, skipGlobalLoading: true };
 
@@ -228,6 +216,7 @@ function startStatusPoll() {
       );
       const status = String(res?.data?.lobby?.status || '').toLowerCase();
       if (status) lobbyStatus.value = status;
+      hostPresent.value=!!res.data.lobby.hostPresent;
       if (status === 'admitted' && !video.value) {
         video.value=(await api.post(`/my-room/${encodeURIComponent(slug.value)}/lobby/${lobbyId.value}/video-token`,{},guestOptions())).data;
         phase.value='video';
@@ -250,14 +239,13 @@ async function submitJoin() {
       {
         displayName: String(guestDisplayName.value || '').trim(),
         photoDataUrl: photoDataUrl.value,
-        photoRequiredAck: true
+        photoRequiredAck: photoRequiredAck.value
       },
       publicOpts
     );
     lobbyId.value = Number(res?.data?.lobby?.id || 0) || null;
     lobbyStatus.value = String(res?.data?.lobby?.status || 'waiting').toLowerCase();
     credential.value=res.data.lobby.credential;
-    photoDataUrl.value='';
     phase.value = 'waiting';
     stopCamera();
     if (lobbyId.value) startStatusPoll();
@@ -275,21 +263,24 @@ onMounted(() => {
 onUnmounted(() => {
   stopCamera();
   stopStatusPoll();
+  if(lobbyId.value && phase.value!=='ended')void leaveVisit();
 });
 </script>
 
 <style scoped>
+.visit-header{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:32px}.visit-brand{display:flex;align-items:center;gap:14px;font-size:22px}.visit-brand img{max-width:150px;max-height:60px}.visit-brand small{display:block;font-size:13px;color:#64748b}.visit-steps{display:flex;gap:20px;list-style:none;color:#8b99a9;font-size:13px;padding:0}.visit-steps li.active{color:#078765;font-weight:700}.checkin-heading{grid-column:1/-1}.checkin-heading h1{font-size:38px;letter-spacing:-.04em;margin:10px 0}.checkin-heading p{color:#66768c}.eyebrow{letter-spacing:.15em;font-size:11px}.checkin-guide{grid-column:2;grid-row:2/6;padding:30px;background:#f4f9f8;border:1px solid #dfebe7;border-radius:18px;line-height:1.7}.checkin-guide h2{font-size:22px}.checkin-guide h3{font-size:21px}.checkin-guide ol{padding-left:20px}.checkin-guide li{margin:16px 0}.provider-avatar{border-radius:50%;background:#e0f3ec;color:#167c60;width:72px;height:72px;display:grid;place-items:center;font-size:28px}.waiting-identity{position:absolute;right:22px;top:22px;z-index:3;background:white;border-radius:12px;padding:12px;display:flex;gap:12px;align-items:center}.waiting-identity img{width:45px;height:45px;border-radius:50%;object-fit:cover}
+
 .join-my-room {
   min-height: 100vh;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   padding: 2rem 1rem 3rem;
-  background: linear-gradient(165deg, #f4f7fb 0%, #e8eef6 55%, #f8fafc 100%);
+  background: #fff;
 }
 .jmr-card {
   width: 100%;
-  max-width: 440px;
+  max-width: 1400px;
   background: #fff;
   border: 1px solid #dbe3ec;
   border-radius: 14px;
@@ -308,9 +299,9 @@ onUnmounted(() => {
   line-height: 1.45;
 }
 .jmr-form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
+  display: grid;
+  grid-template-columns:minmax(0,1.7fr) minmax(260px,1fr);
+  gap: 20px;
 }
 .jmr-label {
   display: flex;
@@ -377,8 +368,10 @@ onUnmounted(() => {
 }
 .jmr-btn--block { width: 100%; }
 .jmr-waiting {
-  text-align: center;
-  padding: 0.75rem 0 0.25rem;
+  position:relative;
+  min-height:760px;
+  border-radius:18px;
+  overflow:hidden;
 }
 .jmr-waiting-pulse {
   width: 14px;
@@ -395,4 +388,5 @@ onUnmounted(() => {
 .jmr-muted { color: #64748b; font-size: 0.9rem; }
 .jmr-error { color: #b91c1c; font-size: 0.9rem; margin: 0.35rem 0 0; }
 .jmr-ok { color: #047857; font-size: 0.92rem; font-weight: 600; }
+.jmr-label,.jmr-photo,.jmr-check,.jmr-btn--block{grid-column:1}.jmr-photo-preview{aspect-ratio:16/10}.jmr-btn{background:var(--office-accent);border-color:var(--office-accent);padding:14px}.jmr-btn--secondary{color:#087f5b;background:white}.jmr-photo-placeholder{font-size:18px}.jmr-waiting :deep(.swr__overlay){max-width:640px;padding-right:24px}.jmr-waiting :deep(.swr__sub){white-space:normal}@media(max-width:800px){.jmr-form{grid-template-columns:1fr}.checkin-guide{grid-column:1;grid-row:auto;order:10}.visit-header{flex-direction:column;align-items:flex-start}.visit-steps{gap:12px}.waiting-identity{position:relative;top:auto;right:auto}.jmr-waiting{min-height:850px}.jmr-card{padding:18px}.checkin-heading h1{font-size:30px}.jmr-waiting :deep(.swr__overlay){padding:16px}.jmr-waiting :deep(.swr__sub){max-width:none}}
 </style>
