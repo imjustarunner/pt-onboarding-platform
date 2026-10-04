@@ -81,3 +81,25 @@ if (form) {
     } finally {submitting = false;button.disabled = false;}
   });
 }
+
+// Progressive enhancement: image links still open full-size captures without JS.
+const previewLinks = [...document.querySelectorAll('[data-interface-preview]')];
+if (previewLinks.length && typeof HTMLDialogElement !== 'undefined' && HTMLDialogElement.prototype.showModal) {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'interface-dialog';
+  dialog.setAttribute('aria-labelledby', 'interface-dialog-title');
+  dialog.innerHTML = '<div class="interface-dialog-header"><h2 id="interface-dialog-title"></h2><button type="button" autofocus>Close ✕</button></div><img alt=""><p>Actual app interface · sample data</p>';
+  document.body.append(dialog);
+  const close = () => dialog.close();
+  dialog.querySelector('button').addEventListener('click', close);
+  dialog.addEventListener('click', event => { if (event.target === dialog) close(); });
+  previewLinks.forEach(link => link.addEventListener('click', event => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    dialog.querySelector('h2').textContent = link.dataset.previewTitle;
+    const img = dialog.querySelector('img');
+    img.src = link.href;
+    img.alt = link.querySelector('img').alt;
+    dialog.showModal();
+  }));
+}

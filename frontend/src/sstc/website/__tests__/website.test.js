@@ -18,6 +18,16 @@ describe('Summit Stats public marketing website',()=>{
     expect(document.querySelector('.product-credit').href).toBe('https://plottwistco.com/');
     for (const a of document.querySelectorAll('a')) expect(a.getAttribute('href')).not.toMatch(/^#$/);
   });
+  it.each(SSTC_SECTIONS)('makes joining an existing club visible in the navigation on %s', section => {
+    document.documentElement.innerHTML = renderSstc(section);
+    const link = document.querySelector('#main-nav .find-club-link');
+    expect(link.textContent).toBe('Find a club');
+    expect(link.href).toBe(SSTC_LINKS.clubs);
+  });
+  it('offers a direct join path at the top of How it works', () => {
+    document.documentElement.innerHTML = renderSstc('how-it-works');
+    expect(document.querySelector('.page-intro .actions a').href).toBe(SSTC_LINKS.clubs);
+  });
   it('uses the published trial instead of inventing paid rates or a checkout',()=>{
     const html=renderSstc('pricing');
     expect(html).toContain('$0');expect(html).toContain('No credit card required');
@@ -28,7 +38,15 @@ describe('Summit Stats public marketing website',()=>{
   });
   it('labels examples, describes integrations accurately, and renders all tour panels without JS',()=>{
     const tour=renderSstc('tour');
-    expect(tour).toContain('fictional teams and data');
+    expect(tour).toContain('actual app interface');
+    expect(tour).toContain('sample names, teams, and activities');
+    document.documentElement.innerHTML = tour;
+    for (const name of ['standings', 'activity', 'weekly']) {
+      const image = document.querySelector(`[data-panel="${name}"] img`);
+      expect(image.getAttribute('src')).toBe(`/assets/sstc/interface/${name}.png`);
+      expect(image.closest('a').getAttribute('href')).toBe(image.getAttribute('src'));
+      expect(readFileSync(`public/assets/sstc/interface/${name}.png`).length).toBeGreaterThan(1000);
+    }
     expect(tour.match(/data-panel=/g)).toHaveLength(3);
     expect(tour).not.toContain('data-panel="activity" hidden');
     expect(renderSstc('features')).toContain('Direct Garmin integration is not currently available');
