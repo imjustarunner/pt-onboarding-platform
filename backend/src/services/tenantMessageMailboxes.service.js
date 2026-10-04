@@ -12,6 +12,7 @@ export const TENANT_MESSAGE_DOMAINS = [
   'innerstrengthin.com',
   'nextleveluplcc.com',
   'mh4kidz.com',
+  'mh4kidz.org',
   'risereviveco.com'
 ];
 

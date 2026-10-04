@@ -2,7 +2,7 @@
 // to have PlotTwist manage an organization's Google Groups.
 export const CURRENT_MANAGED_DOMAINS = Object.freeze({
   plottwistco: 'plottwistco.com', itsco: 'itsco.health', nlu: 'nextleveluplcc.com',
-  tisi: 'innerstrengthin.com', mh4kidz: 'mh4kidz.com'
+  tisi: 'innerstrengthin.com', mh4kidz: 'mh4kidz.org'
 });
 export const GROUP_LABELS = Object.freeze({
   staff: 'Staff', unlicensed: 'Unlicensed', prelicensed: 'Prelicensed', licensed: 'Licensed',

@@ -9,6 +9,7 @@ const agency={slug:'itsco',is_active:1,organization_type:'agency'};
 describe('managed staff membership',()=>{
  it('enrolls current managed tenants and explicitly enrolled future tenants only',()=>{
   expect(managedDomain(agency)).toBe('itsco.health');
+  expect(managedDomain({...agency,slug:'mh4kidz'})).toBe('mh4kidz.org');
   expect(managedDomain({...agency,slug:'selfservice',feature_flags:{workspaceEmailDomain:'itsco.health',googleSsoEnabled:true}})).toBeNull();
   expect(managedDomain({...agency,slug:'new',feature_flags:{managedWorkspaceGroupsEnabled:true,workspaceEmailDomain:'new.example'}})).toBe('new.example');
   expect(managedDomain({...agency,feature_flags:{managedWorkspaceGroupsEnabled:false}})).toBeNull();
