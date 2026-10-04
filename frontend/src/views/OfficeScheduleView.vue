@@ -1050,7 +1050,7 @@ const gridConflictCount = computed(() => {
 
 const isAvailableState = (state) => {
   const s = String(state || '');
-  return s === 'open' || s === 'assigned_available' || s === 'assigned_temporary';
+  return s === 'open';
 };
 const isOpenState = (state) => String(state || '') === 'open';
 const isAssignedAvailableState = (state) => {

@@ -27,6 +27,7 @@ export const MANAGED_AGENCY_EVENT_TYPES = new Set([
   'office_schedule_coverage_flag',
   'office_schedule_drop_review_kept',
   'office_schedule_standing_review_6_weeks',
+  'office_assignment_usage_review',
   'onboarding_completed',
   'pending_completed',
   'payroll_holiday_bonus_missing_approval',

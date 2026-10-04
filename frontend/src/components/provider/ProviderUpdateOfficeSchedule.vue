@@ -1,6 +1,17 @@
 <template>
   <div class="pu-office">
-    <p>Review your current office hours before opening times for online booking. Each row is one hour: you can keep 1–3 PM and 5–8 PM while releasing just 3–5 PM.</p>
+    <p>Review your office reservations. Each row is one hour: cancel individual hours below, or clear all office reservations for this agency from today onward.</p>
+    <div v-if="slots.length" class="cancel-panel">
+      <button class="danger" :disabled="busy || loading" @click="confirmCancelAll = !confirmCancelAll">Cancel all office reservations — today onward</button>
+      <p class="muted">Ends all {{ slots.length }} recurring hourly assignments listed below and cancels their office bookings starting today, using each office’s time zone. Past dates stay unchanged. Client sessions must be handled separately.</p>
+      <div v-if="confirmCancelAll">
+        <p><strong>Cancel all {{ slots.length }} recurring hourly assignments?</strong> These office hours will become available to other providers. Any assignment with a linked client session or documentation will be kept and reported below.</p>
+        <div class="row">
+          <button class="danger" :disabled="busy" @click="cancelAllReservations">{{ busy ? 'Cancelling…' : 'Confirm: cancel all from today onward' }}</button>
+          <button :disabled="busy" @click="confirmCancelAll = false">Keep reservations</button>
+        </div>
+      </div>
+    </div>
     <fieldset>
       <legend>Availability and booking preferences</legend>
       <label><input v-model="preferences.inPerson" type="checkbox" /> Available in person</label>
@@ -21,14 +32,14 @@
           <label>Date <input v-model="s.date" type="date" /></label>
         </div>
         <div class="row">
-          <button :disabled="busy" @click="act(s, 'unbook')">Unbook; keep assigned</button>
-          <button :disabled="busy" @click="s.confirmRelease = !s.confirmRelease">Release this hour</button>
+          <button class="danger" :disabled="busy" @click="s.confirmRelease = !s.confirmRelease">Cancel office reservation</button>
           <button :disabled="busy" @click="s.edit = !s.edit">Change recurring time</button>
         </div>
         <div v-if="s.confirmRelease" class="row">
-          <span>{{ s.scope === 'future' ? 'Give up this hourly assignment from the selected date forward?' : 'Release this date only? Your recurring assignment will remain.' }}</span>
-          <button :disabled="busy" @click="act(s, 'forfeit')">Confirm release</button>
+          <span>{{ s.scope === 'future' ? `Cancel this hour from ${s.date} onward and end its recurring assignment? Other providers can reserve it.` : `Cancel this hour on ${s.date} only? Your recurring assignment stays in place.` }}</span>
+          <button class="danger" :disabled="busy" @click="act(s, 'forfeit')">{{ s.scope === 'future' ? 'Confirm: cancel this and all following' : 'Confirm: cancel this date only' }}</button>
         </div>
+        <p class="muted">Cancel office reservation releases the room for others. It does not cancel a linked client session.</p>
         <div v-if="s.edit" class="row">
           <label>Day <select v-model.number="s.newWeekday"><option v-for="(day,i) in days" :key="day" :value="i">{{ day }}</option></select></label>
           <label>Hour <input v-model.number="s.newHour" type="number" min="0" max="23" /></label>
@@ -58,13 +69,17 @@ const props = defineProps({ agencyId: [Number, String], mode: { type: String, de
 const emit = defineEmits(['complete']);
 const route = useRoute();
 const slots = ref([]), loading = ref(false), busy = ref(false), error = ref(''), message = ref('');
+const confirmCancelAll = ref(false);
 const preferences = reactive({ inPerson: true, virtual: true, online: false, keepDefaults: true, ...(props.data?.preferences || {}) });
 let loaded = false;
 const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const base = computed(() => props.mode === 'token' ? `/public/provider-update/${encodeURIComponent(props.token)}` : '/provider-update/me');
 const myScheduleHref = computed(() => `${route.params.organizationSlug ? `/${route.params.organizationSlug}` : ''}/my-schedule`);
+function todayForOffice(slot) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: slot.timeZone, year:'numeric',month:'2-digit',day:'2-digit' }).format(new Date());
+}
 function nextDate(slot) {
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: slot.timeZone, year:'numeric',month:'2-digit',day:'2-digit' }).format(new Date());
+  const today = todayForOffice(slot);
   const date = new Date(`${today}T12:00:00Z`);
   date.setUTCDate(date.getUTCDate() + (Number(slot.weekday) - date.getUTCDay() + 7) % 7);
   return date.toISOString().slice(0, 10);
@@ -92,6 +107,29 @@ async function act(slot, action) {
   } catch(e) { error.value = e.response?.data?.error?.message || 'The update did not finish. Refresh before trying again.'; }
   finally { busy.value = false; }
 }
+async function cancelAllReservations() {
+  if (busy.value || !confirmCancelAll.value) return;
+  busy.value = true; error.value = ''; message.value = '';
+  const selected = [...slots.value];
+  const failures = [];
+  let cancelled = 0;
+  try {
+    for (const slot of selected) {
+      try {
+        await api.post(`${base.value}/office-assignments/${slot.id}/forfeit`, {
+          agencyId: props.agencyId, scope: 'future', date: todayForOffice(slot), acknowledged: true
+        }, { timeout: 30000 });
+        cancelled += 1;
+      } catch (e) {
+        failures.push(`${slot.title}, ${slot.when}: ${e.response?.data?.error?.message || 'Cancellation could not be confirmed. Refresh to check this assignment.'}`);
+      }
+    }
+    message.value = `Cancelled ${cancelled} of ${selected.length} recurring hourly assignments from today onward.`;
+    confirmCancelAll.value = false;
+    await load();
+    if (failures.length) error.value = [error.value, ...failures].filter(Boolean).join('\n');
+  } finally { busy.value = false; }
+}
 async function completeReview() {
   busy.value = true; error.value = '';
   try {
@@ -114,5 +152,6 @@ async function completeReview() {
 onMounted(load);
 </script>
 <style scoped>
+.cancel-panel{border:1px solid #fecaca;border-radius:10px;padding:1rem}.danger{color:#b91c1c;border-color:#fecaca}.err{white-space:pre-line}
 .pu-office,.slots,fieldset,.slots li{display:grid;gap:.8rem}.slots{list-style:none;padding:0}.slots li,fieldset{border:1px solid #d1d5db;border-radius:10px;padding:1rem}.row{display:flex;flex-wrap:wrap;align-items:center;gap:.7rem}label{display:flex;gap:.4rem;align-items:center}.muted{color:#64748b;font-size:.88rem}.err{color:#b91c1c}button,select,input{padding:.45rem;border:1px solid #94a3b8;border-radius:6px}button{cursor:pointer;background:white}button:disabled{opacity:.5;cursor:default}
 </style>

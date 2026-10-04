@@ -1,5 +1,8 @@
 import { localDayUtcBounds, mysqlDateTimeForDateHour, utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 import { isAssignmentActiveOnDate, shouldBookOnDate, shouldBookByCount } from './officeScheduleMaterializer.service.js';
+import { attachOfficeSchedulingPolicies } from './officeSchedulingPolicy.service.js';
+import { appointmentMode } from '../utils/officeSchedulingPolicy.js';
+import { officePlanHasClient } from '../utils/officeRecordWindow.js';
 
 export function directorySelection(query, timezone, now = new Date()) {
   const wall = utcToZonedMysqlWall(now, timezone);
@@ -19,7 +22,8 @@ export function directorySelection(query, timezone, now = new Date()) {
   return { date, time, endTime, selectedEndAt: endTime ? `${date} ${endTime}:00` : null, selectedAt: `${date} ${time}:00`, bounds: localDayUtcBounds(date, timezone) };
 }
 
-export function buildOfficeDirectory({ rooms, events, standing, plans, people, date, selectedAt, selectedEndAt = null, timezone }) {
+export function buildOfficeDirectory({ rooms, events, standing, plans, people, date, selectedAt, selectedEndAt = null, timezone, now = new Date() }) {
+  const historical = date < utcToZonedMysqlWall(now, timezone).slice(0, 10);
   const peopleById = new Map(people.map(p => [Number(p.id), {
     id: Number(p.id), firstName: p.first_name, lastName: p.last_name,
     name: `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Provider',
@@ -28,6 +32,13 @@ export function buildOfficeDirectory({ rooms, events, standing, plans, people, d
   }]));
   const person = id => peopleById.get(Number(id)) || null;
   const planByAssignment = new Map(plans.map(p => [Number(p.standing_assignment_id), p]));
+  const assignmentById = new Map(standing.map(a => [Number(a.id), a]));
+  events = events.map(event => {
+    const assignment = assignmentById.get(Number(event.standing_assignment_id));
+    if (historical || !assignment || (event.booked_provider_id && Number(event.booked_provider_id) !== Number(assignment.provider_id)) || event.status === 'CANCELLED' || event.client_id || event.clinical_session_id || event.has_appointment || event.billing_context_id || event.note_context_id) return event;
+    const booked = !appointmentMode(assignment, date);
+    return { ...event, status: booked ? 'BOOKED' : 'RELEASED', slot_state: booked ? 'ASSIGNED_BOOKED' : 'ASSIGNED_AVAILABLE', booked_provider_id: booked ? assignment.provider_id : null };
+  });
   const dayEvents = [...events];
   const weekday = new Date(`${date}T12:00:00Z`).getUTCDay();
   for (const assignment of standing) {
@@ -39,6 +50,8 @@ export function buildOfficeDirectory({ rooms, events, standing, plans, people, d
     // of an assigned hour, and a canceled booking never reappears from its plan.
     let gaps = [[start, end]];
     for (const event of events.filter(e => Number(e.room_id) === Number(assignment.room_id))) {
+      // Cancelling a client appointment does not cancel the underlying office assignment.
+      if (event.status === 'CANCELLED' && (event.client_id || event.clinical_session_id || event.has_appointment)) continue;
       gaps = gaps.flatMap(([from, to]) => {
         if (event.end_at <= from || event.start_at >= to) return [[from, to]];
         const pieces = [];
@@ -48,7 +61,8 @@ export function buildOfficeDirectory({ rooms, events, standing, plans, people, d
       });
     }
     const plan = planByAssignment.get(Number(assignment.id));
-    const booked = plan && shouldBookOnDate(plan, assignment, date) && shouldBookByCount(plan, assignment, date);
+    const booked = (!historical && !appointmentMode(assignment, date))
+      || ((historical || officePlanHasClient(plan)) && shouldBookOnDate(plan, assignment, date) && shouldBookByCount(plan, assignment, date));
     for (const [from, to] of gaps) dayEvents.push({ room_id: assignment.room_id, start_at: from, end_at: to,
       status: booked ? 'BOOKED' : 'RELEASED', slot_state: booked ? 'ASSIGNED_BOOKED' : 'ASSIGNED_AVAILABLE',
       assigned_provider_id: assignment.provider_id, booked_provider_id: booked ? assignment.provider_id : null });
@@ -75,15 +89,18 @@ export async function loadOfficeDirectory(db, location, query) {
   const timezone = location.timezone || 'America/Denver';
   const selection = directorySelection(query, timezone);
   const { bounds, date, time, endTime, selectedAt, selectedEndAt } = selection;
-  const [[rooms], [events], [standing], [plans]] = await Promise.all([
+  const [[rooms], [events], [rawStanding], [plans]] = await Promise.all([
     db.execute('SELECT id, name, room_number FROM office_rooms WHERE location_id = ? AND is_active = 1', [location.id]),
     db.execute(`SELECT room_id, DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s') start_at,
-      DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s') end_at, status, slot_state, assigned_provider_id, booked_provider_id
+      DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s') end_at, status, slot_state, assigned_provider_id, booked_provider_id,
+      standing_assignment_id, client_id, clinical_session_id, billing_context_id, note_context_id,
+      EXISTS(SELECT 1 FROM appointments ap WHERE ap.office_event_id = office_events.id) has_appointment
       FROM office_events WHERE office_location_id = ? AND start_at < ? AND end_at > ?`, [location.id, bounds.endExclusive, bounds.startAt]),
     db.execute('SELECT * FROM office_standing_assignments WHERE office_location_id = ? AND is_active = 1', [location.id]),
     db.execute(`SELECT p.* FROM office_booking_plans p JOIN office_standing_assignments a ON a.id = p.standing_assignment_id
       WHERE a.office_location_id = ? AND a.is_active = 1 AND p.is_active = 1 ORDER BY p.id`, [location.id])
   ]);
+  const standing = await attachOfficeSchedulingPolicies(rawStanding, db);
   const ids = [...new Set([...events.flatMap(e => [e.assigned_provider_id, e.booked_provider_id]), ...standing.map(a => a.provider_id)].filter(Boolean))];
   let people = [];
   if (ids.length) [people] = await db.execute(`SELECT u.id, u.first_name, u.last_name, u.profile_photo_path,

@@ -2,7 +2,10 @@ import {officeAvailabilityWindows} from '../services/officeAvailabilityWindow.se
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
 import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
 import { rescheduleStandingAssignment, rescheduleOfficeEvent } from './officeSlotActions.controller.js';
-import { withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
+import { attachOfficeSchedulingPolicies } from '../services/officeSchedulingPolicy.service.js';
+import { utcToZonedMysqlWall as officePolicyLocalWall } from '../utils/officeEventDateTime.util.js';
+import { appointmentMode } from '../utils/officeSchedulingPolicy.js';
+import { officePlanHasClient, withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import {officeBookingNeedsSession} from '../utils/officeBookingSessionLink.js';
 import { bookOfficeForAppointmentRequest } from '../services/officeAppointmentBinding.service.js';
@@ -438,37 +441,13 @@ async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTi
   );
   if (assignRows?.[0]) return false;
 
-  // Standing assignment: only hard-block when this occurrence is already booked.
-  // ASSIGNED_AVAILABLE (assigned but not booked for the day) may be borrowed by another provider.
-  // When assignment is weekly + booking is biweekly, off-weeks stay open for others.
+  // Assigned office time cannot be borrowed through same-day booking.
   const wh = weekdayHourInTz(startAt, officeTimeZone || 'America/New_York') || weekdayHourFromSqlDateTime(startAt);
   if (wh) {
-    const st = await OfficeStandingAssignment.findActiveBySlot({
-      officeLocationId,
-      roomId,
-      weekday: wh.weekdayIndex,
-      hour: wh.hour
-    });
-    if (st?.id) {
-      const [occRows] = await pool.execute(
-        `SELECT status, slot_state
-         FROM office_events
-         WHERE room_id = ?
-           AND start_at < ?
-           AND end_at > ?
-           AND (status IS NULL OR UPPER(status) <> 'CANCELLED')
-         ORDER BY id DESC
-         LIMIT 1`,
-        [roomId, endAt, startAt]
-      );
-      const occ = occRows?.[0] || null;
-      const occStatus = String(occ?.status || '').toUpperCase();
-      const occState = String(occ?.slot_state || '').toUpperCase();
-      if (occ && (occStatus === 'BOOKED' || ['ASSIGNED_BOOKED', 'COMPANY_HOLD'].includes(occState))) {
-        return false;
-      }
-      // Open assigned / not yet materialized: allow same-day borrow or open-room book.
-      // Soft hold below can still block.
+    const parsedEnd = parseSlotEndHour(startAt, endAt, officeTimeZone || 'America/New_York');
+    for (let hour = Number(wh.hour); hour < (parsedEnd?.endHour || Number(wh.hour) + 1); hour++) {
+      const standing = await OfficeStandingAssignment.findActiveBySlot({ officeLocationId, roomId, weekday: wh.weekdayIndex, hour });
+      if (standing?.id) return false;
     }
 
     // Soft hold: pending office request for this room+weekday+hour blocks kiosk/same-day book.
@@ -1215,7 +1194,7 @@ export const getWeeklyGrid = async (req, res, next) => {
            AND a.is_active = TRUE`,
         [officeLocationIdNum]
       );
-      for (const row of standingRows || []) {
+      for (const row of await attachOfficeSchedulingPolicies(standingRows || [])) {
         const sk = `${Number(row.room_id)}:${Number(row.weekday)}:${Number(row.hour)}`;
         if (!standingByRoomWeekdayHour.has(sk)) standingByRoomWeekdayHour.set(sk, []);
         standingByRoomWeekdayHour.get(sk).push(row);
@@ -1538,18 +1517,18 @@ export const getWeeklyGrid = async (req, res, next) => {
           const standingCandidates = standingByRoomWeekdayHour.get(`${Number(room.id)}:${dow}:${Number(hour)}`) || [];
           const standingHit = standingCandidates.find((sa) => isAssignmentActiveOnDate(sa, date));
           if (standingHit && !cancelledLegacyBySlotProvider.has(`${Number(room.id)}:${date}:${hour}:${Number(standingHit.provider_id)}`)) {
-            const plan = planByStandingId.get(Number(standingHit.id)) || null;
-            // Booking plan off-week (e.g. weekly assign + biweekly book): leave open for others.
-            if (plan && !shouldBookOnDate(plan, standingHit, date)) {
-              // fall through to open
-            } else {
-              const bookedToday = !!(plan && shouldBookOnDate(plan, standingHit, date));
+            const storedPlan = planByStandingId.get(Number(standingHit.id)) || null;
+            const appointmentsOnly = appointmentMode(standingHit, date);
+            const plan = appointmentsOnly && !officePlanHasClient(storedPlan) ? null : storedPlan;
+            // The assignment remains reserved even between appointment occurrences.
+            {
+              const bookedToday = (!appointmentsOnly && date >= officePolicyLocalWall(new Date(), officeTz).slice(0, 10)) || !!(plan && shouldBookOnDate(plan, standingHit, date));
               // Best-effort heal: recreate the missing materialization so approve + grid stay in sync.
               let healedEventId = null;
               try {
                 const slotStartAt = mysqlDateTimeForDateHour(date, hour, officeTz);
                 const slotEndAt = mysqlDateTimeForDateHour(date, Number(hour) + 1, officeTz);
-                if (slotStartAt && slotEndAt && withinOfficeRecordWindow(date, officeTz)) {
+                if (slotStartAt && slotEndAt && date >= officePolicyLocalWall(new Date(), officeTz).slice(0, 10) && withinOfficeRecordWindow(date, officeTz)) {
                   // eslint-disable-next-line no-await-in-loop
                   const healed = await OfficeEvent.upsertSlotState({
                     officeLocationId: officeLocationIdNum,

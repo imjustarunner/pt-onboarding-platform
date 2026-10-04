@@ -1063,7 +1063,7 @@ export const staffBookEvent = async (req, res, next) => {
       && assignedProviderId > 0
       && bodyBookedProviderId !== assignedProviderId
     );
-    if (isBorrow) bookedProviderId = bodyBookedProviderId;
+    if (isBorrow) return res.status(409).json({ error: { message: 'Assigned office time cannot be booked by another provider. Choose unassigned office time.' } });
     if (!bookedProviderId) {
       return res.status(400).json({ error: { message: 'Event is missing assigned provider' } });
     }

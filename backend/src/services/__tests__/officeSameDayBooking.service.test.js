@@ -34,11 +34,12 @@ describe('same-day booking writes',()=>{
   expect(insert[1]).toEqual([1,4,'2026-09-30 01:15:00','2026-09-30 03:45:00',null,7,7,7]);
   expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('office_booking_requests'))).toBe(false);
  });
+ it('rejects assigned-only time without creating a booking',async()=>{mocks.directory.mockResolvedValue({rooms:[{id:4,occupied:false,current:[{assignedProvider:{id:9}}]}]});await expect(book()).rejects.toMatchObject({status:409});expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('INSERT'))).toBe(false);});
  it('rejects an overlap anywhere in the requested range',async()=>{mocks.directory.mockResolvedValue({rooms:[{id:4,occupied:true}]});await expect(book()).rejects.toMatchObject({status:409});expect(mocks.execute.mock.calls.some(([sql])=>sql.includes('INSERT'))).toBe(false);});
  it('rechecks locked event rows before changing an assignment',async()=>{mocks.execute.mockImplementation(async(sql)=>sql.includes('SELECT * FROM office_events')?[[{id:3,status:'BOOKED'}]]:sql.includes('FROM office_rooms')?[[{id:4}]]:[[]]);await expect(book()).rejects.toMatchObject({status:409});expect(mocks.execute.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);});
  it('preserves both unbooked outside pieces without duplicating calendar event identifiers',async()=>{
   mocks.execute.mockImplementation(async(sql)=>{
-   if(sql.includes('SELECT * FROM office_events'))return [[{id:3,room_id:4,office_location_id:1,status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE',start_at:'2026-09-30 01:00:00',end_at:'2026-09-30 04:00:00',assigned_provider_id:9,google_provider_event_id:'original-calendar-event',created_by_user_id:9}]];
+   if(sql.includes('SELECT * FROM office_events'))return [[{id:3,room_id:4,office_location_id:1,status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE',start_at:'2026-09-30 01:00:00',end_at:'2026-09-30 04:00:00',assigned_provider_id:null,google_provider_event_id:'original-calendar-event',created_by_user_id:9}]];
    return sql.includes('FROM office_rooms')?[[{id:4}]]:sql.includes('INSERT')?[{insertId:42}]:[[]];
   });
   await book();const copies=mocks.execute.mock.calls.filter(([sql])=>sql.includes('INSERT INTO office_events (\x60'));

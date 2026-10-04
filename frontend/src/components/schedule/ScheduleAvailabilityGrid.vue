@@ -498,7 +498,7 @@
             class="sched-pill sched-pill-link"
             :to="officeRequestsApproveLink"
             data-tour="my-schedule-approve-office-requests"
-            title="Approve office requests and review reported Therapy Notes coverage conflicts"
+            title="Approve office requests"
           >
             Approve office requests
           </router-link>
@@ -993,18 +993,6 @@
       </div>
       <div v-else-if="officeGridError" class="error" style="margin-top: 10px;">{{ officeGridError }}</div>
       <template v-else-if="officeGrid || officeGridLoading">
-        <div v-if="canViewIcsCoverage" class="ics-gaps-toolbar">
-          <button
-            type="button"
-            class="btn btn-secondary btn-sm"
-            :class="{ 'btn-ics-on': showIcsGaps }"
-            :title="showIcsGaps ? 'Hide Therapy Notes coverage gaps' : 'Highlight booked hours missing a Therapy Notes session (prior audit flags)'"
-            @click="toggleIcsGaps"
-          >
-            {{ showIcsGaps ? 'ICS gaps: On' : 'Show ICS gaps' }}
-          </button>
-          <span v-if="showIcsGaps" class="muted" style="font-size: 12px;">Striped cells / ICS badge = no matching clinical ICS overlap</span>
-        </div>
         <OfficeWeeklyRoomGrid
           :office-grid="officeGrid"
           :today-ymd="todayLocalYmd"
@@ -1775,6 +1763,16 @@
             </div>
           </div>
           <div class="nr-head-context" data-testid="schedule-modal-context">
+            <button
+              v-if="showActionChooser && ownSlotForfeitAction"
+              type="button"
+              class="nr-forfeit-shortcut"
+              :disabled="submitting || !!ownSlotForfeitAction.disabledReason"
+              :title="ownSlotForfeitAction.disabledReason || 'Release this office time so someone else can use it'"
+              @click="openOwnSlotForfeit"
+            >
+              Cancel office reservation
+            </button>
             <button
               v-if="isPickScheduleEventMode || (isScheduleEventEditMode && stackDetailsItems.length > 1)"
               type="button"
@@ -3392,7 +3390,7 @@
           <!-- Slot details: summary lives in the green header; main pane stays action-focused -->
           <div v-if="requestType === 'slot_details'" class="slot-details-panel">
             <div class="slot-details-lead">
-              Use the actions on the left to book, forfeit, reassign, or cancel this selection.
+              Use the actions on the left to book, cancel an office reservation, or reassign this selection.
             </div>
           </div>
 
@@ -4017,15 +4015,15 @@
           </div>
 
           <div v-if="requestType === 'forfeit_slot'" style="margin-top: 10px;">
-            <label class="lbl">Forfeit scope</label>
+            <label class="lbl">Cancel which office reservations?</label>
             <select v-model="forfeitScope" class="input" style="margin-bottom: 8px;">
-              <option value="occurrence">Release selected hours on this day; keep recurring assignment</option>
-              <option value="future" :disabled="!hasFutureForfeitSupport">Give up selected hours from this day forward</option>
+              <option value="occurrence">This date only — release selected hours; keep recurring assignment</option>
+              <option value="future" :disabled="!hasFutureForfeitSupport">This date and all following — end recurring assignment for selected hours</option>
             </select>
             <label class="forfeit-ack" :class="{ 'forfeit-ack--on': ackForfeit, 'forfeit-ack--needed': !ackForfeit }">
               <input type="checkbox" v-model="ackForfeit" class="forfeit-ack__box" />
               <span class="forfeit-ack__text">
-                <strong>Required:</strong> I understand this slot’s day/time/frequency is forfeit and becomes available to others.
+                <strong>Required:</strong> {{ forfeitScope === 'future' ? 'Cancel the selected office hours from this date onward and end their recurring assignment. Other providers can reserve them.' : 'Cancel the selected office hours on this date only. My recurring assignment stays in place.' }}
               </span>
             </label>
           </div>
@@ -8893,9 +8891,7 @@ const canViewIcsCoverage = computed(() => {
   return ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support'].includes(role);
 });
 const ICS_GAPS_STORAGE_KEY = 'officeSchedule.showIcsGaps';
-const showIcsGaps = ref(
-  typeof window !== 'undefined' && window.localStorage.getItem(ICS_GAPS_STORAGE_KEY) === '1'
-);
+const showIcsGaps = ref(false);
 const toggleIcsGaps = () => {
   showIcsGaps.value = !showIcsGaps.value;
   try {
@@ -12868,17 +12864,9 @@ const availableQuickActions = computed(() => {
     },
     // Notes are session-affiliated: open the booked session (start_video / session edit) — not from empty office.
     {
-      id: 'unbook_slot',
-      label: 'Unbook (keep assigned)',
-      description: 'Mark this slot as available again — keeps your recurring assignment intact',
-      disabledReason: hasEvent && booked ? '' : 'Needs booked office slot',
-      visible: hasEvent && booked,
-      tone: 'slate'
-    },
-    {
       id: 'forfeit_slot',
-      label: 'Forfeit this slot',
-      description: 'Give up your assignment so someone else can use this office time',
+      label: 'Cancel office reservation',
+      description: 'Release the room for others. Choose one date or end the recurring assignment from that date onward.',
       disabledReason: hasEvent ? '' : 'Needs assigned/booked slot',
       visible: !supervisionOnlyMode && (hasAssignedOffice || booked),
       tone: 'red',
@@ -12886,8 +12874,8 @@ const availableQuickActions = computed(() => {
     },
     {
       id: 'cancel_booking',
-      label: 'Cancel booking',
-      description: 'Admin: delete this booking from the calendar (does not forfeit a standing assignment)',
+      label: 'Admin: cancel calendar booking',
+      description: 'Remove a calendar booking using admin cancellation options. To give up your office assignment, use Cancel office reservation.',
       disabledReason: '',
       visible: !supervisionOnlyMode && canManageOffices.value && booked,
       tone: 'red',
@@ -13066,11 +13054,28 @@ const visibleQuickActions = computed(() => {
 });
 
 const SLOT_ACTION_PRIMARY_COUNT = 7;
+const ownSlotForfeitAction = computed(() => {
+  const ctx = modalContext.value || {};
+  const ownerId = Number(ctx.assignedProviderId || ctx.bookedProviderId || 0);
+  if (!ownerId || ownerId !== Number(authStore.user?.id || 0)) return null;
+  return visibleQuickActions.value.find((action) => action.id === 'forfeit_slot') || null;
+});
+const chooserCardActions = computed(() => visibleQuickActions.value.filter(
+  (action) => !ownSlotForfeitAction.value || action.id !== 'forfeit_slot'
+));
+const openOwnSlotForfeit = () => {
+  const action = ownSlotForfeitAction.value;
+  if (!action || action.disabledReason || submitting.value) return;
+  const recurring = hasRecurringOfficeSlot.value;
+  ackForfeit.value = false;
+  onQuickActionSelect(action);
+  forfeitScope.value = recurring ? 'future' : 'occurrence';
+};
 const primaryQuickActions = computed(() => {
   const state = String(modalContext.value?.slotState || '').toUpperCase();
   const occupiedOffice = ['ASSIGNED_BOOKED', 'ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY'].includes(state);
   // Date/time/provider edit lives in the top bar — keep Advanced assign in More for occupied slots.
-  const rows = (visibleQuickActions.value || []).filter((r) => !(occupiedOffice && r.id === 'admin_assign'));
+  const rows = chooserCardActions.value.filter((r) => !(occupiedOffice && r.id === 'admin_assign'));
   const isEmptyOffice = modalActionSource.value === 'office_block' && state === 'ASSIGNED_AVAILABLE';
   if (isEmptyOffice) {
     const byId = new Map(rows.map((r) => [String(r.id), r]));
@@ -13083,10 +13088,10 @@ const primaryQuickActions = computed(() => {
 });
 const moreQuickActions = computed(() => {
   const primaryIds = new Set((primaryQuickActions.value || []).map((r) => r.id));
-  return (visibleQuickActions.value || []).filter((r) => !primaryIds.has(r.id));
+  return chooserCardActions.value.filter((r) => !primaryIds.has(r.id));
 });
 const displayedChooserActions = computed(() => {
-  if (showMoreSlotActions.value) return visibleQuickActions.value || [];
+  if (showMoreSlotActions.value) return chooserCardActions.value;
   return primaryQuickActions.value || [];
 });
 
@@ -13350,7 +13355,7 @@ const submitActionLabel = computed(() => {
     schedule_hold: 'Schedule hold',
     schedule_hold_all_day: 'Schedule block',
     indirect_services: 'Schedule event',
-    forfeit_slot: 'Forfeit selected slot(s)',
+    forfeit_slot: 'Confirm cancellation of office reservation',
     extend_assignment: 'Extend assignment',
     intake_virtual_on: 'Enable virtual intake',
     intake_virtual_off: 'Disable virtual intake',
@@ -13359,7 +13364,7 @@ const submitActionLabel = computed(() => {
     booked_note: 'Open Documentation Hub',
     start_video: 'Start video session',
     booked_record: 'Open recorder',
-    unbook_slot: 'Unbook selected slot(s)'
+    unbook_slot: 'Clear booking; keep office time'
   };
   const t = String(requestType.value || '');
   if (virtualSessionShareUrl.value && isVirtualTelehealthSession.value) {
@@ -15668,12 +15673,12 @@ const requestSubmitBlockedReason = computed(() => {
     return 'Select an assigned office slot with a standing assignment.';
   }
   if (t === 'forfeit_slot') {
-    if (!ackForfeit.value) return 'Acknowledge the forfeit before submitting.';
+    if (!ackForfeit.value) return 'Confirm that you understand which office reservations will be cancelled.';
     const ok = selectedActionContexts().some(
       (x) => (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0)
         && Number(x?.officeLocationId || 0) > 0
     );
-    if (!ok) return 'Select an assigned/booked office slot to forfeit.';
+    if (!ok) return 'Select an assigned office reservation to cancel.';
   }
   if (isScheduleEventRequestType.value && !scheduleEventCanSubmit.value) {
     return 'Enter an event title before submitting.';
@@ -22343,7 +22348,7 @@ const submitRequest = async () => {
         (x) => Number(x?.officeLocationId || 0) > 0 && (Number(x?.officeEventId || 0) > 0 || Number(x?.standingAssignmentId || 0) > 0)
       );
       if (!contexts.length) throw new Error('Select an assigned/booked office slot first.');
-      if (!ackForfeit.value) throw new Error('Please acknowledge that you understand this slot will be forfeit.');
+      if (!ackForfeit.value) throw new Error('Please confirm that these office reservations will be cancelled.');
       for (const ctx of contexts) {
         const officeLocationId = Number(ctx.officeLocationId || 0);
         const officeEventId = Number(ctx.officeEventId || 0);
@@ -29800,6 +29805,24 @@ defineExpose({ resetToOpenFinder, openQuickBook });
   align-items: flex-start;
   gap: 12px;
   min-width: 0;
+}
+.nr-forfeit-shortcut {
+  padding: 8px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff;
+  color: #b91c1c;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nr-forfeit-shortcut:hover:not(:disabled) {
+  background: #fef2f2;
+}
+.nr-forfeit-shortcut:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .nr-head-icon {
   width: 40px;

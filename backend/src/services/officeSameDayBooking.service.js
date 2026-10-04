@@ -43,12 +43,14 @@ export async function bookOfficeToday({ user, locationId, roomId, date, time, en
     const directory = await loadOfficeDirectory(conn, location, {date,time,endTime});
     const room = directory.rooms.find(r=>Number(r.id)===roomId);
     if (!room || room.occupied) throw fail(409,'This office is no longer available for the entire time range. Refresh and choose another room or time.');
+    if ((room.current || []).some(entry => entry.assignedProvider)) throw fail(409, 'This office time is assigned. An empty room does not transfer the reservation; choose unassigned office time.');
     const [busy] = await conn.execute(`SELECT id FROM office_events WHERE booked_provider_id = ? AND start_at < ? AND end_at > ? AND status <> 'CANCELLED' AND (status = 'BOOKED' OR slot_state = 'ASSIGNED_BOOKED') LIMIT 1`,[user.id,window.endAt,window.startAt]);
     if (busy.length) throw fail(409,'You already have an office booking during this time.');
     const [overlaps] = await conn.execute(`SELECT * FROM office_events WHERE room_id = ? AND start_at < ? AND end_at > ? AND status <> 'CANCELLED' FOR UPDATE`,[roomId,window.endAt,window.startAt]);
     // Cancel the original occurrence and preserve both outside pieces verbatim.
     // Keeping the original row also preserves its audit/history references.
     for (const row of overlaps) {
+      if (row.assigned_provider_id || row.standing_assignment_id) throw fail(409, 'This office time is assigned. Choose unassigned office time.');
       if (row.status === 'BOOKED' || ['ASSIGNED_BOOKED','COMPANY_HOLD'].includes(row.slot_state)) throw fail(409,'This office was just booked. Refresh and choose another time.');
       if (row.client_id || row.clinical_session_id) throw fail(409,'This time has a linked clinical record. Please choose another room or ask scheduling staff for help.');
       await conn.execute("UPDATE office_events SET status = 'CANCELLED' WHERE id = ?",[row.id]);

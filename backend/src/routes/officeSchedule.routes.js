@@ -1,5 +1,6 @@
 import { bookOfficeToday } from '../services/officeSameDayBooking.service.js';
 import express from 'express';
+import * as officePolicy from '../controllers/officeSchedulingPolicy.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listLocations,
@@ -55,6 +56,12 @@ router.get('/board/:locationId', publicBoard);
 
 // Authenticated routes
 router.use(authenticate);
+router.get('/scheduling-policies', officePolicy.listPolicies);
+router.get('/scheduling-policies/:agencyId/preview', officePolicy.previewPolicy);
+router.put('/scheduling-policies/:agencyId', officePolicy.savePolicy);
+router.get('/usage-reviews', officePolicy.listUsageReviews);
+router.post('/usage-reviews/:assignmentId/request', officePolicy.requestKeepOffice);
+router.post('/usage-reviews/:assignmentId/decision', officePolicy.decideKeepOffice);
 
 // Retired provider blocking gate — endpoint kept for compatibility; always returns empty.
 router.get('/me/mandatory-review', getMyMandatoryOfficeReview);

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { runOfficeUsageReviews } from './officeAssignmentUsage.service.js';
 import NotificationEvent from '../models/NotificationEvent.model.js';
 import { createNotificationAndDispatch } from './notificationDispatcher.service.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
@@ -122,6 +123,7 @@ export class OfficeScheduleWatchdogService {
        JOIN users u ON u.id = osa.provider_id
        LEFT JOIN office_booking_plans bp ON bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
        WHERE osa.is_active = TRUE
+         AND NOT EXISTS (SELECT 1 FROM office_scheduling_policies policy WHERE policy.agency_id = osa.booking_agency_id AND policy.transition_date IS NOT NULL)
          AND (osa.last_six_week_checked_at IS NULL OR osa.last_six_week_checked_at <= DATE_SUB(NOW(), INTERVAL 42 DAY))
          AND (
            (bp.id IS NOT NULL AND (bp.last_confirmed_at IS NULL OR bp.last_confirmed_at <= DATE_SUB(NOW(), INTERVAL 42 DAY)))
@@ -230,6 +232,7 @@ export class OfficeScheduleWatchdogService {
          LEFT JOIN office_booking_plans bp
            ON bp.standing_assignment_id = osa.id AND bp.is_active = TRUE
          WHERE osa.is_active = TRUE
+           AND NOT EXISTS (SELECT 1 FROM office_scheduling_policies policy WHERE policy.agency_id = osa.booking_agency_id AND policy.transition_date IS NOT NULL)
            AND osa.availability_mode = 'AVAILABLE'
            AND oe.slot_state IN ('ASSIGNED_AVAILABLE', 'ASSIGNED_TEMPORARY')
            AND oe.start_at >= NOW()
@@ -298,7 +301,7 @@ export class OfficeScheduleWatchdogService {
    * Admins snooze (+6 weeks), downgrade booked→assigned, or release assigned→open manually.
    */
   static async autoForfeitStaleAvailableSlots() {
-    return { warned: 0, queued: 0, disabled: true, reason: 'admin_review_only' };
+    return runOfficeUsageReviews();
   }
 
   static async run() {
@@ -351,33 +354,10 @@ export class OfficeScheduleWatchdogService {
       staleAssignmentCleanup = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
-    // Therapy Notes / ICS calendar matching is hard-capped to once per UTC day.
-    // Multiple Cloud Run instances (or a local + stage process) previously
-    // re-ran this and produced million-scale scanned totals / timeouts.
-    const alreadySyncedToday = await ehrSyncAlreadyRanToday().catch(() => false);
-
-    let ehrRefresh = null;
-    if (alreadySyncedToday) {
-      ehrRefresh = { ok: true, skipped: true, reason: 'already_ran_today' };
-      console.info('[watchdog] EHR/ICS refresh skipped — already ran today');
-    } else {
-      try {
-        // Match Therapy Notes / ICS busy blocks to assigned office slots → mark booked.
-        ehrRefresh = await refreshAllLocationsFromEhr({ actorUserId: 1 });
-      } catch (e) {
-        ehrRefresh = { ok: false, reason: 'exception', error: String(e?.message || e) };
-      }
-    }
-
-    // Phase A: auto-book slots that overlap provider_schedule_events (internal sessions).
-    let internalSessionBook = null;
-    try {
-      internalSessionBook = await this.autoBookFromInternalSessions();
-    } catch (e) {
-      internalSessionBook = { ok: false, reason: 'exception', error: String(e?.message || e) };
-    }
-
-    const confirms = await this.emitSixWeekBookingConfirmReminders();
+    // Office state and retention come from this app. External calendars are optional mirrors.
+    const ehrRefresh = { skipped: true, reason: 'app_is_source_of_truth' };
+    const internalSessionBook = { skipped: true, reason: 'appointments_only' };
+    const confirms = { skipped: true, reason: 'replaced_by_usage_reviews' };
     const forfeits = await this.autoForfeitStaleAvailableSlots();
     let inactiveCleanup = null;
     try {
@@ -394,17 +374,7 @@ export class OfficeScheduleWatchdogService {
       googleSync = { ok: false, reason: 'exception', error: String(e?.message || e) };
     }
 
-    // ICS coverage audit: once daily with EHR refresh (never auto-cancels).
-    let icsCoverageAudit = null;
-    if (alreadySyncedToday) {
-      icsCoverageAudit = { ok: true, skipped: true, reason: 'already_ran_today' };
-    } else {
-      try {
-        icsCoverageAudit = await auditIcsCoverageAllLocations({ actorUserId: 1 });
-      } catch (e) {
-        icsCoverageAudit = { ok: false, reason: 'exception', error: String(e?.message || e) };
-      }
-    }
+    const icsCoverageAudit = { skipped: true, reason: 'external_calendar_not_required' };
 
     console.info('[watchdog]', JSON.stringify({
       staleDeactivatedCount: Number(staleAssignmentCleanup?.assignmentsDeactivated || 0),

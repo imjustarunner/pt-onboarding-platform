@@ -4,7 +4,7 @@ const timezone = 'America/Denver';
 const people = [{ id: 4, first_name: 'Jordan', last_name: 'Rivera', profile_photo_path: 'photo.jpg', agency_name: 'Agency', agency_logo_path: 'logo.png' }, { id: 5, first_name: 'Alex', last_name: 'Chen' }];
 const rooms = [10,2,1].map(id => ({ id, room_number: id, name: 'Counseling' }));
 const event = { room_id: 1, start_at: '2026-09-29 16:00:00', end_at: '2026-09-29 17:00:00', status: 'BOOKED', slot_state: 'ASSIGNED_BOOKED', assigned_provider_id: 4, booked_provider_id: 5 };
-const base = { rooms, events: [event], standing: [], plans: [], people, date: '2026-09-29', selectedAt: '2026-09-29 10:30:00', timezone };
+const base = { now: new Date('2026-09-01T12:00:00Z'), rooms, events: [event], standing: [], plans: [], people, date: '2026-09-29', selectedAt: '2026-09-29 10:30:00', timezone };
 const assignment = { id: 9, room_id: 1, provider_id: 4, weekday: 2, hour: 10, assigned_frequency: 'WEEKLY', available_since_date: '2026-09-01', availability_mode: 'AVAILABLE' };
 const plan = { standing_assignment_id: 9, is_active: 1, booked_frequency: 'WEEKLY', booking_start_date: '2026-09-01' };
 describe('public office directory', () => {
@@ -45,19 +45,19 @@ describe('public office directory', () => {
   expect(buildOfficeDirectory({...base,events:[{...event,status:'RELEASED',slot_state:'ASSIGNED_AVAILABLE'}]})[0].occupied).toBe(false);
   expect(buildOfficeDirectory({...base,selectedAt:'2026-09-29 11:00:00'})[0].current).toEqual([]);
  });
- it('projects recurring future bookings without database mutations, including skipped dates', () => {
+ it('automatically books assigned time even without a booking-plan occurrence before transition', () => {
   const input = {...base,events:[],standing:[assignment],plans:[plan],date:'2027-01-05',selectedAt:'2027-01-05 10:30:00'};
   expect(buildOfficeDirectory(input)[0].occupied).toBe(true);
   const skipped=buildOfficeDirectory({...input,plans:[{...plan,skipped_dates_json:'["2027-01-05"]'}]})[0];
-  expect(skipped.occupied).toBe(false); expect(skipped.current[0].assignedProvider.name).toBe('Jordan Rivera');
+  expect(skipped.occupied).toBe(true); expect(skipped.current[0].assignedProvider.name).toBe('Jordan Rivera');
  });
  it('honors explicit cancellations, temporary expiry, and biweekly off weeks', () => {
   expect(buildOfficeDirectory({...base,events:[{...event,status:'CANCELLED'}],standing:[assignment],plans:[plan]})[0].occupied).toBe(false);
   expect(buildOfficeDirectory({...base,events:[],standing:[{...assignment,availability_mode:'TEMPORARY',temporary_until_date:'2026-09-28'}]})[0].assignments).toEqual([]);
   expect(buildOfficeDirectory({...base,events:[],date:'2026-09-08',standing:[{...assignment,assigned_frequency:'BIWEEKLY'}]})[0].assignments).toEqual([]);
  });
- it('preserves an assigned half hour beside an explicit partial booking', () => {
-  const result=buildOfficeDirectory({...base,selectedAt:'2026-09-29 10:45:00',standing:[assignment],events:[{...event,end_at:'2026-09-29 16:30:00'}]})[0];
+ it('preserves an assigned half hour beside an explicit partial booking after transition', () => {
+  const result=buildOfficeDirectory({...base,selectedAt:'2026-09-29 10:45:00',standing:[{...assignment,transition_date:'2026-09-01'}],events:[{...event,end_at:'2026-09-29 16:30:00'}]})[0];
   expect(result.occupied).toBe(false);expect(result.current[0].assignedProvider.name).toBe('Jordan Rivera');
   expect(result.current[0].startAt).toBe('2026-09-29 10:30:00');
  });
@@ -66,4 +66,14 @@ describe('public office directory', () => {
   for (const forbidden of ['PRIVATE','secret@','ARCHIVED','client_id','999']) expect(result).not.toContain(forbidden);
   expect(result).toContain('Jordan Rivera');
  });
+});
+it('projects automatic reservations before cutover and assigned-only time after cutover', () => {
+ const standing = [{ ...assignment, transition_date: '2026-09-30' }];
+ expect(buildOfficeDirectory({...base,events:[],standing})[0].occupied).toBe(true);
+ expect(buildOfficeDirectory({...base,events:[],standing:[{...assignment,transition_date:'2026-09-01'}]})[0].occupied).toBe(false);
+});
+it('cancelling a client appointment preserves the assigned office hour after transition', () => {
+ const result = buildOfficeDirectory({...base,standing:[{...assignment,transition_date:'2026-09-01'}],events:[{...event,status:'CANCELLED',client_id:123}]})[0];
+ expect(result.occupied).toBe(false);
+ expect(result.current[0].assignedProvider.id).toBe(4);
 });

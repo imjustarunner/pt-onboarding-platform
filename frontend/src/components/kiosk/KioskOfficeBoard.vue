@@ -1,6 +1,6 @@
 <template>
   <section class="office-board" :class="{ compact }" aria-labelledby="offices-heading" :aria-busy="loading">
-    <div class="board-heading"><div><span class="eyebrow">FIND YOUR WAY</span><h2 id="offices-heading">Our offices</h2></div><div class="legend"><span><i class="green" /> Available</span><span><i class="red" /> Occupied / booked</span></div></div>
+    <div class="board-heading"><div><span class="eyebrow">FIND YOUR WAY</span><h2 id="offices-heading">Our offices</h2></div><div class="legend"><span><i class="green" /> Unassigned</span><span><i class="amber" /> Assigned · no appointment</span><span><i class="red" /> Booked / held</span></div></div>
     <div class="browse-controls">
       <button aria-label="Previous day" @click="moveDay(-1)">←</button>
       <label>Date<input aria-label="Office date" type="date" :value="date" @change="selectDate($event.target.value)" /></label>
@@ -17,8 +17,8 @@
     <div v-if="loading" class="loading" role="status">Loading offices…</div>
     <div v-else-if="!error && !rooms.length" class="loading">No rooms are listed for this building yet.</div>
     <div v-else-if="!error" class="room-grid">
-      <button v-for="room in rooms" :key="room.id" class="room-card" :class="{ occupied: room.occupied, selected: selectedId === room.id }" :aria-expanded="selectedId === room.id" aria-controls="room-details" @click="selectRoom(room.id)">
-        <span class="room-top"><span class="room-number">{{ room.roomNumber != null ? `Office ${room.roomNumber}` : room.name }}</span><span class="room-status">{{ room.occupied ? (endTime ? 'Overlap / booked' : 'Occupied') : 'Available' }}</span></span>
+      <button v-for="room in rooms" :key="room.id" class="room-card" :class="{ occupied: room.occupied, assigned: !room.occupied && hasAssignment(room), selected: selectedId === room.id }" :aria-expanded="selectedId === room.id" aria-controls="room-details" @click="selectRoom(room.id)">
+        <span class="room-top"><span class="room-number">{{ room.roomNumber != null ? `Office ${room.roomNumber}` : room.name }}</span><span class="room-status">{{ room.occupied ? 'Booked / held' : hasAssignment(room) ? 'Assigned · no appointment' : 'Unassigned · available' }}</span></span>
         <span class="room-name">{{ room.name }}</span>
         <template v-for="(entry, index) in room.current" :key="index">
           <span v-if="entry.booked" class="current-person"><small>BOOKED WITH</small><KioskPerson v-if="entry.bookedProvider" :person="entry.bookedProvider" /><span v-else>Provider booking</span></span>
@@ -33,9 +33,10 @@
     <section v-if="selectedRoom && !loading && !error" id="room-details" class="room-details" aria-labelledby="room-detail-title">
       <header><div><span class="eyebrow">{{ formattedDate }}</span><h3 id="room-detail-title">{{ selectedRoom.roomNumber != null ? `Office ${selectedRoom.roomNumber}` : selectedRoom.name }} · Day schedule</h3></div><button aria-label="Close office details" @click="selectedId = null">×</button></header>
       <div class="reservation">
-        <p v-if="!selectedRoom.occupied">Reserve this office for yourself today. Select a start and end time; no approval is needed for same-day reservations.</p>
-        <button v-if="allowBooking && !selectedRoom.occupied" :disabled="booking || !endTime" @click="bookRoom">{{ booking ? 'Reserving…' : 'Book this time for me' }}</button>
-        <a v-else-if="!selectedRoom.occupied" :href="bookingLink">Staff · Book this office</a>
+        <p v-if="!selectedRoom.occupied && hasAssignment(selectedRoom)">No appointment is scheduled, but this office time is assigned. Check that the room is unoccupied before using it. The assignment remains with the listed provider.</p>
+        <p v-if="!selectedRoom.occupied && !hasAssignment(selectedRoom)">Reserve this office for yourself today. Select a start and end time; no approval is needed for same-day reservations.</p>
+        <button v-if="allowBooking && !selectedRoom.occupied && !hasAssignment(selectedRoom)" :disabled="booking || !endTime" @click="bookRoom">{{ booking ? 'Reserving…' : 'Book this time for me' }}</button>
+        <a v-else-if="!selectedRoom.occupied && !hasAssignment(selectedRoom)" :href="bookingLink">Staff · Book this office</a>
         <p v-if="bookingMessage" role="status">{{ bookingMessage }}</p>
       </div>
       <div class="day-navigation"><button @click="moveDay(-1)">← Previous day</button><button @click="moveDay(1)">Next day →</button></div>
@@ -43,10 +44,10 @@
       <div v-for="(entry, index) in selectedRoom.assignments" :key="index" class="day-entry" :class="{ booked: entry.booked || entry.held, current: entry.status === 'current' }">
         <div class="entry-time"><strong>{{ formatKioskTime(entry.startAt) }} – {{ formatKioskTime(entry.endAt) }}</strong><span v-if="entry.status === 'current'">At selected time</span></div>
         <div class="entry-people"><div v-if="entry.assignedProvider"><small>ASSIGNED TO</small><KioskPerson :person="entry.assignedProvider" /></div><div v-if="entry.booked"><small>BOOKED WITH</small><KioskPerson v-if="entry.bookedProvider" :person="entry.bookedProvider" /><span v-else>Provider booking</span></div><span v-if="entry.held">Office hold</span></div>
-        <span class="entry-state">{{ entry.booked ? 'Booked' : entry.held ? 'Held' : 'Assigned · available' }}</span>
+        <span class="entry-state">{{ entry.booked ? 'Booked' : entry.held ? 'Held' : 'Assigned · no appointment' }}</span>
       </div>
     </section>
-    <p class="board-note">Colors reflect bookings or holds anywhere in the selected time range. An assignment identifies who holds that office time; it is separate from a booking. Please wait in the lobby for your provider.</p>
+    <p class="board-note">Colors show scheduled bookings, holds, and assignments—not physical occupancy. Assigned time cannot be reserved by another provider here. Clients: please wait in the lobby for your provider.</p>
   </section>
 </template>
 <script setup>
@@ -70,6 +71,7 @@ async function bookRoom() {
   } catch(e) { bookingMessage.value = e.response?.data?.error?.message || 'The reservation could not be confirmed. Please refresh and try again.'; }
   finally { booking.value = false; }
 }
+const hasAssignment = room => room.current?.some(entry => !!entry.assignedProvider);
 const selectedRoom = computed(() => rooms.value.find(room => room.id === selectedId.value));
 const formattedDate = computed(() => date.value ? new Date(`${date.value}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '');
 let generation = 0, timer;
@@ -109,6 +111,8 @@ onMounted(() => { load(); timer = setInterval(() => load({ background: true }), 
 onUnmounted(() => { generation++; clearInterval(timer); });
 </script>
 <style scoped>
+.legend .amber{background:#d97706}.room-card.assigned{border-color:#d97706;background:#fffbeb}.room-card.assigned .room-status{color:#92400e}
+
 .reservation{margin:12px 0;padding:16px;background:#edf3e8;border-radius:12px;font-size:13px}.reservation button,.reservation a{display:inline-block;padding:14px;border:0;border-radius:10px;background:#24443d;color:white;text-decoration:none}.reservation button:disabled{opacity:.5}
 .office-board{margin:26px 0 36px}.board-heading,.room-details header{display:flex;justify-content:space-between;align-items:center;gap:15px}.eyebrow{font-size:10px;letter-spacing:1.8px;color:#677961;font-weight:700}h2{font-weight:500;font-size:28px;margin:7px 0 18px}.legend{display:flex;gap:15px;font-size:11px}.legend span{display:flex;align-items:center;gap:6px}.legend i{width:9px;height:9px;border-radius:50%}.green{background:#4d8969}.red{background:#bc655f}.browse-controls{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin-bottom:18px}.browse-controls label{display:grid;gap:5px;font-size:10px;color:#596b60}.browse-controls input,button{font:inherit;color:inherit}.browse-controls input{background:#fffef9;border:1px solid #ced8cb;border-radius:9px;padding:10px;min-height:44px;font-size:13px;max-width:170px}button{cursor:pointer}.browse-controls button,.day-navigation button,.room-details header button,.board-error button{border:1px solid #ccd7c8;background:#fffdf6;border-radius:9px;min-height:44px;padding:10px 15px}.now-button.active{background:#24443d;color:white}.view-label{font-size:10px;margin:auto 0 12px auto;color:#63746b}.room-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.room-card{text-align:left;border:1px solid #b9d7c2;background:#e8f2e7;border-radius:17px;padding:17px;display:flex;flex-direction:column;gap:10px;min-height:155px;min-width:0;box-shadow:0 2px 3px #294e3705}.room-card.occupied{background:#f7e7e2;border-color:#e1b9b0}.room-card.selected{outline:2px solid #24443d;outline-offset:2px}.room-top{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.room-number{font-size:18px;font-weight:650;letter-spacing:-.5px}.room-status{font-size:10px;background:#fff9;padding:5px 7px;border-radius:6px;color:#326044}.occupied .room-status{color:#8f3d36}.room-name{font-size:10px;color:#617064}.current-person{display:grid;gap:7px}.current-person small,.entry-people small{display:block;font-size:8px;letter-spacing:1px;margin-bottom:5px}.assignment-label,.open-label{font-size:11px;line-height:1.4;color:#526557}.occupied .assignment-label{color:#765950}.view-day{margin-top:auto;padding-top:4px;font-size:10px;font-weight:600}.room-details{border:1px solid #d2dacb;background:#fffef9;border-radius:20px;margin-top:22px;padding:24px}.room-details h3{font-size:23px;font-weight:500;margin:8px 0 15px}.day-navigation{display:flex;gap:10px;margin:8px 0 20px}.day-navigation button{font-size:12px}.day-entry{display:grid;grid-template-columns:170px 1fr auto;align-items:center;gap:18px;background:#eef5ec;border-left:3px solid #7aa180;padding:17px;border-radius:8px;margin:8px 0}.day-entry.booked{background:#f9ede8;border-left-color:#bd7770}.day-entry.current{outline:2px solid #78856c}.entry-time{display:grid;gap:6px;font-size:12px}.entry-time span{font-size:10px;color:#60705e}.entry-people{display:flex;gap:28px;flex-wrap:wrap}.entry-state{font-size:10px}.board-note{font-size:11px;line-height:1.7;color:#637367;margin:15px 0 0;max-width:850px}.board-error{background:#fff2dd;padding:22px;border-radius:14px;color:#835729}.loading,.no-schedule{padding:25px;color:#63746b;font-size:13px}button:focus-visible,input:focus-visible{outline:3px solid #ad8038;outline-offset:3px}@media(min-width:1400px){.room-grid{grid-template-columns:repeat(5,minmax(0,1fr))}}@media(max-width:1000px){.room-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.day-entry{grid-template-columns:140px 1fr}.entry-state{grid-column:2}}@media(max-width:650px){.room-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.board-heading{align-items:start;flex-direction:column;gap:0}.legend{margin:0 0 18px}.view-label{width:100%;margin:0}.room-card{padding:13px}.room-number{font-size:17px}.browse-controls{gap:7px}.browse-controls input{max-width:150px}.room-details{padding:16px}.day-entry{grid-template-columns:1fr}.entry-state{grid-column:auto}.entry-people{gap:16px}}
 

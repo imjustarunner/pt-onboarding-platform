@@ -2,12 +2,15 @@ import { publishOfficeAssignmentEvent } from './officeAssignmentBookingAvailabil
 import { officePlanHasClient, officeYearBoundary, withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import pool from '../config/database.js';
+import { attachOfficeSchedulingPolicies } from './officeSchedulingPolicy.service.js';
+import { appointmentMode } from '../utils/officeSchedulingPolicy.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import { dayDiffYmd } from './officeSlotSeries.service.js';
 import { mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned } from '../utils/officeEventDateTime.util.js';
+import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 
 function parseYmdParts(dateStr) {
   const raw = String(dateStr || '').slice(0, 10);
@@ -301,7 +304,7 @@ export class OfficeScheduleMaterializer {
       let cancelledCount = 0;
 
       // Standing assignments + booking plans are the source of truth for assigned_* states.
-      const standing = await OfficeStandingAssignment.listByOffice(officeId);
+      const standing = await attachOfficeSchedulingPolicies(await OfficeStandingAssignment.listByOffice(officeId));
       const plans = await OfficeBookingPlan.listActiveByAssignmentIds(standing.map((s) => s.id));
       const planByAssignment = new Map(plans.map((p) => [p.standing_assignment_id, p]));
       const existingEvents = await OfficeEvent.listForOfficeWindow({
@@ -322,6 +325,8 @@ export class OfficeScheduleMaterializer {
 
       for (const a of standing) {
         for (const date of days) {
+          // A policy change must never rewrite historical office occurrences.
+          if (date < utcToZonedMysqlWall(new Date(), officeTz).slice(0, 10)) continue;
           // Materialize only on the assignment's configured weekday.
           const weekday = weekdayIndexFromYmd(date);
           if (!Number.isInteger(weekday) || Number(weekday) !== Number(a.weekday)) continue;
@@ -348,40 +353,22 @@ export class OfficeScheduleMaterializer {
           if (a.availability_mode === 'TEMPORARY' && extCount >= 2 && untilStr && date > untilStr) continue;
 
           // Keep temporary expiry semantics, but surface approved availability as assigned_available.
-          const baseSlotState = 'ASSIGNED_AVAILABLE';
+          const appointmentsOnly = appointmentMode(a, date);
+          const baseSlotState = appointmentsOnly ? 'ASSIGNED_AVAILABLE' : 'ASSIGNED_BOOKED';
 
-          const plan = planByAssignment.get(a.id) || null;
-          let slotState = baseSlotState;
-          if (plan && shouldBookOnDate(plan, a, date) && shouldBookByCount(plan, a, date)) {
-            slotState = 'ASSIGNED_BOOKED';
-          } else if (plan && isPlanDateSkipped(plan, date)) {
-            // Occurrence was explicitly unbooked — keep assigned-available, do not rebook.
-            slotState = baseSlotState;
-          } else if (plan && !shouldBookOnDate(plan, a, date)) {
-            // Assignment weekly + booking biweekly: off-weeks are released for others to book.
-            const hasStandingEvent = existingRows.some((ev) =>
-              Number(ev?.standing_assignment_id || 0) === Number(a.id || 0)
-              && String(ev?.status || '').toUpperCase() !== 'CANCELLED'
-            );
-            if (hasStandingEvent) {
-              await OfficeEvent.cancelSlotIfFromStandingAssignment({
-                roomId: a.room_id,
-                startAt,
-                endAt,
-                standingAssignmentId: a.id
-              });
-              cancelledCount += 1;
-            }
-            continue; // Skip upsert - slot is open
-          }
-
+          const storedPlan = planByAssignment.get(a.id) || null;
+          // Automatic reservations stop at cutover. Client appointment series remain intact.
+          const plan = appointmentsOnly && !officePlanHasClient(storedPlan) ? null : storedPlan;
+          const bookedFromPlan = !!(plan && shouldBookOnDate(plan, a, date) && shouldBookByCount(plan, a, date));
+          const slotState = bookedFromPlan ? 'ASSIGNED_BOOKED' : baseSlotState;
           const desiredBookedProviderId = slotState === 'ASSIGNED_BOOKED' ? Number(a.provider_id || 0) : 0;
-          const desiredPlanId = slotState === 'ASSIGNED_BOOKED' ? Number(plan?.id || 0) : 0;
+          const desiredPlanId = bookedFromPlan ? Number(plan?.id || 0) : 0;
           let sessionContext = null;
           if (desiredPlanId && plan?.session_context_json) {
             sessionContext = typeof plan.session_context_json === 'string' ? JSON.parse(plan.session_context_json) : plan.session_context_json;
           }
           if (!sessionContext?.agencyId && a.booking_agency_id) sessionContext = { ...sessionContext, agencyId: Number(a.booking_agency_id) };
+          if (!desiredPlanId || !officePlanHasClient(plan)) sessionContext = { ...sessionContext, bookingSource: appointmentsOnly ? 'office_assignment' : 'automatic_office_reservation' };
           const hasMatchingRow = existingRows.some((ev) =>
             String(ev?.status || '').toUpperCase() !== 'CANCELLED'
             && String(ev?.slot_state || '').toUpperCase() === String(slotState || '').toUpperCase()
@@ -390,6 +377,12 @@ export class OfficeScheduleMaterializer {
             && Number(ev?.assigned_provider_id || 0) === Number(a.provider_id || 0)
             && Number(ev?.booked_provider_id || 0) === desiredBookedProviderId
             && (!sessionContext?.agencyId || officeBookingAgencyId(ev) === Number(sessionContext.agencyId))
+            && (!sessionContext?.bookingSource || (() => {
+              try {
+                const context = typeof ev.session_context_json === 'string' ? JSON.parse(ev.session_context_json) : ev.session_context_json;
+                return context?.bookingSource === sessionContext.bookingSource;
+              } catch { return false; }
+            })())
             && (!sessionContext?.clientId || Number(ev?.client_id || 0) === Number(sessionContext.clientId))
             && (!sessionContext?.serviceCode || String(ev?.service_code || '') === String(sessionContext.serviceCode))
             && (!sessionContext?.packageEntitlementId || !!ev?.session_context_json)
@@ -397,6 +390,7 @@ export class OfficeScheduleMaterializer {
           if (hasMatchingRow) continue;
 
           const sessionEvent = await OfficeEvent.upsertSlotState({
+            allowAutomaticReservationDowngrade: appointmentsOnly,
             officeLocationId: officeId,
             roomId: a.room_id,
             startAt,
@@ -404,7 +398,7 @@ export class OfficeScheduleMaterializer {
             slotState,
             standingAssignmentId: a.id,
             // Skipped (unbooked) dates keep the assignment but must not re-link the booking plan.
-            bookingPlanId: slotState === 'ASSIGNED_BOOKED' ? (plan?.id || null) : null,
+            bookingPlanId: desiredPlanId || null,
             recurrenceGroupId: a.recurrence_group_id || null,
             assignedProviderId: a.provider_id,
             bookedProviderId: desiredBookedProviderId || null,
@@ -412,8 +406,8 @@ export class OfficeScheduleMaterializer {
             // Never resurrect explicit cancellations — occurrence cancels + forfeits must stick.
             replaceCancelled: false
           });
-          if (sessionEvent?.id && sessionContext?.agencyId && !sessionContext?.clientId) {
-            await pool.execute("UPDATE office_events SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?) WHERE id = ? AND client_id IS NULL AND clinical_session_id IS NULL", [sessionContext.agencyId, sessionEvent.id]);
+          if (sessionEvent?.id && sessionContext?.bookingSource && !sessionContext?.clientId) {
+            await pool.execute("UPDATE office_events SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?, '$.bookingSource', ?) WHERE id = ? AND client_id IS NULL AND clinical_session_id IS NULL", [sessionContext.agencyId || null, sessionContext.bookingSource || 'office_assignment', sessionEvent.id]);
           }
           if (sessionEvent?.id && sessionContext?.clientId) {
             await pool.execute(

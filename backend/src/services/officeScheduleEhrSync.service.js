@@ -1,4 +1,7 @@
 import pool from '../config/database.js';
+import { attachOfficeSchedulingPolicies } from './officeSchedulingPolicy.service.js';
+import { appointmentMode } from '../utils/officeSchedulingPolicy.js';
+import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import OfficeStandingAssignment from '../models/OfficeStandingAssignment.model.js';
@@ -312,7 +315,7 @@ async function writeSyncLog({ officeLocationId, eventsScanned, eventsBooked, eve
  *
  * Writes a row to office_ehr_sync_log with feed health stats.
  */
-export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUserId }) {
+async function legacyRefreshLocationBookingsFromEhr({ officeLocationId, actorUserId }) {
   const officeId = parseInt(officeLocationId, 10);
   const actorId = parseInt(actorUserId, 10) || 1;
   if (!officeId) return { ok: false, reason: 'invalid_location' };
@@ -359,7 +362,10 @@ export async function refreshLocationBookingsFromEhr({ officeLocationId, actorUs
     [officeId, windowStartWall, windowEndWall]
   );
 
-  const events = (assignedRows || []).filter((r) => Number(r.assigned_provider_id || r.booked_provider_id || 0) > 0);
+  const policyAssignments = await attachOfficeSchedulingPolicies(await OfficeStandingAssignment.listByOffice(officeId));
+  const policyById = new Map(policyAssignments.map(a => [Number(a.id), a]));
+  const events = (assignedRows || []).filter((r) => Number(r.assigned_provider_id || r.booked_provider_id || 0) > 0
+    && !appointmentMode(policyById.get(Number(r.standing_assignment_id)), utcToZonedMysqlWall(r.start_at, officeTimeZone).slice(0, 10)));
   if (!events.length) {
     await writeSyncLog({ officeLocationId: officeId, eventsScanned: 0, eventsBooked: 0, eventsOverlapUpdated: 0, feedsOk: 0, feedsFailed: 0 });
     return { ok: true, officeLocationId: officeId, scannedAssigned: 0, bookedFromEhr: 0, touchedProviders: 0, bookingPlansReset: 0 };
@@ -673,7 +679,7 @@ export const ICS_COVERAGE_WINDOW_DAYS = 28;
  * Keep windows suppress re-flagging until ics_coverage_keep_until. Never auto-cancels.
  */
 
-export async function auditIcsCoverageForLocation({
+async function legacyAuditIcsCoverageForLocation({
   officeLocationId,
   actorUserId = 1,
   windowDays = ICS_COVERAGE_WINDOW_DAYS
@@ -1311,3 +1317,13 @@ export default {
   ehrSyncAlreadyRanToday,
   downgradeBookedWithoutExternalOverlap
 };
+
+// Compatibility endpoint: external calendars never establish office use or change reservations.
+export async function refreshLocationBookingsFromEhr() {
+  return { ok: true, skipped: true, reason: "app_is_source_of_truth", message: "Office bookings and usage are tracked in this app. External calendar matching is no longer required." };
+}
+
+// Compatibility endpoint: external calendars never establish office use or change reservations.
+export async function auditIcsCoverageForLocation() {
+  return { ok: true, skipped: true, reason: "app_is_source_of_truth", message: "Office bookings and usage are tracked in this app. External calendar matching is no longer required." };
+}

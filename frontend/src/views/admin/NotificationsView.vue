@@ -393,6 +393,7 @@ const getTypeLabel = (type) => {
     company_event_registration_submitted: 'New Event Registration',
     office_availability_request_pending: 'Office Requests',
     office_schedule_standing_review_6_weeks: 'Office standing review',
+    office_assignment_usage_review: 'Office assignment renewal',
     school_availability_request_pending: 'School Requests',
     kudos_earned_admin_digest: 'Kudos Earned',
     office_availability_request_approved: 'Office Request Approved',
@@ -650,6 +651,8 @@ const getNotificationNavigationPath = async (notification) => {
     const agencyId = notification.agency_id;
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/availability-intake` : '/admin/availability-intake';
     return `${base}?agencyId=${agencyId}&tab=school`;
+  } else if (notification.type === 'office_assignment_usage_review') {
+    return route.params.organizationSlug ? `/${route.params.organizationSlug}/my-schedule` : '/my-schedule';
   } else if (notification.type === 'office_schedule_standing_review_6_weeks') {
     const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/buildings/schedule` : '/buildings/schedule';
     return base;
@@ -847,6 +850,10 @@ const handleNotificationClick = async (notification) => {
       const base = route.params.organizationSlug ? `/${route.params.organizationSlug}/admin/office-approvals` : '/admin/office-approvals';
       router.push(`${base}?agencyId=${agencyId}&tab=requests`);
     }
+    return;
+  }
+  if (notification.type === 'office_assignment_usage_review') {
+    router.push(route.params.organizationSlug ? `/${route.params.organizationSlug}/my-schedule` : '/my-schedule');
     return;
   }
   if (notification.type === 'office_availability_request_approved' || notification.type === 'office_schedule_standing_review_6_weeks') {

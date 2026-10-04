@@ -12,11 +12,12 @@
         @select-view="onSelectHubView"
       >
         <template #header-actions>
+          <button v-if="isSuperadmin" class="btn btn-secondary btn-sm" @click="showOfficeTransition = !showOfficeTransition" :aria-expanded="showOfficeTransition">Office scheduling transition</button>
           <router-link
             v-if="canApproveOfficeRequests"
             class="btn btn-secondary btn-sm"
             :to="officeApprovalsTo"
-            title="Approve office requests and review reported Therapy Notes coverage conflicts"
+            title="Approve office requests"
             data-testid="my-schedule-header-approve-office-requests"
           >
             Approve office requests
@@ -45,6 +46,8 @@
           </router-link>
         </template>
 
+        <OfficeSchedulingTransition v-if="isSuperadmin && showOfficeTransition" />
+        <OfficeAssignmentUsageReviews />
         <ScheduleAvailabilityGrid
           :user-id="Number(authStore.user.id)"
           :mode="'self'"
@@ -72,6 +75,8 @@ import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import ScheduleAvailabilityGrid from '../components/schedule/ScheduleAvailabilityGrid.vue';
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
+import OfficeSchedulingTransition from '../components/schedule/OfficeSchedulingTransition.vue';
+import OfficeAssignmentUsageReviews from '../components/schedule/OfficeAssignmentUsageReviews.vue';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';
 
 const route = useRoute();
@@ -94,6 +99,8 @@ const tasksTo = computed(() => orgTo('/tasks'));
 const officeApprovalsTo = computed(() => orgTo('/admin/office-approvals'));
 
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
+const isSuperadmin = computed(() => ['super_admin', 'superadmin'].includes(roleNorm.value));
+const showOfficeTransition = ref(true);
 const canApproveOfficeRequests = computed(() =>
   ['clinical_practice_assistant', 'provider_plus', 'admin', 'super_admin', 'superadmin', 'support', 'staff'].includes(roleNorm.value)
 );

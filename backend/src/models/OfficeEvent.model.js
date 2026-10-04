@@ -367,6 +367,7 @@ class OfficeEvent {
     bookedProviderId = null,
     createdByUserId,
     replaceCancelled = false,
+    allowAutomaticReservationDowngrade = false,
     notes = null,
     _locked = false
   }) {
@@ -390,6 +391,7 @@ class OfficeEvent {
         bookedProviderId,
         createdByUserId,
         replaceCancelled,
+        allowAutomaticReservationDowngrade,
         notes,
         _locked: true
       }));
@@ -464,6 +466,12 @@ class OfficeEvent {
       // Exception: do NOT preserve a foreign booked_provider under a different standing assignee
       // (that creates assigned=A / booked=B ghosts, often after reassignment or rematerialize).
       let preserveBooked = existingIsBooked && String(slotState || '').toUpperCase() !== 'ASSIGNED_BOOKED';
+      if (preserveBooked && allowAutomaticReservationDowngrade && existing.standing_assignment_id
+        && (!existingBookedId || existingBookedId === incomingAssignedId)
+        && !existing.client_id && !existing.clinical_session_id && !existing.billing_context_id && !existing.note_context_id) {
+        const [linked] = await pool.execute('SELECT id FROM appointments WHERE office_event_id = ? LIMIT 1', [existing.id]);
+        if (!linked.length) preserveBooked = false;
+      }
       if (
         preserveBooked
         && incomingAssignedId
