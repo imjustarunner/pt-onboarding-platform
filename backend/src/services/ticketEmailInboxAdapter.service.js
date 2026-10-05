@@ -1,3 +1,4 @@
+import { decryptTicketRow, decryptTicketMessageRow } from '../utils/supportTicketCrypto.js';
 import pool from '../config/database.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
 import CommunicationInbox from '../models/CommunicationInbox.model.js';
@@ -31,7 +32,7 @@ export async function syncEmailTicketsToInbox({ agencyId, limit = 100, forceRefr
     `SELECT t.id, t.agency_id, t.school_organization_id, t.client_id, t.subject, t.question,
             t.status, t.priority, t.source_channel, t.source_email_from, t.source_email_subject,
             t.source_email_message_id, t.source_email_thread_id, t.source_email_received_at,
-            t.updated_at, t.created_at,
+            t.updated_at, t.created_at, t.topic, t.question_ciphertext, t.question_iv, t.question_auth_tag, t.question_encryption_key_id,
             s.name AS school_name,
             c.full_name AS client_full_name
      FROM support_tickets t
@@ -46,7 +47,7 @@ export async function syncEmailTicketsToInbox({ agencyId, limit = 100, forceRefr
 
   // Prefer schoolreply / schools identity inbox for this agency
   const inboxes = await CommunicationInbox.listForAgency({ agencyId });
-  const preferred =
+  const schoolInbox =
     inboxes.find((i) => /schoolreply|school_reply|schools@/i.test(`${i.identity_key || ''} ${i.from_email || ''}`)) ||
     inboxes.find((i) => /school/i.test(i.identity_key || '') || /school/i.test(i.from_email || '')) ||
     inboxes.find((i) => /support/i.test(i.identity_key || '') || /support@/i.test(i.from_email || '')) ||
@@ -54,7 +55,11 @@ export async function syncEmailTicketsToInbox({ agencyId, limit = 100, forceRefr
     null;
 
     let synced = 0;
-  for (const ticket of tickets || []) {
+  for (const rawTicket of tickets || []) {
+    const ticket = decryptTicketRow(rawTicket);
+    const preferred = ticket.topic === 'technology'
+      ? inboxes.find(i => String(i.identity_key).toLowerCase() === 'technology' || /^technology@/i.test(i.from_email || ''))
+      : schoolInbox;
     let conv = await CommunicationConversation.findBySupportTicketId(ticket.id);
     const subject = ticket.source_email_subject || ticket.subject || 'Email conversation';
     const lastAt = ticket.source_email_received_at || ticket.updated_at || ticket.created_at;
@@ -116,14 +121,15 @@ export async function syncEmailTicketsToInbox({ agencyId, limit = 100, forceRefr
 
       // Pull existing ticket thread messages
       const [tmsgs] = await pool.execute(
-        `SELECT id, author_user_id, author_role, body, created_at
+        `SELECT id, author_user_id, author_role, body, body_ciphertext, body_iv, body_auth_tag, encryption_key_id, created_at
          FROM support_ticket_messages
          WHERE ticket_id = ?
          ORDER BY created_at ASC
          LIMIT 100`,
         [ticket.id]
       );
-      for (const m of tmsgs || []) {
+      for (const rawMessage of tmsgs || []) {
+        const m = decryptTicketMessageRow(rawMessage);
         const role = String(m.author_role || '');
         const isInternal = role.includes('internal');
         const isSystemEmail = role === 'system_email';
@@ -142,6 +148,7 @@ export async function syncEmailTicketsToInbox({ agencyId, limit = 100, forceRefr
 
       // Classify + OOO / SUPPORT / intent (school tickets: owner may be null → agency defaults)
       try {
+        if (ticket.topic === 'technology') continue; // Human-owned support; no automated school-status replies.
         const { processInboundCommunicationEvent } = await import('./inboundCommunication.service.js');
         await processInboundCommunicationEvent({
           agencyId: ticket.agency_id || agencyId,
@@ -167,6 +174,7 @@ export async function syncEmailTicketsToInbox({ agencyId, limit = 100, forceRefr
     // Re-classify existing threads that never got sender_trust (idempotent soft pass)
     if (!isNew && conv && !conv.sender_trust && ticket.source_email_from) {
       try {
+        if (ticket.topic === 'technology') continue; // Human-owned support; no automated school-status replies.
         const { processInboundCommunicationEvent } = await import('./inboundCommunication.service.js');
         await processInboundCommunicationEvent({
           agencyId: ticket.agency_id || agencyId,

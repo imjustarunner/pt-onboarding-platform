@@ -1,6 +1,7 @@
 /** Ticket audience / topic — who should own the reply. */
 
 export const TICKET_TOPICS = [
+  { id: 'technology', label: 'Technology support', short: 'Technology' },
   { id: 'general', label: 'General support', short: 'General' },
   { id: 'billing', label: 'Billing', short: 'Billing' },
   { id: 'credentialing', label: 'Credentialing', short: 'Credentialing' },
@@ -10,17 +11,17 @@ export const TICKET_TOPICS = [
 
 /** Guardians: general + billing only */
 export const GUARDIAN_TICKET_TOPICS = TICKET_TOPICS.filter((t) =>
-  ['general', 'billing'].includes(t.id)
+  ['general', 'technology', 'billing'].includes(t.id)
 );
 
 /** Providers: general + credentialing (+ billing if needed for claims questions) */
 export const PROVIDER_TICKET_TOPICS = TICKET_TOPICS.filter((t) =>
-  ['general', 'credentialing', 'billing'].includes(t.id)
+  ['general', 'technology', 'credentialing', 'billing'].includes(t.id)
 );
 
 /** Staff / CPA: general + payroll + people ops (+ billing) */
 export const STAFF_TICKET_TOPICS = TICKET_TOPICS.filter((t) =>
-  ['general', 'payroll', 'billing', 'people_operations'].includes(t.id)
+  ['general', 'technology', 'payroll', 'billing', 'people_operations'].includes(t.id)
 );
 
 export function normalizeTicketTopic(raw, { allowedIds = null } = {}) {

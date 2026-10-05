@@ -1,3 +1,4 @@
+import { queueSchoolOnboardingWelcome } from './schoolOnboardingWelcome.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import config from '../config/config.js';
@@ -1897,6 +1898,8 @@ export async function submitOnboarding(token) {
   if (missing.length) {
     throw Object.assign(new Error(`Please complete: ${missing.join(', ').replace(/_/g, ' ')}`), { status: 400 });
   }
+
+  await queueSchoolOnboardingWelcome({ agencyId: invite.agency_id, schoolOrganizationId: invite.school_organization_id, sourceType: 'onboarding', sourceId: invite.id });
 
   progress.review_submit = 'complete';
   await SchoolOnboardingInvite.update(invite.id, {

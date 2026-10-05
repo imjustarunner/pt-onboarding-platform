@@ -1,3 +1,4 @@
+import { isTechnologyIdentity, ingestTechnologyEmail, prioritizeTechnologyAddresses, ignoreOutboundTechnologyCopy } from '../technologySupport.service.js';
 import { deferredInboundMessages, deferInboundMessage, clearInboundRetry } from './gmailInboundRetry.js';
 import { resolvePersonalMailRecipients } from '../groupMailboxRouting.service.js';
 import pool from '../../config/database.js';
@@ -76,7 +77,7 @@ function extractEmails(headerValue) {
 
 function isAutoReply(hdrs) {
   const autoSubmitted = String(hdrs.get('auto-submitted') || '').toLowerCase();
-  if (autoSubmitted.includes('auto-generated')) return true;
+  if (autoSubmitted && autoSubmitted !== 'no') return true;
   const suppress = String(hdrs.get('x-auto-response-suppress') || '').toLowerCase();
   if (suppress.includes('all')) return true;
   return false;
@@ -238,7 +239,8 @@ async function routeSenderIdentityFromHeaders(hdrs) {
   const deliveredTo = extractEmails(hdrs.get('delivered-to'));
   const xOriginalTo = extractEmails(hdrs.get('x-original-to'));
   const envelopeTo = extractEmails(hdrs.get('envelope-to'));
-  const all = [...to, ...cc, ...deliveredTo, ...xOriginalTo, ...envelopeTo];
+  // A reply-all may include Schools or a school group. Technology must own it.
+  const all = prioritizeTechnologyAddresses([...to, ...cc, ...deliveredTo, ...xOriginalTo, ...envelopeTo]);
   const { stripPlusAddress } = await import('../hubEmailInbound.service.js');
   for (const addr of all) {
     let identity = await EmailSenderIdentity.findByInboundAddress(addr);
@@ -253,7 +255,7 @@ async function routeSenderIdentityFromHeaders(hdrs) {
     if (!identity?.id) {
       identity = await EmailSenderIdentity.findByFromEmail(addr);
     }
-    if (identity?.id) return { senderIdentityId: identity.id, matchedAddress: addr, to, cc, deliveredTo };
+    if (identity?.id) return { senderIdentityId: identity.id, matchedAddress: addr, to, cc, deliveredTo, technology: isTechnologyIdentity(identity) };
   }
   return { senderIdentityId: null, matchedAddress: null, to, cc, deliveredTo };
 }
@@ -953,7 +955,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
 
     const routed = await routeSenderIdentityFromHeaders(hdrs);
     const automated = isAutoReply(hdrs);
-    if (!automated && routed.senderIdentityId) {
+    if (!automated && routed.senderIdentityId && !routed.technology) {
       const {resolvePersonalReminderMailbox}=await import('../personalThreadReminder.service.js');
       const reminderMailbox=await resolvePersonalReminderMailbox({identityId:routed.senderIdentityId,fromEmail,
         addresses:[...routed.to,...routed.cc,...routed.deliveredTo,...extractEmails(hdrs.get('x-original-to')),...extractEmails(hdrs.get('envelope-to'))],
@@ -1012,7 +1014,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
           messageIdHeader: hdrs.get('message-id') || null, threadId: full.data?.threadId || null,
           inReplyTo: hdrs.get('in-reply-to') || null, referencesHeader: hdrs.get('references') || null,
           receivedAt: new Date(full.data?.internalDate ? Number(full.data.internalDate) : Date.now()),
-          to: routed.to, cc: routed.cc, allowAutomation: !automated, replyToEmail: extractEmails(hdrs.get('reply-to'))[0] || null
+          to: routed.to, cc: routed.cc, allowAutomation: !automated && !routed.technology, replyToEmail: extractEmails(hdrs.get('reply-to'))[0] || null
         });
         if (!result?.ingested) throw new Error('Personal recipient could not be persisted');
         results.inboxDeliveries += 1;
@@ -1070,13 +1072,25 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     }
 
     // Loop protection: ignore our own sent mail (identities + school group addresses)
-    if (fromEmail && ourFromEmails.includes(fromEmail.toLowerCase())) {
+    if (ignoreOutboundTechnologyCopy(fromEmail, ourFromEmails, routed.technology)) {
       results.ignored += 1;
       await gmail.users.messages.modify({
         userId: 'me',
         id,
         requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, ignoredLabelId] }
       });
+      continue;
+    }
+
+    if (isTechnologyIdentity(identity)) {
+      const result = await ingestTechnologyEmail({ identity, fromEmail, subject, bodyText,
+        messageId: hdrs.get('message-id') || `gmail:${id}`, threadId: full.data?.threadId,
+        gmailMessageId: id, gmail, payload, recipients: [...routed.to, ...routed.cc],
+        receivedAt: new Date(Number(full.data?.internalDate) || Date.now()) });
+      if (!result.ingested) throw new Error('Technology email could not be saved');
+      await gmail.users.messages.modify({ userId: 'me', id,
+        requestBody: { removeLabelIds: ['UNREAD'], addLabelIds: [processedLabelId, needsHumanLabelId] } });
+      results.needsHuman += 1;
       continue;
     }
 

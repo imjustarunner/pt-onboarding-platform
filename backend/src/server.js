@@ -2094,6 +2094,18 @@ if (!isBootstrap) {
   scheduleSchoolClientStatusEmails();
   setInterval(scheduleSchoolClientStatusEmails, 60 * 1000);
 
+  // Completion welcomes wait for the school's provisioned group and send once per school.
+  const scheduleSchoolWelcomeEmails = async () => {
+    try {
+      const { sendPendingSchoolOnboardingWelcomes } = await import('./services/schoolOnboardingWelcome.service.js');
+      await sendPendingSchoolOnboardingWelcomes();
+    } catch (error) {
+      console.error('[school-welcome] Worker failed; check migration 1539:', error?.message);
+    }
+  };
+  scheduleSchoolWelcomeEmails();
+  setInterval(scheduleSchoolWelcomeEmails, 60 * 1000).unref();
+
   // Incomplete school-onboarding digests (ITSCO → Rachel Finch, Mon/Wed/Fri ~10:00 America/Denver)
   const scheduleIncompleteOnboardingDigests = async () => {
     try {

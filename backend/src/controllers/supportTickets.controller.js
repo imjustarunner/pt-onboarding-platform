@@ -1,3 +1,4 @@
+import { assignTechnologyTicket } from '../services/technologySupport.service.js';
 import {sendWebsiteTicketReply} from '../services/publicWebsiteTicketReply.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -1934,6 +1935,9 @@ export const createSupportTicket = async (req, res, next) => {
         /* ignore */
       }
     }
+    if (result?.insertId && topic === 'technology') {
+      await assignTechnologyTicket({ ticketId: result.insertId, agencyId });
+    }
     if (result?.insertId && requestsPlatformHelp && (await hasSupportTicketPlatformHelpColumn())) {
       try {
         await pool.execute(`UPDATE support_tickets SET requests_platform_help = 1 WHERE id = ?`, [
@@ -3167,16 +3171,18 @@ export const answerSupportTicket = async (req, res, next) => {
           meta = null;
         }
         const proposedFrom = String(meta?.proposedReplyFrom || '').trim().toLowerCase() || 'schoolreply@itsco.health';
-        let identity =
-          (await EmailSenderIdentity.findByAgencyAndIdentityKey(ticket.agency_id, 'schoolreply')) ||
-          (await EmailSenderIdentity.findByFromEmail(proposedFrom, { preferAgencyId: ticket.agency_id })) ||
-          (await EmailSenderIdentity.findByFromEmail('schoolreply@itsco.health', { preferAgencyId: ticket.agency_id }));
+        const identity = ticket.topic === 'technology'
+          ? await EmailSenderIdentity.findByAgencyAndIdentityKey(ticket.agency_id, 'technology')
+          : (await EmailSenderIdentity.findByAgencyAndIdentityKey(ticket.agency_id, 'schoolreply')) ||
+            (await EmailSenderIdentity.findByFromEmail(proposedFrom, { preferAgencyId: ticket.agency_id })) ||
+            (await EmailSenderIdentity.findByFromEmail('schoolreply@itsco.health', { preferAgencyId: ticket.agency_id }));
 
         if (identity?.id) {
           const subjectBase = String(ticket.source_email_subject || ticket.subject || 'Your school message').trim();
           const replySubject = /^re:/i.test(subjectBase) ? subjectBase : `Re: ${subjectBase}`;
           const sendResult = await sendEmailFromIdentity({
             senderIdentityId: identity.id,
+            replyToOverride: ticket.topic === 'technology' ? identity.from_email : null,
             to: String(ticket.source_email_from).trim(),
             subject: replySubject,
             text: answer,

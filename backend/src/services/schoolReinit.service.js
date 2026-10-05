@@ -1,3 +1,4 @@
+import { queueSchoolOnboardingWelcome } from './schoolOnboardingWelcome.service.js';
 /**
  * Collaborative School Fall Re-Initiation Workflow
  */
@@ -1548,6 +1549,8 @@ export async function finalizeCycle({ cycleId, actor }) {
       throw new Error(`Required answer missing: ${q.label}`);
     }
   }
+
+  await queueSchoolOnboardingWelcome({ agencyId: cycle.agency_id, schoolOrganizationId: cycle.school_organization_id, sourceType: 'collaborative_update', sourceId: cycle.id });
 
   // Require booked check-in and invite all school_staff as of finalize time
   const Checkin = await import('./schoolReinitCheckin.service.js');
