@@ -936,6 +936,9 @@ app.get('/api/learning-program-classes/:classId/logo', serveSeasonLogo);
 // Public join-info endpoints must register before catch-all `/api` routers that call authenticate.
 app.use('/api/supervision', supervisionSessionsRoutes);
 app.use('/api/team-meetings', teamMeetingsRoutes);
+// Signed-out interview candidates and calendar guests must reach token-based
+// entry before userCommunicationRoutes applies its catch-all login check.
+app.use('/api/meeting-calendar', meetingCalendarRoutes);
 
 // Quick View must mount before catch-all `/api` routers that call router.use(authenticate),
 // so passcode sessions are not rejected as missing JWT ("No token provided").
@@ -1009,7 +1012,6 @@ app.use('/api/medical-billing', medicalBillingRoutes);
 app.use('/api/tenant-booking', tenantServicesRoutes);
 app.use('/api/appointments', appointmentRoutes);
 
-app.use('/api/meeting-calendar', meetingCalendarRoutes);
 app.use('/api/offices', officeSettingsRoutes);
 app.use('/api/office-slots', officeSlotActionsRoutes);
 app.use('/api/office-review', officeReviewRoutes);

@@ -1,5 +1,8 @@
 <template>
- <ApplicantInterview v-if="interview && !identified" :key="refId" :invitation-token="refId" />
+ <template v-if="interview && !identified">
+  <p class="interviewer-sign-in">On the interview team? <RouterLink :to="{path:'/login',query:{redirect:route.fullPath}}">Interviewer sign in</RouterLink></p>
+  <ApplicantInterview :key="refId" :invitation-token="refId" />
+ </template>
  <component v-else-if="identified" :is="meetingComponent" />
  <main v-else class="calendar-guest"><h1>{{ title || 'Join meeting' }}</h1><p v-if="error" role="alert">{{ error }}</p>
   <p v-if="loading">Checking meeting access…</p>
@@ -54,4 +57,4 @@ onMounted(initialize);
 watch(()=>`${type.value}:${refId.value}`,()=>{setApplicantInterviewMode(false);leave();visit.value=null;ended.value=false;video.value=null;identified.value=false;interview.value=false;error.value='';loading.value=true;void initialize();});
 onBeforeUnmount(()=>{setApplicantInterviewMode(false);stopped=true;clearInterval(timer);if(visit.value)leave();});
 </script>
-<style scoped>.calendar-guest{max-width:1100px;margin:30px auto;padding:24px}.calendar-guest label{display:block}.calendar-guest input,.calendar-guest button{padding:12px;margin:10px}.calendar-guest [role=alert]{color:#9c2020}</style>
+<style scoped>.interviewer-sign-in{margin:0;padding:12px 20px;background:#fff;color:#182536}.interviewer-sign-in a{color:#174ea6;text-decoration:underline}.calendar-guest{max-width:1100px;margin:30px auto;padding:24px}.calendar-guest label{display:block}.calendar-guest input,.calendar-guest button{padding:12px;margin:10px}.calendar-guest [role=alert]{color:#9c2020}</style>
