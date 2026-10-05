@@ -2449,11 +2449,7 @@ export const getUserLoginEmailAliases = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
-    const agencies = await User.getAgencies(id);
-    if (!Array.isArray(agencies) || agencies.length < 2) {
-      return res.json({ loginEmailAliases: [] });
-    }
-
+    // An agency-affiliated alias is useful even when this is the user's only agency.
     const UserLoginEmail = (await import('../models/UserLoginEmail.model.js')).default;
     const rows = await UserLoginEmail.listForUser(parseInt(id));
     res.json({

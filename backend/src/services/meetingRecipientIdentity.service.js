@@ -1,5 +1,6 @@
 import Agency from '../models/Agency.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
+import UserLoginEmail from '../models/UserLoginEmail.model.js';
 import GoogleWorkspaceDirectory from './googleWorkspaceDirectory.service.js';
 
 const email = value => String(value || '').trim().toLowerCase();
@@ -16,8 +17,12 @@ async function workspaceUser(address) {
   } catch { return null; }
 }
 
-export function tenantMeetingEmail(user, domain, account) {
+export function tenantMeetingEmail(user, domain, account, affiliatedEmail = '') {
   const addresses = [account?.primaryEmail, ...(account?.aliases || []), ...(account?.nonEditableAliases || [])].map(email);
+  // An agency affiliation chooses a delivery address, not a new account or
+  // permission. Only honor it when Directory confirms the same account owns it.
+  const affiliated = email(affiliatedEmail);
+  if (affiliated && addresses.includes(affiliated)) return affiliated;
   // Only use an existing alias belonging to this Workspace account. Never invent
   // first-name@tenant addresses or accidentally route candidates to staff mailboxes.
   const preferred = `${email(user.email || user.work_email).split('@')[0]}@${domain}`;
@@ -38,5 +43,14 @@ export async function resolveMeetingRecipient({ agencyId, user, guest = false })
   }
   const primary = email(user.work_email || user.email);
   const account = await workspaceUser(primary) || (primary !== email(user.email) ? await workspaceUser(email(user.email)) : null);
-  return { email: tenantMeetingEmail(user, domain, account), displayName, calendarAccountEmail: email(account?.primaryEmail) || primary };
+  let affiliations = [];
+  if (Number(user.id)) {
+    try { affiliations = await UserLoginEmail.listForUser(Number(user.id)); }
+    catch (error) {
+      if (error?.code !== 'ER_NO_SUCH_TABLE') throw error;
+      // Keep existing delivery working on installations predating alias storage.
+    }
+  }
+  const affiliated = affiliations.find(row => Number(row.agency_id) === Number(agencyId))?.email;
+  return { email: tenantMeetingEmail(user, domain, account, affiliated), displayName, calendarAccountEmail: email(account?.primaryEmail) || primary };
 }

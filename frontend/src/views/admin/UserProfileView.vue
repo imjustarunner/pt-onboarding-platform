@@ -1599,7 +1599,7 @@
                                     <p class="aa-hint">The position and working role below apply to this agency. Superadmin access remains platform-wide.</p>
                                     <div class="aa-section__grid">
                                       <label class="aa-field">
-                                        <span>Login Email</span>
+                                        <span>Affiliated email</span>
                                         <input
                                           class="agency-select"
                                           :value="aliasForAgency(agency.id)"
@@ -1607,6 +1607,7 @@
                                           placeholder="alias@domain.com"
                                           @change="saveAliasForAgency(agency.id, $event.target.value)"
                                         />
+                                        <small class="aa-hint">This person’s existing email alias at this agency, linked to their main account. Meeting invitations prefer it when Workspace confirms ownership. For Google sign-in, use the main Google account; agency access rules still apply.</small>
                                       </label>
                                       <label class="aa-field">
                                         <span>Position / Title</span>
@@ -6536,7 +6537,7 @@ const saveAliasForAgency = async (agencyId, email) => {
     }
     await fetchUserAgencies();
   } catch (err) {
-    alert(err.response?.data?.error?.message || 'Failed to save login email alias');
+    alert(err.response?.data?.error?.message || 'Failed to save affiliated email');
   } finally {
     savingAgencyAliasId.value = null;
   }
@@ -6872,7 +6873,7 @@ const addAgency = async () => {
           email: String(newAgencyLoginEmail.value).trim().toLowerCase()
         });
       } catch (e) {
-        alert(e.response?.data?.error?.message || 'Agency assigned, but failed to set login email alias.');
+        alert(e.response?.data?.error?.message || 'Agency assigned, but failed to save affiliated email.');
       }
     }
     await refreshUserOrgAssignments();
