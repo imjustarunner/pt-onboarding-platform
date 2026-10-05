@@ -2,6 +2,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { authenticate, requireActiveStatus } from '../middleware/auth.middleware.js';
 import * as service from '../services/recordsRequests/service.js';
+import { recordsError } from '../services/recordsRequests/errors.js';
 import { fail } from '../services/recordsRequests/policy.js';
 const router=express.Router();
 router.param('agencyId',(req,res,next,value)=>Number.isSafeInteger(Number(value))&&Number(value)>0?next():next(fail(400,'Choose a valid practice.')));
@@ -20,4 +21,9 @@ router.post('/practices/:agencyId/mine',publicLimit,run(async(req,res)=>res.stat
 router.get('/practices/:agencyId/requests',run(async(req,res)=>res.json(await service.requests(req.user.id,Number(req.params.agencyId)))));
 router.patch('/practices/:agencyId/requests/:id',run(async(req,res)=>res.json(await service.review(req.user.id,Number(req.params.agencyId),req.params.id,req.body))));
 router.put('/practices/:agencyId/requests/:id/assignment',run(async(req,res)=>res.json(await service.assign(req.user.id,Number(req.params.agencyId),req.params.id,req.body))));
+// Never forward SQL errors or submitted values to the general error logger.
+router.use((err,req,res,next)=>{
+  if(res.headersSent)return next(err);
+  return recordsError(err,req,res);
+});
 export default router;

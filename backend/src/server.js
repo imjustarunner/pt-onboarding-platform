@@ -1,3 +1,4 @@
+import { recordsError } from './services/recordsRequests/errors.js';
 import clinicalVideoCallbackRoutes from './routes/clinicalVideoCallback.routes.js';
 import clinicalSessionSecurityRoutes from './routes/clinicalSessionSecurity.routes.js';
 import officeLobbyRoutes from './routes/officeLobby.routes.js';
@@ -1087,6 +1088,7 @@ app.use('/api/phi-documents', phiDocumentsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
+  if (/^\/api\/auricwell-records(?:\/|$)/.test(req.path) && !res.headersSent) return recordsError(err, req, res);
   // Expected / soft denials (e.g. hiring polled with a stale agencyId) — respond without log spam.
   if (!err?.quiet) {
     console.error('Error:', err);

@@ -28,7 +28,10 @@
       <template v-if="!manage">
         <form v-if="!submitted" class="card request-form" @submit.prevent="submit">
           <div class="form-heading"><span class="eyebrow">RECORDS REQUEST</span><h2>How can we help?</h2><p>Complete the details below to get started.</p></div>
-          <label v-if="!base">Practice<select v-model="slug" required><option value="">Choose your practice</option><option v-for="p in practices" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
+          <PracticePicker v-if="!base" v-model="slug" :practices="practices" :disabled="busy" />
+          <div v-if="selectedPractice" class="destination" :style="{borderColor:selectedPractice.brandColor}" role="status">
+            <PracticeLogo :practice="selectedPractice" /><div><span>SUBMITTING TO</span><strong>{{ selectedPractice.name }}</strong><p>Your request goes to this practice’s records team through AuricWell.</p></div>
+          </div>
           <p v-if="!base && !practices.length">No practices are currently accepting online requests here. Contact your practice directly.</p>
           <label v-if="base">Patient<select v-model="form.patientId" required @change="selectPatient"><option value="">Choose patient</option><option v-for="p in patients" :key="p.id" :value="p.id">{{ p.data.name }}</option></select></label>
           <label>Your full name<input v-model="form.requesterName" required maxlength="200" autocomplete="name" /></label>
@@ -87,11 +90,14 @@
   </main>
 </template>
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import PracticePicker from './PracticePicker.vue';
+import PracticeLogo from './PracticeLogo.vue';
 import { api } from './api.js';
 const props = defineProps({ base: { type: String, default: '' }, manage: Boolean, requestId: { type: String, default: '' }, patients: { type: Array, default: () => [] } });
 const managers = ref([]), assignments = ref({});
 const practices = ref([]), rows = ref([]), edits = ref({}), slug = ref(''), error = ref(''), notice = ref(''), busy = ref(false), loading = ref(true), submitted = ref(false);
+const selectedPractice=computed(()=>practices.value.find(p=>String(p.id)===String(slug.value)));
 const form = ref({ patientId: '', patientName: '', requesterName: '', relationship: 'self', email: '', phone: '', scope: '', attested: false });
 const actions = { pending_verification: ['pending_review', 'closed'], pending_review: ['approved', 'closed'], approved: ['fulfilled', 'closed'] };
 const label = value => value.replaceAll('_', ' ');
@@ -115,6 +121,7 @@ async function submit() {
   try {
     const result = await api(props.base ? `${props.base}/${props.manage ? 'requests' : 'mine'}` : `/public/${encodeURIComponent(slug.value)}`, { method: 'POST', body: form.value });
     submitted.value = true;
+    form.value = { patientId: '', patientName: '', requesterName: '', relationship: 'self', email: '', phone: '', scope: '', attested: false };
     notice.value = result.message || 'Your records request was submitted for review. You can track its progress below.';
     if (props.base) await load();
   } catch (e) { error.value = e.message; } finally { busy.value = false; }
@@ -132,6 +139,8 @@ async function save(r) {
 onMounted(load);
 </script>
 <style scoped>
+.destination{display:flex;align-items:center;gap:16px;border:2px solid #0649ce;border-radius:10px;padding:16px;margin:20px 0;background:#f8fafd}.destination span{font-size:10px;letter-spacing:1.5px;color:#5b6982}.destination strong{display:block;margin:5px 0;color:#112044}.records-requests .destination p{font-size:13px;margin:0}
+
 .records-requests { color:#112044; font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:auto; padding:24px; }
 .records-requests *, .records-requests *::before { box-sizing:border-box; }
 .public-records { max-width:none; padding:0; background:radial-gradient(ellipse at 0 30%,#eef4fd,transparent 55%),#f8fafd; min-height:100vh; }

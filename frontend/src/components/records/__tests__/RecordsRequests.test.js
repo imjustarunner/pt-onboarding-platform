@@ -10,9 +10,23 @@ describe('records request interface', () => {
     api.mockResolvedValue([{ id: 10, slug: 'practice', name: 'Practice' }]);
     const w = mount(RecordsRequests, options); await flushPromises();
     expect(w.text()).toContain('contact information already on file');
-    expect(w.find('button').attributes('disabled')).toBeDefined();
-    await w.find('select').setValue('10');
-    expect(w.find('button').attributes('disabled')).toBeUndefined();
+    expect(w.find('.request-form > button').attributes('disabled')).toBeDefined();
+    await w.get('[role=combobox]').trigger('click');
+    await w.get('[role=option]').trigger('click');
+    expect(w.find('.request-form > button').attributes('disabled')).toBeUndefined();
+    expect(w.get('.destination').text()).toContain('Practice');
+  });
+  it('updates the destination branding and sends only to the chosen practice', async () => {
+    api.mockImplementation(async path => path === '/practices' ? [{id:2,name:'ITSCO',logoUrl:'/assets/itsco/logo.png',brandColor:'#669878'},{id:6,name:'Next Level Up',logoUrl:'/assets/nlu/logo.png',brandColor:'#6fcfbe'}] : {message:'Received'});
+    const w=mount(RecordsRequests,options);await flushPromises();
+    await w.get('[role=combobox]').trigger('click');await w.findAll('[role=option]')[0].trigger('click');
+    expect(w.get('.destination').text()).toContain('ITSCO');
+    await w.get('[role=combobox]').trigger('click');await w.findAll('[role=option]')[1].trigger('click');
+    expect(w.get('.destination').text()).toContain('Next Level Up');
+    expect(w.get('.destination img').attributes('src')).toBe('/assets/nlu/logo.png');
+    await w.get('form').trigger('submit');await flushPromises();
+    expect(api.mock.calls.some(([path,options])=>path==='/public/6' && options.method==='POST')).toBe(true);
+    expect(w.find('form').exists()).toBe(false);
   });
   it('does not show staff controls in the patient portal', async () => {
     api.mockResolvedValue([{ id: 'request', createdAt: '2026-10-05', data: { patientName: 'Patient', status: 'pending_review', scope: 'All records' } }]);

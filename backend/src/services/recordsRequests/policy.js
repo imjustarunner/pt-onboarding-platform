@@ -1,4 +1,4 @@
-export const fail = (status, message) => Object.assign(new Error(message), { status });
+export const fail = (status, message) => Object.assign(new Error(message), { status, recordsSafe: true });
 export function text(value, label, max = 2000) {
   if (typeof value !== 'string' || !value.trim() || value.length > max) throw fail(400, `${label} is required (maximum ${max} characters).`);
   return value.trim();

@@ -9,6 +9,7 @@ after(()=>pool.end());
 test('admin configures a primary and multiple backups without acquiring records access',async()=>{
  await s.saveOptions(15,10,{managerIds:[11,12,13],enabled:true,followUpDays:7,revision:0});
  assert.deepEqual((await s.options(15,10)).settings.managerIds,[11,12,13]);
+ const publicList=await s.publicPractices();assert.equal(publicList.length,1);assert.equal(publicList[0].id,10);assert.equal(publicList[0].brandColor,'#0649ce');
  await assert.rejects(s.requests(15,10),/Records Manager/);
  await assert.rejects(s.requests(14,10),/Records Manager/);
  await assert.rejects(s.saveOptions(14,10,{managerIds:[14],enabled:true,followUpDays:7,revision:1}),/administrator/);

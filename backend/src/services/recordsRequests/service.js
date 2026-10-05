@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { publicBrand } from './branding.js';
 import pool from '../../config/database.js';
 import { encryptFamilyBilling as seal, decryptFamilyBilling as open, assertFamilyBillingEncryption } from '../familyBillingEncryption.service.js';
 import { fail, requestFields, transitionRequest, finished, managerIds } from './policy.js';
@@ -33,8 +34,8 @@ export async function requireAdministrator(userId, agencyId, db = pool) {
   if (!row) throw fail(403, 'Practice administrator access is required.');
 }
 export async function publicPractices() {
-  const [rows] = await pool.execute("SELECT a.id,a.slug,a.name FROM agencies a JOIN auricwell_records_settings s ON s.agency_id=a.id AND s.enabled=1 WHERE a.is_active=1 ORDER BY a.name");
-  return rows;
+  const [rows] = await pool.execute("SELECT a.id,a.slug,a.name,a.logo_url,a.logo_path,a.color_palette FROM agencies a JOIN auricwell_records_settings s ON s.agency_id=a.id AND s.enabled=1 WHERE a.is_active=1 ORDER BY a.name");
+  return rows.map(publicBrand);
 }
 export async function context(userId) {
   const [rows] = await pool.execute(`SELECT a.id,a.slug,a.name,
