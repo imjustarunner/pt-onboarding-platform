@@ -48,6 +48,17 @@ describe('school visit management',()=>{
   expect(result.synced).toBe(true);expect(m.patch).toHaveBeenCalledWith(expect.objectContaining({location:'',createMeetLink:true,startAt:'2026-10-12T19:00:00.000Z'}));
   expect(m.patch.mock.calls[0][0]).not.toHaveProperty('attendeeEmails');expect(m.event).toHaveBeenCalledWith(expect.objectContaining({schoolEventStatus:'rescheduled'}));expect(m.commit).toHaveBeenCalledOnce();
  });
+ it('uses one shared virtual link for additional host copies',async()=>{
+  const original=m.execute.getMockImplementation();
+  m.execute.mockImplementation(async(sql,args)=>sql.startsWith('SELECT h.*') ? [[
+   {id:2,host_user_id:10,provider_schedule_event_id:12,email:'other@itsco.health',google_event_id:'other-event'},
+   {id:1,host_user_id:9,provider_schedule_event_id:11,email:'rachel@itsco.health',google_event_id:'event-1'}
+  ]] : original(sql,args));
+  await manage(4,{action:'update',revision:1,modality:'virtual',startsAt:'2026-10-12T13:00',endsAt:'2026-10-12T13:30'},user);
+  expect(m.patch.mock.calls[0][0]).toMatchObject({subjectEmail:'rachel@itsco.health',createMeetLink:true});
+  expect(m.patch.mock.calls[1][0]).toMatchObject({subjectEmail:'other@itsco.health',createMeetLink:false});
+  expect(m.patch.mock.calls[1][0].description).toContain('https://meet.google.com/test');
+ });
  it('cancels calendar invitations and the school event',async()=>{
   const result=await manage(4,{action:'cancel',revision:1},user);expect(result.synced).toBe(true);expect(m.remove).toHaveBeenCalledWith({subjectEmail:'rachel@itsco.health',eventId:'event-1'});expect(m.event).toHaveBeenCalledWith(expect.objectContaining({schoolEventStatus:'canceled'}));
  });

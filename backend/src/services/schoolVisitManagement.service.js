@@ -28,15 +28,29 @@ export async function canManageSchoolVisit(user, booking) {
   const [[host]] = await pool.execute('SELECT 1 allowed FROM school_reinit_checkin_slot_host_events WHERE slot_id=? AND host_user_id=?', [booking.slot_id, user.id]);
   return !!host;
 }
-async function withVisitLock(id, fn) {
+async function withVisitLock(id, fn, lockHosts = false) {
   const db = await pool.getConnection(); let locked = false;
   const name = `school-visit-reminder:${id}`;
+  const hostLocks = [];
   try {
     const [[lock]] = await db.execute('SELECT GET_LOCK(?,0) acquired', [name]);
     locked = !!lock.acquired;
     if (!locked) fail('This visit is being updated. Please try again.', 409);
+    if (lockHosts) {
+      const [hosts] = await db.execute('SELECT host_user_id FROM school_reinit_checkin_slot_host_events WHERE slot_id=(SELECT slot_id FROM school_reinit_checkin_bookings WHERE id=?) ORDER BY host_user_id', [id]);
+      for (const host of hosts) {
+        const hostLock = `school-visit-host:${host.host_user_id}`;
+        const [[result]] = await db.execute('SELECT GET_LOCK(?,0) acquired', [hostLock]);
+        if (!result.acquired) fail('A host’s schedule is being updated. Please try again.', 409);
+        hostLocks.push(hostLock);
+      }
+    }
     return await fn(db);
-  } finally { if (locked) await db.execute('SELECT RELEASE_LOCK(?)', [name]); db.release(); }
+  } finally {
+    for (const hostLock of hostLocks.reverse()) await db.execute('SELECT RELEASE_LOCK(?)', [hostLock]);
+    if (locked) await db.execute('SELECT RELEASE_LOCK(?)', [name]);
+    db.release();
+  }
 }
 
 async function notifyVisitRequest(booking, requestId, db) {
@@ -96,18 +110,21 @@ async function syncSchoolVisit(booking, actorUserId, db) {
   if (!hosts.length || !GoogleCalendarService.isConfigured()) fail('Host calendar is not configured', 503);
   const cancelled = booking.status === 'cancelled';
   const title = `${booking.modality === 'virtual' ? 'Virtual' : 'In person'} school visit — ${booking.school_name}`;
+  // Follow the existing check-in booking flow: Rachel's event owns the
+  // shared virtual link; other host copies include that same link.
+  hosts.sort((a, b) => Number(b.email?.toLowerCase() === 'rachel@itsco.health') - Number(a.email?.toLowerCase() === 'rachel@itsco.health'));
   let meetLink = booking.meet_link;
-  for (const host of hosts) {
+  for (const [index, host] of hosts.entries()) {
     if (!host.google_event_id || !host.email) fail('A linked host calendar event is missing', 503);
     const result = cancelled
       ? await GoogleCalendarService.deleteEvent({ subjectEmail: host.email, eventId: host.google_event_id })
       : await GoogleCalendarService.patchEventDetails({ subjectEmail: host.email, eventId: host.google_event_id,
-          summary: title, description: `${title}.\nUpdated in the school visit manager.\n${booking.modality === 'virtual' ? 'Meet virtually using the calendar meeting link.' : `Location: ${booking.location_text}`}`,
+          summary: title, description: `${title}.\nUpdated in the school visit manager.\n${booking.modality === 'virtual' ? (meetLink ? `Join virtually: ${meetLink}` : 'Meet virtually using the calendar meeting link.') : `Location: ${booking.location_text}`}`,
           location: booking.modality === 'virtual' ? '' : booking.location_text,
           startAt: utcMysqlToIso(booking.starts_at), endAt: utcMysqlToIso(booking.ends_at), timeZone: 'America/Denver',
-          createMeetLink: booking.modality === 'virtual' });
+          createMeetLink: booking.modality === 'virtual' && index === 0 });
     if (!result?.ok) fail(`Calendar update failed: ${result?.reason || 'unknown'}`, 503);
-    if (!cancelled && booking.modality === 'virtual') {
+    if (!cancelled && booking.modality === 'virtual' && index === 0) {
       if (!result.meetLink) fail('The virtual meeting link is not ready. Retry calendar sync.', 503);
       meetLink = result.meetLink;
     }
@@ -181,5 +198,5 @@ export async function manageSchoolVisit(id, body, user) {
       await db.execute("UPDATE school_reinit_checkin_bookings SET calendar_sync_status='error',calendar_sync_error=? WHERE id=?", [String(error.message).slice(0, 500), id]);
       return { saved: true, synced: false, message: 'Saved in the app. Calendar sync needs attention; reminders are paused until sync succeeds.', error: error.message };
     }
-  });
+  }, true);
 }
