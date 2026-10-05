@@ -17,7 +17,7 @@ export async function enrollSmsRecipient({ from, phone, purpose, status, evidenc
     evidence: { ...evidence, source: evidence?.source || 'recorded_opt_out', actorUserId } });
   if (status === 'opted_in') {
     if (!sendConfirmation) throw new Error('Enrollment requires a confirmation sender');
-    const descriptions = { care: 'care-team messages', reminders: 'appointment reminders', workforce: 'workforce notifications', marketing: 'optional program offers', account_security: 'account security messages', polling: 'optional polls and surveys' };
+    const descriptions = { care: 'care-team messages', reminders: 'appointment reminders', workforce: 'workforce notifications', billing: 'billing-account notifications', marketing: 'optional program offers', account_security: 'account security messages', polling: 'optional polls and surveys' };
     try {
       await sendConfirmation({ to: phone, from: sender.phone_number, purpose,
         body: `You subscribed to ${descriptions[purpose]}. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.` });

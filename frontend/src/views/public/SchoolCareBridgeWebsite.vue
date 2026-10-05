@@ -63,6 +63,7 @@
       </template>
       <p v-if="previewNotice" class="scb-status" role="status">{{previewNotice}}</p>
     </main>
+    <ServiceUseNotice school-portal />
     <footer class="scb-footer"><SchoolCareBridgeBrand/><div><strong>Connecting schools. Supporting students.</strong><p>A Plot Twist Co. product · Program operated by MH4Kidz.</p></div><nav aria-label="Footer"><router-link :to="path('partners')">Partners</router-link><router-link :to="path('security')">Access & privacy</router-link><a href="https://plottwistco.com/products#schoolcarebridge">Plot Twist Co. products ↗</a><a href="https://mh4kidz.org">MH4Kidz ↗</a></nav></footer>
   </div>
 </template>
@@ -77,6 +78,7 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import SchoolCareBridgePortalPreview from '../../components/schoolcarebridge/SchoolCareBridgePortalPreview.vue';
 import SchoolCareBridgeProgramCatalog from '../../components/schoolcarebridge/SchoolCareBridgeProgramCatalog.vue';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import ServiceUseNotice from '../../components/legal/ServiceUseNotice.vue';
 import { useStandalonePublicWebsite, publicWebsiteUrl as safe } from '../../composables/useStandalonePublicWebsite';
 import '../../styles/schoolCareBridge.css';
 import '../../styles/schoolCareBridgeWebsite.css';

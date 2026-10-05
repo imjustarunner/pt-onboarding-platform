@@ -2,20 +2,14 @@ import express from 'express';
 import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
 import { viewSmsConsentRequest, signSmsConsentRequest, createSmsConsentRequest,
   listSmsConsentRequests, reviewSmsConsentRequest, getSignedSmsEvidence } from '../services/smsConsentRequest.service.js';
-import { buildSmsConsentDisclosure } from '../utils/smsConsentDisclosure.js';
+import { smsConsentExample } from '../utils/smsConsentExamples.js';
 import VonageService from '../services/vonage.service.js';
 
 const handle = (fn) => async (req, res, next) => {
   try { res.set('Cache-Control', 'no-store'); res.json(await fn(req)); } catch (error) { next(error); }
 };
 export const publicSmsConsentRouter = express.Router();
-publicSmsConsentRouter.get('/consent-example/itsco', handle(async (req) => ({
-  example: true,
-  disclosure: buildSmsConsentDisclosure({ brandName: 'ITSCO', legalName: 'ITSCO, LLC',
-    supportContact: 'support@itsco.health', termsUrl: 'https://www.itsco.health/itsco/terms',
-    privacyUrl: 'https://www.itsco.health/itsco/privacypolicy', purposes: req.query.program === 'marketing' ? ['marketing'] : ['care', 'reminders', 'workforce'] },
-    { signerRole: req.query.audience === 'staff' ? 'staff' : 'client' })
-})));
+publicSmsConsentRouter.get('/consent-example/:brandSlug', handle(async (req) => smsConsentExample(req.params.brandSlug, req.query)));
 publicSmsConsentRouter.post('/consent-request/view', publicIntakeLimiter, handle((req) => viewSmsConsentRequest(req.body?.token)));
 publicSmsConsentRouter.post('/consent-request/sign', publicIntakeLimiter, handle((req) => signSmsConsentRequest({
   token: req.body?.token, input: req.body, ip: req.ip, userAgent: String(req.get('user-agent') || '').slice(0, 500)

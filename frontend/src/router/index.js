@@ -1075,7 +1075,7 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
-    path: '/sms-consent/example/itsco',
+    path: '/sms-consent/example/:brandSlug',
     name: 'SmsConsentExample',
     component: () => import('../views/public/SmsConsentView.vue'),
     meta: { requiresGuest: false, smsConsentExample: true, hideNav: true }

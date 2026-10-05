@@ -1,8 +1,9 @@
-export const SMS_CONSENT_VERSION = '2026-10-04.2';
+export const SMS_CONSENT_VERSION = '2026-10-05.1';
 export const SMS_PURPOSE_LABELS = {
   care: 'Two-way administrative messages with my care team',
-  reminders: 'Appointment reminders and schedule changes',
-  workforce: 'Staff operational and schedule notifications',
+  reminders: 'Appointment reminders, schedule changes, cancellations and session-access links',
+  workforce: 'Staff schedule, supervision, team and video session, session-access and assigned-training notifications',
+  billing: 'Optional billing-account and statement-update notifications with links to sign in',
   marketing: 'Optional announcements about this practice’s programs and services',
   account_security: 'Requested account access and security messages',
   polling: 'Optional nonpolitical polls and surveys'
@@ -10,7 +11,7 @@ export const SMS_PURPOSE_LABELS = {
 
 export function buildSmsConsentDisclosure(registration, { signerRole = null } = {}) {
   const purposes = registration.purposes.filter((purpose) => {
-    if (signerRole === 'staff') return !['care', 'reminders'].includes(purpose);
+    if (signerRole === 'staff') return !['care', 'reminders', 'billing'].includes(purpose);
     if (signerRole === 'client' || signerRole === 'guardian') return purpose !== 'workforce';
     return true;
   });

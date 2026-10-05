@@ -31,6 +31,9 @@
 
 <script setup>
 import { computed } from 'vue';
+import { useRoute } from 'vue-router';
+import { useAuthStore } from '../store/auth';
+import { serviceLegalContext } from '../utils/serviceLegalContext.js';
 import { useBrandingStore } from '../store/branding';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
@@ -71,6 +74,8 @@ const props = defineProps({
 });
 
 const brandingStore = useBrandingStore();
+const route = useRoute();
+const auth = useAuthStore();
 const showPoweredBy = computed(() => brandingStore.showPoweredBy);
 const isSummitStatsChrome = useSummitStatsChallengeChrome();
 
@@ -130,6 +135,9 @@ const legalLinksToRender = computed(() => {
     baseLinks = parsedSscFooterLinks.value;
   } else {
     baseLinks = defaultLegalLinks.value;
+    const context = serviceLegalContext({host:typeof window==='undefined'?'':window.location.hostname, path:route.path, role:auth.user?.role, organizationSlug:brandingStore.activeRouteSlug || brandingStore.portalHostPortalUrl || ''});
+    const seenHrefs = new Set(baseLinks.map(link=>link.href));
+    baseLinks = [...baseLinks, ...context.links.filter(link=>!seenHrefs.has(link.href))];
   }
   baseLinks = [...baseLinks, {label:'Community Standards & communication privacy',href:'/community-standards'}];
   if (!customExtraLinks.value.length) return baseLinks;

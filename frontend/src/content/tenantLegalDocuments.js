@@ -112,5 +112,31 @@ export function legalDocumentsForProfile(profile) {
     section('technology','4. Technology and communications',['Ordinary SMS and email carry privacy risks. Use the designated channel for sensitive records. A phone number or privacy acknowledgment does not authorize recurring texts, promotions, recording, or a release of health information.','Health information processed through vendors requires applicable safeguards and agreements. Automated or AI-assisted tools do not remove those obligations. Human professionals remain responsible for clinical decisions. Deleting a working copy does not promise immediate deletion from every log, backup, or required record.']),
     section('complaints','5. Requests and concerns',['Contact the organization responsible for the record or use the contact below for routing help. You can raise a privacy concern without retaliation. For a potential HIPAA violation, you may file a complaint with the U.S. Department of Health and Human Services Office for Civil Rights.'],[],[{label:'HHS privacy complaints',href:'https://www.hhs.gov/hipaa/filing-a-complaint/index.html'}]), contact(profile)
   ]};
+  if (slug === 'schoolcarebridge') {
+    terms.sections.splice(1, 0, section('school-use', 'School and agency users: authority and record boundaries', [
+      'SchoolCareBridge is a program of MH4Kidz. Plot Twist Co manages the technology. School personnel, practices and families retain their separate roles. The organization agreements identify the contracting legal entities and their instructions; a program name is not a separate contracting entity.',
+      'Your account is individual. Your school or organization must authorize your access and confirm your current role. Access only assigned students and information necessary for your authorized work; do not browse unrelated records, share logins, forward personal session links, download unneeded rosters or use information for independent marketing or fundraising.',
+      'A school may disclose education records only with valid consent or an applicable FERPA exception and its required conditions. Where a school-official exception is used, the school must retain the required control and define legitimate educational interests. A vendor contract or BAA does not itself create that exception. A practice must separately evaluate HIPAA and any more protective law before releasing clinical information.',
+      'Use coordination tools for authorized referrals, scheduling and permitted status information. Do not assume that a school may read clinical notes or that a parent may access every record. Confirm the sender, recipient, authority and data scope before a release. Access or a completed referral is not a general release authorization.',
+      'Do not record, transcribe, export or upload records to an external AI or other service unless your organization has approved that feature and the required notices, agreements and permissions are in place. Optional SMS and session recording use separate consent processes.',
+      'Report mistaken access or disclosure promptly to support@mh4kidz.org and your organization’s privacy contact. Provide a safe description without sending student records in ordinary email. Access may be limited during an investigation. Record requests, corrections and deletion requests are routed to the organization responsible for the relevant record.',
+      'A school employee’s use of the portal does not execute a BAA, data-sharing contract or organization service agreement. Those documents require authorized organizational signers. Ending access does not erase lawful record-retention duties or individual rights.'
+    ]));
+    privacy.sections.splice(1, 0, section('school-records', 'School records and clinical records', [
+      'SchoolCareBridge supports coordination among schools, families and service organizations. A school’s education record and a provider’s clinical record may be subject to different rules; we do not label every student-related record as HIPAA-protected or treat school access as clinical-record access.',
+      'Information is processed for the contracted coordination service under the applicable school and practice instructions. Referral records are not available to donors, sponsors or other affiliates merely because they support MH4Kidz. Service information is not permission to contact a family for fundraising or independent advertising.',
+      'Sharing, retention, exports and deletion depend on the responsible organization, the record category, applicable law and the executed agreements. We route requests to the responsible school or practice and assist as required. A business associate agreement does not replace consent or other authority for an education-record disclosure.'
+    ]));
+  }
+  if (platform) {
+    terms.sections.splice(1, 0, section('platform-use', 'Platform accounts, integrations and organization agreements', [
+      'Use your own authorized account and keep credentials and personal session links private. Your organization controls your assigned role and may remove access when your work ends. Do not access unrelated records, disable protections or export records beyond your authority.',
+      'AuricWell is a technology service, including when embedded in a practice website or EHR. A practice remains responsible for its professional care, clinical decisions, notices and authorized disclosures. A school coordination feature may additionally be governed by SchoolCareBridge terms and the school’s data agreement.',
+      'Only an authorized organizational representative may execute a service agreement or BAA for the organization. Reading these terms does not execute either document, authorize a release of records, enroll someone in SMS, or consent to recording or transcription.',
+      'Only enable integrations and processing features authorized by your organization’s instructions, applicable agreements and required consents. Report suspected account or data misuse promptly through the support contact. Do not include health records in an unsecured support email.'
+    ], [], [
+      { label: 'SchoolCareBridge terms where that service is used', href: 'https://schoolcarebridge.org/schoolcarebridge/terms' }
+    ]));
+  }
   return {privacypolicy:privacy,terms,platformhipaa:hipaa};
 }

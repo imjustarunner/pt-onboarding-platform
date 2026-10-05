@@ -1,6 +1,6 @@
 # Vonage 10DLC + Per-Provider Number Plan
 
-> **Superseded for registration architecture:** use [ITSCO / AuricWell SMS audit](./VONAGE_10DLC_ITSCO_AUDIT.md). Independent practices require their own brands; do not follow this historical document’s umbrella-brand or Healthcare-use-case assumptions.
+> **Historical engineering reference — do not copy these registration fields.** Use the [current campaign walkthrough](./VONAGE_10DLC_CAMPAIGN_WALKTHROUGH.md) for brand-specific steps 1–7, including Next Level Up, ITSCO, employee/session notifications and optional billing. The [audit](./VONAGE_10DLC_ITSCO_AUDIT.md) retains implementation history. The umbrella-brand, Healthcare-use-case and four-campaign examples below are superseded.
 
 Historical plan for **Vonage-only** US SMS: one brand, a small set of TCR campaigns, one dedicated `clinical_care` number per provider, and proof screenshots for carrier registration.
 
@@ -97,7 +97,7 @@ For each provider (see §6 runbook):
 
 ---
 
-## 4. Copy-paste Vonage campaign registration text
+## 4. Historical campaign text — superseded; not for submission
 
 Use these in Vonage **Step 2 Use case** + description fields. Adjust `[Agency Name]` / tenant name where noted.
 

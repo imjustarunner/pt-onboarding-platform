@@ -91,10 +91,10 @@ const rows = ref([]), numberId = ref(''), error = ref(''), notice = ref(''), bus
 const requests = ref([]), signaturePhone = ref(''), signerRole = ref('client'), signingUrl = ref('');
 const reviewed = ref({});
 const marketingPhone = ref(''), marketingBody = ref('');
-const purposes = [{ value: 'care', label: 'Client care and two-way support' }, { value: 'reminders', label: 'Appointment reminders' }, { value: 'workforce', label: 'Workforce notifications' }, { value: 'marketing', label: 'Optional marketing' }, { value: 'account_security', label: 'Account security' }, { value: 'polling', label: 'Optional polls and surveys' }];
+const purposes = [{ value: 'care', label: 'Client care and two-way support' }, { value: 'reminders', label: 'Appointment reminders' }, { value: 'workforce', label: 'Workforce notifications' }, { value: 'billing', label: 'Optional billing-account notifications' }, { value: 'marketing', label: 'Optional marketing' }, { value: 'account_security', label: 'Account security' }, { value: 'polling', label: 'Optional polls and surveys' }];
 const registrationFields = [
   ['legalName', 'Exact legal business name'], ['brandName', 'Client-facing registered brand name'],
-  ['brandId', 'Vonage brand ID'], ['campaignId', 'Vonage campaign ID'], ['resellerId', 'AuricWell reseller ID'],
+  ['brandId', 'Vonage brand ID'], ['campaignId', 'Vonage campaign ID'], ['resellerId', 'Vonage reseller ID (R000000 for a customer campaign)'],
   ['supportContact', 'Public support phone or email'], ['website', 'Practice website', true],
   ['privacyUrl', 'Public privacy policy', true], ['termsUrl', 'Public SMS terms', true], ['evidenceUrl', 'Public opt-in proof (no client data)', true]
 ].map(([key, label, url]) => ({ key, label, url }));

@@ -22,7 +22,7 @@ export function renderItscoLegalHtml(type, profile = tenantLegalProfiles.itsco, 
 .wordmark img{display:block;max-width:230px;width:auto;height:68px;object-fit:contain;margin-bottom:16px}a{color:${/^#[0-9a-f]{6}$/i.test(profile.color)?profile.color:'#285e51'}}
 </style></head><body><main id="top"><header><a class="wordmark" href="${escape(profile.origin)}">${logo?`<img src="${escape(logo)}" alt="">`:''}${escape(profile.name)}</a>
 <nav aria-label="${escape(profile.name)} legal documents">${links.map(link => linkHtml(link.path, link.label)).join('')}</nav>
-<h1>${escape(doc.title)}</h1><p class="date">Effective October 4, 2026 · Version ${ITSCO_LEGAL_VERSION}</p><p class="intro">${escape(doc.intro)}</p>
+<h1>${escape(doc.title)}</h1><p class="date">Effective October 5, 2026 · Version ${ITSCO_LEGAL_VERSION}</p><p class="intro">${escape(doc.intro)}</p>
 <p class="print-note">Use your browser’s Print menu to print this document or save it as a PDF.</p></header>
 <nav class="contents" aria-label="On this page"><strong>On this page</strong>${doc.sections.map(s => linkHtml('#' + s.id, s.title)).join('')}</nav>
 <article>${doc.sections.map(s => `<section id="${escape(s.id)}"><h2>${escape(s.title)}</h2>${s.paragraphs.map(p => `<p>${escape(p)}</p>`).join('')}${s.items.length ? `<ul>${s.items.map(i => `<li>${escape(i)}</li>`).join('')}</ul>` : ''}${s.links.map(l => `<p>${linkHtml(l.href,l.label)}</p>`).join('')}</section>`).join('')}</article>

@@ -1,6 +1,6 @@
 // ITSCO's public notices. Keep website, portal, and printable copies on this source.
 // Adoption/publication checks are recorded in docs/ITSCO_LEGAL_PUBLICATION.md.
-export const ITSCO_LEGAL_VERSION = '2026-10-04';
+export const ITSCO_LEGAL_VERSION = '2026-10-05.1';
 export const ITSCO_LEGAL_ORIGIN = 'https://www.itsco.health';
 export const itscoLegalLinks = [
   { type: 'privacypolicy', path: '/itsco/privacypolicy', label: 'Privacy Policy' },
@@ -99,7 +99,7 @@ export const itscoLegalDocuments = {
         'An electronic signature applies to the specific document and choices presented to you. You may request a copy. Signing one document does not authorize unrelated disclosures or optional marketing. Contact us for assistance or an available alternative if you cannot complete an electronic form.'
       ]),
       section('sms', '5. ITSCO SMS program terms', [
-        'Sender: ITSCO, LLC, using the name ITSCO. Our optional text programs support appointment reminders and updates, administrative care-team conversations, workforce scheduling and operational notifications for staff, and separately selected ITSCO announcements or promotions. The consent form identifies the particular program and purposes you are choosing.',
+        'Sender: ITSCO, LLC, using the name ITSCO. Our optional text programs support appointment reminders, changes, cancellations and session-access links; administrative care-team conversations; separately accepted billing-account and statement-update notices; staff schedules, supervision, team/video sessions and assigned-training notices; and separately selected ITSCO announcements or promotions. The consent form identifies the particular program and purposes you are choosing.',
         'Enrollment: make an affirmative selection for each SMS purpose offered and complete the consent process. Where a Yes or No answer is required, you may select No for every purpose. No answer is preselected. Providing a phone number, accepting these terms, signing a waiver, or acknowledging the HIPAA notice is not enough to enroll you in recurring texts.',
         'Marketing: promotional texts require a separate affirmative opt-in. Reminder, care-team, or staff messaging consent does not include promotions. Consent is not a condition of purchase or treatment. A HIPAA authorization is also obtained when legally required for a use of health information; an SMS opt-in does not replace it.',
         'Message frequency varies. Message and data rates may apply. Messages may be sent using automated technology. Your carrier’s charges and service terms apply. Carriers are not liable for delayed or undelivered messages.',
@@ -109,6 +109,17 @@ export const itscoLegalDocuments = {
         'SMS is not an end-to-end encrypted clinical messaging service. Avoid sending detailed clinical histories, diagnoses, financial account information, or other sensitive records by ordinary text. Messages can appear on lock screens and shared devices. Ask us about portal messaging or another suitable communication method.',
         'Declining or stopping SMS does not prevent you from seeking care. Contact ITSCO to arrange another communication method. You remain responsible for appointments and other obligations in your separate agreements even if a reminder fails to arrive.'
       ], [], [{ label: 'SMS privacy and data sharing', href: '/itsco/privacypolicy#sms-privacy' }]),
+      section('service-access', 'Using SchoolCareBridge and AuricWell', [
+        'ITSCO provides the practice services identified in your care or service agreement. SchoolCareBridge is a program of MH4Kidz, with technology managed by Plot Twist Co. AuricWell is software operated by Plot Twist Co. A shared login, website address, ownership relationship or integration does not merge these organizations or make all records available to each of them.',
+        'When school personnel use SchoolCareBridge through an ITSCO website or portal, SchoolCareBridge terms govern that service and ITSCO notices continue to govern ITSCO services and provider records. Use only the student records your school or organization authorizes. A referral, a roster entry or permission to sign in is not a blanket release of clinical or education records.',
+        'AuricWell platform terms apply when you use its software. Your practice remains responsible for professional decisions and the care it provides. An organization representative signs any required service agreement, data-protection terms and business associate agreement separately; individual users do not bind their employer merely by reading a website notice.',
+        'For school coordination, the responsible organizations must identify the lawful basis for each disclosure and any required parent, guardian or eligible-student authorization. School-held education records and a provider’s clinical records may be governed by different laws. Do not place psychotherapy notes, unrelated diagnoses or complete clinical charts into a school coordination message.'
+      ], [], [
+        { label: 'SchoolCareBridge terms of use', href: 'https://schoolcarebridge.org/schoolcarebridge/terms' },
+        { label: 'SchoolCareBridge privacy policy', href: 'https://schoolcarebridge.org/schoolcarebridge/privacypolicy' },
+        { label: 'AuricWell platform terms', href: 'https://auricwell.com/auricwell/terms' },
+        { label: 'AuricWell privacy policy', href: 'https://auricwell.com/auricwell/privacypolicy' }
+      ]),
       section('availability', '6. Availability, external services, and content', [
         'Digital services may be interrupted for maintenance, technical failures, or events outside our control. We cannot guarantee uninterrupted access or message delivery. Contact ITSCO through another available channel if a time-sensitive task cannot be completed online.',
         'External websites and services have their own terms. Links do not guarantee the accuracy or suitability of outside content. You retain your rights in information you submit; we may process it as needed to provide the service and as permitted by the privacy notices and law.',

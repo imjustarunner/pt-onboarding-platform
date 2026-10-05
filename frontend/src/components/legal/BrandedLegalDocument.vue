@@ -7,7 +7,7 @@
       </nav>
       <p class="eyebrow">{{ profile.legalName }} · Your information and your choices</p>
       <h1>{{ document.title }}</h1>
-      <p class="date">Effective October 4, 2026 · Version {{ ITSCO_LEGAL_VERSION }}</p>
+      <p class="date">Effective October 5, 2026 · Version {{ ITSCO_LEGAL_VERSION }}</p>
       <p class="intro">{{ document.intro }}</p>
       <button type="button" class="print-button" @click="printDocument">Print or save as PDF</button>
     </header>

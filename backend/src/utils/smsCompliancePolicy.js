@@ -1,4 +1,4 @@
-export const SMS_PURPOSES = ['care', 'reminders', 'workforce', 'marketing', 'account_security', 'polling'];
+export const SMS_PURPOSES = ['care', 'reminders', 'workforce', 'billing', 'marketing', 'account_security', 'polling'];
 
 export function parseSmsKeyword(body) {
   const text = String(body || '').trim().toUpperCase();

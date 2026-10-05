@@ -19,6 +19,7 @@
    </section>
    <section class="scb-auth-card" aria-label="Sign in"><h2>{{school ? 'Sign in to your school portal' : 'Welcome back'}}</h2><p>Start with your email address.</p><LoginView /></section>
   </main>
+  <ServiceUseNotice school-portal />
   <footer class="scb-entry-footer">SchoolCareBridge · A program of MH4Kidz <span>Technology managed by Plot Twist Co.</span><router-link to="/schoolcarebridge/security">Access & privacy</router-link></footer>
  </div>
 </template>
@@ -26,6 +27,7 @@
 import {computed,onMounted,ref,watch} from 'vue';
 import {useRoute,useRouter} from 'vue-router';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
+import ServiceUseNotice from '../../components/legal/ServiceUseNotice.vue';
 import LoginView from '../LoginView.vue';
 import OrganizationDashboardView from '../OrganizationDashboardView.vue';
 import {useAuthStore} from '../../store/auth';

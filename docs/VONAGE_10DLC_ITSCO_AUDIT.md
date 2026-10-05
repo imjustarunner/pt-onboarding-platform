@@ -1,6 +1,6 @@
 # ITSCO / AuricWell SMS audit and registration proposal
 
-Audited October 4, 2026. **Not yet submission-ready or deployed.** The user confirmed that independent practices use AuricWell and identified the first legal business as **ITSCO, LLC**. The user also confirmed ITSCO as the client-facing name, https://www.itsco.health, support@itsco.health, and 500–2,000 outbound texts on busy days. This document supersedes the single-brand assumptions in `VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md`.
+Historical audit recorded October 4, 2026; current operator guidance updated October 5, 2026. **Use [the campaign walkthrough](./VONAGE_10DLC_CAMPAIGN_WALKTHROUGH.md) for all current dashboard fields and submission status.** Findings labeled “fixed locally” below describe that audit point, not a fresh deployment verification. The user confirmed that independent practices use AuricWell and identified the first legal business as **ITSCO, LLC**. The user also confirmed ITSCO as the client-facing name, https://www.itsco.health, support@itsco.health, and 500–2,000 outbound texts on busy days. This document supersedes the single-brand assumptions in `VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md`.
 
 ## Registration architecture
 
@@ -42,7 +42,7 @@ Keeping marketing separate is an AuricWell design choice, not a claim that carri
 
 The machine-readable [SMS send inventory](../deliverables/vonage-10dlc-itsco/sms-send-inventory.json) lists all discovered calls and their declared purposes. Coverage includes clinical compose, legacy compose, guardians/affiliated contacts, both appointment engines, session changes, join reminders, self-requested digests, ordinary notifications, emergency broadcasts, event invitations and polls, agency contact/staff campaigns, school ROI links, account reset links, auto-replies, support escalation, forwarding, and OOO digests. Email, push and internal chat are separate channels; this was an SMS readiness audit, not a whole-application security certification.
 
-## ITSCO operations submission draft
+## Historical ITSCO operations submission draft — use the current walkthrough
 
 **Brand / legal identity (confirmed):** ITSCO / ITSCO, LLC. Website: `https://www.itsco.health`. HELP contact: `support@itsco.health`.
 
@@ -74,7 +74,7 @@ Public app examples after deployment: `/sms-consent/example/itsco`, `/sms-consen
 
 Select embedded links if any production message includes a portal/signing/help URL; select embedded phone numbers if used. Use real first-party links in final samples when applicable. Vonage expects matching live disclosure, policy links and recurring-program confirmation; inspect the [current requirements](https://api.support.vonage.com/hc/en-us/articles/12132309081500-10DLC-Campaign-requirements) before submission. The supplied guide notes approval/vetting and number linking as distinct steps.
 
-## Optional marketing draft
+## Historical optional marketing draft — use the current walkthrough
 
 Description: ITSCO, LLC sends occasional announcements about ITSCO's own programs, enrollment openings and service availability to people who separately requested promotional texts. Consent is optional and is not a condition of care or purchase. No purchased lists, affiliate promotions or reuse of appointment consent. Use a dedicated Marketing-registered number.
 
@@ -152,7 +152,7 @@ Public read sources: `/api/agencies/slug/itsco`, `/api/agencies/slug/nlu`, `/api
 
 Ownership remains unproved by these records: `official_name`, `account_owner_user_id`, and `affiliated_agency_id` are blank on the checked agency records. An ITSCO employee-evaluation seed calls Next Level Up part of the ITSCO umbrella, but an affiliation or app administrator is not proof of legal ownership. PlotTwistCo's exact IRS legal spelling is also not populated. Use its verified Vonage legal record rather than inventing an LLC suffix. Per Vonage's reseller requirements, businesses the registrant owns can be their own campaigns; independently owned customer practices need reseller campaigns. This corrects any assumption that all AuricWell tenants necessarily require the same owner/reseller selection.
 
-### Live submission blockers found
+### Historical live submission blockers found — October 4
 
 - `https://app.itsco.health/api/sms-numbers/consent-example/itsco` returned HTTP 401 anonymously.
 - `https://app.nextleveluplcc.com/api/sms-numbers/consent-example/nlu` returned HTTP 401 anonymously. The local example implementation is ITSCO-specific; a Next Level Up public proof route was not previously implemented.
@@ -160,349 +160,18 @@ Ownership remains unproved by these records: `official_name`, `account_owner_use
 - Earlier direct retrieval of Google Docs was blocked. The owner subsequently supplied the full platform privacy policy, platform terms, and HIPAA notice as attachments; those supplied texts were reviewed and used for the native policy revisions below. No further Google retrieval was needed.
 - Consequently, no proof or policy URL below is certified submission-ready. Do not use an ITSCO form as another brand's evidence.
 
-### Five campaign field sheets
-
-Prepare service campaigns for ITSCO and Next Level Up. Prepare AuricWell Account Access only for actual platform SMS traffic; account emails alone do not require this SMS campaign. Add marketing campaigns when those brands are ready to send their own promotions. A separate marketing number is this app's design choice. Do not treat an account-security campaign as authorization for patient appointment reminders.
-
-#### ITSCO Service Communications
-
-| Field | Entry |
-| --- | --- |
-| Brand | ITSCO |
-| Use case | Mixed |
-| Sub-use cases | Customer Care; Account Notification |
-| Campaign name | ITSCO Service Communications |
-| Campaign ownership | My own campaign for an owned legal business; otherwise Reseller campaign with the approved reseller ID |
-| Frequency | Recurring — Message frequency varies |
-| Enrollment mechanism | Online signed form; mandatory explicit Yes/No, no preselection |
-| Website | https://www.itsco.health |
-| Support | support@itsco.health |
-| Carrier disclaimer | Include |
-| Age gated | No |
-| Direct lending | No |
-| Embedded links | Yes — real portal/form/join domains must be included in URL samples |
-| Embedded phone numbers | Yes if actual messages include a phone number outside required HELP information, including forwarding; otherwise No |
-| Consent proof URL | BLOCKED: publish and verify this brand’s client and staff examples |
-| Privacy / SMS terms URLs | BLOCKED: verify this brand’s actual published documents |
-
-Campaign description:
-
-```text
-ITSCO, LLC uses AuricWell to send appointment reminders and scheduling updates, exchange administrative messages with clients and authorized guardians, and send operational schedule and account notifications to its employees and contractors. Recipients choose which message types they accept. This campaign excludes promotional offers, affiliate advertising, and polls or voting.
-```
-
-Message flow — use only once published, and append the verified brand-specific consent, privacy and SMS-terms URLs:
-
-```text
-During onboarding or by email or in person, ITSCO provides a private online consent link with Yes or No choices for care-team messages and appointment reminders; staff receive a separate workforce choice. Neither answer is preselected. The recipient or authorized guardian provides the covered phone number, confirms authority, and electronically signs. Receiving texts is optional. An authorized administrator reviews the signed evidence before activating only accepted message types. The system retains the exact disclosure, signature, choices and timestamp and sends subscription confirmations. Message frequency varies. Message and data rates may apply. Text HELP for help. Text STOP to opt-out. Carriers are not liable for delayed or undelivered messages. Support: support@itsco.health.
-```
-
-Also disclose bounded replies to recipient-initiated conversations, and the per-purpose confirmation variants: care-team messages, appointment reminders, workforce notifications.
-
-Opt-in Message:
-
-```text
-ITSCO: You subscribed to appointment reminders. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.
-```
-
-Opt-out Message:
-
-```text
-ITSCO: You are unsubscribed and will receive no further messages from this program. Reply HELP for help.
-```
-
-Help Message:
-
-```text
-ITSCO: For help, contact support@itsco.health. Message frequency varies. Message and data rates may apply. Reply STOP to opt out.
-```
-
-Sample messages — each in its own field, and only when representative of actual production traffic:
-
-Sample 1:
-
-```text
-ITSCO: Your appointment is Tuesday at 3:00 PM. Reply Y to confirm, N to cancel, or R to request another time. Reply STOP to opt out.
-```
-
-Sample 2:
-
-```text
-ITSCO: Thanks for contacting our team. We can help you arrange a different appointment time. Reply STOP to opt out.
-```
-
-Sample 3:
-
-```text
-ITSCO: Your staff schedule has changed. Sign in at https://app.itsco.health to review the update. Reply STOP to opt out.
-```
-
-#### ITSCO Program Announcements
-
-| Field | Entry |
-| --- | --- |
-| Brand | ITSCO |
-| Use case | Marketing |
-| Sub-use cases | None |
-| Campaign name | ITSCO Program Announcements |
-| Campaign ownership | My own campaign for an owned legal business; otherwise Reseller campaign with the approved reseller ID |
-| Frequency | Recurring — Message frequency varies |
-| Enrollment mechanism | Online signed form; mandatory explicit Yes/No, no preselection |
-| Website | https://www.itsco.health |
-| Support | support@itsco.health |
-| Carrier disclaimer | Include |
-| Age gated | No |
-| Direct lending | No |
-| Embedded links | No for the email-contact-only marketing samples below; select Yes and supply samples before using links |
-| Embedded phone numbers | Yes if actual messages include a phone number outside required HELP information, including forwarding; otherwise No |
-| Consent proof URL | BLOCKED: publish and verify this brand’s marketing examples |
-| Privacy / SMS terms URLs | BLOCKED: verify this brand’s actual published documents |
-
-Campaign description:
-
-```text
-ITSCO, LLC sends occasional announcements about its own programs, enrollment openings, and service availability to recipients who separately opted in to promotional texts. Marketing permission is optional and is not a condition of care or purchase. Appointment-reminder permission is not reused for marketing. This campaign excludes purchased lists and affiliate promotions.
-```
-
-Message flow — use only once published, and append the verified brand-specific consent, privacy and SMS-terms URLs:
-
-```text
-During onboarding or by email or in person, ITSCO provides a private online consent link with a separate Yes or No choice for promotional texts. Neither answer is preselected. The recipient or authorized guardian provides the covered phone number, confirms authority, and electronically signs. Receiving texts is optional. An authorized administrator reviews the signed evidence before activating only accepted message types. The system retains the exact disclosure, signature, choices and timestamp and sends subscription confirmations. Message frequency varies. Message and data rates may apply. Text HELP for help. Text STOP to opt-out. Carriers are not liable for delayed or undelivered messages. Support: support@itsco.health.
-```
-
-Opt-in Message:
-
-```text
-ITSCO: You subscribed to optional program offers. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.
-```
-
-Opt-out Message:
-
-```text
-ITSCO: You are unsubscribed and will receive no further messages from this program. Reply HELP for help.
-```
-
-Help Message:
-
-```text
-ITSCO: For help, contact support@itsco.health. Message frequency varies. Message and data rates may apply. Reply STOP to opt out.
-```
-
-Sample messages — each in its own field, and only when representative of actual production traffic:
-
-Sample 1:
-
-```text
-ITSCO: Enrollment is open for our upcoming programs. Contact support@itsco.health for information. Reply STOP to opt out.
-```
-
-Sample 2:
-
-```text
-ITSCO: We have new program openings this season. Contact support@itsco.health to learn more. Reply STOP to opt out.
-```
-
-#### Next Level Up Service Communications
-
-| Field | Entry |
-| --- | --- |
-| Brand | Next Level Up |
-| Use case | Mixed |
-| Sub-use cases | Customer Care; Account Notification |
-| Campaign name | Next Level Up Service Communications |
-| Campaign ownership | My own campaign for an owned legal business; otherwise Reseller campaign with the approved reseller ID |
-| Frequency | Recurring — Message frequency varies |
-| Enrollment mechanism | Online signed form; mandatory explicit Yes/No, no preselection |
-| Website | https://nextleveluplcc.com |
-| Support | support@nextleveluplcc.com |
-| Carrier disclaimer | Include |
-| Age gated | No |
-| Direct lending | No |
-| Embedded links | Yes — real portal/form/join domains must be included in URL samples |
-| Embedded phone numbers | Yes if actual messages include a phone number outside required HELP information, including forwarding; otherwise No |
-| Consent proof URL | BLOCKED: publish and verify this brand’s client and staff examples |
-| Privacy / SMS terms URLs | BLOCKED: verify this brand’s actual published documents |
-
-Campaign description:
-
-```text
-Next Level Up, LLC uses AuricWell to send appointment reminders and scheduling updates, exchange administrative messages with clients and authorized guardians, and send operational schedule and account notifications to its employees and contractors. Recipients choose which message types they accept. This campaign excludes promotional offers, affiliate advertising, and polls or voting.
-```
-
-Message flow — use only once published, and append the verified brand-specific consent, privacy and SMS-terms URLs:
-
-```text
-During onboarding or by email or in person, Next Level Up provides a private online consent link with Yes or No choices for care-team messages and appointment reminders; staff receive a separate workforce choice. Neither answer is preselected. The recipient or authorized guardian provides the covered phone number, confirms authority, and electronically signs. Receiving texts is optional. An authorized administrator reviews the signed evidence before activating only accepted message types. The system retains the exact disclosure, signature, choices and timestamp and sends subscription confirmations. Message frequency varies. Message and data rates may apply. Text HELP for help. Text STOP to opt-out. Carriers are not liable for delayed or undelivered messages. Support: support@nextleveluplcc.com.
-```
-
-Also disclose bounded replies to recipient-initiated conversations, and the per-purpose confirmation variants: care-team messages, appointment reminders, workforce notifications.
-
-Opt-in Message:
-
-```text
-Next Level Up: You subscribed to appointment reminders. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.
-```
-
-Opt-out Message:
-
-```text
-Next Level Up: You are unsubscribed and will receive no further messages from this program. Reply HELP for help.
-```
-
-Help Message:
-
-```text
-Next Level Up: For help, contact support@nextleveluplcc.com. Message frequency varies. Message and data rates may apply. Reply STOP to opt out.
-```
-
-Sample messages — each in its own field, and only when representative of actual production traffic:
-
-Sample 1:
-
-```text
-Next Level Up: Your appointment is Tuesday at 3:00 PM. Reply Y to confirm, N to cancel, or R to request another time. Reply STOP to opt out.
-```
-
-Sample 2:
-
-```text
-Next Level Up: Thanks for contacting our team. We can help you arrange a different appointment time. Reply STOP to opt out.
-```
-
-Sample 3:
-
-```text
-Next Level Up: Your staff schedule has changed. Sign in at https://app.nextleveluplcc.com to review the update. Reply STOP to opt out.
-```
-
-#### Next Level Up Program Announcements
-
-| Field | Entry |
-| --- | --- |
-| Brand | Next Level Up |
-| Use case | Marketing |
-| Sub-use cases | None |
-| Campaign name | Next Level Up Program Announcements |
-| Campaign ownership | My own campaign for an owned legal business; otherwise Reseller campaign with the approved reseller ID |
-| Frequency | Recurring — Message frequency varies |
-| Enrollment mechanism | Online signed form; mandatory explicit Yes/No, no preselection |
-| Website | https://nextleveluplcc.com |
-| Support | support@nextleveluplcc.com |
-| Carrier disclaimer | Include |
-| Age gated | No |
-| Direct lending | No |
-| Embedded links | No for the email-contact-only marketing samples below; select Yes and supply samples before using links |
-| Embedded phone numbers | Yes if actual messages include a phone number outside required HELP information, including forwarding; otherwise No |
-| Consent proof URL | BLOCKED: publish and verify this brand’s marketing examples |
-| Privacy / SMS terms URLs | BLOCKED: verify this brand’s actual published documents |
-
-Campaign description:
-
-```text
-Next Level Up, LLC sends occasional announcements about its own programs, enrollment openings, and service availability to recipients who separately opted in to promotional texts. Marketing permission is optional and is not a condition of care or purchase. Appointment-reminder permission is not reused for marketing. This campaign excludes purchased lists and affiliate promotions.
-```
-
-Message flow — use only once published, and append the verified brand-specific consent, privacy and SMS-terms URLs:
-
-```text
-During onboarding or by email or in person, Next Level Up provides a private online consent link with a separate Yes or No choice for promotional texts. Neither answer is preselected. The recipient or authorized guardian provides the covered phone number, confirms authority, and electronically signs. Receiving texts is optional. An authorized administrator reviews the signed evidence before activating only accepted message types. The system retains the exact disclosure, signature, choices and timestamp and sends subscription confirmations. Message frequency varies. Message and data rates may apply. Text HELP for help. Text STOP to opt-out. Carriers are not liable for delayed or undelivered messages. Support: support@nextleveluplcc.com.
-```
-
-Opt-in Message:
-
-```text
-Next Level Up: You subscribed to optional program offers. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.
-```
-
-Opt-out Message:
-
-```text
-Next Level Up: You are unsubscribed and will receive no further messages from this program. Reply HELP for help.
-```
-
-Help Message:
-
-```text
-Next Level Up: For help, contact support@nextleveluplcc.com. Message frequency varies. Message and data rates may apply. Reply STOP to opt out.
-```
-
-Sample messages — each in its own field, and only when representative of actual production traffic:
-
-Sample 1:
-
-```text
-Next Level Up: Enrollment is open for our upcoming programs. Contact support@nextleveluplcc.com for information. Reply STOP to opt out.
-```
-
-Sample 2:
-
-```text
-Next Level Up: We have new program openings this season. Contact support@nextleveluplcc.com to learn more. Reply STOP to opt out.
-```
-
-#### AuricWell Account Access
-
-| Field | Entry |
-| --- | --- |
-| Brand | AuricWell |
-| Use case | Account Notification |
-| Sub-use cases | None |
-| Campaign ownership | My own campaign for PlotTwistCo's platform traffic |
-| Campaign name | AuricWell Account Access |
-| Website | https://auricwell.com |
-| HELP contact | support@plottwistco.com |
-| Frequency | Recurring — Message frequency varies, matching the current signed-subscription model |
-| Consent | Online signed form for account-security messages, explicit Yes/No |
-| Embedded links | Yes for reset links; sample the actual production reset URL/domain, with a nonfunctional example token |
-| Embedded phone numbers | No for the reset-only message bodies, unless actual traffic adds a phone number |
-| Age gated / direct lending | No / No |
-| Carrier disclaimer | Include |
-| Evidence and policy URLs | BLOCKED: publish and verify AuricWell-specific proof and policy content |
-
-Campaign description:
-
-```text
-AuricWell, operated by PlotTwistCo, sends account-access messages to registered platform users who explicitly consented to account security texts. Messages include administrator-assisted password-reset links for their platform account. This campaign does not send practice appointment reminders or promotional messages.
-```
-
-Message flow — use only if the actual platform enrollment and SMS delivery path is configured this way, and append verified AuricWell proof/privacy/SMS-terms URLs:
-
-```text
-AuricWell provides registered users with an online consent form for account access and security messages. Users must explicitly choose Yes or No, provide the covered phone number, confirm authority, and electronically sign. No choice is preselected. An authorized administrator reviews the signed evidence before activation. The system retains the exact disclosure, signature, choice and timestamp and sends a subscription confirmation. Authorized administrators may send account-access and password-reset messages to subscribed users. Message frequency varies. Message and data rates may apply. Text HELP for help. Text STOP to opt-out. Carriers are not liable for delayed or undelivered messages. Support: support@plottwistco.com.
-```
-
-Opt-in Message:
-
-```text
-AuricWell: You subscribed to account security messages. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.
-```
-
-Opt-out Message:
-
-```text
-AuricWell: You are unsubscribed and will receive no further messages from this program. Reply HELP for help.
-```
-
-Help Message:
-
-```text
-AuricWell: For help, contact support@plottwistco.com. Message frequency varies. Message and data rates may apply. Reply STOP to opt out.
-```
-
-Sample one must show the actual password-reset message and real sending URL domain with a dummy token. Do not invent a reset path under auricwell.com: the audited legacy reset producer builds a tenant-specific public app URL, while the separate AuricWell account system also has its own email flows. Verify the enabled path before using it as campaign evidence.
-
-Sample two can be the exact subscription confirmation above. Do not claim OTP/2FA delivery merely because the app supports authentication by other methods.
-
-### Shared keyword and final-review fields
-
-- STOP keywords: STOP, END, QUIT, CANCEL, UNSUBSCRIBE, REVOKE, OPT OUT; add STOPALL and OPTOUT to match the app.
-- HELP keywords: HELP, INFO.
-- START and UNSTOP only reactivate previously consented subscriptions when `allowRestart` is enabled. Declare that limited reactivation mechanism and its response accurately; never list YES as subscription permission.
-- The app sends: `[Brand]: Texting is re-enabled for your existing subscriptions. Message frequency varies. Message and data rates may apply. Reply HELP for help, STOP to opt out.`
-- Select one keyword-response owner. If enabling Vonage Opt-Out Assist, configure `keywordOwner=vonage`; retain the app's campaign-wide suppression.
-- Accept the no-affiliate-marketing declaration only for the programs described here. Review actual subscription fees before accepting billing terms. The screenshots show a three-month minimum and a separate campaign-vetting event fee.
-- Pending proof/policy and ownership facts cannot be replaced with guessed URLs or guessed legal relationships. None of these drafts was submitted.
-
+### Current campaign field sheets — moved October 5, 2026
+
+The old five field sheets and shared-keyword block have been replaced by the
+[step-by-step campaign walkthrough](./VONAGE_10DLC_CAMPAIGN_WALKTHROUGH.md).
+Start with Next Level Up; each campaign has dashboard steps 1–6 and post-approval step 7.
+The updated guide includes Y/N/R, client session-login links, employee video/meeting
+notifications, the optional billing addition, and the practice-versus-AuricWell distinction.
+
+October 5 recheck: NLU privacy and SMS terms return full branded HTML with HTTP 200.
+Its staff consent-example API still returns 401; local example routes are ITSCO-only.
+The walkthrough identifies that unresolved evidence gap and does not claim the NLU
+submission is ready. Historical blockers above must be read with this dated result.
 
 ## Native branded policies — October 4, 2026 revision
 
@@ -604,23 +273,3 @@ visually inspected; ITSCO's three PDF copies are in `deliverables/tenant-legal/i
 Docker/Nginx runtime validation could not run because the local Docker daemon is not
 running; no container or deployment was claimed. The local Node server checks are
 separate from that deployment check.
-
-
-## Main release — October 4, 2026
-
-The owner requested publishing the consent and policy work to main. The release was
-rebased onto current main in an isolated checkout, preserving unrelated local work.
-Migration 1538 was applied successfully to onboarding_stage. The existing production
-bootstrap applies additive migrations before application readiness. Production has
-consent-encryption and Vonage signing settings configured; carrier-side signing,
-registration, linking, and a handset pilot still require verification.
-
-Public consent examples contain no signatures or recipient information and cannot
-subscribe anyone. Real consent uses private token links and administrator review.
-The new shared send gate stays closed until approved registrations and individual
-permissions exist; legacy opt-in flags are not automatically converted.
-
-Rise Revive publishes a website/health-information role notice for now, not the
-draft clinical NPP: its privacy contact has not been verified. ITSCO, NLU, and TISI
-receive the provider notices. Earlier draft listings in this document describe
-pre-release evidence, not current deployment verification.

@@ -687,6 +687,7 @@
         </div>
       </div>
     </div>
+    <ServiceUseNotice :school-portal="isSchoolCareBridge || isSchoolPortalOrg" />
     <PoweredByFooter v-if="!isAppLike && !isPlatformLogin" />
   </component>
 </template>
@@ -724,6 +725,7 @@ const isIOSNative = (() => {
 })();
 import { SUMMIT_STATS_TEAM_CHALLENGE_NAME } from '../constants/summitStatsBranding.js';
 import PoweredByFooter from '../components/PoweredByFooter.vue';
+import ServiceUseNotice from '../components/legal/ServiceUseNotice.vue';
 import RememberedGoogleAccount from '../components/RememberedGoogleAccount.vue';
 import LoginWorkspaceProgress from '../components/LoginWorkspaceProgress.vue';
 import { completeGoogleLogin } from '../utils/completeGoogleLogin';

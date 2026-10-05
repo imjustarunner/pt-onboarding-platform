@@ -102,9 +102,17 @@ VONAGE_VOICE_EVENT_URL=https://plottwisthq.com/api/voice-video/voice/event
 
 ## 6. 10DLC registration
 
-Per-provider number strategy, Vonage campaign copy-paste text, and employee screenshot checklist:
+Start with the [current campaign walkthrough](docs/VONAGE_10DLC_CAMPAIGN_WALKTHROUGH.md).
+Each campaign has dashboard steps 1–6 and post-approval step 7. Next Level Up comes first,
+followed by ITSCO, optional marketing, and AuricWell's own account-access program.
 
-→ [`docs/VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md`](docs/VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md)
+Practice employee video/session reminders and client session-login links belong under that
+practice's Service Communications campaign when disclosed and consented. AuricWell hosting
+does not change the sender. Billing is an optional expansion requiring matching consent and
+implementation before use. See the walkthrough's dated proof/readiness findings.
+
+- [SMS audit and implementation history](docs/VONAGE_10DLC_ITSCO_AUDIT.md)
+- [Historical provider-number engineering plan](docs/VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md) — old campaign copy is superseded.
 
 ---
-*Last Updated: 2026-08-26*
+*Registration documentation updated: 2026-10-05. Other implementation sections retain their own validation scope.*

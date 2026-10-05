@@ -21,7 +21,7 @@ const failure = (e) => { error.value = e.response?.data?.error?.message || e.mes
 onMounted(async () => {
   try {
     const result = route.meta?.smsConsentExample
-      ? await api.get('/sms-numbers/consent-example/itsco', { ...opts, params: { program: route.query.program || 'operations', audience: route.query.audience || 'client' } })
+      ? await api.get(`/sms-numbers/consent-example/${encodeURIComponent(String(route.params.brandSlug || ''))}`,  { ...opts, params: { program: route.query.program || undefined, audience: route.query.audience || 'client', billing: route.query.billing || undefined } })
       : await api.post('/sms-numbers/consent-request/view', { token }, opts);
     data.value = result.data; signed.value = result.data.signed === true;
   } catch (e) { failure(e); }
