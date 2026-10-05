@@ -27,11 +27,10 @@ import {
   upsertNumberRules
 } from '../controllers/smsNumbers.controller.js';
 import { getAgencySmsRegistrations, saveAgencySmsRegistration, recordAgencySmsConsent, sendAgencyMarketingSms } from '../controllers/smsNumbers.controller.js';
-import { publicSmsConsentRouter, listConsentRequests, createConsentRequest, reviewConsentRequest, downloadConsentEvidence } from './smsConsent.routes.js';
+import { listConsentRequests, createConsentRequest, reviewConsentRequest, downloadConsentEvidence } from './smsConsent.routes.js';
 
 const router = express.Router();
 
-router.use(publicSmsConsentRouter);
 router.use(authenticate);
 
 // Agency-level settings (feature flags)
