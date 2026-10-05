@@ -91,7 +91,9 @@ export const DEFAULT_QUESTIONS = [
     label: 'Overall, how satisfied are you with {agencyName}?',
     help_text: '1 = Poor · 5 = Excellent',
     input_type: 'likert',
-    required: 1,
+    // New partner schools have no prior experience to rate. Feedback must not
+    // be a prerequisite for completing their collaborative setup.
+    required: 0,
     sort_order: 5,
     options_json: [
       { value: 1, label: '1' },

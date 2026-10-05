@@ -1100,6 +1100,8 @@ const finalizeEl = ref(null);
 const newStaff = reactive({ name: '', email: '', title: '' });
 
 const sectionMeta = SECTION_META;
+// Compare against this browser's last load/save, not other collaborators' updates.
+const savedSectionData = {};
 
 const formData = reactive({
   school_events: {
@@ -1832,6 +1834,10 @@ function applyPayload(data) {
 
   syncSchoolEventsFromPortal();
 
+  for (const key of Object.keys(formData)) {
+    savedSectionData[key] = JSON.stringify(formData[key]);
+  }
+
   const stored = loadStoredIdentity(cycle.value?.id);
   if (stored?.name) {
     identityName.value = stored.name;
@@ -1972,13 +1978,13 @@ async function copyShareToken() {
   }
 }
 
-async function saveSection(sectionKey, reviewed) {
+async function saveSection(sectionKey, reviewed, { keepSaving = false } = {}) {
   saving.value = true;
   clearSectionAlert(sectionKey);
   try {
     const body = {
       cycleId: cycle.value.id,
-      data: formData[sectionKey],
+      data: JSON.parse(JSON.stringify(formData[sectionKey])),
       reviewed,
       completed: reviewed,
       ...actorPayload(),
@@ -2000,10 +2006,13 @@ async function saveSection(sectionKey, reviewed) {
       res = await api.put(`/school-reinit/me/sections/${sectionKey}`, body);
     }
     sections.value = res.data.sections || sections.value;
+    savedSectionData[sectionKey] = JSON.stringify(body.data);
+    return true;
   } catch (e) {
     showSectionMessage(sectionKey, 'Could not save', e?.response?.data?.error?.message || e?.message || 'Save failed');
+    return false;
   } finally {
-    saving.value = false;
+    if (!keepSaving) saving.value = false;
   }
 }
 
@@ -2089,8 +2098,8 @@ async function onConfirmSection(sectionKey) {
     // No slots available — agency will reach out to schedule the check-in directly.
     // Allow the school to proceed without booking.
   }
-  await saveSection(sectionKey, true);
-  if (isSectionDone(sectionKey) || true) {
+  const saved = await saveSection(sectionKey, true);
+  if (saved && isSectionDone(sectionKey)) {
     const next = sectionMeta.find((s) => !isSectionDone(s.key) && s.key !== sectionKey);
     if (next) openSection(next.key);
     else viewMode.value = 'hub';
@@ -2354,9 +2363,23 @@ async function addStaff() {
 }
 
 async function finalize() {
+  if (saving.value) return;
   if (!window.confirm('Finalize this school’s fall re-initiation? The summary will be locked.')) return;
   saving.value = true;
+  bannerError.value = '';
   try {
+    // Finalization validates persisted answers. Save edits made to already-reviewed
+    // sections too (their navigation buttons do not mark them accurate again).
+    for (const { key } of sectionMeta) {
+      if (JSON.stringify(formData[key]) === savedSectionData[key]) continue;
+      const saved = await saveSection(key, isSectionDone(key), { keepSaving: true });
+      if (!saved) {
+        activeSection.value = key;
+        viewMode.value = 'detail';
+        bannerError.value = 'Your latest answers could not be saved. Please retry before submitting.';
+        return;
+      }
+    }
     const body = { cycleId: cycle.value.id, ...actorPayload() };
     let res;
     if (props.mode === 'token') {
