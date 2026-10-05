@@ -1,3 +1,4 @@
+import { compactSchoolCareBridgeEmail } from '../schoolCareBridgeEmail.service.js';
 import { managedGroupEnvelope } from '../managedWorkspaceGroupAccess.service.js';
 import { assertVerifiedGmailSender } from './verifiedSender.js';
 import { eligibleClientAfterHoursReply } from '../afterHoursEmailPolicy.service.js';
@@ -184,6 +185,7 @@ async function finalizeOutboundContent({
   source = null,
   templateType = null
 }) {
+  ({ text, html } = compactSchoolCareBridgeEmail({ text, html, templateType }));
   const aid = Number(agencyId || identity?.agency_id || 0) || null;
   let misdirectedReportUrl = null;
   try {

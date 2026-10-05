@@ -57,6 +57,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   contact_reminder_assigned: ['notifications'],
   meeting_join_reminder: ['notifications', 'support', 'technology'],
   meeting_invited: ['notifications', 'support'],
+  meeting_summary_ready: ['notifications', 'support'],
   meeting_cancelled: ['notifications', 'support'],
   program_reminder: ['notifications', 'people_operations'],
   shift_calloff_need_coverage: ['notifications', 'people_operations'],

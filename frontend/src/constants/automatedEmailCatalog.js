@@ -5,6 +5,18 @@
 
 export const AUTOMATED_EMAIL_CATALOG = [
   {
+    key: 'meeting_summary_ready',
+    kind: 'template',
+    category: 'Meetings',
+    label: 'Meeting notes and next steps',
+    description: 'Sends saved summaries, agreed tasks, and suggested next steps to authorized attendees after a team or supervision meeting. Links open the summary or transcript in My meetings after sign-in.',
+    trigger: 'A completed meeting has a generated summary and participant notifications enabled.',
+    triggerKind: 'Automatic · After summary generation',
+    sourceLinks: [{ label: 'My meetings', path: '/my-meetings' }],
+    preferredKeys: ['notifications', 'support'],
+    recommendedFromHint: 'Use the tenant Notifications mailbox.'
+  },
+  {
     key: 'password_reset',
     kind: 'template',
     category: 'Login & accounts',

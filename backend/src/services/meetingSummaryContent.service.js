@@ -22,7 +22,7 @@ export function meetingSummaryPrompt(text, meetingType, section = false) {
     'Cover every substantive topic, including later topics, and keep unrelated discussions separate under topic subheadings.',
     'Preserve bracketed PRIVATE_ placeholders exactly. Never guess the identities behind them.',
     'Preserve speaker attribution; distinguish proposals from agreed decisions and reported facts from uncertainty.',
-    'Use these Markdown headings: Overview; Topics discussed; Decisions; Facts; Processes and procedures; Tasks by person; Open questions; Suggested next steps.',
+    'Use level-two Markdown headings (##) for these sections, and level-three headings (###) for topics or people within them: Overview; Topics discussed; Decisions; Facts; Processes and procedures; Tasks by person; Open questions; Suggested next steps.',
     'Under Processes and procedures, capture each described workflow separately with ordered steps, exceptions and responsibilities, especially for CPA and supervision meetings. Do not invent procedures or clinical recommendations.',
     'Under Tasks by person list each task, explicitly stated owner or speaker label, deadline if stated, and context. Use Unassigned when no owner was agreed. Do not assign someone merely because they discussed a topic.',
     'Under Suggested next steps clearly label suggestions, separate from agreed tasks. State Not discussed for absent information.',

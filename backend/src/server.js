@@ -2366,6 +2366,8 @@ if (!isBootstrap) {
   const summaryTick = async () => {
     try { await (await import('./services/meetingSummaryJobs.service.js')).processMeetingSummaryJobs(); }
     catch (error) { console.warn('[meetingSummaryJobs] worker unavailable:', error?.code || 'error'); }
+    try { await (await import('./services/meetingFollowup.service.js')).processMeetingFollowups(); }
+    catch (error) { console.warn('[meetingFollowup] worker unavailable:', error?.code || 'error'); }
   };
   void summaryTick();
   setInterval(summaryTick, 30000).unref();
