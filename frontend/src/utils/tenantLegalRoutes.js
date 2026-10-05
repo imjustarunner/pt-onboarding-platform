@@ -18,5 +18,5 @@ export function tenantLegalRequest(host,path) {
   const url=new URL(path,profile.origin);
   const entry=legalRouteEntries(profile).find(e=>e.path===url.pathname.replace(/\/$/,''));
   if(!entry)return null;
-  return {profile,type:entry.type,canonical:profile.origin+entry.canonical,redirect:url.pathname!==entry.canonical?profile.origin+entry.canonical+url.search:null};
+  return {profile,type:entry.type,canonical:(profile.legalOrigin||profile.origin)+entry.canonical,redirect:url.pathname!==entry.canonical?(profile.legalOrigin||profile.origin)+entry.canonical+url.search:null};
 }

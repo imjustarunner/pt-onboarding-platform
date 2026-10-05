@@ -102,7 +102,7 @@ function nativeLegalLocations(profile, canonicalOnly=false) {
  return legalRouteEntries(profile).filter(entry=>!canonicalOnly||entry.path===entry.canonical).map(entry=>{
   const filename=`legal-${entry.type}.html`;
   writeFileSync(`${folder}/${filename}`,renderItscoLegalHtml(entry.type,profile));
-  return entry.path===entry.canonical?`location = ${entry.path} { add_header Cache-Control "no-cache"; try_files /_public-sites/${profile.slug}/${filename} =404; }`:`location = ${entry.path} { return 301 ${profile.origin}${entry.canonical}$is_args$args; }`;
+  return entry.path===entry.canonical?`location = ${entry.path} { add_header Cache-Control "no-cache"; try_files /_public-sites/${profile.slug}/${filename} =404; }`:`location = ${entry.path} { return 301 ${profile.legalOrigin || profile.origin}${entry.canonical}$is_args$args; }`;
  }).join('\n');
 }
 // Canonical tenant URLs also work on shared/app hosts without requiring JavaScript.

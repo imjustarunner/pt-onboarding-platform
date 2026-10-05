@@ -11,8 +11,8 @@ export function renderItscoLegalHtml(type, profile = tenantLegalProfiles.itsco, 
   const doc = legalDocumentsForProfile(profile)[type];
   if (!doc) throw new Error('Unknown ITSCO legal document');
   const links = tenantLegalLinks(profile);
-  const canonical = profile.origin + links.find(link => link.type === type).path;
-  const linkHtml = (href, label) => `<a href="${escape(href.startsWith('/') ? profile.origin + href : href)}">${escape(label)}</a>`;
+  const canonical = (profile.legalOrigin || profile.origin) + links.find(link => link.type === type).path;
+  const linkHtml = (href, label) => `<a href="${escape(href.startsWith('/') ? (profile.legalOrigin || profile.origin) + href : href)}">${escape(label)}</a>`;
   const logo = options.logo === undefined ? (profile.logo ? profile.origin + profile.logo : '') : options.logo;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">

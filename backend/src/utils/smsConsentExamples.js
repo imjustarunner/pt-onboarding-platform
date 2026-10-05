@@ -5,8 +5,8 @@ import { buildSmsConsentDisclosure } from './smsConsentDisclosure.js';
 const practices = {
   itsco: { brandName: 'ITSCO', legalName: 'ITSCO, LLC', origin: 'https://www.itsco.health', supportContact: 'support@itsco.health' },
   nlu: { brandName: 'Next Level Up', legalName: 'NEXTLEVELUP, LLC', origin: 'https://nextleveluplcc.com', supportContact: '719-377-6577' },
-  tisi: { brandName: 'The Inner Strength Institute', legalName: 'The Inner Strength Institute', origin: 'https://theinnerstrengthinstitute.com', supportContact: 'support@innerstrengthin.com' },
-  auricwell: { brandName: 'AuricWell', legalName: 'Plot Twist Co', origin: 'https://auricwell.com', supportContact: 'support@plottwistco.com' }
+  tisi: { brandName: 'The Inner Strength Institute', legalName: 'The Inner Strength Institute LLC', origin: 'https://theinnerstrengthinstitute.com', supportContact: 'support@innerstrengthin.com' },
+  auricwell: { brandName: 'AuricWell', legalName: 'Plot Twist Co', origin: 'https://plottwisthq.com', supportContact: 'support@plottwistco.com' }
 };
 const aliases = { nextlevelup: 'nlu', nextleveluplcc: 'nlu', innerstrength: 'tisi', theinnerstrengthinstitute: 'tisi' };
 const fail = (status, message) => Object.assign(new Error(message), { status });

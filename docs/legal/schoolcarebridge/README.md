@@ -5,10 +5,12 @@ certification of compliance. Have qualified healthcare/school-data and nonprofit
 review the actual relationships, state requirements and completed schedules before execution.
 No document was sent to another party and no signature was applied.
 
-## Proposed relationship map — confirm against actual contracts
+## Confirmed operating structure and proposed contract chain
 
-The existing app identifies SchoolCareBridge as a program of MH4Kidz, technology managed by
-Plot Twist Co. The user identifies MH4Kidz as a 501(c)(3). Exact corporate names, tax status,
+The owner confirmed that PlotTwistCo owns the software and MH4Kidz operates the
+SchoolCareBridge program. The drafts therefore place the program services contract with
+MH4Kidz and the technology agreement with PlotTwistCo. The user identifies MH4Kidz as a
+501(c)(3). Exact corporate names, tax status,
 contracting authority and processing roles have not been independently verified.
 
 | Relationship | Draft | When it applies |
@@ -31,8 +33,9 @@ a business associate even if staff do not routinely read the records it maintain
 
 1. Exact legal names, formation types, addresses and authorized signers for PlotTwistCo and
    MH4Kidz; verify the latter's tax classification. Do not infer “LLC” or “Inc.” from a brand.
-2. Whether MH4Kidz or PlotTwistCo contracts for SchoolCareBridge and whose instructions each
-   processes. Confirm direct practice contracts and the subprocessor chain.
+2. Align existing contracts with the confirmed structure: MH4Kidz supplies the program and
+   PlotTwistCo supplies technology. Document whose instructions each processes, any direct
+   practice contracts, and the actual subprocessor chain.
 3. Actual data fields, transfer directions, features, hosting locations, vendors and permitted
    users. Separate school records, coordination records and clinical records.
 4. School/district disclosure basis and required permissions, plus existing practice releases.

@@ -5,16 +5,16 @@ This is the current registration worksheet. It replaces the old copy/paste field
 in the ITSCO audit and the older four-campaign provider-number plan. Historical audit
 findings remain in those documents; do not combine their old field text with this guide.
 
-This guide accompanies local consent and policy implementation changes. Deployment status
+This guide accompanies the deployed consent and policy implementation. Deployment status
 is tracked separately; editing this file does not change carrier registrations. External vetting is user-reported for ITSCO, Next Level Up, and AuricWell.
 Campaign approval, number linking, and recipient enrollment are separate steps.
 
 ## October 5 implementation follow-up — current status
 
-The earlier 401 finding below explains the original failure. It is now fixed in local code:
+The earlier 401 finding below explains the original failure. The fix is deployed:
 `/sms-consent/example/:brandSlug` and its anonymous API support ITSCO, NLU, Inner Strength,
-and AuricWell with strict brand/program selection. Deployment/live verification is still a
-separate release step. Do not rely on the earlier 401 as a statement about a later deployment.
+and AuricWell with strict brand/program selection. Anonymous browser checks passed for
+NLU client/staff, Inner Strength client, and ITSCO optional-billing examples on October 5.
 
 The new disclosure version `2026-10-05.1` explicitly covers session/video/training notices
 and adds **billing** as an independent optional client choice. The sending gate, registration
@@ -562,21 +562,23 @@ traffic; do not create a duplicate campaign merely to change sample wording.
 ## The Inner Strength Institute Service Communications
 
 **Use this for client service texts and this practice's employee notifications.**
-Status: multi-brand proof is implemented locally in the October 5 follow-up; confirm deployment and anonymous rendering before submission. The exact legal identity in Step 0 remains to be confirmed.
+Status: multi-brand proof is deployed; anonymous rendering verified October 5. The owner confirms this is a separately formed company wholly owned by PlotTwistCo.
 
 ### Step 0 — Register the Inner Strength brand
 
-The user confirms Inner Strength is 100% owned by PlotTwistCo. Vonage permits customer
-brands for owned entities and different DBA brands of one entity. This does not establish
-whether Inner Strength is a separate company or a trade name; select the matching path.
+The owner confirms Inner Strength is a separately formed company, 100% owned by
+PlotTwistCo. Register that subsidiary using its own legal identity and EIN. The existing
+practice record in migration `1406_office_practice_pos_medicaid_override.sql` identifies
+it as **The Inner Strength Institute LLC**; match spelling to its IRS record when submitting.
+Vonage permits the customer-brand path for an owned entity.
 
 | Brand-registration field | Enter |
 | --- | --- |
 | Customer brand / Reseller brand | Customer brand for this wholly owned business, assuming the registrant is its owner |
-| Organization type | The actual legal entity's type; Private profit if that is PlotTwistCo's/its subsidiary's type |
-| Legal company name | If a PlotTwistCo trade name: PlotTwistCo's exact IRS legal name. If a separate subsidiary: that subsidiary's exact IRS legal name |
+| Organization type | Private profit, for this privately held for-profit LLC |
+| Legal company name | The Inner Strength Institute LLC — match its IRS record exactly |
 | DBA or Brand name | The Inner Strength Institute |
-| Tax number / EIN | The EIN of that same legal entity; enter privately in Vonage |
+| Tax number / EIN | Inner Strength's own EIN, not PlotTwistCo's; enter privately in Vonage |
 | Country, address, city, state, ZIP | That legal entity's matching registration/tax records |
 | Website | https://theinnerstrengthinstitute.com |
 | Vertical | Healthcare services if that accurately describes the registered business's services |
@@ -585,10 +587,9 @@ whether Inner Strength is a separate company or a trade name; select the matchin
 | Stock fields / alternate ID | Only when applicable; do not invent values |
 
 Use Standard external vetting for the planned Mixed campaign once the brand is verified.
-Do not claim Inner Strength has its own EIN, LLC status or legally filed DBA without evidence.
-The example page currently identifies the practice by its public name; update its legal name
-and the sender registration together once the legal-entity path is confirmed. PlotTwistCo's
-ownership alone does not turn all Inner Strength clinical records into AuricWell platform data.
+The consent example and policies identify The Inner Strength Institute LLC. Keep the
+sender registration consistent with this identity. Common ownership does not turn Inner
+Strength clinical records into AuricWell platform data.
 
 Source: [Vonage owned-entity and DBA guidance](https://api.support.vonage.com/hc/en-us/articles/16376606152988-10DLC-Update-Reseller-ID-requirements-Jan-2025).
 
@@ -1230,8 +1231,8 @@ Vonage record if it differs. Do not invent a corporate suffix.
 | Brand name | AuricWell |
 | Consent mechanism | Online; signed explicit Yes/No for account-security texts |
 | Online URL | https://app.itsco.health/sms-consent/example/auricwell?program=account — AuricWell-branded public review copy hosted on the shared portal; declare that hosting relationship |
-| Privacy URL | https://auricwell.com/auricwell/privacypolicy — configured destination; verify live |
-| Terms URL | https://auricwell.com/auricwell/terms — configured destination; verify live |
+| Privacy URL | https://plottwisthq.com/auricwell/privacypolicy — verified public branded policy |
+| Terms URL | https://plottwisthq.com/auricwell/terms — verified public branded policy |
 | Support | support@plottwistco.com |
 | Carrier disclaimer | Include, matching the actual disclosure |
 
@@ -1374,7 +1375,14 @@ Checked October 5, 2026:
 
 ## Release verification — October 5 implementation follow-up
 
-Pending release completion. Targeted tests pass for public brand isolation, consent choices
-and applicable service notices. Live URLs must be rechecked after backend/frontend deployment.
-Inner Strength's exact legal-entity path remains an owner confirmation, not a code defect.
+Backend and frontend deployment of `84aa972a7` succeeded. Anonymous browser checks passed
+for NLU client/staff, Inner Strength client, and ITSCO billing examples: correct purposes,
+no preselected choices, and review-only signing disabled. The follow-up updates Inner
+Strength legal identity and working policy destinations. SchoolCareBridge policies are
+served at `https://mh4kidz.org/schoolcarebridge/terms` and `/schoolcarebridge/privacypolicy`;
+AuricWell policies are served at `https://plottwisthq.com/auricwell/terms` and
+`/auricwell/privacypolicy`. The separate AuricWell EHR app has local legal-page changes
+but is not included in the shared-app deployment.
+The owner confirmed Inner Strength is a separately formed, wholly owned company; its
+legal name is sourced from the existing practice record.
 The SchoolCareBridge agreement packet is a draft for authorized organizational signatures.

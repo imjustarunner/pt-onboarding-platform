@@ -10,7 +10,7 @@ describe('branded policy sets',()=>{
       const html=renderItscoLegalHtml(type,profile);
       const document=new DOMParser().parseFromString(html,'text/html');
       expect(document.querySelector('h1').textContent).toContain(profile.name);
-      expect(document.querySelector('link[rel=canonical]').getAttribute('href')).toBe(profile.origin+path);
+      expect(document.querySelector('link[rel=canonical]').getAttribute('href')).toBe((profile.legalOrigin||profile.origin)+path);
       expect(document.querySelector('article').textContent.length).toBeGreaterThan(2000);
       expect(document.querySelectorAll('iframe,script')).toHaveLength(0);
       if(profile.slug!=='itsco') {

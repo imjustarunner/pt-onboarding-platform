@@ -13,7 +13,7 @@ export function serviceLegalContext({ host = '', path = '', organizationSlug = '
       : 'AuricWell provides software operated by Plot Twist Co. Your practice remains responsible for its services and clinical records. Platform terms apply to using the software; your practice’s notices and agreements apply to its services.',
     links: profiles.flatMap(profile => tenantLegalLinks(profile).filter(link => link.type !== 'platformhipaa').map(link => ({
       label: `${profile.name} ${link.type === 'terms' ? 'Terms of Use' : 'Privacy Policy'}`,
-      href: profile.origin + link.path
+      href: (profile.legalOrigin || profile.origin) + link.path
     })))
   };
 }

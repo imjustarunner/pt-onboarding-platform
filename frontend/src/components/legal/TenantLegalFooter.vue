@@ -1,6 +1,6 @@
 <template>
   <nav v-if="profile" class="tenant-legal-footer" :style="{color:profile.color}" :aria-label="`${profile.name} policies`">
-    <span>{{ profile.name }}</span><a v-for="link in links" :key="link.type" :href="profile.origin + link.path">{{ link.label }}</a>
+    <span>{{ profile.name }}</span><a v-for="link in links" :key="link.type" :href="(profile.legalOrigin || profile.origin) + link.path">{{ link.label }}</a>
   </nav>
 </template>
 <script setup>

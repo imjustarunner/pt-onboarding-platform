@@ -106,7 +106,7 @@ const parsedSscFooterLinks = computed(() =>
 const defaultLegalLinks = computed(() => {
   const slug=brandingStore.activeRouteSlug || brandingStore.portalHostPortalUrl || '';
   const profile=legalProfileForContext({host:typeof window==='undefined'?'':window.location.hostname,organizationSlug:slug});
-  if(profile)return tenantLegalLinks(profile).map(link=>({label:link.label,href:profile.origin+link.path}));
+  if(profile)return tenantLegalLinks(profile).map(link=>({label:link.label,href:(profile.legalOrigin || profile.origin)+link.path}));
   if(slug)return [{label:'Privacy Policy',href:`/${encodeURIComponent(slug)}/privacypolicy`},{label:'Terms & SMS',href:`/${encodeURIComponent(slug)}/terms`},{label:'Health Information & Privacy',href:`/${encodeURIComponent(slug)}/platformhipaa`}];
   return tenantLegalLinks(tenantLegalProfiles.ptco).map(link=>({label:link.label,href:tenantLegalProfiles.ptco.origin+link.path}));
 });

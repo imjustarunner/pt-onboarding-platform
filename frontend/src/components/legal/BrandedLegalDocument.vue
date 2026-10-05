@@ -3,7 +3,7 @@
     <header>
       <a class="wordmark" :href="profile.origin"><img v-if="profile.logo" :src="profile.logo" alt="" />{{ profile.name }}</a>
       <nav :aria-label="`${profile.name} legal documents`">
-        <a v-for="link in links" :key="link.type" :href="profile.origin + link.path" :aria-current="link.type === type ? 'page' : undefined">{{ link.label }}</a>
+        <a v-for="link in links" :key="link.type" :href="(profile.legalOrigin || profile.origin) + link.path" :aria-current="link.type === type ? 'page' : undefined">{{ link.label }}</a>
       </nav>
       <p class="eyebrow">{{ profile.legalName }} · Your information and your choices</p>
       <h1>{{ document.title }}</h1>
@@ -20,7 +20,7 @@
         <h2>{{ section.title }}</h2>
         <p v-for="paragraph in section.paragraphs" :key="paragraph">{{ paragraph }}</p>
         <ul v-if="section.items.length"><li v-for="item in section.items" :key="item">{{ item }}</li></ul>
-        <p v-for="link in section.links" :key="link.href"><a :href="link.href.startsWith('/') ? profile.origin + link.href : link.href">{{ link.label }}</a></p>
+        <p v-for="link in section.links" :key="link.href"><a :href="link.href.startsWith('/') ? (profile.legalOrigin || profile.origin) + link.href : link.href">{{ link.label }}</a></p>
       </section>
     </article>
     <footer>{{ profile.legalName }} · <a :href="profile.origin">{{ profile.name }}</a> · <a href="#legal-document">Back to top</a></footer>

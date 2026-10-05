@@ -115,10 +115,10 @@ export const itscoLegalDocuments = {
         'AuricWell platform terms apply when you use its software. Your practice remains responsible for professional decisions and the care it provides. An organization representative signs any required service agreement, data-protection terms and business associate agreement separately; individual users do not bind their employer merely by reading a website notice.',
         'For school coordination, the responsible organizations must identify the lawful basis for each disclosure and any required parent, guardian or eligible-student authorization. School-held education records and a provider’s clinical records may be governed by different laws. Do not place psychotherapy notes, unrelated diagnoses or complete clinical charts into a school coordination message.'
       ], [], [
-        { label: 'SchoolCareBridge terms of use', href: 'https://schoolcarebridge.org/schoolcarebridge/terms' },
-        { label: 'SchoolCareBridge privacy policy', href: 'https://schoolcarebridge.org/schoolcarebridge/privacypolicy' },
-        { label: 'AuricWell platform terms', href: 'https://auricwell.com/auricwell/terms' },
-        { label: 'AuricWell privacy policy', href: 'https://auricwell.com/auricwell/privacypolicy' }
+        { label: 'SchoolCareBridge terms of use', href: 'https://mh4kidz.org/schoolcarebridge/terms' },
+        { label: 'SchoolCareBridge privacy policy', href: 'https://mh4kidz.org/schoolcarebridge/privacypolicy' },
+        { label: 'AuricWell platform terms', href: 'https://plottwisthq.com/auricwell/terms' },
+        { label: 'AuricWell privacy policy', href: 'https://plottwisthq.com/auricwell/privacypolicy' }
       ]),
       section('availability', '6. Availability, external services, and content', [
         'Digital services may be interrupted for maintenance, technical failures, or events outside our control. We cannot guarantee uninterrupted access or message delivery. Contact ITSCO through another available channel if a time-sensitive task cannot be completed online.',

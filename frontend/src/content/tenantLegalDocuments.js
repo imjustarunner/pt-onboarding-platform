@@ -135,7 +135,7 @@ export function legalDocumentsForProfile(profile) {
       'Only an authorized organizational representative may execute a service agreement or BAA for the organization. Reading these terms does not execute either document, authorize a release of records, enroll someone in SMS, or consent to recording or transcription.',
       'Only enable integrations and processing features authorized by your organization’s instructions, applicable agreements and required consents. Report suspected account or data misuse promptly through the support contact. Do not include health records in an unsecured support email.'
     ], [], [
-      { label: 'SchoolCareBridge terms where that service is used', href: 'https://schoolcarebridge.org/schoolcarebridge/terms' }
+      { label: 'SchoolCareBridge terms where that service is used', href: 'https://mh4kidz.org/schoolcarebridge/terms' }
     ]));
   }
   return {privacypolicy:privacy,terms,platformhipaa:hipaa};
