@@ -1368,6 +1368,18 @@
           body="Please complete this page alone when possible. These answers stay private to clinical review and are not shown on shared review screens."
         />
         <div v-if="stepError" class="error" style="margin-bottom: 10px;">{{ stepError }}</div>
+        <div v-if="isSharedFamilySigningStep" class="intake-child-banner" role="note">
+          <strong>{{ intakeLocale === 'es' ? 'Una firma para estos niños' : 'One signature for these children' }}</strong>
+          <ul>
+            <li v-for="(child, i) in sharedSigningRoster" :key="i">{{ child.fullName }} — {{ child.dateOfBirth }}</li>
+          </ul>
+          <button v-if="!multiClientConsentAccepted" type="button" class="btn btn-primary" @click="confirmSharedSigning">
+            {{ intakeLocale === 'es' ? 'Acepto firmar para todos los niños indicados' : 'I agree to sign for all children listed' }}
+          </button>
+          <p>{{ intakeLocale === 'es'
+            ? 'Revise este formulario una vez. Su firma y las decisiones de esta página se aplicarán a todos los niños indicados. Cada niño recibirá sus propios documentos. Si necesita decisiones diferentes para un niño, complete inscripciones separadas.'
+            : 'Review this form once. Your signature and the choices on this page will apply to all children listed. Each child will receive their own documents. If a child needs different release choices, complete separate enrollments.' }}</p>
+        </div>
         <div :key="flowStepRenderKey" class="intake-flow-step-body">
         <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
           <SmartSchoolRoiFlow
@@ -1377,6 +1389,9 @@
             :link="link"
             :bound-client="boundClient"
             :prefill="embeddedSmartRoiPrefill"
+            :shared-children="isSharedFamilySigningStep ? sharedSigningRoster : []"
+            :session-saved-signature="lastSignatureData"
+            :saved-capture="embeddedSmartSchoolRoi"
             :locale="intakeLocale"
             mode="embedded"
             @captured="handleEmbeddedSchoolRoiCaptured"
@@ -2153,14 +2168,14 @@
             >
               <IntakeQuestionField
                 :field="field"
-                :model-value="clinicalResponses[field.key]"
+                :model-value="activeClinicalResponses[field.key]"
                 :label="txField(field)"
                 :help="group.sharedHelper ? '' : txField(field, 'helperText')"
                 :options="(field.options || []).map((opt) => ({ value: opt.value || opt.label, label: txOption(opt) }))"
                 :required="false"
                 :error="false"
                 name-prefix="cq_"
-                @update:model-value="(v) => { clinicalResponses[field.key] = v; }"
+                @update:model-value="(v) => { activeClinicalResponses[field.key] = v; }"
               />
             </div>
           </div>
@@ -2405,6 +2420,9 @@
       </div>
 
       <div v-else-if="step === 3 && isOfficeInDepthIntake" class="step office-complete">
+        <p v-if="packetNeedsReview" class="error" role="status">{{ intakeLocale === 'es'
+          ? 'Guardamos sus respuestas y firmas. Uno de los paquetes necesita revisión de nuestra oficina. No necesita volver a completar la inscripción.'
+          : 'Your answers and signatures are saved. One of the packets needs our office to review it. You do not need to complete enrollment again.' }}</p>
         <div class="office-complete-layout">
           <div class="office-complete-main">
             <div class="ai-pathway-badge">{{ publicPacketBadge }}</div>
@@ -2557,6 +2575,9 @@
       </div>
 
       <div v-else-if="step === 3" class="step">
+        <p v-if="packetNeedsReview" class="error" role="status">{{ intakeLocale === 'es'
+          ? 'Guardamos sus respuestas y firmas. Uno de los paquetes necesita revisión de nuestra oficina. No necesita volver a completar la inscripción.'
+          : 'Your answers and signatures are saved. One of the packets needs our office to review it. You do not need to complete enrollment again.' }}</p>
         <!--
           Success-page logo row. Parent feedback: "it should show the logos,
           etc" on the completion screen. We reuse the same intro-screen logos
@@ -2945,6 +2966,7 @@
 </template>
 
 <script setup>
+import { clinicalAnswersForStep, SHARED_SIGNING_STEP_TYPES, sharedSigningChildren } from '../utils/sharedIntakeSigning.js';
 import LearningEnrollmentQuestions from '../components/learning/LearningEnrollmentQuestions.vue';
 import { computed, h, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -4828,6 +4850,7 @@ const autofillDemographicsLocation = async () => {
 
 // Clinical questions step state
 const clinicalResponses = reactive({});
+const activeClinicalResponses = computed(() => clinicalAnswersForStep(currentFlowStep.value, intakeResponses, clinicalResponses));
 const fieldRefs = {};
 
 function setClinicalFieldRef(key, el) {
@@ -4862,7 +4885,7 @@ const interviewShowIfValues = computed(() => {
     intakeResponses.submission || {},
     intakeResponses.guardian || {},
     clientBag,
-    clinicalResponses,
+    ...(idx == null ? [clinicalResponses] : []),
     childAgeFlags(dob, clientBag)
   );
   const active = ['occasionally', 'weekly', 'several_times_week', 'daily'];
@@ -4900,7 +4923,7 @@ const visibleClinicalFields = computed(() => {
       const inst = instrumentIdForField(f);
       if (!inst || indicated[inst] !== true) return false;
       const skipKey = OFFICE_INSTRUMENT_META[inst]?.skipKey;
-      if (skipKey && String(clinicalResponses[skipKey] || '').toLowerCase() === 'yes') return false;
+      if (skipKey && String(activeClinicalResponses.value[skipKey] || '').toLowerCase() === 'yes') return false;
       return matchesShowIf(f.showIf, values);
     }).map((f) => ({ ...f, required: false }));
     return fields;
@@ -4913,7 +4936,7 @@ const visibleClinicalFields = computed(() => {
 
 const isClinicalFieldMissing = (field) => {
   if (!field?.required || field.type === 'info') return false;
-  const v = clinicalResponses[field.key];
+  const v = activeClinicalResponses.value[field.key];
   if (isCheckboxGroupField(field)) return !Array.isArray(v) || v.length === 0;
   return v === undefined || v === null || String(v).trim() === '';
 };
@@ -4966,7 +4989,7 @@ const clinicalFieldGroups = computed(() => {
 function skipOfficeInstrument(instrument) {
   const meta = OFFICE_INSTRUMENT_META[instrument];
   if (!meta?.skipKey) return;
-  clinicalResponses[meta.skipKey] = 'yes';
+  activeClinicalResponses.value[meta.skipKey] = 'yes';
 }
 const platformTermsUrl = computed(() => currentFlowStep.value?.termsUrlOverride?.trim() || (formBranding.value?.legalOrganizationSlug || referralAgencySlug.value ? `/${encodeURIComponent(formBranding.value?.legalOrganizationSlug || referralAgencySlug.value)}/terms` : '/terms'));
 const platformPrivacyUrl = computed(() => currentFlowStep.value?.privacyUrlOverride?.trim() || (formBranding.value?.legalOrganizationSlug || referralAgencySlug.value ? `/${encodeURIComponent(formBranding.value?.legalOrganizationSlug || referralAgencySlug.value)}/privacypolicy` : '/privacypolicy'));
@@ -5469,6 +5492,7 @@ function setCurrentLearning(value){const i=currentFlowStep.value?.clientIndex;if
 
 function isRepeatPerClientStep(s) {
   const audience = String(s?.audience || '').trim().toLowerCase();
+  if (SHARED_SIGNING_STEP_TYPES.has(s?.type)) return false;
   return s?.repeatPerClient === true
     || audience === 'dependent'
     || audience === 'family_member';
@@ -5643,6 +5667,7 @@ const recaptchaForceWidget = ref(false);
 const captchaToken = ref('');
 const pollingForDownload = ref(false);
 const pdfWaitTimedOut = ref(false);
+const packetNeedsReview = ref(false);
 const packetSummaryViewUrl = computed(() => {
   const id = Number(submissionId.value || 0);
   const token = String(sessionToken.value || '').trim();
@@ -5965,6 +5990,9 @@ const flowSteps = computed(() => {
 });
 const currentFlowIndex = ref(0);
 const currentFlowStep = computed(() => flowSteps.value[currentFlowIndex.value] || null);
+const sharedSigningRoster = computed(() => sharedSigningChildren(buildClientPayloads(), intakeResponses.clients));
+const isSharedFamilySigningStep = computed(() => clients.value.length > 1
+  && SHARED_SIGNING_STEP_TYPES.has(currentFlowStep.value?.type));
 watch(dfProgressIndex, (idx) => {
   const n = Number(idx || 0);
   if (n > maxReachedProgressIndex.value) maxReachedProgressIndex.value = n;
@@ -6342,6 +6370,7 @@ function clearGuardianWaiverErrors() {
   for (const k of Object.keys(guardianWaiverErrors)) delete guardianWaiverErrors[k];
 }
 const docStatus = reactive({});
+const documentSigningRoster = ref(null);
 const uploadStatus = reactive({});
 const uploadStepFiles = ref([]);
 const uploadStepInputRef = ref(null);
@@ -7496,8 +7525,7 @@ function applyStarterDataAndContinue() {
     if (clients.value.length > 1) {
       multiClientPlanChoice.value = 'multiple';
       if (!multiClientConsentAccepted.value) {
-        multiClientConsentAccepted.value = true;
-        multiClientConsentAcceptedAt.value = new Date().toISOString();
+        multiClientConsentDialogOpen.value = true;
       }
     }
     intakeResponses.guardian = {
@@ -7746,6 +7774,7 @@ const buildDraftSnapshot = () => ({
     } catch { /* ignore */ }
     return snap;
   })(),
+  documentSigningRoster: documentSigningRoster.value,
   docStatus: (() => {
     const snap = {};
     try {
@@ -7984,6 +8013,7 @@ const applyDraftSnapshot = (parsed) => {
         });
       } catch { /* ignore */ }
     }
+    documentSigningRoster.value = parsed.documentSigningRoster || null;
     if (parsed.docStatus && typeof parsed.docStatus === 'object') {
       try {
         Object.keys(docStatus || {}).forEach((k) => delete docStatus[k]);
@@ -9030,7 +9060,7 @@ const fillExample = () => {
     if (currentFlowStep.value?.type === 'questions') {
       fillFields(visibleQuestionFields.value, questionValues.value, true, interviewShowIfValues.value);
     } else if (currentFlowStep.value?.type === 'clinical_questions') {
-      fillFields(visibleClinicalFields.value, clinicalResponses, true);
+      fillFields(visibleClinicalFields.value, activeClinicalResponses.value, true);
     } else if (currentFlowStep.value?.type === 'document') {
       fillFields(visibleFieldDefinitions.value, currentFieldValues.value, true);
     }
@@ -9718,7 +9748,7 @@ const deriveClientInitials = (firstName, lastName) => {
 };
 
 const buildClientPayloads = () =>
-  clients.value.map((c) => {
+  clients.value.map((c, clientIndex) => {
     const rawFirst = String(c?.firstName || '').trim();
     const rawMiddle = String(c?.middleName || '').trim();
     const rawLast = String(c?.lastName || '').trim();
@@ -9733,7 +9763,10 @@ const buildClientPayloads = () =>
       fullName,
       // Persist first-3 + last-3 (e.g. FakFak). packetInitials stays for PDF filenames only.
       initials: deriveClientInitials(firstName, lastName) || packetInitials(firstName, middleName, lastName),
-      dateOfBirth: String(c?.dateOfBirth || starterDob.value || '').trim() || undefined,
+      dateOfBirth: String(intakeResponses.clients?.[clientIndex]?.child_dob
+        || intakeResponses.clients?.[clientIndex]?.client_dob
+        || intakeResponses.clients?.[clientIndex]?.date_of_birth
+        || c?.dateOfBirth || (clientIndex === 0 ? starterDob.value : '') || '').trim() || undefined,
       contactPhone: String(guardianPhone.value || '').trim() || undefined
     };
   });
@@ -9753,7 +9786,7 @@ function officePacketClients() {
       contactPhone: String(guardianPhone.value || '').trim() || undefined
     }];
   }
-  const listed = buildClientPayloads().filter((c) => c.firstName || c.lastName);
+  const listed = buildClientPayloads().map((client, clientIndex) => ({ ...client, clientIndex })).filter((c) => c.firstName || c.lastName);
   return listed.length ? listed : officePacketClientsSelfFallback();
 }
 
@@ -9809,6 +9842,7 @@ async function downloadOfficeSummaryPdf() {
             email: guardianEmail.value,
             phone: guardianPhone.value
           },
+          clientIndex: packet.clientIndex ?? null,
           clients: [packet]
         },
         { responseType: 'blob', timeout: 120000, skipGlobalLoading: true }
@@ -9906,6 +9940,7 @@ async function emailOfficeSummaryPdf() {
             email: guardianEmail.value,
             phone: guardianPhone.value
           },
+          clientIndex: packet.clientIndex ?? null,
           clients: [packet]
         },
         { skipGlobalLoading: true }
@@ -10135,35 +10170,14 @@ const submitConsent = async () => {
     return;
   }
   }
-  // Auto-handle the upfront multi-client plan so parents don't get stuck on
-  // "how many children are you submitting today?" with no visible error when
-  // they tapped "Two or more children" but never clicked Yes/No on the
-  // consent panel. Default behaviour: auto-accept the shared-signature
-  // consent (they chose "multiple"), which matches the rest of the flow's
-  // "keep the user moving" pattern. If the consent panel is somehow still
-  // open (race condition), at least scroll it into view instead of silently
-  // continuing with an inconsistent state.
-  if (
-    !intakeForSelf.value
-    && !isClientBound.value
-    && multiClientPlanChoice.value === 'multiple'
-    && !multiClientConsentAccepted.value
-    && !multiClientConsentDeclined.value
-  ) {
-    if (multiClientConsentDialogOpen.value) {
-      acceptMultiClientConsent();
-    } else {
-      multiClientConsentDialogOpen.value = true;
-      await nextTick();
-      try {
-        const el = document.querySelector('.intake-start-consent')
-          || document.querySelector('.multi-client-plan-block');
-        if (el && typeof el.scrollIntoView === 'function') {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-      } catch { /* best-effort */ }
-      return;
-    }
+  // Selecting multiple children is not agreement to share signatures.
+  if (!intakeForSelf.value && !isClientBound.value && multiClientPlanChoice.value === 'multiple'
+    && !multiClientConsentAccepted.value && !multiClientConsentDeclined.value) {
+    multiClientConsentDialogOpen.value = true;
+    stepError.value = t('confirmSignatureReuse');
+    await nextTick();
+    document.querySelector('.intake-start-consent, .multi-client-plan-block')?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    return;
   }
 
   if (showSpanishClarificationBlock.value) {
@@ -10370,11 +10384,13 @@ const completeCurrentDocument = async () => {
       `/public-intake/${publicKey}/${submissionId.value}/document/${currentDoc.value.id}/sign`,
       {
         signatureData: signatureData.value || '',
-        fieldValues: currentFieldValues.value || {}
+        fieldValues: currentFieldValues.value || {},
+        sharedSigningChildren: isSharedFamilySigningStep.value ? sharedSigningRoster.value : null
       }
     );
 
     docStatus[currentDoc.value.id] = true;
+    if (isSharedFamilySigningStep.value) documentSigningRoster.value = sharedSigningRoster.value;
     signatureData.value = '';
 
     await nextFlowStep();
@@ -10528,7 +10544,9 @@ async function proceedOfficeQuestionStepAfterSplash() {
 async function proceedOfficeClinicalStepAfterSplash() {
   skipConfirmActive.value = false;
   skipConfirmKeys.value = [];
-  intakeResponses.submission.clinicalResponses = { ...clinicalResponses };
+  if (!Number.isInteger(currentFlowStep.value?.clientIndex)) {
+    intakeResponses.submission.clinicalResponses = { ...clinicalResponses };
+  }
   stampClinicalReviewOnSubmission();
   stepError.value = '';
   await nextTick();
@@ -11334,7 +11352,7 @@ const completeClinicalQuestionsStep = async () => {
     const missingHard = (visibleClinicalFields.value || []).filter(
       (f) =>
         (isOfficeHardRequiredField(f) || isContactOrDemographicField(f))
-        && isBlankQuestionLikeValue(f, clinicalResponses)
+        && isBlankQuestionLikeValue(f, activeClinicalResponses.value)
     );
     if (missingHard.length && !canBypassIntakeRequired.value) {
       skipConfirmActive.value = true;
@@ -11347,7 +11365,7 @@ const completeClinicalQuestionsStep = async () => {
       return;
     }
     if (
-      officeOptionalFieldsAllBlank(visibleClinicalFields.value, clinicalResponses)
+      officeOptionalFieldsAllBlank(visibleClinicalFields.value, activeClinicalResponses.value)
       && maybeOpenOfficeSkipSplash('clinical')
     ) {
       return;
@@ -11497,11 +11515,33 @@ const finalizePacket = async () => {
     step.value = 3;
     pollingForDownload.value = false;
     pdfWaitTimedOut.value = false;
+    packetNeedsReview.value = false;
     const activeSessionToken = await ensureSessionToken();
     if (!activeSessionToken) {
       error.value = t('unableToStartSession');
       pollingForDownload.value = false;
       step.value = previousStep;
+      return;
+    }
+    if (clients.value.length > 1 && !multiClientConsentAccepted.value) {
+      stepError.value = t('confirmSignatureReuse');
+      step.value = previousStep;
+      const firstShared = flowSteps.value.findIndex(flow => SHARED_SIGNING_STEP_TYPES.has(flow.type));
+      if (firstShared >= 0) currentFlowIndex.value = firstShared;
+      return;
+    }
+    const missingSharedIndex = flowSteps.value.findIndex(flow => {
+      if (flow.required === false) return false;
+      if (flow.type === 'document') return flow.template?.document_action_type === 'signature' && !docStatus[flow.template.id];
+      if (flow.type === 'school_roi') return !embeddedSmartSchoolRoi.value?.signatureData;
+      if (['smart_disclosure', 'disclosure'].includes(flow.type)) return !embeddedSmartDisclosure.value?.signatureData;
+      const key = PACKET_SECTION_STEP_TO_KEY[flow.type];
+      return key ? !embeddedPacketSections.value?.[key]?.signatureData : false;
+    });
+    if (missingSharedIndex >= 0) {
+      step.value = previousStep;
+      currentFlowIndex.value = missingSharedIndex;
+      stepError.value = intakeLocale.value === 'es' ? 'Revise y firme este acuerdo para continuar.' : 'Please review and sign this agreement to continue.';
       return;
     }
     const sanitizedResponses = sanitizeFinalizeResponses(intakeResponses || {});
@@ -11552,7 +11592,8 @@ const finalizePacket = async () => {
               accepted: !!multiClientConsentAccepted.value,
               acceptedAt: multiClientConsentAcceptedAt.value || null,
               clientCount: clients.value.length,
-              version: 1
+              version: 2,
+              children: sharedSigningRoster.value
             }
           : null,
         smartSchoolRoi: embeddedSmartSchoolRoi.value || null,
@@ -11676,11 +11717,15 @@ const pollForDownloadUrl = async (attemptLimit) => {
       if (resp.data?.registrationReturningAutoMatch) {
         registrationReturningAutoMatch.value = resp.data.registrationReturningAutoMatch;
       }
+      if (resp.data?.packetNeedsReview) {
+        packetNeedsReview.value = true;
+        break;
+      }
       const hasPerChildPackets = Array.isArray(clientBundleLinks.value) && clientBundleLinks.value.length > 0;
       // Backend now reports packetReady=true once finalize is done AND there
       // is something downloadable (combined OR per-child). Either explicit
       // flag or the presence of bundles ends the poll loop.
-      if (resp.data?.downloadUrl || resp.data?.packetReady || hasPerChildPackets) {
+      if (resp.data?.packetReady === true || (resp.data?.packetReady == null && (resp.data?.downloadUrl || hasPerChildPackets))) {
         if (resp.data?.downloadUrl) {
           downloadUrl.value = resp.data.downloadUrl;
         }
@@ -11689,7 +11734,7 @@ const pollForDownloadUrl = async (attemptLimit) => {
         const _expectedKids = (intakeResponses?.clients || []).length || 1;
         const haveAllExpected = Array.isArray(clientBundleLinks.value)
           && clientBundleLinks.value.length >= _expectedKids;
-        if (resp.data?.downloadUrl || haveAllExpected) {
+        if (resp.data?.packetReady === true || resp.data?.downloadUrl || haveAllExpected) {
           break;
         }
       }
@@ -11984,6 +12029,13 @@ const onClickAddClient = () => {
       }
     } catch { /* best-effort */ }
   }, 30);
+};
+
+const confirmSharedSigning = () => {
+  multiClientConsentAccepted.value = true;
+  multiClientConsentAcceptedAt.value = new Date().toISOString();
+  multiClientConsentDialogOpen.value = false;
+  stepError.value = '';
 };
 
 const acceptMultiClientConsent = () => {
@@ -13301,7 +13353,30 @@ const handleSmartRoiCompleted = ({ submissionId: nextSubmissionId, downloadUrl: 
   }
 };
 
+watch(() => JSON.stringify(sharedSigningRoster.value), (next, previous) => {
+  if (!previous || next === previous) return;
+  const changed = capture => capture?.sharedSigningChildren
+    && JSON.stringify(capture.sharedSigningChildren) !== next;
+  if (changed(embeddedSmartSchoolRoi.value)) {
+    embeddedSmartSchoolRoi.value = null;
+    intakeResponses.submission.smartSchoolRoi = null;
+  }
+  if (changed(embeddedSmartDisclosure.value)) {
+    embeddedSmartDisclosure.value = null;
+    intakeResponses.submission.smartDisclosure = null;
+  }
+  for (const [key, capture] of Object.entries(embeddedPacketSections.value || {})) {
+    if (changed(capture)) delete embeddedPacketSections.value[key];
+  }
+  if (documentSigningRoster.value && JSON.stringify(documentSigningRoster.value) !== next) {
+    for (const key of Object.keys(docStatus)) docStatus[key] = false;
+    documentSigningRoster.value = null;
+  }
+});
+
 const handleEmbeddedSchoolRoiCaptured = async ({ smartSchoolRoi } = {}) => {
+  if (smartSchoolRoi && isSharedFamilySigningStep.value) smartSchoolRoi = { ...smartSchoolRoi, sharedSigningChildren: sharedSigningRoster.value };
+  if (smartSchoolRoi?.signatureData) lastSignatureData.value = smartSchoolRoi.signatureData;
   embeddedSmartSchoolRoi.value = smartSchoolRoi || null;
   intakeResponses.submission = {
     ...(intakeResponses.submission || {}),
@@ -13323,6 +13398,8 @@ const handleSmartDisclosureCompleted = ({ submissionId: nextSubmissionId, downlo
 };
 
 const handleEmbeddedDisclosureCaptured = async ({ smartDisclosure } = {}) => {
+  if (smartDisclosure && isSharedFamilySigningStep.value) smartDisclosure = { ...smartDisclosure, sharedSigningChildren: sharedSigningRoster.value };
+  if (smartDisclosure?.signatureData) lastSignatureData.value = smartDisclosure.signatureData;
   embeddedSmartDisclosure.value = smartDisclosure || null;
   intakeResponses.submission = {
     ...(intakeResponses.submission || {}),
@@ -13360,6 +13437,7 @@ const handleEmbeddedPacketSectionCaptured = async (payload = {}) => {
     stepError.value = 'Unable to save this agreement step.';
     return;
   }
+  if (isSharedFamilySigningStep.value) payload = { ...payload, sharedSigningChildren: sharedSigningRoster.value };
   const sig = String(payload?.signatureData || '').trim();
   if (sig) lastSignatureData.value = sig;
   embeddedPacketSections.value = {

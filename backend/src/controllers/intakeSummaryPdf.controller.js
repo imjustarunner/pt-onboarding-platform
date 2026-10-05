@@ -1,3 +1,5 @@
+import AgencyOfficeIntakeMaster from '../models/AgencyOfficeIntakeMaster.model.js';
+import { intakeChildRoster } from '../utils/multiChildIntake.js';
 import { enrichApplicationRecord, appendApplicationJobDescription } from '../services/jobApplicationRecord.service.js';
 import Agency from '../models/Agency.model.js';
 import AgencySchoolIntakeMaster from '../models/AgencySchoolIntakeMaster.model.js';
@@ -100,6 +102,23 @@ async function resolveOfficeRecord(req) {
   }
   submission = await enrichApplicationRecord(submission, link, agency);
   const signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(submission.id);
+  let clientIndex = req.body?.clientIndex == null ? null : Number(req.body.clientIndex);
+  const roster = intakeChildRoster(submission.intake_data || {});
+  // Older clients send one display identity instead of an explicit index.
+  if (clientIndex === null && roster.length > 1 && req.body?.clients?.length === 1) {
+    const selected = req.body.clients[0];
+    const matches = roster.map((child, index) => ({ child, index })).filter(({ child }) =>
+      child.fullName === selected.fullName && (!selected.dateOfBirth || child.dateOfBirth === selected.dateOfBirth));
+    if (matches.length !== 1) {
+      const error = new Error('Please select the child whose packet you want to download.');
+      error.statusCode = 400;
+      throw error;
+    }
+    clientIndex = matches[0].index;
+  }
+  if (clientIndex !== null && (!Number.isInteger(clientIndex) || clientIndex < 0 || clientIndex >= roster.length)) {
+    const error = new Error('Invalid child selection'); error.statusCode = 400; throw error;
+  }
   const packetKind = String(link?.scope_type || '').toLowerCase() === 'school' ? 'school' : 'office';
   const spec = await brandedIntakeSummarySpec(buildCompletedIntakeRecord({
     agency,
@@ -107,7 +126,8 @@ async function resolveOfficeRecord(req) {
     submission,
     signedDocuments,
     guardian: req.body?.guardian || {},
-    clients: Array.isArray(req.body?.clients) ? req.body.clients : [],
+    clients: clientIndex === null && roster.length < 2 && Array.isArray(req.body?.clients) ? req.body.clients : [],
+    clientIndex,
     publicKey,
     brandLogoUrl: String(agency?.logo_url || '').trim(),
     publicOrigin: String(req.get('origin') || process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || '').replace(/\/$/, '')

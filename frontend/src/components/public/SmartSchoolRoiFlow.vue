@@ -45,8 +45,12 @@
         <p class="subject-choice-hint">{{ tr('This determines how the signer and relationship fields below are labeled.', 'Esto determina como se etiquetan los campos de firma y parentesco a continuacion.') }}</p>
       </template>
 
+      <div v-if="sharedChildren.length > 1" class="review-block">
+        <strong>{{ tr('Children covered by this release', 'Niños incluidos en esta autorización') }}</strong>
+        <ul><li v-for="(child, i) in sharedChildren" :key="i">{{ child.fullName }} — {{ child.dateOfBirth }}</li></ul>
+      </div>
       <div class="summary-grid">
-        <div>
+        <div v-if="sharedChildren.length < 2">
           <label for="roi-client-full-name">
             {{ tr('Client', 'Cliente') }}
             <span v-if="!isClientNameLocked && !hasRequiredValue(form.clientFullName)" class="req-mark">*</span>
@@ -65,7 +69,7 @@
             :placeholder="tr('Click to type client full name', 'Toque para escribir el nombre completo del cliente')"
           />
         </div>
-        <div>
+        <div v-if="sharedChildren.length < 2">
           <label for="roi-client-dob">
             {{ subjectDobLabel }}
             <span v-if="!hasRequiredValue(form.clientDateOfBirth)" class="req-mark">*</span>
@@ -564,8 +568,11 @@
       <div class="progress-label">Final Step</div>
       <h3>{{ tr('Review and sign', 'Revisar y firmar') }}</h3>
       <div class="review-block">
-        <p><strong>Client:</strong> {{ form.clientFullName }}</p>
-        <p><strong>Date of Birth:</strong> {{ form.clientDateOfBirth }}</p>
+        <ul v-if="sharedChildren.length > 1"><li v-for="(child, i) in sharedChildren" :key="i">{{ child.fullName }} — {{ child.dateOfBirth }}</li></ul>
+        <template v-else>
+          <p><strong>Client:</strong> {{ form.clientFullName }}</p>
+          <p><strong>Date of Birth:</strong> {{ form.clientDateOfBirth }}</p>
+        </template>
         <p><strong>Responsible Party:</strong> {{ signerFullName || '—' }}</p>
         <p><strong>Relationship:</strong> {{ form.signer.relationship || '—' }}</p>
         <p><strong>School:</strong> {{ schoolName }}</p>
@@ -643,7 +650,17 @@
 
       <div class="review-block">
         <h4>Electronic signature</h4>
-        <SignaturePad compact @signed="onSigned" />
+        <div v-if="signatureData && !forceResign">
+          <img :src="signatureData" :alt="tr('Your signature', 'Su firma')" style="max-width: 220px; max-height: 80px;" />
+          <p>{{ tr('Signature applied to this release.', 'Firma aplicada a esta autorización.') }}</p>
+        </div>
+        <button v-else-if="sessionSavedSignature && !forceResign" type="button" class="btn btn-primary" @click="onSigned(sessionSavedSignature)">
+          {{ tr('Apply my saved signature', 'Aplicar mi firma guardada') }}
+        </button>
+        <SignaturePad v-else compact @signed="onSigned" />
+        <button v-if="(signatureData || sessionSavedSignature) && !forceResign" type="button" class="btn btn-secondary" @click="signatureData = ''; forceResign = true">
+          {{ tr('Draw a new signature', 'Dibujar una firma nueva') }}
+        </button>
       </div>
 
       <div class="actions">
@@ -698,6 +715,9 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  sharedChildren: { type: Array, default: () => [] },
+  sessionSavedSignature: { type: String, default: '' },
+  savedCapture: { type: Object, default: null },
   prefill: {
     type: Object,
     default: null
@@ -772,6 +792,7 @@ const stageOrder = computed(() => {
 const stageIndex = ref(0);
 const submissionId = ref(null);
 const signatureData = ref('');
+const forceResign = ref(false);
 const downloadUrl = ref('');
 const submitting = ref(false);
 const error = ref('');
@@ -1385,8 +1406,22 @@ watch(
 
 restoreDraftSnapshot();
 
+watch(() => props.savedCapture, saved => {
+  if (!saved?.signatureData) return;
+  form.signer = { ...form.signer, ...saved.signer };
+  form.requiredAcknowledgements = { ...saved.requiredAcknowledgements };
+  form.waiverItems = { ...saved.waiverItems };
+  for (const staff of saved.staffDecisions || []) form.staffDecisions[staff.schoolStaffUserId] = staff.decision;
+  if (Array.isArray(saved.thirdPartyRecipients)) form.thirdPartyRecipients = saved.thirdPartyRecipients.map(row => ({ ...row }));
+  if (Array.isArray(saved.externalRecipients)) form.parentExternalRecipients = saved.externalRecipients.map(row => ({ ...row }));
+  if (saved.programmedExternalRecipient) form.programmedExternalDecision = saved.programmedExternalRecipient.decision;
+  signatureData.value = saved.signatureData;
+  stageIndex.value = stageOrder.value.indexOf('review');
+}, { immediate: true });
+
 const onSigned = (dataUrl) => {
   signatureData.value = dataUrl;
+  forceResign.value = false;
   error.value = '';
 };
 

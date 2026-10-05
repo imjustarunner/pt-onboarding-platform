@@ -1,3 +1,4 @@
+import { chartIntakeDataForClient } from '../utils/multiChildIntake.js';
 /**
  * Chart Records → Documents aggregator.
  *
@@ -174,6 +175,7 @@ async function loadIntakeSubmissionsForClient(clientId) {
     `SELECT
        s.id,
        s.intake_link_id,
+       s.client_id AS primary_client_id,
        s.status,
        s.signer_name,
        s.signer_email,
@@ -196,7 +198,7 @@ async function loadIntakeSubmissionsForClient(clientId) {
      LEFT JOIN intake_submission_clients isc ON isc.intake_submission_id = s.id
      WHERE (s.client_id = ? OR isc.client_id = ?)
      GROUP BY
-       s.id, s.intake_link_id, s.status, s.signer_name, s.signer_email,
+       s.id, s.intake_link_id, s.client_id, s.status, s.signer_name, s.signer_email,
        s.submitted_at, s.created_at, s.updated_at, s.intake_data,
        s.payload_encrypted, s.payload_iv_b64, s.payload_auth_tag_b64, s.payload_key_id,
        l.title, l.form_type, l.scope_type, l.language_code,
@@ -206,10 +208,30 @@ async function loadIntakeSubmissionsForClient(clientId) {
     [cid, cid]
   );
   decryptIntakeSubmissionRows(rows || []);
+  const submissionIds = (rows || []).map(row => row.id);
+  const associations = submissionIds.length
+    ? (await pool.execute(`SELECT intake_submission_id, client_id FROM intake_submission_clients
+        WHERE intake_submission_id IN (${submissionIds.map(() => '?').join(',')}) ORDER BY id ASC`, submissionIds))[0]
+    : [];
   return (rows || []).map((row) => ({
     ...row,
-    intake_data: parseJsonMaybe(row.intake_data, {})
+    intake_data: chartIntakeDataForClient(
+      parseJsonMaybe(row.intake_data, {}),
+      associations.filter(association => Number(association.intake_submission_id) === Number(row.id)),
+      cid, row.primary_client_id
+    )
   }));
+}
+
+async function signedDocumentsForChart(submission, client) {
+  const cid = Number(client?.id || 0);
+  return IntakeSubmissionDocument.listSignedForRecord(submission.id).then(docs => docs.filter(doc => {
+    if (doc.client_id) return Number(doc.client_id) === cid;
+    // Older shared rows can contain a release explicitly naming child one.
+    // Use the scoped submission to render other children's releases instead.
+    if (isdLooksLikeSmartSchoolRoi(doc)) return Number(submission.primary_client_id) === cid;
+    return true;
+  })).catch(() => []);
 }
 
 async function resolveTherapyAgencyId(client) {
@@ -781,7 +803,7 @@ async function htmlForDisclosure({ client, submissions = [] }) {
   });
   const ack = await getLatestDisclosureAcknowledgement(Number(client?.id || 0)).catch(() => null);
   const signedDocs = latest?.id
-    ? await IntakeSubmissionDocument.listSignedForRecord(latest.id).catch(() => [])
+    ? await signedDocumentsForChart(latest, client)
     : [];
   const session = sessionSignature(submissions, signedDocs);
   const signedPayload = packetSignalsFromIntakeData(latest?.intake_data).disclosure || {};
@@ -842,7 +864,7 @@ async function htmlForBrandedIntake({ client, submissionId, submissions = [] }) 
     intakeData: mergedIntakeData,
     formType: row.form_type || link?.form_type
   });
-  const signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(row.id).catch(() => []);
+  const signedDocuments = await signedDocumentsForChart(row, client);
   const { brandedIntakeSummarySpec } = await import('./packetBrandChrome.service.js');
   const { enrichIntakeDataWithSignedRoi } = await import('./schoolRoiChartText.service.js');
   const { buildCompletedIntakeRecord } = await import('./completedIntakeRecord.service.js');
@@ -1004,7 +1026,7 @@ async function htmlForClinicalOrAnswers({ submissionId, submissions = [], kind, 
       ? requested
       : (interviewRow || requested || submissions[0]));
   if (!row) return null;
-  const signedDocuments = await IntakeSubmissionDocument.listSignedForRecord(row.id).catch(() => []);
+  const signedDocuments = await signedDocumentsForChart(row, client);
   const { enrichIntakeDataWithSignedRoi, buildSchoolRoiAnswersText } = await import('./schoolRoiChartText.service.js');
   const { buildClinicalSummaryText, buildIntakeAnswersText } = await import('../controllers/publicIntake.controller.js');
   const { buildCompletedIntakeRecord } = await import('./completedIntakeRecord.service.js');
@@ -1023,7 +1045,7 @@ async function htmlForClinicalOrAnswers({ submissionId, submissions = [], kind, 
   const latestRoiRow = (submissions || []).find((s) => extractSmartSchoolRoi(s.intake_data)) || row;
   const latestRoiDocs = Number(latestRoiRow.id) === Number(row.id)
     ? signedDocuments
-    : await IntakeSubmissionDocument.listSignedForRecord(latestRoiRow.id).catch(() => []);
+    : await signedDocumentsForChart(latestRoiRow, client);
   const intakeData = enrichIntakeDataWithSignedRoi(
     {
       ...mergedIntakeData,

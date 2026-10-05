@@ -1,3 +1,5 @@
+import { signedPacketTemplate, validateRequiredSharedSignatures, childDocumentValues, validateMultiChildSigning, validateSharedSigningCaptures, sameSigningChildren, areAllIntakePacketsReady, intakeChildRoster } from '../utils/multiChildIntake.js';
+import { buildSharedIntakeDocuments } from '../services/sharedIntakeDocuments.service.js';
 import { sendPacketCompletionNotification } from '../services/packetCompletionNotification.service.js';
 import {allowsProviderPreference,stripIneligibleProviderPreference} from '../utils/intakeProviderPreference.js';
 import { applicationSnapshot, enrichApplicationRecord, issueApplicationReceiptToken, appendApplicationJobDescription } from '../services/jobApplicationRecord.service.js';
@@ -228,6 +230,7 @@ async function persistPacketSectionFromIntakeData({
   submissionId,
   now
 }) {
+  const paths = [];
   const sectionsPayload = intakeData?.packetSections && typeof intakeData.packetSections === 'object'
     ? intakeData.packetSections
     : null;
@@ -270,12 +273,12 @@ async function persistPacketSectionFromIntakeData({
     });
   }
 
-  if (!candidates.length) return;
+  if (!candidates.length) return paths;
 
   const cid = Number(updatedSubmission.client_id || issuedRoiLink?.client_id || 0);
-  if (!cid) return;
+  if (!cid) throw new Error('Missing child for consent sections');
   const boundClient = await Client.findById(cid, { includeSensitive: true }).catch(() => null);
-  if (!boundClient?.id) return;
+  if (!boundClient?.id) throw new Error('Child not found for consent sections');
 
   const schoolOrgId = Number(
     boundClient.organization_id
@@ -294,14 +297,14 @@ async function persistPacketSectionFromIntakeData({
   const orgType = String(organization?.organization_type || '').toLowerCase();
   const officePacket = linkLooksLikeOfficeIntake(link)
     && !['school', 'program', 'learning'].includes(orgType);
-  if (!agencyId) return;
-  if (!officePacket && !schoolOrgId) return;
+  if (!agencyId) throw new Error('Missing agency for consent sections');
+  if (!officePacket && !schoolOrgId) throw new Error('Missing school for consent sections');
 
   const seen = new Set();
   for (const { sectionKey, response } of candidates) {
     if (!response || seen.has(sectionKey)) continue;
     seen.add(sectionKey);
-    if (!response.acknowledged && !response.signatureData) continue;
+    if (!response.acknowledged || !response.signatureData) throw new Error('Incomplete signed consent section');
 
     const sectionContext = await buildPacketSectionContext({
       organizationId: officePacket ? 0 : schoolOrgId,
@@ -335,6 +338,9 @@ async function persistPacketSectionFromIntakeData({
       signer: buildSignerFromSubmission(updatedSubmission),
       auditTrail: {
         packetSection: true,
+        clientId: boundClient.id,
+        clientName: boundClient.full_name || intakeData?.clients?.[0]?.fullName,
+        multiClientSignatureConsent: intakeData?.multiClientSignatureConsent || null,
         sectionKey,
         contentHash: response.contentHash || sectionContext.contentHash,
         packetVersion: response.packetVersion || sectionContext.packetVersion
@@ -358,6 +364,8 @@ async function persistPacketSectionFromIntakeData({
       auditMetadata: { packetSection: true, sectionKey, submissionId },
       callerLabel: `packet_section_${sectionKey}`
     });
+    if (!phiDocAttach?.ok) throw new Error('Unable to attach signed consent to child');
+    paths.push(signedResult.storagePath);
     const phiDoc = phiDocAttach?.phiDoc || null;
 
     await persistPacketSectionAcknowledgement({
@@ -376,6 +384,314 @@ async function persistPacketSectionFromIntakeData({
       snapshotHtml: response.snapshotHtml || sectionContext.html
     });
   }
+  return paths;
+}
+
+async function persistEmbeddedDisclosureForClient({ intakeData, updatedSubmission, issuedRoiLink, organization, agency, link, submissionId, now }) {
+  const paths = [];
+  if (!intakeData?.smartDisclosure) return paths;
+  const cid = Number(updatedSubmission.client_id || issuedRoiLink?.client_id || 0);
+  const boundClient = cid ? await Client.findById(cid, { includeSensitive: true }) : null;
+  if (boundClient?.id) {
+    const disclosureContext = await buildSmartDisclosureContext({
+      link,
+      boundClient,
+      organization,
+      agency,
+      locale: link.language_code || 'en'
+    });
+    if (disclosureContext) {
+      const disclosureResponse = normalizeSmartDisclosureResponse({
+        disclosureContext,
+        intakeData,
+        signedAt: now
+      });
+      if (!validateSmartDisclosureResponse(disclosureResponse).valid) throw new Error('Incomplete disclosure');
+      {
+        const html = buildSmartDisclosureHtml({
+          disclosureContext,
+          response: disclosureResponse,
+          signedAt: now
+        });
+        const signedResult = await PublicIntakeSigningService.generateSignedDocument({
+          template: {
+            id: null,
+            name: 'Disclosure Statement',
+            template_type: 'html',
+            html_content: html,
+            document_action_type: 'signature',
+            document_type: 'disclosure'
+          },
+          signatureData: disclosureResponse.signatureData || null,
+          signer: buildSignerFromSubmission(updatedSubmission),
+          auditTrail: { smartDisclosure: true, embeddedStep: true, disclosureResponse, clientId: boundClient.id, clientName: boundClient.full_name || intakeData?.clients?.[0]?.fullName, multiClientSignatureConsent: intakeData?.multiClientSignatureConsent || null },
+          workflowData: buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } }),
+          submissionId
+        });
+        const phiDocAttach = await attachSignedPdfToClient({
+          clientId: boundClient.id,
+          link,
+          clientRow: boundClient,
+          agencyIdOverride: boundClient.agency_id || agency?.id || null,
+          schoolOrganizationIdOverride: boundClient.organization_id || organization?.id || null,
+          storagePath: signedResult.storagePath,
+          originalName: 'Disclosure Statement (Signed)',
+          documentTitle: 'Disclosure Statement (Signed)',
+          documentType: 'disclosure',
+          mimeType: 'application/pdf',
+          intakeSubmissionId: submissionId,
+          auditMetadata: { submissionId, kind: 'smart_disclosure', embeddedStep: true },
+          callerLabel: 'public_intake_embedded_disclosure'
+        });
+        if (!phiDocAttach?.ok) throw new Error('Unable to attach signed disclosure to child');
+        paths.push(signedResult.storagePath);
+        await persistDisclosureAcknowledgement({
+          clientId: boundClient.id,
+          agencyId: boundClient.agency_id || agency?.id,
+          schoolOrganizationId: boundClient.organization_id || organization?.id || null,
+          intakeSubmissionId: submissionId,
+          clientPhiDocumentId: phiDocAttach?.phiDoc?.id || null,
+          languageCode: disclosureResponse.locale,
+          signedAt: now,
+          signerName: disclosureResponse.signerName || updatedSubmission.signer_name || null,
+          signerEmail: disclosureResponse.signerEmail || updatedSubmission.signer_email || null,
+          contentHash: disclosureResponse.contentHash,
+          providers: disclosureResponse.providers
+        });
+      }
+    }
+  }
+  if (!paths.length) throw new Error('Unable to generate disclosure for child');
+  return paths;
+}
+
+async function persistEmbeddedRoiForClient({ intakeData, updatedSubmission, issuedRoiLink, organization, agency, link, submissionId, now, allAllowedTemplates, retentionExpiresAt, req, clientIndex }) {
+  const paths = [];
+  if (!hasProgrammedSchoolRoiStep(link) || !intakeData?.smartSchoolRoi) return paths;
+  const signer = buildSignerFromSubmission(updatedSubmission);
+  const workflowData = buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } });
+  const embeddedSignatureData = String(intakeData?.smartSchoolRoi?.signatureData || '').trim();
+  if (embeddedSignatureData) {
+    let boundClient = null;
+    const embeddedEffectiveClientId = updatedSubmission?.client_id || issuedRoiLink?.client_id || null;
+    if (embeddedEffectiveClientId) {
+      if (!updatedSubmission?.client_id) {
+        updatedSubmission = await IntakeSubmission.updateById(submissionId, { client_id: embeddedEffectiveClientId });
+      }
+      try {
+        boundClient = await Client.findById(embeddedEffectiveClientId, { includeSensitive: true });
+      } catch {
+        boundClient = null;
+      }
+    }
+    const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
+    const roiContext = await buildSmartSchoolRoiContext({
+      link,
+      boundClient,
+      organization,
+      agency,
+      templates: allAllowedTemplates,
+      issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
+    });
+    const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates: allAllowedTemplates });
+    if (selectedTemplate?.id) {
+      const effectiveRoiContext = roiContext?.documentTemplate?.id
+        ? roiContext
+        : {
+            ...roiContext,
+            documentTemplate: {
+              id: Number(selectedTemplate.id),
+              name: selectedTemplate.name || 'School Release of Information',
+              documentType: selectedTemplate.document_type || 'school_roi'
+            }
+          };
+      const roiResponse = normalizeSmartSchoolRoiResponse({
+        roiContext: effectiveRoiContext,
+        intakeData,
+        signedAt: now
+      });
+      const roiValidation = validateSmartSchoolRoiResponse(roiResponse);
+      if (roiValidation.valid) {
+        if (boundClient?.id) {
+          try {
+            await persistClientDateOfBirthIfMissing({
+              clientId: boundClient.id,
+              dateOfBirth: roiResponse.clientDateOfBirth
+            });
+          } catch {
+            // best-effort
+          }
+        }
+        const roiAuditTrail = {
+          ...buildAuditTrail({
+            link,
+            submission: {
+              ...updatedSubmission,
+              submitted_at: now,
+              client_name: roiResponse.clientFullName || null
+            }
+          }),
+          smartSchoolRoi: true,
+          embeddedStep: true,
+          roiResponse,
+          multiClientSignatureConsent: intakeData?.multiClientSignatureConsent || null,
+          signatureData: embeddedSignatureData,
+          clientIndex
+        };
+        const roiSignedResult = await PublicIntakeSigningService.generateSignedDocument({
+          template: {
+            ...selectedTemplate,
+            template_type: 'html',
+            html_content: buildSmartSchoolRoiHtml({
+              roiContext: effectiveRoiContext,
+              response: roiResponse,
+              signedAt: now
+            }),
+            document_action_type: 'signature',
+            signature_x: null,
+            signature_y: null,
+            signature_width: null,
+            signature_height: null,
+            signature_page: null
+          },
+          signatureData: embeddedSignatureData,
+          signer,
+          branding: {
+            schoolName: effectiveRoiContext?.school?.name || '',
+            agencyName: effectiveRoiContext?.agency?.name || '',
+            schoolLogoKey: effectiveRoiContext?.school?.logoUrl || '',
+            agencyLogoKey: effectiveRoiContext?.agency?.logoUrl || ''
+          },
+          auditTrail: roiAuditTrail,
+          workflowData,
+          submissionId,
+          fieldDefinitions: [],
+          fieldValues: {}
+        });
+        const embeddedClientId = Number(updatedSubmission?.client_id || 0) || null;
+        await IntakeSubmissionDocument.create({
+          intakeSubmissionId: submissionId,
+          clientId: embeddedClientId,
+          documentTemplateId: selectedTemplate.id,
+          signedPdfPath: roiSignedResult.storagePath,
+          pdfHash: roiSignedResult.pdfHash,
+          signedAt: now,
+          auditTrail: {
+            ...roiAuditTrail,
+            documentReference: roiSignedResult.referenceNumber || null,
+            documentName: selectedTemplate.name || null
+          }
+        });
+
+        if (roiSignedResult.storagePath) {
+          paths.push(roiSignedResult.storagePath);
+        }
+
+        // Apply embedded ROI completion (same as standalone smart school ROI path)
+        const roiClientId = Number(updatedSubmission?.client_id || embeddedClientId || 0) || null;
+        if (roiClientId && roiResponse) {
+          const schoolOrganizationId = Number(
+            boundClient?.organization_id || link.organization_id || 0
+          ) || null;
+
+          {
+            const clientRow = boundClient || await Client.findById(roiClientId, { includeSensitive: true }).catch(() => null);
+            const roiDocTitle = effectiveRoiContext?.school?.name
+              ? `${effectiveRoiContext.school.name} - Release of Information (Signed)`
+              : `${selectedTemplate.name || 'School ROI'} (Signed)`;
+            const attachedRoi = await attachSignedPdfToClient({
+              clientId: roiClientId,
+              link,
+              clientRow,
+              storagePath: roiSignedResult.storagePath,
+              originalName: roiDocTitle,
+              intakeSubmissionId: submissionId,
+              expiresAt: retentionExpiresAt,
+              ipAddress: updatedSubmission.ip_address,
+              schoolOrganizationIdOverride: schoolOrganizationId,
+              auditMetadata: {
+                submissionId,
+                templateId: selectedTemplate.id,
+                smartSchoolRoi: true,
+                embeddedStep: true
+              },
+              callerLabel: 'public_intake_smart_school_roi_embedded'
+            });
+            if (!attachedRoi?.ok) throw new Error('Unable to attach signed school release to child');
+          }
+
+          try {
+            const accessUpdates = await applySmartSchoolRoiAccessDecisions({
+              clientId: roiClientId,
+              schoolOrganizationId: schoolOrganizationId || 0,
+              response: roiResponse,
+              actorUserId: null
+            });
+            await logAuditEvent(req, {
+              actionType: 'smart_school_roi_permissions_applied',
+              agencyId: boundClient?.agency_id || null,
+              metadata: {
+                clientId: roiClientId,
+                schoolOrganizationId,
+                embeddedStep: true,
+                packetReleaseAllowed: roiResponse.packetReleaseAllowed,
+                schoolSchedulingSafetyLogisticsAuthorized: roiResponse.schoolSchedulingSafetyLogisticsAuthorized === true,
+                approvedStaffCount: roiResponse.approvedStaffCount || 0,
+                deniedStaffCount: roiResponse.deniedStaffCount || 0,
+                accessUpdates
+              }
+            });
+          } catch (accessErr) {
+            console.error('[publicIntake] embedded ROI access decisions failed', { clientId: roiClientId, error: accessErr?.message });
+            throw accessErr;
+          }
+
+          try {
+            await applyClientRoiCompletion({
+              clientId: roiClientId,
+              signedAt: now,
+              actorUserId: null
+            });
+          } catch (roiErr) {
+            console.error('[publicIntake] embedded ROI completion failed, applying fallback', { clientId: roiClientId, error: roiErr?.message });
+            try {
+              const roiFallbackExpiry = new Date(now);
+              roiFallbackExpiry.setUTCFullYear(roiFallbackExpiry.getUTCFullYear() + 3);
+              await Client.update(roiClientId, { roi_expires_at: roiFallbackExpiry });
+            } catch (fallbackErr) {
+              console.error('[publicIntake] roi_expires_at fallback also failed', { clientId: roiClientId, error: fallbackErr?.message });
+            }
+          }
+
+          try {
+            await notifySchoolRoiCompletedForBackoffice({
+              agencyId: boundClient?.agency_id || null,
+              clientId: roiClientId,
+              clientLabel: boundClient?.full_name || boundClient?.initials || `Client ${roiClientId}`,
+              schoolLabel: effectiveRoiContext?.school?.name || 'school'
+            });
+          } catch {
+            // best-effort
+          }
+        }
+      } else {
+        console.warn('[publicIntake] embedded school_roi payload failed validation; skipping packet include', {
+          submissionId,
+          missing: roiValidation.missing
+        });
+      }
+    }
+  }
+  if (!paths.length) throw new Error('Unable to generate school release for child');
+  return paths;
+}
+
+async function recordSharedPacketFailure(submissionId, failures) {
+  if (!failures.size) return;
+  const latest = await IntakeSubmission.findById(submissionId);
+  const data = typeof latest?.intake_data === 'string' ? JSON.parse(latest.intake_data) : (latest?.intake_data || {});
+  const next = { ...data, packetGeneration: { status: 'needs_review', failedClientIds: [...failures.keys()] } };
+  await IntakeSubmission.updateById(submissionId, { intake_data: JSON.stringify(next), intake_data_hash: hashIntakeData(next) });
 }
 
 const normalizeName = (name) => String(name || '').trim();
@@ -1285,6 +1601,7 @@ const repairSmartSchoolRoiClientDateOfBirthFromSubmission = async ({
   if (!cid || !submission) return;
   const formType = String(link?.form_type || '').toLowerCase();
   const intakeData = parseSubmissionIntakeData(submission);
+  if (intakeChildRoster(intakeData || {}).length > 1) return;
   const hasRoiPayload = intakeData?.smartSchoolRoi && typeof intakeData.smartSchoolRoi === 'object';
   if (formType !== 'smart_school_roi' && !hasRoiPayload) return;
   const roiResponse = normalizeSmartSchoolRoiResponse({
@@ -1577,6 +1894,7 @@ const persistChildIntakeData = async ({
   submissionId,
   completedAt,
   flowLabel = 'public_intake',
+  documentsComplete = true,
   intakeCompletionNote = 'Marked received automatically after intake completion'
 }) => {
   const cid = Number(clientId || 0);
@@ -1699,6 +2017,8 @@ const persistChildIntakeData = async ({
     console.error('[publicIntake] insurance persistence failed', {clientId:cid,submissionId});
     throw error;
   }
+
+  if (!documentsComplete) return result;
 
   // 4) Auto-mark the Document Status checklist as RECEIVED. Intake completion
   // delivers every item on the checklist (emailed packet, ROI, new docs,
@@ -3402,7 +3722,7 @@ const parseFieldDefinitions = (rawFieldDefs) => {
   }
 };
 
-const buildDocumentFieldValuesForClient = ({ link, intakeData, clientIndex = 0, baseFieldValues = {} }) => {
+const buildDocumentFieldValuesForClient = ({ link, intakeData, clientIndex = 0, baseFieldValues = {}, fieldDefinitions = [] }) => {
   const merged = { ...(baseFieldValues || {}) };
   const responses = intakeData?.responses || {};
   const clientResponses = Array.isArray(responses?.clients) ? (responses.clients[clientIndex] || {}) : {};
@@ -3473,7 +3793,10 @@ const buildDocumentFieldValuesForClient = ({ link, intakeData, clientIndex = 0, 
     });
   });
 
-  return merged;
+  return childDocumentValues({
+    intakeData, clientIndex, base: merged, fieldDefinitions,
+    fields: steps.flatMap(step => Array.isArray(step.fields) ? step.fields : [])
+  });
 };
 
 /** Format YYYY-MM-DD as MM/DD/YYYY for display. */
@@ -7006,14 +7329,15 @@ export const getPublicIntakeStatus = async (req, res, next) => {
     // even though every per-child packet was already in clientBundles. Expose
     // an explicit packetReady flag that's true whenever the submission is
     // finalized AND something downloadable exists (combined OR per-child).
-    const packetReady =
-      String(submission.status || '').toLowerCase() === 'submitted'
-        && (Boolean(downloadUrl) || (Array.isArray(clientBundles) && clientBundles.length > 0));
+    const packetReady = areAllIntakePacketsReady({
+      status: submission.status, intakeData, downloadUrl, clientBundles
+    });
 
     res.json({
       submissionId,
       status: submission.status,
       packetReady,
+      packetNeedsReview: intakeData?.packetGeneration?.status === 'needs_review',
       totalDocuments: templates.length,
       signedTemplateIds: Array.from(signedTemplateIds),
       signedDocuments: signedDocs,
@@ -7272,7 +7596,9 @@ export const signPublicIntakeDocument = async (req, res, next) => {
         trail = null;
       }
       const existingIdx = Number(trail?.clientIndex ?? 0) || 0;
-      return existingIdx === requestedClientIndex;
+      const rosterMatches = !req.body?.sharedSigningChildren
+        || sameSigningChildren(trail?.sharedSigningChildren, req.body.sharedSigningChildren);
+      return existingIdx === requestedClientIndex && rosterMatches;
     });
     if (existing) {
       return res.json({ success: true, document: existing, alreadySigned: true });
@@ -7405,7 +7731,8 @@ export const signPublicIntakeDocument = async (req, res, next) => {
         // Persist clientIndex so finalize can detect per-child wizard
         // signatures and avoid the "child 2 inherits child 1's prefilled
         // tokens" bug for templates with child-specific tokens.
-        clientIndex: requestedClientIndex
+        clientIndex: requestedClientIndex,
+        sharedSigningChildren: req.body?.sharedSigningChildren || null
       }
     });
 
@@ -7646,8 +7973,35 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
     }
 
+    const currentRoster = intakeChildRoster(req.body?.intakeData || {});
+    if (currentRoster.length > 1) {
+      const latestSignatures = new Map();
+      for (const doc of await IntakeSubmissionDocument.listBySubmissionId(submissionId)) {
+        if (!doc.client_id) latestSignatures.set(doc.document_template_id, doc);
+      }
+      for (const doc of latestSignatures.values()) {
+        let trail = doc.audit_trail || {};
+        if (typeof trail === 'string') { try { trail = JSON.parse(trail); } catch { trail = {}; } }
+        if (trail.sharedSigningChildren && !sameSigningChildren(trail.sharedSigningChildren, currentRoster)) {
+          return res.status(400).json({ error: { message: 'A child’s details changed after signing. Please review and sign the shared forms again.' } });
+        }
+      }
+    }
+
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    const sharedSigningError = validateMultiChildSigning({ intakeData: intakeData || {}, clients: req.body?.clients })
+      || validateSharedSigningCaptures(intakeData || {});
+    if (sharedSigningError) return res.status(400).json({ error: { message: sharedSigningError } });
+    const requiredSharedSteps = (link.intake_steps || []).filter(step =>
+      isIntakeStepVisibleForClientMatch(step, extractRegistrationClientMatchFromIntakeData(intakeData), link)
+      && matchesShowIf(step.showIf, mergeShowIfValues(
+        intakeData?.responses?.submission || intakeData?.submission || {},
+        intakeData?.responses?.guardian || {}
+      )));
+    const requiredSignatureError = intakeChildRoster(intakeData || {}).length > 1
+      ? validateRequiredSharedSignatures(requiredSharedSteps, intakeData || {}) : null;
+    if (requiredSignatureError) return res.status(400).json({ error: { message: requiredSignatureError } });
     stripIneligibleProviderPreference(link,intakeData);
     await validateSubmittedProviderPreferences(link,intakeData);
     await prepareLearningPacket(intakeData,link);
@@ -7660,6 +8014,11 @@ export const finalizePublicIntake = async (req, res, next) => {
     ensureLinkBoundCompanyEventSelection(intakeData, link);
     stampInsuranceAuthorizationSignatureMeta(intakeData, req, now);
     const packetDocumentTemplates = filterPacketDocumentTemplates(link, allAllowedTemplates, intakeData);
+    if (currentRoster.length > 1) {
+      const signed = new Map((await IntakeSubmissionDocument.listBySubmissionId(submissionId)).map(doc => [Number(doc.document_template_id), doc]));
+      const missing = packetDocumentTemplates.find(template => !signedPacketTemplate(template, allAllowedTemplates, signed, link.document_translation_map || {}));
+      if (missing) return res.status(400).json({ error: { message: `Please review and sign ${missing.name || 'the required document'} before completing enrollment.` } });
+    }
     const retentionPolicy = await resolveRetentionPolicy(link);
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
     const intakeDataHash = hashIntakeData(intakeData);
@@ -8617,82 +8976,6 @@ export const finalizePublicIntake = async (req, res, next) => {
       });
     }
 
-    // Embedded Smart Disclosure in a packet — persist acknowledgment when payload present.
-    if (intakeData?.smartDisclosure && (updatedSubmission.client_id || issuedRoiLink?.client_id)) {
-      try {
-        const cid = Number(updatedSubmission.client_id || issuedRoiLink?.client_id || 0);
-        const boundClient = cid ? await Client.findById(cid, { includeSensitive: true }) : null;
-        if (boundClient?.id) {
-          const disclosureContext = await buildSmartDisclosureContext({
-            link,
-            boundClient,
-            organization,
-            agency,
-            locale: link.language_code || 'en'
-          });
-          if (disclosureContext) {
-            const disclosureResponse = normalizeSmartDisclosureResponse({
-              disclosureContext,
-              intakeData,
-              signedAt: now
-            });
-            if (validateSmartDisclosureResponse(disclosureResponse).valid) {
-              const html = buildSmartDisclosureHtml({
-                disclosureContext,
-                response: disclosureResponse,
-                signedAt: now
-              });
-              const signedResult = await PublicIntakeSigningService.generateSignedDocument({
-                template: {
-                  id: null,
-                  name: 'Disclosure Statement',
-                  template_type: 'html',
-                  html_content: html,
-                  document_action_type: 'signature',
-                  document_type: 'disclosure'
-                },
-                signatureData: disclosureResponse.signatureData || null,
-                signer: buildSignerFromSubmission(updatedSubmission),
-                auditTrail: { smartDisclosure: true, embeddedStep: true, disclosureResponse },
-                workflowData: buildWorkflowData({ submission: { ...updatedSubmission, submitted_at: now } }),
-                submissionId
-              });
-              const phiDocAttach = await attachSignedPdfToClient({
-                clientId: boundClient.id,
-                link,
-                clientRow: boundClient,
-                agencyIdOverride: boundClient.agency_id || agency?.id || null,
-                schoolOrganizationIdOverride: boundClient.organization_id || organization?.id || null,
-                storagePath: signedResult.storagePath,
-                originalName: 'Disclosure Statement (Signed)',
-                documentTitle: 'Disclosure Statement (Signed)',
-                documentType: 'disclosure',
-                mimeType: 'application/pdf',
-                intakeSubmissionId: submissionId,
-                auditMetadata: { submissionId, kind: 'smart_disclosure', embeddedStep: true },
-                callerLabel: 'public_intake_embedded_disclosure'
-              });
-              await persistDisclosureAcknowledgement({
-                clientId: boundClient.id,
-                agencyId: boundClient.agency_id || agency?.id,
-                schoolOrganizationId: boundClient.organization_id || organization?.id || null,
-                intakeSubmissionId: submissionId,
-                clientPhiDocumentId: phiDocAttach?.phiDoc?.id || null,
-                languageCode: disclosureResponse.locale,
-                signedAt: now,
-                signerName: disclosureResponse.signerName || updatedSubmission.signer_name || null,
-                signerEmail: disclosureResponse.signerEmail || updatedSubmission.signer_email || null,
-                contentHash: disclosureResponse.contentHash,
-                providers: disclosureResponse.providers
-              });
-            }
-          }
-        }
-      } catch (discErr) {
-        console.warn('[publicIntake] embedded smart disclosure persist failed', discErr?.message || discErr);
-      }
-    }
-
     let newGuardianCreated = false;
     let newGuardianTemporaryPassword = null;
     let newGuardianPasswordlessLoginUrl = null;
@@ -8902,30 +9185,6 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     await attachSubmittedProviderHold(link,intakeData,createdClients,updatedSubmission,req.body?.providerHoldToken);
 
-    // After clients exist, persist packet-derived consent sections captured earlier in the flow.
-    if (
-      (intakeData?.packetSections
-        || intakeData?.packetInformedGroupConsent
-        || intakeData?.packetPolicyServices
-        || intakeData?.packetHipaaNotice)
-      && (updatedSubmission.client_id || issuedRoiLink?.client_id)
-    ) {
-      try {
-        await persistPacketSectionFromIntakeData({
-          intakeData,
-          updatedSubmission,
-          issuedRoiLink,
-          organization,
-          agency,
-          link,
-          submissionId,
-          now
-        });
-      } catch (packetSectionErr) {
-        console.warn('[publicIntake] post-create packet section persist failed', packetSectionErr?.message || packetSectionErr);
-      }
-    }
-
     const signedDocs = await IntakeSubmissionDocument.listBySubmissionId(submissionId);
     const signedByTemplate = new Map(signedDocs.map((d) => [d.document_template_id, d]));
 
@@ -8998,228 +9257,26 @@ export const finalizePublicIntake = async (req, res, next) => {
       }
     }
 
-    // If the intake sequence includes an embedded school_roi step, generate and append
-    // the Smart School ROI artifact in parallel so finalize can return immediately.
-    let embeddedRoiPromise = Promise.resolve();
-    if (hasProgrammedSchoolRoiStep(link) && intakeData?.smartSchoolRoi) {
-      embeddedRoiPromise = (async () => {
-        try {
-        const embeddedSignatureData = String(intakeData?.smartSchoolRoi?.signatureData || '').trim();
-        if (embeddedSignatureData) {
-          let boundClient = null;
-          const embeddedEffectiveClientId = updatedSubmission?.client_id || issuedRoiLink?.client_id || null;
-          if (embeddedEffectiveClientId) {
-            if (!updatedSubmission?.client_id) {
-              updatedSubmission = await IntakeSubmission.updateById(submissionId, { client_id: embeddedEffectiveClientId });
-            }
-            try {
-              boundClient = await Client.findById(embeddedEffectiveClientId, { includeSensitive: true });
-            } catch {
-              boundClient = null;
-            }
-          }
-          const { organization, agency } = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient });
-          const roiContext = await buildSmartSchoolRoiContext({
-            link,
-            boundClient,
-            organization,
-            agency,
-            templates: allAllowedTemplates,
-            issuedConfig: issuedRoiLink?.roi_context_json?.issuedConfig || issuedRoiLink?.roi_context_json || null
-          });
-          const selectedTemplate = await resolveSmartSchoolRoiTemplate({ roiContext, templates: allAllowedTemplates });
-          if (selectedTemplate?.id) {
-            const effectiveRoiContext = roiContext?.documentTemplate?.id
-              ? roiContext
-              : {
-                  ...roiContext,
-                  documentTemplate: {
-                    id: Number(selectedTemplate.id),
-                    name: selectedTemplate.name || 'School Release of Information',
-                    documentType: selectedTemplate.document_type || 'school_roi'
-                  }
-                };
-            const roiResponse = normalizeSmartSchoolRoiResponse({
-              roiContext: effectiveRoiContext,
-              intakeData,
-              signedAt: now
-            });
-            const roiValidation = validateSmartSchoolRoiResponse(roiResponse);
-            if (roiValidation.valid) {
-              if (boundClient?.id) {
-                try {
-                  await persistClientDateOfBirthIfMissing({
-                    clientId: boundClient.id,
-                    dateOfBirth: roiResponse.clientDateOfBirth
-                  });
-                } catch {
-                  // best-effort
-                }
-              }
-              const roiAuditTrail = {
-                ...buildAuditTrail({
-                  link,
-                  submission: {
-                    ...updatedSubmission,
-                    submitted_at: now,
-                    client_name: roiResponse.clientFullName || null
-                  }
-                }),
-                smartSchoolRoi: true,
-                embeddedStep: true,
-                roiResponse,
-                signatureData: embeddedSignatureData
-              };
-              const roiSignedResult = await PublicIntakeSigningService.generateSignedDocument({
-                template: {
-                  ...selectedTemplate,
-                  template_type: 'html',
-                  html_content: buildSmartSchoolRoiHtml({
-                    roiContext: effectiveRoiContext,
-                    response: roiResponse,
-                    signedAt: now
-                  }),
-                  document_action_type: 'signature',
-                  signature_x: null,
-                  signature_y: null,
-                  signature_width: null,
-                  signature_height: null,
-                  signature_page: null
-                },
-                signatureData: embeddedSignatureData,
-                signer,
-                branding: {
-                  schoolName: effectiveRoiContext?.school?.name || '',
-                  agencyName: effectiveRoiContext?.agency?.name || '',
-                  schoolLogoKey: effectiveRoiContext?.school?.logoUrl || '',
-                  agencyLogoKey: effectiveRoiContext?.agency?.logoUrl || ''
-                },
-                auditTrail: roiAuditTrail,
-                workflowData,
-                submissionId,
-                fieldDefinitions: [],
-                fieldValues: {}
-              });
-              const embeddedClientId = Number(updatedSubmission?.client_id || createdClients?.[0]?.id || 0) || null;
-              const embeddedDoc = await IntakeSubmissionDocument.create({
-                intakeSubmissionId: submissionId,
-                clientId: embeddedClientId,
-                documentTemplateId: selectedTemplate.id,
-                signedPdfPath: roiSignedResult.storagePath,
-                pdfHash: roiSignedResult.pdfHash,
-                signedAt: now,
-                auditTrail: {
-                  ...roiAuditTrail,
-                  documentReference: roiSignedResult.referenceNumber || null,
-                  documentName: selectedTemplate.name || null
-                }
-              });
-              signedDocsOrdered.push(embeddedDoc);
-              if (roiSignedResult.storagePath) {
-                pdfPaths.push(roiSignedResult.storagePath);
-              }
-
-              // Apply embedded ROI completion (same as standalone smart school ROI path)
-              const roiClientId = Number(updatedSubmission?.client_id || embeddedClientId || 0) || null;
-              if (roiClientId && roiResponse) {
-                const schoolOrganizationId = Number(
-                  boundClient?.organization_id || link.organization_id || 0
-                ) || null;
-
-                {
-                  const clientRow = boundClient || await Client.findById(roiClientId, { includeSensitive: true }).catch(() => null);
-                  const roiDocTitle = effectiveRoiContext?.school?.name
-                    ? `${effectiveRoiContext.school.name} - Release of Information (Signed)`
-                    : `${selectedTemplate.name || 'School ROI'} (Signed)`;
-                  await attachSignedPdfToClient({
-                    clientId: roiClientId,
-                    link,
-                    clientRow,
-                    storagePath: roiSignedResult.storagePath,
-                    originalName: roiDocTitle,
-                    intakeSubmissionId: submissionId,
-                    expiresAt: retentionExpiresAt,
-                    ipAddress: updatedSubmission.ip_address,
-                    schoolOrganizationIdOverride: schoolOrganizationId,
-                    auditMetadata: {
-                      submissionId,
-                      templateId: selectedTemplate.id,
-                      smartSchoolRoi: true,
-                      embeddedStep: true
-                    },
-                    callerLabel: 'public_intake_smart_school_roi_embedded'
-                  });
-                }
-
-                try {
-                  const accessUpdates = await applySmartSchoolRoiAccessDecisions({
-                    clientId: roiClientId,
-                    schoolOrganizationId: schoolOrganizationId || 0,
-                    response: roiResponse,
-                    actorUserId: null
-                  });
-                  await logAuditEvent(req, {
-                    actionType: 'smart_school_roi_permissions_applied',
-                    agencyId: boundClient?.agency_id || null,
-                    metadata: {
-                      clientId: roiClientId,
-                      schoolOrganizationId,
-                      embeddedStep: true,
-                      packetReleaseAllowed: roiResponse.packetReleaseAllowed,
-                      schoolSchedulingSafetyLogisticsAuthorized: roiResponse.schoolSchedulingSafetyLogisticsAuthorized === true,
-                      approvedStaffCount: roiResponse.approvedStaffCount || 0,
-                      deniedStaffCount: roiResponse.deniedStaffCount || 0,
-                      accessUpdates
-                    }
-                  });
-                } catch (accessErr) {
-                  console.error('[publicIntake] embedded ROI access decisions failed', { clientId: roiClientId, error: accessErr?.message });
-                }
-
-                try {
-                  await applyClientRoiCompletion({
-                    clientId: roiClientId,
-                    signedAt: now,
-                    actorUserId: null
-                  });
-                } catch (roiErr) {
-                  console.error('[publicIntake] embedded ROI completion failed, applying fallback', { clientId: roiClientId, error: roiErr?.message });
-                  try {
-                    const roiFallbackExpiry = new Date(now);
-                    roiFallbackExpiry.setUTCFullYear(roiFallbackExpiry.getUTCFullYear() + 3);
-                    await Client.update(roiClientId, { roi_expires_at: roiFallbackExpiry });
-                  } catch (fallbackErr) {
-                    console.error('[publicIntake] roi_expires_at fallback also failed', { clientId: roiClientId, error: fallbackErr?.message });
-                  }
-                }
-
-                try {
-                  await notifySchoolRoiCompletedForBackoffice({
-                    agencyId: boundClient?.agency_id || null,
-                    clientId: roiClientId,
-                    clientLabel: boundClient?.full_name || boundClient?.initials || `Client ${roiClientId}`,
-                    schoolLabel: effectiveRoiContext?.school?.name || 'school'
-                  });
-                } catch {
-                  // best-effort
-                }
-              }
-            } else {
-              console.warn('[publicIntake] embedded school_roi payload failed validation; skipping packet include', {
-                submissionId,
-                missing: roiValidation.missing
-              });
-            }
-          }
-        }
-        } catch (embeddedRoiError) {
-          console.error('[publicIntake] failed generating embedded school_roi document', {
-            submissionId,
-            error: embeddedRoiError?.message || embeddedRoiError
-          });
-        }
-      })();
-    }
+    const sharedOrgContext = await resolveIntakeOrgContext(link, { issuedRoiLink, boundClient: null });
+    const sharedDocumentClients = createdClients.length ? createdClients
+      : [{ id: updatedSubmission.client_id || issuedRoiLink?.client_id }];
+    const embeddedRoiPromise = buildSharedIntakeDocuments({
+      clients: sharedDocumentClients,
+      intakeData,
+      generate: async ({ client, index, intakeData: childIntakeData }) => {
+        const args = {
+          intakeData: childIntakeData,
+          updatedSubmission: { ...updatedSubmission, client_id: client.id },
+          issuedRoiLink, ...sharedOrgContext, link, submissionId, now,
+          allAllowedTemplates, retentionExpiresAt, req, clientIndex: index
+        };
+        return [
+          ...await persistPacketSectionFromIntakeData(args),
+          ...await persistEmbeddedDisclosureForClient(args),
+          ...await persistEmbeddedRoiForClient(args)
+        ];
+      }
+    });
 
     if (!coGuardianToken) {
       try {
@@ -9265,7 +9322,11 @@ export const finalizePublicIntake = async (req, res, next) => {
     setImmediate(() => {
       void (async () => {
         try {
-    await embeddedRoiPromise;
+    const sharedDocuments = await embeddedRoiPromise;
+    for (const [clientId, error] of sharedDocuments.failures) {
+      console.error('[publicIntake] shared agreements failed for child', { submissionId, clientId, error: error?.message });
+    }
+    for (const paths of sharedDocuments.pathsByClient.values()) pdfPaths.push(...paths);
 
     let answersPdf = null;
     try {
@@ -9475,10 +9536,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       const tplId = doc.document_template_id;
       const idx = Number(trail?.clientIndex ?? 0) || 0;
       docByTemplateAndChildIndex.set(`${tplId}|${idx}`, { doc, trail: trail || {} });
-      // Keep first-seen audit per template for backward compatibility
-      if (!docAuditByTemplate.has(tplId)) {
-        docAuditByTemplate.set(tplId, trail || {});
-      }
+      docAuditByTemplate.set(tplId, trail || {});
     });
 
     let roiCompletionPhiDocument = null;
@@ -9522,7 +9580,9 @@ export const finalizePublicIntake = async (req, res, next) => {
       const clientPaths = [];
 
       if (isMultiClient) {
-        for (const template of packetDocumentTemplates) {
+        for (const configuredTemplate of packetDocumentTemplates) {
+          const template = signedPacketTemplate(configuredTemplate, allAllowedTemplates, signedByTemplate, docTranslationMap);
+          if (!template) throw new Error('Missing signed packet document');
           // Prefer the per-child wizard signature for this template+childIndex
           // when present (frontend signed once per child); otherwise fall
           // back to whichever audit we have for this template.
@@ -9530,12 +9590,16 @@ export const finalizePublicIntake = async (req, res, next) => {
           const baseAudit = perChildEntry?.trail || docAuditByTemplate.get(template.id) || {};
           const perChildPreSignedDoc = perChildEntry?.doc || null;
           const signatureData = baseAudit?.signatureData || null;
+          if (baseAudit.sharedSigningChildren && !sameSigningChildren(baseAudit.sharedSigningChildren, intakeChildRoster(intakeData))) {
+            throw new Error('The children covered by a signed document changed. Please review and sign again.');
+          }
           const baseFieldValues = baseAudit?.fieldValues && typeof baseAudit.fieldValues === 'object' ? baseAudit.fieldValues : {};
           const fieldDefinitions = parseFieldDefinitions(template.field_definitions);
           const fieldValues = buildDocumentFieldValuesForClient({
             link,
             intakeData,
             clientIndex: i,
+            fieldDefinitions,
             baseFieldValues
           });
           const clientAuditTrail = buildAuditTrail({
@@ -9556,7 +9620,7 @@ export const finalizePublicIntake = async (req, res, next) => {
               const keys = (fieldDefinitions || []).map((d) => String(
                 d?.prefillKey || d?.prefill_key || d?.id || d?.label || d?.name || ''
               ).toLowerCase());
-              const childTokenRe = /(client[_\s-]?(first|last|full|name|initials|dob|birth|age|gender|sex)|child[_\s-]?(name|first|last|dob)|patient[_\s-]?name|printed[_\s-]?(client|patient|child)[_\s-]?name)/;
+              const childTokenRe = /(client[_\s-]?(first|last|full|name|initials|dob|birth|age|grade|gender|sex)|child[_\s-]?(name|first|last|dob|birth|age|grade|gender|sex)|patient[_\s-]?name|printed[_\s-]?(client|patient|child)[_\s-]?name)/;
               return keys.some((k) => childTokenRe.test(k));
             } catch {
               return false;
@@ -9570,6 +9634,9 @@ export const finalizePublicIntake = async (req, res, next) => {
             // loudly so admins can detect and re-sign per child if needed.
             // Prefer the per-child wizard-signed doc when available.
             const sharedDoc = perChildPreSignedDoc || signedByTemplate.get(template.id);
+            if (hasChildSpecificTokens && !perChildPreSignedDoc) {
+              throw new Error('A child-specific signed document could not be regenerated');
+            }
             if (sharedDoc?.signed_pdf_path) {
               if (hasChildSpecificTokens) {
                 console.warn('[multi_child_signed_pdf_reuse] child 2+ may inherit child 1\'s prefilled tokens', {
@@ -9595,6 +9662,7 @@ export const finalizePublicIntake = async (req, res, next) => {
                     ...clientAuditTrail,
                     documentName: template.name || null,
                     fieldValues,
+                    clientIndex: i,
                     signatureData: null,
                     childSpecificTokensReused: hasChildSpecificTokens || undefined
                   }
@@ -9607,7 +9675,7 @@ export const finalizePublicIntake = async (req, res, next) => {
               signatureData,
               signer,
               auditTrail: clientAuditTrail,
-              workflowData,
+              workflowData: { ...workflowData, client_name: clientName },
               submissionId,
               fieldDefinitions,
               fieldValues
@@ -9627,6 +9695,7 @@ export const finalizePublicIntake = async (req, res, next) => {
                 documentReference: referenceNumber,
                 documentName: template.name || null,
                 fieldValues,
+                clientIndex: i,
                 signatureData
               }
             });
@@ -9650,6 +9719,7 @@ export const finalizePublicIntake = async (req, res, next) => {
               phiDocsCreatedSchool += 1;
             } else {
               phiDocsFailedSchool += 1;
+            sharedDocuments.failures.set(Number(clientId), new Error('Signed document could not be attached'));
             }
           } else if (storagePath && !clientId) {
             console.info('[publicIntake] phi doc skipped — no clientId (intake/school flow)', {
@@ -9661,7 +9731,9 @@ export const finalizePublicIntake = async (req, res, next) => {
           }
         }
       } else {
-        for (const template of packetDocumentTemplates) {
+        for (const configuredTemplate of packetDocumentTemplates) {
+          const template = signedPacketTemplate(configuredTemplate, allAllowedTemplates, signedByTemplate, docTranslationMap);
+          if (!template) throw new Error('Missing signed packet document');
           const docRow = signedByTemplate.get(template.id);
           if (!docRow) continue;
           // ROI / pre-signed path: docRow already has signed_pdf_path from
@@ -9688,11 +9760,14 @@ export const finalizePublicIntake = async (req, res, next) => {
             }
           } else {
             phiDocsFailedSchool += 1;
+            sharedDocuments.failures.set(Number(clientId), new Error('Signed document could not be attached'));
           }
         }
       }
 
-      const mergePaths = clientPaths.length ? clientPaths : pdfPaths;
+      const mergePaths = isMultiClient
+        ? [...clientPaths, ...(sharedDocuments.pathsByClient.get(Number(clientId)) || [])]
+        : pdfPaths;
       // NOTE: `isMultiClient` is the outer-scoped const declared at the top of
       // the school-ROI finalize block (rawClients.length > 1). Do NOT redeclare
       // here — a `const isMultiClient = ...` inside this for-loop body would
@@ -9704,7 +9779,7 @@ export const finalizePublicIntake = async (req, res, next) => {
       // PDFs, with the combined bundle additionally including the answers PDF
       // prefix). Skip the per-client save entirely; we'll point this child's
       // bundle_pdf_path at the combined bundle after it lands below.
-      if (mergePaths.length && isMultiClient) {
+      if (mergePaths.length && isMultiClient && !sharedDocuments.failures.has(Number(clientId))) {
         // Per-client bundle build/upload is wrapped in its own try/catch so a
         // single child's PDF problem (or transient GCS hiccup) does NOT abort
         // the rest of the loop iteration — auto-mark, demographics persist,
@@ -9766,6 +9841,7 @@ export const finalizePublicIntake = async (req, res, next) => {
             downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 7)
           });
         } catch (perClientBundleErr) {
+          sharedDocuments.failures.set(Number(clientId), perClientBundleErr);
           console.error('[publicIntake] per-client bundle build/save failed (school-roi flow) — continuing so downstream side-effects (auto-mark, completion email) still run', {
             submissionId,
             clientId: clientPayload?.id || null,
@@ -9820,6 +9896,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           submissionId,
           completedAt: now,
           flowLabel: 'school_roi',
+          documentsComplete: !sharedDocuments.failures.has(Number(clientId)),
           intakeCompletionNote: 'Marked received automatically after intake/ROI completion'
         });
 
@@ -9840,6 +9917,8 @@ export const finalizePublicIntake = async (req, res, next) => {
         });
       }
     }
+
+    await recordSharedPacketFailure(submissionId, sharedDocuments.failures);
 
     console.info('[publicIntake] intake/school finalize per-client loop summary', {
       submissionId,
@@ -9941,7 +10020,7 @@ export const finalizePublicIntake = async (req, res, next) => {
     // which silently dropped packet PHI docs and completion emails for
     // siblings. The registration flow already mirrors this structure (see
     // line ~7691); keep them in sync.
-    if (pdfPaths.length > 0) {
+    if (pdfPaths.length > 0 && sharedDocuments.failures.size === 0) {
       // Combined-bundle build/upload is wrapped in its own try/catch so that
       // a failure here does NOT abort the per-client Intake Packet PHI doc
       // creation, the completion email, or the staff notifications below.
@@ -10426,6 +10505,12 @@ export const finalizePublicIntake = async (req, res, next) => {
     }
 
         } catch (bgErr) {
+          try {
+            const failedIds = createdClients.length ? createdClients.map(client => client.id) : [updatedSubmission.client_id];
+            await recordSharedPacketFailure(submissionId, new Map(failedIds.filter(Boolean).map(id => [Number(id), bgErr])));
+          } catch (statusError) {
+            console.error('[publicIntake] packet failure status could not be saved', { submissionId, message: statusError?.message });
+          }
           console.error('[publicIntake] background processing failed', {
             submissionId,
             error: bgErr?.message || bgErr,
@@ -10568,6 +10653,18 @@ export const submitPublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    const sharedSigningError = validateMultiChildSigning({ intakeData: intakeData || {}, clients: req.body?.clients })
+      || validateSharedSigningCaptures(intakeData || {});
+    if (sharedSigningError) return res.status(400).json({ error: { message: sharedSigningError } });
+    const requiredSharedSteps = (link.intake_steps || []).filter(step =>
+      isIntakeStepVisibleForClientMatch(step, extractRegistrationClientMatchFromIntakeData(intakeData), link)
+      && matchesShowIf(step.showIf, mergeShowIfValues(
+        intakeData?.responses?.submission || intakeData?.submission || {},
+        intakeData?.responses?.guardian || {}
+      )));
+    const requiredSignatureError = intakeChildRoster(intakeData || {}).length > 1
+      ? validateRequiredSharedSignatures(requiredSharedSteps, intakeData || {}) : null;
+    if (requiredSignatureError) return res.status(400).json({ error: { message: requiredSignatureError } });
     stripIneligibleProviderPreference(link,intakeData);
     await validateSubmittedProviderPreferences(link,intakeData);
     await prepareLearningPacket(intakeData,link);
@@ -10773,6 +10870,24 @@ export const submitPublicIntake = async (req, res, next) => {
       rawClients = [{ id: null, fullName: signerName, initials: updatedSubmission?.signer_initials || null, contactPhone: null }];
     }
     const primaryClientName = String(rawClients?.[0]?.fullName || '').trim() || null;
+    const sharedOrgContext = await resolveIntakeOrgContext(link, { boundClient: null });
+    const sharedDocuments = await buildSharedIntakeDocuments({
+      clients: rawClients, intakeData,
+      generate: async ({ client, index, intakeData: childIntakeData }) => {
+        const args = {
+          intakeData: childIntakeData, updatedSubmission: { ...updatedSubmission, client_id: client.id },
+          issuedRoiLink: null, ...sharedOrgContext, link, submissionId, now,
+          allAllowedTemplates, retentionExpiresAt, req, clientIndex: index
+        };
+        return [
+          ...await persistPacketSectionFromIntakeData(args),
+          ...await persistEmbeddedDisclosureForClient(args),
+          ...await persistEmbeddedRoiForClient(args)
+        ];
+      }
+    });
+    for (const paths of sharedDocuments.pathsByClient.values()) pdfPaths.push(...paths);
+
 
     // Multi-client signature consent audit (registration flow). Mirrors the
     // school-roi flow above — we want a server-side breadcrumb either way so
@@ -10897,13 +11012,14 @@ export const submitPublicIntake = async (req, res, next) => {
       );
 
       const clientIndex = intakeClientRows.length - 1;
-      const clientPaths = [];
+      const clientPaths = [...(sharedDocuments.pathsByClient.get(Number(clientId)) || [])];
       for (const template of packetDocumentTemplates) {
         const fieldDefinitions = parseFieldDefinitions(template.field_definitions);
         const fieldValues = buildDocumentFieldValuesForClient({
           link,
           intakeData,
           clientIndex,
+          fieldDefinitions,
           baseFieldValues: {}
         });
         const result = await PublicIntakeSigningService.generateSignedDocument({
@@ -10929,6 +11045,7 @@ export const submitPublicIntake = async (req, res, next) => {
             documentReference: result.referenceNumber || null,
             documentName: template.name || null,
             fieldValues,
+            clientIndex: i,
             signatureData
           }
         });
@@ -10962,6 +11079,7 @@ export const submitPublicIntake = async (req, res, next) => {
             phiDocsCreated += 1;
           } else {
             phiDocsFailed += 1;
+            sharedDocuments.failures.set(Number(clientId), new Error('Signed document could not be attached'));
           }
         } else {
           // Skipped because there's no client to attach to. This commonly
@@ -10984,7 +11102,7 @@ export const submitPublicIntake = async (req, res, next) => {
       // Storage dedup: for single-child registration the per-client bundle
       // would duplicate the combined bundle save below. Skip it in that case;
       // we'll point bundle_pdf_path at the combined bundle after it lands.
-      if (clientPaths.length && isMultiClientReg) {
+      if (clientPaths.length && isMultiClientReg && !sharedDocuments.failures.has(Number(clientId))) {
         // Per-client bundle build/upload is wrapped in its own try/catch so a
         // single child's PDF problem (or transient GCS hiccup) does NOT abort
         // the rest of the loop iteration — auto-mark, demographics persist,
@@ -11044,6 +11162,7 @@ export const submitPublicIntake = async (req, res, next) => {
             downloadUrl: await StorageService.getSignedUrl(clientBundleResult.relativePath, 60 * 24 * 7)
           });
         } catch (perClientBundleErr) {
+          sharedDocuments.failures.set(Number(clientId), perClientBundleErr);
           console.error('[publicIntake] per-client bundle build/save failed (registration flow) — continuing so downstream side-effects (auto-mark, completion email) still run', {
             submissionId,
             clientId: clientId || null,
@@ -11098,6 +11217,7 @@ export const submitPublicIntake = async (req, res, next) => {
           submissionId,
           completedAt: now,
           flowLabel: 'registration',
+          documentsComplete: !sharedDocuments.failures.has(Number(clientId)),
           intakeCompletionNote: 'Marked received automatically after intake/registration completion'
         });
 
@@ -11124,6 +11244,8 @@ export const submitPublicIntake = async (req, res, next) => {
     // layer. If `phiDocsCreated < phiDocsAttempted` the per-iteration
     // `[publicIntake] client_phi_documents insert failed` log above has the
     // exact SQL/code/state for diagnosis.
+    await recordSharedPacketFailure(submissionId, sharedDocuments.failures);
+
     console.info('[publicIntake] registration finalize per-client loop summary', {
       submissionId,
       rawClientsCount: rawClients.length,
@@ -11255,7 +11377,7 @@ export const submitPublicIntake = async (req, res, next) => {
     // child bundle path or fall back to the combined bundle for single-child
     // submissions where we deliberately skipped the per-client bundle save.
     // ---------------------------------------------------------------------
-    if (pdfPaths.length > 0) {
+    if (pdfPaths.length > 0 && sharedDocuments.failures.size === 0) {
       // Multi-child safe per-client packet attachment.
       // See createIntakePacketDocument doc comment — combined bundle path
       // can NOT be used for every child due to UNIQUE(storage_path).
@@ -11882,6 +12004,7 @@ export const submitPublicIntake = async (req, res, next) => {
         for (const d of signedDocs || []) {
           contents.push({
             type: 'signed_document',
+            clientId: d.client_id || null,
             label: d.document_name || d.original_filename || 'Signed document',
             intakeSubmissionDocumentId: d.id || null,
             templateId: d.document_template_id || null
@@ -11942,7 +12065,7 @@ export const submitPublicIntake = async (req, res, next) => {
               phiRows = [];
             }
           }
-          const phiContents = [...contents];
+          const phiContents = contents.filter(item => !item.clientId || Number(item.clientId) === cid);
           for (const p of phiRows) {
             const created = p.created_at ? new Date(p.created_at).getTime() : 0;
             if (created && now && created < new Date(now).getTime() - 2 * 60 * 60 * 1000) continue;

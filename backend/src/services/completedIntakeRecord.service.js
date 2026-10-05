@@ -771,6 +771,37 @@ export function buildCompletedIntakeRecord({
         clients: [intakeData.responses.clients[clientIndex] || {}]
       }
     };
+    const child = intakeData.clients[0] || {};
+    const answers = intakeData.responses.clients[0] || {};
+    const roi = intakeData.smartSchoolRoi || intakeData.responses.submission?.smartSchoolRoi;
+    if (roi) {
+      intakeData.smartSchoolRoi = {
+        ...roi,
+        clientFullName: child.fullName || [child.firstName || answers.child_legal_first || answers.client_first, child.lastName || answers.child_legal_last || answers.client_last].filter(Boolean).join(' '),
+        clientDateOfBirth: answers.child_dob || answers.client_dob || answers.date_of_birth || child.dateOfBirth || child.date_of_birth || child.dob || null
+      };
+    }
+    const shared = { ...intakeData.responses.submission };
+    if (clientIndex > 0) {
+      delete shared.clinicalResponses;
+      delete shared.demographicsInfo;
+    }
+    if (Array.isArray(shared.guardianWaiverIntake?.clients)) {
+      shared.guardianWaiverIntake = { ...shared.guardianWaiverIntake, clients: [shared.guardianWaiverIntake.clients[clientIndex] || {}] };
+    }
+    if (shared.insuranceInfo) {
+      shared.insuranceInfo = { ...shared.insuranceInfo };
+      for (const key of ['clientCoverages', 'medicaidByClient']) {
+        if (Array.isArray(shared.insuranceInfo[key])) {
+          shared.insuranceInfo[key] = shared.insuranceInfo[key].filter(row => Number(row.clientIndex) === clientIndex);
+        }
+      }
+    }
+    intakeData.responses.submission = shared;
+    signedDocuments = signedDocuments.filter(doc => {
+      const trail = parseMaybeJson(doc.audit_trail, {});
+      return !doc.client_id || trail.clientIndex == null || Number(trail.clientIndex) === clientIndex;
+    });
   }
   guardian = { ...(intakeData.guardian || {}), ...guardian, ...(intakeData.applicationRecord?.applicant || {}) };
   const locale = resolveIntakeFormLocale(link, intakeData);
