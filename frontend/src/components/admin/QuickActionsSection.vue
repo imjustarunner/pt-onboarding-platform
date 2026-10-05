@@ -32,6 +32,7 @@
     </div>
 
     <div class="actions-grid">
+      <a href="/records-manager" class="action-card"><div class="action-content"><h3>Records requests</h3><p v-if="!compact">Open the AuricWell Records Manager queue.</p></div></a>
       <div v-for="action in displayedActions" :key="action.id" class="action-entry">
       <router-link
         :to="action.to"

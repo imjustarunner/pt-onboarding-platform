@@ -1,6 +1,7 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" :mode="guardianWorkspaceMode" :immersive="clinicalGuardianContext" :tenant-id="selectedChildAgencyId" :tenant-name="tenantAgencyName || currentAgencyName" :tenant-logo="tenantAgencyLogoUrl || programLogoUrl || ''" context-label="Family care" switchable :return-label="`Back to ${tenantAgencyName || currentAgencyName || 'family overview'}`" @update:mode="changeGuardianWorkspaceMode" @back="returnToFamilyOverview">
   <FamilyPortalShell :brand-name="currentAgencyName || tenantAgencyName" :brand-subtitle="dualBranding ? tenantAgencyName : ''" :logo-url="programLogoUrl || tenantAgencyLogoUrl || brandingStore.displayLogoUrl" :primary-color="clinicalGuardianContext && guardianWorkspaceMode === 'clinical' ? '#2467a7' : brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
+    <router-link :to="`/my-records${selectedChildAgencyId ? '?agencyId=' + selectedChildAgencyId : ''}`" class="btn btn-secondary">Request my records</router-link>
     <PlatformPreviewBanner
       v-if="isSuperadminPreview"
       :title="`Previewing ${currentAgencyName || 'tenant'} guardian portal`"

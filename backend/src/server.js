@@ -2,6 +2,7 @@ import clinicalVideoCallbackRoutes from './routes/clinicalVideoCallback.routes.j
 import clinicalSessionSecurityRoutes from './routes/clinicalSessionSecurity.routes.js';
 import officeLobbyRoutes from './routes/officeLobby.routes.js';
 import officeArrivalPublicRoutes from './routes/officeArrivalPublic.routes.js';
+import auricwellRecordsRoutes from './routes/auricwellRecords.routes.js';
 import auricwellPreviewRoutes from './routes/auricwellPreview.routes.js';
 import { auricwellPreviewBoundary } from './middleware/auricwellPreview.middleware.js';
 import { protectTaxIdResponses } from './utils/privateTaxId.js';
@@ -430,6 +431,7 @@ app.use('/api', (req, res, next) => {
 });
 
 app.use('/api/auricwell-preview', auricwellPreviewRoutes);
+app.use('/api/auricwell-records', auricwellRecordsRoutes);
 
 // Temporary diagnostics: logs high-signal details for unexpected 403s on key endpoints.
 // Enable by setting ACCESS_DEBUG=1 in the environment (Cloud Run).
@@ -2387,6 +2389,12 @@ if (!isBootstrap) {
       }
     }
   };
+  const checkRecordsRequests = async () => {
+    try { await (await import('./services/recordsRequests/service.js')).runFollowUpTick(); }
+    catch (error) { console.warn('[auricwell-records] Follow-up job unavailable:', error.code || 'job_failed'); }
+  };
+  checkRecordsRequests();
+  setInterval(checkRecordsRequests, 15 * 60 * 1000);
   const checkProviderOpenings = async () => {
     try { const {runProviderAvailabilityReminderTick}=await import('./services/providerAvailabilityReminders.service.js'); await runProviderAvailabilityReminderTick(); }
     catch(e) { console.warn('[availability-reminders]', e.code || e.message); }

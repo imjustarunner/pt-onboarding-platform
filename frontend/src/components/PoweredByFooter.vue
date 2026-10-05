@@ -11,6 +11,7 @@
       />
       <span v-if="platformOrgName" class="powered-by-name">{{ platformOrgName }}</span>
     </div>
+    <a v-if="includeLegal && !isSummitStatsChrome" href="https://plottwisthq.com/records-request" class="legal-link">Request my records</a>
     <div v-if="includeLegal && legalLinksToRender.length" class="legal-links">
       <span v-if="legalTitleToRender" class="legal-title">{{ legalTitleToRender }}</span>
       <span v-if="legalTitleToRender" class="legal-sep">|</span>

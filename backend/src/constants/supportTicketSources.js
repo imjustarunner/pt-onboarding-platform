@@ -1,4 +1,5 @@
 export const SUPPORT_TICKET_SOURCE_KEYS = Object.freeze({
+  AURICWELL_RECORDS_REQUEST: 'auricwell_records_request',
   FORGOT_USERNAME: 'forgot_username',
   PASSWORD_RECOVERY: 'password_recovery',
   INFO_REQUEST: 'info_request',
@@ -25,6 +26,7 @@ export function normalizeSupportTicketSourceKey(value) {
 export function supportTicketSourceLabel(value) {
   const key = normalizeSupportTicketSourceKey(value);
   const labels = {
+    auricwell_records_request: 'AuricWell records follow-up',
     office_kiosk_support: 'Office kiosk',
     [SUPPORT_TICKET_SOURCE_KEYS.FORGOT_USERNAME]: 'Forgot Username',
     [SUPPORT_TICKET_SOURCE_KEYS.PASSWORD_RECOVERY]: 'Password recovery',

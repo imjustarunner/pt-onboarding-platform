@@ -203,6 +203,9 @@
               <div v-if="websiteTicket(selected)" class="website-ticket-brand" :style="{borderLeft: `5px solid ${ticketAgencyColor(selected)}`}"><img v-if="ticketAgencyLogo(selected)" :src="ticketAgencyLogo(selected)" alt="" />{{ selected.website_name || selected.agency_name }} · Website inquiry</div>
               <div class="detail-id">Ticket #{{ selected.id }}</div>
               <h3 class="detail-subject">{{ selected.subject || 'Client message' }}</h3>
+              <p v-if="selected.created_by_source_key === 'auricwell_records_request'">Support coordinates follow-up only. Keep medical records and identity evidence in AuricWell.
+                <a v-if="recordsRequestQueueUrl(selected)" :href="recordsRequestQueueUrl(selected)" target="_blank" rel="noopener noreferrer">Open in AuricWell — Records Manager access required</a>
+              </p>
               <div class="breadcrumb">
                 <span v-if="selected.agency_name">{{ selected.agency_name }}</span>
                 <span v-if="selected.school_name"> → {{ selected.school_name }}</span>
@@ -1044,6 +1047,7 @@
 </template>
 
 <script setup>
+import { recordsRequestQueueUrl } from '../../utils/recordsRequestTicket.js';
 import TicketAttachmentFiling from './TicketAttachmentFiling.vue';
 import { publicTicketOriginalInquiry, websiteTicket, ticketAgencyColor, ticketAgencyLogo } from '../../utils/publicTicketPresentation';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';

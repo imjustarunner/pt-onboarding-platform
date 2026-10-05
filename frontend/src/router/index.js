@@ -340,6 +340,9 @@ const routes = [
   { path: '/schoolcarebridge/session-ended', name: 'SchoolCareBridgeSessionEnded', component: () => import('../views/school/SchoolCareBridgeSessionEnded.vue'), meta: { requiresGuest: false } },
   { path: '/schoolcarebridge/app', name: 'SchoolCareBridgeLogin', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true } },
   { path: '/schoolcarebridge/app/:organizationSlug', name: 'SchoolCareBridgeSchool', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true, organizationSlug: true } },
+  { path: '/records-request', name: 'AuricWellRecordsRequest', component: () => import('../components/records/RecordsRequests.vue'), meta: { requiresGuest: false, publicMarketingHub: true } },
+  { path: '/records-manager', name: 'AuricWellRecordsManager', component: () => import('../views/RecordsManagerView.vue'), meta: { requiresAuth: true } },
+  { path: '/my-records', name: 'AuricWellMyRecords', component: () => import('../views/RecordsManagerView.vue'), props: { portal: true }, meta: { requiresAuth: true, requiresRole: ['client_guardian', 'client'] } },
   { path: '/schoolcarebridge/:section?', name: 'SchoolCareBridgeWebsite', component: () => import('../views/public/SchoolCareBridgeWebsite.vue'), meta: { publicMarketingHub: true } },
   { path: '/p/schoolcarebridge/:section?', redirect: to => ({ path: '/schoolcarebridge' + (to.params.section ? '/' + to.params.section : ''), query: to.query, hash: to.hash }) },
 
