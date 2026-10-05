@@ -121,3 +121,11 @@ jobs:
           gcloud run services update-traffic $SERVICE_NAME \
             --region $REGION \
             --to-latest
+
+      - name: Protect production image from registry cleanup
+        run: |
+          set -euo pipefail
+          DEPLOYED_REVISION=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.latestReadyRevisionName)')
+          DEPLOYED_IMAGE=$(gcloud run revisions describe "$DEPLOYED_REVISION" --region "$REGION" --format='value(status.imageDigest)')
+          test -n "$DEPLOYED_IMAGE"
+          gcloud artifacts docker tags add "$DEPLOYED_IMAGE" "$IMAGE_NAME:production" --quiet

@@ -571,6 +571,13 @@ jobs:
             --to-revisions="${CANDIDATE_REVISION}=100"
           echo "Candidate readiness passed; promoted ${CANDIDATE_REVISION}."
 
+      - name: Protect production image from registry cleanup
+        run: |
+          set -euo pipefail
+          DEPLOYED_IMAGE=$(gcloud run revisions describe "${SERVICE_NAME}-${CANDIDATE_SUFFIX}" --region "$REGION" --format='value(status.imageDigest)')
+          test -n "$DEPLOYED_IMAGE"
+          gcloud artifacts docker tags add "$DEPLOYED_IMAGE" "$IMAGE_NAME:production" --quiet
+
       - name: Failed candidate startup diagnostics
         if: failure() && env.CANDIDATE_SUFFIX != ''
         run: |

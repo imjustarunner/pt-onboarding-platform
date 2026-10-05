@@ -1,0 +1,51 @@
+[
+  {
+    "name": "delete-builds-after-14-days",
+    "action": {
+      "type": "Delete"
+    },
+    "condition": {
+      "tagState": "any",
+      "olderThan": "1209600s"
+    }
+  },
+  {
+    "name": "keep-latest-20",
+    "action": {
+      "type": "Keep"
+    },
+    "mostRecentVersions": {
+      "keepCount": 20
+    }
+  },
+  {
+    "name": "keep-production-and-rollback",
+    "action": {
+      "type": "Keep"
+    },
+    "condition": {
+      "tagState": "any",
+      "versionNamePrefixes": [
+        "sha256:12bb9fe617f70f0e1f28b5d31f6fe15c4f292681735528c657b4f3661",
+        "sha256:2916c506487e85fd6ce34c9fd60fc41004cb625abce8bf58284b20fe1",
+        "sha256:c877441f94411995694f054a2807e1501fc7f894ecf4ff98cae385b1e",
+        "sha256:d5921b326563feecbdf64f24a49ab4b284861e23c7bbe5933b2f371d0",
+        "sha256:fd3bfcc1c2d6fc2ebc80a41e423b2d4d287caba8733a04010dcba0622"
+      ]
+    }
+  },
+  {
+    "name": "keep-release-tags",
+    "action": {
+      "type": "Keep"
+    },
+    "condition": {
+      "tagState": "tagged",
+      "tagPrefixes": [
+        "production",
+        "rollback",
+        "latest"
+      ]
+    }
+  }
+]
