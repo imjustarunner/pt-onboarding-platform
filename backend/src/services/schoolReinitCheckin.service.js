@@ -354,6 +354,7 @@ async function ensureHostCalendarForSlot({
         subjectEmail: email,
         startAt: startsAt,
         endAt: endsAt,
+        timeZone: await resolveAgencyTimezone(slot.agency_id),
         summary: title,
         description,
         kind: pseKind,
@@ -839,8 +840,11 @@ async function convertHostCalendarsOnBook({
       // No prior Google event — create booked event
       const created = await GoogleCalendarService.createProviderScheduleEvent({
         subjectEmail: email,
-        startAt: toMysqlDateTime(slot.starts_at),
-        endAt: toMysqlDateTime(slot.ends_at),
+        // Stored slots are UTC instants, not local wall-clock input. Keep the
+        // offset explicit even when a missing calendar event must be recreated.
+        startAt: utcMysqlToIso(slot.starts_at),
+        endAt: utcMysqlToIso(slot.ends_at),
+        timeZone: await resolveAgencyTimezone(slot.agency_id),
         summary: title,
         description,
         kind: BOOKED_KIND,
