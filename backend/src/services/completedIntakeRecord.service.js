@@ -745,12 +745,33 @@ export function buildCompletedIntakeRecord({
   signedDocuments = [],
   guardian = {},
   clients = [],
+  clientIndex = null,
   publicKey = '',
   brandLogoUrl = '',
   publicOrigin = '',
   includeUnansweredQuestions = false
 } = {}) {
-  const intakeData = normalizeIntakeDataShape(parseMaybeJson(submission?.intake_data, {}));
+  let intakeData = normalizeIntakeDataShape(parseMaybeJson(submission?.intake_data, {}));
+  // Keep identity and answers aligned when rendering an individual sibling's
+  // packet. Filtering only the display list leaves the interview on child 0.
+  if (clientIndex !== null) {
+    const identities = Array.isArray(clients) && clients.length
+      ? clients
+      : (intakeData.clients || intakeData.responses.clients);
+    const count = Math.max(identities.length, intakeData.responses.clients.length);
+    if (!Number.isInteger(clientIndex) || clientIndex < 0 || clientIndex >= count) {
+      throw new RangeError('Invalid intake packet client index');
+    }
+    clients = [identities[clientIndex] || {}];
+    intakeData = {
+      ...intakeData,
+      clients: [intakeData.clients?.[clientIndex] || identities[clientIndex] || {}],
+      responses: {
+        ...intakeData.responses,
+        clients: [intakeData.responses.clients[clientIndex] || {}]
+      }
+    };
+  }
   guardian = { ...(intakeData.guardian || {}), ...guardian, ...(intakeData.applicationRecord?.applicant || {}) };
   const locale = resolveIntakeFormLocale(link, intakeData);
   const byKey = fieldIndex(link);

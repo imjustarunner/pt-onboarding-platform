@@ -2,6 +2,56 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCompletedIntakeRecord } from '../completedIntakeRecord.service.js';
 
+for (const shape of ['nested', 'flat']) {
+  test(`individual sibling packets keep names, DOB, grade and screening answers together (${shape})`, () => {
+    const identities = [
+      { firstName: 'Alex', lastName: 'Example' },
+      { firstName: 'Blair', lastName: 'Example' }
+    ];
+    const answers = [
+      { child_dob: '2012-02-03', client_grade: '8', psc_1: 'Often', sibling_note: 'Alex-only detail' },
+      { child_dob: '2017-06-07', client_grade: '3', psc_1: 'Never', sibling_note: 'Blair-only detail' }
+    ];
+    const shared = { guardian: { firstName: 'Pat', email: 'pat@example.com' } };
+    const intakeData = shape === 'nested'
+      ? { ...shared, clients: identities, responses: { clients: answers, submission: {} } }
+      : { ...shared, clients: identities.map((identity, i) => ({ ...identity, ...answers[i] })), submission: {} };
+    const original = JSON.stringify(intakeData);
+    const link = {
+      scope_type: 'school',
+      intake_steps: [{
+        type: 'questions', label: 'About {childName}', repeatPerClient: true,
+        fields: [
+          { key: 'child_dob', label: 'Date of birth', type: 'date', scope: 'client' },
+          { key: 'client_grade', label: 'Grade', type: 'text', scope: 'client' },
+          { key: 'psc_1', label: 'Fidgety, unable to sit still', type: 'radio', instrument: 'psc17', scope: 'client' }
+        ]
+      }]
+    };
+    for (const clientIndex of [0, 1]) {
+      const spec = buildCompletedIntakeRecord({
+        link, submission: { intake_data: intakeData }, clients: identities, clientIndex
+      });
+      const rows = spec.sections.flatMap((section) => section.rows || []);
+      const text = JSON.stringify(spec.sections);
+      const otherIndex = 1 - clientIndex;
+      assert.match(text, new RegExp(identities[clientIndex].firstName));
+      assert.ok(!text.includes(identities[otherIndex].firstName));
+      assert.ok(rows.some((row) => row.label === 'Grade' && row.value === answers[clientIndex].client_grade));
+      assert.ok(rows.some((row) => row.label === 'Fidgety, unable to sit still' && row.value === answers[clientIndex].psc_1));
+      assert.ok(text.includes(answers[clientIndex].child_dob));
+      assert.ok(!text.includes(answers[otherIndex].child_dob));
+      assert.ok(text.includes(answers[clientIndex].sibling_note));
+      assert.ok(!text.includes(answers[otherIndex].sibling_note));
+      assert.ok(text.includes('pat@example.com'));
+    }
+    assert.equal(JSON.stringify(intakeData), original, 'rendering does not mutate the saved family answers');
+    assert.throws(() => buildCompletedIntakeRecord({
+      link, submission: { intake_data: intakeData }, clientIndex: 2
+    }), /Invalid intake packet client index/);
+  });
+}
+
 test('completed record includes nested answers, skips secrets, and keeps ESIGN + signatures', () => {
   const spec = buildCompletedIntakeRecord({
     agency: { official_name: 'ITSCO' },

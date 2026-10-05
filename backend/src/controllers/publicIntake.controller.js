@@ -2904,10 +2904,7 @@ async function tryBuildBrandedAnswersPdf({
     }
     const recordSubmission = await enrichApplicationRecord({ ...(submission || {}), id: sid, intake_data: intakeData }, link, agency);
     const normalized = normalizeIntakeDataShape(recordSubmission.intake_data);
-    let clients = Array.isArray(normalized?.clients) ? normalized.clients : [];
-    if (Number.isInteger(clientIndex) && clientIndex >= 0) {
-      clients = clients[clientIndex] ? [clients[clientIndex]] : clients;
-    }
+    const clients = Array.isArray(normalized?.clients) ? normalized.clients : [];
     const packetKind = String(link?.scope_type || '').toLowerCase() === 'school' ? 'school' : 'office';
     const spec = await brandedIntakeSummarySpec(
       buildCompletedIntakeRecord({
@@ -2917,6 +2914,7 @@ async function tryBuildBrandedAnswersPdf({
         signedDocuments,
         guardian: normalized?.guardian || normalized?.responses?.guardian || {},
         clients,
+        clientIndex,
         publicKey: link?.public_key || '',
         brandLogoUrl: String(agency?.logo_url || '').trim()
       }),
