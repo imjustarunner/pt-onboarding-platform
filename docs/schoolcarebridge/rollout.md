@@ -106,3 +106,9 @@ npm --prefix frontend test -- src/schoolcarebridge/demo/__tests__/fixtures.test.
 The product-demo browser check accepts `SCB_PRODUCT_BASE` for read-only live verification. It blocks every API request and checks that none occur; it also verifies same-tab sign-in storage isolation, blocked writes, provider/student navigation, the overview → all portals → school flow, and layouts at 320–1440px. The family-page check supplies synthetic website API responses and verifies the three products and the embedded portal. Production build outputs include a dedicated `schoolcarebridge-demo.html` entry, served with no-store/noindex on Nginx and the Node preview server.
 
 Release verification: 68 focused frontend tests passed; existing school login/access and Plot Twist Co. showcase browser checks passed. The product-family/embedded-demo check and full fictional-demo interaction, mobile and storage-isolation checks passed. The production frontend build completed without Docker.
+
+## October 5 domain launch
+
+The public domain is `https://schoolcarebridge.org`; the owner forwards `.com` to `.org` and manages load-balancer and certificate provisioning. Route the domain to the existing frontend and `/api/*` and `/uploads/*` to the backend. Keep the MH4Kidz `/schoolcarebridge` paths available until HTTPS validates. Public pages identify `.org` as canonical. Existing ITSCO school login links are unchanged.
+
+School completion welcomes include the SchoolCareBridge logo, network byline, MH4Kidz attribution, and secondary public-site link. The primary portal link and Technology reply address remain unchanged. Keller’s welcome requires user approval and working domain HTTPS before sending; the prior issue-resolution email has already been sent.

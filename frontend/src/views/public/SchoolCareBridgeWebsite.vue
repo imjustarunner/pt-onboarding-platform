@@ -68,7 +68,7 @@
   </div>
 </template>
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
@@ -85,6 +85,14 @@ import '../../styles/schoolCareBridgeWebsite.css';
 const {page,loading,error,menuOpen,section,load,guardPreview,previewNotice}=useStandalonePublicWebsite('schoolcarebridge','SchoolCareBridge | A Plot Twist Co. product');
 const demoUrl=schoolCareBridgeExternalPath('/schoolcarebridge/demo');
 const path=slug=>`/schoolcarebridge${slug?'/'+slug:''}`;
+let canonical;
+onMounted(() => {
+ canonical=document.createElement('link'); canonical.rel='canonical'; document.head.appendChild(canonical);
+ canonical.href=`https://schoolcarebridge.org/${section.value}`;
+});
+watch(section, value => { if(canonical) canonical.href=`https://schoolcarebridge.org/${value}`; });
+onUnmounted(() => canonical?.remove());
+
 const nav=[['For Schools','for-schools'],['For Agencies','for-agencies'],['How It Works','how-it-works'],['About','about'],['Partners','partners'],['Programs','programs'],['Resources','resources'],['Security','security']];
 const settings=computed(()=>page.value?.branding?.schoolcarebridgeWebsite||{});
 const mh4Contact=ref('');

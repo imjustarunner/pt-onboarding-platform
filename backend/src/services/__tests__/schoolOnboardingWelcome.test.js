@@ -71,5 +71,9 @@ describe('school completion welcomes', () => {
     expect(draft.text).toContain('Digital Forms'); expect(draft.text).toContain('Printable Paperwork');
     expect(draft.text).toContain('School administrators'); expect(draft.text).toContain('not a shared portal login');
     expect(draft.text).toContain('permissions and the releases');
+    expect(draft.html).toContain('https://plottwisthq.com/assets/schoolcarebridge/logo.png');
+    expect(draft.html).toContain('Part of the SchoolCareBridge network');
+    expect(draft.html).toContain('https://schoolcarebridge.org/');
+    expect(draft.text).toContain('a program of MH4Kidz');
   });
 });
