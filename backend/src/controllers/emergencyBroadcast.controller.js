@@ -1,3 +1,4 @@
+import { resolveRegisteredSmsSender } from '../services/smsCompliance.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import VonageService from '../services/vonage.service.js';
@@ -116,9 +117,9 @@ export const createAndSendBroadcast = async (req, res, next) => {
     const batchSize = 50;
 
     if (channels?.sms) {
-      const from = process.env.VONAGE_FROM || process.env.VONAGE_DEFAULT_FROM;
+      const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'workforce' });
       if (!from) {
-        return res.status(400).json({ error: { message: 'Missing VONAGE_FROM (or VONAGE_DEFAULT_FROM) env var' } });
+        return res.status(400).json({ error: { message: 'No approved workforce SMS sender is configured for this agency' } });
       }
 
       for (let i = 0; i < recipients.length; i += batchSize) {
@@ -126,7 +127,7 @@ export const createAndSendBroadcast = async (req, res, next) => {
         await Promise.all(batch.map(async (r) => {
           try {
             const to = MessageLog.normalizePhone(r.recipient) || r.recipient;
-            const msg = await VonageService.sendSms({ to, from, body });
+            const msg = await VonageService.sendSms({ purpose: 'workforce', agencyId, to, from, body });
             sent += 1;
             await pool.execute(
               `UPDATE emergency_broadcast_recipients

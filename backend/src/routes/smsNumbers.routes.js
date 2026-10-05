@@ -26,14 +26,25 @@ import {
   updateNumberPurpose,
   upsertNumberRules
 } from '../controllers/smsNumbers.controller.js';
+import { getAgencySmsRegistrations, saveAgencySmsRegistration, recordAgencySmsConsent, sendAgencyMarketingSms } from '../controllers/smsNumbers.controller.js';
+import { publicSmsConsentRouter, listConsentRequests, createConsentRequest, reviewConsentRequest, downloadConsentEvidence } from './smsConsent.routes.js';
 
 const router = express.Router();
 
+router.use(publicSmsConsentRouter);
 router.use(authenticate);
 
 // Agency-level settings (feature flags)
 router.get('/agency/:agencyId/settings', requireAgencyAccess, getAgencySmsSettings);
 router.put('/agency/:agencyId/settings', requireAgencyAdmin, updateAgencySmsSettings);
+router.get('/agency/:agencyId/registrations', requireAgencyAdmin, getAgencySmsRegistrations);
+router.put('/agency/:agencyId/registrations', requireAgencyAdmin, saveAgencySmsRegistration);
+router.post('/agency/:agencyId/consents', requireAgencyAdmin, recordAgencySmsConsent);
+router.post('/agency/:agencyId/marketing-send', requireAgencyAdmin, sendAgencyMarketingSms);
+router.get('/agency/:agencyId/consent-requests', requireAgencyAdmin, listConsentRequests);
+router.post('/agency/:agencyId/consent-requests', requireAgencyAdmin, createConsentRequest);
+router.post('/agency/:agencyId/consent-requests/:requestId/review', requireAgencyAdmin, reviewConsentRequest);
+router.get('/agency/:agencyId/consent-requests/:requestId/evidence', requireAgencyAdmin, downloadConsentEvidence);
 
 // Agency numbers
 router.get('/agency/:agencyId', requireAgencyAccess, listAgencyNumbers);

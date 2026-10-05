@@ -4,11 +4,12 @@ import VonageService from '../services/vonage.service.js';
 
 const router = express.Router();
 
-// Optional Vonage webhook signature validation.
-// Enable by setting VONAGE_VALIDATE_SIGNATURE=true and VONAGE_SIGNATURE_SECRET.
+// Signed SMS API webhooks are mandatory in production. Ask Vonage to enable
+// inbound and delivery receipt signing before deployment. Local tests may opt in.
 const withOptionalSignatureValidation = (handler) => (req, res, next) => {
   try {
-    const shouldValidate = String(process.env.VONAGE_VALIDATE_SIGNATURE || '').toLowerCase() === 'true';
+    const shouldValidate = process.env.NODE_ENV === 'production'
+      || String(process.env.VONAGE_VALIDATE_SIGNATURE || '').toLowerCase() === 'true';
     if (!shouldValidate) return handler(req, res, next);
 
     const signature = req.body?.sig || req.query?.sig || '';
@@ -17,7 +18,7 @@ const withOptionalSignatureValidation = (handler) => (req, res, next) => {
     }
 
     // Vonage sends sig in the body/query; validate against all other params.
-    const params = { ...req.body };
+    const params = { ...(req.query || {}), ...(req.body || {}) };
     delete params.sig;
     const ok = VonageService.validateWebhook({ params, signature });
     if (!ok) {
@@ -37,7 +38,7 @@ router.get('/inbound', withOptionalSignatureValidation(inboundSmsWebhook));
 
 // Vonage delivery status webhook — set this URL in your Vonage dashboard under
 // "SMS Settings" > "Delivery receipts webhook".
-router.post('/status', deliveryStatusWebhook);
-router.get('/status', deliveryStatusWebhook);
+router.post('/status', withOptionalSignatureValidation(deliveryStatusWebhook));
+router.get('/status', withOptionalSignatureValidation(deliveryStatusWebhook));
 
 export default router;

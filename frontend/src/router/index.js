@@ -4,6 +4,7 @@ import { setRememberedGoogleLogin } from '../utils/loginRemember';
 import { createRouter, createWebHistory } from 'vue-router';
 import { publicDomainHistory, publicSupportSlugFromHost } from '../utils/publicDomainRouting.js';
 import { updateItscoDocumentMeta } from '../utils/itscoPublicSeo.js';
+import { tenantLegalProfiles, tenantLegalLinks } from '../content/tenantLegalProfiles.js';
 import { Capacitor } from '@capacitor/core';
 import { useAuthStore } from '../store/auth';
 import { useBrandingStore } from '../store/branding';
@@ -1074,6 +1075,25 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/sms-consent/example/itsco',
+    name: 'SmsConsentExample',
+    component: () => import('../views/public/SmsConsentView.vue'),
+    meta: { requiresGuest: false, smsConsentExample: true, hideNav: true }
+  },
+  {
+    path: '/sms-consent/sign',
+    name: 'SmsConsentSign',
+    component: () => import('../views/public/SmsConsentView.vue'),
+    meta: { requiresGuest: false, hideNav: true }
+  },
+  ...Object.values(tenantLegalProfiles).flatMap(profile => tenantLegalLinks(profile).map(link => ({
+    path: link.path,
+    alias: [`/p/${profile.slug}/${link.type}`, ...(link.type === 'privacypolicy' ? [`/p/${profile.slug}/privacy`, `/p/${profile.slug}/privacy-policy`] : link.type === 'platformhipaa' ? [`/p/${profile.slug}/hipaa`] : [])],
+    name: `TenantLegal-${profile.slug}-${link.type}`,
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: link.type, legalOrganizationSlug: profile.slug }
+  }))),
+  {
     path: '/terms',
     name: 'LegalTerms',
     component: () => import('../views/public/LegalDocumentView.vue'),
@@ -1081,6 +1101,7 @@ const routes = [
   },
   {
     path: '/privacypolicy',
+    alias: ['/privacy', '/privacy-policy'],
     name: 'LegalPrivacyPolicy',
     component: () => import('../views/public/LegalDocumentView.vue'),
     meta: { requiresGuest: false, legalDocType: 'privacypolicy' }
@@ -1093,6 +1114,7 @@ const routes = [
   },
   {
     path: '/platformhipaa',
+    alias: ['/hipaa'],
     name: 'LegalPlatformHipaa',
     component: () => import('../views/public/LegalDocumentView.vue'),
     meta: { requiresGuest: false, legalDocType: 'platformhipaa' }

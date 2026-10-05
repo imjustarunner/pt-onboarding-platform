@@ -1,6 +1,8 @@
 # Vonage 10DLC + Per-Provider Number Plan
 
-Living plan for **Vonage-only** US SMS: one brand, a small set of TCR campaigns, one dedicated `clinical_care` number per provider, and proof screenshots for carrier registration.
+> **Superseded for registration architecture:** use [ITSCO / AuricWell SMS audit](./VONAGE_10DLC_ITSCO_AUDIT.md). Independent practices require their own brands; do not follow this historical document’s umbrella-brand or Healthcare-use-case assumptions.
+
+Historical plan for **Vonage-only** US SMS: one brand, a small set of TCR campaigns, one dedicated `clinical_care` number per provider, and proof screenshots for carrier registration.
 
 **Not** the in-app `agency_campaigns` broadcast feature. This is **carrier registration** (Vonage Dashboard → Build → Messaging → 10DLC).
 

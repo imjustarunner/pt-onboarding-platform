@@ -213,16 +213,13 @@ async function clientHasSmsConsent(clientId) {
   if (!clientId) return false;
   try {
     const [rows] = await pool.execute(
-      `SELECT sms_opt_in, text_opt_in, communication_preferences_json
+      `SELECT session_sms_opt_in
        FROM clients WHERE id = ? LIMIT 1`,
       [Number(clientId)]
     ).catch(() => [[]]);
     const row = rows?.[0];
     if (!row) return false;
-    if (row.sms_opt_in === 1 || row.sms_opt_in === true || row.text_opt_in === 1) return true;
-    const prefs = parseJson(row.communication_preferences_json, {});
-    if (prefs?.sms === true || prefs?.smsOptIn === true || prefs?.textOptIn === true) return true;
-    return false;
+    return row.session_sms_opt_in === 1 || row.session_sms_opt_in === true;
   } catch {
     return false;
   }
@@ -308,7 +305,7 @@ async function sendAffiliatedContactReminders(appt, { channel, label, when, remi
           : null;
         if (!from) continue;
         const body = `Reminder: ${label} on ${when}.`.slice(0, 480);
-        await VonageService.sendSms({ to: toPhoneNorm, from, body });
+        await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, to: toPhoneNorm, from, body });
         await logCommunication({
           appointmentId: appt.id,
           agencyId: appt.agencyId,
@@ -413,8 +410,8 @@ async function sendOneReminder(row) {
           ? PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
           : null;
         if (from) {
-          const body = `Reminder: ${label} on ${when}. Reply CONFIRM or CANCEL.`.slice(0, 480);
-          await VonageService.sendSms({ to: toPhoneNorm, from, body });
+          const body = `Reminder: ${label} on ${when}. Reply Y to confirm, N to cancel, R to reschedule.`.slice(0, 480);
+          await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, to: toPhoneNorm, from, body });
           await logCommunication({
             appointmentId: appt.id,
             agencyId: appt.agencyId,

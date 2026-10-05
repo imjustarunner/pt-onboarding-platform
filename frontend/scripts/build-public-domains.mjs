@@ -5,17 +5,22 @@ import { ITSCO_PUBLIC_SECTIONS } from '../src/utils/publicDomainRouting.js';
 import { itscoPublicResponse, itscoSitemap, ITSCO_REDIRECTS, ITSCO_ORIGIN } from '../src/utils/itscoPublicSeo.js';
 import { buildShareMeta, injectShareMetaIntoHtml } from '../src/utils/sharePreview.js';
 import {sstcNginxServer} from './build-sstc-website.mjs';
+import { itscoLegalLinks } from '../src/content/itscoLegalDocuments.js';
+import { renderItscoLegalHtml, itscoLegalTypeForPath } from '../src/utils/itscoLegalHtml.js';
+import { tenantLegalProfiles } from '../src/content/tenantLegalProfiles.js';
+import { legalRouteEntries } from '../src/utils/tenantLegalRoutes.js';
 const dist = fileURLToPath(new URL('../dist/', import.meta.url));
 const out = `${dist}/_public-sites/itsco`;
 mkdirSync(out, {recursive:true});
 const shell = readFileSync(`${dist}/index.html`, 'utf8');
 const locations = [];
-for (const section of [...ITSCO_PUBLIC_SECTIONS, 'careers']) {
+for (const section of [...ITSCO_PUBLIC_SECTIONS, 'careers', ...itscoLegalLinks.map(link => link.path.slice(1))]) {
  const path = `/${section}`;
  const page = itscoPublicResponse('www.itsco.health', path);
  const meta = {name:'ITSCO',title:page.title,description:page.description,url:page.canonical,image:buildShareMeta({host:'www.itsco.health',path}).image};
- const html = injectPublicFavicon(injectShareMetaIntoHtml(shell,meta), 'itsco.health').replace('</head>',`<link rel="canonical" href="${page.canonical}"></head>`);
- const file = `${section || 'home'}.html`;
+ const legalType = itscoLegalTypeForPath(path);
+ const html = legalType ? renderItscoLegalHtml(legalType) : injectPublicFavicon(injectShareMetaIntoHtml(shell,meta), 'itsco.health').replace('</head>',`<link rel="canonical" href="${page.canonical}"></head>`);
+ const file = `${(section || 'home').replaceAll('/', '-')}.html`;
  writeFileSync(`${out}/${file}`, html);
  locations.push(`location = ${path} { add_header Cache-Control "no-cache"; ${page.noindex ? 'add_header X-Robots-Tag noindex always;' : ''} ${section === 'providers' ? 'add_header X-Robots-Tag $itsco_filter_robots always;' : ''} try_files /_public-sites/itsco/${file} =404; }`);
 }
@@ -91,9 +96,22 @@ console.log('Prepared ITSCO public-domain HTML metadata, sitemap, and Nginx host
 // Exact website hosts share the built app, with the public history adapter
 // selecting the existing marketing page before the login guard runs.
 const { PUBLIC_SITE_DOMAINS } = await import('../src/utils/publicDomainRouting.js');
+function nativeLegalLocations(profile, canonicalOnly=false) {
+ const folder=`${dist}/_public-sites/${profile.slug}`;
+ mkdirSync(folder,{recursive:true});
+ return legalRouteEntries(profile).filter(entry=>!canonicalOnly||entry.path===entry.canonical).map(entry=>{
+  const filename=`legal-${entry.type}.html`;
+  writeFileSync(`${folder}/${filename}`,renderItscoLegalHtml(entry.type,profile));
+  return entry.path===entry.canonical?`location = ${entry.path} { add_header Cache-Control "no-cache"; try_files /_public-sites/${profile.slug}/${filename} =404; }`:`location = ${entry.path} { return 301 ${profile.origin}${entry.canonical}$is_args$args; }`;
+ }).join('\n');
+}
+// Canonical tenant URLs also work on shared/app hosts without requiring JavaScript.
+writeFileSync(`${dist}/tenant-legal-locations.conf`,Object.values(tenantLegalProfiles).map(profile=>nativeLegalLocations(profile,true)).join('\n'));
 const publicServers = Object.entries(PUBLIC_SITE_DOMAINS).map(([domain, slug]) => {
  mkdirSync(`${dist}/_public-sites/${slug}`, {recursive:true});
  const meta = buildShareMeta({host:domain,path:'/'});
+ const legalProfile=tenantLegalProfiles[slug];
+ const legalLocations=legalProfile?nativeLegalLocations(legalProfile):'';
  writeFileSync(`${dist}/_public-sites/${slug}/home.html`, injectPublicFavicon(injectShareMetaIntoHtml(shell, meta), domain));
  return `
 server {
@@ -108,6 +126,7 @@ server {
  location = /schoolcarebridge/demo/ { absolute_redirect off; return 301 /schoolcarebridge/demo$is_args$args; }
  location = /schoolcarebridge/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
  ${slug === 'mh4kidz' ? 'location = /schoolcarebridge { add_header Cache-Control "no-cache"; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location = /schoolcarebridge/app { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/app/ { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/ { add_header Cache-Control "no-store"; try_files /_public-sites/schoolcarebridge/home.html =404; }' : ''}
+ ${legalLocations}
  location = /login { return 302 https://app.${domain}/login$is_args$args; }
  location = /app { return 302 https://app.${domain}/login$is_args$args; }
  location ~ ^/[^/]+/login$ { return 302 https://app.${domain}/login$is_args$args; }
@@ -121,7 +140,7 @@ server {
 }
 `;}).join('\n');
 writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + publicServers);
-writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + sstcNginxServer());
+writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + sstcNginxServer().replace(' root /usr/share/nginx/html;', ` root /usr/share/nginx/html;\n ${nativeLegalLocations(tenantLegalProfiles.sstc)}`));
 
 // Prepared now; DNS, certificate and load-balancer activation are separate rollout steps.
 mkdirSync(`${dist}/_public-sites/schoolcarebridge`, {recursive:true});
@@ -131,6 +150,7 @@ writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-pub
 server {
  listen 8080;
  server_name schoolcarebridge.org www.schoolcarebridge.org;
+ ${nativeLegalLocations(tenantLegalProfiles.schoolcarebridge)}
  location = /demo/ { absolute_redirect off; return 301 /demo$is_args$args; }
  location = /demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
     location = /auricwell/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex, nofollow" always; add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always; try_files /auricwell-demo.html =404; }

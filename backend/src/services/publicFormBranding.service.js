@@ -110,6 +110,7 @@ export async function buildPublicFormBranding(ctx = {}) {
 
   return {
     brandingAgencyId: brandingOrg?.id || null,
+    legalOrganizationSlug: agency?.slug || agency?.portal_url || portalOrg?.slug || portalOrg?.portal_url || null,
     portalOrganizationId: portalOrg?.id || null,
     agencyName: agency?.official_name || agency?.name || brandingOrg?.name || null,
     organizationName: organization?.official_name || organization?.name || null,

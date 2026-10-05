@@ -129,7 +129,7 @@ const buildDefaultCategories = () => {
 const buildDefaultPreferences = (userRole) => {
   // Defaults per OVERHAUL_PLAN.md (minimal, role-aware)
   // - In-app is always enabled (cannot be disabled)
-  // - Employees/providers default to SMS ON; support staff SMS optional
+  // - SMS defaults off; a phone number or employment is not subscription consent
   const employeeLikeRoles = new Set([
     'staff',
     'provider',
@@ -141,7 +141,7 @@ const buildDefaultPreferences = (userRole) => {
     'clinical_practice_assistant'
   ]);
 
-  const smsDefault = employeeLikeRoles.has(userRole);
+  const smsDefault = false; // Enabling a channel requires affirmative recipient choice.
 
   const base = {
     email_enabled: true,

@@ -10,6 +10,7 @@
     </div>
 
     <div v-else class="content">
+      <SmsCampaignReadiness :agency-id="agencyId" />
       <div v-if="numbers.length === 0" class="card get-started-card">
         <h3>Get started with Vonage</h3>
         <p class="muted">You need Vonage numbers to use SMS. Here's how to set up:</p>
@@ -45,7 +46,6 @@
             <label>Compliance mode</label>
             <select v-model="settings.smsComplianceMode" class="select">
               <option value="opt_in_required">Opt-in required</option>
-              <option value="outreach_allowed">Outreach allowed</option>
             </select>
           </div>
           <div class="form-group">
@@ -487,6 +487,7 @@
 </template>
 
 <script setup>
+import SmsCampaignReadiness from './SmsCampaignReadiness.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAgencyStore } from '../../store/agency';

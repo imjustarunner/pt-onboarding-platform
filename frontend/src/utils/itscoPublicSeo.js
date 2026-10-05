@@ -1,12 +1,16 @@
 import { isItscoPublicHost, cleanItscoPath, internalItscoPath, ITSCO_PUBLIC_SECTIONS } from './publicDomainRouting.js';
+import { itscoLegalDocuments, itscoLegalLinks } from '../content/itscoLegalDocuments.js';
 // Preserve the canonical hostname advertised by the existing Wix site.
 export const ITSCO_ORIGIN = 'https://www.itsco.health';
 export const ITSCO_REDIRECTS = {
   '/all-careers': '/careers', '/jobs': '/careers',
   '/schools-we-are-in': '/schools', '/inofficetherapy': '/services',
-  '/intake': '/join/itsco/counseling', '/privacy-policy': '/itsco/privacypolicy'
+  '/intake': '/join/itsco/counseling', '/privacy-policy': '/itsco/privacypolicy',
+  '/privacy': '/itsco/privacypolicy', '/privacypolicy': '/itsco/privacypolicy',
+  '/terms': '/itsco/terms', '/hipaa': '/itsco/platformhipaa', '/platformhipaa': '/itsco/platformhipaa'
 };
 const titles = {
+  ...Object.fromEntries(itscoLegalLinks.map(link => [link.path.slice(1), itscoLegalDocuments[link.type].title])),
   '': 'ITSCO | Counseling in Colorado Springs and Denver',
   services: 'Counseling Services | ITSCO', providers: 'Find a Counselor | ITSCO',
   schools: 'School-Based Counseling | ITSCO', about: 'About ITSCO',
@@ -37,15 +41,15 @@ export function itscoPublicResponse(host, originalUrl) {
     internalPath: internalItscoPath(clean),
     canonical: `${ITSCO_ORIGIN}${clean}`,
     title: titles[section] || (functional ? 'ITSCO' : 'Page not found | ITSCO'),
-    description: section === 'careers'
+    description: itscoLegalDocuments[itscoLegalLinks.find(link => link.path === clean)?.type]?.intro || (section === 'careers'
       ? 'Explore open positions at ITSCO and join our counseling and support team.'
-      : `Explore ${section ? section.replace(/-/g, ' ') : 'counseling and mental health support'} with ITSCO for children, teens, adults, families, and school communities in Colorado.`,
+      : `Explore ${section ? section.replace(/-/g, ' ') : 'counseling and mental health support'} with ITSCO for children, teens, adults, families, and school communities in Colorado.`),
     noindex: !indexable || url.searchParams.has('provider') || url.searchParams.has('school')
   };
 }
 export function itscoSitemap() {
   return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
-    [...ITSCO_PUBLIC_SECTIONS, 'careers'].filter(s=>s!=='live-chat-support').map(s => `<url><loc>${ITSCO_ORIGIN}/${s}</loc></url>`).join('') + '</urlset>';
+    [...ITSCO_PUBLIC_SECTIONS, 'careers', ...itscoLegalLinks.map(link => link.path.slice(1))].filter(s=>s!=='live-chat-support').map(s => `<url><loc>${ITSCO_ORIGIN}/${s}</loc></url>`).join('') + '</urlset>';
 }
 
 /** Keep metadata accurate after SPA navigation as well as a direct page load. */

@@ -7,6 +7,8 @@ import PhoneNumberAssignment from '../models/PhoneNumberAssignment.model.js';
 import PhoneNumberRule from '../models/PhoneNumberRule.model.js';
 import SmsOptInState from '../models/SmsOptInState.model.js';
 import VonageService from '../services/vonage.service.js';
+import { saveSmsRegistration, enrollSmsRecipient } from '../services/smsEnrollment.service.js';
+import { getSmsSender, recordSmsPermission } from '../services/smsCompliance.service.js';
 import { resolveOutboundNumber, resolveReminderNumber } from '../services/communicationRouting.service.js';
 import { getProviderUsage, checkUsageThresholds } from '../services/usageMonitoring.service.js';
 
@@ -23,6 +25,52 @@ const parseFeatureFlags = (raw) => {
 const normalizeUrl = (value) => {
   const v = String(value || '').trim();
   return v || null;
+};
+
+export const getAgencySmsRegistrations = async (req, res, next) => {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT n.id AS numberId, n.phone_number AS phoneNumber, r.registration_json AS registration
+       FROM twilio_numbers n LEFT JOIN sms_sender_registrations r ON r.number_id = n.id
+       WHERE n.agency_id = ? AND n.is_active = TRUE`, [Number(req.params.agencyId)]
+    );
+    res.json(rows.map((r) => ({ ...r, registration: typeof r.registration === 'string' ? JSON.parse(r.registration) : r.registration })));
+  } catch (error) { next(error); }
+};
+
+export const saveAgencySmsRegistration = async (req, res, next) => {
+  try {
+    if (req.user?.role !== 'super_admin') return res.status(403).json({ error: { message: 'Carrier registration requires a platform administrator.' } });
+    const number = await PhoneNumber.findById(Number(req.body?.numberId));
+    if (!number || Number(number.agency_id) !== Number(req.params.agencyId)) return res.status(404).json({ error: { message: 'Number not found in this agency' } });
+    await saveSmsRegistration({ numberId: number.id, registration: req.body.registration, actorUserId: req.user.id });
+    res.json({ saved: true });
+  } catch (error) { next(error); }
+};
+
+export const recordAgencySmsConsent = async (req, res, next) => {
+  try {
+    const number = await PhoneNumber.findById(Number(req.body?.numberId));
+    if (!number || Number(number.agency_id) !== Number(req.params.agencyId)) return res.status(404).json({ error: { message: 'Number not found in this agency' } });
+    const { phone, purpose, status, evidence } = req.body || {};
+    const result = await enrollSmsRecipient({ from: number.phone_number, phone, purpose, status, evidence,
+      actorUserId: req.user.id, sendConfirmation: (message) => VonageService.sendSms(message) });
+    res.json(result);
+  } catch (error) { next(error); }
+};
+
+export const sendAgencyMarketingSms = async (req, res, next) => {
+  try {
+    const number = await PhoneNumber.findById(Number(req.body?.numberId));
+    if (!number || Number(number.agency_id) !== Number(req.params.agencyId)) return res.status(404).json({ error: { message: 'Number not found in this agency' } });
+    const body = String(req.body?.body || '').trim();
+    if (!body || body.length > 1000) return res.status(400).json({ error: { message: 'Enter a promotional message of 1–1,000 characters' } });
+    const result = await VonageService.sendSms({ purpose: 'marketing', agencyId: Number(req.params.agencyId), from: number.phone_number, to: req.body.phone, body });
+    const { logAuditEvent } = await import('../services/auditEvent.service.js');
+    await logAuditEvent(req, { actionType: 'sms_marketing_sent', agencyId: Number(req.params.agencyId), userId: req.user.id,
+      metadata: { numberId: number.id, providerMessageId: result.sid } });
+    res.json({ accepted: true, providerMessageId: result.sid });
+  } catch (error) { next(error); }
 };
 
 async function assertNumberAccess(req, numberId, { requireAdmin = false } = {}) {
@@ -76,7 +124,7 @@ export const getAgencySmsSettings = async (req, res, next) => {
     res.json({
       agencyId,
       smsNumbersEnabled: flags.smsNumbersEnabled === true,
-      smsComplianceMode: flags.smsComplianceMode || 'opt_in_required',
+      smsComplianceMode: 'opt_in_required',
       smsReminderSenderMode: flags.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: flags.smsDefaultUserId || null,
       companyEventsEnabled: flags.companyEventsEnabled === true,
@@ -123,7 +171,10 @@ export const updateAgencySmsSettings = async (req, res, next) => {
       smsUnansweredAutoReplyMessage
     } = req.body || {};
     if (smsNumbersEnabled != null) flags.smsNumbersEnabled = !!smsNumbersEnabled;
-    if (smsComplianceMode) flags.smsComplianceMode = String(smsComplianceMode);
+    if (smsComplianceMode && smsComplianceMode !== 'opt_in_required') {
+      return res.status(400).json({ error: { message: 'SMS consent is required for every sending path.' } });
+    }
+    flags.smsComplianceMode = 'opt_in_required';
     if (smsReminderSenderMode) flags.smsReminderSenderMode = String(smsReminderSenderMode);
     if (smsDefaultUserId !== undefined) flags.smsDefaultUserId = smsDefaultUserId ? Number(smsDefaultUserId) : null;
     if (companyEventsEnabled !== undefined) flags.companyEventsEnabled = !!companyEventsEnabled;
@@ -181,7 +232,7 @@ export const updateAgencySmsSettings = async (req, res, next) => {
     res.json({
       agencyId,
       smsNumbersEnabled: flags.smsNumbersEnabled === true,
-      smsComplianceMode: flags.smsComplianceMode || 'opt_in_required',
+      smsComplianceMode: 'opt_in_required',
       smsReminderSenderMode: flags.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: flags.smsDefaultUserId || null,
       companyEventsEnabled: flags.companyEventsEnabled === true,
@@ -601,7 +652,10 @@ export const updateClientConsentState = async (req, res, next) => {
     if (!['opted_in', 'opted_out', 'pending'].includes(status)) {
       return res.status(400).json({ error: { message: 'status must be opted_in, opted_out, or pending' } });
     }
-    const client = await Client.findById(clientId, { includeSensitive: false });
+    if (status !== 'opted_out') {
+      return res.status(409).json({ error: { message: 'Use Texting Numbers → Campaign registration and consent to record purpose-specific consent and evidence. A manual toggle cannot subscribe a recipient.' } });
+    }
+    const client = await Client.findById(clientId, { includeSensitive: true });
     if (!client) return res.status(404).json({ error: { message: 'Client not found' } });
     const number = await PhoneNumber.findById(numberId);
     if (!number || Number(number.agency_id) !== Number(client.agency_id)) {
@@ -622,6 +676,9 @@ export const updateClientConsentState = async (req, res, next) => {
       }
     }
 
+    const sender = await getSmsSender(number.phone_number);
+    await recordSmsPermission({ scope: sender.scope, phone: client.contact_phone,
+      purpose: 'suppression', status: 'opted_out', evidence: { source: 'staff_recorded_opt_out', actorUserId: req.user.id } });
     const updated = await SmsOptInState.upsert({
       agencyId: client.agency_id,
       clientId,

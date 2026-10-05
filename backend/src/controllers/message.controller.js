@@ -424,20 +424,8 @@ export const sendMessage = async (req, res, next) => {
     // Compliance: opt-in/opt-out handling per agency feature flags.
     const agency = targetAgencyId ? await Agency.findById(targetAgencyId) : null;
     const flags = parseFeatureFlags(agency?.feature_flags);
-    const complianceMode = String(flags.smsComplianceMode || 'opt_in_required');
-    if (numberId && cid) {
-      const optState = await SmsOptInState.findByClientNumber({ clientId: cid, numberId });
-      const optStatus = optState?.status || 'pending';
-      if (optStatus === 'opted_out') {
-        return res.status(403).json({ error: { message: 'Client has opted out of SMS' } });
-      }
-      if (complianceMode === 'opt_in_required' && optStatus !== 'opted_in') {
-        return res.status(403).json({ error: { message: 'Client has not opted in to SMS yet' } });
-      }
-    }
+    // Phone- and campaign-scoped consent is enforced by VonageService for every send.
 
-    // Gatekeeper integration: this is about after-hours *notifications* to user.
-    // For outbound SMS to clients, we still allow sending. But we tag metadata with quiet-hours state for analytics.
     const decision = await NotificationGatekeeperService.decideChannels({
       userId: uid,
       context: { severity: 'info' }
@@ -463,7 +451,7 @@ export const sendMessage = async (req, res, next) => {
     });
 
     try {
-      const msg = await VonageService.sendSms({
+      const msg = await VonageService.sendSms({ purpose: 'care', agencyId: targetAgencyId,
         to: MessageLog.normalizePhone(targetPhone) || targetPhone,
         from: MessageLog.normalizePhone(fromNumber) || fromNumber,
         body: body || '',
@@ -679,7 +667,7 @@ export const forwardToSupport = async (req, res, next) => {
       try {
         const body = `Forwarded to Support by ${req.user.first_name || 'Provider'}: ${message || '(No note)'}. Client ${client.initials || '#' + cid} thread escalated. Ticket #${ticketId || 'n/a'}.`;
         const from = inboundLog ? (MessageLog.normalizePhone(inboundLog.to_number) || inboundLog.to_number) : supportPhone;
-        await VonageService.sendSms({ to: supportPhone, from, body });
+        await VonageService.sendSms({ purpose: 'workforce', to: supportPhone, from, body });
       } catch {
         // Ticket + care state are the primary path; SMS notify is best-effort.
       }

@@ -1949,6 +1949,7 @@
         <DashboardMeetings v-if="authStore.isAuthenticated && /dashboard/i.test(route.path)" />
         <SchoolCareBridgeBrand v-if="route.path.startsWith('/schoolcarebridge/app/') && !route.meta.schoolCareBridgeEntry && route.name !== 'SchoolCareBridgeOperations'" style="margin: 10px auto" />
         <router-view :key="route.path" />
+        <TenantLegalFooter v-if="route.meta?.publicMarketingHub" />
       </main>
       <PublicTranslateWidget v-if="showPublicTranslateWidget" />
       <PublicWebsiteEditorBar v-if="route.meta?.publicMarketingHub" />
@@ -2315,6 +2316,7 @@ import { isChatSideRailEnabled } from './utils/chatSideRail.js';
 import BrandingProvider from './components/BrandingProvider.vue';
 import BrandingLogo from './components/BrandingLogo.vue';
 import PoweredByFooter from './components/PoweredByFooter.vue';
+import TenantLegalFooter from './components/legal/TenantLegalFooter.vue';
 import TourManager from './components/TourManager.vue';
 import SuperAdminBuilderPanel from './components/SuperAdminBuilderPanel.vue';
 import HelperWidget from './components/HelperWidget.vue';

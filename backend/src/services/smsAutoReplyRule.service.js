@@ -73,7 +73,7 @@ class SmsAutoReplyRuleService {
           metadata: { forwardOffer: true, provider: 'vonage', triggerInboundId: row.id }
         });
 
-        const msg = await VonageService.sendSms({ to, from, body });
+        const msg = await VonageService.sendSms({ purpose: 'care', to, from, body });
         await MessageLog.markSent(outboundLog.id, msg.sid, { forwardOffer: true, provider: 'vonage', status: msg.status });
       } catch (e) {
         console.warn('[SmsAutoReplyRuleService] failed to send auto-reply:', e.message);
@@ -250,7 +250,7 @@ Suggestions:`;
             // Send digest via SMS from agency main number or their primary
             const { number: from } = await resolveOutboundNumber({ userId: p.id });
             if (from) {
-              await VonageService.sendSms({ to: p.phone, from, body });
+              await VonageService.sendSms({ purpose: 'workforce', to: p.phone, from: from.phone_number, body });
               console.log(`[OooDigest] Sent digest to ${p.id} (${p.phone}): ${count} messages`);
             }
           }

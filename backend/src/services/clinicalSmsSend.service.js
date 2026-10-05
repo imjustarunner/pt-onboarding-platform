@@ -147,19 +147,7 @@ export async function sendClinicalSms({
   const ownerType = resolved?.ownerType || (resolved?.number ? 'agency' : 'staff');
   const assignedUserId = resolved?.assignment?.user_id || uid;
 
-  const agency = targetAgencyId ? await Agency.findById(targetAgencyId) : null;
-  const flags = parseFeatureFlags(agency?.feature_flags);
-  const complianceMode = String(flags.smsComplianceMode || 'opt_in_required');
-  if (resolvedNumberId && cid) {
-    const optState = await SmsOptInState.findByClientNumber({ clientId: cid, numberId: resolvedNumberId });
-    const optStatus = optState?.status || 'pending';
-    if (optStatus === 'opted_out') {
-      throw Object.assign(new Error('Client has opted out of SMS'), { status: 403 });
-    }
-    if (complianceMode === 'opt_in_required' && optStatus !== 'opted_in') {
-      throw Object.assign(new Error('Client has not opted in to SMS yet'), { status: 403 });
-    }
-  }
+  // Phone- and campaign-scoped consent is enforced by VonageService for every send.
 
   const decision = await NotificationGatekeeperService.decideChannels({
     userId: uid,
@@ -186,7 +174,7 @@ export async function sendClinicalSms({
   });
 
   try {
-    const msg = await VonageService.sendSms({
+    const msg = await VonageService.sendSms({ purpose: 'care', agencyId: targetAgencyId,
       to: MessageLog.normalizePhone(targetPhone) || targetPhone,
       from: MessageLog.normalizePhone(fromNumber) || fromNumber,
       body: text || '',

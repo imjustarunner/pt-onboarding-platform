@@ -1,4 +1,5 @@
 import { Vonage } from '@vonage/server-sdk';
+import { prepareSmsDelivery } from './smsCompliance.service.js';
 
 class VonageService {
   static getClient() {
@@ -23,13 +24,9 @@ class VonageService {
     return new Vonage(config);
   }
 
-  static async sendSms({ to, from, body, mediaUrl = null }) {
+  static async sendSms(options) {
+    const { to, from, body } = await prepareSmsDelivery(options);
     const vonage = this.getClient();
-    // Vonage SMS API does not support MMS for US numbers via the SMS API.
-    // mediaUrl is accepted for interface compatibility but not transmitted.
-    if (mediaUrl) {
-      console.warn('[VonageService] sendSms: mediaUrl provided but Vonage SMS API does not support MMS. Text-only message will be sent.');
-    }
     const result = await vonage.sms.send({ to, from, text: body });
     const msg = result?.messages?.[0];
     if (!msg || String(msg.status) !== '0') {
@@ -144,11 +141,15 @@ class VonageService {
 
   /**
    * Validate an inbound Vonage webhook signature.
-   * Vonage signs requests using HMAC-MD5 over sorted params with VONAGE_SIGNATURE_SECRET.
+   * Use the SMS API signing algorithm configured on the Vonage account.
    */
   static validateWebhook({ params, signature }) {
     const vonage = this.getClient();
-    return vonage.sms.verifySignature(params, signature, process.env.VONAGE_SIGNATURE_SECRET || '');
+    const secret = process.env.VONAGE_SIGNATURE_SECRET;
+    if (!secret) return false;
+    const algorithm = String(process.env.VONAGE_SIGNATURE_ALGORITHM || 'MD5HASH').toUpperCase();
+    const normalized = Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)]));
+    return vonage.sms.verifySignature(signature, normalized, secret, algorithm);
   }
 
   /**

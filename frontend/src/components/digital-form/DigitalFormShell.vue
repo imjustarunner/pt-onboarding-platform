@@ -245,7 +245,7 @@
     <footer v-if="scenicSidebarUrl && !embedded && resolvedTrustItems.length" class="df-entry-trust" aria-label="Information and support">
       <span v-for="item in resolvedTrustItems" :key="item.label"><PublicEntryIcon :name="item.icon" />{{ item.label }}</span>
     </footer>
-    <PublicEntryLegalFooter v-if="scenicSidebarUrl && !embedded" :language="language" />
+    <PublicEntryLegalFooter v-if="scenicSidebarUrl && !embedded" :language="language" :organization-slug="branding?.legalOrganizationSlug || branding?.slug || branding?.portalUrl || ''" />
   </div>
 </template>
 

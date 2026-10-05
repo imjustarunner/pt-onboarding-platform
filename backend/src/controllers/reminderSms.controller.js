@@ -85,7 +85,7 @@ export const sendReminderSms = async (req, res, next) => {
     }
 
     try {
-      const msg = await VonageService.sendSms({ to, from, body: truncated });
+      const msg = await VonageService.sendSms({ purpose: 'workforce', agencyId: agencyId, to, from, body: truncated });
       await NotificationSmsLog.updateStatus(log.id, { status: 'sent', providerRef: msg.sid });
       if (comm?.id) {
         await UserCommunication.updateDeliveryStatus(comm.id, 'sent', msg?.sid || null);

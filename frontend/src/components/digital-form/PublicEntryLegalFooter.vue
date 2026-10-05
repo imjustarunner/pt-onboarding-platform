@@ -1,16 +1,19 @@
 <template>
   <nav class="entry-legal" :aria-label="spanish ? 'Información legal' : 'Legal information'">
-    <a v-for="link in links" :key="link.path" :href="`https://plottwisthq.com/${link.path}`" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>
+    <a v-for="link in links" :key="link.path" :href="`${origin}/${link.path}`" target="_blank" rel="noopener noreferrer">{{ link.label }}</a>
   </nav>
 </template>
 <script setup>
 import { computed } from 'vue';
-const props = defineProps({ language: { type: String, default: 'en' } });
+import { legalProfileForContext, tenantLegalProfiles, canonicalLegalSlug } from '../../content/tenantLegalProfiles.js';
+const props = defineProps({ language: { type: String, default: 'en' }, organizationSlug: { type: String, default: '' } });
+const profile = computed(() => legalProfileForContext({host: typeof window === 'undefined' ? '' : window.location.hostname, organizationSlug: props.organizationSlug}));
+const origin = computed(() => profile.value ? `${profile.value.origin}/${profile.value.slug}` : props.organizationSlug ? `https://plottwisthq.com/${encodeURIComponent(canonicalLegalSlug(props.organizationSlug))}` : `${tenantLegalProfiles.ptco.origin}/ptco`);
 const spanish = computed(() => props.language.toLowerCase().startsWith('es'));
 const links = computed(() => [
   { path: 'terms', label: spanish.value ? 'Términos y condiciones' : 'Terms & Conditions' },
   { path: 'privacypolicy', label: spanish.value ? 'Política de privacidad' : 'Privacy Policy' },
-  { path: 'platformhipaa', label: 'HIPAA' }
+  { path: 'platformhipaa', label: profile.value?.kind === 'healthcare' ? (spanish.value ? 'Aviso de privacidad HIPAA (inglés)' : 'HIPAA Privacy Notice') : (spanish.value ? 'Información de salud y privacidad (inglés)' : 'Health Information & Privacy') }
 ]);
 </script>
 <style scoped>

@@ -24,6 +24,8 @@ import NotificationGatekeeperService from '../services/notificationGatekeeper.se
 import VonageService from '../services/vonage.service.js';
 import PhoneNumberRule from '../models/PhoneNumberRule.model.js';
 import SmsOptInState from '../models/SmsOptInState.model.js';
+import { processSmsKeyword, recordInboundConversation } from '../services/smsCompliance.service.js';
+import { parseSmsKeyword as parseInboundKeyword } from '../utils/smsCompliancePolicy.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 import Agency from '../models/Agency.model.js';
 import { resolveInboundRoute } from '../services/communicationRouting.service.js';
@@ -46,22 +48,7 @@ function parseFeatureFlags(raw) {
   try { return JSON.parse(raw) || {}; } catch { return {}; }
 }
 
-function parseInboundKeyword(body) {
-  const msg = String(body || '').trim().toUpperCase();
-  if (!msg) return null;
-  if (['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END'].includes(msg)) return 'STOP';
-  if (['START', 'UNSTOP', 'YES'].includes(msg)) return 'START';
-  if (['HELP', 'INFO'].includes(msg)) return 'HELP';
-  return null;
-}
-
-async function getRuleMessage(numberId, ruleType, fallbackMessage) {
-  if (!numberId) return fallbackMessage;
-  const rule = await PhoneNumberRule.getActiveRule(numberId, ruleType);
-  return rule?.auto_reply_text || fallbackMessage;
-}
-
-async function forwardEmergency({ numberId, agencyId, body, fromNumber }) {
+async function forwardEmergency({ numberId, agencyId, body, fromNumber, sendingNumber }) {
   if (!numberId) return;
   const rule = await PhoneNumberRule.getActiveRule(numberId, 'emergency_forward');
   if (!rule || rule.enabled === 0) return;
@@ -86,9 +73,9 @@ async function forwardEmergency({ numberId, agencyId, body, fromNumber }) {
   }
   if (rule.forward_to_phone) {
     try {
-      await VonageService.sendSms({
+      await VonageService.sendSms({ purpose: 'workforce',
         to: MessageLog.normalizePhone(rule.forward_to_phone) || rule.forward_to_phone,
-        from: MessageLog.normalizePhone(fromNumber) || fromNumber,
+        from: sendingNumber,
         body
       });
     } catch (e) {
@@ -116,14 +103,14 @@ async function forwardInboundToUser({ number, body, from, userId }) {
   if (!toRaw) return;
   const to = MessageLog.normalizePhone(toRaw) || toRaw;
   const fromNum = MessageLog.normalizePhone(number?.phone_number) || number?.phone_number || from;
-  await VonageService.sendSms({ to, from: fromNum, body });
+  await VonageService.sendSms({ purpose: 'workforce', to, from: fromNum, body });
 }
 
 async function forwardInboundToPhone({ number, body, from, phone }) {
   if (!phone) return;
   const to = MessageLog.normalizePhone(phone) || phone;
   const fromNum = MessageLog.normalizePhone(number?.phone_number) || number?.phone_number || from;
-  await VonageService.sendSms({ to, from: fromNum, body });
+  await VonageService.sendSms({ purpose: 'workforce', to, from: fromNum, body });
 }
 
 async function listSupportStaffIdsForAgency(agencyId) {
@@ -165,6 +152,15 @@ export const inboundSmsWebhook = async (req, res, next) => {
       }
     }
 
+    // Control keywords must win over events, appointments, care routing and forwarding.
+    // This also handles staff, contacts and unknown clients on notification numbers.
+    if (await processSmsKeyword({ from: fromNorm, to: toNorm, body, messageId,
+      sendReply: (options) => VonageService.sendSms(options) })) {
+      return res.status(200).json({ ok: true });
+    }
+
+    await recordInboundConversation({ from: fromNorm, to: toNorm, messageId });
+
     const companyEventHandled = await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body });
     if (companyEventHandled?.handled) {
       return res.status(200).json({ ok: true, message: companyEventHandled.responseMessage || 'Thanks!' });
@@ -194,7 +190,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
           });
           if (apptReply?.ackMessage) {
             try {
-              await VonageService.sendSms({
+              await VonageService.sendSms({ purpose: 'care',
                 to: fromNorm,
                 from: toNorm,
                 body: String(apptReply.ackMessage).slice(0, 480)
@@ -249,7 +245,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
           channel: 'sms'
         });
         if (apptReply && !apptReply.fallThroughToInbox && apptReply.ackMessage) {
-          await VonageService.sendSms({
+          await VonageService.sendSms({ purpose: 'care',
             to: fromNorm,
             from: toNorm,
             body: String(apptReply.ackMessage).slice(0, 480)
@@ -267,7 +263,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
           appointmentReplyContext = apptReply;
           if (apptReply.ackMessage) {
             try {
-              await VonageService.sendSms({
+              await VonageService.sendSms({ purpose: 'care',
                 to: fromNorm,
                 from: toNorm,
                 body: String(apptReply.ackMessage).slice(0, 480)
@@ -292,7 +288,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
         numberId
       });
       if (handled) {
-        await VonageService.sendSms({
+        await VonageService.sendSms({ purpose: 'care',
           to: fromNorm,
           from: toNorm,
           body: "Your request has been received. A support representative will be in touch shortly."
@@ -302,13 +298,8 @@ export const inboundSmsWebhook = async (req, res, next) => {
     }
 
     const keyword = parseInboundKeyword(body);
-    if (numberId && clientId && keyword === 'STOP') {
-      await SmsOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_out', source: 'client_stop' });
-    } else if (numberId && clientId && keyword === 'START') {
-      await SmsOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_in', source: 'client_start' });
-    } else if (numberId && clientId) {
-      await SmsOptInState.upsert({ agencyId, clientId, numberId, status: 'opted_in', source: 'inbound_message' });
-    }
+    // An ordinary inbound message is not recurring or marketing consent and must
+    // never overwrite STOP. Recipient permissions are managed by the shared gate.
 
     const metadata = { provider: 'vonage', numberId };
     if (mediaUrls.length > 0) metadata.media_urls = mediaUrls;
@@ -414,7 +405,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
             metadata: { vacationReply: true, provider: 'vonage', triggerInboundId: inboundLog?.id }
           });
 
-          const msg = await VonageService.sendSms({ to, from, body });
+          const msg = await VonageService.sendSms({ purpose: 'care', to, from, body });
           await MessageLog.markSent(outboundLog.id, msg.sid, { vacationReply: true, provider: 'vonage', status: msg.status });
         } catch (e) {
           console.warn('[VonageWebhook] Vacation SMS reply failed:', e.message);
@@ -429,7 +420,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
       if (mirrorEnabled && supportPhone && clientId && (number?.phone_number || ownerUser?.system_phone_number)) {
         try {
           const supportBody = `Support mirror: inbound text from ${client?.initials || `client #${clientId || 'unknown'}`}. Message: "${String(body || '').slice(0, 180)}"`;
-          await VonageService.sendSms({
+          await VonageService.sendSms({ purpose: 'workforce',
             to: supportPhone,
             from: MessageLog.normalizePhone(number?.phone_number || ownerUser.system_phone_number) || number?.phone_number || ownerUser.system_phone_number,
             body: supportBody
@@ -448,63 +439,6 @@ export const inboundSmsWebhook = async (req, res, next) => {
           console.warn('[VonageWebhook] Support mirror SMS failed:', e.message);
         }
       }
-    }
-
-    if (keyword === 'STOP' && numberId && clientId) {
-      await logAuditEvent(req, {
-        actionType: 'sms_opt_out', agencyId,
-        userId: ownerUser?.id || assignedUserId || null,
-        metadata: { clientId, numberId, messageLogId: inboundLog?.id || null }
-      });
-      const msg = await getRuleMessage(
-        numberId,
-        'opt_out',
-        'You have been opted out. No further messages will be sent. Text START to opt in again. Message and data rates may apply.'
-      );
-      // Vonage does not need TwiML; send reply programmatically if needed.
-      if (number?.phone_number && fromNorm) {
-        try {
-          await VonageService.sendSms({ to: fromNorm, from: toNorm, body: msg });
-        } catch (e) {
-          console.warn('[VonageWebhook] STOP reply failed:', e.message);
-        }
-      }
-      return res.status(200).json({ ok: true });
-    }
-    if (keyword === 'START' && numberId && clientId) {
-      await logAuditEvent(req, {
-        actionType: 'sms_opt_in', agencyId,
-        userId: ownerUser?.id || assignedUserId || null,
-        metadata: { clientId, numberId, messageLogId: inboundLog?.id || null }
-      });
-      const msg = await getRuleMessage(
-        numberId,
-        'opt_in',
-        'You are opted in. Message and data rates may apply. Message frequency varies. Text HELP for help. Text STOP to opt-out. Carriers are not liable for delayed or undelivered messages.'
-      );
-      if (number?.phone_number && fromNorm) {
-        try {
-          await VonageService.sendSms({ to: fromNorm, from: toNorm, body: msg });
-        } catch (e) {
-          console.warn('[VonageWebhook] START reply failed:', e.message);
-        }
-      }
-      return res.status(200).json({ ok: true });
-    }
-    if (keyword === 'HELP' && numberId) {
-      const msg = await getRuleMessage(
-        numberId,
-        'help',
-        'Text HELP for help. Text STOP to opt-out. Message and data rates may apply. Message frequency varies.'
-      );
-      if (number?.phone_number && fromNorm) {
-        try {
-          await VonageService.sendSms({ to: fromNorm, from: toNorm, body: msg });
-        } catch (e) {
-          console.warn('[VonageWebhook] HELP reply failed:', e.message);
-        }
-      }
-      return res.status(200).json({ ok: true });
     }
 
     if (numberId && !keyword) {
@@ -664,7 +598,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
                 metadata: { autoReply: true, provider: 'vonage', numberId }
               });
 
-              const msg = await VonageService.sendSms({
+              const msg = await VonageService.sendSms({ purpose: 'care',
                 to: MessageLog.normalizePhone(fromNorm) || fromNorm,
                 from: MessageLog.normalizePhone(number?.phone_number || ownerUser.system_phone_number) || number?.phone_number || ownerUser.system_phone_number,
                 body: autoReplyMessage
@@ -694,7 +628,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
       }
     }
 
-    await forwardEmergency({ numberId, agencyId, body, fromNumber: fromNorm });
+    await forwardEmergency({ numberId, agencyId, body, fromNumber: fromNorm, sendingNumber: toNorm });
 
     res.status(200).json({ ok: true });
   } catch (e) {

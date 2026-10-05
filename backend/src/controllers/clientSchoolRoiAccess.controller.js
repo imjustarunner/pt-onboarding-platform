@@ -932,22 +932,11 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
     const numberId = Number(senderNumber.id || 0) || null;
     const agency = client.agency_id ? await Agency.findById(client.agency_id) : null;
     const flags = parseFeatureFlags(agency?.feature_flags);
-    const complianceMode = String(flags.smsComplianceMode || 'opt_in_required');
-    if (numberId && client?.id) {
-      const optState = await SmsOptInState.findByClientNumber({ clientId: client.id, numberId });
-      const optStatus = optState?.status || 'pending';
-      if (optStatus === 'opted_out') {
-        return res.status(403).json({ error: { message: 'Client has opted out of SMS' } });
-      }
-      if (complianceMode === 'opt_in_required' && optStatus !== 'opted_in') {
-        return res.status(403).json({ error: { message: 'Client has not opted in to SMS yet' } });
-      }
-    }
+    // Phone- and campaign-scoped consent is enforced by VonageService for every send.
 
     const linkUrl = buildShortPublicIntakeUrl(issuedResult.issuedLink?.public_key || '');
     const defaultBody = buildDefaultRoiSmsMessage({
-      agencyName: client.agency_name || agency?.name || 'our agency',
-      linkUrl
+      agencyName: client.agency_name || agency?.name || 'our agency', linkUrl
     });
     const requestedBody = String(req.body?.message || '').trim();
     const body = ensureRoiSmsBodyHasLink(requestedBody || defaultBody, linkUrl).slice(0, 480);
@@ -972,7 +961,7 @@ export const sendClientSchoolRoiSigningText = async (req, res, next) => {
     });
 
     try {
-      const msg = await VonageService.sendSms({
+      const msg = await VonageService.sendSms({ purpose: 'care', agencyId: client.agency_id,
         to: normalizedPhone,
         from: PhoneNumber.normalizePhone(fromNumber) || fromNumber,
         body

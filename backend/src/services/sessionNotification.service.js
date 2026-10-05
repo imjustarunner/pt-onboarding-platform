@@ -988,7 +988,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
           results.skipped += 1;
           continue;
         }
-        await VonageService.sendSms({ to: toPhoneNorm, from, body: body.slice(0, 480) });
+        await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, to: toPhoneNorm, from, body: body.slice(0, 480) });
         await pool.execute(
           `UPDATE appointment_reminders SET status = 'sent', sent_at = NOW() WHERE id = ?`,
           [row.id]
@@ -1010,7 +1010,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
             if (!c.sms_reminders_enabled || !c.sms_opt_in || !c.contact_phone) continue;
             const toC = PhoneNumber.normalizePhone(c.contact_phone);
             if (!toC || !from) continue;
-            await VonageService.sendSms({ to: toC, from, body: body.slice(0, 480) });
+            await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, to: toC, from, body: body.slice(0, 480) });
             await logCommunication({
               appointmentId: appt.id,
               agencyId: appt.agencyId,
@@ -1404,7 +1404,7 @@ async function processChangeNotificationRow(queueId) {
         const from = resolved?.number?.phone_number
           ? PhoneNumber.normalizePhone(resolved.number.phone_number)
           : null;
-        if (from) await VonageService.sendSms({ to, from, body: body.slice(0, 480) });
+        if (from) await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, to, from, body: body.slice(0, 480) });
       } catch { /* continue */ }
     }
     if (ch === 'in_app') await sendInAppIfPossible(appt, body);

@@ -34,6 +34,7 @@ import { computed } from 'vue';
 import { useBrandingStore } from '../store/branding';
 import { toUploadsUrl } from '../utils/uploadsUrl';
 import { useSummitStatsChallengeChrome } from '../composables/useSummitStatsChallengeChrome';
+import { legalProfileForContext, tenantLegalProfiles, tenantLegalLinks } from '../content/tenantLegalProfiles.js';
 
 const props = defineProps({
   /** Compact layout for public marketing hub / embedded footers */
@@ -97,21 +98,12 @@ const parsedSscFooterLinks = computed(() =>
   parseSscFooterLinksJson(brandingStore.platformBranding?.summit_stats_footer_links_json)
 );
 
-const platformHipaaRoute = computed(() => {
-  const raw = String(brandingStore.platformBranding?.platform_hipaa_url || '').trim();
-  return raw ? '/platformhipaa' : null;
-});
-
 const defaultLegalLinks = computed(() => {
-  const rows = [
-    { label: 'Privacy Policy', href: '/privacypolicy' },
-    { label: 'Terms', href: '/terms' },
-    { label: 'Public Proof', href: '/publicproof' }
-  ];
-  if (platformHipaaRoute.value) {
-    rows.push({ label: 'Platform HIPAA', href: '/platformhipaa' });
-  }
-  return rows;
+  const slug=brandingStore.activeRouteSlug || brandingStore.portalHostPortalUrl || '';
+  const profile=legalProfileForContext({host:typeof window==='undefined'?'':window.location.hostname,organizationSlug:slug});
+  if(profile)return tenantLegalLinks(profile).map(link=>({label:link.label,href:profile.origin+link.path}));
+  if(slug)return [{label:'Privacy Policy',href:`/${encodeURIComponent(slug)}/privacypolicy`},{label:'Terms & SMS',href:`/${encodeURIComponent(slug)}/terms`},{label:'Health Information & Privacy',href:`/${encodeURIComponent(slug)}/platformhipaa`}];
+  return tenantLegalLinks(tenantLegalProfiles.ptco).map(link=>({label:link.label,href:tenantLegalProfiles.ptco.origin+link.path}));
 });
 
 function normalizeCustomLegalLinks(raw) {
@@ -290,4 +282,3 @@ const handleLogoError = (event) => {
   font-size: 11px;
 }
 </style>
-

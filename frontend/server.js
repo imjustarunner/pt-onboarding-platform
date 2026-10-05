@@ -9,6 +9,8 @@ import { buildShareMeta, injectShareMetaIntoHtml } from './src/utils/sharePrevie
 import { isItscoPublicHost } from './src/utils/publicDomainRouting.js';
 import {isSstcPublicHost, sstcMarketingPage} from './src/sstc/website/routing.mjs';
 import { itscoPublicResponse, itscoSitemap, ITSCO_ORIGIN } from './src/utils/itscoPublicSeo.js';
+import { renderItscoLegalHtml, itscoLegalTypeForPath } from './src/utils/itscoLegalHtml.js';
+import { tenantLegalRequest } from './src/utils/tenantLegalRoutes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -92,6 +94,13 @@ if (existsSync(distPath)) {
 }
 
 // Exact public hosts only: never apply website redirects to app or Quick View.
+app.use((req,res,next)=>{
+  if(isItscoPublicHost(req.headers.host))return next();
+  const legal=tenantLegalRequest(req.headers.host,req.originalUrl);
+  if(!legal)return next();
+  if(legal.redirect)return res.redirect(301,legal.redirect);
+  return res.set('Cache-Control','no-cache').type('html').send(renderItscoLegalHtml(legal.type,legal.profile));
+});
 app.use((req, res, next) => {
   if (!isItscoPublicHost(req.headers.host)) return next();
   if (req.path === '/sitemap.xml') return res.type('application/xml').send(itscoSitemap());
@@ -99,6 +108,8 @@ app.use((req, res, next) => {
   if (/^\/(assets|api|uploads)(\/|$)/.test(req.path) || /\.[^/]+$/.test(req.path)) return next();
   const page = itscoPublicResponse(req.headers.host, req.originalUrl);
   if (page.redirect) return res.redirect(page.status, page.redirect);
+  const legalType = itscoLegalTypeForPath(req.path);
+  if (legalType) return res.set('Cache-Control', 'no-cache').type('html').send(renderItscoLegalHtml(legalType));
   if (page.status === 404) return res.status(404).set('X-Robots-Tag', 'noindex').type('html').send(
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Page not found | ITSCO</title></head><body><main><h1>Page not found</h1><p>This address is unavailable.</p><a href="/">Return to ITSCO</a></main></body></html>'
   );

@@ -393,7 +393,7 @@ export const sendAgencyCampaign = async (req, res, next) => {
           continue;
         }
         try {
-          const result = await VonageService.sendSms({ to, from: fromNumber, body });
+          const result = await VonageService.sendSms({ purpose: 'polling', to, from: fromNumber, body });
           await pool.execute(
             `UPDATE agency_campaign_contact_deliveries SET delivery_status = 'sent', status_reason = NULL WHERE campaign_id = ? AND contact_id = ?`,
             [campaignId, row.contact_id]
@@ -454,7 +454,7 @@ export const sendAgencyCampaign = async (req, res, next) => {
         metadata: { campaignId }
       });
       try {
-        const result = await VonageService.sendSms({ to, from: fromNumber, body });
+        const result = await VonageService.sendSms({ purpose: 'polling', to, from: fromNumber, body });
         await MessageLog.markSent(log.id, result?.sid || null);
         await pool.execute(
           `UPDATE agency_campaign_recipients

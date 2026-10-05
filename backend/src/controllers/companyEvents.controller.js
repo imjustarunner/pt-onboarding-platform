@@ -2671,7 +2671,7 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
         console.warn('UserCommunication create (vote SMS) failed:', e?.message);
       }
       try {
-        const sendResult = await VonageService.sendSms({ to, from: fromNumber, body });
+        const sendResult = await VonageService.sendSms({ purpose: 'polling', to, from: fromNumber, body });
         await writeDispatchLog({
           eventId,
           userId: Number(userId),
@@ -2845,7 +2845,7 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
             const resolvedTitle = applyTemplateVariables(title, { user: userRecord, event, agency });
             const resolvedMessage = applyTemplateVariables(message, { user: userRecord, event, agency });
             const smsBody = `${resolvedTitle}\n${resolvedMessage}`.slice(0, 480);
-            const sendResult = await VonageService.sendSms({ to, from: fromNumber, body: smsBody });
+            const sendResult = await VonageService.sendSms({ purpose: 'workforce', to, from: fromNumber, body: smsBody });
             await writeDispatchLog({
               eventId,
               userId: Number(userId),
@@ -3934,7 +3934,7 @@ export const processCompanyEventResponseReminders = async () => {
           } else {
             try {
               const smsBody = `${title}\n${message}`.slice(0, 480);
-              const sendResult = await VonageService.sendSms({ to, from: fromNumber, body: smsBody });
+              const sendResult = await VonageService.sendSms({ purpose: 'workforce', to, from: fromNumber, body: smsBody });
               await writeDispatchLog({
                 eventId: event.id,
                 userId: Number(userId),

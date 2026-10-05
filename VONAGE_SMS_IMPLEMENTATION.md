@@ -1,5 +1,8 @@
 # Vonage Communication System Implementation (PT Platform)
 
+> Current registration, signed consent, deployment blockers and proof artifacts: [ITSCO SMS audit](docs/VONAGE_10DLC_ITSCO_AUDIT.md). The shared transport now requires approved program configuration and purpose-specific permission; older opt-in flags alone do not enable sends.
+
+
 This document summarizes the complete migration from Twilio to Vonage, the rebranding of SSC to SSTC, and the implementation of the "Stellar" communication suite.
 
 ## 1. Core Architecture

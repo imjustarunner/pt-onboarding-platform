@@ -10029,7 +10029,7 @@ export const sendResetPasswordLinkSms = async (req, res, next) => {
     const VonageService = (await import('../services/vonage.service.js')).default;
     const body = `Reset your password using this link (expires in 48 hours): ${linkToSend}`;
 
-    const msg = await VonageService.sendSms({ to, from, body });
+    const msg = await VonageService.sendSms({ purpose: 'account_security', to, from, body });
 
     res.json({
       message: 'Reset password link sent via SMS',

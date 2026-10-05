@@ -182,7 +182,7 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
         : null;
       if (from) {
         const body = `${label} ${when}. Join: ${finalJoinUrl}`.slice(0, 480);
-        await VonageService.sendSms({ to: toPhoneNorm, from, body });
+        await VonageService.sendSms({ purpose: 'workforce', agencyId: agencyId, to: toPhoneNorm, from, body });
         smsSent = true;
       }
     } catch (e) {
@@ -229,7 +229,7 @@ async function sendDiscoveryClientReminder({ agencyId, email, phone, joinUrl, la
         ? PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
         : null;
       if (from && toPhoneNorm) {
-        await VonageService.sendSms({
+        await VonageService.sendSms({ purpose: 'reminders', agencyId: agencyId,
           to: toPhoneNorm,
           from,
           body: `${label} starting soon. Join: ${joinUrl}`.slice(0, 480)

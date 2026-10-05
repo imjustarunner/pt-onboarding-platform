@@ -1754,7 +1754,7 @@
               <p class="communications-disclosure">
                 {{ tx('If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from') }}
                 {{ communicationsTenantName }} and, when applicable, your provider/care team (for example,
-                {{ tx('follow-up, coordination, and service-related responses). These messages are HIPAA-protected and associated with your care relationship at') }} {{ communicationsTenantName }}.
+                {{ tx('follow-up, coordination, and service-related responses). Standard SMS is not end-to-end encrypted. Avoid sending sensitive clinical information by text; use the secure portal for private details. These messages relate to your services at') }} {{ communicationsTenantName }}.
               </p>
               <p class="communications-disclosure" style="margin-top: 8px;">
                 {{ tx('By selecting') }} <strong>{{ t('yes') }}</strong> {{ tx('and opting in, you understand and agree to the following:') }}
@@ -1768,7 +1768,7 @@
               </ol>
             </template>
             <p class="communications-disclosure" style="margin-top: 8px;">
-              {{ communicationsProviderTextingClosing || (tx('Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Appointment reminders/confirmations are not sent from individual provider numbers. Additional terms apply —')) }}
+              {{ communicationsProviderTextingClosing || (tx('Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Messages are sent from the agency’s registered texting numbers. Additional terms apply —')) }}
               {{ tx('Terms:') }} <a :href="platformTermsHref" target="_blank" rel="noopener noreferrer">{{ platformTermsHref }}</a>.
               {{ tx('Privacy:') }} <a :href="platformPrivacyHref" target="_blank" rel="noopener noreferrer">{{ platformPrivacyHref }}</a>.
             </p>
@@ -1794,7 +1794,7 @@
             <h4>{{ communicationsProgramUpdatesTitle }} <span class="required-indicator">*</span></h4>
             <p class="communications-disclosure">
               <template v-if="communicationsProgramUpdatesDisclosure">{{ communicationsProgramUpdatesDisclosure }}</template>
-              <template v-else>{{ tx('If you choose Yes,') }} {{ communicationsTenantName }} {{ tx('may send optional SMS updates through PlotTwistHQ about this agency\'s programs and services (for example, openings, enrollment options, and availability). You may also receive limited updates about relevant affiliate services. Affiliates never receive access to your personal or clinical information through this update channel, and any affiliate program requires its own separate opt-in for communication and registration. Message frequency varies (no more than twice per month). Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help.') }}</template>
+              <template v-else>{{ tx('If you choose Yes,') }} {{ communicationsTenantName }} {{ tx('may send optional SMS updates through PlotTwistHQ about this agency\'s programs and services (for example, openings, enrollment options, and availability). Marketing consent is optional and is not a condition of receiving services. This choice covers only this agency’s own programs, not third-party or affiliate marketing. Message frequency varies. Message and data rates may apply. Reply STOP to unsubscribe. Reply HELP for help.') }}</template>
               {{ tx('Terms:') }} <a :href="platformTermsHref" target="_blank" rel="noopener noreferrer">{{ platformTermsHref }}</a>.
               {{ tx('Privacy:') }} <a :href="platformPrivacyHref" target="_blank" rel="noopener noreferrer">{{ platformPrivacyHref }}</a>.
             </p>
@@ -4361,8 +4361,8 @@ async function fetchStringTranslations() {
       'Yes - Scheduling and appointment reminders',
       'SMS With Your Provider/Care Team',
       'If you choose Yes, you consent to receive service-related text messages through PlotTwistHQ from',
-      'follow-up, coordination, and service-related responses). These messages are HIPAA-protected and associated with your care relationship at',
-      'and, when applicable, your provider/care team (for example, follow-up, coordination, and service-related responses). These messages are HIPAA-protected and associated with your care relationship at',
+      'follow-up, coordination, and service-related responses). Standard SMS is not end-to-end encrypted. Avoid sending sensitive clinical information by text; use the secure portal for private details. These messages relate to your services at',
+      'and, when applicable, your provider/care team (for example, follow-up, coordination, and service-related responses). Standard SMS is not end-to-end encrypted. Avoid sending sensitive clinical information by text; use the secure portal for private details. These messages relate to your services at',
       'By selecting', 'Yes', 'and opting in, you understand and agree to the following:',
       'These messages may be viewed by the care team associated with your provider.',
       'Your provider and our care team are not available for emergencies, and these messages are not monitored in real time. In case of emergency, call 911.',
@@ -4373,7 +4373,7 @@ async function fetchStringTranslations() {
       'You agree not to share confidential third-party information in these messages, and understand that this communication channel does not replace nor constitute clinical care or a therapeutic relationship.',
       'You agree not to share confidential third-party information in these messages, and understand that this communication channel does',
       'replace nor constitute clinical care or a therapeutic relationship.',
-      'Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Appointment reminders/confirmations are not sent from individual provider numbers. Additional terms apply —',
+      'Message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time. Reply HELP for help. Messages are sent from the agency’s registered texting numbers. Additional terms apply —',
       'Terms:', 'Privacy:',
       'Yes - I opt in to provider/care-team texting and agree to the terms above',
       'No - Keep provider texting off',
@@ -4968,8 +4968,8 @@ function skipOfficeInstrument(instrument) {
   if (!meta?.skipKey) return;
   clinicalResponses[meta.skipKey] = 'yes';
 }
-const platformTermsUrl = computed(() => currentFlowStep.value?.termsUrlOverride?.trim() || '/terms');
-const platformPrivacyUrl = computed(() => currentFlowStep.value?.privacyUrlOverride?.trim() || '/privacypolicy');
+const platformTermsUrl = computed(() => currentFlowStep.value?.termsUrlOverride?.trim() || (formBranding.value?.legalOrganizationSlug || referralAgencySlug.value ? `/${encodeURIComponent(formBranding.value?.legalOrganizationSlug || referralAgencySlug.value)}/terms` : '/terms'));
+const platformPrivacyUrl = computed(() => currentFlowStep.value?.privacyUrlOverride?.trim() || (formBranding.value?.legalOrganizationSlug || referralAgencySlug.value ? `/${encodeURIComponent(formBranding.value?.legalOrganizationSlug || referralAgencySlug.value)}/privacypolicy` : '/privacypolicy'));
 function resolvePublicHref(path) {
   const raw = String(path || '').trim();
   if (!raw) return '';

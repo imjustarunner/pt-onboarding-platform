@@ -1,3 +1,4 @@
+import { resolveRegisteredSmsSender } from './smsCompliance.service.js';
 import Notification from '../models/Notification.model.js';
 import User from '../models/User.model.js';
 import UserPreferences from '../models/UserPreferences.model.js';
@@ -171,7 +172,7 @@ class NotificationDispatcherService {
       return { dispatched: false, reason: 'missing_phone' };
     }
 
-    const from = process.env.VONAGE_FROM || process.env.VONAGE_DEFAULT_FROM;
+    const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'workforce' });
     if (!from) {
       await NotificationSmsLog.create({
         userId,
@@ -181,7 +182,7 @@ class NotificationDispatcherService {
         fromNumber: '',
         body: buildSmsBody({ title: notification.title, message: notification.message }),
         status: 'failed',
-        errorMessage: 'Missing VONAGE_FROM (or VONAGE_DEFAULT_FROM) env var'
+        errorMessage: 'No approved workforce SMS sender is configured for this agency'
       });
       return { dispatched: false, reason: 'missing_from_number' };
     }
@@ -220,7 +221,7 @@ class NotificationDispatcherService {
 
     try {
       const fromNorm = User.normalizePhone(from) || from;
-      const msg = await VonageService.sendSms({
+      const msg = await VonageService.sendSms({ purpose: 'workforce', agencyId,
         to,
         from: fromNorm,
         body
