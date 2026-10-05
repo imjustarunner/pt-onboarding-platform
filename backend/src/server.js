@@ -1,3 +1,4 @@
+import { publicRouter as publicSchoolVisitRoutes, staffRouter as schoolVisitRoutes } from './routes/schoolVisit.routes.js';
 import { recordsError } from './services/recordsRequests/errors.js';
 import clinicalVideoCallbackRoutes from './routes/clinicalVideoCallback.routes.js';
 import clinicalSessionSecurityRoutes from './routes/clinicalSessionSecurity.routes.js';
@@ -798,6 +799,8 @@ app.use('/api/public/skill-builders', publicSkillBuildersRoutes);
 app.use('/api/public/program-event', publicProgramEventKioskRoutes);
 app.use('/api/public/school-events', publicSchoolEventsKioskRoutes);
 app.use('/api/public/school-reinit', publicSchoolReinitRoutes);
+app.use('/api/public/school-visits', publicSchoolVisitRoutes);
+app.use('/api/school-visits', schoolVisitRoutes);
 app.use('/api/public/school-onboarding', publicSchoolOnboardingRoutes);
 app.use('/api/public/provider-year-update', publicProviderYearUpdateRoutes);
 app.use('/api/public/client-renewal', publicClientRenewalRoutes);
@@ -2111,6 +2114,17 @@ if (!isBootstrap) {
   };
   scheduleSchoolWelcomeEmails();
   setInterval(scheduleSchoolWelcomeEmails, 60 * 1000).unref();
+
+  const scheduleSchoolVisitReminders = async () => {
+    try {
+      const { runSchoolVisitReminders } = await import('./services/schoolVisitReminder.service.js');
+      await runSchoolVisitReminders();
+    } catch (error) {
+      console.error('School visit reminder worker failed:', error?.message || error);
+    }
+  };
+  scheduleSchoolVisitReminders();
+  setInterval(scheduleSchoolVisitReminders, 5 * 60 * 1000);
 
   // Incomplete school-onboarding digests (ITSCO → Rachel Finch, Mon/Wed/Fri ~10:00 America/Denver)
   const scheduleIncompleteOnboardingDigests = async () => {

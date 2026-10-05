@@ -903,6 +903,18 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/school-visit-change/:token',
+    name: 'SchoolVisitChange',
+    component: () => import('../views/public/SchoolVisitChangeView.vue'),
+    meta: { requiresGuest: false }
+  },
+  {
+    path: '/school-visits/:bookingId/manage',
+    name: 'SchoolVisitManage',
+    component: () => import('../views/admin/SchoolVisitManageView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/school-reinit/:token',
     name: 'SchoolReinitPublic',
     component: () => import('../views/public/SchoolReinitPublicView.vue'),
@@ -5663,6 +5675,8 @@ router.beforeEach(async (to, from, next) => {
       'DocumentSigning',
       'DocumentReview',
       'SchoolReinitPublic',
+      'SchoolVisitChange',
+      'SchoolVisitManage',
       'SchoolOnboarding',
       'SchoolOnboardingDemo',
       'SchoolOnboardingStandaloneDemo',

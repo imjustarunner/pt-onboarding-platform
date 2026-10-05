@@ -1,103 +1,31 @@
-/**
- * Daily: promote Scheduled school clients to Being Seen when first_service_at has passed
- * (and provider checklist milestones are complete). Does not promote assign-day alone.
- */
+/** Reconcile service evidence without inventing dates or requiring intake/day completion. */
 import pool from '../config/database.js';
-import { markClientBeingSeen } from './clientLifecycleStatus.service.js';
-import { notifyClientBecameCurrent } from './clientNotifications.service.js';
-import { isReturningSchoolClient, julyCutoffYmd } from '../utils/fallReadiness.js';
+import { setClientLifecycleStatus } from './clientLifecycleStatus.service.js';
+import { servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
 
 export default class ClientCompliancePromotionService {
-  /**
-   * Find scheduled clients whose first_service_at <= today and mark Being Seen.
-   * @param {{ now?: Date }} options - Optional now for testing
-   * @returns {{ promoted: number }}
-   */
-  static async run({ now = new Date() } = {}) {
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const cutoff = julyCutoffYmd(now);
-
-    let rows = [];
-    try {
-      const [r] = await pool.execute(
-        `SELECT c.id, c.agency_id, c.organization_id, c.provider_id, c.service_day,
-                c.first_service_at, c.services_started_at, c.parents_contacted_at, c.parents_contacted_successful,
-                c.identifier_code, c.full_name, c.initials, c.client_status_id, c.status,
-                c.client_type, c.staff_onboarding_completed_at, c.school_year,
-                c.submission_date, c.created_at, c.continuation_services_json,
-                cs.status_key AS client_status_key,
-                EXISTS (
-                  SELECT 1 FROM client_provider_assignments cpa
-                  WHERE cpa.client_id = c.id
-                    AND cpa.is_active = TRUE
-                    AND cpa.service_day IS NOT NULL
-                    AND TRIM(cpa.service_day) <> ''
-                ) AS has_weekday
-         FROM clients c
-         LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-         WHERE c.first_service_at IS NOT NULL
-           AND c.first_service_at <= ?
-           AND c.parents_contacted_at IS NOT NULL
-           AND COALESCE(c.parents_contacted_successful, 0) = 1
-           AND c.intake_at IS NOT NULL
-           AND UPPER(COALESCE(c.status, '')) <> 'ARCHIVED'
-           AND LOWER(COALESCE(cs.status_key, '')) IN (
-             'scheduled', 'onboarded', 'ready_to_schedule', 'current', 'pending'
-           )
-           AND c.services_started_at IS NULL`,
-        [todayStr]
-      );
-      rows = r || [];
-    } catch (e) {
-      const msg = String(e?.message || '');
-      if (msg.includes("doesn't exist") || msg.includes('ER_NO_SUCH_TABLE') || msg.includes('ER_BAD_FIELD_ERROR')) {
-        return { promoted: 0 };
-      }
-      throw e;
-    }
-
+  static async run({ now = new Date(), dryRun = false, agencyId = null } = {}) {
+    const [rows] = await pool.execute(`SELECT c.*, cs.status_key client_status_key
+      FROM clients c LEFT JOIN client_statuses cs ON cs.id=c.client_status_id
+      WHERE c.client_type='school' AND UPPER(COALESCE(c.status,'')) NOT IN ('ARCHIVED','TERMINATED','ON_HOLD')
+        AND cs.status_key IN ('scheduled','onboarded','ready_to_schedule','current','pending','needs_day_assignment','confirmed_returning','confirmation_pending','returning')
+        AND (c.services_started_at IS NOT NULL OR c.first_service_at IS NOT NULL)
+        AND (? IS NULL OR c.agency_id=?)`, [agencyId, agencyId]);
     let promoted = 0;
-
+    const candidates = [];
     for (const client of rows) {
-      try {
-        if (isReturningSchoolClient(client, now)) {
-          continue;
-        }
-        const isSchool = String(client.client_type || '').toLowerCase() === 'school';
-        if (isSchool && !Number(client.has_weekday)) {
-          const anchor = client.submission_date
-            ? String(client.submission_date).slice(0, 10)
-            : (client.created_at ? String(client.created_at).slice(0, 10) : null);
-          if (anchor && anchor < cutoff) continue;
-        }
-
-        const clientId = parseInt(client.id, 10);
-        const result = await markClientBeingSeen({
-          clientId,
-          actorUserId: null,
-          serviceDate: client.first_service_at ? String(client.first_service_at).slice(0, 10) : todayStr
-        });
-        if (!result?.changed) continue;
-        promoted += 1;
-
-        notifyClientBecameCurrent({
-          agencyId: client.agency_id,
-          schoolOrganizationId: client.organization_id,
-          clientId: client.id,
-          providerUserId: client.provider_id,
-          clientNameOrIdentifier: client.identifier_code || client.full_name || client.initials,
-          serviceDay: client.service_day || null,
-          intakeAt: null,
-          firstServiceAt: client.first_service_at ? String(client.first_service_at).slice(0, 10) : null,
-          parentsContactedAt: client.parents_contacted_at ? String(client.parents_contacted_at).slice(0, 10) : null,
-          parentsContactedSuccessful: client.parents_contacted_successful === 1 || client.parents_contacted_successful === true,
-          actorUserId: null
-        }).catch(() => {});
-      } catch {
-        // best-effort per client
-      }
+      if (!servicesConfirmedThisSchoolYear(client, now)) continue;
+      candidates.push({ clientId: client.id, agencyId: client.agency_id, from: client.client_status_key, to: 'being_seen',
+        evidence: client.services_started_at || client.first_service_at });
+      if (dryRun) continue;
+      // Re-read facts before a write, so a concurrently closed record is not reopened.
+      const [[fresh]] = await pool.execute(`SELECT c.*,cs.status_key client_status_key FROM clients c
+        LEFT JOIN client_statuses cs ON cs.id=c.client_status_id WHERE c.id=?`, [client.id]);
+      if (!fresh || ['ARCHIVED','TERMINATED','ON_HOLD'].includes(fresh.status) || fresh.client_status_key !== client.client_status_key || !servicesConfirmedThisSchoolYear(fresh, now)) continue;
+      const result = await setClientLifecycleStatus({ clientId: client.id, statusKey: 'being_seen',
+        note: 'Reconciled current-school-year service evidence; scheduling follow-up remains separate' });
+      if (result.changed) promoted++;
     }
-
-    return { promoted };
+    return { promoted, candidates, dryRun };
   }
 }

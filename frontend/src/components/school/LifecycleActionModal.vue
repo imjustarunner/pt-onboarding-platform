@@ -627,11 +627,12 @@
       <div ref="modalFooterRef" class="modal-footer">
         <div v-if="saveError" class="error save-error">{{ saveError }}</div>
         <div class="actions">
+          <p v-if="serviceConfirmation" role="status">{{ serviceConfirmation }}</p>
           <button v-if="!viewOnly" class="btn btn-primary" type="button" :disabled="saving || loading" @click="save">
             {{ saving ? 'Saving…' : saveButtonLabel }}
           </button>
           <button class="btn btn-secondary" type="button" :disabled="saving" @click="$emit('close')">
-            {{ viewOnly ? 'Close' : 'Cancel' }}
+            {{ viewOnly || serviceConfirmation ? 'Close' : 'Cancel' }}
           </button>
         </div>
       </div>
@@ -660,6 +661,7 @@ const authStore = useAuthStore();
 const loading = ref(false);
 const saving = ref(false);
 const error = ref('');
+const serviceConfirmation = ref('');
 const saveError = ref('');
 const modalFooterRef = ref(null);
 const attestBoxRef = ref(null);
@@ -1463,12 +1465,13 @@ async function save() {
         serviceDays: fall.serviceDays || []
       }, reqOpts());
     } else if (props.actionKey === 'confirm_services_started') {
-      await api.post(`/clients/${id}/confirm-services-started`, {
+      const response = await api.post(`/clients/${id}/confirm-services-started`, {
         serviceDate: services.serviceDate || todayYmd()
       });
+      serviceConfirmation.value = response.data?.message || 'Being Seen confirmed.';
     }
     emit('saved');
-    emit('close');
+    if (props.actionKey !== 'confirm_services_started') emit('close');
   } catch (e) {
     await revealSaveError(e.response?.data?.error?.message || e.message || 'Save failed');
   } finally {

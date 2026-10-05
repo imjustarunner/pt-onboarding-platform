@@ -33,13 +33,14 @@
           </div>
           </fieldset>
         </div>
+        <div v-if="success" role="status" class="hint thank-you">{{ success }}</div>
         <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
         <div class="actions" style="margin-top: 14px;">
           <button v-if="!viewOnly" class="btn btn-primary" type="button" :disabled="saving" @click="save">
             {{ saving ? 'Saving…' : 'Save' }}
           </button>
           <button class="btn btn-secondary" type="button" @click="$emit('close')">
-            {{ viewOnly ? 'Close' : 'Cancel' }}
+            {{ viewOnly || success ? 'Close' : 'Cancel' }}
           </button>
         </div>
       </div>
@@ -67,6 +68,7 @@ const form = ref({
 
 const saving = ref(false);
 const error = ref('');
+const success = ref('');
 const clientLabel = ref('');
 
 const syncForm = () => {
@@ -107,17 +109,18 @@ const save = async () => {
   try {
     saving.value = true;
     error.value = '';
+    success.value = '';
     const path = props.apiBase
       ? `${props.apiBase}/clients/${props.client.id}/compliance-checklist`
       : `/clients/${props.client.id}/compliance-checklist`;
-    await api.put(path, {
+    const response = await api.put(path, {
       parentsContactedAt: form.value.parentsContactedAt || null,
       parentsContactedSuccessful:
         form.value.parentsContactedSuccessful === '' ? null : form.value.parentsContactedSuccessful === 'true',
       firstServiceAt: form.value.firstServiceAt || null
     }, props.apiBase ? { skipAuthRedirect: true } : undefined);
+    success.value = response.data?.serviceConfirmation?.message || 'Checklist saved. Services have not been confirmed for this school year.';
     emit('saved');
-    emit('close');
   } catch (e) {
     error.value = e?.response?.data?.error?.message || e?.message || 'Failed to save';
   } finally {

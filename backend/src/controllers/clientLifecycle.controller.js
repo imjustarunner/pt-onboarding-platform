@@ -17,7 +17,6 @@ import {
   saveWaitlistResolution,
   noteRoiFollowup
 } from '../services/clientYearDisposition.service.js';
-import { markClientBeingSeen } from '../services/clientLifecycleStatus.service.js';
 import { computeCurrentSchoolYearLabel } from '../utils/schoolYear.js';
 import { currentSchoolYearLabelFromCalendar } from '../utils/schoolYearCalendar.js';
 
@@ -277,12 +276,12 @@ export async function postConfirmServicesStarted(req, res, next) {
     if (!isProviderRole(req.user.role) && !isAgencyRole(req.user.role)) {
       return res.status(403).json({ error: { message: 'Provider or agency access required' } });
     }
-    const serviceDate = req.body?.serviceDate || req.body?.services_started_at || null;
-    const result = await markClientBeingSeen({
-      clientId: client.id,
-      actorUserId: req.user.id,
-      serviceDate
+    const { confirmChecklistServices } = await import('../services/clientServiceConfirmation.service.js');
+    const result = await confirmChecklistServices({
+      client, actorUserId: req.user.id,
+      firstServiceAt: req.body?.serviceDate || req.body?.services_started_at || new Date().toISOString().slice(0, 10)
     });
+    if (!result.confirmed) return res.status(409).json({ error: { message: result.message } });
     res.json({ ok: true, ...result });
   } catch (e) {
     next(e);

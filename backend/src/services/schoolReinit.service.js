@@ -1376,6 +1376,10 @@ export async function resolveChangeRequest({ requestId, status, resolvedByUserId
   if (!req) throw new Error('Change request not found');
   if (req.status !== 'pending') throw new Error('Change request already resolved');
 
+  if (status === 'approved' && req.entity_type === 'school_visit') {
+    throw Object.assign(new Error('Open Manage visit to confirm the new time, format, or cancellation.'), { status: 409 });
+  }
+
   if (status === 'approved') {
     await applyChangeRequest(req);
   }

@@ -97,12 +97,14 @@ export async function setClientLifecycleStatus({
   extraPatch = {}
 }) {
   const cid = Number(clientId || 0);
-  const key = String(statusKey || '').toLowerCase();
+  let key = String(statusKey || '').toLowerCase();
   if (!cid || !key) return { changed: false };
 
   const [rows] = await pool.execute(
     `SELECT c.id, c.agency_id, c.organization_id, c.client_status_id, c.initials,
             c.identifier_code, c.full_name, c.agency_intake_json, c.waitlist_started_at,
+            c.client_type, c.services_started_at, c.first_service_at, c.created_at,
+            c.submission_date, c.staff_onboarding_completed_at, c.school_year,
             cs.status_key AS client_status_key
      FROM clients c
      LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
@@ -116,6 +118,15 @@ export async function setClientLifecycleStatus({
   const currentKey = String(client.client_status_key || '').toLowerCase();
   if (TERMINAL.has(currentKey) && key !== 'terminated') {
     return { changed: false, statusKey: currentKey, skipped: 'terminal' };
+  }
+
+  if (client.client_type === 'school' &&
+      ['ready_to_schedule', 'scheduled', 'needs_day_assignment', 'current', 'onboarded'].includes(key) &&
+      !['waitlist', 'not_returning', 'unable_to_reach', 'other_transfer', 'recommend_termination'].includes(currentKey) &&
+      servicesConfirmedThisSchoolYear(client)) key = LIFECYCLE_STATUS_KEYS.BEING_SEEN;
+
+  if (key === 'being_seen' && ['waitlist', 'not_returning', 'unable_to_reach', 'other_transfer', 'recommend_termination'].includes(currentKey)) {
+    return { changed: false, statusKey: currentKey, skipped: 'agency_review_required' };
   }
 
   const statusId = await getClientStatusIdByKey({ agencyId: client.agency_id, statusKey: key });
@@ -233,14 +244,14 @@ export async function reconcileSchoolClientStatus({ clientId, actorUserId = null
   const returning = isReturningSchoolClient(client);
   const servicesStarted = servicesConfirmedThisSchoolYear(client);
 
-  // Being Seen wins when this-year services are confirmed and still scheduled.
+  // Being Seen reflects confirmed services; a missing weekday is a separate action.
   // Returners require the provider "Mark Being Seen" action (services_started_at this year), not last year's first_service_at.
-  if (servicesStarted && hasWeekday) {
+  if (servicesStarted) {
     return setClientLifecycleStatus({
       clientId: cid,
       statusKey: LIFECYCLE_STATUS_KEYS.BEING_SEEN,
       actorUserId,
-      note: note || 'Reconcile: services started + scheduled'
+      note: note || 'Reconcile: services confirmed this school year'
     });
   }
 
@@ -528,6 +539,8 @@ export async function demoteClientWhenUnscheduled({ clientId, actorUserId = null
     return null;
   }
 
+  if (servicesConfirmedThisSchoolYear(client)) return { statusKey: key, changed: false, needsDayAssignment: true };
+
   return setClientLifecycleStatus({
     clientId,
     statusKey: LIFECYCLE_STATUS_KEYS.NEEDS_DAY_ASSIGNMENT,
@@ -538,9 +551,15 @@ export async function demoteClientWhenUnscheduled({ clientId, actorUserId = null
 
 /** Provider confirms first service → Being Seen. */
 export async function markClientBeingSeen({ clientId, actorUserId = null, serviceDate = null }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const supplied = serviceDate instanceof Date ? serviceDate.toISOString().slice(0, 10) : String(serviceDate || today);
+  const parsed = new Date(`${supplied}T12:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(supplied) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== supplied || supplied > today) {
+    throw Object.assign(new Error('Use a valid completed service date, not a future date.'), { status: 400 });
+  }
   const patch = {};
   if (serviceDate) {
-    patch.services_started_at = String(serviceDate).slice(0, 10);
+    patch.services_started_at = supplied;
   } else {
     patch.services_started_at = new Date().toISOString().slice(0, 10);
   }
@@ -549,7 +568,7 @@ export async function markClientBeingSeen({ clientId, actorUserId = null, servic
   if (!serviceDate) {
     patch.first_service_at = patch.services_started_at;
   } else {
-    patch.first_service_at = String(serviceDate).slice(0, 10);
+    patch.first_service_at = supplied;
   }
 
   return setClientLifecycleStatus({

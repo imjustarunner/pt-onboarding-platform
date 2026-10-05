@@ -188,6 +188,7 @@
                 <span v-else-if="!isSlotPast(s)" class="muted small"> · Open pre-slot</span>
               </span>
               <div class="reinit-admin__slot-actions">
+                <router-link v-if="s.booking_id" class="btn btn-primary btn-sm" :to="`/school-visits/${s.booking_id}/manage`">Manage visit</router-link>
                 <button
                   v-if="s.status === 'open' && !isSlotPast(s)"
                   type="button"
@@ -626,10 +627,11 @@
               <div v-for="cr in pendingCrs" :key="cr.id" class="reinit-admin__cr">
                 <div>
                   <strong>{{ cr.action }}</strong> {{ cr.entity_type }} #{{ cr.entity_id }}
+                  <router-link v-if="cr.entity_type === 'school_visit'" :to="`/school-visits/${cr.entity_id}/manage`">Manage visit and respond</router-link>
                   <span class="muted">by {{ cr.submitted_by_display_name || '—' }}</span>
                 </div>
                 <div class="reinit-admin__actions">
-                  <button type="button" class="btn btn-primary btn-sm" @click="resolveCr(cr.id, 'approved')">Approve</button>
+                  <button v-if="cr.entity_type !== 'school_visit'" type="button" class="btn btn-primary btn-sm" @click="resolveCr(cr.id, 'approved')">Approve</button>
                   <button type="button" class="btn btn-secondary btn-sm" @click="resolveCr(cr.id, 'rejected')">Reject</button>
                 </div>
               </div>

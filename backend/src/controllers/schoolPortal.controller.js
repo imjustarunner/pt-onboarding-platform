@@ -1,3 +1,4 @@
+import { servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
 import { createSchoolStaffRecoveryHandler } from './schoolStaffRecovery.controller.js';
 /**
  * School Portal Controller
@@ -1351,6 +1352,7 @@ export const getSchoolClients = async (req, res, next) => {
         // "status" (workflow) is treated as an internal archive flag; schools should see the configured client status.
         client_status_id: client.client_status_id || null,
         client_status_label: displayStatus.label,
+        school_status_resolved: true,
         client_status_key: displayStatus.key,
         termination_reason: client.termination_reason || null,
         terminated_at: client.terminated_at || null,
@@ -1398,7 +1400,7 @@ export const getSchoolClients = async (req, res, next) => {
         provider_milestones: {
           parents_contacted: !!(client.parents_contacted_at),
           intake_done: !!(client.intake_at),
-          first_service_done: !!(client.services_started_at || client.first_service_at)
+          first_service_done: servicesConfirmedThisSchoolYear({ ...client, client_type: 'school' })
         },
         agency_intake_json: canViewOperationalChecklist ? parseJsonMaybe(client.agency_intake_json) : null,
         disclosure_required: client.disclosure_required === 1 || client.disclosure_required === true,
@@ -1462,6 +1464,7 @@ export const getSchoolClients = async (req, res, next) => {
           client_type: client.client_type || 'school',
           client_status_key: displayStatus.key,
           client_status_label: displayStatus.label,
+        school_status_resolved: true,
           continuation_services_json: canViewOperationalChecklist
             ? parseJsonMaybe(client.continuation_services_json)
             : null
@@ -2133,6 +2136,7 @@ export const getProviderMyRoster = async (req, res, next) => {
         full_name: client.full_name || null,
         client_status_id: client.client_status_id || null,
         client_status_label: displayStatus.label,
+        school_status_resolved: true,
         client_status_key: displayStatus.key,
         termination_reason: client.termination_reason || null,
         terminated_at: client.terminated_at || null,
@@ -2203,6 +2207,7 @@ export const getProviderMyRoster = async (req, res, next) => {
           client_type: client.client_type || 'school',
           client_status_key: displayStatus.key,
           client_status_label: displayStatus.label,
+        school_status_resolved: true,
           continuation_services_json: parseJsonMaybe(client.continuation_services_json)
         }),
         skills: client.skills === 1 || client.skills === true,

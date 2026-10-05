@@ -250,8 +250,8 @@ export function deriveLifecycleAction({ client, viewerRole, disposition = null, 
       if (leftoverBeingSeen && !hasWeekday) return null;
       return { role: 'provider', actionKey: 'confirm_services_started', label: 'Mark Being Seen' };
     }
-    if (returning && statusKey === 'ready_to_schedule' && hasWeekday) {
-      return null;
+    if (returning && statusKey === 'ready_to_schedule' && hasWeekday && !beingSeenConfirmed) {
+      return { role: 'provider', actionKey: 'confirm_services_started', label: 'Mark Being Seen' };
     }
     // New clients: Being Seen comes from the new-client checklist, including after they are Scheduled.
     if (!returning && ['ready_to_schedule', 'scheduled', 'onboarded'].includes(statusKey) && !beingSeenConfirmed) {

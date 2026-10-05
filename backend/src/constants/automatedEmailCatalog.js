@@ -24,6 +24,7 @@ export const PREFERRED_IDENTITY_KEYS_BY_TEMPLATE_TYPE = {
   school_roi_release: ['school_intake', 'intake'],
   smart_school_roi: ['school_intake', 'intake'],
   school_enrollment_packet_status: ['school_intake', 'notifications'],
+  school_visit_reminder: ['notifications', 'default_notifications'],
   school_ready_to_schedule_digest: ['school_intake', 'notifications'],
   client_renewal: ['schools', 'school_intake'],
   intake: ['school_intake', 'intake'],

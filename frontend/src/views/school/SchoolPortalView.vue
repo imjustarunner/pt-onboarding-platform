@@ -1792,7 +1792,7 @@
       v-if="quickChecklistClient"
       :client="quickChecklistClient"
       @close="quickChecklistClient = null"
-      @saved="quickChecklistClient = null"
+      @saved="loadNotificationsPreview"
     />
 
     <SchoolHelpDeskModal

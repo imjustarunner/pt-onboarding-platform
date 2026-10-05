@@ -3843,16 +3843,17 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
     // School portal sends only parentsContactedAt, parentsContactedSuccessful, firstServiceAt (no intakeAt).
     // Only update intake_at when explicitly provided so we preserve it from admin/other flows.
     const updateParts = [
-      'parents_contacted_at = ?',
-      'parents_contacted_successful = ?',
-      'first_service_at = ?',
+      'parents_contacted_at = IF(?, ?, parents_contacted_at)',
+      'parents_contacted_successful = IF(?, ?, parents_contacted_successful)',
+      'first_service_at = IF(?, ?, first_service_at)',
       'checklist_updated_by_user_id = ?',
       'checklist_updated_at = CURRENT_TIMESTAMP'
     ];
     const updateValues = [
-      parentsContactedAt,
+      req.body?.parentsContactedAt !== undefined, parentsContactedAt,
+      req.body?.parentsContactedSuccessful !== undefined,
       parentsContactedSuccessful === null ? null : (parentsContactedSuccessful ? 1 : 0),
-      firstServiceAt,
+      req.body?.firstServiceAt !== undefined, firstServiceAt,
       userId
     ];
     if (intakeAtProvided) {
@@ -3915,96 +3916,15 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       }
     }
 
-    // If intake or first service date is today/past, auto-promote pending clients to current.
-    let currentStatusId = null;
-    let oldConsumesSlot = false;
-    try {
-      currentStatusId = await getClientStatusIdByKey({ agencyId: currentClient.agency_id, statusKey: 'current' });
-      const oldClientStatusId = currentClient.client_status_id ? parseInt(currentClient.client_status_id, 10) : null;
-      const workflowArchived = String(currentClient.status || '').toUpperCase() === 'ARCHIVED';
-      oldConsumesSlot = !!(currentStatusId && oldClientStatusId === currentStatusId && currentClient.provider_id && currentClient.service_day && !workflowArchived);
-    } catch {
-      currentStatusId = null;
-      oldConsumesSlot = false;
-    }
-
-    const firstServicePassed = !!(firstServiceAt && firstServiceAt <= todayStr);
-    // Continuation continue_school promotes via applyFallContinuationSideEffects / day assign.
-    // Do not promote returning clients solely from last year's first_service_at.
-    const shouldPromote = firstServicePassed && String(continuationServices?.plan || '') !== 'continue_school';
-    let promotedToCurrent = false;
-    if (shouldPromote) {
-      try {
-        let currentStatusKey = '';
-        if (currentClient.client_status_id) {
-          const [rows] = await pool.execute(
-            `SELECT status_key FROM client_statuses WHERE id = ? LIMIT 1`,
-            [currentClient.client_status_id]
-          );
-          currentStatusKey = String(rows?.[0]?.status_key || '').toLowerCase();
-        }
-        const workflowStatus = String(currentClient.status || '').toUpperCase();
-        const staffReady =
-          !!currentClient.staff_onboarding_completed_at
-          || currentStatusKey === 'onboarded';
-        const isPromotableStatus =
-          currentStatusKey === 'onboarded'
-          || currentStatusKey === 'pending'
-          || workflowStatus === 'PENDING_REVIEW';
-        // Prefer new pipeline: staff onboarded + full provider checklist → current.
-        // Legacy pending clients without staff_onboarding still promote on first_service for backward compat.
-        let canPromote = false;
-        if (staffReady && isPromotableStatus) {
-          try {
-            const { maybePromoteOnboardedToCurrent } = await import(
-              '../services/clientOnboardingChecklist.service.js'
-            );
-            const result = await maybePromoteOnboardedToCurrent({ clientId, actorUserId: userId });
-            canPromote = !!result?.promoted;
-            if (canPromote) promotedToCurrent = true;
-          } catch {
-            canPromote = false;
-          }
-        } else if (!staffReady && (currentStatusKey === 'pending' || workflowStatus === 'PENDING_REVIEW') && firstServicePassed) {
-          if (currentStatusId && parseInt(currentClient.client_status_id || 0, 10) !== parseInt(currentStatusId, 10)) {
-            await Client.update(clientId, { client_status_id: currentStatusId }, userId);
-          }
-          if (workflowStatus === 'PENDING_REVIEW') {
-            await Client.updateStatus(clientId, 'ACTIVE', userId, 'Auto-marked current based on compliance dates');
-          }
-          promotedToCurrent = true;
-        }
-        void canPromote;
-      } catch {
-        // best-effort only
-      }
-    }
+    // An explicitly recorded service this year uses the same confirmation path
+    // for new and returning clients. Last year's dates never confirm this year.
+    const { confirmChecklistServices } = await import('../services/clientServiceConfirmation.service.js');
+    const lifecycleResult = await confirmChecklistServices({
+      client: currentClient, firstServiceAt, actorUserId: userId
+    });
+    const currentStatusId = lifecycleResult?.statusId || null;
 
     const updated = await Client.findById(clientId, { includeSensitive: true });
-    // Notifications: client is current and newly slot-consuming (provider/day assigned)
-    try {
-      const updatedStatusId = updated?.client_status_id ? parseInt(updated.client_status_id, 10) : null;
-      const workflowArchived = String(updated?.status || '').toUpperCase() === 'ARCHIVED';
-      const newConsumesSlot = !!(currentStatusId && updatedStatusId === currentStatusId && updated?.provider_id && updated?.service_day && !workflowArchived);
-      if (!oldConsumesSlot && newConsumesSlot && promotedToCurrent) {
-        notifyClientBecameCurrent({
-          agencyId: updated.agency_id,
-          schoolOrganizationId: updated.organization_id,
-          clientId: updated.id,
-          providerUserId: updated.provider_id,
-          clientNameOrIdentifier: updated.identifier_code || updated.full_name || updated.initials,
-          serviceDay: updated.service_day || null,
-          intakeAt: intakeAtProvided ? intakeAt : null,
-          firstServiceAt: firstServiceAtProvided ? firstServiceAt : null,
-          parentsContactedAt: parentsContactedAtProvided ? parentsContactedAt : null,
-          parentsContactedSuccessful: parentsContactedSuccessfulProvided ? parentsContactedSuccessful : null,
-          actorUserId: userId
-        }).catch(() => {});
-      }
-    } catch {
-      // ignore
-    }
-
     // Notifications: checklist updates for assigned providers (even if already current)
     try {
       const updatedStatusId = updated?.client_status_id ? parseInt(updated.client_status_id, 10) : null;
@@ -4051,7 +3971,7 @@ export const updateClientComplianceChecklist = async (req, res, next) => {
       }
     }
 
-    res.json({ ...updated, checklist_updated_by_name: updatedByName });
+    res.json({ ...updated, checklist_updated_by_name: updatedByName, serviceConfirmation: lifecycleResult });
   } catch (e) {
     next(e);
   }

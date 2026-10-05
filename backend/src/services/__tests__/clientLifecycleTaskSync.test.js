@@ -46,4 +46,18 @@ describe('service confirmation reconciles existing provider tasks', () => {
     const result = await markClientBeingSeen({ clientId: 101, actorUserId: 9 });
     expect(result.skipped).toBe('terminal');expect(mocks.update).not.toHaveBeenCalled();expect(mocks.sync).not.toHaveBeenCalled();
   });
+  it('prevents a later readiness write from undoing confirmed services', async () => {
+    mocks.execute.mockResolvedValue([[{ id: 101, agency_id: 2, client_status_id: 8, client_status_key: 'being_seen', client_type: 'school', services_started_at: new Date().toISOString().slice(0, 10) }]]);
+    const result = await setClientLifecycleStatus({ clientId: 101, statusKey: 'ready_to_schedule', actorUserId: 9 });
+    expect(result.statusKey).toBe('being_seen');
+    expect(mocks.statusId).toHaveBeenCalledWith({ agencyId: 2, statusKey: 'being_seen' });
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it('requires agency review before reopening a waitlisted client', async () => {
+    mocks.execute.mockResolvedValue([[{ id: 101, client_status_key: 'waitlist' }]]);
+    const result = await markClientBeingSeen({ clientId: 101, actorUserId: 9 });
+    expect(result.skipped).toBe('agency_review_required');
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
 });
