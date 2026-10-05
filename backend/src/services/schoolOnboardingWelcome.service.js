@@ -34,11 +34,12 @@ export async function welcomeSchoolContext(job, db = pool) {
   if (!GoogleWorkspaceDirectoryService.isConfigured()) return { waiting: 'directory_not_configured' };
   const group = await GoogleWorkspaceDirectoryService.getGroup({ groupEmail });
   if (!group?.id) return { waiting: 'school_group_not_established' };
-  const identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(job.agency_id, 'technology');
-  if (!identity?.id || email(identity.from_email) !== 'technology@itsco.health') return { waiting: 'technology_sender_missing' };
+  const identity = await EmailSenderIdentity.findByAgencyAndIdentityKey(job.agency_id, 'notifications');
+  if (!identity?.id || email(identity.from_email) !== 'notifications@itsco.health') return { waiting: 'notifications_sender_missing' };
   const portalUrl = await schoolEmailPortalUrl({ schoolOrganizationId: job.school_organization_id, agencyId: job.agency_id });
+  const [[activity]] = await db.execute('SELECT COUNT(*) AS count FROM clients WHERE agency_id=? AND organization_id=?', [job.agency_id, job.school_organization_id]);
   return { identity, groupEmail, portalUrl, content: schoolOnboardingWelcomeEmail({
-    schoolName: school.name, agencyName: agency.name, groupEmail, portalUrl, technologyEmail: identity.from_email
+    schoolName: school.name, agencyName: agency.name, groupEmail, portalUrl, supportEmail: 'support@itsco.health', alreadyStarted: Number(activity?.count) > 0
   }) };
 }
 
@@ -65,7 +66,7 @@ export async function sendPendingSchoolOnboardingWelcomes({ db = pool, limit = 2
       if (!claim.affectedRows) continue;
       claimed = true;
       const result = await sendEmailFromIdentity({ senderIdentityId: context.identity.id,
-        to: context.groupEmail, cc: 'schools@itsco.health', replyToOverride: context.identity.from_email,
+        to: context.groupEmail, cc: 'schools@itsco.health', replyToOverride: 'support@itsco.health',
         ...context.content, source: 'auto', templateType: WELCOME_TEMPLATE, linkUrl: context.portalUrl,
         internetMessageIdOverride: `<school-welcome-${job.agency_id}-${job.school_organization_id}@itsco.health>` });
       const status = result.id && !result.redirected ? 'sent' : result.skipped ? 'pending' : 'held';

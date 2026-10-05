@@ -1,4 +1,4 @@
-import { isTechnologyIdentity, ingestTechnologyEmail, prioritizeTechnologyAddresses, ignoreOutboundTechnologyCopy } from '../technologySupport.service.js';
+import { isSchoolWelcomeSupportReply, isTechnologyIdentity, ingestTechnologyEmail, prioritizeTechnologyAddresses, ignoreOutboundTechnologyCopy } from '../technologySupport.service.js';
 import { deferredInboundMessages, deferInboundMessage, clearInboundRetry } from './gmailInboundRetry.js';
 import { resolvePersonalMailRecipients } from '../groupMailboxRouting.service.js';
 import pool from '../../config/database.js';
@@ -954,6 +954,12 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
     const subject = hdrs.get('subject') || '';
 
     const routed = await routeSenderIdentityFromHeaders(hdrs);
+    if (await isSchoolWelcomeSupportReply({ addresses: [...routed.to, ...routed.cc, ...routed.deliveredTo], inReplyTo: hdrs.get('in-reply-to'), references: hdrs.get('references') })) {
+      const support = await EmailSenderIdentity.findByAgencyAndIdentityKey(2, 'support');
+      if (!support?.id) throw new Error('Support identity missing for school welcome reply');
+      routed.senderIdentityId = support.id;
+      routed.technology = true;
+    }
     const automated = isAutoReply(hdrs);
     if (!automated && routed.senderIdentityId && !routed.technology) {
       const {resolvePersonalReminderMailbox}=await import('../personalThreadReminder.service.js');
@@ -1082,7 +1088,7 @@ export async function runInboundEmailAgentOnce({ maxMessages = 10 } = {}) {
       continue;
     }
 
-    if (isTechnologyIdentity(identity)) {
+    if (routed.technology || isTechnologyIdentity(identity)) {
       const result = await ingestTechnologyEmail({ identity, fromEmail, subject, bodyText,
         messageId: hdrs.get('message-id') || `gmail:${id}`, threadId: full.data?.threadId,
         gmailMessageId: id, gmail, payload, recipients: [...routed.to, ...routed.cc],

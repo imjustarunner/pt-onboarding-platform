@@ -4,7 +4,7 @@ vi.mock('../../config/database.js',()=>({default:{getConnection:m.getConnection,
 vi.mock('../../models/Notification.model.js',()=>({default:{create:m.notify}}));
 vi.mock('../../utils/supportTicketCrypto.js',()=>({prepareEncryptedTicketText:text=>({plain:null,ciphertext:`encrypted:${text}`,iv:'iv',authTag:'tag',keyId:'key1'})}));
 vi.mock('../unifiedEmail/ticketInboundAttachments.service.js',()=>({persistGmailAttachmentsForTicket:m.attachments}));
-import {ingestTechnologyEmail,technologyOwner,isTechnologyIdentity,assignTechnologyTicket,prioritizeTechnologyAddresses,ignoreOutboundTechnologyCopy} from '../technologySupport.service.js';
+import {isSchoolWelcomeSupportReply,ingestTechnologyEmail,technologyOwner,isTechnologyIdentity,assignTechnologyTicket,prioritizeTechnologyAddresses,ignoreOutboundTechnologyCopy} from '../technologySupport.service.js';
 import {allowedTopicsForCreatorRole,normalizeTicketTopic} from '../../utils/ticketTopics.js';
 const email={identity:{id:7,agency_id:2,identity_key:'technology',from_email:'Technology@itsco.health'},fromEmail:'marcia.mcgirr@d11.org',subject:'Re: Keller portal is ready',bodyText:'I cannot see the upload option',messageId:'<reply1@d11.org>',threadId:'thread1',gmailMessageId:'g1',gmail:{},payload:{},recipients:['Technology@itsco.health','schools@itsco.health']};
 let receipts,threadTicket,owners;
@@ -68,4 +68,14 @@ it('prioritizes Technology on reply-all, accepts internal staff requests, and ig
  expect(ignoreOutboundTechnologyCopy('michael@plottwistco.com',senders,true)).toBe(false);
  expect(ignoreOutboundTechnologyCopy('Technology@itsco.health',senders,true)).toBe(true);
  expect(ignoreOutboundTechnologyCopy('michael@plottwistco.com',senders,false)).toBe(true);
+});
+
+it('routes only verified welcome replies through Support to Technology',async()=>{
+ const db={execute:vi.fn().mockResolvedValue([[{id:123}]])};
+ const reply={addresses:['support@itsco.health'],references:'<school-welcome-2-430@itsco.health>'};
+ expect(await isSchoolWelcomeSupportReply(reply,db)).toBe(true);
+ expect(await isSchoolWelcomeSupportReply({...reply,addresses:['schools@itsco.health']},db)).toBe(false);
+ db.execute.mockResolvedValue([[]]);
+ expect(await isSchoolWelcomeSupportReply(reply,db)).toBe(false);
+ expect(await isSchoolWelcomeSupportReply({...reply,references:'<unrelated@example.org>'},db)).toBe(false);
 });

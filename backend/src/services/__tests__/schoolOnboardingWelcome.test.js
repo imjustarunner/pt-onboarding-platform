@@ -15,13 +15,14 @@ let jobs, groupEmail, completed, claimed;
 beforeEach(() => {
   vi.resetAllMocks(); jobs = [{ ...job }]; groupEmail = 'keller@itsco.health'; completed = true; claimed = false;
   m.agency.mockImplementation(async id => id === 2 ? { name: 'ITSCO', slug: 'itsco' } : { name: 'Keller', organization_type: 'school', is_active: 1 });
-  m.identity.mockResolvedValue({ id: 7, from_email: 'Technology@itsco.health' });
+  m.identity.mockResolvedValue({ id: 6, from_email: 'notifications@itsco.health' });
   m.group.mockResolvedValue({ id: 'group1' });
   m.portal.mockResolvedValue('https://app.itsco.health/keller/dashboard');
   m.send.mockResolvedValue({ id: 'sent1', communicationId: 99 });
   m.execute.mockImplementation(async (sql) => {
     if (sql.startsWith('SELECT id,agency_id,school_organization_id FROM school_onboarding_welcome')) return [[]];
     if (sql.startsWith('SELECT * FROM school_onboarding_welcome')) return [jobs];
+    if (sql.includes('SELECT COUNT(*) AS count FROM clients')) return [[{count:0}]];
     if (sql.includes('SELECT itsco_email')) return [[{ itsco_email: groupEmail }]];
     if (sql.includes('SELECT i.id FROM school_onboarding') || sql.includes('SELECT id FROM school_reinit')) return [completed ? [{ id: 20 }] : []];
     if (sql.includes("SET delivery_status='sending'")) { const affectedRows = claimed ? 0 : 1; claimed = true; return [{ affectedRows }]; }
@@ -30,9 +31,9 @@ beforeEach(() => {
 });
 
 describe('school completion welcomes', () => {
-  it('sends to the established school group, CCs Schools, and keeps Technology as sender and reply-to', async () => {
+  it('sends to the established school group, CCs Schools, and uses Notifications with Support replies', async () => {
     await sendPendingSchoolOnboardingWelcomes();
-    expect(m.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'keller@itsco.health', cc: 'schools@itsco.health', senderIdentityId: 7, replyToOverride: 'Technology@itsco.health', templateType: 'school_onboarding_welcome' }));
+    expect(m.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'keller@itsco.health', cc: 'schools@itsco.health', senderIdentityId: 6, replyToOverride: 'support@itsco.health', templateType: 'school_onboarding_welcome' }));
     expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('communication_id=?'), ['sent',99,'sent',null,1]);
   });
   it.each(['', 'someone@another-tenant.health'])('waits for an established ITSCO group (%s)', async value => {
@@ -66,14 +67,21 @@ describe('school completion welcomes', () => {
     expect(await sendPendingSchoolOnboardingWelcomes()).toEqual([{id:1,status:'held'}]);
   });
   it('escapes school data and explains school-only access without sharing credentials', () => {
-    const draft = schoolOnboardingWelcomeEmail({schoolName:'<script>Keller</script>',agencyName:'ITSCO',groupEmail:'keller@itsco.health',portalUrl:'https://app.itsco.health/keller/dashboard',technologyEmail:'Technology@itsco.health'});
+    const draft = schoolOnboardingWelcomeEmail({schoolName:'<script>Keller</script>',agencyName:'ITSCO',groupEmail:'keller@itsco.health',portalUrl:'https://app.itsco.health/keller/dashboard',supportEmail:'support@itsco.health'});
     expect(draft.html).not.toContain('<script>'); expect(draft.html).toContain('&lt;script&gt;');
     expect(draft.text).toContain('Digital Forms'); expect(draft.text).toContain('Printable Paperwork');
     expect(draft.text).toContain('School administrators'); expect(draft.text).toContain('not a shared portal login');
     expect(draft.text).toContain('permissions and the releases');
     expect(draft.html).toContain('https://plottwisthq.com/assets/schoolcarebridge/logo.png');
     expect(draft.html).toContain('Part of the SchoolCareBridge network');
-    expect(draft.html).toContain('https://schoolcarebridge.org/');
+    expect(draft.html).toContain('https://plottwisthq.com/schoolcarebridge');
     expect(draft.text).toContain('a program of MH4Kidz');
   });
+});
+
+it('acknowledges schools that have already submitted referrals', () => {
+ const draft=schoolOnboardingWelcomeEmail({schoolName:'Keller',agencyName:'ITSCO',groupEmail:'keller@itsco.health',portalUrl:'https://app.itsco.health/keller/dashboard',supportEmail:'support@itsco.health',alreadyStarted:true});
+ expect(draft.text).toContain('already getting started');
+ expect(draft.html).toContain('submitting referrals');
+ expect(draft.text).toContain('support@itsco.health');
 });

@@ -22,3 +22,9 @@ frontend/node_modules/.bin/vitest run --config backend/vitest.school-welcome.con
 ```
 
 The optional MySQL test requires `RUN_SCHOOL_WELCOME_MYSQL=1` and `SCHOOL_WELCOME_TEST_ENV` pointing to a configured environment file. It verifies real SQL inside a transaction that is rolled back; outbound email and notifications are mocked. It sends no messages and leaves no ticket or welcome-job records.
+
+## October 5 delivery update
+
+School welcomes use the Notifications identity, Reply-To `support@itsco.health`, and CC `schools@itsco.health`. Verified replies referencing a sent school welcome are routed to Technology tickets assigned to Michael; other Support email retains its existing handling. The SchoolCareBridge link temporarily uses `https://plottwisthq.com/schoolcarebridge` while the dedicated domain awaits its certificate. Schools with existing referrals receive an acknowledgment that they have already started.
+
+The one-time catch-up includes completions within the last 21 days only, excludes prior welcomes and post-completion client/intake/upload or staff mutation activity, and requires a provisioned group. Login, logout, session timeout, password-reset requests and roster views alone are not submissions. Keller is an explicitly requested exception to the inactivity filter. Recheck activity and prior delivery immediately before sending; never blindly retry uncertain delivery.
