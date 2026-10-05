@@ -1,16 +1,33 @@
 <template>
-  <main class="records-requests">
-    <p class="eyebrow">AuricWell · Records</p>
-    <RouterLink v-if="!base" to="/auricwell">← AuricWell</RouterLink>
-    <h1>{{ manage ? 'Records requests' : 'Request my records' }}</h1>
-    <p>Request a copy of your records or records for someone you are authorized to represent. Your practice reviews every request before release.</p>
+  <main class="records-requests" :class="{ 'public-records': !base }">
+    <header class="records-header">
+      <a class="records-brand" href="/auricwell" aria-label="AuricWell home"><span class="brand-mark"><img src="/auricwell/logo.png" alt="" width="96" height="96" /></span><span>AuricWell</span></a>
+      <span class="header-label">Records center</span>
+      <RouterLink v-if="!base" class="sign-in" to="/my-records">Sign in <span aria-hidden="true">↗</span></RouterLink>
+    </header>
+    <div class="records-layout">
+    <div class="records-intro">
+      <p class="eyebrow">YOUR CARE. YOUR RECORDS.</p>
+      <h1>{{ manage ? 'Records requests' : 'Request my records' }}</h1>
+      <p class="lead">Request a copy of your records or records for someone you are authorized to represent. Your practice reviews every request before release.</p>
+      <aside v-if="!base" class="what-next" aria-label="What happens next">
+        <h2>A little clarity on what comes next.</h2>
+        <ol>
+          <li><strong>Tell us what you need</strong><span>Choose your practice and the records you’d like to receive.</span></li>
+          <li><strong>We confirm it’s you</strong><span>Your practice verifies your identity using contact information already on file or in person. A parent or representative’s authority is reviewed separately.</span></li>
+          <li><strong>Your practice arranges delivery</strong><span>The records team reviews your request and coordinates secure delivery.</span></li>
+        </ol>
+        <p>Already have an account? <RouterLink to="/my-records">Sign in to request and track your records.</RouterLink></p>
+      </aside>
+    </div>
+    <div class="records-content">
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="notice" class="notice" role="status">{{ notice }}</p>
     <p v-if="loading" role="status">Loading…</p>
     <template v-else>
       <template v-if="!manage">
-        <p v-if="!base">Already have an account? <RouterLink to="/my-records">Sign in to request and track your records.</RouterLink> Otherwise, submit below. Staff will verify your identity using contact information already on file or in person. A parent or representative’s authority is reviewed separately.</p>
-        <form v-if="!submitted" class="card" @submit.prevent="submit">
+        <form v-if="!submitted" class="card request-form" @submit.prevent="submit">
+          <div class="form-heading"><span class="eyebrow">RECORDS REQUEST</span><h2>How can we help?</h2><p>Complete the details below to get started.</p></div>
           <label v-if="!base">Practice<select v-model="slug" required><option value="">Choose your practice</option><option v-for="p in practices" :key="p.id" :value="p.id">{{ p.name }}</option></select></label>
           <p v-if="!base && !practices.length">No practices are currently accepting online requests here. Contact your practice directly.</p>
           <label v-if="base">Patient<select v-model="form.patientId" required @change="selectPatient"><option value="">Choose patient</option><option v-for="p in patients" :key="p.id" :value="p.id">{{ p.data.name }}</option></select></label>
@@ -64,6 +81,9 @@
         </article>
       </section>
     </template>
+    </div>
+    </div>
+    <footer v-if="!base" class="records-footer"><span>AuricWell</span><span>Thoughtful tools for the work of care.</span><a href="/auricwell">About AuricWell ↗</a></footer>
   </main>
 </template>
 <script setup>
@@ -112,14 +132,60 @@ async function save(r) {
 onMounted(load);
 </script>
 <style scoped>
-.records-requests input, .records-requests select, .records-requests textarea { width: 100%; padding: 10px; border: 1px solid #aeb6b4; border-radius: 6px; font: inherit; }
-.records-requests button { padding: 10px 16px; border: 1px solid #23554b; background: #23554b; color: white; border-radius: 6px; cursor: pointer; }
-.records-requests button:disabled { opacity: .55; cursor: wait; }
-.records-requests .card { padding: 20px; border: 1px solid #d5dcda; border-radius: 12px; background: white; }
-.records-requests { max-width: 850px; margin: auto; padding: 24px; }
-.card { margin: 20px 0; }
-.focused { outline: 2px solid #8a6a32; }
-label { display: grid; gap: 6px; margin: 14px 0; }
-.attestation { display: flex; align-items: flex-start; gap: 10px; }
-.attestation input { width: auto; }
+.records-requests { color:#112044; font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; margin:auto; padding:24px; }
+.records-requests *, .records-requests *::before { box-sizing:border-box; }
+.public-records { max-width:none; padding:0; background:radial-gradient(ellipse at 0 30%,#eef4fd,transparent 55%),#f8fafd; min-height:100vh; }
+.records-header { display:flex; align-items:center; gap:24px; padding:16px 0; border-bottom:1px solid #e3eaf3; }
+.public-records .records-header { padding:16px max(24px,calc((100% - 1200px)/2)); background:#fff; }
+.records-brand { display:inline-flex; align-items:center; gap:8px; font-size:27px; font-weight:720; letter-spacing:-1px; text-decoration:none; }
+.brand-mark { display:block; width:48px; height:49px; overflow:hidden; position:relative; }
+.brand-mark img { position:absolute; width:96px; height:96px; max-width:none; object-fit:contain; left:-24px; top:-16px; }
+.header-label { border-left:1px solid #dce4ef; padding-left:24px; color:#5b6982; font-size:14px; }
+.records-requests a { color:#0649ce; text-underline-offset:3px; }
+.records-requests .records-brand { color:#082761; }
+.sign-in { margin-left:auto; padding:10px 18px; border:1px solid #bdcdeb; border-radius:7px; text-decoration:none; font-size:14px; font-weight:600; white-space:nowrap; }
+.records-layout { max-width:1200px; margin:auto; padding:36px 0; }
+.public-records .records-layout { display:grid; grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr); align-items:start; gap:72px; padding:64px 24px; max-width:1248px; }
+.records-intro { padding-top:12px; }
+.records-requests .eyebrow { color:#5277b5; font-size:11px; font-weight:700; letter-spacing:2px; margin:0 0 16px; }
+.records-requests h1 { font-size:clamp(36px,4vw,54px); line-height:1.08; letter-spacing:-2px; color:#0d1d43; margin:0 0 24px; font-weight:650; }
+.records-requests p { line-height:1.7; color:#5b6982; margin:0 0 18px; }
+.records-requests .lead { font-size:17px; }
+.what-next { margin-top:36px; border-top:2px solid #ba891e; padding-top:26px; }
+.records-requests h2 { font-size:23px; letter-spacing:-.6px; color:#0d1d43; margin:0 0 18px; line-height:1.3; }
+.what-next h2 { font-size:20px; }
+.what-next ol { padding:0; margin:24px 0; list-style:none; counter-reset:records-step; }
+.what-next li { counter-increment:records-step; position:relative; padding:0 0 24px 42px; font-size:14px; line-height:1.65; }
+.what-next li::before { content:counter(records-step,decimal-leading-zero); position:absolute; left:0; top:0; color:#a07318; font-size:12px; font-weight:700; }
+.what-next strong, .what-next li span { display:block; }
+.what-next li span { color:#5b6982; margin-top:4px; }
+.what-next > p { font-size:14px; }
+.records-content { min-width:0; }
+.records-requests .card { padding:30px; border:1px solid #e0e7f1; border-radius:16px; background:white; box-shadow:0 8px 32px #18386808; margin:20px 0; }
+.records-requests .request-form { margin-top:0; }
+.form-heading { padding-bottom:18px; margin-bottom:22px; border-bottom:1px solid #e3eaf3; }
+.form-heading .eyebrow { display:block; margin-bottom:10px; }
+.form-heading h2 { margin-bottom:8px; }
+.form-heading p { font-size:14px; margin-bottom:0; }
+.records-requests label { display:grid; gap:8px; margin:18px 0; font-size:14px; font-weight:550; color:#263958; }
+.records-requests input, .records-requests select, .records-requests textarea { width:100%; min-width:0; padding:12px; border:1px solid #bcc9dc; background:#fff; color:#112044; border-radius:7px; font:inherit; font-size:16px; }
+.records-requests textarea { min-height:100px; resize:vertical; }
+.records-requests input::placeholder, .records-requests textarea::placeholder { color:#64738b; }
+.records-requests :is(input,select,textarea,button,a):focus-visible { outline:3px solid #ba891e; outline-offset:3px; }
+.records-requests button { padding:13px 20px; border:1px solid #0649ce; background:#0649ce; color:white; border-radius:7px; cursor:pointer; font:inherit; font-weight:600; font-size:14px; }
+.records-requests button:hover:not(:disabled) { background:#073baa; }
+.records-requests button:disabled { opacity:.55; cursor:not-allowed; }
+.request-form > button { width:100%; margin-top:8px; }
+.request-form > p { font-size:13px; }
+.records-requests button.outline { background:white; color:#0649ce; }
+.records-requests .focused { outline:2px solid #ba891e; }
+.records-requests .attestation { display:flex; align-items:flex-start; gap:10px; font-weight:400; line-height:1.6; }
+.records-requests .attestation input { width:17px; height:17px; flex-shrink:0; margin-top:3px; accent-color:#0649ce; }
+.records-requests .error { color:#922c2c; background:#fff2f2; padding:16px; border-radius:8px; }
+.records-requests .notice { color:#164737; background:#eaf6ef; padding:20px; border-radius:8px; }
+.records-footer { display:flex; align-items:center; gap:20px; max-width:1200px; margin:auto; padding:26px 24px; border-top:1px solid #dce4ef; font-size:12px; color:#5b6982; }
+.records-footer > span:first-child { color:#082761; font-size:17px; font-weight:700; }
+.records-footer a { margin-left:auto; }
+@media (max-width:850px) { .public-records .records-layout { grid-template-columns:1fr; gap:20px; padding-top:32px; } .what-next { margin-top:24px; } .what-next ol { margin-bottom:0; } }
+@media (max-width:480px) { .header-label { display:none; } .records-header { gap:12px; } .records-brand { font-size:24px; } .public-records .records-layout { padding:28px 18px; } .records-requests .card { padding:22px 18px; } .records-footer { flex-wrap:wrap; gap:10px 20px; } .records-footer a { margin-left:0; } }
 </style>
