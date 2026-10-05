@@ -74,6 +74,8 @@ it('routes only verified welcome replies through Support to Technology',async()=
  const db={execute:vi.fn().mockResolvedValue([[{id:123}]])};
  const reply={addresses:['support@itsco.health'],references:'<school-welcome-2-430@itsco.health>'};
  expect(await isSchoolWelcomeSupportReply(reply,db)).toBe(true);
+ expect(await isSchoolWelcomeSupportReply({...reply,references:'<rewritten@gmail.com>'},db)).toBe(true);
+ expect(db.execute).toHaveBeenLastCalledWith(expect.stringContaining("'$.internetMessageId'"),['<rewritten@gmail.com>','<rewritten@gmail.com>']);
  expect(await isSchoolWelcomeSupportReply({...reply,addresses:['schools@itsco.health']},db)).toBe(false);
  db.execute.mockResolvedValue([[]]);
  expect(await isSchoolWelcomeSupportReply(reply,db)).toBe(false);

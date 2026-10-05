@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { replyMessageIds } from '../utils/emailThreading.js';
 import pool from '../config/database.js';
 import Notification from '../models/Notification.model.js';
 import { prepareEncryptedTicketText } from '../utils/supportTicketCrypto.js';
@@ -12,11 +13,12 @@ export function isTechnologyIdentity(identity) {
 /** Only replies to a verified sent welcome use Technology routing through Support. */
 export async function isSchoolWelcomeSupportReply({ addresses, inReplyTo, references }, db = pool) {
   if (!addresses.some(a => String(a).toLowerCase() === 'support@itsco.health')) return false;
-  const ids = [...new Set(`${inReplyTo || ''} ${references || ''}`.match(/<school-welcome-2-[0-9]+@itsco\.health>/g) || [])].slice(-20);
+  const ids = replyMessageIds(inReplyTo, references).slice(-20);
   for (const id of ids) {
     const [[sent]] = await db.execute(`SELECT id FROM user_communications WHERE agency_id=2
       AND template_type='school_onboarding_welcome' AND delivery_status='sent'
-      AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.internetMessageIdOverride'))=? LIMIT 1`, [id]);
+      AND (JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.internetMessageIdOverride'))=?
+        OR JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.internetMessageId'))=?) LIMIT 1`, [id,id]);
     if (sent) return true;
   }
   return false;
