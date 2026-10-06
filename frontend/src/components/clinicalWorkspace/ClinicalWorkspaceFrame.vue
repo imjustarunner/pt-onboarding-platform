@@ -11,8 +11,8 @@
       </div>
       <nav class="clinical-workspace__actions" aria-label="Workspace view">
         <div v-if="switchable" class="clinical-workspace__switch" role="group" aria-label="Client workspace view">
-          <button type="button" :aria-pressed="!clinical" @click="$emit('update:mode','overview')">Tenant view</button>
-          <button type="button" :aria-pressed="clinical" @click="$emit('update:mode','clinical')">AuricWell EHR</button>
+          <button type="button" :aria-pressed="!clinical" @click="$emit('update:mode','overview')">{{ overviewLabel }}</button>
+          <button type="button" :aria-pressed="clinical" @click="$emit('update:mode','clinical')">{{ clinicalLabel }}</button>
         </div>
         <button v-if="showBack" type="button" class="clinical-workspace__back" :disabled="backDisabled" :title="backDisabled ? backDisabledReason : undefined" @click="goBack">← {{ returnLabel || `Back to ${tenantLabel}` }}</button>
       </nav>
@@ -30,6 +30,7 @@ import '../../styles/clinicalWorkspace.css';
 const props = defineProps({
   enabled: { type: Boolean, default: true }, mode: { type: String, default: 'clinical' },
   switchable: Boolean, immersive: Boolean, compact: Boolean,
+  overviewLabel: { type: String, default: 'Tenant view' }, clinicalLabel: { type: String, default: 'AuricWell EHR' },
   tenantId: { type: [Number, String], default: null }, tenantName: { type: String, default: '' }, tenantLogo: { type: String, default: '' },
   contextLabel: { type: String, default: 'Client record' }, returnLabel: { type: String, default: '' },
   showBack: { type: Boolean, default: true }, backDisabled: Boolean,

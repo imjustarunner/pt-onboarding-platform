@@ -3163,9 +3163,9 @@ export const updateClient = async (req, res, next) => {
             // Move primary affiliation from old org -> new org.
             if (hasAffTable) {
               await conn.execute(
-                `UPDATE client_organization_assignments
-                 SET is_active = FALSE, is_primary = FALSE, updated_at = CURRENT_TIMESTAMP
-                 WHERE client_id = ? AND organization_id = ?`,
+                `INSERT INTO client_organization_assignments (client_id, organization_id, is_active, is_primary)
+                 VALUES (?, ?, FALSE, FALSE)
+                 ON DUPLICATE KEY UPDATE is_active = FALSE, is_primary = FALSE, updated_at = CURRENT_TIMESTAMP`,
                 [clientId, oldOrgId]
               );
               await conn.execute(

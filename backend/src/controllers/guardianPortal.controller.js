@@ -1,3 +1,4 @@
+import { attachGuardianSchoolAffiliations } from '../services/guardianSchoolAffiliations.service.js';
 import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
 import pool from '../config/database.js';
 import { fetchSkillBuildersGroupProvidersForPortal } from '../services/skillBuildersEventProviders.service.js';
@@ -142,16 +143,16 @@ export const getGuardianPortalOverview = async (req, res, next) => {
       });
     }
 
-    const [linkedClients, explicitOrgsRaw] = await Promise.all([
+    const [linkedClients, explicitOrgsRaw, eventVisibleClients, documentVisibleClients] = await Promise.all([
       ClientGuardian.listClientsForGuardian({ guardianUserId: uid }),
-      User.getAgencies(uid)
+      User.getAgencies(uid),
+      ClientGuardian.listClientsForGuardian({guardianUserId:uid,requiredClinicalScope:'session_frequency'}),
+      ClientGuardian.listClientsForGuardian({guardianUserId:uid,requiredClinicalScope:'clinical_documents'})
     ]);
-    const meRaw = (linkedClients || []).find((c) => String(c?.relationship_type || '').toLowerCase() === 'self') || null;
-    const me = meRaw ? enrichGuardianClientRow(meRaw) : null;
-    const dependents = (linkedClients || [])
-      .filter((c) => String(c?.relationship_type || '').toLowerCase() !== 'self')
-      .map(enrichGuardianClientRow);
-    const eventVisibleClients = await ClientGuardian.listClientsForGuardian({guardianUserId:uid,requiredClinicalScope:'session_frequency'});
+    const guardianClients = await attachGuardianSchoolAffiliations((linkedClients || []).map(enrichGuardianClientRow), { guardianUserId: uid, providerClientIds: eventVisibleClients.map(c => Number(c.client_id)), documentClientIds: documentVisibleClients.map(c => Number(c.client_id)) });
+    const meRaw = guardianClients.find((c) => String(c?.relationship_type || '').toLowerCase() === 'self') || null;
+    const me = meRaw || null;
+    const dependents = guardianClients.filter((c) => String(c?.relationship_type || '').toLowerCase() !== 'self');
     const linkedClientIds = eventVisibleClients.map(c=>Number(c.client_id)).filter(n=>n>0);
 
     const clientMetaById = new Map(

@@ -1,6 +1,6 @@
 <template>
-  <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" :mode="guardianWorkspaceMode" :immersive="clinicalGuardianContext" :tenant-id="selectedChildAgencyId" :tenant-name="tenantAgencyName || currentAgencyName" :tenant-logo="tenantAgencyLogoUrl || programLogoUrl || ''" context-label="Family care" switchable :return-label="`Back to ${tenantAgencyName || currentAgencyName || 'family overview'}`" @update:mode="changeGuardianWorkspaceMode" @back="returnToFamilyOverview">
-  <FamilyPortalShell :brand-name="currentAgencyName || tenantAgencyName" :brand-subtitle="dualBranding ? tenantAgencyName : ''" :logo-url="programLogoUrl || tenantAgencyLogoUrl || brandingStore.displayLogoUrl" :primary-color="clinicalGuardianContext && guardianWorkspaceMode === 'clinical' ? '#2467a7' : brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
+  <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" :mode="guardianWorkspaceMode" :immersive="clinicalGuardianContext" :tenant-id="selectedChildAgencyId" :tenant-name="careAgencyName" :tenant-logo="selectedChild?.agency_logo_url || tenantAgencyLogoUrl || programLogoUrl || ''" :context-label="schoolWorkspaceActive ? 'SchoolCareBridge' : 'Family care'" :overview-label="hasSchoolAffiliations ? 'SchoolCareBridge' : 'Family overview'" clinical-label="AuricWell care" switchable :return-label="'Family overview'" @update:mode="changeGuardianWorkspaceMode" @back="returnToFamilyOverview">
+  <FamilyPortalShell :brand-name="schoolWorkspaceActive ? 'SchoolCareBridge' : clinicalGuardianContext ? 'AuricWell' : currentAgencyName || tenantAgencyName" :brand-subtitle="schoolWorkspaceActive ? schoolWorkspaceLabel : clinicalGuardianContext ? careAgencyName : dualBranding ? tenantAgencyName : ''" :logo-url="schoolWorkspaceActive ? 'https://mh4kidz.org/assets/schoolcarebridge/logo.png' : clinicalGuardianContext ? '/auricwell/logo.png' : programLogoUrl || tenantAgencyLogoUrl || brandingStore.displayLogoUrl" :primary-color="clinicalGuardianContext && guardianWorkspaceMode === 'clinical' ? '#2467a7' : brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
     <router-link :to="`/my-records${selectedChildAgencyId ? '?agencyId=' + selectedChildAgencyId : ''}`" class="btn btn-secondary">Request my records</router-link>
     <PlatformPreviewBanner
       v-if="isSuperadminPreview"
@@ -25,7 +25,8 @@
       <template v-else>
         <div class="detail guardian-detail">
           <div class="panel guardian-panel">
-            <template v-if="activePanel === 'tutoring'">
+            <GuardianSchoolCareBridge v-if="activePanel === 'schoolcarebridge' && hasSchoolAffiliations" :schools="schoolAffiliations" :client-id="selectedChildId" v-model:school-id="selectedSchoolId" :client-name="childDisplayName(selectedChild)" @navigate="openAuricWellPanel" />
+            <template v-else-if="activePanel === 'tutoring'">
               <GuardianTutoringDashboard embedded
                 :key="`${currentAgencyId}-${selectedChildId}`"
                 v-if="selectedChildId"
@@ -607,6 +608,7 @@
 </template>
 
 <script setup>
+import GuardianSchoolCareBridge from '../../components/guardian/GuardianSchoolCareBridge.vue';
 import { isClinicalClient } from '../../utils/clinicalWorkspace';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -682,7 +684,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(['overview','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan'].includes(route.query.panel) ? route.query.panel : 'overview');
+const activePanel = ref(['overview','schoolcarebridge','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan'].includes(route.query.panel) ? route.query.panel : 'overview');
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
   set: (v) => guardianStore.setSelectedChild(v)
@@ -765,17 +767,34 @@ const selectedChildAgencyId = computed(() => {
   return Number(agencyStore.currentAgency?.id || 0) || null;
 });
 
-const clinicalGuardianContext = computed(() => !!selectedChild.value && isClinicalClient(selectedChild.value));
+const schoolAffiliations = computed(() => selectedChild.value?.school_affiliations || []);
+const hasSchoolAffiliations = computed(() => schoolAffiliations.value.length > 0);
+const selectedSchoolId = ref(null);
+const selectedSchool = computed(() => schoolAffiliations.value.find(s => Number(s.organization_id) === Number(selectedSchoolId.value)) || schoolAffiliations.value[0] || null);
+const schoolWorkspaceLabel = computed(() => selectedSchool.value ? `${selectedSchool.value.name}${selectedSchool.value.status === 'former' ? ' · Former school' : ''}` : '');
+const careAgencyName = computed(() => selectedChild.value?.agency_name || tenantAgencyName.value || currentAgencyName.value);
+const clinicalGuardianContext = computed(() => !!selectedChild.value && (isClinicalClient(selectedChild.value) || hasSchoolAffiliations.value || (!selectedChild.value.client_type && ['agency','clinical'].includes(selectedChild.value.organization_type))));
 const guardianWorkspaceMode = ref('clinical');
+const schoolWorkspaceActive = computed(() => hasSchoolAffiliations.value && guardianWorkspaceMode.value === 'overview');
 function changeGuardianWorkspaceMode(mode) {
+  if (mode === 'overview' && hasSchoolAffiliations.value) navigatePortal('schoolcarebridge');
+  else if (activePanel.value === 'schoolcarebridge') navigatePortal('overview');
   guardianWorkspaceMode.value = mode;
+}
+function openAuricWellPanel(panel) {
+  navigatePortal(panel);
+  guardianWorkspaceMode.value = 'clinical';
 }
 function returnToFamilyOverview() {
   navigatePortal('overview');
-  guardianWorkspaceMode.value = 'overview';
+  guardianWorkspaceMode.value = 'clinical';
 }
-watch(selectedChildId, () => { guardianWorkspaceMode.value = 'clinical'; });
-watch(activePanel, panel => { if (['plan','appointments','documents','billing','payment_methods','child'].includes(panel)) guardianWorkspaceMode.value = 'clinical'; });
+watch(selectedChildId, (id, previousId) => {
+  selectedSchoolId.value = null;
+  if (previousId && activePanel.value === 'schoolcarebridge') navigatePortal('overview');
+  guardianWorkspaceMode.value = activePanel.value === 'schoolcarebridge' && hasSchoolAffiliations.value ? 'overview' : 'clinical';
+});
+watch(activePanel, panel => { if (panel === 'schoolcarebridge') guardianWorkspaceMode.value = 'overview'; else if (['overview','messages','plan','appointments','documents','billing','payment_methods','child'].includes(panel)) guardianWorkspaceMode.value = 'clinical'; });
 
 const selectedChildClientType = computed(() => {
   const explicit = String(selectedChild.value?.client_type || '').toLowerCase();
@@ -858,6 +877,7 @@ const dashboardTabs = computed(() => {
     { key: 'documents', label: 'Documents', meta: pm('Forms and signatures', 'Where forms live') },
     { key: 'appointments', label: 'Appointments', meta: pm('Schedule and change requests', 'Appointments') }
   );
+  if (hasSchoolAffiliations.value) tabs.push({ key:'schoolcarebridge', label:'SchoolCareBridge', meta:schoolWorkspaceLabel.value });
   if (selectedChild.value) {
     tabs.push({
       key: 'child',
@@ -900,7 +920,7 @@ const portalNavigation = computed(() => {
   return items;
 });
 const portalTitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? `Welcome${authStore.user?.first_name ? ', ' + authStore.user.first_name : ''}!` : portalNavigation.value.find(t => t.key === activePanel.value)?.label || 'Your portal');
-const portalSubtitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? `Your ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps in one place.` : ({billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
+const portalSubtitle = computed(() => ['overview','tutoring'].includes(activePanel.value) ? `Your ${standardsLearningVisible.value ? 'learning' : 'care'} journey, appointments, and next steps in one place.` : ({schoolcarebridge:'Your school, service day, provider, and release of information.',billing:'Your assigned balances, payment plans, and downloadable receipts.',payment_methods:'Manage your private insurance coverage and payment methods.',plan:'Review the goals and progress shared with your account.',documents:'Complete forms, review documents, and stay up to date.',messages:'A shared conversation with authorized guardians and your care team.'}[activePanel.value] || 'Manage the information shared with your account.'));
 function navigatePortal(key) { if(!portalNavigation.value.some(item => item.key === key))return;if(key==='waivers'){router.push(guardianWaiversLink.value);return;}activePanel.value=key;selectedInlineEvent.value=null;router.replace({query:{...route.query,panel:key}}); }
 watch(() => route.query.panel, key => { if(portalNavigation.value.some(item => item.key === key))activePanel.value=key; });
 watch(() => [currentAgencyId.value,selectedChildId.value,isSuperadminPreview.value], async () => {
@@ -1758,8 +1778,9 @@ watch(selectedChildId, (id) => {
 }, { immediate: true });
 
 watch(
-  dashboardTabs,
-  (tabs) => {
+  [dashboardTabs, loading],
+  ([tabs, isLoading]) => {
+    if (isLoading) return;
     const allowedKeys = new Set((tabs || []).map((tab) => String(tab?.key || '')));
     // Extra panels outside dashboardTabs
     allowedKeys.add('contact');
