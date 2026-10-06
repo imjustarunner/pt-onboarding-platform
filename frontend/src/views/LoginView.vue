@@ -361,7 +361,7 @@
           @forget="forgetRememberedAccount"
         />
 
-        <PasskeySignIn v-if="!workspacePreparing && !isSchoolCareBridge && loginTheme?.agency?.organization_type !== 'school' && identifiedLoginMethod !== 'google'" :disabled="loading" @signed-in="handlePasskeyLogin" />
+        <PasskeySignIn v-if="!workspacePreparing && !showRememberedGoogleButton && !isSchoolCareBridge && loginTheme?.agency?.organization_type !== 'school' && identifiedLoginMethod !== 'google'" :disabled="loading" @signed-in="handlePasskeyLogin" />
         <!-- Biometric login button (native only, when token is saved) -->
         <div v-if="showBiometricButton && !workspacePreparing" class="biometric-login-wrap">
           <button
