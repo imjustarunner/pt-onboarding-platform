@@ -101,18 +101,12 @@ async function persistContactSubscription({ schoolOrganizationId, email, subscri
   const normalized = String(email || '').trim().toLowerCase();
   const pref = normalizeGroupSubscription(subscription);
   if (!orgId || !normalized.includes('@')) return;
-  try {
-    await pool.execute(
-      `UPDATE school_contacts
-       SET email_delivery_preference = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE school_organization_id = ? AND LOWER(TRIM(email)) = ?`,
-      [pref, orgId, normalized]
-    );
-  } catch (e) {
-    if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') {
-      console.warn('[schoolGroupSubscription] persist failed:', e?.message || e);
-    }
-  }
+  await pool.execute(
+    `UPDATE school_contacts
+     SET email_delivery_preference = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE school_organization_id = ? AND LOWER(TRIM(email)) = ?`,
+    [pref, orgId, normalized]
+  );
 }
 
 export async function resolveGroupEmailForSchool(schoolOrganizationId) {
@@ -151,6 +145,27 @@ export async function applyGoogleGroupDeliverySettings({ groupEmail, memberEmail
   }
 }
 
+/** Read live delivery per member; members.list omits delivery_settings. */
+export async function readSchoolGroupSubscriptions({ groupEmail, emails = [] }) {
+  const subscriptions = new Map(emails.map(email => [String(email).trim().toLowerCase(), null]));
+  if (!groupEmail || !GoogleWorkspaceDirectoryService.isConfigured()) return subscriptions;
+  let admin;
+  try { admin = await GoogleWorkspaceDirectoryService.getClient(); } catch { return subscriptions; }
+  const members = [...subscriptions.keys()];
+  // Bound concurrent Google requests for larger staff lists.
+  for (let offset = 0; offset < members.length; offset += 5) {
+    await Promise.all(members.slice(offset, offset + 5).map(async email => {
+      try {
+        const { data } = await admin.members.get({ groupKey: groupEmail, memberKey: email }, { timeout: 8000 });
+        const raw = String(data?.delivery_settings || '').toUpperCase();
+        const option = GROUP_SUBSCRIPTION_OPTIONS.find(option => option.google === raw);
+        if (option || raw === 'DISABLED') subscriptions.set(email, option?.value || 'none');
+      } catch { /* Unknown must never be shown as Each email. */ }
+    }));
+  }
+  return subscriptions;
+}
+
 async function notifyAdminsAndSupport({
   agencyId,
   schoolOrganizationId,
@@ -185,8 +200,9 @@ async function notifyAdminsAndSupport({
   const title = 'School group email subscription changed';
   const message = [
     viaEmail
-      ? `${who} replied from an email and changed their subscription to ${group}.`
-      : `${who} changed their subscription to ${group} ${sourceLabel(source)}.`,
+      ? `The subscription for ${who} to ${group} was changed via an email link.`
+      : `The subscription for ${who} to ${group} was changed ${sourceLabel(source)}.`,
+    actorUserId ? `Changed by user #${actorUserId}.` : null,
     prevLabel && prevLabel !== nextLabel ? `Previous: ${prevLabel}.` : null,
     `Now: ${nextLabel}.`,
     'They remain on the school portal and in the Google Group; only email delivery changed.'
@@ -249,7 +265,6 @@ export async function applySchoolGroupSubscription({
     }
   }
 
-  await persistContactSubscription({ schoolOrganizationId: orgId, email: memberEmail, subscription: next });
   const groupEmail = await resolveGroupEmailForSchool(orgId);
   const google = groupEmail
     ? await applyGoogleGroupDeliverySettings({
@@ -258,6 +273,15 @@ export async function applySchoolGroupSubscription({
         subscription: next
       })
     : { ok: false, skipped: true, reason: 'missing_group_email' };
+
+  if (!google.ok) {
+    throw Object.assign(new Error('Your school group email subscription could not be updated. Please try again or contact schools@itsco.health.'), {
+      status: 502,
+      code: 'SCHOOL_GROUP_DELIVERY_UPDATE_FAILED',
+      cause: google.error || google.reason
+    });
+  }
+  await persistContactSubscription({ schoolOrganizationId: orgId, email: memberEmail, subscription: next });
 
   let agencyId = null;
   try {
@@ -291,6 +315,7 @@ export async function applySchoolGroupSubscription({
     groupEmail,
     subscription: next,
     subscriptionLabel: groupSubscriptionLabel(next),
+    previousSubscription: prior,
     google
   };
 }

@@ -1,5 +1,13 @@
 <template>
   <div class="spm">
+    <div class="spm-channel-tabs" role="tablist" aria-label="Message channel">
+      <button id="school-messages-tab" role="tab" type="button" :aria-selected="activeChannel === 'messages'" aria-controls="school-messages-panel" @click="activeChannel = 'messages'">Messages <span v-if="totalUnread">({{ totalUnread }})</span></button>
+      <button id="school-email-tab" role="tab" type="button" :aria-selected="activeChannel === 'email'" aria-controls="school-email-panel" @click="activeChannel = 'email'">Email <span v-if="emailUnread">({{ emailUnread }} unread)</span></button>
+    </div>
+    <div id="school-email-panel" v-show="activeChannel === 'email'" role="tabpanel" aria-labelledby="school-email-tab">
+      <SchoolPortalEmailPanel :school-organization-id="schoolOrganizationId" @unread-update="emailUnread = $event" />
+    </div>
+    <div id="school-messages-panel" v-show="activeChannel === 'messages'" role="tabpanel" aria-labelledby="school-messages-tab">
     <!-- ── Header ── -->
     <div class="spm__header">
       <div>
@@ -228,11 +236,15 @@
         </div>
       </div>
     </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import SchoolPortalEmailPanel from './SchoolPortalEmailPanel.vue';
+const activeChannel = ref('messages');
+const emailUnread = ref(0);
 import api from '../../../services/api';
 import { useAuthStore } from '../../../store/auth';
 import { GUARDIAN_TICKET_TOPICS } from '../../../utils/ticketTopics';
@@ -653,7 +665,7 @@ function formatTime(d) {
 }
 
 // ── Watchers ───────────────────────────────────────────────────
-watch(totalUnread, (n) => emit('unread-update', n), { immediate: true });
+watch([totalUnread, emailUnread], ([messages, emails]) => emit('unread-update', messages + emails), { immediate: true });
 
 onMounted(() => loadAll());
 
@@ -684,6 +696,11 @@ watch(
 </script>
 
 <style scoped>
+.spm-channel-tabs { display:flex; gap:8px; margin-bottom:18px; }
+.spm-channel-tabs button { border:1px solid #cbd5e1; border-radius:10px; background:#fff; color:#334155; padding:10px 20px; font:inherit; cursor:pointer; }
+.spm-channel-tabs button[aria-selected="true"] { background:#e0f2fe; border-color:#0284c7; color:#075985; font-weight:700; }
+
+#school-messages-panel { display:flex; flex-direction:column; gap:14px; }
 /* ── Layout ── */
 .spm { display: flex; flex-direction: column; gap: 14px; height: 100%; }
 

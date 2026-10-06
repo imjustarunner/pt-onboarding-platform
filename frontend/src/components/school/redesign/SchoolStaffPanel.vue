@@ -55,10 +55,11 @@
         <span>Your subscription to {{ schoolGroupEmail || 'the school group' }}</span>
         <select
           class="ssp-select"
-          :value="normalizeGroupSubscription(currentUserStaff.group_email_subscription)"
+          :value="normalizeGroupSubscription(currentUserStaff.group_email_subscription, '')"
           :disabled="savingSubscriptionId === currentUserStaff.id"
-          @change="changeGroupSubscription(currentUserStaff, $event.target.value)"
+          @change="changeGroupSubscription(currentUserStaff, $event)"
         >
+          <option value="" disabled>Could not verify current subscription</option>
           <option v-for="opt in GROUP_SUBSCRIPTION_OPTIONS" :key="opt.value" :value="opt.value">
             {{ opt.label }}
           </option>
@@ -177,10 +178,11 @@
             <span>Subscription</span>
             <select
               class="ssp-select ssp-select-compact"
-              :value="normalizeGroupSubscription(u.group_email_subscription)"
+              :value="normalizeGroupSubscription(u.group_email_subscription, '')"
               :disabled="savingSubscriptionId === u.id"
-              @change="changeGroupSubscription(u, $event.target.value)"
+              @change="changeGroupSubscription(u, $event)"
             >
+              <option value="" disabled>Could not verify current subscription</option>
               <option v-for="opt in GROUP_SUBSCRIPTION_OPTIONS" :key="opt.value" :value="opt.value">
                 {{ opt.label }}
               </option>
@@ -503,6 +505,7 @@
           <label class="ssp-field">
             <span>Group email subscription</span>
             <select v-model="editForm.groupEmailSubscription" class="ssp-select">
+              <option value="" disabled>Could not verify current subscription</option>
               <option v-for="opt in GROUP_SUBSCRIPTION_OPTIONS" :key="opt.value" :value="opt.value">
                 {{ opt.label }}
               </option>
@@ -563,6 +566,7 @@
           <div v-if="permissionsTarget && canChangeGroupSubscription(permissionsTarget)" class="ssp-perm-row ssp-perm-row-stack">
             <div>
               <div class="ssp-perm-title">Group email subscription</div>
+              <p class="ssp-perm-copy">Current: <strong>{{ groupSubscriptionLabel(permissionsTarget.group_email_subscription) }}</strong></p>
               <div class="ssp-perm-copy">
                 Changing their subscription to
                 <strong>{{ schoolGroupEmail || permissionsTarget.school_group_email || 'the school group' }}</strong>.
@@ -571,10 +575,11 @@
             </div>
             <select
               class="ssp-select"
-              :value="normalizeGroupSubscription(permissionsTarget.group_email_subscription)"
+              :value="normalizeGroupSubscription(permissionsTarget.group_email_subscription, '')"
               :disabled="savingSubscriptionId === permissionsTarget.id"
-              @change="changeGroupSubscription(permissionsTarget, $event.target.value)"
+              @change="changeGroupSubscription(permissionsTarget, $event)"
             >
+              <option value="" disabled>Could not verify current subscription</option>
               <option v-for="opt in GROUP_SUBSCRIPTION_OPTIONS" :key="opt.value" :value="opt.value">
                 {{ opt.label }}
               </option>
@@ -1037,7 +1042,7 @@ const openEdit = (u) => {
     lastName: u.last_name || '',
     email: u.email || '',
     roleTitle: u.role_title || '',
-    groupEmailSubscription: normalizeGroupSubscription(u.group_email_subscription)
+    groupEmailSubscription: normalizeGroupSubscription(u.group_email_subscription, '')
   };
   showEditModal.value = true;
 };
@@ -1057,10 +1062,14 @@ const closePermissions = () => {
   permissionsTarget.value = null;
 };
 
-const changeGroupSubscription = async (u, subscription) => {
+const confirmNoEmail = (u) => window.confirm(`Stop all school group emails for ${displayName(u)}? They will no longer receive school updates or enrollment messages sent to ${schoolGroupEmail.value || 'this group'}. Portal access stays available. They can turn emails back on in Settings.`);
+
+const changeGroupSubscription = async (u, event) => {
   if (!u?.id) return;
-  const next = normalizeGroupSubscription(subscription);
-  if (next === normalizeGroupSubscription(u.group_email_subscription)) return;
+  const next = normalizeGroupSubscription(event.target.value);
+  event.target.value = normalizeGroupSubscription(u.group_email_subscription, '');
+  if (next === normalizeGroupSubscription(u.group_email_subscription, '')) return;
+  if (next === 'none' && !confirmNoEmail(u)) return;
   try {
     savingSubscriptionId.value = u.id;
     error.value = '';
@@ -1096,6 +1105,7 @@ const saveEdit = async () => {
     error.value = 'Please enter a valid email address.';
     return;
   }
+  if (canChangeGroupSubscription(u) && normalizeGroupSubscription(editForm.value.groupEmailSubscription) === 'none' && normalizeGroupSubscription(u.group_email_subscription) !== 'none' && !confirmNoEmail(u)) return;
   try {
     savingEdit.value = true;
     error.value = '';
@@ -1109,7 +1119,7 @@ const saveEdit = async () => {
     });
     if (canChangeGroupSubscription(u)) {
       const nextSub = normalizeGroupSubscription(editForm.value.groupEmailSubscription);
-      if (nextSub !== normalizeGroupSubscription(u.group_email_subscription)) {
+      if (editForm.value.groupEmailSubscription && nextSub !== normalizeGroupSubscription(u.group_email_subscription, '')) {
         await api.patch(`/school-portal/${props.schoolOrganizationId}/school-staff/${u.id}/group-subscription`, {
           subscription: nextSub
         });

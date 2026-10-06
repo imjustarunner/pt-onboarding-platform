@@ -20,7 +20,6 @@
       </p>
 
       <div v-if="loadingSub" class="sps-muted">Loading your subscription…</div>
-      <div v-else-if="subError" class="sps-error">{{ subError }}</div>
       <div v-else-if="!canEditSubscription" class="sps-muted">
         Group email subscription is for school staff on this portal.
       </div>
@@ -40,6 +39,9 @@
           <span class="sps-option-hint">{{ subscriptionHint(opt.value) }}</span>
         </button>
       </div>
+      <p v-if="!loadingSub && canEditSubscription && subscription == null" class="sps-error" role="status">Could not verify your current Google Group subscription. Choose an option to set it, or reload to try again.</p>
+      <p v-if="subscription === 'none' && canEditSubscription" class="sps-error" role="status">School group emails are turned off. Choose Each email to receive school updates and enrollment messages in your inbox.</p>
+      <p v-if="subError" class="sps-error" role="alert">{{ subError }}</p>
       <p v-if="subSuccess" class="sps-success">{{ subSuccess }}</p>
     </section>
 
@@ -76,7 +78,7 @@ const savingSub = ref(false);
 const subError = ref('');
 const subSuccess = ref('');
 const groupEmail = ref('');
-const subscription = ref('all_mail');
+const subscription = ref(null);
 const myStaffId = ref(null);
 
 const canEditSubscription = computed(() => !!myStaffId.value);
@@ -85,7 +87,7 @@ function subscriptionHint(value) {
   if (value === 'all_mail') return 'Every message sent to the group';
   if (value === 'digest') return 'A combined email of group messages';
   if (value === 'daily') return 'A shorter daily summary';
-  return 'Stay in the group, but do not receive group emails';
+  return 'Stop every email sent to the school group, including school updates and enrollment messages. Portal access stays available.';
 }
 
 function parseStaffPayload(data) {
@@ -108,7 +110,7 @@ const loadSubscription = async () => {
     const me = parsed.staff.find((s) => Number(s.id) === uid) || null;
     myStaffId.value = me?.id || (role === 'school_staff' && uid ? uid : null);
     groupEmail.value = parsed.schoolGroupEmail || me?.school_group_email || '';
-    subscription.value = normalizeGroupSubscription(me?.group_email_subscription);
+    subscription.value = normalizeGroupSubscription(me?.group_email_subscription, null);
   } catch (e) {
     myStaffId.value = String(authStore.user?.role || '').toLowerCase() === 'school_staff'
       ? Number(authStore.user?.id || 0) || null
@@ -122,6 +124,7 @@ const loadSubscription = async () => {
 const changeSubscription = async (nextRaw) => {
   const next = normalizeGroupSubscription(nextRaw);
   if (!myStaffId.value || next === subscription.value || props.readOnly) return;
+  if (next === 'none' && !window.confirm(`Stop all emails sent to ${groupEmail.value || 'your school group'}? You will no longer receive school updates or enrollment messages sent to this group. You can still use the portal and turn emails back on in Settings.`)) return;
   savingSub.value = true;
   subError.value = '';
   subSuccess.value = '';

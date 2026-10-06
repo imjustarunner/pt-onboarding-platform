@@ -1,3 +1,4 @@
+import { createSchoolPortalEmailHandlers } from './schoolPortalEmail.controller.js';
 import { servicesConfirmedThisSchoolYear } from '../utils/fallReadiness.js';
 import { createSchoolStaffRecoveryHandler } from './schoolStaffRecovery.controller.js';
 /**
@@ -85,6 +86,7 @@ import {
 import { queueSchoolStaffGoogleGroupSync } from '../services/schoolGroupProvisioning.service.js';
 import {
   applySchoolGroupSubscription,
+  readSchoolGroupSubscriptions,
   normalizeGroupSubscription,
   resolveGroupEmailForSchool
 } from '../services/schoolGroupSubscription.service.js';
@@ -3801,6 +3803,8 @@ export const listSchoolStaff = async (req, res, next) => {
       [orgId]
     );
 
+    const liveSubscriptions = await readSchoolGroupSubscriptions({ groupEmail: schoolGroupEmail, emails: (rows || []).map(r => r.email) });
+
     const staffIds = (rows || []).map((r) => r.id).filter(Boolean);
     let lastLoginByUser = {};
     if (staffIds.length) {
@@ -3854,7 +3858,9 @@ export const listSchoolStaff = async (req, res, next) => {
         is_scheduler: flags.isScheduler,
         role_title: flags.roleTitle || null,
         school_contact_id: flags.contactId || null,
-        group_email_subscription: flags.groupEmailSubscription || 'all_mail',
+        group_email_subscription: liveSubscriptions.get(emailNorm) ?? null,
+        group_email_subscription_verified: liveSubscriptions.get(emailNorm) != null,
+        saved_group_email_subscription: flags.groupEmailSubscription || 'all_mail',
         school_group_email: schoolGroupEmail,
         needs_activation: String(r.status || '').toUpperCase() === 'PENDING_SETUP'
       };
@@ -3944,6 +3950,10 @@ export const updateSchoolStaffGroupSubscription = async (req, res, next) => {
         schoolOrganizationId: orgId,
         email,
         subscription: result.subscription,
+        previousSubscription: result.previousSubscription,
+        googleDeliverySettings: result.google?.deliverySettings,
+        changedForSelf: isSelf,
+        targetUserId,
         groupEmail: result.groupEmail,
         source: 'staff_settings'
       }
@@ -8045,3 +8055,5 @@ export const uploadSchoolPortalLogo = async (req, res, next) => {
     next(e);
   }
 };
+
+export const schoolPortalEmail = createSchoolPortalEmailHandlers(userHasOrgOrAffiliatedAgencyAccess);

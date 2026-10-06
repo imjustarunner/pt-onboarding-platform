@@ -1,6 +1,8 @@
+import rateLimit from 'express-rate-limit';
 import express from 'express';
 import {
   getSchoolClients,
+  schoolPortalEmail,
   getProviderMyRoster,
   getSchoolPortalAffiliation,
   getSchoolPortalStats,
@@ -196,6 +198,12 @@ router.get('/:organizationId/client-assignment-search', authenticate, searchScho
 router.get('/:organizationId/school-staff-waiver/status', authenticate, getSchoolStaffWaiverStatus);
 router.post('/:organizationId/school-staff-waiver/reset', authenticate, resetSchoolStaffWaiverStatusForTesting);
 router.post('/:organizationId/admin-tools/restore-intake-artifacts', authenticate, restoreSchoolPortalIntakeArtifacts);
+const schoolEmailSendLimit = rateLimit({ windowMs: 60000, limit: 10, standardHeaders: true, legacyHeaders: false, keyGenerator: req => `school-email:${req.user.id}` });
+router.get('/:organizationId/emails', authenticate, schoolPortalEmail.list);
+router.get('/:organizationId/emails/:messageId', authenticate, schoolPortalEmail.detail);
+router.post('/:organizationId/emails/:messageId/read', authenticate, schoolPortalEmail.read);
+router.get('/:organizationId/emails/:messageId/attachments/:attachmentId', authenticate, schoolPortalEmail.attachment);
+router.post('/:organizationId/emails', authenticate, schoolEmailSendLimit, schoolPortalEmail.send);
 router.get('/:organizationId/school-staff', authenticate, listSchoolStaff);
 router.delete('/:organizationId/school-staff/:userId', authenticate, removeSchoolStaff);
 router.put('/:organizationId/school-staff/:userId', authenticate, updateSchoolStaff);

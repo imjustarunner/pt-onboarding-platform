@@ -2,7 +2,7 @@ export const GROUP_SUBSCRIPTION_OPTIONS = [
   { value: 'all_mail', label: 'Each email' },
   { value: 'digest', label: 'Digest' },
   { value: 'daily', label: 'Abridged' },
-  { value: 'none', label: 'No email' }
+  { value: 'none', label: 'No email — stop all school group emails' }
 ];
 
 export function normalizeGroupSubscription(raw, fallback = 'all_mail') {
@@ -15,6 +15,7 @@ export function normalizeGroupSubscription(raw, fallback = 'all_mail') {
 }
 
 export function groupSubscriptionLabel(value) {
+  if (value == null || value === '') return 'Could not verify current subscription';
   const key = normalizeGroupSubscription(value);
   return GROUP_SUBSCRIPTION_OPTIONS.find((o) => o.value === key)?.label || 'Each email';
 }

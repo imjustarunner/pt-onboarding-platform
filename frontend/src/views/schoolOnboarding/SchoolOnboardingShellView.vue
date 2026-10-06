@@ -1621,6 +1621,9 @@ function confirmSaveStaff() {
 }
 
 function persistStaffStep(staff) {
+  const mutedStaff = staff.filter(row => row.groupEmailSubscription === 'none').map(row => row.fullName || row.email);
+  if (primaryGroupEmailSubscription.value === 'none') mutedStaff.unshift(invite.value?.contactEmail || 'you (primary contact)');
+  if (mutedStaff.length && !window.confirm(`Stop all school group emails for ${[...new Set(mutedStaff)].join(', ')}? These staff will not receive school updates or enrollment messages sent to ${schoolForm.itscoEmail || 'the school group'}. They keep portal access and can turn emails back on in Settings. Choose Cancel to review these subscriptions.`)) return;
   showStaffRoiConfirm.value = false;
   return saveStep(
     'school_staff',

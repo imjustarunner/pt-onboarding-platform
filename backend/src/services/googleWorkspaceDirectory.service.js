@@ -375,22 +375,32 @@ class GoogleWorkspaceDirectoryService {
   static async setGroupMemberDeliverySettings({
     groupEmail,
     memberEmail,
-    deliverySettings = 'NONE',
+    deliverySettings,
     client = null
   }) {
     const groupKey = String(groupEmail || '').trim().toLowerCase();
     const email = String(memberEmail || '').trim().toLowerCase();
-    const settings = String(deliverySettings || 'NONE').trim().toUpperCase() || 'NONE';
+    const settings = String(deliverySettings || '').trim().toUpperCase();
+    if (!['ALL_MAIL', 'DIGEST', 'DAILY', 'NONE', 'DISABLED'].includes(settings)) {
+      throw new Error('An explicit valid deliverySettings value is required');
+    }
     if (!groupKey) throw new Error('groupEmail is required');
     if (!email) throw new Error('memberEmail is required');
     const admin = client || await this.getClient();
     try {
-      const result = await admin.members.patch({
+      // delivery_settings is supported by insert/update/get, not patch or list.
+      // Preserve the member's role and verify delivery instead of trusting HTTP success.
+      const current = await admin.members.get({ groupKey, memberKey: email });
+      await admin.members.update({
         groupKey,
         memberKey: email,
-        requestBody: { delivery_settings: settings }
+        requestBody: { email, role: current.data.role, delivery_settings: settings }
       });
-      return result?.data || { email, deliverySettings: settings };
+      const verified = await admin.members.get({ groupKey, memberKey: email });
+      if (verified.data?.delivery_settings !== settings) {
+        throw new Error('Google Group email delivery could not be verified. Please try again.');
+      }
+      return verified.data;
     } catch (e) {
       logGoogleUnauthorizedHint(e, {
         context: 'GoogleWorkspaceDirectoryService.setGroupMemberDeliverySettings'

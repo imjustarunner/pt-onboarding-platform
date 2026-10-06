@@ -7,7 +7,7 @@
         We set the group email subscription for <strong>{{ email }}</strong>
         to <strong>No email</strong>
         <template v-if="groupEmail"> on <strong>{{ groupEmail }}</strong></template>.
-        You still have school portal access and remain a member of the group — we only stopped email delivery.
+        You still have school portal access and remain a member of the group — we only stopped email delivery. You can still read correspondence sent to or from your school group under Messages → Email in the app.
       </p>
       <p v-else>
         We won’t email <strong>{{ email }}</strong> from this system anymore.
@@ -19,8 +19,8 @@
       <p v-if="isSchoolStaff">
         Confirm you want to change your subscription to the school group
         <template v-if="groupEmail"> <strong>{{ groupEmail }}</strong></template>
-        from Each email to <strong>No email</strong>.
-        This does not remove you from the portal or the group.
+        to <strong>No email</strong>.
+        This stops all emails sent to the group from arriving in your inbox. You keep portal access and can read the school’s group correspondence under Messages → Email.
       </p>
       <p v-else>
         Confirm you want to stop receiving emails
