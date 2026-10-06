@@ -1,3 +1,4 @@
+import { messageSender } from '../utils/messageSender.js';
 /**
  * People-first Messaging Hub: search, method availability, timeline merge, send dispatch helpers.
  */
@@ -3296,7 +3297,7 @@ async function listHubChatGroups({ agencyIds, userId, limit = 8, q = '' } = {}) 
   try {
     const ph = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT t.id, t.name, t.agency_id, COUNT(DISTINCT p.user_id) AS member_count
+      `SELECT t.id, t.name, t.agency_id, t.thread_type, COUNT(DISTINCT p.user_id) AS member_count
        FROM chat_threads t
        INNER JOIN chat_thread_participants me ON me.thread_id = t.id AND me.user_id = ?
        LEFT JOIN chat_thread_participants p ON p.thread_id = t.id
@@ -3304,7 +3305,7 @@ async function listHubChatGroups({ agencyIds, userId, limit = 8, q = '' } = {}) 
          AND t.archived_at IS NULL
          AND (t.agency_id IN (${ph}) OR t.agency_id IS NULL)
          ${like ? 'AND t.name LIKE ?' : ''}
-       GROUP BY t.id, t.name, t.agency_id
+       GROUP BY t.id, t.name, t.agency_id, t.thread_type
        ORDER BY COALESCE(t.updated_at, t.created_at) DESC
        LIMIT ${lim}`,
       like ? [userId, ...ids, like] : [userId, ...ids]
@@ -3312,10 +3313,11 @@ async function listHubChatGroups({ agencyIds, userId, limit = 8, q = '' } = {}) 
     return (rows || []).map((r) => ({
       personKey: `group:${r.id}@${r.agency_id || ids[0]}`,
       displayName: r.name || `Group #${r.id}`,
-      kinds: ['group'],
+      kinds: r.thread_type === 'channel' ? ['group', 'channel'] : ['group'],
+      threadType: r.thread_type,
       groupId: Number(r.id),
       agencyId: Number(r.agency_id) || ids[0],
-      relationshipMeta: `${Number(r.member_count) || 0} members`,
+      relationshipMeta: `${r.thread_type === 'channel' ? '# Channel' : 'Group chat'} · ${Number(r.member_count) || 0} members`,
       methods: [],
       preferredMethod: null
     }));
@@ -4125,7 +4127,7 @@ export async function listHubConversationFeed({
     const emailAddrs = [
       ...new Set(
         (emailRows || [])
-          .map((c) => String(c.primary_participant_email || '').trim().toLowerCase())
+          .map((c) => String(messageSender(unreadOnly ? c.last_inbound_sender_json : c.last_sender_json)?.email || c.primary_participant_email || '').trim().toLowerCase())
           .filter(Boolean)
       )
     ];
@@ -4177,8 +4179,10 @@ export async function listHubConversationFeed({
       const isUnread = !!c.is_unread;
       if (unreadOnly && !isUnread) continue;
       const primaryEmail = c.primary_participant_email || null;
-      const photoUrl = primaryEmail
-        ? photoByEmail.get(String(primaryEmail).toLowerCase()) || null
+      const sender = messageSender(unreadOnly ? c.last_inbound_sender_json : c.last_sender_json);
+      const photoEmail = sender?.email || primaryEmail;
+      const photoUrl = photoEmail
+        ? photoByEmail.get(String(photoEmail).toLowerCase()) || null
         : null;
       items.push({
         id: `email-${c.id}`,
@@ -4195,6 +4199,7 @@ export async function listHubConversationFeed({
           ? c.last_inbound_preview || c.last_message_preview || c.subject || ''
           : c.last_message_preview || c.last_inbound_preview || c.subject || '',
         displayName: c.primary_participant_name || c.subject || 'Conversation',
+        latestSenderName: sender?.name || null,
         primaryEmail,
         photoUrl,
         personKey: null,

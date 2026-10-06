@@ -27,13 +27,13 @@
         <button type="button" class="btn btn-secondary" :disabled="refreshing" @click="refreshMail">{{ refreshing ? 'Refreshing…' : '↻ Refresh' }}</button>
         <button type="button" class="btn btn-primary" @click="composeEmail('new')">+ New email</button>
         <button
-          v-if="isDrawerLayout"
           type="button"
           class="btn btn-secondary btn-xs"
-          @click="openTeamChat"
+          @click="openTeamChat('channels')"
         >
-          Team chat
+          # Channels
         </button>
+        <button type="button" class="btn btn-secondary" @click="openGroupPicker">Group chat</button>
         <button type="button" class="btn btn-primary" @click="openNewConversation">
           + New conversation
         </button>
@@ -42,6 +42,11 @@
 
     <div class="email-channel-filters" role="group" aria-label="Filter conversations by channel">
       <button v-for="channel in inboxChannels" :key="channel.id" type="button" :aria-pressed="inboxChannel === channel.id" @click="selectInboxChannel(channel.id)">{{ channel.label }}</button>
+    </div>
+    <div v-if="['channel', 'group'].includes(inboxChannel)" class="msg-hub-group-help">
+      <span>Messages go to the members of the selected channel or group.</span>
+      <button v-if="inboxChannel === 'channel'" type="button" class="btn btn-secondary btn-sm" @click="openTeamChat('channels')">Browse # channels</button>
+      <button v-else type="button" class="btn btn-secondary btn-sm" @click="openGroupPicker">Choose a group</button>
     </div>
     <div v-if="error" class="msg-hub-error">{{ error }}</div>
 
@@ -1396,6 +1401,7 @@
     <StartConversationModal
       v-if="showNew"
       :agency-id="agencyId"
+      :initial-chip="newConversationChip"
       @close="showNew = false"
       @pick="pickPerson"
       @open-group="onOpenGroupFromModal"
@@ -1525,6 +1531,7 @@ import EmailThreadReader from './EmailThreadReader.vue';
 import { emailPreviewText } from '../../utils/emailReading';
 import { openEmailComposer } from '../../utils/emailComposerWindow';
 import { useAgencyStore } from '../../store/agency';
+import { useCommunicationsCountsStore } from '../../store/communicationsCounts';
 import { useAuthStore } from '../../store/auth';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isTenantOrganizationType } from '../../utils/organizationTypes';
@@ -1533,7 +1540,7 @@ import ResolveUnknownSenderModal from './ResolveUnknownSenderModal.vue';
 import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
 
 const inboxChannel = ref('all');
-const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'group',label:'Groups'}];
+const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'channel',label:'# Channels'},{id:'group',label:'Groups'}];
 const readerSmsText=ref('');
 async function replyReaderSms(){const cid=conversationPreview.value?.conversation?.id;if(!cid||sending.value)return;sending.value=true;try{await api.post(`/communications/conversations/${cid}/reply`,{text:readerSmsText.value,mode:'reply'},{skipGlobalLoading:true});readerSmsText.value='';await refreshMail();}catch(e){error.value=e.response?.data?.error?.message||'Could not send text';}finally{sending.value=false;}}
 const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = ref(null);
@@ -1580,6 +1587,7 @@ const props = defineProps({
 const emit = defineEmits(['open-team-chat', 'unread-change']);
 
 const agencyStore = useAgencyStore();
+const communicationsCountsStore = useCommunicationsCountsStore();
 const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
@@ -1847,6 +1855,7 @@ function conversationOwnerName(c) {
 }
 
 function conversationThreadTitle(c) {
+  if (c?.latestSenderName) return c.latestSenderName;
   const owner = conversationOwnerName(c);
   const other = String(c?.primary_participant_name || '').trim();
   if (owner && other && owner.toLowerCase() !== other.toLowerCase()) {
@@ -3669,6 +3678,7 @@ async function loadConversations({ quiet = false } = {}) {
         personKey: item.personKey || null,
         channel: item.channel,
         primary_participant_name: item.displayName,
+        latestSenderName: item.latestSenderName || null,
         primary_participant_email: item.primaryEmail,
         subject: item.subject,
         last_message_preview: item.preview,
@@ -3733,6 +3743,7 @@ async function loadInboxCounts() {
       snoozed: Number(s.snoozed || 0),
       unknown: Number(s.unknownSenders || 0)
     };
+    communicationsCountsStore.unreadMessagesCount = inboxCounts.value.unread;
     emit('unread-change', inboxCounts.value.unread);
   } catch {
     /* keep prior counts */
@@ -3903,13 +3914,13 @@ async function pickConversation(conv) {
       }
     }
     if (conv.threadId) {
-      await markChatThreadOpened(conv.threadId);
-      dropOpenedFromUnread(conv);
-      await refreshUnreadAfterOpen();
+      // The workspace marks read only after messages load successfully.
       await onOpenGroupFromModal({
         groupId: conv.threadId,
         threadId: conv.threadId,
-        displayName: conv.primary_participant_name || 'Chat'
+        displayName: conv.primary_participant_name || 'Chat',
+        threadType: conv.hubKind,
+        agencyId: conv.agencyId || agencyId.value
       });
       return;
     }
@@ -4091,7 +4102,13 @@ function setListFilter(id) {
   loadList();
 }
 
+const newConversationChip = ref('all');
 async function openNewConversation() {
+  newConversationChip.value = 'all';
+  showNew.value = true;
+}
+function openGroupPicker() {
+  newConversationChip.value = 'groups';
   showNew.value = true;
 }
 
@@ -4108,11 +4125,12 @@ async function onOpenGroupFromModal(group) {
   const q = {
     ...route.query,
     view: 'workspace',
-    tab: group?.kinds?.includes?.('channel') || String(group?.tab || '') === 'channels'
+    tab: group?.kinds?.includes?.('channel') || group?.threadType === 'channel' || String(group?.tab || '') === 'channels'
       ? 'channels'
       : 'dms'
   };
   if (threadId) q.threadId = String(threadId);
+  if (group?.agencyId) q.agencyId = String(group.agencyId);
   emit('open-team-chat', q.tab);
   if (isDrawerLayout.value) {
     if (group?.displayName) {
@@ -4125,7 +4143,8 @@ async function onOpenGroupFromModal(group) {
     }
     return;
   }
-  await router.push({ path, query: q }).catch(() => {});
+  try { await router.push({ path, query: q }); }
+  catch { error.value = 'Could not open this conversation. Please try again.'; }
 }
 
 function dropOpenedFromUnread(match = {}) {
@@ -4914,6 +4933,7 @@ defineExpose({
 </script>
 
 <style scoped>
+.msg-hub-group-help { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:8px 16px; font-size:13px; }
 .msg-hub-email-recipients { margin: 4px 0 8px; font-size: 0.75rem; color: #64748b; overflow-wrap: anywhere; }
 .msg-hub {
   --mh-primary: var(--primary, var(--agency-primary-color, #1f6b4a));

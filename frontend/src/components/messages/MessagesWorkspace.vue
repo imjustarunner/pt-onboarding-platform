@@ -36,6 +36,7 @@
         </label>
       </div>
 
+      <p v-if="chatError && !hasActiveChat" class="error" role="alert">{{ chatError }}</p>
       <nav class="nav-stubs" aria-label="Team communication">
         <button
           type="button"
@@ -659,7 +660,7 @@
       <div v-if="hasActiveChat" class="chat-box">
             <div class="chat-box-header">
               <div class="chat-title">
-                <template v-if="activeChannel"># {{ activeChannel.name }}</template>
+                <template v-if="activeChannel">{{ activeConversationLabel }}</template>
                 <template v-else>
                   <PeerTenantMark
                     :person="activeChatPresencePerson"
@@ -691,7 +692,7 @@
                   Huddle
                 </button>
                 <button
-                  v-if="activeChannel"
+                  v-if="activeIsChannel"
                   class="btn btn-xs btn-secondary"
                   type="button"
                   @click="toggleMembersPanel"
@@ -713,7 +714,7 @@
                   Delete ({{ selectedMessageIds.length }})
                 </button>
                 <button class="btn btn-xs btn-danger" type="button" @click="deleteThread" :disabled="sending || chatLoading">
-                  {{ activeChannel ? 'Hide channel' : 'Delete thread' }}
+                  {{ activeChannel ? (activeIsChannel ? 'Hide channel' : 'Hide group') : 'Delete thread' }}
                 </button>
                 <button class="btn-close" @click="closeChat">×</button>
               </div>
@@ -1044,12 +1045,14 @@
                   </span>
                 </div>
                 <div v-if="attachError" class="error">{{ attachError }}</div>
+                <div v-if="activeChannel" class="composer-destination">Sending to <strong>{{ activeConversationLabel }}</strong> · Visible to its members</div>
                 <div class="composer-wrap">
                   <textarea
                     ref="textareaEl"
                     v-model="draft"
                     rows="2"
-                    :placeholder="replyRoot ? 'Reply… (use @ to mention)' : 'Message… (use @ to mention)'"
+                    :placeholder="composerPlaceholder"
+                    :aria-label="composerPlaceholder"
                     @input="onDraftInput"
                     @keydown="onDraftKeydown"
                   />
@@ -1726,6 +1729,9 @@ const selectedMessageIds = ref([]);
 
 const meId = computed(() => authStore.user?.id);
 
+const activeIsChannel = computed(() => !!activeChannel.value && (!activeChannel.value.thread_type || activeChannel.value.thread_type === 'channel'));
+const activeConversationLabel = computed(() => activeChannel.value ? `${activeIsChannel.value ? '# ' : ''}${activeChannel.value.name}` : '');
+const composerPlaceholder = computed(() => replyRoot.value ? 'Reply in thread…' : activeChannel.value ? `Message ${activeConversationLabel.value}…` : 'Message… (use @ to mention)');
 const hasActiveChat = computed(() => !!(activeChatUser.value || activeChannel.value));
 const pageMobileShowChat = computed(() => layout.value === 'page' && hasActiveChat.value);
 
@@ -2849,9 +2855,9 @@ function memberPresenceLabel(m) {
   const s = String(p.status || '').toLowerCase();
   if (s === 'online' || s === 'active') return 'Active';
   if (s === 'idle' || s === 'away') return 'Idle';
-  if (s === 'offline' || s === 'inactive') return 'Inactive';
-  // Never surface legacy Team Board / meal display_label to peers.
-  return 'Inactive';
+  if (s === 'offline' || s === 'inactive') return 'Offline';
+  // Missing presence is not evidence that an employee account is inactive.
+  return 'Offline';
 }
 
 const loadChannelMembers = async () => {
@@ -3455,11 +3461,11 @@ watch(
           const meta = metaRes.data;
           const metaType = String(meta.thread_type || '').toLowerCase();
 
-          let cName = meta.organization_name || 'Conversation';
+          let cName = meta.thread_name || meta.organization_name || 'Conversation';
           if (metaType === 'channel') {
             if (!channels.value.length) await loadChannels();
             const found = channels.value.find(c => c.thread_id === tid);
-            if (found) cName = found.name || 'Channel';
+            if (found) cName = found.name || cName;
             mainTab.value = 'channels';
           } else if (metaType === 'skill_builders_event') {
             mainTab.value = 'dms';
@@ -3477,7 +3483,8 @@ watch(
             channelName: cName
           });
         } catch (e) {
-          // ignore
+          chatError.value = e.response?.data?.error?.message || 'Could not open this conversation. It has not been marked read.';
+          return;
         }
       }
       
@@ -3544,6 +3551,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.composer-destination { font-size:12px; color:var(--text-secondary); padding-bottom:4px; }
 .messages-workspace {
   display: flex;
   width: 100%;
@@ -3870,11 +3878,13 @@ onUnmounted(() => {
 .members-panel {
   border-bottom: 1px solid #e2e8f0;
   padding: 8px 10px 10px;
-  background: #fafafa;
+  background: var(--bg-secondary, #fafafa);
+  color: var(--text-primary, #1f2937);
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 280px;
+  max-height: min(180px, 25dvh);
   overflow: auto;
 }
 .members-panel-header {
@@ -3894,6 +3904,9 @@ onUnmounted(() => {
   gap: 8px;
   padding: 4px 0;
 }
+.members-row .name-block { flex-direction: row; align-items: center; gap: 8px; flex-wrap: wrap; }
+.members-row .status-line { white-space: nowrap; }
+.messages-workspace.theme-platform .members-panel { background: #0f172a; border-color: #334155; }
 .members-invite {
   margin-top: 2px;
 }
@@ -4657,7 +4670,8 @@ onUnmounted(() => {
   border-radius: 10px;
   min-width: 56px;
   min-height: 56px; /* match textarea min-height */
-  height: 100%; /* match current textarea height as it grows */
+  height: auto;
+  align-self: flex-start;
 }
 
 .loading { color: var(--text-secondary); }
@@ -4750,6 +4764,7 @@ onUnmounted(() => {
 .messages-workspace.theme-platform .mw-empty-chat {
   background: #0f172a;
 }
+.messages-workspace.theme-platform .chat-messages { background: #111827; }
 .messages-workspace.theme-platform .chat-box-header,
 .messages-workspace.theme-platform .chat-composer {
   background: #111827;

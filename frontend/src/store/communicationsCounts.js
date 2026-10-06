@@ -40,11 +40,6 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
       
       const agencyId = agencyStore.currentAgency?.id;
       const params = agencyId ? { agencyId } : {};
-      const membershipCount = (agencyStore.userAgencies || []).length;
-      const combineAll = role === 'super_admin' || membershipCount > 1;
-      const messageParams = {};
-      if (combineAll) messageParams.allAgencies = 'true';
-      else if (agencyId) messageParams.agencyId = agencyId;
       // Backend pending-count is admin/support/staff/super_admin only — skip for providers etc.
       const canFetchPendingDelivery =
         role === 'admin' ||
@@ -68,7 +63,9 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
         canFetchOpenTicketCount
           ? api.get('/communications/center-summary', { params, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: {} }),
-        api.get('/messages/dashboard-summary', { params: messageParams, skipGlobalLoading: true, skipAuthRedirect: true }).catch(() => ({ data: {} })),
+        agencyId
+          ? api.get('/communications/attention-summary', { params: { agencyId, hubScope: 1 }, skipGlobalLoading: true, skipAuthRedirect: true })
+          : Promise.resolve({ data: { summary: { unread: 0 } } }),
         canFetchOpenTicketCount
           ? api.get('/support-tickets/count', { params: { status: 'open' }, skipGlobalLoading: true, skipAuthRedirect: true })
           : Promise.resolve({ data: {} })
@@ -103,8 +100,8 @@ export const useCommunicationsCountsStore = defineStore('communicationsCounts', 
         openTicketsCount.value = Number(ticketsRes.value.data.count);
       }
 
-      if (personalRes.status === 'fulfilled' && personalRes.value?.data?.cards) {
-        unreadMessagesCount.value = Number(personalRes.value.data.cards.unread || 0);
+      if (personalRes.status === 'fulfilled' && personalRes.value?.data?.summary) {
+        unreadMessagesCount.value = Number(personalRes.value.data.summary.unread || 0);
       }
     } catch (e) {
       // Silently ignore - counts are best-effort for badge display

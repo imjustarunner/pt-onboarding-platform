@@ -4,7 +4,7 @@
       <header class="scm-header">
         <div>
           <h3 id="scm-title">Start a conversation</h3>
-          <p class="scm-sub">Search for a person or group to message.</p>
+          <p class="scm-sub">Choose a person, # channel, or group to message.</p>
         </div>
         <button type="button" class="scm-close" aria-label="Close" @click="emitClose">×</button>
       </header>
@@ -83,8 +83,8 @@
                 <button type="button" class="scm-person scm-new-group scm-new-group-wide" @click="openCreateGroup">
                   <span class="scm-avatar scm-avatar-plus" aria-hidden="true">+</span>
                   <span class="scm-person-text">
-                    <strong>Start a new group</strong>
-                    <small>Create a named group chat</small>
+                    <strong>Create a channel</strong>
+                    <small>Create a named # channel</small>
                   </span>
                   <span class="scm-chev" aria-hidden="true">›</span>
                 </button>
@@ -158,8 +158,8 @@
                 <button type="button" class="scm-person scm-new-group scm-new-group-wide" @click="openCreateGroup">
                   <span class="scm-avatar scm-avatar-plus" aria-hidden="true">+</span>
                   <span class="scm-person-text">
-                    <strong>Start a new group</strong>
-                    <small>Create a named group chat for your team</small>
+                    <strong>Create a channel</strong>
+                    <small>Create a named # channel for your team</small>
                   </span>
                   <span class="scm-chev" aria-hidden="true">›</span>
                 </button>
@@ -216,8 +216,8 @@
 
       <div v-else-if="step === 'create-group'" class="scm-body">
         <button type="button" class="scm-back" @click="step = 'browse'">← Back</button>
-        <h4 class="scm-ext-title">Start a new group</h4>
-        <p class="scm-muted">Name the group, then open it in Team chat. You can add members after it’s created.</p>
+        <h4 class="scm-ext-title">Create a channel</h4>
+        <p class="scm-muted">Name the channel, then open it to send a message. You can add members after it’s created.</p>
 
         <label class="scm-field">
           <span>Group name</span>
@@ -344,7 +344,7 @@
           :disabled="creatingGroup || !newGroupName.trim()"
           @click="createGroup"
         >
-          {{ creatingGroup ? 'Creating…' : 'Create group' }}
+          {{ creatingGroup ? 'Creating…' : 'Create channel' }}
         </button>
         <button
           v-else
@@ -365,7 +365,8 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 
 const props = defineProps({
-  agencyId: { type: [Number, String], default: null }
+  agencyId: { type: [Number, String], default: null },
+  initialChip: { type: String, default: 'all' }
 });
 
 const emit = defineEmits(['close', 'pick', 'open-group']);
@@ -377,7 +378,7 @@ const loading = ref(false);
 const sections = ref({});
 const externalHint = ref(null);
 const searching = ref(false);
-const activeChip = ref('all');
+const activeChip = ref(props.initialChip === 'groups' ? 'groups' : 'all');
 const pendingPick = ref(null);
 const step = ref('browse'); // browse | external | create-group
 const clientOptions = ref([]);
@@ -412,7 +413,7 @@ const chips = [
   { id: 'guardians', label: 'Guardians' },
   { id: 'staff', label: 'Staff' },
   { id: 'school_staff', label: 'School Staff' },
-  { id: 'groups', label: 'Groups' }
+  { id: 'groups', label: 'Channels & groups' }
 ];
 
 const categorySections = [
@@ -420,7 +421,7 @@ const categorySections = [
   { id: 'guardians', label: 'Guardians' },
   { id: 'staff', label: 'Staff' },
   { id: 'school_staff', label: 'School staff' },
-  { id: 'groups', label: 'Groups' }
+  { id: 'groups', label: 'Channels & groups' }
 ];
 
 const chipTitle = computed(() => {
@@ -539,7 +540,7 @@ async function createGroup() {
     );
     const threadId = data?.threadId || data?.channel?.thread_id || data?.channel?.id;
     emit('open-group', {
-      kinds: ['group'],
+      kinds: ['group', 'channel'],
       displayName: name,
       groupId: threadId ? Number(threadId) : null,
       agencyId: Number(props.agencyId),
@@ -617,7 +618,7 @@ async function loadDirectory() {
         agencyId: props.agencyId,
         q: query.value.trim() || undefined,
         allAgencies: true,
-        perSection: previewCount
+        perSection: activeChip.value === 'groups' ? 40 : previewCount
       },
       skipGlobalLoading: true
     });

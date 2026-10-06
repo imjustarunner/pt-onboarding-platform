@@ -370,6 +370,17 @@ class CommunicationConversation {
 
     const [rows] = await pool.execute(
       `SELECT c.*,
+              (SELECT m.from_json FROM communication_messages m
+               WHERE m.conversation_id = c.id AND COALESCE(m.is_internal_note, 0) = 0
+                 AND (m.send_status IS NULL OR m.send_status = 'sent')
+               ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC LIMIT 1
+              ) AS last_sender_json,
+              (SELECT m.from_json FROM communication_messages m
+               WHERE m.conversation_id = c.id AND m.direction = 'inbound'
+                 AND COALESCE(m.is_internal_note, 0) = 0
+                 AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
+               ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC LIMIT 1
+              ) AS last_inbound_sender_json,
               i.display_name AS inbox_display_name,
               i.from_email AS inbox_from_email,
               u.first_name AS owner_first_name,

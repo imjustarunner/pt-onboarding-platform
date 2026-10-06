@@ -13171,7 +13171,7 @@ const onChooserWhenChanged = () => {
   let end = Number(modalEndHour.value || 0);
   modalHour.value = start;
   modalStartHour.value = start;
-  if (!Number.isFinite(end) || end <= start) {
+  if (!Number.isFinite(end) || end * 60 + Number(modalEndMinute.value || 0) <= start * 60 + Number(modalStartMinute.value || 0)) {
     end = Math.min(start + 1, Number(gridMaxHour.value || 22));
     modalEndHour.value = end;
   }
