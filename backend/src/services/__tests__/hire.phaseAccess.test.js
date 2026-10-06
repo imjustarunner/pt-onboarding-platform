@@ -45,3 +45,12 @@ describe('portal token cannot become a staff session', () => {
   it('blocks legacy onboarding setup tokens from consuming the personal link', () => expect(isHirePortalOnly({ status: 'ONBOARDING', passwordless_token_purpose: 'setup' })).toBe(true));
   it('preserves the password-reset flow', () => expect(isHirePortalOnly({ status: 'ONBOARDING', passwordless_token_purpose: 'reset' })).toBe(false));
 });
+
+it('keeps account acknowledgement and password reveal available while awaiting activation', async () => {
+  m.getJourney.mockResolvedValue({ onboardingCompletedAt: '2026-10-06' });
+  for (const path of ['/credential-packet/acknowledge', '/credential-packet/systems/therapynotes/reveal-temp-password']) {
+    const { next } = await request(path, 'ONBOARDING'); expect(next).toHaveBeenCalledWith();
+  }
+  const { res } = await request('/credential-packet/confirm-identity', 'ONBOARDING');
+  expect(res.status).toHaveBeenCalledWith(409);
+});

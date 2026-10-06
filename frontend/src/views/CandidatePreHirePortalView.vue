@@ -305,9 +305,9 @@
               </div>
             </section>
 
-</template><HireAccountAccess :packet="credentialPacket" :revealed-passwords="revealedPasswords" :acking-system="ackingSystem" @reveal="revealTempPassword" @acknowledge="ackSystem" /></template>
+</template><HireAccountAccess :packet="credentialPacket" :revealed-passwords="revealedPasswords" :saving="!!ackingSystem" @reveal="revealTempPassword" @acknowledge="ackAccounts" /></template>
         <template #access>
-          <HireAccountAccess :packet="credentialPacket" :revealed-passwords="revealedPasswords" :acking-system="ackingSystem" @reveal="revealTempPassword" @acknowledge="ackSystem" />
+          <HireAccountAccess :packet="credentialPacket" :revealed-passwords="revealedPasswords" :saving="!!ackingSystem" @reveal="revealTempPassword" @acknowledge="ackAccounts" />
         </template>
         <template #documents>            <section class="portal-submissions" aria-label="My submissions">
               <div class="portal-tasks-head">
@@ -1100,11 +1100,11 @@ const confirmIdentity = async () => {
   }
 };
 
-const ackSystem = async (systemKey) => {
-  ackingSystem.value = systemKey;
+const ackAccounts = async () => {
+  ackingSystem.value = 'all';
   try {
     const { data } = await portalApi.post(
-      `/prehire-portal/${token.value}/credential-packet/systems/${systemKey}/acknowledge`
+      `/prehire-portal/${token.value}/credential-packet/acknowledge`
     );
     if (portalData.value && data?.credentialPacket) {
       portalData.value.credentialPacket = data.credentialPacket;

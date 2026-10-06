@@ -4816,9 +4816,9 @@ const syncFromQuery = () => {
   const qMy = dashboardAccountSection(route.query);
   if (
     typeof qMy === 'string' &&
-    ['account', 'availability', 'credentials', 'documents', 'life-balance', 'payroll', 'compensation', 'benefits', 'kudos', 'preferences', 'support'].includes(qMy)
+    ['account', 'access', 'availability', 'credentials', 'documents', 'life-balance', 'payroll', 'compensation', 'benefits', 'kudos', 'preferences', 'support'].includes(qMy)
   ) {
-    const hiddenInClub = ['credentials', 'payroll', 'compensation', 'benefits'];
+    const hiddenInClub = ['access', 'credentials', 'payroll', 'compensation', 'benefits'];
     if (isClubContext.value && hiddenInClub.includes(qMy)) {
       myTab.value = 'account';
       router.replace({ query: { ...route.query, tab: 'my', my: 'account' } });

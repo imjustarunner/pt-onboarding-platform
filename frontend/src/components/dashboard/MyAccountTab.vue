@@ -13,6 +13,9 @@
       <router-link v-if="canSetOwnRates && Number(agencyStore.currentAgency?.account_owner_user_id) === Number(userId)" class="btn btn-secondary" :to="`/${agencyStore.currentAgency.slug}/admin/package-catalog`">Manage coaching packages and cancellation policies</router-link>
       <FamilyLedgerPanel v-if="agencyId && ['client','client_guardian'].includes(authStore.user?.role)" :agency-id="agencyId" />
     </div>
+    <div v-if="flags.workforce && activeSection === 'access'" data-profile-my-section="access" class="acct-hub__pane">
+      <MyAccountAccess />
+    </div>
     <div v-if="flags.workforce" data-profile-my-section="credentials" v-show="activeSection === 'credentials'" class="acct-hub__pane">
       <CredentialsView />
     </div>
@@ -69,6 +72,7 @@ import ProviderBillingSettings from '../admin/ProviderBillingSettings.vue';
 import {useAgencyStore} from '../../store/agency';
 import FamilyLedgerPanel from '../billing/FamilyLedgerPanel.vue';
 import AccountHubPanel from './AccountHubPanel.vue';
+import MyAccountAccess from './MyAccountAccess.vue';
 import AccountInfoView from '../../views/AccountInfoView.vue';
 import CredentialsView from '../../views/CredentialsView.vue';
 import DocumentsTab from './DocumentsTab.vue';

@@ -29,6 +29,7 @@ import {
   getPortalCredentialPacket,
   confirmPortalCredentialIdentity,
   acknowledgePortalCredentialSystem,
+  acknowledgePortalCredentialAccounts,
   revealPortalCredentialTempPassword,
   getPortalAccountSuggestions,
   checkPortalAccountEmail,
@@ -95,6 +96,7 @@ router.post('/:token/tasks/:taskId/complete-form', completeIntakeFormTask);
 
 router.get('/:token/credential-packet', getPortalCredentialPacket);
 router.post('/:token/credential-packet/confirm-identity', confirmPortalCredentialIdentity);
+router.post('/:token/credential-packet/acknowledge', acknowledgePortalCredentialAccounts);
 router.post('/:token/credential-packet/systems/:systemKey/acknowledge', acknowledgePortalCredentialSystem);
 router.post('/:token/credential-packet/systems/:systemKey/reveal-temp-password', revealPortalCredentialTempPassword);
 

@@ -174,7 +174,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
     const saved = stored(resource.phase, resource.id);
     add(resource.phase, { ...resource, key: resource.id, complete: !!saved?.completedAt, submission: saved?.value || null });
   }
-  add('onboarding', { key: 'account', kind: 'account', title: 'Set your password', required: hireAccountMode === 'group_password', complete: [true, 1, '1'].includes(user.sso_password_override), instructions: 'Complete your required onboarding steps, then prepare your password. App access begins after People Operations activates your account.' });
+  add('onboarding', { key: 'account', kind: 'account', title: 'Accounts & access', required: hireAccountMode === 'group_password', complete: [true, 1, '1'].includes(user.sso_password_override), instructions: 'Review all your assigned login details here. After activation, find them in My Dashboard → My Account → Accounts & access.' });
   for (const phase of ['pre_hire', 'onboarding']) {
     add(phase, { key: 'review', kind: 'review', title: 'Final review', required: false, complete: phase === 'pre_hire' ? prehireClosed : onboardingClosed });
   }

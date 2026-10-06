@@ -1099,6 +1099,16 @@ export const confirmPortalCredentialIdentity = async (req, res, next) => {
   }
 };
 
+export const acknowledgePortalCredentialAccounts = async (req, res, next) => {
+  try {
+    const { acknowledgePortalAccounts } = await import('../services/onboardingCredentialPacket.service.js');
+    res.json({ ok: true, credentialPacket: await acknowledgePortalAccounts(req.portalUser.id) });
+  } catch (e) {
+    if (e?.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
 export const acknowledgePortalCredentialSystem = async (req, res, next) => {
   try {
     const { acknowledgePortalSystem } = await import('../services/onboardingCredentialPacket.service.js');

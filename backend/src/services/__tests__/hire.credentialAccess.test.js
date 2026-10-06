@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: mocks }));
 vi.mock('../lifecycleSync.service.js', () => ({ syncLifecycleItems: vi.fn() }));
-import { enabledCredentialSystems, getCredentialPacketForPortal, revealPortalTempPassword } from '../onboardingCredentialPacket.service.js';
-let info;
+import { enabledCredentialSystems, getCredentialPacketForPortal, revealPortalTempPassword, acknowledgePortalAccounts } from '../onboardingCredentialPacket.service.js';
+let info, status;
 beforeEach(() => {
-  info = {}; vi.clearAllMocks();
-  mocks.execute.mockImplementation(async sql => sql.includes('FROM users') ? [[{ id: 1, status: 'ONBOARDING', work_email: 'devon@agency.org' }]]
-    : sql.includes('uifd.field_key, uiv.value') ? [Object.entries(info).map(([field_key, value]) => ({ field_key, value }))] : [[]]);
+  info = {}; status = 'ONBOARDING'; vi.clearAllMocks();
+  mocks.execute.mockImplementation(async (sql, params) => sql.includes('FROM users') ? [[{ id: 1, status, work_email: 'devon@agency.org' }]]
+    : sql.includes('uifd.field_key, uiv.value') ? [Object.entries(info).map(([field_key, value]) => ({ field_key, value }))] : sql.includes('SELECT id FROM user_info_field_definitions') ? [[{ id: params[0] }]] : sql.includes('INSERT INTO user_info_values') ? (info[params[1]] = params[2], [{}]) : [[]]);
 });
 describe('onboarding account access', () => {
   it('does not require Workspace or TherapyNotes for a new employee', async () => {
@@ -33,4 +33,20 @@ describe('onboarding account access', () => {
     expect(packet.systems.find(s => s.key === 'therapynotes')).toMatchObject({ username: 'devon', tempPasswordAvailable: true });
     expect(JSON.stringify(packet)).not.toContain('private');
   });
+});
+
+it('retains enabled system details for the activated employee dashboard', async () => {
+  status = 'ACTIVE_EMPLOYEE'; info = { grasshopper_login: 'devon', grasshopper_pin: '1234', therapynotes_login: 'devon.tn', therapynotes_temp_password: 'secret', therapynotes_temp_password_revealed: '2026-10-06' };
+  const packet = await getCredentialPacketForPortal(1, { employeeAccount: true });
+  expect(packet.systems.map(s => s.key)).toEqual(['email', 'grasshopper', 'therapynotes']);
+  expect(packet.systems[2]).toMatchObject({ username: 'devon.tn', tempPasswordAvailable: false, tempPasswordConsumed: true });
+  expect(JSON.stringify(packet)).not.toContain('secret');
+  await expect(revealPortalTempPassword(1, 'therapynotes')).resolves.toMatchObject({ revealed: false, password: null });
+});
+it('acknowledges the whole page once and preserves the details for return visits', async () => {
+  info = { grasshopper_login: 'devon', grasshopper_pin: '1234', therapynotes_login: 'devon.tn' };
+  const packet = await acknowledgePortalAccounts(1);
+  expect(packet.systems.every(s => s.acknowledged)).toBe(true);
+  const reloaded = await getCredentialPacketForPortal(1);
+  expect(reloaded.systems.find(s => s.key === 'grasshopper')).toMatchObject({ username: 'devon', pin: '1234', acknowledged: true });
 });

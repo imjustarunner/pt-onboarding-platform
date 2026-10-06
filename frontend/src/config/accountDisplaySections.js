@@ -23,6 +23,7 @@ export const ACCOUNT_SECTIONS = [
       tagMutedColor: '#15803d',
     },
   },
+  { id: 'access', title: 'Accounts & access', navLabel: 'Accounts & access', description: 'Your work logins, phone extension and account setup details.', tag: 'Accounts', statLabel: 'Access', statHint: 'Logins & setup', icon: 'shield', visibleKey: 'workforce', theme: { accent: '#166534', icon: '#166534', iconBg: '#dcfce7', tagBg: '#ecfdf5', tagColor: '#166534', tagMutedBg: '#f0fdf4', tagMutedColor: '#15803d' } },
   {id:'availability',title:'My availability',navLabel:'My Availability',description:'Services, new-client preferences, and published openings.',tag:'Scheduling',statLabel:'Availability',statHint:'Preferences & openings',icon:'calendar',visibleKey:'availability',theme:{accent:'#166534',icon:'#166534',iconBg:'#dcfce7',tagBg:'#ecfdf5',tagColor:'#166534',tagMutedBg:'#f0fdf4',tagMutedColor:'#15803d'}},
   {
     id: 'credentials',

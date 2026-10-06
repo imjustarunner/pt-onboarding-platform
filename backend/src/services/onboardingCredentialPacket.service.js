@@ -208,7 +208,7 @@ export async function saveLifecycleCredentials(userId, payload = {}) {
 /**
  * Employee-facing packet (secrets revealed once).
  */
-export async function getCredentialPacketForPortal(userId) {
+export async function getCredentialPacketForPortal(userId, { employeeAccount = false } = {}) {
   const [userRows] = await pool.execute(
     `SELECT id, first_name, last_name, preferred_name, email, work_email, personal_email,
             personal_phone, status
@@ -243,7 +243,7 @@ export async function getCredentialPacketForPortal(userId) {
         tempPasswordConsumed: wsRevealed,
         acknowledged: !!info.portal_acked_email
       },
-      ...(user.status === 'ONBOARDING'
+      ...(employeeAccount || user.status === 'ONBOARDING'
         ? [
             {
               key: 'grasshopper',
@@ -286,6 +286,21 @@ export async function confirmPortalIdentity(userId, { legalFirstName, legalLastN
   }
   await setUserInfoValue(userId, 'portal_identity_confirmed', new Date().toISOString());
   try { await syncLifecycleItems(userId); } catch { /* ignore */ }
+  return getCredentialPacketForPortal(userId);
+}
+
+export async function acknowledgePortalAccounts(userId) {
+  const packet = await getCredentialPacketForPortal(userId);
+  const fields = { email: 'portal_acked_email', grasshopper: 'portal_acked_grasshopper', therapynotes: 'portal_acked_therapynotes' };
+  const available = packet?.systems.filter(system => system.username) || [];
+  if (!available.length) throw Object.assign(new Error('Account details are not available yet.'), { status: 400 });
+  const timestamp = new Date().toISOString();
+  for (const system of available) {
+    if (!await setUserInfoValue(userId, fields[system.key], timestamp)) {
+      throw Object.assign(new Error('Could not save acknowledgement. Contact People Operations.'), { status: 503 });
+    }
+  }
+  try { await syncLifecycleItems(userId); } catch { /* acknowledgement remains saved */ }
   return getCredentialPacketForPortal(userId);
 }
 

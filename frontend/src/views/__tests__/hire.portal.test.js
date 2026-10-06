@@ -193,3 +193,18 @@ describe('activity attention signals', () => {
   it('does not count hidden video or background tabs', () => expect(isOnboardingActive({ ...base, visible: false, playingVideo: true })).toBe(false));
   it('does not count an unfocused window', () => expect(isOnboardingActive({ ...base, focused: false })).toBe(false));
 });
+
+it('puts account details on home with one acknowledgement and keeps them after saving', async () => {
+  const data = state(); data.credentialPacket = { systems: [{ key: 'grasshopper', label: 'Grasshopper', username: 'devon', extension: '102', pin: '1234' }, { key: 'therapynotes', label: 'TherapyNotes', username: 'devon.tn' }] };
+  await open(data);
+  expect(wrapper.get('[aria-label="Accounts and access"]').text()).toContain('devon.tn');
+  expect(wrapper.text()).toContain('My Dashboard → My Account → Accounts & access');
+  const buttons = wrapper.findAll('button').filter(b => b.text() === 'I have saved my account info');
+  expect(buttons).toHaveLength(1);
+  http.post.mockResolvedValueOnce({ data: { credentialPacket: { systems: data.credentialPacket.systems.map(s => ({ ...s, acknowledged: true })) } } });
+  await buttons[0].trigger('click'); await flushPromises();
+  expect(http.post).toHaveBeenCalledWith('/prehire-portal/test-token/credential-packet/acknowledge');
+  expect(wrapper.text()).toContain('acknowledgement is saved');
+  expect(wrapper.get('[aria-label="Accounts and access"]').text()).toContain('1234');
+  expect(wrapper.text()).not.toContain('I have saved my account info');
+});
