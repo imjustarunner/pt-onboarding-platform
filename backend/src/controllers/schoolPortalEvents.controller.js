@@ -1,3 +1,4 @@
+import { deleteDistrictCalendarDate } from '../services/districtCalendarDates.service.js';
 import multer from 'multer';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -1028,6 +1029,19 @@ export const rotateSchoolEventsKioskPin = async (req, res, next) => {
       kioskPath: slug ? `/${slug}/school-events/kiosk` : null,
       kioskUrl: slug ? `${frontendBase}/${slug}/school-events/kiosk` : null
     });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: { message: e.message } });
+    next(e);
+  }
+};
+
+// Shared district dates can only be removed by an agency calendar manager.
+export const deleteDistrictImportantDateHandler = async (req, res, next) => {
+  try {
+    const agencyId = await assertAgencyAdminAccess(req, req.query?.agencyId);
+    const eventId = Number(req.params.eventId);
+    if (!Number.isInteger(eventId) || eventId <= 0) return res.status(400).json({ error: { message: 'Invalid eventId' } });
+    res.json(await deleteDistrictCalendarDate({ agencyId, eventId, userId: req.user.id }));
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
     next(e);

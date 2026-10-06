@@ -403,7 +403,7 @@
           <button type="button" :class="{ active: eventsView === 'calendar' }" @click="eventsView = 'calendar'">Calendar</button>
           <button type="button" :class="{ active: eventsView === 'agenda' }" @click="eventsView = 'agenda'">Agenda</button>
         </div>
-        <button type="button" class="btn btn-primary btn-sm" @click="openEventsAddEvent()">+ Add Event</button>
+        <button type="button" class="btn btn-primary btn-sm" @click="openEventsAddEvent()">+ Add date or event</button>
         <router-link class="btn btn-secondary btn-sm" :to="orgTo('/admin/caseload-hub/events')">Full event hub →</router-link>
       </div>
       <p class="events-tz-note">
@@ -468,8 +468,7 @@
           >
             <div class="agenda-dot" :class="eventsTypeColor(e)" />
             <div class="agenda-date">
-              <div class="primary">{{ eventsFormatDate(e.startsAt, e.timezone) }}</div>
-              <div class="muted time-tz">{{ eventsFormatTime(e.startsAt, e.endsAt, e.timezone) }}</div>
+              <div class="primary">{{ formatSchoolEventWhen(e.startsAt, e.endsAt, e.timezone) }}</div>
               <div v-if="eventsReportBy(e)" class="muted report-by">{{ eventsReportBy(e) }}</div>
             </div>
             <div class="agenda-info">
@@ -591,7 +590,7 @@
       <div v-if="eventsShowSchoolPicker" class="caseload-modal-backdrop" @click.self="closeEventsAddPicker">
         <div class="caseload-modal">
           <header class="caseload-modal-header">
-            <h2>Add school event</h2>
+            <h2>Add important date or event</h2>
             <button type="button" class="btn btn-secondary btn-sm" @click="closeEventsAddPicker">Cancel</button>
           </header>
           <div class="events-scope-toggle">
@@ -609,7 +608,7 @@
               :class="{ active: eventsAddScope === 'district' }"
               @click="eventsAddScope = 'district'; loadEventsDistricts()"
             >
-              Entire district
+              District important date
             </button>
             <button
               type="button"
@@ -636,7 +635,7 @@
             </select>
           </template>
           <template v-else-if="eventsAddScope === 'district'">
-            <p class="muted">Creates the same event for every school in the selected district.</p>
+            <p class="muted">Important dates use one shared district entry, visible on every school calendar.</p>
             <select v-model="eventsPostDistrictName" class="search" style="width:100%;margin-top:0.5rem;">
               <option value="">Select a district…</option>
               <option v-for="d in eventsDistrictOptions" :key="d.districtName" :value="d.districtName">
@@ -956,10 +955,10 @@
 </template>
 
 <script setup>
+import { schoolCalendarOverlaps, schoolCalendarDayKeys } from '../../../utils/schoolCalendarRange';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
-  formatSchoolEventDate,
-  formatSchoolEventTimeRange,
+  formatSchoolEventWhen,
   formatSchoolEventReportTime,
   schoolEventTimezoneLabel,
   timezoneAbbrevAt,
@@ -1002,7 +1001,7 @@ const agencyStore = useAgencyStore();
 const baseTabs = [
   { id: 'by-school', label: 'By School' },
   { id: 'by-person', label: 'By Person' },
-  { id: 'events', label: 'Events' },
+  { id: 'events', label: 'Events & Important Dates' },
   { id: 'coverage-needs', label: 'Coverage Needs' },
   { id: 'school-availability', label: 'Additional School Hours' },
   { id: 'open-spots', label: 'Open School Spots' },
@@ -1192,7 +1191,10 @@ const filteredHubEvents = computed(() => {
   if (eventsDistrictFilter.value) {
     list = list.filter((e) => eventDistrictName(e) === eventsDistrictFilter.value);
   }
-  if (eventsSchoolFilter.value) list = list.filter((e) => String(e.schoolId) === eventsSchoolFilter.value);
+  if (eventsSchoolFilter.value) {
+    const district = schools.value.find(s => String(s.schoolId) === eventsSchoolFilter.value)?.districtName;
+    list = list.filter(e => String(e.schoolId) === eventsSchoolFilter.value || (e.isDistrictImportantDate && district && String(district).trim().toLowerCase() === String(e.districtName).trim().toLowerCase()));
+  }
   if (eventsTypeFilter.value) list = list.filter((e) => e.eventType === eventsTypeFilter.value);
   return list;
 });
@@ -1201,16 +1203,19 @@ const eventsInRange = computed(() => {
   return filteredHubEvents.value.filter((e) => {
     const t = e.startsAt ? new Date(e.startsAt) : null;
     if (!t || Number.isNaN(t.getTime())) return false;
-    return t.getMonth() === eventsCursor.value.getMonth() && t.getFullYear() === eventsCursor.value.getFullYear();
+    const start = eventsStartOfMonth(eventsCursor.value);
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    return schoolCalendarOverlaps(e, eventsYmd(start), eventsYmd(end));
   });
 });
 
 const calendarCells = computed(() => {
   const byDay = new Map();
   for (const e of eventsInRange.value) {
-    const key = eventsYmd(new Date(e.startsAt));
-    if (!byDay.has(key)) byDay.set(key, []);
-    byDay.get(key).push(e);
+    for (const key of schoolCalendarDayKeys(e)) {
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key).push(e);
+    }
   }
   const first = eventsStartOfMonth(eventsCursor.value);
   const gridStart = eventsStartOfWeek(first);
@@ -1280,13 +1285,9 @@ function eventsTypeColor(e) {
   return 'fair';
 }
 
-function eventsFormatDate(v, timezone) {
-  return formatSchoolEventDate(v, timezone);
-}
 
-function eventsFormatTime(a, b, timezone) {
-  return formatSchoolEventTimeRange(a, b, timezone);
-}
+
+
 
 function eventsReportBy(e) {
   const t = formatSchoolEventReportTime(

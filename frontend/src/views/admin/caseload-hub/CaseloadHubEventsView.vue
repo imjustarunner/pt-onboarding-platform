@@ -2,13 +2,13 @@
   <div class="hub-page" :class="{ 'hub-page--embedded': embedded }" data-tour="caseload-hub-events">
     <header class="hub-header">
       <div>
-        <h1>{{ embedded ? 'All Events' : 'School Events' }}</h1>
+        <h1>{{ 'Events & Important Dates' }}</h1>
         <p class="subtitle">
           <template v-if="embedded">
             Full events list and staffing — same as Caseload Hub. Outreach events (district or general) are labeled and appear on providers’ All Events; school program events stay distinct.
           </template>
           <template v-else>
-            View and manage school events, provider staffing, and back-to-school outreach.
+            Manage important dates, school breaks, events, and provider staffing.
           </template>
         </p>
         <p class="tz-note">
@@ -27,7 +27,7 @@
         </button>
         <button type="button" class="btn btn-secondary" @click="exportCsv">Export</button>
         <button type="button" class="btn btn-secondary" @click="showKioskSettings = true">School events kiosk</button>
-        <button type="button" class="btn btn-primary" @click="openAddEvent">+ Add Event</button>
+        <button type="button" class="btn btn-primary" @click="openAddEvent">+ Add date or event</button>
       </div>
     </header>
 
@@ -131,7 +131,7 @@
           <option value="completed">Completed</option>
         </select>
       </label>
-      <input v-model="search" type="search" class="search" placeholder="Search events…" />
+      <input v-model="search" type="search" class="search" placeholder="Search events and dates…" />
     </div>
 
     <div v-if="tab === 'list'" class="chip-row">
@@ -146,17 +146,17 @@
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_fall_check_in' }" @click="typeFilter = 'school_fall_check_in'">Fall Check-in</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_spring_event' }" @click="typeFilter = 'school_spring_event'">Spring Check-in</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_holiday' }" @click="typeFilter = 'school_holiday'">Holiday</button>
-      <button type="button" class="chip" :class="{ active: typeFilter === 'school_day_off' }" @click="typeFilter = 'school_day_off'">Day off</button>
+      <button type="button" class="chip" :class="{ active: typeFilter === 'school_day_off' }" @click="typeFilter = 'school_day_off'">School break / Day off</button>
       <button type="button" class="chip" :class="{ active: typeFilter === 'school_outreach' }" @click="typeFilter = 'school_outreach'">Outreach</button>
       <button type="button" class="chip" :class="{ active: staffingFilter === 'needs_providers' }" @click="toggleStaffingFilter('needs_providers')">Needs providers</button>
     </div>
 
     <div v-if="error" class="error-banner">{{ error }}</div>
-    <div v-if="loading" class="loading">Loading events…</div>
+    <div v-if="loading" class="loading">Loading events and dates…</div>
 
     <template v-else>
       <div v-if="tab === 'list'" class="kpi-row">
-        <div class="kpi"><strong>{{ kpis.totalEvents }}</strong><span>Total Events</span></div>
+        <div class="kpi"><strong>{{ kpis.totalEvents }}</strong><span>Events &amp; Dates</span></div>
         <div class="kpi accent"><strong>{{ kpis.backToSchoolEvents }}</strong><span>Back to School</span></div>
         <div class="kpi"><strong>{{ kpis.schoolsInvolved }}</strong><span>Schools Involved</span></div>
         <div class="kpi"><strong>{{ kpis.staffAssigned }}</strong><span>Staff Assigned</span></div>
@@ -190,8 +190,7 @@
                 @click="selectEvent(e.id)"
               >
                 <td>
-                  <div class="primary">{{ formatDateLong(e.startsAt, e.timezone) }}</div>
-                  <div class="muted time-tz">{{ formatTimeRange(e.startsAt, e.endsAt, e.timezone) }}</div>
+                  <div class="primary">{{ formatSchoolEventWhen(e.startsAt, e.endsAt, e.timezone) }}</div>
                   <div v-if="reportByLabel(e)" class="muted report-by">{{ reportByLabel(e) }}</div>
                 </td>
                 <td>
@@ -242,7 +241,7 @@
               </tr>
             </tbody>
           </table>
-          <p v-if="!displayList.length" class="empty">No events found.</p>
+          <p v-if="!displayList.length" class="empty">No events or important dates found.</p>
           <div v-else class="pager">
             <span class="muted">Showing {{ pageStart }}–{{ pageEnd }} of {{ displayList.length }}</span>
             <div class="pager-btns">
@@ -270,7 +269,7 @@
     <!-- Add event: one school, entire district, district outreach, or general outreach -->
     <div v-if="showAddSchoolPicker" class="modal-backdrop" @click.self="showAddSchoolPicker = false">
       <div class="modal-card">
-        <h2>Add school event</h2>
+        <h2>Add important date or event</h2>
         <div class="scope-toggle">
           <button
             type="button"
@@ -286,7 +285,7 @@
             :class="{ active: addScope === 'district' }"
             @click="addScope = 'district'; loadDistricts()"
           >
-            Entire district
+            District important date
           </button>
           <button
             type="button"
@@ -313,7 +312,7 @@
           </select>
         </template>
         <template v-else-if="addScope === 'district'">
-          <p class="muted">Creates the same event for every school in the district.</p>
+          <p class="muted">Important dates use one shared district entry, visible on every school calendar.</p>
           <select v-model="addDistrictName" class="agency-select full">
             <option value="">Select a district…</option>
             <option v-for="d in districtOptions" :key="d.districtName" :value="d.districtName">
@@ -368,8 +367,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import {
-  formatSchoolEventDate,
-  formatSchoolEventTimeRange,
+  formatSchoolEventWhen,
   formatSchoolEventReportTime,
   schoolEventTimezoneLabel,
   timezoneAbbrevAt,
@@ -465,7 +463,7 @@ function labelType(t) {
     school_family_night: 'Family Event',
     school_orientation: 'Orientation',
     school_holiday: 'Holiday',
-    school_day_off: 'Day off',
+    school_day_off: 'School break / Day off',
     school_other: 'School Event',
     school_outreach: 'Outreach'
   };
@@ -497,13 +495,9 @@ const pollSeconds = POLL_MS / 1000;
 const defaultTimezoneLabel = schoolEventTimezoneLabel(SCHOOL_EVENT_FALLBACK_TIMEZONE);
 let pollTimer = null;
 
-function formatDateLong(v, timezone) {
-  return formatSchoolEventDate(v, timezone);
-}
 
-function formatTimeRange(a, b, timezone) {
-  return formatSchoolEventTimeRange(a, b, timezone);
-}
+
+
 
 function reportByLabel(e) {
   const t = formatSchoolEventReportTime(

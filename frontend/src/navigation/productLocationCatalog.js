@@ -215,10 +215,10 @@ export const PRODUCT_LOCATIONS = [
   {
     id: 'school-events',
     routeName: 'CaseloadHubEvents',
-    label: 'School Events',
+    label: 'Events & Important Dates',
     description: 'School event list and provider request review (Caseload Hub).',
     group: 'admin',
-    howToFind: 'Admin → Caseload Hub → School Events',
+    howToFind: 'Admin → Caseload Hub → Events & Important Dates',
     keywords: [
       'school events',
       'school event',
@@ -243,10 +243,10 @@ export const PRODUCT_LOCATIONS = [
   {
     id: 'school-events-calendar',
     routeName: 'CaseloadHubCalendar',
-    label: 'School Events Calendar',
-    description: 'Calendar of school events and staffing status.',
+    label: 'Events & Important Dates Calendar',
+    description: 'Calendar of school events, important dates, breaks, and staffing status.',
     group: 'admin',
-    howToFind: 'Admin → Caseload Hub → School Events Calendar',
+    howToFind: 'Admin → Caseload Hub → Events & Important Dates Calendar',
     keywords: ['school events calendar', 'caseload hub calendar', 'school event calendar'],
     rolesAny: [
       'admin',

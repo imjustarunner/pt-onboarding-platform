@@ -1,3 +1,4 @@
+import { isDistrictCalendarDate, createDistrictCalendarDate, updateDistrictCalendarDate, listDistrictCalendarDatesForSchool, DISTRICT_DATE_TYPES } from './districtCalendarDates.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
@@ -348,6 +349,7 @@ export function mapSchoolEventRow(row, schoolMeta = {}) {
     schoolEventStatus: normalizeSchoolEventStatus(row.school_event_status, {
       fallback: row.is_active ? 'scheduled' : 'canceled'
     }),
+    isDistrictImportantDate: isDistrictCalendarDate(row),
     districtBroadcastId: row.district_broadcast_id || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1364,7 +1366,11 @@ export async function listSchoolEventsForOrg(organizationId, { viewerUserId = nu
     [orgId, ...SCHOOL_PORTAL_EVENT_TYPES]
   );
   const schoolMeta = await loadSchoolMeta(orgId);
-  const mapped = (rows || []).map((row) => mapSchoolEventRow(row, schoolMeta));
+  const agencyId = await resolveAgencyIdForSchoolOrg(orgId);
+  const shared = await listDistrictCalendarDatesForSchool({ agencyId, organizationId: orgId });
+  const mapped = [...(rows || []), ...shared]
+    .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at))
+    .map((row) => mapSchoolEventRow(row, isDistrictCalendarDate(row) ? {} : schoolMeta));
   return attachSchoolEventStaffingSummary(mapped, { viewerUserId });
 }
 
@@ -1449,12 +1455,14 @@ export async function getSchoolEventOverviewForAgency(agencyId, yearOrSchoolYear
   const [eventRows] = await pool.execute(
     `SELECT ce.*, a.name AS school_name, a.portal_url AS school_portal_url, a.slug AS school_slug
      FROM company_events ce
-     JOIN agencies a ON a.id = ce.organization_id
+     LEFT JOIN agencies a ON a.id = ce.organization_id
      WHERE ce.agency_id = ?
-       AND ce.organization_id IN (${placeholders})
+       AND (ce.organization_id IN (${placeholders}) OR
+         (ce.organization_id IS NULL AND ce.district_name IS NOT NULL
+          AND ce.event_type IN (${DISTRICT_DATE_TYPES.map((type) => "'" + type + "'").join(', ')})))
        AND ce.event_type IN (${typePlaceholders})
        AND ce.is_active = 1
-       AND ce.starts_at >= ?
+       AND ce.ends_at >= ?
        AND ce.starts_at <= ?
      ORDER BY ce.starts_at ASC`,
     [agencyId, ...schoolIds, ...SCHOOL_PORTAL_EVENT_TYPES, bounds.startDate, bounds.endDate]
@@ -1793,6 +1801,13 @@ export async function createDistrictSchoolEvents({
     );
   }
   const broadcastId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+  if (CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(category)) {
+    const row = await createDistrictCalendarDate({ agencyId, userId, districtName, districtBroadcastId: broadcastId,
+      eventType: categoryToEventType(category), title, description, startsAt, endsAt, timezone,
+      detailsUrl: normalizeDetailsUrl(detailsUrl) ?? null, schoolEventStatus });
+    return { districtBroadcastId: broadcastId, districtName, createdCount: 1, schoolCount: schoolIds.length,
+      isDistrictImportantDate: true, events: [mapSchoolEventRow(row)], errors: [] };
+  }
   const events = [];
   const errors = [];
   for (const organizationId of schoolIds) {
@@ -2218,7 +2233,7 @@ export async function updateDistrictSchoolEvents({
   }
 
   const [rows] = await pool.execute(
-    `SELECT id, organization_id, title, event_type
+    `SELECT id, organization_id, title, event_type, district_name
      FROM company_events
      WHERE agency_id = ?
        AND district_broadcast_id = ?
@@ -2239,7 +2254,11 @@ export async function updateDistrictSchoolEvents({
   for (const row of targets) {
     try {
       // eslint-disable-next-line no-await-in-loop
-      const event = await updateSchoolPortalEvent({
+      const event = isDistrictCalendarDate(row)
+        ? mapSchoolEventRow(await updateDistrictCalendarDate({ eventId: Number(row.id), agencyId: aid, userId,
+            title, description, eventType: category ? categoryToEventType(category) : undefined,
+            startsAt, endsAt, timezone, detailsUrl, schoolEventStatus }))
+        : await updateSchoolPortalEvent({
         eventId: Number(row.id),
         organizationId: Number(row.organization_id),
         agencyId: aid,

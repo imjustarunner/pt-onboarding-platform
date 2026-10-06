@@ -2,13 +2,13 @@
   <div class="hub-page" :class="{ 'hub-page--embedded': embedded }" data-tour="caseload-hub-calendar">
     <header class="hub-header">
       <div>
-        <h1>{{ embedded ? 'All Events Calendar' : 'School Events Calendar' }}</h1>
+        <h1>{{ 'Events & Important Dates' }}</h1>
         <p class="subtitle">
           <template v-if="embedded">
             Same calendar as Caseload Hub. Outreach events are labeled; they stay on the school events kiosk.
           </template>
           <template v-else>
-            View and manage school events, staffing, and special schedules.
+            View and manage important dates, school breaks, events, and staffing.
           </template>
         </p>
         <p class="tz-note">
@@ -30,7 +30,7 @@
         <button type="button" class="btn btn-secondary" @click="goToday">Today</button>
         <button type="button" class="btn btn-secondary" @click="shift(1)">›</button>
         <router-link v-if="!embedded" class="btn btn-ghost" :to="orgTo('/admin/caseload-hub/events')">Event list</router-link>
-        <button type="button" class="btn btn-primary" @click="openAddEvent()">+ Add Event</button>
+        <button type="button" class="btn btn-primary" @click="openAddEvent()">+ Add date or event</button>
       </div>
     </header>
 
@@ -40,7 +40,7 @@
         <option v-for="s in schoolOptions" :key="s.id" :value="String(s.id)">{{ s.name }}</option>
       </select>
       <select v-model="typeFilter">
-        <option value="">All Event Types</option>
+        <option value="">All Calendar Types</option>
         <option value="school_back_to_school">Back to School</option>
         <option value="school_fall_check_in">Fall School Check-in</option>
         <option value="school_spring_event">Spring School Check-in</option>
@@ -50,7 +50,7 @@
         <option value="school_orientation">Orientation</option>
         <option value="school_first_day">First Day of School</option>
         <option value="school_holiday">Holiday</option>
-        <option value="school_day_off">Day off</option>
+        <option value="school_day_off">School break / Day off</option>
         <option value="school_other">Other</option>
       </select>
       <span class="range-chip">{{ rangeLabel }}</span>
@@ -184,7 +184,7 @@
 
     <div v-if="showAddSchoolPicker" class="modal-backdrop" @click.self="showAddSchoolPicker = false">
       <div class="modal-card">
-        <h2>Add school event</h2>
+        <h2>Add important date or event</h2>
         <div class="scope-toggle">
           <button
             type="button"
@@ -200,7 +200,7 @@
             :class="{ active: addScope === 'district' }"
             @click="addScope = 'district'; loadDistricts()"
           >
-            Entire district
+            District important date
           </button>
           <button
             type="button"
@@ -220,14 +220,14 @@
           </button>
         </div>
         <template v-if="addScope === 'school'">
-          <p class="muted">Choose the school this event belongs to.</p>
+          <p class="muted">Choose the school for this calendar entry.</p>
           <select v-model="addSchoolId" class="agency-select full">
             <option :value="null">Select a school…</option>
             <option v-for="s in schoolOptions" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </template>
         <template v-else-if="addScope === 'district'">
-          <p class="muted">Creates the same event for every school in the district.</p>
+          <p class="muted">Important dates use one shared district entry, visible on every school calendar.</p>
           <select v-model="addDistrictName" class="agency-select full">
             <option value="">Select a district…</option>
             <option v-for="d in districtOptions" :key="d.districtName" :value="d.districtName">
@@ -281,6 +281,7 @@
 </template>
 
 <script setup>
+import { schoolCalendarOverlaps, schoolCalendarDayKeys } from '../../../utils/schoolCalendarRange';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../../../store/auth';
@@ -361,7 +362,7 @@ const typeChecklist = [
   { value: 'school_family_night', label: 'Family Night', color: 'family' },
   { value: 'school_first_day', label: 'First Day of School', color: 'holiday' },
   { value: 'school_holiday', label: 'Holiday', color: 'holiday' },
-  { value: 'school_day_off', label: 'Day off', color: 'holiday' },
+  { value: 'school_day_off', label: 'School break / Day off', color: 'holiday' },
   { value: 'school_other', label: 'Other school event', color: 'fair' },
   { value: 'school_outreach', label: 'Outreach', color: 'outreach' }
 ];
@@ -425,7 +426,10 @@ const miniLabel = computed(() =>
 
 const filteredEvents = computed(() => {
   return events.value.filter((e) => {
-    if (schoolFilter.value && String(e.schoolId) !== schoolFilter.value) return false;
+    if (schoolFilter.value && String(e.schoolId) !== schoolFilter.value) {
+      const district = schoolOptions.value.find(s => String(s.id) === schoolFilter.value)?.districtName;
+      if (!e.isDistrictImportantDate || !district || String(district).trim().toLowerCase() !== String(e.districtName).trim().toLowerCase()) return false;
+    }
     if (typeFilter.value && e.eventType !== typeFilter.value) return false;
     if (enabledTypes.value.length && !enabledTypes.value.includes(e.eventType)) return false;
     if (staffingOnlyNeeds.value && !['needs_providers', 'partially_staffed', 'requests_pending'].includes(e.staffingStatus)) {
@@ -437,9 +441,11 @@ const filteredEvents = computed(() => {
       const start = startOfWeek(cursor.value);
       const end = new Date(start);
       end.setDate(end.getDate() + 7);
-      return t >= start && t < end;
+      return schoolCalendarOverlaps(e, ymd(start), ymd(end));
     }
-    return t.getMonth() === cursor.value.getMonth() && t.getFullYear() === cursor.value.getFullYear();
+    const start = startOfMonth(cursor.value);
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    return schoolCalendarOverlaps(e, ymd(start), ymd(end));
   });
 });
 
@@ -448,7 +454,7 @@ const metrics = computed(() => {
   const now = Date.now();
   const upcoming = list.filter((e) => e.startsAt && new Date(e.startsAt).getTime() >= now).length;
   const schools = new Set(list.map((e) => e.schoolId).filter(Boolean)).size;
-  const sessions = list.reduce((sum, e) => sum + Math.max(1, Number(e.providersRequested || 1)), 0);
+  const sessions = list.reduce((sum, e) => sum + (e.staffingEnabled ? Math.max(1, Number(e.providersRequested || 1)) : 0), 0);
   const staff = list.reduce((sum, e) => sum + Number(e.providersAssigned || 0), 0);
   return {
     upcoming,
@@ -461,9 +467,10 @@ const metrics = computed(() => {
 const cells = computed(() => {
   const byDay = new Map();
   for (const e of filteredEvents.value) {
-    const key = ymd(new Date(e.startsAt));
-    if (!byDay.has(key)) byDay.set(key, []);
-    byDay.get(key).push(e);
+    for (const key of schoolCalendarDayKeys(e)) {
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key).push(e);
+    }
   }
 
   const out = [];
@@ -504,7 +511,7 @@ const cells = computed(() => {
 const miniCells = computed(() => {
   const month = startOfMonth(cursor.value);
   const gridStart = startOfWeek(month);
-  const byDay = new Set(filteredEvents.value.map((e) => ymd(new Date(e.startsAt))));
+  const byDay = new Set(filteredEvents.value.flatMap(schoolCalendarDayKeys));
   const out = [];
   for (let i = 0; i < 42; i++) {
     const d = new Date(gridStart);
@@ -680,6 +687,7 @@ async function reload({ silent = false } = {}) {
     schoolOptions.value = (schools.schools || [])
       .map((s) => ({
         id: Number(s.schoolId ?? s.id),
+        districtName: s.districtName || '',
         name: String(s.schoolName || s.name || '').trim() || `School ${s.schoolId ?? s.id}`
       }))
       .filter((s) => Number.isFinite(s.id) && s.id > 0)

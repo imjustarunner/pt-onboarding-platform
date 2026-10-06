@@ -380,14 +380,14 @@ export const APP_PAGES = [
 
   // Events & Outreach
   {
-    title: 'School Events',
+    title: 'Events & Important Dates',
     section: 'School Ops › Events & Outreach',
     path: '/admin/caseload-hub/events',
-    keywords: ['school events', 'events', 'provider assignments', 'event list', 'program events'],
-    desc: 'Manage school events and provider assignments.'
+    keywords: ['school events', 'important dates', 'school breaks', 'events', 'provider assignments', 'event list', 'program events'],
+    desc: 'Manage school events, shared district dates, and provider assignments.'
   },
   {
-    title: 'School Events Calendar',
+    title: 'Events & Important Dates Calendar',
     section: 'School Ops › Events & Outreach',
     path: '/admin/caseload-hub/calendar',
     keywords: ['school calendar', 'calendar', 'events calendar', 'monthly view', 'week view'],

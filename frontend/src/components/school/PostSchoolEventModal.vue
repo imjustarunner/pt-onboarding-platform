@@ -1,17 +1,17 @@
 <template>
   <Teleport to="body">
     <div class="pse-overlay" @click.self="$emit('close')">
-      <div class="pse-modal" role="dialog" aria-modal="true" :aria-label="editEvent ? 'Edit school event' : 'Post school event'" @click.stop>
+      <div class="pse-modal" role="dialog" aria-modal="true" :aria-label="editEvent ? 'Edit calendar entry' : 'Add calendar entry'" @click.stop>
         <header class="pse-header">
           <div>
             <h2>
               {{ editEvent
-                ? (isOutreachEvent ? (isGeneralOutreachEvent ? 'Edit general outreach' : 'Edit district outreach') : 'Edit school event')
+                ? (isOutreachEvent ? (isGeneralOutreachEvent ? 'Edit general outreach' : 'Edit district outreach') : (isCalendarOnlyCategory ? 'Edit important date' : 'Edit school event'))
                 : isOutreachCreate
                   ? (isGeneralOutreachCreate ? 'Add general outreach' : 'Add district outreach')
                   : isDistrictCreate
-                    ? 'Add district event'
-                    : 'Post school event' }}
+                    ? (isCalendarOnlyCategory ? 'Add district important date' : 'Add district event')
+                    : (isCalendarOnlyCategory ? 'Add important date' : 'Post school event') }}
             </h2>
             <p class="pse-sub">
               {{ editEvent
@@ -21,8 +21,10 @@
                   : isDistrictOutreachCreate
                   ? `One outreach event for ${districtName} — not tied to a school. Providers can request shifts.`
                   : isDistrictCreate
-                    ? `Creates this event for every school in ${districtName}.`
-                    : "Share your school's parent event. It will appear on the portal banner the week of the event." }}
+                    ? (isCalendarOnlyCategory ? `One shared important date for ${districtName}, visible on every school calendar.` : `Adds this event for every school in ${districtName}.`)
+                    : isCalendarOnlyCategory
+                      ? 'Add an important date or school break to your school calendar.'
+                      : "Share your school's parent event. It will appear on the portal banner the week of the event." }}
             </p>
             <p v-if="displaySchoolName && !isDistrictCreate && !isOutreachCreate" class="pse-school">
               {{ editEvent ? 'School' : 'Adding for' }}:
@@ -40,22 +42,22 @@
 
         <div class="pse-body">
           <label class="field">
-            <span class="lbl">Event type</span>
+            <span class="lbl">Calendar entry type</span>
             <select v-model="form.category" class="input" :disabled="!!lockedCategory || isOutreachCreate || isOutreachEvent">
               <option v-if="isOutreachCreate || isOutreachEvent || form.category === 'outreach'" value="outreach">
                 {{ isGeneralOutreachCreate || isGeneralOutreachEvent ? 'General Outreach' : 'District Outreach' }} (attendable / staffed)
               </option>
-              <option value="back_to_school">Back to School (attendable event)</option>
-              <option value="open_house">Open House</option>
-              <option value="resource_fair">Resource Fair</option>
-              <option value="family_night">Family Night</option>
-              <option value="orientation">Orientation</option>
-              <option value="other">Other school event</option>
+              <option v-if="!isDistrictImportantDate && !isDistrictCreate" value="back_to_school">Back to School (attendable event)</option>
+              <option v-if="!isDistrictImportantDate && !isDistrictCreate" value="open_house">Open House</option>
+              <option v-if="!isDistrictImportantDate && !isDistrictCreate" value="resource_fair">Resource Fair</option>
+              <option v-if="!isDistrictImportantDate && !isDistrictCreate" value="family_night">Family Night</option>
+              <option v-if="!isDistrictImportantDate && !isDistrictCreate" value="orientation">Orientation</option>
+              <option v-if="!isDistrictImportantDate && !isDistrictCreate" value="other">Other school event</option>
               <option value="fall_check_in">Fall School Check-in (calendar only)</option>
               <option value="spring">Spring School Check-in (calendar only)</option>
               <option value="first_day">First Day of School (calendar only)</option>
               <option value="holiday">Holiday (calendar only)</option>
-              <option value="day_off">Day off (calendar only)</option>
+              <option value="day_off">School break / Day off (important date)</option>
             </select>
             <span v-if="isOutreachCreate || isOutreachEvent || form.category === 'outreach'" class="hint">
               <template v-if="isGeneralOutreachCreate || isGeneralOutreachEvent">
@@ -66,7 +68,7 @@
               </template>
             </span>
             <span v-else-if="isCalendarOnlyCategory" class="hint">
-              Calendar date only — not an attendable event and not open for provider staffing.
+              An all-day important date or date range. Use School break / Day off for fall break, winter break, or school closures.
             </span>
             <span v-else-if="form.category === 'back_to_school'" class="hint">
               Use for open houses / nights families and providers attend (not the first day of school).
@@ -74,12 +76,12 @@
           </label>
 
           <label class="field">
-            <span class="lbl">Event name</span>
-            <input v-model="form.title" type="text" class="input" maxlength="255" placeholder="e.g., Open House Night" />
+            <span class="lbl">{{ isCalendarOnlyCategory ? 'Important date name' : 'Event name' }}</span>
+            <input v-model="form.title" type="text" class="input" maxlength="255" :placeholder="isCalendarOnlyCategory ? 'e.g., Fall Break' : 'e.g., Open House Night'" />
           </label>
 
           <label class="field">
-            <span class="lbl">Event details</span>
+            <span class="lbl">Details</span>
             <textarea v-model="form.description" rows="3" class="textarea" placeholder="Location, what families should expect, etc." />
           </label>
 
@@ -100,25 +102,30 @@
 
           <div class="field-row">
             <label class="field">
-              <span class="lbl">{{ form.schoolEventStatus === 'rescheduled' ? 'New date' : 'Date' }}</span>
+              <span class="lbl">{{ form.schoolEventStatus === 'rescheduled' ? 'New start date' : 'Start date' }}</span>
               <input v-model="form.date" type="date" class="input" />
+            </label>
+            <label class="field">
+              <span class="lbl">End date (optional)</span>
+              <input v-model="form.endDate" type="date" class="input" :min="form.date" />
+              <span class="hint">Leave blank for one day.</span>
             </label>
             <label v-if="!isCalendarOnlyCategory" class="field">
               <span class="lbl">Report by</span>
               <input v-model="form.reportTime" type="time" class="input" />
             </label>
-            <label class="field">
+            <label v-if="!isCalendarOnlyCategory" class="field">
               <span class="lbl">Start time</span>
               <input v-model="form.startTime" type="time" class="input" />
             </label>
-            <label class="field">
+            <label v-if="!isCalendarOnlyCategory" class="field">
               <span class="lbl">End time</span>
               <input v-model="form.endTime" type="time" class="input" />
             </label>
           </div>
-          <p class="tz-hint">
+          <p v-if="!isCalendarOnlyCategory" class="tz-hint">
             <template v-if="!isCalendarOnlyCategory">Report by is when staff should arrive. </template>
-            Times are saved in {{ timezoneLabel }} ({{ timezoneAbbrev }}).
+            Times are saved in {{ timezoneLabel }}.
           </p>
 
           <label v-if="!isCalendarOnlyCategory" class="field">
@@ -134,11 +141,11 @@
             <span class="hint">How many providers to staff for this event (default 2 — raise for larger schools).</span>
           </label>
           <p v-else class="hint">
-            Calendar-only types (fall/spring check-in, first day, holidays, days off) are not attendable and do not open provider staffing.
+            Important dates include every day from the start date through the end date. They do not open provider staffing.
           </p>
 
           <label class="field">
-            <span class="lbl">Event details link (optional)</span>
+            <span class="lbl">Details link (optional)</span>
             <input
               v-model="form.detailsUrl"
               type="url"
@@ -149,7 +156,7 @@
             <span class="hint">If the school has a public flier or webpage for this event, paste the link.</span>
           </label>
 
-          <label v-if="!isDistrictCreate || isDistrictOutreachCreate || isDistrictOutreachEvent" class="field">
+          <label v-if="(!isDistrictCreate && !isDistrictImportantDate) || isDistrictOutreachCreate || isDistrictOutreachEvent" class="field">
             <span class="lbl">Flier file (optional)</span>
             <input type="file" accept=".pdf,image/jpeg,image/png,image/jpg" @change="onFileChange" />
             <div v-if="uploading" class="hint">Uploading…</div>
@@ -157,7 +164,7 @@
               <a :href="displayFlierUrl" target="_blank" rel="noopener">View uploaded flier</a>
             </div>
           </label>
-          <p v-else class="hint">Flier files can be attached per school after the district event is created.</p>
+          <p v-else-if="!isCalendarOnlyCategory" class="hint">Flier files can be attached per school after the district calendar entry is created.</p>
 
           <label v-if="!isCalendarOnlyCategory && !isDistrictOutreachCreate && !isDistrictOutreachEvent" class="checkbox-row">
             <input v-model="form.outreachTableInvited" type="checkbox" />
@@ -195,15 +202,16 @@
             </template>
           </div>
 
-          <label v-if="canEditDistrictWide" class="checkbox-row district-wide">
+          <p v-if="isDistrictImportantDate" class="hint">This is one shared district date. Changes apply to every school in {{ districtName }}. Only an agency calendar manager can change it.</p>
+          <label v-if="canEditDistrictWide && !isDistrictImportantDate" class="checkbox-row district-wide">
             <input v-model="form.applyToDistrict" type="checkbox" />
             <span>
-              Apply these changes to <strong>all schools</strong> in this district-wide event
+              Apply these changes to <strong>all schools</strong> in this district calendar entry
               <span v-if="districtBroadcastLabel" class="hint-inline">({{ districtBroadcastLabel }})</span>
             </span>
           </label>
-          <p v-if="canEditDistrictWide && form.applyToDistrict" class="hint warn">
-            Title, type, date/time, and details will update for every school copy created with this district event.
+          <p v-if="canEditDistrictWide && form.applyToDistrict && !isDistrictImportantDate" class="hint warn">
+            Title, type, date/time, and details will update for every school copy created with this district calendar entry.
           </p>
 
           <div v-if="error" class="error">{{ error }}</div>
@@ -215,15 +223,15 @@
             v-if="canDeleteEvent"
             type="button"
             class="btn btn-danger"
-            :disabled="submitting || uploading || deleting"
+            :disabled="submitting || uploading || deleting || (isDistrictImportantDate && !canEditDistrictWide)"
             @click="deleteEvent"
           >
             {{ deleting ? 'Deleting…' : 'Delete event' }}
           </button>
           <span class="pse-actions-spacer" />
           <button type="button" class="btn btn-secondary" @click="$emit('close')" :disabled="deleting">Cancel</button>
-          <button type="button" class="btn btn-primary" :disabled="submitting || uploading || deleting" @click="submit">
-            {{ submitting ? (editEvent ? 'Saving…' : 'Posting…') : (editEvent ? 'Save changes' : 'Post event') }}
+          <button type="button" class="btn btn-primary" :disabled="submitting || uploading || deleting || (isDistrictImportantDate && !canEditDistrictWide)" @click="submit">
+            {{ submitting ? (editEvent ? 'Saving…' : 'Posting…') : (editEvent ? 'Save changes' : isCalendarOnlyCategory ? 'Add important date' : 'Post event') }}
           </button>
         </footer>
       </div>
@@ -237,11 +245,11 @@ import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
 import { useAgencyStore } from '../../store/agency';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
+import { buildSchoolCalendarRange } from '../../utils/schoolCalendarRange';
 import { fetchProviderCoverageSummary } from '../../services/schoolCoverageApi';
 import {
   SCHOOL_EVENT_FALLBACK_TIMEZONE,
   schoolEventTimezoneLabel,
-  timezoneAbbrevAt,
   isoToZonedDatetimeLocal,
   zonedDatetimeLocalToIso
 } from '../../utils/timezones';
@@ -296,16 +304,18 @@ const deleting = ref(false);
 const error = ref('');
 const success = ref('');
 
+const isDistrictImportantDate = computed(() => !!props.editEvent?.isDistrictImportantDate);
+
 const canDeleteEvent = computed(() => {
   if (!props.editEvent?.id || props.reinitToken) return false;
   const role = String(authStore.user?.role || '').toLowerCase();
   if (!['super_admin', 'admin', 'support'].includes(role)) return false;
-  if (isOutreachEvent.value) return !!props.agencyId;
+  if (isOutreachEvent.value || isDistrictImportantDate.value) return !!props.agencyId;
   if (!props.schoolOrganizationId) return false;
   return true;
 });
 
-/** Fan-out create (one copy per school) — not outreach. */
+/** District calendar create; important dates share one record. */
 const isDistrictCreate = computed(
   () =>
     !!String(props.districtName || '').trim() &&
@@ -412,6 +422,7 @@ const form = reactive({
   title: '',
   description: '',
   date: '',
+  endDate: '',
   reportTime: '',
   startTime: '17:00',
   endTime: '19:00',
@@ -541,14 +552,11 @@ const wallTimeToInput = (value) => {
   return `${String(m[1]).padStart(2, '0')}:${m[2]}`;
 };
 
-const timezoneLabel = computed(() => schoolEventTimezoneLabel(form.timezone));
-const timezoneAbbrev = computed(() => {
-  // Use a wall-time date in the school's timezone so the abbreviation (e.g. MDT vs MST) reflects DST correctly.
+const timezoneLabel = computed(() => {
   const refIso = form.date
     ? zonedDatetimeLocalToIso(`${form.date}T${form.startTime || '12:00'}`, form.timezone)
     : null;
-  const d = refIso ? new Date(refIso) : new Date();
-  return timezoneAbbrevAt(d, form.timezone) || 'MT';
+  return schoolEventTimezoneLabel(form.timezone, refIso ? new Date(refIso) : new Date());
 });
 
 const displayFlierUrl = computed(() => {
@@ -580,12 +588,10 @@ const toZonedTimeInput = (value, tz) => {
  * form.timezone (the school's timezone) — NOT the browser's local timezone.
  */
 const buildIsoRange = () => {
-  if (!form.date || !form.startTime || !form.endTime) return null;
-  const tz = form.timezone || SCHOOL_EVENT_FALLBACK_TIMEZONE;
-  const startsAt = zonedDatetimeLocalToIso(`${form.date}T${form.startTime}`, tz);
-  const endsAt = zonedDatetimeLocalToIso(`${form.date}T${form.endTime}`, tz);
-  if (!startsAt || !endsAt) return null;
-  return { startsAt, endsAt };
+  return buildSchoolCalendarRange({
+    ...form,
+    allDay: isCalendarOnlyCategory.value
+  });
 };
 
 const onFileChange = async (event) => {
@@ -633,13 +639,17 @@ const submit = async () => {
     submitting.value = true;
     error.value = '';
     success.value = '';
+    if (isDistrictImportantDate.value && !canEditDistrictWide.value) {
+      error.value = 'Only an agency calendar manager can change a district date.';
+      return;
+    }
     const range = buildIsoRange();
     if (!form.title.trim()) {
       error.value = 'Event name is required';
       return;
     }
     if (!range) {
-      error.value = 'Date and times are required';
+      error.value = 'Enter a start date and an end date on or after it. For events, the end time must be after the start time.';
       return;
     }
     const payload = withReinitIdentity({
@@ -668,7 +678,7 @@ const submit = async () => {
       payload.minProvidersPerSession = Math.max(1, Math.min(99, Number(form.minProvidersPerSession) || 2));
     }
     let res;
-    if (props.editEvent?.id && form.applyToDistrict && canEditDistrictWide.value) {
+    if (props.editEvent?.id && (form.applyToDistrict || isDistrictImportantDate.value) && canEditDistrictWide.value) {
       res = await api.put(`/school-portal/school-events/district/${encodeURIComponent(districtBroadcastId.value)}`, {
         ...payload,
         agencyId: Number(props.agencyId)
@@ -732,20 +742,20 @@ const submit = async () => {
     }
 
     success.value = props.editEvent?.id
-      ? form.applyToDistrict && canEditDistrictWide.value
+      ? isDistrictImportantDate.value ? 'District important date updated for all schools.' : form.applyToDistrict && canEditDistrictWide.value
         ? `Updated ${res.data?.updatedCount || 0} school(s) in this district event.`
         : form.schoolEventStatus === 'canceled'
           ? 'Event marked canceled.'
           : form.schoolEventStatus === 'rescheduled'
             ? 'Event rescheduled. New date/time is live and the portal banner will update.'
-            : 'Event updated.'
+            : isCalendarOnlyCategory.value ? 'Important date updated.' : 'Event updated.'
       : isGeneralOutreachCreate.value
         ? `General outreach event created.${assignNote}`
         : isDistrictOutreachCreate.value
         ? `District outreach event created.${assignNote}`
         : isDistrictCreate.value
-          ? `Created for ${res.data?.createdCount || 0} school(s) in the district.`
-          : `Event posted.${assignNote || ' It will appear on the portal banner the week of the event.'}`;
+          ? res.data?.isDistrictImportantDate ? `One district important date added, visible to ${res.data.schoolCount} schools.` : `Created for ${res.data?.createdCount || 0} school(s) in the district.`
+          : isCalendarOnlyCategory.value ? 'Important date added to the calendar.' : `Event posted.${assignNote || ' It will appear on the portal banner the week of the event.'}`;
     emit('saved', res.data);
     setTimeout(() => emit('close'), assignNote ? 1600 : 1100);
   } catch (e) {
@@ -759,7 +769,9 @@ const deleteEvent = async () => {
   if (!canDeleteEvent.value || !props.editEvent?.id) return;
   const title = String(props.editEvent.title || 'this event').trim();
   const ok = window.confirm(
-    isOutreachEvent.value
+    isDistrictImportantDate.value
+      ? `Delete "${title}" for the entire district? It will be removed from every school calendar.`
+      : isOutreachEvent.value
       ? `Delete "${title}"? It will be removed from All Events and the provider calendar.`
       : `Delete "${title}"? It will be removed from the school portal, calendar, and kiosk.`
   );
@@ -768,7 +780,9 @@ const deleteEvent = async () => {
   error.value = '';
   success.value = '';
   try {
-    if (isOutreachEvent.value) {
+    if (isDistrictImportantDate.value) {
+      await api.delete(`/school-portal/school-events/district-dates/${props.editEvent.id}`, { params: { agencyId: Number(props.agencyId) } });
+    } else if (isOutreachEvent.value) {
       await api.delete(`/school-portal/school-events/district-outreach/${props.editEvent.id}`, {
         params: { agencyId: Number(props.agencyId) }
       });
@@ -797,6 +811,7 @@ const hydrateFromEdit = () => {
   form.title = e.title || '';
   form.description = e.description || '';
   form.date = toZonedDateInput(e.startsAt, tz);
+  form.endDate = toZonedDateInput(e.endsAt, tz);
   form.reportTime = wallTimeToInput(e.employeeReportTime);
   form.startTime = toZonedTimeInput(e.startsAt, tz) || '17:00';
   form.endTime = toZonedTimeInput(e.endsAt, tz) || '19:00';
@@ -817,7 +832,7 @@ const hydrateFromEdit = () => {
 onMounted(() => {
   form.category = props.districtOutreach
     ? 'outreach'
-    : (props.initialCategory || 'back_to_school');
+    : (props.initialCategory || (isDistrictCreate.value ? 'day_off' : 'back_to_school'));
   if (props.districtOutreach) {
     form.outreachTableInvited = true;
   }
@@ -949,7 +964,7 @@ watch(
 .textarea { resize: vertical; min-height: 72px; }
 .field-row {
   display: grid;
-  grid-template-columns: 1.1fr 1fr 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 .hint {

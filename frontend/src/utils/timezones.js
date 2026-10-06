@@ -408,6 +408,21 @@ export function formatSchoolEventTimeRange(startsAt, endsAt, timezone) {
 /** Date + time range with timezone, e.g. "Mon, Aug 10, 2026 · 4:00 PM – 5:00 PM MST". */
 export function formatSchoolEventWhen(startsAt, endsAt, timezone) {
   const date = formatSchoolEventDate(startsAt, timezone);
+  const tz = schoolEventDisplayTimezone(timezone);
+  const startWall = isoToZonedDatetimeLocal(startsAt, tz);
+  const endWall = isoToZonedDatetimeLocal(endsAt, tz);
+  const endDate = formatSchoolEventDate(endsAt, timezone);
+  const multipleDays = startWall && endWall && startWall.slice(0, 10) !== endWall.slice(0, 10);
+  const dateRange = multipleDays ? `${date} – ${endDate}` : date;
+  if (startWall.endsWith('T00:00') && endWall.endsWith('T23:59') && new Date(endsAt).getUTCSeconds() === 59) {
+    return `${dateRange} · All day`;
+  }
+  if (multipleDays) {
+    const opts = { timeZone: tz, hour: 'numeric', minute: '2-digit' };
+    const startTime = new Date(startsAt).toLocaleTimeString('en-US', opts);
+    const endTime = new Date(endsAt).toLocaleTimeString('en-US', opts);
+    return `${date} · ${startTime} – ${endDate} · ${endTime} ${timezoneAbbrevAt(new Date(endsAt), tz)}`;
+  }
   const time = formatSchoolEventTimeRange(startsAt, endsAt, timezone);
   if (!time) return date;
   if (!date || date === '—') return time;

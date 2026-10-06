@@ -648,8 +648,8 @@ function buildAppEntries() {
     {
       id: 'admin-caseload-hub-calendar',
       routeName: 'CaseloadHubCalendar',
-      label: 'School Events Calendar',
-      description: 'Calendar of school events and staffing status.',
+      label: 'Events & Important Dates Calendar',
+      description: 'Calendar of school events, important dates, breaks, and staffing status.',
       group: 'admin',
       keywords: ['calendar', 'school events', 'caseload hub'],
       kind: 'path',
@@ -667,7 +667,7 @@ function buildAppEntries() {
     {
       id: 'admin-caseload-hub-events',
       routeName: 'CaseloadHubEvents',
-      label: 'School Events',
+      label: 'Events & Important Dates',
       description: 'School event list and provider request review.',
       group: 'admin',
       keywords: ['school events', 'event list', 'provider requests', 'events for schools', 'caseload hub events'],

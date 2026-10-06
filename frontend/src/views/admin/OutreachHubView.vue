@@ -23,7 +23,7 @@
           class="ohub-tab"
           :class="{ active: viewMode === 'events' }"
           @click="openEvents"
-        >Events</button>
+        >Events &amp; Important Dates</button>
         <button
           type="button"
           class="ohub-tab"

@@ -160,7 +160,7 @@
               <PortalIcon name="events" />
             </div>
           </span>
-          <span class="sp-nav-label">Events</span>
+          <span class="sp-nav-label">Events &amp; Important Dates</span>
         </button>
 
         <button
@@ -966,8 +966,8 @@
                     <PortalIcon name="events" />
                   </div>
                 </div>
-                <div class="dash-card-title">Events</div>
-                <div class="dash-card-desc">School events associated with this portal (canonical company events).</div>
+                <div class="dash-card-title">Events &amp; Important Dates</div>
+                <div class="dash-card-desc">School events, breaks, and important dates, including shared district dates.</div>
                 <div class="dash-card-meta">
                   <span class="dash-card-cta">Open ›</span>
                   <span v-if="schoolPortalEvents.length" class="dash-card-badge">{{ schoolPortalEvents.length }}</span>
@@ -1353,13 +1353,13 @@
         <div data-tour="school-events-panel" class="school-events-panel">
           <div class="roster-header">
             <div>
-              <h2>School events</h2>
+              <h2>Events &amp; Important Dates</h2>
               <p class="muted">
                 <template v-if="canRequestSchoolEventAssignment">
                   Open a staffable event to request assignment. An administrator will approve or deny your request.
                 </template>
                 <template v-else>
-                  Post and edit parent events for this school. Assigned providers can request to staff attendable events from here or the calendar.
+                  Manage events and important dates for this school. Assigned providers can request to staff attendable events from here or the calendar.
                 </template>
               </p>
             </div>
@@ -1369,7 +1369,7 @@
               type="button"
               @click="openPostSchoolEvent()"
             >
-              + Add event
+              + Add date or event
             </button>
           </div>
           <div v-if="schoolPortalEventsLoading" class="empty-state">Loading events…</div>
@@ -1434,14 +1434,14 @@
             </li>
           </ul>
           <div v-else class="empty-state school-events-empty">
-            <p>No school events posted yet.</p>
+            <p>No events or important dates posted yet.</p>
             <button
               v-if="canManageSchoolEvents"
               type="button"
               class="btn btn-primary"
               @click="openPostSchoolEvent()"
             >
-              + Add event
+              + Add date or event
             </button>
           </div>
         </div>
@@ -2840,13 +2840,17 @@ const deleteSchoolEvent = async (ev) => {
   if (!canDeleteSchoolEvents.value || !ev?.id || !organizationId.value) return;
   const title = String(ev.title || 'this event').trim();
   const ok = window.confirm(
-    `Delete "${title}"? It will be removed from the school portal, calendar, and kiosk. This cannot be undone from the portal.`
+    ev.isDistrictImportantDate ? `Delete "${title}" for the entire district? It will be removed from every school calendar.` : `Delete "${title}"? It will be removed from the school portal, calendar, and kiosk. This cannot be undone from the portal.`
   );
   if (!ok) return;
   deletingSchoolEventId.value = ev.id;
   schoolPortalEventsError.value = '';
   try {
-    await api.delete(`/school-portal/${organizationId.value}/school-events/${ev.id}`);
+    if (ev.isDistrictImportantDate) {
+      await api.delete(`/school-portal/school-events/district-dates/${ev.id}`, { params: { agencyId: affiliatedAgencyId.value } });
+    } else {
+      await api.delete(`/school-portal/${organizationId.value}/school-events/${ev.id}`);
+    }
     if (staffingEvent.value?.id === ev.id) staffingEvent.value = null;
     if (editingSchoolEvent.value?.id === ev.id) closePostSchoolEvent();
     await loadSchoolEventsMissing();

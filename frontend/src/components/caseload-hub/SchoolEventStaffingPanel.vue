@@ -4,7 +4,7 @@
       <div>
         <h2>{{ event?.title || 'Event staffing' }}</h2>
         <p class="muted">
-          {{ event?.schoolName || 'Unassigned school' }}
+          {{ event?.isDistrictImportantDate ? `${event.districtName} · District important date` : (event?.schoolName || 'Unassigned school') }}
           <span v-if="event?.startsAt"> · {{ formatWhen(event.startsAt, event.endsAt, event.timezone) }}</span>
           <span v-if="reportByText" class="report-by"> · {{ reportByText }}</span>
         </p>
@@ -222,7 +222,7 @@
     </template>
 
     <PostSchoolEventModal
-      v-if="showEditModal && (editSchoolOrgId || isOutreachEvent)"
+      v-if="showEditModal && (editSchoolOrgId || isOutreachEvent || event?.isDistrictImportantDate)"
       :school-organization-id="editSchoolOrgId || agencyId"
       :school-name="event?.schoolName || ''"
       :agency-id="agencyId"
@@ -395,7 +395,7 @@ const isOutreachEvent = computed(() => {
 });
 
 const canEditEvent = computed(() =>
-  !!editSchoolOrgId.value || (isOutreachEvent.value && !!props.agencyId)
+  !!editSchoolOrgId.value || ((isOutreachEvent.value || props.event?.isDistrictImportantDate) && !!props.agencyId)
 );
 
 function eventTypeToCategory(eventType) {
@@ -439,6 +439,7 @@ const editEventPayload = computed(() => {
     districtBroadcastId: e.districtBroadcastId || null,
     districtName: e.districtName || '',
     schoolName: e.schoolName || '',
+    isDistrictImportantDate: !!e.isDistrictImportantDate,
     isDistrictOutreach: !!e.isDistrictOutreach,
     isGeneralOutreach: !!e.isGeneralOutreach
   };

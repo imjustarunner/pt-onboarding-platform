@@ -1,3 +1,4 @@
+import { isDistrictCalendarDate } from '../services/districtCalendarDates.service.js';
 import Agency from '../models/Agency.model.js';
 import {
   getSchoolCoverageSummary,
@@ -223,7 +224,7 @@ export const listHubEvents = async (req, res, next) => {
           ce.organization_id = ?
           OR (
             ce.organization_id IS NULL
-            AND ce.event_type = 'school_outreach'
+            AND ce.event_type LIKE 'school\\_%'
             AND (
               ce.district_name IS NULL
               OR TRIM(ce.district_name) = ''
@@ -237,7 +238,7 @@ export const listHubEvents = async (req, res, next) => {
           ce.organization_id = ?
           OR (
             ce.organization_id IS NULL
-            AND ce.event_type = 'school_outreach'
+            AND ce.event_type LIKE 'school\\_%'
             AND (ce.district_name IS NULL OR TRIM(ce.district_name) = '')
           )
         )`;
@@ -396,6 +397,7 @@ export const listHubEvents = async (req, res, next) => {
             : 0,
         isActive: !!(r.is_active === 1 || r.is_active === true),
         schoolEventStatus,
+        isDistrictImportantDate: isDistrictCalendarDate(r),
         schoolId: r.organization_id != null ? Number(r.organization_id) : null,
         schoolName: r.school_name || null,
         districtName: r.district_name || null,
@@ -419,7 +421,7 @@ export const listHubEvents = async (req, res, next) => {
         lifecycleStatus,
         isBackToSchool,
         featured,
-        portalVisible: !!(r.organization_id && r.is_active),
+        portalVisible: !!((r.organization_id || isDistrictCalendarDate(r)) && r.is_active),
         districtBroadcastId: r.district_broadcast_id || null,
         flierFileUrl: r.flier_file_url ? String(r.flier_file_url).trim() : '',
         eventImageUrl: r.event_image_url ? String(r.event_image_url).trim() : '',

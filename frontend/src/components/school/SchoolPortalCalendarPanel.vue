@@ -3,7 +3,7 @@
     <div class="spc-header">
       <div>
         <h2>School calendar</h2>
-        <p class="muted">Holidays, days off, and parent events for this school.</p>
+        <p class="muted">Important dates, school breaks, and events for this school.</p>
       </div>
       <div class="spc-actions">
         <div class="view-toggle">
@@ -20,7 +20,7 @@
           class="btn btn-primary btn-sm"
           @click="$emit('add-event')"
         >
-          + Add Event
+          + Add date or event
         </button>
       </div>
     </div>
@@ -30,7 +30,7 @@
       <select v-model="typeFilter" class="type-select">
         <option value="">All types</option>
         <option value="school_holiday">Holiday</option>
-        <option value="school_day_off">Day off</option>
+        <option value="school_day_off">School break / Day off</option>
         <option value="school_first_day">First Day of School</option>
         <option value="school_back_to_school">Back to School</option>
         <option value="school_fall_check_in">Fall School Check-in</option>
@@ -126,6 +126,7 @@
 </template>
 
 <script setup>
+import { schoolCalendarOverlaps, schoolCalendarDayKeys } from '../../utils/schoolCalendarRange';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { formatSchoolEventWhen } from '../../utils/timezones';
@@ -261,7 +262,7 @@ function labelType(e) {
     school_family_night: 'Family Night',
     school_orientation: 'Orientation',
     school_holiday: 'Holiday',
-    school_day_off: 'Day off',
+    school_day_off: 'School break / Day off',
     school_other: 'School Event'
   };
   return map[e.eventType] || e.category || 'Event';
@@ -288,23 +289,26 @@ const filteredEvents = computed(() => {
       const start = startOfWeek(cursor.value);
       const end = new Date(start);
       end.setDate(end.getDate() + 7);
-      return t >= start && t < end;
+      return schoolCalendarOverlaps(e, ymd(start), ymd(end));
     }
     if (view.value === 'list') {
       const start = startOfMonth(cursor.value);
       const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-      return t >= start && t < end;
+      return schoolCalendarOverlaps(e, ymd(start), ymd(end));
     }
-    return t.getMonth() === cursor.value.getMonth() && t.getFullYear() === cursor.value.getFullYear();
+    const start = startOfMonth(cursor.value);
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+    return schoolCalendarOverlaps(e, ymd(start), ymd(end));
   });
 });
 
 const cells = computed(() => {
   const byDay = new Map();
   for (const e of filteredEvents.value) {
-    const key = ymd(new Date(e.startsAt));
-    if (!byDay.has(key)) byDay.set(key, []);
-    byDay.get(key).push(e);
+    for (const key of schoolCalendarDayKeys(e)) {
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key).push(e);
+    }
   }
   const out = [];
   if (view.value === 'week') {

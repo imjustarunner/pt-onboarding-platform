@@ -126,6 +126,7 @@ import {
   getSchoolYearCoverage,
   listSchoolEventDistricts,
   createDistrictSchoolEventHandler,
+  deleteDistrictImportantDateHandler,
   updateDistrictSchoolEventHandler,
   createDistrictOutreachEventHandler,
   updateDistrictOutreachEventHandler,
@@ -153,6 +154,7 @@ router.post('/district-schedule-visibility/clear', authenticate, clearDistrictSc
 router.get('/school-events/overview', authenticate, getSchoolEventsOverview);
 router.get('/school-events/school-year-coverage', authenticate, getSchoolYearCoverage);
 router.get('/school-events/districts', authenticate, listSchoolEventDistricts);
+router.delete('/school-events/district-dates/:eventId', authenticate, deleteDistrictImportantDateHandler);
 router.post('/school-events/district', authenticate, createDistrictSchoolEventHandler);
 router.put('/school-events/district/:broadcastId', authenticate, updateDistrictSchoolEventHandler);
 router.post('/school-events/district-outreach', authenticate, createDistrictOutreachEventHandler);
