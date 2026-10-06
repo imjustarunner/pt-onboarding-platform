@@ -18,3 +18,11 @@
 
 .mh-hero{background-position:var(--mh-desktop-position,center 55%)}
 @media(max-width:580px){.mh-hero{background-position:var(--mh-mobile-position,65% center)}.mh-home-hero{background-position:var(--mh-mobile-position,66% bottom)}}
+
+/* A persistent giving link complements the shared header and footer on small screens. */
+.mh-donate-sticky{display:none!important}
+@media(max-width:700px){.mh-donate-sticky{display:inline-flex!important;position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));left:16px;z-index:35;box-shadow:0 6px 24px #183e4033;padding:12px 20px!important}.mh-footer{padding-bottom:100px!important}.mh-header-donate{white-space:nowrap}}
+@media print{.mh-site>.mh-header,.mh-site>.mh-footer,.mh-site>.mh-donate-sticky,.mh-site .mh-hero,.mh-site .mh-final{display:none!important}.mh-site .mh-section{padding:0!important}}
+.mh-header-portal,.mh-header-donate{white-space:nowrap;flex-shrink:0}
+@media(max-width:1600px){.mh-header{flex-wrap:wrap}.mh-header nav{order:3;width:100%;justify-content:center}}
+@media(max-width:580px){.mh-header{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px}.mh-header>a:first-child{grid-column:1;grid-row:1}.mh-header img{width:185px;max-width:100%}.mh-menu{grid-column:2;grid-row:1}.mh-search-button{grid-column:3;grid-row:1}.mh-header-portal{grid-column:1;grid-row:2;padding:10px 14px}.mh-header-donate{grid-column:2/4;grid-row:2}.mh-header-donate span{display:inline}.mh-header nav{grid-column:1/-1;grid-row:3;justify-content:flex-start}}

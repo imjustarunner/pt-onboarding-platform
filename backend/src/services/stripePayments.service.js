@@ -313,6 +313,20 @@ class StripePaymentsService {
     return stripe.paymentIntents.retrieve(paymentIntentId, {}, connectOpts(connectedAccountId));
   }
 
+  static async createDonationCheckout({amountCents,email,connectedAccountId,metadata,successUrl,cancelUrl,idempotencyKey}) {
+    if (!connectedAccountId) throw new Error('Donations require the nonprofit’s connected Stripe account');
+    return getStripe().checkout.sessions.create({
+      mode:'payment', payment_method_types:['card'], customer_email:email,
+      line_items:[{quantity:1,price_data:{currency:'usd',unit_amount:amountCents,product_data:{name:'Donation to MH4Kidz',description:'General mission support. No goods or services are provided.'}}}],
+      payment_intent_data:{metadata,description:'MH4Kidz charitable contribution'}, metadata,
+      success_url:successUrl, cancel_url:cancelUrl
+    }, {stripeAccount:connectedAccountId,idempotencyKey});
+  }
+
+  static async retrieveDonationPaymentIntent(paymentIntentId, connectedAccountId) {
+    return getStripe().paymentIntents.retrieve(paymentIntentId, {expand:['latest_charge']}, {stripeAccount:connectedAccountId});
+  }
+
   static async refundPaymentIntent({ paymentIntentId, amountCents, connectedAccountId, idempotencyKey, metadata }) {
     const stripe=getStripe();
     const intent=await stripe.paymentIntents.retrieve(paymentIntentId,{},connectOpts(connectedAccountId));

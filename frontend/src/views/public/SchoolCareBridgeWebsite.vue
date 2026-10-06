@@ -64,7 +64,7 @@
       <p v-if="previewNotice" class="scb-status" role="status">{{previewNotice}}</p>
     </main>
     <ServiceUseNotice school-portal />
-    <footer class="scb-footer"><SchoolCareBridgeBrand/><div><strong>Connecting schools. Supporting students.</strong><p>A Plot Twist Co. product · Program operated by MH4Kidz.</p></div><nav aria-label="Footer"><router-link :to="path('partners')">Partners</router-link><router-link :to="path('security')">Access & privacy</router-link><a href="https://plottwistco.com/products#schoolcarebridge">Plot Twist Co. products ↗</a><a href="https://mh4kidz.org">MH4Kidz ↗</a></nav></footer>
+    <footer class="scb-footer"><SchoolCareBridgeBrand/><div><strong>Connecting schools. Supporting students.</strong><p>A Plot Twist Co. product · Program operated by MH4Kidz.</p></div><nav aria-label="Footer"><router-link :to="path('partners')">Partners</router-link><router-link :to="path('security')">Access & privacy</router-link><a href="https://plottwistco.com/products#schoolcarebridge">Plot Twist Co. products ↗</a><a href="https://mh4kidz.org/p/mh4kidz/about">Learn about MH4Kidz ↗</a><a class="scb-button" href="https://mh4kidz.org/p/mh4kidz/donate">Donate now</a></nav></footer>
   </div>
 </template>
 <script setup>

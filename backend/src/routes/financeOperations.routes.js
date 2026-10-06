@@ -12,6 +12,7 @@ import {financeBankOverview,reconcileBankExpense} from '../services/finance/bank
 import {startBankConnection,completeBankConnection,disconnectBankFeed,syncBankFeed} from '../services/bankFeed.service.js';
 import {enableFinanceOrganization} from '../services/finance/setup.js';
 import {seedFinanceDemo} from '../services/finance/demo.js';
+import {donationSettings,saveDonationSettings,donationRecords,retryDonationReceipt,donationExport} from '../services/finance/donations.js';
 const router=express.Router(),upload=multer({storage:multer.memoryStorage(),limits:{fileSize:5*1024*1024,files:1,fields:12}});
 router.use(authenticate,requireActiveStatus,(req,res,next)=>{res.set('Cache-Control','no-store');next();});
 const wrap=fn=>async(req,res,next)=>{try{await fn(req,res);}catch(e){if(e.code==='ER_DUP_ENTRY')return next(fail(409,'This reference is already recorded; refresh before retrying'));if(e.type?.startsWith('Stripe'))return next(fail(502,'Bank action needs review; check connection status'));next(e);}};
@@ -22,6 +23,11 @@ router.post('/setup',wrap(async(req,res)=>{if(req.user.role!=='super_admin')thro
 router.use('/:agencyId',async(req,res,next)=>{try{req.financeScope=await financeScope(req.user,id(req.params.agencyId));next();}catch(e){next(e);}});
 // Scope middleware must invoke next explicitly; all later routes use the verified agency.
 router.get('/:agencyId/workspace',wrap(async(req,res)=>res.json(await workspace(req.financeScope))));
+router.get('/:agencyId/donations/settings',wrap(async(req,res)=>res.json(await donationSettings(req.financeScope))));
+router.put('/:agencyId/donations/settings',wrap(async(req,res)=>res.json(await saveDonationSettings(req.financeScope,req.body))));
+router.get('/:agencyId/donations',wrap(async(req,res)=>res.json(await donationRecords(req.financeScope))));
+router.get('/:agencyId/donations/export.csv',wrap(async(req,res)=>res.set({'Content-Type':'text/csv','Content-Disposition':'attachment; filename="donations.csv"','X-Content-Type-Options':'nosniff'}).send(await donationExport(req.financeScope))));
+router.post('/:agencyId/donations/:id/receipt',wrap(async(req,res)=>{if(req.body.reviewedCommunications!==true)throw fail(400,'Review the prior receipt in Communications before retrying');res.json(await retryDonationReceipt(req.financeScope,id(req.params.id)));}));
 router.post('/:agencyId/records/:kind',wrap(async(req,res)=>res.status(201).json(await createRecord(req.financeScope,req.params.kind,req.body))));
 router.put('/:agencyId/authority/:kind/:id',wrap(async(req,res)=>res.json(await amendAuthority(req.financeScope,req.params.kind,id(req.params.id),req.body))));
 router.post('/:agencyId/expenses',wrap(async(req,res)=>res.status(201).json(await createExpense(req.financeScope,req.body))));

@@ -2,6 +2,7 @@ import {reconcilePayment as reconcileSchoolCareBridgePayment,reconcileRefund as 
 import { reconcileLedgerPayment } from '../services/familyLedger/payments.js';
 import { reconcileLedgerRefund } from '../services/familyLedger/refunds.js';
 import { reconcileFamilyPayment } from '../services/familyBillingPayment.service.js';
+import {reconcileDonationPayment,reconcileDonationRefund} from '../services/finance/donations.js';
 /**
  * stripeWebhook.routes.js
  *
@@ -57,12 +58,14 @@ async function handleStripeEvent(event) {
 
     case 'refund.created':
     case 'refund.updated': {
+      if (await reconcileDonationRefund(event.data.object, connectedAccountId)) break;
       await reconcileLedgerRefund(event.data.object, connectedAccountId);
       await reconcileSchoolCareBridgeRefund(event.data.object, connectedAccountId);
       break;
     }
     case 'payment_intent.succeeded': {
       const pi = event.data.object;
+      if (await reconcileDonationPayment(pi, connectedAccountId, undefined, {paidAt:event.created})) break;
       if(await reconcileLedgerPayment(pi, connectedAccountId)){const {fulfillPaidBalances}=await import('../services/familyLedger/sources.js');await fulfillPaidBalances({agencyId:Number(pi.metadata.agency_id)});}
       await reconcileFamilyPayment(pi, connectedAccountId);
       await reconcileSchoolCareBridgePayment(pi, connectedAccountId);

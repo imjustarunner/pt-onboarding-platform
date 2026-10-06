@@ -104,6 +104,7 @@ export async function emailRequiresAdminApproval({
 
   // Tenant-branded ROI delivery is transactional; the legacy rollout hold is retired.
   if (isSchoolRoiEmailTemplate(templateType)) return false;
+  if (ttNorm === 'mh4kidz_donation_receipt') return false;
 
   const aid = Number(agencyId || 0);
   if (!aid) return false;
