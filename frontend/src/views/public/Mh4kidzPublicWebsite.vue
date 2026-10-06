@@ -48,7 +48,7 @@ import {useStandalonePublicWebsite,publicWebsiteUrl as safe} from '../../composa
 import {portalLoginUrlForPublicSite} from '../../utils/publicPortalUrl.js';
 const {page,loading,error,menuOpen,section,settings,path,load,preview,previewNotice,guardPreview,closeMenu}=useStandalonePublicWebsite('mh4kidz','MH4Kidz | Stronger kids. Brighter tomorrows.');
 const portalLoginUrl=portalLoginUrlForPublicSite('mh4kidz');
-const nav=[['Join us','join'],['Home',''],['About','about'],['Our programs','programs'],['Get involved','involved'],['Volunteer with us','volunteer'],['Impact','impact'],['Resources','resources'],['Contact','contact']];
+const nav=[['Join us','join'],['Home',''],['About','about'],['Our programs','programs'],['Get involved','volunteer'],['Impact','impact'],['Resources','resources'],['Contact','contact']];
 const asset=name=>`/assets/mh4kidz/${name}.webp`;
 const heroes={
  '':['Home','Real connections.\nBrighter paths.','','Experiential and group-oriented programs that help kids build skills, confidence, resilience, and meaningful connections.','home'],
