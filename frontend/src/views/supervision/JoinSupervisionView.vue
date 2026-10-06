@@ -383,7 +383,7 @@ async function finishLeave({ variant = 'left', canRejoin = true } = {}) {
 
 async function onLeaveRequest(payload = {}) {
   if (intentionalLeave.value || sessionExit.value) return;
-  const endForAll = !!payload?.endForAll;
+  const endForAll = payload?.endForAll === true;
   if (endForAll) {
     if (!await endLiveSessionForEveryone()) return;
     liveEndedAt.value = liveEndedAt.value || new Date().toISOString();

@@ -1207,6 +1207,20 @@ export async function finalizeSupervisionSession({
     return { skipped: true, reason: 'already_finalized', session: row };
   }
 
+  // A scheduled end time (or one facilitator leaving) is not an instruction
+  // to close a room that another facilitator/participant is still using.
+  // Check again here, not just in the sweep, before touching anyone's ledger.
+  if (source === 'auto_plus_15' && !row.live_ended_at) {
+    const [present] = await pool.execute(
+      `SELECT 1 FROM supervision_session_join_presence
+       WHERE session_id = ? AND left_at IS NULL
+         AND last_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 MINUTE)
+       LIMIT 1`,
+      [sid]
+    );
+    if (present.length) return { skipped: true, reason: 'session_still_active', session: row };
+  }
+
   // Recompute each participant before finalize so open/unpaired joins do not
   // count from join-time until finalize-time (that produced absurd multi-day hours).
   const closeOpenAt = row.end_at || mysqlNowDateTime();

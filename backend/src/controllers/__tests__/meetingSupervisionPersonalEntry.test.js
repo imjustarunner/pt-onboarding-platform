@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ execute: vi.fn(), session: vi.fn(), events: new Map(), admissions: new Set(), rollup: vi.fn(), record: vi.fn(), token: vi.fn(), append: vi.fn(), upsert: vi.fn() }));
+const m = vi.hoisted(() => ({ execute: vi.fn(), session: vi.fn(), events: new Map(), admissions: new Set(), rollup: vi.fn(), record: vi.fn(), token: vi.fn(), append: vi.fn(), upsert: vi.fn(), end:vi.fn(), complete:vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: m.execute }, onTableWrite: vi.fn() }));
 vi.mock('../../utils/tenantMeetingUrl.js', () => ({ tenantMeetingBase: async () => 'https://tenant.example' }));
 vi.mock('../../models/User.model.js', () => ({ default: { getAgencies: async () => [{ id: 2 }], findById: async id => ({ id, first_name: id === 7 ? 'Supervisor' : 'Rachel', last_name: 'Example' }) } }));
@@ -7,11 +7,11 @@ vi.mock('../../models/SupervisionSession.model.js', () => ({ default: {
   resolveByJoinRef: m.session, findById: m.session, classifyJoinTokenRole: () => null,
   findAttendeeBySessionUser: async (sid, uid) => ({ id: uid + 100 }),
   listAttendanceEventsForSessionUser: async ({ userId }) => m.events.get(userId) || [],
-  recordAttendanceEvent: m.record, setAttendeeStatus: vi.fn(), upsertAttendanceRollup: m.rollup
+  recordAttendanceEvent: m.record, setAttendeeStatus: vi.fn(), upsertAttendanceRollup: m.rollup, setLiveEnded:m.end
 } }));
 vi.mock('../../models/SupervisionSessionArtifact.model.js', () => ({ default: { appendTranscriptChunk: m.append, upsertBySessionId: m.upsert, findBySessionId: async () => null } }));
-vi.mock('../../services/video.service.js', () => ({ isVideoConfigured: () => true, resolveVideoProjectId: () => 'project', getVideoClientDiagnostics: () => ({}), createAccessTokenAsync: m.token, createOrGetRoomByUniqueName: async name => ({ sid: name }) }));
-import { getSupervisionVideoToken, postSupervisionJoinPresence, saveClientTranscript, upsertSupervisionSessionArtifacts, endSupervisionLiveSession } from '../supervisionSessions.controller.js';
+vi.mock('../../services/video.service.js', () => ({ isVideoConfigured: () => true, resolveVideoProjectId: () => 'project', getVideoClientDiagnostics: () => ({}), createAccessTokenAsync: m.token, createOrGetRoomByUniqueName: async name => ({ sid: name }), completeRoom:m.complete }));
+import { getSupervisionVideoToken, postSupervisionJoinPresence, saveClientTranscript, upsertSupervisionSessionArtifacts, endSupervisionLiveSession, finalizeSupervisionSession } from '../supervisionSessions.controller.js';
 let session;
 const response = () => ({ json: vi.fn(), status: vi.fn().mockReturnThis() });
 const request = (id = 8, body = {}) => ({ params: { id: '9' }, query: {}, body: {inMainRoom:true,...body}, user: { id, role: 'provider', first_name: id === 7 ? 'Supervisor' : 'Rachel', last_name: 'Example' }, supervisionInvitationAccess: { sessionId: 9 } });
@@ -35,6 +35,28 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
 describe('identified supervision room roles and attendance', () => {
+  it.each([7,9])('leaving facilitator %s closes only their attendance and leaves the other facilitator connected',async userId=>{
+    session.session_type='group';session.co_facilitator_user_id=9;
+    await invoke(postSupervisionJoinPresence,request(userId,{action:'leave'}));
+    expect(m.record).toHaveBeenCalledWith(expect.objectContaining({userId,eventType:'left'}));
+    expect(m.record.mock.calls.every(([e])=>e.userId===userId)).toBe(true);
+    expect(m.end).not.toHaveBeenCalled();expect(m.complete).not.toHaveBeenCalled();
+    const remaining=userId===7?9:7;
+    const res=await invoke(getSupervisionVideoToken,request(remaining));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({isSupervisor:true,roomMode:'main'}));
+  });
+  it('does not auto-finalize an overdue room while a cohost or participant remains',async()=>{
+    session.session_type='group';session.end_at='2026-10-01 14:00:00';
+    m.execute.mockResolvedValue([[{present:1}]]);
+    expect(await finalizeSupervisionSession({sessionId:9,source:'auto_plus_15'})).toMatchObject({skipped:true,reason:'session_still_active'});
+    expect(m.execute).toHaveBeenCalledWith(expect.stringContaining('left_at IS NULL'),[9]);
+    expect(m.record).not.toHaveBeenCalled();expect(m.rollup).not.toHaveBeenCalled();expect(m.end).not.toHaveBeenCalled();expect(m.complete).not.toHaveBeenCalled();
+  });
+  it('fails safely rather than closing a room if automatic cleanup cannot check presence',async()=>{
+    m.execute.mockRejectedValue(new Error('database unavailable'));
+    await expect(finalizeSupervisionSession({sessionId:9,source:'auto_plus_15'})).rejects.toThrow('database unavailable');
+    expect(m.record).not.toHaveBeenCalled();expect(m.rollup).not.toHaveBeenCalled();expect(m.end).not.toHaveBeenCalled();
+  });
   it.each([[7, 'supervisor'], [8, 'supervisee']])('joins user %s as %s and counts time once across heartbeats', async (userId, role) => {
     const res = await invoke(getSupervisionVideoToken, request(userId));
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ identity: `user-${userId}`, isSupervisor: role === 'supervisor', roomMode: 'main' }));
