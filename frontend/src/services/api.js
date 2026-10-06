@@ -139,6 +139,7 @@ api.interceptors.request.use(
     // Circuit-breaker check must run before anything else (incl. global loading),
     // so a tripped request never begins a loading overlay or touches the network.
     checkRequestStorm(config);
+    try { config.__authSessionId = localStorage.getItem('sessionId'); } catch { /* unavailable storage */ }
     attachSupervisionAccess(config);
     attachTeamMeetingAccess(config);
     attachCounselingAccess(config);
@@ -258,6 +259,13 @@ api.interceptors.response.use(
     if (error.response?.data instanceof Blob && error.response.data.type.includes('json')) {
       try { error.response.data = JSON.parse(await error.response.data.text()); } catch { /* Keep the original response if it is not JSON. */ }
     }
+    // Requests issued before a successful login cannot expire or lock its replacement.
+    try {
+      if (error.config?.__authSessionId !== undefined && error.config.__authSessionId !== localStorage.getItem('sessionId')) {
+        if (error.config.__globalLoadingId) endGlobalLoading(error.config.__globalLoadingId);
+        return Promise.reject(error);
+      }
+    } catch { /* Normal response handling remains fail-closed. */ }
     if (!applicantInterviewMode.value && error.response?.data?.error?.code === 'ACTIVITY_REVIEW_REQUIRED') {
       window.dispatchEvent(new CustomEvent('activity-protection-required'));
     }

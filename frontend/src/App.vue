@@ -1972,7 +1972,7 @@
         v-if="sideChatRailEnabled && isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !isSscSstcTenant && (String(user?.role || '').toLowerCase() === 'school_staff' || !hideGlobalNavForSchoolStaff)"
       />
       <SessionLockScreen
-        v-if="!applicantInterviewMode && authStore.isAuthenticated && (!isLoginEntry || sessionLockStore.lockConfig)"
+        v-if="!applicantInterviewMode && authStore.isAuthenticated && !isLoginEntry"
         :is-locked="sessionLockStore.isLocked"
         @unlock="onSessionUnlock"
         @logout="onSessionLockLogout"
@@ -1980,7 +1980,7 @@
       <!-- Branded 10‑min Timedown stays visible for everyone. Privileged roles also get
            StatusPromptModal on top (Away / Meal / stay signed in up to 2h). -->
       <InactivityWarningModal
-        v-if="!applicantInterviewMode && (isAuthenticated || (sessionLockStore.warningActive && (!isLoginEntry || sessionLockStore.lockConfig)))"
+        v-if="!applicantInterviewMode && !isLoginEntry && (isAuthenticated || sessionLockStore.warningActive)"
         :suppress-actions="statusPromptOpenForActions || sessionLockStore.isLocked"
       />
       <NoteAidClockInPromptModal v-if="isAuthenticated" />
@@ -2277,7 +2277,7 @@ import { isSchoolOnboardingDemoRoute } from './utils/schoolOnboardingDemoContext
 import { resolveHostImpliedPortalSlug } from './utils/orgScopedPath.js';
 import { resolvePreferredAgencySlug } from './utils/demoTenant.js';
 import AppVersionReloadBanner from './components/AppVersionReloadBanner.vue';
-import { isLoginEntryRoute } from './utils/loginHandoff';
+import { isSessionEntryRoute } from './utils/loginHandoff';
 import { applicantInterviewMode } from './utils/applicantInterviewMode';
 import { startActivityTracking, stopActivityTracking, resetActivityTimer } from './utils/activityTracker';
 import { isSupervisor } from './utils/helpers.js';
@@ -3861,7 +3861,7 @@ const navTitleText = computed(() => {
   return title;
 });
 
-const isLoginEntry = computed(() => isLoginEntryRoute(route));
+const isLoginEntry = computed(() => isSessionEntryRoute(route));
 const isAuthenticated = computed(() => authStore.isAuthenticated && !isLoginEntry.value && !applicantInterviewMode.value);
 
 const passwordExpiryBannerDismissed = ref(false);

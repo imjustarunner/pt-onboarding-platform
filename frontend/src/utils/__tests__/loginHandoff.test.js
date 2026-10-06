@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getSsoArrivalRoute, isLoginEntryRoute, safeLoginDestination } from '../loginHandoff';
+import { getSsoArrivalRoute, isLoginEntryRoute, isTokenAuthenticationRoute, isSessionEntryRoute, safeLoginDestination } from '../loginHandoff';
 describe('branded SSO arrival', () => {
   it('keeps super admins on the original tenant login while loading the platform workspace', () => {
     expect(getSsoArrivalRoute({ path: '/admin', query: { sso: '1', ssoOrg: 'itsco' } }, 'itsco')).toEqual({ path: '/login', query: { sso: '1', ssoOrg: 'itsco', redirect: '/admin' }, replace: true });
@@ -16,6 +16,14 @@ describe('branded SSO arrival', () => {
     for (const name of ['Login', 'OrganizationLogin', 'ParentOrganizationLogin']) expect(isLoginEntryRoute({ name })).toBe(true);
     expect(isLoginEntryRoute({ name: 'OrganizationDashboard' })).toBe(false);
     expect(isLoginEntryRoute({ name: 'OrganizationPasswordlessTokenLogin' })).toBe(false);
+  });
+  it.each(['PasswordlessTokenLogin','OrganizationPasswordlessTokenLogin','InitialSetup','NewAccount','ResetPassword','OrganizationResetPassword'])('lets %s validate a new credential without inheriting the old session screen', name => {
+    expect(isTokenAuthenticationRoute({name})).toBe(true);
+    expect(isSessionEntryRoute({name})).toBe(true);
+  });
+  it('keeps authenticated guardian pages subject to session locking', () => {
+    expect(isTokenAuthenticationRoute({name:'GuardianPortal'})).toBe(false);
+    expect(isSessionEntryRoute({name:'GuardianPortal'})).toBe(false);
   });
   it.each(['//outside.test', '/\\outside.test', 'https://outside.test'])('rejects unsafe post-login destination %s', value => expect(safeLoginDestination(value)).toBeNull());
 });

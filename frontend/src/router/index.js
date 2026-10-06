@@ -1,3 +1,4 @@
+import { isTokenAuthenticationRoute } from '../utils/loginHandoff';
 import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowPath } from '../utils/schoolCareBridge.js';
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
@@ -5282,14 +5283,10 @@ router.beforeEach(async (to, from, next) => {
 
   // Allow magic-link flows even if a stale "user" is stored locally.
   // These flows are token-based and should not be blocked by requiresGuest redirects.
-  const allowWhenAuthenticated = new Set([
-    'ResetPassword',
-    'OrganizationResetPassword',
-    'PasswordlessTokenLogin',
-    'OrganizationPasswordlessTokenLogin',
-    'InitialSetup',
-    'NewAccount'
-  ]);
+  if (isTokenAuthenticationRoute(to)) {
+    next();
+    return;
+  }
 
   // Kiosk users: restrict to /kiosk/* routes only
   const isKioskUser = String(authStore.user?.role || '').toLowerCase() === 'kiosk';
@@ -5920,7 +5917,7 @@ router.beforeEach(async (to, from, next) => {
     } else {
       next({ path: getDashboardRoute(), replace: true });
     }
-  } else if (to.meta.requiresGuest && authStore.isAuthenticated && !allowWhenAuthenticated.has(String(to.name || ''))) {
+  } else if (to.meta.requiresGuest && authStore.isAuthenticated && !isTokenAuthenticationRoute(to)) {
     // Redirect to appropriate dashboard based on user role
     next({ path: getDashboardRoute(), replace: true });
   } else if (to.meta.requiresApprovedEmployee) {

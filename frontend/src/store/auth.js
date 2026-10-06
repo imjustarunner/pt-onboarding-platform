@@ -75,6 +75,9 @@ export const useAuthStore = defineStore('auth', () => {
     // On web browsers the cookie is the primary auth mechanism; on native the header takes over.
     if (newToken) {
       try { localStorage.setItem('authToken', newToken); } catch { /* ignore */ }
+    } else if (sessionId) {
+      // A successful cookie-only login must not keep a prior account's Bearer token.
+      try { localStorage.removeItem('authToken'); } catch { /* ignore */ }
     }
     token.value = newToken || null;
     const prevId = user.value?.id != null ? Number(user.value.id) : null;
