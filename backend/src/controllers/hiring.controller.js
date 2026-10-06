@@ -1,3 +1,4 @@
+import { candidatePrehireProgress } from '../services/hireCandidateProgress.service.js';
 import { referenceQuestionnaire, normalizeReferenceAnswers } from '../utils/hiringReferenceQuestionnaire.js';
 import { listReferenceContacts, saveReferenceContact } from '../models/HiringReferenceContact.model.js';
 import { notifyApplicantReferenceCompleted } from '../services/hiringReferenceRequests.service.js';
@@ -4654,33 +4655,7 @@ export const listPrehireCandidates = async (req, res, next) => {
          MIN(ua.agency_id) AS portal_agency_id,
          u.passwordless_token, u.passwordless_token_expires_at,
          hp.applied_role, hp.source, hp.interview_date,
-         hp.created_at AS applied_at,
-         (
-           SELECT COUNT(*) FROM tasks t
-           WHERE t.assigned_to_user_id = u.id
-             AND t.document_action_type != 'countersignature'
-             AND t.status != 'deleted'
-         ) AS task_total,
-         (
-           SELECT COUNT(*) FROM tasks t
-           WHERE t.assigned_to_user_id = u.id
-             AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
-             AND t.status = 'completed'
-         ) AS task_completed,
-         (
-           SELECT COUNT(*) FROM tasks t
-           WHERE t.assigned_to_user_id = u.id
-             AND t.is_required = 1
-             AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
-             AND t.status != 'deleted'
-         ) AS required_total,
-         (
-           SELECT COUNT(*) FROM tasks t
-           WHERE t.assigned_to_user_id = u.id
-             AND t.is_required = 1
-             AND (t.document_action_type IS NULL OR t.document_action_type != 'countersignature')
-             AND t.status = 'completed'
-         ) AS required_completed
+         hp.created_at AS applied_at
        FROM users u
        INNER JOIN user_agencies ua ON u.id = ua.user_id
        LEFT JOIN hiring_profiles hp ON hp.candidate_user_id = u.id
@@ -4698,28 +4673,27 @@ export const listPrehireCandidates = async (req, res, next) => {
     );
 
     const linkAgencies = new Map(await Promise.all([...new Set(rows.map(r => agencyId || r.portal_agency_id))].map(async id => [Number(id), await Agency.findById(id)])));
-    const candidates = rows.map((r) => {
-      const total = parseInt(r.task_total, 10) || 0;
-      const completed = parseInt(r.task_completed, 10) || 0;
-      const reqTotal = parseInt(r.required_total, 10) || 0;
-      const reqCompleted = parseInt(r.required_completed, 10) || 0;
+    const candidates = await Promise.all(rows.map(async (r) => {
+      const progress = await candidatePrehireProgress(r.id, agencyId || r.portal_agency_id);
+      const { total, completed, percent } = progress;
       const tokenExpiry = r.passwordless_token_expires_at ? new Date(r.passwordless_token_expires_at) : null;
       const tokenExpired = tokenExpiry ? tokenExpiry < new Date() : true;
       return {
         ...r,
         task_total: total,
         task_completed: completed,
-        required_total: reqTotal,
-        required_completed: reqCompleted,
-        progress_pct: total > 0 ? Math.round((completed / total) * 100) : 0,
-        required_progress_pct: reqTotal > 0 ? Math.round((reqCompleted / reqTotal) * 100) : 0,
+        required_total: total,
+        required_completed: completed,
+        progress_pct: percent,
+        required_progress_pct: percent,
+        progress_basis: 'required_prehire_steps',
         prehire_portal_link: r.passwordless_token && !tokenExpired
           ? buildPublicAppUrl(linkAgencies.get(Number(agencyId || r.portal_agency_id)), `pre-hire/${r.passwordless_token}`)
           : null,
         prehire_token_expires_at: r.passwordless_token_expires_at || null,
         prehire_token_expired: tokenExpired,
       };
-    });
+    }));
 
     res.json(candidates);
   } catch (e) { next(e); }

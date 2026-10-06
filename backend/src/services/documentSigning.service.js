@@ -1,3 +1,4 @@
+import { isEmploymentContract, addContractSignatureFields, signContractField } from '../utils/contractSignatureFields.js';
 import { applyDocumentAnnotations } from '../utils/pdfDocumentAnnotations.js';
 import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
 import { fitPdfFieldText } from '../utils/pdfFormFields.js';
@@ -291,11 +292,22 @@ ${originalStyles}
         await this.addFieldValuesToPDF(pdfDoc, fieldDefinitions, fieldValues);
       }
 
-      const placedEntries = await applyDocumentAnnotations(pdfDoc, options.documentAnnotations || [], signatureImage);
+      let contractLayout = null;
+      if (options.employmentContract) {
+        contractLayout = await addContractSignatureFields(pdfDoc, {
+          employeeName: `${userData.firstName || ''} ${userData.lastName || ''}`.trim(),
+          agencyName: options.contractAgencyName || '', documentName
+        });
+        await signContractField(pdfDoc, contractLayout, 'employee', signatureImage, {
+          name: `${userData.firstName || ''} ${userData.lastName || ''}`.trim(), signedAt: auditTrail.signedAt
+        });
+        auditTrail.contractSignatureFields = contractLayout;
+      }
+      const placedEntries = await applyDocumentAnnotations(pdfDoc, options.employmentContract ? [] : (options.documentAnnotations || []), signatureImage);
       if (placedEntries.length) auditTrail.documentAnnotations = placedEntries;
 
       // Add signature image at fixed bottom position (original document)
-      if (signatureImage && !placedEntries.some(entry => entry.kind === 'signature')) {
+      if (signatureImage && !contractLayout && !placedEntries.some(entry => entry.kind === 'signature')) {
         console.log(`DocumentSigningService.generateFinalizedPDF: Adding signature to PDF...`);
         console.log(`DocumentSigningService.generateFinalizedPDF: Signature coordinates:`, signatureCoords);
         await this.addSignatureToPDF(pdfDoc, signatureImage, signatureCoords, { suppressDate: suppressSignatureDate });
@@ -1601,6 +1613,9 @@ ${originalStyles}
       userSpecificDocumentId: userSpecificDocument?.id || null
     };
 
+    const employmentContract = isEmploymentContract(taskMeta);
+    const agency = employmentContract && task.assigned_to_agency_id
+      ? await (await import('../models/Agency.model.js')).default.findById(task.assigned_to_agency_id) : null;
     const pdfBytes = await this.generateFinalizedPDF(
       templatePath,
       templateType,
@@ -1611,6 +1626,8 @@ ${originalStyles}
       mergedAuditTrail,
       signatureCoords,
       {
+        employmentContract,
+        contractAgencyName: agency?.official_name || agency?.name || '',
         agencyId: task.assigned_to_agency_id,
         hirePortalBranding: context === 'prehire_portal',
         referenceNumber,

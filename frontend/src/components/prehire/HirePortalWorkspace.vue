@@ -6,6 +6,7 @@
         <button :class="{ selected: section === 'home' }" @click="navigate('home')"><Icon name="home" />Home</button>
         <button v-if="onboarding" :class="{ selected: phase === 'pre_hire' && section === 'steps' }" @click="switchPhase('pre_hire')"><Icon />Pre-Hire <span class="nav-check">✓</span></button>
         <button :class="{ selected: section === 'steps' && phase === currentPhase }" @click="switchPhase(currentPhase)"><Icon :name="onboarding ? 'people' : 'document'" />{{ onboarding ? 'Onboarding' : 'Pre-Hire' }}</button>
+        <button v-if="onboarding" :class="{ selected: section === 'access' }" @click="navigate('access')"><Icon name="lock" />Accounts &amp; Access</button>
         <button :class="{ selected: section === 'documents' }" @click="navigate('documents')"><Icon />My Documents</button>
         <button :class="{ selected: section === 'messages' }" @click="navigate('messages')"><Icon name="message" />Messages</button>
         <button :class="{ selected: section === 'help' }" @click="navigate('help')"><Icon name="help" />Help</button>
@@ -19,6 +20,7 @@
         <p v-if="config.tagline" class="hero-tagline">{{ config.tagline }}</p>
       </section>
       <div v-if="section === 'messages'" class="messages-page"><slot name="messages" /></div>
+      <div v-else-if="section === 'access'" class="documents-page"><slot name="access" /></div>
       <div v-else-if="section === 'documents'" class="documents-page">
         <div class="card"><h2>Your hire packages</h2><p>Review your submitted information, signed agreements and uploaded files.</p><div class="package-links"><button @click="switchPhase('pre_hire')"><Icon />{{ prehireClosed ? 'View completed pre-hire' : 'View pre-hire progress' }}</button><button v-if="onboarding" @click="switchPhase('onboarding')"><Icon name="people" />View onboarding</button></div></div>
         <slot name="documents" />
@@ -112,7 +114,7 @@ const step = computed(() => steps.value[stepIndex.value]);
 const phaseLabel = computed(() => phase.value === 'pre_hire' ? 'Pre-Hire' : 'Onboarding');
 const name = computed(() => `${candidate.value.firstName || ''} ${candidate.value.lastName || ''}`.trim());
 const initials = computed(() => `${candidate.value.firstName?.[0] || ''}${candidate.value.lastName?.[0] || ''}`);
-const pageTitle = computed(() => section.value === 'steps' ? step.value?.title || phaseLabel.value : ({ documents: 'My Documents', messages: 'Messages', help: 'How can we help?' }[section.value] || (closed.value ? `${phaseLabel.value} complete` : `Welcome, ${candidate.value.firstName}!`)));
+const pageTitle = computed(() => section.value === 'steps' ? step.value?.title || phaseLabel.value : ({ access: 'Accounts & Access', documents: 'My Documents', messages: 'Messages', help: 'How can we help?' }[section.value] || (closed.value ? `${phaseLabel.value} complete` : `Welcome, ${candidate.value.firstName}!`)));
 const heroDescription = computed(() => section.value === 'home' ? `Your next steps with ${agency.value.name}. Everything you need, one step at a time.` : section.value === 'steps' ? `Your ${phaseLabel.value.toLowerCase()} information and progress, all in one place.` : 'Stay connected. Get answers. Move forward together.');
 const brandColor = computed(() => /^#[0-9a-f]{3,8}$/i.test(agency.value.primaryColor || '') ? agency.value.primaryColor : '#064c40');
 const theme = computed(() => ({ '--hire-brand': brandColor.value, fontFamily: agency.value.fontFamily || 'inherit' }));

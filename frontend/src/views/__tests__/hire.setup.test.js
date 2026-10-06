@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+const http = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn() }));
 vi.mock('../../services/api', () => ({ default: http }));
 vi.mock('../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 1 } }) }));
 vi.mock('vue-router', () => ({ useRoute: () => ({ params: { userId: 2, organizationSlug: 'itsco' }, query: {} }), useRouter: () => ({ push: vi.fn() }) }));
@@ -8,7 +8,7 @@ import StartPreHire from '../admin/StartPreHireView.vue';
 import PromoteToOnboarding from '../../components/hiring/PromoteToOnboardingModal.vue';
 let wrapper;
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.clearAllMocks(); http.patch.mockResolvedValue({ data: {} });
   http.get.mockImplementation(async url => ({ data:
     url === '/hiring/candidates/2' ? { user: { first_name: 'Elena', last_name: 'Cruz', email: 'elena@example.org' }, profile: {}, jobDescription: { title: 'Counselor', descriptionText: 'School counseling' } }
     : url === '/hiring/settings' ? { handbook_full_url: 'https://docs.google.com/document/d/handbook/edit', portal_workflow: { resources: [{ id: 'video', title: 'Welcome video', phase: 'pre_hire', kind: 'video', url: 'https://example.org/welcome' }, { id: 'w4', title: 'W4', phase: 'onboarding', kind: 'document' }] } }
@@ -80,8 +80,21 @@ describe('hire setup wizards', () => {
     const options = wrapper.findAll('.pto-select option').map(o => o.text());
     expect(options).toContain('Employee onboarding'); expect(options).not.toContain('Pre-hire documents');
     expect(button('Confirm & Move')).toBeUndefined();
-    await button('Continue →').trigger('click'); await button('Continue →').trigger('click');
+    expect(button('Continue →').attributes('disabled')).toBeDefined();
+    await wrapper.get('.pto-select').setValue('9'); await flushPromises();
+    await button('Continue →').trigger('click'); await button('Continue →').trigger('click'); await flushPromises();
     expect(wrapper.find('.pto-summary').text()).toContain('Payroll form');
     expect(button('Confirm & Move')).toBeDefined(); expect(http.post).not.toHaveBeenCalled();
   });
+  it('creates and selects an agency onboarding collection without defaulting to another role', async () => {
+    wrapper = mount(PromoteToOnboarding, { props: { candidate: { id: 2, first_name: 'Elena', applied_role: 'Provider' }, agencyId: 1 }, global: { stubs: { teleport: true } } }); await flushPromises();
+    expect(wrapper.get('.pto-select').element.value).toBe('');
+    http.post.mockResolvedValueOnce({ data: { id: 10, name: 'Provider onboarding', agency_id: 1, package_type: 'onboarding', is_active: true } });
+    await button('Create collection').trigger('click');
+    await wrapper.get('.pto-new-collection input').setValue('Provider onboarding');
+    await wrapper.get('.pto-new-collection').trigger('submit'); await flushPromises();
+    expect(http.post).toHaveBeenCalledWith('/onboarding-packages', { name: 'Provider onboarding', description: '', agencyId: 1, packageType: 'onboarding', isActive: true });
+    expect(wrapper.get('.pto-select').element.value).toBe('10');
+  });
+
 });

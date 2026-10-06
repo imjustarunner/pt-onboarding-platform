@@ -1,3 +1,5 @@
+import { PDFDocument } from 'pdf-lib';
+import { isEmploymentContract, addContractSignatureFields } from '../utils/contractSignatureFields.js';
 import { validateClinicalProfile } from '../utils/hireClinicalProfile.js';
 import { randomUUID } from 'node:crypto';
 import { portalStateForUser, getPortalTask, viewPortalSignedFile } from './prehirePortal.controller.js';
@@ -120,6 +122,15 @@ export async function previewPortalDocument(req, res, next) {
       const branded = await DocumentSigningService.applyPacketBrandChromeToHtml(detail.document.htmlContent, { agencyId: state.agency.id });
       bytes = await DocumentSigningService.convertHTMLToPDF(branded.html, { ...branded.pdfOptions, disableFallback: true });
     } else fail('People Operations needs to attach the document before you can review it.');
+    if (isEmploymentContract(detail.metadata)) {
+      const state = await portalStateForUser(req.portalUser.id);
+      const pdf = await PDFDocument.load(bytes);
+      await addContractSignatureFields(pdf, {
+        employeeName: `${state.candidate.firstName || ''} ${state.candidate.lastName || ''}`.trim(),
+        agencyName: state.agency.officialName || state.agency.name, documentName: detail.title
+      });
+      bytes = await pdf.save();
+    }
     res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="employment-document.pdf"', 'Cache-Control': 'no-store' });
     res.send(Buffer.from(bytes));
   } catch (e) { next(e); }

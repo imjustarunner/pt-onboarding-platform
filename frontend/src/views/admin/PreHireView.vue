@@ -117,9 +117,9 @@
                 Moved to Pre-Hire <span class="sort-arrow">{{ sortCol === 'hired_at' ? (sortDir === 'asc' ? '↑' : '↓') : '↕' }}</span>
               </th>
               <th class="phr-th phr-th-sortable" @click="setSort('progress_pct')">
-                Overall Progress <span class="sort-arrow">{{ sortCol === 'progress_pct' ? (sortDir === 'asc' ? '↑' : '↓') : '↕' }}</span>
+                Applicant Progress <span class="sort-arrow">{{ sortCol === 'progress_pct' ? (sortDir === 'asc' ? '↑' : '↓') : '↕' }}</span>
               </th>
-              <th class="phr-th">Tasks Completed</th>
+              <th class="phr-th">Required Items Completed</th>
               <th class="phr-th">Actions</th>
             </tr>
           </thead>
@@ -271,7 +271,8 @@
           <div class="phr-progress-header">
             <div>
               <div class="phr-progress-big-pct">{{ selectedUser.progress_pct }}%</div>
-              <div class="phr-progress-label">{{ selectedUser.task_completed }} of {{ selectedUser.task_total }} tasks completed</div>
+              <div class="phr-progress-label">{{ selectedUser.task_completed }} of {{ selectedUser.task_total }} required items completed</div>
+              <p class="phr-muted">Applicant requirements only. Staff countersignatures and People Operations review are tracked separately.</p>
             </div>
             <router-link :to="userProfileRoute(selectedUser.id)" class="phr-btn phr-btn-secondary phr-btn-sm" target="_blank">
               View Full Progress ↗
@@ -802,20 +803,6 @@ const loadTasks = async (userId) => {
     const rawDocs = Array.isArray(adminDocsRes.data) ? adminDocsRes.data : (adminDocsRes.data?.docs || adminDocsRes.data?.data || []);
     adminDocs.value = rawDocs.filter((d) => !d.is_deleted && !d.isDeleted);
 
-    // Refresh the candidate's task count from live data so the progress bar is accurate.
-    const docTasks = candidateTaskData.filter(
-      (t) => !t.document_action_type || t.document_action_type !== 'countersignature'
-    ).filter((t) => t.status !== 'deleted');
-    const completedDocTasks = docTasks.filter((t) => t.status === 'completed');
-    const idx = candidates.value.findIndex((c) => c.id === userId);
-    if (idx !== -1) {
-      candidates.value[idx] = {
-        ...candidates.value[idx],
-        task_total: docTasks.length,
-        task_completed: completedDocTasks.length,
-        progress_pct: docTasks.length > 0 ? Math.round((completedDocTasks.length / docTasks.length) * 100) : 0,
-      };
-    }
   } catch { /* non-fatal */ }
   finally { tasksLoading.value = false; }
 };
@@ -912,7 +899,7 @@ const assignDocument = async () => {
     );
     showAssignDoc.value = false;
     assignDocTemplateId.value = '';
-    await loadTasks(selectedId.value);
+    await Promise.all([loadTasks(selectedId.value), load()]);
   } catch (e) {
     alert(e.response?.data?.error?.message || 'Failed to assign document.');
   } finally { assignDocLoading.value = false; }

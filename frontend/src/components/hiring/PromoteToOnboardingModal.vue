@@ -26,14 +26,13 @@
           <div v-show="wizardStep === 0" class="pto-section">
             <label class="pto-section-label">Choose the onboarding collection</label>
             <p class="pto-section-hint">
-              The package determines which training, documents, and checklist items are assigned on day one.
-              A default has been pre-selected based on the candidate's job role.
+              Collections are reusable groups of training, documents, and checklist items. They work with the built-in onboarding steps below. Only active onboarding collections for this agency are listed.
             </p>
 
-            <div v-if="packagesLoading" class="pto-loading">Loading packages…</div>
+            <div v-if="packagesLoading" class="pto-loading">Loading collections…</div>
             <div v-else>
               <select v-model="selectedPackageId" class="pto-select">
-                <option value="">— Select an onboarding package —</option>
+                <option value="">— Select an onboarding collection —</option>
                 <option v-for="pkg in packages" :key="pkg.id" :value="pkg.id">
                   {{ pkg.name }}
                   <template v-if="roleMatchedPackageId === pkg.id"> (suggested for {{ candidate.applied_role }})</template>
@@ -41,6 +40,19 @@
                 </option>
               </select>
 
+              <p v-if="!packages.length" class="pto-section-hint">No active onboarding collections are available. Create one or manage your collections in Settings.</p>
+              <p v-else-if="!selectedPackageId" class="pto-section-hint">Choose the collection appropriate for this employee. No matching default has been selected.</p>
+              <div class="pto-collection-actions">
+                <button type="button" class="pto-btn pto-btn-secondary" @click="showCreateCollection = !showCreateCollection">Create collection</button>
+                <button type="button" class="pto-btn pto-btn-secondary" @click="refreshCollections">Refresh collections</button>
+                <a :href="packageEditUrl" target="_blank" rel="noopener">Manage collections ↗</a>
+              </div>
+              <form v-if="showCreateCollection" class="pto-new-collection" @submit.prevent="createCollection">
+                <label>Collection name<input v-model="collectionName" required maxlength="255" placeholder="e.g. Provider onboarding" /></label>
+                <label>Description<textarea v-model="collectionDescription" rows="2" /></label>
+                <p>Create the collection, then use “Edit this collection in Settings” to add shared documents, training, and checklists.</p>
+                <button type="submit" class="pto-btn pto-btn-primary" :disabled="creatingCollection || !collectionName.trim()">{{ creatingCollection ? 'Creating…' : 'Create and select' }}</button>
+              </form>
               <div v-if="selectedPackage" class="pto-package-preview">
                 <div class="pto-pkg-type-badge">{{ selectedPackage.package_type || 'onboarding' }}</div>
                 <div v-if="selectedPackage.description" class="pto-pkg-desc">{{ selectedPackage.description }}</div>
@@ -60,7 +72,7 @@
             <HireWorkflowEditor v-model="portalWorkflow" phase="onboarding" :templates="documentTemplates" :editor-url="documentEditUrl" heading="Additional onboarding steps" />
           </div>
           <!-- Credential delivery -->
-          <div v-show="wizardStep === 1" class="pto-section"><OnboardingAccessSetup :user-id="Number(candidate.id)" />
+          <div v-show="wizardStep === 1" class="pto-section"><OnboardingAccessSetup ref="accessSetup" :user-id="Number(candidate.id)" />
             <label class="pto-section-label">How to deliver access</label>
             <div class="pto-radio-group">
               <label class="pto-radio-card" :class="{ active: sendMethod === 'token' }">
@@ -98,7 +110,7 @@
             <ul class="pto-summary-list">
               <li>Status changes to <strong>Onboarding</strong> and removed from Pre-Hire view</li>
               <li v-if="selectedPackage">
-                Package <strong>{{ selectedPackage.name }}</strong> is assigned
+                Collection <strong>{{ selectedPackage.name }}</strong> is assigned
                 (training, documents, and checklist items)
               </li>
               <li v-if="sendMethod === 'token'">A magic link is emailed to <strong>{{ candidate.personal_email || candidate.email }}</strong></li>
@@ -112,7 +124,7 @@
         <div class="pto-footer">
           <button class="pto-btn pto-btn-secondary" @click="$emit('close')">Cancel</button>
           <button v-if="wizardStep" class="pto-btn pto-btn-secondary" @click="wizardStep--">Back</button>
-          <button v-if="wizardStep < 2" class="pto-btn pto-btn-primary" :disabled="!selectedPackageId || (!packageContents || Number(packageContents.id) !== Number(selectedPackageId))" @click="wizardStep++">Continue →</button>
+          <button v-if="wizardStep < 2" class="pto-btn pto-btn-primary" :disabled="!selectedPackageId || (!packageContents || Number(packageContents.id) !== Number(selectedPackageId))" @click="continueSetup">Continue →</button>
           <button v-if="wizardStep === 2"
             class="pto-btn pto-btn-primary"
             :disabled="promoting || !selectedPackageId || (!packageContents || Number(packageContents.id) !== Number(selectedPackageId))"
@@ -152,6 +164,30 @@ const documentEditUrl = computed(() => `${route.params.organizationSlug ? '/' + 
 const packageEditUrl = computed(() => `${route.params.organizationSlug ? '/' + route.params.organizationSlug : ''}/admin/settings?agencyId=${props.agencyId}&category=workflow&item=packages`);
 function onPackageLoaded(value) { if (JSON.stringify(value) !== JSON.stringify(packageContents.value)) packageContents.value = value; }
 const packages = ref([]);
+const accessSetup = ref(null), showCreateCollection = ref(false), collectionName = ref(''), collectionDescription = ref(''), creatingCollection = ref(false);
+const eligibleCollections = list => (Array.isArray(list) ? list : []).filter(p => p.package_type === 'onboarding' && p.is_active !== false && p.is_active !== 0 && p.is_active !== '0' && (!p.agency_id || Number(p.agency_id) === Number(props.agencyId)));
+async function refreshCollections() {
+  errorMsg.value = '';
+  try {
+    const { data } = await api.get('/onboarding-packages', { params: { agencyId: props.agencyId } });
+    packages.value = eligibleCollections(data);
+    if (!packages.value.some(p => String(p.id) === String(selectedPackageId.value))) selectedPackageId.value = null;
+  } catch (e) { errorMsg.value = e.response?.data?.error?.message || 'Could not refresh collections.'; }
+}
+async function createCollection() {
+  if (!collectionName.value.trim() || !props.agencyId) return;
+  creatingCollection.value = true; errorMsg.value = '';
+  try {
+    const { data } = await api.post('/onboarding-packages', { name: collectionName.value.trim(), description: collectionDescription.value.trim(), agencyId: Number(props.agencyId), packageType: 'onboarding', isActive: true });
+    packages.value.push(data); selectedPackageId.value = data.id;
+    showCreateCollection.value = false; collectionName.value = ''; collectionDescription.value = '';
+  } catch (e) { errorMsg.value = e.response?.data?.error?.message || 'Could not create the collection.'; }
+  finally { creatingCollection.value = false; }
+}
+async function continueSetup() {
+  if (wizardStep.value === 1 && !(await accessSetup.value?.save())) return;
+  wizardStep.value++;
+}
 const packagesLoading = ref(true);
 const selectedPackageId = ref(null);
 const sendMethod = ref('token');
@@ -184,7 +220,7 @@ onMounted(async () => {
       api.get('/document-templates', { params: { ...params, limit: 1000 } })
     ]);
 
-    packages.value = (pkgsRes.data || []).filter(p => p.package_type === 'onboarding' && p.is_active !== false && p.is_active !== 0);
+    packages.value = eligibleCollections(pkgsRes.data);
     const settings = settingsRes.data?.settings || settingsRes.data || {};
     documentTemplates.value = Array.isArray(documentsRes.data) ? documentsRes.data : documentsRes.data?.templates || [];
     portalWorkflow.value = { ...settings.portal_workflow, resources: (settings.portal_workflow?.resources || []).filter(r => r.phase === 'onboarding') };
@@ -198,17 +234,16 @@ onMounted(async () => {
         (m) => m.role && m.role.toLowerCase() === role.toLowerCase()
       );
       if (match?.packageId) {
-        roleMatchedPackageId.value = match.packageId;
         const matched = packages.value.find((p) => String(p.id) === String(match.packageId));
+        roleMatchedPackageId.value = matched?.id || null;
         roleMatchedPackageName.value = matched?.name || '';
       }
     }
 
-    // Pre-select: role match > agency default > first package
-    selectedPackageId.value =
-      roleMatchedPackageId.value ||
-      agencyDefaultPackageId.value ||
-      (packages.value[0]?.id ?? null);
+    // A facilitator collection must never become a provider's default merely
+    // because it is the only collection available.
+    selectedPackageId.value = [roleMatchedPackageId.value, agencyDefaultPackageId.value]
+      .find(id => id && packages.value.some(p => String(p.id) === String(id))) || null;
 
   } catch (e) {
     errorMsg.value = e.response?.data?.error?.message || 'Could not load onboarding setup.';
@@ -223,6 +258,7 @@ const confirm = async () => {
   promoting.value = true;
   errorMsg.value = '';
   try {
+    if (!(await accessSetup.value?.save())) { wizardStep.value = 1; return; }
     const params = props.agencyId ? { agencyId: props.agencyId } : {};
     await api.post(
       `/users/${props.candidate.id}/promote-to-onboarding`,
@@ -243,6 +279,7 @@ const confirm = async () => {
 </script>
 
 <style scoped>
+.pto-collection-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 0}.pto-new-collection{display:grid;gap:12px;padding:16px;background:#f4f8f7;border-radius:8px}.pto-new-collection label{display:grid;gap:6px}.pto-new-collection input,.pto-new-collection textarea{padding:10px;font:inherit;border:1px solid #bdccc6;border-radius:5px}
 .pto-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999;
   display: flex; align-items: center; justify-content: center; padding: 20px;

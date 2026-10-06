@@ -312,6 +312,23 @@
             </section>
 
 </template></template>
+        <template #access>
+          <section class="portal-credential-packet" aria-label="Accounts and access">
+            <h2>Your accounts and access</h2><p>These details are provided by People Operations. Keep your passwords and PIN private.</p>
+            <article v-for="system in credentialPacket?.systems || []" :key="system.key" class="cred-card">
+              <h3>{{ system.label }}</h3>
+              <p class="cred-meta"><strong>{{ system.key === 'email' ? 'Work address' : 'Login' }}:</strong> {{ system.username || 'People Operations will provide this.' }}</p>
+              <p v-if="system.key === 'grasshopper'" class="cred-meta"><strong>Extension:</strong> {{ system.extension || 'To be provided' }}</p>
+              <p v-if="system.key === 'grasshopper'" class="cred-meta"><strong>PIN:</strong> {{ system.pin || 'To be provided' }}</p>
+              <p v-if="system.key === 'email' && !system.hasTempPassword" class="cred-muted">Your platform password is set in the onboarding account step. People Operations will confirm any separate SSO access.</p>
+              <div v-if="revealedPasswords[system.key]" class="cred-secret">Temporary password: <code>{{ revealedPasswords[system.key] }}</code><p>Save this securely before closing your portal. It can only be revealed once.</p></div>
+              <button v-else-if="system.tempPasswordAvailable" class="btn-secondary-sm" @click="revealTempPassword(system.key)">Reveal temporary password once</button>
+              <p v-else-if="system.tempPasswordConsumed" class="cred-muted">Temporary password already revealed. Contact People Operations if you need a reset.</p>
+              <p v-if="system.acknowledged" class="cred-ok">Account details acknowledged.</p>
+              <button v-else class="btn-secondary-sm" :disabled="ackingSystem === system.key || !system.username" @click="ackSystem(system.key)">I have saved my account details</button>
+            </article>
+          </section>
+        </template>
         <template #documents>            <section class="portal-submissions" aria-label="My submissions">
               <div class="portal-tasks-head">
                 <div>
@@ -423,7 +440,7 @@
 
               <div v-if="panelStep !== 'consent' || activeTask.status === 'completed'" class="review-block">
                 <HireDocumentPreview v-if="activeTaskDetail?.document" :key="activeTask.id" :http="portalApi"
-                  :url="`/prehire-portal/${token}/tasks/${activeTask.id}/preview`" :title="activeTask.title" :editable="activeTask.status !== 'completed' && activeTask.actionType !== 'review' && !fillableFields.length" v-model="documentAnnotations" @ready="previewReady = $event" />
+                  :url="`/prehire-portal/${token}/tasks/${activeTask.id}/preview`" :title="activeTask.title" :editable="!isContractTask && activeTask.status !== 'completed' && activeTask.actionType !== 'review' && !fillableFields.length" v-model="documentAnnotations" @ready="previewReady = $event" />
                 <div v-if="fillableFields.length && activeTask.status !== 'completed'" class="doc-form-fields">
                   <div v-if="!activeTaskDetail?.document?.htmlContent" class="doc-form-intro">
                     <div class="doc-form-title">{{ activeTask.title }}</div>
@@ -511,13 +528,15 @@
                   </div>
                   <div v-else-if="panelStep !== 'sign'">
                     <button class="btn-primary" :disabled="!previewReady" @click="goToSignStep">
-                      Continue to signature →
+                      {{ isContractTask ? 'Sign employee signature field →' : 'Continue to signature →' }}
                     </button>
                     <div v-if="fieldValidationError" class="panel-error">{{ fieldValidationError }}</div>
                   </div>
                 </div>
 
                 <div v-if="panelStep === 'sign' && activeTask.status !== 'completed'" class="sign-block">
+                  <h3 v-if="isContractTask">Employee signature — {{ candidate.firstName }} {{ candidate.lastName }}</h3>
+                  <p v-if="isContractTask">Your signature will appear in the employee field at the end of the agreement. The agency signs its separate field.</p>
                   <div class="sign-instructions">
                     Draw your signature below using your mouse or finger.
                   </div>
@@ -1290,6 +1309,10 @@ const activeTaskId = ref(null);
 const selectedDocument = ref(null);
 const activeTask = computed(() => tasks.value.find(t => t.id === activeTaskId.value) || selectedDocument.value);
 const activeTaskDetail = ref(null);
+const isContractTask = computed(() => {
+  const metadata = activeTaskDetail.value?.metadata || activeTask.value?.metadata || {};
+  return !!(metadata.contractGeneration || metadata.employmentContract || metadata.autoFromSendPreHire);
+});
 const panelStep = ref('consent');
 const panelLoading = ref(false);
 const panelError = ref('');
@@ -1497,7 +1520,7 @@ const submitSign = async () => {
     await portalApi.post(`/prehire-portal/${token.value}/tasks/${activeTask.value.id}/sign`, {
       signatureData: dataUrl,
       fieldValues: fieldValues.value,
-      documentAnnotations: documentAnnotations.value
+      documentAnnotations: isContractTask.value ? [] : documentAnnotations.value
     });
     await reloadPortal();
     closePanel();

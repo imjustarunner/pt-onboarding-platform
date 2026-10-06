@@ -6,6 +6,8 @@ import pool from '../config/database.js';
 import { syncLifecycleItems } from './lifecycleSync.service.js';
 
 export const CREDENTIAL_FIELD_KEYS = [
+  'workspace_access_enabled',
+  'therapynotes_access_enabled',
   'grasshopper_login',
   'grasshopper_extension',
   'grasshopper_pin',
@@ -22,6 +24,8 @@ export const CREDENTIAL_FIELD_KEYS = [
 ];
 
 const STAFF_WRITABLE = new Set([
+  'workspace_access_enabled',
+  'therapynotes_access_enabled',
   'grasshopper_login',
   'grasshopper_extension',
   'grasshopper_pin',
@@ -30,6 +34,14 @@ const STAFF_WRITABLE = new Set([
   'workspace_temp_password',
   'lifecycle_npi_number'
 ]);
+
+export function enabledCredentialSystems(info = {}) {
+  const enabled = (value, legacy) => value == null ? !!legacy : ['1', 'true'].includes(String(value).toLowerCase());
+  return {
+    workspaceEnabled: enabled(info.workspace_access_enabled, info.workspace_temp_password),
+    therapynotesEnabled: enabled(info.therapynotes_access_enabled, info.therapynotes_login || info.therapynotes_temp_password)
+  };
+}
 
 async function ensureFieldDefId(fieldKey) {
   const [rows] = await pool.execute(
@@ -113,7 +125,8 @@ export async function getLifecycleCredentials(userId) {
   }
 
   return {
-    workspaceEmail: user.work_email || user.email || null,
+    ...enabledCredentialSystems(info),
+    workspaceEmail: user.work_email || null,
     personalEmail: user.personal_email || null,
     personalPhone: user.personal_phone || null,
     workPhone: user.work_phone || null,
@@ -133,7 +146,12 @@ export async function getLifecycleCredentials(userId) {
 }
 
 export async function saveLifecycleCredentials(userId, payload = {}) {
+  for (const key of ['workspaceEnabled', 'therapynotesEnabled']) {
+    if (payload[key] !== undefined && typeof payload[key] !== 'boolean') throw Object.assign(new Error('Account access choices must be true or false.'), { status: 400 });
+  }
   const mapping = {
+    workspace_access_enabled: payload.workspaceEnabled,
+    therapynotes_access_enabled: payload.therapynotesEnabled,
     grasshopper_login: payload.grasshopperLogin ?? payload.grasshopper_login,
     grasshopper_extension: payload.grasshopperExtension ?? payload.grasshopper_extension,
     grasshopper_pin: payload.grasshopperPin ?? payload.grasshopper_pin,
@@ -146,7 +164,8 @@ export async function saveLifecycleCredentials(userId, payload = {}) {
   for (const [key, raw] of Object.entries(mapping)) {
     if (raw === undefined) continue;
     if (!STAFF_WRITABLE.has(key)) continue;
-    await setUserInfoValue(userId, key, raw);
+    const saved = await setUserInfoValue(userId, key, key.endsWith('_access_enabled') ? (raw ? '1' : '0') : raw);
+    if (!saved) throw Object.assign(new Error('Account settings are not available yet. Apply the latest database migrations.'), { status: 503 });
   }
 
   // Keep Grasshopper extension mirrored on users.work_phone_extension when provided
@@ -200,6 +219,7 @@ export async function getCredentialPacketForPortal(userId) {
   if (!user) return null;
 
   const info = await getUserInfoMap(userId);
+  const { workspaceEnabled, therapynotesEnabled } = enabledCredentialSystems(info);
   const tnRevealed = !!info.therapynotes_temp_password_revealed;
   const wsRevealed = !!info.workspace_temp_password_revealed;
 
@@ -216,10 +236,10 @@ export async function getCredentialPacketForPortal(userId) {
     systems: [
       {
         key: 'email',
-        label: 'Company email',
-        username: user.work_email || user.email || null,
-        hasTempPassword: !!info.workspace_temp_password,
-        tempPasswordAvailable: !!info.workspace_temp_password && !wsRevealed,
+        label: workspaceEnabled ? 'Google Workspace / SSO' : 'Platform work address',
+        username: user.work_email || null,
+        hasTempPassword: workspaceEnabled && !!info.workspace_temp_password,
+        tempPasswordAvailable: workspaceEnabled && !!info.workspace_temp_password && !wsRevealed,
         tempPasswordConsumed: wsRevealed,
         acknowledged: !!info.portal_acked_email
       },
@@ -246,7 +266,7 @@ export async function getCredentialPacketForPortal(userId) {
             }
           ]
         : [])
-    ]
+    ].filter(system => system.key !== 'therapynotes' || therapynotesEnabled)
   };
 }
 
@@ -275,6 +295,8 @@ export async function acknowledgePortalSystem(userId, systemKey) {
     grasshopper: 'portal_acked_grasshopper',
     therapynotes: 'portal_acked_therapynotes'
   };
+  const packet = await getCredentialPacketForPortal(userId);
+  if (!packet?.systems.some(system => system.key === String(systemKey || '').toLowerCase())) throw Object.assign(new Error('This account is not enabled.'), { status: 400 });
   const field = map[String(systemKey || '').toLowerCase()];
   if (!field) throw Object.assign(new Error('Invalid system key'), { status: 400 });
   await setUserInfoValue(userId, field, new Date().toISOString());
@@ -285,6 +307,8 @@ export async function acknowledgePortalSystem(userId, systemKey) {
 export async function revealPortalTempPassword(userId, systemKey) {
   const key = String(systemKey || '').toLowerCase();
   const info = await getUserInfoMap(userId);
+  const enabled = enabledCredentialSystems(info);
+  if ((['email', 'workspace'].includes(key) && !enabled.workspaceEnabled) || (key === 'therapynotes' && !enabled.therapynotesEnabled)) return { revealed: false, reason: 'not_enabled', password: null };
   if (key === 'email' || key === 'workspace') {
     if (info.workspace_temp_password_revealed) {
       return { revealed: false, reason: 'already_revealed', password: null };

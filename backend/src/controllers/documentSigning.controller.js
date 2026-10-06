@@ -1,3 +1,4 @@
+import { isEmploymentContract, addContractSignatureFields, signContractField } from '../utils/contractSignatureFields.js';
 import Task from '../models/Task.model.js';
 import DocumentTemplate from '../models/DocumentTemplate.model.js';
 import SignedDocument from '../models/SignedDocument.model.js';
@@ -988,7 +989,9 @@ export const signDocument = async (req, res, next) => {
           {
             referenceNumber,
             documentName,
-            signatureOnAuditPage: true,
+            employmentContract: isEmploymentContract(task?.metadata),
+            contractAgencyName: brandingContext?.agencyName || brandingContext?.name || '',
+            signatureOnAuditPage: !isEmploymentContract(task?.metadata),
             fieldDefinitions: normalizedFieldDefs,
             fieldValues: normalizedFieldValues,
             branding: brandingContext,
@@ -1125,6 +1128,26 @@ export const counterSignDocument = async (req, res, next) => {
     const buffer = await StorageService.readSignedDocument(signedDoc.user_id, signedDoc.id, filename);
 
     const pdfDoc = await PDFDocument.load(buffer);
+    // Older signed agreements keep their original signed pages. Add a dedicated
+    // agency field when countersigning instead of moving the employee's signature.
+    if (!existingAudit.contractSignatureFields) {
+      const [[originalTask]] = await pool.execute('SELECT metadata, title, assigned_to_agency_id FROM tasks WHERE id = ?', [taskId]);
+      if (isEmploymentContract(originalTask?.metadata)) {
+        const User = (await import('../models/User.model.js')).default;
+        const Agency = (await import('../models/Agency.model.js')).default;
+        const [employee, agency] = await Promise.all([User.findById(signedDoc.user_id), Agency.findById(originalTask.assigned_to_agency_id)]);
+        existingAudit.contractSignatureFields = await addContractSignatureFields(pdfDoc, {
+          employeeName: `${employee?.first_name || ''} ${employee?.last_name || ''}`.trim(),
+          agencyName: agency?.official_name || agency?.name || '', documentName: originalTask.title,
+          employeeSignedAt: existingAudit.signedAt || signedDoc.signed_at || signedDoc.created_at
+        });
+      }
+    }
+    if (existingAudit.contractSignatureFields) {
+      await signContractField(pdfDoc, existingAudit.contractSignatureFields, 'agency', signatureData, {
+        name: `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim()
+      });
+    }
     await DocumentSigningService.addAdminSignatureToAuditPage(pdfDoc, signatureData, {
       name: `${req.user.first_name || ''} ${req.user.last_name || ''}`.trim(),
       email: req.user.email || null

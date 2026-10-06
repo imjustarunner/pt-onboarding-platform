@@ -10754,10 +10754,10 @@ export const promoteToOnboarding = async (req, res, next) => {
     const { portalPacket } = await import('../services/hirePortalWorkflow.service.js');
     const retainedPacket = await portalPacket(id, agencyRow.id);
     const packageId = Number(req.body?.packageId || retainedPacket.onboardingPackageId || mapping?.packageId || settings.default_onboarding_package_id);
-    if (!packageId) return res.status(400).json({ error: { message: 'Select an onboarding package before promoting this employee.' } });
+    if (!packageId) return res.status(400).json({ error: { message: 'Select an onboarding collection before promoting this employee.' } });
     const OnboardingPackage = (await import('../models/OnboardingPackage.model.js')).default;
     const pkg = await OnboardingPackage.findById(packageId);
-    if (pkg?.package_type !== 'onboarding' || Number(pkg.agency_id) !== Number(agencyRow.id) || !pkg.is_active) return res.status(400).json({ error: { message: 'Select a package of type onboarding.' } });
+    if (pkg?.package_type !== 'onboarding' || (pkg.agency_id && Number(pkg.agency_id) !== Number(agencyRow.id)) || !pkg.is_active) return res.status(400).json({ error: { message: 'Select an active onboarding collection for this agency.' } });
     const { composeWorkflow } = await import('../utils/hirePortalWorkflow.js');
     const workflow = composeWorkflow(settings.portal_workflow, retainedPacket.workflow, req.body?.portalWorkflow);
     const onboardingResources = workflow.resources.filter(r => r.phase === 'onboarding');

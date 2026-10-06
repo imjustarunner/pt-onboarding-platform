@@ -17,9 +17,9 @@ export async function portalPacket(userId, agencyId) {
     handbookUrl: retained?.handbookUrl || settings.handbook_full_url || settings.portal_workflow?.handbookUrl || '' };
 }
 
-export async function portalStepSubmissions(userId) {
-  const [rows] = await pool.execute('SELECT phase, step_key, encrypted_value, completed_at FROM hire_portal_submissions WHERE user_id = ?', [userId]);
-  return Object.fromEntries(rows.map((r) => [`${r.phase}:${r.step_key}`, { value: JSON.parse(decryptGuardianIntake(jsonObject(r.encrypted_value))), completedAt: r.completed_at }]));
+export async function portalStepSubmissions(userId, { completionOnly = false } = {}) {
+  const [rows] = await pool.execute(`SELECT phase, step_key, ${completionOnly ? '' : 'encrypted_value,'} completed_at FROM hire_portal_submissions WHERE user_id = ?`, [userId]);
+  return Object.fromEntries(rows.map((r) => [`${r.phase}:${r.step_key}`, { value: completionOnly ? {} : JSON.parse(decryptGuardianIntake(jsonObject(r.encrypted_value))), completedAt: r.completed_at }]));
 }
 
 export function requiredSubmissionKeys(steps, hasWorkEmail = false) {
@@ -108,10 +108,10 @@ export function uniquePortalTasks(tasks = []) {
   return [...unique.values()];
 }
 
-export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks, extras, backgroundCheck, handbookUrl, hireAccountMode, journey }) {
+export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks, extras, backgroundCheck, handbookUrl, hireAccountMode, journey, progressOnly = false }) {
   const packet = await portalPacket(user.id, agencyId);
   const config = packet.workflow || {};
-  const submissions = await portalStepSubmissions(user.id);
+  const submissions = await portalStepSubmissions(user.id, { completionOnly: progressOnly });
   const stored = (phase, key) => submissions[`${phase}:${key}`];
   const prehireClosed = !!journey.prehireCompletedAt || ['PREHIRE_REVIEW', 'ONBOARDING'].includes(user.status);
   const onboardingClosed = !!journey.onboardingCompletedAt;
@@ -164,6 +164,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   for (const phase of ['pre_hire', 'onboarding']) {
     add(phase, { key: 'review', kind: 'review', title: 'Final review', required: false, complete: phase === 'pre_hire' ? prehireClosed : onboardingClosed });
   }
+  if (progressOnly) return { progress: { pre_hire: summarizeSteps(steps.pre_hire), onboarding: summarizeSteps(steps.onboarding) } };
   const [info] = await pool.execute(`SELECT d.field_key, v.value FROM user_info_values v
     JOIN user_info_field_definitions d ON d.id = v.field_definition_id
     WHERE v.user_id = ? AND (d.agency_id = ? OR d.agency_id IS NULL)

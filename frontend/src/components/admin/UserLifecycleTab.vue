@@ -229,13 +229,15 @@
           <div class="lc-dates-block">
             <h4 class="lc-block-title">Accounts &amp; Access Credentials</h4>
             <p class="lc-hint">Staff source of truth for the employee onboarding packet. Temp passwords appear once in the employee portal — never print them on a PDF.</p>
+            <label><input v-model="credentialsForm.workspaceEnabled" type="checkbox" :disabled="viewOnly" @change="saveCredentials" /> Include Google Workspace / SSO access</label>
+            <label><input v-model="credentialsForm.therapynotesEnabled" type="checkbox" :disabled="viewOnly" @change="saveCredentials" /> Include TherapyNotes access</label>
             <div class="lc-dates-grid">
               <div class="lc-date-field">
-                <label class="lc-date-label">Workspace email</label>
+                <label class="lc-date-label">Platform work address</label>
                 <input type="text" class="lc-date-input" :value="credentialsForm.workspaceEmail" disabled />
               </div>
-              <div class="lc-date-field">
-                <label class="lc-date-label">Workspace temp password</label>
+              <div class="lc-date-field" v-if="credentialsForm.workspaceEnabled">
+                <label class="lc-date-label">Google Workspace temp password</label>
                 <input
                   type="text"
                   class="lc-date-input"
@@ -278,7 +280,7 @@
                   @blur="saveCredentials"
                 />
               </div>
-              <div class="lc-date-field">
+              <div class="lc-date-field" v-if="credentialsForm.therapynotesEnabled">
                 <label class="lc-date-label">TherapyNotes username</label>
                 <input
                   type="text"
@@ -289,7 +291,7 @@
                   @blur="saveCredentials"
                 />
               </div>
-              <div class="lc-date-field">
+              <div class="lc-date-field" v-if="credentialsForm.therapynotesEnabled">
                 <label class="lc-date-label">TherapyNotes temp password</label>
                 <input
                   type="text"
@@ -946,6 +948,7 @@ const datesForm = ref({
 });
 
 const credentialsForm = ref({
+  workspaceEnabled: false, therapynotesEnabled: false,
   workspaceEmail: '',
   workspaceTempPassword: '',
   grasshopperLogin: '',
@@ -1038,6 +1041,8 @@ function populateForms() {
   };
   const cred = d.onboarding.credentials || {};
   credentialsForm.value = {
+    workspaceEnabled: cred.workspaceEnabled ?? !!cred.workspaceTempPassword,
+    therapynotesEnabled: cred.therapynotesEnabled ?? !!(cred.therapynotesLogin || cred.therapynotesTempPassword),
     workspaceEmail: cred.workspaceEmail || '',
     workspaceTempPassword: cred.workspaceTempPassword || '',
     grasshopperLogin: cred.grasshopperLogin || '',
@@ -1098,12 +1103,14 @@ async function saveCredentials() {
   credentialsError.value = '';
   try {
     await api.patch(`/users/${props.userId}/lifecycle/credentials`, {
+      workspaceEnabled: credentialsForm.value.workspaceEnabled,
+      therapynotesEnabled: credentialsForm.value.therapynotesEnabled,
       grasshopperLogin: credentialsForm.value.grasshopperLogin,
       grasshopperExtension: credentialsForm.value.grasshopperExtension,
       grasshopperPin: credentialsForm.value.grasshopperPin,
-      therapynotesLogin: credentialsForm.value.therapynotesLogin,
-      therapynotesTempPassword: credentialsForm.value.therapynotesTempPassword,
-      workspaceTempPassword: credentialsForm.value.workspaceTempPassword,
+      therapynotesLogin: credentialsForm.value.therapynotesEnabled ? credentialsForm.value.therapynotesLogin : undefined,
+      therapynotesTempPassword: credentialsForm.value.therapynotesEnabled ? credentialsForm.value.therapynotesTempPassword : undefined,
+      workspaceTempPassword: credentialsForm.value.workspaceEnabled ? credentialsForm.value.workspaceTempPassword : undefined,
       npiNumber: credentialsForm.value.npiNumber
     });
     credentialsSaved.value = true;

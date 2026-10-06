@@ -19,10 +19,10 @@ const state = () => ({ candidate: { firstName: 'Elena', lastName: 'Cruz', status
 });
 beforeEach(() => { vi.clearAllMocks(); http.post.mockResolvedValue({ data: { tracking: true } }); });
 afterEach(() => { wrapper?.unmount(); });
-const open = async (data) => {
+const open = async (data, taskDetail = null) => {
   http.get.mockImplementation(async (url) => ({ data: url.endsWith('/submissions')
     ? { completedDocuments: [{ id: 1, title: 'Signed employment contract' }] }
-    : url.endsWith('/tasks/1') ? { document: { htmlContent: '<p>Retained agreement</p>' }, status: 'completed' } : data }));
+    : url.endsWith('/tasks/1') ? taskDetail || { document: { htmlContent: '<p>Retained agreement</p>' }, status: 'completed' } : data }));
   wrapper = mount(CandidatePreHirePortal, { global: { stubs: { PreHirePortalChat: true, AdaptiveSignatureCapture: true, JobDescriptionSections: true, HireDocumentPreview: true } } });
   await flushPromises(); return wrapper;
 };
@@ -132,6 +132,24 @@ describe('candidate process interface', () => {
     await wrapper.find('.portal-doc-title-btn').trigger('click'); await flushPromises();
     expect(wrapper.find('.task-panel').exists()).toBe(true);
     expect(wrapper.find('hire-document-preview-stub').attributes('url')).toBe('/prehire-portal/test-token/tasks/1/preview');
+  });
+  it('uses fixed signature fields for employment contracts without annotation controls', async () => {
+    const data = state(); data.candidate.status = 'PREHIRE_OPEN'; data.journey = {};
+    const task = { id: 1, taskType: 'document', title: 'Employment agreement', status: 'pending', actionType: 'signature' };
+    data.tasks = [task]; data.workflow.steps.pre_hire = [{ key: 'task-1', kind: 'task', title: task.title, task }];
+    await open(data, { metadata: { contractGeneration: true }, document: { htmlContent: '<p>Agreement</p>' }, auditTrail: { portalConsent: { given: true } } });
+    await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text() === 'Pre-Hire').trigger('click');
+    await wrapper.findAll('button').find(b => b.text().includes('Open, review and sign')).trigger('click'); await flushPromises();
+    expect(wrapper.findComponent({ name: 'HireDocumentPreview' }).props('editable')).toBe(false);
+    expect(wrapper.text()).toContain('Sign employee signature field');
+  });
+  it('shows delivered Grasshopper credentials on Accounts & Access', async () => {
+    const data = state(); data.credentialPacket = { systems: [{ key: 'grasshopper', label: 'Grasshopper', username: 'devon', extension: '102', pin: '1234' }] };
+    await open(data);
+    await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text() === 'Accounts & Access').trigger('click');
+    const text = wrapper.find('[aria-label="Accounts and access"]').text();
+    expect(text).toContain('devon'); expect(text).toContain('102'); expect(text).toContain('1234');
+    expect(text).not.toContain('TherapyNotes');
   });
   it('presents submitted onboarding as waiting for staff activation', async () => {
     const data = state(); data.journey.onboardingCompletedAt = '2026-09-11'; data.portalPhase = 'onboarding_review';
