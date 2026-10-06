@@ -69,11 +69,11 @@ async function confirmExistingAccount(req,user) {
  const state=await accountSecurityState(req);
  if((account?.protection_enabled || state.authenticatorEnabled) && !state.verified)throw securityError('PASSKEY_PROOF_REQUIRED','Verify an existing passkey, your authenticator, or a recovery code first.',403);
 }
-async function newChallenge(req,res,purpose,options,site,{userId=null,label=null}={}) {
+async function newChallenge(req,res,purpose,options,site,{userId=null,label=null,authorizationEpoch=1}={}) {
  const id=crypto.randomBytes(32).toString('hex'),browser=crypto.randomBytes(32).toString('hex');
  await pool.execute('DELETE FROM account_passkey_challenges WHERE expires_at<UTC_TIMESTAMP(3) LIMIT 200');
- await pool.execute(`INSERT INTO account_passkey_challenges (id,browser_hash,challenge,purpose,user_id,session_key,origin,rp_id,label,expires_at)
- VALUES (?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3)+INTERVAL 5 MINUTE)`,[id,hashSecurityToken(browser),options.challenge,purpose,userId,req.sessionSecurity?.key||null,site.origin,site.rpID,label]);
+ await pool.execute(`INSERT INTO account_passkey_challenges (id,browser_hash,challenge,purpose,user_id,session_key,origin,rp_id,label,authorization_epoch,expires_at)
+ VALUES (?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(3)+INTERVAL 5 MINUTE)`,[id,hashSecurityToken(browser),options.challenge,purpose,userId,req.sessionSecurity?.key||null,site.origin,site.rpID,label,authorizationEpoch]);
  res.cookie(PASSKEY_COOKIE,browser,{...config.authCookie.set(),maxAge:300000});
  return {challengeId:id,options};
 }
@@ -92,15 +92,15 @@ export async function beginPasskeyRegistration(req,res) {
  requireAccountSession(req);
  if(req.authClaims?.authMethod==='google')throw securityError('PASSKEY_SSO_UNCHANGED','Continue using your organization’s Google sign-in.',403);
  const user=await eligiblePasskeyUser(req.user.id);const site=currentPasskeySite(req);
- await confirmExistingAccount(req,user);
  await pool.execute('INSERT IGNORE INTO account_passkey_accounts (user_id,user_handle) VALUES (?,?)',[user.id,crypto.randomBytes(32).toString('base64url')]);
- const [[account]]=await pool.execute('SELECT user_handle FROM account_passkey_accounts WHERE user_id=?',[user.id]);
+ const [[account]]=await pool.execute('SELECT user_handle,authorization_epoch FROM account_passkey_accounts WHERE user_id=?',[user.id]);
+ await confirmExistingAccount(req,user);
  const [keys]=await pool.execute('SELECT credential_id,transports FROM account_passkeys WHERE user_id=? AND rp_id=? AND revoked_at IS NULL',[user.id,site.rpID]);
  if(keys.length>=10)throw securityError('PASSKEY_LIMIT','You can save up to 10 passkeys for this portal. Remove an unused one first.',409);
  const options=await generateRegistrationOptions({rpName:'Your care portal',rpID:site.rpID,userName:user.email,userID:Buffer.from(account.user_handle,'base64url'),
   attestationType:'none',authenticatorSelection:{residentKey:'required',userVerification:'required'},supportedAlgorithmIDs:[-7,-257],
   excludeCredentials:keys.map(k=>({id:k.credential_id,transports:json(k.transports)||[]}))});
- return newChallenge(req,res,'register',options,site,{userId:user.id,label:String(req.body?.label||'My passkey').trim().slice(0,100)||'My passkey'});
+ return newChallenge(req,res,'register',options,site,{userId:user.id,authorizationEpoch:account.authorization_epoch,label:String(req.body?.label||'My passkey').trim().slice(0,100)||'My passkey'});
 }
 export async function finishPasskeyRegistration(req) {
  requireAccountSession(req);const challenge=await consumeChallenge(req,'register');await eligiblePasskeyUser(req.user.id);
@@ -109,8 +109,13 @@ export async function finishPasskeyRegistration(req) {
  const info=result.registrationInfo,key=info.credential;
  return transaction(async db=>{
   const [[account]]=await db.execute('SELECT * FROM account_passkey_accounts WHERE user_id=? FOR UPDATE',[req.user.id]);
+  if(Number(account.authorization_epoch)!==Number(challenge.authorization_epoch))throw invalid();
+  const [[currentUser]]=await db.execute('SELECT * FROM users WHERE id=? FOR UPDATE',[req.user.id]);
+  assertPasskeyAccount(currentUser);
+  const authorizedAt=new Date(challenge.expires_at).getTime()-300000;
+  if([currentUser.password_changed_at,currentUser.temporary_password_set_at].some(at=>at && new Date(at).getTime()>authorizedAt))throw invalid();
   // A concurrent recovery/password reset cannot complete an older enrollment.
-  const [[revocation]]=await db.execute('SELECT reject_issued_before FROM user_auth_revocations WHERE user_id=?',[req.user.id]);
+  const [[revocation]]=await db.execute('SELECT reject_issued_before FROM user_auth_revocations WHERE user_id=? FOR UPDATE',[req.user.id]);
   if(revocation && Number(req.authClaims?.iat)<Number(revocation.reject_issued_before))throw invalid();
   const [[count]]=await db.execute('SELECT COUNT(*) total FROM account_passkeys WHERE user_id=? AND rp_id=? AND revoked_at IS NULL',[req.user.id,challenge.rp_id]);
   if(Number(count.total)>=10)throw securityError('PASSKEY_LIMIT','Remove an unused passkey before adding another.',409);
@@ -152,6 +157,7 @@ export async function removePasskey(req) {
   const [keys]=await db.execute('SELECT id FROM account_passkeys WHERE user_id=? AND revoked_at IS NULL FOR UPDATE',[user.id]);
   if(!keys.some(k=>String(k.id)===String(req.params.id)))throw securityError('PASSKEY_NOT_FOUND','Passkey not found.',404);
   if(keys.length<=1)throw securityError('PASSKEY_LAST','Add a replacement passkey before removing your last one. If it is lost, use account recovery.',409);
+  await db.execute('UPDATE account_passkey_accounts SET authorization_epoch=authorization_epoch+1 WHERE user_id=?',[user.id]);
   await db.execute('UPDATE account_passkeys SET revoked_at=UTC_TIMESTAMP(3) WHERE id=? AND user_id=?',[req.params.id,user.id]);
   return {removed:true,mirror:await audit(db,req,'passkey_removed',user.id,{passkeyId:String(req.params.id)})};
  });
@@ -166,7 +172,7 @@ export async function recoverPasskeys(req) {
   const [[account]]=await db.execute('SELECT * FROM account_passkey_accounts WHERE user_id=? FOR UPDATE',[user.id]);
   const hashes=json(account?.recovery_hashes)||[],hash=recoveryHash(req.body?.code);
   if(!account?.protection_enabled||!hashes.includes(hash))throw securityError('PASSKEY_RECOVERY_INVALID','That recovery code is invalid or has already been used.',422);
-  await db.execute('UPDATE account_passkey_accounts SET recovery_hashes=? WHERE user_id=?',[JSON.stringify(hashes.filter(h=>h!==hash)),user.id]);
+  await db.execute('UPDATE account_passkey_accounts SET recovery_hashes=?,authorization_epoch=authorization_epoch+1 WHERE user_id=?',[JSON.stringify(hashes.filter(h=>h!==hash)),user.id]);
   await db.execute('UPDATE account_passkeys SET revoked_at=UTC_TIMESTAMP(3) WHERE user_id=? AND revoked_at IS NULL',[user.id]);
   await db.execute('DELETE FROM account_passkey_proofs WHERE user_id=?',[user.id]);
   await db.execute('DELETE FROM account_passkey_challenges WHERE user_id=?',[user.id]);

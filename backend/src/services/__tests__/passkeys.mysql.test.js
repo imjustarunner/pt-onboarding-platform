@@ -35,7 +35,7 @@ describe.skipIf(!enabled)('real WebAuthn cryptography and isolated MySQL',()=>{
   const setup=await mysql.createConnection({socketPath:'/tmp/mh4kidz-donation.sock',user:'root'});await setup.query('DROP DATABASE IF EXISTS passkeys_test');await setup.query('CREATE DATABASE passkeys_test');await setup.end();
   db=mysql.createPool({socketPath:'/tmp/mh4kidz-donation.sock',user:'root',database:'passkeys_test',timezone:'Z',connectionLimit:12});fixture.db=db;
   await db.query(`CREATE TABLE users (id INT PRIMARY KEY,email VARCHAR(255),role VARCHAR(64),status VARCHAR(64),is_active INT DEFAULT 1,is_archived INT DEFAULT 0,pending_access_locked INT DEFAULT 0,status_expires_at DATETIME(3),password_hash VARCHAR(255),password_changed_at DATETIME(3),temporary_password_set_at DATETIME(3),failed_login_attempts INT DEFAULT 0,locked_until DATETIME(3))`);
-  for(const file of ['1452_auth_session_security.sql','1456_security_evidence.sql','1458_account_security.sql','1546_account_passkeys.sql']){
+  for(const file of ['1452_auth_session_security.sql','1456_security_evidence.sql','1458_account_security.sql','1546_account_passkeys.sql','1547_passkey_enrollment_generation.sql']){
    for(const statement of splitSqlStatements(await fs.readFile(new URL(`../../../../database/migrations/${file}`,import.meta.url),'utf8')))await db.query(statement);
   }
  });
@@ -85,6 +85,16 @@ describe.skipIf(!enabled)('real WebAuthn cryptography and isolated MySQL',()=>{
   await expect(service.finishPasskeyAuthentication(await loginRequest(key))).rejects.toMatchObject({code:'PASSKEY_INVALID'});
   expect(await accountSecurityState(request())).toMatchObject({required:true,verified:false});
   const [[proof]]=await db.query("SELECT session_key FROM account_passkey_proofs WHERE method='recovery'");req.sessionSecurity.key=proof.session_key;req.body={label:'Replacement'};const start=await service.beginPasskeyRegistration(req,response(req));expect(start.options.userVerification||start.options.authenticatorSelection.userVerification).toBe('required');
+ });
+ it('invalidates an enrollment authorized before recovery even if its challenge was already consumed',async()=>{
+  const {req,result}=await enroll();req.body={label:'Pending key'};
+  const start=await service.beginPasskeyRegistration(req,response(req));
+  const [[pending]]=await db.execute('SELECT * FROM account_passkey_challenges WHERE id=?',[start.challengeId]);
+  const recovery=request();recovery.body={password,code:result.recoveryCodes[0]};await service.recoverPasskeys(recovery);
+  // Restore the consumed challenge to exercise the verification/commit race.
+  await db.execute('INSERT INTO account_passkey_challenges (id,browser_hash,challenge,purpose,user_id,session_key,origin,rp_id,label,expires_at,authorization_epoch) VALUES (?,?,?,?,?,?,?,?,?,?,?)',[pending.id,pending.browser_hash,pending.challenge,pending.purpose,pending.user_id,pending.session_key,pending.origin,pending.rp_id,pending.label,pending.expires_at,pending.authorization_epoch]);
+  req.body={challengeId:start.challengeId,response:registration(start.options,keypair())};await expect(service.finishPasskeyRegistration(req)).rejects.toMatchObject({code:'PASSKEY_INVALID'});
+  expect((await db.query('SELECT COUNT(*) total FROM account_passkeys WHERE revoked_at IS NULL'))[0][0].total).toBe(0);
  });
  it('cannot remove the last key or use a revoked key’s session',async()=>{const {req}=await enroll();const [[key]]=await db.query('SELECT id FROM account_passkeys');req.params={id:key.id};await expect(service.removePasskey(req)).rejects.toMatchObject({code:'PASSKEY_LAST'});await db.query('UPDATE account_passkeys SET revoked_at=UTC_TIMESTAMP(3)');await expect(service.assertPasskeySession({id:1,authMethod:'passkey',passkeyId:key.id})).rejects.toMatchObject({code:'SESSION_EXPIRED'});});
  it.skipIf(process.env.PASSKEY_BROWSER_TEST!=='1')('completes real browser enrollment and login with a virtual verified authenticator',async()=>{

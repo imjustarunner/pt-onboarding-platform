@@ -25,7 +25,7 @@ describe.skipIf(!socket)('isolated account security integration', () => {
     state.db=mysql.createPool({socketPath:socket,user:'root',database:'account_security_test',timezone:'Z',connectionLimit:4});
     await state.db.query('CREATE TABLE users (id INT PRIMARY KEY,email VARCHAR(255),role VARCHAR(64),password_hash VARCHAR(255),password_changed_at DATETIME(3),temporary_password_set_at DATETIME(3))');
     const hash=await bcrypt.hash(password,4);await state.db.execute('INSERT INTO users VALUES (1,?,"provider",?,NULL,NULL),(2,?,"provider",?,NULL,NULL)', ['person1@example.invalid',hash,'person2@example.invalid',hash]);
-    for(const name of ['1452_auth_session_security.sql','1456_security_evidence.sql','1458_account_security.sql','902_user_platform_sessions.sql','1463_school_email_verification.sql','1546_account_passkeys.sql']) {
+    for(const name of ['1452_auth_session_security.sql','1456_security_evidence.sql','1458_account_security.sql','902_user_platform_sessions.sql','1463_school_email_verification.sql','1546_account_passkeys.sql','1547_passkey_enrollment_generation.sql']) {
       const sql=await fs.readFile(new URL(`../../../../database/migrations/${name}`,import.meta.url),'utf8');
       for(const statement of splitSqlStatements(stripSqlLineComments(sql)))await state.db.query(statement);
     }
