@@ -223,10 +223,10 @@
         <div class="join-video" :class="{ 'join-video--lobby': isInLobby && !videoFullscreen }">
           <!-- Host admit controls stay above the video so flex layout cannot squeeze them away. -->
           <SupervisionVideoLobbyPanel
-            v-if="isHost && resolvedEventId && waitingRoomEnabled && !videoFullscreen"
+            v-if="(isHost || isCoHostBySignal) && resolvedEventId"
             class="join-host-lobby"
             :session-id="resolvedEventId"
-            :is-supervisor="isHost"
+            :is-supervisor="isHost || isCoHostBySignal"
             meeting-kind="team-meeting"
             theme="dark"
             @update:waiting-count="waitingLobbyCount = $event"
