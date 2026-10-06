@@ -22,21 +22,36 @@ function scheduler(type = 'agency_meeting') {
     useModalQuarterHourTime: ref(true), canUseQuarterHourInput: ref(true),
     disableEndTimeInput: ref(false),
     isScheduleEventEditMode: ref(false), isSupervisionEditMode: ref(false),
-    onChooserWhenChanged: () => {}
+    officeAssignStartHour: ref(18), officeAssignEndHour: ref(19), officeAssignDay: ref('Monday'),
+    modalDay: ref('Monday'), modalChooserTimeEditable: ref(false),
+    isScheduleEventRequestType: ref(false), isScheduleEventAllDayUi: ref(false)
   };
   const create = new Function(...Object.keys(state), `
     const quarterMinuteOptions = [0, 15, 30, 45];
     ${section('const snapQuarterMinute =', 'const modalStartTimeValue =')}
     ${section('const endMinuteOptions =', 'const modalTimeRangeLabel =')}
     ${section('const startHourOptions =', 'const isWeekdayName =')}
+    ${section('const onChooserWhenChanged =', 'const moveChooserAction =')}
     ${section('function onEditorStartTime(', 'function onEditorEndTime(')}
+    ${section('function onEditorEndTime(', '/** datetime-local inputs')}
     const stop = ${section('watch([modalHour, modalStartHour, modalEndHour, modalStartMinute, modalEndMinute, useModalQuarterHourTime, disableEndTimeInput]', '/** Snap back to Open finder')}
-    return { onEditorStartTime, stop, startHourOptions, modalGridMaxEnd };
+    return { onEditorStartTime, onEditorEndTime, stop, startHourOptions, modalGridMaxEnd };
   `);
   return { ...state, ...create(...Object.values(state)) };
 }
 
 describe('meeting time entry independent of the visible calendar band', () => {
+  it.each([['10:00', '10:30', 10, 30], ['10:30', '11:00', 11, 0]])
+    ('keeps a 30-minute supervision session from %s to %s', async (start, end, hour, minute) => {
+      const s = scheduler('supervision');
+      try {
+        s.onEditorStartTime(start);
+        await nextTick();
+        s.onEditorEndTime(end);
+        await nextTick();
+        expect([s.modalEndHour.value, s.modalEndMinute.value]).toEqual([hour, minute]);
+      } finally { s.stop(); }
+    });
   it.each(['agency_meeting', 'huddle', 'supervision', 'edit_supervision', ''])
     ('keeps 6:30 AM and its one-hour duration for %s', async (type) => {
       const s = scheduler(type);

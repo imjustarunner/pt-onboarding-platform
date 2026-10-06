@@ -1,3 +1,4 @@
+-- Follows main's migrations through 1550; safe if the consent table already exists.
 CREATE TABLE IF NOT EXISTS supervision_group_transcription_consents (
   session_id INT NOT NULL,
   user_id INT NOT NULL,
