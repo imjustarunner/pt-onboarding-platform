@@ -1,3 +1,5 @@
+import { isSchoolCommunication } from './schoolCommunicationContext.service.js';
+import { compactSchoolCareBridgeEmail } from './schoolCareBridgeEmail.service.js';
 import GoogleWorkspaceEmailService from './googleWorkspaceEmail.service.js';
 import { getEmailSendingMode, isEmailNotificationsEnabled, emailRequiresAdminApproval } from './emailSettings.service.js';
 import { validateOutboundEmailQuality, formatQualityFlags } from './outboundEmailQuality.service.js';
@@ -191,6 +193,9 @@ class EmailService {
     if (!this.isConfigured()) {
       throw new Error('EmailService is not configured (Google Workspace sender missing env vars)');
     }
+
+    const schoolCommunication = await isSchoolCommunication({ templateType, clientId, userId, agencyId });
+    ({ text: outboundText, html: outboundHtml } = compactSchoolCareBridgeEmail({ text: outboundText, html: outboundHtml, templateType, schoolCommunication }));
 
     const footered = await appendComplianceFooter({
       text: outboundText,

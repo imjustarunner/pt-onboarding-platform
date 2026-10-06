@@ -80,6 +80,7 @@
               </ul>
               <p v-else-if="!regCatalogLoading" class="hint" style="margin: 0;">Nothing is open for registration right now.</p>
             </template>
+            <template v-else-if="activePanel === 'appointments'"><p v-if="isSuperadminPreview">Appointment details are available in the signed-in guardian account.</p><GuardianAppointmentsPanel v-else :client-id="selectedChildId" /></template>
             <template v-else-if="activePanel === 'documents'">
               <div class="panel-head">
                 <div class="panel-title">Documents</div>
@@ -91,7 +92,7 @@
                   not load guardian document queues.
                 </p>
               </div>
-              <DocumentsTab v-else />
+              <template v-else><GuardianIntakeDocuments :client-id="selectedChildId" /><DocumentsTab /></template>
             </template>
 
             <template v-else-if="activePanel === 'child'">
@@ -620,6 +621,8 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
 import { buildPublicIntakeUrl } from '../../utils/publicIntakeUrl';
 import DocumentsTab from '../../components/dashboard/DocumentsTab.vue';
+import GuardianIntakeDocuments from '../../components/guardian/GuardianIntakeDocuments.vue';
+import GuardianAppointmentsPanel from '../../components/guardian/GuardianAppointmentsPanel.vue';
 import GuardianProgramSelector from '../../components/GuardianProgramSelector.vue';
 import PlatformPreviewBanner from '../../components/admin/PlatformPreviewBanner.vue';
 import ClinicalDisclosurePanel from '../../components/billing/ClinicalDisclosurePanel.vue';
@@ -679,7 +682,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(['overview','tutoring','registrations','documents','child','billing','payment_methods','messages','account','dependents','contact','plan'].includes(route.query.panel) ? route.query.panel : 'overview');
+const activePanel = ref(['overview','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan'].includes(route.query.panel) ? route.query.panel : 'overview');
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
   set: (v) => guardianStore.setSelectedChild(v)
@@ -852,7 +855,8 @@ const dashboardTabs = computed(() => {
   tabs.push(
     { key: 'overview', label: standardsLearningVisible.value ? 'Family' : 'Overview', meta: pm('Home base', 'Preview shell') },
     { key: 'registrations', label: 'Registrations', meta: upcomingRegistrationRailSubtitle.value },
-    { key: 'documents', label: 'Documents', meta: pm('Forms and signatures', 'Where forms live') }
+    { key: 'documents', label: 'Documents', meta: pm('Forms and signatures', 'Where forms live') },
+    { key: 'appointments', label: 'Appointments', meta: pm('Schedule and change requests', 'Appointments') }
   );
   if (selectedChild.value) {
     tabs.push({

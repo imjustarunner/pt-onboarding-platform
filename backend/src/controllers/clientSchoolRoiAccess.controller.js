@@ -1,3 +1,4 @@
+import { sendSchoolRoiEmail, schoolRoiDelivery } from '../services/schoolRoiEmail.service.js';
 import crypto from 'crypto';
 import Client from '../models/Client.model.js';
 import User from '../models/User.model.js';
@@ -1059,16 +1060,6 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
       return res.status(issuedResult.status).json({ error: { message: issuedResult.message } });
     }
 
-    const senderIdentity = await resolvePreferredSenderIdentityForSchoolThenAgency({
-      agencyId: client.agency_id || null,
-      schoolOrganizationId,
-      templateType: 'school_roi_signing',
-      preferredKeys: ['school_intake', 'intake', 'notifications', 'system']
-    });
-    if (!senderIdentity?.id) {
-      return res.status(503).json({ error: { message: 'Email is not configured for this agency. Add an active sender identity first.' } });
-    }
-
     const guardians = await ClientGuardian.listForClient(clientId);
     const defaultEmail = (guardians || [])
       .map((guardian) => String(guardian.email || '').trim())
@@ -1105,8 +1096,8 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
       });
     }
 
-    const result = await sendEmailFromIdentity({
-      senderIdentityId: senderIdentity.id,
+    const result = await sendSchoolRoiEmail({
+      agencyId: client.agency_id,
       to: toEmail,
       subject,
       text: body,
@@ -1147,6 +1138,8 @@ export const sendClientSchoolRoiSigningEmail = async (req, res, next) => {
         }
       });
     }
+
+    if (!schoolRoiDelivery(result).sent) return res.status(502).json({error:{message:'The ROI email was not sent. Please retry or contact support.'}});
 
     _roiEmailCooldowns.set(`${clientId}:${toEmail}`, Date.now());
 

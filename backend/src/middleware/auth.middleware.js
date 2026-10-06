@@ -1,3 +1,4 @@
+import { requireUnexpiredGuardianTestAccess } from '../services/guardianTestAccess.service.js';
 import { assertHireStaffAccess } from '../services/hireStaffAccess.service.js';
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
@@ -17,7 +18,7 @@ const PROVIDER_LIKE_ROLES_MIDDLEWARE = new Set([
   'provider', 'provider_plus', 'intern', 'intern_plus', 'clinical_practice_assistant'
 ]);
 
-const finishAuthentication = (req,res,next) => enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next));
+const finishAuthentication = (req,res,next) => requireUnexpiredGuardianTestAccess(req,res,error => error ? next(error) : enforceSchoolCareBridgeScope(req,res,error => error ? next(error) : enforceAccountSecurity(req,res,next)));
 
 /** Normalize role strings for authorization (JWT quirks / legacy variants). */
 function normalizeAuthRole(role) {

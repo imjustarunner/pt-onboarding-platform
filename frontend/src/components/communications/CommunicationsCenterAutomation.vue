@@ -578,7 +578,7 @@ const detailLoading = ref(false);
 const actionLoading = ref(false);
 const actionError = ref('');
 const actionSuccess = ref('');
-const roiPaused = ref(true);
+const roiPaused = ref(false);
 const categoryCounts = ref({});
 const resolveLoading = ref(false);
 const editDraft = ref({
@@ -1003,9 +1003,9 @@ async function loadRoiSetting() {
   try {
     const resp = await api.get('/email-settings', { skipGlobalLoading: true });
     const row = (resp.data?.agencies || []).find((a) => Number(a.agencyId) === Number(agencyId));
-    roiPaused.value = row ? row.schoolRoiEmailsRequireApproval !== false : true;
+    roiPaused.value = false;
   } catch {
-    roiPaused.value = true;
+    roiPaused.value = false;
   }
 }
 

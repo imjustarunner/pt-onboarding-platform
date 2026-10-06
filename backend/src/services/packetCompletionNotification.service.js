@@ -9,6 +9,7 @@ export async function sendPacketCompletionNotification({ agencyId, organizationI
   return sendGuardianNotificationEmail({
     ...message,
     agencyId: tenantId,
+    schoolOrganizationId: String(scopeType || '').toLowerCase() === 'school' ? organizationId : null,
     source,
     templateType: message.templateType || 'intake_packet_completion'
   });

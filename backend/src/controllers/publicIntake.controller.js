@@ -1,3 +1,4 @@
+import { sendSchoolRoiEmail, schoolRoiDelivery } from '../services/schoolRoiEmail.service.js';
 import { signedPacketTemplate, validateRequiredSharedSignatures, childDocumentValues, validateMultiChildSigning, validateSharedSigningCaptures, sameSigningChildren, areAllIntakePacketsReady, intakeChildRoster } from '../utils/multiChildIntake.js';
 import { buildSharedIntakeDocuments } from '../services/sharedIntakeDocuments.service.js';
 import { sendPacketCompletionNotification } from '../services/packetCompletionNotification.service.js';
@@ -8756,77 +8757,13 @@ export const finalizePublicIntake = async (req, res, next) => {
           </div>
         `.trim();
         try {
-          const identity = await resolveIntakeSenderIdentity({
-            organizationId: link?.organization_id || null,
-            scopeType: link?.scope_type || null,
-            agencyId: boundClient?.agency_id || agency?.id || null,
-            templateType: 'school_roi_signer_completion'
+          const sendResult = await sendSchoolRoiEmail({
+            agencyId: boundClient.agency_id || agency?.id,
+            to: updatedSubmission.signer_email, subject, text, html,
+            source: 'auto', clientId: boundClient.id,
+            templateType: 'school_roi_signer_completion', linkUrl: downloadUrl
           });
-          if (identity?.id) {
-            const sendResult = await Promise.race([
-              sendEmailFromIdentity({
-                senderIdentityId: identity.id,
-                to: updatedSubmission.signer_email,
-                subject,
-                text,
-                html,
-                source: 'auto',
-                clientId: boundClient?.id || null,
-                templateType: 'school_roi_signer_completion'
-              }),
-              new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('roi_signer_email_timeout')), 15000);
-              })
-            ]);
-            if (sendResult?.pendingApproval) {
-              emailDelivery.pending_approval = true;
-              emailDelivery.communication_id = sendResult.communicationId || null;
-            } else {
-              emailDelivery.sent = true;
-            }
-          } else {
-            const fallbackSignatureIdentity = await resolveFallbackSignatureIdentity({
-              organizationId: link?.organization_id || null,
-              scopeType: link?.scope_type || null,
-              agencyId: boundClient?.agency_id || agency?.id || null
-            });
-            const signedContent = applyIdentitySignatureBlock({
-              identity: fallbackSignatureIdentity,
-              text,
-              html
-            });
-            const signerFromName = await resolveRegistrationFromName({
-              link,
-              agencyId: boundClient?.agency_id || agency?.id || null,
-              organizationId: link?.organization_id || null,
-              scopeType: link?.scope_type || null
-            });
-            const sendResult = await Promise.race([
-              EmailService.sendEmail({
-                to: updatedSubmission.signer_email,
-                subject,
-                text: signedContent.text,
-                html: signedContent.html,
-                fromName: signerFromName,
-                fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-                replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-                attachments: null,
-                source: 'auto',
-                agencyId: boundClient?.agency_id || agency?.id || null,
-                clientId: boundClient?.id || null,
-                templateType: 'school_roi_signer_completion'
-              }),
-              new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('roi_signer_email_timeout')), 15000);
-              })
-            ]);
-            if (sendResult?.pendingApproval) {
-              emailDelivery.pending_approval = true;
-              emailDelivery.communication_id = sendResult.communicationId || null;
-            } else {
-              emailDelivery.sent = true;
-            }
-          }
+          Object.assign(emailDelivery, schoolRoiDelivery(sendResult));
         } catch (emailErr) {
           emailDelivery.error = String(emailErr?.message || '').includes('timeout')
             ? 'send_timeout'
@@ -10231,7 +10168,7 @@ export const finalizePublicIntake = async (req, res, next) => {
           const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
           const regFlow = linkSupportsPublicRegistrationFeatures(link);
           const registrationPasswordlessUrl =
-            regFlow && link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
+            link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
               ? (newGuardianPasswordlessLoginUrl || '')
               : '';
           // Build a per-child signed-documents list so the single confirmation
@@ -11535,7 +11472,7 @@ export const submitPublicIntake = async (req, res, next) => {
         const registrationLoginPageUrl = portalBase ? `${portalBase}/login` : '';
         const regFlowEmail = linkSupportsPublicRegistrationFeatures(link);
         const registrationPasswordlessUrl =
-          regFlowEmail && link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
+          link.create_guardian && (newGuardianPasswordlessLoginUrl || '')
             ? (newGuardianPasswordlessLoginUrl || '')
             : '';
         // Per-child enrichment for the single confirmation email (multi-child).

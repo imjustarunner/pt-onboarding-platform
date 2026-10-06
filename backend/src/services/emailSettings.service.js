@@ -102,10 +102,8 @@ export async function emailRequiresAdminApproval({
 
   if (usedFallbackSender) return true;
 
-  if (isSchoolRoiEmailTemplate(templateType)) {
-    const settings = await getAgencyEmailSettings(agencyId);
-    if (settings.schoolRoiEmailsRequireApproval !== false) return true;
-  }
+  // Tenant-branded ROI delivery is transactional; the legacy rollout hold is retired.
+  if (isSchoolRoiEmailTemplate(templateType)) return false;
 
   const aid = Number(agencyId || 0);
   if (!aid) return false;
@@ -169,9 +167,7 @@ function mapAgencyEmailSettingsRow(agencyId, row) {
     aiAllowedIntentClasses: normalizeEmailAiIntentClasses(row?.ai_allowed_intents_json || ['school_status_request']),
     aiMatchConfidenceThreshold: normalizeEmailAiConfidenceThreshold(row?.ai_match_confidence_threshold ?? 0.75),
     aiAllowedSenderIdentityKeys: normalizeSenderIdentityKeys(row?.ai_allowed_sender_identity_keys_json || []),
-    schoolRoiEmailsRequireApproval: row
-      ? (row.school_roi_emails_require_approval === undefined ? true : row.school_roi_emails_require_approval !== 0)
-      : true,
+    schoolRoiEmailsRequireApproval: false,
     defaultSenderIdentityId: row?.default_sender_identity_id ? Number(row.default_sender_identity_id) : null,
     templateSenderIdentityIds: parseTemplateSenderIdentityJson(row),
     personalEmailDigestEnabled: row ? row.personal_email_digest_enabled !== 0 : true,

@@ -42,7 +42,7 @@ class AgencyEmailSettings {
         ai_allowed_intents_json: ['school_status_request'],
         ai_match_confidence_threshold: 0.75,
         ai_allowed_sender_identity_keys_json: [],
-        school_roi_emails_require_approval: 1,
+        school_roi_emails_require_approval: 0,
         default_sender_identity_id: null,
         template_sender_identity_json: null,
         personal_email_digest_enabled: 1,

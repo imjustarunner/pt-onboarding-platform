@@ -1,3 +1,4 @@
+import { compactSchoolCareBridgeEmail } from './schoolCareBridgeEmail.service.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import { requireAccountSession } from './accountSecurity.service.js';
@@ -38,7 +39,8 @@ async function deliver({ to, code }) {
   // Security codes bypass communication-body archives and must never be redirected
   // to a testing inbox. The transport still applies outbound abuse protection.
   const { default: Email } = await import('./googleWorkspaceEmail.service.js');
-  await Email.sendEmail({ to, subject: 'Your school portal verification code', text: `Your verification code is ${code}. It expires in 10 minutes. Enter it only in the school portal you opened. Do not share it. If you did not request this code, contact your IT administrator.`, securityCode: true });
+  const content = compactSchoolCareBridgeEmail({ templateType: 'school_portal_verification', text: `Your verification code is ${code}. It expires in 10 minutes. Enter it only in the school portal you opened. Do not share it. If you did not request this code, contact your IT administrator.` });
+  await Email.sendEmail({ to, subject: 'Your school portal verification code', ...content, securityCode: true });
 }
 export async function sendSchoolEmailCode(req, send = deliver) {
   requireAccountSession(req);

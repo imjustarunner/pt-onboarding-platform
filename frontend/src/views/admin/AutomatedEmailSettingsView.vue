@@ -23,16 +23,8 @@
       <p v-if="saveSuccess" class="success">{{ saveSuccess }}</p>
       <p v-if="saveError" class="error">{{ saveError }}</p>
 
-      <section class="aes-banner" :class="form.schoolRoiEmailsRequireApproval ? 'warn' : 'ok'">
-        <div>
-          <strong>School ROI / release emails</strong>
-          <span v-if="form.schoolRoiEmailsRequireApproval"> queue for approval in Automation before they send.</span>
-          <span v-else> send immediately when triggered.</span>
-        </div>
-        <label class="aes-toggle">
-          <input v-model="form.schoolRoiEmailsRequireApproval" type="checkbox" />
-          Require approval
-        </label>
+      <section class="aes-banner ok">
+        <div><strong>School ROI / release emails</strong> send immediately from schools@, with replies to support@. Signing links and completion confirmations do not require approval.</div>
       </section>
 
       <section class="aes-banner" :class="fallbackCount ? 'warn' : 'ok'">
@@ -426,7 +418,7 @@ const testing = ref(false);
 const testMsg = ref('');
 
 const form = ref({
-  schoolRoiEmailsRequireApproval: true,
+  schoolRoiEmailsRequireApproval: false,
   notificationsEnabled: true,
   platformSendingMode: 'all',
   platformNotificationsEnabled: true,
@@ -791,7 +783,7 @@ async function load() {
     const settings = settingsRes.data || {};
     const agencyRow = (settings.agencies || []).find((a) => Number(a.agencyId) === Number(agencyId.value)) || {};
     form.value = {
-      schoolRoiEmailsRequireApproval: agencyRow.schoolRoiEmailsRequireApproval !== false,
+      schoolRoiEmailsRequireApproval: false,
       notificationsEnabled: agencyRow.notificationsEnabled !== false,
       platformSendingMode: settings.platform?.sendingMode || 'all',
       platformNotificationsEnabled: settings.platform?.notificationsEnabled !== false,

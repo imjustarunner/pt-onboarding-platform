@@ -1,3 +1,4 @@
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { validationResult } from 'express-validator';
 import Client from '../models/Client.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -95,6 +96,8 @@ export const upsertClientGuardian = async (req, res, next) => {
       created = true;
     }
 
+    // Keep both tenant access and program context for guardian login.
+    if (client.agency_id) await User.assignToAgency(guardian.id, Number(client.agency_id));
     // Assign guardian to the client’s organization context so they have a portal slug.
     if (client.organization_id) {
       await User.assignToAgency(guardian.id, parseInt(client.organization_id, 10));
@@ -122,13 +125,9 @@ export const upsertClientGuardian = async (req, res, next) => {
 
     // Generate a setup token link (48 hours).
     const tokenResult = await User.generatePasswordlessToken(guardian.id, 48, 'setup');
-    const config = (await import('../config/config.js')).default;
-    const frontendBase = String(config.frontendUrl || '').replace(/\/$/, '');
-    const userOrgs = await User.getAgencies(guardian.id);
-    const portalSlug = userOrgs?.[0]?.portal_url || userOrgs?.[0]?.slug || null;
-    const passwordlessTokenLink = portalSlug
-      ? `${frontendBase}/${portalSlug}/passwordless-login/${tokenResult.token}`
-      : `${frontendBase}/passwordless-login/${tokenResult.token}`;
+    const Agency = (await import('../models/Agency.model.js')).default;
+    const tenant = await Agency.findById(Number(client.agency_id));
+    const passwordlessTokenLink = buildPublicAppUrl(tenant, `/passwordless-login/${tokenResult.token}`);
 
     let setupEmailSent = false;
     if (created) {
@@ -138,52 +137,20 @@ export const upsertClientGuardian = async (req, res, next) => {
         .find((e) => e.includes('@'));
       if (to) {
         try {
-          const Agency = (await import('../models/Agency.model.js')).default;
-          const EmailTemplateService = (await import('../services/emailTemplate.service.js')).default;
-          const { sendEmailFromIdentity } = await import('../services/unifiedEmail/unifiedEmailSender.service.js');
-          const { resolvePreferredSenderIdentityForAgency } = await import('../services/emailSenderIdentityResolver.service.js');
-          const EmailService = (await import('../services/email.service.js')).default;
-          const agencyId = userOrgs?.[0]?.id || null;
-          const agency = agencyId ? await Agency.findById(agencyId) : null;
-          const template = await EmailTemplateService.getTemplateForAgency(agencyId, 'invitation');
-          let subject = 'Set up your guardian account';
-          let body = `You have been added as a guardian. Set up your account using this link (expires in 48 hours):\n${passwordlessTokenLink}`;
-          if (template?.body) {
-            const params = await EmailTemplateService.collectParameters(guardian, agency, {
-              passwordlessToken: tokenResult.token,
-              senderName: req.user?.first_name || req.user?.email || 'Admin'
-            });
-            const rendered = EmailTemplateService.renderTemplate(template, params);
-            subject = rendered.subject || subject;
-            body = rendered.body || body;
-          }
-          const identity = await resolvePreferredSenderIdentityForAgency({
-            agencyId: agencyId || null,
-            preferredKeys: ['login_recovery', 'system', 'default', 'notifications']
+          const { sendGuardianNotificationEmail } = await import('../services/guardianNotificationEmail.service.js');
+          const delivery = await sendGuardianNotificationEmail({
+            agencyId: Number(client.agency_id),
+            to,
+            subject: 'Set up your guardian account',
+            text: `You have been added as a guardian. Set up your account using this link (expires in 48 hours):\n${passwordlessTokenLink}\n\nYour portal keeps your children's documents, appointments, and secure messages in one place.`,
+            html: null,
+            source: 'auto',
+            templateType: 'guardian_portal_login_info',
+            userId: guardian.id,
+            clientId
           });
-          if (identity?.id) {
-            await sendEmailFromIdentity({
-              senderIdentityId: identity.id,
-              to,
-              subject,
-              text: body,
-              html: null,
-              source: 'auto'
-            });
-          } else {
-            await EmailService.sendEmail({
-              to,
-              subject,
-              text: body,
-              html: null,
-              fromName: process.env.GOOGLE_WORKSPACE_FROM_NAME || null,
-              fromAddress: process.env.GOOGLE_WORKSPACE_FROM_ADDRESS || process.env.GOOGLE_WORKSPACE_DEFAULT_FROM || null,
-              replyTo: process.env.GOOGLE_WORKSPACE_REPLY_TO || null,
-              source: 'auto',
-              agencyId: agencyId || null
-            });
-          }
-          setupEmailSent = true;
+          setupEmailSent = delivery.sent;
+
         } catch (emailErr) {
           console.error('[upsertClientGuardian] Failed to send guardian setup email:', emailErr);
         }

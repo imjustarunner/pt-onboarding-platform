@@ -1044,6 +1044,12 @@ const sendRoiEmail = async () => {
     emailMessageDraft.value = response.data?.message || emailMessageDraft.value;
     emailMessageTouched.value = true;
 
+    if (response.data?.pending_approval || response.data?.queued) {
+      emailStatus.value = response.data?.message || 'Email has not been sent yet.';
+      return;
+    }
+    if (!response.data?.sent_at || !response.data?.sent_to) throw new Error('Delivery was not confirmed. Please retry or contact support.');
+
     const sentTo = response.data?.sent_to || emailDraft.value;
     const sentAt = response.data?.sent_at || new Date().toISOString();
     emailStatus.value = `Email sent to ${sentTo}.`;
@@ -1058,7 +1064,7 @@ const sendRoiEmail = async () => {
     emit('updated', { keepOpen: true, client: response.data?.client || undefined });
     await load();
   } catch (err) {
-    const errMsg = err.response?.data?.error?.message || 'Failed to send ROI email';
+    const errMsg = err.response?.data?.error?.message || err.message || 'Failed to send ROI email';
     error.value = errMsg;
     if (err.response?.status === 429) {
       const match = errMsg.match(/wait (\d+) seconds/);

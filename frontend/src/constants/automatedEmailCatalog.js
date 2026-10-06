@@ -88,7 +88,8 @@ export const AUTOMATED_EMAIL_CATALOG = [
       { label: 'School Referral Hub', path: '/admin/school-referral-hub' },
       { label: 'Clients', path: '/admin/clients' }
     ],
-    preferredKeys: ['school_intake', 'intake']
+    preferredKeys: ['schools'],
+    recommendedFromHint: 'Schools@ sends immediately; replies go to Support@ on the same agency domain.'
   },
   {
     key: 'school_roi_signer_completion',
@@ -101,7 +102,8 @@ export const AUTOMATED_EMAIL_CATALOG = [
     sourceLinks: [
       { label: 'School Referral Hub', path: '/admin/school-referral-hub' }
     ],
-    preferredKeys: ['school_intake', 'intake']
+    preferredKeys: ['schools'],
+    recommendedFromHint: 'Schools@ sends immediately; replies go to Support@ on the same agency domain.'
   },
   {
     key: 'intake',

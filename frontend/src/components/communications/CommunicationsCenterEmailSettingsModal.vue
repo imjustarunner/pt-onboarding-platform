@@ -15,18 +15,7 @@
         <template v-else>
           <section class="cc-settings-block highlight">
             <h4>School ROI / release emails</h4>
-            <p class="hint">
-              When on, signing-link and release-of-information emails queue as <strong>pending approval</strong>
-              in Automation instead of sending immediately.
-            </p>
-            <label class="cc-toggle-row">
-              <input v-model="form.schoolRoiEmailsRequireApproval" type="checkbox" />
-              <span>Require approval before ROI release emails send</span>
-            </label>
-            <p v-if="form.schoolRoiEmailsRequireApproval" class="cc-settings-status warn">
-              ROI emails are paused — staff actions will create pending items for you to approve.
-            </p>
-            <p v-else class="cc-settings-status ok">ROI emails send immediately when triggered.</p>
+            <p class="cc-settings-status ok">ROI signing links and completion confirmations send immediately from your agency’s schools@ address. Replies go to support@.</p>
           </section>
 
           <section class="cc-settings-block">
@@ -390,7 +379,7 @@ const emailTypeRows = [
 ];
 
 const form = ref({
-  schoolRoiEmailsRequireApproval: true,
+  schoolRoiEmailsRequireApproval: false,
   notificationsEnabled: true,
   platformSendingMode: 'all',
   platformNotificationsEnabled: true,
@@ -574,7 +563,7 @@ async function load() {
 
     const agencyRow = (settings.agencies || []).find((a) => Number(a.agencyId) === Number(agencyId.value)) || {};
     form.value = {
-      schoolRoiEmailsRequireApproval: agencyRow.schoolRoiEmailsRequireApproval !== false,
+      schoolRoiEmailsRequireApproval: false,
       notificationsEnabled: agencyRow.notificationsEnabled !== false,
       platformSendingMode: settings.platform?.sendingMode || 'all',
       platformNotificationsEnabled: settings.platform?.notificationsEnabled !== false,

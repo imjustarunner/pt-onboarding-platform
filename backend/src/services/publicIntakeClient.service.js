@@ -1,3 +1,4 @@
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import config from '../config/config.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
@@ -92,14 +93,7 @@ const resolveAgencyId = async (organizationId) => {
   return null;
 };
 
-const buildGuardianPasswordlessLoginUrl = (agencyRecord, token) => {
-  const frontendBase = String(config.frontendUrl || process.env.FRONTEND_URL || '').replace(/\/$/, '');
-  const portalSlug = String(agencyRecord?.portal_url || '').trim();
-  if (!frontendBase || !token) return '';
-  return portalSlug
-    ? `${frontendBase}/${portalSlug}/passwordless-login/${token}`
-    : `${frontendBase}/passwordless-login/${token}`;
-};
+const buildGuardianPasswordlessLoginUrl = (agencyRecord, token) => token ? buildPublicAppUrl(agencyRecord, `/passwordless-login/${encodeURIComponent(token)}`) : '';
 
 /** Org types valid as clients.organization_id for intake / public booking. */
 export const PUBLIC_INTAKE_ORG_TYPES = ['school', 'program', 'learning', 'clinical', 'life_coach', 'consultant'];

@@ -396,6 +396,7 @@ async function sendSlotReminder({ row, slotKey, identity }) {
       text,
       html,
       templateType: `enrollment_unfinished_reminder_${slotKey}`,
+      schoolOrganizationId: row.school_organization_id || null,
       intakeSubmissionId: row.id,
       intakeLinkId: row.intake_link_id || null,
       linkUrl: resumeUrl

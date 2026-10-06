@@ -1,3 +1,4 @@
+import { guardianCanReadIntakeDocuments } from '../utils/guardianDocumentAccess.js';
 import pool from '../config/database.js';
 import { fetchSkillBuildersGroupProvidersForPortal } from '../services/skillBuildersEventProviders.service.js';
 import Agency from '../models/Agency.model.js';
@@ -1262,7 +1263,7 @@ export const listMyClientIntakeSignedDocuments = async (req, res, next) => {
     const clientId = parsePositiveInt(req.params.clientId);
     if (!clientId) return res.status(400).json({ error: { message: 'clientId is required' } });
     const link = await ClientGuardian.getLink({ clientId, guardianUserId: uid });
-    if (ClientGuardian.isNoView(link?.permissions_json)) {
+    if (!guardianCanReadIntakeDocuments(link)) {
       return res.status(403).json({
         error: { message: 'These records are not available on this guardian relationship.', code: 'GUARDIAN_NO_VIEW' }
       });
@@ -1295,7 +1296,7 @@ export const getMyClientIntakeSignedDocumentDownloadUrl = async (req, res, next)
       return res.status(400).json({ error: { message: 'clientId and documentId are required' } });
     }
     const link = await ClientGuardian.getLink({ clientId, guardianUserId: uid });
-    if (ClientGuardian.isNoView(link?.permissions_json)) {
+    if (!guardianCanReadIntakeDocuments(link)) {
       return res.status(403).json({
         error: { message: 'These records are not available on this guardian relationship.', code: 'GUARDIAN_NO_VIEW' }
       });

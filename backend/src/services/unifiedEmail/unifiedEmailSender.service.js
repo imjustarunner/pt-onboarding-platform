@@ -1,3 +1,4 @@
+import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
 import { compactSchoolCareBridgeEmail } from '../schoolCareBridgeEmail.service.js';
 import { managedGroupEnvelope } from '../managedWorkspaceGroupAccess.service.js';
 import { assertVerifiedGmailSender } from './verifiedSender.js';
@@ -183,9 +184,12 @@ async function finalizeOutboundContent({
   userId = null,
   generatedByUserId = null,
   source = null,
-  templateType = null
+  templateType = null,
+  clientId = null,
+  schoolOrganizationId = null
 }) {
-  ({ text, html } = compactSchoolCareBridgeEmail({ text, html, templateType }));
+  const schoolCommunication = await isSchoolCommunication({ templateType, clientId, userId, agencyId: agencyId || identity?.agency_id, schoolOrganizationId });
+  ({ text, html } = compactSchoolCareBridgeEmail({ text, html, templateType, schoolCommunication }));
   const aid = Number(agencyId || identity?.agency_id || 0) || null;
   let misdirectedReportUrl = null;
   try {
@@ -730,6 +734,7 @@ export async function sendNotificationEmail({
   const from = pickFromHeader({ displayName: identity.display_name, fromEmail: identity.from_email });
   const replyTo = String(replyToOverride || '').trim() || identity.reply_to || null;
   const signedContent = await finalizeOutboundContent({
+    clientId,
     identity,
     text,
     html,
@@ -955,6 +960,7 @@ export async function sendEmailFromIdentity({
   templateType = null,
   templateId = null,
   linkUrl = null,
+  schoolOrganizationId = null,
   intakeSubmissionId = null,
   intakeLinkId = null,
   jobDescriptionId = null,
@@ -1090,6 +1096,8 @@ export async function sendEmailFromIdentity({
     reply_to: replyTo || signatureSource.reply_to || identity.reply_to
   };
   const signedContent = await finalizeOutboundContent({
+    clientId,
+    schoolOrganizationId,
     identity: identityForSignature,
     text,
     html,
