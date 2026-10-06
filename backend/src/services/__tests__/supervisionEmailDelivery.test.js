@@ -47,6 +47,19 @@ it('does not double-send generic attendee reminders to presenters or use stale a
  expect(await prepareSupervisionEmail({session,user,kind:'presenter:60'})).toEqual({skipped:true,reason:'no_longer_presenting'});
 });
 
+it('does not add a legacy day-before email over editable tier schedules, but keeps presenter reminders',async()=>{
+ const event={...session,reminder_minutes:5,meeting_settings_json:JSON.stringify({attendanceReminders:{mandatory:[],optional:[]}})};
+ m.execute.mockImplementation(async sql=>{
+  if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
+  if(sql.startsWith('SELECT * FROM supervision_sessions'))return [[event]];
+  if(sql.startsWith('SELECT u.id'))return [[{id:3,first_name:'Host',is_required:1},{id:8,first_name:'Ada',status:'INVITED',isPresenter:1},{id:9,first_name:'Optional',is_required:0}]];
+  if(sql.startsWith('SELECT * FROM supervision_email_deliveries'))return [[]];
+  return [{affectedRows:1}];
+ });
+ await sendSupervisionDayAheadReminders(new Date('2098-12-31T18:00:00Z'));
+ expect(m.send).toHaveBeenCalledOnce();expect(m.send).toHaveBeenCalledWith(expect.objectContaining({userId:8,subject:expect.stringContaining('You’re presenting')}));
+});
+
 it('uses the polished CPA body, huddle calendar and its own delivery receipt',async()=>{
  m.execute.mockImplementation(async sql=>sql.includes('GET_LOCK')?[[{acquired:1}]]:sql.startsWith('SELECT * FROM huddle_email_deliveries')?[[]]:sql.startsWith('SELECT u.id')?[[{id:3,first_name:'Aunya',role:'clinical_practice_assistant'},{id:8,first_name:'Ada',is_required:1}]]:[{affectedRows:1}]);
  await sendSupervisionEmail({session:{...session,kind:'HUDDLE',provider_id:3,status:'ACTIVE',meeting_subtype:'cpa'},user});

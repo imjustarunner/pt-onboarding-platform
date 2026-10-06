@@ -4,6 +4,7 @@ import { requirePersonalSupervisionInvitation, canJoinSupervision, hasActiveMeet
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
 import { normalizeMeetingSettings, parseMeetingSettings } from '../services/meetingSettingsPolicy.js';
+import { normalizeAttendanceReminders } from '../services/supervisionAttendancePolicy.js';
 import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.model.js';
@@ -3688,8 +3689,10 @@ export const createSupervisionSession = async (req, res, next) => {
       || req.body?.sendCalendarInvites === 'false'
     );
     const meetingReminderMinutes = normalizeMeetingReminder(req.body?.reminderMinutes);
-    const reminderSettings = req.body?.reminderOffsets === undefined ? null
-      : normalizeMeetingSettings({reminders:req.body.reminderOffsets});
+    const reminderSettings = {
+      ...(req.body?.reminderOffsets === undefined ? {} : {reminders:normalizeMeetingSettings({reminders:req.body.reminderOffsets}).reminders}),
+      ...(req.body?.attendanceReminders === undefined ? {} : {attendanceReminders:normalizeAttendanceReminders(req.body.attendanceReminders)})
+    };
     const created = await SupervisionSession.create({
       agencyId,
       supervisorUserId,
@@ -3715,7 +3718,7 @@ export const createSupervisionSession = async (req, res, next) => {
       autoCancelIfEmpty: isSignupOnly
     });
 
-    await pool.execute('UPDATE supervision_sessions SET reminder_minutes=?,event_timezone=?,meeting_settings_json=? WHERE id=?',[meetingReminderMinutes,supervisionTimeZone,reminderSettings ? JSON.stringify({reminders:reminderSettings.reminders}) : null,created.id]);
+    await pool.execute('UPDATE supervision_sessions SET reminder_minutes=?,event_timezone=?,meeting_settings_json=? WHERE id=?',[meetingReminderMinutes,supervisionTimeZone,Object.keys(reminderSettings).length ? JSON.stringify(reminderSettings) : null,created.id]);
     // Ensure newly scheduled sessions immediately appear in supervision rosters.
     if (!isSignupOnly) {
       await SupervisorAssignment.ensure(
@@ -4044,6 +4047,7 @@ export const patchSupervisionSession = async (req, res, next) => {
 
     const nextReminderMinutes = req.body?.reminderMinutes === undefined ? undefined : normalizeMeetingReminder(req.body.reminderMinutes);
     const nextReminderOffsets = req.body?.reminderOffsets === undefined ? undefined : normalizeMeetingSettings({reminders:req.body.reminderOffsets}).reminders;
+    const nextAttendanceReminders = req.body?.attendanceReminders === undefined ? undefined : normalizeAttendanceReminders(req.body.attendanceReminders);
     const scope = String(req.body?.scope || 'single').trim().toLowerCase();
     if (!['single', 'future'].includes(scope)) {
       return res.status(400).json({ error: { message: 'scope must be single or future' } });
@@ -4106,7 +4110,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       });
       if (occId === id) updated = rowUpdated;
       if (nextReminderMinutes !== undefined) await pool.execute('UPDATE supervision_sessions SET reminder_minutes=? WHERE id=?',[nextReminderMinutes,occId]);
-      if (nextReminderOffsets !== undefined) await pool.execute('UPDATE supervision_sessions SET meeting_settings_json=? WHERE id=?',[JSON.stringify({...parseMeetingSettings(occ.meeting_settings_json),reminders:nextReminderOffsets}),occId]);
+      if (nextReminderOffsets !== undefined || nextAttendanceReminders !== undefined) await pool.execute('UPDATE supervision_sessions SET meeting_settings_json=? WHERE id=?',[JSON.stringify({...parseMeetingSettings(occ.meeting_settings_json),...(nextReminderOffsets === undefined ? {} : {reminders:nextReminderOffsets}),...(nextAttendanceReminders === undefined ? {} : {attendanceReminders:nextAttendanceReminders})}),occId]);
       if (timingChanged) await pool.execute('UPDATE supervision_sessions SET event_timezone=? WHERE id=?',[supervisionTimeZone,occId]);
       if (req.body?.notifyParticipants !== undefined) await pool.execute('UPDATE supervision_sessions SET notify_participants=? WHERE id=?',[notifyParticipants?1:0,occId]);
     }

@@ -4797,6 +4797,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           participantJoinUrl: joinableSession ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), joinKey) : null,
           reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
           reminderOffsets: parseMeetingSettings(r.meeting_settings_json).reminders,
+          attendanceReminders: parseMeetingSettings(r.meeting_settings_json).attendanceReminders,
           timeZone: r.event_timezone || null,
           hostJoinUrl: joinableSession && hostJoinToken
             ? joinUrlForSupervision(await tenantMeetingBase(r.agency_id), hostJoinToken)
@@ -4960,6 +4961,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
           notifyParticipants: (kind === 'TEAM_MEETING' || kind === 'HUDDLE') ? notifyParticipants : null,
           reminderMinutes: r.reminder_minutes === undefined ? 5 : r.reminder_minutes,
           reminderOffsets: parseMeetingSettings(r.meeting_settings_json).reminders,
+          attendanceReminders: parseMeetingSettings(r.meeting_settings_json).attendanceReminders,
           status: String(r.status || 'ACTIVE').trim().toUpperCase() || 'ACTIVE',
           isCancelled: String(r.status || '').trim().toUpperCase() === 'CANCELLED',
           isTrainingPayEligible: Number(r.is_training_pay_eligible || 0) === 1,

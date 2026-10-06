@@ -1,7 +1,12 @@
 <template>
   <main class="invitation-page">
     <h1>Your meeting invitation</h1>
-    <section v-if="(route.query.rsvp || route.name === 'InterviewRsvp') && !rsvpSaved"><p>Please confirm your response for this meeting.</p><button class="btn btn-primary" :disabled="saving" @click="respond('accepted')">I’m attending</button> <button class="btn btn-secondary" :disabled="saving" @click="respond('declined')">Decline</button></section>
+    <section v-if="meeting?.attendance" aria-label="Your attendance requirement">
+      <h2>{{ meeting.attendance.label }}</h2>
+      <p>{{ meeting.attendance.description }}</p>
+      <p>RSVP confirms your plans; it does not record attendance time.</p>
+    </section>
+    <section v-if="(route.query.rsvp || route.name === 'InterviewRsvp') && !rsvpSaved && !signInRequired && (meeting || route.name === 'InterviewRsvp')"><p>Please confirm your response for this meeting.</p><button class="btn btn-primary" :disabled="saving" @click="respond('accepted')">I’m attending</button> <button class="btn btn-secondary" :disabled="saving" @click="respond('declined')">Decline</button></section>
     <p v-if="rsvpSaved" role="status">Your response has been saved: {{ rsvpSaved === 'accepted' ? 'Attending' : 'Declined' }}.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <RouterLink v-if="signInRequired" :to="{path:'/login',query:{redirect:route.fullPath}}">Sign in to open this invitation</RouterLink>
@@ -13,6 +18,7 @@
         <ul><li v-for="person in meeting.participants" :key="person.name">{{ person.name }} · {{ person.status === 'SIGNED_UP' ? 'Confirmed' : person.status === 'DECLINED' ? 'Not attending' : person.status || 'Host' }}{{ person.isPresenter ? ' · Presenter' : '' }}{{ person.isRequired ? ' · Required' : '' }}</li></ul>
         <RouterLink :to="route.path">Open session</RouterLink>
       </template>
+      <RouterLink v-else-if="route.query.rsvp" :to="route.path">Open session</RouterLink>
       <p v-else>This meeting has no online video link. See My Schedule for the meeting details.</p>
     </section>
     <p v-else-if="!(route.query.rsvp || route.name === 'InterviewRsvp')">Opening your meeting…</p>
@@ -30,9 +36,9 @@ const meeting = ref(null), rsvpSaved=ref(''),saving=ref(false);
 const signInRequired = ref(false);
 async function respond(response){saving.value=true;error.value='';try{await api.post(`/meeting-invitations/${route.name === 'InterviewRsvp' ? 'interview/' : ''}${encodeURIComponent(route.params.token)}/rsvp`,{eventId:Number(route.query.eventId),response});rsvpSaved.value=response;}catch(e){error.value=e.response?.data?.error?.message||'Could not save your response.';}finally{saving.value=false;}}
 onMounted(async () => {
-  if((route.query.rsvp || route.name === 'InterviewRsvp'))return;
+  if(route.name === 'InterviewRsvp')return;
   try {
-    const { data } = await api.get(`/meeting-invitations/${encodeURIComponent(route.params.token)}`, {skipAuthRedirect:true,params: route.query.details ? {details:1,eventId:route.query.eventId} : {}});
+    const { data } = await api.get(`/meeting-invitations/${encodeURIComponent(route.params.token)}`, {skipAuthRedirect:true,params: route.query.details || route.query.rsvp ? {details:1,eventId:route.query.eventId} : {}});
     if (!data.joinUrl && data.meeting) { meeting.value = data.meeting; return; }
     const url = new URL(data.joinUrl);
     if (data.supervisionAccess || data.teamMeetingAccess) {

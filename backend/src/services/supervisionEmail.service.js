@@ -14,6 +14,7 @@ import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { ensureTenantMessageMailboxes } from './tenantMessageMailboxes.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { duePresenterReminders } from './supervisionPresenterReminderPolicy.js';
+import { parseMeetingSettings } from './meetingSettingsPolicy.js';
 
 export function supervisionCalendar(session, joinUrl) {
  const calendarJoinUrl=sharedCalendarJoinUrl(session,joinUrl);
@@ -59,7 +60,7 @@ export async function prepareSupervisionEmail({session,user,joinUrl,kind='invita
  const detailsUrl=`${personal}?details=1&eventId=${session.id}`;
  const content=supervisionEmailBody({session:huddle?{...session,session_type:people.length>2?'group':'individual'}:session,meetingTitle:huddle?huddleTitle(session,hostRole):null,hostLabel:huddle?(huddleTitle(session,hostRole)==='CPA Meeting'?'Clinical Practice Assistant':'Internship Mentor'):null,people,recipientName:user.first_name||recipient.name,hostNames:hosts.map(p=>p.name),calendar,joinUrl:personal,
  rsvpUrl:`${personal}?rsvp=1&eventId=${session.id}`,presentationUrl:`${base}/supervision/sessions/${session.id}/presentation`,detailsUrl,
- isRequired:!!Number(recipient.is_required),isPresenter:recipient.isPresenter,isHost:hostIds.includes(Number(user.id)),kind,leadershipReplyTo});
+ isRequired:recipient.is_required == null ? hostIds.includes(Number(user.id)) : !!Number(recipient.is_required),isPresenter:recipient.isPresenter,isHost:hostIds.includes(Number(user.id)),kind,leadershipReplyTo});
  return {...content,to:recipientIdentity.email,senderIdentityId:mailboxes.notifications.id,replyToOverride:leadershipReplyTo || `"${hosts.map(p=>p.name).join(" & ").replace(/[\r\n"<>]/g, "")} via the app" <${replyMailbox.from_email}>`,
  attachments:[{filename:huddle?'huddle.ics':'supervision.ics',contentType:'text/calendar; charset=utf-8',contentBase64:Buffer.from(calendar.ics).toString('base64')}],
  userId:user.id,source:'auto',templateType:kind==='invitation'?'meeting_invited':'meeting_join_reminder'};
@@ -92,7 +93,7 @@ export async function sendSupervisionDayAheadReminders(now=new Date()) {
   for(const user of people){
    const kinds=user.isPresenter
     ? presenterOffsets.map(minutes=>`presenter:${minutes}`)
-    : session.reminder_minutes != null && hours>23 && hours<=24 ? ['day_before'] : [];
+    : !parseMeetingSettings(session.meeting_settings_json).attendanceReminders && session.reminder_minutes != null && hours>23 && hours<=24 ? ['day_before'] : [];
    for(const kind of kinds){
     try { await sendSupervisionEmail({session,user,kind}); }
     catch(error){ console.warn('[Supervision reminder]',session.id,user.id,error.code || 'delivery_failed'); }
