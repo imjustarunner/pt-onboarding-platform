@@ -1,6 +1,6 @@
 // Branding responses are public; campaign drafts and internal registration IDs are not.
 export function redactSmsCampaignSettings(body) {
-  if (!body || typeof body !== 'object') return body;
+  if (!body || typeof body !== 'object' || body instanceof Date) return body;
   if (Array.isArray(body)) return body.map(redactSmsCampaignSettings);
   const result = { ...body };
   for (const [key, value] of Object.entries(result)) {
