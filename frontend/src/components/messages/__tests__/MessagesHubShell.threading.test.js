@@ -10,7 +10,9 @@ vi.mock('../../../utils/emailComposerWindow',()=>({openEmailComposer:vi.fn()}));
 vi.mock('../../../services/api', () => ({ default: { post: vi.fn(), get: vi.fn(), patch: vi.fn() } }));
 vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency: { id: 2 }, userAgencies: [{ id: 2 }] }) }));
 vi.mock('../../../store/auth', () => ({ useAuthStore: () => ({ user: { id: 5, role: 'provider' } }) }));
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: {}, query: {} }), useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
+const routing = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
+vi.mock('vue-router', () => ({ useRoute: () => ({ path: '/messages', params: {}, query: {} }), useRouter: () => routing }));
+vi.mock('../../../store/communicationsCounts', () => ({ useCommunicationsCountsStore: () => ({ unreadMessagesCount: 0 }) }));
 const person = { personKey: 'email:alice@example.org@2', email: 'alice@example.org', displayName: 'Alice', agencyId: 2, kinds: ['external'], methods: [{ id: 'email', available: true }], preferredMethod: 'email' };
 const msg = (cid, subject = 'Same subject') => ({ id: `email-msg-${cid}`, bodyPreview: 'Hello', channel: 'email', direction: 'inbound', from: { email: 'alice@example.org' }, createdAt: '2026-09-01', meta: { conversationId: cid, messageId: cid, subject, inboxEmail: 'messages@itsco.health' } });
 let wrapper;
@@ -20,6 +22,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   lock = reactive({isLocked:false,warningActive:false});
   useSessionLockStore.mockReturnValue(lock);
+  routing.push.mockResolvedValue(undefined);
   api.get.mockResolvedValue({ data: {} });
   api.patch.mockResolvedValue({ data: {} });
   api.post.mockResolvedValue({ data: { threadRef: { conversationId: 20 } } });
@@ -217,4 +220,30 @@ it('keeps the Email channel selected when choosing school staff who normally pre
   await state.startConversationWithPerson({...person,kinds:['school_staff'],preferredMethod:'internal'});
   expect(state.sendMethod).toBe('email');
   expect(openEmailComposer).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({mode:'new',to:person.email}));
+});
+
+describe('channel and group entry points', () => {
+  it('makes channel browsing available from the main Messages hub', async () => {
+    await wrapper.findAll('button').find(b => b.text() === '# Channels').trigger('click');
+    expect(routing.push).toHaveBeenCalledWith({ path: '/messages', query: { view: 'workspace', tab: 'channels' } });
+  });
+  it('opens the group picker directly', async () => {
+    await wrapper.findAll('button').find(b => b.text() === 'Group chat').trigger('click');
+    expect(wrapper.findComponent({ name: 'StartConversationModal' }).props('channel')).toBe('group');
+  });
+  it('keeps unread channel messages unread until the destination loads', async () => {
+    const channel = { id: 'chat-42', hubKind: 'channel', threadId: 42, primary_participant_name: 'Denver', is_unread: true };
+    await state.pickConversation(channel);
+    expect(routing.push).toHaveBeenCalledWith({ path: '/messages', query: { view: 'workspace', tab: 'channels', threadId: '42', agencyId: '2' } });
+    expect(api.post.mock.calls.some(([url]) => url === '/chat/threads/42/read')).toBe(false);
+    expect(channel.is_unread).toBe(true);
+  });
+  it('reports a failed opening without clearing unread', async () => {
+    routing.push.mockRejectedValueOnce(new Error('navigation failed'));
+    const group = { id: 'chat-43', hubKind: 'group', threadId: 43, primary_participant_name: 'Team', is_unread: true };
+    await state.pickConversation(group);
+    expect(state.error).toContain('Could not open');
+    expect(api.post.mock.calls.some(([url]) => url === '/chat/threads/43/read')).toBe(false);
+    expect(group.is_unread).toBe(true);
+  });
 });

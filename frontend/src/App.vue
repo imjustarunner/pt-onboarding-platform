@@ -212,7 +212,7 @@
                   v-if="showSscMessagesLink"
                   :to="orgTo('/messages')"
                   @click="closeMobileMenu"
-                >Messages</router-link>
+                ><span>Messages</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
                 <router-link :to="orgTo('/clubs')" @click="closeMobileMenu">Browse Clubs</router-link>
               </template>
               <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
@@ -306,7 +306,7 @@
                   v-if="showSscMessagesLink"
                   :to="orgTo('/messages')"
                   @click="closeMobileMenu"
-                >Messages</router-link>
+                ><span>Messages</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
                 <router-link :to="orgTo('/clubs')" @click="closeMobileMenu">Browse Clubs</router-link>
               </template>
               <template v-else>
@@ -799,7 +799,7 @@
                     <router-link
                       v-if="canUseChats && !canUseCommunicationsCenter"
                       :to="orgTo('/messages')"
-                    >Messages</router-link>
+                    ><span>Messages</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
                     <router-link
                       v-if="canUseAgencyCampaigns && !isSscSstcTenant"
                       :to="orgTo('/admin/communications/campaigns')"
@@ -1263,7 +1263,7 @@
                 :to="orgTo('/messages')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >Messages</router-link>
+              ><span>Messages</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
               <router-link :to="orgTo('/clubs')" @click="closeMobileMenu" class="mobile-nav-link">Browse Clubs</router-link>
             </template>
             <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
@@ -1344,7 +1344,7 @@
                 :to="orgTo('/messages')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              >Messages</router-link>
+              ><span>Messages</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
               <router-link :to="orgTo('/clubs')" @click="closeMobileMenu" class="mobile-nav-link">Browse Clubs</router-link>
             </template>
             <template v-else>
@@ -1427,7 +1427,7 @@
               :to="orgTo('/messages')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
-            >Messages</router-link>
+            ><span>Messages</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
             </template>
             <router-link
               v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider' && !isSscSstcTenant"
@@ -1854,7 +1854,7 @@
                     :to="orgTo('/messages')"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
-                  >Messages</router-link>
+                  ><span>Messages</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
                   <router-link v-if="canUseAgencyCampaigns && !isSscSstcTenant" :to="orgTo('/admin/communications/campaigns')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Campaigns</router-link>
                   <router-link
                     v-if="canUseCommunicationsCenter && !isSscSstcTenant"
@@ -6081,8 +6081,9 @@ const communicationsTotalAttentionCount = computed(() => {
 
   if (canUseCommunicationsCenter.value) {
     count += communicationsCenterAttentionCount.value;
-  } else if (!isAffiliationContext.value && canUseStandaloneTickets.value) {
-    count += communicationsOpenTicketsCount.value;
+  } else {
+    count += communicationsUnreadMessagesCount.value;
+    if (!isAffiliationContext.value && canUseStandaloneTickets.value) count += communicationsOpenTicketsCount.value;
   }
 
   count += notificationsUnreadCount.value;
@@ -6558,9 +6559,12 @@ function syncCommunicationsCountsWithEngagementMenu(enabled) {
   }
 }
 watch(showEngagementMenu, syncCommunicationsCountsWithEngagementMenu);
+watch(() => agencyStore.currentAgency?.id, () => {
+  if (showEngagementMenu.value) void communicationsCountsStore.fetchCounts();
+});
 
 watch(() => route.path, (path) => {
-  if (path && (path.includes('/admin/communications') || path.includes('/tickets'))) {
+  if (path && (path.includes('/admin/communications') || path.includes('/tickets') || path.includes('/messages'))) {
     void communicationsCountsStore.fetchCounts();
   }
 });

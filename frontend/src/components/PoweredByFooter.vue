@@ -216,6 +216,7 @@ const handleLogoError = (event) => {
   margin-top: auto;
 }
 
+.powered-by-content + .legal-link { display: inline-block; margin: 8px 12px; }
 .powered-by-content {
   display: inline-flex;
   align-items: center;

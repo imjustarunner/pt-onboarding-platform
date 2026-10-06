@@ -2164,6 +2164,7 @@ export const getThreadMeta = async (req, res, next) => {
               t.organization_id,
               t.company_event_id,
               t.thread_type,
+              t.name AS thread_name,
               org.slug AS organization_slug,
               org.name AS organization_name
        FROM chat_threads t
@@ -2204,6 +2205,7 @@ export const getThreadMeta = async (req, res, next) => {
       organization_slug: t.organization_slug || null,
       organization_name: t.organization_name || null,
       thread_type: t.thread_type || 'direct',
+      thread_name: t.thread_name || null,
       company_event_id: t.company_event_id || null,
       event_title: eventTitle
     });
