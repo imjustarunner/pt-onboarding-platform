@@ -382,13 +382,13 @@
         <h3 id="gsl-leave-title">Leave Group Supervision?</h3>
         <p>
           Leave only disconnects you. The other host, cohosts, and participants can continue,
-          and you can rejoin. Choose End for everyone only when the entire session is finished.
+          and you can rejoin. Only the last host or cohost in the room can end the session for everyone.
         </p>
         <div class="gsl__modal-actions">
           <button type="button" class="btn btn-primary" :disabled="endingBusy" @click="confirmLeaveOnly">
             Leave only
           </button>
-          <button type="button" class="btn btn-danger" :disabled="endingBusy" @click="confirmEndForAll">
+          <button v-if="canEndForEveryone" type="button" class="btn btn-danger" :disabled="endingBusy" @click="confirmEndForAll">
             {{ endingBusy ? 'Ending…' : 'End for everyone' }}
           </button>
           <button type="button" class="btn btn-ghost" :disabled="endingBusy" @click="showHostLeaveModal = false">
@@ -646,6 +646,7 @@ const canGrantScreenShare = computed(() => {
 async function onLeaveClick() {
   if (editingSlide.value && !await saveSlideEdits()) return;
   if (props.isSupervisor) {
+    endingBusy.value = false;
     showHostLeaveModal.value = true;
     return;
   }
@@ -658,6 +659,7 @@ function confirmLeaveOnly() {
 }
 
 function confirmEndForAll() {
+  if (!props.canEndForEveryone) return;
   endingBusy.value = true;
   showHostLeaveModal.value = false;
   emit('leave', { endForAll: true });

@@ -54,6 +54,7 @@ const roomProps = computed(() => ({
   sessionTitle: props.sessionTitle,
   sessionMeta: props.sessionMeta,
   isSupervisor: props.isSupervisor,
+  canEndForEveryone: props.canEndForEveryone,
   isPresenter: props.isPresenter,
   isInLobby: props.isInLobby,
   lobbyEnabledForSession: props.lobbyEnabledForSession,

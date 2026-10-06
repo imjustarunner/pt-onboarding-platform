@@ -688,6 +688,7 @@ export const supervisionLiveRoomProps = {
   sessionTitle: { type: String, default: '' },
   sessionMeta: { type: String, default: '' },
   isSupervisor: { type: Boolean, default: false },
+  canEndForEveryone: { type: Boolean, default: false },
   isPresenter: { type: Boolean, default: false },
   isInLobby: { type: Boolean, default: false },
   lobbyEnabledForSession: { type: Boolean, default: false },

@@ -13,6 +13,7 @@ import { canAccessHiringInterview } from '../services/hiringInterviewAccess.serv
  */
 
 import pool from '../config/database.js';
+import { meetingEndPermission } from '../services/meetingEndPermission.service.js';
 import { createHash } from 'crypto';
 import User from '../models/User.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
@@ -277,7 +278,7 @@ async function markJoinPresenceLeft({ eventId, joinIdentity }) {
   try {
     await pool.execute(
       `UPDATE provider_schedule_event_join_presence
-       SET left_at = UTC_TIMESTAMP()
+       SET left_at = UTC_TIMESTAMP(), last_seen_at = UTC_TIMESTAMP()
        WHERE event_id = ? AND join_identity = ? AND left_at IS NULL`,
       [eid, identity]
     );
@@ -955,7 +956,7 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
       await markJoinPresenceLeft({ eventId: row.id, joinIdentity: identity });
       await closeAttendanceSegment({ eventId: row.id, joinIdentity: identity });
       await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: true });
-      return res.json({ ok: true });
+      return res.json({ ok: true, canEndForEveryone: false });
     }
     await upsertJoinPresence({
       eventId: row.id,
@@ -983,7 +984,8 @@ export const postTeamMeetingJoinPresence = async (req, res, next) => {
         await rebuildAttendanceRollupsFromSegments(row.id, { syncClaims: false });
       }
     }
-    res.json({ ok: true, attendance: opened || null, admitted: !!admitted });
+    res.json({ ok: true, attendance: opened || null, admitted: !!admitted,
+      ...(guestJoin ? {canEndForEveryone:false} : await meetingEndPermission('team-meeting',row.id,actorUserId)) });
   } catch (e) {
     next(e);
   }

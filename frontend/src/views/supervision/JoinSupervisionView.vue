@@ -9,7 +9,7 @@
       :banner-dismissed="exitBannerDismissed"
       :closed-by-name="meetingClosedByName"
       :closed-at="liveEndedAt"
-      :can-end-meeting="isSupervisor && !sessionHasEnded"
+      :can-end-meeting="isSupervisor && canEndForEveryone && !sessionHasEnded"
       :ending="endingFromExit"
       @end-meeting="endFromExit"
       @rejoin="rejoinSession"
@@ -47,6 +47,7 @@
       :session-title="sessionTitle || 'Supervision'"
       :session-meta="sessionMeta"
       :is-supervisor="isSupervisor"
+      :can-end-for-everyone="canEndForEveryone"
       :is-presenter="isPresenter"
       :is-in-lobby="isInLobby"
       :lobby-enabled-for-session="lobbyEnabledForSession"
@@ -106,6 +107,7 @@ const numericSessionId = ref(null);
 const admissionPollInterval = ref(null);
 const presencePollInterval = ref(null);
 const isSupervisor = ref(false);
+const canEndForEveryone = ref(false);
 const isPresenter = ref(false);
 const roomMode = ref('main');
 const lobbyEnabledForSession = ref(false);
@@ -262,7 +264,7 @@ function startPresenceHeartbeat() {
     const identity = joinIdentity.value;
     if (!sid || !identity) return;
     try {
-      await api.post(
+      const { data } = await api.post(
         `/supervision/sessions/${encodeURIComponent(sid)}/join-presence`,
         {
           identity,
@@ -272,8 +274,9 @@ function startPresenceHeartbeat() {
         },
         { skipAuthRedirect: true, skipGlobalLoading: true }
       );
+      canEndForEveryone.value = !intentionalLeave.value && data?.canEndForEveryone === true;
     } catch {
-      /* ignore */
+      canEndForEveryone.value = false;
     }
   };
   void tick();
@@ -295,6 +298,7 @@ async function leavePresence() {
 }
 
 async function teardownLiveSession() {
+  canEndForEveryone.value = false;
   stopAdmissionPolling();
   stopPresenceHeartbeat();
   try {
@@ -359,6 +363,10 @@ async function endFromExit() {
   } finally { endingFromExit.value = false; }
 }
 async function endLiveSessionForEveryone() {
+  if (!canEndForEveryone.value) {
+    window.alert('Only the last host or cohost in the room can end it for everyone. You can leave without closing the session.');
+    return false;
+  }
   const sid = numericSessionId.value || sessionId.value;
   if (!sid) return;
   try {
@@ -370,6 +378,7 @@ async function endLiveSessionForEveryone() {
     applyClosurePayload(data || {});
     return true;
   } catch (e) {
+    if (Number(e?.response?.status) === 409) canEndForEveryone.value = false;
     window.alert(e?.response?.data?.error?.message || e?.message || 'Unable to end the session. Please retry.');
     return false;
   }
