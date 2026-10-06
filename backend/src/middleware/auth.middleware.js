@@ -1,3 +1,4 @@
+import { assertPasskeySession } from '../services/passkeys.service.js';
 import { requireUnexpiredGuardianTestAccess } from '../services/guardianTestAccess.service.js';
 import { assertHireStaffAccess } from '../services/hireStaffAccess.service.js';
 import jwt from 'jsonwebtoken';
@@ -230,6 +231,7 @@ export const authenticate = async (req, res, next) => {
 
     const decoded = jwt.verify(token, config.jwt.secret);
     await assertHireStaffAccess(decoded);
+    await assertPasskeySession(decoded);
     req.authClaims = decoded;
     await req.auditIdentify?.(decoded);
     res.set('Cache-Control', 'no-store');
@@ -383,6 +385,7 @@ export const authenticateOptional = async (req, res, next) => {
       try {
         const decoded = jwt.verify(token, config.jwt.secret);
         await assertHireStaffAccess(decoded);
+        await assertPasskeySession(decoded);
         if (applyOptionalUserFromDecoded(req, decoded)) {
           await req.auditIdentify?.(decoded);
           req.sessionSecurity = await getSessionSecurity(decoded, token);

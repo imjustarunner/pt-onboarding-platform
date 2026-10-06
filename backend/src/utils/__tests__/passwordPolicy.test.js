@@ -22,3 +22,8 @@ describe('password rotation follows the sign-in method', () => {
     expect(resolveRequiresPasswordChange(expiredUser, { ssoRequired: true })).toEqual(clearPolicy);
   });
 });
+
+// Passkeys authenticate independently of the fallback password.
+it('does not force password rotation after a verified passkey sign-in', () => {
+ expect(resolveRequiresPasswordChange({password_hash:'hash',password_changed_at:'2020-01-01',temporary_password_hash:'temporary'}, {authMethod:'passkey'}).requiresPasswordChange).toBe(false);
+});

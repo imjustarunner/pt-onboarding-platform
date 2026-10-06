@@ -1,3 +1,5 @@
+import * as passkeys from '../controllers/passkeys.controller.js';
+import { sharedLoginLimiter } from '../middleware/loginProtection.middleware.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { authLimiter } from '../middleware/rateLimiter.middleware.js';
@@ -11,6 +13,14 @@ router.use((req, res, next) => {
   next();
 });
 router.get('/', status);
+const passkeyLimit=sharedLoginLimiter({identify:true,namespace:'passkey-security',accountFromSession:true});
+router.get('/passkeys', passkeys.status);
+router.post('/passkeys/register/options', passkeyLimit, passkeys.registerOptions);
+router.post('/passkeys/register/verify', passkeyLimit, passkeys.registerVerify);
+router.post('/passkeys/verify/options', passkeyLimit, passkeys.verificationOptions);
+router.post('/passkeys/verify/finish', passkeyLimit, passkeys.verificationFinish);
+router.post('/passkeys/recover', passkeyLimit, passkeys.recover);
+router.delete('/passkeys/:id', passkeyLimit, passkeys.remove);
 router.get('/activity-protection', ownProtection);
 router.post('/activity-protection/requests', requestFileAccess);
 router.post('/activity-protection/print', printIntent);

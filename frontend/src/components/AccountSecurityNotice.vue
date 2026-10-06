@@ -5,7 +5,7 @@
     <p v-if="summaryUnavailable">Security alert counts are unavailable. Open Privacy review to check the queue.</p>
     <p v-if="summary.alerts || summary.requests"><router-link to="/privacy-review">Review security activity: {{ summary.alerts }} unreviewed blocks · {{ summary.requests }} file-access requests</router-link></p>
     <p v-if="state?.canReviewPrivacy"><router-link to="/privacy-review">Privacy review queue</router-link></p>
-    <router-link to="/account-security">{{ needsVerification ? (state?.method === 'email' ? 'Verify with an email code' : 'Set up or verify two-step verification') : 'Security & sign-in activity' }}</router-link>
+    <router-link to="/account-security">{{ needsVerification ? (state?.passkeyEnabled ? 'Verify with a passkey or recover access' : state?.method === 'email' ? 'Verify with an email code' : 'Set up or verify two-step verification') : 'Security & sign-in activity' }}</router-link>
   </aside>
 </template>
 <script setup>

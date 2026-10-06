@@ -3,14 +3,14 @@ import { networkEvidence } from '../utils/securityEvidence.js';
 import { resourceReference, recordProtectionAlert } from '../services/activityProtection.service.js';
 import { mirrorSecurityEvidence } from '../services/securityEvidence.service.js';
 
-export async function reserveLoginAttempts(req,{identify=false}={}) {
+export async function reserveLoginAttempts(req,{identify=false,namespace=null,sourceOnly=false,accountFromSession=false}={}) {
  const network=networkEvidence(req);
  const source=network.ipSource==='verified_google_lb'||network.ipSource==='direct_peer'?network.clientIp:network.peerIp;
- const identifier=String(req.body?.username||req.body?.email||'').trim().toLowerCase().slice(0,320);
- const prefix=identify?'identify':'password';
+ const identifier=String(accountFromSession ? req.user?.id || '' : req.body?.username||req.body?.email||'').trim().toLowerCase().slice(0,320);
+ const prefix=namespace || (identify?'identify':'password');
  const buckets=[{key:`${prefix}:source:${source||'unknown'}`,max:identify?150:100},
   {key:`${prefix}:account:${identifier}`,max:identify?50:20},
-  {key:`${prefix}:pair:${source}:${identifier}`,max:identify?30:5}].map(b=>({...b,key:resourceReference(b.key)})).sort((a,b)=>a.key.localeCompare(b.key));
+  {key:`${prefix}:pair:${source}:${identifier}`,max:identify?30:5}].filter((_,index)=>!sourceOnly || index===0).map(b=>({...b,key:resourceReference(b.key)})).sort((a,b)=>a.key.localeCompare(b.key));
  const db=await pool.getConnection();let committed=false,denied=false,alert;
  try{
   await db.beginTransaction();

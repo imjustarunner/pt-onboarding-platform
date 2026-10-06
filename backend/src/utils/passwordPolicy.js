@@ -39,7 +39,7 @@ export function isTemporaryPasswordActive(u) {
  *   supplied in a request body/query or the user's stored profile.
  */
 export function calcPasswordExpiry(u, { ssoRequired = false, authMethod = null } = {}) {
-  if (ssoRequired || authMethod === 'google') {
+  if (ssoRequired || authMethod === 'google' || authMethod === 'passkey') {
     return { ...EMPTY_POLICY };
   }
 
@@ -90,7 +90,7 @@ export function calcPasswordExpiry(u, { ssoRequired = false, authMethod = null }
  * SSO-required users never get forced into password change (expiry or temp).
  */
 export function resolveRequiresPasswordChange(u, { ssoRequired = false, authMethod = null } = {}) {
-  if (ssoRequired || authMethod === 'google') {
+  if (ssoRequired || authMethod === 'google' || authMethod === 'passkey') {
     return {
       ...EMPTY_POLICY,
       requiresPasswordChange: false

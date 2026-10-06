@@ -6,6 +6,7 @@
     <p v-if="message" role="status">{{ message }}</p>
     <p v-if="loading">Loading your account security…</p>
     <template v-if="state">
+      <PasskeysPanel @changed="load" />
       <section class="security-card">
         <h2>{{ state.method === 'email' ? 'Email verification' : 'Two-step verification' }}</h2>
         <p v-if="state.ssoAuthenticated">You’re signed in with Google. No additional app verification is required.</p>
@@ -99,6 +100,7 @@
 </template>
 
 <script setup>
+import PasskeysPanel from './PasskeysPanel.vue';
 import ActivityProtectionPanel from './ActivityProtectionPanel.vue';
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import QRCode from 'qrcode';

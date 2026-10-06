@@ -1,3 +1,4 @@
+import * as passkeys from '../controllers/passkeys.controller.js';
 import { sharedLoginLimiter } from '../middleware/loginProtection.middleware.js';
 import express from 'express';
 import { body } from 'express-validator';
@@ -43,6 +44,8 @@ import { requireAdminOrFirstUser } from '../middleware/conditionalAdmin.middlewa
 import { authLimiter, identifyLimiter, recoveryLimiter, signupLimiter } from '../middleware/rateLimiter.middleware.js';
 
 const router = express.Router();
+router.post('/passkeys/options', sharedLoginLimiter({ identify: true, namespace: 'passkey', sourceOnly: true }), passkeys.loginOptions);
+router.post('/passkeys/verify', sharedLoginLimiter({ identify: true, namespace: 'passkey', sourceOnly: true }), passkeys.loginVerify);
 
 const validateLogin = [
   // Accept either `username` (new) or `email` (legacy). Do NOT require email format.

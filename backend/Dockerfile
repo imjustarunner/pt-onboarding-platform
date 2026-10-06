@@ -58,7 +58,7 @@ RUN echo "=== Building frontend (vite) ===" && \
 WORKDIR /app
 
 # Stage 2: Backend with embedded frontend
-FROM node:18-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 

@@ -46,7 +46,19 @@ export async function accountSecurityState(req) {
     verified ||= !!emailSession && emailSession.recipient_hash === schoolEmailHash(row.email) && !!afterReset(emailSession.verified_at);
     maskedEmail = maskedSchoolEmail(row.email);
   }
-  return (req.accountSecurityState = { method, maskedEmail, enabled: method === 'email' || !!row.enabled_at, authenticatorEnabled: !!row.enabled_at, verified, ssoAuthenticated, required: !ssoAuthenticated && requiresStaffMfa(String(row.role).toLowerCase()), rememberDays: method === 'email' ? 0 : rememberedDays() });
+  let passkeyEnabled=false, passkeyVerified=false;
+  // SSO and school accounts retain their existing verification policy.
+  if (!ssoAuthenticated && ['client_guardian','provider','provider_plus','intern','intern_plus'].includes(row.role)) {
+    const [[account]]=await pool.execute('SELECT protection_enabled FROM account_passkey_accounts WHERE user_id=?',[req.user.id]);
+    passkeyEnabled=!!account?.protection_enabled;
+    if(passkeyEnabled){
+      const { passkeyProof }=await import('./passkeys.service.js');
+      const proof=await passkeyProof(req);
+      passkeyVerified=!!proof && !!afterReset(proof.verified_at);
+      verified ||= passkeyVerified;
+    }
+  }
+  return (req.accountSecurityState = { method, maskedEmail, enabled: method === 'email' || !!row.enabled_at || passkeyEnabled, authenticatorEnabled: !!row.enabled_at, verified, passkeyEnabled, passkeyVerified, ssoAuthenticated, required: !ssoAuthenticated && (passkeyEnabled || requiresStaffMfa(String(row.role).toLowerCase())), rememberDays: method === 'email' ? 0 : rememberedDays() });
 }
 
 async function primaryProof(req, password) {
@@ -75,6 +87,8 @@ async function failedAttempt(db, userId, row) {
 export async function beginAuthenticator(req) {
   requireAccountSession(req);
   await primaryProof(req, req.body?.password);
+  const security = await accountSecurityState(req);
+  if(security.passkeyEnabled && !security.verified)throw securityError('MFA_REQUIRED','Verify an existing passkey or use passkey recovery before adding an authenticator.',403);
   const secret = newAuthenticatorSecret();
   const cipher = sealMfaSecret(secret, req.user.id);
   await transaction(async db => {

@@ -361,6 +361,7 @@
           @forget="forgetRememberedAccount"
         />
 
+        <PasskeySignIn v-if="!workspacePreparing && !isSchoolCareBridge && loginTheme?.agency?.organization_type !== 'school' && identifiedLoginMethod !== 'google'" :disabled="loading" @signed-in="handlePasskeyLogin" />
         <!-- Biometric login button (native only, when token is saved) -->
         <div v-if="showBiometricButton && !workspacePreparing" class="biometric-login-wrap">
           <button
@@ -693,6 +694,7 @@
 </template>
 
 <script setup>
+import PasskeySignIn from '../components/PasskeySignIn.vue';
 import { PLATFORM_BRAND } from '../config/platformBrand.js';
 import { tenantFaviconUrl } from '../utils/tenantBrandAssets.js';
 import { resolveLoginPalette } from '../utils/loginPalette.js';
@@ -2298,12 +2300,19 @@ const handleSubmit = async () => {
   await handleLogin();
 };
 
-const handleLogin = async () => {
+const handlePasskeyLogin = async (data) => {
+  authStore.setAuth(null, data.user, data.sessionId);
+  try { sessionStorage.setItem('justLoggedIn','true'); sessionStorage.setItem('justLoggedInAt',String(Date.now())); } catch { /* cookie-only sign-in */ }
+  await authStore.refreshUser();
+  await handleLogin({success:true,agencies:data.agencies});
+};
+
+const handleLogin = async (passkeyResult = null) => {
   error.value = '';
   lastErrorCode.value = null;
   loading.value = true;
   
-  const result = await authStore.login(username.value, password.value, loginSlug.value);
+  const result = passkeyResult || await authStore.login(username.value, password.value, loginSlug.value);
   
   if (result.success) {
     await runWorkspaceTransition(async () => {
