@@ -2633,6 +2633,7 @@ export const createOfficeBookingRequest = async (req, res, next) => {
         agencyId: policyAgencyId,
         userRole: requestedProvider.role,
         providerCredentialText: requestedProvider.credential,
+        providerId: requestedProvider.id,
         appointmentTypeCode: rawSelection.appointmentTypeCode,
         appointmentSubtypeCode: rawSelection.appointmentSubtypeCode,
         serviceCode: rawSelection.serviceCode,
@@ -3265,6 +3266,7 @@ export const approveOfficeBookingRequest = async (req, res, next) => {
         agencyId: policyAgencyId,
         userRole: requestedProvider.role,
         providerCredentialText: requestedProvider.credential,
+        providerId: requestedProvider.id,
         appointmentTypeCode: reqRow.appointment_type_code,
         appointmentSubtypeCode: reqRow.appointment_subtype_code,
         serviceCode: reqRow.service_code,
@@ -3497,7 +3499,8 @@ export const getBookingMetadata = async (req, res, next) => {
     const metadata = await getSchedulingBookingMetadata({
       agencyId: policyAgencyId,
       userRole: requestedProvider.role,
-      providerCredentialText: requestedProvider.credential
+      providerCredentialText: requestedProvider.credential,
+        providerId: requestedProvider.id
     });
 
     let serviceCodes = Array.isArray(metadata.eligibleServiceCodes) ? [...metadata.eligibleServiceCodes] : [];
@@ -3617,7 +3620,10 @@ export const getBookingMetadata = async (req, res, next) => {
       }
     }
 
+    if (!metadata.careEligibility.canProvideCare) serviceCodes = [];
+
     return res.json({
+      careEligibility: metadata.careEligibility,
       providerId: requestedProviderId,
       agencyId: policyAgencyId,
       credentialTier: metadata.credentialTier,

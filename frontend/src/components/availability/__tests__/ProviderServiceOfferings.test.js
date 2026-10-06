@@ -3,7 +3,7 @@ import {mount,flushPromises} from '@vue/test-utils';
 import Services from '../ProviderServiceOfferings.vue';
 import api from '../../../services/api';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),put:vi.fn()}}));
-const data={agencyId:2,agencyName:'Next Level Up',services:[{serviceType:'counseling',displayName:'Counseling',offered:true},{serviceType:'tutoring',displayName:'Tutoring',offered:false}]};
+const data={careEligibility:{canProvideCare:true},agencyId:2,agencyName:'Next Level Up',services:[{serviceType:'counseling',displayName:'Counseling',offered:true},{serviceType:'tutoring',displayName:'Tutoring',offered:false}]};
 beforeEach(()=>{vi.resetAllMocks();api.get.mockResolvedValue({data});});
 describe('agency service selections',()=>{
  it('saves counseling and tutoring together without changing booking settings',async()=>{

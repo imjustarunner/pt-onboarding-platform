@@ -4,18 +4,19 @@
     <details @toggle="expanded = $event.target.open">
       <summary>Client services and availability for this agency</summary>
       <template v-if="expanded">
-        <ProviderAvailabilitySettings :provider-id="Number(userId)" :agency-id="Number(agencyId)" />
+        <ProviderAvailabilitySettings @updated="reload" :provider-id="Number(userId)" :agency-id="Number(agencyId)" />
         <section class="assigned-services" aria-label="Assigned services">
           <h4>Services this person provides</h4>
           <p>Choose the services this person provides for this agency. Assignments do not grant clinical permissions or enable online booking.</p>
-          <p v-if="loaded"><strong>Clinical permission level: {{ credentialLabel }}</strong>{{ credential ? ` · ${credential}` : '' }}. Scheduling and documentation use the agency’s existing credential policy.</p>
+          <p v-if="loaded"><strong>Credential classification: {{ credentialLabel }}</strong>{{ credential ? ` · ${credential}` : '' }}. Credentials alone do not grant care permissions.</p>
+          <p v-if="loaded"><strong>{{ canProvideCare ? 'Client-facing assignment enabled' : 'Care services not enabled for this agency' }}</strong>. {{ canProvideCare ? 'Services remain subject to the assigned role and agency credential policy.' : careReason }}</p>
           <p v-if="loading" role="status">Loading services…</p>
-          <fieldset v-else-if="loaded" :disabled="saving">
+          <fieldset v-else-if="loaded" :disabled="saving || !canProvideCare">
             <legend>Agency service catalog</legend>
             <p v-if="!services.length">No active services have been configured for this agency.</p>
             <label v-for="service in services" :key="service.id">
-              <input v-model="selected" type="checkbox" :value="Number(service.id)" />
-              <span><strong v-if="service.service_code">{{ service.service_code }} · </strong>{{ service.name }}</span>
+              <input v-model="selected" type="checkbox" :value="Number(service.id)" :disabled="service.allowedForCredential === false && !selected.includes(Number(service.id))" />
+              <span><strong v-if="service.service_code">{{ service.service_code }} · </strong>{{ service.name }}<small v-if="service.allowedForCredential === false"> · Not permitted for this credential classification</small></span>
             </label>
             <button v-if="services.length" type="button" class="btn btn-primary btn-sm" @click="save">{{ saving ? 'Saving…' : 'Save service assignments' }}</button>
           </fieldset>
@@ -33,12 +34,14 @@ import ProviderAvailabilitySettings from '../availability/ProviderAvailabilitySe
 const props = defineProps({ userId: { type: [Number, String], required: true }, agencyId: { type: [Number, String], required: true } });
 const expanded = ref(false), loading = ref(false), loaded = ref(false), saving = ref(false);
 const services = ref([]), selected = ref([]), error = ref(''), notice = ref('');
-const credentialTier = ref(''), credential = ref('');
+const credentialTier = ref(''), credential = ref(''), canProvideCare = ref(false), careReason = ref('');
+const refresh = ref(0);
+function reload() { refresh.value++; }
 const credentialLabel = computed(() => ({ bachelors: 'Bachelor’s level', qbha: 'QBHA', intern_plus: 'Intern / master’s / licensed level', unknown: 'Credential review needed' }[credentialTier.value] || 'Credential review needed'));
 const endpoint = computed(() => `/users/${props.userId}/agencies/${props.agencyId}/service-assignments`);
 let generation = 0;
-function apply(data) { services.value = data.services || []; selected.value = services.value.filter(s => Boolean(Number(s.assigned))).map(s => Number(s.id)); credentialTier.value = data.credentialTier || ''; credential.value = data.credential || ''; }
-watch(() => [expanded.value, props.userId, props.agencyId], async () => {
+function apply(data) { services.value = data.services || []; selected.value = services.value.filter(s => Boolean(Number(s.assigned))).map(s => Number(s.id)); credentialTier.value = data.credentialTier || ''; credential.value = data.credential || ''; canProvideCare.value = data.canProvideCare === true; careReason.value = data.reason || 'An administrator must assign a client-facing role and enable Sees clients before assigning care services.'; }
+watch(() => [expanded.value, props.userId, props.agencyId, refresh.value], async () => {
   const request = ++generation;
   if (!expanded.value) return;
   loading.value = true; loaded.value = false; error.value = ''; notice.value = '';

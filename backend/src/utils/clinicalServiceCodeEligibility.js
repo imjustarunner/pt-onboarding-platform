@@ -20,10 +20,15 @@ export function deriveCredentialTier({ userRole, providerCredentialText }) {
   return deriveCredentialTierFromText({ userRole, providerCredentialText });
 }
 
+// Explicit application policy: bachelor's-level providers cannot use 9-series codes.
+export function isServiceCodeDeniedForTier(tier, code) {
+  return String(tier || '').trim().toLowerCase() === 'bachelors' && /^9/.test(String(code || '').trim());
+}
+
 export function eligibleServiceCodesForTier(tier) {
   const t = String(tier || '').trim().toLowerCase();
   if (t === 'qbha') return Array.from(QBHA_CODES);
-  if (t === 'bachelors') return Array.from(new Set([...QBHA_CODES, ...BACHELORS_EXTRA_CODES]));
+  if (t === 'bachelors') return Array.from(new Set([...QBHA_CODES, ...BACHELORS_EXTRA_CODES])).filter(code => !isServiceCodeDeniedForTier(t, code));
   if (t === 'intern_plus') return null; // null means "all codes allowed"
   return Array.from(QBHA_CODES); // unknown => default to QBHA list
 }
@@ -40,9 +45,9 @@ export function assertServiceCodeAllowed({ tier, serviceCode, allowedCodes = nul
   if (t === 'intern_plus') return true;
 
   const allowedList = Array.isArray(allowedCodes) ? allowedCodes : eligibleServiceCodesForTier(tier);
-  if (!allowedList || allowedList.length === 0) return true;
+  if (allowedList === null && !isServiceCodeDeniedForTier(t, code)) return true;
   const allowed = new Set(allowedList || []);
-  if (!allowed.has(code)) {
+  if (isServiceCodeDeniedForTier(t, code) || !allowed.has(code)) {
     const err = new Error(`You are not permitted to submit service code ${code}`);
     err.status = 403;
     err.code = 'SERVICE_CODE_NOT_ALLOWED';

@@ -1,3 +1,4 @@
+import { readStaffCareEligibility, requireStaffCareEligibility } from '../services/staffCareEligibility.service.js';
 import { maybeDecryptNotePayload } from '../services/clinicalNoteCrypto.service.js';
 import { ageAtServiceDate, intakeAgeInstruction, applyIntakeIdentifyingAge } from '../services/noteAidAge.service.js';
 import { parseNoteSections, intakeOutputError } from '../services/clinicalNoteSections.service.js';
@@ -5,7 +6,7 @@ import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 import ClinicalNoteDraft from '../models/ClinicalNoteDraft.model.js';
-import { deriveCredentialTier, eligibleServiceCodesForTier, assertServiceCodeAllowed } from '../utils/clinicalServiceCodeEligibility.js';
+import { deriveCredentialTier, eligibleServiceCodesForTier, assertServiceCodeAllowed, isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import { classifyHcbsCategory } from '../utils/credentialNormalization.js';
 import { getNoteAidToolById } from '../config/noteAidTools.js';
 import {
@@ -60,6 +61,7 @@ export const generateInteractiveComplexitySentence = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+    await requireStaffCareEligibility(req.user.id, agencyId);
     const reason = String(req.body?.reason || '').trim();
     if (!reason || reason.length > 12000) return res.status(400).json({ error: { message: 'Describe why interactive complexity was used (up to 12,000 characters).' } });
     const clientId = safeInt(req.body?.clientId);
@@ -482,9 +484,10 @@ export const getClinicalNotesContext = async (req, res, next) => {
     const agency = await Agency.findById(agencyId);
     const featureFlags = parseFlags(agency?.feature_flags);
 
-    const providerCredentialText = await getProviderCredentialTextForUserId(req.user?.id);
+    const careEligibility = await readStaffCareEligibility(req.user.id, agencyId);
+    const providerCredentialText = careEligibility.credential;
     const tier = deriveCredentialTier({
-      userRole: req.user?.role,
+      userRole: careEligibility.agencyRole,
       providerCredentialText
     });
     const hcbs = classifyHcbsCategory({
@@ -502,7 +505,8 @@ export const getClinicalNotesContext = async (req, res, next) => {
       providerCredentialText: providerCredentialText || '',
       derivedTier: tier,
       hcbsCategory: hcbs.category || null,
-      eligibleServiceCodes,
+      careEligibility,
+      eligibleServiceCodes: careEligibility.canProvideCare ? (Array.isArray(eligibleServiceCodes) ? eligibleServiceCodes.filter(code => !isServiceCodeDeniedForTier(tier, code)) : eligibleServiceCodes) : [],
       audioAgreementTemplates
     });
   } catch (e) {
@@ -687,6 +691,7 @@ export const createClinicalNoteDraft = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+    await requireStaffCareEligibility(req.user.id, agencyId);
 
     const serviceCode = req.body?.serviceCode ? normalizeServiceCode(req.body.serviceCode) : null;
     const programId = req.body?.programId ? safeInt(req.body.programId) : null;
@@ -1068,6 +1073,7 @@ export const transcribeClinicalNoteAudio = async (req, res, next) => {
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
     if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+    await requireStaffCareEligibility(req.user.id, agencyId);
 
     if (!req.file?.buffer) {
       return res.status(400).json({ error: { message: 'audio is required' } });
@@ -1126,6 +1132,7 @@ export const generateClinicalNote = async (req, res, next) => {
     const agencyId = resolvedAgency.agencyId || preferredAgencyId;
     if (!(await requireUserHasAgencyAccess(req, res, agencyId))) return;
     if (!(await requireClinicalNoteGeneratorEnabled(req, res, agencyId))) return;
+    const careEligibility = await requireStaffCareEligibility(req.user.id, agencyId);
 
     const serviceCode = normalizeServiceCode(req.body?.serviceCode);
     const programIdRaw = req.body?.programId;
@@ -1170,8 +1177,8 @@ export const generateClinicalNote = async (req, res, next) => {
       }
     }
 
-    const providerCredentialText = await getProviderCredentialTextForUserId(req.user?.id);
-    const tier = deriveCredentialTier({ userRole: req.user?.role, providerCredentialText });
+    const providerCredentialText = careEligibility.credential;
+    const tier = careEligibility.credentialTier;
     const serviceCodeCatalog = await getAgencyServiceCodeCatalog({ agencyId });
     const catalogCodes = serviceCodeCatalog.length ? serviceCodeCatalog : null;
     const tierCodes = eligibleServiceCodesForTier(tier); // null => all

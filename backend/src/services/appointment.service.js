@@ -1,4 +1,5 @@
 import { assertAppointmentWindowAvailable } from './appointmentConflict.service.js';
+import { requireStaffCareEligibility } from './staffCareEligibility.service.js';
 import {assertPackageProviderBinding,assertPackageExpiration} from './bookingPackagePricing.js';
 import { getAgencySelfPayOnly, resolveSelfPayQuote } from './selfPayRates.service.js';
 import pool from '../config/database.js';
@@ -230,9 +231,10 @@ export async function createAppointment({
   if (providerUserId) {
     const memberships = await User.getAgencies(providerUserId);
     if (!memberships.some((a) => Number(a.id) === aid)) throw Object.assign(new Error('Provider is not assigned to this agency'), { status: 403 });
+    if (clinicalBooking || ['mental_health', 'healthcare'].includes(businessType)) await requireStaffCareEligibility(providerUserId, aid);
     if (clinicalBooking && !selfPayOnly) {
       const provider = await User.findById(providerUserId);
-      await validateSchedulingSelection({ agencyId: aid, userRole: provider.role, providerCredentialText: provider.credential,
+      await validateSchedulingSelection({ agencyId: aid, providerId: providerUserId, userRole: provider.role, providerCredentialText: provider.credential,
         appointmentTypeCode: 'SESSION', serviceCode, modality, scheduledStartAt: start, scheduledEndAt: end });
     }
   }
@@ -408,7 +410,7 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
   if (currentBilling?.settlementMode !== 'self_pay_only' && (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined || patch.providerUserId !== undefined)) {
     const provider = await User.findById(patch.providerUserId || existing.providerUserId);
     const codes = [patch.serviceCode ?? existing.serviceCode, ...(patch.addonServiceCodes ?? existing.addonServiceCodes ?? [])].filter(Boolean);
-    for (const code of codes) await validateSchedulingSelection({ agencyId: existing.agencyId, userRole: provider.role,
+    for (const code of codes) await validateSchedulingSelection({ agencyId: existing.agencyId, providerId: provider.id, userRole: provider.role,
       providerCredentialText: provider.credential, appointmentTypeCode: 'SESSION', serviceCode: code,
       modality: patch.modality || existing.modality });
   }

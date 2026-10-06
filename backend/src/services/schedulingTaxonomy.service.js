@@ -1,5 +1,6 @@
+import { readStaffCareEligibility } from './staffCareEligibility.service.js';
 import pool from '../config/database.js';
-import { deriveCredentialTier, eligibleServiceCodesForTier } from '../utils/clinicalServiceCodeEligibility.js';
+import { deriveCredentialTier, eligibleServiceCodesForTier, isServiceCodeDeniedForTier } from '../utils/clinicalServiceCodeEligibility.js';
 import { resolvePolicyRuleForServiceCode, isServiceCodeEnabledForAgency } from './billingPolicy.service.js';
 
 const FALLBACK_APPOINTMENT_TYPES = [
@@ -241,17 +242,19 @@ async function listEligibleServiceCodesForTier(credentialTier, agencyId = null) 
   return active.filter((s) => allowed.has(s.code));
 }
 
-export async function getSchedulingBookingMetadata({ userRole, providerCredentialText, agencyId = null }) {
-  const credentialTier = deriveCredentialTier({ userRole, providerCredentialText });
+export async function getSchedulingBookingMetadata({ userRole, providerCredentialText, agencyId = null, providerId = null }) {
+  const careEligibility = await readStaffCareEligibility(providerId, agencyId);
+  const credentialTier = providerId ? careEligibility.credentialTier : deriveCredentialTier({ userRole, providerCredentialText });
   const [appointmentTypes, appointmentSubtypes, allServiceCodes] = await Promise.all([
     listActiveAppointmentTypes(),
     listActiveAppointmentSubtypes(),
     listActiveServiceCodes({ agencyId, credentialTier })
   ]);
-  const eligibleServiceCodes = await listEligibleServiceCodesForTier(credentialTier, agencyId);
+  const eligibleServiceCodes = careEligibility.canProvideCare ? (await listEligibleServiceCodesForTier(credentialTier, agencyId)).filter(row => !isServiceCodeDeniedForTier(credentialTier, row.code)) : [];
 
   return {
     credentialTier,
+    careEligibility,
     appointmentTypes,
     appointmentSubtypes,
     allServiceCodes,
@@ -261,6 +264,7 @@ export async function getSchedulingBookingMetadata({ userRole, providerCredentia
 
 export async function validateSchedulingSelection({
   agencyId = null,
+  providerId = null,
   userRole,
   providerCredentialText,
   appointmentTypeCode,
@@ -275,7 +279,7 @@ export async function validateSchedulingSelection({
   const normalizedServiceCode = normalizeCode(serviceCode);
   const normalizedModality = normalizeModality(modality);
 
-  const metadata = await getSchedulingBookingMetadata({ userRole, providerCredentialText, agencyId });
+  const metadata = await getSchedulingBookingMetadata({ userRole, providerCredentialText, agencyId, providerId });
   const typeCodes = new Set((metadata.appointmentTypes || []).map((t) => t.code));
   const subtypeRows = metadata.appointmentSubtypes || [];
 

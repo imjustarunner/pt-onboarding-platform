@@ -680,8 +680,7 @@ export const setBookingPlan = async (req, res, next) => {
     const clientId = Number(req.body?.clientId || 0) || null;
     if (clientId) await assertAppointmentClients(agencyId, [{ clientId }]);
     const validated = await validateSchedulingSelection({ agencyId, providerId: provider.id, userRole: provider.role,
-      providerCredentialText: provider.credential,
-      providerId: provider.id, ...selection });
+      providerCredentialText: provider.credential, ...selection });
     const recurringUntilDate = normalizeRecurringUntilDate(bookingStartDate, req.body?.recurringUntilDate);
     const bookedOccurrenceCount = normalizeBookedOccurrenceCount(req.body?.bookedOccurrenceCount);
     const plan = await OfficeBookingPlan.upsertActive({
