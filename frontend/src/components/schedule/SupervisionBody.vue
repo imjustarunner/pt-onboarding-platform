@@ -109,7 +109,17 @@
         </div>
       </div>
 
-      <MeetingReminderEditor v-if="showNotifyOption && notifyParticipants && showControls"
+      <div v-if="showNotifyOption && notifyParticipants && showControls && groupMode">
+        <h4>Mandatory attendees · Compensated</h4>
+        <MeetingReminderEditor :model-value="attendanceReminders?.mandatory ?? reminderOffsets ?? (reminderMinutes == null ? [] : [1440, reminderMinutes])" :disabled="disabled"
+          @update:model-value="updateAttendanceReminders('mandatory', $event)" />
+        <h4>Optional attendees · Not compensated</h4>
+        <p class="supb-hint">Optional sessions are for their benefit and support.</p>
+        <MeetingReminderEditor :model-value="attendanceReminders?.optional ?? reminderOffsets ?? (reminderMinutes == null ? [] : [1440, reminderMinutes])" :disabled="disabled"
+          @update:model-value="updateAttendanceReminders('optional', $event)" />
+        <p class="supb-hint">Presenters have their own reminders: 1 week, 48 hours, 24 hours, 3 hours, and 1 hour before.</p>
+      </div>
+      <MeetingReminderEditor v-else-if="showNotifyOption && notifyParticipants && showControls"
         :model-value="reminderOffsets ?? (reminderMinutes == null ? [] : [reminderMinutes])" :disabled="disabled"
         @update:model-value="emit('update:reminderOffsets', $event)" />
       <template v-if="showDetails">
@@ -322,6 +332,7 @@ const props = defineProps({
   /** When false: no branded app invitation or join reminder emails. */
   notifyParticipants: { type: Boolean, default: true },
   reminderOffsets: { type: Array, default: null },
+  attendanceReminders: { type: Object, default: null },
   reminderMinutes: { type: Number, default: 5 },
   showNotifyOption: { type: Boolean, default: true },
   groupMode: { type: Boolean, default: false },
@@ -355,6 +366,7 @@ const emit = defineEmits([
   'update:notifyParticipants',
   'update:reminderMinutes',
   'update:reminderOffsets',
+  'update:attendanceReminders',
   'update:groupMode',
   'update:signupOnly',
   'update:facilitatorUserId',
@@ -448,6 +460,14 @@ function removeAction(idx) {
   const next = [...(props.actionDraftItems || [])];
   next.splice(idx, 1);
   emit('update:actionDraftItems', next);
+}
+function updateAttendanceReminders(tier, reminders) {
+  const fallback = props.reminderOffsets ?? (props.reminderMinutes == null ? [] : [1440, props.reminderMinutes]);
+  emit('update:attendanceReminders', {
+    mandatory: props.attendanceReminders?.mandatory ?? fallback,
+    optional: props.attendanceReminders?.optional ?? fallback,
+    [tier]: reminders
+  });
 }
 </script>
 

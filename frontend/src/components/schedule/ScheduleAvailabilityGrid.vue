@@ -2069,6 +2069,7 @@
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
               v-model:reminder-minutes="meetingReminderMinutes"
               v-model:reminder-offsets="supervisionReminderOffsets"
+              v-model:attendance-reminders="supervisionAttendanceReminders"
               v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
@@ -3601,6 +3602,7 @@
               v-model:waiting-room-enabled="editorSupervisionWaitingRoomEnabled"
               v-model:reminder-minutes="meetingReminderMinutes"
               v-model:reminder-offsets="supervisionReminderOffsets"
+              v-model:attendance-reminders="supervisionAttendanceReminders"
               v-model:notify-participants="notifyMeetingParticipants"
               v-model:group-mode="supervisionGroupModeEnabled"
               v-model:signup-only="supervisionSignupOnlyEnabled"
@@ -12230,6 +12232,7 @@ const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | EVERY
 const scheduleEventRecurrenceEndMode = ref('count'); // count | indefinite
 const scheduleEventOccurrenceCount = ref(7); // 1–104 for recurring meeting/huddle
 const supervisionReminderOffsets = ref([5]);
+const supervisionAttendanceReminders = ref({ mandatory: [1440, 5], optional: [1440, 5] });
 const supervisionRecurrence = ref('ONCE');
 const supervisionRecurrenceEndMode = ref('count'); // count | indefinite
 const supervisionOccurrenceCount = ref(6);
@@ -18519,6 +18522,7 @@ const openSlotActionModal = async ({
   notifyMeetingChanges.value = true;
   meetingReminderMinutes.value = 5;
   supervisionReminderOffsets.value = [5];
+  supervisionAttendanceReminders.value = { mandatory: [1440, 5], optional: [1440, 5] };
   notifyMeetingParticipants.value = true;
   scheduleEventRecurrence.value = 'ONCE';
   scheduleEventRecurrenceEndMode.value = 'count';
@@ -20606,6 +20610,7 @@ const closeModal = () => {
   notifyMeetingChanges.value = true;
   meetingReminderMinutes.value = 5;
   supervisionReminderOffsets.value = [5];
+  supervisionAttendanceReminders.value = { mandatory: [1440, 5], optional: [1440, 5] };
   notifyMeetingParticipants.value = true;
   createAgendaDraftTitle.value = '';
   createAgendaDraftItems.value = [];
@@ -22218,6 +22223,7 @@ const submitRequest = async () => {
           waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
           reminderMinutes: meetingReminderMinutes.value,
       reminderOffsets: supervisionReminderOffsets.value,
+      ...(supervisionGroupModeEnabled.value ? { attendanceReminders: supervisionAttendanceReminders.value } : {}),
                   meetingSettings: meetingSettings.value,
                   notifyChanges: notifyMeetingChanges.value,
           notifyParticipants: !!notifyMeetingParticipants.value,
@@ -23739,6 +23745,7 @@ const openSupvModal = (dayName, hour) => {
   supvNotes.value = String(first.notes || '');
   meetingReminderMinutes.value = first.reminderMinutes === undefined ? 5 : first.reminderMinutes;
   supervisionReminderOffsets.value = first.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
+  supervisionAttendanceReminders.value = first.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
   notifyMeetingParticipants.value = first.notifyParticipants !== false;
   supvCreateMeetLink.value = false;
   editTimingBaseline.value = {
@@ -23787,6 +23794,7 @@ watch(selectedSupvSessionId, (id) => {
   supvNotes.value = String(ev.notes || '');
   meetingReminderMinutes.value = ev.reminderMinutes === undefined ? 5 : ev.reminderMinutes;
   supervisionReminderOffsets.value = ev.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
+  supervisionAttendanceReminders.value = ev.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
   notifyMeetingParticipants.value = ev.notifyParticipants !== false;
   supvStartIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.startAt));
   supvEndIsoLocal.value = toDatetimeLocalValue(parseMaybeDate(ev.endAt));
@@ -23960,6 +23968,7 @@ const saveSupvSession = async ({ closeScheduleShell = false, scope = null, pastC
       waitingRoomEnabled: !!editorSupervisionWaitingRoomEnabled.value,
       reminderMinutes: meetingReminderMinutes.value,
       reminderOffsets: supervisionReminderOffsets.value,
+      ...(supervisionGroupModeEnabled.value ? { attendanceReminders: supervisionAttendanceReminders.value } : {}),
                   meetingSettings: meetingSettings.value,
                   notifyChanges: notifyMeetingChanges.value,
       notifyParticipants: !!notifyMeetingParticipants.value,
@@ -25068,6 +25077,7 @@ const beginEditScheduleStackItem = async (item) => {
       && item?.notify_participants !== 0;
     meetingReminderMinutes.value = item?.reminderMinutes === undefined ? 5 : item.reminderMinutes;
     supervisionReminderOffsets.value = item?.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
+  supervisionAttendanceReminders.value = item?.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
     if (agencyId > 0) void loadMeetingCandidates();
   } else if (agencyId > 0) {
     void loadVirtualSessionClients(agencyId);
@@ -25540,6 +25550,7 @@ const openSupervisionEditInScheduleModal = (dayName, hour, preferredId = 0) => {
   supvNotes.value = String(first.notes || '');
   meetingReminderMinutes.value = first.reminderMinutes === undefined ? 5 : first.reminderMinutes;
   supervisionReminderOffsets.value = first.reminderOffsets ?? (meetingReminderMinutes.value == null ? [] : [meetingReminderMinutes.value]);
+  supervisionAttendanceReminders.value = first.attendanceReminders ?? { mandatory: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])], optional: [...new Set([...(meetingReminderMinutes.value == null ? [] : [1440]), ...supervisionReminderOffsets.value])] };
   notifyMeetingParticipants.value = first.notifyParticipants !== false;
   supvCreateMeetLink.value = false;
   editTimingBaseline.value = {

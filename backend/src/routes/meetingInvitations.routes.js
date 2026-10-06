@@ -5,6 +5,7 @@ import express from 'express';
 import { huddleTitle } from '../services/huddlePolicy.js';
 import { supervisionCalendar, supervisionEmailPeople } from '../services/supervisionEmail.service.js';
 import { saveSupervisionRsvp } from '../services/supervisionRsvp.service.js';
+import { supervisionAttendance } from '../services/supervisionAttendancePolicy.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { parseUtcDate } from '../utils/officeEventDateTime.util.js';
 import { authenticate } from '../middleware/auth.middleware.js';
@@ -74,11 +75,13 @@ router.get('/:token', async (req,res,next) => {
   try {
     if(req.query.details) {
       const [rows]=await pool.execute('SELECT * FROM meeting_email_invitations WHERE join_token=? AND user_id=?',[req.params.token,req.user.id]);
-      const event=rows[0]&&(await invitationEvents(rows[0])).find(e=>Number(e.id)===Number(req.query.eventId));
+      const event=rows[0]&&(await invitationEvents(rows[0],{includeDeclined:true})).find(e=>Number(e.id)===Number(req.query.eventId));
       if(!event)return res.status(404).json({error:{message:'Invitation not found'}});
       const people=rows[0].meeting_type==='supervision'||event.kind==='HUDDLE'?await supervisionEmailPeople(event):[];
       const tz=event.event_timezone||'America/Denver';
-      return res.json({meeting:{title:event.kind==='HUDDLE'?huddleTitle(event):event.session_type==='group'?'Group supervision':event.title||'Supervision',when:new Intl.DateTimeFormat('en-US',{dateStyle:'full',timeStyle:'short',timeZone:tz}).format(parseUtcDate(event.start_at))+` (${tz})`,location:event.location_text||'Virtual',participants:people.map(p=>({name:p.name,status:p.status,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter}))}});
+      const recipient=people.find(p=>Number(p.id)===Number(req.user.id));
+      const attendance=recipient ? supervisionAttendance(event,recipient) : null;
+      return res.json({meeting:{attendance,title:event.kind==='HUDDLE'?huddleTitle(event):event.session_type==='group'?'Group supervision':event.title||'Supervision',when:new Intl.DateTimeFormat('en-US',{dateStyle:'full',timeStyle:'short',timeZone:tz}).format(parseUtcDate(event.start_at))+` (${tz})`,location:event.location_text||'Virtual',participants:people.map(p=>({name:p.name,status:p.status,isRequired:!!Number(p.is_required),isPresenter:p.isPresenter}))}});
     }
     res.json(await resolvePersonalMeetingInvitation(req.params.token,req.user.id));
   }

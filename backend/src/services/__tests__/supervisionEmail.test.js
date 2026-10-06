@@ -5,6 +5,18 @@ import {interviewCalendar} from '../../utils/interviewCalendar.js';
 const calendar=interviewCalendar({startsAt:'2026-09-22T18:30:00Z',endsAt:'2026-09-22T19:30:00Z',title:'Supervision',publicJoinUrl:'https://tenant.test/join/invitation/token'});
 const args={session:{id:1,session_type:'group'},recipientName:'Ada',hostNames:['Haley'],people:[{name:'Alex',status:'SIGNED_UP',participant_role:'supervisee'},{name:'Pat',status:'INVITED',participant_role:'supervisee',isPresenter:true}],calendar,joinUrl:'https://tenant.test/join/invitation/personal',rsvpUrl:'https://tenant.test/rsvp',detailsUrl:'https://tenant.test/details',presentationUrl:'https://tenant.test/presentation'};
 describe('supervision email variants',()=>{
+ it.each([true,false])('shows attendance classification in subject, HTML and plain text for a presenter (required=%s)',isRequired=>{
+  const content=supervisionEmailBody({...args,isPresenter:true,isRequired});
+  const label=isRequired?'Mandatory · Compensated':'Optional · Not compensated';
+  expect(content.html).toContain(label);expect(content.text).toContain(label);
+  expect(content.subject).toContain(isRequired?'[Mandatory]':'[Optional]');
+  expect(content.html).toContain('Edit Your Presentation');expect(content.html).toContain('RSVP · Attending or not attending');
+ });
+ it('includes an RSVP action for hosts in HTML and plain text',()=>{
+  const content=supervisionEmailBody({...args,isHost:true,isRequired:true});
+  expect(content.html).toContain('href="https://tenant.test/rsvp"');expect(content.text).toContain('RSVP: https://tenant.test/rsvp');
+  expect(content.html).toContain('Mandatory · Compensated');
+ });
  it('uses the correct local time, calendar buttons, and counts only confirmed RSVPs',()=>{const {html}=supervisionEmailBody(args);expect(html).toContain('12:30 PM MDT');expect(html).toContain('1 confirmed attendee');expect(html).not.toContain('2 confirmed');expect(html).toContain('Optional session');expect(html).toContain('Google Calendar');expect(html).toContain('Apple Calendar / iCal');expect(html).toContain('Case conceptualization presenter');});
  it('gives the presenter an edit action and mandatory invitees a required label',()=>{expect(supervisionEmailBody({...args,isPresenter:true}).html).toContain('Edit Your Presentation');expect(supervisionEmailBody({...args,isRequired:true}).html).toContain('Your attendance is required');expect(supervisionEmailBody(args).html).not.toContain('Edit Your Presentation');});
  it('renders individual supervision and respects in-person location',()=>{const {html}=supervisionEmailBody({...args,session:{session_type:'individual',modality:'IN_PERSON',location_text:'Office 10'}});expect(html).toContain('Individual supervision');expect(html).toContain('Office 10');expect(html).not.toContain('Join Group Supervision');});

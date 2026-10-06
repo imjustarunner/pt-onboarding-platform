@@ -66,7 +66,7 @@ export async function sendMeetingScheduleChange(rawEvents, action) {
 }
 
 // Re-check the live roster on every click/send. Removed invitees cannot reuse an old link.
-export async function invitationEvents(invitation) {
+export async function invitationEvents(invitation, { includeDeclined = false } = {}) {
   if (invitation.meeting_type === 'supervision') {
     const [rows] = await pool.execute(`SELECT s.*, COALESCE(s.event_timezone,(SELECT timezone FROM agencies WHERE id=s.agency_id),'America/Denver') AS event_timezone,
       EXISTS(SELECT 1 FROM supervision_session_join_presence presence WHERE presence.session_id=s.id
@@ -77,7 +77,7 @@ export async function invitationEvents(invitation) {
         AND EXISTS(SELECT 1 FROM agencies org WHERE org.id=s.agency_id AND org.is_active=1)
         AND (s.id=anchor.id OR (anchor.recurrence_series_id IS NOT NULL AND s.recurrence_series_id=anchor.recurrence_series_id))
         AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR s.supervisee_user_id=? OR
-          EXISTS(SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=? AND a.status NOT IN ('DECLINED','REMOVED','CANCELLED','WITHDRAWN')))
+          EXISTS(SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=? AND a.status NOT IN (${includeDeclined ? '' : "'DECLINED',"}'REMOVED','CANCELLED','WITHDRAWN')))
         AND EXISTS(SELECT 1 FROM users u WHERE u.id=?
           AND (u.role IN ('super_admin','superadmin') OR EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=s.agency_id AND ua.is_active=1))
           AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED'))

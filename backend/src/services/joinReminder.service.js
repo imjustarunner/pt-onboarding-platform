@@ -1,4 +1,5 @@
 import { meetingReminderSchedule } from './meetingReminderPolicy.js';
+import { supervisionReminderEvent } from './supervisionAttendancePolicy.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { personalMeetingInvitation } from './meetingInvitations.service.js';
 import { escapeMeetingHtml } from './meetingInvitationPolicy.js';
@@ -151,7 +152,7 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
       const text = `${label} is ${when}.\n\nYour personal join link: ${finalJoinUrl}\nSign in with your invited account.`;
       const html = `<p>${escapeMeetingHtml(label)} is ${escapeMeetingHtml(when)}.</p><p><a href="${escapeMeetingHtml(finalJoinUrl)}">Join your meeting</a></p><p>Sign in with your invited account.</p>`;
       const result = meetingEvent && (sessionType === 'supervision' || meetingEvent.kind==='HUDDLE')
-        ? await (await import('./supervisionEmail.service.js')).sendSupervisionEmail({session:meetingEvent,user,kind:'join_reminder'})
+        ? await (await import('./supervisionEmail.service.js')).sendSupervisionEmail({session:meetingEvent,user,kind:reminderKey ? `join:${reminderKey.split(':')[0]}` : 'join_reminder'})
         : await sendNotificationEmail({
         agencyId,
         triggerKey: 'meeting_join_reminder',
@@ -265,7 +266,7 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
   try {
     // Supervision sessions starting in 5-8 min
     const [supvRows] = await pool.execute(
-      `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.supervisee_user_id,
+      `SELECT ss.id, ss.agency_id, ss.session_type, ss.supervisor_user_id, ss.co_facilitator_user_id, ss.supervisee_user_id,
               ss.google_meet_link, ss.join_token, ss.enrollment_mode, ss.notify_participants,
               ss.start_at, ss.event_timezone, ss.reminder_minutes, ss.meeting_settings_json,
               CONCAT(COALESCE(sup.first_name,''), ' ', COALESCE(sup.last_name,'')) AS supervisor_name
@@ -281,8 +282,11 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
     );
 
     for (const r of supvRows || []) {
-      const due = meetingReminderSchedule(r).filter(reminder => reminder.at <= now && now - reminder.at <= 180000);
-      if (!due.length) continue;
+      // Avoid roster and tenant lookups when neither attendee tier is due.
+      const isDue = reminder => reminder.at <= now && now - reminder.at <= 180000;
+      if (![0, 1].some(is_required => meetingReminderSchedule(
+        supervisionReminderEvent(r, { is_required })
+      ).some(isDue))) continue;
       const sessionId = Number(r.id);
       // Honor the persisted notification opt-out.
       if (r.notify_participants === 0 || r.notify_participants === false || r.notify_participants === '0') {
@@ -298,14 +302,14 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
       if (!joinUrl) continue;
 
       const userIds = new Set([
-        Number(r.supervisor_user_id || 0)
+        Number(r.supervisor_user_id || 0), Number(r.co_facilitator_user_id || 0)
       ]);
       if (!isSignupOnly) {
         userIds.add(Number(r.supervisee_user_id || 0));
       }
 
       const [attendees] = await pool.execute(
-        `SELECT user_id, status FROM supervision_session_attendees WHERE session_id = ?`,
+        `SELECT user_id, status, is_required FROM supervision_session_attendees WHERE session_id = ?`,
         [sessionId]
       );
       if (isSignupOnly) {
@@ -320,12 +324,17 @@ export async function runJoinReminderTick({ now = new Date() } = {}) {
         }
       }
 
-      for (const reminder of due) for (const uid of userIds) {
+      for (const uid of userIds) {
         if (!uid) continue;
+        const person = (attendees || []).find(a => Number(a.user_id) === uid) || { user_id: uid };
+        const due = meetingReminderSchedule(supervisionReminderEvent(r, person))
+          .filter(isDue);
+        for (const reminder of due) {
         await sendJoinReminderToUser({
           userId: uid, agencyId, joinUrl, label, sessionType: 'supervision', sessionId,
           reminderKey: r.meeting_settings_json ? `${reminder.key}:${toSqlDatetimeUtc(parseUtcDate(r.start_at))}` : null
         });
+        }
       }
     }
 
