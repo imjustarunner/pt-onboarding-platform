@@ -1,20 +1,22 @@
+vi.mock('../../models/PayrollPaySystemRate.model.js', () => ({ default: { listForAgency: vi.fn(async () => []) } }));
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 const db = vi.hoisted(() => ({ execute: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: db }));
 vi.mock('../../models/OfficeLocation.model.js', () => ({ default: { findByAgencyMembership: vi.fn(async () => []), findByAgency: vi.fn(async () => []) } }));
 vi.mock('../../models/HiringResumeParse.model.js', () => ({ default: { findLatestStructuredByCandidateUserId: vi.fn(async () => null) } }));
 vi.mock('../../models/PayrollCompensationLevel.model.js', () => ({ default: { getForUser: vi.fn(async () => null), listForAgency: vi.fn(async () => []), getLevelRatesForAgency: vi.fn(async () => ({})) } }));
-import { applyContractTokens, buildPayTableHtml, loadContractBundle, renderContractHtml, autofillTokensForCandidate } from '../contractMerge.service.js';
+import { applyContractTokens, inferCompensationFromCredential, buildPayTableHtml, loadContractBundle, renderContractHtml, autofillTokensForCandidate } from '../contractMerge.service.js';
 import { findContractPlaceholders } from '../../utils/contractPlaceholders.js';
 beforeEach(() => vi.clearAllMocks());
 describe('contract merge validation', () => {
+  it('classifies SWC as category 2 instead of licensed category 3', () => { expect(inferCompensationFromCredential({ credential: 'SWC', jobTitle: 'Mental Health Provider' }).compensationCategory).toBe(2); });
   it('preserves dollar signs and replacement-like text in a contract value', () => {
     expect(applyContractTokens('<p>{{EMPLOYEE_FULL_NAME}}: {{DIRECT_RATE}}</p>', { EMPLOYEE_FULL_NAME: '$& Partners', DIRECT_RATE: '$45.00' })).toBe('<p>$& Partners: $45.00</p>');
   });
   it('resolves compact imported placeholders and canonical edits replace old aliases', () => {
     expect(applyContractTokens('{{CANDIDATENAME}} {{COMPANYNAME}} {{EXECUTIONDATE}} {{SUPERVISORNAME}}', {
       EMPLOYEE_FULL_NAME: 'Elena Cruz', COMPANY_NAME: 'New agency', COMPANYNAME: 'Old agency', EXECUTION_DATE: '2026-09-19', SUPERVISOR_NAME: ''
-    })).toBe('Elena Cruz New agency 2026-09-19 ');
+    })).toBe('Elena Cruz New agency September 19, 2026 ');
   });
   it('rejects an inactive or missing clause rather than generating a partial agreement', async () => {
     db.execute.mockResolvedValueOnce([[{ is_active: 1, clause_keys_json: ['PREAMBLE', 'PAY'] }]])

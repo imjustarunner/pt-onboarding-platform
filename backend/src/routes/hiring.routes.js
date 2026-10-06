@@ -1,3 +1,4 @@
+import { getCandidateReferenceWorkspace, postCandidateReferenceContact } from '../controllers/hiring.controller.js';
 import { getInterviewBrief, viewInterviewDocument, previewInterviewInvite, resendInterviewInvite } from '../controllers/interviewHub.controller.js';
 import express from 'express';
 import multer from 'multer';
@@ -152,6 +153,8 @@ router.get('/candidates/:userId/background-check-authorization', getBackgroundCh
 router.post('/candidates/:userId/background-check-authorization/reveal', revealBackgroundCheckAuthorization);
 router.get('/candidates/:userId/applications', listCandidateApplications);
 router.patch('/candidates/:userId/interview', patchCandidateInterview);
+router.get('/candidates/:userId/reference-workspace', getCandidateReferenceWorkspace);
+router.post('/candidates/:userId/reference-contacts', postCandidateReferenceContact);
 router.get('/candidates/:userId/reference-requests', listCandidateReferenceRequests);
 router.get('/candidates/:userId/reference-activity', listCandidateReferenceActivity);
 router.post('/candidates/:userId/reference-requests/send', postCandidateReferenceRequestsSend);

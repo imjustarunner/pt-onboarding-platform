@@ -1,3 +1,5 @@
+import { referenceQuestionnaire, normalizeReferenceAnswers, referenceDeadline } from '../utils/hiringReferenceQuestionnaire.js';
+import { brandedReferenceEmail } from './hiringReferenceEmail.service.js';
 import crypto from 'crypto';
 import config from '../config/config.js';
 import pool from '../config/database.js';
@@ -199,7 +201,7 @@ async function sendReferenceThankYouToReferee({ row, identity }) {
 }
 
 /**
- * Create tokenized rows and send reference invite emails. Caller must validate interview + consent.
+ * Create tokenized rows and send reference invite emails after checking applicant consent.
  * @returns {{ sent: Array, skipped: Array, errors: string[] }}
  */
 export async function createAndSendReferenceRequests({
@@ -208,6 +210,8 @@ export async function createAndSendReferenceRequests({
   profile,
   sentByUserId,
   intakeSubmissionId = null,
+  referenceIndex = null,
+  deadline = null,
   onlyIfNotSent = false
 }) {
   const errors = [];
@@ -246,15 +250,22 @@ export async function createAndSendReferenceRequests({
   const agencyName = String(agency?.name || agency?.official_name || 'Our organization').trim();
   const contactFooter = buildPeopleOpsContactFooter(agency);
 
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const expiresAt = deadline ? new Date(`${deadline}T23:59:59Z`) : referenceDeadline();
+  if ((deadline && !/^\d{4}-\d{2}-\d{2}$/.test(String(deadline))) || !Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date() || expiresAt.getTime() > Date.now() + 90 * 86400000 || (deadline && expiresAt.toISOString().slice(0, 10) !== deadline)) {
+    return { sent, skipped, errors: ['Choose a valid reference deadline within the next 90 days.'] };
+  }
   const expiresSql = expiresAt.toISOString().slice(0, 19).replace('T', ' ');
 
   for (let i = 0; i < refs.length; i += 1) {
+    if (referenceIndex != null && i !== Number(referenceIndex)) continue;
     const r = refs[i] || {};
     const name = String(r.name || '').trim();
     const email = String(r.email || '').trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
 
+    const [completedContacts] = await pool.execute(`SELECT id FROM hiring_reference_contacts
+      WHERE hiring_profile_id = ? AND agency_id = ? AND reference_index = ? AND outcome = 'completed' LIMIT 1`, [pid, aid, i]);
+    if (completedContacts.length) { skipped.push({ referenceIndex: i, email, reason: 'completed_by_phone' }); continue; }
     if (onlyIfNotSent) {
       // eslint-disable-next-line no-await-in-loop
       const exists = await HiringReferenceRequest.hasActiveSentForIndex(pid, i);
@@ -273,12 +284,15 @@ export async function createAndSendReferenceRequests({
       }
     }
 
-    const publicLinkToken = crypto.randomBytes(TOKEN_BYTES).toString('hex');
-
-    let row;
+    const existing = (await HiringReferenceRequest.listByProfileAndAgency(pid, aid)).filter(r => Number(r.reference_index) === i);
+    if (existing.some(r => r.status === 'completed')) { skipped.push({ referenceIndex: i, email, reason: 'completed' }); continue; }
+    const active = existing.reverse().find(r => r.status === 'sent' && r.reference_email === email && new Date(r.token_expires_at) > new Date());
+    const publicLinkToken = active?.public_link_token || crypto.randomBytes(TOKEN_BYTES).toString('hex');
+    const requestDeadline = active ? new Date(active.token_expires_at) : expiresAt;
+    let row = active;
     try {
       // eslint-disable-next-line no-await-in-loop
-      row = await HiringReferenceRequest.insertRow({
+      if (!row) row = await HiringReferenceRequest.insertRow({
         hiringProfileId: pid,
         agencyId: aid,
         candidateUserId: uid,
@@ -311,7 +325,7 @@ export async function createAndSendReferenceRequests({
       '',
       `Your responses remain confidential: they are not shared with the applicant and are used only for hiring decisions by ${agencyName}.`,
       '',
-      `Complete the form here (secure link; expires ${expiresAt.toUTCString()}):`,
+      `Complete the form here (secure link; expires ${requestDeadline.toUTCString()}):`,
       url,
       '',
       contactFooter.text,
@@ -322,19 +336,7 @@ export async function createAndSendReferenceRequests({
       agencyName
     ].join('\n');
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
-        <p>Hello${name ? ` ${escapeHtml(name)}` : ''},</p>
-        <p><strong>${escapeHtml(agencyName)}</strong> is gathering a professional reference regarding <strong>${escapeHtml(candName)}</strong>. When you have a moment, we would be grateful if you could complete a brief confidential online form — ideally as soon as your schedule allows.</p>
-        <p>Your candid perspective is very important to us, and we truly appreciate your time and effort. The form usually takes <strong>less than five minutes</strong>.</p>
-        <p>Your responses remain <strong>confidential</strong>: they are not shared with the applicant and are used only for hiring decisions by ${escapeHtml(agencyName)}.</p>
-        <p><a href="${escapeHtml(url)}">Complete reference form</a></p>
-        <p style="color:#555;font-size:13px;">This secure link expires ${escapeHtml(expiresAt.toUTCString())}.</p>
-        ${contactFooter.html}
-        <p style="font-size:13px;color:#555;margin-top:16px;">If you did not expect this request, you may disregard this message.</p>
-        <p style="margin-top:18px;">Thank you,<br/>${escapeHtml(agencyName)}</p>
-      </div>
-    `.trim();
+    const html = brandedReferenceEmail({ agency, candidateName: candName, referenceName: name, url, deadline: requestDeadline, footer: contactFooter.html });
 
     const openTok = String(row?.open_track_token || '').trim() || null;
     // eslint-disable-next-line no-await-in-loop
@@ -348,7 +350,7 @@ export async function createAndSendReferenceRequests({
     });
 
     if (!out.ok) {
-      await markRequestSendFailed(row.id);
+      if (!active) await markRequestSendFailed(row.id);
       if (out.skipped) {
         errors.push(`Reference invite not sent to ${email} (${out.reason || 'skipped'}).`);
       } else {
@@ -439,7 +441,7 @@ export async function createAndSendReferenceRequests({
   return { sent, skipped, errors };
 }
 
-export async function notifyApplicantReferenceCompleted({ agencyId, candidateUserId, referenceName }) {
+export async function notifyApplicantReferenceCompleted({ agencyId, candidateUserId, referenceName, method = 'online' }) {
   const uid = Number(candidateUserId);
   const aid = Number(agencyId);
   if (!uid || !aid) return;
@@ -451,8 +453,8 @@ export async function notifyApplicantReferenceCompleted({ agencyId, candidateUse
   const nm = String(referenceName || 'A reference').trim();
   const cand = candidateDisplayName(user);
   const subj = 'Reference form completed';
-  const bodyText = `Hi ${cand},\n\n${nm} submitted a reference form for your application.\n`;
-  const bodyHtml = `<p>Hi ${escapeHtml(cand)},</p><p><strong>${escapeHtml(nm)}</strong> submitted a reference form for your application.</p>`;
+  const bodyText = `Hi ${cand},\n\n${nm} completed a reference for your application ${method === 'phone' ? 'by phone with People Operations' : 'using the online questionnaire'}.\n`;
+  const bodyHtml = `<p>Hi ${escapeHtml(cand)},</p><p><strong>${escapeHtml(nm)}</strong> completed a reference for your application ${method === 'phone' ? 'by phone with People Operations' : 'using the online questionnaire'}.</p>`;
   const out = await sendHiringReferenceOutboundEmail({
     identity,
     to,
@@ -495,6 +497,11 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
     return { error: 'expired', row };
   }
 
+  if (await HiringReferenceRequest.recordLinkOpen(row.id)) {
+    logHiringReferenceEvent({ candidateUserId: row.candidate_user_id, agencyId: row.agency_id,
+      kind: 'reference_link_opened', referenceIndex: row.reference_index, hiringReferenceRequestId: row.id, outcome: 'detected' });
+  }
+
   const user = await User.findById(row.candidate_user_id);
   const agency = await Agency.findById(row.agency_id);
   const fn = String(user?.first_name || '').trim();
@@ -516,61 +523,13 @@ export async function getPublicReferenceMetaByRawToken(rawToken) {
     candidateLabel,
     referenceName: String(row.reference_name || '').trim() || null,
     branding,
+    questionnaire: referenceQuestionnaire,
     disclaimer:
-      'This form is confidential: your answers are not shared with the applicant and are used only for hiring decisions. The form typically takes less than five minutes. Final wording is subject to legal review.'
+      'This form is confidential: your answers are not shared with the applicant and are used only for hiring decisions. The form typically takes less than five minutes.'
   };
 }
 
-const TRAIT_KEYS = ['reliability', 'communication', 'workQuality', 'teamwork', 'initiative'];
-const RATING_OPTS = new Set(['excellent', 'good', 'average', 'below_average', 'would_not_recommend']);
-const REL_OPTS = new Set(['manager', 'coworker', 'direct_report', 'other']);
-const TRAIT_OPTS = new Set(['strong', 'average', 'weak']);
-const CONCERN_OPTS = new Set(['no', 'minor', 'yes']);
-
-export function normalizeReferenceResponses(body) {
-  const relationshipType = String(body?.relationshipType || '').trim().toLowerCase();
-  if (!REL_OPTS.has(relationshipType)) {
-    throw new Error('relationshipType is required');
-  }
-  const relationshipOther =
-    relationshipType === 'other' ? String(body?.relationshipOther || '').trim().slice(0, 500) || null : null;
-  const workedTogether = String(body?.workedTogether || '').trim().toLowerCase();
-  if (!['yes', 'no'].includes(workedTogether)) {
-    throw new Error('workedTogether must be yes or no');
-  }
-  const overallRating = String(body?.overallRating || '').trim().toLowerCase();
-  if (!RATING_OPTS.has(overallRating)) {
-    throw new Error('overallRating is required');
-  }
-  const traitsIn = body?.traits && typeof body.traits === 'object' ? body.traits : {};
-  const traits = {};
-  for (const k of TRAIT_KEYS) {
-    const v = String(traitsIn[k] || '').trim().toLowerCase();
-    if (!TRAIT_OPTS.has(v)) throw new Error(`Trait ${k} is required`);
-    traits[k] = v;
-  }
-  const additionalComments = String(body?.additionalComments || '').trim().slice(0, 8000) || null;
-  const concernsLevel = String(body?.concernsLevel || '').trim().toLowerCase();
-  if (!CONCERN_OPTS.has(concernsLevel)) {
-    throw new Error('concernsLevel is required');
-  }
-  const concernsComment = String(body?.concernsComment || '').trim().slice(0, 4000) || null;
-  const referenceName = String(body?.referenceName || '').trim().slice(0, 255);
-  if (!referenceName) throw new Error('referenceName is required');
-
-  return {
-    relationshipType,
-    relationshipOther,
-    workedTogether,
-    overallRating,
-    traits,
-    additionalComments,
-    concernsLevel,
-    concernsComment,
-    referenceName,
-    submittedAt: new Date().toISOString()
-  };
-}
+export const normalizeReferenceResponses = normalizeReferenceAnswers;
 
 export async function submitPublicReferenceForm(rawToken, body) {
   await HiringReferenceRequest.expireStaleRows();
@@ -608,21 +567,15 @@ export async function submitPublicReferenceForm(rawToken, body) {
     referenceIndex: row.reference_index,
     referenceEmail: String(row.reference_email || '').trim(),
     referenceNameSubmitted: responses.referenceName,
-    overallRating: responses.overallRating,
     submittedAt: responses.submittedAt,
     outcome: 'completed'
   });
 
-  const identity = await resolveHiringReferenceSenderIdentity(row.agency_id);
-  if (identity?.id) {
-    await sendReferenceThankYouToReferee({ row: updated, identity });
-  }
-
-  await notifyApplicantReferenceCompleted({
-    agencyId: row.agency_id,
-    candidateUserId: row.candidate_user_id,
-    referenceName: responses.referenceName
-  });
+  try {
+    const identity = await resolveHiringReferenceSenderIdentity(row.agency_id);
+    if (identity?.id) await sendReferenceThankYouToReferee({ row: updated, identity });
+    await notifyApplicantReferenceCompleted({ agencyId: row.agency_id, candidateUserId: row.candidate_user_id, referenceName: responses.referenceName });
+  } catch (error) { console.warn('Reference saved; completion email failed', error.message); }
 
   return { success: true };
 }

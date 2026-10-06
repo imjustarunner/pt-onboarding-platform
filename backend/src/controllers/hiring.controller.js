@@ -1,3 +1,6 @@
+import { referenceQuestionnaire, normalizeReferenceAnswers } from '../utils/hiringReferenceQuestionnaire.js';
+import { listReferenceContacts, saveReferenceContact } from '../models/HiringReferenceContact.model.js';
+import { notifyApplicantReferenceCompleted } from '../services/hiringReferenceRequests.service.js';
 import { sanitizeWorkflow } from '../utils/hirePortalWorkflow.js';
 import { prepareHirePacket, retainHirePacket } from '../services/hirePacketPreparation.service.js';
 import pool from '../config/database.js';
@@ -3443,8 +3446,10 @@ export const postCandidateReferenceRequestsSend = async (req, res, next) => {
 
     const profile = await HiringProfile.findByCandidateUserId(candidateUserId);
     if (!profile?.id) return res.status(404).json({ error: { message: 'Hiring profile not found' } });
-    if (!profile.interview_starts_at) {
-      return res.status(400).json({ error: { message: 'Interview date and time are required before sending reference requests.' } });
+    const refs = typeof profile.references_json === 'string' ? JSON.parse(profile.references_json) : profile.references_json || [];
+    const referenceIndex = req.body?.referenceIndex;
+    if (referenceIndex != null && (!Number.isInteger(referenceIndex) || referenceIndex < 0 || referenceIndex >= refs.length)) {
+      return res.status(400).json({ error: { message: 'Invalid reference index.' } });
     }
 
     const onlyIfNotSent =
@@ -3456,7 +3461,9 @@ export const postCandidateReferenceRequestsSend = async (req, res, next) => {
       profile,
       sentByUserId: req.user.id,
       intakeSubmissionId: null,
-      onlyIfNotSent
+      onlyIfNotSent,
+      referenceIndex,
+      deadline: req.body?.deadline || null
     });
 
     if ((result.errors || []).length && !(result.sent || []).length) {
@@ -4147,6 +4154,7 @@ export const sendPreHire = async (req, res, next) => {
     const { previewCandidateContract } = await import('../services/contractGenerator.service.js');
     const checkedContract = await previewCandidateContract({ agencyId, candidateUserId, configId,
       templateId: Number(req.body.contractBuilderTemplateId) || null, tokens: req.body.contractTokens || {},
+      compensationLevel: req.body.compensationLevel, officeLocationId: req.body.officeLocationId,
       compensationCategory: req.body.compensationCategory, credentialOverride: req.body.credential || null });
     if (checkedContract.unresolvedTokens?.length) return res.status(400).json({ error: { message: `Complete these contract fields: ${checkedContract.unresolvedTokens.join(', ')}` } });
     if (req.body.contractPreviewHash && req.body.contractPreviewHash !== checkedContract.previewHash) return res.status(409).json({ error: { message: 'Contract settings changed. Update and review the agreement preview before sending.' } });
@@ -4420,6 +4428,8 @@ export const sendPreHire = async (req, res, next) => {
           expectedPreviewHash: checkedContract.previewHash,
           templateId: builderTemplateId || null,
           createdByUserId: req.user.id,
+          compensationLevel: req.body.compensationLevel,
+          officeLocationId: req.body.officeLocationId,
           credentialOverride: String(req.body?.credential || '').trim() || null,
           compensationCategory: req.body?.compensationCategory != null && req.body?.compensationCategory !== ''
             ? Number(req.body.compensationCategory)
@@ -4845,4 +4855,40 @@ export const sendDocumentToCandidate = async (req, res, next) => {
 
     res.status(201).json({ task });
   } catch (e) { next(e); }
+};
+
+export const getCandidateReferenceWorkspace = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const userId = parseIntParam(req.params.userId);
+    if (!await ensureCandidateInAgency(userId, agencyId)) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+    const profile = await HiringProfile.findByCandidateUserId(userId);
+    if (!profile) return res.status(404).json({ error: { message: 'Hiring profile not found' } });
+    res.json({ questionnaire: referenceQuestionnaire, contacts: await listReferenceContacts(profile.id, agencyId) });
+  } catch (e) { next(e); }
+};
+
+export const postCandidateReferenceContact = async (req, res, next) => {
+  try {
+    const agencyId = parseIntParam(req.query.agencyId || req.user?.agencyId);
+    await ensureAgencyAccess(req, agencyId);
+    const userId = parseIntParam(req.params.userId);
+    if (!await ensureCandidateInAgency(userId, agencyId)) return res.status(404).json({ error: { message: 'Candidate not found in this agency' } });
+    const profile = await HiringProfile.findByCandidateUserId(userId);
+    const refs = typeof profile?.references_json === 'string' ? JSON.parse(profile.references_json) : profile?.references_json || [];
+    const { referenceIndex, method = 'phone', outcome = 'note' } = req.body || {};
+    if (!Number.isInteger(referenceIndex) || referenceIndex < 0 || referenceIndex >= refs.length) return res.status(400).json({ error: { message: 'Invalid reference index.' } });
+    if (!['phone', 'email', 'note'].includes(method) || !['note', 'no_answer', 'voicemail', 'follow_up', 'completed'].includes(outcome)) return res.status(400).json({ error: { message: 'Invalid contact method or outcome.' } });
+    const note = String(req.body.note || '').trim().slice(0, 8000);
+    if (!note && outcome !== 'completed') return res.status(400).json({ error: { message: 'Enter a contact note.' } });
+    if (outcome === 'completed' && method !== 'phone') return res.status(400).json({ error: { message: 'Use phone completion or the secure online questionnaire.' } });
+    const responses = outcome === 'completed' && req.body.responses ? normalizeReferenceAnswers(req.body.responses) : null;
+    if (outcome === 'completed' && !responses && !note) return res.status(400).json({ error: { message: 'Record the phone answers or a completion note.' } });
+    const id = await saveReferenceContact({ profileId: profile.id, agencyId, userId, referenceIndex, method, outcome, note, responses, authorId: req.user.id });
+    if (outcome === 'completed') {
+      await notifyApplicantReferenceCompleted({ agencyId, candidateUserId: userId, referenceName: refs[referenceIndex].name, method: 'phone' }).catch(e => console.warn('Reference completion notice failed', e.message));
+    }
+    res.status(201).json({ id });
+  } catch (e) { if (e.status) return res.status(e.status).json({ error: { message: e.message } }); next(e); }
 };

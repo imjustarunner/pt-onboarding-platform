@@ -1,3 +1,5 @@
+import { formatContractDate, jobLocationOffice } from '../utils/contractPresentation.js';
+import { selectedContractCompensation } from './contractCompensation.service.js';
 /**
  * Employment contract merge + pay table renderer.
  */
@@ -37,7 +39,7 @@ const TOKEN_ALIASES = {
 
 function normalizeTokens(tokens = {}) {
   const out = {};
-  for (const [key, value] of Object.entries(tokens)) out[key.toUpperCase()] = value;
+  for (const [key, value] of Object.entries(tokens)) out[key.toUpperCase()] = /(?:DATE|DEADLINE)$/.test(key.replaceAll('_', '').toUpperCase()) ? formatContractDate(value) : value;
   for (const [alias, canonical] of Object.entries(TOKEN_ALIASES)) {
     const name = alias.toUpperCase();
     if (out[canonical] == null && out[name] != null) out[canonical] = out[name];
@@ -225,24 +227,15 @@ export function inferCompensationFromCredential({
   };
 }
 
-export async function buildPayTableHtml({ agencyId, category, level, payMode }) {
+export async function buildPayTableHtml({ row, rates, payMode, agencyId, category, level }) {
+  if (!row && payMode !== 'none') ({ row, rates } = await selectedContractCompensation(agencyId, category, level, payMode));
   if (payMode === 'none') return '';
-  const rows = await PayrollCompensationLevel.listForAgency(agencyId);
-  const row = rows.find(r => Number(r.category) === Number(category) && Number(r.level) === Number(level));
-  const codeRates = (await PayrollCompensationLevel.getLevelRatesForAgency(agencyId))[`${category}:${level}`] || [];
-  const money = value => `$${Number(value).toFixed(2)}`;
-  const validRate = value => value != null && value !== '' && Number.isFinite(Number(value)) && Number(value) > 0;
-  let cells;
-  if (payMode === 'ffs' && codeRates.length) {
-    if (codeRates.some(rate => !validRate(rate.rateAmount))) throw Object.assign(new Error('Configure a positive rate for every selected compensation service before preparing the agreement.'), { status: 400 });
-    cells = codeRates.map(rate => [escapeHtml(rate.serviceCode), money(rate.rateAmount), rate.rateUnit === 'per_hour' ? 'per hour' : 'per unit']);
-  } else {
-    const rate = payMode === 'ffs' ? row?.ffs_rate : row?.direct_rate;
-    if (!validRate(rate)) throw Object.assign(new Error(`Compensation Category ${category}, Level ${level} has no configured ${payMode === 'ffs' ? 'fee-for-service' : 'direct'} rate. Configure compensation before preparing the agreement.`), { status: 400 });
-    cells = [[payMode === 'ffs' ? 'Fee-for-service' : 'Direct services', money(rate), payMode === 'ffs' ? 'per unit' : 'per hour']];
-    if (validRate(row?.indirect_rate)) cells.push(['Indirect services', money(row.indirect_rate), 'per hour']);
+  const label = `<p><strong>Compensation Category ${escapeHtml(row.category)}, Level ${escapeHtml(row.level)}</strong>${row.label ? ` — ${escapeHtml(row.label)}` : ''}</p>`;
+  if (payMode === 'ffs') {
+    const reduced = rates.some(r => r.reduced);
+    return label + `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;"><thead><tr><th>Service</th><th>Base compensation</th>${reduced ? '<th>Probation / minimum-workload rate</th>' : ''}<th>Unit</th></tr></thead><tbody>${rates.map(r => `<tr><td>${escapeHtml(r.code)}</td><td>${escapeHtml(r.rate)}${r.additionalIndirect ? `<br/>${escapeHtml(r.additionalIndirect)}` : ''}</td>${reduced ? `<td>${escapeHtml(r.reduced || r.rate)}</td>` : ''}<td>${escapeHtml(r.unit)}</td></tr>`).join('')}</tbody></table><p>Base rates shown above. Applicable bonuses and workload conditions follow the agency’s compensation policies.</p>`;
   }
-  return `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;margin:12px 0;width:100%;"><thead><tr><th>Service</th><th>Compensation</th><th>Unit</th></tr></thead><tbody>${cells.map(c => `<tr>${c.map(value => `<td>${value}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  return label + `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;"><tr><th>Direct service / hour</th><td>$${Number(row.direct_rate).toFixed(2)}</td></tr><tr><th>Indirect service / hour</th><td>$${Number(row.indirect_rate).toFixed(2)}</td></tr></table>`;
 }
 
 function resolveClauseKeys(rawKeys, jobDescClauseKey) {
@@ -321,7 +314,7 @@ export async function getAgencyBuilderDefaults(agencyId) {
     offices: (offices || []).map((o) => ({
       id: o.id,
       name: o.name,
-      city: o.city || '',
+      city: o.city, state: o.state,
       address: formatOfficeAddress(o)
     })),
     credentialOptions: DISCLOSURE_LICENSE_TYPES
@@ -354,9 +347,9 @@ export async function autofillTokensForCandidate({
   let roleType = '';
   try {
     const [hp] = await pool.execute(
-      `SELECT hp.applied_role, hp.job_description_id,
+      `SELECT hp.applied_role, hp.job_description_id, hp.credential AS applicant_credential,
               jd.title, jd.description_text, jd.job_desc_clause_key, jd.default_contract_config_id,
-              jd.role_type, jd.tags_json, jd.city
+              jd.role_type, jd.tags_json, jd.city, jd.state
        FROM hiring_profiles hp
        LEFT JOIN hiring_job_descriptions jd ON jd.id = hp.job_description_id AND jd.agency_id = ?
        WHERE hp.candidate_user_id = ?
@@ -369,7 +362,7 @@ export async function autofillTokensForCandidate({
       // Older intake applications did not always populate hiring_profiles.
       const [applications] = await pool.execute(
         `SELECT jd.id AS job_description_id, jd.title, jd.description_text,
-                jd.job_desc_clause_key, jd.default_contract_config_id, jd.role_type, jd.tags_json, jd.city
+                jd.job_desc_clause_key, jd.default_contract_config_id, jd.role_type, jd.tags_json, jd.city, jd.state
          FROM intake_submissions s
          JOIN intake_links il ON il.id = s.intake_link_id
          JOIN hiring_job_descriptions jd ON jd.id = il.job_description_id AND jd.agency_id = ?
@@ -397,7 +390,7 @@ export async function autofillTokensForCandidate({
   const university = pickUniversityFromResume(resumeSummary);
   const resumeCredentialKey = inferCredentialKeyFromResume(resumeSummary);
 
-  let credential = String(credentialOverride ?? user?.credential ?? '').trim();
+  let credential = String(credentialOverride ?? jobDescriptionRow?.applicant_credential ?? user?.credential ?? '').trim();
   if (!credential && resumeCredentialKey) {
     credential = resolveCredentialLabel(resumeCredentialKey) || resumeCredentialKey;
   }
@@ -415,7 +408,7 @@ export async function autofillTokensForCandidate({
   const officeId = Number(officeLocationId) || null;
   if (officeId) {
     assignedOffice = agencyDefaults.offices.find((o) => Number(o.id) === officeId) || null;
-    if (!assignedOffice) throw Object.assign(new Error('Choose an office belonging to the selected agency.'), { status: 400 });
+    if (!assignedOffice) throw Object.assign(new Error('Select an office belonging to this agency.'), { status: 400 });
   }
   if (!assignedOffice) {
     try {
@@ -429,17 +422,19 @@ export async function autofillTokensForCandidate({
         [candidateUserId]
       );
       const row = officeRows?.[0];
-      if (row) assignedOffice = agencyDefaults.offices.find(office => Number(office.id) === Number(row.id)) || null;
+      if (row) {
+        assignedOffice = agencyDefaults.offices.find(o => Number(o.id) === Number(row.id)) || null;
+      }
     } catch {
       assignedOffice = null;
     }
   }
 
-  if (!assignedOffice && jobDescriptionRow?.city) {
-    const matches = agencyDefaults.offices.filter(office => office.city.trim().toLowerCase() === String(jobDescriptionRow.city).trim().toLowerCase());
-    if (matches.length === 1) assignedOffice = matches[0];
+  let officeSource = assignedOffice ? (officeId ? 'Selected office' : 'Candidate’s assigned office') : '';
+  if (!assignedOffice) {
+    assignedOffice = jobLocationOffice(agencyDefaults.offices, jobDescriptionRow);
+    if (assignedOffice) officeSource = 'Defaulted from the job’s city and state';
   }
-
   const today = new Date();
   const executionDate = today.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const expiration = new Date(today);
@@ -501,6 +496,7 @@ export async function autofillTokensForCandidate({
     DEFAULT_CONFIG_ID: defaultConfigId,
     PAY_BYPASS: pay?.bypass ? 1 : 0,
     PAY_LABEL: pay?.label || '',
+    ASSIGNED_OFFICE_SOURCE: officeSource,
     ASSIGNED_OFFICE_ID: assignedOffice?.id ? String(assignedOffice.id) : '',
     ASSIGNED_OFFICE_NAME: assignedOffice?.name || '',
     ASSIGNED_OFFICE_ADDRESS: assignedOffice?.address || '',
@@ -533,13 +529,14 @@ export async function renderContractHtml({
 
   const category = compensationCategory || Number(mergedTokens.COMPENSATION_CATEGORY) || 3;
   const level = compensationLevel || Number(mergedTokens.COMPENSATION_LEVEL) || 1;
-  const payTable = await buildPayTableHtml({
-    agencyId,
-    category,
-    level,
-    payMode: config.pay_mode
-  });
-  mergedTokens.INSERT_PAY_TABLE = payTable;
+  const compensation = await selectedContractCompensation(agencyId, category, level, config.pay_mode);
+  mergedTokens.COMPENSATION_CATEGORY = String(category);
+  mergedTokens.COMPENSATION_LEVEL = String(level);
+  if (config.pay_mode !== 'none') {
+    mergedTokens.DIRECT_RATE = compensation.row.direct_rate == null ? '' : `$${Number(compensation.row.direct_rate).toFixed(2)}`;
+    mergedTokens.INDIRECT_RATE = compensation.row.indirect_rate == null ? '' : `$${Number(compensation.row.indirect_rate).toFixed(2)}`;
+  }
+  mergedTokens.INSERT_PAY_TABLE = await buildPayTableHtml({ ...compensation, payMode: config.pay_mode });
   const includeSupervisor = includeSupervisorFromTokens(mergedTokens);
   if (!includeSupervisor) {
     mergedTokens.SUPERVISOR_NAME = '';
@@ -622,6 +619,7 @@ ${letterheadFooter || ''}
 
   return {
     html,
+    tokens: normalizeTokens(mergedTokens),
     unresolvedTokens: [...new Set([...missingFields, ...findUnresolvedTokens(html.replace(/\{\{\s*INSERT_PAY_TABLE\s*\}\}/gi, ''))])],
     config,
     template

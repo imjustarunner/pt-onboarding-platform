@@ -1,4 +1,5 @@
 import { onboardingPasswordReady } from '../utils/hirePortalWorkflow.js';
+import { applicantReferenceStatus } from '../models/HiringReferenceContact.model.js';
 import { buildPortalWorkflow, portalPacket, portalStepSubmissions, requiredSubmissionKeys, assertPortalStepCompletion } from '../services/hirePortalWorkflow.service.js';
 import { findContractPlaceholders } from '../utils/contractPlaceholders.js';
 /**
@@ -250,7 +251,12 @@ export const getPortal = async (req, res, next) => {
     const canFinalizeLogin = hireAccountMode === 'group_password' && usernameChosen && !passwordFinalized && onboardingPasswordReady(user, workflow, journey);
     if (status === 'ONBOARDING') portalPhase = journey?.onboardingCompletedAt ? 'onboarding_review' : canFinalizeLogin ? 'finalize_login' : 'onboarding';
 
+    const referenceStatus = agencyRaw?.id ? await applicantReferenceStatus(userId, agencyRaw.id) : [];
+    let referenceNames = hiringProfile?.references_json || [];
+    if (typeof referenceNames === 'string') { try { referenceNames = JSON.parse(referenceNames); } catch { referenceNames = []; } }
+    for (const status of referenceStatus) status.referenceName ||= referenceNames[status.referenceIndex]?.name || `Reference ${status.referenceIndex + 1}`;
     res.json({
+      referenceStatus,
       candidate: {
         id: user.id,
         firstName: user.first_name,

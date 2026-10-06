@@ -1,3 +1,4 @@
+import { brandedReferenceEmail } from './hiringReferenceEmail.service.js';
 import HiringReferenceRequest from '../models/HiringReferenceRequest.model.js';
 import { resolveHiringReferenceSenderIdentity } from './hiringReferenceIdentity.service.js';
 import User from '../models/User.model.js';
@@ -35,20 +36,14 @@ async function sendReminderEmail({ row, label, identity }) {
     `It usually takes less than five minutes. Your answers remain confidential and are not shared with the applicant.`,
     '',
     `Open the form: ${url}`,
+    `Deadline: ${new Date(row.token_expires_at).toUTCString()}`,
     '',
     contactFooter.text,
     '',
     'Thank you for your time and consideration,',
     agencyName
   ].join('\n');
-  const html = `<div style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
-    <p>Hello,</p>
-    <p>This is a friendly reminder to complete the confidential professional reference for <strong>${escapeHtml(cand)}</strong>. We would appreciate it if you could submit the short form as soon as you are able <span style="color:#555;">(${escapeHtml(label)})</span>.</p>
-    <p>It usually takes <strong>less than five minutes</strong>. Your answers remain <strong>confidential</strong> and are not shared with the applicant.</p>
-    <p><a href="${escapeHtml(url)}">Open reference form</a></p>
-    ${contactFooter.html}
-    <p style="margin-top:18px;">Thank you for your time and consideration,<br/>${escapeHtml(agencyName)}</p>
-  </div>`;
+  const html = brandedReferenceEmail({ agency, candidateName: cand, referenceName: row.reference_name, url, deadline: row.token_expires_at, footer: contactFooter.html, reminder: true });
   const openTok = String(row?.open_track_token || '').trim() || null;
   const out = await sendHiringReferenceOutboundEmail({
     identity,
@@ -82,7 +77,7 @@ async function sendReminderEmail({ row, label, identity }) {
 }
 
 /**
- * Hourly worker: expire stale tokens; send one-shot T-3d and T-24h reminders (includes same link as initial invite).
+ * Hourly worker: expire stale tokens; send one-shot 48-hour and T-24h reminders (includes same link as initial invite).
  */
 export async function runHiringReferenceReminderTick() {
   await HiringReferenceRequest.expireStaleRows();
@@ -94,22 +89,22 @@ export async function runHiringReferenceReminderTick() {
     if (!exp || exp <= now) continue;
 
     const msToExpiry = exp - now;
-    const threeDays = 3 * 24 * 60 * 60 * 1000;
+    const sinceSent = now - new Date(row.sent_at).getTime();
     const oneDay = 24 * 60 * 60 * 1000;
 
     // eslint-disable-next-line no-await-in-loop
     const identity = await resolveHiringReferenceSenderIdentity(row.agency_id);
     if (!identity?.id) continue;
 
-    if (!row.reminder_3d_sent_at && msToExpiry <= threeDays) {
+    if (!row.reminder_48h_sent_at && sinceSent >= 48 * 60 * 60 * 1000) {
       try {
-        await sendReminderEmail({ row, label: '3 days before expiry', identity });
-        await HiringReferenceRequest.markReminder3d(row.id);
+        await sendReminderEmail({ row, label: '48-hour follow-up', identity });
+        await HiringReferenceRequest.markReminder48h(row.id);
       } catch {
         // ignore single failure
       }
     }
-    if (!row.reminder_24h_sent_at && msToExpiry <= oneDay) {
+    else if (!row.reminder_24h_sent_at && msToExpiry <= oneDay) {
       try {
         await sendReminderEmail({ row, label: '24 hours before expiry', identity });
         await HiringReferenceRequest.markReminder24h(row.id);

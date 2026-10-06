@@ -81,6 +81,7 @@ function parseCareersAccent(agency) {
   } catch {
     /* ignore */
   }
+  try { const palette = typeof agency?.color_palette === 'string' ? JSON.parse(agency.color_palette) : agency?.color_palette; if (/^#[0-9a-fA-F]{6}$/.test(palette?.primary || '')) return palette.primary; } catch { /* default accent */ }
   return '#1a8c54';
 }
 
@@ -179,7 +180,7 @@ export async function getPublicJobDescriptionPayload({ agencySlug = null, jobId 
   };
 }
 
-async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
+export async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
   const title = String(job?.title || 'Job description').trim() || 'Job description';
   const agencyName = agencyBrandLabel(agency);
   const accent = hexToRgb(parseCareersAccent(agency));
@@ -189,6 +190,20 @@ async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
   const pageSize = [612, 792];
   const margin = 48;
   const maxWidth = pageSize[0] - margin * 2;
+  pdfDoc.setTitle(title);
+  pdfDoc.setAuthor(String(agency?.official_name || agency?.name || agencyName));
+  let logo = null;
+  const logoPath = String(agency?.logo_path || '').replace(/^\/?uploads\//, '');
+  if (logoPath && /\.(png|jpe?g)$/i.test(logoPath)) {
+    try { const bytes = await StorageService.readObject(logoPath); logo = /\.png$/i.test(logoPath) ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes); } catch { /* Agency wordmark remains available. */ }
+  }
+  const drawHeader = (target, first = false) => {
+    target.drawRectangle({ x:0, y:pageSize[1] - 8, width:pageSize[0], height:8, color:rgb(accent.r, accent.g, accent.b) });
+    if (logo) { const scale = Math.min(140 / logo.width, 42 / logo.height); target.drawImage(logo, { x:margin, y:pageSize[1] - 66, width:logo.width * scale, height:logo.height * scale }); }
+    else target.drawText(agencyName, { x:margin, y:pageSize[1] - 46, size:16, font:fontBold, color:rgb(accent.r, accent.g, accent.b) });
+    target.drawText(first ? 'CAREERS  /  JOB DESCRIPTION' : 'JOB DESCRIPTION  /  CONTINUED', { x:margin, y:pageSize[1] - 84, size:8, font:fontBold, color:rgb(.36,.42,.39) });
+    target.drawLine({ start:{x:margin,y:pageSize[1]-96}, end:{x:pageSize[0]-margin,y:pageSize[1]-96}, thickness:1, color:rgb(.85,.89,.87) });
+  };
   let page = pdfDoc.addPage(pageSize);
   let y = pageSize[1] - margin;
 
@@ -213,7 +228,8 @@ async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
   const ensureSpace = (needed) => {
     if (y - needed >= margin) return;
     page = pdfDoc.addPage(pageSize);
-    y = pageSize[1] - margin;
+    drawHeader(page);
+    y = pageSize[1] - 116;
   };
 
   const drawLines = (lines, { size = 11, bold = false, color = rgb(0.12, 0.14, 0.18), gap = 4 } = {}) => {
@@ -225,22 +241,8 @@ async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
     }
   };
 
-  // Brand header bar
-  page.drawRectangle({
-    x: 0,
-    y: pageSize[1] - 56,
-    width: pageSize[0],
-    height: 56,
-    color: rgb(accent.r, accent.g, accent.b)
-  });
-  page.drawText(agencyName, {
-    x: margin,
-    y: pageSize[1] - 36,
-    size: 14,
-    font: fontBold,
-    color: rgb(1, 1, 1)
-  });
-  y = pageSize[1] - 80;
+  drawHeader(page, true);
+  y = pageSize[1] - 120;
 
   drawLines(wrap(title, fontBold, 18), { size: 18, bold: true, gap: 6 });
   y -= 6;
@@ -258,7 +260,8 @@ async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
 
   const pushSection = (heading, bodyLines) => {
     if (!bodyLines?.length) return;
-    y -= 6;
+    ensureSpace(60);
+    y -= 12;
     drawLines([heading], { size: 13, bold: true, color: rgb(accent.r, accent.g, accent.b), gap: 5 });
     drawLines(bodyLines, { size: 11, gap: 4 });
   };
@@ -294,13 +297,11 @@ async function buildBrandedJobDescriptionPdfBuffer({ agency, job, sections }) {
     pushSection('Description', wrap(plain, font, 11));
   }
 
-  ensureSpace(24);
-  page.drawText('Official job description — for your records.', {
-    x: margin,
-    y: margin - 8,
-    size: 8,
-    font,
-    color: rgb(0.5, 0.52, 0.55)
+  const pages = pdfDoc.getPages();
+  pages.forEach((target, index) => {
+    target.drawLine({ start:{x:margin,y:34}, end:{x:pageSize[0]-margin,y:34}, thickness:.5, color:rgb(.8,.85,.82) });
+    target.drawText(`${agencyName} · Official job description`, { x:margin, y:22, size:8, font, color:rgb(.4,.45,.42) });
+    target.drawText(`${index + 1} / ${pages.length}`, { x:pageSize[0]-margin-32, y:22, size:8, font, color:rgb(.4,.45,.42) });
   });
 
   return Buffer.from(await pdfDoc.save());

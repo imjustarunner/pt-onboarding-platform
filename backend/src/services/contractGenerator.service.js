@@ -1,3 +1,4 @@
+import { contractCompensationLevels } from './contractCompensation.service.js';
 /**
  * Contract CRUD + generate/assign for pre-hire candidates.
  */
@@ -271,7 +272,7 @@ export async function getCandidateWizardContext({
   const [templates, configs, compensationLevels, agencyDefaults, tokens] = await Promise.all([
     listTemplates(agencyId),
     listConfigs(agencyId),
-    PayrollCompensationLevel.listForAgency(agencyId),
+    contractCompensationLevels(agencyId),
     getAgencyBuilderDefaults(agencyId),
     autofillTokensForCandidate({
       agencyId,
@@ -298,7 +299,7 @@ export async function getCandidateWizardContext({
   return {
     templates,
     configs,
-    compensationLevels: compensationLevels.filter((r) => r.label || r.direct_rate != null || r.indirect_rate != null || r.ffs_rate != null),
+    compensationLevels: compensationLevels.filter((r) => r.serviceRates?.length || r.label || r.direct_rate != null || r.indirect_rate != null || r.ffs_rate != null),
     compensationCategories: COMPENSATION_CATEGORIES,
     jobDescClauses,
     agency: agencyDefaults.agency,
@@ -355,7 +356,7 @@ export async function previewCandidateContract({
     jobDescClauseKey: jobDescClauseKey || merged.JOB_DESC_CLAUSE_KEY
   });
   const previewHash = createHash('sha256').update(JSON.stringify([agencyId, candidateUserId, configId, rendered.html])).digest('hex');
-  return { ...rendered, tokens: merged, previewHash };
+  return { ...rendered, tokens: rendered.tokens || merged, previewHash };
 }
 
 export async function generateAndAssignCandidateContract({

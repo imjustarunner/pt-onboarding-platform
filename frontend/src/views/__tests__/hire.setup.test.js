@@ -22,6 +22,11 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount());
 const button = text => wrapper.findAll('button').find(b => b.text().includes(text));
 describe('hire setup wizards', () => {
+  it('requires a deliberate pay-level choice before previewing', async () => {
+    wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
+    await button('Update contract preview').trigger('click'); await flushPromises();
+    expect(http.post).not.toHaveBeenCalled(); expect(wrapper.text()).toContain('Choose a pay category and level before previewing.');
+  });
   it('isolates prehire, previews the contract and invalidates approval after an edit', async () => {
     wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
     expect(wrapper.findAll('.sph-steps button')).toHaveLength(4);
@@ -34,8 +39,11 @@ describe('hire setup wizards', () => {
     const jobTitleInput = wrapper.findAll('label').find(label => label.text() === 'Job title').get('input');
     expect(jobTitleInput.element.value).toBe('Counselor');
     await jobTitleInput.setValue('School Counselor');
+    await wrapper.findAll('label').find(l => l.text().startsWith('Pay category')).get('select').setValue('2');
+    await wrapper.findAll('label').find(l => l.text().startsWith('Pay level')).get('select').setValue('2');
     await button('Update contract preview').trigger('click'); await flushPromises();
     expect(http.post.mock.calls.find(([url]) => url.endsWith('/preview'))[1].tokens.JOB_TITLE).toBe('School Counselor');
+    expect(http.post.mock.calls.find(([url]) => url.endsWith('/preview'))[1]).toMatchObject({ compensationCategory: '2', compensationLevel: '2' });
     expect(wrapper.find('iframe[title="Candidate employment agreement preview"]').attributes('srcdoc')).toContain('Elena Cruz');
     const reviewed = wrapper.findAll('label').find(l => l.text().includes('I reviewed this agreement')).get('input');
     await reviewed.setValue(true);
@@ -51,6 +59,8 @@ describe('hire setup wizards', () => {
   it('shows failed delivery and retries just the email without recreating the prehire packet', async () => {
     wrapper = mount(StartPreHire, { global: { stubs: { RouterLink: true } } }); await flushPromises();
     await wrapper.findAll('.sph-steps button')[2].trigger('click');
+    await wrapper.findAll('label').find(l => l.text().startsWith('Pay category')).get('select').setValue('2');
+    await wrapper.findAll('label').find(l => l.text().startsWith('Pay level')).get('select').setValue('2');
     await button('Update contract preview').trigger('click'); await flushPromises();
     await wrapper.findAll('label').find(l => l.text().includes('I reviewed this agreement')).get('input').setValue(true);
     await wrapper.findAll('.sph-steps button')[3].trigger('click');

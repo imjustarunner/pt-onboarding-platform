@@ -10,6 +10,10 @@
     <div v-else-if="portalIdle.locked.value" class="portal-splash" role="dialog" aria-modal="true" aria-label="Portal paused"><h2>Your portal is paused</h2><p>We hid your information after 15 minutes without activity. Saved work is retained; unsaved entries may need to be entered again.</p><button class="btn-primary" @click="resumePortal">Continue securely</button></div>
     <template v-else-if="portalData">
       <p v-if="submissionError && !showSubmitConfirm" class="panel-error" role="alert">{{ submissionError }}</p>
+      <section v-if="portalData.referenceStatus?.length" class="portal-link-card" aria-label="Reference progress">
+        <h2>Your references</h2><p>See who has completed a reference. Answers and staff contact notes remain confidential.</p>
+        <ul><li v-for="reference in portalData.referenceStatus" :key="reference.referenceIndex"><strong>{{ reference.referenceName }}</strong> — {{ reference.status === 'completed' ? (reference.completionMethod === 'phone' ? 'Completed by phone with People Operations' : 'Completed online questionnaire') : reference.status === 'requested' ? 'Requested · awaiting response' : 'Pending follow-up' }}<span v-if="reference.completedAt"> · {{ new Date(reference.completedAt).toLocaleDateString() }}</span></li></ul>
+      </section>
       <HirePortalWorkspace :data="portalData" :token="String(token)" :http="portalApi"
         @phase="selectedProcess = $event" @section="onWorkspaceSection" @reload="reloadPortal"
         @document="selectTask" @complete-task="markIntakeFormDone" @submit="confirmSubmit" @media="embeddedVideoPlaying = $event">

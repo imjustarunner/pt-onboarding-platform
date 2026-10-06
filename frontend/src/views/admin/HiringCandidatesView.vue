@@ -526,103 +526,7 @@
             </div>
 
             <div v-if="tab === 'references'" class="tab-body">
-              <p class="muted small">
-                References from the application, digital reference requests, form responses, and a best-effort email timeline
-                (including message copy when available). Email opens use an optional image pixel and may be blocked by the recipient’s mail client.
-              </p>
-
-              <h4 class="ref-subheading">Application references</h4>
-              <div v-if="!applicationReferences.length" class="empty subtle">No references were entered on the application.</div>
-              <table v-else class="table ref-req-table">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Phone</th>
-                    <th>Digital request</th>
-                    <th>Sent</th>
-                    <th>Email opened</th>
-                    <th>Reminders</th>
-                    <th>Expires</th>
-                    <th>Completed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(ref, idx) in applicationReferences" :key="`appref_${idx}`">
-                    <td>{{ idx }}</td>
-                    <td>{{ ref.name || '—' }}</td>
-                    <td>{{ ref.email || '—' }}</td>
-                    <td>{{ ref.phone || ref.phone_number || '—' }}</td>
-                    <td>{{ refRowStatus(idx) }}</td>
-                    <td>{{ refRowSent(idx) }}</td>
-                    <td>{{ refRowOpened(idx) }}</td>
-                    <td>{{ refRowReminders(idx) }}</td>
-                    <td>{{ refRowExpires(idx) }}</td>
-                    <td>{{ refRowCompleted(idx) }}</td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <h4 class="ref-subheading">All digital reference requests (history)</h4>
-              <div v-if="referenceRequestsLoading" class="loading">Loading reference requests…</div>
-              <div v-else-if="!referenceRequests.length" class="empty subtle">No digital reference requests yet.</div>
-              <table v-else class="table ref-req-table">
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Index</th>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Status</th>
-                    <th>Sent</th>
-                    <th>Email opened</th>
-                    <th>Expires</th>
-                    <th>Completed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="r in referenceRequests" :key="r.id">
-                    <td>{{ r.id }}</td>
-                    <td>{{ r.reference_index }}</td>
-                    <td>{{ r.reference_name }}</td>
-                    <td>{{ r.reference_email }}</td>
-                    <td>{{ r.status }}</td>
-                    <td>{{ r.sent_at ? formatTime(r.sent_at) : '—' }}</td>
-                    <td>{{ r.email_opened_at ? formatTime(r.email_opened_at) : '—' }}</td>
-                    <td>{{ r.token_expires_at ? formatTime(r.token_expires_at) : '—' }}</td>
-                    <td>{{ r.completed_at ? formatTime(r.completed_at) : '—' }}</td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <div v-for="r in referenceRequests" :key="`resp_${r.id}`" class="ref-resp-block">
-                <h4 v-if="r.responses_json">Responses — {{ r.reference_name }} ({{ r.status }})</h4>
-                <pre v-if="r.responses_json" class="mono-block">{{ formatRefResponses(r) }}</pre>
-              </div>
-
-              <h4 class="ref-subheading">Reference email &amp; lifecycle activity</h4>
-              <div v-if="referenceActivityLoading" class="loading">Loading activity…</div>
-              <div v-else-if="!referenceActivity.length" class="empty subtle">No logged reference activity yet.</div>
-              <ul v-else class="ref-activity-list">
-                <li v-for="ev in referenceActivity" :key="ev.id" class="ref-activity-item">
-                  <div class="ref-activity-head">
-                    <span class="ref-activity-time">{{ formatTime(ev.created_at) }}</span>
-                    <span class="ref-activity-kind">{{ formatRefActivityKind(ev.metadata) }}</span>
-                    <span class="ref-activity-outcome">{{ refActivityOutcome(ev.metadata) }}</span>
-                  </div>
-                  <div v-if="ev.metadata?.to" class="muted small">To: {{ ev.metadata.to }}</div>
-                  <div v-if="ev.metadata?.subject" class="muted small">Subject: {{ ev.metadata.subject }}</div>
-                  <div v-if="ev.metadata?.gmailMessageId" class="muted small">Gmail message id: {{ ev.metadata.gmailMessageId }}</div>
-                  <div v-if="ev.metadata?.error" class="error-inline small">Error: {{ ev.metadata.error }}</div>
-                  <div v-if="ev.metadata?.skipReason" class="muted small">Skipped: {{ ev.metadata.skipReason }}</div>
-                  <div v-if="ev.metadata?.note" class="muted small">{{ ev.metadata.note }}</div>
-                  <details v-if="ev.metadata?.textBody || ev.metadata?.htmlBody" class="ref-activity-details">
-                    <summary>View email text</summary>
-                    <pre v-if="ev.metadata?.textBody" class="mono-block">{{ ev.metadata.textBody }}</pre>
-                  </details>
-                </li>
-              </ul>
+              <ReferenceWorkspace :user-id="selectedId" :agency-id="effectiveAgencyId" :references="applicationReferences" />
             </div>
           </template>
         </div>
@@ -746,6 +650,7 @@
 </template>
 
 <script setup>
+import ReferenceWorkspace from '../../components/hiring/ReferenceWorkspace.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { marked } from 'marked';

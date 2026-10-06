@@ -70,15 +70,23 @@
           <label>Min hours / week <input v-model="contract.minHours" type="number" min="0" /></label>
           <label>Pay category
             <select v-model="contract.compensationCategory">
-              <option value="">Infer from credential</option>
+              <option value="">Choose a category</option>
               <option value="1">1 — Unlicensed</option>
               <option value="2">2 — Pre-licensed</option>
               <option value="3">3 — Licensed</option>
             </select>
           </label>
         </div>
+        <div class="sph-grid">
+          <label>Pay level<select v-model="contract.compensationLevel"><option value="">Choose a level</option><option v-for="level in 5" :key="level" :value="String(level)">Level {{ level }}{{ levelLabel(level) }}</option></select></label>
+          <label>Assigned office<select v-model="officeLocationId" @change="applyOffice"><option :value="null">Select an office</option><option v-for="office in offices" :key="office.id" :value="office.id">{{ office.name }} — {{ office.address }}</option></select></label>
+        </div>
+        <p v-if="officeSource" class="muted">{{ officeSource }}</p>
+        <p v-if="selectedCompensation">Category {{ contract.compensationCategory }}, Level {{ contract.compensationLevel }} · Direct: {{ money(selectedCompensation.direct_rate) }} / hour · Indirect: {{ money(selectedCompensation.indirect_rate) }} / hour · FFS base: {{ selectedCompensation.serviceRates?.length ? 'See service rates below' : money(selectedCompensation.ffs_rate) }}</p>
+        <p v-else class="sph-warn">Choose a category and level to review compensation. Configure missing rates in contract/pay settings.</p>
+        <table v-if="selectedCompensation?.serviceRates?.length"><thead><tr><th>Service code</th><th>Compensation</th><th>Unit</th></tr></thead><tbody><tr v-for="rate in selectedCompensation.serviceRates" :key="rate.serviceCode"><td>{{ rate.serviceCode }}</td><td>{{ money(rate.rateAmount) }}</td><td>{{ rate.rateUnit === 'per_hour' ? 'Per hour' : 'Per unit' }}</td></tr></tbody></table>
         <p v-if="inferredPayLabel" class="muted small">Inferred: {{ inferredPayLabel }}</p>
-        <h3>Contract details</h3><label>Assigned office<select v-model="contractOverrides.ASSIGNED_OFFICE_ID" @change="chooseContractOffice"><option value="">Select an office</option><option v-for="office in availableOffices" :key="office.id" :value="String(office.id)">{{ office.name }} — {{ office.address }}</option></select></label>
+        <h3>Contract details</h3>
         <p class="muted">Employer name and address come from the agency profile. Job title and role label come from the job posting. Review these values and complete anything missing before previewing.</p>
         <div class="sph-grid"><label v-for="field in contractFields" :key="field.key">{{ field.label }}<input v-model="contractOverrides[field.key]" /></label></div>
         <p class="muted">Confirm these values against the candidate and your agency records.</p>
@@ -167,6 +175,8 @@
         <ol><li v-for="item in builtInSteps" :key="item">{{ item }}</li><li v-for="item in portalWorkflow.resources || []" :key="item.id">{{ item.title }} · {{ item.required === false ? 'Optional' : 'Required' }}</li><li v-for="doc in jobDocs.filter(d => d.selected && d.kind !== 'acknowledgement')" :key="doc.id">{{ doc.title }} · {{ docKindLabel(doc.kind) }}</li></ol>
         <HirePackageContents documents-only :package-id="prehirePackageId" :edit-url="packagesPath" />
         <p>Contract: {{ contractConfigs.find(c => c.id === contractConfigId)?.name || 'Choose a configuration' }} · {{ contractReviewed ? 'Preview reviewed' : 'Preview must be reviewed' }}</p>
+        <p>Compensation: Category {{ contract.compensationCategory || 'not selected' }}, Level {{ contract.compensationLevel || 'not selected' }}</p>
+        <p v-if="!contractReviewed || !previewMatches" class="error">Return to Contract &amp; cosigners, update the preview, and confirm you reviewed it.</p>
         <p>Cosigners: {{ chosenSignerNames || 'None selected' }}</p>
         <p v-if="extraFiles.length">Additional employee files: {{ extraFiles.map(f => f.title || f.name).join(', ') }}</p>
         <p v-if="!portalWorkflow.handbookUrl" class="error">Attach the workplace handbook in step 2.</p>
@@ -222,6 +232,12 @@ const emailDelivery = ref(null);
 const jobDocs = ref([]);
 const inferredPayLabel = ref('');
 const inferredCategory = ref(null);
+const compensationLevels = ref([]), offices = ref([]), officeLocationId = ref(null), officeSource = ref('');
+const selectedCompensation = computed(() => compensationLevels.value.find(r => Number(r.category) === Number(contract.compensationCategory) && Number(r.level) === Number(contract.compensationLevel)));
+const money = value => value == null ? 'Not configured' : new Intl.NumberFormat('en-US', { style:'currency', currency:'USD' }).format(value);
+function levelLabel(level) { const row = compensationLevels.value.find(r => Number(r.category) === Number(contract.compensationCategory) && Number(r.level) === level); return row ? ` — ${row.label || money(row.ffs_rate ?? row.direct_rate)}` : ' — not configured'; }
+function applyOffice() { contractOverrides.ASSIGNED_OFFICE_ID = officeLocationId.value || '';  const office = offices.value.find(o => Number(o.id) === Number(officeLocationId.value)); contractOverrides.ASSIGNED_OFFICE_NAME = office?.name || ''; contractOverrides.ASSIGNED_OFFICE_ADDRESS = office?.address || ''; officeSource.value = office ? 'Selected office' : ''; }
+
 const signerAssignments = ref([]);
 const staffUsers = ref([]);
 const adhocSignerUserId = ref(null);
@@ -229,9 +245,6 @@ const wizardTokens = ref({});
 const contractConfigId = ref(null);
 const libraryContractTemplateId = ref(null);
 const contractConfigs = ref([]);
-const contractOffices = ref([]);
-const availableOffices = computed(() => { const city = String(detail.value?.jobDescription?.city || '').trim().toLowerCase(); return city ? contractOffices.value.filter(office => String(office.city || '').trim().toLowerCase() === city) : contractOffices.value; });
-function chooseContractOffice() { const office = contractOffices.value.find(office => String(office.id) === String(contractOverrides.ASSIGNED_OFFICE_ID)); contractOverrides.ASSIGNED_OFFICE_NAME = office?.name || ''; contractOverrides.ASSIGNED_OFFICE_ADDRESS = office?.address || ''; }
 const contractTaskId = ref(null);
 const portalWorkflow = ref({});
 const packetTemplateId = ref('');
@@ -266,7 +279,8 @@ const contract = reactive({
   licenseBy: '',
   minDays: '',
   minHours: '',
-  compensationCategory: ''
+  compensationCategory: '',
+  compensationLevel: ''
 });
 
 const orgPath = (path) => {
@@ -365,9 +379,13 @@ const load = async () => {
     const roles = Array.isArray(rolesRes.data) ? rolesRes.data : [];
     signerAssignments.value = mapSignerRolesWithDefaults(roles, staffUsers.value);
     wizardTokens.value = wizardRes.data?.tokens || {};
-    contractOffices.value = wizardRes.data?.offices || [];
-    contractOverrides.ASSIGNED_OFFICE_ID = wizardTokens.value.ASSIGNED_OFFICE_ID || '';
-    if (!contractOverrides.ASSIGNED_OFFICE_ID && availableOffices.value.length === 1) { contractOverrides.ASSIGNED_OFFICE_ID = String(availableOffices.value[0].id); chooseContractOffice(); }
+    compensationLevels.value = wizardRes.data?.compensationLevels || [];
+    offices.value = wizardRes.data?.offices || [];
+    officeLocationId.value = wizardRes.data?.suggested?.officeLocationId || null;
+    officeSource.value = wizardTokens.value.ASSIGNED_OFFICE_SOURCE || '';
+    contract.compensationCategory = String(wizardRes.data?.suggested?.compensationCategory || '');
+    // Require a deliberate level choice; do not silently accept level 1.
+    contract.compensationLevel = '';
     for (const field of contractFields) contractOverrides[field.key] = wizardTokens.value[field.key] || '';
     contractOverrides.JOB_TITLE = wizardTokens.value.JOB_TITLE || jobTitle.value;
     currentPortalLink.value = (await api.get(`/hiring/candidates/${userId.value}/prehire-link`, { params: { agencyId: agencyId.value } }).catch(() => ({ data: {} }))).data?.portalLink || '';
@@ -415,7 +433,7 @@ const load = async () => {
         inferredPayLabel.value = data.payCategoryLabel
           ? `Cat ${data.compensationCategory} — ${data.payCategoryLabel}`
           : '';
-        if (!contract.compensationCategory && data.compensationCategory) {
+        if (data.compensationCategory) {
           contract.compensationCategory = String(data.compensationCategory);
         }
       } catch { /* ignore */ }
@@ -464,8 +482,10 @@ const initiate = async () => {
         selectedJobDocs: jobDocs.value.filter((d) => d.selected),
         signerAssignments: signers,
         contractTokens: tokens,
+        compensationLevel: contract.compensationLevel,
+        officeLocationId: officeLocationId.value,
         compensationCategory: contract.compensationCategory || inferredCategory.value || null,
-        credential: detail.value?.profile?.credential || wizardTokens.value.CREDENTIAL || null,
+        credential: contractOverrides.LICENSE_TYPE || detail.value?.profile?.credential || wizardTokens.value.CREDENTIAL || null,
         contractConfigId: contractConfigId.value,
         contractPreviewHash: contractPreview.value?.previewHash,
         contractBuilderTemplateId: null,
@@ -510,6 +530,7 @@ const packagesPath = computed(() => orgPath(`/admin/settings?agencyId=${agencyId
 const documentsPath = computed(() => orgPath(`/admin/documents?agencyId=${agencyId.value}`));
 const assignedSupervisorName = computed(() => { const u = staffUsers.value.find(u => Number(u.id) === Number(portalWorkflow.value.supervisorUserId)); return u ? `${u.first_name} ${u.last_name}` : ''; });
 const contractTokens = computed(() => ({ ...wizardTokens.value, ...contractOverrides,
+  COMPENSATION_CATEGORY: contract.compensationCategory, COMPENSATION_LEVEL: contract.compensationLevel,
   START_DATE: contract.startDate, EXECUTION_DATE: contract.executionDate, EXPIRATION_DATE: contract.expirationDate,
   CANDIDATE_NAME: candidateName.value, EMPLOYEE_FULL_NAME: candidateName.value,
   SUPERVISOR_NAME: includeSupervisor.value ? (assignedSupervisorName.value || contract.supervisor) : '', INCLUDE_SUPERVISION: includeSupervisor.value ? '1' : '0',
@@ -525,13 +546,14 @@ function setAdditionalContractField(key, value) {
 }
 const lastPreviewInput = ref('');
 const previewMatches = computed(() => lastPreviewInput.value === JSON.stringify(previewInput.value));
-const previewInput = computed(() => ({ configId: contractConfigId.value, tokens: contractTokens.value, compensationCategory: contract.compensationCategory || inferredCategory.value, credential: detail.value?.profile?.credential || wizardTokens.value.CREDENTIAL }));
+const previewInput = computed(() => ({ compensationLevel: contract.compensationLevel, officeLocationId: officeLocationId.value, configId: contractConfigId.value, tokens: contractTokens.value, compensationCategory: contract.compensationCategory || inferredCategory.value, credential: contractOverrides.LICENSE_TYPE || detail.value?.profile?.credential || wizardTokens.value.CREDENTIAL }));
 watch(previewInput, () => { contractReviewed.value = false; }, { deep: true });
 const missingResources = computed(() => (portalWorkflow.value.resources || []).filter(r => !r.title?.trim() || (r.kind === 'document' ? !r.templateId : r.required !== false && !r.url)));
-const readyToSend = computed(() => !missingResources.value.length && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && portalWorkflow.value.handbookUrl && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
+const readyToSend = computed(() => !missingResources.value.length && contract.compensationCategory && contract.compensationLevel && contractReviewed.value && previewMatches.value && contractPreview.value && !contractPreview.value.unresolvedTokens?.length && portalWorkflow.value.handbookUrl && (!prehirePackageId.value || Number(packageDetails.value?.id) === Number(prehirePackageId.value)));
 const chosenSignerNames = computed(() => [...signerAssignments.value.map(s => s.userId), adhocSignerUserId.value].filter(Boolean).map(id => { const u = staffUsers.value.find(u => String(u.id) === String(id)); return u ? `${u.first_name} ${u.last_name}` : ''; }).join(', '));
 async function previewContract() {
-  if (availableOffices.value.length > 1 && !contractOverrides.ASSIGNED_OFFICE_ID) { previewError.value = 'Choose the assigned office for this job before preparing the agreement.'; return; }
+  if (!contract.compensationCategory || !contract.compensationLevel) { previewError.value = 'Choose a pay category and level before previewing.'; return; }
+  if (offices.value.length && !officeLocationId.value) { previewError.value = 'Choose the assigned office for this job before preparing the agreement.'; return; }
   previewBusy.value = true; previewError.value = ''; contractReviewed.value = false;
   const input = JSON.stringify(previewInput.value);
   try { const { data } = await api.post(`/contracts/candidates/${userId.value}/preview`, JSON.parse(input), { params: { agencyId: agencyId.value } }); if (input === JSON.stringify(previewInput.value)) { contractPreview.value = data; lastPreviewInput.value = input; } }
@@ -539,9 +561,17 @@ async function previewContract() {
   finally { previewBusy.value = false; }
 }
 async function refreshContractLibrary() {
-  try { const { data } = await api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } }); contractConfigs.value = data.configs || []; contractPreview.value = null; contractReviewed.value = false; }
+  try { const { data } = await api.get(`/contracts/candidates/${userId.value}/wizard-context`, { params: { agencyId: agencyId.value } }); contractConfigs.value = data.configs || []; compensationLevels.value = data.compensationLevels || []; offices.value = data.offices || []; contractPreview.value = null; contractReviewed.value = false; }
   catch (e) { previewError.value = 'Could not refresh contract settings.'; }
 }
+watch(() => contractOverrides.LICENSE_TYPE, async credential => {
+  if (loading.value || !credential) return;
+  try { const { data } = await api.get('/contracts/infer-compensation', { params: { agencyId: agencyId.value, credential, jobTitle: jobTitle.value } });
+    if (credential !== contractOverrides.LICENSE_TYPE) return;
+    inferredCategory.value = data.compensationCategory; inferredPayLabel.value = data.payCategoryLabel;
+    contract.compensationCategory = String(data.compensationCategory || ''); contract.compensationLevel = '';
+  } catch { previewError.value = 'Could not infer compensation. Select the category and level explicitly.'; }
+});
 onMounted(load);
 </script>
 

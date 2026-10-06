@@ -1487,8 +1487,9 @@
             <label class="checkbox-row">
               <input v-model="referencesDigitalFormConsent" type="checkbox" />
               <span>
-                If I am offered an interview or a job, my listed references may receive a confidential digital reference form at that time.
-                I understand I will be notified when those forms are sent, when each reference is completed, and by whom.
+                I authorize the agency to contact my listed references by phone or through this app, including emailing a short reference questionnaire.
+                Even if I provide reference letters, this process helps streamline review and makes it easy for my references to respond.
+                I will see which references have completed the process, including whether they completed it by phone with People Operations or online. Their answers and staff contact notes will not be shared with me.
               </span>
             </label>
             <!-- Subject to legal review: final copy must be approved by counsel before production. -->

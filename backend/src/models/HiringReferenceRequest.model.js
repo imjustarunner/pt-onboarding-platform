@@ -107,14 +107,34 @@ class HiringReferenceRequest {
   }
 
   static async markCompleted(id, responsesJson) {
-    await pool.execute(
-      `UPDATE hiring_reference_requests
-       SET status = 'completed', completed_at = CURRENT_TIMESTAMP, responses_json = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND status = 'sent' LIMIT 1`,
-      [JSON.stringify(responsesJson || {}), id]
-    );
-    const [rows] = await pool.execute('SELECT * FROM hiring_reference_requests WHERE id = ?', [id]);
-    return this.mapRow(rows[0] || null);
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      const [result] = await db.execute(
+        `UPDATE hiring_reference_requests SET status = 'completed', completed_at = CURRENT_TIMESTAMP,
+         responses_json = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND status = 'sent' AND token_expires_at > NOW() LIMIT 1`,
+        [JSON.stringify(responsesJson || {}), id]
+      );
+      if (!result.affectedRows) { await db.rollback(); return null; }
+      const [rows] = await db.execute('SELECT * FROM hiring_reference_requests WHERE id = ?', [id]);
+      const row = rows[0];
+      await db.execute(`UPDATE hiring_reference_requests SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+        WHERE hiring_profile_id = ? AND agency_id = ? AND reference_index = ? AND status = 'sent' AND id <> ?`,
+        [row.hiring_profile_id, row.agency_id, row.reference_index, id]);
+      await db.commit();
+      return this.mapRow(row);
+    } catch (error) { await db.rollback(); throw error; }
+    finally { db.release(); }
+  }
+
+  static async recordLinkOpen(id) {
+    const [result] = await pool.execute(`UPDATE hiring_reference_requests SET link_opened_at = CURRENT_TIMESTAMP WHERE id = ? AND link_opened_at IS NULL AND status = 'sent'`, [id]);
+    return Number(result.affectedRows) > 0;
+  }
+
+  static async markReminder48h(id) {
+    await pool.execute('UPDATE hiring_reference_requests SET reminder_48h_sent_at = CURRENT_TIMESTAMP WHERE id = ?', [id]);
   }
 
   static async markReminder3d(id) {
@@ -144,7 +164,7 @@ class HiringReferenceRequest {
       `SELECT * FROM hiring_reference_requests
        WHERE status = 'sent'
          AND token_expires_at > NOW()
-         AND (reminder_3d_sent_at IS NULL OR reminder_24h_sent_at IS NULL)`
+         AND (reminder_48h_sent_at IS NULL OR reminder_24h_sent_at IS NULL)`
     );
     return (rows || []).map((r) => this.mapRow(r));
   }
