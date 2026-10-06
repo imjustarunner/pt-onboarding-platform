@@ -130,8 +130,8 @@ server {
  location = /login { return 302 https://app.${domain}/login$is_args$args; }
  location = /app { return 302 https://app.${domain}/login$is_args$args; }
  location ~ ^/[^/]+/login$ { return 302 https://app.${domain}/login$is_args$args; }
- location = /p/${slug} { return 301 /$is_args$args; }
- location ~ ^/p/${slug}/(.*)$ { return 301 /$1$is_args$args; }
+ location = /p/${slug} { return 301 https://${domain}/$is_args$args; }
+ location ~ ^/p/${slug}/(.*)$ { return 301 https://${domain}/$1$is_args$args; }
  location ^~ /_public-sites/ { return 404; }
  location ~ \\.nginx\\.conf$ { return 404; }
  location ~* \\.mjs$ { types { application/javascript mjs; } default_type application/javascript; try_files $uri =404; }

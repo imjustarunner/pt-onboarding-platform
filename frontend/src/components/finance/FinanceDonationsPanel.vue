@@ -3,7 +3,7 @@
   <p v-if="error" class="finance-error" role="alert">{{error}}</p><p v-if="notice" role="status">{{notice}}</p>
   <p v-if="loading" role="status">Loading donations…</p>
   <template v-else-if="settings?.available">
-   <header><h2>MH4Kidz donations</h2><a href="https://mh4kidz.org/p/mh4kidz/donate" target="_blank" rel="noopener">View donation page ↗</a></header>
+   <header><h2>MH4Kidz donations</h2><a href="https://mh4kidz.org/donate" target="_blank" rel="noopener">View donation page ↗</a></header>
    <p class="finance-callout">{{settings.acceptingDonations?'Online donations are open.':'Online donations are closed until setup is complete and you enable giving.'}}</p>
    <div class="donation-totals"><p><strong>{{money(records.totals.gross)}}</strong> Gross donations</p><p><strong>{{money(records.totals.refunded)}}</strong> Refunded</p><p><strong>{{money(Number(records.totals.gross)-Number(records.totals.refunded))}}</strong> Net contributions</p></div>
    <p>Confirmed gifts and refunds are automatically recorded in the selected fund. Stripe processing fees are recorded separately as expenses. Issue refunds from the connected Stripe account; confirmed refunds update these records and donor acknowledgments.</p>

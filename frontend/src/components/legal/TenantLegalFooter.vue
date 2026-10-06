@@ -1,7 +1,7 @@
 <template>
   <nav v-if="profile" class="tenant-legal-footer" :style="{color:profile.color}" :aria-label="`${profile.name} policies`">
     <span>{{ profile.name }}</span><a v-for="link in links" :key="link.type" :href="(profile.legalOrigin || profile.origin) + link.path">{{ link.label }}</a>
-    <a v-if="profile.slug==='mh4kidz' && route.name!=='Mh4kidzPublicWebsite'" class="donate-link" href="https://mh4kidz.org/p/mh4kidz/donate">Donate now</a>
+    <a v-if="profile.slug==='mh4kidz' && route.name!=='Mh4kidzPublicWebsite'" class="donate-link" href="https://mh4kidz.org/donate">Donate now</a>
   </nav>
 </template>
 <script setup>

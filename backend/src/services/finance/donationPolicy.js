@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { fail, text } from './policy.js';
 
 export const recognitionVersion = 'public-name-amount-city-region-v1';
-export const donationPage = 'https://mh4kidz.org/p/mh4kidz/donate';
+export const donationPage = 'https://mh4kidz.org/donate';
 export const hash = value => createHash('sha256').update(value).digest('hex');
 export function donationInput(input) {
   const amountCents = Number(input.amountCents);
@@ -31,5 +31,5 @@ export function donationReceipt(row) {
   const date = new Date(row.paid_at).toLocaleDateString('en-US', { timeZone:'America/Denver', year:'numeric', month:'long', day:'numeric' });
   const number = `MH4K-${row.id}${refunded ? `-R${refunded}` : ''}`;
   const lines = [issuer.legalName, `EIN: ${issuer.ein}`, `Donation acknowledgment ${number}`, `Donor: ${row.donor_name}`, `Date received: ${date}`, `Cash contribution: ${money(amount)}`, ...(refunded ? [`Refunded: ${money(refunded)}`, `Contribution remaining: ${money(amount - refunded)}`, 'This updated acknowledgment replaces the earlier receipt.'] : []), 'No goods or services were provided in exchange for this contribution.', 'Please retain this acknowledgment for your tax records.', 'Thank you for supporting kids, families, and their communities.'];
-  return { number, text: lines.join('\n'), html: `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#173c42;line-height:1.5"><img src="https://mh4kidz.org/assets/mh4kidz/logo.webp" width="180" alt="MH4Kidz"><h1 style="font-size:24px">${refunded ? 'Updated donation acknowledgment' : 'Thank you for your donation'}</h1>${lines.map(line => `<p>${escape(line)}</p>`).join('')}<p><a href="https://mh4kidz.org/p/mh4kidz/about">Learn about MH4Kidz</a> · <a href="https://mh4kidz.org/schoolcarebridge">Learn about SchoolCareBridge</a></p></div>` };
+  return { number, text: lines.join('\n'), html: `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#173c42;line-height:1.5"><img src="https://mh4kidz.org/assets/mh4kidz/logo.webp" width="180" alt="MH4Kidz"><h1 style="font-size:24px">${refunded ? 'Updated donation acknowledgment' : 'Thank you for your donation'}</h1>${lines.map(line => `<p>${escape(line)}</p>`).join('')}<p><a href="https://mh4kidz.org/about">Learn about MH4Kidz</a> · <a href="https://mh4kidz.org/schoolcarebridge">Learn about SchoolCareBridge</a></p></div>` };
 }
