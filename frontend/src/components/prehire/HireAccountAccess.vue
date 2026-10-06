@@ -3,7 +3,7 @@
     <h2>Your accounts and access</h2><p>These details are provided by People Operations. Keep your passwords and PIN private.</p>
     <p v-if="!employee">You can return to this page throughout onboarding. Once People Operations activates your account, find these details in <strong>My Dashboard → My Account → Accounts &amp; access</strong>.</p>
     <p v-else>Your assigned account details remain available here after onboarding. Contact People Operations for updates or help signing in.</p>
-    <p>Logins, extensions and PINs remain available. Temporary passwords can only be revealed once; after changing a password, use the password you created or request a reset.</p>
+    <p>Your saved logins, extensions, PINs and account passwords remain available here. You can show a saved password again whenever you return. If you change it in another service, use your new password; the saved setup password does not update automatically.</p>
     <p v-if="!packet?.systems?.length">Account details are not available yet. Contact People Operations if you are ready to get started.</p>
     <article v-for="system in packet?.systems || []" :key="system.key" class="cred-card">
       <h3>{{ system.label }}</h3>
@@ -11,9 +11,8 @@
       <p v-if="system.key === 'grasshopper'" class="cred-meta"><strong>Extension:</strong> {{ system.extension || 'To be provided' }}</p>
       <p v-if="system.key === 'grasshopper'" class="cred-meta"><strong>PIN:</strong> {{ system.pin || 'To be provided' }}</p>
       <p v-if="system.key === 'email' && !system.hasTempPassword" class="cred-muted">Use the platform sign-in method provided by People Operations. Separate SSO details appear here when assigned.</p>
-      <div v-if="revealedPasswords[system.key]" class="cred-secret">Temporary password: <code>{{ revealedPasswords[system.key] }}</code><p>Save this securely before closing your portal. It can only be revealed once.</p></div>
-      <button v-else-if="system.tempPasswordAvailable" class="btn-secondary-sm" @click="emit('reveal', system.key)">Reveal temporary password once</button>
-      <p v-else-if="system.tempPasswordConsumed" class="cred-muted">Temporary password already revealed. Contact People Operations if you need a reset.</p>
+      <div v-if="revealedPasswords[system.key]" class="cred-secret">Temporary password: <code>{{ revealedPasswords[system.key] }}</code><p>This is the setup password saved by People Operations. You can view it again here while it remains on file.</p></div>
+      <button v-else-if="system.tempPasswordAvailable" class="btn-secondary-sm" @click="emit('reveal', system.key)">Show saved password</button>
 
     </article>
     <template v-if="showAcknowledgement && availableSystems.length">

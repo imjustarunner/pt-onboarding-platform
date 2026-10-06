@@ -228,7 +228,7 @@
           <!-- Accounts & Access credentials (replaces Google Doc checklist fields) -->
           <div class="lc-dates-block">
             <h4 class="lc-block-title">Accounts &amp; Access Credentials</h4>
-            <p class="lc-hint">Staff source of truth for the employee onboarding packet. Temp passwords appear once in the employee portal — never print them on a PDF.</p>
+            <p class="lc-hint">Staff source of truth for the employee onboarding packet. Employees can return to view saved account passwords in onboarding and My Dashboard → My Account → Accounts & access. Never print passwords on a PDF.</p>
             <label><input v-model="credentialsForm.workspaceEnabled" type="checkbox" :disabled="viewOnly" @change="saveCredentials" /> Include Google Workspace / SSO access</label>
             <label><input v-model="credentialsForm.therapynotesEnabled" type="checkbox" :disabled="viewOnly" @change="saveCredentials" /> Include TherapyNotes access</label>
             <div class="lc-dates-grid">

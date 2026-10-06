@@ -1,7 +1,7 @@
 <template>
   <section class="access-setup">
     <h3>Accounts and access</h3>
-    <p>Prepare the employee’s account details here. These are also available in Lifecycle. Temporary passwords are shown once in the employee portal.</p>
+    <p>Prepare the employee’s account details here. These are also available in Lifecycle. Employees can view saved account passwords again in their onboarding portal and, after activation, My Dashboard → My Account → Accounts & access.</p>
     <p v-if="loading">Loading account details…</p>
     <form v-else-if="loaded" @submit.prevent="save" autocomplete="off">
       <label>Platform work address<input :value="workspaceEmail || 'Employee chooses during onboarding'" disabled /></label>

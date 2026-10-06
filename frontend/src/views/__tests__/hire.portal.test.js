@@ -159,7 +159,7 @@ describe('candidate process interface', () => {
     expect(wrapper.find('[aria-label="Accounts and access"]').text()).toContain('devon.tn');
     expect(wrapper.find('[aria-label="Accounts and access"]').text()).toContain('1234');
     http.post.mockResolvedValueOnce({ data: { revealed: true, password: 'temporary-example' } });
-    await wrapper.findAll('button').find(b => b.text() === 'Reveal temporary password once').trigger('click'); await flushPromises();
+    await wrapper.findAll('button').find(b => b.text() === 'Show saved password').trigger('click'); await flushPromises();
     expect(http.post).toHaveBeenCalledWith('/prehire-portal/test-token/credential-packet/systems/therapynotes/reveal-temp-password');
     expect(wrapper.get('.cred-secret').text()).toContain('temporary-example');
   });

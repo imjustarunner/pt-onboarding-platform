@@ -1123,15 +1123,13 @@ const revealTempPassword = async (systemKey) => {
     );
     if (data?.revealed && data.password) {
       revealedPasswords.value = { ...revealedPasswords.value, [systemKey]: data.password };
-      // Refresh packet so "available" flips to consumed
+      // Refresh in case People Operations updated the account details.
       const refresh = await portalApi.get(`/prehire-portal/${token.value}/credential-packet`);
       if (portalData.value && refresh.data?.credentialPacket) {
         portalData.value.credentialPacket = refresh.data.credentialPacket;
       }
     } else {
-      alert(data?.reason === 'already_revealed'
-        ? 'That temporary password was already revealed and cannot be shown again. Contact People Operations if you need a reset.'
-        : 'No temporary password is available yet.');
+      alert('No saved password is available for this account. Contact People Operations if you need help signing in.');
     }
   } catch (e) {
     alert(e?.response?.data?.error?.message || 'Could not reveal password');

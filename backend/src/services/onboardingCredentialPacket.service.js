@@ -206,7 +206,7 @@ export async function saveLifecycleCredentials(userId, payload = {}) {
 }
 
 /**
- * Employee-facing packet (secrets revealed once).
+ * Employee-facing packet (passwords fetched separately on request).
  */
 export async function getCredentialPacketForPortal(userId, { employeeAccount = false } = {}) {
   const [userRows] = await pool.execute(
@@ -220,8 +220,6 @@ export async function getCredentialPacketForPortal(userId, { employeeAccount = f
 
   const info = await getUserInfoMap(userId);
   const { workspaceEnabled, therapynotesEnabled } = enabledCredentialSystems(info);
-  const tnRevealed = !!info.therapynotes_temp_password_revealed;
-  const wsRevealed = !!info.workspace_temp_password_revealed;
 
   return {
     phase: user.status === 'ONBOARDING' ? 'onboarding' : 'prehire',
@@ -239,8 +237,8 @@ export async function getCredentialPacketForPortal(userId, { employeeAccount = f
         label: workspaceEnabled ? 'Google Workspace / SSO' : 'Platform work address',
         username: user.work_email || null,
         hasTempPassword: workspaceEnabled && !!info.workspace_temp_password,
-        tempPasswordAvailable: workspaceEnabled && !!info.workspace_temp_password && !wsRevealed,
-        tempPasswordConsumed: wsRevealed,
+        tempPasswordAvailable: workspaceEnabled && !!info.workspace_temp_password,
+        tempPasswordConsumed: false,
         acknowledged: !!info.portal_acked_email
       },
       ...(employeeAccount || user.status === 'ONBOARDING'
@@ -260,8 +258,8 @@ export async function getCredentialPacketForPortal(userId, { employeeAccount = f
               label: 'TherapyNotes',
               username: info.therapynotes_login || null,
               hasTempPassword: !!info.therapynotes_temp_password,
-              tempPasswordAvailable: !!info.therapynotes_temp_password && !tnRevealed,
-              tempPasswordConsumed: tnRevealed,
+              tempPasswordAvailable: !!info.therapynotes_temp_password,
+              tempPasswordConsumed: false,
               acknowledged: !!info.portal_acked_therapynotes
             }
           ]
@@ -325,18 +323,12 @@ export async function revealPortalTempPassword(userId, systemKey) {
   const enabled = enabledCredentialSystems(info);
   if ((['email', 'workspace'].includes(key) && !enabled.workspaceEnabled) || (key === 'therapynotes' && !enabled.therapynotesEnabled)) return { revealed: false, reason: 'not_enabled', password: null };
   if (key === 'email' || key === 'workspace') {
-    if (info.workspace_temp_password_revealed) {
-      return { revealed: false, reason: 'already_revealed', password: null };
-    }
     const password = info.workspace_temp_password || null;
     if (!password) return { revealed: false, reason: 'not_set', password: null };
     await setUserInfoValue(userId, 'workspace_temp_password_revealed', new Date().toISOString());
     return { revealed: true, password };
   }
   if (key === 'therapynotes') {
-    if (info.therapynotes_temp_password_revealed) {
-      return { revealed: false, reason: 'already_revealed', password: null };
-    }
     const password = info.therapynotes_temp_password || null;
     if (!password) return { revealed: false, reason: 'not_set', password: null };
     await setUserInfoValue(userId, 'therapynotes_temp_password_revealed', new Date().toISOString());

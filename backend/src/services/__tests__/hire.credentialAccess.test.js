@@ -39,9 +39,9 @@ it('retains enabled system details for the activated employee dashboard', async 
   status = 'ACTIVE_EMPLOYEE'; info = { grasshopper_login: 'devon', grasshopper_pin: '1234', therapynotes_login: 'devon.tn', therapynotes_temp_password: 'secret', therapynotes_temp_password_revealed: '2026-10-06' };
   const packet = await getCredentialPacketForPortal(1, { employeeAccount: true });
   expect(packet.systems.map(s => s.key)).toEqual(['email', 'grasshopper', 'therapynotes']);
-  expect(packet.systems[2]).toMatchObject({ username: 'devon.tn', tempPasswordAvailable: false, tempPasswordConsumed: true });
+  expect(packet.systems[2]).toMatchObject({ username: 'devon.tn', tempPasswordAvailable: true, tempPasswordConsumed: false });
   expect(JSON.stringify(packet)).not.toContain('secret');
-  await expect(revealPortalTempPassword(1, 'therapynotes')).resolves.toMatchObject({ revealed: false, password: null });
+  await expect(revealPortalTempPassword(1, 'therapynotes')).resolves.toMatchObject({ revealed: true, password: 'secret' });
 });
 it('acknowledges the whole page once and preserves the details for return visits', async () => {
   info = { grasshopper_login: 'devon', grasshopper_pin: '1234', therapynotes_login: 'devon.tn' };
@@ -49,4 +49,20 @@ it('acknowledges the whole page once and preserves the details for return visits
   expect(packet.systems.every(s => s.acknowledged)).toBe(true);
   const reloaded = await getCredentialPacketForPortal(1);
   expect(reloaded.systems.find(s => s.key === 'grasshopper')).toMatchObject({ username: 'devon', pin: '1234', acknowledged: true });
+});
+
+it.each(['workspace', 'therapynotes'])('allows repeated views of an existing %s password, including previously revealed passwords', async (system) => {
+  info = { [`${system}_access_enabled`]: '1', [`${system}_temp_password`]: 'saved-example', [`${system}_temp_password_revealed`]: '2026-10-06' };
+  for (let visit = 0; visit < 2; visit++) {
+    await expect(revealPortalTempPassword(1, system)).resolves.toEqual({ revealed: true, password: 'saved-example' });
+    const packet = await getCredentialPacketForPortal(1, { employeeAccount: true });
+    expect(packet.systems.find(s => s.key === (system === 'workspace' ? 'email' : system)).tempPasswordAvailable).toBe(true);
+    expect(JSON.stringify(packet)).not.toContain('saved-example');
+  }
+});
+it('returns the current saved password and stops showing it if staff removes it', async () => {
+  info = { therapynotes_access_enabled: '1', therapynotes_temp_password: 'updated-example', therapynotes_temp_password_revealed: 'earlier' };
+  await expect(revealPortalTempPassword(1, 'therapynotes')).resolves.toMatchObject({ password: 'updated-example' });
+  delete info.therapynotes_temp_password;
+  await expect(revealPortalTempPassword(1, 'therapynotes')).resolves.toMatchObject({ revealed: false, reason: 'not_set', password: null });
 });
