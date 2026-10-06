@@ -33,7 +33,7 @@
     </template>
   </DocumentsHubPanel>
 
-  <section class="personal-copies" aria-labelledby="application-copies-title">
+  <section v-if="!isGuardian" class="personal-copies" aria-labelledby="application-copies-title">
     <header class="personal-copies__head">
       <div>
         <h3 id="application-copies-title">Application &amp; hire copies</h3>
@@ -68,7 +68,7 @@
     </ul>
   </section>
 
-  <section class="personal-copies" aria-labelledby="personal-copies-title">
+  <section v-if="!isGuardian" class="personal-copies" aria-labelledby="personal-copies-title">
     <header class="personal-copies__head">
       <div>
         <h3 id="personal-copies-title">Personal copies</h3>
@@ -152,6 +152,7 @@ const emit = defineEmits(['update-count']);
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
+const isGuardian = computed(() => authStore.user?.role === 'client_guardian');
 const documentsStore = useDocumentsStore();
 const loading = ref(true);
 const error = ref('');
@@ -180,6 +181,7 @@ const formatAppDocType = (docType) => {
 };
 
 const fetchApplicationCopies = async () => {
+  if (isGuardian.value) return;
   try {
     appCopiesLoading.value = true;
     appCopiesError.value = '';
@@ -211,6 +213,7 @@ const downloadApplicationCopy = async (doc) => {
 };
 
 const fetchPersonalCopies = async () => {
+  if (isGuardian.value) return;
   try {
     copiesLoading.value = true;
     copiesError.value = '';
