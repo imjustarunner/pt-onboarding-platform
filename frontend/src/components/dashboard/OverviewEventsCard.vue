@@ -74,11 +74,13 @@
     </ul>
 
     <button type="button" class="ov-link ov-link--block" @click="$emit('view-all')">View All Events</button>
+    <StaffPollsPanel :agency-id="agencyId" />
   </section>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue';
+import StaffPollsPanel from './StaffPollsPanel.vue';
 import api from '../../services/api';
 import {
   canRequestCompanyEventShift,
@@ -87,6 +89,7 @@ import {
 } from '../../utils/companyEventStaffing';
 
 const props = defineProps({
+  agencyId: { type: [Number, String], default: null },
   featured: { type: Object, default: null },
   events: { type: Array, default: () => [] },
   isSupervisor: { type: Boolean, default: false }

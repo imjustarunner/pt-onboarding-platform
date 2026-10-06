@@ -114,6 +114,7 @@
         @open-paycheck="openPaycheck"
       />
       <OverviewEventsCard
+        :agency-id="agencyId"
         class="ov-mid-events"
         :featured="featuredEvent"
         :events="upcomingEvents"

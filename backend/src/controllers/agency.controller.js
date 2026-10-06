@@ -1,3 +1,4 @@
+import { redactSmsCampaignSettings } from '../utils/smsCampaignPublicRedaction.js';
 import { validateSessionSettings } from '../utils/sessionSecurityPolicy.js';
 import { mergeAgencyFeatureFlags } from '../utils/agencyFeatureFlags.js';
 import Agency from '../models/Agency.model.js';
@@ -62,6 +63,7 @@ const withBrandingCache = (cacheKeyFn, handler) => async (req, res, next) => {
   const originalStatus = res.status.bind(res);
   res.status = (code) => { capturedStatus = code; return originalStatus(code); };
   res.json = (body) => {
+    body = redactSmsCampaignSettings(body);
     // Only cache successful (2xx) responses.
     if (capturedStatus >= 200 && capturedStatus < 300) {
       _bcSet(key, capturedStatus, body);

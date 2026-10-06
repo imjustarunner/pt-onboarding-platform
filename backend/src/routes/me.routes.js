@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
-import { downloadCompanyEventIcsForMe, listMyCompanyEvents, listMyCompanyEventsCalendar, respondToMyCompanyEvent } from '../controllers/companyEvents.controller.js';
+import { downloadCompanyEventIcsForMe, listMyCompanyEvents, listMyCompanyEventsCalendar, respondToMyCompanyEvent, listMyStaffPolls, updateMyPollResultPreference } from '../controllers/companyEvents.controller.js';
 import { sendReminderSms } from '../controllers/reminderSms.controller.js';
 import {
   createCustomTask,
@@ -119,6 +119,8 @@ router.delete('/tasks/:id/dependencies/:blockerId', authenticate, async (req, re
 
 router.post('/send-reminder-sms', authenticate, sendReminderSms);
 router.get('/company-events', authenticate, listMyCompanyEvents);
+router.get('/staff-polls', authenticate, listMyStaffPolls);
+router.put('/staff-polls/:eventId/results-preference', authenticate, updateMyPollResultPreference);
 router.get('/company-events/calendar', authenticate, listMyCompanyEventsCalendar);
 router.get('/company-events/:eventId/ics', authenticate, downloadCompanyEventIcsForMe);
 router.post('/company-events/:eventId/respond', authenticate, respondToMyCompanyEvent);

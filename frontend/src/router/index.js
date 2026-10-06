@@ -1098,6 +1098,12 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/sms-programs/:agencyId/:program/:page(consent|privacy|terms)',
+    name: 'SmsProgramPage',
+    component: () => import('../views/public/SmsProgramPage.vue'),
+    meta: { requiresGuest: false, hideNav: true }
+  },
+  {
     path: '/sms-consent/example/:brandSlug',
     name: 'SmsConsentExample',
     component: () => import('../views/public/SmsConsentView.vue'),

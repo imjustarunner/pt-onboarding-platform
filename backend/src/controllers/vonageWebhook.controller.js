@@ -1,3 +1,4 @@
+import { deliverCompanyEventVoteReply } from '../services/companyEventSmsReply.service.js';
 /**
  * Vonage inbound SMS webhook controller.
  *
@@ -163,7 +164,14 @@ export const inboundSmsWebhook = async (req, res, next) => {
 
     const companyEventHandled = await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body });
     if (companyEventHandled?.handled) {
-      return res.status(200).json({ ok: true, message: companyEventHandled.responseMessage || 'Thanks!' });
+      try {
+        await deliverCompanyEventVoteReply({ result: companyEventHandled, from: fromNorm, to: toNorm,
+          send: (options) => VonageService.sendSms(options) });
+      } catch (error) {
+        // The vote is recorded even if a confirmation is suppressed or delivery fails.
+        console.warn('Vote SMS confirmation not sent:', error?.code || 'delivery_failed');
+      }
+      return res.status(200).json({ ok: true });
     }
 
     const campaignHandled = await handleAgencyCampaignInbound({ from: fromNorm, to: toNorm, body });

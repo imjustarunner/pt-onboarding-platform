@@ -145,6 +145,7 @@ import vonageRoutes from './routes/vonage.routes.js';
 import messageRoutes from './routes/message.routes.js';
 import smsNumbersRoutes from './routes/smsNumbers.routes.js';
 import { publicSmsConsentRouter } from './routes/smsConsent.routes.js';
+import { publicCampaignPacketRouter, adminCampaignPacketRouter } from './routes/smsCampaignPacket.routes.js';
 import extensionsRoutes from './routes/extensions.routes.js';
 import contactsRoutes from './routes/contacts.routes.js';
 import presenceRoutes from './routes/presence.routes.js';
@@ -784,6 +785,8 @@ app.use('/api/privacy-review', privacyReviewRoutes);
 
 // Public APIs (no auth). Mount early so they never get blocked by future auth gates.
 app.use('/api/sms-numbers', publicSmsConsentRouter);
+app.use('/api/sms-numbers', publicCampaignPacketRouter);
+app.use('/api/sms-numbers', adminCampaignPacketRouter);
 app.use('/api/public/agency-services', publicAgencyServicesRoutes);
 app.use('/api/public/unified-booking', publicUnifiedBookingRoutes);
 app.use('/api/platform/session-notification-settings', platformSessionNotificationsRoutes);

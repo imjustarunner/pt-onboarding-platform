@@ -1,0 +1,11 @@
+import express from 'express';
+import { authenticate, requireAgencyAdmin } from '../middleware/auth.middleware.js';
+import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
+import { getAgencyCampaignPacket, saveAgencyCampaignPacket, getPublicCampaignPacket } from '../services/smsCampaignPacket.service.js';
+const handle = fn => async (req,res,next) => { try { res.set('Cache-Control','no-store'); res.json(await fn(req)); } catch(error) { next(error); } };
+export const publicCampaignPacketRouter = express.Router();
+publicCampaignPacketRouter.get('/programs/:agencyId/:program', publicIntakeLimiter, handle(req => getPublicCampaignPacket(req.params.agencyId,req.params.program,req.query.audience)));
+export const adminCampaignPacketRouter = express.Router();
+adminCampaignPacketRouter.use(authenticate);
+adminCampaignPacketRouter.get('/agency/:agencyId/campaign-packets/:program', requireAgencyAdmin, handle(req => getAgencyCampaignPacket(req.params.agencyId,req.params.program)));
+adminCampaignPacketRouter.put('/agency/:agencyId/campaign-packets/:program', requireAgencyAdmin, handle(req => saveAgencyCampaignPacket({agencyId:req.params.agencyId,program:req.params.program,input:req.body,actorUserId:req.user.id})));

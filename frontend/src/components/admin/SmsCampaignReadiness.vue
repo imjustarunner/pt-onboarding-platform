@@ -1,7 +1,7 @@
 <template>
   <section class="card sms-readiness">
     <h3>Campaign registration and consent</h3>
-    <p>Each independent practice needs its own Vonage brand. Record approved, linked campaigns here before enabling delivery. Saving these details does not submit a registration to Vonage.</p>
+    <p>Each independent business needs its own Vonage brand. Record approved, linked campaigns here before enabling delivery. Saving these details does not submit a registration to Vonage.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <p v-if="notice" role="status">{{ notice }}</p>
     <label>Sending number
@@ -19,7 +19,7 @@
         <button :disabled="busy">Create consent signing link</button>
       </form>
       <p v-if="signingUrl">Copy and share this private link: <a :href="signingUrl" target="_blank" rel="noopener noreferrer">{{ signingUrl }}</a></p>
-      <p><a href="/sms-consent/example/itsco" target="_blank" rel="noopener noreferrer">Open public ITSCO example (no recipient data)</a></p>
+      <p v-if="publicEvidenceUrl"><a :href="publicEvidenceUrl" target="_blank" rel="noopener noreferrer">Open this program’s public consent example (no recipient data)</a></p>
       <button type="button" :disabled="busy" @click="load">Refresh consent status</button>
       <table v-if="requests.length">
         <thead><tr><th>Request</th><th>Phone ends in</th><th>Signer</th><th>Signature</th><th>Actions</th></tr></thead>
@@ -80,12 +80,14 @@
         <button :disabled="busy">{{ consent.status === 'opted_in' ? 'Record consent and send confirmation' : 'Record opt-out' }}</button>
       </form>
     </details>
+    <SmsCampaignPacketBuilder :agency-id="agencyId" @use-profile="usePublishedProfile" />
   </section>
 </template>
 
 <script setup>
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
+import SmsCampaignPacketBuilder from './SmsCampaignPacketBuilder.vue';
 const props = defineProps({ agencyId: { type: [String, Number], required: true } });
 const rows = ref([]), numberId = ref(''), error = ref(''), notice = ref(''), busy = ref(false), collectedAt = ref('');
 const requests = ref([]), signaturePhone = ref(''), signerRole = ref('client'), signingUrl = ref('');
@@ -100,6 +102,13 @@ const registrationFields = [
 ].map(([key, label, url]) => ({ key, label, url }));
 const blankRegistration = () => ({ purposes: [], keywordOwner: 'application', approved: false, numberLinked: false, allowRestart: false });
 const registration = ref(blankRegistration());
+const publicEvidenceUrl = computed(() => { try { const url = new URL(registration.value.evidenceUrl); return url.protocol === 'https:' && !url.username && !url.password ? url.href : null; } catch { return null; } });
+function usePublishedProfile(profile) {
+  if (!numberId.value) { error.value = 'Select a sending number first.'; return; }
+  if (registration.value.campaignId) { error.value = 'This number already has a campaign. Select a new number; existing campaign details are preserved.'; return; }
+  registration.value = JSON.parse(JSON.stringify(profile));
+  notice.value = 'Details copied. Enter the real campaign ID after approval; approval and number linkage remain unchecked.';
+}
 const consent = ref({ phone: '', purpose: 'reminders', status: 'opted_in', evidence: { source: 'paper_form', reference: '', signatureReference: '', signerVerified: false, disclosure: '', separateMarketingConsent: false } });
 const failure = (e) => { error.value = e.response?.data?.error?.message || e.message || 'Could not save'; };
 async function load() {

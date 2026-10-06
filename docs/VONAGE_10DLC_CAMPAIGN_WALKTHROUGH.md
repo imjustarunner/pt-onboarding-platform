@@ -1,5 +1,8 @@
 # Vonage 10DLC — campaign-by-campaign dashboard walkthrough
 
+> **Internal voting (October 6):** Use the [ITSCO internal voting packet](VONAGE_10DLC_ITSCO_INTERNAL_VOTING.md) for a new, separate Low Volume Mixed campaign with Polling and Voting plus Account Notification, covering staff announcements, supervisor/team messages and optional final-results texts. Keep the approved service campaign unchanged. Every agency can generate its own packet and publish branded SMS review pages from Texting Numbers → Campaign registration and consent → Generate a new campaign and branded SMS pages after this feature is deployed.
+
+
 Updated October 5, 2026. **Start with Next Level Up Service Communications below.**
 This is the current registration worksheet. It replaces the old copy/paste field sheets
 in the ITSCO audit and the older four-campaign provider-number plan. Historical audit
