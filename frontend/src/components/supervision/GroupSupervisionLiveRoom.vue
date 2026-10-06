@@ -379,17 +379,17 @@
       aria-labelledby="gsl-leave-title"
     >
       <div class="gsl__modal">
-        <h3 id="gsl-leave-title">End this Group Supervision for everyone?</h3>
+        <h3 id="gsl-leave-title">Leave Group Supervision?</h3>
         <p>
-          Closing ends the live room for all participants. You can also leave and keep the session open
-          for others.
+          Leave only disconnects you. The other host, cohosts, and participants can continue,
+          and you can rejoin. Choose End for everyone only when the entire session is finished.
         </p>
         <div class="gsl__modal-actions">
+          <button type="button" class="btn btn-primary" :disabled="endingBusy" @click="confirmLeaveOnly">
+            Leave only
+          </button>
           <button type="button" class="btn btn-danger" :disabled="endingBusy" @click="confirmEndForAll">
             {{ endingBusy ? 'Ending…' : 'End for everyone' }}
-          </button>
-          <button type="button" class="btn btn-secondary" :disabled="endingBusy" @click="confirmLeaveOnly">
-            Leave only
           </button>
           <button type="button" class="btn btn-ghost" :disabled="endingBusy" @click="showHostLeaveModal = false">
             Cancel
