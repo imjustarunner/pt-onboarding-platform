@@ -294,6 +294,7 @@
         </div>
       </div>
       <p v-if="transcriptHint" class="isl__label">{{ transcriptHint }}</p>
+      <a href="/supervision/agreements" target="_blank" rel="noopener noreferrer">Review or sign your supervision agreement (new tab)</a>
       <p
         v-if="!transcriptCapturing && !transcriptPaused"
         class="isl__label"

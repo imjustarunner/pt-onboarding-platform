@@ -2414,6 +2414,8 @@
             :can-book-group="canBookGroupSupervisionFromGrid"
             :facilitator-options="supervisionFacilitatorOptions"
             :presenter-options="supervisionPresenterCandidateOptions"
+            :occurrence-dates="supervisionPresenterDates"
+            v-model:occurrence-presenters="supervisionOccurrencePresenters"
             :show-agenda-draft="!isSupervisionEditMode"
             :show-goals-actions-draft="!isSupervisionEditMode && !supervisionGroupModeEnabled"
             :disabled="submitting || scheduleEventSaving"
@@ -3633,6 +3635,8 @@
               :can-book-group="canBookGroupSupervisionFromGrid"
               :facilitator-options="supervisionFacilitatorOptions"
               :presenter-options="supervisionPresenterCandidateOptions"
+              :occurrence-dates="supervisionPresenterDates"
+              v-model:occurrence-presenters="supervisionOccurrencePresenters"
               :disabled="submitting"
             />
           </div>
@@ -3710,6 +3714,8 @@
               :can-book-group="canBookGroupSupervisionFromGrid"
               :facilitator-options="supervisionFacilitatorOptions"
               :presenter-options="supervisionPresenterCandidateOptions"
+              :occurrence-dates="supervisionPresenterDates"
+              v-model:occurrence-presenters="supervisionOccurrencePresenters"
               :disabled="submitting"
               style="margin-top: 12px;"
             />
@@ -16598,6 +16604,15 @@ const supervisionSignupOnlyEnabled = ref(false);
 const supvSignupBusy = ref(false);
 const supvSignupError = ref('');
 const supervisionPresenterIds = ref([]);
+const supervisionOccurrencePresenters = ref({});
+const supervisionPresenterDates = computed(() => {
+  if (isSupervisionEditMode.value || !supervisionGroupModeEnabled.value) return [];
+  const recurrence = String(supervisionRecurrence.value || 'ONCE').toUpperCase();
+  if (!RECURRING_FREQUENCIES.includes(recurrence)) return [];
+  return scheduleEventOccurrenceDates(editorDateYmd.value, recurrence,
+    recurringMeetingOccurrenceCount(recurrence, supervisionRecurrenceEndMode.value, supervisionOccurrenceCount.value));
+});
+watch(showRequestModal, (open) => { if (!open) supervisionOccurrencePresenters.value = {}; });
 /** Invited attendees for the open supervision session (edit / info / roster). */
 const supvSessionAttendees = ref([]);
 const supvSessionAttendeesLoading = ref(false);
@@ -22173,9 +22188,13 @@ const submitRequest = async () => {
         const startAt = `${String(occYmd).slice(0, 10)}T${pad2(h)}:${pad2(startMinute)}:00`;
         const endAt = `${String(occYmd).slice(0, 10)}T${pad2(endH)}:${pad2(endMinute)}:00`;
         const supervisionTimeZone = scheduleMeetingTimeZone();
-        // Presenters are per-occurrence: only tag the first booking in a series.
-        // Later weeks stay open so a different presenter can be chosen per session.
-        const occPresenterUserIds = supervisionRecurrenceIndex === 0 ? presenterUserIds : [];
+        // Each date keeps its explicit assignment, including an empty list.
+        // Unassigned later dates never inherit the first date's presenters.
+        const selectedForDate = supervisionOccurrencePresenters.value[occYmd]
+          ?? (supervisionRecurrenceIndex === 0 ? presenterUserIds : []);
+        const invitedIds = new Set([participantId, ...additionalAttendeeUserIds]);
+        const occPresenterUserIds = signupOnly ? [] : [...new Set(selectedForDate.map(Number))]
+          .filter(id => invitedIds.has(id)).slice(0, 2);
         // eslint-disable-next-line no-await-in-loop
         const supvRes = await api.post('/supervision/sessions', {
           agencyId: effectiveAgencyId.value,
@@ -23421,6 +23440,7 @@ const canHostOrAdminManageSelectedSupv = computed(() => {
   if (admin || isAdminMode.value) return true;
   if (!me || !s) return false;
   if (me === Number(s.supervisorUserId || 0)) return true;
+  if (me === Number(s.coFacilitatorUserId || 0)) return true;
   if (String(s.role || '') === 'supervisor') return true;
   return !!s.canEdit || !!s.canReschedule;
 });

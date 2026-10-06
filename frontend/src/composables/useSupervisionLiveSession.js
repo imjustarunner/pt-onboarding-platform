@@ -24,6 +24,9 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const slides = ref([]);
   const currentSlide = ref(null);
   const myPresentation = ref(null);
+  const availablePresentations = ref([]);
+  const presentationError = ref('');
+  const canHandoffPresentation = computed(() => !viewAsAttendee.value && (props.isSupervisor || isMyDeckActive.value));
   const activity = ref([]);
   const pollTimer = ref(null);
   const lifecyclePosted = ref(false);
@@ -92,13 +95,14 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   const canControlSlides = computed(() =>
     enablePresentation
     && !viewAsAttendee.value
-    && (props.isSupervisor || props.isPresenter)
+    && props.isPresenter
+    && isMyDeckActive.value
     && slides.value.length > 0
   );
   const showPresenterNotes = computed(() =>
     enablePresentation
     && !viewAsAttendee.value
-    && (props.isPresenter || props.isSupervisor)
+    && (isMyDeckActive.value || props.isSupervisor)
   );
   const isMyDeckActive = computed(() => (
     !!myPresentation.value?.id
@@ -110,6 +114,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     && props.isPresenter
     && !!myPresentation.value?.id
     && !isMyDeckActive.value
+    && !presentation.value?.id
   ));
   const canStopPresenting = computed(() => (
     enablePresentation
@@ -201,6 +206,22 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
   async function flushLiveTranscript() { await speechCapture?.flush(); }
 
   const transcriptPaused = ref(false);
+  const groupConsentRequired = ref(enablePresentation);
+  const transcriptRequested = ref(false);
+  const transcriptAllowed = ref(false);
+  const transcriptConsentBusy = ref(false);
+  async function acceptGroupTranscriptConsent() {
+    if (transcriptConsentBusy.value) return;
+    transcriptConsentBusy.value = true;
+    try {
+      const { data } = await api.post(`/supervision/sessions/${numericSessionId.value}/transcription/control`,
+        { action: 'accept-group-consent', accepted: true }, { skipGlobalLoading: true, skipAuthRedirect: true });
+      groupConsentRequired.value = !!data.consentRequired;
+      transcriptHint.value = data.reason || 'Group transcription consent saved.';
+    } catch (error) {
+      transcriptHint.value = error.response?.data?.error?.message || 'Consent could not be saved. Please retry.';
+    } finally { transcriptConsentBusy.value = false; }
+  }
   const transcriptRoomStopped = ref(false);
   const transcriptStopMeta = ref(null);
 
@@ -225,7 +246,11 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       baseUrl: `/supervision/sessions/${numericSessionId.value}`,
       getStream: getAudioStream,
       isHost: props.isSupervisor,
-      onState: state => { transcriptPaused.value=state.paused; transcriptRoomStopped.value=state.stopped; },
+      onState: state => {
+        transcriptPaused.value=state.paused; transcriptRoomStopped.value=state.stopped;
+        groupConsentRequired.value=!!state.consentRequired; transcriptRequested.value=!!state.requested;
+        transcriptAllowed.value=!!state.allowed;
+      },
       onHint: (text) => {
         transcriptHint.value = text;
       },
@@ -300,6 +325,8 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
         skipGlobalLoading: true,
         skipAuthRedirect: true
       });
+      availablePresentations.value = data.presentations || [];
+      if (presentationEditingGuardActive) return;
       presentation.value = data.presentation || null;
       slides.value = data.presentation?.slides || [];
       if (!presentationEditingGuardActive && Date.now() >= suppressCurrentSlideSyncUntil) {
@@ -335,7 +362,7 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
 
   /** Make my own deck the one everyone sees, starting from its first slide. */
   async function presentMyDeck() {
-    if (!myPresentation.value?.id) return;
+    if (!canPresentMyDeck.value) return;
     const firstSlide = (myPresentation.value.slides || [])[0] || null;
     try {
       await api.put(`/supervision/sessions/${props.supervisionSessionId}/presentation-state`, {
@@ -344,13 +371,14 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
         currentSlideOrder: 0
       }, { skipGlobalLoading: true });
       await refreshPresentation();
-    } catch {
-      /* ignore */
+    } catch (error) {
+      presentationError.value = error.response?.data?.error?.message || 'Could not start presenting.';
     }
   }
 
   /** Clear the shared stage so another presenter can take over. */
   async function stopPresenting() {
+    if (!canStopPresenting.value) return;
     try {
       await api.put(`/supervision/sessions/${props.supervisionSessionId}/presentation-state`, {
         activePresentationId: null,
@@ -360,6 +388,19 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
       await refreshPresentation();
     } catch {
       /* ignore */
+    }
+  }
+
+  async function handoffPresentation(id) {
+    if (!canHandoffPresentation.value || presentationEditingGuardActive) return;
+    presentationError.value = '';
+    try {
+      await api.put(`/supervision/sessions/${props.supervisionSessionId}/presentation-state`, {
+        activePresentationId: Number(id), handoff: true
+      }, { skipGlobalLoading: true });
+      await refreshPresentation();
+    } catch (error) {
+      presentationError.value = error.response?.data?.error?.message || 'Could not switch presentations.';
     }
   }
 
@@ -593,6 +634,15 @@ export function useSupervisionLiveSession(props, emit, { enablePresentation = fa
     topics,
     chatMessages,
     transcriptHint,
+    groupConsentRequired,
+    transcriptRequested,
+    transcriptAllowed,
+    availablePresentations,
+    canHandoffPresentation,
+    handoffPresentation,
+    presentationError,
+    transcriptConsentBusy,
+    acceptGroupTranscriptConsent,
     transcriptCapturing,
     transcriptPaused,
     transcriptRoomStopped,

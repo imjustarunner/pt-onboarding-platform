@@ -22,7 +22,13 @@ export function createConsentedAudioCapture({baseUrl,getStream,isHost=false,onHi
       const dropped=discard,blob=new Blob(parts,{type:active.mimeType||mimeType});
       stream?.getTracks().forEach(t=>t.stop());stream=null;recorder=null;onCapturing?.(false);
       if(!dropped&&blob.size){const body=new FormData();body.append('revision',String(revision));body.append('chunkKey',chunkKey);
-        queued++;pending=pending.then(async()=>{try{body.append('audio',await meetingAudioWav(blob),'segment.wav');await api.post(`${baseUrl}/transcription/audio`,body,options);}catch(e){onHint?.(e.response?.data?.error?.message||'Audio could not be saved. Transcription is paused; retry when connected.');stop({drop:true});}finally{queued--;}});
+        queued++;pending=pending.then(async()=>{try{body.append('audio',await meetingAudioWav(blob),'segment.wav');await api.post(`${baseUrl}/transcription/audio`,body,options);}catch(e){onHint?.(e.response?.data?.error?.message||'Audio could not be saved. Transcription is paused; retry when connected.');
+          if(e.response?.status===409){
+            // A new attendee awaiting consent or a host pause invalidates the
+            // segment, not the state poll. Resume only when the server allows.
+            currentState={...currentState,allowed:false};stopSegment(true);
+          }else stop({drop:true});
+        }finally{queued--;}});
       }
       settleSegment?.();settleSegment=null;if(wanted)void poll();
     };

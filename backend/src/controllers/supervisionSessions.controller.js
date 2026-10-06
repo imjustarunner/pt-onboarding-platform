@@ -696,7 +696,7 @@ function isTruthyFlag(v) {
 }
 
 /** Actor must have supervisor privileges and group_supervision_eligible to manage group sessions. */
-async function assertCanManageGroupSupervision(req, res, { sessionType, existingSessionType } = {}) {
+async function assertCanManageGroupSupervision(req, res, { sessionType, existingSessionType, existingSession } = {}) {
   const nextType = String(sessionType || existingSessionType || '').trim().toLowerCase();
   const involvesGroup = nextType === 'group' || String(existingSessionType || '').trim().toLowerCase() === 'group';
   if (!involvesGroup) return true;
@@ -708,6 +708,8 @@ async function assertCanManageGroupSupervision(req, res, { sessionType, existing
   }
 
   const role = String(req.user?.role || '').toLowerCase();
+  if (existingSession && [existingSession.supervisor_user_id, existingSession.co_facilitator_user_id].map(Number).includes(actorId)
+      && await hasActiveMeetingMembership(existingSession.agency_id, actorId)) return true;
   if (['admin', 'super_admin', 'support', 'clinical_practice_assistant'].includes(role)) {
     return true;
   }
@@ -3985,7 +3987,8 @@ export const patchSupervisionSession = async (req, res, next) => {
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
       supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
@@ -4019,7 +4022,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     if (wantsTimeChange) {
       const actorId = Number(req.user?.id || 0);
       const role = String(req.user?.role || '').toLowerCase();
-      const isSupervisorHost = actorId > 0 && actorId === Number(row.supervisor_user_id || 0);
+      const isSupervisorHost = actorId > 0 && [row.supervisor_user_id, row.co_facilitator_user_id].map(Number).includes(actorId);
       const privileged = ['super_admin', 'admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus'].includes(role);
       if (!isSupervisorHost && !privileged) {
         return res.status(403).json({
@@ -4030,7 +4033,8 @@ export const patchSupervisionSession = async (req, res, next) => {
     const sessionType = req.body?.sessionType !== undefined ? String(req.body?.sessionType || '').trim().toLowerCase() : undefined;
     if (!(await assertCanManageGroupSupervision(req, res, {
       sessionType,
-      existingSessionType: row.session_type
+      existingSessionType: row.session_type,
+      existingSession: row
     }))) return;
     const notes = req.body?.notes !== undefined ? (req.body?.notes ? String(req.body.notes) : '') : undefined;
     const modality = req.body?.modality !== undefined ? (req.body?.modality ? String(req.body.modality) : null) : undefined;
@@ -4764,7 +4768,8 @@ export const getSessionPresenters = async (req, res, next) => {
     const ok = await canScheduleSession(req, {
       agencyId: row.agency_id,
       supervisorUserId: row.supervisor_user_id,
-      superviseeUserId: row.supervisee_user_id
+      superviseeUserId: row.supervisee_user_id,
+      sessionId: id
     });
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 

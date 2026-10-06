@@ -13,6 +13,7 @@
         </div>
       </div>
       <div class="gsl__header-right">
+        <button v-if="!isInLobby" type="button" class="btn btn-secondary btn-sm" @click="tileFocus = 'collapsed'; presentationBandOpen = true">Presentation layout</button>
         <button
           v-if="isSupervisor || isPresenter"
           type="button"
@@ -25,10 +26,10 @@
           v-if="isSupervisor"
           type="button"
           class="btn btn-secondary btn-sm"
-          title="Mute everyone except the assigned presenter(s)"
+          title="Mute attendees, keeping presenters, hosts, and co-hosts unmuted"
           @click="muteAllExceptPresenters"
         >
-          Mute all except presenters
+          Mute attendees
         </button>
         <span class="gsl__count" title="Participants">{{ participantHint }}</span>
         <button type="button" class="btn btn-danger btn-sm" @click="onLeaveClick">
@@ -82,9 +83,20 @@
       theme="dark"
     />
 
+    <section v-if="!isInLobby" class="gsl__consent" role="status">
+      <p>This group session uses speech transcription and summaries for authorized participants. A signed individual supervision agreement is not required for group transcription.</p>
+      <a href="/supervision/agreements" target="_blank" rel="noopener noreferrer">Review or sign your individual supervision agreements (new tab)</a>
+      <template v-if="groupConsentRequired">
+        <p>Choose “I agree” to consent for this session, or leave. Transcription waits until everyone in the room has agreed.</p>
+        <button type="button" class="btn btn-primary" :disabled="transcriptConsentBusy" @click="acceptGroupTranscriptConsent">{{ transcriptConsentBusy ? 'Saving…' : 'I agree to transcription' }}</button>
+        <button type="button" class="btn btn-secondary" @click="onLeaveClick">Leave session</button>
+      </template>
+      <p v-else>{{ transcriptRequested && transcriptAllowed && !transcriptPaused ? 'Transcription is on.' : 'Your consent is saved. Transcription is waiting or paused.' }}</p>
+    </section>
+
     <div
       class="gsl__top-row"
-      :class="{ 'gsl__top-row--grow': !videoFullscreen && !showWaitingRoomStage && !presentationBandOpen }"
+      :class="{ 'gsl__top-row--compact': videoStripCollapsed, 'gsl__top-row--grow': !videoFullscreen && !showWaitingRoomStage && !presentationBandOpen }"
     >
     <div
       class="gsl__video-strip"
@@ -234,7 +246,7 @@
             <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': transcriptOpen }">▾</span>
           </button>
           <div v-show="transcriptOpen" class="gsl__section-body">
-            <button type="button" class="btn btn-secondary" @click="transcriptPaused ? resumeLiveTranscript() : pauseLiveTranscript()">{{transcriptPaused ? 'Resume transcription' : 'Pause transcription'}}</button>
+            <button type="button" class="btn btn-secondary" @click="toggleTranscriptCapture">{{transcriptPaused ? 'Resume transcription' : 'Pause transcription'}}</button>
             <p v-if="transcriptHint" class="gsl__transcript-hint">{{ transcriptHint }}</p>
             <pre v-if="transcriptCombined" class="gsl__transcript">{{ transcriptCombined }}</pre>
             <p v-else class="gsl__transcript-empty">Transcript will appear here once speech is detected.</p>
@@ -256,6 +268,14 @@
         <span class="gsl__section-chevron" :class="{ 'gsl__section-chevron--open': presentationBandOpen }">▾</span>
       </button>
       <section v-show="presentationBandOpen" class="gsl__stage-wrap">
+        <div v-if="canHandoffPresentation && availablePresentations.length > 1 && !editingSlide" class="gsl__handoff">
+          <span>Switch presenter:</span>
+          <button v-for="(deck, index) in availablePresentations" :key="deck.id" type="button" class="btn btn-secondary btn-sm"
+            :disabled="Number(deck.id) === Number(presentation?.id)" @click="handoffPresentation(deck.id)">
+            Presentation {{ index + 1 }} · {{ deck.presenterName || 'Presenter' }}
+          </button>
+        </div>
+        <p v-if="presentationError" role="alert">{{ presentationError }}</p>
         <div class="gsl__stage">
           <template v-if="externalEmbedUrl">
             <iframe
@@ -277,9 +297,9 @@
               <div v-if="!editingSlide" class="gsl__slide-body" v-html="slideBodyHtml" />
               <div v-else class="gsl__slide-editor">
                 <div class="gsl__slide-toolbar" role="toolbar" aria-label="Text formatting">
-                  <button type="button" class="gsl__tool" title="Bold" @mousedown.prevent="applySlideFormat('bold')"><strong>B</strong></button>
-                  <button type="button" class="gsl__tool" title="Italic" @mousedown.prevent="applySlideFormat('italic')"><em>I</em></button>
-                  <button type="button" class="gsl__tool" title="Bullet list" @mousedown.prevent="applySlideFormat('insertUnorderedList')">• List</button>
+                  <button type="button" class="gsl__tool" title="Bold" @mousedown.prevent @click="applySlideFormat('bold')"><strong>B</strong></button>
+                  <button type="button" class="gsl__tool" title="Italic" @mousedown.prevent @click="applySlideFormat('italic')"><em>I</em></button>
+                  <button type="button" class="gsl__tool" title="Bullet list" @mousedown.prevent @click="applySlideFormat('insertUnorderedList')">• List</button>
                 </div>
                 <div
                   ref="slideEditor"
@@ -292,7 +312,7 @@
                 />
                 <label class="gsl__slide-notes-field">
                   <span>Presenter notes <em>(only you see these)</em></span>
-                  <textarea v-model="slideEditDraft.presenterNotes" rows="2" />
+                  <textarea v-model="slideEditDraft.presenterNotes" rows="2" @input="scheduleSlideSave" />
                 </label>
               </div>
             </div>
@@ -306,7 +326,7 @@
                 <button type="button" class="btn btn-primary btn-sm" :disabled="slideEditSaving" @click="saveSlideEdits">
                   {{ slideEditSaving ? 'Saving…' : 'Save section' }}
                 </button>
-                <button type="button" class="btn btn-secondary btn-sm" :disabled="slideEditSaving" @click="closeSlideEditor">
+                <button type="button" class="btn btn-secondary btn-sm" :disabled="slideEditSaving" @click="finishSlideEditing">
                   Done
                 </button>
               </template>
@@ -408,7 +428,7 @@ const emit = defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected',
 
 const videoRoomRef = ref(null);
 const transcriptionNoticeDismissed = ref(false);
-const tileFocus = ref('equal');
+const tileFocus = ref('collapsed');
 const videoFullscreen = ref(false);
 const videoFullscreenActivityNotice = ref('');
 let fullscreenNoticeTimer = null;
@@ -454,6 +474,15 @@ const {
   onSelfStageClick,
   viewAsAttendee,
   transcriptHint,
+  groupConsentRequired,
+    transcriptRequested,
+    transcriptAllowed,
+    availablePresentations,
+    canHandoffPresentation,
+    handoffPresentation,
+    presentationError,
+  transcriptConsentBusy,
+  acceptGroupTranscriptConsent,
   transcriptCapturing,
   transcriptPaused,
   pauseLiveTranscript,
@@ -461,6 +490,7 @@ const {
   liveTranscriptPreview,
   sessionTranscriptPreview,
   currentSlide,
+  presentation,
   canControlSlides,
   showPresenterNotes,
   isMyDeckActive,
@@ -485,6 +515,12 @@ const slideEditDraft = reactive({ bodyHtml: '', presenterNotes: '' });
 const slideEditSaving = ref(false);
 const slideEditSaveStatus = ref('');
 const slideEditor = ref(null);
+let slideSaveTimer = null;
+let slideSavePromise = null;
+function scheduleSlideSave() {
+  clearTimeout(slideSaveTimer);
+  slideSaveTimer = setTimeout(() => { void saveSlideEdits(); }, 700);
+}
 
 function syncSlideEditor() {
   const el = slideEditor.value;
@@ -504,12 +540,14 @@ function openSlideEditor() {
 }
 
 function closeSlideEditor() {
+  clearTimeout(slideSaveTimer);
   editingSlide.value = false;
   setPresentationEditingGuard(false);
 }
 
 function onSlideBodyInput() {
   slideEditDraft.bodyHtml = slideEditor.value?.innerHTML || '';
+  scheduleSlideSave();
 }
 
 function applySlideFormat(command) {
@@ -518,20 +556,25 @@ function applySlideFormat(command) {
   el.focus();
   try { document.execCommand(command, false, null); } catch { /* ignore */ }
   slideEditDraft.bodyHtml = el.innerHTML || '';
+  scheduleSlideSave();
 }
 
 async function saveSlideEdits() {
-  if (slideEditSaving.value) return;
-  onSlideBodyInput();
+  clearTimeout(slideSaveTimer);
+  if (slideSavePromise) await slideSavePromise;
+  if (!editingSlide.value) return true;
+  slideEditDraft.bodyHtml = slideEditor.value?.innerHTML || '';
+  const savedDraft = { bodyHtml: slideEditDraft.bodyHtml, presenterNotes: slideEditDraft.presenterNotes };
   slideEditSaving.value = true;
   slideEditSaveStatus.value = '';
-  const ok = await saveCurrentSlideContent({
-    bodyHtml: slideEditDraft.bodyHtml,
-    presenterNotes: slideEditDraft.presenterNotes
-  });
+  slideSavePromise = saveCurrentSlideContent(savedDraft);
+  const ok = await slideSavePromise;
+  slideSavePromise = null;
   slideEditSaving.value = false;
   slideEditSaveStatus.value = ok ? `Saved ${new Date().toLocaleTimeString()}` : 'Could not save — try again.';
+  return ok;
 }
+async function finishSlideEditing() { if (await saveSlideEdits()) closeSlideEditor(); }
 
 // Reset the local editor whenever navigation moves to a different slide.
 watch(() => currentSlide.value?.id, () => {
@@ -539,6 +582,10 @@ watch(() => currentSlide.value?.id, () => {
 });
 
 const displayTitle = computed(() => 'Group Supervision');
+async function toggleTranscriptCapture() {
+  try { if (transcriptPaused.value) await resumeLiveTranscript(); else await pauseLiveTranscript(); }
+  catch (error) { transcriptHint.value = error.response?.data?.error?.message || 'Unable to change transcription. Please retry.'; }
+}
 const presenterSubtitle = computed(() => {
   const raw = String(props.sessionTitle || '').trim();
   const m = raw.match(/Presenting:\s*(.+)$/i);
@@ -596,7 +643,8 @@ const canGrantScreenShare = computed(() => {
   return ['super_admin', 'admin', 'support'].includes(role);
 });
 
-function onLeaveClick() {
+async function onLeaveClick() {
+  if (editingSlide.value && !await saveSlideEdits()) return;
   if (props.isSupervisor) {
     showHostLeaveModal.value = true;
     return;
@@ -621,7 +669,7 @@ function muteAllExceptPresenters() {
   if (!room?.muteAllExcept) return;
   const list = room.remotes || [];
   const presenterConnectionIds = list
-    .filter((r) => /^presenter\b/i.test(String(r?.name || '').trim()))
+    .filter((r) => /^(presenter|supervisor|host|co[- ]?host)\b/i.test(String(r?.name || '').trim()))
     .map((r) => r.connectionId)
     .filter(Boolean);
   room.muteAllExcept(presenterConnectionIds);
@@ -691,6 +739,7 @@ function onLiveActivityNotice(payload) {
 }
 
 onUnmounted(() => {
+  clearTimeout(slideSaveTimer);
   if (fullscreenNoticeTimer) clearTimeout(fullscreenNoticeTimer);
 });
 
@@ -1408,5 +1457,31 @@ defineExpose({
     max-height: 60%;
   }
   .gsl__lobby-prep { max-height: 36%; }
+}
+/* The media viewport and its controls share a bounded row; percentage heights
+   on both used to push tiles behind the controls and leave a large empty stage. */
+.gsl:not(.gsl--video-fs):not(.gsl--lobby) .gsl__top-row { flex: 0 0 auto; align-items: flex-start; }
+.gsl:not(.gsl--video-fs) .gsl__video-strip:not(.gsl__video-strip--lobby) { flex: 1 1 68%; height: clamp(420px, 44vh, 520px); min-height: 0; }
+.gsl:not(.gsl--video-fs) .gsl__video-strip:not(.gsl__video-strip--lobby) .gsl__self-stage { height: 100%; min-height: 0; }
+.gsl:not(.gsl--video-fs) .gsl__video-strip:not(.gsl__video-strip--lobby) :deep(.vsr__viewport) { flex: 1 1 auto; height: auto; min-height: 0; }
+.gsl:not(.gsl--video-fs) .gsl__video-strip:not(.gsl__video-strip--lobby) :deep(.vsr__stage) { height: auto; min-height: 0; }
+.gsl:not(.gsl--video-fs) .gsl__video-strip--collapsed:not(.gsl__video-strip--lobby),
+.gsl:not(.gsl--video-fs) .gsl__video-strip--collapsed .gsl__self-stage,
+.gsl:not(.gsl--video-fs) .gsl__video-strip--collapsed :deep(.supervision-video-room),
+.gsl:not(.gsl--video-fs) .gsl__video-strip--collapsed :deep(.vsr) { height: auto; min-height: 0; }
+.gsl:not(.gsl--video-fs) .gsl__video-strip--collapsed :deep(.vsr__viewport) { flex: 0 0 auto; }
+.gsl:not(.gsl--video-fs) .gsl__video-strip--collapsed :deep(.vsr__stage--focus-collapsed) { height: 104px; flex: 0 0 104px; }
+.gsl:not(.gsl--video-fs) .gsl__workspace { height: auto; max-height: clamp(240px, 38vh, 440px); }
+.gsl:not(.gsl--video-fs) .gsl__top-row--compact .gsl__workspace { max-height: 220px; }
+.gsl:not(.gsl--video-fs) .gsl__presentation-band { flex: 0 0 auto; }
+.gsl:not(.gsl--video-fs) .gsl__presentation-band:not(.gsl__presentation-band--collapsed) .gsl__stage { min-height: 260px; }
+.gsl__consent { flex: 0 0 auto; padding: 10px 14px; margin-bottom: 10px; border: 1px solid #8fcdb2; border-radius: 10px; background: #18382f; color: #fff; }
+.gsl__consent p { margin: 4px 0; }
+.gsl__handoff { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
+.gsl__slide-richtext :deep(ul), .gsl__slide-body :deep(ul) { list-style: disc outside; padding-left: 1.5rem; }
+.gsl__slide-richtext :deep(ol), .gsl__slide-body :deep(ol) { list-style: decimal outside; padding-left: 1.5rem; }
+.gsl__slide-richtext :deep(li), .gsl__slide-body :deep(li) { display: list-item; }
+@media (max-width: 980px) {
+  .gsl:not(.gsl--video-fs) .gsl__video-strip:not(.gsl__video-strip--lobby), .gsl:not(.gsl--video-fs) .gsl__workspace { width: 100%; flex: 0 0 auto; box-sizing: border-box; }
 }
 </style>

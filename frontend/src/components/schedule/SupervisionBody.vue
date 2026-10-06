@@ -175,9 +175,9 @@
 
         </template>
 
-        <div v-if="presenterOptions.length && groupMode && !signupOnly" class="supb-row">
+        <div v-if="(presenterOptions.length || occurrenceDates.length) && groupMode && !signupOnly" class="supb-row">
           <label class="supb-label">Presenter(s) <span class="supb-optional">optional</span></label>
-          <div class="supb-presenter-picker" role="group" aria-label="Select presenters from invited participants">
+          <div v-if="!occurrenceDates.length" class="supb-presenter-picker" role="group" aria-label="Select presenters from invited participants">
             <label
               v-for="opt in presenterOptions"
               :key="`supb-presenter-${opt.id}`"
@@ -196,9 +196,24 @@
               <span>{{ opt.label }}</span>
             </label>
           </div>
+          <fieldset v-for="(date, index) in occurrenceDates" :key="date" class="supb-occurrence">
+            <legend>{{ date }}</legend>
+            <div class="supb-presenter-picker">
+              <label v-for="opt in presenterOptions" :key="opt.id" class="supb-presenter-option">
+                <input type="checkbox" :aria-label="`${date}: ${opt.label}`"
+                  :checked="presentersForDate(date, index).includes(Number(opt.id))"
+                  :disabled="disabled || (presentersForDate(date, index).length >= 2 && !presentersForDate(date, index).includes(Number(opt.id)))"
+                  @change="toggleDatePresenter(date, index, opt.id, $event.target.checked)" />
+                {{ opt.label }}
+              </label>
+            </div>
+            <span v-if="!presentersForDate(date, index).length" class="supb-hint">No presenter assigned</span>
+            <button v-else type="button" :disabled="disabled" @click="emit('update:occurrencePresenters', { ...occurrencePresenters, [date]: [] })">No presenters for this date</button>
+          </fieldset>
           <p class="supb-hint muted">
             Choose who is presenting from the invited list (up to 2). Leave unchecked if nobody is presenting —
             invited participants are not presenters unless selected here.
+            Presenter email reminders: 1 week, 48 hours, 24 hours, 3 hours, and 1 hour before their assigned date (when email notifications are on).
           </p>
         </div>
 
@@ -319,6 +334,8 @@ const props = defineProps({
   inviteAudienceGroupSupport: { type: Boolean, default: false },
   presenterIds: { type: Array, default: () => [] },
   presenterOptions: { type: Array, default: () => [] },
+  occurrenceDates: { type: Array, default: () => [] },
+  occurrencePresenters: { type: Object, default: () => ({}) },
   sessionTypeLabel: { type: String, default: '' },
   disabled: { type: Boolean, default: false },
   /** controls = session type + switches; details = facilitator/open join; all = everything */
@@ -345,6 +362,7 @@ const emit = defineEmits([
   'update:inviteAudienceAllSupervised',
   'update:inviteAudienceGroupSupport',
   'update:presenterIds',
+  'update:occurrencePresenters',
   'update:agendaItems',
   'update:goalDraftItems',
   'update:actionDraftItems'
@@ -369,6 +387,18 @@ const coFacilitatorOptions = computed(() => {
 const presenterIdSet = computed(() => new Set(
   (props.presenterIds || []).map((n) => Number(n || 0)).filter((n) => n > 0)
 ));
+
+function presentersForDate(date, index) {
+  const allowed = new Set(props.presenterOptions.map(opt => Number(opt.id)));
+  return (props.occurrencePresenters[date] ?? (index === 0 ? props.presenterIds : []))
+    .map(Number).filter(id => allowed.has(id)).slice(0, 2);
+}
+function toggleDatePresenter(date, index, id, checked) {
+  const next = new Set(presentersForDate(date, index));
+  if (checked && next.size < 2) next.add(Number(id));
+  if (!checked) next.delete(Number(id));
+  emit('update:occurrencePresenters', { ...props.occurrencePresenters, [date]: [...next] });
+}
 
 function togglePresenter(userId, checked) {
   const id = Number(userId || 0);
