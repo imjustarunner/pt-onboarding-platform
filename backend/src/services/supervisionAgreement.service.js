@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
+import { isGroupSupervision, groupTranscriptionConsent } from './groupSupervisionConsent.service.js';
 import { SUPERVISION_AGREEMENT_TEXT, SUPERVISION_AGREEMENT_VERSION } from '../content/supervisionAgreement.en.js';
 import { encryptGuardianIntake, decryptGuardianIntake } from './guardianIntakeEncryption.service.js';
 import { hasActiveMeetingMembership } from './meetingJoinPolicy.service.js';
@@ -85,6 +86,7 @@ export async function signSupervisionAgreement({ agreementId, userId, input, ip,
 }
 export async function supervisionRecordingConsent(session, db = pool) {
   if (!await isMentalHealthAgency(session.agency_id, db)) return { allowed: false, reason: 'Supervision recording is available for mental health agencies only.' };
+  if (isGroupSupervision(session)) return groupTranscriptionConsent(session, db);
   const [participants] = await db.execute(`SELECT ? AS user_id UNION SELECT ? UNION
     SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND status NOT IN ('DECLINED','REMOVED','CANCELLED','WITHDRAWN')`,
     [session.supervisee_user_id,session.co_facilitator_user_id,session.id]);

@@ -76,9 +76,9 @@
             <div class="spb__field">
               <span>Section content</span>
               <div class="spb__toolbar" role="toolbar" aria-label="Text formatting">
-                <button type="button" class="spb__tool" title="Bold" @mousedown.prevent="applyFormat('bold')"><strong>B</strong></button>
-                <button type="button" class="spb__tool" title="Italic" @mousedown.prevent="applyFormat('italic')"><em>I</em></button>
-                <button type="button" class="spb__tool" title="Bullet list" @mousedown.prevent="applyFormat('insertUnorderedList')">• List</button>
+                <button type="button" class="spb__tool" title="Bold" @mousedown.prevent @click="applyFormat('bold')"><strong>B</strong></button>
+                <button type="button" class="spb__tool" title="Italic" @mousedown.prevent @click="applyFormat('italic')"><em>I</em></button>
+                <button type="button" class="spb__tool" title="Bullet list" @mousedown.prevent @click="applyFormat('insertUnorderedList')">• List</button>
               </div>
               <div
                 ref="bodyEditor"
@@ -93,7 +93,7 @@
 
             <label class="spb__field">
               <span>Presenter notes <em>(visible only to you)</em></span>
-              <textarea v-model="draft.presenterNotes" class="input" rows="4" @change="saveSlide" />
+              <textarea v-model="draft.presenterNotes" class="input" rows="4" @input="scheduleSave" />
             </label>
 
             <div class="spb__editor-actions">
@@ -117,8 +117,8 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import api from '../../services/api';
 
@@ -136,6 +136,14 @@ const slides = ref([]);
 const selectedSlideId = ref(null);
 const sessionMeta = ref('');
 const bodyEditor = ref(null);
+let saveTimer = null;
+let pendingSave = null;
+let switchingSlide = false;
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  saveStatus.value = 'Unsaved changes';
+  saveTimer = setTimeout(() => { void saveSlide(); }, 700);
+}
 const draft = reactive({
   title: '',
   bodyHtml: '',
@@ -187,6 +195,7 @@ function syncBodyEditor() {
 
 function onBodyInput() {
   draft.bodyHtml = bodyEditor.value?.innerHTML || '';
+  scheduleSave();
 }
 
 function applyFormat(command) {
@@ -199,22 +208,23 @@ function applyFormat(command) {
     // ignore unsupported commands
   }
   draft.bodyHtml = el.innerHTML || '';
+  scheduleSave();
 }
 
 /** Auto-save the section being left so unsaved edits are never silently discarded. */
 async function selectSlide(id) {
   const target = Number(id || 0);
-  if (!target || target === Number(selectedSlideId.value)) return;
-  if (selectedSlide.value) {
-    await saveSlide();
-  }
+  if (!target || target === Number(selectedSlideId.value) || switchingSlide) return;
+  switchingSlide = true;
+  if (selectedSlide.value && !await saveSlide()) { switchingSlide = false; return; }
   selectedSlideId.value = target;
   const slide = slides.value.find((s) => Number(s.id) === target);
-  if (!slide) return;
+  if (!slide) { switchingSlide = false; return; }
   draft.title = slide.title || '';
   draft.bodyHtml = slide.body_html || '';
   draft.presenterNotes = slide.presenter_notes || '';
-  nextTick(syncBodyEditor);
+  await nextTick(syncBodyEditor);
+  switchingSlide = false;
 }
 
 async function load() {
@@ -223,6 +233,7 @@ async function load() {
   try {
     const { data } = await api.get(`/supervision/sessions/${sessionId.value}/presentations/mine`);
     presentation.value = data.presentation;
+    selectedSlideId.value = null;
     slides.value = data.presentation?.slides || [];
     if (slides.value.length) selectSlide(slides.value[0].id);
     sessionMeta.value = `Session #${sessionId.value}`;
@@ -234,30 +245,46 @@ async function load() {
 }
 
 async function saveSlide() {
-  if (!selectedSlide.value) return;
-  onBodyInput();
+  clearTimeout(saveTimer);
+  if (pendingSave) await pendingSave;
+  if (!selectedSlide.value) return true;
+  draft.bodyHtml = bodyEditor.value?.innerHTML ?? draft.bodyHtml;
+  const slideId = selectedSlide.value.id;
+  const payload = { title: draft.title, bodyHtml: draft.bodyHtml, presenterNotes: draft.presenterNotes, layout: 'text', background: null };
+  if (payload.bodyHtml === (selectedSlide.value.body_html || '') && payload.presenterNotes === (selectedSlide.value.presenter_notes || '') && payload.title === (selectedSlide.value.title || '')) return true;
   saving.value = true;
   error.value = '';
+  pendingSave = (async () => {
   try {
-    const { data } = await api.patch(`/supervision/presentation-slides/${selectedSlide.value.id}`, {
-      title: draft.title,
-      bodyHtml: draft.bodyHtml,
-      presenterNotes: draft.presenterNotes,
-      layout: 'text',
-      background: null
-    });
-    const idx = slides.value.findIndex((s) => Number(s.id) === Number(selectedSlide.value.id));
+    const { data } = await api.patch(`/supervision/presentation-slides/${slideId}`, payload);
+    const idx = slides.value.findIndex((s) => Number(s.id) === Number(slideId));
     if (idx >= 0) slides.value[idx] = data.slide;
     saveStatus.value = `Saved ${new Date().toLocaleTimeString()}`;
+    return true;
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to save section';
+    saveStatus.value = 'Not saved — please retry';
+    return false;
   } finally {
     saving.value = false;
   }
+  })();
+  const result = await pendingSave;
+  pendingSave = null;
+  return result;
 }
 
+onBeforeRouteLeave(saveSlide);
+onBeforeRouteUpdate(saveSlide);
+function warnUnsaved(event) {
+  const slide = selectedSlide.value;
+  if (saving.value || (slide && ((bodyEditor.value?.innerHTML ?? draft.bodyHtml) !== (slide.body_html || '') || draft.presenterNotes !== (slide.presenter_notes || '')))) {
+    event.preventDefault(); event.returnValue = '';
+  }
+}
 watch(sessionId, () => load());
-onMounted(load);
+onMounted(() => { window.addEventListener('beforeunload', warnUnsaved); void load(); });
+onUnmounted(() => { clearTimeout(saveTimer); window.removeEventListener('beforeunload', warnUnsaved); });
 </script>
 
 <style scoped>
@@ -469,4 +496,7 @@ onMounted(load);
     grid-template-columns: 1fr;
   }
 }
+.spb__richtext :deep(ul), .spb__preview-body :deep(ul) { list-style: disc outside; padding-left: 1.5rem; }
+.spb__richtext :deep(ol), .spb__preview-body :deep(ol) { list-style: decimal outside; padding-left: 1.5rem; }
+.spb__richtext :deep(li), .spb__preview-body :deep(li) { display: list-item; }
 </style>

@@ -208,7 +208,10 @@ export const authenticate = async (req, res, next) => {
     if (req.method === 'POST' && /^\/api\/supervision\/guest-transcript\/[^/]+\/?$/.test(requestPath)) {
       return next();
     }
-    if (req.method === 'POST' && /^\/api\/supervision\/sessions\/[^/]+\/join-presence\/?$/.test(requestPath)) {
+    // Personal invitation credentials are validated by the supervision router.
+    // Normal cookie/Bearer heartbeats must populate req.user, not skip auth.
+    if (req.method === 'POST' && /^\/api\/supervision\/sessions\/[^/]+\/join-presence\/?$/.test(requestPath)
+      && req.headers['x-supervision-access']) {
       return next();
     }
     if (req.method === 'GET' && /^\/api\/team-meetings\/join-info\/[^/]+\/?$/.test(requestPath)) {

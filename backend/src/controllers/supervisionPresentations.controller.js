@@ -62,6 +62,7 @@ async function canViewSession(req, sessionRow) {
   const uid = Number(req.user?.id || 0);
   if (!uid) return false;
   if (uid === Number(sessionRow.supervisor_user_id)) return true;
+  if (uid === Number(sessionRow.co_facilitator_user_id)) return true;
   if (uid === Number(sessionRow.supervisee_user_id)) return true;
   try {
     const [attendee] = await pool.execute(
@@ -93,15 +94,33 @@ async function canEditPresentation(req, sessionRow, presentation) {
 
 async function canControlLiveState(req, sessionRow) {
   if (!sessionRow) return false;
-  if (isAdminLikeRole(req.user?.role)) return true;
   const uid = Number(req.user?.id || 0);
-  if (uid && uid === Number(sessionRow.supervisor_user_id)) return true;
-  try {
-    const presenters = await SupervisionSession.listPresentersForSession(sessionRow.id);
-    return (presenters || []).some((p) => Number(p.user_id) === uid);
-  } catch {
-    return false;
+  if (!uid || !await canViewSession(req, sessionRow)) return false;
+  const state = await SupervisionCasePresentation.getState(sessionRow.id);
+  const active = state?.active_presentation_id
+    ? await SupervisionCasePresentation.findById(state.active_presentation_id) : null;
+  const targetId = Number(req.body?.activePresentationId || 0);
+  if (req.body?.handoff === true) {
+    const isHost = [sessionRow.supervisor_user_id, sessionRow.co_facilitator_user_id].map(Number).includes(uid);
+    if (!isHost && Number(active?.presenter_user_id) !== uid) return false;
+    const target = targetId ? await SupervisionCasePresentation.findById(targetId) : null;
+    if (!target || Number(target.session_id) !== Number(sessionRow.id)) return false;
+    const assigned = await SupervisionSession.listPresentersForSession(sessionRow.id);
+    return assigned.some(p => Number(p.user_id) === Number(target.presenter_user_id));
   }
+  // Neither another presenter nor a supervisor/admin can drive a live deck
+  // owned by somebody else. The owner stops presenting before a handoff.
+  if (active && Number(active.presenter_user_id) !== uid) return false;
+  if (!targetId) return !!active && Number(active.presenter_user_id) === uid;
+  const target = await SupervisionCasePresentation.findById(targetId);
+  if (!target || Number(target.session_id) !== Number(sessionRow.id) || Number(target.presenter_user_id) !== uid) return false;
+  const assigned = await SupervisionSession.listPresentersForSession(sessionRow.id);
+  if (!assigned.some(p => Number(p.user_id) === uid)) return false;
+  if (req.body?.currentSlideId) {
+    const slide = await SupervisionCasePresentation.getSlideById(req.body.currentSlideId);
+    if (!slide || Number(slide.presentation_id) !== targetId) return false;
+  }
+  return true;
 }
 
 function mapPresentationApi(p, slides = null) {
@@ -366,16 +385,12 @@ export const getPresentationState = async (req, res, next) => {
       currentSlide = state.current_slide_id
         ? await SupervisionCasePresentation.getSlideById(state.current_slide_id)
         : slides.find((s) => Number(s.slide_order) === Number(state.current_slide_order)) || slides[0] || null;
-    } else {
-      const list = await SupervisionCasePresentation.listForSession(session.id);
-      activePresentation = list[0] || null;
-      if (activePresentation) {
-        slides = await SupervisionCasePresentation.listSlides(activePresentation.id);
-        currentSlide = slides[0] || null;
-      }
     }
+    const available = await SupervisionCasePresentation.listForSession(session.id);
+    const assigned = await SupervisionSession.listPresentersForSession(session.id);
     res.json({
       state: state || null,
+      presentations: available.filter(p => assigned.some(a => Number(a.user_id) === Number(p.presenter_user_id))).map(p => ({ id: p.id, presenterUserId: p.presenter_user_id, presenterName: p.presenter_name })),
       presentation: mapPresentationApi(activePresentation, slides),
       currentSlide
     });
@@ -389,7 +404,14 @@ export const putPresentationState = async (req, res, next) => {
     const session = await loadSession(req.params.id);
     if (!session) return res.status(404).json({ error: { message: 'Session not found' } });
     if (!(await canControlLiveState(req, session))) {
-      return res.status(403).json({ error: { message: 'Only the supervisor or presenter can advance slides' } });
+      return res.status(403).json({ error: { message: 'Only the owner of the active presentation can advance or stop it.' } });
+    }
+    // Handoff is a separate host/owner action, never a way to advance somebody
+    // else's slide: the new presentation always opens on its first section.
+    if (req.body?.handoff === true) {
+      const slides = await SupervisionCasePresentation.listSlides(req.body.activePresentationId);
+      req.body.currentSlideId = slides[0]?.id || null;
+      req.body.currentSlideOrder = 0;
     }
     const state = await SupervisionCasePresentation.upsertState({
       sessionId: session.id,

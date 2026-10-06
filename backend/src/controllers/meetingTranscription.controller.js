@@ -1,6 +1,7 @@
 import multer from 'multer';
 import pool from '../config/database.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
+import { isGroupSupervision, hasGroupTranscriptionConsent, acceptGroupTranscriptionConsent } from '../services/groupSupervisionConsent.service.js';
 import {canJoinSupervision} from '../services/meetingJoinPolicy.service.js';
 import {clientRecordingContext} from './counselingRecordingConsent.controller.js';
 import {transcriptionState,controlTranscription,appendMeetingAudio} from '../services/meetingTranscription.service.js';
@@ -20,10 +21,30 @@ export async function meetingTranscriptionContext(req) {
   return {type:'supervision',session,userId:req.user.id,isHost,inPerson,role:isHost?'supervisor':'supervisee',speakerKey:`user-${req.user.id}`,
     speakerLabel:inPerson?'In-person supervision':`${isHost?'Supervisor':'Supervisee'} · ${[req.user.first_name,req.user.last_name].filter(Boolean).join(' ')||req.user.id}`};
 }
+async function participantTranscriptionState(context) {
+  const state = await transcriptionState(context);
+  const consentRequired = context.type === 'supervision' && isGroupSupervision(context.session)
+    && !await hasGroupTranscriptionConsent(context.session.id, context.userId);
+  return { ...state, consentRequired, allowed: state.allowed && !consentRequired,
+    reason: consentRequired ? 'Please agree to group transcription or leave the session.' : state.reason };
+}
 export async function getMeetingTranscription(req,res,next){try{
   const context=await meetingTranscriptionContext(req);
   if(req.query.capture==='1')await pool.execute(`INSERT INTO meeting_transcription_publishers (meeting_type,meeting_id,speaker_key,last_seen_at) VALUES (?,?,?,UTC_TIMESTAMP()) ON DUPLICATE KEY UPDATE last_seen_at=UTC_TIMESTAMP(),drained=IF(EXISTS(SELECT 1 FROM meeting_transcription_controls c WHERE c.meeting_type=VALUES(meeting_type) AND c.meeting_id=VALUES(meeting_id) AND c.finishing=1),drained,0)`,[context.type,context.session.id,context.speakerKey]);
-  res.set('Cache-Control','no-store').json(await transcriptionState(context));
+  res.set('Cache-Control','no-store').json(await participantTranscriptionState(context));
 }catch(e){next(e);}}
-export async function setMeetingTranscription(req,res,next){try{res.json(await controlTranscription(await meetingTranscriptionContext(req),req.body.action));}catch(e){next(e);}}
-export async function saveMeetingAudio(req,res,next){try{res.json(await appendMeetingAudio(await meetingTranscriptionContext(req),{buffer:req.file?.buffer,mimeType:req.file?.mimetype,revision:req.body.revision,chunkKey:req.body.chunkKey}));}catch(e){next(e);}}
+export async function setMeetingTranscription(req,res,next){try{
+  const context = await meetingTranscriptionContext(req);
+  if (req.body.action === 'accept-group-consent') {
+    if (context.type !== 'supervision' || !isGroupSupervision(context.session) || req.body.accepted !== true) fail('Explicit group transcription consent is required.',400);
+    await acceptGroupTranscriptionConsent(context.session.id, context.userId);
+    return res.json(await participantTranscriptionState(context));
+  }
+  await controlTranscription(context,req.body.action);
+  res.json(await participantTranscriptionState(context));
+}catch(e){next(e);}}
+export async function saveMeetingAudio(req,res,next){try{
+  const context = await meetingTranscriptionContext(req);
+  if (context.type === 'supervision' && isGroupSupervision(context.session) && !await hasGroupTranscriptionConsent(context.session.id,context.userId)) fail('Agree to group transcription before sending audio.');
+  res.json(await appendMeetingAudio(context,{buffer:req.file?.buffer,mimeType:req.file?.mimetype,revision:req.body.revision,chunkKey:req.body.chunkKey}));
+}catch(e){next(e);}}

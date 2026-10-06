@@ -13,6 +13,7 @@ import { resolveMeetingRecipient } from './meetingRecipientIdentity.service.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { ensureTenantMessageMailboxes } from './tenantMessageMailboxes.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
+import { duePresenterReminders } from './supervisionPresenterReminderPolicy.js';
 
 export function supervisionCalendar(session, joinUrl) {
  const calendarJoinUrl=sharedCalendarJoinUrl(session,joinUrl);
@@ -38,6 +39,10 @@ export async function prepareSupervisionEmail({session,user,joinUrl,kind='invita
  const recipient=people.find(p=>Number(p.id)===Number(user.id));
  if(!recipient||['DECLINED','WITHDRAWN','REMOVED','CANCELLED'].includes(recipient.status))return {skipped:true,reason:'not_attending'};
  const huddle=session.kind==='HUDDLE';
+ if(!huddle && kind.startsWith('presenter:') && !recipient.isPresenter)return {skipped:true,reason:'no_longer_presenting'};
+ // Presenter preparation has its own five deadlines. Do not also send the
+ // generic attendee reminder at the same time (or the default five-minute one).
+ if(!huddle && recipient.isPresenter && kind!=='invitation' && !kind.startsWith('presenter:'))return {skipped:true,reason:'presenter_reminder_schedule'};
  const hostIds=huddle?[Number(session.provider_id),...people.filter(p=>Number(p.is_cohost)).map(p=>Number(p.id))]:[session.supervisor_user_id,session.co_facilitator_user_id].map(Number);
  const hosts=people.filter(p=>hostIds.includes(Number(p.id)));
  const base=await tenantMeetingBase(session.agency_id);
@@ -49,12 +54,13 @@ export async function prepareSupervisionEmail({session,user,joinUrl,kind='invita
  const recipientIdentity=await resolveMeetingRecipient({agencyId:session.agency_id,user});
  const mailboxes=await ensureTenantMessageMailboxes(session.agency_id);
  const delivery=await priorityEventEmailRecipient({agencyId:session.agency_id,userId:user.id,templateType:'meeting_invited',to:recipientIdentity.email});
- const replyMailbox=await ensureSupervisionReplyMailbox(session.agency_id,{replyEmail:delivery.to});
+ const replyMailbox=huddle ? await ensureSupervisionReplyMailbox(session.agency_id,{replyEmail:delivery.to}) : null;
+ const leadershipReplyTo = !huddle ? `leadership@${mailboxes.domain || mailboxes.notifications.from_email.split('@')[1]}` : null;
  const detailsUrl=`${personal}?details=1&eventId=${session.id}`;
  const content=supervisionEmailBody({session:huddle?{...session,session_type:people.length>2?'group':'individual'}:session,meetingTitle:huddle?huddleTitle(session,hostRole):null,hostLabel:huddle?(huddleTitle(session,hostRole)==='CPA Meeting'?'Clinical Practice Assistant':'Internship Mentor'):null,people,recipientName:user.first_name||recipient.name,hostNames:hosts.map(p=>p.name),calendar,joinUrl:personal,
  rsvpUrl:`${personal}?rsvp=1&eventId=${session.id}`,presentationUrl:`${base}/supervision/sessions/${session.id}/presentation`,detailsUrl,
- isRequired:!!Number(recipient.is_required),isPresenter:recipient.isPresenter,isHost:hostIds.includes(Number(user.id)),kind});
- return {...content,to:recipientIdentity.email,senderIdentityId:mailboxes.notifications.id,replyToOverride:`"${hosts.map(p=>p.name).join(" & ").replace(/[\r\n"<>]/g, "")} via the app" <${replyMailbox.from_email}>`,
+ isRequired:!!Number(recipient.is_required),isPresenter:recipient.isPresenter,isHost:hostIds.includes(Number(user.id)),kind,leadershipReplyTo});
+ return {...content,to:recipientIdentity.email,senderIdentityId:mailboxes.notifications.id,replyToOverride:leadershipReplyTo || `"${hosts.map(p=>p.name).join(" & ").replace(/[\r\n"<>]/g, "")} via the app" <${replyMailbox.from_email}>`,
  attachments:[{filename:huddle?'huddle.ics':'supervision.ics',contentType:'text/calendar; charset=utf-8',contentBase64:Buffer.from(calendar.ics).toString('base64')}],
  userId:user.id,source:'auto',templateType:kind==='invitation'?'meeting_invited':'meeting_join_reminder'};
 }
@@ -78,6 +84,19 @@ export async function sendSupervisionEmail({session,user,joinUrl,kind='invitatio
 }
 // One day ahead gives optional invitees and presenters time to respond/prepare.
 export async function sendSupervisionDayAheadReminders(now=new Date()) {
- const [sessions]=await pool.execute(`SELECT * FROM supervision_sessions WHERE status='SCHEDULED' AND notify_participants=1 AND reminder_minutes IS NOT NULL AND start_at>? AND start_at<=DATE_ADD(?,INTERVAL 24 HOUR) AND start_at>DATE_ADD(?,INTERVAL 23 HOUR)`,[now,now,now]);
- for(const session of sessions){const people=await supervisionEmailPeople(session);for(const user of people)await sendSupervisionEmail({session,user,kind:'day_before'});}
+ const [sessions]=await pool.execute(`SELECT * FROM supervision_sessions WHERE status='SCHEDULED' AND notify_participants=1 AND start_at>? AND start_at<=DATE_ADD(?,INTERVAL 7 DAY)`,[now,now]);
+ for(const session of sessions){
+  const people=await supervisionEmailPeople(session);
+  const presenterOffsets=duePresenterReminders(session,now);
+  const hours=(parseUtcDate(session.start_at)-now)/3600000;
+  for(const user of people){
+   const kinds=user.isPresenter
+    ? presenterOffsets.map(minutes=>`presenter:${minutes}`)
+    : session.reminder_minutes != null && hours>23 && hours<=24 ? ['day_before'] : [];
+   for(const kind of kinds){
+    try { await sendSupervisionEmail({session,user,kind}); }
+    catch(error){ console.warn('[Supervision reminder]',session.id,user.id,error.code || 'delivery_failed'); }
+   }
+  }
+ }
 }

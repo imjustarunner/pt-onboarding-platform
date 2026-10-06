@@ -1013,6 +1013,13 @@ const routes = [
     meta: { requiresGuest: false }
   },
   {
+    path: '/supervision/agreements',
+    alias: '/:organizationSlug/supervision/agreements',
+    name: 'MySupervisionAgreements',
+    component: () => import('../views/supervision/MySupervisionAgreementsView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/supervision/sessions/:sessionId/presentation',
     name: 'SupervisionPresentation',
     component: () => import('../views/supervision/SupervisionPresentationBuilderView.vue'),
