@@ -4,6 +4,7 @@ import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { queueMeetingInvitations, sendMeetingScheduleChange } from '../services/meetingInvitations.service.js';
 import { normalizeMeetingSettings, parseMeetingSettings } from '../services/meetingSettingsPolicy.js';
 import { normalizeAttendanceReminders } from '../services/supervisionAttendancePolicy.js';
+import { meetingEndPermission, closeMeetingAsLastHost } from '../services/meetingEndPermission.service.js';
 import { reminderMinutes as normalizeMeetingReminder } from '../services/meetingInvitationPolicy.js';
 import { body, validationResult } from 'express-validator';
 import User from '../models/User.model.js';
@@ -2082,7 +2083,7 @@ export const endSupervisionLiveSession = async (req, res, next) => {
       });
     }
 
-    await SupervisionSession.setLiveEnded(id, { endedByUserId: actorUserId });
+    await closeMeetingAsLastHost('supervision', id, actorUserId);
     const updated = await SupervisionSession.findById(id);
     const closedByName = await resolveSupervisionClosedByName(updated || row, actorUserId);
 
@@ -2255,6 +2256,7 @@ export const postSupervisionJoinPresence = async (req, res, next) => {
     const maxCapacity = maxJoinCapacityForSessionType(row.session_type);
     res.json({
       ok: true,
+      ...(await meetingEndPermission('supervision', id, userId)),
       activeParticipants: activeCount,
       maxParticipants: maxCapacity,
       joinLocked: activeCount >= maxCapacity

@@ -47,7 +47,7 @@
         </button>
         <span class="isl__count" title="Participants">{{ participantHint || '2' }}</span>
         <button type="button" class="btn btn-secondary btn-sm" @click="$emit('leave', { endForAll: false })">Leave session</button>
-        <button v-if="isSupervisor" type="button" class="btn btn-danger btn-sm" @click="requestEndForEveryone">End for everyone</button>
+        <button v-if="isSupervisor && canEndForEveryone" type="button" class="btn btn-danger btn-sm" @click="requestEndForEveryone">End for everyone</button>
       </div>
     </header>
 
@@ -346,7 +346,7 @@ const props = defineProps(supervisionLiveRoomProps);
 const emit = defineEmits(['leave', 'connected', 'meeting-ended', 'disconnected']);
 
 function requestEndForEveryone() {
-  if (props.isSupervisor && window.confirm('End this session for everyone? Other hosts and participants will be disconnected. To leave it open, choose Cancel, then Leave session.')) {
+  if (props.isSupervisor && props.canEndForEveryone && window.confirm('End this session for everyone? Participants will be disconnected. To leave it open, choose Cancel, then Leave session.')) {
     emit('leave', { endForAll: true });
   }
 }

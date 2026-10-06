@@ -11,7 +11,7 @@ let wrapper;
 beforeEach(()=>{
   vi.clearAllMocks();vi.useFakeTimers();m.host=true;
   m.get.mockImplementation(async url=>({data:url.includes('join-info')?{orgSlug:'tenant',sessionId:101}:{token:'video',sessionId:'room',applicationId:'app',supervisionSessionId:101,isSupervisor:m.host,identity:'user-9',sessionType:'group',hostPresent:true}}));
-  m.post.mockResolvedValue({data:{ok:true}});m.finish.mockResolvedValue(true);
+  m.post.mockResolvedValue({data:{ok:true,canEndForEveryone:true}});m.finish.mockResolvedValue(true);
 });
 afterEach(()=>{wrapper?.unmount();vi.clearAllTimers();vi.useRealTimers();});
 async function render(){wrapper=mount(JoinSupervisionView,{global:{stubs:{SupervisionLiveRoom:true,MeetingSessionExitPanel:true}}});await flushPromises();return wrapper.findComponent({name:'SupervisionLiveRoom'});}
@@ -31,5 +31,21 @@ describe('supervision leave versus explicit meeting closure',()=>{
     const room=await render();room.vm.$emit('leave',{endForAll:true});await flushPromises();
     expect(m.post).toHaveBeenCalledWith('/supervision/sessions/101/end-live',{},expect.any(Object));expect(m.finish).toHaveBeenCalledOnce();
     expect(wrapper.findComponent({name:'MeetingSessionExitPanel'}).props('canRejoin')).toBe(false);
+  });
+  it('does not finish the transcript or end the room when another host remains',async()=>{
+    const alert=vi.spyOn(window,'alert').mockImplementation(()=>{});
+    m.post.mockResolvedValue({data:{ok:true,canEndForEveryone:false}});
+    const room=await render();expect(room.props('canEndForEveryone')).toBe(false);
+    room.vm.$emit('leave',{endForAll:true});await flushPromises();
+    expect(m.finish).not.toHaveBeenCalled();expect(m.post.mock.calls.some(([url])=>url.endsWith('/end-live'))).toBe(false);
+    expect(room.exists()).toBe(true);alert.mockRestore();
+  });
+  it('keeps the user connected when the server rejects stale end permission',async()=>{
+    const alert=vi.spyOn(window,'alert').mockImplementation(()=>{});
+    m.finish.mockRejectedValue({response:{status:409,data:{error:{message:'Another host is present'}}}});
+    const room=await render();room.vm.$emit('leave',{endForAll:true});await flushPromises();
+    expect(m.post.mock.calls.some(([url])=>url.endsWith('/end-live'))).toBe(false);
+    expect(wrapper.findComponent({name:'SupervisionLiveRoom'}).props('canEndForEveryone')).toBe(false);
+    expect(wrapper.findComponent({name:'MeetingSessionExitPanel'}).exists()).toBe(false);alert.mockRestore();
   });
 });

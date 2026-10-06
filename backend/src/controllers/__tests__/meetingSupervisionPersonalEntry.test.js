@@ -35,6 +35,14 @@ beforeEach(() => {
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
 describe('identified supervision room roles and attendance', () => {
+  it('does not disconnect the room or close attendance when another host blocks ending',async()=>{
+    session.session_type='group';session.co_facilitator_user_id=9;
+    const original=m.execute.getMockImplementation();
+    m.execute.mockImplementation(async(sql,args)=>sql.startsWith('UPDATE supervision_sessions e')?[{affectedRows:0}]:original(sql,args));
+    const res=response(),next=vi.fn();await endSupervisionLiveSession(request(7),res,next);
+    expect(next).toHaveBeenCalledWith(expect.objectContaining({status:409}));
+    expect(m.complete).not.toHaveBeenCalled();expect(m.record).not.toHaveBeenCalled();expect(m.rollup).not.toHaveBeenCalled();
+  });
   it.each([7,9])('leaving facilitator %s closes only their attendance and leaves the other facilitator connected',async userId=>{
     session.session_type='group';session.co_facilitator_user_id=9;
     await invoke(postSupervisionJoinPresence,request(userId,{action:'leave'}));

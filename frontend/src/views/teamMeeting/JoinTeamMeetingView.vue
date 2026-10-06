@@ -22,7 +22,7 @@
       :banner-dismissed="exitBannerDismissed"
       :closed-by-name="meetingClosedByName"
       :closed-at="meetingCompletedAt"
-      :can-end-meeting="isHost && !meetingCompletedAt"
+      :can-end-meeting="isHost && canEndForEveryone && !meetingCompletedAt"
       :ending="completing"
       :action-error="completeError"
       @end-meeting="markCompletedAndLeave"
@@ -526,14 +526,14 @@
           <h3>Leave interview meeting?</h3>
           <p>
             Use <strong>End Interview</strong> to close candidate access while your team stays in the room.
-            Or end the call for everyone when the host is ready to leave.
+            Only the last host or cohost still present can end the call for everyone.
           </p>
           <p v-if="completeError" class="error-inline">{{ completeError }}</p>
           <div class="join-modal-actions">
             <button type="button" class="btn btn-primary" :disabled="completing || endingInterviewGuest" @click="endInterviewGuestFromLeaveModal">
               {{ endingInterviewGuest ? 'Ending…' : 'End Interview (candidate only)' }}
             </button>
-            <button type="button" class="btn btn-danger" :disabled="completing || endingInterviewGuest" @click="markCompletedAndLeave">
+            <button v-if="canEndForEveryone" type="button" class="btn btn-danger" :disabled="completing || endingInterviewGuest" @click="markCompletedAndLeave">
               {{ completing ? 'Closing…' : 'End call for everyone' }}
             </button>
             <button type="button" class="btn btn-secondary" :disabled="completing || endingInterviewGuest" @click="leaveWithoutClosing">
@@ -545,14 +545,14 @@
           </div>
         </template>
         <template v-else>
-          <h3>Mark Session as Completed and Close Meeting?</h3>
+          <h3>Leave meeting?</h3>
           <p>
-            Individuals who are compensated for attending will continue to be compensated while this
-            meeting is occurring. It is recommended that you mark this session as completed and close.
+            Leave without closing to let everyone else continue. Only the last host or cohost
+            still present can mark the session completed and end it for everyone.
           </p>
           <p v-if="completeError" class="error-inline">{{ completeError }}</p>
           <div class="join-modal-actions">
-            <button type="button" class="btn btn-primary" :disabled="completing" @click="markCompletedAndLeave">
+            <button v-if="canEndForEveryone" type="button" class="btn btn-primary" :disabled="completing" @click="markCompletedAndLeave">
               {{ completing ? 'Closing…' : 'Mark Completed & Close' }}
             </button>
             <button type="button" class="btn btn-secondary" :disabled="completing" @click="leaveWithoutClosing">
@@ -733,6 +733,7 @@ const meetingCompletedAt = ref(null);
 const meetingClosedByName = ref('');
 const roomName = ref('');
 const isHost = ref(false);
+const canEndForEveryone = ref(false);
 const resolvedEventId = ref(0);
 const roomMode = ref('main');
 const waitingRoomEnabled = ref(true);
@@ -1280,14 +1281,15 @@ async function sendPresence(action = 'heartbeat') {
   const identity = joinIdentity.value;
   if (!eid || !identity) return;
   try {
-    await api.post(`/team-meetings/${encodeURIComponent(eid)}/join-presence`, {
+    const { data } = await api.post(`/team-meetings/${encodeURIComponent(eid)}/join-presence`, {
       identity,
       joinIdentity: identity,
       action,
       displayName: localDisplayName.value || undefined
     }, { skipAuthRedirect: true, skipGlobalLoading: true });
+    canEndForEveryone.value = action === 'heartbeat' && !intentionalLeave.value && data?.canEndForEveryone === true;
   } catch {
-    /* best-effort */
+    canEndForEveryone.value = false;
   }
 }
 
@@ -1796,6 +1798,7 @@ function onAttendanceTrackingStatus(enabled) {
 }
 
 async function teardownLiveSession() {
+  canEndForEveryone.value = false;
   stopAdmissionPolling();
   stopPresenceHeartbeat();
   stopCompletionPolling();
@@ -1878,6 +1881,10 @@ function requestLeave() {
 }
 
 async function markCompletedAndLeave() {
+  if (!canEndForEveryone.value) {
+    completeError.value = 'Only the last host or cohost still present can end the meeting for everyone. You can leave without closing.';
+    return;
+  }
   const eid = resolvedEventId.value || eventId.value;
   if (!eid) return;
   completing.value = true;
@@ -1892,6 +1899,7 @@ async function markCompletedAndLeave() {
     void finishLeave({ variant: 'ended-by-you', canRejoin: false });
   } catch (e) {
     intentionalLeave.value = false;
+    if (Number(e?.response?.status) === 409) canEndForEveryone.value = false;
     completeError.value = e?.response?.data?.error?.message || e?.message || 'Failed to complete meeting';
   } finally {
     completing.value = false;
