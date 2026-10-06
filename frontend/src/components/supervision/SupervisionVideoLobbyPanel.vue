@@ -1,5 +1,6 @@
 <template>
-  <CalendarGuestLobby v-if="isSupervisor && sessionId" :session-id="sessionId" :meeting-kind="meetingKind" />
+  <CalendarGuestLobby v-if="isSupervisor && sessionId" ref="calendarLobby" :session-id="sessionId" :meeting-kind="meetingKind" @update:guests="calendarGuests = $event" @update:busy="calendarBusy = $event" />
+  <WaitingRoomAlerts v-if="isSupervisor && sessionId" :meeting-key="`${meetingKind}:${sessionId}`" :participants="alertParticipants" :busy="!!admittingKey || admittingAll || disablingWaitingRoom || calendarBusy" @admit="admitFromAlert" />
   <div
     v-if="isSupervisor && sessionId && waitingRoomEnabled"
     class="lobby-panel"
@@ -59,6 +60,7 @@
 import { computed, ref, onUnmounted, watch } from 'vue';
 import api from '../../services/api';
 import CalendarGuestLobby from '../meetings/CalendarGuestLobby.vue';
+import WaitingRoomAlerts from '../meetings/WaitingRoomAlerts.vue';
 
 const props = defineProps({
   sessionId: { type: [Number, String], default: null },
@@ -87,6 +89,15 @@ function admitPath(pathId) {
 }
 
 const participants = ref([]);
+const calendarLobby = ref(null), calendarGuests = ref([]), calendarBusy = ref(false);
+const alertParticipants = computed(() => [
+  ...(waitingRoomEnabled.value ? participants.value.map(p => ({ ...p, alertKey: `member:${p.joinIdentity}` })) : []),
+  ...calendarGuests.value.map(p => ({ ...p, isGuest: true, calendarGuest: true, alertKey: `calendar:${p.id}` }))
+]);
+function admitFromAlert(person) {
+  if (person.calendarGuest) return calendarLobby.value?.admit(person.id);
+  return admit(person);
+}
 const arrivalKeys = ref([]);
 const arrivalVersion = ref(0);
 const recentArrivals = computed(() => participants.value.filter(p => arrivalKeys.value.includes(p.joinIdentity)));
@@ -102,6 +113,8 @@ const admitError = ref('');
 const loadError = ref('');
 let pollInterval = null;
 let hasLoadedOnce = false;
+let pollingGeneration = 0;
+let fetchingGeneration = null;
 
 function waitingRoomPath() {
   const id = encodeURIComponent(props.sessionId);
@@ -112,10 +125,14 @@ function waitingRoomPath() {
 
 async function fetchLobbyParticipants() {
   if (!props.sessionId || !props.isSupervisor) return;
+  const generation = pollingGeneration;
+  if (fetchingGeneration === generation) return;
+  fetchingGeneration = generation;
   // Only flash "Loading…" on the first fetch — polling every 2s was flickering the panel.
   if (!hasLoadedOnce) initialLoading.value = true;
   try {
     const resp = await api.get(lobbyParticipantsPath(), { skipGlobalLoading: true, skipAuthRedirect: true });
+    if (generation !== pollingGeneration) return;
     if (resp?.data?.waitingRoomEnabled != null) {
       waitingRoomEnabled.value = !!resp.data.waitingRoomEnabled;
     }
@@ -146,12 +163,14 @@ async function fetchLobbyParticipants() {
     loadError.value = '';
     emit('update:waitingCount', participants.value.length);
   } catch (e) {
+    if (generation !== pollingGeneration) return;
     // Keep the last good list on poll errors so the UI does not bounce empty ↔ filled.
     if (!hasLoadedOnce) participants.value = [];
     loadError.value = e?.response?.data?.error?.message || e?.message || 'Failed to load waiting room';
     if (!hasLoadedOnce) emit('update:waitingCount', 0);
   } finally {
-    initialLoading.value = false;
+    if (fetchingGeneration === generation) fetchingGeneration = null;
+    if (generation === pollingGeneration) initialLoading.value = false;
   }
 }
 
@@ -235,9 +254,14 @@ function stopPolling() {
 }
 
 watch(
-  () => [props.sessionId, props.isSupervisor],
+  () => [props.sessionId, props.isSupervisor, props.meetingKind],
   () => {
     stopPolling();
+    pollingGeneration += 1;
+    participants.value = [];
+    calendarGuests.value = [];
+    arrivalKeys.value = [];
+    waitingRoomEnabled.value = true;
     hasLoadedOnce = false;
     if (props.sessionId && props.isSupervisor) {
       startPolling();
@@ -250,7 +274,7 @@ watch(
   { immediate: true }
 );
 
-onUnmounted(stopPolling);
+onUnmounted(() => { pollingGeneration += 1; stopPolling(); });
 </script>
 
 <style scoped>
