@@ -1097,6 +1097,10 @@
           <div class="clients-header">
             <h4>{{ intakeForSelf ? t('client') : t('clients') }}</h4>
           </div>
+          <SchoolIntakeChildDetails v-if="usesSchoolChildDetails" :clients="clients" :answers="intakeResponses.clients"
+            :fields="schoolDetailFields" :errors="startClientErrors" :locale="intakeLocale" allow-remove
+            @identity="updateSchoolChildIdentity" @answer="updateSchoolChildAnswer" @remove="removeClient" />
+          <template v-else>
           <div v-for="(c, idx) in clients" :key="idx" class="client-card" :class="{ 'client-card-alt': idx % 2 === 1 }">
             <div class="client-card-header">
               <strong>{{ intakeForSelf ? t('yourInformation') : (t('clientN') + ' ' + (idx + 1)) }}</strong>
@@ -1200,6 +1204,7 @@
             </div>
           </div>
 
+          </template>
           <!--
             The "Add another child" button was previously shown for every
             guardian-led intake, which let parents append sibling profiles even
@@ -1346,10 +1351,21 @@
         <div v-if="isOfficeInDepthIntake" class="ai-pathway-badge">{{ publicPacketBadge }}</div>
         <h1 v-if="isOfficeInDepthIntake" class="ai-page-title">{{ currentInterviewPageTitle }}</h1>
         <h3 v-else>{{ currentInterviewPageTitle }}</h3>
-        <p
-          v-if="currentChildBanner"
-          class="intake-child-banner"
-        >{{ currentChildBanner }}</p>
+        <div v-if="usesSchoolChildDetails" class="school-family-summary" aria-label="Children in this enrollment">
+          <div><strong>{{ intakeLocale === 'es' ? 'Niños en esta inscripción' : 'Children in this enrollment' }}</strong>
+            <ul><li v-for="(child, i) in sharedSigningRoster" :key="i">{{ child.fullName || `${t('clientN')} ${i + 1}` }} — {{ child.dateOfBirth || (intakeLocale === 'es' ? 'Falta fecha de nacimiento' : 'Date of birth needed') }}</li></ul>
+          </div>
+          <button type="button" class="btn btn-secondary" @click="openSchoolChildDetails">{{ intakeLocale === 'es' ? 'Editar datos de los niños' : 'Edit children’s details' }}</button>
+        </div>
+        <section v-if="usesSchoolChildDetails && schoolChildDetailsOpen" class="school-child-editor" aria-label="Edit children’s details">
+          <SchoolIntakeChildDetails :clients="clients" :answers="intakeResponses.clients" :fields="schoolDetailFields"
+            :errors="startClientErrors" :locale="intakeLocale" @identity="updateSchoolChildIdentity" @answer="updateSchoolChildAnswer" />
+          <button type="button" class="btn btn-primary" @click="saveSchoolChildDetails">{{ intakeLocale === 'es' ? 'Guardar datos y continuar' : 'Save details & continue' }}</button>
+        </section>
+        <div v-if="currentChildBanner" class="intake-child-banner" role="status">
+          <strong>{{ currentChildBanner }}</strong>
+          <p v-if="usesSchoolChildDetails">{{ intakeLocale === 'es' ? 'Responda esta página solo para este niño. Cada niño tiene sus propias respuestas.' : 'Answer this page for this child only. Each child has their own answers.' }}</p>
+        </div>
         <p
           v-if="showInterviewPageLead"
           class="ai-page-lead"
@@ -1380,7 +1396,7 @@
             ? 'Revise este formulario una vez. Su firma y las decisiones de esta página se aplicarán a todos los niños indicados. Cada niño recibirá sus propios documentos. Si necesita decisiones diferentes para un niño, complete inscripciones separadas.'
             : 'Review this form once. Your signature and the choices on this page will apply to all children listed. Each child will receive their own documents. If a child needs different release choices, complete separate enrollments.' }}</p>
         </div>
-        <div :key="flowStepRenderKey" class="intake-flow-step-body">
+        <div v-if="!usesSchoolChildDetails || !schoolChildDetailsOpen" :key="flowStepRenderKey" class="intake-flow-step-body">
         <div v-if="currentFlowStep?.type === 'school_roi'" class="school-roi-step">
           <SmartSchoolRoiFlow
             :public-key="publicKey"
@@ -2968,6 +2984,8 @@
 
 <script setup>
 import { clinicalAnswersForStep, SHARED_SIGNING_STEP_TYPES, sharedSigningChildren } from '../utils/sharedIntakeSigning.js';
+import SchoolIntakeChildDetails from '../components/public-intake/SchoolIntakeChildDetails.vue';
+import { groupSchoolChildSteps, schoolStepRepeatsForChild, schoolChildDetailFields, childDetailKind, validChildDob, syncSchoolChildIdentity, syncSiblingAddresses, migrateLegacySchoolAnswers } from '../utils/schoolIntakeChildren.js';
 import LearningEnrollmentQuestions from '../components/learning/LearningEnrollmentQuestions.vue';
 import { computed, h, nextTick, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -4064,6 +4082,13 @@ const intakeSteps = computed(() => {
     ? sanitizeOfficeIntakeSteps(raw)
     : raw;
   if (isSchoolScopedIntake.value) {
+    const pagedKeys = new Set(steps.flatMap(s => s.fields || []).map(f => f.key));
+    const extraClientFields = (link.value?.intake_fields || []).filter(f =>
+      (f.scope || 'client') === 'client' && !pagedKeys.has(f.key)
+      && !['client_first', 'client_last', 'client_full_name', 'client_name'].includes(f.key)
+      && !isLegacySchoolCustodyField(f) && (f.label || f.type === 'info')
+    );
+    if (extraClientFields.length) steps = [{ id: 'school_client_details', type: 'questions', label: 'About this child', repeatPerClient: true, fields: extraClientFields }, ...steps];
     steps = (Array.isArray(steps) ? steps : []).map((step) => {
       const fields = Array.isArray(step?.fields) ? step.fields : null;
       if (!fields) return step;
@@ -4079,7 +4104,7 @@ const intakeSteps = computed(() => {
     steps=[{id:'learning-enrollment',type:'questions',label:'Learning goals & program',repeatPerClient:true,fields:[]},...steps];
   }
   if (link.value?.master_channel === 'tutoring' && hasBridgeLearning()) steps = steps.map(step => step.type === 'insurance_info' ? {...step, paymentOnly:false, paymentRequired:false, label:'Insurance & funding review'} : step);
-  return steps;
+  return steps.map((s, index) => ({ ...s, id: s.id || `${s.type}_${index}` }));
 });
 const hasDocumentTranslationMap = computed(() => {
   const map = link.value?.document_translation_map;
@@ -4811,7 +4836,7 @@ function applyProviderPrefillFromQuery() {
 }
 
 // Demographics step state
-const demographicsData = reactive({
+const sharedDemographicsData = reactive({
   dob: '',
   gender: '',
   preferredCalled: '',
@@ -4822,6 +4847,16 @@ const demographicsData = reactive({
   addressCity: '',
   addressState: '',
   addressZip: ''
+});
+const demographicsData = computed(() => {
+  const index = currentFlowStep.value?.clientIndex;
+  if (!Number.isInteger(index)) return sharedDemographicsData;
+  const bag = ensureClientBag(index);
+  if (!bag.demographicsInfo) bag.demographicsInfo = { ...sharedDemographicsData,
+    ...Object.fromEntries(Object.keys(sharedDemographicsData).map(key => [key, ''])),
+    dob: clients.value[index]?.dateOfBirth || ''
+  };
+  return bag.demographicsInfo;
 });
 const demographicsPlusOpen = ref(false);
 const sexPlusOpen = reactive({});
@@ -4841,12 +4876,12 @@ function toggleSexPlus(key) {
 const demographicsErrors = reactive({ dob: false });
 
 const autofillDemographicsLocation = async () => {
-  const zip = String(demographicsData.addressZip || '').replace(/\D/g, '').slice(0, 5);
+  const zip = String(demographicsData.value.addressZip || '').replace(/\D/g, '').slice(0, 5);
   if (zip.length !== 5) return;
   const found = await lookupUsZipCityState(zip);
   if (!found) return;
-  if (!demographicsData.addressCity) demographicsData.addressCity = found.city || '';
-  if (!demographicsData.addressState) demographicsData.addressState = found.state || '';
+  if (!demographicsData.value.addressCity) demographicsData.value.addressCity = found.city || '';
+  if (!demographicsData.value.addressState) demographicsData.value.addressState = found.state || '';
 };
 
 // Clinical questions step state
@@ -4917,6 +4952,7 @@ const visibleClinicalFields = computed(() => {
       return !sid && (cat === 'clinical' || !!f?.instrument);
     });
   }
+  if (usesSchoolChildDetails.value) fields = fields.filter(f => !childDetailKind(f));
   const values = interviewShowIfValues.value;
   if (isOfficeInDepthIntake.value) {
     const indicated = indicatedOfficeInstruments(values, { forDependent: intakeForSelf.value === false });
@@ -5494,7 +5530,8 @@ function setCurrentLearning(value){const i=currentFlowStep.value?.clientIndex;if
 function isRepeatPerClientStep(s) {
   const audience = String(s?.audience || '').trim().toLowerCase();
   if (SHARED_SIGNING_STEP_TYPES.has(s?.type)) return false;
-  return s?.repeatPerClient === true
+  return (isSchoolScopedIntake.value && schoolStepRepeatsForChild(s))
+    || s?.repeatPerClient === true
     || audience === 'dependent'
     || audience === 'family_member';
 }
@@ -5884,7 +5921,7 @@ const flowSteps = computed(() => {
         expanded.push({ ...s, sourceId: s.id });
       }
     }
-    return expanded.map((s) => {
+    return (isSchoolScopedIntake.value ? groupSchoolChildSteps(expanded) : expanded).map((s) => {
         if (s.type === 'upload') return { ...s };
         if (s.type === 'school_roi') return { ...s };
         if (s.type === 'smart_disclosure' || s.type === 'disclosure') return { ...s };
@@ -5992,6 +6029,55 @@ const flowSteps = computed(() => {
 const currentFlowIndex = ref(0);
 const currentFlowStep = computed(() => flowSteps.value[currentFlowIndex.value] || null);
 const sharedSigningRoster = computed(() => sharedSigningChildren(buildClientPayloads(), intakeResponses.clients));
+const usesSchoolChildDetails = computed(() => isSchoolScopedIntake.value && !intakeForSelf.value && !isClientBound.value && !isSmartSchoolRoi.value && !isSmartDisclosure.value);
+const schoolChildDetailsOpen = ref(false);
+const schoolDetailFields = computed(() => schoolChildDetailFields(intakeSteps.value).map(f => ({ ...f,
+  label: txField(f), helperText: txField(f, 'helperText'), options: f.options?.map(o => ({ ...o, label: txOption(o) }))
+})));
+function updateSchoolChildIdentity(index, key, value) {
+  clients.value[index][key] = value;
+  syncSchoolChildIdentity(clients.value[index], ensureClientBag(index), intakeSteps.value.flatMap(s => s.fields || []));
+  syncSiblingAddresses(clients.value, intakeResponses.clients, schoolDetailFields.value);
+}
+function updateSchoolChildAnswer(index, key, value) {
+  ensureClientBag(index)[key] = value;
+  syncSiblingAddresses(clients.value, intakeResponses.clients, schoolDetailFields.value);
+}
+function validateSchoolChildDetails() {
+  if (!usesSchoolChildDetails.value) return true;
+  syncSiblingAddresses(clients.value, intakeResponses.clients, schoolDetailFields.value);
+  startClientErrors.value = clients.value.map((child, index) => {
+    const errors = { firstName: !String(child.firstName || '').trim(), lastName: !String(child.lastName || '').trim(), dob: !validChildDob(child.dateOfBirth) };
+    for (const field of schoolDetailFields.value) {
+      if (field.required && matchesShowIf(field.showIf, intakeResponses.clients[index] || {})) {
+        errors[field.key] = isBlankQuestionLikeValue(field, intakeResponses.clients[index] || {});
+      }
+    }
+    return errors;
+  });
+  return !startClientErrors.value.some(row => Object.values(row).some(Boolean));
+}
+async function openSchoolChildDetails() {
+  schoolChildDetailsOpen.value = true;
+  await nextTick();
+  document.querySelector('.school-child-editor')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+async function saveSchoolChildDetails() {
+  if (!validateSchoolChildDetails()) {
+    stepError.value = intakeLocale.value === 'es' ? 'Complete los datos de cada niño.' : 'Please complete the highlighted details for each child.';
+    return;
+  }
+  clients.value.forEach((child, index) => syncSchoolChildIdentity(child, ensureClientBag(index), intakeSteps.value.flatMap(s => s.fields || [])));
+  schoolChildDetailsOpen.value = false;
+  stepError.value = '';
+  await saveServerProgress();
+}
+function firstIncompleteSchoolChildStep() {
+  if (!usesSchoolChildDetails.value) return -1;
+  const completed = intakeResponses.submission.completedSchoolChildSteps || [];
+  return flowSteps.value.findIndex(s => Number.isInteger(s.clientIndex) && !completed.includes(s.id));
+}
+
 const isSharedFamilySigningStep = computed(() => clients.value.length > 1
   && SHARED_SIGNING_STEP_TYPES.has(currentFlowStep.value?.type));
 watch(dfProgressIndex, (idx) => {
@@ -7263,11 +7349,11 @@ function applySameAsMeToDemographics() {
     { key: 'address_state' },
     { key: 'address_zip' }
   ]);
-  if (mapped.address_street) demographicsData.addressStreet = mapped.address_street;
-  if (mapped.address_apt) demographicsData.addressApt = mapped.address_apt;
-  if (mapped.address_city) demographicsData.addressCity = mapped.address_city;
-  if (mapped.address_state) demographicsData.addressState = mapped.address_state;
-  if (mapped.address_zip) demographicsData.addressZip = mapped.address_zip;
+  if (mapped.address_street) demographicsData.value.addressStreet = mapped.address_street;
+  if (mapped.address_apt) demographicsData.value.addressApt = mapped.address_apt;
+  if (mapped.address_city) demographicsData.value.addressCity = mapped.address_city;
+  if (mapped.address_state) demographicsData.value.addressState = mapped.address_state;
+  if (mapped.address_zip) demographicsData.value.addressZip = mapped.address_zip;
 }
 
 function chooseWhoFor(isSelf) {
@@ -7729,6 +7815,8 @@ const buildDraftSnapshot = () => ({
   step: Number(step.value || 0),
   introIndex: Number(introIndex.value || 0),
   currentFlowIndex: Number(currentFlowIndex.value || 0),
+  currentFlowStepId: currentFlowStep.value?.id || null,
+  schoolChildFlowVersion: 1,
   maxReachedProgressIndex: Number(maxReachedProgressIndex.value || 0),
   intakeForSelf: intakeForSelf.value,
   organizationId: organizationId.value || null,
@@ -7743,7 +7831,10 @@ const buildDraftSnapshot = () => ({
   clients: Array.isArray(clients.value)
     ? clients.value.map((client) => ({
         firstName: client?.firstName || '',
-        lastName: client?.lastName || ''
+        lastName: client?.lastName || '',
+        middleName: client?.middleName || '',
+        dateOfBirth: client?.dateOfBirth || '',
+        sameAddressAsFirst: client?.sameAddressAsFirst
       }))
     : [],
   intakeResponses: {
@@ -7753,6 +7844,7 @@ const buildDraftSnapshot = () => ({
   },
   embeddedSmartSchoolRoi: embeddedSmartSchoolRoi.value || null,
   embeddedSmartDisclosure: embeddedSmartDisclosure.value || null,
+  embeddedPacketSections: embeddedPacketSections.value || {},
   packetSectionContexts: packetSectionContexts.value || null,
   multiClientPlan: {
     choice: multiClientPlanChoice.value || 'one',
@@ -7938,6 +8030,7 @@ const applyDraftSnapshot = (parsed) => {
 
     if (Array.isArray(parsed.clients) && parsed.clients.length) {
       clients.value = parsed.clients.map((client, idx) => ({
+        ...client,
         firstName: String(client?.firstName || ''),
         lastName: String(client?.lastName || ''),
         dateOfBirth: String(
@@ -7993,6 +8086,7 @@ const applyDraftSnapshot = (parsed) => {
     }
     embeddedSmartSchoolRoi.value = parsed.embeddedSmartSchoolRoi || null;
     embeddedSmartDisclosure.value = parsed.embeddedSmartDisclosure || null;
+    embeddedPacketSections.value = parsed.embeddedPacketSections || {};
     if (parsed.packetSectionContexts && typeof parsed.packetSectionContexts === 'object') {
       packetSectionContexts.value = {
         ...parsed.packetSectionContexts,
@@ -8029,6 +8123,21 @@ const applyDraftSnapshot = (parsed) => {
       maxReachedProgressIndex.value = Math.max(0, Number(parsed.maxReachedProgressIndex));
     }
     if (Number.isFinite(Number(parsed.step))) step.value = Number(parsed.step);
+    if (usesSchoolChildDetails.value) {
+      migrateLegacySchoolAnswers(intakeResponses, intakeSteps.value, clients.value);
+      syncClientNamesToResponses();
+      syncSiblingAddresses(clients.value, intakeResponses.clients, schoolDetailFields.value);
+      if (parsed.schoolChildFlowVersion === 1 && parsed.currentFlowStepId) {
+        const restoredIndex = flowSteps.value.findIndex(s => s.id === parsed.currentFlowStepId);
+        if (restoredIndex >= 0) currentFlowIndex.value = restoredIndex;
+      } else if (step.value === 2) {
+        // Old drafts only visited child one's questions. Preserve those answers,
+        // then guide the parent through both children before shared signing.
+        const firstChild = firstIncompleteSchoolChildStep();
+        if (firstChild >= 0) currentFlowIndex.value = firstChild;
+      }
+      if (step.value === 2 && !validateSchoolChildDetails()) schoolChildDetailsOpen.value = true;
+    }
     return true;
   } finally {
     isRestoringDraft.value = false;
@@ -10056,6 +10165,7 @@ const syncClientNamesToResponses = () => {
   }
   clients.value.forEach((client, idx) => {
     const response = intakeResponses.clients[idx] || {};
+    if (usesSchoolChildDetails.value) syncSchoolChildIdentity(client, response, intakeSteps.value.flatMap(s => s.fields || []));
     const firstName = intakeForSelf.value
       ? String(guardianFirstName.value || '').trim()
       : String(client?.firstName || '').trim();
@@ -10077,6 +10187,12 @@ const ensureSessionToken = async () => {
 };
 
 const submitConsent = async () => {
+  if (!validateSchoolChildDetails()) {
+    error.value = intakeLocale.value === 'es' ? 'Complete los datos de cada niño.' : 'Please complete the highlighted details for each child.';
+    await nextTick();
+    document.querySelector('.school-child-details [aria-invalid=true], .school-child-details .df-field--error input')?.focus?.();
+    return;
+  }
   if (canBypassIntakeRequired.value) {
     consentErrors.guardianFirstName = '';
     consentErrors.guardianEmail = '';
@@ -11325,23 +11441,29 @@ const completeDemographicsStep = () => {
   const step = currentFlowStep.value;
   if (!step || step.type !== 'demographics') return;
   demographicsErrors.dob = false;
-  if (step.showDob && !demographicsData.dob) {
+  if (step.showDob && !demographicsData.value.dob) {
     demographicsErrors.dob = true;
     stepError.value = 'Please enter a date of birth.';
     return;
   }
-  intakeResponses.submission.demographicsInfo = {
-    dob: demographicsData.dob || null,
-    gender: demographicsData.gender || null,
-    preferredCalled: demographicsData.preferredCalled || null,
-    ethnicity: demographicsData.ethnicity || null,
-    preferredLanguage: demographicsData.preferredLanguage || null,
-    addressStreet: demographicsData.addressStreet || null,
-    addressApt: demographicsData.addressApt || null,
-    addressCity: demographicsData.addressCity || null,
-    addressState: demographicsData.addressState || null,
-    addressZip: demographicsData.addressZip || null
+  const index = step.clientIndex;
+  const target = Number.isInteger(index) ? ensureClientBag(index) : intakeResponses.submission;
+  target.demographicsInfo = {
+    dob: demographicsData.value.dob || null,
+    gender: demographicsData.value.gender || null,
+    preferredCalled: demographicsData.value.preferredCalled || null,
+    ethnicity: demographicsData.value.ethnicity || null,
+    preferredLanguage: demographicsData.value.preferredLanguage || null,
+    addressStreet: demographicsData.value.addressStreet || null,
+    addressApt: demographicsData.value.addressApt || null,
+    addressCity: demographicsData.value.addressCity || null,
+    addressState: demographicsData.value.addressState || null,
+    addressZip: demographicsData.value.addressZip || null
   };
+  if (Number.isInteger(index) && demographicsData.value.dob) {
+    clients.value[index].dateOfBirth = demographicsData.value.dob;
+    syncSchoolChildIdentity(clients.value[index], target);
+  }
   stepError.value = '';
   void nextFlowStep();
 };
@@ -11389,6 +11511,7 @@ const completeClinicalQuestionsStep = async () => {
 };
 
 const handleCurrentFlowContinue = () => {
+  if (usesSchoolChildDetails.value && schoolChildDetailsOpen.value) return saveSchoolChildDetails();
   const type = String(currentFlowStep.value?.type || '');
   if (type === 'smart_disclosure' || type === 'disclosure') {
     smartDisclosureFlowRef.value?.goNext?.();
@@ -11423,6 +11546,13 @@ const handleCurrentFlowContinue = () => {
   return completeQuestionStep();
 };
 const currentFlowContinueLabel = computed(() => {
+  const next = flowSteps.value[currentFlowIndex.value + 1];
+  if (usesSchoolChildDetails.value && Number.isInteger(currentFlowStep.value?.clientIndex)
+    && Number.isInteger(next?.clientIndex) && next.clientIndex !== currentFlowStep.value.clientIndex) {
+    const name = sharedSigningRoster.value[next.clientIndex]?.fullName || childDisplayName(next.clientIndex);
+    return intakeLocale.value === 'es' ? `Continuar con las preguntas de ${name}` : `Continue to ${name}’s questions`;
+  }
+
   if (currentFlowStep.value?.type === 'upload') return 'Continue';
   if (currentFlowStep.value?.type === 'references') return 'Save references & continue';
   if (currentFlowStep.value?.type === 'guardian_waiver') return t('continue');
@@ -11508,6 +11638,18 @@ const sanitizeFinalizeResponses = (input) => {
 };
 
 const finalizePacket = async () => {
+  if (!validateSchoolChildDetails()) {
+    stepError.value = intakeLocale.value === 'es' ? 'Complete los datos de cada niño.' : 'Please complete the highlighted details for each child.';
+    await openSchoolChildDetails();
+    return;
+  }
+  const missingChildStep = firstIncompleteSchoolChildStep();
+  if (missingChildStep >= 0) {
+    currentFlowIndex.value = missingChildStep;
+    step.value = 2;
+    stepError.value = intakeLocale.value === 'es' ? 'Revise las preguntas de este niño antes de enviar.' : 'Please review this child’s questions before submitting.';
+    return;
+  }
   const previousStep = step.value;
   try {
     submitLoading.value = true;
@@ -11959,6 +12101,7 @@ const handlePageChange = ({ currentPage, totalPages }) => {
 const addClient = () => {
   clients.value.push(emptyOfficeClient());
   intakeResponses.clients.push({});
+  if (usesSchoolChildDetails.value) syncSiblingAddresses(clients.value, intakeResponses.clients, schoolDetailFields.value);
 };
 
 // Multi-client signature consent: parents must explicitly agree that their
@@ -12068,6 +12211,7 @@ const dismissMultiClientDeclineNotice = () => {
 };
 
 const removeClient = (idx) => {
+  if (usesSchoolChildDetails.value) intakeResponses.submission.completedSchoolChildSteps = [];
   clients.value.splice(idx, 1);
   intakeResponses.clients.splice(idx, 1);
   // If they removed everyone except the primary child, drop the consent so
@@ -12129,6 +12273,7 @@ const stepQuestionFields = computed(() => {
   if (stepVis === 'new_client_only' && isExistingClientByMatch.value) return [];
   return normalizeIntakeSexFields(current.fields || []).filter((f) => {
     const key = String(f?.key || '').trim();
+    if (usesSchoolChildDetails.value && childDetailKind(f)) return false;
     if (!key && f?.type !== 'info') return false;
     const scope = String(f?.scope || 'submission').trim().toLowerCase();
     if (intakeForSelf.value && scope === 'guardian') return false;
@@ -12370,7 +12515,9 @@ const currentChildBanner = computed(() => {
   if (!Number.isInteger(currentFlowStep.value?.clientIndex)) return '';
   const i = currentFlowStep.value.clientIndex;
   const total = Math.max(clients.value.length, 1);
-  return `Dependent ${i + 1} of ${total} — ${childDisplayName(i)}`;
+  const child = sharedSigningRoster.value[i];
+  const label = intakeLocale.value === 'es' ? `Respondiendo para el niño ${i + 1} de ${total}` : `Answering for child ${i + 1} of ${total}`;
+  return `${label} — ${child?.fullName || childDisplayName(i)}${child?.dateOfBirth ? ` · ${child.dateOfBirth}` : ''}`;
 });
 const reviewAddConsentOpen = ref(false);
 const currentChildReviewName = computed(() => {
@@ -12601,8 +12748,8 @@ watch(
       if (!bag.child_legal_first && ident.firstName) bag.child_legal_first = ident.firstName;
       if (!bag.child_legal_last && ident.lastName) bag.child_legal_last = ident.lastName;
       if (!bag.child_preferred_name && ident.firstName) bag.child_preferred_name = ident.firstName;
-      if (!bag.child_dob && (ident.dob || ident.dateOfBirth || starterDob.value)) {
-        bag.child_dob = ident.dob || ident.dateOfBirth || starterDob.value;
+      if (!bag.child_dob && (ident.dob || ident.dateOfBirth || (idx === 0 && starterDob.value))) {
+        bag.child_dob = ident.dob || ident.dateOfBirth || (idx === 0 ? starterDob.value : '');
       }
     }
   }
@@ -12697,6 +12844,10 @@ const advanceIntro = () => {
 };
 
 const nextFlowStep = async () => {
+  if (usesSchoolChildDetails.value && Number.isInteger(currentFlowStep.value?.clientIndex)) {
+    const completed = intakeResponses.submission.completedSchoolChildSteps ||= [];
+    if (!completed.includes(currentFlowStep.value.id)) completed.push(currentFlowStep.value.id);
+  }
   await nextTick();
   if (currentFlowIndex.value < flowSteps.value.length - 1) {
     currentFlowIndex.value += 1;
@@ -13048,7 +13199,16 @@ watch(
   }
 );
 
-watch(currentFlowStep, async (step) => {
+watch(currentFlowStep, async (flowStep) => {
+  const step = flowStep;
+  if (usesSchoolChildDetails.value && SHARED_SIGNING_STEP_TYPES.has(step?.type)) {
+    if (!validateSchoolChildDetails()) schoolChildDetailsOpen.value = true;
+    const missingChildStep = firstIncompleteSchoolChildStep();
+    if (missingChildStep >= 0) {
+      currentFlowIndex.value = missingChildStep;
+      return;
+    }
+  }
   if (String(step?.type || '') === 'questions') {
     await nextTick();
     applyQuestionDefaults();
@@ -13540,6 +13700,13 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.school-family-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; margin: 16px 0; border: 1px solid var(--border-color, #d9e3df); border-radius: 12px; }
+.school-family-summary ul { margin: 8px 0 0; padding-left: 20px; }
+.school-child-editor { padding: 16px; border: 2px solid var(--primary, #619779); border-radius: 12px; margin-bottom: 20px; }
+.intake-child-banner[role=status] { padding: 18px; border-left: 5px solid var(--df-primary, #1e4d3b); border-radius: 8px; background: var(--df-surface-soft, #edf6f0); }
+.intake-child-banner strong { font-size: 1.15rem; }
+.intake-child-banner p { margin: 8px 0 0; }
+
 .preparing-message {
   display: flex;
   align-items: center;
