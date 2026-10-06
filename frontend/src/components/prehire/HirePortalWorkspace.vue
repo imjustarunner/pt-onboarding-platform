@@ -49,7 +49,7 @@
               <div v-if="workflow.resume" class="upload-card"><h3>Your application resume</h3><p>Your resume is already saved with your application.</p><a :href="workflow.resume.documentId ? `${http.defaults.baseURL}/prehire-portal/${token}/submissions/files/${workflow.resume.documentId}` : fileUrl('pre_hire','resume')" target="_blank" rel="noopener">{{ workflow.resume.name || 'View uploaded resume' }}</a></div>
             </div>
             <div v-else-if="step.kind === 'headshot'" class="card"><h3>A face to go with your name</h3><p>Add a professional headshot for your profile and your organization’s team materials. Choose one JPEG, PNG or WebP image, up to 10 MB.</p><img v-if="workflow.headshot" class="headshot-preview" :src="fileUrl('pre_hire','headshot')" alt="Your professional headshot" /><label v-if="!closed" class="upload-card"><Icon name="camera" /><span>{{ workflow.headshot ? 'Replace your headshot' : 'Upload your professional headshot' }}</span><input type="file" accept="image/jpeg,image/png,image/webp" :disabled="busy" @change="upload('headshot', $event)" /></label></div>
-            <div v-else-if="step.kind === 'work-email' && data.hireAccountMode !== 'group_password'" class="card"><h3>Your preferred work email</h3><p>Choose a suggested address. People Operations will confirm availability and provision your account.</p><p>All email correspondence is managed entirely within the portal. Access the Communications tab in the portal to compose, send, and review your messages.</p><form @submit.prevent="save('work-email', { email: preferredEmail })"><label>Preferred address<select v-model="preferredEmail" required :disabled="closed"><option disabled value="">Select an address</option><option v-for="choice in emailChoices" :key="choice.email" :value="choice.email">{{ choice.email }}</option></select></label><button v-if="!closed" class="primary" :disabled="busy">Save preference</button></form></div>
+            <div v-else-if="step.kind === 'work-email' && data.hireAccountMode !== 'group_password'" class="card"><h3>Your preferred work email</h3><p>Choose a suggested address or enter a custom one. People Operations will confirm and provision your account.</p><p>All email correspondence is managed entirely within the portal. Access the Communications tab in the portal to compose, send, and review your messages.</p><form @submit.prevent="save('work-email', { email: preferredEmail })"><HireWorkEmailPicker v-model="preferredEmail" :choices="emailChoices" :domain="emailDomain" :disabled="closed || busy" /><button v-if="!closed" class="primary" :disabled="busy">Save preference</button></form></div>
             <div v-else-if="['handbook','link','video','meeting','acknowledgement','upload'].includes(step.kind)" class="card resource-step">
               <template v-if="step.url">
                 <template v-if="step.kind === 'meeting'"><div class="meeting-person"><Icon name="people" /><div><strong>{{ step.title }}</strong><p>{{ workflow.supervisor?.name }}</p></div></div><a class="primary button" :href="step.url" target="_blank" rel="noopener">Open meeting scheduler<Icon name="calendar" /></a><p>After booking, enter the date and time from your confirmation.</p><label>Confirmed meeting time<input v-model="scheduledAt" type="datetime-local" :disabled="closed || step.complete" /></label></template>
@@ -76,7 +76,7 @@
         <aside class="support-rail">
           <div class="card status-card"><h2>{{ phaseLabel }} status</h2><div class="status-title"><Icon :name="closed ? 'clock' : 'people'" /><strong>{{ closed ? (phase === 'pre_hire' && onboarding ? 'Completed' : 'Waiting for review') : 'In progress' }}</strong></div><p>{{ closed ? 'Your information is saved. You can return here to review it at any time.' : 'Follow your steps at your own pace. Your saved progress stays with you.' }}</p><dl v-if="onboarding"><dt>Supervisor</dt><dd>{{ workflow.supervisor?.name || 'To be confirmed' }}</dd><dt>Your login</dt><dd>{{ candidate.workEmail || 'To be confirmed' }}</dd></dl></div>
           <div v-if="phase === 'onboarding' && workflow.supervisor?.name" class="card"><img v-if="workflow.supervisor.photoPath" class="profile-photo" :src="supervisorPhotoUrl" :alt="workflow.supervisor.name" /><h2>Your supervisor</h2><strong>{{ workflow.supervisor.name }}</strong><p>Your supervisor provides clinical guidance and reviews and approves your notes. Your meeting schedule will be confirmed based on your caseload.</p></div>
-          <div v-if="phase === 'onboarding' && agency.id === 2" class="card"><h2>Your onboarding contact</h2><strong>Aunya Albinana</strong><p>Clinical Practice Assistant</p><p>Contact Aunya for help getting started with TherapyNotes and questions about the clinical workflow.</p><a href="mailto:Aunya@ITSCO.health">Aunya@ITSCO.health</a></div>
+          <div v-if="phase === 'onboarding' && workflow.onboardingContact" class="card"><img v-if="workflow.onboardingContact.photoPath" class="profile-photo" :src="onboardingContactPhotoUrl" :alt="workflow.onboardingContact.name" /><h2>Your onboarding contact</h2><strong>{{ workflow.onboardingContact.name }}</strong><p>{{ workflow.onboardingContact.title }}</p><p>Contact {{ workflow.onboardingContact.name }} for help getting started with TherapyNotes and questions about the clinical workflow.</p><a :href="`mailto:${workflow.onboardingContact.email}`">{{ workflow.onboardingContact.email }}</a></div>
           <div v-if="phase === 'onboarding'" class="card"><div class="card-heading"><Icon name="clock" /><h2>Your onboarding time</h2></div><slot name="time" /></div>
           <div class="card"><div class="card-heading"><Icon name="help" /><h2>Need help?</h2></div><p>Your People Operations team is here to support you through every step.</p><button class="primary" @click="navigate('messages')"><Icon name="mail" />Contact People Operations</button></div>
           <div class="welcome-card" :style="heroStyle"><p>{{ config.tagline || 'A new beginning. A place to make a difference.' }}</p><img v-if="agency.logoUrl" :src="agency.logoUrl" :alt="agency.name" /><strong v-else>{{ agency.name }}</strong></div>
@@ -88,6 +88,7 @@
 </template>
 
 <script setup>
+import HireWorkEmailPicker from './HireWorkEmailPicker.vue';
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Icon from './HirePortalIcon.vue';
 import HireClinicalProfile from './HireClinicalProfile.vue';
@@ -118,16 +119,18 @@ const pageTitle = computed(() => section.value === 'steps' ? step.value?.title |
 const heroDescription = computed(() => section.value === 'home' ? `Your next steps with ${agency.value.name}. Everything you need, one step at a time.` : section.value === 'steps' ? `Your ${phaseLabel.value.toLowerCase()} information and progress, all in one place.` : 'Stay connected. Get answers. Move forward together.');
 const brandColor = computed(() => /^#[0-9a-f]{3,8}$/i.test(agency.value.primaryColor || '') ? agency.value.primaryColor : '#064c40');
 const theme = computed(() => ({ '--hire-brand': brandColor.value, fontFamily: agency.value.fontFamily || 'inherit' }));
-const supervisorPhotoUrl = computed(() => { const path = workflow.value.supervisor?.photoPath; return path ? `/uploads/${String(path).replace(/^\/?uploads\//, '').replace(/^\//, '')}` : ''; });
+function staffPhotoUrl(path) { return path ? (/^https?:\/\//i.test(path) ? path : `/uploads/${String(path).replace(/^\/?uploads\//, '').replace(/^\//, '')}`) : ''; }
+const supervisorPhotoUrl = computed(() => staffPhotoUrl(workflow.value.supervisor?.photoPath));
+const onboardingContactPhotoUrl = computed(() => staffPhotoUrl(workflow.value.onboardingContact?.photoPath));
 const heroStyle = computed(() => ({ backgroundImage: `linear-gradient(90deg, color-mix(in srgb, ${brandColor.value} 90%, transparent), #102c3f55), url("${(config.value.bannerUrl || '/assets/kimi/mountains.png').replace(/["\\\n\r]/g, '')}")` }));
 const portalLink = computed(() => props.data.portalLink || `${window.location.origin}/pre-hire/${props.token}`);
 const copied = ref(false), busy = ref(false), error = ref(''), savedMessage = ref(''), acknowledged = ref(false), signature = ref(''), scheduledAt = ref(''), certified = ref(false);
 const profile = ref({ ...workflow.value.profile });
 const preferredEmail = ref(workflow.value.preferredWorkEmail || '');
-const emailChoices = ref([]);
+const emailChoices = ref([]), emailDomain = ref('');
 watch(() => step.value?.kind, async kind => {
   if (kind !== 'work-email' || props.data.hireAccountMode === 'group_password' || closed.value) return;
-  try { const { data } = await props.http.get(`/prehire-portal/${props.token}/account/suggestions`); emailChoices.value = data.suggestions || []; }
+  try { const { data } = await props.http.get(`/prehire-portal/${props.token}/account/suggestions`); emailChoices.value = data.suggestions || []; emailDomain.value = data.domain || ''; }
   catch { error.value = 'Work email choices could not be loaded. Please retry.'; }
 }, { immediate: true });
 const needsSignature = computed(() => step.value?.kind === 'acknowledgement' || (step.value?.kind === 'handbook' && phase.value === 'onboarding'));

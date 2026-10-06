@@ -1176,11 +1176,8 @@ export const provisionPortalAccount = async (req, res, next) => {
     if (!user) return res.status(404).json({ error: { message: 'User not found.' } });
     const agency = await loadPortalAgency(user.id);
     if (!agency) return res.status(400).json({ error: { message: 'No organization found.' } });
-    const { provisionHireGroupUsername, suggestHireWorkEmails } = await import('../services/hireGroupAccount.service.js');
-    if (!user.work_email) {
-      const choices = await suggestHireWorkEmails({ user, agency });
-      if (!choices.suggestions.some(choice => choice.email === String(workEmail || '').trim().toLowerCase())) return res.status(400).json({ error: { message: 'Choose one of the available suggested addresses.' } });
-    }
+    const { provisionHireGroupUsername } = await import('../services/hireGroupAccount.service.js');
+    // Provisioning validates the agency domain and current availability for both suggested and custom addresses.
     const result = await provisionHireGroupUsername({
       user,
       agency,

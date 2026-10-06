@@ -108,6 +108,20 @@ export function uniquePortalTasks(tasks = []) {
   return [...unique.values()];
 }
 
+export async function onboardingContactForAgency(agencyId) {
+  // Preserve ITSCO's designated contact while using the actual staff profile photo.
+  if (Number(agencyId) !== 2) return null;
+  const email = 'Aunya@ITSCO.health';
+  const [[contact]] = await pool.execute(`SELECT u.id, u.first_name, u.last_name, u.profile_photo_path
+    FROM users u JOIN user_agencies ua ON ua.user_id = u.id
+    WHERE ua.agency_id = ? AND u.is_active = TRUE
+      AND (u.is_archived = FALSE OR u.is_archived IS NULL)
+      AND (LOWER(TRIM(u.work_email)) = LOWER(?) OR LOWER(TRIM(u.email)) = LOWER(?))
+    ORDER BY u.id LIMIT 1`, [agencyId, email, email]);
+  return { id: contact?.id || null, name: contact ? `${contact.first_name || ''} ${contact.last_name || ''}`.trim() : 'Aunya Albinana',
+    email, title: 'Clinical Practice Assistant', photoPath: contact?.profile_photo_path || null };
+}
+
 export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks, extras, backgroundCheck, handbookUrl, hireAccountMode, journey, progressOnly = false }) {
   const packet = await portalPacket(user.id, agencyId);
   const config = packet.workflow || {};
@@ -188,7 +202,8 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
     WHERE user_id = ? AND doc_type = 'resume' ORDER BY id DESC LIMIT 1`, [user.id]);
   const [[supervisor]] = await pool.execute(`SELECT u.id, u.first_name, u.last_name, u.profile_photo_path FROM supervisor_assignments sa JOIN users u ON u.id = sa.supervisor_id
     WHERE sa.supervisee_id = ? AND sa.agency_id = ? ORDER BY sa.is_primary DESC, sa.id ASC LIMIT 1`, [user.id, agencyId]);
-  return { config, assignedOffice: user.work_location || '', steps, progress: { pre_hire: summarizeSteps(steps.pre_hire), onboarding: summarizeSteps(steps.onboarding) },
+  const onboardingContact = await onboardingContactForAgency(agencyId);
+  return { onboardingContact, config, assignedOffice: user.work_location || '', steps, progress: { pre_hire: summarizeSteps(steps.pre_hire), onboarding: summarizeSteps(steps.onboarding) },
     profile, profileFields: PREEMPLOYMENT_FIELDS, headshot: stored('pre_hire', 'headshot')?.value ? { uploaded: true, version: stored('pre_hire', 'headshot').completedAt } : null,
     resume: resume ? { uploaded: true, name: resume.original_name, documentId: resume.id } : stored('pre_hire', 'resume')?.value ? { uploaded: true, name: stored('pre_hire', 'resume').value.name } : null,
     preferredWorkEmail: stored('onboarding', 'work-email')?.value?.email || '',

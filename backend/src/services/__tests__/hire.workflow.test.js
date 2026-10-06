@@ -4,7 +4,7 @@ vi.mock('../../config/database.js', () => ({ default: mocks }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: mocks.findUser } }));
 vi.mock('../hireJourney.service.js', () => ({ journeyTasks: mocks.journeyTasks, getJourney: mocks.getJourney }));
 import { composeWorkflow, sanitizeWorkflow, validatePreemployment, summarizeSteps, onboardingPasswordReady } from '../../utils/hirePortalWorkflow.js';
-import { uniquePortalTasks, portalPacket, buildPortalWorkflow, savePortalStep, requiredSubmissionKeys, assertPortalStepCompletion, assertOnboardingPasswordReady } from '../hirePortalWorkflow.service.js';
+import { onboardingContactForAgency, uniquePortalTasks, portalPacket, buildPortalWorkflow, savePortalStep, requiredSubmissionKeys, assertPortalStepCompletion, assertOnboardingPasswordReady } from '../hirePortalWorkflow.service.js';
 import { encryptGuardianIntake } from '../guardianIntakeEncryption.service.js';
 process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
 const db = { execute: mocks.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
@@ -155,4 +155,20 @@ it('consolidates duplicate documents and retains the signed copy while removing 
   ];
   expect(uniquePortalTasks(tasks)).toEqual([{ ...tasks[1], isRequired: true }]);
   expect(tasks[1].isRequired).toBe(false);
+});
+
+describe('onboarding contact staff profile', () => {
+  it('uses Aunya’s staff identity and saved photo within ITSCO', async () => {
+    mocks.execute.mockResolvedValue([[{ id: 12, first_name: 'Aunya', last_name: 'Albinana', profile_photo_path: 'profiles/aunya.jpg' }]]);
+    expect(await onboardingContactForAgency(2)).toMatchObject({ id: 12, name: 'Aunya Albinana', photoPath: 'profiles/aunya.jpg', email: 'Aunya@ITSCO.health' });
+    expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('ua.agency_id = ?'), [2, 'Aunya@ITSCO.health', 'Aunya@ITSCO.health']);
+  });
+  it('does not expose the ITSCO contact to another agency', async () => {
+    expect(await onboardingContactForAgency(9)).toBe(null);
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+  it('retains contact instructions without fabricating a missing photo', async () => {
+    mocks.execute.mockResolvedValue([[]]);
+    expect(await onboardingContactForAgency(2)).toMatchObject({ name: 'Aunya Albinana', photoPath: null });
+  });
 });

@@ -204,7 +204,7 @@ export async function checkHireWorkEmailAvailability({ email, userId = null, age
     resolveWorkspaceDomain(agency?.workspace_email_domain) ||
     'itsco.health';
 
-  if (!normalized || !normalized.includes('@')) {
+  if (!/^[a-z0-9](?:[a-z0-9._%+-]*[a-z0-9])?@[a-z0-9.-]+\.[a-z]{2,}$/.test(normalized) || normalized.length > 254 || normalized.split('@')[0].length > 64 || normalized.split('@')[0].includes('..')) {
     return { available: false, reason: 'invalid_email', email: normalized };
   }
   const atDomain = normalized.split('@')[1];

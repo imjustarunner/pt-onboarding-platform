@@ -20,7 +20,7 @@ const state = () => ({ candidate: { firstName: 'Elena', lastName: 'Cruz', status
 beforeEach(() => { vi.clearAllMocks(); http.post.mockResolvedValue({ data: { tracking: true } }); });
 afterEach(() => { wrapper?.unmount(); });
 const open = async (data, taskDetail = null) => {
-  http.get.mockImplementation(async (url) => ({ data: url.endsWith('/submissions')
+  http.get.mockImplementation(async (url) => ({ data: url.endsWith('/account/suggestions') ? { enabled: true, domain: 'itsco.health', suggestions: [{ email: 'devon@itsco.health' }] } : url.endsWith('/submissions')
     ? { completedDocuments: [{ id: 1, title: 'Signed employment contract' }] }
     : url.endsWith('/tasks/1') ? taskDetail || { document: { htmlContent: '<p>Retained agreement</p>' }, status: 'completed' } : data }));
   wrapper = mount(CandidatePreHirePortal, { global: { stubs: { PreHirePortalChat: true, AdaptiveSignatureCapture: true, JobDescriptionSections: true, HireDocumentPreview: true } } });
@@ -150,6 +150,34 @@ describe('candidate process interface', () => {
     const text = wrapper.find('[aria-label="Accounts and access"]').text();
     expect(text).toContain('devon'); expect(text).toContain('102'); expect(text).toContain('1234');
     expect(text).not.toContain('TherapyNotes');
+  });
+  it('shows system credentials and password reveal directly in the onboarding account step', async () => {
+    const data = state(); data.workflow.steps.onboarding = [{ key: 'account', kind: 'account', title: 'Set your password' }];
+    data.credentialPacket = { systems: [{ key: 'grasshopper', label: 'Grasshopper', username: 'devon', extension: '102', pin: '1234' }, { key: 'therapynotes', label: 'TherapyNotes', username: 'devon.tn', tempPasswordAvailable: true }] };
+    await open(data);
+    await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text() === 'Onboarding').trigger('click');
+    expect(wrapper.find('[aria-label="Accounts and access"]').text()).toContain('devon.tn');
+    expect(wrapper.find('[aria-label="Accounts and access"]').text()).toContain('1234');
+    http.post.mockResolvedValueOnce({ data: { revealed: true, password: 'temporary-example' } });
+    await wrapper.findAll('button').find(b => b.text() === 'Reveal temporary password once').trigger('click'); await flushPromises();
+    expect(http.post).toHaveBeenCalledWith('/prehire-portal/test-token/credential-packet/systems/therapynotes/reveal-temp-password');
+    expect(wrapper.get('.cred-secret').text()).toContain('temporary-example');
+  });
+  it('shows the actual onboarding contact photo alongside the supervisor', async () => {
+    const data = state(); data.workflow.onboardingContact = { id: 12, name: 'Aunya Albinana', photoPath: 'uploads/profiles/aunya.jpg', title: 'Clinical Practice Assistant', email: 'Aunya@ITSCO.health' };
+    await open(data);
+    expect(wrapper.get('img[alt="Aunya Albinana"]').attributes('src')).toBe('/uploads/profiles/aunya.jpg');
+    expect(wrapper.text()).toContain('Your onboarding contact');
+  });
+  it('saves a custom work email while retaining suggested options', async () => {
+    const data = state(); data.workflow.steps.onboarding = [{ key: 'work-email', kind: 'work-email', title: 'Choose your work email' }];
+    await open(data);
+    await wrapper.find('.hire-nav nav').findAll('button').find(b => b.text() === 'Onboarding').trigger('click'); await flushPromises();
+    expect(wrapper.get('.work-email-picker').text()).toContain('devon@itsco.health');
+    await wrapper.get('.work-email-picker select').setValue('__custom__');
+    await wrapper.get('.work-email-picker input').setValue('devon.custom@itsco.health');
+    await wrapper.get('.work-email-picker').element.closest('form').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flushPromises();
+    expect(http.post).toHaveBeenCalledWith('/prehire-portal/test-token/workflow/work-email', { email: 'devon.custom@itsco.health' });
   });
   it('presents submitted onboarding as waiting for staff activation', async () => {
     const data = state(); data.journey.onboardingCompletedAt = '2026-09-11'; data.portalPhase = 'onboarding_review';

@@ -254,13 +254,7 @@
                 </div>
               </div>
               <div class="cred-card">
-                <label>
-                  <span>Suggested addresses</span>
-                  <select v-model="accountForm.workEmail" class="portal-select">
-                    <option disabled value="">Select an email</option>
-                    <option v-for="s in accountSuggestions" :key="s.email" :value="s.email">{{ s.email }}</option>
-                  </select>
-                </label>
+                <HireWorkEmailPicker v-model="accountForm.workEmail" :choices="accountSuggestions" :domain="accountDomain" :disabled="provisioningAccount" />
                 <p v-if="emailCheckMessage" :class="emailAvailable ? 'cred-ok' : 'cred-warn'">{{ emailCheckMessage }}</p>
                 <button
                   type="button"
@@ -311,23 +305,9 @@
               </div>
             </section>
 
-</template></template>
+</template><HireAccountAccess :packet="credentialPacket" :revealed-passwords="revealedPasswords" :acking-system="ackingSystem" @reveal="revealTempPassword" @acknowledge="ackSystem" /></template>
         <template #access>
-          <section class="portal-credential-packet" aria-label="Accounts and access">
-            <h2>Your accounts and access</h2><p>These details are provided by People Operations. Keep your passwords and PIN private.</p>
-            <article v-for="system in credentialPacket?.systems || []" :key="system.key" class="cred-card">
-              <h3>{{ system.label }}</h3>
-              <p class="cred-meta"><strong>{{ system.key === 'email' ? 'Work address' : 'Login' }}:</strong> {{ system.username || 'People Operations will provide this.' }}</p>
-              <p v-if="system.key === 'grasshopper'" class="cred-meta"><strong>Extension:</strong> {{ system.extension || 'To be provided' }}</p>
-              <p v-if="system.key === 'grasshopper'" class="cred-meta"><strong>PIN:</strong> {{ system.pin || 'To be provided' }}</p>
-              <p v-if="system.key === 'email' && !system.hasTempPassword" class="cred-muted">Your platform password is set in the onboarding account step. People Operations will confirm any separate SSO access.</p>
-              <div v-if="revealedPasswords[system.key]" class="cred-secret">Temporary password: <code>{{ revealedPasswords[system.key] }}</code><p>Save this securely before closing your portal. It can only be revealed once.</p></div>
-              <button v-else-if="system.tempPasswordAvailable" class="btn-secondary-sm" @click="revealTempPassword(system.key)">Reveal temporary password once</button>
-              <p v-else-if="system.tempPasswordConsumed" class="cred-muted">Temporary password already revealed. Contact People Operations if you need a reset.</p>
-              <p v-if="system.acknowledged" class="cred-ok">Account details acknowledged.</p>
-              <button v-else class="btn-secondary-sm" :disabled="ackingSystem === system.key || !system.username" @click="ackSystem(system.key)">I have saved my account details</button>
-            </article>
-          </section>
+          <HireAccountAccess :packet="credentialPacket" :revealed-passwords="revealedPasswords" :acking-system="ackingSystem" @reveal="revealTempPassword" @acknowledge="ackSystem" />
         </template>
         <template #documents>            <section class="portal-submissions" aria-label="My submissions">
               <div class="portal-tasks-head">
@@ -587,6 +567,8 @@
 
 <script setup>
 import HirePortalWorkspace from '../components/prehire/HirePortalWorkspace.vue';
+import HireAccountAccess from '../components/prehire/HireAccountAccess.vue';
+import HireWorkEmailPicker from '../components/prehire/HireWorkEmailPicker.vue';
 import HireDocumentPreview from '../components/prehire/HireDocumentPreview.vue';
 import { useOnboardingActivity } from '../composables/useOnboardingActivity.js';
 import { ref, computed, onMounted, nextTick, watch, reactive } from 'vue';

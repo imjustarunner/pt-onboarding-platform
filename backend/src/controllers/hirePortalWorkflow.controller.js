@@ -31,10 +31,13 @@ export async function saveWorkflowStep(req, res, next) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Enter your preferred work email.');
       if (ctx.state.hireAccountMode === 'group_password') fail('Select an available username using account setup.');
       const { default: Agency } = await import('../models/Agency.model.js');
-      const { default: User } = await import('../models/User.model.js');
-      const { suggestHireWorkEmails } = await import('../services/hireGroupAccount.service.js');
-      const choices = await suggestHireWorkEmails({ user: await User.findById(ctx.userId), agency: await Agency.findById(ctx.agencyId) });
-      if (!choices.suggestions.some(choice => choice.email === email)) fail('Choose one of the available suggested work addresses.');
+      const { checkHireWorkEmailAvailability } = await import('../services/hireGroupAccount.service.js');
+      const availability = await checkHireWorkEmailAvailability({ email, userId: ctx.userId, agency: await Agency.findById(ctx.agencyId) });
+      if (!availability.available) {
+        if (availability.reason === 'wrong_domain') fail(`Use your agency's @${availability.expectedDomain} domain.`);
+        if (availability.reason === 'directory_error') fail('Availability could not be checked. Please try again.', 503);
+        fail(availability.reason === 'invalid_email' ? 'Enter a valid work email.' : 'That work email is already in use. Choose another address.');
+      }
       value = { email, preferenceOnly: true };
     } else {
       if (!ctx.step || !['handbook', 'link', 'video', 'meeting', 'acknowledgement'].includes(ctx.step.kind)) fail('This item is completed by its form, upload or signature.', 403);
