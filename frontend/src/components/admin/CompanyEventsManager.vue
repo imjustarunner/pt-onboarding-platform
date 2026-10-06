@@ -1039,12 +1039,16 @@ const downloadResponsesCsv = (event) => {
 
 const closeVoting = async (event) => {
   if (!props.agencyId || !event?.id) return;
-  if (!window.confirm(`Close voting for "${event.title}"?`)) return;
+  if (!window.confirm(`Close voting for "${event.title}", publish the final totals, and send requested results texts?`)) return;
   saving.value = true;
   error.value = '';
   try {
-    await api.post(`/agencies/${props.agencyId}/company-events/${event.id}/close-voting`);
+    const { data } = await api.post(`/agencies/${props.agencyId}/company-events/${event.id}/close-voting`);
     await loadEvents();
+    const results = data.resultTexts || {};
+    if (results.reason || results.failed) {
+      error.value = "Voting is closed and final totals are available. Some requested results texts could not be sent. Check Delivery logs and the configured staff sender.";
+    }
   } catch (e) {
     error.value = e.response?.data?.error?.message || e.message || 'Failed to close voting';
   } finally {
