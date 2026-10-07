@@ -1,7 +1,7 @@
 import { beforeEach, it, expect, vi } from 'vitest';
-vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
+vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection:vi.fn() } }));
 import pool from '../../config/database.js';
-import { publishOfficeAssignmentEvent } from '../officeAssignmentBookingAvailability.service.js';
+import { publishOfficeAssignmentEvent, setOfficeAssignmentBookingAvailability } from '../officeAssignmentBookingAvailability.service.js';
 const assignment = { id:1,provider_id:9,office_location_id:3,room_id:4,booking_agency_id:6,bookable_in_person:1,bookable_virtual:1 };
 const event = { id:10,standing_assignment_id:1,assigned_provider_id:9,start_at:'2099-01-01 17:00:00',end_at:'2099-01-01 18:00:00',status:'RELEASED' };
 beforeEach(()=>pool.execute.mockReset().mockResolvedValue([[]]));
@@ -22,4 +22,11 @@ it('closing online booking preserves the standing room reservation',async()=>{
  await publishOfficeAssignmentEvent({...assignment,bookable_in_person:0,bookable_virtual:0},event);
  expect(pool.execute.mock.calls.filter(([sql])=>sql.startsWith('UPDATE provider_'))).toHaveLength(2);
  expect(pool.execute.mock.calls.some(([sql])=>sql.includes('UPDATE office_standing'))).toBe(false);
+});
+
+it('checks the invitation agency again under the assignment lock before changing any flags',async()=>{
+ const db={beginTransaction:vi.fn(),execute:vi.fn(async()=>[[{...assignment,is_active:1}]]),rollback:vi.fn(),commit:vi.fn(),release:vi.fn()};
+ pool.getConnection.mockResolvedValue(db);
+ await expect(setOfficeAssignmentBookingAvailability({assignmentId:1,providerId:9,agencyId:77,inPerson:true,virtual:true})).rejects.toMatchObject({status:403});
+ expect(db.execute).toHaveBeenCalledTimes(1);expect(db.rollback).toHaveBeenCalledOnce();expect(db.commit).not.toHaveBeenCalled();
 });

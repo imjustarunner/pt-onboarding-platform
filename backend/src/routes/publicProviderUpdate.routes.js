@@ -1,3 +1,4 @@
+import {updateAvailability} from '../controllers/providerUpdateAvailability.controller.js';
 import {providerUpdateCredentialLimit} from '../middleware/providerUpdateCredentialLimit.middleware.js';
 import * as review from '../controllers/providerUpdateReview.controller.js';
 import { licenseUpload } from '../middleware/licenseUpload.middleware.js';
@@ -32,5 +33,8 @@ router.get('/:token/contact-hours',review.contactHours);
 router.put('/:token/contact-hours',review.contactHours);
 router.get('/:token/school-review',review.schoolReview);
 router.post('/:token/school-assignments/:assignmentId/request',review.schoolAdjustment);
+
+router.get('/:token/availability-calendar',updateAvailability);
+router.post('/:token/availability-calendar/:action',updateAvailability);
 
 export default router;

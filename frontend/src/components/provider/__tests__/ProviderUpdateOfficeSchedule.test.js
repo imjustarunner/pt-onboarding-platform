@@ -1,50 +1,14 @@
-import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { mount, flushPromises } from '@vue/test-utils';
+import {beforeEach,it,expect,vi} from 'vitest';
+import {mount,flushPromises} from '@vue/test-utils';
 import ProviderUpdateOfficeSchedule from '../ProviderUpdateOfficeSchedule.vue';
 import api from '../../../services/api';
-
-vi.mock('../../../services/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: {} }) }));
-const items = [
-  { id: 10, title: 'Denver office', when: 'Monday 1 PM', weekday: 1, hour: 13, timeZone: 'America/Denver' },
-  { id: 11, title: 'London office', when: 'Tuesday 2 PM', weekday: 2, hour: 14, timeZone: 'Europe/London' }
-];
-const button = (wrapper, text) => wrapper.findAll('button').find(b => b.text() === text);
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.useFakeTimers({ toFake: ['Date'] });
-  vi.setSystemTime(new Date('2026-10-04T01:00:00Z'));
-  api.get.mockResolvedValue({ data: { items } });
-  api.post.mockResolvedValue({ data: { ok: true } });
-});
-afterEach(() => vi.useRealTimers());
-
-it('requires confirmation and cancels every listed assignment from its office-local today', async () => {
-  const wrapper = mount(ProviderUpdateOfficeSchedule, { global:{stubs:{ProviderContactHours:true}}, props: { agencyId: 6, mode: 'token', token: 'personal' } });
-  await flushPromises();
-  await button(wrapper, 'Cancel all office reservations — today onward').trigger('click');
-  expect(api.post).not.toHaveBeenCalled();
-  await button(wrapper, 'Confirm: cancel all from today onward').trigger('click');
-  await flushPromises();
-  expect(api.post).toHaveBeenCalledTimes(2);
-  for (const [index, date] of ['2026-10-03', '2026-10-04'].entries()) {
-    expect(api.post).toHaveBeenNthCalledWith(index + 1,
-      `/public/provider-update/personal/office-assignments/${items[index].id}/forfeit`,
-      { agencyId: 6, scope: 'future', date, acknowledged: true }, { timeout: 30000 });
-  }
-  expect(wrapper.text()).toContain('Cancelled 2 of 2');
-  wrapper.unmount();
-});
-
-it('reports blocked assignments and continues cancelling the remaining office hours', async () => {
-  api.post.mockRejectedValueOnce({ response: { data: { error: { message: 'A client appointment is attached.' } } } });
-  const wrapper = mount(ProviderUpdateOfficeSchedule, { global:{stubs:{ProviderContactHours:true}}, props: { agencyId: 6 } });
-  await flushPromises();
-  await button(wrapper, 'Cancel all office reservations — today onward').trigger('click');
-  await button(wrapper, 'Confirm: cancel all from today onward').trigger('click');
-  await flushPromises();
-  expect(api.post).toHaveBeenCalledTimes(2);
-  expect(wrapper.text()).toContain('Cancelled 1 of 2');
-  expect(wrapper.get('[role="alert"]').text()).toContain('Denver office, Monday 1 PM: A client appointment is attached.');
-  wrapper.unmount();
-});
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn()}}));
+vi.mock('qrcode',()=>({default:{toDataURL:vi.fn(async()=> 'data:image/png;base64,qr')}}));
+const calendar={weekStart:'2026-10-12',weekEnd:'2026-10-19',today:'2026-10-07',timeZone:'America/Denver',canEdit:true,agency:{slug:'itsco',portal_url:null,name:'ITSCO'},provider:{id:465,first_name:'Test',last_name:'Provider'},preferences:{acceptingNewClients:true,inPerson:true,virtual:true},assignments:[{id:10,when:'Monday 9 AM',inPerson:false,virtual:false}],officeReservations:[{id:20,assignmentId:10,startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z',roomAvailable:true,buildingName:'Office'}],busyBlocks:[],weekly:[],inPersonSlots:[],virtualSlots:[]};
+const button=(w,label)=>w.findAll('button').find(b=>b.text()===label);
+const render=props=>mount(ProviderUpdateOfficeSchedule,{props:{agencyId:2,mode:'token',token:'private-invitation',...props},global:{stubs:{ProviderContactHours:true}}});
+beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:structuredClone(calendar)});api.post.mockResolvedValue({data:{ok:true}});});
+it('lets a read-only preview browse the calendar and share a token-free profile without sending or publishing',async()=>{const w=render({readonly:true});await flushPromises();expect(w.text()).toContain('Mon, Oct 12');expect(w.text()).toContain('Kept private');const link=w.get('a.primary').attributes('href');expect(link).toContain('/p/itsco/providers/test-provider-465');expect(link).not.toContain('private-invitation');await w.get('[aria-label="Next week"]').trigger('click');await flushPromises();expect(api.get).toHaveBeenLastCalledWith('/public/provider-update/private-invitation/availability-calendar',expect.objectContaining({params:{agencyId:2,weekStart:'2026-10-19'}}));expect(button(w,'Publish virtual opening').element.matches(':disabled')).toBe(true);expect(button(w,'Confirm availability review').attributes('disabled')).toBeDefined();await button(w,'Create profile QR code').trigger('click');await flushPromises();await vi.waitFor(()=>expect(w.find('a[download="provider-465-profile.png"]').exists()).toBe(true));expect(api.post).not.toHaveBeenCalled();w.unmount();});
+it('publishes both modalities for a reserved office assignment without cancellation or meeting actions',async()=>{const w=render();await flushPromises();await w.get('.calendar-event').trigger('click');await flushPromises();await w.get('.edit-panel select').setValue('both');await button(w,'Save office availability').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/public/provider-update/private-invitation/availability-calendar/office',{agencyId:2,assignmentId:10,inPerson:true,virtual:true},{timeout:60000});expect(w.text()).not.toContain('Cancel all office');expect(w.find('a[href*="my-schedule"]').exists()).toBe(false);w.unmount();});
+it('adds a one-hour virtual opening and refreshes the week without sending messages',async()=>{const w=render();await flushPromises();await w.get('.day-add').trigger('click');await flushPromises();await button(w,'Publish virtual opening').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/public/provider-update/private-invitation/availability-calendar/virtual',{agencyId:2,date:'2026-10-12',startTime:'09:00',frequency:'ONCE'},{timeout:60000});expect(api.post).toHaveBeenCalledTimes(1);expect(api.get).toHaveBeenCalledTimes(2);w.unmount();});
+it('never silently converts booked time into an opening',async()=>{api.get.mockResolvedValue({data:{...calendar,officeReservations:[{...calendar.officeReservations[0],hasAppointment:true}]}});const w=render();await flushPromises();await w.get('.calendar-event').trigger('click');expect(w.text()).toContain('This time is blocked');expect(button(w,'Save office availability')).toBeUndefined();expect(api.post).not.toHaveBeenCalled();w.unmount();});

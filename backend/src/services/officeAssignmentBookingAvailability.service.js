@@ -12,7 +12,7 @@ export async function publishOfficeAssignmentEvent(assignment, event, db = pool,
   for (const [flag, table] of [['bookable_in_person', 'provider_in_person_slot_availability'], ['bookable_virtual', 'provider_virtual_slot_availability']]) {
     if (assignment[flag] == null) continue;
     if (!Number(assignment[flag])) {
-      await db.execute(`UPDATE ${table} SET is_active = FALSE WHERE source_event_id = ? AND provider_id = ?`, [event.id, assignment.provider_id]);
+      await db.execute(`UPDATE ${table} SET is_active = FALSE WHERE source_event_id = ? AND provider_id = ? AND agency_id = ?`, [event.id, assignment.provider_id, agencyId]);
       continue;
     }
     const inPerson = flag === 'bookable_in_person';
@@ -24,13 +24,15 @@ export async function publishOfficeAssignmentEvent(assignment, event, db = pool,
   }
 }
 
-export async function setOfficeAssignmentBookingAvailability({ assignmentId, providerId, inPerson, virtual }) {
+export async function setOfficeAssignmentBookingAvailability({ assignmentId, providerId, agencyId, allowedOfficeIds, inPerson, virtual }) {
   if (typeof inPerson !== 'boolean' || typeof virtual !== 'boolean') throw fail('Choose in-person and virtual booking availability.', 400);
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
     const [[assignment]] = await conn.execute('SELECT * FROM office_standing_assignments WHERE id = ? FOR UPDATE', [assignmentId]);
     if (!assignment || !assignment.is_active || Number(assignment.provider_id) !== Number(providerId)) throw fail('Office assignment not found for this provider.', 403);
+    if (agencyId != null && Number(assignment.booking_agency_id) !== Number(agencyId)) throw fail('This reservation belongs to another agency.', 403);
+    if (inPerson && Array.isArray(allowedOfficeIds) && !allowedOfficeIds.includes(Number(assignment.office_location_id))) throw fail('This office is not enabled in your agency profile availability settings.', 409);
     const [membership] = await conn.execute('SELECT ua.agency_id FROM user_agencies ua JOIN office_location_agencies ola ON ola.agency_id = ua.agency_id WHERE ua.user_id = ? AND ola.office_location_id = ? AND ua.agency_id = ? LIMIT 1', [providerId, assignment.office_location_id, assignment.booking_agency_id]);
     if (!membership.length) throw fail('This reservation needs a valid provider and office agency before it can be opened.');
     await conn.execute('UPDATE office_standing_assignments SET bookable_in_person = ?, bookable_virtual = ? WHERE id = ?', [Number(inPerson), Number(virtual), assignmentId]);

@@ -91,3 +91,11 @@ it.each(['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'TEAM_MEETING', 'INDIRECT_SERVICES']
    ? Promise.resolve([[{ id: 55, kind, all_day: 0, start_at: event.start_at, end_at: event.end_at }]]) : original(sql,args));
  const result = await compute(); expect(result.virtualSlots).toEqual([]); expect(result.inPersonSlots).toEqual([]);
 });
+
+it('only returns private busy blocks when explicitly requested by the staff calendar',async()=>{
+ const publicResult=await compute();
+ expect(publicResult.busyBlocks).toBeUndefined();expect(publicResult.officeReservations).toBeUndefined();
+ const privateResult=await Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:false,includeExternalBusy:false,materializeOfficeEvents:false,includePrivateCalendar:true});
+ expect(Array.isArray(privateResult.busyBlocks)).toBe(true);expect(Array.isArray(privateResult.officeReservations)).toBe(true);
+ expect(JSON.stringify(privateResult.busyBlocks)).not.toMatch(/client_id|client_name|description/);
+});

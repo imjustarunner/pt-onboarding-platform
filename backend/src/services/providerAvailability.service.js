@@ -180,7 +180,8 @@ export class ProviderAvailabilityService {
     slotMinutes = 60,
     intakeOnly = false,
     materializeOfficeEvents = true,
-    includeDiagnostics = false
+    includeDiagnostics = false,
+    includePrivateCalendar = false
   }) {
     const aid = Number(agencyId || 0);
     const pid = Number(providerId || 0);
@@ -307,6 +308,7 @@ export class ProviderAvailabilityService {
     // 3) Office events: base availability for in-person + reserved blocks to prevent virtual overlap
     const officeBase = [];
     const officePublishedCandidates = [];
+    const officeReservations = [];
     const officeReservedBusy = [];
     const officeBookedBusy = [];
     const pushOfficeRows = (rows, legacyNoToggle = false) => {
@@ -346,6 +348,13 @@ export class ProviderAvailabilityService {
         officeReservedBusy.push({ start: s, end: e });
 
         const hasAppointment = Boolean(r.client_id || r.clinical_session_id || r.billing_context_id || Number(r.has_appointment));
+        if (includePrivateCalendar) officeReservations.push({
+          id: Number(r.id), assignmentId: Number(r.standing_assignment_id) || null,
+          startAt: s.toISOString(), endAt: e.toISOString(),
+          buildingName: meta.buildingName, roomLabel: meta.roomLabel,
+          hasAppointment, roomAvailable: Number(r.room_available) === 1,
+          timeZone: tzEvent
+        });
         const isOpenAssignmentState = slotState === 'ASSIGNED_AVAILABLE' || slotState === 'ASSIGNED_TEMPORARY';
         const isBookedState = slotState === 'ASSIGNED_BOOKED' || status === 'BOOKED';
         // A booked room without a client/appointment is a reservation. Publishing it is explicit.
@@ -367,6 +376,7 @@ export class ProviderAvailabilityService {
            e.end_at,
            e.status,
            e.slot_state,
+           e.standing_assignment_id,
            (SELECT ip.frequency FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_frequency,
            (SELECT ip.purpose FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_purpose,
            (SELECT ip.care_types_json FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_care_types,
@@ -431,6 +441,7 @@ export class ProviderAvailabilityService {
            e.end_at,
            e.status,
            e.slot_state,
+           e.standing_assignment_id,
            (SELECT ip.frequency FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_frequency,
            (SELECT ip.purpose FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_purpose,
            (SELECT ip.care_types_json FROM provider_in_person_slot_availability ip WHERE ip.source_event_id=e.id AND ip.provider_id=e.assigned_provider_id AND ip.agency_id IN (${Number(aid)},${Number(scheduleAid)}) AND ip.is_active=1 ORDER BY ip.id DESC LIMIT 1) publication_care_types,
@@ -744,6 +755,12 @@ export class ProviderAvailabilityService {
     }) : undefined;
     return {
       calendarWarnings,
+      // Invitation/authenticated calendar only. Public callers never enable this.
+      ...(includePrivateCalendar ? { officeReservations, busyBlocks: [
+        ['Booked appointment', mergeIntervals([...appointmentBusy, ...officeBookedBusy])],
+        ['Meeting or personal commitment', appCalendarBusy], ['Pending appointment', mergeIntervals([...selectionBusy, ...requestBusy])],
+        ['School commitment', schoolBusy], ['Calendar busy time', mergeIntervals([...externalBusyIntervals, ...googleBusyIntervals])]
+      ].flatMap(([label, intervals]) => intervals.map(({start, end}) => ({label, startAt:start.toISOString(), endAt:end.toISOString()}))) } : {}),
       ...(includeDiagnostics ? {diagnostics, scheduleAgencyId:scheduleAid} : {}),
       ok: true,
       agencyId: aid,

@@ -1,0 +1,35 @@
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),connection:vi.fn(),compute:vi.fn(),profile:vi.fn(),person:vi.fn(),office:vi.fn(),edit:vi.fn(),assignments:vi.fn(),hours:vi.fn(),save:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:m.connection}}));
+vi.mock('../providerAvailability.service.js',()=>({default:{computeWeekAvailability:m.compute,resolveAgencyTimeZone:async()=> 'America/Denver'}}));
+vi.mock('../../models/ProviderPublicProfile.model.js',()=>({default:{getForProvider:m.profile}}));
+vi.mock('../../models/ProviderVirtualWorkingHours.model.js',()=>({default:{listForProvider:m.hours}}));
+vi.mock('../../models/User.model.js',()=>({default:{findById:m.person}}));
+vi.mock('../providerUpdate.service.js',()=>({listOpenForBookingForProvider:m.assignments}));
+vi.mock('../officeAssignmentBookingAvailability.service.js',()=>({setOfficeAssignmentBookingAvailability:m.office}));
+vi.mock('../availabilityPublicationEdit.service.js',()=>({editAvailabilityPublication:m.edit}));
+vi.mock('../providerAgencyAvailability.service.js',()=>({saveAgencyAvailability:m.save}));
+import {readUpdateCalendar,virtualOpening,addUpdateVirtualOpening,closeUpdateVirtualOpening,openUpdateOfficeHours,saveUpdateAvailabilitySettings} from '../providerUpdateAvailability.service.js';
+const ids={agencyId:2,providerId:465};let db;
+beforeEach(()=>{vi.clearAllMocks();vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-07T14:00:00Z'));
+ m.profile.mockResolvedValue({details:{}});m.person.mockResolvedValue({sees_clients:1});m.assignments.mockResolvedValue([]);m.hours.mockResolvedValue([]);m.execute.mockResolvedValue([[{name:'Test agency',slug:'agency'}]]);m.compute.mockResolvedValue({weekStart:'2026-10-12',scheduleAgencyId:2,busyBlocks:[],officeReservations:[]});
+ db={beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),execute:vi.fn(async sql=>sql.startsWith('INSERT')?[{insertId:12}]:[[]])};m.connection.mockResolvedValue(db);
+});
+afterEach(()=>vi.useRealTimers());
+it('reads preview weeks without materializing events or returning writable access',async()=>{const r=await readUpdateCalendar(ids,{previewOnly:true,weekStart:'2026-10-12'});expect(r.canEdit).toBe(false);expect(m.compute).toHaveBeenCalledWith(expect.objectContaining({materializeOfficeEvents:false,includePrivateCalendar:true,intakeOnly:true}));expect(m.connection).not.toHaveBeenCalled();});
+it('validates exact future one-hour windows and rejects calendar meetings / invalid dates / DST changes',()=>{
+ expect(virtualOpening({date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY',purpose:'MEETING'},'America/Denver')).toMatchObject({startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z'});
+ for(const input of [{date:'2026-02-30',startTime:'09:00',frequency:'ONCE'},{date:'2026-10-06',startTime:'09:00',frequency:'ONCE'},{date:'2026-10-12',startTime:'23:00',frequency:'ONCE'},{date:'2026-11-01',startTime:'01:30',frequency:'ONCE'},{date:'2026-10-12',startTime:'09:00',frequency:'MEETING'}])expect(()=>virtualOpening(input,'America/Denver')).toThrow();
+});
+it('adds a virtual window without replacing other openings, appointments, or meetings',async()=>{
+ await addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'ONCE',purpose:'MEETING'});
+ const insert=db.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT'));
+ expect(insert[0]).toContain('INSERT INTO provider_virtual_working_hours');expect(insert[1]).toEqual([2,465,'Monday','09:00','10:00','ONCE','2026-10-12','2026-10-12','INTAKE']);expect(db.commit).toHaveBeenCalledOnce();
+ expect(db.execute.mock.calls.some(([sql])=>/^(DELETE|UPDATE|INSERT INTO (appointments|office_events|company_events))/.test(sql))).toBe(false);
+});
+it.each(['busyBlocks','officeReservations'])('refuses a conflicting %s hour',async key=>{m.compute.mockResolvedValue({[key]:[{startAt:'2026-10-12T15:00:00Z',endAt:'2026-10-12T16:00:00Z'}]});await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'ONCE'})).rejects.toMatchObject({status:409});expect(m.connection).not.toHaveBeenCalled();});
+it('does not guess availability when an external calendar cannot be checked',async()=>{m.compute.mockResolvedValue({calendarWarnings:['unavailable']});await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'ONCE'})).rejects.toMatchObject({status:409});expect(m.connection).not.toHaveBeenCalled();});
+it('serializes additions and rolls back duplicates without touching saved windows',async()=>{db.execute.mockImplementation(async sql=>[sql.includes('FROM provider_virtual_working_hours')?[{day_of_week:'Monday',start_time:'09:00:00',end_time:'10:00:00',frequency:'WEEKLY'}]:[]]);await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'ONCE'})).rejects.toMatchObject({status:409});expect(db.rollback).toHaveBeenCalledOnce();expect(db.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT'))).toBe(false);});
+it('cannot alter another tenant’s shared schedule or grant a care-provider assignment',async()=>{m.profile.mockResolvedValue({agencyAvailability:{seesClients:true,scheduleAgencyId:3}});await expect(openUpdateOfficeHours(ids,{assignmentId:10,inPerson:true,virtual:true})).rejects.toMatchObject({status:403});m.profile.mockResolvedValue({});m.person.mockResolvedValue({sees_clients:0});await expect(saveUpdateAvailabilitySettings(ids,{acceptingNewClients:true,inPerson:true,virtual:true,seesClients:true})).rejects.toMatchObject({status:403});expect(m.office).not.toHaveBeenCalled();expect(m.save).not.toHaveBeenCalled();});
+it('scopes office publication and closing a virtual opening to the invitation agency/provider',async()=>{await openUpdateOfficeHours(ids,{assignmentId:10,inPerson:true,virtual:true});expect(m.office).toHaveBeenCalledWith({...ids,assignmentId:10,inPerson:true,virtual:true});await closeUpdateVirtualOpening(ids,{id:12,date:'2026-10-12',scope:'single'});expect(m.edit).toHaveBeenCalledWith({...ids,kind:'weekly',id:12,action:'delete',scope:'single',occurrenceDate:'2026-10-12'});});
+it('keeps school and care assignment settings intact when saving public formats',async()=>{m.profile.mockResolvedValue({agencyAvailability:{seesClients:true,scheduleAgencyId:2,school:true,officeIds:[1],waitlistEnabled:true}});await saveUpdateAvailabilitySettings(ids,{acceptingNewClients:true,inPerson:true,virtual:true,seesClients:false,school:false,scheduleAgencyId:77,applyToAll:true});expect(m.save).toHaveBeenCalledWith(db,expect.objectContaining({actor:{id:465,role:'provider'},body:expect.objectContaining({seesClients:true,school:true,scheduleAgencyId:2,applyToAll:false,officeIds:[1]})}));});

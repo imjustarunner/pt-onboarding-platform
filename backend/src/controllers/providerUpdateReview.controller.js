@@ -26,7 +26,7 @@ export async function reviewRecipient(req) {
   if (!agencies.some(row => Number(row.id) === Number(recipient.agency_id))) throw fail('This provider no longer belongs to this agency.', 403);
   return recipient;
 }
-function requireSection(recipient, key) {
+export function requireSection(recipient, key) {
   const config = typeof recipient.section_config_json === 'string' ? JSON.parse(recipient.section_config_json) : recipient.section_config_json;
   const audience=normalizeSectionAudience(typeof recipient.section_audience_json==='string'?JSON.parse(recipient.section_audience_json):recipient.section_audience_json||{});
   if (!enabledSectionKeys(config).includes(key)||!recipientSeesSection(key,audience,recipient.provider_user_id)) throw fail('This section is not enabled for this update.', 403);
@@ -42,7 +42,7 @@ export async function officeReviewAction(req, res, next) {
     const action = req.params.action;
     if (action === 'availability') {
       await requireProviderAvailabilityAccess({ actor: { id: Number(recipient.provider_user_id), role: 'provider' }, agencyId: recipient.agency_id, providerId: recipient.provider_user_id });
-      return res.json(await setOfficeAssignmentBookingAvailability({ assignmentId: id, providerId: recipient.provider_user_id, inPerson: req.body.inPerson, virtual: req.body.virtual }));
+      return res.json(await setOfficeAssignmentBookingAvailability({ assignmentId: id, providerId: recipient.provider_user_id, agencyId: recipient.agency_id, inPerson: req.body.inPerson, virtual: req.body.virtual }));
     }
     const handler = { forfeit: forfeitAssignment, unbook: downgradeStandingAssignment, move: rescheduleStandingAssignment }[action];
     if (!handler) throw fail('Unknown office review action.');

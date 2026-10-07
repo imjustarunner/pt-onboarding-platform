@@ -103,3 +103,22 @@ Deployment prerequisite: apply `database/migrations/1555_staff_poll_response_rev
 - Client action rows explain missing parent/guardian contact date, contact outcome and first completed service date, or the relevant returning-client action. Future appointments must not be recorded as completed services.
 
 Verification: focused backend and Vue tests cover passwordless initial setup, preview write blocking, assignment ownership, contact-hour validation, age normalization, matching exclusions/highlights, and specific client actions. The production frontend build succeeds. The existing private license PDF returned HTTP 200 in a read-only check. No invitations or SMS were sent, and no Aunya profile or schedule values were changed during verification.
+
+
+## Weekly calendar and live public profile
+
+The former Office Schedule section is now **Weekly Calendar & Public Availability**.
+The provider can:
+
+1. Browse a seven-day calendar in the agency's time zone. It distinguishes public openings, private office reservations, and unavailable time. Commitments are labeled without client names or meeting details.
+2. Select an unoccupied recurring office hour and choose **In person**, **Virtual**, **In person or virtual**, or **Keep private / occupied**. This changes publication for future occurrences of that assignment, keeping its recurrence and room reservation. Occupied occurrences remain protected.
+3. Add a one-hour virtual window for one future date or every week from that date. Existing saved windows are preserved. Client appointments, school commitments, holds, and connected-calendar busy time continue to suppress conflicts; this page cannot create meetings, appointments, or additional room reservations.
+4. Remove a saved virtual window for one date or that date and future occurrences. The full saved window is identified in the confirmation controls; this does not cancel existing client appointments.
+5. Check agency-specific **Profile availability settings** if a format or new-client availability is disabled. This cannot grant a care-provider assignment or change another agency's shared schedule.
+6. Open **View my live profile**, copy the public link, or generate/download its QR code. The shareable URL identifies only the public profile; it contains no updater token. Existing profile routes support each eligible provider. Profiles with multiple public services offer a service selector. An explicitly disabled public service remains disabled.
+
+Saved publication changes invalidate the existing public availability snapshots through database triggers. The website calculates real openings from the same schedule; availability can be displayed even when direct online time selection is disabled. Profile display and booking permissions remain separate. Providers still need a configured public service/profile for their agency.
+
+**When may the app contact me?** remains below this calendar and controls notification delivery hours separately. The updater no longer exposes office cancellation, room reassignment, meeting creation, or a full scheduling editor from this section. Those existing workflows remain available in the normal app.
+
+Read-only previews can navigate weeks, inspect time blocks, open the profile and download its QR code. They cannot publish, change preferences, or confirm completion. Their calendar reads do not materialize office events. An ordinary provider invitation can save its own authorized changes. No invitations, emails, texts, or real provider availability changes were sent/applied during this feature's verification.

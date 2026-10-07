@@ -5,7 +5,7 @@
       <p>{{ section.meta?.description }}</p>
     </header>
     <p v-if="localError" class="err" role="alert">{{localError}}</p>
-    <fieldset class="preview-fields" :disabled="recipient?.previewOnly">
+    <fieldset class="preview-fields" :disabled="recipient?.previewOnly && section.key !== 'office_schedule'">
 
     <!-- Handbook -->
     <WorkplaceHandbookReader
