@@ -84,15 +84,16 @@ async function getProviderAffiliationContext(providerUserId) {
     )
   );
 
-  // Backward-compatible: include orgs where this provider already has assignment rows,
-  // even if a legacy data issue missed user_agencies membership.
+  // Backward-compatible: include orgs where this provider has active assignments,
+  // even if a legacy data issue missed user_agencies membership. Removal retains
+  // inactive assignment rows; those must not restore the removed affiliation.
   let assignedList = [];
   try {
     const [assignedRows] = await pool.execute(
       `SELECT DISTINCT a.id, a.name, a.slug, a.organization_type
        FROM provider_school_assignments psa
        JOIN agencies a ON a.id = psa.school_organization_id
-       WHERE psa.provider_user_id = ?`,
+       WHERE psa.provider_user_id = ? AND psa.is_active = TRUE`,
       [providerUserId]
     );
     assignedList = Array.isArray(assignedRows) ? assignedRows : [];
@@ -596,4 +597,3 @@ export const upsertProviderSchoolAssignments = async (req, res, next) => {
     connection.release();
   }
 };
-
