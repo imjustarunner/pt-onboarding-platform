@@ -14,7 +14,7 @@
    <div class="profile-layout">
     <div class="profile-content">
      <section class="profile-panel"><h2>About {{ provider.firstName || provider.displayName }}</h2><p class="profile-bio">{{ profile.publicBlurb || 'The provider has not published a biography yet.' }}</p></section>
-     <div class="profile-facets"><section v-for="group in groups" :key="group.title" class="profile-panel"><h2>{{ group.title }}</h2><div class="profile-tags"><span v-for="value in group.values" :key="value">{{ value }}</span></div><p v-if="!group.values.length">Not yet published</p></section></div>
+     <div class="profile-facets"><section v-for="group in groups" :key="group.title" class="profile-panel"><h2>{{ group.title }}</h2><p v-if="group.reviewed">Provider-selected top three</p><div class="profile-tags"><span v-for="value in group.values" :key="value">{{ value }}</span></div><p v-if="!group.values.length">No highlighted areas published</p><details v-if="group.more?.length"><summary>{{group.reviewed ? "Other areas open to discussing fit" : "Show more"}}</summary><p v-if="group.reviewed">These areas are available for a fit discussion; they are not claims of specialized training.</p><div class="profile-tags"><span v-for="value in group.more" :key="value">{{value}}</span></div></details></section></div>
      <section v-if="provider.tutoringProfile" class="profile-panel"><h2>Learning rates & packages</h2><p v-for="(rate,format) in provider.tutoringProfile.hourlyRates||{}" :key="format">{{format}}: {{rate==null?'Contact us for pricing':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(rate/100)+' / hour'}}</p><article v-for="pkg in provider.tutoringProfile.packages||[]" :key="pkg.id"><h3>{{pkg.name}}</h3><ul><li v-for="(c,i) in pkg.components" :key="i">{{c.sessions}} × {{c.minutes}} minutes · {{c.service}} · {{c.format}} · {{c.pricingMode==='provider-discount'?c.discountPercent+'% off this service provider’s hourly rate':c.educationLevel}}</li></ul><p>{{pkg.totalCents==null?'Contact us for pricing':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(pkg.totalCents/100)}} · Confirm the participating providers with our team.</p><router-link :to="{path:joinPath.path,query:{...joinPath.query,program:pkg.program,packageId:pkg.id}}">Request this package →</router-link></article></section><section v-if="profile.selfPayRateLabel" class="profile-panel"><h2>Self-pay</h2><strong>{{ profile.selfPayRateLabel }}</strong><p v-if="profile.selfPayRateNote">{{ profile.selfPayRateNote }}</p><p>Confirm coverage and any applicable costs with the team before starting services.</p></section>
     </div>
     <aside class="profile-panel profile-availability">
@@ -27,6 +27,7 @@
  </div>
 </template>
 <script setup>
+import {publishedFocus} from '../../navigation/providerFocus.js';
 import {uniquePublicFacets} from '../../utils/publicProviderFacets';
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -52,7 +53,7 @@ const groups=computed(()=>[
  {title:'Insurance accepted',values:profile.value?.insurancesAccepted||[]},
  {title:'Languages',values:profile.value?.details?.languages||[]},
  {title:'Provider gender',values:profile.value?.details?.gender?[profile.value.details.gender]:[]}
-]);
+].map((g,i)=>{if(i>3||service.value==='tutoring')return g;const focus=publishedFocus(['specialties','ageGroups','populations','modalities'][i],profile.value?.details?.clinicalFocus,g.values);return {...g,values:focus.top,more:focus.more,reviewed:focus.reviewed};}));
 let generation=0;
 async function load(){const id=++generation;loading.value=true;error.value='';photoFailed.value=false;provider.value=null;schedule.value=null;hold.value=null;
  try{const {data}=await api.get(`/public/agency-services/${encodeURIComponent(slug.value)}/providers/${Number(route.params.providerId)}`,{params:{serviceType:service.value,bookingMode:'NEW_CLIENT',officeId:route.query.officeId},skipAuthRedirect:true});if(id!==generation)return;provider.value=data.provider;profile.value=data.profile;agencyId.value=Number(data.agency?.id)||0;agencyName.value=data.agency?.name||slug.value;document.title=`${data.provider.displayName} | ${agencyName.value}`;}

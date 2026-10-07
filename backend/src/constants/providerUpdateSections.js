@@ -41,12 +41,12 @@ export const PROVIDER_UPDATE_SECTIONS = [
     key: 'pin',
     title: 'Quick View — Six-digit PIN',
     shortTitle: 'Quick View',
-    description: 'Create your six-digit Quick View passcode if needed, or confirm access with your existing code.',
-    checklist: ['Check Quick View setup', 'Create a six-digit passcode if needed', 'Confirm Quick View access'],
+    description: 'Create your six-digit Quick View code here if you have not set one. This step is hidden when a code already exists.',
+    checklist: ['Create a missing six-digit code', 'Store your new code safely'],
     mode: 'set_confirm_update',
     icon: 'pin',
     defaultEnabled: true,
-    previewHint: 'Uses the existing Quick View setup in account preferences. The update token is separate from the six-digit passcode.'
+    previewHint: 'Initial setup uses your invitation without an account password. Existing codes are never shown or reset here.'
   },
   {
     key: 'work_hours',
@@ -147,7 +147,7 @@ export const PROVIDER_UPDATE_SECTIONS = [
     key: 'school_availability',
     title: 'School Availability',
     shortTitle: 'School Days',
-    description: 'Review school assignment days and times; request adjustments.',
+    description: 'Review current school hours and client spots, and submit changes here for approval.',
     checklist: ['Review school days', 'Request schedule adjust if needed'],
     mode: 'embedded',
     icon: 'school',

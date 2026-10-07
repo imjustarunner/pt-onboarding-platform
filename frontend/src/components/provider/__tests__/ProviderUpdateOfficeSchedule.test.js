@@ -20,7 +20,7 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 it('requires confirmation and cancels every listed assignment from its office-local today', async () => {
-  const wrapper = mount(ProviderUpdateOfficeSchedule, { props: { agencyId: 6, mode: 'token', token: 'personal' } });
+  const wrapper = mount(ProviderUpdateOfficeSchedule, { global:{stubs:{ProviderContactHours:true}}, props: { agencyId: 6, mode: 'token', token: 'personal' } });
   await flushPromises();
   await button(wrapper, 'Cancel all office reservations — today onward').trigger('click');
   expect(api.post).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ it('requires confirmation and cancels every listed assignment from its office-lo
 
 it('reports blocked assignments and continues cancelling the remaining office hours', async () => {
   api.post.mockRejectedValueOnce({ response: { data: { error: { message: 'A client appointment is attached.' } } } });
-  const wrapper = mount(ProviderUpdateOfficeSchedule, { props: { agencyId: 6 } });
+  const wrapper = mount(ProviderUpdateOfficeSchedule, { global:{stubs:{ProviderContactHours:true}}, props: { agencyId: 6 } });
   await flushPromises();
   await button(wrapper, 'Cancel all office reservations — today onward').trigger('click');
   await button(wrapper, 'Confirm: cancel all from today onward').trigger('click');

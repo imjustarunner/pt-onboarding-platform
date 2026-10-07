@@ -43,14 +43,9 @@ five responses under **Past pushes → View → Texting choices** after staff su
 The old kiosk PIN step has been replaced. The emailed updater token opens the
 update interface; it is not the six-digit Quick View passcode.
 
-- Existing, unlocked code: staff confirms they can access Quick View; no reset is
-  required.
-- Missing code: the updater can create a new six-digit code after checking the recipient’s account password. It displays the new code once, uses a rate limit, and cannot replace an existing code. SSO-only staff and locked/existing-code resets use **My Dashboard → My Preferences →
-  Privacy & Quick View**, using the existing authenticated setup/reset flow. Staff
-  returns to the updater and refreshes status before confirming.
-- The server checks actual Quick View status before completing the step. It never
-  displays an existing code or stores a code in the update answers. An old kiosk
-  acknowledgment does not satisfy the new Quick View step.
+- Existing code: the entire step is hidden, including from the completion count. No password, login, confirmation or reset is requested.
+- Missing code: a valid, unexpired staff invitation may initialize a new six-digit code without an account password. It is shown once and is not saved in update answers. Existing codes cannot be overwritten. Resetting an existing code still uses account settings.
+- Preview tokens cannot create codes or save anything. Initial creation remains rate limited and atomically refuses existing credentials.
 
 Typical Availability replaces Work Hours and Preferred Days. It loads and updates the existing public profile summary using the same day/period checkbox editor as the profile. It does not create bookable appointments or alter school assignments.
 
@@ -61,7 +56,7 @@ Typical Availability replaces Work Hours and Preferred Days. It loads and update
 2. Publish/select the intended handbook digest and attach the actual amendments,
    or disable those sections if none are due. A placeholder is not a completed
    contract review.
-3. Review relevance of the 16 remaining sections and audiences: especially license,
+3. Review relevance of the enabled sections and audiences: especially license,
    supervision, school/client work and amendments. Pay Portal Check, Training Acknowledgments and duplicate Preferred Days are removed. The preview shows
    the enabled packet; turning a section off removes its completion requirement.
 4. Contact/address, profile blurb, display credential, specialties and typical availability load saved records and persist confirmed changes. Supervision and school schedule changes remain review requests. The photo is displayed with photo guidance; replacing it uses Account Info. License files open using short-lived private URLs. Missing blurbs offer an editable example, without inventing credentials.
@@ -96,3 +91,15 @@ Use the existing Company Events / team messaging workspace and the approved ITSC
 7. Team announcements continue through the existing direct-message audience/group and delivery controls.
 
 Deployment prerequisite: apply `database/migrations/1555_staff_poll_response_reviews.sql` before starting the updated backend. This migration was applied to the deployed database on October 7 before publishing the release. Categorization, exclusions, new-reply reset and audit history were tested using disposable connection-local MySQL temporary tables.
+
+## October 7 follow-up: editable schedule, contact hours and matching
+
+- The full invitation is editable. The separate preview remains read-only, with working document links and no delivery actions. The license now opens directly in a new tab, avoiding popup blocking and disabled form buttons.
+- Office Schedule includes **When may the app contact me?** It shows saved windows and timezone; default is Monday–Friday 7 a.m.–7 p.m. Providers may keep that, choose Anytime, or edit individual daily windows. These are routine notification windows, separate from typical clinical availability and appointment booking. Saving replaces older quiet-hours rules without enrolling any messaging channel. Existing urgent/reminder exceptions remain in effect.
+- School Availability shows current hours and assigned/total client spots. Staff can request different weekdays, hours and capacity within the updater. Requests use the existing school approval workflow; current assignments stay in force pending approval.
+- Legacy age labels map to canonical age ranges. Duplicate plain labels are no longer offered. Confirming focus choices persists canonical values; no bulk rewrite of staff profiles is run on deploy.
+- Each of the four clinical categories supports up to three highlighted areas and separate explicit exclusions. Unhighlighted, unexcluded areas remain eligible for a fit discussion. Public profiles label provider-selected highlights and expand other eligible areas without claiming specialized expertise. Earlier positive profile selections remain recorded unless explicitly excluded.
+- Optional per-client enrollment preferences cover specialties, ages, communities/populations, and approaches, capped at three each. A community selection is not a declaration of identity, is never required, and is stored with the protected intake. Preferences appear in the clinical intake summary. Public finder preferences stay in browser state rather than URL parameters. Matching excludes explicit provider exclusions and ranks highlighted matches; availability, service-type and existing clinical review gates remain intact.
+- Client action rows explain missing parent/guardian contact date, contact outcome and first completed service date, or the relevant returning-client action. Future appointments must not be recorded as completed services.
+
+Verification: focused backend and Vue tests cover passwordless initial setup, preview write blocking, assignment ownership, contact-hour validation, age normalization, matching exclusions/highlights, and specific client actions. The production frontend build succeeds. The existing private license PDF returned HTTP 200 in a read-only check. No invitations or SMS were sent, and no Aunya profile or schedule values were changed during verification.

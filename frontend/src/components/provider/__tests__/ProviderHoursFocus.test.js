@@ -1,0 +1,18 @@
+import {it,expect,vi,beforeEach} from 'vitest';import {mount,flushPromises} from '@vue/test-utils';
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),put:vi.fn(),post:vi.fn()}}));import api from '../../../services/api';
+import Hours from '../ProviderContactHours.vue';import School from '../ProviderUpdateSchoolSchedule.vue';import Focus from '../ProviderFocusEditor.vue';import Preferences from '../../public/ClientMatchingPreferences.vue';
+beforeEach(()=>vi.clearAllMocks());
+it('shows the saved contact windows, defaults, and editable daily hours',async()=>{
+ const data={mode:'default',timezone:'America/Denver',blocks:[{dayOfWeek:1,startTime:'07:00',endTime:'19:00'}],defaults:{startTime:'07:00',endTime:'19:00'}};api.get.mockResolvedValue({data});api.put.mockResolvedValue({data:{...data,mode:'anytime',blocks:[]}});
+ const w=mount(Hours,{props:{base:'/public/provider-update/test',agencyId:2}});await flushPromises();expect(w.text()).toContain('Monday 7:00 AM–7:00 PM');expect(w.text()).toContain('weekends off');await w.get('input[value=custom]').setValue();expect(w.get('input[aria-label="Monday start"]').element.value).toBe('07:00');await w.get('input[value=anytime]').setValue();await w.findAll('button').find(b=>b.text()==='Save contact hours').trigger('click');await flushPromises();expect(api.put).toHaveBeenCalledWith('/public/provider-update/test/contact-hours',expect.objectContaining({mode:'anytime',agencyId:2}));expect(w.text()).toContain('Contact hours saved.');w.unmount();
+});
+it('lets staff request changed school hours and client spots inside the update',async()=>{
+ api.get.mockResolvedValue({data:{schools:[{schoolOrganizationId:7,schoolName:'School',days:[{assignmentId:10,dayOfWeek:'Monday',startTime:'09:00',endTime:'15:00',slotsTotal:5,clientCount:3}]}],pending:[]}});api.post.mockResolvedValue({data:{ok:true}});
+ const w=mount(School,{props:{base:'/public/provider-update/test',agencyId:2}});await flushPromises();expect(w.text()).toContain('9:00 AM–3:00 PM');await w.findAll('button').find(b=>b.text()==='Adjust hours / spots').trigger('click');await w.get('input[type=number]').setValue(4);await w.findAll('button').find(b=>b.text()==='Submit change for approval').trigger('click');await flushPromises();expect(api.post).toHaveBeenCalledWith('/public/provider-update/test/school-assignments/10/request',expect.objectContaining({slotsTotal:4,agencyId:2}));expect(w.text()).toContain('saved for approval');w.unmount();
+});
+it('limits highlights while leaving other options eligible until explicitly excluded',async()=>{
+ const value={top:{populations:['A','B','C']},excluded:{populations:[]}};const w=mount(Focus,{props:{modelValue:value,groups:[{key:'populations',label:'Populations',options:['A','B','C','D']}]}});const inputs=w.findAll('input');expect(inputs[6].element.checked).toBe(true);expect(inputs[7].element.disabled).toBe(true);await inputs[0].setValue(false);expect(w.emitted('update:modelValue')[0][0]).toEqual({top:{populations:['B','C']},excluded:{populations:['A']}});w.unmount();
+});
+it('keeps client community preferences optional and caps each category at three',async()=>{
+ const w=mount(Preferences,{props:{modelValue:{populations:['Individuals','Couples','Families']}}});expect(w.text()).toContain('not a declaration of identity');const group=w.findAll('fieldset')[2];expect(group.findAll('input').filter(i=>!i.element.checked).every(i=>i.element.disabled)).toBe(true);await group.findAll('input')[0].setValue(false);expect(w.emitted('update:modelValue')[0][0].populations).toEqual(['Couples','Families']);w.unmount();
+});

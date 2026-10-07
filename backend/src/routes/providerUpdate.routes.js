@@ -59,4 +59,9 @@ router.post('/me/documents/:kind', authenticate, licenseUpload.single('file'), r
 router.get('/me/assets/:kind', authenticate, review.reviewAsset);
 
 router.post('/me/quick-view-setup', authenticate, providerUpdateCredentialLimit, review.setupQuickView);
+router.get('/me/contact-hours',authenticate,review.contactHours);
+router.put('/me/contact-hours',authenticate,review.contactHours);
+router.get('/me/school-review',authenticate,review.schoolReview);
+router.post('/me/school-assignments/:assignmentId/request',authenticate,review.schoolAdjustment);
+
 export default router;

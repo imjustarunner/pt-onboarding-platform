@@ -458,7 +458,7 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
    const waitlist=policy?policy.seesClients&&policy.waitlistEnabled:details.waitlistEnabled===true;
    if(!includeNotAccepting&&!accepting&&!(includeWaitlist&&waitlist))continue;
    if(format==='IN_PERSON'&&!supports('IN_PERSON')||format==='VIRTUAL'&&!supports('VIRTUAL'))continue;
-   scoped.push({...person,acceptingNewClients:accepting,waitlist:!accepting,inOfficeAvailable:!!supports('IN_PERSON')});
+   scoped.push({...person,clinicalFocus:details.clinicalFocus||null,acceptingNewClients:accepting,waitlist:!accepting,inOfficeAvailable:!!supports('IN_PERSON')});
   }
   mapped=scoped;
   mapped.sort((a, b) => {

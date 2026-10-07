@@ -1,3 +1,4 @@
+import {FOCUS_GROUPS,validateFocus} from '../../../frontend/src/navigation/providerFocus.js';
 import {withClinicalFieldOptions} from '../utils/providerClinicalFieldOptions.js';
 import ProviderSearchIndex from '../models/ProviderSearchIndex.model.js';
 import pool from '../config/database.js';
@@ -31,8 +32,10 @@ export async function getProviderUpdateRecords(userId,agencyId){
   const selected=field?facets[field.group]||[]:facets.interventions||strings(values[k]);
   return {key:k,label:defs[k].field_label,options:[...new Set([...strings(defs[k].options),...selected])],selected};
  });
+ const focusGroups=FOCUS_GROUPS.map(g=>({...g,previous:groups.find(v=>v.key===g.field)?.selected||[],options:[...new Set([...g.options,...(groups.find(v=>v.key===g.field)?.options||[])])]}));
+ const clinicalFocus=profile?.details?.clinicalFocus||{top:Object.fromEntries(FOCUS_GROUPS.map(g=>[g.key,[]])),excluded:Object.fromEntries(FOCUS_GROUPS.map(g=>[g.key,[]]))};
  const [docs]=await pool.execute("SELECT id,file_path FROM user_compliance_documents WHERE user_id=? AND (agency_id=? OR agency_id IS NULL) AND document_type='license' AND file_path IS NOT NULL ORDER BY uploaded_at DESC LIMIT 1",[userId,agencyId]);
- return {contact:{phone:u.personal_phone||u.phone_number||'',street:u.home_street_address||String(values.mailing_address||values.provider_address||''),line2:u.home_address_line2||'',city:u.home_city||'',state:u.home_state||'',postalCode:u.home_postal_code||'',emergency:String(values.emergency_contact||values.emergency_contact_name||'')},blurb:profile?.publicBlurb||u.provider_school_info_blurb||'',credential:u.credential||String(values.provider_credential_license_type_number||'').match(/^[A-Za-z]+/)?.[0]||u.title||'',photoPath:u.profile_photo_path||null,typicalAvailability:profile?.details?.typicalAvailability||[],specialtyGroups:groups,schools,
+ return {contact:{phone:u.personal_phone||u.phone_number||'',street:u.home_street_address||String(values.mailing_address||values.provider_address||''),line2:u.home_address_line2||'',city:u.home_city||'',state:u.home_state||'',postalCode:u.home_postal_code||'',emergency:String(values.emergency_contact||values.emergency_contact_name||'')},blurb:profile?.publicBlurb||u.provider_school_info_blurb||'',credential:u.credential||String(values.provider_credential_license_type_number||'').match(/^[A-Za-z]+/)?.[0]||u.title||'',photoPath:u.profile_photo_path||null,typicalAvailability:profile?.details?.typicalAvailability||[],specialtyGroups:groups,focusGroups,clinicalFocus,schools,
  license:{number:String(values.provider_credential_license_type_number||''),issued:String(values.provider_credential_license_issued_date||'').slice(0,10),expires:String(values.provider_credential_license_expiration_date||'').slice(0,10),hasUpload:!!(docs[0]?.file_path||values.license_upload)},licensePath:docs[0]?.file_path||values.license_upload||null,
  supervision:supervisionBreakdown({individual:ua?.supervision_is_prelicensed?ua.supervision_start_individual_hours:0,group:ua?.supervision_is_prelicensed?ua.supervision_start_group_hours:0},period,credits,account)};
 }
@@ -54,10 +57,19 @@ export async function saveProviderReviewProfile(recipient,key,data){
  if(key==='credential_display')await pool.execute('UPDATE users SET credential=? WHERE id=?',[String(data.credential||'').trim().slice(0,100),uid]);
  if(key==='specialties'){
   const records=await getProviderUpdateRecords(uid,aid);
+  const focus=validateFocus(data.clinicalFocus,records.focusGroups);
   const pending=[];
-  for(const group of records.specialtyGroups){const chosen=data.specialties?.[group.key];if(!Array.isArray(chosen)||chosen.some(v=>!group.options.includes(v)))throw Object.assign(new Error('Choose from the available focus areas.'),{status:400});
-   const [[def]]=await pool.execute('SELECT id FROM user_info_field_definitions WHERE field_key=? AND parent_field_id IS NULL AND (agency_id IS NULL OR agency_id=?) ORDER BY (agency_id IS NOT NULL) DESC,id DESC LIMIT 1',[group.key,aid]);pending.push([def.id,JSON.stringify([...new Set(chosen)])]);}
+  for(const group of records.focusGroups){
+   const existing=records.specialtyGroups.find(g=>g.key===group.field)?.selected||[];
+   const chosen=[...new Set([...existing,...focus.top[group.key]])].filter(v=>!focus.excluded[group.key].includes(v));
+   const [[def]]=await pool.execute('SELECT id FROM user_info_field_definitions WHERE field_key=? AND parent_field_id IS NULL AND (agency_id IS NULL OR agency_id=?) ORDER BY (agency_id IS NOT NULL) DESC,id DESC LIMIT 1',[group.field,aid]);
+   if(!def)throw Object.assign(new Error('Clinical profile fields are not configured.'),{status:409});
+   pending.push([def.id,JSON.stringify(chosen)]);
+  }
+  const current=await ProviderPublicProfile.getForProvider({providerUserId:uid});
+  await ProviderPublicProfile.upsertForProvider({providerUserId:uid,...current});
   for(const [id,value]of pending)await UserInfoValue.createOrUpdate(uid,id,value);
-  await ProviderSearchIndex.upsertForUserInAgency({userId:uid,agencyId:aid,fieldKeys:records.specialtyGroups.map(g=>g.key)});
+  await pool.execute("UPDATE provider_public_profiles SET public_details_json=JSON_SET(COALESCE(public_details_json,JSON_OBJECT()),'$.clinicalFocus',CAST(? AS JSON)),updated_at=CURRENT_TIMESTAMP WHERE user_id=?",[JSON.stringify({...focus,reviewedAt:new Date().toISOString()}),uid]);
+  await ProviderSearchIndex.upsertForUserInAgency({userId:uid,agencyId:aid,fieldKeys:records.focusGroups.map(g=>g.field)});
  }
 }

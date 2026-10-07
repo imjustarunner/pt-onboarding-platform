@@ -1,3 +1,4 @@
+import {canonicalAge} from './providerFacetNormalization.js';
 import {SPECIALTIES,POPULATIONS,CLIENT_AGES,THERAPY_APPROACHES} from '../constants/providerClinicalTaxonomy.js';
 import {normalizeFacetFieldKey} from '../constants/clinicalFacetFields.js';
 const definitions={
@@ -14,6 +15,7 @@ export function withClinicalFieldOptions(field){
  const definition=clinicalFieldOptions(field?.field_key);if(!definition)return field;
  // Original selections remain visible to their author for review, even if legacy labels changed.
  let values=field.value;try{values=JSON.parse(values);}catch{}
- const legacy=Array.isArray(values)?values:[];
- return {...field,clinical_profile:true,field_type:'multi_select',field_label:definition.label,options:[...new Set([...definition.options,...legacy.filter(v=>typeof v==='string')])]};
+ const legacy=(Array.isArray(values)?values:[]).map(v=>normalizeFacetFieldKey(field.field_key)==='age_specialty'?(canonicalAge(v)||null):v).filter(Boolean);
+ if(normalizeFacetFieldKey(field.field_key)==='age_specialty')values=[...new Set(legacy)];
+ return {...field,value:normalizeFacetFieldKey(field.field_key)==='age_specialty'?JSON.stringify(values):field.value,clinical_profile:true,field_type:'multi_select',field_label:definition.label,options:[...new Set([...definition.options,...legacy.filter(v=>typeof v==='string')])]};
 }

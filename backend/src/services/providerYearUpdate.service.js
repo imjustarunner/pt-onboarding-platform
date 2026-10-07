@@ -724,11 +724,12 @@ export async function loadProviderPendingScheduleAdjustments(providerUserId, age
       }
     }
     const slotsMatch = notesStr.match(/Requested slots total: (\d+)/);
-    const notesMatch = notesStr.match(/\| Notes: (.+)$/);
+    const notesMatch = notesStr.match(/\| Notes?: (.+)$/);
     out.push({
       id: Number(r.id),
       schoolOrganizationId,
       dayOfWeek: r.day_of_week,
+      requestedDay: notesStr.match(/Requested day: ([^|]+)/)?.[1]?.trim() || r.day_of_week,
       requestedStart: String(r.start_time || '').slice(0, 5),
       requestedEnd: String(r.end_time || '').slice(0, 5),
       requestedSlots: slotsMatch ? Number(slotsMatch[1]) : null,

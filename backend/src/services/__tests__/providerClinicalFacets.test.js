@@ -4,7 +4,9 @@ import {listClinicalFacetsForUsers} from '../providerClinicalFacets.service.js';
 import {normalizeClinicalFacets} from '../../utils/providerFacetNormalization.js';
 import {clinicalFieldOptions,withClinicalFieldOptions} from '../../utils/providerClinicalFieldOptions.js';
 import {SPECIALTIES,POPULATIONS} from '../../constants/providerClinicalTaxonomy.js';
-import fs from 'node:fs';
+import * as shared from '../../../../frontend/src/navigation/providerClinicalTaxonomy.js';
+import * as frontend from '../../../../frontend/src/constants/providerClinicalTaxonomy.js';
+import * as backend from '../../constants/providerClinicalTaxonomy.js';
 describe('saved clinical profile facts',()=>{
  it('recovers specialties directly from saved survey answers, keeping ages, groups and approaches separate',async()=>{
   const database={execute:vi.fn(async()=>[[{user_id:8,field_key:'pt_specialties_max25',value_text:'Behavioral Issues, Child, Education and Learning Disabilities, School Issues'},{user_id:8,field_key:'modality',value_text:'["Groups","Individuals"]'},{user_id:8,field_key:'treatment_prefs_max15',value_text:'["CBT","Play Therapy"]'}]])};
@@ -26,7 +28,6 @@ describe('saved clinical profile facts',()=>{
   expect(POPULATIONS).not.toContain('Children');expect(SPECIALTIES).toContain('Executive Functioning');expect(SPECIALTIES).not.toContain('CBT');
   expect(withClinicalFieldOptions({field_key:'groups',value:'["Legacy community"]'}).options).toContain('Legacy community');
  });
- it('keeps separately deployed frontend and backend catalogs identical',()=>{
-  const a=fs.readFileSync(new URL('../../constants/providerClinicalTaxonomy.js',import.meta.url),'utf8');const b=fs.readFileSync(new URL('../../../../frontend/src/constants/providerClinicalTaxonomy.js',import.meta.url),'utf8');expect(b.endsWith(a)).toBe(true);
- });
+ it('shares canonical choices across all deployed consumers',()=>{expect(frontend).toEqual(shared);expect(backend).toEqual(shared);});
+ it('maps legacy ages to explicit ranges and removes duplicate age choices',()=>{const field=withClinicalFieldOptions({field_key:'age_specialty',value:'["Adults","Adults (18+)","Preteen","Teen","Toddler","Elders"]'});expect(JSON.parse(field.value)).toEqual(['Adults (18+)','Preteen (11-13)','Teen (14-18)','Toddler (0-5)','Seniors (65+)']);expect(field.options).not.toContain('Adults');expect(field.options).not.toContain('Teen');});
 });

@@ -705,9 +705,10 @@ export async function getRecipientBundle(recipient) {
   });
   const records = await getProviderUpdateRecords(recipient.provider_user_id,recipient.agency_id);
   for(const section of sectionList){
-    const defaults={contact_info:{contact:records.contact},profile_blurb:{blurb:records.blurb},credential_display:{credential:records.credential},work_hours:{typicalAvailability:records.typicalAvailability},specialties:{specialtyGroups:records.specialtyGroups,specialties:Object.fromEntries(records.specialtyGroups.map(g=>[g.key,g.selected]))},directory_photo:{hasPhoto:!!records.photoPath},school_availability:{schools:records.schools},supervision_hours:{breakdown:records.supervision},license:{license:records.license}}[section.key];
+    const defaults={contact_info:{contact:records.contact},profile_blurb:{blurb:records.blurb},credential_display:{credential:records.credential},work_hours:{typicalAvailability:records.typicalAvailability},specialties:{focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus,specialtyGroups:records.specialtyGroups,specialties:Object.fromEntries(records.specialtyGroups.map(g=>[g.key,g.selected]))},directory_photo:{hasPhoto:!!records.photoPath},school_availability:{schools:records.schools},supervision_hours:{breakdown:records.supervision},license:{license:records.license}}[section.key];
     section.data={...defaults,...section.data};
     if(section.key==='supervision_hours')section.data.breakdown=records.supervision;
+    if(section.key==='specialties')section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus};
     if(section.key==='school_availability')section.data.schools=records.schools;
   }
   const communicationSection=sectionList.find(s=>s.key==='notification_prefs');
@@ -722,7 +723,6 @@ export async function getRecipientBundle(recipient) {
     communicationSection.data={...communicationSection.data,communicationChoices};
     if (!recipient.locked_at && communicationChoices.needsReview) {communicationSection.completed=false;communicationSection.status='in_progress';}
   }
-  const completedCount = sectionList.filter((s) => s.completed).length;
   let agency = null;
   try {
     const Agency = (await import('../models/Agency.model.js')).default;
@@ -767,8 +767,10 @@ export async function getRecipientBundle(recipient) {
     }
   }
 
+  if(quickViewSection?.data?.quickView?.hasPasscode) sectionList.splice(sectionList.indexOf(quickViewSection),1);
   const amendmentSection=sectionList.find(s=>s.key==='amendments');
   if(amendmentSection&&!recipient.locked_at&&(!amendmentTasks.length||amendmentTasks.some(t=>t.status!=='completed')))amendmentSection.completed=false;
+  const completedCount=sectionList.filter(s=>s.completed).length;
   return {
     recipient: {
       id: recipient.id,
@@ -1190,7 +1192,7 @@ export async function listFallActionClientsForProvider(providerUserId, agencyId)
     );
     const {computeCurrentSchoolYearLabel}=await import('../utils/schoolYear.js');
     const year=computeCurrentSchoolYearLabel();
-    const { deriveLifecycleAction } = await import('../utils/clientLifecycleAction.js');
+    const { deriveLifecycleAction, providerActionItems } = await import('../utils/clientLifecycleAction.js');
     const out = [];
     for (const c of rows || []) {
       const [[disposition]]=await pool.execute('SELECT * FROM client_year_dispositions WHERE client_id=? AND agency_id=? AND school_year=? LIMIT 1',[c.id,agencyId,year]);
@@ -1210,7 +1212,8 @@ export async function listFallActionClientsForProvider(providerUserId, agencyId)
           preferredName: null,
           schoolName: c.school_name,
           schoolOrganizationId: c.school_organization_id,
-          lifecycleAction: action
+          lifecycleAction: action,
+          actionItems: providerActionItems(c, action)
         });
       }
     }

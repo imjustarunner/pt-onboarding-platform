@@ -1229,6 +1229,12 @@
           </div>
         </div>
 
+        <section v-if="showMatchingPreferences" aria-label="Provider fit preferences">
+          <div v-for="(client,idx) in clients" :key="idx">
+            <h4 v-if="clients.length>1">{{client.firstName||t('clientN')}} {{client.lastName}}</h4>
+            <ClientMatchingPreferences :model-value="intakeResponses.clients[idx]?.matchingPreferences||{}" :locale="intakeLocale" @update:model-value="ensureClientBag(idx).matchingPreferences=$event" />
+          </div>
+        </section>
         <div v-if="visibleStandaloneQuestionFields.length" class="field-inputs">
           <h4>{{ t('additionalQuestions') }}</h4>
           <div class="form-grid">
@@ -1921,7 +1927,7 @@
             title="Choose a provider"
             lead="Select one or more providers. Optionally rank your top 3. Choosing a slot is a preference — not a booking."
             :show-header="true"
-            :providers="officeProviders"
+            :providers="matchingOfficeProviders"
             :loading="officeProvidersLoading"
             :selected-ids="selectedOfficeProviderIds"
             @update:selected-ids="setSelectedOfficeProviderIds"
@@ -3004,6 +3010,8 @@ import JobApplicationApplyPages from '../components/careers/JobApplicationApplyP
 import SmartSchoolRoiFlow from '../components/public/SmartSchoolRoiFlow.vue';
 import SmartDisclosureFlow from '../components/public/SmartDisclosureFlow.vue';
 import PacketSectionConsentFlow from '../components/public/PacketSectionConsentFlow.vue';
+import ClientMatchingPreferences from '../components/public/ClientMatchingPreferences.vue';
+import {focusMatch} from '../navigation/providerFocus.js';
 import ChooseProviderDirectory from '../components/public/ChooseProviderDirectory.vue';
 import PublicProviderSlotPicker from '../components/publicServices/PublicProviderSlotPicker.vue';
 import OfficeIntakeStartPage from '../components/office/OfficeIntakeStartPage.vue';
@@ -4762,7 +4770,13 @@ const communications = reactive({
   internalWorkforceOptIn: ''
 });
 
+const showMatchingPreferences=computed(()=>!isJobApplication.value&&!isMedicalRecordsRequest.value&&!isClientBound.value&&(usesSchoolChildDetails.value||['counseling','coaching'].includes(String(link.value?.master_channel||''))||isOfficeInDepthIntake.value&&link.value?.master_channel!=='tutoring'));
 const officeProviders = ref([]);
+const matchingOfficeProviders=computed(()=>{
+ const choices=intakeResponses.clients.map(c=>c.matchingPreferences||{});
+ const score=p=>choices.reduce((total,choice)=>total+focusMatch(p.clinicalFocus,choice).score,0);
+ return officeProviders.value.filter(p=>choices.every(choice=>focusMatch(p.clinicalFocus,choice).eligible)).slice().sort((a,b)=>score(b)-score(a));
+});
 const officeProvidersLoading = ref(false);
 const selectedOfficeProviderIds = computed(() => {
   const raw = intakeResponses.submission?.preferred_office_provider_ids;

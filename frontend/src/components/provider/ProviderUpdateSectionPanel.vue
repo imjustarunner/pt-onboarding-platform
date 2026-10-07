@@ -30,23 +30,12 @@
       @complete="markComplete"
     />
 
-    <!-- Quick View passcode: uses the existing authenticated setup. -->
     <div v-else-if="section.key === 'pin'" class="pu-panel">
-      <p>The emailed update link opens this updater. Your six-digit Quick View passcode is separate and unlocks Quick View.</p>
-      <p v-if="section.data?.quickView?.isLocked">Quick View is locked. Reset your six-digit passcode in your account before confirming this step.</p>
-      <p v-else-if="section.data?.quickView?.hasPasscode">Your six-digit Quick View passcode is already set. Keep it if you can use it; you do not need a new code for this update.</p>
-      <p v-else>Create your six-digit Quick View code below, or use My Preferences → Privacy &amp; Quick View.</p>
-      <a v-if="!recipient?.previewOnly" :href="orgPath('/dashboard?tab=my&my=preferences#prefs-privacy')" target="_blank" rel="noopener" class="pu-btn">Open secure Quick View setup →</a>
-      <p>Setup verifies your identity. Reset uses your signed-in account. Your existing passcode is never shown here or saved in the update answers.</p>
-      <div v-if="!section.data?.quickView?.hasPasscode && !newPasscode" class="pu-panel">
-        <label class="field">Your account password<input v-model="setupPassword" type="password" autocomplete="current-password" class="input" /></label>
-        <button type="button" class="pu-btn" :disabled="saving || !setupPassword || recipient?.previewOnly" @click="setupQuickView">Create my six-digit Quick View code here</button>
-        <p>SSO-only accounts use the secure account setup link. Existing codes are never displayed or overwritten here.</p>
-      </div>
-      <p v-if="newPasscode" role="status">Your new code: <strong>{{newPasscode}}</strong>. Store it safely; it is shown only now. Refresh status below to continue.</p>
-      <button v-if="!recipient?.previewOnly" type="button" class="pu-btn" @click="$emit('saved')">Refresh Quick View status after setup</button>
-      <button type="button" class="pu-btn primary" :disabled="saving || !section.data?.quickView?.hasPasscode || section.data?.quickView?.isLocked" @click="markComplete({quickViewConfirmed:true})">I can access Quick View with my six-digit passcode</button>
-      <p v-if="localError" role="alert">{{ localError }}</p>
+      <p>Create your six-digit Quick View code here. Your invitation already identifies your account; no password or login is needed.</p>
+      <p v-if="newPasscode" role="status">Your new code: <strong>{{newPasscode}}</strong>. Store it safely. This code is shown only once.</p>
+      <button v-if="!newPasscode" type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="setupQuickView">Create my six-digit Quick View code</button>
+      <button v-else type="button" class="pu-btn primary" @click="$emit('saved')">I saved my code — continue</button>
+      <p>This step disappears if a code is already set. Existing codes are never shown or replaced here.</p>
     </div>
 
     <!-- Typical availability -->
@@ -62,6 +51,7 @@
       :mode="mode"
       :token="token"
       :data="section.data"
+      :readonly="!!recipient?.previewOnly"
       @complete="markComplete"
     />
 
@@ -80,11 +70,8 @@
 
     <!-- Specialties -->
     <div v-else-if="section.key === 'specialties'" class="pu-panel">
-      <fieldset v-for="group in section.data?.specialtyGroups || []" :key="group.key" class="focus-group"><legend>{{ group.label }}</legend>
-        <label v-for="option in group.options" :key="option" class="check"><input type="checkbox" v-model="specialties[group.key]" :value="option" />{{ option }}</label>
-      </fieldset>
-      <p v-if="!section.data?.specialtyGroups?.length">No focus-area choices are configured yet.</p>
-      <button class="pu-btn primary" :disabled="saving || !section.data?.specialtyGroups?.length" @click="saveSpecialties">Save &amp; confirm focus areas</button>
+      <ProviderFocusEditor v-if="section.data?.focusGroups" v-model="clinicalFocus" :groups="section.data.focusGroups" />
+      <button class="pu-btn primary" :disabled="saving || !section.data?.focusGroups?.length" @click="saveSpecialties">Save &amp; confirm focus areas</button>
     </div>
 
     <div v-else-if="section.key === 'supervision_hours'" class="pu-panel">
@@ -115,7 +102,7 @@
       <label class="field"><span>License type / number</span><input v-model="license.number" class="input" /></label>
       <label class="field"><span>Issue date</span><input v-model="license.issued" type="date" class="input" /></label>
       <label class="field"><span>License document</span><input type="file" accept="application/pdf,image/*" @change="uploadReviewFile($event, 'license')" /></label>
-      <p v-if="license.hasUpload"><button type="button" class="pu-btn" @click="openAsset('license')">Open your uploaded license</button></p>
+      <p v-if="license.hasUpload"><a class="pu-btn" :href="`/api${reviewBase}/assets/license?open=1&agencyId=${agencyId}`" target="_blank" rel="noopener noreferrer">Open your uploaded license</a></p>
       <p v-if="localError" class="err">{{ localError }}</p>
       <label class="field"><span>Expiration date</span><input v-model="license.expires" type="date" class="input" /></label>
       <div class="pu-actions">
@@ -141,13 +128,7 @@
       </div>
     </div>
 
-    <!-- School availability -->
-    <div v-else-if="section.key === 'school_availability'" class="pu-panel">
-      <ul v-if="section.data?.schools?.length" class="school-list"><li v-for="school in section.data.schools" :key="school.id"><strong>{{school.name}}</strong><span>{{school.day_of_week}} · {{formatTime(school.start_time)}}–{{formatTime(school.end_time)}}</span></li></ul>
-      <p v-else>No active school assignments are saved for you in this agency.</p>
-      <label class="field">Requested changes (optional)<textarea v-model="schoolChanges" class="input" rows="3" /></label>
-      <button class="pu-btn primary" :disabled="saving" @click="markComplete({reviewed:true,requestedChanges:schoolChanges})">{{schoolChanges.trim()?'Submit school changes for review':'Confirm school assignments'}}</button>
-    </div>
+    <ProviderUpdateSchoolSchedule v-else-if="section.key === 'school_availability'" :base="reviewBase" :agency-id="agencyId" :readonly="!!recipient?.previewOnly" @complete="markComplete" />
 
     <!-- Preferred days -->
     <div v-else-if="section.key === 'preferred_days'" class="pu-panel">
@@ -228,8 +209,7 @@
     <!-- Client Fall action items -->
     <div v-else-if="section.key === 'client_fall_update'" class="pu-panel">
       <p class="muted">
-        Clients who still need Fall confirmation or related school actions. Complete these here so you don’t miss the
-        Fall Update boat.
+        These assigned clients have open school actions. Review the specific steps below, then open their school record to complete them.
       </p>
       <p v-if="fallLoading" class="muted">Loading action-item clients…</p>
       <ul v-else-if="fallClients.length" class="fall-list">
@@ -237,7 +217,7 @@
           <div>
             <strong>{{ c.preferredName || c.firstName }} {{ c.lastName }}</strong>
             <span class="muted"> · {{ c.schoolName || 'School' }}</span>
-            <div class="badge">{{ c.lifecycleAction?.label || 'Action needed' }}</div>
+            <div class="badge">{{ c.lifecycleAction?.label || 'Action needed' }}</div><ul class="client-action-details"><li v-for="item in c.actionItems||[]" :key="item">{{item}}</li></ul>
           </div>
           <a
             v-if="c.schoolOrganizationId"
@@ -296,6 +276,8 @@
 </template>
 
 <script setup>
+import ProviderUpdateSchoolSchedule from './ProviderUpdateSchoolSchedule.vue';
+import ProviderFocusEditor from './ProviderFocusEditor.vue';
 import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
@@ -320,10 +302,11 @@ const localError = ref('');
 const hasWorkHours = ref(true);
 const blurb = ref('');
 const specialties=reactive({});
+const clinicalFocus=ref({top:{},excluded:{}});
 const typicalAvailability=ref('');
 const schoolChanges=ref('');
 const photoUrl=ref('');
-const setupPassword=ref(''),newPasscode=ref('');
+const newPasscode=ref('');
 const license = reactive({ number: '', issued: '', expires: '', hasUpload: false });
 const reviewContext = ref({});
 const reviewLoading = ref(false);
@@ -334,7 +317,7 @@ const contactFields=[{key:'phone',label:'Personal mobile phone',autocomplete:'te
 const supervisionRows=computed(()=>Object.entries({baseline:'Reported starting hours',period:'Imported / period hours',app:'Finalized app credits',calculated:'Calculated total',current:'Current recorded balance'}).map(([key,label])=>({key,label,value:props.section.data?.breakdown?.[key]||{individual:'—',group:'—',total:'—'}})));
 function formatTime(value){if(!value)return 'Not set';const [h,m='00']=String(value).split(':');return `${Number(h)%12||12}:${m} ${Number(h)<12?'AM':'PM'}`;}
 async function openAsset(kind){try{const {data}=await api.get(`${reviewBase.value}/assets/${kind}`,{params:{agencyId:props.agencyId}});if(kind==='photo')photoUrl.value=data.url;else window.open(data.url,'_blank','noopener,noreferrer');}catch(e){localError.value=e.response?.data?.error?.message||'Could not open the saved document.';}}
-async function setupQuickView(){if(props.recipient?.previewOnly)return;saving.value=true;localError.value='';try{const {data}=await api.post(`${reviewBase.value}/quick-view-setup`,{password:setupPassword.value,agencyId:props.agencyId});newPasscode.value=data.passcode;}catch(e){localError.value=e.response?.data?.error?.message||'Could not create the code.';}finally{setupPassword.value='';saving.value=false;}}
+async function setupQuickView(){if(props.recipient?.previewOnly)return;saving.value=true;localError.value='';try{const {data}=await api.post(`${reviewBase.value}/quick-view-setup`,{agencyId:props.agencyId});newPasscode.value=data.passcode;}catch(e){localError.value=e.response?.data?.error?.message||'Could not create the code.';}finally{saving.value=false;}}
 
 const credential = ref('');
 const preferredDays = ref([]);
@@ -426,7 +409,7 @@ async function saveBlurb() {
 }
 
 async function saveSpecialties() {
-  await markComplete({specialties:{...specialties}});
+  await markComplete({clinicalFocus:clinicalFocus.value});
 }
 
 async function uploadReviewFile(event, kind) {
@@ -483,6 +466,7 @@ onMounted(async () => {
   const data = props.section.data || {};
   blurb.value = data.blurb || '';
   Object.assign(specialties,data.specialties||{});
+  clinicalFocus.value=JSON.parse(JSON.stringify(data.clinicalFocus||{top:{},excluded:{}}));
   typicalAvailability.value=(data.typicalAvailability||[]).join(', ');
   schoolChanges.value=data.requestedChanges||'';
   if(props.section.key==='directory_photo'&&data.hasPhoto)await openAsset('photo');

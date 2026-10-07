@@ -1,3 +1,4 @@
+import {FOCUS_GROUPS,validateMatchingPreferences} from '../../../frontend/src/navigation/providerFocus.js';
 import { intakeCommunicationDisclosure, ensureEnrollmentCommunicationStep, validateAndStampIntakeCommunications } from '../services/intakeCommunicationChoices.service.js';
 import { sendSchoolRoiEmail, schoolRoiDelivery } from '../services/schoolRoiEmail.service.js';
 import { signedPacketTemplate, validateRequiredSharedSignatures, childDocumentValues, validateMultiChildSigning, validateSharedSigningCaptures, sameSigningChildren, areAllIntakePacketsReady, intakeChildRoster } from '../utils/multiChildIntake.js';
@@ -4402,6 +4403,12 @@ export const buildClinicalSummaryText = ({ link, intakeData, clientIndex = 0 }) 
     const normalized = String(val).trim().toLowerCase();
     return normalized === 'yes' || normalized === 'true' || normalized === '1';
   };
+  const matchingPreferences=validateMatchingPreferences(clientResponses.matchingPreferences);
+  if(matchingPreferences&&Object.values(matchingPreferences).some(v=>v.length)){
+    output.push('Optional provider fit preferences (not identity declarations):');
+    for(const g of FOCUS_GROUPS)if(matchingPreferences[g.key]?.length)output.push(`${g.label}: ${matchingPreferences[g.key].join('; ')}`);
+    output.push('');
+  }
   output.push('Clinical Intake Summary');
   output.push('=======================');
   if (clientName) {
@@ -6949,6 +6956,7 @@ export const savePublicIntakeProgress = async (req, res, next) => {
       ...incoming,
       progressStep: req.body?.step ?? existing.progressStep ?? null
     };
+    validateIntakeMatchingPreferences(merged);
     // Keep reminder contact identity aligned with the form the parent is filling
     // (e.g. Dev Fill / edits after consent) so emails and resume data stay in sync.
     const updates = {
@@ -7032,6 +7040,7 @@ export const createPublicConsent = async (req, res, next) => {
     const retentionExpiresAt = buildRetentionExpiresAt({ policy: retentionPolicy, submittedAt: now });
 
     const intakeData = req.body?.intakeData || null;
+    validateIntakeMatchingPreferences(intakeData);
     let effectiveIntakeData = intakeData;
     let clientMatchPayload = null;
     if (effectiveIntakeData && linkSupportsPublicRegistrationFeatures(link)) {
@@ -7410,6 +7419,7 @@ export const matchPublicIntakeClient = async (req, res, next) => {
       });
     }
     const intakeData = req.body?.intakeData || null;
+    validateIntakeMatchingPreferences(intakeData);
     const match = await computePublicIntakeClientMatch({
       link,
       intakeData,
@@ -7993,6 +8003,7 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    validateIntakeMatchingPreferences(intakeData);
     await validateAndStampIntakeCommunications({ link, agencyId: await resolveAgencyIdForLink(link), intakeData, submittedAt: now });
     const sharedSigningError = validateMultiChildSigning({ intakeData: intakeData || {}, clients: req.body?.clients })
       || validateSharedSigningCaptures(intakeData || {});
@@ -10593,6 +10604,7 @@ export const submitPublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    validateIntakeMatchingPreferences(intakeData);
     await validateAndStampIntakeCommunications({ link, agencyId: await resolveAgencyIdForLink(link), intakeData, submittedAt: now });
     const sharedSigningError = validateMultiChildSigning({ intakeData: intakeData || {}, clients: req.body?.clients })
       || validateSharedSigningCaptures(intakeData || {});
@@ -13053,4 +13065,10 @@ async function validateSubmittedProviderPreferences(link,intakeData) {
  if(selected.some(p=>!p))throw Object.assign(new Error('One of your preferred providers is no longer open to requests for this service. Please choose another provider or continue without a preference.'),{status:409});
  bag.preferred_office_provider_ids=selected.map(p=>String(p.id));
  bag.preferred_office_provider_summary=selected.map((p,i)=>`#${i+1} ${p.name}`).join(', ');
+}
+
+function validateIntakeMatchingPreferences(data){
+ if(!data||typeof data!=='object')return;
+ const bags=[data.responses?.clients,data.intakeResponses?.clients,data.clients];
+ for(const clients of bags)if(Array.isArray(clients))for(const client of clients)if(client?.matchingPreferences!=null)validateMatchingPreferences(client.matchingPreferences);
 }

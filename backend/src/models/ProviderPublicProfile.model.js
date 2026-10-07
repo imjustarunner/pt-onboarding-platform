@@ -67,6 +67,7 @@ class ProviderPublicProfile {
     const previous = await this.getForProvider({ providerUserId: userId, database });
     details = { ...previous?.details, ...details };
     const publicDetails = {};
+    if(previous?.details?.clinicalFocus)publicDetails.clinicalFocus=previous.details.clinicalFocus;
     for (const key of ['languages', 'locations', 'sessionFormats', 'typicalAvailability']) {
       const values = (details ?? previous?.details)?.[key];
       publicDetails[key] = Array.isArray(values) ? [...new Set(values.map(v => String(v).trim().slice(0, 160)).filter(Boolean))].slice(0, 30) : [];

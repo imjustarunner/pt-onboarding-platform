@@ -28,4 +28,9 @@ router.post('/:token/documents/:kind', licenseUpload.single('file'), review.uplo
 router.get('/:token/assets/:kind', review.reviewAsset);
 
 router.post('/:token/quick-view-setup', providerUpdateCredentialLimit, review.setupQuickView);
+router.get('/:token/contact-hours',review.contactHours);
+router.put('/:token/contact-hours',review.contactHours);
+router.get('/:token/school-review',review.schoolReview);
+router.post('/:token/school-assignments/:assignmentId/request',review.schoolAdjustment);
+
 export default router;

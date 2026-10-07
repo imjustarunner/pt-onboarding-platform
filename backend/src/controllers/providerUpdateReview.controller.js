@@ -151,24 +151,51 @@ export async function reviewAsset(req,res,next){
   if(!path||typeof path!=='string'||path.includes('..')||/^https?:/i.test(path))throw fail('No stored document is available.',404);
   const key=path.replace(/^\/?uploads\//,'');
   const url=await StorageService.getSignedUrl(kind==='license'&&key.startsWith('credentials/')?key:'uploads/'+key,5);
-  res.setHeader('Cache-Control','no-store');res.json({url});
+  res.setHeader('Cache-Control','no-store');res.setHeader('Referrer-Policy','no-referrer');
+  if(req.query?.open==='1')return res.redirect(303,url);
+  res.json({url});
  }catch(e){next(e);}
 }
 
-// An update token alone cannot create or reset a credential. Require the recipient's
-// password; SSO-only staff use the existing authenticated account setup.
+// A valid scoped invitation may initialize a missing code. Existing codes cannot
+// be retrieved or reset here; previews and closed/expired invitations cannot write.
 export async function setupQuickView(req,res,next){
  try{
   const r=await reviewRecipient(req);
   if(r.previewOnly)throw fail('This preview is read-only.',403);
   requireSection(r,'pin');
-  const user=await User.findById(r.provider_user_id);
-  if(!user?.password_hash)throw fail('Sign in to your account to set up Quick View for an SSO account.',403);
-  const bcrypt=(await import('bcrypt')).default;
-  if(!await bcrypt.compare(String(req.body?.password||''),user.password_hash))throw fail('Check your account password.',401);
   const status=await getCredentialStatus(r.provider_user_id);
   if(status.hasPasscode)throw fail('Your code is already set. Use account settings if you need to reset it.',409);
   const result=await createInitialPasscode({userId:r.provider_user_id,agencyId:r.agency_id});
   res.setHeader('Cache-Control','no-store');res.json({passcode:result.passcode,shownOnce:true});
+ }catch(e){next(e);}
+}
+
+export async function contactHours(req,res,next){
+ try{const r=await reviewRecipient(req);requireSection(r,'office_schedule');
+  const {getContactHours,saveContactHours}=await import('../services/providerUpdateContactHours.service.js');
+  if(req.method==='PUT'&&r.previewOnly)throw fail('This preview is read-only.',403);
+  res.json(req.method==='PUT'?await saveContactHours(r.provider_user_id,req.body):await getContactHours(r.provider_user_id));
+ }catch(e){next(e);}
+}
+export async function schoolReview(req,res,next){
+ try{const r=await reviewRecipient(req);requireSection(r,'school_availability');
+  const {loadProviderSchoolSchedule,loadProviderPendingScheduleAdjustments}=await import('../services/providerYearUpdate.service.js');
+  res.json({schools:await loadProviderSchoolSchedule(r.provider_user_id,r.agency_id),pending:await loadProviderPendingScheduleAdjustments(r.provider_user_id,r.agency_id)});
+ }catch(e){next(e);}
+}
+export async function schoolAdjustment(req,res,next){
+ try{const r=await reviewRecipient(req);requireSection(r,'school_availability');if(r.previewOnly)throw fail('This preview is read-only.',403);
+  const {loadProviderSchoolSchedule}=await import('../services/providerYearUpdate.service.js');
+  const schools=await loadProviderSchoolSchedule(r.provider_user_id,r.agency_id);
+  const school=schools.find(s=>s.days.some(d=>Number(d.assignmentId)===Number(req.params.assignmentId)));
+  const day=school?.days.find(d=>Number(d.assignmentId)===Number(req.params.assignmentId));if(!day)throw fail('School assignment not found.',404);
+  const {startTime,endTime,slotsTotal,moveToDay,notes}=req.body||{};
+  if(!Number.isInteger(slotsTotal)||slotsTotal<0||slotsTotal>40||moveToDay&&!['Monday','Tuesday','Wednesday','Thursday','Friday'].includes(moveToDay))throw fail('Choose valid weekday hours and 0–40 client spots.');
+  const clean=v=>String(v||'').replace(/[|\r\n]/g,' ').slice(0,600);
+  const note=[`Schedule adjustment request for ${clean(school.schoolName)}`,`Day: ${day.dayOfWeek}`,moveToDay&&moveToDay!==day.dayOfWeek?`Requested day: ${moveToDay} | Change type: day_move`:null,`Current slots: ${day.clientCount||0} assigned / ${day.slotsTotal||0} total`,`Requested slots total: ${slotsTotal}`,`Current hours: ${String(day.startTime||'').slice(0,5)}–${String(day.endTime||'').slice(0,5)}`,`Requested hours: ${clean(startTime)}–${clean(endTime)}`,`Note: ${clean(notes)}`].filter(Boolean).join(' | ');
+  const user=await User.findById(r.provider_user_id);
+  const scoped={...req,user:{...user,id:r.provider_user_id},query:{agencyId:r.agency_id},body:{agencyId:r.agency_id,requestKind:'schedule_adjustment',preferredSchoolOrgIds:[school.schoolOrganizationId],notes:note,blocks:[{dayOfWeek:day.dayOfWeek,startTime,endTime,schoolOrganizationId:school.schoolOrganizationId}]}};
+  const {createMySchoolAvailabilityRequest}=await import('./availability.controller.js');return createMySchoolAvailabilityRequest(scoped,res,next);
  }catch(e){next(e);}
 }

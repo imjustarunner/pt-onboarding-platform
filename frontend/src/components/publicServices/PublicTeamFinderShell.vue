@@ -99,22 +99,7 @@
           </select>
         </label>
 
-        <label v-if="filterMode === 'counseling'" class="tf-field">
-          <span>Specialty / focus</span>
-          <select v-model="filters.specialty" @change="load">
-            <option value="">All specialties</option>
-            <option v-for="s in specialtyOptions" :key="s" :value="s">{{ s }}</option>
-          </select>
-        </label>
-
-        <label v-if="filterMode === 'counseling'" class="tf-field">
-          <span>Ages served</span>
-          <select v-model="filters.ageGroup" @change="load">
-            <option value="">All ages</option>
-            <option v-for="a in ageGroupOptions" :key="a" :value="a">{{ a }}</option>
-          </select>
-        </label>
-
+        <ClientMatchingPreferences v-if="filterMode==='counseling'||serviceType==='coaching'" v-model="matchingPreferences" />
         <label v-if="filterMode === 'tutoring'" class="tf-field">
           <span>Subject</span>
           <select v-model="filters.subject" @change="load">
@@ -168,7 +153,7 @@
           <label class="tf-sort">
             Sort by
             <select v-model="sortBy">
-              <option value="soonest">First available</option>
+              <option value="soonest">{{searchMode==='needs'?'Highlighted fit, then availability':'First available'}}</option>
               <option value="name">Name A–Z</option>
             </select>
           </label>
@@ -203,6 +188,8 @@
 </template>
 
 <script setup>
+import ClientMatchingPreferences from '../public/ClientMatchingPreferences.vue';
+import {focusMatch} from '../../navigation/providerFocus.js';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -307,7 +294,7 @@ const navLinks = computed(() => {
 
 const hasActiveFilters = computed(() =>
   !!(
-    insurance.value || location.value || language.value || timeOfDay.value || filters.value.search ||
+    Object.values(matchingPreferences.value).some(v=>v.length) || insurance.value || location.value || language.value || timeOfDay.value || filters.value.search ||
     filters.value.specialty ||
     filters.value.ageGroup ||
     filters.value.subject ||
@@ -315,9 +302,12 @@ const hasActiveFilters = computed(() =>
   )
 );
 
+const matchingPreferences=ref({});
+const matchFor=p=>focusMatch(p.profile?.details?.clinicalFocus,matchingPreferences.value);
 const displayedProviders = computed(() => {
   if(needsOffice.value)return [];
   const list = providers.value.filter(p => {
+    if(!matchFor(p).eligible)return false;
     if (filters.value.programType==='IN_PERSON' && location.value && !(p.officeLocations||[]).some(o=>String(o.id)===location.value)) return false;
     if (language.value && !(p.profile?.details?.languages||[]).includes(language.value)) return false;
     if (insurance.value && !(p.profile?.insurancesAccepted || []).includes(insurance.value)) return false;
@@ -336,6 +326,7 @@ const displayedProviders = computed(() => {
       return String(aT).localeCompare(String(bT));
     });
   }
+  if(searchMode.value==='needs')list.sort((a,b)=>matchFor(b).score-matchFor(a).score);
   return list;
 });
 
@@ -359,6 +350,7 @@ function setTab(tabId) {
 }
 
 function clearFilters() {
+  matchingPreferences.value={};
   insurance.value = ''; location.value = ''; language.value = ''; timeOfDay.value = '';
   filters.value.search = '';
   filters.value.specialty = '';

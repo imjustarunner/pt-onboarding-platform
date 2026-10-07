@@ -12,12 +12,13 @@
         </div>
       </div>
     </div>
+    <ProviderContactHours :base="base" :agency-id="agencyId" :readonly="readonly" />
     <fieldset>
       <legend>Availability and booking preferences</legend>
       <label><input v-model="preferences.inPerson" type="checkbox" /> Available in person</label>
       <label><input v-model="preferences.virtual" type="checkbox" /> Available virtually</label>
       <label><input v-model="preferences.online" type="checkbox" /> Accept online reservations at the hours I open below</label>
-      <label><input v-model="preferences.keepDefaults" type="checkbox" /> Keep my current default work availability</label>
+
       <p class="muted">Your office assignment stays reserved until you release it. Opening booking lets clients request that time; existing client sessions stay protected. Confirming this review applies these booking choices to the office hours below.</p>
       <a :href="myScheduleHref" target="_blank" rel="noopener">Review your full office schedule</a>
     </fieldset>
@@ -62,15 +63,16 @@
   </div>
 </template>
 <script setup>
+import ProviderContactHours from './ProviderContactHours.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
-const props = defineProps({ agencyId: [Number, String], mode: { type: String, default: 'auth' }, token: String, data: Object });
+const props = defineProps({ agencyId: [Number, String], mode: { type: String, default: 'auth' }, token: String, data: Object, readonly:Boolean });
 const emit = defineEmits(['complete']);
 const route = useRoute();
 const slots = ref([]), loading = ref(false), busy = ref(false), error = ref(''), message = ref('');
 const confirmCancelAll = ref(false);
-const preferences = reactive({ inPerson: true, virtual: true, online: false, keepDefaults: true, ...(props.data?.preferences || {}) });
+const preferences = reactive({ inPerson: true, virtual: true, online: false, ...(props.data?.preferences || {}) });
 let loaded = false;
 const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const base = computed(() => props.mode === 'token' ? `/public/provider-update/${encodeURIComponent(props.token)}` : '/provider-update/me');

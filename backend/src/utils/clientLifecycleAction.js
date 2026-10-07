@@ -302,3 +302,21 @@ export function needsInsuranceClearance({ client, disposition = null, ignoreOver
     || agencyIntake.insuranceReviewed === true
   );
 }
+
+export function providerActionItems(client, action) {
+  if (action?.actionKey === 'provider_intake') {
+    const items = [];
+    if (!client.parents_contacted_at) items.push('Record when the parent or guardian was contacted.');
+    if (client.parents_contacted_successful == null) items.push('Record whether contact was successful.');
+    else if (![true, 1, '1'].includes(client.parents_contacted_successful)) items.push('Follow up on the unsuccessful parent or guardian contact and update the outcome.');
+    if (!client.first_service_at) items.push('After the first appointment actually takes place, record its service date. Do not enter a future appointment date.');
+    else items.push('Review the recorded first service date and confirm services have started for this school year.');
+    return items;
+  }
+  return {
+    confirm_services_started: ['Confirm the first completed session for this school year. A scheduled appointment alone does not confirm Being Seen.'],
+    assign_day: ['Assign the school weekday for this client.'],
+    fall_confirmation: ['Record whether this client is returning, your contact outcome, and the continuation plan.'],
+    spring_update: ['Review the end-of-year service status and next-year continuation plan.']
+  }[action?.actionKey] || ['Open this client’s school record to review the requested action.'];
+}
