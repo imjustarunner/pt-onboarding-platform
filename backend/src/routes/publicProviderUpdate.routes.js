@@ -1,3 +1,4 @@
+import {providerUpdateCredentialLimit} from '../middleware/providerUpdateCredentialLimit.middleware.js';
 import * as review from '../controllers/providerUpdateReview.controller.js';
 import { licenseUpload } from '../middleware/licenseUpload.middleware.js';
 import express from 'express';
@@ -24,4 +25,7 @@ router.get('/:token/review-context', review.reviewContext);
 router.post('/:token/office-assignments/:assignmentId/:action', review.officeReviewAction);
 router.post('/:token/documents/:kind', licenseUpload.single('file'), review.uploadReviewDocument);
 
+router.get('/:token/assets/:kind', review.reviewAsset);
+
+router.post('/:token/quick-view-setup', providerUpdateCredentialLimit, review.setupQuickView);
 export default router;

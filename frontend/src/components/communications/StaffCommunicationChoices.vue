@@ -21,8 +21,8 @@
           <label><input type="radio" :name="`${id}-${requestChoice.key}`" :value="true" v-model="accessRequests[requestChoice.key]" /> Yes</label>
         </fieldset>
         <h3>Optional texts to my personal phone</h3>
-        <label>Your profile phone <input v-model="phone" type="tel" autocomplete="tel" readonly /></label>
-        <p class="hint">Update your personal phone in your profile first if this number is wrong. Choosing No does not require a phone number.</p>
+
+        <p class="hint">Texts use your personal mobile number in Contact & Address. Review that section before opting in. Choosing No does not require a phone number.</p>
         <fieldset v-for="choice in data.disclosure.choices" :key="choice.key" class="choice">
           <legend>{{ choice.label }}</legend><p>{{ choice.description }}</p>
           <label><input type="radio" :name="`${id}-${choice.key}`" :value="false" v-model="choices[choice.key]" /> No</label>
@@ -34,7 +34,7 @@
           <p>Message alerts contain a sign-in link, not a client’s message or an automatic login. Keep your phone locked and use the secure app to respond.</p>
         </aside>
         <label>Full name for electronic signature <input v-model="signerName" autocomplete="name" maxlength="200" required /></label>
-        <label class="ack"><input type="checkbox" v-model="acknowledged" required /> I reviewed these choices, control the listed phone number if opting in, and electronically sign my selections. I can choose No for every category.</label>
+        <label class="ack"><input type="checkbox" v-model="acknowledged" required /> I reviewed these choices, control my saved personal mobile number if opting in, and electronically sign my selections. I can choose No for every category.</label>
         <button type="submit" :disabled="!acknowledged || !signerName.trim()">{{ busy || saving ? 'Saving…' : 'Sign and save my choices' }}</button>
       </fieldset>
       <p v-if="data.activation.some(a=>a.status.startsWith('pending'))" role="status">Your choices are saved. Some selected texts are not active yet. Your organization must complete campaign/number setup and review your signed SMS enrollment before activation. An administrator can send you the enrollment form through Texting Numbers → Consent requests. Saving these preferences does not override STOP. You can keep using the app.</p>

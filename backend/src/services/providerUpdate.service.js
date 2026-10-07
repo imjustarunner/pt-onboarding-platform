@@ -1,3 +1,4 @@
+import {getProviderUpdateRecords} from './providerUpdateRecords.service.js';
 import { getStaffCommunicationChoices } from './staffCommunicationChoices.service.js';
 import {getCredentialStatus} from './quickViewAuth.service.js';
 /**
@@ -184,7 +185,7 @@ export function recipientSeesSection(sectionKey, audienceConfig, providerUserId,
 }
 
 export async function listSectionCatalog() {
-  return PROVIDER_UPDATE_SECTIONS;
+  return PROVIDER_UPDATE_SECTIONS.filter(s=>!['training_ack','pay_portal','preferred_days'].includes(s.key));
 }
 
 export async function createPush({
@@ -627,18 +628,20 @@ export async function getRecipientByToken(token) {
   const tok = String(token || '').trim();
   if (!tok) return null;
   const [rows] = await pool.execute(
-    `SELECT r.*, p.title AS push_title, p.section_config_json, p.status AS push_status,
+    `SELECT r.*, p.title AS push_title, p.section_config_json, p.section_audience_json, p.status AS push_status,
             u.first_name, u.last_name, u.email
      FROM provider_update_recipients r
      JOIN provider_update_pushes p ON p.id = r.push_id
      JOIN users u ON u.id = r.provider_user_id
      WHERE BINARY r.token = BINARY ?
+       AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+       AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=r.provider_user_id AND ua.agency_id=r.agency_id AND COALESCE(ua.is_active,1)=1)
      LIMIT 1`,
     [tok]
   );
   const row = rows?.[0];
   if (!row || (row.push_status === 'draft' && !isProviderUpdatePreviewToken(row.token))) return null;
-  if (isProviderUpdatePreviewToken(row.token) && row.push_status === 'closed') return null;
+  if (row.push_status === 'closed') return null;
   if (row.locked_at) {
     throw Object.assign(new Error('This update link is locked'), { status: 410 });
   }
@@ -700,6 +703,13 @@ export async function getRecipientBundle(recipient) {
       data: parseJson(prog.data_json, {})
     };
   });
+  const records = await getProviderUpdateRecords(recipient.provider_user_id,recipient.agency_id);
+  for(const section of sectionList){
+    const defaults={contact_info:{contact:records.contact},profile_blurb:{blurb:records.blurb},credential_display:{credential:records.credential},work_hours:{typicalAvailability:records.typicalAvailability},specialties:{specialtyGroups:records.specialtyGroups,specialties:Object.fromEntries(records.specialtyGroups.map(g=>[g.key,g.selected]))},directory_photo:{hasPhoto:!!records.photoPath},school_availability:{schools:records.schools},supervision_hours:{breakdown:records.supervision},license:{license:records.license}}[section.key];
+    section.data={...defaults,...section.data};
+    if(section.key==='supervision_hours')section.data.breakdown=records.supervision;
+    if(section.key==='school_availability')section.data.schools=records.schools;
+  }
   const communicationSection=sectionList.find(s=>s.key==='notification_prefs');
   const quickViewSection=sectionList.find(s=>s.key==='pin');
   if(quickViewSection){
@@ -757,6 +767,8 @@ export async function getRecipientBundle(recipient) {
     }
   }
 
+  const amendmentSection=sectionList.find(s=>s.key==='amendments');
+  if(amendmentSection&&!recipient.locked_at&&(!amendmentTasks.length||amendmentTasks.some(t=>t.status!=='completed')))amendmentSection.completed=false;
   return {
     recipient: {
       id: recipient.id,
@@ -874,7 +886,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
     [recipientId]
   );
   const done = new Set((sections || []).filter((s) => s.completed).map((s) => s.section_key));
-  const missing = enabledKeys.filter((k) => !done.has(k) || (['notification_prefs','pin'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
+  const missing = enabledKeys.filter((k) => !done.has(k) || (['notification_prefs','pin','amendments'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
   if (missing.length) {
     throw Object.assign(new Error(`Complete all sections first: ${missing.join(', ')}`), {
       status: 400,
@@ -1003,7 +1015,7 @@ export async function submitPushForPayroll({ pushId, agencyId, submittedByUserId
 
 export async function getMyOpenRecipient(providerUserId, agencyId) {
   const [rows] = await pool.execute(
-    `SELECT r.*, p.title AS push_title, p.section_config_json, p.status AS push_status,
+    `SELECT r.*, p.title AS push_title, p.section_config_json, p.section_audience_json, p.status AS push_status,
             u.first_name, u.last_name, u.email
      FROM provider_update_recipients r
      JOIN provider_update_pushes p ON p.id = r.push_id
@@ -1067,7 +1079,7 @@ export async function listOpenForBookingForProvider(providerUserId, agencyId = n
         officeLocationId: Number(row.office_location_id),
         roomId: Number(row.room_id),
         title: `${String(row.office_name || 'Office').trim()} · ${String(row.room_label || row.room_name || 'Room').trim()}`,
-        when: `${weekdayNames[wd] || `Day ${wd}`} · ${hour}:00 · ${String(row.assigned_frequency || 'WEEKLY').toUpperCase()}`,
+        when: `${weekdayNames[wd] || `Day ${wd}`} · ${Number(hour)%12||12}:00 ${Number(hour)<12?'AM':'PM'} · ${String(row.assigned_frequency || 'WEEKLY').toUpperCase()==='BIWEEKLY'?'Every other week':'Weekly'}`,
         availabilityMode: mode,
         weekday: wd, hour, timeZone: row.timezone || 'America/Denver',
         agencyId: Number(row.booking_agency_id) || null,
@@ -1148,14 +1160,16 @@ export async function listFallActionClientsForProvider(providerUserId, agencyId)
   // Best-effort: clients assigned to provider with non-quiet lifecycle fall actions.
   try {
     const [rows] = await pool.execute(
-      `SELECT DISTINCT c.id, c.first_name, c.last_name, c.preferred_name,
+      `SELECT DISTINCT c.*, c.organization_id AS school_organization_id,
+              EXISTS(SELECT 1 FROM client_provider_assignments cp WHERE cp.client_id=c.id AND cp.is_active=1 AND cp.service_day IS NOT NULL AND cp.service_day<>'') AS has_weekday,
+              1 AS has_provider,
               cs.status_key AS client_status_key,
               sch.id AS school_organization_id,
               sch.name AS school_name
        FROM clients c
        LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-       LEFT JOIN agencies sch ON sch.id = c.school_organization_id
-       WHERE (c.is_archived IS NULL OR c.is_archived = 0)
+       LEFT JOIN agencies sch ON sch.id = c.organization_id
+       WHERE c.compliance_archived_at IS NULL
          AND (
            c.provider_id = ?
            OR EXISTS (
@@ -1167,30 +1181,33 @@ export async function listFallActionClientsForProvider(providerUserId, agencyId)
            c.agency_id = ?
            OR EXISTS (
              SELECT 1 FROM organization_affiliations oa
-             WHERE oa.organization_id = c.school_organization_id AND oa.agency_id = ?
+             WHERE oa.organization_id = c.organization_id AND oa.agency_id = ?
            )
          )
-       ORDER BY c.last_name, c.first_name
+       ORDER BY c.full_name, c.initials, c.id
        LIMIT 200`,
       [providerUserId, providerUserId, agencyId, agencyId]
     );
+    const {computeCurrentSchoolYearLabel}=await import('../utils/schoolYear.js');
+    const year=computeCurrentSchoolYearLabel();
     const { deriveLifecycleAction } = await import('../utils/clientLifecycleAction.js');
     const out = [];
     for (const c of rows || []) {
+      const [[disposition]]=await pool.execute('SELECT * FROM client_year_dispositions WHERE client_id=? AND agency_id=? AND school_year=? LIMIT 1',[c.id,agencyId,year]);
       const action = deriveLifecycleAction({
         client: {
           ...c,
           client_status_key: c.client_status_key
         },
         viewerRole: 'provider',
-        disposition: null
+        disposition: disposition||null
       });
       if (action && !action.quiet) {
         out.push({
           id: c.id,
-          firstName: c.first_name,
-          lastName: c.last_name,
-          preferredName: c.preferred_name,
+          firstName: c.full_name || c.initials,
+          lastName: '',
+          preferredName: null,
           schoolName: c.school_name,
           schoolOrganizationId: c.school_organization_id,
           lifecycleAction: action
@@ -1200,7 +1217,7 @@ export async function listFallActionClientsForProvider(providerUserId, agencyId)
     return out;
   } catch (e) {
     console.warn('[providerUpdate] fall actions lookup failed', e?.message || e);
-    return [];
+    throw Object.assign(new Error('Assigned client updates could not be loaded. Please retry.'),{status:503});
   }
 }
 

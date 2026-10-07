@@ -1,3 +1,4 @@
+vi.mock('../providerUpdateRecords.service.js',()=>({getProviderUpdateRecords:vi.fn(async()=>({contact:{},specialtyGroups:[],schools:[]}))}));
 import { beforeEach, it, expect, vi } from 'vitest';
 vi.mock('../staffCommunicationChoices.service.js',()=>({getStaffCommunicationChoices:vi.fn(async()=>({choices:{},accessRequests:{}}))}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));

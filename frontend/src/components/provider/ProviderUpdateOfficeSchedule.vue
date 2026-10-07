@@ -19,7 +19,7 @@
       <label><input v-model="preferences.online" type="checkbox" /> Accept online reservations at the hours I open below</label>
       <label><input v-model="preferences.keepDefaults" type="checkbox" /> Keep my current default work availability</label>
       <p class="muted">Your office assignment stays reserved until you release it. Opening booking lets clients request that time; existing client sessions stay protected. Confirming this review applies these booking choices to the office hours below.</p>
-      <a :href="myScheduleHref" target="_blank" rel="noopener">Review work hours and virtual availability</a>
+      <a :href="myScheduleHref" target="_blank" rel="noopener">Review your full office schedule</a>
     </fieldset>
     <p v-if="loading">Loading assignments…</p>
     <p v-if="error" role="alert" class="err">{{ error }}</p>

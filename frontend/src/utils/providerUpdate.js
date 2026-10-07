@@ -17,7 +17,7 @@ export const PROVIDER_UPDATE_SECTIONS = [
   },
   {
     key: 'amendments',
-    title: 'Amendment Updates',
+    title: 'Amendment Agreement',
     shortTitle: 'Amendments',
     description: 'Review and sign amendment contract updates.',
     checklist: ['Open amendment documents', 'Electronic signature required'],
@@ -50,10 +50,10 @@ export const PROVIDER_UPDATE_SECTIONS = [
   },
   {
     key: 'work_hours',
-    title: 'Work Hours',
-    shortTitle: 'Work Hours',
-    description: 'Set or confirm your weekly work hours.',
-    checklist: ['Set work hours', 'Confirm or update schedule'],
+    title: 'Typical Availability',
+    shortTitle: 'Availability',
+    description: 'Review the typical availability shown on your profile.',
+    checklist: ['Review typical availability', 'Confirm or update schedule'],
     mode: 'set_confirm_update',
     icon: 'hours',
     defaultEnabled: true,
@@ -234,7 +234,7 @@ export const PROVIDER_UPDATE_PAGES = [
     title: 'User Updates',
     shortTitle: 'User Updates',
     description: 'Manage your account and scheduling details.',
-    checklist: ['Set or confirm six-digit Quick View PIN', 'Set work hours', 'Review office schedule', 'Update license'],
+    checklist: ['Set or confirm six-digit Quick View PIN', 'Review typical availability', 'Review office schedule', 'Update license'],
     icon: 'hours',
     sectionKeys: [
       'pin',
@@ -243,9 +243,7 @@ export const PROVIDER_UPDATE_PAGES = [
       'supervision_hours',
       'license',
       'contact_info',
-      'preferred_days',
-      'training_ack',
-      'pay_portal'
+
     ]
   },
   {
@@ -277,7 +275,7 @@ export const PROVIDER_UPDATE_PAGES = [
   },
   {
     key: 'amendments',
-    title: 'Amendment Updates',
+    title: 'Amendment Agreement',
     shortTitle: 'Amendment Updates',
     description: 'Review and sign amendment contract updates.',
     checklist: ['Open amendment documents', 'Electronic signature required'],
@@ -297,7 +295,7 @@ export const PROVIDER_UPDATE_PAGES = [
 
 export function defaultSectionConfig() {
   const cfg = {};
-  for (const s of PROVIDER_UPDATE_SECTIONS) cfg[s.key] = s.defaultEnabled !== false;
+  for (const s of PROVIDER_UPDATE_SECTIONS) cfg[s.key] = !['pay_portal','training_ack','preferred_days'].includes(s.key) && s.defaultEnabled !== false;
   return cfg;
 }
 
@@ -306,14 +304,14 @@ export function normalizeSectionConfig(raw) {
   if (!raw || typeof raw !== 'object') return base;
   const out = { ...base };
   for (const key of PROVIDER_UPDATE_SECTION_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(raw, key)) out[key] = !!raw[key];
+    if (Object.prototype.hasOwnProperty.call(raw, key)) out[key] = !['pay_portal','training_ack','preferred_days'].includes(key) && !!raw[key];
   }
   return out;
 }
 
 export function enabledSections(config) {
   const cfg = normalizeSectionConfig(config);
-  return PROVIDER_UPDATE_SECTIONS.filter((s) => cfg[s.key]);
+  return PROVIDER_UPDATE_SECTIONS.filter((s) => cfg[s.key] && !['pay_portal','training_ack','preferred_days'].includes(s.key));
 }
 
 export function getSectionMeta(key) {

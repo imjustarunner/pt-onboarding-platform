@@ -21,8 +21,8 @@
           <div class="pu-secure-sub">Scoped update link</div>
         </div>
         <div class="pu-user">
-          <div class="pu-user-name">{{ personPreview ? `${personPreview.provider.first_name} ${personPreview.provider.last_name}` : 'Alex Provider' }}</div>
-          <div class="pu-user-role">{{ personPreview?.provider.title || personPreview?.provider.role || 'External Staff' }}</div>
+          <div class="pu-user-name">{{ personPreview ? `${personPreview.provider.first_name} ${personPreview.provider.last_name || ''}` : 'Alex Provider' }}</div>
+          <div class="pu-user-role">{{personPreview?.provider.title || personPreview?.provider.role || 'External Staff'}}</div>
         </div>
       </header>
 
@@ -95,7 +95,7 @@
               <p>{{ activePage?.description }}</p>
             </header>
 
-            <div v-if="personPreview && activePage?.sections?.some(section => ['amendments','license','office_schedule','supervision_hours','notification_prefs'].includes(section.key))" class="demo-panel">
+            <div v-if="personPreview && activePage?.sections?.some(section => !['admin_update','handbook'].includes(section.key))" class="demo-panel">
               <section v-for="section in activePage.sections" :key="section.key">
                 <h2>{{ section.meta?.title || section.key }}</h2>
                 <template v-if="section.key === 'amendments'">
@@ -119,8 +119,14 @@
                   </tbody></table><p v-else>No active assignments in this agency.</p>
                 </template>
                 <dl v-else-if="section.key === 'license'"><dt>License</dt><dd>{{ personPreview.license.number || 'Not entered' }}</dd><dt>Issued</dt><dd>{{ personPreview.license.issued || 'Not entered' }}</dd><dt>Expires</dt><dd>{{ personPreview.license.expires || 'Not entered' }}</dd></dl>
-                <p v-else-if="section.key === 'supervision_hours'">Credited supervision: {{ personPreview.supervision?.totalHours ?? 'Not available' }} hours. The provider can confirm this or request a correction with a reason and evidence.</p>
+                <p v-else-if="section.key === 'supervision_hours'">Credited supervision: {{ personPreview.records?.supervision?.current?.total ?? personPreview.supervision?.totalHours ?? 'Not available' }} hours. The provider can confirm this or request a correction with a reason and evidence.</p>
                 <StaffCommunicationChoices v-else-if="section.key === 'notification_prefs' && personPreview.communicationChoices" :initial="personPreview.communicationChoices" :agency-id="agencyId" external-save readonly />
+                <div v-else-if="section.key==='contact_info' && personPreview.records"><p v-for="(value,key) in personPreview.records.contact" :key="key">{{key}}: {{value||'Not entered'}}</p></div>
+                <p v-else-if="section.key==='profile_blurb'">{{personPreview.records?.blurb||'No blurb saved; an editable example is available in the updater.'}}</p>
+                <p v-else-if="section.key==='credential_display'">{{personPreview.records?.credential||'Not entered'}}</p>
+                <p v-else-if="section.key==='work_hours'">{{personPreview.records?.typicalAvailability?.join(' · ')||'No typical availability saved.'}}</p>
+                <div v-else-if="section.key==='specialties'"><p v-for="g in personPreview.records?.specialtyGroups||[]" :key="g.key"><strong>{{g.label}}:</strong> {{g.selected.join(', ')||'None selected'}}</p></div>
+                <div v-else-if="section.key==='school_availability'"><p v-for="school in personPreview.records?.schools||[]" :key="school.id">{{school.name}} · {{school.day_of_week}}</p></div>
                 <p v-else>{{ section.meta?.description }}</p>
               </section>
               <p>Preview only — editing, signatures, and submissions are disabled.</p>
@@ -182,7 +188,7 @@ import WorkplaceHandbookReader from '../handbook/WorkplaceHandbookReader.vue';
 import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
 
 const props = defineProps({
-  personPreview: { type: Object, default: null },
+  personPreview:{type:Object,default:null},
   section: { type: Object, default: null },
   sections: { type: Array, default: () => [] },
   overviewMode: { type: Boolean, default: false },
@@ -267,8 +273,7 @@ const urlLabel = computed(() =>
     : `/provider-update/{token} · ${activePage.value?.key || 'page'}`
 );
 
-function money(value) { return value == null ? 'Not configured' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(value)); }
-
+function money(value){return value==null?'Not configured':new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(value));}
 function iconFor(icon) {
   const map = {
     admin: '👤', amendment: '✍', handbook: '📘', pin: '🔢', hours: '⏱', office: '🏢',

@@ -17,7 +17,7 @@ export const PROVIDER_UPDATE_SECTIONS = [
   },
   {
     key: 'amendments',
-    title: 'Amendment Updates',
+    title: 'Amendment Agreement',
     shortTitle: 'Amendments',
     description: 'Review and sign amendment contract updates.',
     checklist: ['Open amendment documents', 'Electronic signature required'],
@@ -50,9 +50,9 @@ export const PROVIDER_UPDATE_SECTIONS = [
   },
   {
     key: 'work_hours',
-    title: 'Work Hours',
-    shortTitle: 'Work Hours',
-    description: 'Set or confirm your weekly work hours.',
+    title: 'Typical Availability',
+    shortTitle: 'Availability',
+    description: 'Review the typical availability shown on your profile.',
     checklist: ['Set work hours', 'Confirm or update schedule'],
     mode: 'set_confirm_update',
     icon: 'hours',
@@ -264,7 +264,7 @@ export const PROVIDER_UPDATE_PAGES = [
   },
   {
     key: 'amendments',
-    title: 'Amendment Updates',
+    title: 'Amendment Agreement',
     shortTitle: 'Amendment Updates',
     description: 'Review and sign amendment contract updates.',
     checklist: ['Open amendment documents', 'Electronic signature required'],
@@ -291,7 +291,7 @@ export const PROVIDER_UPDATE_REPLY_TO = 'technology@itsco.health';
 export function defaultSectionConfig() {
   const cfg = {};
   for (const s of PROVIDER_UPDATE_SECTIONS) {
-    cfg[s.key] = s.defaultEnabled !== false;
+    cfg[s.key] = !['pay_portal','training_ack','preferred_days'].includes(s.key) && s.defaultEnabled !== false;
   }
   return cfg;
 }
@@ -302,7 +302,7 @@ export function normalizeSectionConfig(raw) {
   const out = { ...base };
   for (const key of PROVIDER_UPDATE_SECTION_KEYS) {
     if (Object.prototype.hasOwnProperty.call(raw, key)) {
-      out[key] = !!raw[key];
+      out[key] = !['pay_portal','training_ack','preferred_days'].includes(key) && !!raw[key];
     }
   }
   return out;
@@ -310,7 +310,7 @@ export function normalizeSectionConfig(raw) {
 
 export function enabledSectionKeys(config) {
   const cfg = normalizeSectionConfig(config);
-  return PROVIDER_UPDATE_SECTION_KEYS.filter((k) => cfg[k]);
+  return PROVIDER_UPDATE_SECTION_KEYS.filter((k) => cfg[k] && !['pay_portal','training_ack','preferred_days'].includes(k));
 }
 
 export function getSectionMeta(key) {

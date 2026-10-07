@@ -4,6 +4,7 @@
       <h1>{{ section.meta?.title || section.key }}</h1>
       <p>{{ section.meta?.description }}</p>
     </header>
+    <p v-if="localError" class="err" role="alert">{{localError}}</p>
     <fieldset class="preview-fields" :disabled="recipient?.previewOnly">
 
     <!-- Handbook -->
@@ -34,27 +35,24 @@
       <p>The emailed update link opens this updater. Your six-digit Quick View passcode is separate and unlocks Quick View.</p>
       <p v-if="section.data?.quickView?.isLocked">Quick View is locked. Reset your six-digit passcode in your account before confirming this step.</p>
       <p v-else-if="section.data?.quickView?.hasPasscode">Your six-digit Quick View passcode is already set. Keep it if you can use it; you do not need a new code for this update.</p>
-      <p v-else>Create your six-digit Quick View passcode in My Dashboard → My Preferences → Privacy &amp; Quick View.</p>
+      <p v-else>Create your six-digit Quick View code below, or use My Preferences → Privacy &amp; Quick View.</p>
       <a v-if="!recipient?.previewOnly" :href="orgPath('/dashboard?tab=my&my=preferences#prefs-privacy')" target="_blank" rel="noopener" class="pu-btn">Open secure Quick View setup →</a>
-      <p>Setup or reset uses your own signed-in account. Your existing passcode is never shown here or saved in the update answers.</p>
+      <p>Setup verifies your identity. Reset uses your signed-in account. Your existing passcode is never shown here or saved in the update answers.</p>
+      <div v-if="!section.data?.quickView?.hasPasscode && !newPasscode" class="pu-panel">
+        <label class="field">Your account password<input v-model="setupPassword" type="password" autocomplete="current-password" class="input" /></label>
+        <button type="button" class="pu-btn" :disabled="saving || !setupPassword || recipient?.previewOnly" @click="setupQuickView">Create my six-digit Quick View code here</button>
+        <p>SSO-only accounts use the secure account setup link. Existing codes are never displayed or overwritten here.</p>
+      </div>
+      <p v-if="newPasscode" role="status">Your new code: <strong>{{newPasscode}}</strong>. Store it safely; it is shown only now. Refresh status below to continue.</p>
       <button v-if="!recipient?.previewOnly" type="button" class="pu-btn" @click="$emit('saved')">Refresh Quick View status after setup</button>
       <button type="button" class="pu-btn primary" :disabled="saving || !section.data?.quickView?.hasPasscode || section.data?.quickView?.isLocked" @click="markComplete({quickViewConfirmed:true})">I can access Quick View with my six-digit passcode</button>
       <p v-if="localError" role="alert">{{ localError }}</p>
     </div>
 
-    <!-- Work hours -->
+    <!-- Typical availability -->
     <div v-else-if="section.key === 'work_hours'" class="pu-panel">
-      <p class="mode-tag">{{ hasWorkHours ? 'Confirm or update your work hours' : 'Set your work hours' }}</p>
-      <template v-if="mode === 'token'">
-        <p>Review your availability hours in your signed-in account, then return here to confirm. This update link does not change your work schedule.</p>
-        <a v-if="!recipient?.previewOnly" :href="orgPath('/my-schedule')" target="_blank" rel="noopener" class="pu-btn">Sign in to review availability hours →</a>
-      </template>
-      <WorkHoursEditor v-else :user-id="Number(recipient?.providerUserId)" open-by-default />
-      <div class="pu-actions">
-        <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ workHoursConfirmed: true })">
-          {{ hasWorkHours ? 'Confirm work hours' : 'Mark work hours set' }}
-        </button>
-      </div>
+      <TypicalAvailabilityInput v-model="typicalAvailability" :disabled="saving || recipient?.previewOnly" />
+      <button class="pu-btn primary" :disabled="saving" @click="markComplete({typicalAvailability:typicalAvailability.split(',').map(s=>s.trim()).filter(Boolean)})">Save &amp; confirm typical availability</button>
     </div>
 
     <!-- Office schedule -->
@@ -70,6 +68,8 @@
     <!-- Profile blurb -->
     <div v-else-if="section.key === 'profile_blurb'" class="pu-panel">
       <p class="mode-tag">{{ blurb ? 'Confirm or update your profile blurb' : 'Set your profile blurb' }}</p>
+      <p v-if="!blurb" class="hint">Example: “Hi, I’m [name]. I support [people you work with] with [your focus areas]. My approach is [describe how you work]. Together, we [what clients can expect].” Replace brackets with accurate details.</p>
+      <button v-if="!blurb" type="button" class="pu-btn" @click="blurb=`Hi, I’m ${recipient?.firstName || '[name]'}. I support [people you work with] with [your focus areas]. My approach is [describe how you work]. Together, we [what clients can expect].`">Use editable example</button>
       <textarea v-model="blurb" rows="5" class="input" placeholder="Short introduction for schools and families…" />
       <div class="pu-actions">
         <button type="button" class="pu-btn primary" :disabled="saving" @click="saveBlurb">
@@ -80,24 +80,21 @@
 
     <!-- Specialties -->
     <div v-else-if="section.key === 'specialties'" class="pu-panel">
-      <p class="mode-tag">Confirm or edit specialties / focus areas</p>
-      <textarea
-        v-model="specialtiesText"
-        rows="4"
-        class="input"
-        placeholder="e.g. Anxiety, ADHD, trauma-informed care"
-      />
-      <div class="pu-actions">
-        <button type="button" class="pu-btn primary" :disabled="saving" @click="saveSpecialties">
-          {{ saving ? 'Saving…' : 'Save & confirm' }}
-        </button>
-      </div>
+      <fieldset v-for="group in section.data?.specialtyGroups || []" :key="group.key" class="focus-group"><legend>{{ group.label }}</legend>
+        <label v-for="option in group.options" :key="option" class="check"><input type="checkbox" v-model="specialties[group.key]" :value="option" />{{ option }}</label>
+      </fieldset>
+      <p v-if="!section.data?.specialtyGroups?.length">No focus-area choices are configured yet.</p>
+      <button class="pu-btn primary" :disabled="saving || !section.data?.specialtyGroups?.length" @click="saveSpecialties">Save &amp; confirm focus areas</button>
     </div>
 
     <div v-else-if="section.key === 'supervision_hours'" class="pu-panel">
       <p v-if="reviewLoading">Loading supervision hours…</p>
       <template v-else-if="reviewContext.supervised">
-        <p>Recorded supervision: <strong>{{ reviewContext.supervision?.totalHours ?? 0 }} hours</strong></p>
+        <table class="hours-table"><thead><tr><th>Source</th><th>Individual</th><th>Group</th><th>Total</th></tr></thead><tbody>
+          <tr v-for="row in supervisionRows" :key="row.key"><th>{{ row.label }}</th><td>{{ row.value.individual }}</td><td>{{ row.value.group }}</td><td>{{ row.value.total }}</td></tr>
+        </tbody></table>
+        <p>Current recorded balance minus calculated total: <strong>{{ section.data?.breakdown?.difference ?? 'Unavailable' }} hours</strong>.</p>
+        <p>Reported hours and finalized app credits are separate sources. Request a correction if a prior report includes hours already counted in the app.</p>
         <label class="field"><span>Review</span><select v-model="supervisionReview.decision" class="input"><option value="confirmed">These hours are correct</option><option value="correction_requested">Request a correction</option></select></label>
         <template v-if="supervisionReview.decision === 'correction_requested'">
           <label class="field"><span>Requested total hours</span><input v-model.number="supervisionReview.requestedHours" type="number" min="0" step="0.01" class="input" /></label>
@@ -118,7 +115,7 @@
       <label class="field"><span>License type / number</span><input v-model="license.number" class="input" /></label>
       <label class="field"><span>Issue date</span><input v-model="license.issued" type="date" class="input" /></label>
       <label class="field"><span>License document</span><input type="file" accept="application/pdf,image/*" @change="uploadReviewFile($event, 'license')" /></label>
-      <p v-if="license.hasUpload">License document is saved in your file.</p>
+      <p v-if="license.hasUpload"><button type="button" class="pu-btn" @click="openAsset('license')">Open your uploaded license</button></p>
       <p v-if="localError" class="err">{{ localError }}</p>
       <label class="field"><span>Expiration date</span><input v-model="license.expires" type="date" class="input" /></label>
       <div class="pu-actions">
@@ -130,14 +127,8 @@
 
     <!-- Contact -->
     <div v-else-if="section.key === 'contact_info'" class="pu-panel">
-      <label class="field"><span>Phone</span><input v-model="contact.phone" class="input" /></label>
-      <label class="field"><span>Address</span><input v-model="contact.address" class="input" /></label>
-      <label class="field"><span>Emergency contact</span><input v-model="contact.emergency" class="input" /></label>
-      <div class="pu-actions">
-        <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ contact })">
-          Save & confirm contact
-        </button>
-      </div>
+      <label v-for="field in contactFields" :key="field.key" class="field"><span>{{field.label}}</span><input v-model="contact[field.key]" class="input" :autocomplete="field.autocomplete" /></label>
+      <button class="pu-btn primary" :disabled="saving" @click="markComplete({contact:{...contact}})">Save &amp; confirm contact</button>
     </div>
 
     <!-- Credential display -->
@@ -152,13 +143,10 @@
 
     <!-- School availability -->
     <div v-else-if="section.key === 'school_availability'" class="pu-panel">
-      <p class="muted">Review your school assignment days in My Schedule. Request adjustments there if needed.</p>
-      <a class="pu-btn" :href="orgPath('/my-schedule')" target="_blank" rel="noopener">Open My Schedule →</a>
-      <div class="pu-actions">
-        <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ reviewed: true })">
-          Mark school days reviewed
-        </button>
-      </div>
+      <ul v-if="section.data?.schools?.length" class="school-list"><li v-for="school in section.data.schools" :key="school.id"><strong>{{school.name}}</strong><span>{{school.day_of_week}} · {{formatTime(school.start_time)}}–{{formatTime(school.end_time)}}</span></li></ul>
+      <p v-else>No active school assignments are saved for you in this agency.</p>
+      <label class="field">Requested changes (optional)<textarea v-model="schoolChanges" class="input" rows="3" /></label>
+      <button class="pu-btn primary" :disabled="saving" @click="markComplete({reviewed:true,requestedChanges:schoolChanges})">{{schoolChanges.trim()?'Submit school changes for review':'Confirm school assignments'}}</button>
     </div>
 
     <!-- Preferred days -->
@@ -178,7 +166,9 @@
 
     <!-- Directory photo -->
     <div v-else-if="section.key === 'directory_photo'" class="pu-panel">
-      <p class="muted">Confirm your directory photo on your profile. Update it from Account Info if needed.</p>
+      <img v-if="photoUrl" :src="photoUrl" alt="Your current directory photo" class="directory-photo" />
+      <p v-else>{{section.data?.hasPhoto?'Loading your current photo…':'No directory photo is saved yet.'}}</p>
+      <p>Use a clear, well-lit, professional-looking photo with your face centered and visible. A simple indoor or natural outdoor background is welcome. Avoid other people, heavy filters, sunglasses, and distracting backgrounds.</p>
       <a class="pu-btn" :href="orgPath('/account-info')" target="_blank" rel="noopener">Open Account Info →</a>
       <div class="pu-actions">
         <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ photoConfirmed: true })">
@@ -227,10 +217,10 @@
         <button
           type="button"
           class="pu-btn primary"
-          :disabled="saving || (amendmentTasks.length && !allAmendmentsSigned)"
+          :disabled="saving || !allAmendmentsSigned"
           @click="markComplete({ note: linkNote, amendmentPlan })"
         >
-          {{ allAmendmentsSigned || !amendmentTasks.length ? 'Mark amendments reviewed' : 'Sign documents first' }}
+          {{ allAmendmentsSigned ? 'Confirm signed amendment agreement' : 'Assigned amendment signature required' }}
         </button>
       </div>
     </div>
@@ -260,7 +250,7 @@
           </a>
         </li>
       </ul>
-      <p v-else class="muted">No open Fall action-item clients right now — you can mark this complete.</p>
+      <p v-else-if="!localError" class="muted">No open Fall action-item clients right now — you can mark this complete.</p>
       <div class="pu-actions">
         <button
           type="button"
@@ -273,7 +263,7 @@
         <button
           type="button"
           class="pu-btn primary"
-          :disabled="saving"
+          :disabled="saving || fallLoading || !!localError"
           @click="markComplete({ fallClientCount: fallClients.length })"
         >
           Mark Fall actions reviewed
@@ -310,7 +300,7 @@ import StaffCommunicationChoices from '../communications/StaffCommunicationChoic
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
-import WorkHoursEditor from '../schedule/WorkHoursEditor.vue';
+import TypicalAvailabilityInput from '../publicServices/TypicalAvailabilityInput.vue';
 import WorkplaceHandbookReader from '../handbook/WorkplaceHandbookReader.vue';
 import ProviderUpdateOfficeSchedule from './ProviderUpdateOfficeSchedule.vue';
 import ProviderUpdateAdminUpdateEmbed from './ProviderUpdateAdminUpdateEmbed.vue';
@@ -329,13 +319,23 @@ const saving = ref(false);
 const localError = ref('');
 const hasWorkHours = ref(true);
 const blurb = ref('');
-const specialtiesText = ref('');
+const specialties=reactive({});
+const typicalAvailability=ref('');
+const schoolChanges=ref('');
+const photoUrl=ref('');
+const setupPassword=ref(''),newPasscode=ref('');
 const license = reactive({ number: '', issued: '', expires: '', hasUpload: false });
 const reviewContext = ref({});
 const reviewLoading = ref(false);
 const supervisionReview = reactive({ decision: 'confirmed', requestedHours: null, reason: '', documentId: null, ...(props.section.key === 'supervision_hours' ? props.section.data : {}) });
 const reviewBase = computed(() => props.mode === 'token' ? `/public/provider-update/${encodeURIComponent(props.token)}` : '/provider-update/me');
-const contact = reactive({ phone: '', address: '', emergency: '' });
+const contact = reactive({phone:'',street:'',line2:'',city:'',state:'',postalCode:'',emergency:''});
+const contactFields=[{key:'phone',label:'Personal mobile phone',autocomplete:'tel'},{key:'street',label:'Street address',autocomplete:'address-line1'},{key:'line2',label:'Address line 2',autocomplete:'address-line2'},{key:'city',label:'City',autocomplete:'address-level2'},{key:'state',label:'State',autocomplete:'address-level1'},{key:'postalCode',label:'ZIP code',autocomplete:'postal-code'},{key:'emergency',label:'Emergency contact',autocomplete:'off'}];
+const supervisionRows=computed(()=>Object.entries({baseline:'Reported starting hours',period:'Imported / period hours',app:'Finalized app credits',calculated:'Calculated total',current:'Current recorded balance'}).map(([key,label])=>({key,label,value:props.section.data?.breakdown?.[key]||{individual:'—',group:'—',total:'—'}})));
+function formatTime(value){if(!value)return 'Not set';const [h,m='00']=String(value).split(':');return `${Number(h)%12||12}:${m} ${Number(h)<12?'AM':'PM'}`;}
+async function openAsset(kind){try{const {data}=await api.get(`${reviewBase.value}/assets/${kind}`,{params:{agencyId:props.agencyId}});if(kind==='photo')photoUrl.value=data.url;else window.open(data.url,'_blank','noopener,noreferrer');}catch(e){localError.value=e.response?.data?.error?.message||'Could not open the saved document.';}}
+async function setupQuickView(){if(props.recipient?.previewOnly)return;saving.value=true;localError.value='';try{const {data}=await api.post(`${reviewBase.value}/quick-view-setup`,{password:setupPassword.value,agencyId:props.agencyId});newPasscode.value=data.passcode;}catch(e){localError.value=e.response?.data?.error?.message||'Could not create the code.';}finally{setupPassword.value='';saving.value=false;}}
+
 const credential = ref('');
 const preferredDays = ref([]);
 const notify = reactive({ email: true, sms: false });
@@ -349,7 +349,7 @@ const amendmentTasks = computed(() => props.recipient?.amendmentTasks || []);
 const resolvedJobDescription = computed(() => props.recipient?.resolvedJobDescription || null);
 const allAmendmentsSigned = computed(() => {
   const tasks = amendmentTasks.value || [];
-  if (!tasks.length) return true;
+  if (!tasks.length) return false;
   return tasks.every((t) => String(t.status || '').toLowerCase() === 'completed');
 });
 
@@ -419,11 +419,6 @@ async function saveBlurb() {
   if (props.recipient?.previewOnly) return;
   saving.value = true;
   try {
-    if (props.mode !== 'token') {
-      await api.patch(`/users/${props.recipient?.providerUserId || 'me'}`, {
-        provider_school_info_blurb: blurb.value
-      }).catch(() => {});
-    }
     await markComplete({ blurb: blurb.value });
   } finally {
     saving.value = false;
@@ -431,7 +426,7 @@ async function saveBlurb() {
 }
 
 async function saveSpecialties() {
-  await markComplete({ specialties: specialtiesText.value });
+  await markComplete({specialties:{...specialties}});
 }
 
 async function uploadReviewFile(event, kind) {
@@ -465,7 +460,7 @@ async function saveLicense() {
 
 async function loadFallClients() {
   if (props.section.key !== 'client_fall_update') return;
-  fallLoading.value = true;
+  fallLoading.value = true;localError.value='';
   try {
     let res;
     if (props.mode === 'token' && props.token) {
@@ -477,6 +472,7 @@ async function loadFallClients() {
     }
     fallClients.value = res.data?.clients || [];
   } catch {
+    localError.value='Could not load assigned client actions. Retry before confirming this section.';
     fallClients.value = [];
   } finally {
     fallLoading.value = false;
@@ -486,7 +482,10 @@ async function loadFallClients() {
 onMounted(async () => {
   const data = props.section.data || {};
   blurb.value = data.blurb || '';
-  specialtiesText.value = data.specialties || '';
+  Object.assign(specialties,data.specialties||{});
+  typicalAvailability.value=(data.typicalAvailability||[]).join(', ');
+  schoolChanges.value=data.requestedChanges||'';
+  if(props.section.key==='directory_photo'&&data.hasPhoto)await openAsset('photo');
   if (data.license) Object.assign(license, data.license);
   if (data.contact) Object.assign(contact, data.contact);
   credential.value = data.credential || '';
@@ -497,7 +496,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.preview-fields{border:0;margin:0;padding:0;min-width:0}
+.directory-photo{width:180px;height:180px;object-fit:cover;border-radius:16px}.focus-group{display:flex;flex-wrap:wrap;gap:12px}.hours-table{border-collapse:collapse;width:100%}.hours-table th,.hours-table td{text-align:left;padding:10px;border-bottom:1px solid #e5e7eb}.school-list li{display:grid;gap:6px;padding:12px}.preview-fields{border:0;margin:0;padding:0;min-width:0}
 .pu-section-head h1 { margin: 0 0 0.25rem; }
 .pu-section-head p { color: #6b7280; margin: 0 0 1rem; }
 .pu-panel {

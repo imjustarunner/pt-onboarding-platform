@@ -806,3 +806,14 @@ export default {
   ensurePersistentToken,
   buildDeliveryQuickViewUrl
 };
+
+/** Initial setup only. A concurrent request cannot overwrite an existing code. */
+export async function createInitialPasscode({userId,agencyId=null}) {
+ const digits=String(crypto.randomInt(0,1000000)).padStart(6,'0');
+ const hash=await bcrypt.hash(digits,BCRYPT_ROUNDS);
+ await ensureRow(userId,agencyId);
+ const [saved]=await pool.execute(`UPDATE user_quick_view_credentials SET passcode_hash=?,passcode_version=passcode_version+1,passcode_set_at=CURRENT_TIMESTAMP,failed_passcode_attempts=0,passcode_locked_until=NULL,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND passcode_set_at IS NULL`,[hash,userId]);
+ if(!saved.affectedRows)throw Object.assign(new Error('A Quick View code is already set. Use account settings to reset it.'),{status:409});
+ await logAccessEvent({userId,agencyId,eventType:'reset_passcode',meta:{actorUserId:userId,source:'provider_update_initial_setup'}});
+ return {passcode:digits};
+}

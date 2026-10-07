@@ -74,6 +74,7 @@ import {
   deleteCompanyEvent,
   downloadCompanyEventIcsForAgency,
   listCompanyEventResponses,
+  classifyCompanyEventResponse,
   listCompanyEventDeliveryLogs,
   closeCompanyEventVoting,
   sendCompanyEventVotingSms,
@@ -683,6 +684,7 @@ router.put('/:id/company-events/:eventId', authenticate, updateCompanyEvent);
 router.delete('/:id/company-events/:eventId', authenticate, deleteCompanyEvent);
 router.post('/:id/company-events/:eventId/copy-to', authenticate, requireSuperAdmin, copyCompanyEventToTarget);
 router.get('/:id/company-events/:eventId/responses', authenticate, listCompanyEventResponses);
+router.put('/:id/company-events/:eventId/responses/:responseId/review',authenticate,classifyCompanyEventResponse);
 router.get('/:id/company-events/:eventId/delivery-logs', authenticate, listCompanyEventDeliveryLogs);
 router.get('/:id/company-events/:eventId/analytics', authenticate, getCompanyEventAnalytics);
 router.get('/:id/company-events/:eventId/responses.csv', authenticate, exportCompanyEventResponsesCsv);

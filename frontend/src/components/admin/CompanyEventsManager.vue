@@ -23,6 +23,7 @@
 
     <div v-if="error" class="error-modal"><strong>Error:</strong> {{ error }}</div>
 
+    <StaffPollResultsReview v-if="reviewingPoll" :agency-id="agencyId" :event="reviewingPoll" @close="reviewingPoll=null;loadEvents()" />
     <div class="template-bar">
       <label class="lbl" for="direct-template">Direct message template</label>
       <select id="direct-template" v-model="selectedTemplateId" class="input">
@@ -249,9 +250,15 @@
             <label class="lbl">Option {{ idx + 1 }}</label>
             <div class="option-row">
               <input v-model.trim="opt.key" class="input opt-key" maxlength="8" placeholder="1" />
-              <input v-model.trim="opt.label" class="input" maxlength="64" placeholder="Yes" />
+              <input v-model.trim="opt.label" class="input" maxlength="64" placeholder="Yes" /><button type="button" :disabled="draft.votingConfig.options.length<=2" @click="draft.votingConfig.options.splice(idx,1)">Remove</button>
             </div>
           </div>
+        </div>
+        <div v-if="draft.votingConfig.enabled" class="poll-settings">
+          <button type="button" class="btn btn-secondary" :disabled="draft.votingConfig.options.length>=12" @click="draft.votingConfig.options.push({key:'',label:''})">Add answer choice</button>
+          <label><input v-model="draft.votingConfig.allowOther" type="checkbox" /> Allow written answers for review (SMS: poll code followed by their answer)</label>
+          <label><input v-model="draft.votingConfig.shareResults" type="checkbox" /> Share final aggregate results with participants</label>
+          <p class="hint">Reply codes can be numbers or words, such as 1 or MON. Participants always see their own reply. Staff replies are identified to organizers; this is not an anonymous poll.</p>
         </div>
         <div v-if="draft.votingConfig.enabled" class="grid" style="margin-top: 6px;">
           <div class="form-group">
@@ -373,6 +380,7 @@
               <button type="button" class="btn btn-secondary btn-sm" @click="sendSmsVote(event)" :disabled="saving || !event.votingConfig?.enabled || !event.votingConfig?.viaSms || !!event.votingClosedAt">Send SMS</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="viewDeliveryLogs(event)" :disabled="saving">Delivery</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="downloadResponsesCsv(event)" :disabled="saving">CSV</button>
+              <button v-if="event.votingConfig?.enabled" type="button" class="btn btn-secondary btn-sm" @click="reviewingPoll=event">Results &amp; review replies</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="closeVoting(event)" :disabled="saving || !event.votingConfig?.enabled || !!event.votingClosedAt">Close</button>
               <button type="button" class="btn btn-danger btn-sm" @click="removeEvent(event)" :disabled="saving">Delete</button>
             </td>
@@ -387,6 +395,8 @@
 </template>
 
 <script setup>
+import StaffPollResultsReview from './StaffPollResultsReview.vue';
+
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -398,6 +408,7 @@ import {
 } from '../../utils/timezones';
 
 const router = useRouter();
+const reviewingPoll=ref(null);
 const affiliateProgramOrgs = ref([]);
 const pushingSplashEventId = ref(null);
 
@@ -412,7 +423,7 @@ const props = defineProps({
   },
   subtitle: {
     type: String,
-    default: 'Phase 2: RSVP + SMS voting for targeted internal events.'
+    default: 'Team announcements, group texts, and polls with reply review.'
   },
   reloadLabel: {
     type: String,
@@ -534,6 +545,7 @@ const emptyDraft = () => ({
     enabled: false,
     viaSms: false,
     question: '',
+    shareResults:true,allowOther:false,
     options: [
       { key: '1', label: 'Yes' },
       { key: '2', label: 'No' },
@@ -738,6 +750,7 @@ const editEvent = (event) => {
       enabled: !!event.votingConfig?.enabled,
       viaSms: !!event.votingConfig?.viaSms,
       question: event.votingConfig?.question || '',
+      shareResults:event.votingConfig?.shareResults!==false,allowOther:event.votingConfig?.allowOther===true,
       options: Array.isArray(event.votingConfig?.options) && event.votingConfig.options.length
         ? event.votingConfig.options.map((o) => ({ key: String(o.key || ''), label: String(o.label || '') }))
         : [
@@ -834,6 +847,7 @@ const saveEvent = async () => {
         enabled: !!draft.value.votingConfig.enabled,
         viaSms: !!draft.value.votingConfig.viaSms,
         question: String(draft.value.votingConfig.question || '').trim(),
+        shareResults:draft.value.votingConfig.shareResults!==false,allowOther:draft.value.votingConfig.allowOther===true,
         options: (Array.isArray(draft.value.votingConfig.options) ? draft.value.votingConfig.options : [])
           .map((o) => ({
             key: String(o.key || '').trim(),
@@ -1039,7 +1053,7 @@ const downloadResponsesCsv = (event) => {
 
 const closeVoting = async (event) => {
   if (!props.agencyId || !event?.id) return;
-  if (!window.confirm(`Close voting for "${event.title}", publish the final totals, and send requested results texts?`)) return;
+  if (!window.confirm(`Close voting for "${event.title}", apply its result-sharing setting, and send eligible requested results texts?`)) return;
   saving.value = true;
   error.value = '';
   try {
@@ -1139,7 +1153,7 @@ watch(() => props.agencyId, async () => {
 </script>
 
 <style scoped>
-.company-events-manager {
+.poll-settings{display:grid;gap:12px;padding:16px;background:#f0f6ff;border-radius:12px;margin:16px 0}.company-events-manager {
   display: grid;
   gap: 12px;
 }

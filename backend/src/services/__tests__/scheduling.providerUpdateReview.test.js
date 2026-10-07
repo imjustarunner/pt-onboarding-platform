@@ -1,15 +1,18 @@
-vi.mock('../quickViewAuth.service.js',()=>({getCredentialStatus:vi.fn(async()=>({hasPasscode:true,isLocked:false}))}));
-import {getCredentialStatus} from '../quickViewAuth.service.js';
+vi.mock('bcrypt',()=>({default:{compare:vi.fn()}}));
+import bcrypt from 'bcrypt';
+vi.mock('../providerUpdateRecords.service.js',()=>({getProviderUpdateRecords:vi.fn(async()=>({supervision:{current:{total:12}}})),saveProviderReviewProfile:vi.fn()}));
+vi.mock('../quickViewAuth.service.js',()=>({getCredentialStatus:vi.fn(async()=>({hasPasscode:true,isLocked:false})),createInitialPasscode:vi.fn(async()=>({passcode:'123456'}))}));
+import {getCredentialStatus,createInitialPasscode} from '../quickViewAuth.service.js';
 vi.mock('../staffCommunicationChoices.service.js',()=>({saveStaffCommunicationChoices:vi.fn()}));
 import { beforeEach, it, expect, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
-vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn(),getSupervisors:vi.fn()}}));
+vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn(),getSupervisors:vi.fn(),findById:vi.fn()}}));
 vi.mock('../../models/UserInfoValue.model.js',()=>({default:{createOrUpdate:vi.fn()}}));
 vi.mock('../../models/UserComplianceDocument.model.js',()=>({default:{findById:vi.fn()}}));
 vi.mock('../../models/SupervisionSession.model.js',()=>({default:{getHoursSummaryForSupervisee:vi.fn()}}));
 vi.mock('../storage.service.js',()=>({default:{}}));
 vi.mock('../licenseCredentialSync.service.js',()=>({saveProviderLicenseUpload:vi.fn()}));
-vi.mock('../providerUpdate.service.js',()=>({getRecipientByToken:vi.fn(),getMyOpenRecipient:vi.fn()}));
+vi.mock('../providerUpdate.service.js',()=>({getRecipientByToken:vi.fn(),getMyOpenRecipient:vi.fn(),normalizeSectionAudience:vi.fn(v=>v),recipientSeesSection:vi.fn(()=>true)}));
 vi.mock('../officeAssignmentBookingAvailability.service.js',()=>({setOfficeAssignmentBookingAvailability:vi.fn()}));
 vi.mock('../providerAvailabilityAccess.service.js',()=>({requireProviderAvailabilityAccess:vi.fn()}));
 vi.mock('../../controllers/officeSlotActions.controller.js',()=>({forfeitAssignment:vi.fn(),downgradeStandingAssignment:vi.fn(),rescheduleStandingAssignment:vi.fn()}));
@@ -19,7 +22,7 @@ import User from '../../models/User.model.js';
 import SupervisionSession from '../../models/SupervisionSession.model.js';
 import {getRecipientByToken} from '../providerUpdate.service.js';
 import {rescheduleStandingAssignment} from '../../controllers/officeSlotActions.controller.js';
-import {officeReviewAction,persistReviewSection} from '../../controllers/providerUpdateReview.controller.js';
+import {officeReviewAction,persistReviewSection,setupQuickView} from '../../controllers/providerUpdateReview.controller.js';
 const recipient={id:1,provider_user_id:9,agency_id:6,section_config_json:{office_schedule:true,supervision_hours:true}};
 let req,res,next;
 beforeEach(()=>{
@@ -66,3 +69,15 @@ it('requires signed communication choices and keeps signatures out of provider-u
 });
 
 it('requires a configured, unlocked Quick View passcode and strips credential material from the update',async()=>{getCredentialStatus.mockResolvedValueOnce({hasPasscode:false,isLocked:false});await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');getCredentialStatus.mockResolvedValueOnce({hasPasscode:true,isLocked:true});await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');const data={quickViewConfirmed:true,pin:'123456'};await persistReviewSection(recipient,'pin',data,true);expect(data).toEqual({quickViewConfirmed:true});expect(getCredentialStatus).toHaveBeenLastCalledWith(recipient.provider_user_id);});
+
+it('requires recipient password and never uses an administrator identity for inline Quick View setup',async()=>{
+ res.setHeader=vi.fn();User.findById.mockResolvedValue({password_hash:'stored-hash'});bcrypt.compare.mockResolvedValue(false);
+ await setupQuickView(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:401}));expect(createInitialPasscode).not.toHaveBeenCalled();
+ bcrypt.compare.mockResolvedValue(true);getCredentialStatus.mockResolvedValue({hasPasscode:false,isLocked:false});req.body.password='entered-by-staff';
+ await setupQuickView(req,res,next);expect(createInitialPasscode).toHaveBeenCalledWith({userId:9,agencyId:6});expect(res.json).toHaveBeenCalledWith({passcode:'123456',shownOnce:true});
+});
+it('blocks Quick View creation for previews, existing codes and SSO-only token access',async()=>{
+ getRecipientByToken.mockResolvedValue({...recipient,previewOnly:true});await setupQuickView(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));
+ getRecipientByToken.mockResolvedValue({...recipient});User.findById.mockResolvedValue({password_hash:null});await setupQuickView(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));
+ User.findById.mockResolvedValue({password_hash:'hash'});bcrypt.compare.mockResolvedValue(true);getCredentialStatus.mockResolvedValue({hasPasscode:true});await setupQuickView(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:409}));expect(createInitialPasscode).not.toHaveBeenCalled();
+});

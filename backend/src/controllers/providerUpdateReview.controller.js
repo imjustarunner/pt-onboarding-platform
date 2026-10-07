@@ -1,5 +1,7 @@
+import {enabledSectionKeys} from '../constants/providerUpdateSections.js';
+import {getProviderUpdateRecords,saveProviderReviewProfile} from '../services/providerUpdateRecords.service.js';
 import { saveStaffCommunicationChoices } from '../services/staffCommunicationChoices.service.js';
-import {getCredentialStatus} from '../services/quickViewAuth.service.js';
+import {getCredentialStatus,createInitialPasscode} from '../services/quickViewAuth.service.js';
 import VonageService from '../services/vonage.service.js';
 import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import crypto from 'crypto';
@@ -10,7 +12,7 @@ import UserComplianceDocument from '../models/UserComplianceDocument.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import StorageService from '../services/storage.service.js';
 import { saveProviderLicenseUpload } from '../services/licenseCredentialSync.service.js';
-import { getRecipientByToken, getMyOpenRecipient } from '../services/providerUpdate.service.js';
+import { getRecipientByToken, getMyOpenRecipient, normalizeSectionAudience, recipientSeesSection } from '../services/providerUpdate.service.js';
 import { setOfficeAssignmentBookingAvailability } from '../services/officeAssignmentBookingAvailability.service.js';
 import { forfeitAssignment, downgradeStandingAssignment, rescheduleStandingAssignment } from './officeSlotActions.controller.js';
 
@@ -26,7 +28,8 @@ export async function reviewRecipient(req) {
 }
 function requireSection(recipient, key) {
   const config = typeof recipient.section_config_json === 'string' ? JSON.parse(recipient.section_config_json) : recipient.section_config_json;
-  if (config?.[key] === false) throw fail('This section is not enabled for this update.', 403);
+  const audience=normalizeSectionAudience(typeof recipient.section_audience_json==='string'?JSON.parse(recipient.section_audience_json):recipient.section_audience_json||{});
+  if (!enabledSectionKeys(config).includes(key)||!recipientSeesSection(key,audience,recipient.provider_user_id)) throw fail('This section is not enabled for this update.', 403);
 }
 export async function officeReviewAction(req, res, next) {
   try {
@@ -95,6 +98,12 @@ export async function persistReviewSection(recipient, key, data, completed) {
     Object.assign(data,{choices:saved.choices,accessRequests:saved.accessRequests,reviewedAt:saved.reviewedAt});
   }
   if (!completed) return;
+  if(key==='amendments'){
+    const {listAmendmentTasksForRecipient}=await import('../services/providerUpdateAmendment.service.js');
+    const tasks=await listAmendmentTasksForRecipient({userId:recipient.provider_user_id,pushId:recipient.push_id});
+    if(!tasks.length||tasks.some(t=>t.status!=='completed'))throw fail('Your assigned amendment agreement must be signed before this section can be completed.');
+  }
+  await saveProviderReviewProfile(recipient,key,data);
   if(key==='pin'){
     const status=await getCredentialStatus(recipient.provider_user_id);
     if(!status.hasPasscode||status.isLocked)throw fail('Create or reset your six-digit Quick View passcode in your account, then return to confirm this step.');
@@ -108,7 +117,8 @@ export async function persistReviewSection(recipient, key, data, completed) {
     if (!['confirmed', 'correction_requested'].includes(data?.decision)) throw fail('Confirm your supervision hours or request a correction.');
     if (data.decision === 'correction_requested' && (!String(data.reason || '').trim() || !Number.isFinite(Number(data.requestedHours)) || Number(data.requestedHours) < 0)) throw fail('Enter the requested hours and a reason for the correction.');
     // Store the attested ledger value, never overwrite the ledger from a self-report.
-    data.recordedHours = (await SupervisionSession.getHoursSummaryForSupervisee(recipient.agency_id, recipient.provider_user_id)).totalHours;
+    data.breakdown = (await getProviderUpdateRecords(recipient.provider_user_id,recipient.agency_id)).supervision;
+    data.recordedHours = data.breakdown.current.total;
     if (data.documentId) {
       const doc = await UserComplianceDocument.findById(Number(data.documentId));
       if (!doc || Number(doc.user_id) !== Number(recipient.provider_user_id) || Number(doc.agency_id) !== Number(recipient.agency_id) || doc.document_type !== 'supervision_hours') throw fail('Choose your own supervision evidence document.');
@@ -129,4 +139,36 @@ export async function persistReviewSection(recipient, key, data, completed) {
     }
     for (const [id, value] of resolved) await UserInfoValue.createOrUpdate(recipient.provider_user_id, id, value);
   }
+}
+
+export async function reviewAsset(req,res,next){
+ try{
+  const r=await reviewRecipient(req);const kind=req.params.kind;
+  if(!['license','photo'].includes(kind))throw fail('Unknown document.',404);
+  requireSection(r,kind==='photo'?'directory_photo':'license');
+  const records=await getProviderUpdateRecords(r.provider_user_id,r.agency_id);
+  const path=kind==='photo'?records.photoPath:records.licensePath;
+  if(!path||typeof path!=='string'||path.includes('..')||/^https?:/i.test(path))throw fail('No stored document is available.',404);
+  const key=path.replace(/^\/?uploads\//,'');
+  const url=await StorageService.getSignedUrl(kind==='license'&&key.startsWith('credentials/')?key:'uploads/'+key,5);
+  res.setHeader('Cache-Control','no-store');res.json({url});
+ }catch(e){next(e);}
+}
+
+// An update token alone cannot create or reset a credential. Require the recipient's
+// password; SSO-only staff use the existing authenticated account setup.
+export async function setupQuickView(req,res,next){
+ try{
+  const r=await reviewRecipient(req);
+  if(r.previewOnly)throw fail('This preview is read-only.',403);
+  requireSection(r,'pin');
+  const user=await User.findById(r.provider_user_id);
+  if(!user?.password_hash)throw fail('Sign in to your account to set up Quick View for an SSO account.',403);
+  const bcrypt=(await import('bcrypt')).default;
+  if(!await bcrypt.compare(String(req.body?.password||''),user.password_hash))throw fail('Check your account password.',401);
+  const status=await getCredentialStatus(r.provider_user_id);
+  if(status.hasPasscode)throw fail('Your code is already set. Use account settings if you need to reset it.',409);
+  const result=await createInitialPasscode({userId:r.provider_user_id,agencyId:r.agency_id});
+  res.setHeader('Cache-Control','no-store');res.json({passcode:result.passcode,shownOnce:true});
+ }catch(e){next(e);}
 }

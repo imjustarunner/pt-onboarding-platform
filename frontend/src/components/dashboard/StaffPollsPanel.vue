@@ -7,15 +7,17 @@
       <p v-if="!polls.length">No staff polls available.</p>
       <article v-for="poll in polls" :key="poll.id">
         <h4>{{ poll.title }}</h4><p>{{ poll.question }}</p>
+        <p v-if="poll.myResponse">Your reply: {{poll.myResponse.original||poll.myResponse.label}} <span v-if="poll.myResponse.excluded">— excluded from totals</span><span v-else-if="poll.myResponse.bucketKey">— categorized as {{poll.options.find(o=>o.key===poll.myResponse.bucketKey)?.label||poll.myResponse.bucketKey}}</span></p>
         <template v-if="!poll.closedAt">
           <button v-for="option in poll.options" :key="option.key" type="button" :disabled="busy" @click="vote(poll, option)">{{ option.label }}</button>
-          <label><input type="checkbox" :checked="poll.resultsText" :disabled="busy" @change="setPreference(poll, $event)" /> Text me the final results when this poll closes.</label>
-          <p class="hint">Optional. Requires your separate polling SMS consent and a current mobile number. STOP still applies. Final totals are available here after voting closes.</p>
+          <form v-if="poll.allowOther" @submit.prevent="vote(poll,{key:otherReplies[poll.id],label:otherReplies[poll.id]})"><label>Your own answer<input v-model="otherReplies[poll.id]" maxlength="2000" required /></label><button :disabled="busy">Submit written answer</button></form>
+          <label v-if="poll.shareResults!==false"><input type="checkbox" :checked="poll.resultsText" :disabled="busy" @change="setPreference(poll, $event)" /> Text me the final results when this poll closes.</label>
+          <p class="hint">Optional. Requires your separate polling SMS consent and a current mobile number. STOP still applies. Shared final totals are available here after voting closes.</p>
         </template>
         <template v-else>
-          <p>Voting closed. Final totals:</p>
+          <p>{{poll.shareResults===false?'Voting closed. The organizer has kept aggregate results private. Your response remains available above.':'Voting closed. Final totals:'}}</p>
           <ul v-if="poll.results?.length"><li v-for="result in poll.results" :key="result.key">{{ result.label }}: {{ result.total }}</li></ul>
-          <p v-else>No votes received.</p>
+          <p v-else-if="poll.shareResults!==false">No categorized votes received.</p>
         </template>
       </article>
       <button type="button" :disabled="busy" @click="load">Refresh polls</button>
@@ -26,12 +28,13 @@
 import { ref, watch } from 'vue';
 import api from '../../services/api';
 const props=defineProps({agencyId:{type:[Number,String],default:null}});
+const otherReplies=ref({});
 const polls=ref([]),opened=ref(false),loading=ref(false),busy=ref(false),error=ref(''),notice=ref('');
 let generation=0;
 const params=()=>({agencyId:props.agencyId||undefined});
 async function load(){const id=++generation;loading.value=true;error.value='';try{const {data}=await api.get('/me/staff-polls',{params:params()});if(id===generation)polls.value=data;}catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'Unable to load staff polls.';}finally{if(id===generation)loading.value=false;}}
-function onToggle(e){opened.value=e.target.open;if(opened.value)load();}
-async function vote(poll,option){busy.value=true;error.value='';notice.value='';const id=generation;try{await api.post(`/me/company-events/${poll.id}/respond`,{responseKey:option.key,agencyId:props.agencyId},{params:params()});if(id===generation)notice.value=`Your response was recorded: ${option.label}.`;}catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'Unable to record your vote.';}finally{busy.value=false;}}
+function onToggle(e){const next=e.target.open;if(next===opened.value)return;opened.value=next;if(next)load();}
+async function vote(poll,option){busy.value=true;error.value='';notice.value='';const id=generation;try{await api.post(`/me/company-events/${poll.id}/respond`,{responseKey:option.key,agencyId:props.agencyId},{params:params()});if(id===generation){notice.value=`Your response was recorded: ${option.label}.`;await load();}}catch(e){if(id===generation)error.value=e.response?.data?.error?.message||'Unable to record your vote.';}finally{busy.value=false;}}
 async function setPreference(poll,event){const value=event.target.checked;busy.value=true;error.value='';const id=generation;try{const {data}=await api.put(`/me/staff-polls/${poll.id}/results-preference`,{resultsText:value},{params:params()});if(id===generation)poll.resultsText=data.resultsText;}catch(e){event.target.checked=poll.resultsText;if(id===generation)error.value=e.response?.data?.error?.message||'Unable to save your preference.';}finally{busy.value=false;}}
 watch(()=>props.agencyId,()=>{generation++;polls.value=[];error.value='';notice.value='';if(opened.value)load();});
 </script>

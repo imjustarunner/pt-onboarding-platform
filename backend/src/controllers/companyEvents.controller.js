@@ -1,3 +1,5 @@
+import {reviewedPollResponses,reviewedPollSummary,reviewPollResponse} from '../services/staffPollReview.service.js';
+import {validatePollOptions,unmatchedPollReply} from '../utils/staffPollResponses.js';
 import { getPollResultPreference, setPollResultPreference, deliverPollResults } from '../services/companyEventPollResults.service.js';
 import { getSmsSender } from '../services/smsCompliance.service.js';
 import { validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
@@ -310,7 +312,7 @@ function parseVotingConfig(raw) {
   const viaSms = !!value.viaSms;
   const question = String(value.question || '').trim();
   const options = normalizeVotingOptions(value.options);
-  return { enabled, viaSms, question, options };
+  return { enabled, viaSms, question, options, allowOther:value.allowOther===true, shareResults:value.shareResults!==false };
 }
 
 function parseReminderConfig(raw) {
@@ -627,6 +629,7 @@ function parseEventPayload(body = {}) {
 
   const rsvpMode = String(body.rsvpMode || body.rsvp_mode || 'none').trim().toLowerCase();
   const votingConfig = parseVotingConfig(body.votingConfig || body.voting_config_json || {});
+  if(votingConfig.enabled)validatePollOptions(votingConfig.options);
   const reminderConfig = parseReminderConfig(body.reminderConfig || body.reminder_config_json || {});
   const votingClosedAtRaw = body.votingClosedAt || body.voting_closed_at || null;
   const votingClosedAt = votingClosedAtRaw ? new Date(votingClosedAtRaw) : null;
@@ -1045,6 +1048,7 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
     : '';
   const [rows] = await pool.execute(
     `SELECT ce.*,
+            EXISTS(SELECT 1 FROM company_event_responses mine WHERE mine.company_event_id=ce.id AND mine.user_id=?) AS participated,
             org.name AS organization_name,
             org.organization_type AS organization_type,
             org.logo_url AS organization_logo_url
@@ -1055,11 +1059,12 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
        ${skillsGroupExclusion}
        AND (
          ce.ends_at >= DATE_SUB(NOW(), INTERVAL ${options.includePollHistory === true ? 90 : 1} DAY)
+         ${options.includePollHistory === true ? 'OR EXISTS(SELECT 1 FROM company_event_responses mine WHERE mine.company_event_id=ce.id AND mine.user_id=?)' : ''}
          OR JSON_EXTRACT(ce.recurrence_json, '$.frequency') IN ('weekly', 'monthly')
        )
      ORDER BY ce.starts_at ASC
      LIMIT 400`,
-    agencyIds
+    [userId,...agencyIds,...(options.includePollHistory===true?[userId]:[])]
   );
   if (!rows?.length) return [];
   const eventIds = rows.map((row) => Number(row.id));
@@ -1069,6 +1074,7 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
   const userRole = String(userRows?.[0]?.role || '').toLowerCase();
 
   return rows.filter((row) => {
+    if(options.includePollHistory===true&&row.participated)return true;
     const audience = audienceMap.get(Number(row.id));
     if (!audience) return true;
     if (audience.userIds.includes(userId)) return true;
@@ -1081,19 +1087,9 @@ async function listEventsVisibleToUser(userId, agencyIds = [], options = {}) {
 }
 
 async function listEventResponseSummary(eventId) {
-  const [rows] = await pool.execute(
-    `SELECT response_key, COALESCE(response_label, response_key) AS response_label, COUNT(*) AS total
-     FROM company_event_responses
-     WHERE company_event_id = ?
-     GROUP BY response_key, response_label
-     ORDER BY total DESC, response_key ASC`,
-    [eventId]
-  );
-  return (rows || []).map((row) => ({
-    key: row.response_key,
-    label: row.response_label,
-    total: Number(row.total || 0)
-  }));
+  const [[row]]=await pool.execute('SELECT voting_config_json FROM company_events WHERE id=?',[eventId]);
+  const config=parseVotingConfig(parseJsonMaybe(row?.voting_config_json));
+  return reviewedPollSummary(eventId,config.options);
 }
 
 async function loadEventByIdForAgency(eventId, agencyId) {
@@ -1361,7 +1357,7 @@ function companyEventSmsInstructions(event) {
   const code = String(event?.smsCode || '').trim();
   const options = config.options.map((option) => `${option.key}=${option.label}`).join(', ');
   if (code) {
-    return `Reply "${code} <option>" (${options}).`;
+    return `Reply "${code} <option>" (${options}).${config.allowOther?` Or reply "${code} your answer" for review.`:''}`;
   }
   return `Reply with one option (${options}).`;
 }
@@ -2357,11 +2353,13 @@ export const listCompanyEventResponses = async (req, res, next) => {
        ORDER BY cer.received_at DESC, cer.id DESC`,
       [eventId]
     );
+    const reviewed=await reviewedPollResponses(eventId);
     const summary = await listEventResponseSummary(eventId);
     res.json({
       summary,
       responses: (rows || []).map((row) => ({
         ...(parseRegistrationPayload(row.registration_payload_json)),
+        id:row.id, originalBody:row.response_body||'', ...Object.fromEntries(['bucketKey','excluded','reason'].map(k=>[k,reviewed.find(r=>r.id===row.id)?.[k]])),
         userId: Number(row.user_id),
         name: `${String(row.first_name || '').trim()} ${String(row.last_name || '').trim()}`.trim() || row.email,
         responseKey: row.response_key,
@@ -2581,7 +2579,9 @@ export const listMyStaffPolls = async (req, res, next) => {
       if (!event.votingConfig.enabled || isServiceProgramEventType(event.eventType)) continue;
       polls.push({ id: event.id, title: event.title, question: event.votingConfig.question || event.title,
         options: event.votingConfig.options, closedAt: event.votingClosedAt,
-        results: event.votingClosedAt ? await listEventResponseSummary(event.id) : null,
+        shareResults:event.votingConfig.shareResults,allowOther:event.votingConfig.allowOther,
+        myResponse:(await reviewedPollResponses(event.id)).filter(r=>Number(r.user_id)===Number(req.user.id)).map(r=>({original:r.response_body,label:r.response_label,bucketKey:r.bucketKey,excluded:r.excluded}))[0]||null,
+        results: event.votingClosedAt && event.votingConfig.shareResults ? await listEventResponseSummary(event.id) : null,
         resultsText: await getPollResultPreference(event.id, req.user.id) });
     }
     res.json(polls);
@@ -2597,6 +2597,7 @@ export const updateMyPollResultPreference = async (req, res, next) => {
     if (!target) return res.status(404).json({ error: { message: 'Poll not found' } });
     const event = mapEventRow(target.row, req);
     if (!event.votingConfig.enabled || isServiceProgramEventType(event.eventType)) return res.status(400).json({ error: { message: 'Not an internal poll' } });
+    if (req.body.resultsText === true && !event.votingConfig.shareResults) return res.status(400).json({error:{message:'The organizer is not sharing results for this poll.'}});
     if (event.votingClosedAt && req.body.resultsText === true) return res.status(409).json({ error: { message: 'Voting has closed. View final results in the app.' } });
     res.json({ resultsText: await setPollResultPreference(eventId, req.user.id, req.body.resultsText) });
   } catch (error) { next(error); }
@@ -2604,7 +2605,7 @@ export const updateMyPollResultPreference = async (req, res, next) => {
 
 async function sendClosedPollResults(row, req) {
   const event = mapEventRow(row, req);
-  if (!event.votingConfig.enabled || isServiceProgramEventType(event.eventType)) return { sent: 0, skipped: 0, failed: 0 };
+  if (!event.votingConfig.enabled || !event.votingConfig.shareResults || isServiceProgramEventType(event.eventType)) return { sent: 0, skipped: 0, failed: 0 };
   const audience = await getAudienceForEvent(event.id);
   const ids = new Set(await resolveRecipientUserIds(Number(row.agency_id), event.id, audience));
   const users = await listEligibleSmsUsersForAgency(Number(row.agency_id));
@@ -3702,7 +3703,8 @@ export const respondToMyCompanyEvent = async (req, res, next) => {
     if (event.votingClosedAt) {
       return res.status(400).json({ error: { message: 'Voting is closed for this event' } });
     }
-    const parsed = parseResponseInput(req.body?.responseKey || req.body?.response || '', event.votingConfig.options);
+    const reply=req.body?.responseKey||req.body?.response||'';
+    const parsed = parseResponseInput(reply, event.votingConfig.options)||unmatchedPollReply(reply,event.votingConfig.allowOther);
     if (!parsed) {
       return res.status(400).json({ error: { message: 'Invalid response option' } });
     }
@@ -4047,7 +4049,7 @@ export const handleCompanyEventInbound = async ({ from, to, body }) => {
   const allowed = await userIsInAudience({ userId: Number(user.id), audience });
   if (!allowed) return null;
 
-  const parsed = parseResponseInput(responseToken, targetEvent.votingConfig.options);
+  const parsed = parseResponseInput(responseToken, targetEvent.votingConfig.options)||unmatchedPollReply(responseToken,targetEvent.votingConfig.allowOther);
   if (!parsed) {
     return { handled: true, agencyId, responseMessage: companyEventSmsInstructions(targetEvent) };
   }
@@ -4065,7 +4067,7 @@ export const handleCompanyEventInbound = async ({ from, to, body }) => {
        received_at = VALUES(received_at)`,
     [targetEvent.id, Number(user.id), parsed.key, parsed.label, parsed.raw, MessageLog.normalizePhone(from) || from]
   );
-  return { handled: true, agencyId, responseMessage: `Thanks! Recorded: ${parsed.label}.` };
+  return { handled: true, agencyId, responseMessage: parsed.key==='__UNCLASSIFIED__'?'Thanks! Your reply was saved for the organizer to review.':`Thanks! Recorded: ${parsed.label}.` };
 };
 
 /**
@@ -4796,4 +4798,14 @@ export const copyCompanyEventToTarget = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+export const classifyCompanyEventResponse=async(req,res,next)=>{
+ try{const agencyId=parsePositiveInt(req.params.id),eventId=parsePositiveInt(req.params.eventId);
+ if(!await userHasAgencyAccess(req,agencyId)||!await userCanManageCompanyEventsAsync(req))return res.status(403).json({error:{message:'Not authorized to review this agency’s polls.'}});
+ const event=await loadEventByIdForAgency(eventId,agencyId);if(!event)return res.status(404).json({error:{message:'Poll not found.'}});
+ const config=parseVotingConfig(parseJsonMaybe(event.voting_config_json));
+ await reviewPollResponse({eventId,responseId:Number(req.params.responseId),actorUserId:req.user.id,options:config.options,...Object.fromEntries(['bucketKey','excluded','reason','originalBody','receivedAt'].map(k=>[k,req.body[k]]))});
+ res.json({ok:true,summary:await listEventResponseSummary(eventId)});
+ }catch(e){next(e);}
 };

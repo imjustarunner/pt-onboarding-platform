@@ -1,3 +1,4 @@
+import {getProviderUpdateRecords} from '../services/providerUpdateRecords.service.js';
 import pool from '../config/database.js';
 import {getStaffCommunicationChoices} from '../services/staffCommunicationChoices.service.js';
 import User from '../models/User.model.js';
@@ -32,8 +33,10 @@ export async function previewProviderUpdate(req, res, next) {
       keys.includes('supervision_hours') ? SupervisionSession.getHoursSummaryForSupervisee(agencyId, providerId) : null
     ]);
     const values = Object.fromEntries(fields.map(row => [row.field_key, row.value]));
+    const records=await getProviderUpdateRecords(providerId,agencyId);
+    delete records.licensePath;delete records.photoPath;
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ previewOnly: true, provider, sections: keys.map(key => ({ key, meta: getSectionMeta(key) })), offices, supervision,
+    res.json({ previewOnly: true, records, provider, sections: keys.map(key => ({ key, meta: getSectionMeta(key) })), offices, supervision,
       communicationChoices:keys.includes('notification_prefs') ? await getStaffCommunicationChoices({userId:providerId,agencyId}) : null,
       license: { number: values.provider_credential_license_type_number || '', issued: values.provider_credential_license_issued_date || '', expires: values.provider_credential_license_expiration_date || '' },
       compensation: pay ? { category: pay.category, categoryLabel: COMPENSATION_CATEGORIES[pay.category]?.label || '', level: pay.level,
