@@ -36,6 +36,22 @@ beforeEach(async () => {
 });
 afterEach(() => wrapper?.unmount());
 describe('Messages hub thread interactions', () => {
+  it('labels outgoing email with the recipient in the list and reading pane', async () => {
+    state.selected = null;
+    const conversation = { id: 55, channel: 'email', latestMessageDirection: 'outbound',
+      latestSenderName: 'Michael Mendez', primary_participant_name: 'Haley',
+      primary_participant_email: 'haley@example.org', subject: 'Test' };
+    state.conversations = [conversation];
+    state.selectedConversation = conversation;
+    state.conversationPreview = { conversation, messages: [] };
+    await nextTick();
+    expect(state.conversationThreadTitle(conversation)).toBe('Haley');
+    expect(state.conversationThreadTitle({ ...conversation, primary_participant_name: null })).toBe('haley@example.org');
+    expect(state.conversationThreadTitle({ ...conversation, latestMessageDirection: null, last_message_direction: 'outbound' })).toBe('Haley');
+    expect(state.conversationThreadTitle({ ...conversation, latestMessageDirection: 'inbound' })).toBe('Michael Mendez');
+    expect(wrapper.find('.msg-hub-row-top strong').text()).toBe('Haley');
+    expect(wrapper.find('.msg-hub-thread-head-main h3').text()).toBe('Haley');
+  });
   it('shows the actual messages From and personal work Reply-To without changing mailbox selection', async () => {
     state.emailAliases = [{ id: 7, email: 'thughes@itsco.health', fromEmail: 'messages@itsco.health', replyTo: 'thughes@itsco.health', kind: 'personal' }];
     state.emailComposeMode = 'new';

@@ -1,7 +1,7 @@
 /**
  * Tenant-branded HTML staff email signatures (email-safe tables + inline CSS).
  * ITSCO master layout: photo | name/credentials/title/contact | logo + footer.
- * Eligible: providers, interns, admin, super_admin, CPA. Title line uses profile title (never role).
+ * Eligible: tenant staff roles. Title line uses profile title (never role).
  */
 import pool from '../config/database.js';
 import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
@@ -20,7 +20,12 @@ const STAFF_HTML_SIGNATURE_ROLES = new Set([
   'intern_plus',
   'admin',
   'super_admin',
-  'clinical_practice_assistant'
+  'clinical_practice_assistant',
+  'staff',
+  'support',
+  'supervisor',
+  'clinician',
+  'facilitator'
 ]);
 
 /** Central ITSCO defaults — update once for org-wide contact / branding. */
@@ -448,7 +453,7 @@ export async function resolveStaffSignatureContext({
     (isItsco ? ITSCO_SIGNATURE_DEFAULTS.orgShortName : '');
   const colors = signatureColorsForAgency(agency, isItsco);
   const phone = normalizePhone(
-    agency?.phone_number || (isItsco ? ITSCO_SIGNATURE_DEFAULTS.phoneDisplay : ''),
+    agency?.phone_number || u.work_phone || (isItsco ? ITSCO_SIGNATURE_DEFAULTS.phoneDisplay : ''),
     { allowEmpty: !isItsco }
   );
   const website = signatureWebsiteForAgency(agency, isItsco);
@@ -558,11 +563,7 @@ export function buildStaffSignatureHtml(ctx) {
   const phoneHref = ctx.phone?.tel
     ? `tel:${String(ctx.phone.tel).replace(/\s/g, '')}`
     : '';
-  const rawExt = String(ctx.extension || '').trim();
-  const extClean = rawExt.replace(/^(ext\.?|x)\s*/i, '').trim();
-  const phoneAlreadyHasExt = /\bext\.?\b/i.test(String(ctx.phone?.display || ''));
-  const ext =
-    extClean && !phoneAlreadyHasExt ? ` Ext. ${escapeHtml(extClean)}` : '';
+  const ext = escapeHtml(signaturePhoneExtension(ctx));
   const webDisplay = escapeHtml(ctx.website?.display || '');
   const webHref = escapeHtml(ctx.website?.url || '');
   // mailto links should not open a new tab
@@ -798,6 +799,12 @@ export function buildStaffSignatureHtml(ctx) {
 ${confidentialHtml}`.trim();
 }
 
+function signaturePhoneExtension(ctx) {
+  const extension = String(ctx.extension || '').trim().replace(/^(ext\.?|x)\s*/i, '').trim();
+  const alreadyIncluded = /\bext\.?\s*\d|\bx\s*\d/i.test(String(ctx.phone?.display || ''));
+  return extension && !alreadyIncluded ? ` Ext. ${extension}` : '';
+}
+
 export function buildStaffSignatureText(ctx) {
   if (!ctx) return '';
   const lines = [
@@ -805,9 +812,7 @@ export function buildStaffSignatureText(ctx) {
     ctx.title ? `${ctx.orgShortName} | ${ctx.title}` : ctx.orgShortName,
     ctx.email ? `Email: ${ctx.email}` : null,
     ctx.phone?.display
-      ? `Phone: ${ctx.phone.display}${
-          ctx.extension && ctx.signatureVariant !== 'department' ? ` Ext. ${ctx.extension}` : ''
-        }`
+      ? `Phone: ${ctx.phone.display}${signaturePhoneExtension(ctx)}`
       : null,
     ctx.website?.display ? `Website: ${ctx.website.display}` : null,
     '',

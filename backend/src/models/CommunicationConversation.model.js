@@ -377,6 +377,11 @@ class CommunicationConversation {
                  AND (m.send_status IS NULL OR m.send_status = 'sent')
                ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC LIMIT 1
               ) AS last_sender_json,
+              (SELECT m.direction FROM communication_messages m
+               WHERE m.conversation_id = c.id AND COALESCE(m.is_internal_note, 0) = 0
+                 AND (m.send_status IS NULL OR m.send_status = 'sent')
+               ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC LIMIT 1
+              ) AS last_message_direction,
               (SELECT m.from_json FROM communication_messages m
                WHERE m.conversation_id = c.id AND m.direction = 'inbound'
                  AND COALESCE(m.is_internal_note, 0) = 0

@@ -4034,7 +4034,9 @@ export async function listHubConversationFeed({
     const emailAddrs = [
       ...new Set(
         (emailRows || [])
-          .map((c) => String(messageSender(unreadOnly ? c.last_inbound_sender_json : c.last_sender_json)?.email || c.primary_participant_email || '').trim().toLowerCase())
+          .map((c) => String(!unreadOnly && c.last_message_direction === 'outbound'
+            ? c.primary_participant_email || ''
+            : messageSender(unreadOnly ? c.last_inbound_sender_json : c.last_sender_json)?.email || c.primary_participant_email || '').trim().toLowerCase())
           .filter(Boolean)
       )
     ];
@@ -4087,7 +4089,8 @@ export async function listHubConversationFeed({
       if (unreadOnly && !isUnread) continue;
       const primaryEmail = c.primary_participant_email || null;
       const sender = messageSender(unreadOnly ? c.last_inbound_sender_json : c.last_sender_json);
-      const photoEmail = sender?.email || primaryEmail;
+      const latestMessageDirection = unreadOnly ? 'inbound' : c.last_message_direction || null;
+      const photoEmail = latestMessageDirection === 'outbound' ? primaryEmail : sender?.email || primaryEmail;
       const photoUrl = photoEmail
         ? photoByEmail.get(String(photoEmail).toLowerCase()) || null
         : null;
@@ -4105,8 +4108,9 @@ export async function listHubConversationFeed({
         preview: unreadOnly
           ? c.last_inbound_preview || c.last_message_preview || c.subject || ''
           : c.last_message_preview || c.last_inbound_preview || c.subject || '',
-        displayName: c.primary_participant_name || c.subject || 'Conversation',
+        displayName: c.primary_participant_name || primaryEmail || c.subject || 'Conversation',
         latestSenderName: sender?.name || null,
+        latestMessageDirection,
         primaryEmail,
         photoUrl,
         personKey: null,

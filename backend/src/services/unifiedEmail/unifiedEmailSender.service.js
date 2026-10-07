@@ -161,7 +161,7 @@ async function applyUserEmailSignatureBlock({
     signature_image_path: path,
     signature_image_url: path.startsWith('http') || path.startsWith('/') ? path : null
   });
-  if (!imageUrl) { const label=[identity?.display_name,identity?.from_email].filter(Boolean).join(' · '); return {text:`${text||''}\n\n${label}`,html:html?`${html}<p style="font-family:Arial;color:#334155">${escapeHtml(label)}</p>`:html}; }
+  if (!imageUrl) return { text, html };
   if (html && String(html).includes(imageUrl)) return { text, html };
 
   return applySenderSignatureBlock({
@@ -175,7 +175,7 @@ async function applyUserEmailSignatureBlock({
   });
 }
 
-async function finalizeOutboundContent({
+export async function finalizeOutboundContent({
   identity,
   text = null,
   html = null,
@@ -203,11 +203,30 @@ async function finalizeOutboundContent({
     console.warn('[unifiedEmail] misdirected report link:', e?.message || e);
   }
 
+  const src = String(source || '').trim().toLowerCase();
+  const tt = String(templateType || '').trim().toLowerCase();
+  // A mailbox is the transport, not the author. Human-authored Hub email gets
+  // exactly the staff signature; department automations keep their own branding.
+  const useStaffSignature = generatedByUserId && (
+    tt === 'hub_email' || (
+      src === 'manual' &&
+      !['compliance_digest', 'pre_hire_admin_review_access', 'prehire_portal_access'].includes(tt) &&
+      !['billing', 'collections'].includes(identity?.identity_key)
+    )
+  );
   let signed;
   const { usesDepartmentHtmlSignature, appendDepartmentHtmlSignature } = await import('../staffHtmlEmailSignature.service.js');
   const preferDepartmentHtml = usesDepartmentHtmlSignature(identity);
 
-  if (preferDepartmentHtml) {
+  if (useStaffSignature) {
+    signed = await applyUserEmailSignatureBlock({
+      userId: generatedByUserId,
+      agencyId: aid,
+      text,
+      html,
+      misdirectedReportUrl
+    });
+  } else if (preferDepartmentHtml) {
     try {
       const out = await appendDepartmentHtmlSignature({
         identity,
@@ -247,22 +266,6 @@ async function finalizeOutboundContent({
     }
     signed = applySenderSignatureBlock({ identity, text, html });
   }
-  const src = String(source || '').toLowerCase();
-  const tt = String(templateType || '').toLowerCase();
-  // Wizard digests are manually sent on behalf of the department, not the operator.
-  const appendUser =
-    generatedByUserId && !['compliance_digest', 'pre_hire_admin_review_access', 'prehire_portal_access'].includes(tt) && !['billing', 'collections'].includes(identity?.identity_key) &&
-    (src === 'manual' || tt === 'hub_email');
-  if (appendUser) {
-    signed = await applyUserEmailSignatureBlock({
-      userId: generatedByUserId,
-      agencyId: aid,
-      text: signed.text,
-      html: signed.html,
-      misdirectedReportUrl
-    });
-  }
-
   // Tenant HTML header/footer chrome (Email Settings assets; ITSCO seeded)
   try {
     if (aid && signed.html) {

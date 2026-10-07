@@ -27,3 +27,20 @@ describe('hub sender matches the displayed preview', () => {
     expect(feed.items[0].preview).toBe(mode === 'unread' ? 'External reply' : 'Latest reply');
   });
 });
+
+it('uses the outgoing recipient avatar without changing the message author; unread uses the inbound author', async () => {
+  mocks.list.mockResolvedValue([{
+    id: 4, channel: 'email', is_unread: true,
+    primary_participant_name: 'Haley', primary_participant_email: 'haley@example.com',
+    last_message_direction: 'outbound',
+    last_sender_json: { name: 'Michael', email: 'messages@example.com' },
+    last_inbound_sender_json: { name: 'Haley', email: 'haley@example.com' }
+  }]);
+  mocks.execute.mockImplementation(async sql => /SELECT LOWER\(email\)/.test(sql)
+    ? [[{ email: 'haley@example.com', profile_photo_path: '/uploads/haley.png' }]] : [[]]);
+  const inbox = await listHubConversationFeed({ agencyId: 2, userId: 1, mode: 'inbox' });
+  expect(inbox.items[0]).toMatchObject({ latestSenderName: 'Michael', latestMessageDirection: 'outbound', displayName: 'Haley' });
+  expect(inbox.items[0].photoUrl).toContain('haley.png');
+  const unread = await listHubConversationFeed({ agencyId: 2, userId: 1, mode: 'unread' });
+  expect(unread.items[0]).toMatchObject({ latestSenderName: 'Haley', latestMessageDirection: 'inbound' });
+});

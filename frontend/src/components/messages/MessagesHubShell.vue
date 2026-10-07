@@ -1940,6 +1940,9 @@ function conversationOwnerName(c) {
 }
 
 function conversationThreadTitle(c) {
+  if (c?.channel === 'email' && (c.latestMessageDirection || c.last_message_direction) === 'outbound') {
+    return String(c.primary_participant_name || c.primary_participant_email || '').trim() || 'Sent email';
+  }
   if (c?.latestSenderName) return c.latestSenderName;
   const owner = conversationOwnerName(c);
   const other = String(c?.primary_participant_name || '').trim();
@@ -3801,6 +3804,7 @@ async function loadConversations({ quiet = false, append = false } = {}) {
         channel: item.channel,
         primary_participant_name: item.displayName,
         latestSenderName: item.latestSenderName || null,
+        latestMessageDirection: item.latestMessageDirection || null,
         primary_participant_email: item.primaryEmail,
         subject: item.subject,
         last_message_preview: item.preview,
