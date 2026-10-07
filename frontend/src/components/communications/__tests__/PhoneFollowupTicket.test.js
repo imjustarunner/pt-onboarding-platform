@@ -1,0 +1,14 @@
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+import {mount,flushPromises} from '@vue/test-utils';
+import Panel from '../PhoneFollowupTicket.vue';
+vi.mock('../../../services/api',()=>({default:{post:vi.fn()}}));
+import api from '../../../services/api';
+let wrappers=[];
+const open=()=>{const w=mount(Panel,{props:{agencyId:2}});wrappers.push(w);return w;};
+beforeEach(()=>{vi.clearAllMocks();api.post.mockResolvedValue({data:{ticketId:101,topic:'billing'}});});
+afterEach(()=>{wrappers.forEach(w=>w.unmount());wrappers=[];});
+it('creates no ticket automatically and explains manual logging',()=>{const w=open();expect(api.post).not.toHaveBeenCalled();expect(w.text()).toContain('Automatic call capture is not active');});
+it('submits Billing with caller details and links to the created ticket',async()=>{const w=open();await w.get('[name=notes]').setValue('Please address balance');await w.get('form').trigger('submit');await flushPromises();expect(api.post).toHaveBeenCalledWith('/sms-numbers/agency/2/phone-followups',expect.objectContaining({topic:'billing',notes:'Please address balance',requestId:expect.any(String)}));expect(w.get('a').attributes('href')).toBe('/tickets?ticketId=101');expect(w.text()).toContain('Created Billing ticket #101');});
+it('retries the same request after network failure and holds the original details',async()=>{api.post.mockRejectedValueOnce(Error('network'));const w=open();await w.get('[name=notes]').setValue('callback');await w.get('form').trigger('submit');await flushPromises();expect(w.get('fieldset').attributes('disabled')).toBeDefined();await w.get('form').trigger('submit');await flushPromises();expect(api.post.mock.calls[0][1]).toEqual(api.post.mock.calls[1][1]);expect(w.text()).toContain('ticket #101');});
+it('allows correcting server validation errors',async()=>{api.post.mockRejectedValueOnce({response:{status:400,data:{error:{message:'Invalid callback number'}}}});const w=open();await w.get('[name=notes]').setValue('callback');await w.get('form').trigger('submit');await flushPromises();expect(w.get('fieldset').attributes('disabled')).toBeUndefined();expect(w.text()).toContain('Invalid callback number');});
+it('clears private input and ignores an old response after an agency change',async()=>{let finish;api.post.mockReturnValue(new Promise(resolve=>{finish=resolve;}));const w=open();await w.get('[name=notes]').setValue('Private');await w.get('form').trigger('submit');await w.setProps({agencyId:3});expect(w.get('[name=notes]').element.value).toBe('');finish({data:{ticketId:101,topic:'billing'}});await flushPromises();expect(w.find('a').exists()).toBe(false);});

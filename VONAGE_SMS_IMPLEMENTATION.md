@@ -30,6 +30,10 @@ Saving this number does not change your cards, carrier, or inbound calls.
 | 3 | Provider assistance | Enter staff who can connect the caller to the correct provider. No automatic provider lookup is active. |
 | 4–9 | Optional departments or programs | Enable only needed choices and give each a clear label. |
 
+Set **Follow-up ticket category** to Billing for billing options, or General support
+for other options. The preview preserves this category if a call falls back to
+support; answering a call does not resolve an outstanding request.
+
 Each choice accepts up to five US/Canadian destination numbers. **One at a time**
 rings the displayed order; move a destination earlier with the arrow. **All at
 once** describes simultaneous ringing. Set 10–45 seconds per destination or group.
@@ -54,6 +58,24 @@ The preview shows the no-answer path. Once a staff member accepts a future live
 call, later destinations must stop ringing. The specified acceptance behavior is
 “press 1 to accept,” preventing a personal voicemail from claiming the call.
 That behavior still needs a real Voice implementation and race-condition tests.
+
+### Log current calls as tickets
+
+In **Support Hub → Support review and Spam → Log a phone follow-up**, choose
+Billing or General support, select the outcome, and record the necessary callback
+details. This works for current Grasshopper calls. It creates an open Ticket Desk
+ticket with source Phone. Billing requests appear under Billing; active agency
+billing staff and administrators receive an in-app notification (except the
+creator). Staff claim or assign the ticket and close it when the request is resolved.
+No automatic named assignee is selected.
+
+Notes, caller name, and callback number use the existing encrypted ticket body;
+notifications contain no caller details. Retrying a submission reuses the same
+request ID, preventing duplicate tickets and notifications. No client is linked
+from caller ID alone. Migration: `1554_phone_followup_tickets.sql`.
+
+This is manual logging. Live missed-call and voicemail ingestion still need the
+Voice integration before automatic phone tickets can be created.
 
 ### 6. Save phone setup
 

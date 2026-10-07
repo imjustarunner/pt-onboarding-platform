@@ -23,3 +23,8 @@ describe('provider voicemail preferences',()=>{
  it('retains omitted preferences and only handles permitted fields',()=>{expect(validateProviderVoicemailSettings({userId:99,voicemail_message:' Hello '})).toEqual({voicemail_message:'Hello'});});
  it.each([{voicemail_message:123},{voicemail_ooo_message:'x'.repeat(1001)},{forward_to_phone:'javascript:bad'}])('rejects invalid greeting and forwarding values',body=>{expect(()=>validateProviderVoicemailSettings(body)).toThrow();});
 });
+describe('follow-up ticket category',()=>{
+ it('keeps Billing when unanswered billing calls fall back to support',()=>{const p=previewPhoneWorkflow(configured(),{digit:'2',hours:'open'});expect(p.followUp).toMatchObject({topic:'billing',status:'open',autoCloseOnAnswer:false});expect(p.steps.at(-1).ticketTopic).toBe('billing');});
+ it('does not assume a billing selection after hours or with no input',()=>{expect(previewPhoneWorkflow(configured(),{digit:'2',hours:'closed'}).followUp.topic).toBe('general');expect(previewPhoneWorkflow(configured(),{digit:'none',hours:'open'}).followUp.topic).toBe('general');});
+ it('honors a changed department category instead of inferring from the digit',()=>{const c=configured();c.menu[2].ticketTopic='general';expect(previewPhoneWorkflow(c,{digit:'2',hours:'open'}).followUp.topic).toBe('general');c.menu[2].ticketTopic='bad';expect(()=>normalizePhoneWorkflow(c)).toThrow();});
+});

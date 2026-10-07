@@ -1,3 +1,4 @@
+import { postPhoneFollowup } from '../controllers/phoneFollowupTicket.controller.js';
 import { requirePhoneWorkflowAdmin, getPhoneWorkflow, savePhoneWorkflow, previewPhoneWorkflowRoute } from '../controllers/phoneWorkflow.controller.js';
 import { requireCommunicationReviewer, listReview, updateReview } from '../controllers/communicationReview.controller.js';
 import express from 'express';
@@ -34,6 +35,7 @@ import { getIntakeConsentAudit, getIntakeConsentEvidence, listConsentRequests, c
 const router = express.Router();
 
 router.use(authenticate);
+router.post('/agency/:agencyId/phone-followups', postPhoneFollowup);
 router.get('/agency/:agencyId/phone-workflow', requirePhoneWorkflowAdmin, getPhoneWorkflow);
 router.put('/agency/:agencyId/phone-workflow', requirePhoneWorkflowAdmin, savePhoneWorkflow);
 router.post('/agency/:agencyId/phone-workflow/preview', requirePhoneWorkflowAdmin, previewPhoneWorkflowRoute);

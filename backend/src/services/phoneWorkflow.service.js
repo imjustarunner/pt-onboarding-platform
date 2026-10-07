@@ -23,7 +23,7 @@ export function defaultPhoneWorkflow(name = 'our team') {
     hours: Array.from({length: 7}, (_, day) => ({ day, open: day > 0 && day < 6, start: '09:00', end: '17:00' })),
     afterHours: 'voicemail', holdMusicId: '',
     voicemailGreeting: 'Our team is unavailable. Please leave your name, callback number, and a brief message after the tone.',
-    menu: Array.from({length: 10}, (_, key) => ({ key: String(key), enabled: key < 4, label: labels[key] || `Option ${key}`, ringMode: 'sequential', ringSeconds: 20, targets: [], fallback: key === 0 ? 'voicemail' : 'support' }))
+    menu: Array.from({length: 10}, (_, key) => ({ key: String(key), enabled: key < 4, label: labels[key] || `Option ${key}`, ringMode: 'sequential', ringSeconds: 20, targets: [], ticketTopic: key === 2 ? 'billing' : 'general', fallback: key === 0 ? 'voicemail' : 'support' }))
   };
 }
 export function normalizePhoneWorkflow(value) {
@@ -66,7 +66,9 @@ export function normalizePhoneWorkflow(value) {
       if (!label) fail('Give each destination a name.');
       return {label, phone};
     });
-    return {key: String(index), enabled: item.enabled, label, ringMode: item.ringMode, ringSeconds: item.ringSeconds, targets, fallback: item.fallback};
+    const ticketTopic = item.ticketTopic ?? (index === 2 ? 'billing' : 'general');
+    if (!['billing','general'].includes(ticketTopic)) fail('Choose Billing or General support for follow-up tickets.');
+    return {ticketTopic, key: String(index), enabled: item.enabled, label, ringMode: item.ringMode, ringSeconds: item.ringSeconds, targets, fallback: item.fallback};
   });
   return {version: 1, mainNumber, greeting, timeZone, businessHoursEnabled: value.businessHoursEnabled, hours, afterHours: value.afterHours, holdMusicId, voicemailGreeting, menu};
 }
@@ -94,8 +96,11 @@ export function previewPhoneWorkflow(config, {digit = '0', hours = 'current', at
   if (!['current','open','closed'].includes(hours)) fail('Invalid preview hours.');
   if (typeof digit !== 'string' || !/^(\d|invalid|none)$/.test(digit)) fail('Choose a menu digit, no input, or invalid input.');
   const open = hours === 'current' ? isPhoneWorkflowOpen(config, at) : hours === 'open';
+  const selectedOption = open ? config.menu.find((o) => o.key === digit && o.enabled) : null;
+  const ticketTopic = selectedOption?.ticketTopic ?? (selectedOption?.key === '2' ? 'billing' : config.menu[0]?.ticketTopic || 'general');
+  const followUp = {topic:ticketTopic,status:'open',autoCloseOnAnswer:false,destination:ticketTopic==='billing'?'Ticket Desk → Billing':'Ticket Desk → General support'};
   const steps = [];
-  const voicemail = () => steps.push({type: 'voicemail', text: config.voicemailGreeting, destination: 'Agency support inbox'});
+  const voicemail = () => steps.push({type: 'voicemail', text: config.voicemailGreeting, destination: followUp.destination, ticketTopic});
   function group(option, isFallback = false) {
     if (option.targets.length) steps.push({type: 'ring', key: option.key, label: option.label, mode: option.ringMode, seconds: option.ringSeconds, targets: option.targets, onAnswer: 'Staff presses 1 to accept; connect only the first accepting person and stop other ringing.', isFallback});
     if (option.key !== '0' && option.fallback === 'support') {
@@ -112,5 +117,5 @@ export function previewPhoneWorkflow(config, {digit = '0', hours = 'current', at
     if (!option) steps.push({type:'notice', text:'No selection or an unavailable option: route to support.'});
     group(option || config.menu[0]);
   }
-  return {simulation: true, callsPlaced: false, open, holdMusicId: config.holdMusicId, steps};
+  return {simulation: true, callsPlaced: false, followUp, open, holdMusicId: config.holdMusicId, steps};
 }

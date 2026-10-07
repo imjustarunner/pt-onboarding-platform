@@ -3,6 +3,7 @@
     <h3>Support review and Spam</h3>
     <p>Unknown senders, messages to departed providers, and overdue replies stay here for agency support. Unknown does not mean spam. Blocking a sender keeps future texts in Spam without notifying providers.</p>
     <p>Provider numbers stay with support until an administrator releases or reassigns them. Calls and new voicemail capture are not active yet.</p>
+    <PhoneFollowupTicket v-if="agencyId" :key="agencyId" :agency-id="agencyId" />
     <label>Folder <select v-model="status"><option value="review">Needs review</option><option value="spam">Spam</option><option value="resolved">Resolved</option></select></label>
     <button type="button" @click="load(false)" :disabled="busy">Refresh</button>
     <p v-if="error" role="alert">{{ error }}</p>
@@ -25,6 +26,7 @@
 <script setup>
 import { ref,watch } from 'vue';
 import api from '../../services/api';
+import PhoneFollowupTicket from './PhoneFollowupTicket.vue';
 const props=defineProps({agencyId:{type:[Number,String],default:null}});
 const items=ref([]),status=ref('review'),busy=ref(false),error=ref(''),nextBeforeId=ref(null);
 let generation=0;

@@ -96,6 +96,7 @@
               <option value="portal">Portal</option>
               <option value="email">Email</option>
               <option value="public_web">Public page</option>
+              <option value="phone">Phone</option>
             </select>
             <select v-if="!isSchoolStaff" v-model="creatorRoleFilter" @change="loadTickets">
               <option value="">Creator</option>

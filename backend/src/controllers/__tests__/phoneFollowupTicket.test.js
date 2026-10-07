@@ -1,0 +1,13 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),create:vi.fn(),audit:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../services/phoneFollowupTicket.service.js',()=>({createPhoneFollowupTicket:m.create}));
+vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:m.audit}));
+import {postPhoneFollowup} from '../phoneFollowupTicket.controller.js';
+const req=()=>({user:{id:7,role:'admin'},params:{agencyId:'2'},body:{notes:'private'}});
+const res=()=>({status:vi.fn().mockReturnThis(),json:vi.fn(),set:vi.fn()});
+beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[{id:7,role:'support',is_active:1}]]);m.create.mockResolvedValue({ticketId:101,topic:'billing',duplicate:false});});
+it.each([{role:'staff'},{is_active:0},{is_archived:1},{terminated_at:'2026-01-01'},{status:'TERMINATED'}])('requires current active support access, not a stale token',async patch=>{m.execute.mockResolvedValue([[{id:7,role:'admin',...patch}]]);const response=res();await postPhoneFollowup(req(),response,vi.fn());expect(response.status).toHaveBeenCalledWith(403);expect(m.create).not.toHaveBeenCalled();});
+it('denies cross-agency support access',async()=>{m.execute.mockResolvedValueOnce([[{id:7,role:'support'}]]).mockResolvedValueOnce([[]]);const response=res();await postPhoneFollowup(req(),response,vi.fn());expect(response.status).toHaveBeenCalledWith(403);expect(m.create).not.toHaveBeenCalled();expect(m.execute.mock.calls[1][1]).toEqual([7,2]);});
+it('returns a created ticket with no caller details in its audit',async()=>{const response=res(),next=vi.fn();await postPhoneFollowup(req(),response,next);expect(next).not.toHaveBeenCalled();expect(response.status).toHaveBeenCalledWith(201);expect(response.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(m.create).toHaveBeenCalledWith({agencyId:2,userId:7,body:req().body});expect(JSON.stringify(m.audit.mock.calls[0][1])).not.toContain('private');});
+it('returns 200 for an existing submission',async()=>{m.create.mockResolvedValue({ticketId:101,duplicate:true});const response=res();await postPhoneFollowup(req(),response,vi.fn());expect(response.status).toHaveBeenCalledWith(200);});

@@ -7,7 +7,9 @@ export async function readPhoneWorkflow(agencyId) {
     FROM agencies a LEFT JOIN agency_phone_workflows w ON w.agency_id=a.id WHERE a.id=? LIMIT 1`,[agencyId]);
   if (!rows.length) throw Object.assign(new Error('Agency not found.'),{status:404});
   const row=rows[0];
-  return {revision:row.revision || 0, config:row.revision ? JSON.parse(decryptChatText({ciphertextB64:row.config_ciphertext,ivB64:row.config_iv,authTagB64:row.config_auth_tag,keyId:row.encryption_key_id})) : defaultPhoneWorkflow(row.name)};
+  const config=row.revision ? JSON.parse(decryptChatText({ciphertextB64:row.config_ciphertext,ivB64:row.config_iv,authTagB64:row.config_auth_tag,keyId:row.encryption_key_id})) : defaultPhoneWorkflow(row.name);
+  for (const option of config.menu || []) option.ticketTopic ??= option.key === '2' ? 'billing' : 'general';
+  return {revision:row.revision || 0,config};
 }
 export async function storePhoneWorkflow({agencyId,userId,config,revision}) {
   // No plaintext fallback if encryption is unavailable.

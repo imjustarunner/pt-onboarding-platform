@@ -42,6 +42,7 @@
         <template v-if="option.enabled">
           <div class="grid">
             <label>Menu label<input v-model="option.label" maxlength="60" :disabled="option.key === '0'" /></label>
+            <label>Follow-up ticket category<select v-model="option.ticketTopic"><option value="general">General support</option><option value="billing">Billing</option></select></label>
             <label>Ring mode<select v-model="option.ringMode"><option value="sequential">One at a time</option><option value="simultaneous">All at once</option></select></label>
             <label>{{ option.ringMode === 'sequential' ? 'Seconds per destination' : 'Seconds for the group' }}<input v-model.number="option.ringSeconds" type="number" min="10" max="45" /></label>
             <label>If nobody accepts<select v-model="option.fallback" :disabled="option.key === '0'"><option v-if="option.key !== '0'" value="support">Try support (0), then voicemail</option><option value="voicemail">Support voicemail</option></select></label>
@@ -70,6 +71,7 @@
             <template v-else>{{ step.text }}<span v-if="step.type === 'voicemail'"> Final destination: {{ step.destination }} (when voice is activated).</span></template>
           </li>
         </ol>
+        <p v-if="simulation?.followUp">Follow-up destination: <strong>{{ simulation.followUp.destination }}</strong>. Answering a call does not resolve the ticket. Automatic creation requires live voice integration; log current calls through Support Hub → Log a phone follow-up.</p>
         <p v-if="simulation" class="hint">This shows the unanswered-call path. Once a staff member accepts, fallback ringing stops. No calls were placed.</p>
       </section>
       <section v-if="readiness">

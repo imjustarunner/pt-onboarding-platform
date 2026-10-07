@@ -14,7 +14,8 @@ export const SUPPORT_TICKET_SOURCE_KEYS = Object.freeze({
   PREHIRE_PORTAL_CHAT: 'prehire_portal_chat',
   CLIENT_RENEWAL: 'client_renewal',
   MISDIRECTED_EMAIL: 'misdirected_email',
-  INBOUND_EMAIL: 'inbound_email'
+  INBOUND_EMAIL: 'inbound_email',
+  PHONE_FOLLOWUP: 'phone_followup'
 });
 
 export function normalizeSupportTicketSourceKey(value) {
@@ -28,6 +29,7 @@ export function supportTicketSourceLabel(value) {
   const labels = {
     auricwell_records_request: 'AuricWell records follow-up',
     office_kiosk_support: 'Office kiosk',
+    phone_followup: 'Phone follow-up',
     [SUPPORT_TICKET_SOURCE_KEYS.FORGOT_USERNAME]: 'Forgot Username',
     [SUPPORT_TICKET_SOURCE_KEYS.PASSWORD_RECOVERY]: 'Password recovery',
     [SUPPORT_TICKET_SOURCE_KEYS.INFO_REQUEST]: 'Info Request',
