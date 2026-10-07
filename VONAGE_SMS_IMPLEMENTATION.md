@@ -1,3 +1,27 @@
+## ITSCO local number provisioning — October 6, 2026
+
+- Purchased **719-716-3661** through the configured Vonage account; SMS, MMS, and Voice capabilities verified against owned inventory.
+- Carrier quote: **EUR 0.93 setup and EUR 0.93 monthly rental**, excluding usage.
+- Requested link to **ITSCO Service Communications**, brand `BRC2ZW3`, campaign `VCV2DNM4`, with `compliance: ["HIPAA"]`.
+- Vonage rejected the link with HTTP 403: **“HIPAA numbers are not enabled for your account, please contact us for more details.”**
+- The number is saved in ITSCO as **pending and inactive**. No non-HIPAA fallback link was attempted. No texts were sent. Final public-main vs shared-care role remains to be selected.
+- At this check, the approved service campaign had **zero linked numbers**. The configured Vonage account previously owned **218-240-8224**; the app-only saved care number **719-249-7304** was not in that account’s owned inventory. Do not treat an app record as carrier ownership or approval.
+
+Send this request through [Vonage API Support](https://api.support.vonage.com/hc/en-us/requests/new):
+
+> Please enable HIPAA numbers for the API account that owns ITSCO brand BRC2ZW3 and campaign VCV2DNM4 (ITSCO Service Communications). We purchased 17197163661 and requested the campaign link with compliance=["HIPAA"]. The API returned HTTP 403: “HIPAA numbers are not enabled for your account, please contact us for more details.” Please confirm any required BAA/account steps and enable the healthcare number feature. Please preserve the approved campaign and do not link this number without HIPAA. Failed request reference: e0d37a8e-f2e1-468a-8cd0-35e83c4edfbc.
+
+After Vonage confirms activation, recheck the campaign and retry the same number’s
+HIPAA link; do not purchase another number. Verify carrier status `LINKED`, then
+record the verified sender registration and configure the authenticated inbound
+SMS webhook before activating the number in the app. No voice port or live calling
+is enabled by that SMS registration.
+
+The app’s number search now uses the installed SDK’s single filter object with
+`pattern=1719` and `searchPattern=0`. Purchases check Vonage’s response code before
+creating an app record. [Vonage number API](https://developer.vonage.com/en/api/numbers)
+and [healthcare linking requirements](https://api.support.vonage.com/hc/en-us/articles/4407235273876-10-DLC-Number-linking-guide).
+
 ## Phone setup: prepare now, keep Grasshopper until voice testing passes
 
 The phone workflow editor is under **Settings → Texting Numbers → Phone setup**.
@@ -28,7 +52,7 @@ care number separately. Saving a phone plan does not buy a number, port a number
 change its SMS campaign, or publish it. It rejects using an active provider/care
 number as the planned public main number. Keep 719-657-7444 on Grasshopper until
 live voice tests pass and an administrator chooses the port date or a replacement.
-No second number has been purchased by this update.
+See the dated provisioning status at the top of this guide for the newly purchased 719 number.
 
 ### 2. Enter the intended main number and hours
 

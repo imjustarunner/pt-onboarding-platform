@@ -43,20 +43,32 @@ class VonageService {
   }
 
   static async searchAvailableLocalNumbers({ country = 'US', areaCode = null, limit = 20 }) {
+    const normalizedCountry = String(country || 'US').toUpperCase();
+    const code = areaCode == null ? '' : String(areaCode).trim();
+    if (code && (!['US','CA'].includes(normalizedCountry) || !/^[2-9]\d{2}$/.test(code))) {
+      throw Object.assign(new Error('Use a three-digit US or Canadian area code.'), {status:400});
+    }
+    const size = Math.max(1, Math.min(50, Number.parseInt(limit,10) || 20));
+    const prefix = code ? `1${code}` : null;
     const vonage = this.getClient();
-    const params = { features: 'SMS', type: 'mobile-lvn', size: limit };
-    if (areaCode) params.areaCode = String(areaCode);
-    const result = await vonage.numbers.getAvailableNumbers(country, params);
+    // Installed SDK takes one filter object. areaCode is not a Vonage filter;
+    // prefix matching uses E.164 country code + area code.
+    const params = {country:normalizedCountry,features:['SMS','VOICE'],type:'mobile-lvn',size};
+    if (prefix) { params.pattern=prefix; params.searchPattern=0; }
+    const result = await vonage.numbers.getAvailableNumbers(params);
     const list = result?.numbers || result?.available_numbers || [];
-    return list.map((n) => ({
-      phoneNumber: n.msisdn ? `+${n.msisdn}` : null,
-      friendlyName: n.msisdn || null,
-      capabilities: {
-        sms: Array.isArray(n.features) ? n.features.includes('SMS') : true,
-        voice: Array.isArray(n.features) ? n.features.includes('VOICE') : false,
-        mms: false,
-      },
-    }));
+    return list.filter(n => n.msisdn && (!prefix || String(n.msisdn).replace(/^\+/, '').startsWith(prefix)))
+      .map((n) => ({
+        phoneNumber: `+${String(n.msisdn).replace(/^\+/, '')}`,
+        friendlyName: n.msisdn,
+        monthlyCostEUR: n.cost ?? null,
+        initialPriceEUR: n.initialPrice ?? null,
+        capabilities: {
+          sms: Array.isArray(n.features) && n.features.includes('SMS'),
+          voice: Array.isArray(n.features) && n.features.includes('VOICE'),
+          mms: Array.isArray(n.features) && n.features.includes('MMS'),
+        },
+      }));
   }
 
   /**
@@ -68,7 +80,11 @@ class VonageService {
   static async purchaseNumber({ phoneNumber, friendlyName = null, smsUrl = null, voiceUrl = null }) {
     const vonage = this.getClient();
     const msisdn = String(phoneNumber || '').replace(/^\+/, '');
-    await vonage.numbers.buyNumber({ country: 'US', msisdn });
+    const purchase = await vonage.numbers.buyNumber({ country: 'US', msisdn });
+    const code = purchase?.errorCode ?? purchase?.['error-code'];
+    if (String(code) !== '200') {
+      throw new Error(`Vonage number purchase failed (status ${code ?? 'unknown'}). Verify owned inventory before retrying.`);
+    }
 
     if (smsUrl || voiceUrl) {
       try {
