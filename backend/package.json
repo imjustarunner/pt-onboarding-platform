@@ -8,6 +8,7 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "check-security": "node src/scripts/checkSecurityReadiness.js",
+    "sms:audit-vonage": "node src/scripts/auditVonage10dlc.js",
     "email-agent": "node src/scripts/runEmailAgent.js",
     "sync-school-email-inbound": "node src/scripts/syncItscoSchoolEmailInbound.js",
     "sync-school-group-contacts": "node src/scripts/syncSchoolGroupContacts.js",

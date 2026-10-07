@@ -1,5 +1,7 @@
 # ITSCO / AuricWell SMS audit and registration proposal
 
+**October 7 update:** Use the [current non-compliance audit](./VONAGE_10DLC_NONCOMPLIANCE_AUDIT.md) for live campaign/linkage findings and the HELP-field correction. The reseller discussion below describes independent customer businesses; Vonage permits customer registrations for legal entities the account owner owns.
+
 Historical audit recorded October 4, 2026; current operator guidance updated October 5, 2026. **Use [the campaign walkthrough](./VONAGE_10DLC_CAMPAIGN_WALKTHROUGH.md) for all current dashboard fields and submission status.** Findings labeled “fixed locally” below describe that audit point, not a fresh deployment verification. The user confirmed that independent practices use AuricWell and identified the first legal business as **ITSCO, LLC**. The user also confirmed ITSCO as the client-facing name, https://www.itsco.health, support@itsco.health, and 500–2,000 outbound texts on busy days. This document supersedes the single-brand assumptions in `VONAGE_10DLC_PROVIDER_NUMBER_PLAN.md`.
 
 ## Registration architecture

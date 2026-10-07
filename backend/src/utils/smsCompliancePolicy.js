@@ -43,7 +43,8 @@ export function formatRegisteredSms(body, brandName, senderFirstName = null) {
     return `${authored}\n${brandName}. Reply STOP to opt out.`;
   }
   const branded = text.startsWith(`${brandName}:`) ? text : `${brandName}: ${text}`;
-  return /\bSTOP\b/i.test(branded) ? branded : `${branded} Reply STOP to opt out.`;
+  return /\b(?:reply|text)\s+STOP\s+to\s+(?:opt[ -]?out|unsubscribe|cancel|stop)\b/i.test(branded)
+    ? branded : `${branded} Reply STOP to opt out.`;
 }
 
 export function validateSmsConsentEvidence({ purpose, status, evidence }) {

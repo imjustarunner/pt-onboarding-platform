@@ -11,6 +11,7 @@ import SmsOptInState from '../models/SmsOptInState.model.js';
 import PhoneNumberAssignment from '../models/PhoneNumberAssignment.model.js';
 import NotificationGatekeeperService from '../services/notificationGatekeeper.service.js';
 import VonageService from '../services/vonage.service.js';
+import { sendManualSupportAlert } from '../services/smsManualSupportAlert.service.js';
 import { resolveOutboundNumber } from '../services/communicationRouting.service.js';
 import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
 import SmsAutoReplyRuleService from '../services/smsAutoReplyRule.service.js';
@@ -669,9 +670,7 @@ export const forwardToSupport = async (req, res, next) => {
 
     if (supportPhone) {
       try {
-        const body = `Forwarded to Support by ${req.user.first_name || 'Provider'}: ${message || '(No note)'}. Client ${client.initials || '#' + cid} thread escalated. Ticket #${ticketId || 'n/a'}.`;
-        const from = inboundLog ? (MessageLog.normalizePhone(inboundLog.to_number) || inboundLog.to_number) : supportPhone;
-        await VonageService.sendSms({ purpose: 'workforce', to: supportPhone, from, body });
+        await sendManualSupportAlert({ agency, to: supportPhone });
       } catch {
         // Ticket + care state are the primary path; SMS notify is best-effort.
       }
@@ -842,4 +841,3 @@ export const getRtcToken = async (req, res, next) => {
     next(e);
   }
 };
-

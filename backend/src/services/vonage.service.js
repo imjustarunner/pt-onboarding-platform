@@ -1,5 +1,6 @@
 import { Vonage } from '@vonage/server-sdk';
 import { prepareSmsDelivery } from './smsCompliance.service.js';
+import { verifyCarrierSmsDelivery } from './vonage10dlc.service.js';
 
 class VonageService {
   static getClient() {
@@ -25,7 +26,9 @@ class VonageService {
   }
 
   static async sendSms(options) {
-    const { to, from, body } = await prepareSmsDelivery(options);
+    const delivery = await prepareSmsDelivery(options);
+    await verifyCarrierSmsDelivery(delivery);
+    const { to, from, body } = delivery;
     const vonage = this.getClient();
     const result = await vonage.sms.send({ to, from, text: body });
     const msg = result?.messages?.[0];

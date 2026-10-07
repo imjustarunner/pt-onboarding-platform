@@ -4,14 +4,26 @@ import User from '../models/User.model.js';
 import { getAgencyCampaignPacket } from './smsCampaignPacket.service.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
-import { recordSmsPermission } from './smsCompliance.service.js';
-import { enrollSmsRecipient } from './smsEnrollment.service.js';
+import { recordSmsPermission, getSmsSender, isSmsSuppressed } from './smsCompliance.service.js';
 import { encryptChatText, decryptChatText, isChatEncryptionConfigured } from './chatEncryption.service.js';
 import { appendSecurityEvidence } from './securityEvidence.service.js';
 import { isStaffCommunicationRole, STAFF_COMMUNICATION_VERSION, STAFF_COMMUNICATION_CHOICES, staffCommunicationKey, phoneFingerprint, validateStaffCommunicationInput, staffDeliveryKinds } from '../utils/staffCommunicationChoices.js';
 const parse=v=>typeof v==='string'?JSON.parse(v):(v||{});
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const digest=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
+
+async function reviewedStaffPermission(program, phone, purpose, agencyId) {
+  const sender = await getSmsSender(program.phone_number);
+  if (await isSmsSuppressed(sender, phone)) return false;
+  const [rows] = await pool.execute(`SELECT 1 FROM sms_recipient_permissions p
+    JOIN sms_consent_requests r ON JSON_UNQUOTE(JSON_EXTRACT(p.evidence_json, '$.reference')) = CONCAT('sms_consent_request:', r.id)
+    WHERE p.scope_key = ? AND p.phone = ? AND p.purpose = ? AND p.status = 'opted_in'
+      AND (p.expires_at IS NULL OR p.expires_at > UTC_TIMESTAMP())
+      AND r.agency_id = ? AND r.phone = p.phone AND r.signed_at IS NOT NULL
+      AND JSON_EXTRACT(r.activation_json, ?) = TRUE LIMIT 1`,
+    [`campaign:${program.campaign_id}`, phone, purpose, agencyId, `$.${purpose}.activated`]);
+  return rows.length > 0;
+}
 
 async function context(userId,agencyId) {
   if(!Number.isSafeInteger(Number(agencyId))||Number(agencyId)<1)throw fail('Choose an organization');
@@ -38,9 +50,16 @@ async function context(userId,agencyId) {
 }
 export async function getStaffCommunicationChoices({userId,agencyId}) {
   const c=await context(userId,agencyId);
+  const activation = await Promise.all((c.state?.activation || []).map(async item => {
+    if (!['active', 'pending_review'].includes(item.status)) return item;
+    const program = c.programs.find(p => p.campaign_id === item.campaignId);
+    if (!program || validateSmsRegistration(program.registration).length) return {...item,status:'pending_campaign'};
+    const active = await reviewedStaffPermission(program, c.phone, item.purpose, agencyId);
+    return {...item,status:active?'active':'pending_review'};
+  }));
   return {agencyId:Number(agencyId),disclosure:c.disclosure,disclosureHash:c.disclosureHash,phone:c.phone,
     choices:c.state?.choices||Object.fromEntries(STAFF_COMMUNICATION_CHOICES.map(x=>[x.key,false])),
-    reviewedAt:c.state?.reviewedAt||null,activation:c.state?.activation||[],
+    reviewedAt:c.state?.reviewedAt||null,activation,
     needsReview:!c.state||c.state.disclosureHash!==c.disclosureHash||(Object.values(c.state.choices||{}).some(v=>v===true)&&c.state.phoneHash!==phoneFingerprint(c.phone)),
     capabilities:{clientRelay:false,callBridge:false,voicemail:false,recording:false,transcription:false}};
 }
@@ -86,11 +105,10 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
           state.activation.push({campaignId:program.campaign_id,purpose,status:'off'});continue;
         }
         if(validateSmsRegistration(program.registration).length) {state.activation.push({campaignId:program.campaign_id,purpose,status:'pending_campaign'});continue;}
-        try {
-          await enrollSmsRecipient({from:program.phone_number,phone:target,purpose,status:'opted_in',evidence,actorUserId:userId,
-            sendConfirmation:message=>sendConfirmation({...message,staffNotificationKind:kinds.includes('notifications')?'notifications':'messageAlerts'})});
-          state.activation.push({campaignId:program.campaign_id,purpose,status:'active'});
-        } catch(error) {state.activation.push({campaignId:program.campaign_id,purpose,status:'pending',reason:error.code||'activation_failed'});}
+        // The registered flow promises administrator review. Saving personal
+        // preferences never self-approves enrollment or overwrites its evidence.
+        const reviewed = await reviewedStaffPermission(program, target, purpose, agencyId);
+        state.activation.push({campaignId:program.campaign_id,purpose,status:reviewed?'active':'pending_review'});
       }
     }
     for (const purpose of [ ...(kinds.length ? ['workforce'] : []), ...(input.choices.polling ? ['polling'] : []) ]) {

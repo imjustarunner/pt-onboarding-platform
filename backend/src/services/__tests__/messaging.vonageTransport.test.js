@@ -1,15 +1,25 @@
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../smsCompliance.service.js', () => ({ prepareSmsDelivery: vi.fn() }));
+vi.mock('../vonage10dlc.service.js', () => ({ verifyCarrierSmsDelivery: vi.fn() }));
 import { prepareSmsDelivery } from '../smsCompliance.service.js';
+import { verifyCarrierSmsDelivery } from '../vonage10dlc.service.js';
 import VonageService from '../vonage.service.js';
 
-beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); });
+beforeEach(() => { vi.restoreAllMocks(); vi.clearAllMocks(); verifyCarrierSmsDelivery.mockResolvedValue(undefined); });
 describe('Vonage transport', () => {
   it('never calls Vonage after a compliance rejection', async () => {
     prepareSmsDelivery.mockRejectedValue(new Error('Recipient opted out'));
     const getClient = vi.spyOn(VonageService, 'getClient');
     await expect(VonageService.sendSms({})).rejects.toThrow('Recipient opted out');
+    expect(getClient).not.toHaveBeenCalled();
+    expect(verifyCarrierSmsDelivery).not.toHaveBeenCalled();
+  });
+  it('does not send or switch numbers when the carrier rejects readiness', async () => {
+    prepareSmsDelivery.mockResolvedValue({ from: '+13035550100' });
+    verifyCarrierSmsDelivery.mockRejectedValue(new Error('Campaign suspended'));
+    const getClient = vi.spyOn(VonageService, 'getClient');
+    await expect(VonageService.sendSms({})).rejects.toThrow('Campaign suspended');
     expect(getClient).not.toHaveBeenCalled();
   });
   it('sends the normalized, branded result of the gate', async () => {

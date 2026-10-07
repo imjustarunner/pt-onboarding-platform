@@ -1,5 +1,7 @@
 # Vonage 10DLC — campaign-by-campaign dashboard walkthrough
 
+> **October 7 compliance check:** Read the [current carrier/account audit](VONAGE_10DLC_NONCOMPLIANCE_AUDIT.md) before launch. ITSCO service, ITSCO staff/voting and NextLevelUp service are approved but have no linked numbers. Inner Strength is still pending. The audit includes the ITSCO HELP/opt-in field corrections and administrator-reviewed staff activation steps. Do not submit duplicate campaigns for these approved programs.
+
 > **School and family enrollment (October 6):** Follow the [school/family rollout steps](../VONAGE_SMS_IMPLEMENTATION.md#school-and-family-reminder-rollout--october-6-2026) for actual service-location handling, signed choices, the legacy-consent audit, number linkage and school absence notices. These remain reminder messages under the practice’s approved service purposes; do not move them to the staff polling campaign. Validate actual registered coverage before sending.
 
 

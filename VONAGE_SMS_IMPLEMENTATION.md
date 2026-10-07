@@ -1,3 +1,9 @@
+## Current compliance check — October 7, 2026
+
+Read [the non-compliance audit](docs/VONAGE_10DLC_NONCOMPLIANCE_AUDIT.md) before activation. Three ACTIVE campaigns have zero linked numbers (ITSCO service, ITSCO staff/voting, NextLevelUp service); Inner Strength is pending review. ITSCO's submitted HELP and opt-in fields contain leftover example text, including an incorrect email and a truncated opt-out instruction. The audit has full replacement wording. The healthcare account hold remains in place.
+
+Every attempted SMS now verifies current Vonage campaign/number readiness and approved use cases before transport. Staff preference saves require the existing administrator-reviewed campaign consent enrollment before activation. Run `npm run sms:audit-vonage` from `backend/` to refresh the carrier inventory without sending texts or changing account settings. A clean audit output is not a compliance guarantee.
+
 ## ITSCO local number provisioning — October 6, 2026
 
 - Purchased **719-716-3661** through the configured Vonage account; SMS, MMS, and Voice capabilities verified against owned inventory.

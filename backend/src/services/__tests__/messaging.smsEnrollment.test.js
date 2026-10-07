@@ -12,10 +12,17 @@ const enrollment = { from: '+13035550100', phone: '+13035550101', purpose: 'remi
   evidence: { source: 'web_form', reference: 'request:4', signatureReference: 'request:4', signerVerified: true,
     disclosure: 'Exact disclosed choices', collectedAt: '2026-01-01T00:00:00Z' } };
 beforeEach(() => {
-  vi.resetAllMocks(); getSmsSender.mockResolvedValue({ registration, scope: 'campaign:C123', phone_number: enrollment.from });
+  vi.resetAllMocks(); getSmsSender.mockResolvedValue({ agency_id: 2, registration, scope: 'campaign:C123', phone_number: enrollment.from });
   isSmsSuppressed.mockResolvedValue(false);
 });
 describe('signed enrollment', () => {
+  it('confirms administrator-reviewed message alerts without enabling general notifications', async () => {
+    getSmsSender.mockResolvedValue({ agency_id: 2, registration: { ...registration, purposes: ['workforce'] }, scope: 'campaign:C123', phone_number: enrollment.from });
+    pool.execute.mockResolvedValue([[{ notifications_enabled: false }]]);
+    const sendConfirmation = vi.fn();
+    await enrollSmsRecipient({ ...enrollment, purpose: 'workforce', sendConfirmation });
+    expect(sendConfirmation).toHaveBeenCalledWith(expect.objectContaining({ agencyId: 2, staffNotificationKind: 'messageAlerts' }));
+  });
   it('rejects conflicting purposes on another number of the same campaign', async () => {
     pool.execute.mockResolvedValueOnce([[{ id: 3, agency_id: 2 }]]).mockResolvedValueOnce([[]])
       .mockResolvedValueOnce([[{ registration_json: { ...registration, purposes: ['marketing'] } }]]);

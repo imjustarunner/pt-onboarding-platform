@@ -37,6 +37,12 @@ beforeEach(() => {
 });
 
 describe('campaign-wide SMS delivery gate', () => {
+  it('does not grandfather a self-activated staff preference into reviewed enrollment', async () => {
+    pool.execute.mockResolvedValueOnce([[{ ...sender, registration_json: { ...registration, purposes: ['workforce'] } }]]);
+    permissions.push({ scope: 'campaign:C123', phone: message.to, purpose: 'workforce', status: 'opted_in',
+      evidence_json: { reference: 'staff_communications:old-signature' } });
+    await expect(prepareSmsDelivery({ ...message, purpose: 'workforce' })).rejects.toMatchObject({ code: 'sms_consent_review_required' });
+  });
   it('honors separate staff categories even when workforce campaign consent exists', async () => {
     const original=pool.execute.getMockImplementation();
     pool.execute.mockImplementation(async(sql,args)=> {

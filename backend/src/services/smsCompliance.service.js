@@ -103,7 +103,7 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   if (complianceReply && controlReplies.has(complianceReply)
       && complianceReply.to === recipient && complianceReply.from === sender.phone_number && complianceReply.body === body) {
     controlReplies.delete(complianceReply);
-    return { to: recipient, from: sender.phone_number, body };
+    return { to: recipient, from: sender.phone_number, body, registration: sender.registration, controlReply: true };
   }
   const registration = sender.registration;
   if (validateSmsRegistration(registration).length) throw smsPolicyError('sms_campaign_not_ready', 'SMS campaign registration and number linking must be verified before sending');
@@ -126,12 +126,16 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     }
   }
   const [permissions] = await pool.execute(
-    `SELECT 1 FROM sms_recipient_permissions WHERE scope_key = ? AND phone = ? AND purpose = ?
+    `SELECT evidence_json FROM sms_recipient_permissions WHERE scope_key = ? AND phone = ? AND purpose = ?
      AND status = 'opted_in' AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP()) LIMIT 1`,
     [sender.scope, recipient, purpose]
   );
   if (!permissions.length) throw smsPolicyError('sms_consent_required', 'Recorded recipient consent for this SMS purpose is required');
-  return { to: recipient, from: sender.phone_number, body: formatRegisteredSms(body, registration.brandName, purpose === 'care' ? senderFirstName : null) };
+  const evidence = permissions[0].evidence_json ? json(permissions[0].evidence_json) : null;
+  if (['workforce', 'polling'].includes(purpose) && String(evidence?.reference || '').startsWith('staff_communications:')) {
+    throw smsPolicyError('sms_consent_review_required', 'Staff preferences require administrator-reviewed SMS enrollment before delivery');
+  }
+  return { to: recipient, from: sender.phone_number, body: formatRegisteredSms(body, registration.brandName, purpose === 'care' ? senderFirstName : null), registration, purpose };
 }
 
 export async function resolveRegisteredSmsSender({ agencyId, purpose }) {

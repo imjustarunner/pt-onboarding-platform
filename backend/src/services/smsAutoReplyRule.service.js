@@ -76,7 +76,7 @@ class SmsAutoReplyRuleService {
           metadata: { forwardOffer: true, provider: 'vonage', triggerInboundId: row.id }
         });
 
-        const msg = await VonageService.sendSms({ purpose: 'care', to, from, body });
+        const msg = await VonageService.sendSms({ purpose: 'care', agencyId: row.agency_id, to, from, body });
         await MessageLog.markSent(outboundLog.id, msg.sid, { forwardOffer: true, provider: 'vonage', status: msg.status });
       } catch (e) {
         console.warn('[SmsAutoReplyRuleService] failed to send auto-reply:', e.message);
