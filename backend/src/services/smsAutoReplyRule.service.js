@@ -1,3 +1,5 @@
+import { staffNotificationBody } from '../utils/staffCommunicationChoices.js';
+import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import pool from '../config/database.js';
 import VonageService from './vonage.service.js';
 import MessageLog from '../models/MessageLog.model.js';
@@ -245,12 +247,13 @@ Suggestions:`;
           const clientCount = unread?.[0]?.client_count || 0;
 
           if (count > 0 && p.phone) {
-            const body = `Welcome back! You have ${count} unread message${count > 1 ? 's' : ''} from ${clientCount} client${clientCount > 1 ? 's' : ''} waiting for you on ${p.agency_name}. View them here: ${process.env.FRONTEND_URL}/admin/communications`;
+            const agency=await Agency.findById(p.agency_id);
+            const body=staffNotificationBody('inbound_client_message',buildPublicPortalBaseUrl(agency));
             
             // Send digest via SMS from agency main number or their primary
             const { number: from } = await resolveOutboundNumber({ userId: p.id });
             if (from) {
-              await VonageService.sendSms({ purpose: 'workforce', to: p.phone, from: from.phone_number, body });
+              await VonageService.sendSms({ purpose: 'workforce', agencyId:p.agency_id, staffNotificationKind:'messageAlerts', to: p.phone, from: from.phone_number, body });
               console.log(`[OooDigest] Sent digest to ${p.id} (${p.phone}): ${count} messages`);
             }
           }

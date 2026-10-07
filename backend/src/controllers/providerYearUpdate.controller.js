@@ -730,6 +730,7 @@ export async function getPublicByToken(req, res, next) {
 export async function updatePublicSection(req, res, next) {
   try {
     const { valid, reason, row } = await S.validateToken(req.params.token);
+    if (req.params.sectionKey === 'communications' && !valid) return res.status(404).json({error:{message:'A current provider update link is required to change text choices'}});
     if (!valid && reason !== 'expired') {
       if (!row || row.cycle_status !== 'finalized') {
         return res.status(404).json({ error: { message: 'Invalid or expired link', reason } });

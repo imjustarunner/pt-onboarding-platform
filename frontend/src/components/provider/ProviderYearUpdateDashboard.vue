@@ -112,6 +112,7 @@
             </template>
           </nav>
 
+          <StaffCommunicationChoices v-if="activeSection === 'communications'" :initial="payload.communications" :agency-id="resolvedAgencyId" external-save :readonly="isFinalized || props.mode === 'admin'" :busy="saving" @save="saveCommunicationChoices" />
           <!-- Reminders -->
           <section v-if="activeSection === 'reminders'" class="pyu__panel">
             <h2>Step-by-Step Reminders</h2>
@@ -910,6 +911,7 @@ import PostSchoolEventModal from '../school/PostSchoolEventModal.vue';
 import LifecycleActionModal from '../school/LifecycleActionModal.vue';
 import ProviderYearUpdateSchoolNeedsPanel from './ProviderYearUpdateSchoolNeedsPanel.vue';
 import ProviderYearUpdateSupportPanel from './ProviderYearUpdateSupportPanel.vue';
+import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
 
 const props = defineProps({
   mode: { type: String, default: 'provider' }, // provider | token | admin
@@ -1418,6 +1420,10 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+async function saveCommunicationChoices(input) {
+  if (await saveSection('communications', input)) await load();
 }
 
 async function saveSection(sectionKey, data, { reviewed = true, completed = true } = {}) {

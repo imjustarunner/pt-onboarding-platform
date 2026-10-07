@@ -12,15 +12,11 @@ vi.mock('../../models/UserPreferences.model.js', () => ({
   }
 }));
 
-vi.mock('../../models/UserWorkSchedule.model.js', () => ({
-  default: {
-    isInsideWorkSchedule: vi.fn()
-  }
-}));
+vi.mock('../availabilityWindow.service.js', () => ({isUserAvailable: vi.fn()}));
 
 import NotificationGatekeeperService from '../notificationGatekeeper.service.js';
 import UserPreferences from '../../models/UserPreferences.model.js';
-import UserWorkSchedule from '../../models/UserWorkSchedule.model.js';
+import {isUserAvailable} from '../availabilityWindow.service.js';
 
 describe('notificationGatekeeper work schedule precedence', () => {
   beforeEach(() => {
@@ -34,7 +30,7 @@ describe('notificationGatekeeper work schedule precedence', () => {
       quiet_hours_enabled: false,
       allow_notifications_outside_work_schedule: false
     });
-    UserWorkSchedule.isInsideWorkSchedule.mockResolvedValue(false);
+    isUserAvailable.mockResolvedValue({available:false,schedule:{source:'default'}});
 
     const decision = await NotificationGatekeeperService.decideChannels({
       userId: 1,
@@ -44,7 +40,7 @@ describe('notificationGatekeeper work schedule precedence', () => {
 
     expect(decision.email).toBe(false);
     expect(decision.sms).toBe(false);
-    expect(decision.reasonCodes).toContain('work_schedule_outside_window');
+    expect(decision.reasonCodes).toContain('availability_outside_window');
   });
 
   it('allows delivery outside work schedule when allow-outside is on', async () => {
@@ -54,7 +50,7 @@ describe('notificationGatekeeper work schedule precedence', () => {
       quiet_hours_enabled: false,
       allow_notifications_outside_work_schedule: true
     });
-    UserWorkSchedule.isInsideWorkSchedule.mockResolvedValue(false);
+    isUserAvailable.mockResolvedValue({available:false,schedule:{source:'default'}});
 
     const decision = await NotificationGatekeeperService.decideChannels({
       userId: 1,
@@ -64,8 +60,8 @@ describe('notificationGatekeeper work schedule precedence', () => {
 
     expect(decision.email).toBe(true);
     expect(decision.sms).toBe(true);
-    expect(decision.reasonCodes).toContain('work_schedule_bypass_allow_outside');
-    expect(UserWorkSchedule.isInsideWorkSchedule).not.toHaveBeenCalled();
+    expect(decision.reasonCodes).toContain('availability_bypass_allow_outside');
+    expect(isUserAvailable).not.toHaveBeenCalled();
   });
 
   it('prefers quiet hours over work schedule when quiet hours enabled', async () => {
@@ -78,7 +74,7 @@ describe('notificationGatekeeper work schedule precedence', () => {
       quiet_hours_end_time: '17:00',
       allow_notifications_outside_work_schedule: false
     });
-    UserWorkSchedule.isInsideWorkSchedule.mockResolvedValue(true);
+    isUserAvailable.mockResolvedValue({available:true,schedule:{source:'default'}});
 
     // Saturday evening — outside quiet hours
     const decision = await NotificationGatekeeperService.decideChannels({
@@ -89,7 +85,7 @@ describe('notificationGatekeeper work schedule precedence', () => {
 
     expect(decision.email).toBe(false);
     expect(decision.reasonCodes).toContain('quiet_hours_outside_window');
-    expect(UserWorkSchedule.isInsideWorkSchedule).not.toHaveBeenCalled();
+    expect(isUserAvailable).not.toHaveBeenCalled();
   });
 
   it('urgent bypasses work schedule window', async () => {
@@ -99,7 +95,7 @@ describe('notificationGatekeeper work schedule precedence', () => {
       quiet_hours_enabled: false,
       allow_notifications_outside_work_schedule: false
     });
-    UserWorkSchedule.isInsideWorkSchedule.mockResolvedValue(false);
+    isUserAvailable.mockResolvedValue({available:false,schedule:{source:'default'}});
 
     const decision = await NotificationGatekeeperService.decideChannels({
       userId: 1,
@@ -111,4 +107,9 @@ describe('notificationGatekeeper work schedule precedence', () => {
     expect(decision.sms).toBe(true);
     expect(decision.reasonCodes).toContain('window_bypass_urgent');
   });
+});
+
+describe('personal SMS defaults',()=>{
+ it('does not assume employee SMS consent',async()=>{UserPreferences.findByUserId.mockResolvedValue(null);isUserAvailable.mockResolvedValue({available:true,schedule:{source:'default'}});expect((await NotificationGatekeeperService.decideChannels({userId:1})).sms).toBe(false);});
+ it('recognizes the MySQL numeric enabled flag',async()=>{UserPreferences.findByUserId.mockResolvedValue({sms_enabled:1,allow_notifications_outside_work_schedule:1});expect((await NotificationGatekeeperService.decideChannels({userId:1})).sms).toBe(true);});
 });

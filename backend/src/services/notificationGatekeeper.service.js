@@ -2,21 +2,11 @@ import UserPreferences from '../models/UserPreferences.model.js';
 import User from '../models/User.model.js';
 import { isUserAvailable } from './availabilityWindow.service.js';
 
-const employeeLikeRoles = new Set([
-  'staff',
-  'provider',
-  'school_staff',
-  // 'clinician', // legacy (removed)
-  'facilitator',
-  'intern',
-  'supervisor',
-  'clinical_practice_assistant'
-]);
 
 function buildDefaultPreferences(userRole) {
   return {
     email_enabled: true,
-    sms_enabled: employeeLikeRoles.has(userRole),
+    sms_enabled: false, // Employment or a stored phone is not personal SMS consent.
     in_app_enabled: true,
     quiet_hours_enabled: false,
     quiet_hours_allowed_days: null,
@@ -96,7 +86,7 @@ class NotificationGatekeeperService {
     const inApp = true;
 
     const emailToggle = prefs.email_enabled !== false;
-    const smsToggle = prefs.sms_enabled === true;
+    const smsToggle = prefs.sms_enabled === true || prefs.sms_enabled === 1 || prefs.sms_enabled === '1';
 
     const emergencyOverrideEnabled = prefs.emergency_override === true;
     const isEmergencyBroadcast = context.isEmergencyBroadcast === true;

@@ -1,3 +1,4 @@
+vi.mock('../staffCommunicationChoices.service.js',()=>({saveStaffCommunicationChoices:vi.fn()}));
 import { beforeEach, it, expect, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn(),getSupervisors:vi.fn()}}));
@@ -11,6 +12,7 @@ vi.mock('../officeAssignmentBookingAvailability.service.js',()=>({setOfficeAssig
 vi.mock('../providerAvailabilityAccess.service.js',()=>({requireProviderAvailabilityAccess:vi.fn()}));
 vi.mock('../../controllers/officeSlotActions.controller.js',()=>({forfeitAssignment:vi.fn(),downgradeStandingAssignment:vi.fn(),rescheduleStandingAssignment:vi.fn()}));
 import pool from '../../config/database.js';
+import {saveStaffCommunicationChoices} from '../staffCommunicationChoices.service.js';
 import User from '../../models/User.model.js';
 import SupervisionSession from '../../models/SupervisionSession.model.js';
 import {getRecipientByToken} from '../providerUpdate.service.js';
@@ -47,4 +49,16 @@ it('requires a correction reason and records the actual ledger total without alt
  const data={decision:'correction_requested',requestedHours:20,reason:'External supervision record'};
  await persistReviewSection(recipient,'supervision_hours',data,true);
  expect(data.recordedHours).toBe(12);expect(pool.execute).not.toHaveBeenCalled();
+});
+
+it('requires signed communication choices and keeps signatures out of provider-update progress',async()=>{
+ await expect(persistReviewSection(recipient,'notification_prefs',{},false)).rejects.toThrow('sign');
+ saveStaffCommunicationChoices.mockRejectedValueOnce(new Error('Signature required'));
+ await expect(persistReviewSection(recipient,'notification_prefs',{},true)).rejects.toThrow('Signature required');
+ const choices={notifications:false,messageAlerts:false,polling:false};
+ saveStaffCommunicationChoices.mockResolvedValueOnce({choices,reviewedAt:'2026-10-06T12:00:00Z'});
+ const data={choices,signerName:'Private signature',phone:'+13035550101',acknowledged:true,disclosureHash:'test'};
+ await persistReviewSection(recipient,'notification_prefs',data,true);
+ expect(saveStaffCommunicationChoices).toHaveBeenLastCalledWith(expect.objectContaining({userId:9,agencyId:6,source:'provider_update'}));
+ expect(data).toEqual({choices,reviewedAt:'2026-10-06T12:00:00Z'});
 });

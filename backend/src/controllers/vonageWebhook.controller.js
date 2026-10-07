@@ -1,3 +1,5 @@
+import { staffNotificationBody } from '../utils/staffCommunicationChoices.js';
+import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import { deliverCompanyEventVoteReply } from '../services/companyEventSmsReply.service.js';
 /**
  * Vonage inbound SMS webhook controller.
@@ -72,17 +74,8 @@ async function forwardEmergency({ numberId, agencyId, body, fromNumber, sendingN
       { context: { isUrgent: true } }
     );
   }
-  if (rule.forward_to_phone) {
-    try {
-      await VonageService.sendSms({ purpose: 'workforce',
-        to: MessageLog.normalizePhone(rule.forward_to_phone) || rule.forward_to_phone,
-        from: sendingNumber,
-        body
-      });
-    } catch (e) {
-      console.warn('[VonageWebhook] Emergency forward SMS failed:', e.message);
-    }
-  }
+  // Raw client content must stay in the app; personal-phone relay is not launched.
+
 }
 
 function buildForwardBody(template, { body, from }) {
@@ -94,24 +87,11 @@ function buildForwardBody(template, { body, from }) {
     .trim() || fallback;
 }
 
-async function forwardInboundToUser({ number, body, from, userId }) {
-  if (!userId) return;
-  const user = await User.findById(userId);
-  if (!user) return;
-  const prefs = await UserPreferences.findByUserId(userId);
-  if (prefs?.sms_forwarding_enabled === false || prefs?.sms_forwarding_enabled === 0) return;
-  const toRaw = user?.personal_phone || user?.work_phone || user?.phone_number || null;
-  if (!toRaw) return;
-  const to = MessageLog.normalizePhone(toRaw) || toRaw;
-  const fromNum = MessageLog.normalizePhone(number?.phone_number) || number?.phone_number || from;
-  await VonageService.sendSms({ purpose: 'workforce', to, from: fromNum, body });
+async function forwardInboundToUser() {
+  // No raw clinical SMS forwarding until the isolated, consented relay is implemented.
 }
-
-async function forwardInboundToPhone({ number, body, from, phone }) {
-  if (!phone) return;
-  const to = MessageLog.normalizePhone(phone) || phone;
-  const fromNum = MessageLog.normalizePhone(number?.phone_number) || number?.phone_number || from;
-  await VonageService.sendSms({ purpose: 'workforce', to, from: fromNum, body });
+async function forwardInboundToPhone() {
+  // Direct rules cannot bypass recipient consent or the unavailable relay.
 }
 
 async function listSupportStaffIdsForAgency(agencyId) {
@@ -427,8 +407,8 @@ export const inboundSmsWebhook = async (req, res, next) => {
         flags.smsSupportFallbackPhone || agency?.phone_number || null;
       if (mirrorEnabled && supportPhone && clientId && (number?.phone_number || ownerUser?.system_phone_number)) {
         try {
-          const supportBody = `Support mirror: inbound text from ${client?.initials || `client #${clientId || 'unknown'}`}. Message: "${String(body || '').slice(0, 180)}"`;
-          await VonageService.sendSms({ purpose: 'workforce',
+          const supportBody = staffNotificationBody('inbound_client_message',buildPublicPortalBaseUrl(agency));
+          await VonageService.sendSms({ purpose: 'workforce', agencyId, staffNotificationKind:'messageAlerts',
             to: supportPhone,
             from: MessageLog.normalizePhone(number?.phone_number || ownerUser.system_phone_number) || number?.phone_number || ownerUser.system_phone_number,
             body: supportBody
@@ -440,7 +420,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
             inboundLogId: inboundLog?.id || null,
             escalatedToPhone: supportPhone,
             escalationType: 'provider_mirror',
-            threadMode: prefs?.sms_support_thread_mode === 'read_only' ? 'read_only' : 'respondable',
+            threadMode: 'read_only',
             metadata: { mirrored: true }
           });
         } catch (e) {

@@ -14,6 +14,7 @@
     <div v-else-if="error" class="error">{{ error }}</div>
     
     <div v-else class="checklist-content">
+      <StaffCommunicationChoices v-if="checklist.items.some(item => item.item_type === 'communications')" @saved="fetchChecklist" />
       <div v-if="groupedItems.length === 0" class="empty-state">
         <p>No onboarding items found.</p>
       </div>
@@ -74,6 +75,7 @@
 import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../services/api';
+import StaffCommunicationChoices from '../components/communications/StaffCommunicationChoices.vue';
 import { useAuthStore } from '../store/auth';
 import { getDashboardRoute } from '../utils/router';
 
@@ -92,6 +94,7 @@ const groupedItems = computed(() => {
     account_setup: { type: 'account_setup', label: 'Account Setup', items: [] },
     training: { type: 'training', label: 'Training', items: [] },
     document: { type: 'document', label: 'Documents', items: [] },
+    communications: { type: 'communications', label: 'Phone and text choices', items: [] },
     custom: { type: 'custom', label: 'Other', items: [] }
   };
   
@@ -120,6 +123,7 @@ const fetchChecklist = async () => {
 };
 
 const toggleItem = async (item) => {
+  if (item.item_type === 'communications') { document.querySelector('.staff-choices')?.scrollIntoView({behavior:'smooth'}); return; }
   if (item.is_completed) {
     // Don't allow unchecking for now - could add this later if needed
     return;

@@ -1,3 +1,5 @@
+import { getStaffCommunicationChoices, saveStaffCommunicationChoices } from './staffCommunicationChoices.service.js';
+import VonageService from './vonage.service.js';
 /**
  * Provider Fall Update — fall checklist / campaign for school-assigned providers.
  * Parallel to school collaborative year update (school_reinit_*), keyed by provider.
@@ -42,6 +44,7 @@ export function persistedPyuActorType(actorType) {
 
 export const SECTION_KEYS = [
   'reminders',
+  'communications',
   'school_events',
   'materials',
   'licenses',
@@ -2068,6 +2071,15 @@ export async function upsertSectionProgress({
   }
 
   let sectionData = data;
+  if (sectionKey === 'communications') {
+    if (actor?.actorType === 'admin' || (actor?.actorType !== 'token_guest' && Number(actor?.userId) !== Number(cycle.provider_user_id))) {
+      throw Object.assign(new Error('The provider must review and sign their own communication choices'), {status:403});
+    }
+    const result = await saveStaffCommunicationChoices({userId:cycle.provider_user_id,agencyId:cycle.agency_id,input:data,source:'provider_year_update',sendConfirmation:m=>VonageService.sendSms(m)});
+    sectionData = {reviewedAt:result.reviewedAt,choices:result.choices};
+    reviewed = true; completed = true;
+  }
+
   if (sectionKey === 'reminders' && sectionData && typeof sectionData === 'object') {
     const markingDone = Boolean(reviewed || completed);
     sectionData = normalizeRemindersSectionData(sectionData, { markingDone });
@@ -2263,6 +2275,7 @@ export async function buildDashboardPayload(cycle) {
   );
 
   return {
+    communications: await getStaffCommunicationChoices({userId:cycle.provider_user_id,agencyId:cycle.agency_id}),
     cycle: {
       id: cycle.id,
       agencyId: cycle.agency_id,

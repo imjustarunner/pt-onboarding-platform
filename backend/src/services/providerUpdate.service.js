@@ -1,3 +1,4 @@
+import { getStaffCommunicationChoices } from './staffCommunicationChoices.service.js';
 /**
  * Provider Update — modular, toggleable staff update pushes (separate from Fall Update).
  */
@@ -690,6 +691,12 @@ export async function getRecipientBundle(recipient) {
       data: parseJson(prog.data_json, {})
     };
   });
+  const communicationSection=sectionList.find(s=>s.key==='notification_prefs');
+  if (communicationSection) {
+    const communicationChoices=await getStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id});
+    communicationSection.data={...communicationSection.data,communicationChoices};
+    if (!recipient.locked_at && communicationChoices.needsReview) {communicationSection.completed=false;communicationSection.status='in_progress';}
+  }
   const completedCount = sectionList.filter((s) => s.completed).length;
   let agency = null;
   try {
@@ -850,7 +857,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
     [recipientId]
   );
   const done = new Set((sections || []).filter((s) => s.completed).map((s) => s.section_key));
-  const missing = enabledKeys.filter((k) => !done.has(k));
+  const missing = enabledKeys.filter((k) => !done.has(k) || (k === 'notification_prefs' && bundle.sections.find(s=>s.key===k)?.completed !== true));
   if (missing.length) {
     throw Object.assign(new Error(`Complete all sections first: ${missing.join(', ')}`), {
       status: 400,

@@ -1,3 +1,4 @@
+import { staffCommunicationKey, staffNotificationKind } from '../utils/staffCommunicationChoices.js';
 import {
   getNotificationCatalogEntry,
   isNotificationEssentialForRole,
@@ -38,6 +39,7 @@ export async function loadNotificationPreferenceContext({ userId, agencyId = nul
   ]);
   return {
     userId: Number(userId),
+    agencyId: Number(agencyId) || null,
     userRole: String(userRole || '').toLowerCase(),
     globalPreferences: globalPreferences || {},
     legacyCategories: parseJson(globalPreferences?.notification_categories),
@@ -87,7 +89,8 @@ export function resolveNotificationTypePreference(type, context) {
   }
 
   const capabilities = entry.capabilities;
-  const roleDefault = (channel) => essentialForRole ? entry.defaults[channel] : false;
+  const staffChoices=legacyCategories[staffCommunicationKey(context?.agencyId)];
+  const roleDefault = (channel) => channel === 'sms' && staffChoices ? staffChoices.choices?.[staffNotificationKind(type)] === true : essentialForRole ? entry.defaults[channel] : false;
   const effective = {
     inApp,
     toast: capabilities.toast && resolveBoolean(override.toast, roleDefault('toast')),

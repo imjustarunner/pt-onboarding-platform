@@ -7,7 +7,9 @@ import NotificationGatekeeperService from './notificationGatekeeper.service.js';
 import VonageService from './vonage.service.js';
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
 import AgencyNotificationPreferences from '../models/AgencyNotificationPreferences.model.js';
-import MagicLinkService from './magicLink.service.js';
+import Agency from '../models/Agency.model.js';
+import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
+import { staffCommunicationKey, staffNotificationKind, staffNotificationBody } from '../utils/staffCommunicationChoices.js';
 import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
 
 const SMS_CATEGORY_BY_TYPE = {
@@ -130,6 +132,10 @@ class NotificationDispatcherService {
     // We treat only staff-like roles as eligible for SMS notifications.
     const eligibleRoles = new Set([
       'admin',
+      'assistant_admin',
+      'provider_plus',
+      'intern_plus',
+      'schedule_manager',
       'super_admin',
       'support',
       'supervisor',
@@ -146,7 +152,10 @@ class NotificationDispatcherService {
     // Category toggle check (defaults to ON if missing).
     const categories = await resolveNotificationCategories({ userId, agencyId });
     const categoryEnabled = categories[categoryKey];
-    if (categoryEnabled === false) return { dispatched: false, reason: 'category_disabled' };
+    const personalPrefs=await UserPreferences.findByUserId(userId);
+    const staffChoices=(parseJsonMaybe(personalPrefs?.notification_categories)||{})[staffCommunicationKey(agencyId)];
+    if (staffChoices && staffChoices.choices?.[staffNotificationKind(notification.type)] !== true) return {dispatched:false,reason:'staff_choice_off'};
+    if (!staffChoices && categoryEnabled === false) return { dispatched: false, reason: 'category_disabled' };
     const typeSmsEnabled = await isNotificationChannelEnabled({
       userId,
       userRole: user.role,
@@ -197,17 +206,9 @@ class NotificationDispatcherService {
     const decision = await NotificationGatekeeperService.decideChannels({ userId, context: decisionContext });
     if (!decision?.sms) return { dispatched: false, reason: 'gatekeeper_sms_false', decision };
 
-    let body = buildSmsBody({ title: notification.title, message: notification.message });
-
-    // Append Magic Link for inbound client messages
-    if (notification.type === 'inbound_client_message' || notification.type === 'support_safety_net_alert') {
-      try {
-        const magicLink = await MagicLinkService.generateMagicLink(userId, '/admin/communications');
-        body += `\n\nLogin & Reply: ${magicLink}`;
-      } catch (e) {
-        console.warn('[NotificationDispatcher] Magic link generation failed:', e.message);
-      }
-    }
+    // Never put client identities, message bodies or reusable sign-in tokens in SMS alerts.
+    const agency=await Agency.findById(agencyId);
+    const body=staffNotificationBody(notification.type,buildPublicPortalBaseUrl(agency));
 
     const log = await NotificationSmsLog.create({
       userId,
@@ -221,7 +222,7 @@ class NotificationDispatcherService {
 
     try {
       const fromNorm = User.normalizePhone(from) || from;
-      const msg = await VonageService.sendSms({ purpose: 'workforce', agencyId,
+      const msg = await VonageService.sendSms({ purpose: 'workforce', agencyId, staffNotificationKind: staffNotificationKind(notification.type),
         to,
         from: fromNorm,
         body

@@ -190,14 +190,9 @@
     </div>
 
     <!-- Notification prefs -->
-    <div v-else-if="section.key === 'notification_prefs'" class="pu-panel">
-      <label class="check"><input v-model="notify.email" type="checkbox" /> Email notifications</label>
-      <label class="check"><input v-model="notify.sms" type="checkbox" /> SMS notifications</label>
-      <div class="pu-actions">
-        <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ notify })">
-          Confirm notification preferences
-        </button>
-      </div>
+    <div v-else-if="section.key === 'notification_prefs'">
+      <StaffCommunicationChoices :initial="section.data?.communicationChoices" :agency-id="agencyId" external-save :busy="saving" @save="markComplete" />
+      <p v-if="localError" role="alert">{{ localError }}</p>
     </div>
 
     <!-- Amendments -->
@@ -312,6 +307,7 @@
 </template>
 
 <script setup>
+import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';

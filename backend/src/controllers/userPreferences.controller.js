@@ -146,7 +146,7 @@ const buildDefaultPreferences = (userRole) => {
   const base = {
     email_enabled: true,
     sms_enabled: smsDefault,
-    sms_forwarding_enabled: true,
+    sms_forwarding_enabled: false,
     sms_use_own_number_for_reminders: true,
     sms_support_mirror_enabled: false,
     sms_support_thread_mode: 'respondable',
@@ -544,6 +544,9 @@ export const updateUserPreferences = async (req, res, next) => {
       }
     }
 
+    if ([true,1,'1','true'].includes(updates.sms_forwarding_enabled)) {
+      return res.status(409).json({error:{message:'Personal-phone conversation forwarding is not available yet. Use the secure app inbox and optional message-waiting alerts.'}});
+    }
     const preferences = await UserPreferences.update(parseInt(userId), updates);
 
     res.json({

@@ -1,3 +1,5 @@
+import { isStaffCommunicationRole } from '../utils/staffCommunicationChoices.js';
+import { getStaffCommunicationChoices } from '../services/staffCommunicationChoices.service.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import { huddleSubtype, HUDDLE_SUBTYPES } from '../services/huddlePolicy.js';
 import { randomUUID } from 'node:crypto';
@@ -10560,7 +10562,15 @@ export const getOnboardingChecklist = async (req, res, next) => {
     }
     
     const checklist = await OnboardingChecklist.getUserChecklist(id);
-    const completionPercentage = await OnboardingChecklist.getCompletionPercentage(id);
+    const owner = await User.findById(id);
+    if (owner && isStaffCommunicationRole(owner.role)) {
+      const agencies = await User.getAgencies(id);
+      for (const agency of agencies) {
+        const choices = await getStaffCommunicationChoices({userId:Number(id),agencyId:Number(agency.id)});
+        checklist.push({id:`communications-${agency.id}`,item_type:'communications',title:`${agency.name}: review phone and text choices`,description:'Choose Yes or No for optional staff reminders, message alerts and voting. Every choice may be No.',is_completed:!!choices.reviewedAt && !choices.needsReview,completed_at:choices.reviewedAt});
+      }
+    }
+    const completionPercentage = checklist.length ? Math.round(100 * checklist.filter(item => item.is_completed).length / checklist.length) : 0;
     
     res.json({
       items: checklist,
@@ -10580,6 +10590,7 @@ export const markChecklistItemComplete = async (req, res, next) => {
       return res.status(403).json({ error: { message: 'You can only update your own checklist' } });
     }
     
+    if (String(itemId).startsWith('communications-')) return res.status(400).json({error:{message:'Review and sign your phone and text choices. Choosing No for every category completes this item.'}});
     const item = await OnboardingChecklist.markItemComplete(id, itemId);
     if (!item) {
       return res.status(404).json({ error: { message: 'Checklist item not found' } });
@@ -10609,6 +10620,13 @@ export const markUserComplete = async (req, res, next) => {
     const user = await User.findById(id);
     if (!user) {
       return res.status(404).json({ error: { message: 'User not found' } });
+    }
+
+    if (['ONBOARDING','PENDING_SETUP'].includes(user.status) && isStaffCommunicationRole(user.role)) {
+      for (const agency of await User.getAgencies(Number(id))) {
+        const choices=await getStaffCommunicationChoices({userId:Number(id),agencyId:Number(agency.id)});
+        if (!choices.reviewedAt || choices.needsReview) return res.status(400).json({error:{message:'The staff member must review and sign their phone and text choices. All choices may be No.',requiresCommunicationChoices:true}});
+      }
     }
 
     // Group-password hires must set password on the portal at end of onboarding.

@@ -1,3 +1,4 @@
+import { staffCommunicationKey, phoneFingerprint } from '../utils/staffCommunicationChoices.js';
 import pool from '../config/database.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { parseSmsKeyword, SMS_PURPOSES, smsPolicyError, validateSmsRegistration, formatRegisteredSms } from '../utils/smsCompliancePolicy.js';
@@ -91,7 +92,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications' }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -110,6 +111,20 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     throw smsPolicyError('sms_campaign_purpose_mismatch', 'This sending number is not registered for the requested SMS purpose');
   }
   if (await isSmsSuppressed(sender, recipient)) throw smsPolicyError('sms_opted_out', 'Recipient has opted out of this SMS campaign');
+  if (['workforce','polling'].includes(purpose)) {
+    const digits=recipient.slice(1), local=digits.length===11&&digits.startsWith('1')?digits.slice(1):digits;
+    const [staff]=await pool.execute(`SELECT JSON_EXTRACT(p.notification_categories, ?) AS choices
+      FROM users u JOIN user_agencies ua ON ua.user_id=u.id JOIN user_preferences p ON p.user_id=u.id
+      WHERE ua.agency_id=? AND (REGEXP_REPLACE(COALESCE(u.personal_phone,''),'[^0-9]','') IN (?,?)
+      OR REGEXP_REPLACE(COALESCE(u.work_phone,''),'[^0-9]','') IN (?,?) OR REGEXP_REPLACE(COALESCE(u.phone_number,''),'[^0-9]','') IN (?,?))`,
+      [`$.${staffCommunicationKey(sender.agency_id)}`,sender.agency_id,digits,local,digits,local,digits,local]);
+    for (const row of staff) {
+      const state=row.choices?json(row.choices):null;
+      const kind=purpose==='polling'?'polling':staffNotificationKind;
+      if(state && (state.phoneHash!==phoneFingerprint(recipient)||!['notifications','messageAlerts','polling'].includes(kind)||state.choices?.[kind]!==true))
+        throw smsPolicyError('sms_staff_choice_off','This staff member has not enabled this personal-phone text category');
+    }
+  }
   const [permissions] = await pool.execute(
     `SELECT 1 FROM sms_recipient_permissions WHERE scope_key = ? AND phone = ? AND purpose = ?
      AND status = 'opted_in' AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP()) LIMIT 1`,

@@ -55,10 +55,10 @@
             <h3 class="card-title">Text messaging options</h3>
             <div class="field checkbox">
               <label>
-                <input v-model="prefs.sms_forwarding_enabled" type="checkbox" :disabled="notificationDisabled" />
+                <input :checked="false" type="checkbox" disabled />
                 Forward inbound texts to my phone
               </label>
-              <div class="field-help">Used when agencies enable text forwarding rules.</div>
+              <div class="field-help">Not available yet. Client messages stay in the app; use the separate message-waiting text choice below.</div>
             </div>
             <div class="field checkbox">
               <label>
@@ -87,10 +87,10 @@
                   type="checkbox"
                   :disabled="notificationDisabled"
                 />
-                Campaign 4 (Employee): Internal workforce SMS notifications
+                Staff notification delivery preference
               </label>
               <div class="field-help">
-                Opt-in for operational reminders, internal announcements, and optional polls/voting.
+                Delivery preference only. Review and sign the separate phone and text choices below for consent.
               </div>
             </div>
             <div class="field checkbox" v-if="isSchoolStaffRole">
@@ -186,6 +186,7 @@
       </div>
     </section>
 
+    <StaffCommunicationChoices v-if="isOwnAccount && !viewOnly && isWorkforceEmployeeRole" />
     <PersonalMessageDeliverySettings v-if="isOwnAccount && !viewOnly" />
 
     <!-- Section 2: Availability & Work Style -->
@@ -901,6 +902,7 @@
 </template>
 
 <script setup>
+import StaffCommunicationChoices from './communications/StaffCommunicationChoices.vue';
 import { canAccessMedicalBilling } from '../config/medicalBillingAccess.js';
 const canSeeClaimBillingPreferences = computed(() => canAccessMedicalBilling(authStore.user, agencyStore.currentAgency?.id));
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
@@ -1001,7 +1003,7 @@ const defaultCategories = () => ({
 const prefs = ref({
   email_enabled: true,
   sms_enabled: false,
-  sms_forwarding_enabled: true,
+  sms_forwarding_enabled: false,
   sms_use_own_number_for_reminders: true,
   sms_support_mirror_enabled: false,
   sms_support_thread_mode: 'respondable',
@@ -1099,6 +1101,10 @@ const effectiveRoleNorm = computed(() =>
 const isSchoolStaffRole = computed(() => effectiveRoleNorm.value === 'school_staff');
 const isWorkforceEmployeeRole = computed(() =>
   [
+    'super_admin',
+    'assistant_admin',
+    'supervisor',
+    'facilitator',
     'provider',
     'provider_plus',
     'admin',
@@ -1511,7 +1517,7 @@ const save = async () => {
 
     const payload = {
       // Notification extras (channels/quiet hours managed in NotificationTypeSettingsPanel)
-      sms_forwarding_enabled: !!prefs.value.sms_forwarding_enabled,
+      sms_forwarding_enabled: false,
       sms_use_own_number_for_reminders: !!prefs.value.sms_use_own_number_for_reminders,
       sms_support_mirror_enabled: !!prefs.value.sms_support_mirror_enabled,
       sms_support_thread_mode: prefs.value.sms_support_mirror_enabled

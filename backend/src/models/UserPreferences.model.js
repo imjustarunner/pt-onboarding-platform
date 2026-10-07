@@ -29,6 +29,15 @@ class UserPreferences {
     try {
       // Check if preferences exist
       const existing = await this.findByUserId(userId);
+      if ('notification_categories' in preferences && (!preferences.notification_categories || typeof preferences.notification_categories !== 'object' || Array.isArray(preferences.notification_categories))) {
+        preferences = {...preferences}; delete preferences.notification_categories;
+      }
+      // Signed staff choices can only be changed through their dedicated consent endpoint.
+      if (preferences.notification_categories && typeof preferences.notification_categories === 'object') {
+        const incoming = {...preferences.notification_categories};
+        for (const key of Object.keys(incoming)) if (key.startsWith('staff_communications_')) delete incoming[key];
+        preferences = {...preferences, notification_categories: incoming};
+      }
 
       if (existing) {
         // Update existing preferences
@@ -69,7 +78,7 @@ class UserPreferences {
 
         for (const field of allowedFields) {
           if (field in preferences) {
-            fields.push(`${field} = ?`);
+            fields.push(field === 'notification_categories' ? `${field} = JSON_MERGE_PATCH(COALESCE(${field}, JSON_OBJECT()), CAST(? AS JSON))` : `${field} = ?`);
             // Handle JSON fields
             if (
               field === 'quiet_hours_allowed_days' ||

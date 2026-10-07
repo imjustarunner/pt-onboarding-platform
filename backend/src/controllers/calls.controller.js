@@ -122,7 +122,10 @@ export const getCallSettings = async (req, res, next) => {
       sms_inbound_enabled: boolOrDefault(settings?.sms_inbound_enabled, true),
       sms_outbound_enabled: boolOrDefault(settings?.sms_outbound_enabled, true),
       forward_to_phone: settings?.forward_to_phone || fallbackForwardPhone,
-      allow_call_recording: boolOrDefault(settings?.allow_call_recording, false),
+      allow_call_recording: false,
+      voice_available: isVoiceCallingConfigured(),
+      recording_available: false,
+      transcription_available: false,
       wait_music_id: settings?.wait_music_id || null,
       voicemail_enabled: boolOrDefault(settings?.voicemail_enabled, false),
       vacation_mode_enabled: boolOrDefault(settings?.vacation_mode_enabled, false),
@@ -141,13 +144,16 @@ export const updateCallSettings = async (req, res, next) => {
     const userId = parseIntOrNull(req.user?.id);
     if (!userId) return res.status(401).json({ error: { message: 'Not authenticated' } });
 
+    if (boolOrDefault(req.body?.allow_call_recording, false)) {
+      return res.status(409).json({error:{message:'Call recording is not available. Recording requires an implemented voice integration, verified healthcare configuration, participant consent and secure storage.'}});
+    }
     const existing = await UserCallSettings.getByUserId(userId);
     const patch = {
       inbound_enabled: boolOrDefault(req.body?.inbound_enabled, boolOrDefault(existing?.inbound_enabled, true)),
       outbound_enabled: boolOrDefault(req.body?.outbound_enabled, boolOrDefault(existing?.outbound_enabled, true)),
       sms_inbound_enabled: boolOrDefault(req.body?.sms_inbound_enabled, boolOrDefault(existing?.sms_inbound_enabled, true)),
       sms_outbound_enabled: boolOrDefault(req.body?.sms_outbound_enabled, boolOrDefault(existing?.sms_outbound_enabled, true)),
-      allow_call_recording: boolOrDefault(req.body?.allow_call_recording, boolOrDefault(existing?.allow_call_recording, false)),
+      allow_call_recording: false,
       wait_music_id: req.body?.wait_music_id ?? existing?.wait_music_id ?? null,
       forward_to_phone: req.body?.forward_to_phone ?? existing?.forward_to_phone ?? null,
       voicemail_enabled: boolOrDefault(req.body?.voicemail_enabled, boolOrDefault(existing?.voicemail_enabled, false)),

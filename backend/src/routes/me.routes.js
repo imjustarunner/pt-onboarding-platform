@@ -1,3 +1,4 @@
+import { listMyCommunicationChoices, saveMyCommunicationChoices } from '../controllers/staffCommunicationChoices.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { downloadCompanyEventIcsForMe, listMyCompanyEvents, listMyCompanyEventsCalendar, respondToMyCompanyEvent, listMyStaffPolls, updateMyPollResultPreference } from '../controllers/companyEvents.controller.js';
@@ -40,6 +41,8 @@ import {
 } from '../controllers/clubEmployerShare.controller.js';
 
 const router = express.Router();
+router.get('/communication-choices', authenticate, listMyCommunicationChoices);
+router.put('/communication-choices', authenticate, saveMyCommunicationChoices);
 
 router.get('/clinical-notes-eligible', authenticate, getClinicalNotesEligible);
 router.get('/notes-to-sign', authenticate, listNotesToSign);

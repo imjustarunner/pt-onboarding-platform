@@ -1,6 +1,7 @@
 export const PROVIDER_FALL_UPDATE_LABEL = 'Provider Fall Update';
 
 export const SECTION_META = [
+  {key:'communications',title:'Phone and Text Choices',shortTitle:'Text choices',hint:'Choose Yes or No for reminders, message alerts and voting',description:'Review optional texts to your own phone. All choices may be No.',icon:'phone'},
   {
     key: 'reminders',
     title: 'Step-by-Step Reminders',

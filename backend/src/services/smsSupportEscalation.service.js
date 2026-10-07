@@ -1,3 +1,6 @@
+import Agency from '../models/Agency.model.js';
+import { staffNotificationBody } from '../utils/staffCommunicationChoices.js';
+import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import pool from '../config/database.js';
 import VonageService from './vonage.service.js';
 import MessageLog from '../models/MessageLog.model.js';
@@ -62,10 +65,11 @@ class SmsSupportEscalationService {
         flags.smsSupportFallbackPhone || row.agency_phone || null;
       if (!supportPhone) continue;
 
-      const body = `Support escalation: provider has not replied in ${thresholdHours}h. Client ${row.client_initials || '#'+row.client_id} sent: "${String(row.body || '').slice(0, 180)}"`;
+      const agency=await Agency.findById(row.agency_id);
+      const body=staffNotificationBody('support_safety_net_alert',buildPublicPortalBaseUrl(agency));
       const from = MessageLog.normalizePhone(row.to_number) || row.to_number;
       try {
-        await VonageService.sendSms({ purpose: 'workforce', to: supportPhone, from, body });
+        await VonageService.sendSms({ purpose: 'workforce', agencyId:row.agency_id, staffNotificationKind:'messageAlerts', to: supportPhone, from, body });
         await SmsThreadEscalation.createOrKeep({
           agencyId: row.agency_id,
           userId: row.user_id,
@@ -73,7 +77,7 @@ class SmsSupportEscalationService {
           inboundLogId: row.id,
           escalatedToPhone: supportPhone,
           escalationType: 'sla_timeout',
-          threadMode: row.support_mode === 'read_only' ? 'read_only' : 'respondable',
+          threadMode:'read_only',
           metadata: { thresholdHours }
         });
       } catch (e) {

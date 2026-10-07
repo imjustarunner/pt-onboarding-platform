@@ -102,7 +102,7 @@
         <div class="card calls-settings-card">
           <div class="top" style="margin-bottom:8px;">
             <span class="badge ticket">CALL & TEXT SETTINGS</span>
-            <span class="owner">Your number is used for both calling and texting. Toggle each per your preference.</span>
+            <span class="owner">Texting and voice are separate services. A texting number does not activate calls, voicemail, recording or transcription.</span>
           </div>
           <div class="grid">
             <div class="form-group">
@@ -138,8 +138,8 @@
               <input v-model="callSettings.forward_to_phone" class="input" placeholder="+15551234567" />
             </div>
             <div class="form-group">
-              <label>Call recording</label>
-              <select v-model="callSettings.allow_call_recording" class="select">
+              <label>Call recording — not available</label>
+              <select v-model="callSettings.allow_call_recording" class="select" disabled>
                 <option :value="false">Disabled</option>
                 <option :value="true">Enabled</option>
               </select>

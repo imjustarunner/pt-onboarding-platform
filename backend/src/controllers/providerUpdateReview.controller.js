@@ -1,3 +1,5 @@
+import { saveStaffCommunicationChoices } from '../services/staffCommunicationChoices.service.js';
+import VonageService from '../services/vonage.service.js';
 import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
@@ -81,6 +83,12 @@ export async function uploadReviewDocument(req, res, next) {
 
 export async function persistReviewSection(recipient, key, data, completed) {
   requireSection(recipient, key);
+  if (key === 'notification_prefs') {
+    if (!completed) throw fail('Review and sign your phone and text choices before saving this section.');
+    const saved=await saveStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id,input:data,source:'provider_update',sendConfirmation:m=>VonageService.sendSms(m)});
+    for (const field of Object.keys(data)) delete data[field];
+    Object.assign(data,{choices:saved.choices,reviewedAt:saved.reviewedAt});
+  }
   if (!completed) return;
   if (key === 'supervision_hours') {
     const supervisors = await User.getSupervisors(recipient.provider_user_id, recipient.agency_id);
