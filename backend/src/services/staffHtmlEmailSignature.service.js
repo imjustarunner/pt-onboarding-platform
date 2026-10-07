@@ -165,6 +165,14 @@ function looksLikeItscoAgency(agency = {}) {
   return hay.includes('itsco');
 }
 
+function looksLikeNluAgency(agency = {}) {
+  const values = [agency.name, agency.official_name, agency.slug, agency.portal_url, agency.custom_domain, agency.website_url];
+  return values.some((value) => {
+    const normalized = String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return normalized === 'nlu' || normalized.includes('nextlevelup');
+  });
+}
+
 /** Accent + ink from the tenant palette. ITSCO greens are ITSCO-only. */
 export function signatureColorsForAgency(agency, isItsco) {
   const palette = parseColorPalette(agency);
@@ -897,8 +905,10 @@ export async function resolveDepartmentSignatureContext({
     title: departmentTitleFromKey(identityKey),
     email,
     extension: null,
-    // Tenant logo occupies the staff photo slot.
-    photoUrl: logoUrl || staffHtmlAsset('photo-placeholder.png'),
+    // NLU department mail uses the circular +1 brand mark in the photo slot.
+    photoUrl: looksLikeNluAgency(agency || {})
+      ? staffHtmlAsset('nlu-plus-one-mark.png')
+      : logoUrl || staffHtmlAsset('photo-placeholder.png'),
     logoUrl: logoUrl || '',
     orgShortName: isItsco ? ITSCO_SIGNATURE_DEFAULTS.orgShortName : orgName,
     orgFullName: orgName,
