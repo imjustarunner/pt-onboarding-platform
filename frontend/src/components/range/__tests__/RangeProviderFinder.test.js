@@ -10,6 +10,14 @@ let schedule;
 beforeEach(()=>{vi.resetAllMocks();schedule={slots:[slot],inPerson:{status:'accepting'},virtual:{status:'accepting'}};api.get.mockImplementation(async url=>({data:url.endsWith('/providers')?{providers:[provider,{...provider,agencyId:2,agencySlug:'nlu',agencyName:'Next Level Up',service:'tutoring',onlineScheduling:true}]}:schedule}));});
 async function render(query=''){const router=createRouter({history:createMemoryHistory(),routes:[{path:'/p/range/:section?',component:Finder}]});await router.push('/p/range/providers'+query);await router.isReady();const w=mount(Finder,{global:{plugins:[router]}});await flushPromises();return {w,router};}
 describe('network discovery',()=>{
+ it('uses ITSCO’s public profile for the photo, name and button without changing other agency links',async()=>{
+  const {w}=await render();const cards=w.findAll('.range-provider-card');
+  for(const selector of ['.range-provider-overview>a','.range-profile-name','.range-actions a.range-button']){
+   expect(cards[0].get(selector).attributes('href')).toBe('https://www.itsco.health/providers/alex-provider-9');
+   expect(cards[1].get(selector).attributes('href')).toBe('/nlu/provider/9?serviceType=tutoring');
+  }
+  w.unmount();
+ });
  it('restores filters from ITSCO and shows published times even when online booking is disabled',async()=>{
  const{w}=await render('?gender=Male&setting=office&city=Colorado+Springs,+CO&age=Adults+(18%2B)&specialty=Anxiety&insurance=Aetna&service=counseling&openings=yes');
  expect(w.findAll('.range-provider-card')).toHaveLength(1);expect(w.find('.range-tenant-brand').text()).toContain('ITSCO');expect(w.text()).toContain('2099');expect(w.text()).not.toContain('Book now');

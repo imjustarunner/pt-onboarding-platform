@@ -13,6 +13,20 @@ async function render(url='/p/itsco/providers',extraProps={}){
  const wrapper=mount(Directory,{props:{providers,agencyId:1,...extraProps},global:{plugins:[router]}});await flushPromises();return {wrapper,router};
 }
 describe('provider discovery',()=>{
+ it('links each photo, name and profile button to the same public website profile with search context',async()=>{
+  const {wrapper}=await render('/p/itsco/providers?setting=virtual&search=Alpha');
+  const card=wrapper.get('.its-provider-card');const links=card.findAll('a[data-analytics-kind="profile_open"]');expect(links).toHaveLength(3);
+  expect(card.get('a.its-provider-photo').attributes('aria-label')).toBe('View Alpha Person’s profile');
+  for(const link of links){const url=new URL(link.attributes('href'));expect(url.origin+url.pathname).toBe('https://www.itsco.health/providers/alpha-person-1');expect(url.searchParams.get('setting')).toBe('virtual');expect(url.searchParams.get('search')).toBe('Alpha');}
+  wrapper.unmount();
+ });
+ it('uses the same public profile for school photos and names with the school selected',async()=>{
+  const school={id:44,name:'Example School'};
+  const {wrapper}=await render('/p/itsco/providers?setting=school&school=44',{schools:[school],providers:[{...providers[0],photoUrl:'/example.jpg',schools:[school]}]});
+  const links=wrapper.get('.school-team').findAll('a[data-analytics-kind="profile_open"]');expect(links).toHaveLength(3);
+  for(const link of links)expect(link.attributes('href')).toBe('https://www.itsco.health/providers/alpha-person-1?setting=school&school=44');
+  wrapper.unmount();
+ });
  it('defaults to unique-visitor popularity, retains inquiry and gates booking',async()=>{const {wrapper}=await render();const cards=wrapper.findAll('.its-provider-card');expect(cards[0].text()).toContain('Zeta Person');expect(cards[0].text()).toContain('Book now');expect(cards[0].text()).toContain('Inquire with our team');expect(cards[1].text()).not.toContain('Book now');expect(cards[0].find('a').attributes('href')).toContain('/providers/zeta-person-2');wrapper.unmount();});
  it('collapses filters, orders ages, and names Provider Status',async()=>{const {wrapper}=await render();expect(wrapper.find('#provider-search-filters').isVisible()).toBe(false);await wrapper.find('.its-filter-toggle').trigger('click');const labels=wrapper.findAll('.its-provider-filters label');expect(labels.some(l=>l.text().startsWith('Provider Status'))).toBe(true);expect(labels[0].findAll('option').map(o=>o.text())).toEqual(['All ages','Toddler (0–5)','Children (6–10)','Teen (14–18)','Adults (18+)']);wrapper.unmount();});
  it('applies homepage care, city and payment filters and handles friendly or legacy links',async()=>{const {wrapper,router}=await render('/p/itsco/providers?care=Families&city=Colorado%20Springs,%20CO&insurance=self-pay');expect(wrapper.findAll('.its-provider-card')).toHaveLength(2);await router.push('/p/itsco/providers/zeta-person-2');await flushPromises();expect(wrapper.find('.its-profile-top').text()).toContain('Zeta Person');await router.push('/p/itsco/providers?provider=1');await flushPromises();expect(wrapper.find('.its-profile-top').text()).toContain('Alpha Person');wrapper.unmount();});

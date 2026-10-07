@@ -4,7 +4,8 @@ import { legalDocumentsForProfile } from '../content/tenantLegalDocuments.js';
 import { tenantLegalProfiles } from '../content/tenantLegalProfiles.js';
 const itscoLegalDocuments = legalDocumentsForProfile(tenantLegalProfiles.itsco);
 // Preserve the canonical hostname advertised by the existing Wix site.
-export const ITSCO_ORIGIN = 'https://www.itsco.health';
+import { ITSCO_PUBLIC_ORIGIN } from './providerProfileLinks.js';
+export const ITSCO_ORIGIN = ITSCO_PUBLIC_ORIGIN;
 export const ITSCO_REDIRECTS = {
   '/all-careers': '/careers', '/jobs': '/careers',
   '/schools-we-are-in': '/schools', '/inofficetherapy': '/services',

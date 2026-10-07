@@ -62,7 +62,7 @@
 import {computed,nextTick,onMounted,reactive,ref,watch} from 'vue';
 import api from '../../services/api';
 import ProviderContactHours from './ProviderContactHours.vue';
-import {providerProfilePath} from '../../utils/providerProfileLinks';
+import {providerProfileUrl} from '../../utils/providerProfileLinks';
 import {calendarDays,shiftDate} from '../../utils/providerUpdateCalendar';
 const props=defineProps({agencyId:[Number,String],mode:{type:String,default:'auth'},token:String,data:Object,readonly:Boolean});
 const emit=defineEmits(['complete']);
@@ -77,7 +77,7 @@ const firstHour=computed(()=>Math.min(7,...days.value.flatMap(d=>d.events.map(e=
 const lastHour=computed(()=>Math.max(20,...days.value.flatMap(d=>d.events.map(e=>Math.ceil(e.endMinute/60)))));
 const hours=computed(()=>Array.from({length:lastHour.value-firstHour.value+1},(_,i)=>firstHour.value+i));
 const calendarHeight=computed(()=>(lastHour.value-firstHour.value)*hourHeight);
-const profileUrl=computed(()=>{const c=calendar.value,slug=c?.agency?.portal_url||c?.agency?.slug;if(!c?.provider?.id||!slug||c.profileServices?.length===0)return '';const path=slug==='itsco'&&profileService.value==='counseling'?providerProfilePath(c.provider):`/${encodeURIComponent(slug)}/provider/${c.provider.id}?serviceType=${encodeURIComponent(profileService.value)}`;return new URL(path,window.location.origin).href;});
+const profileUrl=computed(()=>{const c=calendar.value,slug=c?.agency?.portal_url||c?.agency?.slug;if(!c?.provider?.id||!slug||c.profileServices?.length===0)return '';if(slug==='itsco'&&profileService.value==='counseling')return providerProfileUrl(c.provider);const path=`/${encodeURIComponent(slug)}/provider/${c.provider.id}?serviceType=${encodeURIComponent(profileService.value)}`;return new URL(path,window.location.origin).href;});
 const selectedAssignment=computed(()=>calendar.value?.assignments?.find(s=>Number(s.id)===Number(selected.value?.assignmentId)));
 const time=value=>new Date(value).toLocaleTimeString('en-US',{timeZone:calendar.value?.timeZone,hour:'numeric',minute:'2-digit'});
 function eventStyle(event,events){
