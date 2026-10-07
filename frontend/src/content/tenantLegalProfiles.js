@@ -32,6 +32,7 @@ export function tenantLegalLinks(profile) {
   return [
     {type:'privacypolicy',path:`/${profile.slug}/privacypolicy`,label:'Privacy Policy'},
     {type:'terms',path:`/${profile.slug}/terms`,label:'Terms & SMS'},
+    {type:'messaging',path:`/${profile.slug}/messaging`,label:'How messaging works'},
     {type:'platformhipaa',path:`/${profile.slug}/platformhipaa`,label:profile.kind==='healthcare'?'HIPAA Privacy Notice':'Health Information & Privacy'}
   ];
 }

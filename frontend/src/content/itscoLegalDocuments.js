@@ -5,6 +5,7 @@ export const ITSCO_LEGAL_ORIGIN = 'https://www.itsco.health';
 export const itscoLegalLinks = [
   { type: 'privacypolicy', path: '/itsco/privacypolicy', label: 'Privacy Policy' },
   { type: 'terms', path: '/itsco/terms', label: 'Terms of Service & SMS Terms' },
+  { type: 'messaging', path: '/itsco/messaging', label: 'How messaging works' },
   { type: 'platformhipaa', path: '/itsco/platformhipaa', label: 'HIPAA Notice of Privacy Practices' }
 ];
 const section = (id, title, paragraphs = [], items = [], links = []) => ({ id, title, paragraphs, items, links });

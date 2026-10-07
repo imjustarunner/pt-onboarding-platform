@@ -4,7 +4,7 @@ export function legalRouteEntries(profile) {
     {path:link.path,type:link.type,canonical:link.path},
     {path:`/${link.type}`,type:link.type,canonical:link.path},
     {path:`/p/${profile.slug}/${link.type}`,type:link.type,canonical:link.path},
-    ...({'privacypolicy':['privacy','privacy-policy'],'terms':[],'platformhipaa':['hipaa']}[link.type]).flatMap(alias=>[
+    ...({'privacypolicy':['privacy','privacy-policy'],'terms':[],'messaging':[],'platformhipaa':['hipaa']}[link.type]).flatMap(alias=>[
       {path:`/${alias}`,type:link.type,canonical:link.path},
       {path:`/p/${profile.slug}/${alias}`,type:link.type,canonical:link.path}
     ])

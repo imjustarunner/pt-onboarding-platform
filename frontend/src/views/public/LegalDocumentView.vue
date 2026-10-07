@@ -44,7 +44,7 @@ async function loadProfile() {
     // Unknown organizations get a service notice, never an inferred provider NPP.
     let origin=typeof window==='undefined'?'https://plottwisthq.com':window.location.origin;
     try { const website=new URL(data.website_url); if(website.protocol==='https:')origin=website.origin; } catch { /* Use this app's organization-scoped route. */ }
-    profile.value={slug:slug.value,name:data.name,legalName:data.official_name||data.name,origin,kind:'service',color:'#285e51',logo:'',email:data.support_team_email||'',phone:data.phone_number||'',contactUrl:`${origin}/${encodeURIComponent(slug.value)}/support`};
+    profile.value={legalOrigin:typeof window==='undefined'?'https://plottwisthq.com':window.location.origin,slug:slug.value,name:data.name,legalName:data.official_name||data.name,origin,kind:'service',color:/^#[0-9a-f]{6}$/i.test(data.color_palette?.primary||'')?data.color_palette.primary:'#285e51',logo:/^(https:\/\/|\/(?!\/))/.test(data.logo_url||'')?data.logo_url:'',email:data.support_team_email||'',phone:data.phone_number||'',contactUrl:`${origin}/${encodeURIComponent(slug.value)}/support`};
   } catch { if(request===sequence)error.value='We could not load this organization’s policies. Please try again or contact your organization for a copy.'; }
   finally { if(request===sequence)loading.value=false; }
 }

@@ -1,3 +1,4 @@
+import { messagingGuideForProfile } from './tenantMessagingGuide.js';
 import { itscoLegalDocuments } from './itscoLegalDocuments.js';
 
 const section=(id,title,paragraphs=[],items=[],links=[])=>({id,title,paragraphs,items,links});
@@ -13,7 +14,7 @@ function contact(profile) {
   ]);
 }
 
-export function legalDocumentsForProfile(profile) {
+function baseLegalDocumentsForProfile(profile) {
   if(profile.slug==='itsco') return itscoLegalDocuments;
   const replace = value => String(value)
     .replaceAll('https://www.itsco.health',profile.origin)
@@ -139,4 +140,11 @@ export function legalDocumentsForProfile(profile) {
     ]));
   }
   return {privacypolicy:privacy,terms,platformhipaa:hipaa};
+}
+
+export function legalDocumentsForProfile(profile) {
+  const docs = structuredClone(baseLegalDocumentsForProfile(profile));
+  const sms = docs.terms.sections.find(section => section.id === 'sms');
+  if (sms) sms.links.push({ label: 'How messaging works: your team, routing, and support', href: `/${profile.slug}/messaging` });
+  return { ...docs, messaging: messagingGuideForProfile(profile) };
 }

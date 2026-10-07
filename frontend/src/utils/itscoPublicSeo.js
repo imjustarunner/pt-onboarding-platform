@@ -1,5 +1,8 @@
 import { isItscoPublicHost, cleanItscoPath, internalItscoPath, ITSCO_PUBLIC_SECTIONS } from './publicDomainRouting.js';
-import { itscoLegalDocuments, itscoLegalLinks } from '../content/itscoLegalDocuments.js';
+import { itscoLegalLinks } from '../content/itscoLegalDocuments.js';
+import { legalDocumentsForProfile } from '../content/tenantLegalDocuments.js';
+import { tenantLegalProfiles } from '../content/tenantLegalProfiles.js';
+const itscoLegalDocuments = legalDocumentsForProfile(tenantLegalProfiles.itsco);
 // Preserve the canonical hostname advertised by the existing Wix site.
 export const ITSCO_ORIGIN = 'https://www.itsco.health';
 export const ITSCO_REDIRECTS = {
@@ -7,7 +10,7 @@ export const ITSCO_REDIRECTS = {
   '/schools-we-are-in': '/schools', '/inofficetherapy': '/services',
   '/intake': '/join/itsco/counseling', '/privacy-policy': '/itsco/privacypolicy',
   '/privacy': '/itsco/privacypolicy', '/privacypolicy': '/itsco/privacypolicy',
-  '/terms': '/itsco/terms', '/hipaa': '/itsco/platformhipaa', '/platformhipaa': '/itsco/platformhipaa'
+  '/terms': '/itsco/terms', '/messaging': '/itsco/messaging', '/hipaa': '/itsco/platformhipaa', '/platformhipaa': '/itsco/platformhipaa'
 };
 const titles = {
   ...Object.fromEntries(itscoLegalLinks.map(link => [link.path.slice(1), itscoLegalDocuments[link.type].title])),

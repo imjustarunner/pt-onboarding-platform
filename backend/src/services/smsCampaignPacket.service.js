@@ -61,7 +61,7 @@ export async function getPublicCampaignPacket(agencyId, program, audience) {
   if (!published) throw fail(404, 'This messaging program has not been published');
   const packet = buildCampaignPacket(published.profile, { agencyId, program, origin: buildPublicPortalBaseUrl(agency), published: true, publishedAt: published.at });
   // Public allowlist: no agency row, tax ID, actor, credentials, carrier IDs or recipient data.
-  return campaignPublicContent(packet, audience);
+  return { ...campaignPublicContent(packet, audience), messagingGuideUrl: `${new URL(buildPublicPortalBaseUrl(agency)).origin}/${encodeURIComponent(agency.slug)}/messaging` };
 }
 
 export async function getPublicSmsProgramDirectory(slug) {

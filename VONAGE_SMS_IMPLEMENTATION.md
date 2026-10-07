@@ -22,6 +22,25 @@ The app’s number search now uses the installed SDK’s single filter object wi
 creating an app record. [Vonage number API](https://developer.vonage.com/en/api/numbers)
 and [healthcare linking requirements](https://api.support.vonage.com/hc/en-us/articles/4407235273876-10-DLC-Number-linking-guide).
 
+## Approval and public guide update — October 7, 2026
+
+Vonage API verification on October 7 confirms:
+
+| Agency / program | Brand | Campaign | Carrier status | Linked numbers |
+| --- | --- | --- | --- | --- |
+| ITSCO Staff Notifications and Voting | BRC2ZW3 | VCSVZ9AN | ACTIVE; traffic enabled | 0 |
+| Next Level Up Service Communications | BMF4RBM | VC23QD14 | ACTIVE; traffic enabled | 0 |
+
+These campaigns are approved. Neither has a linked number yet; approval alone does not activate app delivery. Preserve healthcare provisioning, number-linkage and consent gates. No number was purchased, linked or activated as part of this guide update. The local database connection closed during registration inspection, so no app registration records were changed.
+
+Each organization’s terms now link to **How messaging works** at `/<organization-slug>/messaging`. The guide is also in policy navigation and published SMS addenda. Known website tenants receive complete branded HTML that works without JavaScript or sign-in; new organizations use their public agency identity through the app route. Clinical guidance applies when the care messaging service is enabled; coaching and platform pages do not represent those businesses as treating practices.
+
+- ITSCO: https://www.itsco.health/itsco/messaging
+- Next Level Up: https://nextleveluplcc.com/nlu/messaging
+- Inner Strength: https://theinnerstrengthinstitute.com/tisi/messaging
+
+The guide explains shared inboxes, assigned providers, sender verification, after-hours SUPPORT, response expectations, reminder replies, staff alerts and optional voting, privacy, opt-outs, and 988/911 guidance. It does not enroll recipients or promise activation of phone forwarding, voice recording, or transcription.
+
 ## Phone setup: prepare now, keep Grasshopper until voice testing passes
 
 The phone workflow editor is under **Settings → Texting Numbers → Phone setup**.

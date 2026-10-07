@@ -4,7 +4,7 @@
     <template v-else-if="data">
       <header>
         <a class="wordmark" :href="data.website"><img v-if="data.logoUrl" :src="data.logoUrl" alt="" referrerpolicy="no-referrer" />{{ data.brandName }}</a>
-        <nav aria-label="Organization policies"><a v-if="data.organizationTermsUrl" :href="data.organizationTermsUrl">Main Terms of Use</a><a v-if="data.organizationPrivacyUrl" :href="data.organizationPrivacyUrl">Privacy Policy</a><a :href="data.website">Website</a></nav>
+        <nav aria-label="Organization policies"><a v-if="data.organizationTermsUrl" :href="data.organizationTermsUrl">Main Terms of Use</a><a v-if="data.organizationPrivacyUrl" :href="data.organizationPrivacyUrl">Privacy Policy</a><a v-if="data.messagingGuideUrl" :href="data.messagingGuideUrl">How messaging works</a><a :href="data.website">Website</a></nav>
         <p class="eyebrow">{{ data.legalName }} · {{ data.programName }}</p>
         <h1>{{ page==='consent' ? 'Text messaging choices' : page==='privacy' ? 'SMS privacy details' : 'SMS program addendum' }}</h1>
         <p v-if="page==='terms'" class="intro">This addendum forms part of <a :href="data.organizationTermsUrl || data.website">{{ data.brandName }}’s main Terms of Use</a>. It explains this SMS program; your other terms remain in effect.</p>
@@ -14,7 +14,7 @@
       </header>
       <nav class="program-nav" aria-label="SMS program"><RouterLink :to="base+'/consent'" :aria-current="page==='consent'?'page':undefined">Consent example</RouterLink><RouterLink :to="base+'/terms'" :aria-current="page==='terms'?'page':undefined">SMS addendum</RouterLink><RouterLink :to="base+'/privacy'" :aria-current="page==='privacy'?'page':undefined">SMS privacy details</RouterLink></nav>
       <SmsConsentForm v-if="page==='consent'" v-bind="data.consent" />
-      <article v-else><section v-for="section in data[page]" :key="section.title"><h2>{{ section.title }}</h2><p>{{ section.body }}</p></section></article>
+      <article v-else><p v-if="page==='terms' && data.messagingGuideUrl" class="routing-link">Who receives your messages, what happens after hours, and how to get support: <a :href="data.messagingGuideUrl">Read how messaging works at {{ data.brandName }}</a>.</p><section v-for="section in data[page]" :key="section.title"><h2>{{ section.title }}</h2><p>{{ section.body }}</p></section></article>
       <footer>{{ data.legalName }} · <a :href="data.organizationTermsUrl || data.website">Main Terms of Use</a> · <a :href="data.organizationPrivacyUrl || data.website">Privacy Policy</a></footer>
     </template>
     <p v-else>Loading messaging program…</p>

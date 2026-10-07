@@ -7,10 +7,13 @@
       </nav>
       <p class="eyebrow">{{ profile.legalName }} · Your information and your choices</p>
       <h1>{{ document.title }}</h1>
-      <p class="date">Effective October 5, 2026 · Version {{ ITSCO_LEGAL_VERSION }}</p>
+      <p class="date">{{ document.updatedLabel || `Effective October 5, 2026 · Version ${ITSCO_LEGAL_VERSION}` }}</p>
       <p class="intro">{{ document.intro }}</p>
       <button type="button" class="print-button" @click="printDocument">Print or save as PDF</button>
     </header>
+    <ol v-if="document.flow" class="message-flow" aria-label="Your message, step by step">
+      <li v-for="(step, index) in document.flow" :key="step.title"><span class="step-number" aria-hidden="true">{{ index + 1 }}</span><h2>{{ step.title }}</h2><p>{{ step.body }}</p></li>
+    </ol>
     <nav class="contents" aria-label="On this page">
       <strong>On this page</strong>
       <a v-for="section in document.sections" :key="section.id" :href="`#${section.id}`">{{ section.title }}</a>
@@ -44,6 +47,7 @@ const printDocument = () => window.print();
 .itsco-legal { background:#fffdf7; color:#243e3c; min-height:100vh; padding:32px max(24px, calc((100% - 880px) / 2)); font-family:'Avenir Next', system-ui, sans-serif; line-height:1.75; overflow-wrap:anywhere; }
 .wordmark { font-size:28px; font-weight:750; text-decoration:none; }
 .wordmark span { display:block; font-size:13px; font-weight:500; }
+.message-flow{list-style:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:0;margin:32px 0}.message-flow li{margin:0;padding:24px;border:1px solid #d3ded5;border-radius:16px;background:#f0f5f1}.message-flow h2{margin:12px 0 8px;font-size:20px}.message-flow p{margin:0}.step-number{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--legal-brand,#285e51);color:white;font-weight:700}@media(max-width:580px){.message-flow{grid-template-columns:1fr}}
 nav { display:flex; flex-wrap:wrap; gap:12px 24px; padding:20px 0; }
 .wordmark img { display:block; width:auto; max-width:230px; height:68px; object-fit:contain; margin-bottom:16px; }
 a { color:var(--legal-brand,#285e51); text-underline-offset:4px; }

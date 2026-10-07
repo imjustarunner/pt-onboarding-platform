@@ -1123,6 +1123,18 @@ const routes = [
     meta: { requiresGuest: false, legalDocType: link.type, legalOrganizationSlug: profile.slug }
   }))),
   {
+    path: '/messaging',
+    name: 'PublicMessagingGuide',
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: 'messaging' }
+  },
+  {
+    path: '/:organizationSlug/messaging',
+    name: 'OrganizationMessagingGuide',
+    component: () => import('../views/public/LegalDocumentView.vue'),
+    meta: { requiresGuest: false, legalDocType: 'messaging', organizationSlug: true }
+  },
+  {
     path: '/terms',
     name: 'LegalTerms',
     component: () => import('../views/public/LegalDocumentView.vue'),
