@@ -11,6 +11,7 @@
 
     <div v-else class="content">
       <SmsCampaignReadiness :agency-id="agencyId" />
+      <CommunicationReviewQueue :agency-id="agencyId" />
       <div v-if="numbers.length === 0" class="card get-started-card">
         <h3>Get started with Vonage</h3>
         <p class="muted">You need Vonage numbers to use SMS. Here's how to set up:</p>
@@ -487,6 +488,7 @@
 </template>
 
 <script setup>
+import CommunicationReviewQueue from '../communications/CommunicationReviewQueue.vue';
 import SmsCampaignReadiness from './SmsCampaignReadiness.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';

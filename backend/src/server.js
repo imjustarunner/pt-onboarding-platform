@@ -2008,7 +2008,7 @@ if (!isBootstrap) {
         error?.code === 'ER_NO_SUCH_TABLE' ||
         msg.includes('sms_thread_escalations');
       if (missing) {
-        console.warn('SMS support escalation tables not found. Run migration 427_create_sms_thread_escalations.sql');
+        console.warn('SMS support review tables not found. Apply migrations 427 and 1546.');
       } else {
         console.error('Error in SMS support escalation scheduler:', error);
       }

@@ -1,91 +1,48 @@
-import Agency from '../models/Agency.model.js';
-import { staffNotificationBody } from '../utils/staffCommunicationChoices.js';
-import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import pool from '../config/database.js';
-import VonageService from './vonage.service.js';
-import MessageLog from '../models/MessageLog.model.js';
-import SmsThreadEscalation from '../models/SmsThreadEscalation.model.js';
+import { enqueueCommunicationReview } from './communicationReview.service.js';
+import SmsCareThread from '../models/SmsCareThread.model.js';
 
-const parseFeatureFlags = (raw) => {
-  if (!raw) return {};
-  if (typeof raw === 'object') return raw || {};
-  try {
-    return JSON.parse(raw) || {};
-  } catch {
-    return {};
-  }
-};
-
+// Keep client content in the app. Support escalation never requires a personal phone
+// or an additional outbound SMS, and never pretends that reading equals responding.
 class SmsSupportEscalationService {
   static async runTick() {
-    const [rows] = await pool.execute(
-      `SELECT ml.id, ml.agency_id, ml.user_id, ml.client_id, ml.body, ml.created_at, ml.from_number, ml.to_number,
-              c.initials AS client_initials, a.feature_flags, a.phone_number AS agency_phone,
-              u.role,
-              up.sms_support_thread_mode AS support_mode
-       FROM message_logs ml
-       JOIN users u ON u.id = ml.user_id
-       LEFT JOIN clients c ON c.id = ml.client_id
-       LEFT JOIN agencies a ON a.id = ml.agency_id
-       LEFT JOIN user_preferences up ON up.user_id = ml.user_id
-       WHERE ml.direction = 'INBOUND'
-         AND ml.client_id IS NOT NULL
-         AND u.role = 'provider'
-         AND NOT EXISTS (
-           SELECT 1 FROM message_logs newer_in
-           WHERE newer_in.user_id = ml.user_id
-             AND newer_in.client_id = ml.client_id
-             AND newer_in.direction = 'INBOUND'
-             AND newer_in.created_at > ml.created_at
-         )
-         AND NOT EXISTS (
-           SELECT 1 FROM message_logs out_msg
-           WHERE out_msg.user_id = ml.user_id
-             AND out_msg.client_id = ml.client_id
-             AND out_msg.direction = 'OUTBOUND'
-             AND out_msg.created_at > ml.created_at
-         )
-         AND NOT EXISTS (
-           SELECT 1 FROM sms_thread_escalations se
-           WHERE se.inbound_log_id = ml.id
-         )
-       ORDER BY ml.created_at ASC
-       LIMIT 200`
-    );
-
-    for (const row of rows || []) {
-      const flags = parseFeatureFlags(row.feature_flags);
-      const hours = Number(flags.smsSupportEscalationHours || 12);
-      const thresholdHours = Number.isFinite(hours) ? Math.min(Math.max(hours, 1), 168) : 12;
-      const createdAt = new Date(row.created_at);
-      const ageMs = Date.now() - createdAt.getTime();
-      if (!Number.isFinite(ageMs) || ageMs < thresholdHours * 60 * 60 * 1000) continue;
-
-      const supportPhone = MessageLog.normalizePhone(flags.smsSupportFallbackPhone || row.agency_phone) ||
-        flags.smsSupportFallbackPhone || row.agency_phone || null;
-      if (!supportPhone) continue;
-
-      const agency=await Agency.findById(row.agency_id);
-      const body=staffNotificationBody('support_safety_net_alert',buildPublicPortalBaseUrl(agency));
-      const from = MessageLog.normalizePhone(row.to_number) || row.to_number;
-      try {
-        await VonageService.sendSms({ purpose: 'workforce', agencyId:row.agency_id, staffNotificationKind:'messageAlerts', to: supportPhone, from, body });
-        await SmsThreadEscalation.createOrKeep({
-          agencyId: row.agency_id,
-          userId: row.user_id,
-          clientId: row.client_id,
-          inboundLogId: row.id,
-          escalatedToPhone: supportPhone,
-          escalationType: 'sla_timeout',
-          threadMode:'read_only',
-          metadata: { thresholdHours }
-        });
-      } catch (e) {
-        // best effort; skip and retry next tick
-      }
+    const [rows] = await pool.execute(`SELECT ml.id, ml.agency_id, ml.number_id, ml.client_id, ml.body,
+      ml.from_number, ml.to_number, ml.is_read
+      FROM message_logs ml JOIN agencies a ON a.id=ml.agency_id
+      WHERE ml.direction='INBOUND' AND ml.client_id IS NOT NULL
+        AND ml.created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL LEAST(168,GREATEST(1,
+          COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(a.feature_flags,'$.smsSupportEscalationHours')) AS UNSIGNED),12))) HOUR)
+        AND NOT EXISTS (SELECT 1 FROM message_logs reply WHERE reply.agency_id=ml.agency_id
+          AND reply.number_id <=> ml.number_id AND reply.sms_thread_key=ml.sms_thread_key
+          AND reply.direction='OUTBOUND' AND reply.delivery_status='sent' AND reply.created_at>ml.created_at
+          AND COALESCE(JSON_EXTRACT(reply.metadata,'$.autoReply'),FALSE)=FALSE
+          AND COALESCE(JSON_EXTRACT(reply.metadata,'$.vacationReply'),FALSE)=FALSE
+          AND COALESCE(JSON_EXTRACT(reply.metadata,'$.forwardOffer'),FALSE)=FALSE)
+        AND NOT EXISTS (SELECT 1 FROM message_logs newer WHERE newer.agency_id=ml.agency_id
+          AND newer.number_id <=> ml.number_id AND newer.sms_thread_key=ml.sms_thread_key
+          AND newer.direction='INBOUND' AND newer.id>ml.id)
+        AND NOT EXISTS (SELECT 1 FROM communication_review_queue q WHERE q.agency_id=ml.agency_id
+          AND q.channel='sms_followup' AND q.external_id=CAST(ml.id AS CHAR))
+      ORDER BY ml.created_at LIMIT 100`);
+    for (const row of rows) {
+      // Both writes are idempotent. Queue last so a failed care-thread update retries.
+      await SmsCareThread.setEscalated({agencyId:row.agency_id,clientId:row.client_id,numberId:row.number_id,
+        metadata:{reason:'unanswered_text',messageLogId:row.id}});
+      await enqueueCommunicationReview({agencyId:row.agency_id,numberId:row.number_id,channel:'sms_followup',
+        externalId:row.id,reason:row.is_read ? 'unanswered_text' : 'unread_text',
+        from:row.from_number,to:row.to_number,body:row.body,messageLogId:row.id});
     }
+    // This prepares support review for stored voicemail. Voice capture itself is not live.
+    const [voicemails] = await pool.execute(`SELECT cv.id,cv.agency_id,cv.from_number,cv.to_number
+      FROM call_voicemails cv JOIN agencies a ON a.id=cv.agency_id
+      WHERE cv.listened_at IS NULL AND cv.created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL LEAST(168,GREATEST(1,
+        COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(a.feature_flags,'$.smsSupportEscalationHours')) AS UNSIGNED),12))) HOUR)
+      AND NOT EXISTS (SELECT 1 FROM communication_review_queue q WHERE q.agency_id=cv.agency_id
+        AND q.channel='voicemail' AND q.external_id=CAST(cv.id AS CHAR))
+      ORDER BY cv.created_at LIMIT 100`);
+    for (const row of voicemails) await enqueueCommunicationReview({agencyId:row.agency_id,channel:'voicemail',
+      externalId:row.id,reason:'unheard_voicemail',from:row.from_number,to:row.to_number,
+      body:'An unheard voicemail needs support review in the app.',voicemailId:row.id});
   }
 }
-
 export default SmsSupportEscalationService;
-

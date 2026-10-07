@@ -1,0 +1,11 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+import {mount,flushPromises} from '@vue/test-utils';
+import Panel from '../CommunicationReviewQueue.vue';
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),patch:vi.fn()}}));
+import api from '../../../services/api';
+const item={id:3,channel:'sms',reason:'unknown_sender',status:'review',from:'+13035550101',to:'+13035550100',body:'<script>private</script>',createdAt:'2026-10-06T12:00:00Z'};
+beforeEach(()=>{vi.clearAllMocks();api.get.mockResolvedValue({data:{items:[item],nextBeforeId:null}});api.patch.mockResolvedValue({data:{}});});
+it('shows unknown messages as text with no automatic consent',async()=>{const w=mount(Panel,{props:{agencyId:2}});await flushPromises();expect(w.text()).toContain('does not grant SMS consent');expect(w.text()).toContain(item.body);expect(w.find('script').exists()).toBe(false);});
+it('blocks a sender through the agency-scoped review endpoint',async()=>{const w=mount(Panel,{props:{agencyId:2}});await flushPromises();await w.findAll('button').find(b=>b.text().includes('Block sender')).trigger('click');await flushPromises();expect(api.patch).toHaveBeenCalledWith('/sms-numbers/agency/2/review-queue/3',{action:'block'});});
+it('clears the previous agency immediately on tenant switch',async()=>{const w=mount(Panel,{props:{agencyId:2}});await flushPromises();api.get.mockReturnValue(new Promise(()=>{}));await w.setProps({agencyId:4});expect(w.text()).not.toContain(item.body);});
+it('keeps spam reviewable and allows unblocking',async()=>{api.get.mockResolvedValue({data:{items:[{...item,status:'spam'}],nextBeforeId:null}});const w=mount(Panel,{props:{agencyId:2}});await flushPromises();await w.findAll('button').find(b=>b.text().includes('Unblock')).trigger('click');await flushPromises();expect(api.patch).toHaveBeenCalledWith('/sms-numbers/agency/2/review-queue/3',{action:'restore'});});

@@ -576,6 +576,9 @@ export const listVoicemails = async (req, res, next) => {
     const params = [];
 
     if (canAgencyScope) {
+      if (agencyIdParam && role !== 'super_admin' && !agencyIds.includes(Number(agencyIdParam))) {
+        return res.status(403).json({error:{message:'Access denied'}});
+      }
       if (agencyIdParam) {
         where += ' AND cv.agency_id = ?';
         params.push(agencyIdParam);

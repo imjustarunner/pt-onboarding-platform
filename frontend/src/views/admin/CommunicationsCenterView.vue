@@ -98,6 +98,7 @@
 
       <!-- ========== SUPPORT HUB ========== -->
       <section v-show="activeMode === 'support'" class="cc-mode">
+        <CommunicationReviewQueue v-if="activeMode === 'support' && ['admin','super_admin','support','clinical_practice_assistant'].includes(roleLower)" :agency-id="agencyStore.currentAgency?.id" />
         <div class="cc-mode-intro split">
           <div>
             <h2>Support Hub</h2>
@@ -233,6 +234,7 @@
 </template>
 
 <script setup>
+import CommunicationReviewQueue from '../../components/communications/CommunicationReviewQueue.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';

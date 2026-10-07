@@ -1,3 +1,4 @@
+import { requireCommunicationReviewer, listReview, updateReview } from '../controllers/communicationReview.controller.js';
 import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin } from '../middleware/auth.middleware.js';
 import {
@@ -32,6 +33,8 @@ import { getIntakeConsentAudit, getIntakeConsentEvidence, listConsentRequests, c
 const router = express.Router();
 
 router.use(authenticate);
+router.get('/agency/:agencyId/review-queue', requireAgencyAccess, requireCommunicationReviewer, listReview);
+router.patch('/agency/:agencyId/review-queue/:id', requireAgencyAccess, requireCommunicationReviewer, updateReview);
 
 // Agency-level settings (feature flags)
 router.get('/agency/:agencyId/settings', requireAgencyAccess, getAgencySmsSettings);

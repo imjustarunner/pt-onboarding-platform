@@ -1,3 +1,6 @@
+import { isCommunicationStaffActive } from '../utils/communicationReceptionPolicy.js';
+import { isUserAvailable } from './availabilityWindow.service.js';
+import VacationScheduleSyncService from './vacationScheduleSync.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import Client from '../models/Client.model.js';
@@ -15,8 +18,9 @@ async function findAgencyIdForUser(userId) {
 
 async function userHasAgency(userId, agencyId) {
   if (!userId || !agencyId) return false;
-  const agencies = await User.getAgencies(userId);
-  return (agencies || []).some((a) => Number(a?.id) === Number(agencyId));
+  const [rows] = await pool.execute(`SELECT u.* FROM users u JOIN user_agencies ua ON ua.user_id=u.id
+    WHERE u.id=? AND ua.agency_id=? AND ua.is_active=TRUE LIMIT 1`, [userId,agencyId]);
+  return isCommunicationStaffActive(rows[0]);
 }
 
 async function findFallbackAgencyNumber(agencyId) {
@@ -38,7 +42,9 @@ async function findSupportStaffIdsForAgency(agencyId) {
      FROM users u
      JOIN user_agencies ua ON u.id = ua.user_id
      WHERE ua.agency_id = ?
-       AND u.role = 'support'
+       AND u.role IN ('support','clinical_practice_assistant')
+       AND ua.is_active=TRUE AND u.is_active=TRUE AND u.terminated_at IS NULL
+       AND u.status NOT IN ('TERMINATED_PENDING','ARCHIVED','INACTIVE_EMPLOYEE')
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
     [agencyId]
   );
@@ -53,6 +59,8 @@ async function findAnyAdminForAgency(agencyId) {
      JOIN user_agencies ua ON u.id = ua.user_id
      WHERE ua.agency_id = ?
        AND u.role IN ('admin','support','super_admin','clinical_practice_assistant')
+       AND ua.is_active=TRUE AND u.terminated_at IS NULL
+       AND u.status NOT IN ('TERMINATED_PENDING','ARCHIVED','INACTIVE_EMPLOYEE')
        AND u.is_active = TRUE
        AND (u.is_archived = FALSE OR u.is_archived IS NULL)
      ORDER BY u.role = 'admin' DESC
@@ -74,12 +82,14 @@ function parseFeatureFlags(raw) {
 
 export async function resolveOutboundNumber({ userId, clientId, requestedNumberId = null }) {
   if (!userId) return { error: 'user_required' };
+  if (!isCommunicationStaffActive(await User.findById(userId))) return {error:'staff_unavailable'};
 
   if (requestedNumberId) {
     const number = await PhoneNumber.findById(requestedNumberId);
     if (!number || !number.is_active || number.status === 'released') {
       return { error: 'number_unavailable' };
     }
+    if (!(await userHasAgency(userId,number.agency_id))) return {error:'number_not_accessible'};
     const assigned = await findAssignedUserForNumber(number.id);
     const eligibleIds = await PhoneNumberAssignment.listEligibleUserIdsForNumber(number.id);
     const userInPool = eligibleIds.some((id) => Number(id) === Number(userId));
@@ -96,7 +106,7 @@ export async function resolveOutboundNumber({ userId, clientId, requestedNumberI
   const primary = await PhoneNumberAssignment.findPrimaryForUser(userId);
   if (primary?.number_id) {
     const number = await PhoneNumber.findById(primary.number_id);
-    if (number && number.is_active && number.status !== 'released') {
+    if (number && number.is_active && number.status !== 'released' && await userHasAgency(userId,number.agency_id)) {
       return { number, assignment: primary, ownerType: 'staff' };
     }
   }
@@ -187,13 +197,8 @@ export async function resolveClientCaregivers(clientId, agencyId = null) {
     for (const id of caregiverIds) {
       if (await userHasAgency(id, agencyId)) filtered.push(id);
     }
-    if (filtered.length) {
-      const ownerOk = ownerUserId && filtered.includes(Number(ownerUserId));
-      return {
-        ownerUserId: ownerOk ? ownerUserId : filtered[0],
-        caregiverIds: filtered
-      };
-    }
+    const ownerOk = ownerUserId && filtered.includes(Number(ownerUserId));
+    return { ownerUserId:ownerOk ? ownerUserId : (filtered[0] || null), caregiverIds:filtered };
   }
 
   return { ownerUserId, caregiverIds };
@@ -218,7 +223,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
   // Non-clinical purposes (notification, tenant/platform contact, provider contact) skip care inbox.
   if (number && skipsClinicalInbox(purpose)) {
     const profile = await resolveProfilePhoneMatch(fromNumber, { agencyId: number.agency_id || null });
-    const client = profile.clients?.[0] || (await Client.findByContactPhone(fromNumber));
+    const client = profile.clients?.[0] || null;
     let supportOwner = null;
     let supportEligible = [];
     if (purpose === 'provider_contact' && number.id) {
@@ -253,7 +258,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     };
   }
 
-  const poolEligible = number
+  let poolEligible = number
     ? await PhoneNumberAssignment.listEligibleUserIdsForNumber(number.id)
     : [];
   if (number) {
@@ -269,10 +274,15 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
   });
   const client =
     profile.clients?.[0] ||
-    (profile.clientId ? await Client.findById(profile.clientId, { includeSensitive: false }) : null) ||
-    (await Client.findByContactPhone(fromNumber));
+    (profile.clientId ? await Client.findById(profile.clientId, { includeSensitive: false }) : null);
   matchedUserId = profile.userId || null;
   const agencyId = number?.agency_id || client?.agency_id || (ownerUser ? await findAgencyIdForUser(ownerUser.id) : null);
+
+  const activePool = [];
+  for (const id of poolEligible) if (await userHasAgency(id, agencyId)) activePool.push(id);
+  poolEligible = activePool;
+  if (assignment && !(await userHasAgency(assignment.user_id,agencyId))) assignment=null;
+  if (ownerUser && !(await userHasAgency(ownerUser.id,agencyId))) ownerUser=null;
 
   // Prefer CPA-based ownership over "first pool member owns everything".
   if (client?.id && agencyId) {
@@ -350,12 +360,29 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     }
   }
 
+  let coverageReason = null;
+  if (ownerUser?.id && ownerType === 'staff' && agencyId) {
+    const onVacation = await VacationScheduleSyncService.isUserOnVacation(ownerUser.id,agencyId);
+    const availability = await isUserAvailable(ownerUser.id,new Date(),{agencyId});
+    if (onVacation || !availability.available) {
+      coverageReason = onVacation ? 'provider_away' : 'outside_work_hours';
+      eligibleUserIds = await findSupportStaffIdsForAgency(agencyId);
+      if (!eligibleUserIds.length) {
+        const adminId=await findAnyAdminForAgency(agencyId);
+        if (adminId) eligibleUserIds=[adminId];
+      }
+      careState='escalated';
+      supportAccess='respond';
+    }
+  }
+
   return {
     number,
     assignment,
     ownerUser,
     ownerType,
-    eligibleUserIds: eligibleUserIds.length > 0 ? eligibleUserIds : (ownerUser ? [ownerUser.id] : []),
+    eligibleUserIds: coverageReason ? eligibleUserIds : (eligibleUserIds.length > 0 ? eligibleUserIds : (ownerUser ? [ownerUser.id] : [])),
+    coverageReason,
     agencyId,
     client,
     clientId: client?.id || null,

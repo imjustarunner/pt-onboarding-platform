@@ -35,33 +35,27 @@ export async function resolveProfilePhoneMatch(phone, { agencyId = null } = {}) 
   const normalized = MessageLog.normalizePhone(phone) || Client.normalizePhone?.(phone) || null;
   if (!normalized) return { clientId: null, userId: null, clients: [] };
 
-  const client = await Client.findByContactPhone(normalized);
-  if (client?.id) {
-    return {
-      clientId: client.id,
-      userId: null,
-      clients: [client],
-      matchType: 'client'
-    };
-  }
-
-  // Guardian / user phones (exact + last-10 digit fallback)
   const digits = normalized.replace(/\D/g, '');
-  const last10 = digits.slice(-10);
-  const [userRows] = await pool.execute(
-    `SELECT id, role, phone_number, personal_phone, work_phone
-     FROM users
-     WHERE phone_number = ? OR personal_phone = ? OR work_phone = ?
-        OR RIGHT(REPLACE(REPLACE(REPLACE(COALESCE(phone_number,''), '+', ''), '-', ''), ' ', ''), 10) = ?
-        OR RIGHT(REPLACE(REPLACE(REPLACE(COALESCE(personal_phone,''), '+', ''), '-', ''), ' ', ''), 10) = ?
-        OR RIGHT(REPLACE(REPLACE(REPLACE(COALESCE(work_phone,''), '+', ''), '-', ''), ' ', ''), 10) = ?
-     LIMIT 5`,
-    [normalized, normalized, normalized, last10, last10, last10]
+  const [directClients] = await pool.execute(
+    `SELECT * FROM clients WHERE REGEXP_REPLACE(COALESCE(contact_phone,''), '[^0-9]', '') IN (?, ?)
+      ${agencyId ? 'AND agency_id = ?' : ''} ORDER BY id LIMIT 20`,
+    [digits, digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits, ...(agencyId ? [agencyId] : [])]
   );
-  const user = (userRows || [])[0] || null;
-  if (!user?.id) {
-    return { clientId: null, userId: null, clients: [], matchType: null };
-  }
+  if (directClients.length) return { clientId:directClients[0].id, userId:null, clients:directClients, matchType:'client' };
+
+  const [userRows] = await pool.execute(
+    `SELECT u.id,u.role FROM users u
+     WHERE (REGEXP_REPLACE(COALESCE(u.phone_number,''), '[^0-9]', '') IN (?, ?)
+       OR REGEXP_REPLACE(COALESCE(u.personal_phone,''), '[^0-9]', '') IN (?, ?)
+       OR REGEXP_REPLACE(COALESCE(u.work_phone,''), '[^0-9]', '') IN (?, ?))
+       ${agencyId ? `AND (EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND ua.is_active=TRUE)
+         OR EXISTS (SELECT 1 FROM client_guardians cg JOIN clients c ON c.id=cg.client_id WHERE cg.guardian_user_id=u.id AND c.agency_id=?))` : ''}
+     ORDER BY u.id LIMIT 5`,
+    [...Array(3).fill([digits, digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits]).flat(), ...(agencyId ? [agencyId,agencyId] : [])]
+  );
+  // A shared phone with multiple user accounts needs human identification.
+  if (userRows.length !== 1) return {clientId:null,userId:null,clients:[],matchType:null,ambiguous:userRows.length > 1};
+  const user = userRows[0];
 
   let clients = [];
   try {

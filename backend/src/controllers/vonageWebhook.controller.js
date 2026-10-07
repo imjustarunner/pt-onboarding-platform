@@ -1,3 +1,4 @@
+import { inspectInboundReception, enqueueCommunicationReview } from '../services/communicationReview.service.js';
 import { staffNotificationBody } from '../utils/staffCommunicationChoices.js';
 import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import { deliverCompanyEventVoteReply } from '../services/companyEventSmsReply.service.js';
@@ -71,7 +72,7 @@ async function forwardEmergency({ numberId, agencyId, body, fromNumber, sendingN
         relatedEntityId: null,
         actorSource: 'Vonage'
       },
-      { context: { isUrgent: true } }
+      { context: {isUrgent:true} }
     );
   }
   // Raw client content must stay in the app; personal-phone relay is not launched.
@@ -100,7 +101,9 @@ async function listSupportStaffIdsForAgency(agencyId) {
      FROM users u
      JOIN user_agencies ua ON u.id = ua.user_id
      WHERE ua.agency_id = ?
-     AND u.role = 'support'
+     AND u.role IN ('support','clinical_practice_assistant')
+     AND ua.is_active=TRUE AND u.is_active=TRUE AND u.terminated_at IS NULL
+     AND u.status NOT IN ('TERMINATED_PENDING','ARCHIVED','INACTIVE_EMPLOYEE')
      AND (u.is_archived = FALSE OR u.is_archived IS NULL)`,
     [agencyId]
   );
@@ -140,7 +143,21 @@ export const inboundSmsWebhook = async (req, res, next) => {
       return res.status(200).json({ ok: true });
     }
 
-    await recordInboundConversation({ from: fromNorm, to: toNorm, messageId });
+    const reception = await inspectInboundReception({ from:fromNorm, to:toNorm, body });
+    const holdForReview = async () => {
+      await enqueueCommunicationReview({agencyId:reception.number.agency_id,numberId:reception.number.id,
+        externalId:messageId,reason:reception.reason,from:fromNorm,to:toNorm,
+        body:body || (mediaUrls.length ? '[Multimedia message: review with support]' : '')});
+      if (reception.profile?.clientId && reception.profile.clients?.length === 1) {
+        const {recordSmsProfileAudit}=await import('../services/smsProfileAudit.service.js');
+        await recordSmsProfileAudit({agencyId:reception.number.agency_id,numberId:reception.number.id,
+          numberPurpose:reception.number.number_purpose,direction:'INBOUND',fromNumber:fromNorm,toNumber:toNorm,
+          body,clientId:reception.profile.clientId,userId:reception.profile.userId || null});
+      }
+      return res.status(200).json({ok:true,heldForReview:true});
+    };
+    if (['blocked_sender','suspected_advertising'].includes(reception.reason)) return await holdForReview();
+
 
     const companyEventHandled = await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body });
     if (companyEventHandled?.handled) {
@@ -158,6 +175,9 @@ export const inboundSmsWebhook = async (req, res, next) => {
     if (campaignHandled?.handled) {
       return res.status(200).json({ ok: true, message: campaignHandled.responseMessage || 'Thanks!' });
     }
+
+    if (reception.reason) return await holdForReview();
+    await recordInboundConversation({ from: fromNorm, to: toNorm, messageId });
 
     const route = await resolveInboundRoute({ toNumber: toNorm, fromNumber: fromNorm });
     const { recordSmsProfileAudit } = await import('../services/smsProfileAudit.service.js');
@@ -215,7 +235,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
       return res.status(200).json({ ok: true });
     }
 
-    const client = route.client || (await Client.findByContactPhone(fromNorm));
+    const client = route.client || null;
     const agencyId = route.agencyId || (ownerUser ? await getAgencyIdForUser(ownerUser.id) : null);
     const clientId = client?.id || null;
 
@@ -473,7 +493,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
         await createNotificationAndDispatch(
           {
             type: 'inbound_client_message',
-            severity: 'urgent',
+            severity: 'info',
             title: inboundTitle,
             message: inboundMessage,
             userId,
@@ -482,7 +502,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
             relatedEntityId: inboundLog.id,
             actorSource: 'Vonage'
           },
-          { context: { isUrgent: true } }
+          { context: {} }
         );
       }
 
@@ -498,7 +518,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
         await createNotificationAndDispatch(
           {
             type: 'support_safety_net_alert',
-            severity: 'urgent',
+            severity: 'info',
             title: appointmentReplyContext?.needsSupport
               ? 'Support: appointment SMS needs engagement'
               : 'Safety Net: inbound client message',
@@ -515,7 +535,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
             relatedEntityId: inboundLog.id,
             actorSource: 'Vonage'
           },
-          { context: { isUrgent: true } }
+          { context: {} }
         );
       }
 
@@ -535,7 +555,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
         await createNotificationAndDispatch(
           {
             type: 'support_safety_net_alert',
-            severity: 'urgent',
+            severity: 'info',
             title: 'Support: appointment SMS needs engagement',
             message: client?.initials
               ? `${client.initials} sent free text about appointment #${appointmentReplyContext.appointmentId}. Open texting to respond.`
@@ -546,7 +566,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
             relatedEntityId: inboundLog?.id || null,
             actorSource: 'Vonage'
           },
-          { context: { isUrgent: true } }
+          { context: {} }
         );
       }
     }
