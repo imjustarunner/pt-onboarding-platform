@@ -136,3 +136,14 @@ describe('submission and evidence validation', () => {
     } })).toEqual([]);
   });
 });
+
+it('preserves provider identity and brand after the consent check', async () => {
+ permissions.push({scope:'campaign:C123',phone:message.to,purpose:'care',status:'opted_in'});
+ expect(await prepareSmsDelivery({...message,purpose:'care',body:'Michael: Sounds good.',senderFirstName:'Michael'})).toMatchObject({body:'Michael: Sounds good.\nITSCO. Reply STOP to opt out.'});
+});
+it('a provider name does not bypass consent or STOP', async () => {
+ await expect(prepareSmsDelivery({...message,purpose:'care',senderFirstName:'Michael'})).rejects.toMatchObject({code:'sms_consent_required'});
+ permissions.push({scope:'campaign:C123',phone:message.to,purpose:'care',status:'opted_in'});
+ await processSmsKeyword({from:message.to,to:message.from,body:'STOP',sendReply:vi.fn()});
+ await expect(prepareSmsDelivery({...message,purpose:'care',senderFirstName:'Michael'})).rejects.toMatchObject({code:'sms_opted_out'});
+});

@@ -1,3 +1,4 @@
+import { assignedSmsAccessSql } from '../utils/assignedSmsAccessSql.js';
 import { smsThreadKey } from '../utils/smsThreadIdentity.js';
 import pool from '../config/database.js';
 
@@ -145,8 +146,8 @@ class MessageLog {
    */
   static async listThread({ userId, clientId = null, agencyContactId = null, limit = 100, assignedNumberIds = [] }) {
     const ids = (assignedNumberIds || []).map(Number).filter(Boolean);
-    const conditions = ['(user_id = ? OR number_id IN (' + (ids.length > 0 ? ids.map(() => '?').join(',') : 'NULL') + '))'];
-    const params = [userId, ...ids];
+    const conditions = ['(ml.user_id = ? OR ml.number_id IN (' + (ids.length > 0 ? ids.map(() => '?').join(',') : 'NULL') + ') OR ' + assignedSmsAccessSql + ')'];
+    const params = [userId, ...ids, userId, userId, userId];
 
     if (clientId) {
       conditions.push('client_id = ?');
@@ -158,13 +159,13 @@ class MessageLog {
       throw new Error('Either clientId or agencyContactId is required');
     }
 
-    params.push(limit);
+    const safeLimit = Number.isFinite(Number(limit)) ? Math.min(200, Math.max(1, Math.trunc(Number(limit)))) : 100;
     const [rows] = await pool.execute(
-      `SELECT *
-       FROM message_logs
+      `SELECT ml.*
+       FROM message_logs ml
        WHERE ${conditions.join(' AND ')}
        ORDER BY created_at DESC
-       LIMIT ?`,
+       LIMIT ${safeLimit}`,
       params
     );
     return rows;

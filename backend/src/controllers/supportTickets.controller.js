@@ -1232,6 +1232,7 @@ export const listSupportTicketsQueue = async (req, res, next) => {
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY
         CASE WHEN LOWER(t.status) = 'open' THEN 0 ELSE 1 END,
+        ${await hasSupportTicketPriorityColumn() ? "CASE WHEN t.priority = 'high' THEN 0 WHEN t.priority = 'medium' THEN 1 ELSE 2 END," : ''}
         t.created_at DESC
       LIMIT ${limit}
     `;

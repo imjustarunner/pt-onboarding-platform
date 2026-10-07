@@ -1,3 +1,4 @@
+import { assignedSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 
@@ -21,6 +22,11 @@ export async function requireConversationAccess(user, conversationId) {
   const ownsInbox = c.inbox_kind === 'personal' && Number(c.inbox_owner_user_id) === uid;
   if (c.inbox_kind === 'personal' && !ownsInbox) throw Object.assign(new Error('Conversation not found'), { status: 404 });
   if (ownsInbox || Number(c.owner_user_id) === uid || ['admin', 'support'].includes(role)) return c;
+  if (c.channel === 'sms') {
+    const [assigned] = await pool.execute(`SELECT c.id FROM communication_conversations c
+      WHERE c.id = ? AND ${assignedSmsConversationSql} LIMIT 1`, [id, uid, uid, uid]);
+    if (assigned.length) return c;
+  }
   if (c.channel === 'sms' && String(c.external_thread_id || '').startsWith('sms:v2:')) {
     const [sms] = await pool.execute(`SELECT id FROM message_logs WHERE agency_id = ? AND sms_thread_key = ?
       AND (user_id = ? OR assigned_user_id = ? OR number_id IN (SELECT number_id FROM twilio_number_assignments WHERE user_id = ? AND is_active = 1 AND sms_access_enabled = 1)) LIMIT 1`, [c.agency_id, c.external_thread_id, uid, uid, uid]);

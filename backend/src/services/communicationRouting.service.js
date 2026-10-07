@@ -371,19 +371,19 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
 
   let coverageReason = null;
   if (ownerUser?.id && ownerType === 'staff' && agencyId) {
-    const onVacation = await VacationScheduleSyncService.isUserOnVacation(ownerUser.id,agencyId);
-    const availability = await isUserAvailable(ownerUser.id,new Date(),{agencyId});
-    if (onVacation || !availability.available) {
-      coverageReason = onVacation ? 'provider_away' : 'outside_work_hours';
-      eligibleUserIds = await findSupportStaffIdsForAgency(agencyId);
-      if (!eligibleUserIds.length) {
-        const adminId=await findAnyAdminForAgency(agencyId);
-        if (adminId) eligibleUserIds=[adminId];
-      }
-      careState='escalated';
-      supportAccess='respond';
+    const availableCaregivers = [];
+    for (const id of eligibleUserIds.length ? eligibleUserIds : [ownerUser.id]) {
+      const onVacation = await VacationScheduleSyncService.isUserOnVacation(id, agencyId);
+      const availability = await isUserAvailable(id, new Date(), { agencyId });
+      if (onVacation || !availability.available) {
+        if (onVacation || !coverageReason) coverageReason = onVacation ? 'provider_away' : 'outside_work_hours';
+      } else availableCaregivers.push(id);
     }
+    // Keep each provider's availability independent. Support receives the message
+    // only after the client accepts the out-of-office forwarding offer.
+    eligibleUserIds = availableCaregivers;
   }
+  const allCaregiversAway = ownerType === 'staff' && !!coverageReason && eligibleUserIds.length === 0;
 
   return {
     number,
@@ -392,6 +392,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     ownerType,
     eligibleUserIds: coverageReason ? eligibleUserIds : (eligibleUserIds.length > 0 ? eligibleUserIds : (ownerUser ? [ownerUser.id] : [])),
     coverageReason,
+    allCaregiversAway,
     agencyId,
     client,
     clientId: client?.id || null,

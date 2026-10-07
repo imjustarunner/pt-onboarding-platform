@@ -34,9 +34,14 @@ export function validateSmsRegistration(registration) {
   return errors;
 }
 
-export function formatRegisteredSms(body, brandName) {
+export function formatRegisteredSms(body, brandName, senderFirstName = null) {
   const text = String(body || '').trim();
   if (!text) throw smsPolicyError('sms_empty_body', 'SMS body is required');
+  if (senderFirstName) {
+    const name = String(senderFirstName).replace(/[\r\n\t:]+/g, ' ').trim();
+    const authored = text.startsWith(`${name}:`) ? text : `${name}: ${text}`;
+    return `${authored}\n${brandName}. Reply STOP to opt out.`;
+  }
   const branded = text.startsWith(`${brandName}:`) ? text : `${brandName}: ${text}`;
   return /\bSTOP\b/i.test(branded) ? branded : `${branded} Reply STOP to opt out.`;
 }

@@ -1,3 +1,4 @@
+import { assertClinicalSmsRecipient, staffSmsIdentity } from '../services/clinicalSmsAccess.service.js';
 import multer from 'multer';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -366,6 +367,9 @@ export const sendMessage = async (req, res, next) => {
       targetAgencyId = contact.agency_id;
     }
 
+    await assertClinicalSmsRecipient({ user, client, contact });
+    const authored = staffSmsIdentity(user, body);
+
     if (!targetPhone) {
       return res.status(400).json({ error: { message: 'Recipient does not have a contact phone assigned' } });
     }
@@ -442,7 +446,7 @@ export const sendMessage = async (req, res, next) => {
       ownerType,
       clientId: cid,
       agencyContactId: aid,
-      body: body || (hasMedia ? '[MMS]' : ''),
+      body: authored.body,
       fromNumber,
       toNumber: targetPhone,
       deliveryStatus: 'pending',
@@ -454,7 +458,7 @@ export const sendMessage = async (req, res, next) => {
       const msg = await VonageService.sendSms({ purpose: 'care', agencyId: targetAgencyId,
         to: MessageLog.normalizePhone(targetPhone) || targetPhone,
         from: MessageLog.normalizePhone(fromNumber) || fromNumber,
-        body: body || '',
+        body: authored.body, senderFirstName: authored.senderFirstName,
         mediaUrl: hasMedia ? mediaUrls : null
       });
       const sentMetadata = { provider: 'vonage', status: msg.status, gatekeeper: decision };
@@ -471,7 +475,7 @@ export const sendMessage = async (req, res, next) => {
               contactId: matchedContact.id,
               channel: 'sms',
               direction: 'outbound',
-              body,
+              body: authored.body,
               externalRefId: String(outboundLog.id),
               metadata: { fromNumber, toNumber: targetPhone, messageLogId: outboundLog.id }
             });
@@ -501,7 +505,7 @@ export const sendMessage = async (req, res, next) => {
           toNumber: targetPhone,
           numberId,
           numberPurpose: resolved?.number?.number_purpose || null,
-          body: body || (hasMedia ? '[MMS]' : ''),
+          body: authored.body,
           messageLogId: updated?.id || outboundLog?.id || null,
           clientId: cid || null
         });

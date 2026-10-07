@@ -1,3 +1,4 @@
+import { assignedSmsConversationSql } from '../utils/assignedSmsAccessSql.js';
 import pool from '../config/database.js';
 
 function parseJson(v, fallback = null) {
@@ -172,6 +173,7 @@ class CommunicationConversation {
     if (scopeToUserId) {
       where.push(`(
         c.owner_user_id = ?
+        OR ${assignedSmsConversationSql}
         OR EXISTS (
           SELECT 1 FROM communication_inboxes pi
           WHERE pi.id = c.inbox_id
@@ -180,7 +182,7 @@ class CommunicationConversation {
         )
       )`);
       where.push(`(c.inbox_id IS NULL OR NOT EXISTS (SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id <> ?))`);
-      params.push(scopeToUserId, scopeToUserId, scopeToUserId);
+      params.push(scopeToUserId, scopeToUserId, scopeToUserId, scopeToUserId, scopeToUserId, scopeToUserId);
     }
     if (inboxId) {
       // Email is inbox-scoped; SMS/calls are agency-wide (no mailbox) and still appear in All.
@@ -515,6 +517,7 @@ class CommunicationConversation {
     const scopeClause = scopeUid
       ? `AND (
            c.owner_user_id = ?
+           OR ${assignedSmsConversationSql}
            OR EXISTS (
              SELECT 1 FROM communication_inboxes pi
              WHERE pi.id = c.inbox_id
@@ -523,7 +526,7 @@ class CommunicationConversation {
            )
          )`
       : '';
-    const scopeParams = scopeUid ? [scopeUid, scopeUid] : [];
+    const scopeParams = scopeUid ? [scopeUid, scopeUid, scopeUid, scopeUid, scopeUid] : [];
 
     const count = async (extra, extraParams = []) => {
       const [rows] = await pool.execute(

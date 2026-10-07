@@ -10,6 +10,8 @@ class SmsSupportEscalationService {
       ml.from_number, ml.to_number, ml.is_read
       FROM message_logs ml JOIN agencies a ON a.id=ml.agency_id
       WHERE ml.direction='INBOUND' AND ml.client_id IS NOT NULL
+        AND COALESCE(JSON_EXTRACT(ml.metadata, '$.awaitingProviderReturn'), false) = false
+        AND COALESCE(JSON_EXTRACT(ml.metadata, '$.supportChoiceAccepted'), false) = false
         AND ml.created_at <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL LEAST(168,GREATEST(1,
           COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(a.feature_flags,'$.smsSupportEscalationHours')) AS UNSIGNED),12))) HOUR)
         AND NOT EXISTS (SELECT 1 FROM message_logs reply WHERE reply.agency_id=ml.agency_id

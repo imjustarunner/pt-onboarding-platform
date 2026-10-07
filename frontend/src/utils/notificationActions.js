@@ -29,7 +29,7 @@ export function notificationDestination(notification, { organizationSlug = null,
   if (n.type === 'escalation_mention' || (entityType === 'escalation' && entityId)) {
     return `${base}/admin/escalations${entityId ? `?id=${entityId}` : ''}`;
   }
-  if (n.type === 'support_ticket_created') return `${base}/tickets${entityId ? `?status=open&ticketId=${entityId}` : ''}`;
+  if (n.type === 'support_ticket_created' || (n.type === 'support_safety_net_alert' && entityType === 'support_ticket')) return `${base}/tickets${entityId ? `?status=open&ticketId=${entityId}` : ''}`;
   if (n.type === 'support_ticket_forwarded_to_provider' && entityType === 'client' && entityId) {
     return { path: `${base}/dashboard`, query: { clientId: String(entityId) } };
   }
@@ -75,7 +75,7 @@ export function notificationPrimaryLabel(notification) {
   if (notification.type === 'school_event_marketing_photo') return 'View photos';
   if (notification.type === 'school_event_marketing_photo_missing') return 'Open event';
   if (notification.type === 'escalation_mention') return 'Open escalation';
-  if (notification.type === 'support_ticket_created') return 'Open ticket';
+  if (notification.type === 'support_ticket_created' || (notification.type === 'support_safety_net_alert' && notification.related_entity_type === 'support_ticket')) return 'Open ticket';
   if (notification.type === 'office_availability_request_pending') return 'Review request';
   if (notificationDestination(notification)) return 'Open';
   return null;

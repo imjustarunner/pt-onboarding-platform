@@ -1,3 +1,4 @@
+import { assertClinicalSmsRecipient, staffSmsIdentity } from './clinicalSmsAccess.service.js';
 import { parseSmsThreadKey, normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -72,23 +73,28 @@ export async function sendClinicalSms({
   const user = await User.findById(uid);
   if (!user) throw Object.assign(new Error('User not found'), { status: 404 });
 
+  let client = null;
+  let contact = null;
   let targetPhone = null;
   let targetAgencyId = null;
 
   if (cid) {
-    const client = await Client.findById(cid, { includeSensitive: true });
+    client = await Client.findById(cid, { includeSensitive: true });
     if (!client) throw Object.assign(new Error('Client not found'), { status: 404 });
     await assertClientAgencyAccess(uid, client);
     targetPhone = client.contact_phone;
     targetAgencyId = client.agency_id;
   } else if (aid) {
-    const contact = await AgencyContact.findById(aid);
+    contact = await AgencyContact.findById(aid);
     if (!contact) throw Object.assign(new Error('Contact not found'), { status: 404 });
     const agencyIds = await getAgencyIdsForUser(uid);
     if (!agencyIds.includes(Number(contact.agency_id))) throw Object.assign(new Error('Access denied to this contact'), { status: 403 });
     targetPhone = contact.phone;
     targetAgencyId = contact.agency_id;
   }
+
+  await assertClinicalSmsRecipient({ user, client, contact });
+  const authored = staffSmsIdentity(user, body);
 
   if (!targetPhone) {
     throw Object.assign(new Error('Recipient does not have a contact phone assigned'), { status: 400 });
@@ -165,7 +171,7 @@ export async function sendClinicalSms({
     ownerType,
     clientId: cid,
     agencyContactId: aid,
-    body: text || (hasMedia ? '[MMS]' : ''),
+    body: authored.body,
     fromNumber,
     toNumber: targetPhone,
     deliveryStatus: 'pending',
@@ -177,7 +183,7 @@ export async function sendClinicalSms({
     const msg = await VonageService.sendSms({ purpose: 'care', agencyId: targetAgencyId,
       to: MessageLog.normalizePhone(targetPhone) || targetPhone,
       from: MessageLog.normalizePhone(fromNumber) || fromNumber,
-      body: text || '',
+      body: authored.body, senderFirstName: authored.senderFirstName,
       mediaUrl: hasMedia ? mediaUrls : null
     });
     const sentMetadata = { provider: 'vonage', status: msg.status, gatekeeper: decision };
@@ -194,7 +200,7 @@ export async function sendClinicalSms({
             contactId: matchedContact.id,
             channel: 'sms',
             direction: 'outbound',
-            body: text,
+            body: authored.body,
             externalRefId: String(outboundLog.id),
             metadata: { fromNumber, toNumber: targetPhone, messageLogId: outboundLog.id }
           });
@@ -213,7 +219,7 @@ export async function sendClinicalSms({
         toNumber: targetPhone,
         numberId: resolvedNumberId,
         numberPurpose: resolved?.number?.number_purpose || null,
-        body: text || (hasMedia ? '[MMS]' : ''),
+        body: authored.body,
         messageLogId: updated?.id || outboundLog?.id || null,
         clientId: cid || null
       });

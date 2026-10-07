@@ -23,3 +23,15 @@ describe('conversation and attachment access', () => {
     await expect(requireConversationAccess({ id: 5, role: 'provider' }, 1)).rejects.toMatchObject({ status: 404 });
   });
 });
+
+it('allows a second active assigned provider to open the shared SMS conversation', async () => {
+ pool.execute.mockResolvedValueOnce([[{id:1,agency_id:2,channel:'sms',owner_user_id:10,external_thread_id:'sms:v2:client:4:test'}]])
+   .mockResolvedValueOnce([[{id:1}]]);
+ expect(await requireConversationAccess({id:11,role:'provider'},1)).toMatchObject({id:1});
+ expect(pool.execute.mock.calls[1][1]).toEqual([1,11,11,11]);
+});
+it('does not grant shared SMS access from assignment in another agency', async () => {
+ pool.execute.mockResolvedValueOnce([[{id:1,agency_id:3,channel:'sms',owner_user_id:10}]]);
+ await expect(requireConversationAccess({id:11,role:'provider'},1)).rejects.toMatchObject({status:404});
+ expect(pool.execute).toHaveBeenCalledTimes(1);
+});

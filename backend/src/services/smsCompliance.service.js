@@ -92,7 +92,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications' }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -131,7 +131,7 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     [sender.scope, recipient, purpose]
   );
   if (!permissions.length) throw smsPolicyError('sms_consent_required', 'Recorded recipient consent for this SMS purpose is required');
-  return { to: recipient, from: sender.phone_number, body: formatRegisteredSms(body, registration.brandName) };
+  return { to: recipient, from: sender.phone_number, body: formatRegisteredSms(body, registration.brandName, purpose === 'care' ? senderFirstName : null) };
 }
 
 export async function resolveRegisteredSmsSender({ agencyId, purpose }) {

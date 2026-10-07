@@ -28,6 +28,7 @@ class SmsAutoReplyRuleService {
        FROM message_logs ml
        JOIN agencies a ON a.id = ml.agency_id
        WHERE ml.direction = 'INBOUND'
+         AND COALESCE(JSON_EXTRACT(ml.metadata, '$.awaitingProviderReturn'), false) = false
          AND ml.client_id IS NOT NULL
          AND ml.created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)
          AND NOT EXISTS (

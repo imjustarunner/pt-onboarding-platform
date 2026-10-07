@@ -37,8 +37,8 @@ beforeEach(()=>{
 });
 describe('provider communication coverage',()=>{
  it('routes available clinicians to their own client',async()=>{expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[10],coverageReason:null});});
- it('routes after-hours notifications to support without changing care ownership',async()=>{isUserAvailable.mockResolvedValue({available:false});expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[20],coverageReason:'outside_work_hours',supportAccess:'respond'});expect(isUserAvailable).toHaveBeenCalledWith(10,expect.any(Date),{agencyId:2});});
- it('routes vacation to support even within work hours',async()=>{Vacation.isUserOnVacation.mockResolvedValue(true);expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({eligibleUserIds:[20],coverageReason:'provider_away'});});
+ it('holds after-hours messages for the client choice without changing care ownership',async()=>{isUserAvailable.mockResolvedValue({available:false});expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[],coverageReason:'outside_work_hours',supportAccess:'observe',allCaregiversAway:true});expect(isUserAvailable).toHaveBeenCalledWith(10,expect.any(Date),{agencyId:2});});
+ it('holds vacation messages even within work hours',async()=>{Vacation.isUserOnVacation.mockResolvedValue(true);expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({eligibleUserIds:[],coverageReason:'provider_away',allCaregiversAway:true});});
  it('rejects outbound use by a terminated provider',async()=>{User.findById.mockResolvedValue({id:10,status:'TERMINATED_PENDING'});expect(await resolveOutboundNumber({userId:10})).toEqual({error:'staff_unavailable'});});
 });
 
@@ -59,4 +59,23 @@ describe('shared care line assignment',()=>{
   Client.findById.mockResolvedValue({id:4,agency_id:2});getSharedCareNumber.mockResolvedValue({id:1,agency_id:2});
   expect(await resolveOutboundNumber({userId:10,clientId:4})).toMatchObject({number:{id:1},ownerType:'agency',assignment:null});
  });
+});
+
+it('notifies both assigned providers without unrelated pool members', async () => {
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT provider_user_id') ? [[{provider_user_id:10,is_primary:1},{provider_user_id:11,is_primary:0}]] : original(sql,args));
+ PhoneNumberAssignment.listEligibleUserIdsForNumber.mockResolvedValue([10,11,99]);
+ expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[10,11]});
+});
+it('keeps the second provider notified when the primary is away without forwarding to support', async () => {
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT provider_user_id') ? [[{provider_user_id:10,is_primary:1},{provider_user_id:11,is_primary:0}]] : original(sql,args));
+ Vacation.isUserOnVacation.mockImplementation(async id=>id===10);
+ expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({careOwnerUserId:10,eligibleUserIds:[11],coverageReason:'provider_away',allCaregiversAway:false});
+});
+it('checks the second provider availability separately', async () => {
+ const original=pool.execute.getMockImplementation();
+ pool.execute.mockImplementation(async(sql,args)=>sql.includes('SELECT provider_user_id') ? [[{provider_user_id:10,is_primary:1},{provider_user_id:11,is_primary:0}]] : original(sql,args));
+ Vacation.isUserOnVacation.mockResolvedValue(false); isUserAvailable.mockImplementation(async id=>({available:id===10}));
+ expect(await resolveInboundRoute({toNumber:'x',fromNumber:'y'})).toMatchObject({eligibleUserIds:[10],coverageReason:'outside_work_hours',allCaregiversAway:false});
 });

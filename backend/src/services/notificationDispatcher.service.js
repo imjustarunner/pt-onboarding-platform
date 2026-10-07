@@ -208,7 +208,11 @@ class NotificationDispatcherService {
 
     // Never put client identities, message bodies or reusable sign-in tokens in SMS alerts.
     const agency=await Agency.findById(agencyId);
-    const body=staffNotificationBody(notification.type,buildPublicPortalBaseUrl(agency));
+    const urgentSupport = notification.type === 'support_safety_net_alert' && notification.severity === 'urgent'
+      && notification.related_entity_type === 'support_ticket';
+    const body = urgentSupport
+      ? `Urgent: a support request needs your attention. Sign in to claim it and reply securely: ${buildPublicPortalBaseUrl(agency)}`
+      : staffNotificationBody(notification.type,buildPublicPortalBaseUrl(agency));
 
     const log = await NotificationSmsLog.create({
       userId,

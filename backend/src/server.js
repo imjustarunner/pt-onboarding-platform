@@ -2018,6 +2018,21 @@ if (!isBootstrap) {
   scheduleSmsSupportEscalations();
   setInterval(scheduleSmsSupportEscalations, 10 * 60 * 1000);
 
+  // Explicit SUPPORT requests alert immediately; retry unclaimed requests durably.
+  let requestedSupportRunning = false;
+  const scheduleRequestedSupportAlerts = async () => {
+    if (requestedSupportRunning) return;
+    requestedSupportRunning = true;
+    try {
+      const { retryRequestedSupportAlerts } = await import('./services/smsRequestedSupport.service.js');
+      await retryRequestedSupportAlerts();
+    } catch (error) {
+      console.warn('[smsSupportRequest] Worker pending:', error.code || 'alert_failed');
+    } finally { requestedSupportRunning = false; }
+  };
+  scheduleRequestedSupportAlerts();
+  setInterval(scheduleRequestedSupportAlerts, 60 * 1000);
+
   // SMS unanswered auto-replies (runs every 5 minutes)
   const scheduleSmsAutoReplies = async () => {
     try {

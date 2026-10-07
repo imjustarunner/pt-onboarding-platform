@@ -1,3 +1,4 @@
+import { offerOutOfOfficeSupport, handleOutOfOfficeSupportReply } from '../services/smsOutOfOffice.service.js';
 import { inspectInboundReception, enqueueCommunicationReview } from '../services/communicationReview.service.js';
 import { staffNotificationBody } from '../utils/staffCommunicationChoices.js';
 import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
@@ -157,6 +158,12 @@ export const inboundSmsWebhook = async (req, res, next) => {
       return res.status(200).json({ok:true,heldForReview:true});
     };
     if (['blocked_sender','suspected_advertising'].includes(reception.reason)) return await holdForReview();
+    // SUPPORT is scoped to a sent offer; appointment and poll Y/N replies remain independent.
+    if (!reception.reason && reception.number?.agency_id && reception.profile?.clientId && await handleOutOfOfficeSupportReply({
+      agencyId: reception.number.agency_id, numberId: reception.number.id, clientId: reception.profile.clientId,
+      from: fromNorm, to: toNorm, body, messageId
+    })) return res.status(200).json({ ok: true, supportChoice: true });
+
 
 
     const companyEventHandled = await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body });
@@ -239,6 +246,12 @@ export const inboundSmsWebhook = async (req, res, next) => {
     const agencyId = route.agencyId || (ownerUser ? await getAgencyIdForUser(ownerUser.id) : null);
     const clientId = client?.id || null;
 
+    const explicitAppointmentReply = /^(Y|YES|N|NO|R|RESCHEDULE)$/i.test(body.trim());
+    if (route.allCaregiversAway && agencyId && clientId && !explicitAppointmentReply) {
+      await offerOutOfOfficeSupport({ route, from: fromNorm, to: toNorm, body, messageId, mediaUrls });
+      return res.status(200).json({ ok: true, awaitingProviderReturn: true });
+    }
+
     // Appointment reminder replies:
     // - Y/N/R → apply to booking, ACK, done
     // - other text with upcoming appointment → soft ACK + fall through to inbox so support can text back
@@ -284,6 +297,11 @@ export const inboundSmsWebhook = async (req, res, next) => {
       } catch (e) {
         console.warn('[VonageWebhook] appointment reply handling failed:', e?.message || e);
       }
+    }
+
+    if (route.allCaregiversAway && agencyId && clientId) {
+      await offerOutOfOfficeSupport({ route, from: fromNorm, to: toNorm, body, messageId, mediaUrls });
+      return res.status(200).json({ ok: true, awaitingProviderReturn: true });
     }
 
     if (body.trim().toUpperCase() === 'YES' && agencyId && clientId) {
@@ -396,7 +414,7 @@ export const inboundSmsWebhook = async (req, res, next) => {
       const isOnVacation = await VacationScheduleSyncService.isUserOnVacation(ownerUser.id, agencyId);
       const settings = await UserCallSettings.getByUserId(ownerUser.id);
       
-      if (isOnVacation && settings?.voicemail_vacation_message) {
+      if (!route.careOwnerUserId && isOnVacation && settings?.voicemail_vacation_message) {
         // Send immediate vacation auto-reply if they have a message set
         try {
           const from = MessageLog.normalizePhone(toNorm) || toNorm;
