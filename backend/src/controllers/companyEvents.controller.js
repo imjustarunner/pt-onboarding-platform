@@ -2612,7 +2612,7 @@ async function sendClosedPollResults(row, req) {
   const settings = await getCompanyEventSmsSettingsForAgency(Number(row.agency_id));
   if (!settings.fromNumber) return { sent: 0, skipped: recipients.length, failed: 0, reason: 'sender_not_configured' };
   return deliverPollResults({ event, summary: await listEventResponseSummary(event.id), recipients,
-    send: ({ to, body }) => VonageService.sendSms({ agencyId: Number(row.agency_id), purpose: 'polling', from: settings.fromNumber, to, body }) });
+    send: ({ to, body }) => VonageService.sendSms({ purpose: 'polling', agencyId: Number(row.agency_id), from: settings.fromNumber, to, body }) });
 }
 
 export const closeCompanyEventVoting = async (req, res, next) => {

@@ -1774,6 +1774,14 @@
                 <span>{{ tx('No - Do not text me') }}</span>
               </label>
             </div>
+            <p v-if="communicationConsent?.schoolText" class="communications-disclosure">{{ tx(communicationConsent.schoolText) }}</p>
+            <p class="communications-disclosure">{{ tx('A past appointment confirmation is not a new text subscription. Other adults must make their own choices. You may choose No now and change your preference later.') }}</p>
+            <label v-if="communications.smsPreference === 'scheduling_only'">{{ tx('Your phone number for these texts') }}
+              <input v-model="communications.recipientPhone" type="tel" autocomplete="tel" :placeholder="guardianPhone || '+1…'" />
+            </label>
+            <p>{{ tx(communicationConsent?.signatureText || 'Sign your communication choices. All choices may be No.') }}</p>
+            <label>{{ tx('Full name for electronic signature') }}<input v-model="communications.signerName" autocomplete="name" maxlength="200" /></label>
+            <label class="checkbox-row"><input v-model="communications.signatureAccepted" type="checkbox" />{{ tx('I electronically sign my communication choices, including any No choices.') }}</label>
           </section>
 
           <section v-if="currentFlowStep?.campaigns?.providerTexting || isOfficeInDepthIntake" class="communications-campaign-card">
@@ -4742,7 +4750,11 @@ function officeCommsSaved(key) {
   return String(officeCommunicationsCopy.value?.[key] || '').trim();
 }
 const reminderContacts = ref([]);
+const communicationConsent = ref(null);
 const communications = reactive({
+  recipientPhone: '',
+  signerName: '',
+  signatureAccepted: false,
   emailPreference: '',
   smsPreference: '',
   providerTextingOptIn: '',
@@ -5078,10 +5090,11 @@ const communicationsEmailDisclosure = computed(() => {
 const communicationsTenantName = computed(() => {
   const agencyName = (agencyInfo.value?.official_name || agencyInfo.value?.name || '').trim();
   const orgName = (organizationInfo.value?.official_name || organizationInfo.value?.name || '').trim();
-  if (agencyName && orgName && agencyName !== orgName) return `${agencyName} and ${orgName}`;
+  // The practice sends texts; the school is the service setting, not a co-sender.
   return agencyName || orgName || 'This agency';
 });
 const communicationsSmsDisclosure = computed(() => {
+  if (communicationConsent.value?.text) return tx(communicationConsent.value.text);
   const saved = officeCommsSaved('smsDisclosure');
   if (saved) return tx(saved);
   const override = currentFlowStep.value?.campaigns?.content?.scheduling?.smsDisclosure?.trim();
@@ -6269,6 +6282,9 @@ watch(
     const stored = intakeResponses.submission?.communicationPreferences || {};
     communications.emailPreference = String(stored.emailPreference || communications.emailPreference || '');
     communications.smsPreference = String(stored.smsPreference || communications.smsPreference || '');
+    communications.recipientPhone = String(stored.recipientPhone || '');
+    communications.signerName = String(stored.signerName || '');
+    communications.signatureAccepted = stored.version === communicationConsent.value?.version && stored.signatureAccepted === true;
     communications.providerTextingOptIn = String(stored.providerTextingOptIn || communications.providerTextingOptIn || '');
     communications.programUpdatesOptIn = String(stored.programUpdatesOptIn || communications.programUpdatesOptIn || '');
     communications.internalWorkforceOptIn = String(stored.internalWorkforceOptIn || communications.internalWorkforceOptIn || '');
@@ -9296,6 +9312,7 @@ const loadLink = async () => {
     organizationInfo.value = resp.data?.organization || null;
     intakeLegal.value = resp.data?.intakeLegal || null;
     officeCommunicationsCopy.value = resp.data?.officeCommunications || {};
+    communicationConsent.value = resp.data?.communicationConsent || null;
     formBranding.value = resp.data?.branding || null;
     jobDescriptionSummary.value = resp.data?.jobDescription || null;
     const recaptchaConfig = resp.data?.recaptcha || {};
@@ -11371,7 +11388,22 @@ const completeCommunicationsStep = () => {
     stepError.value = tx('Please choose whether to enable internal workforce notifications.');
     return;
   }
+  if (!communications.signerName.trim() || !communications.signatureAccepted) {
+    stepError.value = tx('Please sign your communication choices. All choices may be No.');
+    return;
+  }
+  if (communications.smsPreference === 'scheduling_only' && !/^[+()\d\s.-]{10,25}$/.test(communications.recipientPhone.trim())) {
+    stepError.value = tx('Enter the phone you control for text reminders, or choose No.');
+    return;
+  }
   intakeResponses.submission.communicationPreferences = {
+    version: communicationConsent.value?.version,
+    disclosure: communicationConsent.value?.text,
+    schoolDisclosure: communicationConsent.value?.schoolText,
+    displayedDisclosure: communicationsSmsDisclosure.value,
+    recipientPhone: communications.recipientPhone,
+    signerName: communications.signerName.trim(),
+    signatureAccepted: communications.signatureAccepted,
     emailPreference: communications.emailPreference,
     smsPreference: communications.smsPreference,
     providerTextingOptIn: (step?.campaigns?.providerTexting || isOfficeInDepthIntake.value) ? communications.providerTextingOptIn : null,

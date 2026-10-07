@@ -14032,7 +14032,7 @@ const editorServiceLocationOptions = computed(() => {
     .map((loc) => {
       const isOfficePos = String(loc.locationKind || '') === 'office_pos';
       const pos = !isOfficePos && loc.placeOfService ? `POS ${loc.placeOfService}` : '';
-      const office = isOfficePos ? '' : (loc.billingOfficeName || (loc.schoolOrganizationId ? 'School site' : ''));
+      const office = isOfficePos ? '' : (loc.schoolOrganizationId ? 'School site' : '');
       const bits = [loc.name, office, pos].filter(Boolean);
       return {
         id: loc.id,
@@ -14260,7 +14260,9 @@ const editorInfoLocationLabel = computed(() => {
   const id = Number(editorServiceLocationId.value || bookingServiceLocationId.value || 0);
   const hit = (editorServiceLocationOptions.value || []).find((l) => Number(l.id) === id);
   if (hit?.label) return hit.label;
-  return String(editorLocationAddress.value || '').trim();
+  // A selected service site must never fall back to its billing office address.
+  if (id) return 'Selected service location — details loading';
+  return 'Service location needs review';
 });
 const editorInfoNotes = computed(() => {
   if (editorIsSupervision.value) return '';

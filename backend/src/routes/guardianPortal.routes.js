@@ -84,6 +84,8 @@ router.use('/clients/:clientId/intake-documents', async(req,res,next)=>{try{
 }catch(e){next(e);}});
 
 router.get('/clients/:clientId/appointments', guardianAppointments.list);
+router.get('/clients/:clientId/reminder-preferences', guardianAppointments.getPreferences);
+router.put('/clients/:clientId/reminder-preferences', guardianAppointments.savePreferences);
 router.post('/clients/:clientId/appointments/:appointmentId/requests', guardianAppointments.requestChange);
 router.get('/clients', listMyGuardianClients);
 router.get('/messages', listGuardianMessageThreads);

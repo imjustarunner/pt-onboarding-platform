@@ -1,5 +1,8 @@
 # Vonage 10DLC — campaign-by-campaign dashboard walkthrough
 
+> **School and family enrollment (October 6):** Follow the [school/family rollout steps](../VONAGE_SMS_IMPLEMENTATION.md#school-and-family-reminder-rollout--october-6-2026) for actual service-location handling, signed choices, the legacy-consent audit, number linkage and school absence notices. These remain reminder messages under the practice’s approved service purposes; do not move them to the staff polling campaign. Validate actual registered coverage before sending.
+
+
 > **Internal voting (October 6):** Use the [ITSCO internal voting packet](VONAGE_10DLC_ITSCO_INTERNAL_VOTING.md) for a new, separate Low Volume Mixed campaign with Polling and Voting plus Account Notification, covering staff announcements, supervisor/team messages and optional final-results texts. Keep the approved service campaign unchanged. Every agency can generate its own packet and publish branded SMS review pages from Texting Numbers → Campaign registration and consent → Generate a new campaign and branded SMS pages after this feature is deployed.
 
 

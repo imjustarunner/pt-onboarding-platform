@@ -147,6 +147,21 @@ export async function resolveRegisteredSmsSender({ agencyId, purpose }) {
   return rows[0]?.phone_number || null;
 }
 
+// Preference readers may recognize a later signed enrollment, but this lookup
+// never authorizes delivery. sendSms still rechecks registration and STOP.
+export async function recordedReminderConsent(agencyId, phone) {
+  const normalized = normalizeSmsPhone(phone);
+  if (!normalized) return null;
+  const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'reminders' });
+  if (!from) return null;
+  const sender = await getSmsSender(from);
+  const [rows] = await pool.execute(`SELECT evidence_json FROM sms_recipient_permissions
+    WHERE scope_key = ? AND phone = ? AND purpose = 'reminders' AND status = 'opted_in'
+      AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP()) LIMIT 1`, [sender.scope, normalized]);
+  const evidence = rows[0]?.evidence_json ? json(rows[0].evidence_json) : null;
+  return evidence?.signerVerified === true && evidence?.signatureReference && evidence?.collectedAt ? evidence : null;
+}
+
 // A client-initiated question permits a bounded reply to that conversation. It
 // does not subscribe the recipient to reminders, workforce messages or offers.
 export async function recordInboundConversation({ from, to, messageId }) {

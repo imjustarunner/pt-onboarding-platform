@@ -10,6 +10,22 @@
         <option v-for="row in rows" :key="row.numberId" :value="row.numberId">{{ row.phoneNumber }} — {{ row.registration ? 'Registration recorded' : 'Not configured' }}</option>
       </select>
     </label>
+    <details>
+      <summary>Enrollment reminder consent audit</summary>
+      <p>Old attendance confirmations and imported SMS flags are not proof of a current subscription. Review the signed disclosure and recipient authority before activating texts.</p>
+      <button type="button" :disabled="busy" @click="auditIntakes(0)">Check enrollment choices</button>
+      <template v-if="intakeAudit">
+        <p>{{ intakeAudit.note }}</p>
+        <p>{{ intakeAudit.counts.signed_choice_for_review }} signed choices to review · {{ intakeAudit.counts.legacy_yes_needs_evidence_review }} legacy Yes answers · {{ intakeAudit.counts.declined }} declined · {{ intakeAudit.counts.no_recorded_choice }} without a recorded choice</p>
+        <table><thead><tr><th>Client</th><th>Intake</th><th>Choice</th><th>Next step</th></tr></thead><tbody>
+          <tr v-for="entry in intakeAudit.entries" :key="entry.clientId">
+            <td>{{ entry.clientId }}</td><td>{{ entry.submissionId || '—' }}</td><td>{{ entry.classification.replaceAll('_', ' ') }}</td>
+            <td><button v-if="entry.classification === 'signed_choice_for_review'" type="button" :disabled="!numberId || busy" @click="useIntakeEvidence(entry.clientId)">Review for selected number</button></td>
+          </tr>
+        </tbody></table>
+        <button v-if="intakeAudit.nextAfterClientId" type="button" :disabled="busy" @click="auditIntakes(intakeAudit.nextAfterClientId)">Next 100 clients</button>
+      </template>
+    </details>
     <details v-if="numberId" open>
       <summary>Request and track signed SMS consent</summary>
       <p>Send the link by email, show it in person, or include it with onboarding. Do not text an unsigned recipient to request SMS consent. Every recipient or authorized guardian signs their own choices; a parent’s signature does not enroll other contacts.</p>
@@ -61,7 +77,7 @@
         <button :disabled="busy">Save registration status</button>
       </form>
     </details>
-    <details v-if="numberId">
+    <details v-if="numberId" :open="intakeEvidenceSelected">
       <summary>Record a recipient’s documented consent</summary>
       <form @submit.prevent="saveConsent">
         <p>Use the recipient’s actual choice and the exact disclosure they saw. A phone number or a staff member’s permission is not recipient consent. Recording an opt-in sends a subscription confirmation.</p>
@@ -92,6 +108,7 @@ const props = defineProps({ agencyId: { type: [String, Number], required: true }
 const rows = ref([]), numberId = ref(''), error = ref(''), notice = ref(''), busy = ref(false), collectedAt = ref('');
 const requests = ref([]), signaturePhone = ref(''), signerRole = ref('client'), signingUrl = ref('');
 const reviewed = ref({});
+const intakeAudit = ref(null), intakeEvidenceSelected = ref(false);
 const marketingPhone = ref(''), marketingBody = ref('');
 const purposes = [{ value: 'care', label: 'Client care and two-way support' }, { value: 'reminders', label: 'Appointment reminders' }, { value: 'workforce', label: 'Workforce notifications' }, { value: 'billing', label: 'Optional billing-account notifications' }, { value: 'marketing', label: 'Optional marketing' }, { value: 'account_security', label: 'Account security' }, { value: 'polling', label: 'Optional polls and surveys' }];
 const registrationFields = [
@@ -120,6 +137,22 @@ async function load() {
     rows.value = registrations.data; requests.value = pending.data;
   }
   catch (e) { failure(e); }
+}
+async function auditIntakes(afterClientId) {
+  busy.value = true; error.value = '';
+  try { const { data } = await api.get(`/sms-numbers/agency/${props.agencyId}/intake-consent-audit`, { params: { afterClientId } }); intakeAudit.value = data; }
+  catch (e) { failure(e); } finally { busy.value = false; }
+}
+async function useIntakeEvidence(clientId) {
+  busy.value = true; error.value = '';
+  try {
+    const { data } = await api.get(`/sms-numbers/agency/${props.agencyId}/intake-consent-audit/${clientId}/evidence`);
+    consent.value = { phone: data.phone, purpose: data.purpose, status: data.status, evidence: data.evidence };
+    const date = new Date(data.evidence.collectedAt);
+    collectedAt.value = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    intakeEvidenceSelected.value = true;
+    notice.value = `Review the reminder choice signed by ${data.signerName}, the number they control, and the selected campaign. Nothing has been activated or sent.`;
+  } catch (e) { failure(e); } finally { busy.value = false; }
 }
 async function requestSignature() {
   busy.value = true; error.value = ''; signingUrl.value = '';
@@ -154,6 +187,8 @@ async function sendMarketing() {
   } catch (e) { failure(e); } finally { busy.value = false; }
 }
 function selectNumber() {
+  intakeEvidenceSelected.value = false;
+  consent.value.evidence.signerVerified = false;
   registration.value = JSON.parse(JSON.stringify(rows.value.find((r) => r.numberId === Number(numberId.value))?.registration || blankRegistration()));
   notice.value = '';
 }
@@ -171,7 +206,7 @@ async function saveConsent() {
     notice.value = consent.value.status === 'opted_in' ? 'Consent recorded and confirmation sent.' : 'Opt-out recorded.';
   } catch (e) { failure(e); } finally { busy.value = false; }
 }
-watch(() => props.agencyId, () => { numberId.value = ''; rows.value = []; requests.value = []; signingUrl.value = ''; error.value = ''; if (props.agencyId) load(); }, { immediate: true });
+watch(() => props.agencyId, () => { numberId.value = ''; rows.value = []; requests.value = []; signingUrl.value = ''; error.value = ''; notice.value = ''; intakeAudit.value = null; intakeEvidenceSelected.value = false; consent.value = { phone: '', purpose: 'reminders', status: 'opted_in', evidence: { source: 'paper_form', signerVerified: false } }; collectedAt.value = ''; if (props.agencyId) load(); }, { immediate: true });
 </script>
 
 <style scoped>

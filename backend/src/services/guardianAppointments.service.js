@@ -1,3 +1,5 @@
+import PhoneNumber from '../models/PhoneNumber.model.js';
+import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import Appointment from '../models/Appointment.model.js';
@@ -24,8 +26,11 @@ export async function appointmentRequests(appointmentId, db = pool) {
 }
 export async function listGuardianAppointments({ userId, clientId }) {
   const client = await authorizedClient(userId, clientId);
-  const [rows] = await pool.execute(`SELECT DISTINCT a.id,a.start_at AS startAt,a.end_at AS endAt,a.status,a.modality,a.source_timezone AS timeZone,a.cancellation_reason AS cancellationReason,CONCAT_WS(' ',p.first_name,p.last_name) AS providerName,CONCAT_WS(' ',u.first_name,u.last_name) AS canceledBy FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=? LEFT JOIN users p ON p.id=a.provider_user_id LEFT JOIN users u ON u.id=a.canceled_by_user_id WHERE a.agency_id=? AND a.status<>'draft' AND a.start_at>=DATE_SUB(NOW(),INTERVAL 1 YEAR) ORDER BY a.start_at DESC LIMIT 200`, [clientId, client.agency_id]);
-  for (const row of rows) row.requests = (await appointmentRequests(row.id)).filter(r => Number(r.clientId) === Number(clientId));
+  const [rows] = await pool.execute(`SELECT DISTINCT a.agency_id AS agencyId,a.service_location_id AS serviceLocationId,a.office_event_id AS officeEventId,a.clinical_session_id AS clinicalSessionId,a.id,a.start_at AS startAt,a.end_at AS endAt,a.status,a.modality,a.source_timezone AS timeZone,a.cancellation_reason AS cancellationReason,CONCAT_WS(' ',p.first_name,p.last_name) AS providerName,CONCAT_WS(' ',u.first_name,u.last_name) AS canceledBy FROM appointments a JOIN appointment_participants ap ON ap.appointment_id=a.id AND ap.client_id=? LEFT JOIN users p ON p.id=a.provider_user_id LEFT JOIN users u ON u.id=a.canceled_by_user_id WHERE a.agency_id=? AND a.status<>'draft' AND a.start_at>=DATE_SUB(NOW(),INTERVAL 1 YEAR) ORDER BY a.start_at DESC LIMIT 200`, [clientId, client.agency_id]);
+  for (const row of rows) {
+    row.requests = (await appointmentRequests(row.id)).filter(r => Number(r.clientId) === Number(clientId));
+    row.serviceSetting = await resolveAppointmentServiceSetting(row);
+  }
   return rows;
 }
 export async function requestGuardianAppointmentChange({ userId, clientId, appointmentId, ...input }) {
@@ -73,4 +78,35 @@ export async function recordGuardianAppointmentApproval(appointmentId, userId) {
   if (!appointment || Number(appointment.providerUserId) !== Number(userId)) return;
   if (!['canceled_by_provider','canceled_by_client','canceled_by_guardian','late_canceled','rescheduled'].includes(appointment.status)) return;
   await pool.execute("UPDATE guardian_appointment_requests SET status='approved',decided_by_user_id=?,decided_at=NOW() WHERE appointment_id=? AND status='pending'", [userId, appointmentId]);
+}
+
+export async function guardianReminderPreferences({ userId, clientId, input = null }) {
+  const client = await authorizedClient(userId, clientId);
+  const { getClientPreferences, putClientPreferences } = await import('./sessionNotification.service.js');
+  if (!input) {
+    const preferences = await getClientPreferences(client.agency_id, clientId, userId);
+    if (preferences.isDefault) {
+      const { latestIntakeCommunicationChoices, INTAKE_COMMUNICATION_VERSION } = await import('./intakeCommunicationChoices.service.js');
+      const cp = await latestIntakeCommunicationChoices(clientId, client.agency_id);
+      const guardians = await ClientGuardian.listForClient(clientId);
+      const ownPhone = guardians.find(g => Number(g.guardian_user_id) === Number(userId))?.phone;
+      const ownsChoice = Number(cp?.guardianUserId) === Number(userId) || (ownPhone && cp?.recipientPhone
+        && PhoneNumber.normalizePhone(ownPhone) === PhoneNumber.normalizePhone(cp.recipientPhone));
+      if (cp?.version === INTAKE_COMMUNICATION_VERSION && ownsChoice) {
+        preferences.channels.email = cp.emailPreference !== 'no';
+        preferences.channels.sms = cp.smsPreference === 'scheduling_only';
+      }
+    }
+    return preferences;
+  }
+  // An account holder changes only their own reminder preferences. No campaign
+  // enrollment, phone reassignment, or another guardian's preferences is implied.
+  const clean = {
+    channels: { in_app: true, email: input.channels?.email !== false, sms: input.channels?.sms === true, phone: false },
+    optionalRemindersEnabled: input.optionalRemindersEnabled !== false,
+    confirmationRequestsEnabled: input.confirmationRequestsEnabled !== false,
+    providerPushedUpdatesEnabled: input.providerPushedUpdatesEnabled !== false,
+    schedulingChangesEnabled: input.schedulingChangesEnabled !== false
+  };
+  return putClientPreferences(client.agency_id, clientId, clean, userId);
 }

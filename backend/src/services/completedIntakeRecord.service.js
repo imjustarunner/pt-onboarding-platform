@@ -358,6 +358,13 @@ function communicationsSection(submissionBag, publicOrigin) {
   const rows = [];
   if (cp.emailPreference) pushRow(rows, 'Email', commChoiceLabel('email', cp.emailPreference));
   if (cp.smsPreference) pushRow(rows, 'Text messages (SMS)', commChoiceLabel('sms', cp.smsPreference));
+  if (cp.recipientPhone) pushRow(rows, 'Recipient phone', cp.recipientPhone);
+  if (cp.signerName) pushRow(rows, 'Communication choices signed by', cp.signerName);
+  if (cp.signedAt) pushRow(rows, 'Choices signed at', cp.signedAt);
+  if (cp.version) pushRow(rows, 'Communication disclosure version', cp.version);
+  if (cp.disclosure) pushRow(rows, 'Text reminder disclosure', cp.disclosure);
+  if (cp.schoolDisclosure) pushRow(rows, 'School visit notifications', cp.schoolDisclosure);
+  if (cp.activationStatus) pushRow(rows, 'Reminder subscription review', cp.activationStatus);
   if (cp.providerTextingOptIn) pushRow(rows, 'Provider / care-team texting', commChoiceLabel('yesno', cp.providerTextingOptIn));
   if (cp.programUpdatesOptIn) pushRow(rows, 'Program updates', commChoiceLabel('yesno', cp.programUpdatesOptIn));
   const terms = absolutePublicUrl(cp.termsUrl || '/terms', publicOrigin);

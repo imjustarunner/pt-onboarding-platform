@@ -1,6 +1,7 @@
+import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 /**
  * Interactive appointment reminder replies: Y confirm / N cancel / R reschedule.
- * Applies directly to the unified booking appointment (not review-only).
+ * Office replies may update the booking; school replies always require staff review.
  */
 
 import pool from '../config/database.js';
@@ -75,10 +76,11 @@ export async function resolveAppointmentForClientReply({ agencyId, clientId } = 
            AND r.sent_at >= (NOW() - INTERVAL 14 DAY)
        )
      ORDER BY a.start_at ASC
-     LIMIT 1`,
+     LIMIT 2`,
     [cid, aid]
   ).catch(() => [[]]);
 
+  if (withReminder?.length > 1) return null; // A one-letter reply must not select an arbitrary visit.
   if (withReminder?.[0]) return Appointment.mapRow(withReminder[0]);
 
   const [rows] = await pool.execute(
@@ -91,10 +93,10 @@ export async function resolveAppointmentForClientReply({ agencyId, clientId } = 
        AND a.status NOT LIKE 'canceled%'
        AND a.status NOT IN ('completed', 'no_show', 'late_canceled', 'rescheduled')
      ORDER BY a.start_at ASC
-     LIMIT 1`,
+     LIMIT 2`,
     [cid, aid]
   );
-  return Appointment.mapRow(rows?.[0]);
+  return rows?.length === 1 ? Appointment.mapRow(rows[0]) : null;
 }
 
 async function notifyProviderInApp(appt, title, message) {
@@ -132,6 +134,8 @@ export async function applyAppointmentReply({
     throw Object.assign(new Error('Appointment not found'), { status: 404 });
   }
   const aid = Number(agencyId || appt.agencyId);
+  if (aid !== Number(appt.agencyId)) throw Object.assign(new Error('Appointment not found'), { status: 404 });
+  const serviceSetting = await resolveAppointmentServiceSetting(appt);
 
   const [ins] = await pool.execute(
     `INSERT INTO appointment_reply_reviews
@@ -157,6 +161,13 @@ export async function applyAppointmentReply({
     bodyPreview: String(rawBody || '').slice(0, 500),
     metadata: { intent, reviewId, shortcut: 'Y/N/R' }
   });
+
+  if (serviceSetting.isSchool) {
+    await notifyProviderInApp(appt, 'School visit reply needs review',
+      `A family replied about school visit #${appt.id}. Review the message in the app; no appointment or fee was changed.`);
+    return { reviewId, intent, status: 'pending_review', appointmentId: appt.id, clientReply: null,
+      ackMessage: 'Thanks. Our team received your school visit message and will review it. No confirmation is needed, and this reply has not canceled the visit. Please report school absences to the school as usual.' };
+  }
 
   if (!autoApply || intent === 'unknown') {
     return {
@@ -400,8 +411,8 @@ export async function handleInboundSmsAppointmentReply({
 
   return {
     ...result,
-    needsSupport: false,
-    fallThroughToInbox: false,
+    needsSupport: result.status === 'pending_review',
+    fallThroughToInbox: result.status === 'pending_review',
     appointment: { id: appt.id, startAt: appt.startAt, title: appt.title }
   };
 }

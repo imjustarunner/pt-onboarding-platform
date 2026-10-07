@@ -1,3 +1,4 @@
+import { intakeCommunicationDisclosure, ensureEnrollmentCommunicationStep, validateAndStampIntakeCommunications } from '../services/intakeCommunicationChoices.service.js';
 import { sendSchoolRoiEmail, schoolRoiDelivery } from '../services/schoolRoiEmail.service.js';
 import { signedPacketTemplate, validateRequiredSharedSignatures, childDocumentValues, validateMultiChildSigning, validateSharedSigningCaptures, sameSigningChildren, areAllIntakePacketsReady, intakeChildRoster } from '../utils/multiChildIntake.js';
 import { buildSharedIntakeDocuments } from '../services/sharedIntakeDocuments.service.js';
@@ -6210,7 +6211,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         create_client: link.create_client,
         create_guardian: link.create_guardian,
         intake_fields: link.intake_fields,
-        intake_steps: hydrateEmptyOfficeQuestionnaireSteps(link.intake_steps, link),
+        intake_steps: ensureEnrollmentCommunicationStep(link, hydrateEmptyOfficeQuestionnaireSteps(link.intake_steps, link)),
         office_questionnaire_fields: linkLooksLikeOfficeIntake(link)
           ? {
               self: buildStandardQuestionnaireFields(),
@@ -6237,6 +6238,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         : { siteKey: null, useEnterprise: false, forceWidget: false },
       organization: toOrgPayload(organization),
       agency: toOrgPayload(agency),
+      communicationConsent: intakeCommunicationDisclosure(agency),
       intakeLegal: resolveIntakeLegalFromTheme(agency?.theme_settings, link.language_code || 'en'),
       officeCommunications: resolveOfficeCommunicationsFromTheme(agency?.theme_settings),
       branding: await buildPublicFormBranding({
@@ -7991,6 +7993,7 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    await validateAndStampIntakeCommunications({ link, agencyId: await resolveAgencyIdForLink(link), intakeData, submittedAt: now });
     const sharedSigningError = validateMultiChildSigning({ intakeData: intakeData || {}, clients: req.body?.clients })
       || validateSharedSigningCaptures(intakeData || {});
     if (sharedSigningError) return res.status(400).json({ error: { message: sharedSigningError } });
@@ -10590,6 +10593,7 @@ export const submitPublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    await validateAndStampIntakeCommunications({ link, agencyId: await resolveAgencyIdForLink(link), intakeData, submittedAt: now });
     const sharedSigningError = validateMultiChildSigning({ intakeData: intakeData || {}, clients: req.body?.clients })
       || validateSharedSigningCaptures(intakeData || {});
     if (sharedSigningError) return res.status(400).json({ error: { message: sharedSigningError } });

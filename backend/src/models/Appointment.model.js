@@ -330,7 +330,7 @@ class Appointment {
       await pool.execute(
         `UPDATE appointments SET
            business_type = ?, tenant_service_id = ?, provider_user_id = ?,
-           start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?,
+           start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?, service_location_id = ?,
            status = ?, participant_mode = ?, office_event_id = ?, provider_schedule_event_id = ?,
            clinical_session_id = ?, package_entitlement_id = ?,
            cancellation_policy_id = ?, cancel_deadline_at = ?, cancellation_reason = ?,
@@ -349,6 +349,7 @@ class Appointment {
           next.modality || null,
           next.officeLocationId || null,
           next.roomId || null,
+          next.serviceLocationId || null,
           this.normalizeStatus(next.status),
           next.participantMode === 'multi' ? 'multi' : 'individual',
           next.officeEventId || null,
@@ -376,7 +377,7 @@ class Appointment {
       await pool.execute(
         `UPDATE appointments SET
            business_type = ?, tenant_service_id = ?, provider_user_id = ?,
-           start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?,
+           start_at = ?, end_at = ?, modality = ?, office_location_id = ?, room_id = ?, service_location_id = ?,
            status = ?, participant_mode = ?, office_event_id = ?, provider_schedule_event_id = ?,
            clinical_session_id = ?, package_entitlement_id = ?,
            cancellation_policy_id = ?, cancel_deadline_at = ?, cancellation_reason = ?,
@@ -394,6 +395,7 @@ class Appointment {
           next.modality || null,
           next.officeLocationId || null,
           next.roomId || null,
+          next.serviceLocationId || null,
           this.normalizeStatus(next.status),
           next.participantMode === 'multi' ? 'multi' : 'individual',
           next.officeEventId || null,

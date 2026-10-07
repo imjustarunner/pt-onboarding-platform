@@ -95,6 +95,7 @@ export async function ensureAppointmentContext({
   }
   const boundAppointment = await bindOfficeEventToAppointment({ event, context: bookingContext,
     agencyId: resolvedAgencyId, clientId: resolvedClientId });
+  let actualServiceLocationId = parseIntId(event.service_location_id);
   const syncCanonicalAppointment = async (clinicalSessionId = null) => {
     if (!syncAppointment) return;
     const { upsertAppointmentForOfficeBook } = await import('./appointment.service.js');
@@ -102,6 +103,7 @@ export async function ensureAppointmentContext({
       providerUserId: parseIntId(event.booked_provider_id) || parseIntId(event.assigned_provider_id),
       clientId: resolvedClientId, startAt: event.start_at, endAt: event.end_at,
       modality: event.modality, officeLocationId: event.office_location_id, roomId: event.room_id,
+      serviceLocationId: actualServiceLocationId,
       tenantServiceId: parseIntId(bookingContext.tenantServiceId), packageEntitlementId: parseIntId(bookingContext.packageEntitlementId),
       serviceCode: event.service_code, clinicalSessionId, actorUserId, strict: true, preserveParticipants: !!boundAppointment });
     if (clinicalSessionId && ['self_pay_only', 'package'].includes(canonical?.billing?.settlementMode)) {
@@ -225,6 +227,7 @@ export async function ensureAppointmentContext({
     if (serviceLocationId) {
       const loc = await AgencyServiceLocation.findById(serviceLocationId);
       if (loc && Number(loc.agency_id) === resolvedAgencyId) {
+        actualServiceLocationId = serviceLocationId;
         placeOfService = placeOfService || loc.place_of_service || null;
         billingOfficeLocationId = parseIntId(loc.billing_office_location_id) || billingOfficeLocationId || officeLocationId;
       }

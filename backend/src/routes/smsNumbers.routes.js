@@ -27,7 +27,7 @@ import {
   upsertNumberRules
 } from '../controllers/smsNumbers.controller.js';
 import { getAgencySmsRegistrations, saveAgencySmsRegistration, recordAgencySmsConsent, sendAgencyMarketingSms } from '../controllers/smsNumbers.controller.js';
-import { listConsentRequests, createConsentRequest, reviewConsentRequest, downloadConsentEvidence } from './smsConsent.routes.js';
+import { getIntakeConsentAudit, getIntakeConsentEvidence, listConsentRequests, createConsentRequest, reviewConsentRequest, downloadConsentEvidence } from './smsConsent.routes.js';
 
 const router = express.Router();
 
@@ -44,6 +44,9 @@ router.get('/agency/:agencyId/consent-requests', requireAgencyAdmin, listConsent
 router.post('/agency/:agencyId/consent-requests', requireAgencyAdmin, createConsentRequest);
 router.post('/agency/:agencyId/consent-requests/:requestId/review', requireAgencyAdmin, reviewConsentRequest);
 router.get('/agency/:agencyId/consent-requests/:requestId/evidence', requireAgencyAdmin, downloadConsentEvidence);
+
+router.get('/agency/:agencyId/intake-consent-audit', requireAgencyAdmin, getIntakeConsentAudit);
+router.get('/agency/:agencyId/intake-consent-audit/:clientId/evidence', requireAgencyAdmin, getIntakeConsentEvidence);
 
 // Agency numbers
 router.get('/agency/:agencyId', requireAgencyAccess, listAgencyNumbers);

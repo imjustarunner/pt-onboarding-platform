@@ -2,10 +2,22 @@
   <section class="guardian-appointments" aria-label="Appointments">
     <header><h2>Appointments</h2><button type="button" @click="load" :disabled="loading">Refresh</button></header>
     <p>Both authorized guardians can see requests and decisions. Your appointment stays scheduled until your provider approves a change.</p>
+    <details v-if="!preview && preferences">
+      <summary>My reminder preferences</summary>
+      <p>These choices apply to your notifications. Each other recipient has their own choices. Turning texts on requires recorded SMS consent and a working practice number; ask the care team for a consent link if needed. Reply STOP to stop texts from the program.</p>
+      <label><input v-model="preferences.channels.email" type="checkbox" /> Email reminders</label>
+      <label><input v-model="preferences.channels.sms" type="checkbox" /> Text reminders to my consented number</label>
+      <label><input v-model="preferences.optionalRemindersEnabled" type="checkbox" /> Additional reminders</label>
+      <label><input v-model="preferences.providerPushedUpdatesEnabled" type="checkbox" /> Provider schedule updates</label>
+      <button type="button" :disabled="busy" @click="savePreferences">Save my preferences</button>
+      <p v-if="preferenceNotice" role="status">{{ preferenceNotice }}</p>
+    </details>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="loading" role="status">Loading appointments…</p>
     <p v-else-if="!appointments.length">No appointments are available to display.</p>
     <article v-for="a in appointments" :key="a.id">
       <h3>{{ when(a.startAt, a.timeZone) }}</h3><p>{{ a.providerName }} · {{ a.modality }} · {{ a.status.replaceAll('_',' ') }}</p>
+      <p v-if="a.serviceSetting">Service location: {{ a.serviceSetting.locationLabel }}</p>
+      <p v-if="a.serviceSetting?.isSchool">No confirmation is needed for this school visit. If your child will be absent or plans change, let your care team know. Continue reporting absences to the school as usual.</p>
       <p v-if="a.canceledBy">Canceled by {{ a.canceledBy }}<span v-if="a.cancellationReason">: {{ a.cancellationReason }}</span></p>
       <div v-for="request in a.requests" :key="request.id" class="request">
         <strong>{{ request.requestedBy }} requested {{ request.type === 'cancel' ? 'cancellation' : 'rescheduling' }}</strong>
@@ -25,11 +37,17 @@
 import { ref, reactive, watch } from 'vue';
 import api from '../../services/api.js';
 const props=defineProps({clientId:{type:Number,default:null},preview:{type:Boolean,default:false}});
+const preferences=ref(null),preferenceNotice=ref('');
 const appointments=ref([]),loading=ref(false),busy=ref(false),error=ref(''),drafts=reactive({});let sequence=0;
 const draft=a=>drafts[a.id] ||= {type:'cancel',reason:''};
 const canRequest=a=>!props.preview&&['scheduled','confirmed','client_confirmed'].includes(a.status)&&!a.requests.some(r=>r.status==='pending');
 const when=(value,timeZone)=>new Date(typeof value==='string'&&!/(Z|[+-]\d\d:\d\d)$/.test(value)?value.replace(' ','T')+'Z':value).toLocaleString(undefined,{timeZone:timeZone||'America/Denver',dateStyle:'medium',timeStyle:'short'});
-async function load(){const own=++sequence;appointments.value=[];error.value='';if(!props.clientId||props.preview)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/appointments`,{skipGlobalLoading:true});if(own===sequence)appointments.value=data.appointments||[];}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Appointments could not be loaded.';}finally{if(own===sequence)loading.value=false;}}
+async function load(){const own=++sequence;appointments.value=[];preferences.value=null;preferenceNotice.value='';error.value='';if(!props.clientId||props.preview)return;loading.value=true;try{const {data}=await api.get(`/guardian-portal/clients/${props.clientId}/appointments`,{skipGlobalLoading:true});if(own===sequence) {
+  appointments.value=data.appointments||[];
+  const response=await api.get(`/guardian-portal/clients/${props.clientId}/reminder-preferences`,{skipGlobalLoading:true});
+  if(own===sequence)preferences.value=response.data;
+}}catch(e){if(own===sequence)error.value=e.response?.data?.error?.message||'Appointments could not be loaded.';}finally{if(own===sequence)loading.value=false;}}
+async function savePreferences(){const own=sequence;busy.value=true;error.value='';preferenceNotice.value='';try{const{data}=await api.put(`/guardian-portal/clients/${props.clientId}/reminder-preferences`,preferences.value);if(own===sequence){preferences.value=data;preferenceNotice.value='Your preferences were saved. Text delivery still requires recorded consent.';}}catch(e){error.value=e.response?.data?.error?.message||'Preferences could not be saved.';}finally{busy.value=false;}}
 async function submit(a){if(busy.value)return;busy.value=true;error.value='';try{await api.post(`/guardian-portal/clients/${props.clientId}/appointments/${a.id}/requests`,draft(a));delete drafts[a.id];await load();}catch(e){error.value=e.response?.data?.error?.message||'Your request could not be saved.';}finally{busy.value=false;}}
 watch(()=>props.clientId,load,{immediate:true});
 </script>

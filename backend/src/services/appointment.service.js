@@ -1,3 +1,4 @@
+import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import { assertAppointmentWindowAvailable } from './appointmentConflict.service.js';
 import { requireStaffCareEligibility } from './staffCareEligibility.service.js';
 import {assertPackageProviderBinding,assertPackageExpiration} from './bookingPackagePricing.js';
@@ -152,7 +153,7 @@ export async function getAppointmentBundle(appointmentId, { includeTimeline = tr
       communications = [];
     }
   }
-  return { ...appt, participants, billing, reminders, communications };
+  return { ...appt, serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
 }
 
 export async function createAppointment({
@@ -379,6 +380,12 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
   if ((patch.status && patch.status !== existing.status) || patch.startAt != null || patch.endAt != null) {
     const { requireAppointmentRequestProvider } = await import('./guardianAppointments.service.js');
     await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
+  }
+  if (patch.serviceLocationId != null) {
+    const location = await AgencyServiceLocation.findById(patch.serviceLocationId);
+    if (!location || Number(location.agency_id) !== Number(existing.agencyId)) {
+      throw Object.assign(new Error('Service location does not belong to this agency'), { status: 403 });
+    }
   }
   let moved = false;
 
@@ -616,6 +623,7 @@ export async function upsertAppointmentForOfficeBook({
   endAt,
   modality = null,
   officeLocationId = null,
+  serviceLocationId = null,
   roomId = null,
   tenantServiceId = null,
   title = null,
@@ -656,6 +664,7 @@ export async function upsertAppointmentForOfficeBook({
         endAt: endAt || existing.endAt,
         modality: modality || existing.modality,
         officeLocationId: officeLocationId || existing.officeLocationId,
+        serviceLocationId: serviceLocationId || existing.serviceLocationId,
         roomId: roomId || existing.roomId,
         tenantServiceId: tenantServiceId || existing.tenantServiceId,
         title: title || existing.title,
@@ -675,6 +684,7 @@ export async function upsertAppointmentForOfficeBook({
       endAt,
       modality,
       officeLocationId,
+      serviceLocationId,
       roomId,
       officeEventId: oid,
       clinicalSessionId,
@@ -682,7 +692,7 @@ export async function upsertAppointmentForOfficeBook({
       packageEntitlementId,
       ensureContext: false,
       source: 'office_book',
-      title: title || (appointmentTypeCode ? String(appointmentTypeCode) : 'Office session'),
+      title: title || (appointmentTypeCode ? String(appointmentTypeCode) : 'Session'),
       createdByUserId: actorUserId,
       participants
     });

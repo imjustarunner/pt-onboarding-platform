@@ -1,3 +1,4 @@
+import { intakeReminderConsentAudit, intakeReminderConsentEvidence } from '../services/intakeCommunicationChoices.service.js';
 import express from 'express';
 import { publicIntakeLimiter } from '../middleware/rateLimiter.middleware.js';
 import { viewSmsConsentRequest, signSmsConsentRequest, createSmsConsentRequest,
@@ -28,3 +29,6 @@ export const reviewConsentRequest = handle((req) => reviewSmsConsentRequest({
 export const downloadConsentEvidence = handle((req) => getSignedSmsEvidence({
   agencyId: Number(req.params.agencyId), requestId: Number(req.params.requestId)
 }));
+
+export const getIntakeConsentAudit = handle(req => intakeReminderConsentAudit(Number(req.params.agencyId), Math.max(0, Number(req.query.afterClientId) || 0)));
+export const getIntakeConsentEvidence = handle(req => intakeReminderConsentEvidence(Number(req.params.agencyId), Number(req.params.clientId)));
