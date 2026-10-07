@@ -23,6 +23,16 @@ describe('ITSCO policy delivery and tenant isolation', () => {
     expect(parsed.body.innerHTML).not.toContain('docs.google.com');
     expect(parsed.querySelector('link[rel=canonical]').getAttribute('href')).toBe(`https://www.itsco.health${path}`);
   });
+  it.each(['terms','privacypolicy'])('links the submitted staff program from static %s without JavaScript', type => {
+    const parsed = new DOMParser().parseFromString(renderItscoLegalHtml(type),'text/html');
+    const links = [...parsed.querySelectorAll('.sms-program-directory a')].map(a => a.getAttribute('href'));
+    expect(links).toEqual([
+      'https://app.itsco.health/sms-programs/2/polling/terms',
+      'https://app.itsco.health/sms-programs/2/polling/privacy',
+      'https://app.itsco.health/sms-programs/2/polling/consent?audience=staff'
+    ]);
+    expect(parsed.querySelectorAll('script')).toHaveLength(0);
+  });
   it.each([['/terms','/itsco/terms'],['/privacy','/itsco/privacypolicy'],['/hipaa','/itsco/platformhipaa']])('redirects %s to the ITSCO notice', (from,to) => {
     expect(itscoPublicResponse('www.itsco.health',`${from}?ref=sms`)).toEqual({status:301,redirect:`https://www.itsco.health${to}?ref=sms`});
     expect(itscoPublicResponse('app.nextleveluplcc.com',from)).toBeNull();

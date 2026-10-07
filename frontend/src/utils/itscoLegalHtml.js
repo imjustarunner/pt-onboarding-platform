@@ -14,6 +14,10 @@ export function renderItscoLegalHtml(type, profile = tenantLegalProfiles.itsco, 
   const canonical = (profile.legalOrigin || profile.origin) + links.find(link => link.type === type).path;
   const linkHtml = (href, label) => `<a href="${escape(href.startsWith('/') ? (profile.legalOrigin || profile.origin) + href : href)}">${escape(label)}</a>`;
   const logo = options.logo === undefined ? (profile.logo ? profile.origin + profile.logo : '') : options.logo;
+  // The public website serves pre-rendered policies, independently of the Vue view.
+  // Keep ITSCO's submitted program discoverable even with JavaScript disabled.
+  const smsProgramDetails = profile.slug === 'itsco' ? `<aside class="sms-program-directory"><h3>Staff Notifications and Voting</h3><p>This SMS program addendum forms part of ITSCO’s main terms. Reading it does not subscribe you to texts.</p><nav aria-label="Staff Notifications and Voting"><a href="https://app.itsco.health/sms-programs/2/polling/terms">SMS addendum</a><a href="https://app.itsco.health/sms-programs/2/polling/privacy">SMS privacy details</a><a href="https://app.itsco.health/sms-programs/2/polling/consent?audience=staff">Consent example</a></nav></aside>` : '';
+
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(doc.title)}</title><meta name="description" content="${escape(doc.intro)}"><link rel="canonical" href="${canonical}">
@@ -25,6 +29,6 @@ export function renderItscoLegalHtml(type, profile = tenantLegalProfiles.itsco, 
 <h1>${escape(doc.title)}</h1><p class="date">Effective October 5, 2026 · Version ${ITSCO_LEGAL_VERSION}</p><p class="intro">${escape(doc.intro)}</p>
 <p class="print-note">Use your browser’s Print menu to print this document or save it as a PDF.</p></header>
 <nav class="contents" aria-label="On this page"><strong>On this page</strong>${doc.sections.map(s => linkHtml('#' + s.id, s.title)).join('')}</nav>
-<article>${doc.sections.map(s => `<section id="${escape(s.id)}"><h2>${escape(s.title)}</h2>${s.paragraphs.map(p => `<p>${escape(p)}</p>`).join('')}${s.items.length ? `<ul>${s.items.map(i => `<li>${escape(i)}</li>`).join('')}</ul>` : ''}${s.links.map(l => `<p>${linkHtml(l.href,l.label)}</p>`).join('')}</section>`).join('')}</article>
+<article>${doc.sections.map(s => `<section id="${escape(s.id)}"><h2>${escape(s.title)}</h2>${s.paragraphs.map(p => `<p>${escape(p)}</p>`).join('')}${s.items.length ? `<ul>${s.items.map(i => `<li>${escape(i)}</li>`).join('')}</ul>` : ''}${s.links.map(l => `<p>${linkHtml(l.href,l.label)}</p>`).join('')}${['sms','sms-privacy'].includes(s.id) ? smsProgramDetails : ''}</section>`).join('')}</article>
 <footer>${escape(profile.legalName)} · ${linkHtml(profile.origin, profile.name)} · <a href="#top">Back to top</a></footer></main></body></html>`;
 }
