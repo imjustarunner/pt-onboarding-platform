@@ -5,6 +5,7 @@ import { isCommunicationStaffActive } from '../utils/communicationReceptionPolic
 import { logAuditEvent } from '../services/auditEvent.service.js';
 import { getFocusMusicCatalog } from '../services/focusMusic.service.js';
 import { normalizePhoneWorkflow, phoneWorkflowIssues, previewPhoneWorkflow } from '../services/phoneWorkflow.service.js';
+import { previewMainLineReceptionist } from '../services/mainLineReceptionist.service.js';
 
 export const requirePhoneWorkflowAdmin = async (req, res, next) => {
   try {
@@ -55,6 +56,9 @@ export const previewPhoneWorkflowRoute = async (req,res,next) => {
   try {
     const config = normalizePhoneWorkflow(req.body?.config);
     await assertSeparatePublicLine(Number(req.params.agencyId),config.mainNumber);
+    if (req.body?.mode === 'receptionist') {
+      return res.json(previewMainLineReceptionist(config, {scenario:req.body?.scenario,intent:req.body?.intent}));
+    }
     res.json(previewPhoneWorkflow(config,{digit:req.body?.digit,hours:req.body?.hours}));
   } catch (e) { next(e); }
 };

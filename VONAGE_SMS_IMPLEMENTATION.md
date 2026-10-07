@@ -86,6 +86,43 @@ Choose the business time zone, opening/closing times, and after-hours destinatio
 The initial hours are examples (Monday–Friday, 9–5); review before saving.
 Saving this number does not change your cards, carrier, or inbound calls.
 
+#### Preview the short receptionist greeting
+
+Under **Phone setup → Short receptionist greeting**, select a caller scenario and
+request, then choose **Preview receptionist**. This preview uses fictional
+scenarios; it does not look up callers, change appointments, or enable AI calling.
+
+| Caller scenario | Opening choices |
+| --- | --- |
+| Unknown or withheld number | Support, scheduling, billing. Do not lead with appointment cancellation. |
+| Recognized number, no upcoming appointments | Support, scheduling, billing. |
+| Recognized number with upcoming appointments | Support, cancel or reschedule an appointment, billing. |
+| Shared/ambiguous number or unavailable lookup | General support, scheduling, billing greeting. |
+
+All scenarios end with: **“Say support or press zero at any time. If no one is
+available, you can leave a message.”** Zero must remain available throughout the
+future live assistant and verification steps, with coverage determined by saved
+office hours and the after-hours support/voicemail choice. Do not promise 24/7
+staffing. The saved opening greeting supplies the agency's name.
+
+Before connecting this to live voice, implement caller lookup scoped to the agency
+owning the called main number. Upcoming appointments must come from the current
+schedule, excluding cancelled and completed appointments; lookup failure must
+fall back to the general greeting. Caller ID is only a menu hint, never identity
+verification. Do not announce names, providers, dates, balances, appointment
+counts, or that an appointment was found before verifying identity and authority.
+
+Unknown callers may still request cancellation or rescheduling. Verify them or
+transfer to staff without confirming whether an account exists. After verification,
+offer only appointments they are authorized to manage; if several exist, ask which
+one. Require explicit confirmation and recheck the appointment before changing it.
+Do not claim success until the change is saved; rescheduling must preserve the
+original booking if saving the replacement fails. For school sessions, route absence
+reports through the school appointment workflow rather than assuming an office visit.
+Until these actions are implemented, staff handles requests and the assistant must
+say the appointment has not been changed. Billing requests route to billing support
+and unresolved requests require a billing-tagged follow-up ticket.
+
 ### 3. Configure keypad choices
 
 | Key | Suggested starting purpose | Setup |

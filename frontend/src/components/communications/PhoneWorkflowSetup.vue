@@ -25,6 +25,22 @@
         <label>Business time zone<input v-model="config.timeZone" list="phone-timezones" /><datalist id="phone-timezones"><option v-for="zone in zones" :key="zone" :value="zone" /></datalist></label>
       </div>
       <label>Opening greeting<textarea v-model="config.greeting" maxlength="1000" rows="2" /><small>The enabled menu choices below are added to this greeting automatically.</small></label>
+      <section class="preview">
+        <h3>Short receptionist greeting</h3>
+        <p>Unknown callers get support, scheduling, and billing. A recognized number with upcoming appointments also gets cancellation and rescheduling options. A shared number or an unavailable lookup gets the general greeting.</p>
+        <p class="hint">Preview only. Caller recognition and appointment changes are not connected yet. A phone number does not verify who is calling; appointment details stay private until verification.</p>
+        <div class="grid">
+          <label>Caller scenario<select v-model="receptionistScenario" data-testid="receptionist-scenario"><option value="unknown">Unknown or withheld number</option><option value="known_no_appointments">Recognized number, no upcoming appointments</option><option value="known_appointments">Recognized number, upcoming appointments</option><option value="shared_number">Shared or ambiguous number</option><option value="lookup_unavailable">Caller lookup unavailable</option></select></label>
+          <label>Caller asks for<select v-model="receptionistIntent" data-testid="receptionist-intent"><option value="support">Support</option><option value="scheduling">Scheduling</option><option value="billing">Billing</option><option value="provider">Provider assistance</option><option value="cancel">Cancel an appointment</option><option value="reschedule">Reschedule an appointment</option></select></label>
+        </div>
+        <button type="button" :disabled="previewing || saving" @click="previewReceptionist">Preview receptionist</button>
+        <div v-if="receptionistPreview" aria-live="polite">
+          <p><strong>Caller hears:</strong> {{ receptionistPreview.greeting }}</p>
+          <ol><li v-for="step in receptionistPreview.steps" :key="step">{{ step }}</li></ol>
+          <p v-for="rule in receptionistPreview.safeguards" :key="rule" class="hint">{{ rule }}</p>
+          <p class="hint">No caller records were looked up, no appointments changed, and no calls placed.</p>
+        </div>
+      </section>
       <label class="check"><input v-model="config.businessHoursEnabled" type="checkbox" /> Apply business hours</label>
       <div v-if="config.businessHoursEnabled" class="hours">
         <div v-for="h in config.hours" :key="h.day" class="hours-row">
@@ -100,6 +116,7 @@ const props = defineProps({agencyId:{type:[Number,String],required:true}});
 const config=ref(null), revision=ref(0), tracks=ref([]), readiness=ref(null), lineRoles=ref(null);
 const loading=ref(false), saving=ref(false), previewing=ref(false), error=ref(''), success=ref('');
 const previewDigit=ref('0'), previewHours=ref('open'), simulation=ref(null), musicUrl=ref(''), musicLoading=ref(false);
+const receptionistScenario=ref('unknown'), receptionistIntent=ref('support'), receptionistPreview=ref(null);
 const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const zones=['America/Denver','America/New_York','America/Chicago','America/Los_Angeles','America/Phoenix','America/Anchorage','Pacific/Honolulu'];
 let generation=0, musicGeneration=0;
@@ -122,6 +139,11 @@ async function preview(){
   try{const {data}=await api.post(`${endpoint()}/preview`,{config:config.value,digit:previewDigit.value,hours:previewHours.value});if(current===generation)simulation.value=data;}
   catch(e){if(current===generation)error.value=message(e);}finally{if(current===generation)previewing.value=false;}
 }
+async function previewReceptionist(){
+  previewing.value=true;error.value='';receptionistPreview.value=null;const current=generation;
+  try{const {data}=await api.post(`${endpoint()}/preview`,{config:config.value,mode:'receptionist',scenario:receptionistScenario.value,intent:receptionistIntent.value});if(current===generation)receptionistPreview.value=data;}
+  catch(e){if(current===generation)error.value=message(e);}finally{if(current===generation)previewing.value=false;}
+}
 function moveEarlier(option,index){if(index>0){const [target]=option.targets.splice(index,1);option.targets.splice(index-1,0,target);}}
 function clearMusic(){musicGeneration++;if(musicUrl.value)URL.revokeObjectURL(musicUrl.value);musicUrl.value='';musicLoading.value=false;}
 async function previewMusic(){
@@ -130,6 +152,7 @@ async function previewMusic(){
   catch(e){if(current===musicGeneration)error.value='Unable to preview this music track.';}finally{if(current===musicGeneration)musicLoading.value=false;}
 }
 watch([config,previewDigit,previewHours],()=>{simulation.value=null;},{deep:true});
+watch([config,receptionistScenario,receptionistIntent],()=>{receptionistPreview.value=null;},{deep:true});
 watch(()=>config.value?.holdMusicId,clearMusic);
 watch(()=>props.agencyId,()=>{generation++;config.value=null;readiness.value=null;lineRoles.value=null;clearMusic();load();});
 onBeforeUnmount(()=>{generation++;clearMusic();});
