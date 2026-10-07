@@ -15,6 +15,7 @@
       <button type="button" :class="{ active: tab === 'pushes' }" @click="tab = 'pushes'">Past pushes</button>
       <button type="button" :class="{ active: tab === 'compose' }" @click="tab = 'compose'">Compose</button>
       <button type="button" :class="{ active: tab === 'handbook' }" @click="tab = 'handbook'">Handbook Updates</button>
+      <button v-if="canManageCompensation" type="button" :class="{ active: tab === 'compensation' }" @click="tab = 'compensation'">Compensation drafts</button>
       <button type="button" :class="{ active: tab === 'questions' }" @click="loadQuestions(); tab = 'questions'">
         Handbook Q&amp;A
       </button>
@@ -343,6 +344,8 @@
       />
     </section>
 
+    <CompensationDraftsPanel v-if="tab === 'compensation' && canManageCompensation" :agency-id="agencyId" />
+
     <!-- Questions -->
     <section v-if="tab === 'questions'" class="panel">
       <table class="table">
@@ -373,8 +376,11 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import { useRoute } from 'vue-router';
+import { useAuthStore } from '../../store/auth';
 import { PROVIDER_UPDATE_SECTIONS, PROVIDER_UPDATE_PAGES, defaultSectionConfig } from '../../utils/providerUpdate';
 import WorkplaceHandbookAdmin from '../handbook/WorkplaceHandbookAdmin.vue';
+import CompensationDraftsPanel from './CompensationDraftsPanel.vue';
 import ProviderUpdateLivePreview from '../provider/ProviderUpdateLivePreview.vue';
 import ProviderUpdateAdminUpdateEmbed from '../provider/ProviderUpdateAdminUpdateEmbed.vue';
 
@@ -384,7 +390,10 @@ const props = defineProps({
   agencyName: { type: String, default: '' }
 });
 
-const tab = ref('pushes');
+const authStore = useAuthStore();
+const canManageCompensation = computed(() => ['admin','super_admin','superadmin'].includes(String(authStore.user?.role || '').toLowerCase()));
+const route = useRoute();
+const tab = ref(['handbook', 'compensation'].includes(route.query.tab) ? route.query.tab : 'pushes');
 const catalog = PROVIDER_UPDATE_SECTIONS;
 const pageCatalog = PROVIDER_UPDATE_PAGES.map((p) => ({
   ...p,

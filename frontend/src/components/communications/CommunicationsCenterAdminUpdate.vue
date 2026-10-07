@@ -224,12 +224,13 @@
                 </div>
               </header>
               <div class="au-sec-body">
-                <p
+                <div
                   class="au-topic-body"
                   contenteditable="true"
                   data-placeholder="Optional section intro…"
                   @blur="saveTopic(topic, 'body_html', $event)"
-                >{{ topic.body_html }}</p>
+                  v-html="DOMPurify.sanitize(topic.body_html || '')"
+                />
 
                 <article v-for="item in includedItems(topic)" :key="item.id" class="au-person">
                   <img v-if="item.photo_url" :src="item.photo_url" alt="" />
@@ -378,6 +379,7 @@ import api from '../../services/api';
 import BrandingLogo from '../BrandingLogo.vue';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
+import DOMPurify from 'dompurify';
 import { ADMIN_UPDATE_COLORS, ADMIN_UPDATE_ICONS, iconByKey } from '../../constants/adminUpdateCatalog.js';
 
 defineProps({
@@ -617,7 +619,7 @@ function saveText(field, event) {
 }
 
 async function saveTopic(topic, field, event) {
-  const value = String(event.target.innerText || '').trim();
+  const value = field === 'body_html' ? DOMPurify.sanitize(event.target.innerHTML || '') : String(event.target.innerText || '').trim();
   const map = { title: 'title', description: 'description', body_html: 'bodyHtml' };
   await saveTopicValue(topic, { [map[field] || field]: value });
 }

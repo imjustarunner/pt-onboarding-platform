@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
 import crypto from 'crypto';
+import sanitizeMarkup from 'sanitize-html';
 import Agency from '../models/Agency.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
@@ -144,10 +145,7 @@ function escapeHtml(value) {
 }
 
 function sanitizeHtml(value) {
-  return String(value || '')
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
-    .replace(/<iframe[\s\S]*?>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/\son\w+=(".*?"|'.*?'|[^\s>]+)/gi, '');
+  return sanitizeMarkup(String(value || ''));
 }
 
 function parsePalette(raw) {
@@ -751,7 +749,7 @@ export function renderAdminUpdateHtml(update, agency, { viewUrl } = {}) {
 
   const topicRows = [];
   for (let i = 0; i < enabledTopics.length; i += 2) {
-    topicRows.push(`<tr>${topicCards.slice ? '' : ''}${enabledTopics.slice(i, i + 2).map((topic, idx) => {
+    topicRows.push(`<tr>${enabledTopics.slice(i, i + 2).map((topic, idx) => {
       const icon = iconByKey(topic.icon_key);
       const isLastOdd = i + 1 >= enabledTopics.length;
       return `
@@ -789,7 +787,7 @@ export function renderAdminUpdateHtml(update, agency, { viewUrl } = {}) {
             <tr>
               <td style="background:#fff;padding:16px 20px;">
                 ${body}
-                <table width="100%" cellpadding="0" cellspacing="0">${itemHtml || '<tr><td style="color:#94a3b8;font-size:14px;padding:8px 0;">No items in this section yet.</td></tr>'}</table>
+                <table width="100%" cellpadding="0" cellspacing="0">${itemHtml || (body ? '' : '<tr><td style="color:#94a3b8;font-size:14px;padding:8px 0;">No items in this section yet.</td></tr>')}</table>
               </td>
             </tr>
           </table>

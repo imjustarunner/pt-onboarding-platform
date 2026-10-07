@@ -34,6 +34,7 @@
         <p v-if="editNote" class="ok">{{ editNote }}</p>
       </div>
 
+      <ReadAloudControls :html="pageHtml" />
       <iframe :sandbox="previewMode ? '' : undefined" class="au-embed-frame" title="Admin Update" :srcdoc="pageHtml" />
       <div v-if="!previewMode && !editable" class="au-embed-actions">
         <button type="button" class="au-btn" :disabled="busy" @click="$emit('complete', { adminUpdateId: updateId, viewed: true })">
@@ -48,6 +49,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import ReadAloudControls from '../communications/ReadAloudControls.vue';
 
 const props = defineProps({
   mode: { type: String, default: 'auth' },

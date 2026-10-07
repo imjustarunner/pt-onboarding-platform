@@ -2,6 +2,7 @@
  * In-app Workplace Handbook — versioned content, view tracking, People Ops Q&A.
  */
 import pool from '../config/database.js';
+import sanitizeHtml from 'sanitize-html';
 
 function slugify(title) {
   return String(title || 'section')
@@ -127,6 +128,7 @@ export async function upsertDraftSection({
   slug = null
 }) {
   const s = slug || slugify(title);
+  bodyHtml = sanitizeHtml(String(bodyHtml || ''));
   if (sectionId) {
     await pool.execute(
       `UPDATE workplace_handbook_sections
@@ -411,6 +413,7 @@ export async function upsertDigestEntry({
   changedContent,
   sortOrder = 0
 }) {
+  changedContent = sanitizeHtml(String(changedContent || ''));
   const digest = await getDigest(digestId, agencyId);
   if (!digest) throw Object.assign(new Error('Digest not found'), { status: 404 });
   const subj = String(subject || '').trim().slice(0, 500);

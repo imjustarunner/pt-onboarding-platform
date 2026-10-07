@@ -7,8 +7,13 @@ import { previewProviderUpdate } from '../controllers/providerUpdatePreview.cont
 import { authenticate } from '../middleware/auth.middleware.js';
 import * as ctrl from '../controllers/providerUpdate.controller.js';
 import * as hb from '../controllers/workplaceHandbook.controller.js';
+import * as compensationDrafts from '../controllers/compensationDraft.controller.js';
 
 const router = express.Router();
+
+router.get('/compensation-drafts', authenticate, compensationDrafts.list);
+router.get('/compensation-drafts/:draftId', authenticate, compensationDrafts.get);
+router.put('/compensation-drafts/:draftId', authenticate, compensationDrafts.save);
 
 router.get('/catalog', authenticate, ctrl.getCatalog);
 router.get('/pushes', authenticate, ctrl.listPushesHandler);

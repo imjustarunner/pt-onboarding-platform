@@ -2,8 +2,9 @@
   <div class="au-public">
     <div v-if="error" class="au-public-err">{{ error }}</div>
     <div v-else-if="loading" class="au-public-err">Loading Admin Update…</div>
+    <ReadAloudControls v-if="!loading && !error" :html="html" />
     <iframe
-      v-else
+      v-if="!loading && !error"
       ref="frameEl"
       class="au-frame"
       title="Admin Update"
@@ -17,6 +18,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
+import ReadAloudControls from '../../components/communications/ReadAloudControls.vue';
 
 const route = useRoute();
 const frameEl = ref(null);

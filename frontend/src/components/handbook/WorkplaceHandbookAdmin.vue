@@ -4,23 +4,25 @@
       <div>
         <h2>Handbook Updates</h2>
         <p class="muted">
-          Monthly digest of handbook changes (subject · rationale · changed content). The full 100+ page handbook
-          stays in Google Docs — link it below.
+          Edit proposed handbook sections and track each change with its reason and replacement language.
         </p>
       </div>
       <button type="button" class="btn primary" :disabled="busy" @click="createNew">+ New digest</button>
     </header>
 
     <label class="field glass">
-      <span>Full handbook (Google Doc) link</span>
+      <span>Existing full handbook link (optional)</span>
       <div class="row">
-        <input v-model="fullUrl" class="input" placeholder="https://docs.google.com/document/d/…" />
+        <input v-model="fullUrl" class="input" placeholder="https://…" />
         <button type="button" class="btn" :disabled="busy" @click="saveUrl">Save link</button>
       </div>
     </label>
 
     <p v-if="error" class="err">{{ error }}</p>
     <p v-if="success" class="ok">{{ success }}</p>
+
+    <HandbookDraftSections :agency-id="agencyId" />
+    <h3>Change tracker and staff digest</h3>
 
     <div class="digest-list">
       <button
@@ -64,7 +66,7 @@
         </label>
         <label class="field">
           <span>3 · Changed content</span>
-          <textarea v-model="e.changed_content" rows="4" class="input" placeholder="The new / updated policy text" />
+          <DraftHtmlEditor v-model="e.changed_content" label="Updated policy text" />
         </label>
         <div class="row">
           <button type="button" class="btn sm" :disabled="busy" @click="saveEntry(e, idx)">Save update</button>
@@ -80,6 +82,8 @@
 <script setup>
 import { onMounted, ref } from 'vue';
 import api from '../../services/api';
+import HandbookDraftSections from './HandbookDraftSections.vue';
+import DraftHtmlEditor from '../admin/DraftHtmlEditor.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },
