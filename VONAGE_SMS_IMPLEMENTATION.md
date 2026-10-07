@@ -3,6 +3,15 @@
 > Current registration, signed consent, deployment blockers and proof artifacts: [ITSCO SMS audit](docs/VONAGE_10DLC_ITSCO_AUDIT.md). The shared transport now requires approved program configuration and purpose-specific permission; older opt-in flags alone do not enable sends.
 
 
+## ITSCO shared care line and separate public main number
+
+- Select the existing **clinical_care** number in Texting Numbers → Agency SMS Settings → **Shared provider/client care number**. This is an agency line, not the personal property of any pool member.
+- A recognized client with an active provider assignment routes to that care team. Unassigned clients and other known contacts go to support. Unfamiliar or shared/ambiguous phone numbers go to support review for identification; unfamiliar does not mean spam.
+- Individual number assignments do not override client assignments on the shared line. One provider leaving does not disable the shared line for everyone else. If a client loses their active care assignment, support handles their messages until reassignment.
+- Default outbound client texting uses the selected shared care line. Consent, STOP, approved campaign purpose and carrier linkage checks still apply.
+- Keep a **separate main/public number** for inquiries and the main office contact on provider cards. Use the `tenant_contact` number purpose when adding that number to the app. Purchasing, porting or configuring the public main number is a separate operational step.
+- Provider cards omit the internal work/texting line even after SMS or voice is enabled; they retain the agency/main-office contact, provider identity and email. Staff affiliation and private forwarding details remain inside the app.
+
 ## Number ownership, support coverage and Spam — October 6, 2026
 
 This is a new messaging launch. No notification traffic was assumed or sent during this change. The local Cloud SQL proxy was restarted on `127.0.0.1:3307`, and a real read-only query to `onboarding_stage` succeeded. ITSCO has one active `clinical_care` number recorded locally; that is not proof of live carrier linkage.

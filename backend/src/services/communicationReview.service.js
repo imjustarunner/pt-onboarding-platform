@@ -1,3 +1,5 @@
+import { sharedCareNumberId } from './sharedCareNumber.service.js';
+import { resolveClientCaregivers } from './communicationRouting.service.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import PhoneNumber from '../models/PhoneNumber.model.js';
@@ -32,20 +34,25 @@ export async function inspectInboundReception({ from, to, body = '' }) {
     FROM twilio_number_assignments tna JOIN users u ON u.id=tna.user_id
     LEFT JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=?
     WHERE tna.number_id=? AND tna.is_active=TRUE`, [agencyId, number.id]);
+  const shared = Number(await sharedCareNumberId(agencyId)) === Number(number.id);
   const active = assigned.filter(u => u.membership_active === 1 && isCommunicationStaffActive(u));
   // A dedicated number must not expose a different clinician's clients to its assignee.
   let directMismatch = false;
-  if (assigned.length === 1 && active.length && ['provider','provider_plus'].includes(active[0].role) && profile.clientId) {
+  if (!shared && assigned.length === 1 && active.length && ['provider','provider_plus'].includes(active[0].role) && profile.clientId) {
     const [care] = await pool.execute(`SELECT 1 FROM client_provider_assignments WHERE client_id=? AND provider_user_id=? AND is_active=TRUE
       UNION SELECT 1 FROM clients WHERE id=? AND agency_id=? AND provider_id=? LIMIT 1`,
       [profile.clientId, active[0].id, profile.clientId, agencyId, active[0].id]);
     directMismatch = !care.length;
   }
-  const reason = receptionReason({ blocked: false, known: !!(profile.clientId || profile.userId || contact),
+  let reason = receptionReason({ blocked: false, known: !!(profile.clientId || profile.userId || contact),
     ambiguous: profile.ambiguous || (profile.clients?.length || 0) > 1,
-    departed: assigned.length > 0 && active.length === 0,
+    departed: !shared && assigned.length > 0 && active.length === 0,
     directMismatch,
     mainNumber: ['tenant_contact', 'platform_contact'].includes(number.number_purpose) });
+  if (!reason && shared) {
+    const care=profile.clientId ? await resolveClientCaregivers(profile.clientId,agencyId) : null;
+    if (!care?.ownerUserId) reason=profile.clientId ? 'unassigned_client' : 'unlinked_sender';
+  }
   return { number, profile, reason: reason === 'unknown_sender' && isLikelyAdvertising(body) ? 'suspected_advertising' : reason };
 }
 

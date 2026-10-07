@@ -33,19 +33,13 @@ describe('business card tenant and employee boundaries',()=>{
  it('rejects executable logo/QR destinations and out-of-range print settings',()=>{for(const patch of [{qrUrl:'javascript:alert(1)'},{logo:'data:image/svg+xml,<svg onload="bad"/>'}])expect(()=>normalizeBusinessCardSettings({...template(),organization:{...template().organization,...patch}})).toThrow();expect(()=>normalizeBusinessCardSettings({...template(),print:{offsetY:2}})).toThrow();});
 });
 
-describe('assigned business-card work numbers',()=>{
- const line=(extra={})=>({phone_number:'+17195550123',capabilities:{sms:true,voice:true},sms_access_enabled:1,...extra});
- const contact=async()=>{const r=res(),next=vi.fn();await getEmployeeBusinessCard(req(),r,next);expect(next).not.toHaveBeenCalled();return r.json.mock.calls[0][0].contact;};
- it('does not invent a work number from profile or forwarding numbers',async()=>{people[0].work_phone='private-forwarding';expect((await contact()).workLine).toBeNull();});
- it('does not advertise an assigned number before texting or calling launches',async()=>{m.sms.mockReturnValue(false);assignments=[line()];expect((await contact()).workLine).toBeNull();});
- it('keeps office contact separate and shows Text while calling is unavailable',async()=>{assignments=[line()];expect(await contact()).toMatchObject({phone:{display:'555-0100'},workLine:{number:'+17195550123',canText:true,canCall:false}});});
- it.each([
-  [{sms_access_enabled:0}], [{sms_inbound_enabled:'0'}], [{sms_outbound_enabled:0}], [{capabilities:{sms:false,voice:true}}]
- ])('omits a number without enabled two-way communication: %j',async patch=>{assignments=[line(patch)];expect((await contact()).workLine).toBeNull();});
- it.each([
-  [{},true,true], [{sms_access_enabled:0},false,true], [{inbound_enabled:0},true,false], [{outbound_enabled:0},true,false], [{capabilities:JSON.stringify({sms:true,voice:false})},true,false]
- ])('honors number capabilities and user settings when voice is available: %j',async(patch,canText,canCall)=>{m.voice.mockReturnValue(true);assignments=[line(patch)];expect((await contact()).workLine).toMatchObject({canText,canCall});});
- it('chooses the first usable assigned line and scopes active numbers to the tenant',async()=>{assignments=[line({sms_access_enabled:0}),line({phone_number:'+17195550456'})];expect((await contact()).workLine.number).toBe('+17195550456');const [sql,args]=m.execute.mock.calls.find(([s])=>s.includes('FROM twilio_number_assignments'));expect(args).toEqual([7,2]);for(const clause of ['tn.agency_id = ?', 'tna.is_active = TRUE','tn.is_active = TRUE', "tn.status = 'active'", 'ORDER BY tna.is_primary DESC', 'shared.user_id <> tna.user_id', 'shared.is_active = TRUE'])expect(sql).toContain(clause);});
+describe('care numbers remain private on provider cards',()=>{
+ it.each([false,true])('keeps the main contact but omits texting numbers when transport availability is %s',async available=>{
+  m.voice.mockReturnValue(available);m.sms.mockReturnValue(available);
+  assignments=[{phone_number:'+17195550123',capabilities:{sms:true,voice:true},sms_access_enabled:1}];
+  const r=res(),next=vi.fn();await getEmployeeBusinessCard(req(),r,next);
+  expect(next).not.toHaveBeenCalled();expect(r.json.mock.calls[0][0].contact).toMatchObject({phone:{display:'555-0100'},workLine:null});
+ });
 });
 
 describe('card artwork settings',()=>{

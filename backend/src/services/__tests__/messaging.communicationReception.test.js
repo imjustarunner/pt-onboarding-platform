@@ -1,3 +1,7 @@
+vi.mock('../sharedCareNumber.service.js',()=>({sharedCareNumberId:vi.fn()}));
+vi.mock('../communicationRouting.service.js',()=>({resolveClientCaregivers:vi.fn()}));
+import {sharedCareNumberId} from '../sharedCareNumber.service.js';
+import {resolveClientCaregivers} from '../communicationRouting.service.js';
 import { describe,it,expect,vi,beforeEach } from 'vitest';
 import { isCommunicationStaffActive,receptionReason,isLikelyAdvertising } from '../../utils/communicationReceptionPolicy.js';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
@@ -12,7 +16,7 @@ import {resolveProfilePhoneMatch} from '../smsProfileAudit.service.js';
 import {encryptChatText} from '../chatEncryption.service.js';
 import { inspectInboundReception,enqueueCommunicationReview,reviewCommunication } from '../communicationReview.service.js';
 
-beforeEach(()=>{vi.resetAllMocks();PhoneNumber.findByPhoneNumber.mockResolvedValue({id:9,agency_id:2,number_purpose:'clinical_care'});pool.execute.mockResolvedValue([[]]);resolveProfilePhoneMatch.mockResolvedValue({clients:[]});AgencyContact.findByPhone.mockResolvedValue(null);});
+beforeEach(()=>{vi.resetAllMocks();sharedCareNumberId.mockResolvedValue(null);PhoneNumber.findByPhoneNumber.mockResolvedValue({id:9,agency_id:2,number_purpose:'clinical_care'});pool.execute.mockResolvedValue([[]]);resolveProfilePhoneMatch.mockResolvedValue({clients:[]});AgencyContact.findByPhone.mockResolvedValue(null);});
 describe('staff eligibility',()=>{
  it.each([{status:'TERMINATED_PENDING'},{status:'ARCHIVED'},{is_active:0},{is_archived:1},{terminated_at:new Date()}])('never routes to departed/inactive staff %j',user=>expect(isCommunicationStaffActive(user)).toBe(false));
  it('accepts active staff',()=>expect(isCommunicationStaffActive({status:'ACTIVE_EMPLOYEE',is_active:1})).toBe(true));
@@ -41,4 +45,22 @@ describe('reviewer tenant authorization',()=>{
  it('denies another agency even to support staff',async()=>{const response=res(),next=vi.fn();pool.execute.mockResolvedValue([[]]);await requireCommunicationReviewer({user:{id:5,role:'support'},params:{agencyId:'2'}},response,next);expect(response.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();expect(pool.execute.mock.calls[0][1]).toEqual([5,2]);});
  it('denies ordinary providers',async()=>{const response=res();await requireCommunicationReviewer({user:{id:5,role:'provider'},params:{agencyId:'2'}},response,vi.fn());expect(response.status).toHaveBeenCalledWith(403);expect(pool.execute).not.toHaveBeenCalled();});
  it('permits current support membership',async()=>{pool.execute.mockResolvedValue([[{id:5,is_active:1,status:'ACTIVE_EMPLOYEE'}]]);const next=vi.fn();await requireCommunicationReviewer({user:{id:5,role:'support'},params:{agencyId:'2'}},res(),next);expect(next).toHaveBeenCalledWith();});
+});
+
+describe('shared care line reception',()=>{
+ it('ignores individual number assignments when the client has a current care team',async()=>{
+  sharedCareNumberId.mockResolvedValue(9);resolveProfilePhoneMatch.mockResolvedValue({clientId:1,clients:[{id:1}]});
+  resolveClientCaregivers.mockResolvedValue({ownerUserId:8,caregiverIds:[8]});
+  pool.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{id:99,role:'provider',membership_active:1,status:'TERMINATED_PENDING'}]]);
+  expect(await inspectInboundReception({from:'x',to:'y'})).toMatchObject({reason:null});
+ });
+ it('holds a known client without an active care assignment for support',async()=>{
+  sharedCareNumberId.mockResolvedValue(9);resolveProfilePhoneMatch.mockResolvedValue({clientId:1,clients:[{id:1}]});
+  resolveClientCaregivers.mockResolvedValue({ownerUserId:null,caregiverIds:[]});
+  expect(await inspectInboundReception({from:'x',to:'y'})).toMatchObject({reason:'unassigned_client'});
+ });
+ it('sends other known contacts to support instead of a provider pool',async()=>{
+  sharedCareNumberId.mockResolvedValue(9);AgencyContact.findByPhone.mockResolvedValue({id:2});
+  expect(await inspectInboundReception({from:'x',to:'y'})).toMatchObject({reason:'unlinked_sender'});
+ });
 });

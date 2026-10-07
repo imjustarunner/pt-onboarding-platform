@@ -127,6 +127,7 @@ export const getAgencySmsSettings = async (req, res, next) => {
       smsComplianceMode: 'opt_in_required',
       smsReminderSenderMode: flags.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: flags.smsDefaultUserId || null,
+      smsSharedCareNumberId: flags.smsSharedCareNumberId || null,
       companyEventsEnabled: flags.companyEventsEnabled === true,
       companyEventsSenderNumberId: flags.companyEventsSenderNumberId
         ? Number(flags.companyEventsSenderNumberId)
@@ -158,6 +159,7 @@ export const updateAgencySmsSettings = async (req, res, next) => {
       smsComplianceMode,
       smsReminderSenderMode,
       smsDefaultUserId,
+      smsSharedCareNumberId,
       companyEventsEnabled,
       companyEventsSenderNumberId,
       voiceSupportFallbackPhone,
@@ -177,6 +179,18 @@ export const updateAgencySmsSettings = async (req, res, next) => {
     flags.smsComplianceMode = 'opt_in_required';
     if (smsReminderSenderMode) flags.smsReminderSenderMode = String(smsReminderSenderMode);
     if (smsDefaultUserId !== undefined) flags.smsDefaultUserId = smsDefaultUserId ? Number(smsDefaultUserId) : null;
+    if (smsSharedCareNumberId !== undefined) {
+      const id=smsSharedCareNumberId ? Number(smsSharedCareNumberId) : null;
+      if (smsSharedCareNumberId && (!Number.isSafeInteger(id) || id < 1)) return res.status(400).json({error:{message:'Invalid shared care number'}});
+      if (id) {
+        const number=await PhoneNumber.findById(id);
+        if (!Number.isSafeInteger(id) || !number || Number(number.agency_id)!==agencyId
+          || number.number_purpose!=='clinical_care' || !number.is_active || number.status!=='active') {
+          return res.status(400).json({error:{message:'Choose an active care number belonging to this agency.'}});
+        }
+      }
+      flags.smsSharedCareNumberId=id;
+    }
     if (companyEventsEnabled !== undefined) flags.companyEventsEnabled = !!companyEventsEnabled;
     if (companyEventsSenderNumberId !== undefined) {
       const parsedNumberId = companyEventsSenderNumberId ? Number(companyEventsSenderNumberId) : null;
@@ -235,6 +249,7 @@ export const updateAgencySmsSettings = async (req, res, next) => {
       smsComplianceMode: 'opt_in_required',
       smsReminderSenderMode: flags.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: flags.smsDefaultUserId || null,
+      smsSharedCareNumberId: flags.smsSharedCareNumberId || null,
       companyEventsEnabled: flags.companyEventsEnabled === true,
       companyEventsSenderNumberId: flags.companyEventsSenderNumberId
         ? Number(flags.companyEventsSenderNumberId)

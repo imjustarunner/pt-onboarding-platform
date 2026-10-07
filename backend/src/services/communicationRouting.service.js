@@ -1,3 +1,4 @@
+import { sharedCareNumberId, getSharedCareNumber } from './sharedCareNumber.service.js';
 import { isCommunicationStaffActive } from '../utils/communicationReceptionPolicy.js';
 import { isUserAvailable } from './availabilityWindow.service.js';
 import VacationScheduleSyncService from './vacationScheduleSync.service.js';
@@ -26,7 +27,7 @@ async function userHasAgency(userId, agencyId) {
 async function findFallbackAgencyNumber(agencyId) {
   if (!agencyId) return null;
   const numbers = await PhoneNumber.listByAgency(agencyId, { includeInactive: false });
-  return pickFirst(numbers);
+  return await getSharedCareNumber(agencyId) || pickFirst(numbers.filter(n=>n.number_purpose==='clinical_care'));
 }
 
 async function findAssignedUserForNumber(numberId) {
@@ -90,6 +91,7 @@ export async function resolveOutboundNumber({ userId, clientId, requestedNumberI
       return { error: 'number_unavailable' };
     }
     if (!(await userHasAgency(userId,number.agency_id))) return {error:'number_not_accessible'};
+    if (Number(await sharedCareNumberId(number.agency_id))===Number(number.id)) return {number,assignment:null,ownerType:'agency'};
     const assigned = await findAssignedUserForNumber(number.id);
     const eligibleIds = await PhoneNumberAssignment.listEligibleUserIdsForNumber(number.id);
     const userInPool = eligibleIds.some((id) => Number(id) === Number(userId));
@@ -103,6 +105,12 @@ export async function resolveOutboundNumber({ userId, clientId, requestedNumberI
     return { number, assignment: assigned || null, ownerType: assigned || userInPool ? 'staff' : 'agency' };
   }
 
+  const client=clientId ? await Client.findById(clientId,{includeSensitive:false}) : null;
+  const agencyId=client?.agency_id || await findAgencyIdForUser(userId);
+  if (agencyId && await userHasAgency(userId,agencyId)) {
+    const shared=await getSharedCareNumber(agencyId);
+    if(shared)return {number:shared,assignment:null,ownerType:'agency'};
+  }
   const primary = await PhoneNumberAssignment.findPrimaryForUser(userId);
   if (primary?.number_id) {
     const number = await PhoneNumber.findById(primary.number_id);
@@ -210,6 +218,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
   );
   const number = await PhoneNumber.findByPhoneNumber(toNumber);
   const purpose = normalizeNumberPurpose(number?.number_purpose || 'clinical_care');
+  const shared = number?.id && Number(await sharedCareNumberId(number.agency_id))===Number(number.id);
   let ownerUser = null;
   let assignment = null;
   let ownerType = null;
@@ -297,11 +306,11 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     }
   }
 
-  if (!ownerUser && poolEligible.length > 0) {
+  if (!shared && !ownerUser && poolEligible.length > 0) {
     ownerUser = await User.findById(poolEligible[0]);
     ownerType = 'staff';
     eligibleUserIds = [...poolEligible];
-  } else if (!ownerUser && assignment?.user_id) {
+  } else if (!shared && !ownerUser && assignment?.user_id) {
     ownerUser = await User.findById(assignment.user_id);
     ownerType = 'staff';
     eligibleUserIds = [assignment.user_id];
@@ -321,7 +330,7 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
     const agency = await Agency.findById(agencyId);
     const flags = parseFeatureFlags(agency?.feature_flags);
     const defaultUserId = flags.smsDefaultUserId ? Number(flags.smsDefaultUserId) : null;
-    if (defaultUserId && (await userHasAgency(defaultUserId, agencyId))) {
+    if (!shared && defaultUserId && (await userHasAgency(defaultUserId, agencyId))) {
       ownerUser = await User.findById(defaultUserId);
       ownerType = 'agency';
       eligibleUserIds = [defaultUserId];

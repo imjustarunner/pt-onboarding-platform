@@ -28,7 +28,7 @@ import api from '../../services/api';
 const props=defineProps({agencyId:{type:[Number,String],default:null}});
 const items=ref([]),status=ref('review'),busy=ref(false),error=ref(''),nextBeforeId=ref(null);
 let generation=0;
-const reasonLabel = reason => ({suspected_advertising:'Suspected advertising — reviewable',blocked_sender:'Blocked sender',unknown_sender:'Unknown sender',ambiguous_identity:'Shared phone — verify recipient',departed_provider:'Departed provider — support coverage',unapproved_for_provider:'Not assigned to this provider',main_number_inquiry:'Main number inquiry',unread_text:'Unread text',unanswered_text:'Unanswered text',unheard_voicemail:'Unheard voicemail'}[reason] || reason);
+const reasonLabel = reason => ({unassigned_client:'Client needs a provider assignment',unlinked_sender:'Sender needs support routing',suspected_advertising:'Suspected advertising — reviewable',blocked_sender:'Blocked sender',unknown_sender:'Unknown sender',ambiguous_identity:'Shared phone — verify recipient',departed_provider:'Departed provider — support coverage',unapproved_for_provider:'Not assigned to this provider',main_number_inquiry:'Main number inquiry',unread_text:'Unread text',unanswered_text:'Unanswered text',unheard_voicemail:'Unheard voicemail'}[reason] || reason);
 async function load(append=false) {
   const current=++generation, agencyId=props.agencyId;
   if (!append) {items.value=[];nextBeforeId.value=null;}

@@ -50,6 +50,14 @@
             </select>
           </div>
           <div class="form-group">
+            <label>Shared provider/client care number</label>
+            <select v-model="settings.smsSharedCareNumberId" class="select">
+              <option :value="null">No shared care line selected</option>
+              <option v-for="n in numbers.filter(n => n.number_purpose === 'clinical_care' && n.is_active && n.status === 'active')" :key="n.id" :value="n.id">{{ n.phone_number }} {{ n.friendly_name || '' }}</option>
+            </select>
+            <p class="muted">Uses client assignments. Unassigned or unfamiliar senders go to support. Your public main number stays separate.</p>
+          </div>
+          <div class="form-group">
             <label>Reminder sender mode</label>
             <select v-model="settings.smsReminderSenderMode" class="select">
               <option value="agency_default">Agency number by default</option>
@@ -196,9 +204,9 @@
       <div class="card">
         <h3>Numbers</h3>
         <p class="provider-number-guidance muted">
-          <strong>Provider-only model:</strong> Each provider must have their own number assigned for texting and calling clients.
-          Agency numbers are for company events, after-hours, and support fallback—not for 1:1 client communication.
-          Assign one number per provider. <strong>Non-providers</strong> (admin, support) can have a number and be added to additional numbers via &quot;Add to pool&quot; to receive and respond to messages.
+          <strong>Shared care line:</strong> Providers can share an agency number. Linked clients reach their care team;
+          unlinked or unfamiliar senders go to support review. Keep a separate public main number for inquiries.
+          Staff pool membership does not assign an unlinked client to a provider. Care/texting numbers stay off provider cards.
         </p>
         <div class="toolbar">
           <div class="inline">
@@ -539,6 +547,7 @@ const settings = ref({
   smsComplianceMode: 'opt_in_required',
   smsReminderSenderMode: 'agency_default',
   smsDefaultUserId: null,
+  smsSharedCareNumberId: null,
   companyEventsEnabled: false,
   companyEventsSenderNumberId: null,
   smsSupportFallbackPhone: '',
@@ -632,6 +641,7 @@ const loadSettings = async () => {
       smsComplianceMode: res.data?.smsComplianceMode || 'opt_in_required',
       smsReminderSenderMode: res.data?.smsReminderSenderMode || 'agency_default',
       smsDefaultUserId: res.data?.smsDefaultUserId || null,
+      smsSharedCareNumberId: res.data?.smsSharedCareNumberId || null,
       companyEventsEnabled: res.data?.companyEventsEnabled === true,
       companyEventsSenderNumberId: res.data?.companyEventsSenderNumberId || null,
       smsSupportFallbackPhone: res.data?.smsSupportFallbackPhone || '',

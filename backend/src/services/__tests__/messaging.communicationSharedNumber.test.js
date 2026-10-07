@@ -1,0 +1,10 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn()}}));
+vi.mock('../../models/PhoneNumber.model.js',()=>({default:{findById:vi.fn()}}));
+import Agency from '../../models/Agency.model.js';
+import PhoneNumber from '../../models/PhoneNumber.model.js';
+import {getSharedCareNumber,sharedCareNumberId} from '../sharedCareNumber.service.js';
+beforeEach(()=>{vi.clearAllMocks();Agency.findById.mockResolvedValue({feature_flags:{smsSharedCareNumberId:1}});PhoneNumber.findById.mockResolvedValue({id:1,agency_id:2,is_active:1,status:'active',number_purpose:'clinical_care'});});
+it('resolves the configured active agency care line',async()=>expect(await getSharedCareNumber(2)).toMatchObject({id:1}));
+it.each([{agency_id:3},{is_active:0},{status:'released'},{number_purpose:'tenant_contact'}])('does not use an invalid or public number: %j',async patch=>{PhoneNumber.findById.mockResolvedValue({id:1,agency_id:2,is_active:1,status:'active',number_purpose:'clinical_care',...patch});expect(await getSharedCareNumber(2)).toBe(null);});
+it('handles unset or invalid configuration without inventing a number',async()=>{Agency.findById.mockResolvedValue({feature_flags:'bad json'});expect(await sharedCareNumberId(2)).toBe(null);expect(await getSharedCareNumber(2)).toBe(null);expect(PhoneNumber.findById).not.toHaveBeenCalled();});
