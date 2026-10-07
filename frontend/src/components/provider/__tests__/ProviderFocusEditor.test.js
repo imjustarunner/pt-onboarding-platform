@@ -1,0 +1,5 @@
+import {mount} from '@vue/test-utils';import {expect,it} from 'vitest';import ProviderFocusEditor from '../ProviderFocusEditor.vue';
+it('limits highlights to three and visibly excludes deselected options',async()=>{
+ const props={modelValue:{top:{populations:['A','B','C']},excluded:{populations:[]}},groups:[{key:'populations',label:'Populations',options:['A','B','C','D']}]};const w=mount(ProviderFocusEditor,{props});expect(w.findAll('.highlighted')).toHaveLength(3);
+ expect(w.findAll('.focus-option')[3].findAll('input')[1].attributes('disabled')).toBeDefined();await w.findAll('.focus-option')[0].findAll('input')[0].setValue(false);const next=w.emitted('update:modelValue')[0][0];expect(next).toEqual({top:{populations:['B','C']},excluded:{populations:['A']}});await w.setProps({modelValue:next});expect(w.findAll('.excluded')).toHaveLength(1);expect(w.findAll('.highlighted')).toHaveLength(2);expect(w.findAll('.focus-option')[3].findAll('input')[1].attributes('disabled')).toBeUndefined();
+});

@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import crypto from 'crypto';
-import sanitizeMarkup from 'sanitize-html';
+import {sanitizeTrainingHtml,resolveTrainingHtml,emailTrainingLinks} from './updateTrainingMedia.service.js';
 import Agency from '../models/Agency.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
@@ -145,7 +145,7 @@ function escapeHtml(value) {
 }
 
 function sanitizeHtml(value) {
-  return sanitizeMarkup(String(value || ''));
+  return sanitizeTrainingHtml(value);
 }
 
 function parsePalette(raw) {
@@ -207,6 +207,7 @@ export async function hydrateUpdate(row) {
   if (!row) return null;
   const topics = await loadTopics(row.id);
   const items = await loadItemsForTopics(topics.map((t) => t.id));
+  for(const topic of topics)if(String(topic.body_html||'').includes('data-training-key'))topic.body_html=await resolveTrainingHtml(topic.body_html,row.agency_id);
   const itemsByTopic = new Map();
   for (const item of items) {
     const list = itemsByTopic.get(item.topic_id) || [];
@@ -735,7 +736,7 @@ function renderCustomItems(items, color) {
   }).join('');
 }
 
-export function renderAdminUpdateHtml(update, agency, { viewUrl } = {}) {
+export function renderAdminUpdateHtml(update, agency, { viewUrl, layout = 'email' } = {}) {
   const { primary, secondary, accent } = brandColors(agency);
   const logo = agency?.logo_url || '';
   const agencyName = agency?.name || 'Our team';
@@ -767,7 +768,7 @@ export function renderAdminUpdateHtml(update, agency, { viewUrl } = {}) {
     const icon = iconByKey(topic.icon_key);
     const peopleKinds = topic.topic_key === 'staffing' || topic.topic_key === 'departures';
     const itemHtml = peopleKinds ? renderPeopleCards(topic.items, topic.color) : renderCustomItems(topic.items, topic.color);
-    const body = topic.body_html ? `<div style="color:#334155;font-size:14px;line-height:1.6;margin:8px 0 12px;">${sanitizeHtml(topic.body_html)}</div>` : '';
+    const body = topic.body_html ? `<div style="color:#334155;font-size:14px;line-height:1.6;margin:8px 0 12px;">${layout === 'email' ? emailTrainingLinks(topic.body_html,viewUrl) : sanitizeHtml(topic.body_html)}</div>` : '';
     return `
       <tr>
         <td style="padding:0 28px 28px;" id="${topicAnchor(topic)}">
@@ -839,11 +840,12 @@ export function renderAdminUpdateHtml(update, agency, { viewUrl } = {}) {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(title)}</title>
+  <style>img,video{max-width:100%;height:auto}figure{margin:16px 0}figcaption{font-size:14px;color:#52665e}</style>
 </head>
 <body style="margin:0;padding:0;background:#e2e8f0;font-family:'Helvetica Neue',Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#e2e8f0;padding:24px 12px;">
     <tr><td align="center">
-      <table width="640" cellpadding="0" cellspacing="0" style="max-width:640px;width:100%;background:#fff;border-radius:18px;overflow:hidden;">
+      <table class="newsletter-content" width="${layout === 'web' ? '1200' : '640'}" cellpadding="0" cellspacing="0" style="max-width:${layout === 'web' ? '1200' : '640'}px;width:100%;background:#fff;border-radius:18px;overflow:hidden;">
         <tr>
           <td style="background:${escapeHtml(primary)};padding:28px 28px 24px;color:#fff;">
             ${logo ? `<img src="${escapeHtml(logo)}" alt="${escapeHtml(agencyName)}" height="40" style="display:block;margin-bottom:14px;max-height:40px;" />` : ''}
@@ -867,7 +869,7 @@ export function renderAdminUpdateHtml(update, agency, { viewUrl } = {}) {
         <tr>
           <td style="padding:8px 22px 12px;">
             <div style="padding:0 6px 8px;font-size:12px;letter-spacing:.08em;font-weight:800;color:${escapeHtml(secondary)};">THIS MONTH'S TOPICS</div>
-            <table width="100%" cellpadding="0" cellspacing="0">${topicRows.join('')}</table>
+            <table width="100%" cellpadding="0" cellspacing="0">${layout === 'web' ? '<tr><td><nav aria-label="Jump to section">'+enabledTopics.map(t=>`<a href="#${topicAnchor(t)}" style="display:inline-block;margin:4px;padding:8px 12px;border-radius:16px;background:${escapeHtml(t.color)}12;color:${escapeHtml(t.color)};text-decoration:none;font-size:14px;">${escapeHtml(t.title)}</a>`).join('')+'</nav></td></tr>' : topicRows.join('')}</table>
           </td>
         </tr>
         ${sections}
@@ -890,14 +892,14 @@ export async function previewHtml(agencyId, updateId) {
   const agency = await Agency.findById(agencyId);
   const token = await ensurePublicToken(updateId);
   const viewUrl = viewUrlForToken(agency, token);
-  const pageHtml = renderAdminUpdateHtml(update, agency, { viewUrl });
+  const pageHtml = renderAdminUpdateHtml(update, agency, { layout: 'web' });
   const emailHtml = renderLinkOnlyHtml(update, agency, viewUrl);
   const mode = String(update.delivery_mode || 'link').toLowerCase() === 'html' ? 'html' : 'link';
   return {
     html: pageHtml,
     pageHtml,
     emailHtml,
-    inboxHtml: mode === 'html' ? pageHtml : emailHtml,
+    inboxHtml: mode === 'html' ? renderAdminUpdateHtml(update, agency, { viewUrl }) : emailHtml,
     subject: `${update.title || 'Admin Updates'} — ${agency?.name || ''}`.trim(),
     viewUrl,
     publicToken: token,
@@ -1084,9 +1086,7 @@ export async function processDueAdminUpdates() {
         continue;
       }
       const publicToken = await ensurePublicToken(row.id);
-      const baseHtml = renderAdminUpdateHtml(update, agency, {
-        viewUrl: viewUrlForToken(agency, publicToken)
-      });
+      const baseHtml = renderAdminUpdateHtml(update, agency, {layout:'web'});
       if (!update.sent_html) {
         await pool.execute('UPDATE admin_updates SET sent_html = ? WHERE id = ?', [baseHtml, row.id]);
       }
@@ -1172,9 +1172,7 @@ export async function getPublicView(token) {
   }
   const agency = await Agency.findById(resolved.agencyId);
   const viewToken = resolved.send?.view_token || update.public_token;
-  const html = update.sent_html || renderAdminUpdateHtml(update, agency, {
-    viewUrl: viewUrlForToken(agency, viewToken)
-  });
+  const html = await resolveTrainingHtml(update.sent_html || renderAdminUpdateHtml(update, agency, { layout:'web' }),resolved.agencyId);
   if (resolved.send?.id && !resolved.send.viewed_at) {
     await pool.execute('UPDATE admin_update_sends SET viewed_at = UTC_TIMESTAMP() WHERE id = ? AND viewed_at IS NULL', [resolved.send.id]);
   }

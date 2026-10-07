@@ -223,7 +223,7 @@
                   <input type="color" :value="topic.color" @change="saveTopicValue(topic, { color: $event.target.value })" />
                 </div>
               </header>
-              <div class="au-sec-body">
+              <div class="au-sec-body"><TrainingMediaAttachment v-if="draft.status !== 'sent'" :agency-id="agencyId" :save-required="false" @attach="html => saveTopicValue(topic, {bodyHtml:(topic.body_html || '') + html})" />
                 <div
                   class="au-topic-body"
                   contenteditable="true"
@@ -374,6 +374,7 @@
 </template>
 
 <script setup>
+import TrainingMediaAttachment from '../admin/TrainingMediaAttachment.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import BrandingLogo from '../BrandingLogo.vue';
@@ -784,6 +785,7 @@ watch(agencyId, async () => {
 </script>
 
 <style scoped>
+.au-topic-body :deep(img),.au-topic-body :deep(video){max-width:100%;height:auto}
 .au-wrap { min-height: 70vh; }
 .au-save-note { color: #0f766e; font-size: 13px; font-weight: 700; margin: 0 0 10px; }
 .au-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -819,7 +821,7 @@ watch(agencyId, async () => {
 .au-mail.is-sent .au-include,
 .au-mail.is-sent .au-inline-toggle { display: none; }
 .au-mail {
-  max-width: 720px;
+  max-width: 1200px;
   margin: 0 auto;
   background: #fff;
   border-radius: 18px;

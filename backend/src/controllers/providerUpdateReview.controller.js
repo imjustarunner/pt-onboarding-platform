@@ -54,6 +54,42 @@ export async function officeReviewAction(req, res, next) {
     return handler(req, res, next);
   } catch (error) { next(error); }
 }
+export function validateFallChecklist(body,actionKey,today=new Date().toISOString().slice(0,10)){
+ const date=(value,label)=>{const text=String(value||'');if(!/^\d{4}-\d{2}-\d{2}$/.test(text)||!Number.isFinite(Date.parse(text))||new Date(text).toISOString().slice(0,10)!==text||text>today)throw fail(`${label} must be a valid date on or before today.`);return text;};
+ if(actionKey==='confirm_services_started')return {serviceDate:date(body.serviceDate,'First completed session')};
+ if(actionKey!=='provider_intake')throw fail('This action is completed in the school workflow.');
+ const data={};
+ if(body.parentsContactedAt)data.parentsContactedAt=date(body.parentsContactedAt,'Parent contact');
+ if(body.firstServiceAt)data.firstServiceAt=date(body.firstServiceAt,'First service');
+ if(body.parentsContactedSuccessful!==''&&body.parentsContactedSuccessful!=null){
+  if(typeof body.parentsContactedSuccessful!=='boolean')throw fail('Choose whether parent contact was successful.');
+  data.parentsContactedSuccessful=body.parentsContactedSuccessful;
+ }
+ if(!Object.keys(data).length)throw fail('Enter the completed steps before saving.');
+ return data;
+}
+export async function saveFallClientAction(req,res,next){
+ try{const r=await reviewRecipient(req);if(r.previewOnly)throw fail('This preview is read-only.',403);requireSection(r,'client_fall_update');
+  const {listFallActionClientsForProvider}=await import('../services/providerUpdate.service.js');
+  const clients=await listFallActionClientsForProvider(r.provider_user_id,r.agency_id);
+  const client=clients.find(c=>Number(c.id)===Number(req.params.clientId));
+  if(!client)throw fail('This client is not assigned to you with an open action in this update.',403);
+  const body=validateFallChecklist(req.body||{},client.lifecycleAction?.actionKey);
+  const {default:User}=await import('../models/User.model.js');const user=await User.findById(r.provider_user_id);
+  const scoped=Object.create(req);scoped.params={id:String(client.id)};scoped.user={...user,id:Number(r.provider_user_id),role:'provider'};scoped.body=body;scoped.query={agencyId:r.agency_id};
+  if(client.lifecycleAction.actionKey==='confirm_services_started'){
+   const {postConfirmServicesStarted}=await import('./clientLifecycle.controller.js');return postConfirmServicesStarted(scoped,res,next);
+  }
+  const {updateClientComplianceChecklist}=await import('./client.controller.js');return updateClientComplianceChecklist(scoped,res,next);
+ }catch(e){next(e);}
+}
+export async function uploadReviewPhoto(req,res,next){
+ try{const r=await reviewRecipient(req);if(r.previewOnly)throw fail('This preview is read-only.',403);requireSection(r,'directory_photo');
+  const {uploadUserProfilePhoto}=await import('./userProfilePhoto.controller.js');
+  const scoped=Object.create(req);scoped.params={id:String(r.provider_user_id)};scoped.user={id:Number(r.provider_user_id),role:'provider'};
+  return uploadUserProfilePhoto(scoped,res,next);
+ }catch(e){next(e);}
+}
 export async function reviewContext(req, res, next) {
   try {
     const recipient = await reviewRecipient(req);

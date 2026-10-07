@@ -2,7 +2,7 @@
  * In-app Workplace Handbook — versioned content, view tracking, People Ops Q&A.
  */
 import pool from '../config/database.js';
-import sanitizeHtml from 'sanitize-html';
+import {sanitizeTrainingHtml as sanitizeHtml,resolveTrainingHtml} from './updateTrainingMedia.service.js';
 
 function slugify(title) {
   return String(title || 'section')
@@ -54,7 +54,7 @@ export async function getPublishedHandbook(agencyId) {
     `SELECT * FROM workplace_handbook_sections WHERE version_id = ? ORDER BY sort_order ASC, id ASC`,
     [version.id]
   );
-  return { document: doc, version, sections: sections || [] };
+  return { document: doc, version, sections: await Promise.all((sections||[]).map(async s=>({...s,body_html:await resolveTrainingHtml(s.body_html,agencyId)}))) };
 }
 
 export async function getDraftOrCreate(agencyId, userId = null) {
@@ -70,7 +70,7 @@ export async function getDraftOrCreate(agencyId, userId = null) {
       `SELECT * FROM workplace_handbook_sections WHERE version_id = ? ORDER BY sort_order ASC, id ASC`,
       [drafts[0].id]
     );
-    return { document: doc, version: drafts[0], sections: sections || [] };
+    return { document: doc, version: drafts[0], sections: await Promise.all((sections||[]).map(async s=>({...s,body_html:await resolveTrainingHtml(s.body_html,agencyId)}))) };
   }
 
   // Seed draft from published snapshot or empty
@@ -301,7 +301,7 @@ export async function getDigest(digestId, agencyId = null) {
   const doc = await ensureDocument(digest.agency_id);
   return {
     digest,
-    entries: entries || [],
+    entries: await Promise.all((entries||[]).map(async e=>({...e,changed_content:await resolveTrainingHtml(e.changed_content,digest.agency_id)}))),
     fullHandbookUrl: doc.full_handbook_url || null
   };
 }

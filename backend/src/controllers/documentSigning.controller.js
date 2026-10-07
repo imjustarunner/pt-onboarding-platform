@@ -1112,6 +1112,11 @@ export const counterSignDocument = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'Signature data is required' } });
     }
 
+    const originalTask=await Task.findById(taskId);
+    let counterMetadata=originalTask?.metadata||{};if(typeof counterMetadata==='string'){try{counterMetadata=JSON.parse(counterMetadata);}catch{counterMetadata={};}}
+    if(counterMetadata.requiredCountersignerUserId && Number(counterMetadata.requiredCountersignerUserId)!==Number(userId)){
+      return res.status(403).json({error:{message:'Only the designated agency countersigner may sign this amendment.'}});
+    }
     const signedDoc = await SignedDocument.findByTask(taskId);
     if (!signedDoc || !signedDoc.signed_pdf_path) {
       return res.status(400).json({ error: { message: 'Document must be signed before countersigning' } });

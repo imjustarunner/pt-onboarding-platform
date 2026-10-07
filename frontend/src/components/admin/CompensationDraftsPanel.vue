@@ -22,7 +22,8 @@
     <label>Individual notes<textarea v-model="form.additionalTerms" rows="2" /></label>
     <h3>Agreement clauses</h3><DraftHtmlEditor :key="selected.id" v-model="form.commonClausesHtml" label="Amendment clauses" />
     <div class="actions"><button :disabled="saving" @click="save">{{saving?'Saving…':'Save draft & update preview'}}</button><button @click="download">Download printable HTML</button><span role="status">{{notice}}</span></div>
-    <details><summary>View saved amendment</summary><iframe sandbox="" title="Saved compensation amendment" :srcdoc="previewHtml" /></details>
+    <details open><summary>View saved amendment</summary><iframe sandbox="" title="Saved compensation amendment" :srcdoc="previewHtml" /></details>
+    <details class="release"><summary>Release this individual amendment for signature</summary><p>Release makes this document visible to this employee in their real update and My Documents. Haley Inyart will countersign. It does not send an email or text and does not change payroll. Private previews remain read-only. Save any edits before releasing.</p><label><input v-model="releaseReady" type="checkbox" /> I reviewed the completed terms and want this employee to be able to sign.</label><button :disabled="saving || !releaseReady || selected.issues.length>0 || hasUnsavedChanges" @click="release">Make available for signature</button></details>
    </article>
   </div>
  </section>
@@ -33,6 +34,8 @@ import api from '../../services/api';
 import DraftHtmlEditor from './DraftHtmlEditor.vue';
 const props=defineProps({agencyId:{type:[String,Number],required:true}});
 const drafts=ref([]),selected=ref(null),form=ref(null),search=ref(''),error=ref(''),notice=ref(''),saving=ref(false);
+const releaseReady=ref(false);
+const hasUnsavedChanges=computed(()=>JSON.stringify(form.value)!==JSON.stringify(selected.value?.data));
 const rates=[['creditRate','Clinical credit rate'],['hcodeRate','Integrated calculation rate'],['indirectRate','Indirect / hour'],['supportRate','Support / hour'],['ptoRate','Sick leave / hour']];
 const filtered=computed(()=>drafts.value.filter(d=>d.name.toLowerCase().includes(search.value.toLowerCase())).sort((a,b)=>Number(b.example)-Number(a.example)||a.name.localeCompare(b.name)));
 const previewHtml=computed(()=>`<!doctype html><html><head><meta charset="utf-8"><title>ITSCO compensation draft</title><style>body{font:16px/1.6 system-ui;max-width:900px;margin:35px auto;padding:25px;color:#243b30}h1,h2,h3{color:#3e6d54}table{border-collapse:collapse;width:100%}td,th{padding:8px;border:1px solid #ccc;text-align:left}@media print{body{margin:0;padding:0}tr{break-inside:avoid}}</style></head><body>${selected.value?.html||''}</body></html>`);
@@ -44,7 +47,7 @@ async function reload(){
 }
 async function open(id){
  const request=++openRequest,agencyId=props.agencyId;
- error.value='';notice.value='';selected.value=null;form.value=null;
+ error.value='';notice.value='';releaseReady.value=false;selected.value=null;form.value=null;
  try{const response=(await api.get(`/provider-update/compensation-drafts/${id}`,{params:{agencyId}})).data;if(request!==openRequest||agencyId!==props.agencyId)return;selected.value=response;form.value=JSON.parse(JSON.stringify(response.data));}
  catch(e){if(request===openRequest&&agencyId===props.agencyId)error.value=e.response?.data?.error?.message||'Could not open draft.';}
 }
@@ -57,6 +60,7 @@ async function save(){
   selected.value=response;form.value=JSON.parse(JSON.stringify(response.data));notice.value='Draft saved. No payroll or employee changes made.';await reload();
  }catch(e){if(agencyId===props.agencyId)error.value=e.response?.data?.error?.message||'Could not save draft.';}finally{saving.value=false;}
 }
+async function release(){if(!releaseReady.value||selected.value.issues.length||hasUnsavedChanges.value)return;saving.value=true;try{await api.post(`/provider-update/compensation-drafts/${selected.value.id}/release`,{agencyId:props.agencyId,expectedHtml:selected.value.html,pushId:form.value.pushId});notice.value='Released for employee signature, then Haley’s countersignature. No email or text sent.';selected.value=null;form.value=null;releaseReady.value=false;await reload();}catch(e){error.value=e.response?.data?.error?.message||'Could not release amendment.';}finally{saving.value=false;}}
 function download(){const url=URL.createObjectURL(new Blob([previewHtml.value],{type:'text/html'}));const a=document.createElement('a');a.href=url;a.download=`ITSCO-compensation-draft-${selected.value.data.employee.userId}.html`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 onMounted(reload);watch(()=>props.agencyId,()=>{openRequest++;drafts.value=[];selected.value=null;form.value=null;error.value='';notice.value='';reload();});
 </script>

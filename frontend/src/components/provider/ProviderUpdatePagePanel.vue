@@ -11,7 +11,7 @@
     <!-- Standalone page (Admin Update, Handbook, Amendments): one section fills the view -->
     <ProviderUpdateSectionPanel
       v-if="page.alone && soleSection"
-      :section="soleSection"
+      :section="soleSection" hide-heading
       :mode="mode"
       :token="token"
       :agency-id="agencyId"
@@ -20,8 +20,10 @@
       @close="$emit('close')"
     />
 
+    <div v-if="page.alone" class="pu-page-footer"><button type="button" class="pu-btn" @click="$emit('close')">Back to steps</button><span v-if="recipient?.previewOnly">Preview only — completion buttons are shown but do not save.</span></div>
+
     <!-- Bundled page: several related sections on one interface -->
-    <div v-else class="pu-page-stack">
+    <div v-if="!page.alone" class="pu-page-stack">
       <article
         v-for="s in page.sections"
         :key="s.key"
@@ -43,7 +45,7 @@
         </button>
         <div v-if="expandedKey === s.key" class="pu-page-block-body">
           <ProviderUpdateSectionPanel
-            :section="s"
+            :section="s" hide-heading
             :mode="mode"
             :token="token"
             :agency-id="agencyId"
@@ -77,7 +79,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import ProviderUpdateSectionPanel from './ProviderUpdateSectionPanel.vue';
 
 const props = defineProps({
@@ -105,8 +107,9 @@ function toggle(key) {
   expandedKey.value = expandedKey.value === key ? '' : key;
 }
 
-function onSaved(bundle) {
+async function onSaved(bundle) {
   emit('saved', bundle);
+  await nextTick();
   // Advance to next incomplete item on this page
   const list = props.page.sections || [];
   const idx = list.findIndex((s) => s.key === expandedKey.value);

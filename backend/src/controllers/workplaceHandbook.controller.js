@@ -280,10 +280,15 @@ export const publicPublishedByToken = async (req, res, next) => {
     const recipient = await getRecipientByToken(req.params.token);
     if (!recipient) return res.status(404).json({ error: { message: 'Link not found' } });
     const push = await getPush(recipient.push_id);
-    const digest = await getPublishedDigestForAgency(recipient.agency_id, {
+    let digest = await getPublishedDigestForAgency(recipient.agency_id, {
       adminUpdateId: push?.attached_admin_update_id || null,
       pushId: push?.id || null
     });
+    if(recipient.previewOnly){
+      const drafts=await listDigests(recipient.agency_id);
+      const match=drafts.find(d=>d.status==='draft' && (Number(d.provider_update_push_id)===Number(push?.id) || (push?.attached_admin_update_id && Number(d.admin_update_id)===Number(push.attached_admin_update_id))));
+      if(match)digest=await getDigest(match.id,recipient.agency_id);
+    }
     res.json({
       ...digest,
       mode: 'digest',

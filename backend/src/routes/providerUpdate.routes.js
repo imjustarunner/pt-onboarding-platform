@@ -1,6 +1,9 @@
+import {trainingMediaUpload,uploadTrainingMedia} from '../controllers/updateTrainingMedia.controller.js';
+import {getAmendment,amendmentSigning} from '../controllers/providerUpdateAmendmentReview.controller.js';
 import {updateAvailability} from '../controllers/providerUpdateAvailability.controller.js';
 import {providerUpdateCredentialLimit} from '../middleware/providerUpdateCredentialLimit.middleware.js';
 import * as review from '../controllers/providerUpdateReview.controller.js';
+import {upload as photoUpload} from '../controllers/userProfilePhoto.controller.js';
 import { licenseUpload } from '../middleware/licenseUpload.middleware.js';
 import express from 'express';
 import { previewProviderUpdate } from '../controllers/providerUpdatePreview.controller.js';
@@ -11,9 +14,11 @@ import * as compensationDrafts from '../controllers/compensationDraft.controller
 
 const router = express.Router();
 
+router.post('/training-media', authenticate, trainingMediaUpload.single('file'), uploadTrainingMedia);
 router.get('/compensation-drafts', authenticate, compensationDrafts.list);
 router.get('/compensation-drafts/:draftId', authenticate, compensationDrafts.get);
 router.put('/compensation-drafts/:draftId', authenticate, compensationDrafts.save);
+router.post('/compensation-drafts/:draftId/release', authenticate, compensationDrafts.release);
 
 router.get('/catalog', authenticate, ctrl.getCatalog);
 router.get('/pushes', authenticate, ctrl.listPushesHandler);
@@ -58,6 +63,11 @@ router.post('/handbook/digests/:digestId/entries', authenticate, hb.saveDigestEn
 router.delete('/handbook/digests/:digestId/entries/:entryId', authenticate, hb.deleteDigestEntryHandler);
 router.post('/handbook/digests/:digestId/publish', authenticate, hb.publishDigestHandler);
 
+router.post('/me/photo', authenticate, photoUpload.single('photo'), review.uploadReviewPhoto);
+router.put('/me/fall-actions/:clientId', authenticate, review.saveFallClientAction);
+router.get('/me/amendment', authenticate, getAmendment);
+router.get('/me/amendment/download', authenticate, (req,res,next)=>{req.params.action='download';return amendmentSigning(req,res,next);});
+router.post('/me/amendment/:action', authenticate, amendmentSigning);
 router.get('/me/review-context', authenticate, review.reviewContext);
 router.post('/me/office-assignments/:assignmentId/:action', authenticate, review.officeReviewAction);
 router.post('/me/documents/:kind', authenticate, licenseUpload.single('file'), review.uploadReviewDocument);

@@ -1,0 +1,11 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+vi.mock('../../services/providerUpdate.service.js',()=>({assertAgencyAdmin:vi.fn()}));
+vi.mock('../../services/storage.service.js',()=>({default:{saveTrainingMedia:vi.fn(),getSignedUrl:vi.fn()}}));
+import {assertAgencyAdmin} from '../../services/providerUpdate.service.js';
+import Storage from '../../services/storage.service.js';
+import {verifiedTrainingKind,uploadTrainingMedia} from '../updateTrainingMedia.controller.js';
+const png={mimetype:'image/png',originalname:'step.png',buffer:Buffer.from([137,80,78,71,13,10,26,10,0])};
+let res,next;beforeEach(()=>{vi.clearAllMocks();res={set:vi.fn(),status:vi.fn(),json:vi.fn()};res.status.mockReturnValue(res);next=vi.fn();assertAgencyAdmin.mockResolvedValue(2);Storage.saveTrainingMedia.mockResolvedValue({key:'uploads/training_media/agency_2/image/step.png'});Storage.getSignedUrl.mockResolvedValue('https://storage.example/signed');});
+it('rejects files whose contents do not match their declared image type',()=>{expect(verifiedTrainingKind({...png,buffer:Buffer.from('<script>bad()</script>')})).toBeNull();expect(verifiedTrainingKind(png)).toBe('image');expect(verifiedTrainingKind({mimetype:'video/mp4',buffer:Buffer.from([0,0,0,24,102,116,121,112])})).toBe('video');});
+it('checks agency administration before storing media',async()=>{assertAgencyAdmin.mockRejectedValue(Object.assign(new Error('Not an agency admin'),{status:403}));await uploadTrainingMedia({user:{id:9},body:{agencyId:6},file:png},res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(Storage.saveTrainingMedia).not.toHaveBeenCalled();});
+it('uses the authorized agency and returns a private expiring link',async()=>{await uploadTrainingMedia({user:{id:9},body:{agencyId:2},file:png},res,next);expect(Storage.saveTrainingMedia).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,mediaKind:'image'}));expect(Storage.getSignedUrl).toHaveBeenCalledWith('uploads/training_media/agency_2/image/step.png',60);expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(res.status).toHaveBeenCalledWith(201);});

@@ -1,11 +1,11 @@
 <template>
   <section class="pu-section">
-    <header class="pu-section-head">
+    <header v-if="!hideHeading" class="pu-section-head">
       <h1>{{ section.meta?.title || section.key }}</h1>
       <p>{{ section.meta?.description }}</p>
     </header>
     <p v-if="localError" class="err" role="alert">{{localError}}</p>
-    <fieldset class="preview-fields" :disabled="recipient?.previewOnly && section.key !== 'office_schedule'">
+    <fieldset class="preview-fields" :disabled="recipient?.previewOnly && !['office_schedule','admin_update','handbook','amendments'].includes(section.key)">
 
     <!-- Handbook -->
     <WorkplaceHandbookReader
@@ -82,7 +82,7 @@
         </tbody></table>
         <p>Current recorded balance minus calculated total: <strong>{{ section.data?.breakdown?.difference ?? 'Unavailable' }} hours</strong>.</p>
         <p>Reported hours and finalized app credits are separate sources. Request a correction if a prior report includes hours already counted in the app.</p>
-        <label class="field"><span>Review</span><select v-model="supervisionReview.decision" class="input"><option value="confirmed">These hours are correct</option><option value="correction_requested">Request a correction</option></select></label>
+        <p>You can suggest a correction below. Submitting a suggestion does not change your recorded hours.</p><div class="pu-actions"><button type="button" class="pu-btn" @click="supervisionReview.decision = 'correction_requested'">Suggest a correction</button></div><label class="field"><span>Review</span><select v-model="supervisionReview.decision" class="input"><option value="confirmed">These hours are correct</option><option value="correction_requested">Request a correction</option></select></label>
         <template v-if="supervisionReview.decision === 'correction_requested'">
           <label class="field"><span>Requested total hours</span><input v-model.number="supervisionReview.requestedHours" type="number" min="0" step="0.01" class="input" /></label>
           <label class="field"><span>Why should the hours change?</span><textarea v-model="supervisionReview.reason" class="input" /></label>
@@ -150,7 +150,7 @@
       <img v-if="photoUrl" :src="photoUrl" alt="Your current directory photo" class="directory-photo" />
       <p v-else>{{section.data?.hasPhoto?'Loading your current photo…':'No directory photo is saved yet.'}}</p>
       <p>Use a clear, well-lit, professional-looking photo with your face centered and visible. A simple indoor or natural outdoor background is welcome. Avoid other people, heavy filters, sunglasses, and distracting backgrounds.</p>
-      <a class="pu-btn" :href="orgPath('/account-info')" target="_blank" rel="noopener">Open Account Info →</a>
+      <label class="field"><span>Upload a new profile photo</span><input type="file" accept="image/png,image/jpeg,image/webp" :disabled="saving || recipient?.previewOnly" @change="uploadPhoto" /></label><p class="hint">PNG, JPG, or WebP, up to 8 MB. This replaces the photo displayed on your profile.</p>
       <div class="pu-actions">
         <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ photoConfirmed: true })">
           Confirm directory photo
@@ -164,52 +164,21 @@
       <p v-if="localError" role="alert">{{ localError }}</p>
     </div>
 
-    <!-- Amendments -->
-    <div v-else-if="section.key === 'amendments'" class="pu-panel">
-      <p v-if="amendmentPlan?.title || amendmentPlan?.effectiveDate" class="plan">
-        <strong>{{ amendmentPlan?.title || 'Contract amendment' }}</strong>
-        <span v-if="amendmentPlan?.effectiveDate" class="muted"> · effective {{ amendmentPlan.effectiveDate }}</span>
-      </p>
-      <p v-if="resolvedJobDescription?.jobTitle" class="muted">
-        Your role: <strong>{{ resolvedJobDescription.jobTitle }}</strong>
-        <span v-if="resolvedJobDescription.jobDescClauseKey" class="muted">
-          · clause {{ resolvedJobDescription.jobDescClauseKey }}
-        </span>
-      </p>
-      <p class="muted">
-        Review and sign your assigned amendment in My Documents. Job description acknowledgments include your
-        position’s duty clause and require your agreement to those responsibilities.
-      </p>
-      <ul v-if="amendmentTasks.length" class="amendment-task-list">
-        <li v-for="task in amendmentTasks" :key="task.id">
-          <span>{{ task.title }}</span>
-          <span class="badge" :class="task.status === 'completed' ? 'ok' : 'pending'">
-            {{ task.status === 'completed' ? 'Signed' : 'Pending signature' }}
-          </span>
-        </li>
-      </ul>
-      <p v-else class="muted">No amendment document is assigned yet — check back after People Ops sends the update.</p>
-      <a class="pu-btn" :href="linkHref" target="_blank" rel="noopener">Open My Documents →</a>
-      <label class="field">
-        <span>Notes (optional)</span>
-        <textarea v-model="linkNote" rows="2" class="input" />
-      </label>
-      <div class="pu-actions">
-        <button
-          type="button"
-          class="pu-btn primary"
-          :disabled="saving || !allAmendmentsSigned"
-          @click="markComplete({ note: linkNote, amendmentPlan })"
-        >
-          {{ allAmendmentsSigned ? 'Confirm signed amendment agreement' : 'Assigned amendment signature required' }}
-        </button>
-      </div>
-    </div>
+    <ProviderUpdateAmendment v-else-if="section.key === 'amendments'" :base="reviewBase" :agency-id="agencyId || recipient?.agencyId" :preview-only="!!recipient?.previewOnly" @complete="markComplete">
+      <template #unassigned>
+        <p>{{ amendmentPlan?.title || 'Assigned amendment agreement' }}</p>
+        <p v-if="resolvedJobDescription?.jobTitle">Your role: {{ resolvedJobDescription.jobTitle }}</p>
+        <ul v-if="amendmentTasks.length" class="amendment-task-list"><li v-for="task in amendmentTasks" :key="task.id"><span>{{ task.title }}</span><span class="badge">{{ task.status === 'completed' ? 'Signed' : 'Pending signature' }}</span></li></ul>
+        <p v-else>No amendment has been released for this update yet.</p>
+        <a v-if="amendmentTasks.length && !recipient?.previewOnly" class="pu-btn" :href="linkHref" target="_blank" rel="noopener">Open My Documents →</a>
+        <button class="pu-btn primary" :disabled="saving || recipient?.previewOnly || !allAmendmentsSigned" @click="markComplete({ amendmentPlan })">{{ allAmendmentsSigned ? 'Confirm signed amendment agreement' : 'Assigned amendment signature required' }}</button>
+      </template>
+    </ProviderUpdateAmendment>
 
     <!-- Client Fall action items -->
     <div v-else-if="section.key === 'client_fall_update'" class="pu-panel">
       <p class="muted">
-        These assigned clients have open school actions. Review the specific steps below, then open their school record to complete them.
+        Complete the steps for your assigned clients here. Enter dates only for contact or services that actually occurred; a planned appointment does not mean a client is being seen.
       </p>
       <p v-if="fallLoading" class="muted">Loading action-item clients…</p>
       <ul v-else-if="fallClients.length" class="fall-list">
@@ -219,8 +188,16 @@
             <span class="muted"> · {{ c.schoolName || 'School' }}</span>
             <div class="badge">{{ c.lifecycleAction?.label || 'Action needed' }}</div><ul class="client-action-details"><li v-for="item in c.actionItems||[]" :key="item">{{item}}</li></ul>
           </div>
+          <div v-if="['confirm_services_started','provider_intake'].includes(c.lifecycleAction?.actionKey)" class="client-inline-actions">
+            <template v-if="c.lifecycleAction.actionKey === 'provider_intake'">
+              <label class="field"><span>Parent / guardian contacted on</span><input v-model="c.checklist.parentsContactedAt" type="date" class="input" :max="today" /></label>
+              <label class="field"><span>Was contact successful?</span><select v-model="c.checklist.parentsContactedSuccessful" class="input"><option value="">Choose</option><option :value="true">Yes</option><option :value="false">No — follow-up needed</option></select></label>
+            </template>
+            <label class="field"><span>{{c.lifecycleAction.actionKey === 'confirm_services_started' ? 'First completed session this school year' : 'First completed service (leave blank if pending)'}}</span><input v-model="c.checklist.firstServiceAt" type="date" class="input" :max="today" /></label>
+            <button type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="saveFallClient(c)">{{c.lifecycleAction.actionKey === 'confirm_services_started' ? 'Mark being seen' : 'Save completed steps'}}</button>
+          </div>
           <a
-            v-if="c.schoolOrganizationId"
+            v-else-if="c.schoolOrganizationId"
             class="pu-btn sm"
             :href="orgPath(`/school-portal/${c.schoolOrganizationId}`)"
             target="_blank"
@@ -266,6 +243,8 @@
       </div>
     </div>
 
+    <div v-else-if="section.key === 'spanish_intake'" class="pu-panel"><div v-html="DOMPurify.sanitize(section.data?.bodyHtml || '')" /><button class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="markComplete({reviewed:true})">I reviewed the intake handoff procedure</button></div>
+
     <!-- Fallback -->
     <div v-else class="pu-panel">
       <p class="muted">Complete this section, then mark it done.</p>
@@ -276,6 +255,8 @@
 </template>
 
 <script setup>
+import DOMPurify from 'dompurify';
+import ProviderUpdateAmendment from './ProviderUpdateAmendment.vue';
 import ProviderUpdateSchoolSchedule from './ProviderUpdateSchoolSchedule.vue';
 import ProviderFocusEditor from './ProviderFocusEditor.vue';
 import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
@@ -289,6 +270,7 @@ import ProviderUpdateAdminUpdateEmbed from './ProviderUpdateAdminUpdateEmbed.vue
 
 const props = defineProps({
   section: { type: Object, required: true },
+  hideHeading: { type: Boolean, default: false },
   mode: { type: String, default: 'token' },
   token: { type: String, default: '' },
   agencyId: { type: [Number, String], default: null },
@@ -325,6 +307,7 @@ const notify = reactive({ email: true, sms: false });
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 const linkNote = ref('');
 const fallClients = ref([]);
+const today=new Intl.DateTimeFormat('en-CA').format(new Date());
 const fallLoading = ref(false);
 
 const amendmentPlan = computed(() => props.recipient?.amendmentPlan || props.section?.data?.amendmentPlan || null);
@@ -412,6 +395,14 @@ async function saveSpecialties() {
   await markComplete({clinicalFocus:clinicalFocus.value});
 }
 
+async function uploadPhoto(event) {
+  if (props.recipient?.previewOnly) return;
+  const file=event.target.files?.[0];if(!file)return;
+  saving.value=true;localError.value='';
+  try {const body=new FormData();body.append('agencyId',String(props.agencyId));body.append('photo',file);
+    const {data}=await api.post(`${reviewBase.value}/photo`,body);photoUrl.value=data.url;
+  }catch(e){localError.value=e.response?.data?.error?.message||'Could not upload your photo.';}finally{saving.value=false;event.target.value='';}
+}
 async function uploadReviewFile(event, kind) {
   if (props.recipient?.previewOnly) return;
   const file = event.target.files?.[0];
@@ -441,6 +432,12 @@ async function saveLicense() {
   await markComplete({ license: { ...license } });
 }
 
+async function saveFallClient(client){
+ if(props.recipient?.previewOnly)return;
+ saving.value=true;localError.value='';
+ try{await api.put(`${reviewBase.value}/fall-actions/${client.id}`,{agencyId:props.agencyId,...client.checklist,serviceDate:client.checklist.firstServiceAt});await loadFallClients();}
+ catch(e){localError.value=e.response?.data?.error?.message||'Could not save the client steps.';}finally{saving.value=false;}
+}
 async function loadFallClients() {
   if (props.section.key !== 'client_fall_update') return;
   fallLoading.value = true;localError.value='';
@@ -453,7 +450,7 @@ async function loadFallClients() {
         params: { agencyId: props.agencyId }
       });
     }
-    fallClients.value = res.data?.clients || [];
+    fallClients.value = (res.data?.clients || []).map(c=>({...c,checklist:{...c.checklist,parentsContactedAt:String(c.checklist?.parentsContactedAt||'').slice(0,10),firstServiceAt:c.lifecycleAction?.actionKey==='confirm_services_started'?'':String(c.checklist?.firstServiceAt||'').slice(0,10)}}));
   } catch {
     localError.value='Could not load assigned client actions. Retry before confirming this section.';
     fallClients.value = [];
@@ -523,7 +520,8 @@ onMounted(async () => {
 }
 .badge.pending { background: #fef3c7; color: #92400e; }
 .badge.ok { background: #dcfce7; color: #166534; }
-.fall-list > li {
+.client-inline-actions{display:grid;gap:10px;min-width:260px}.fall-list > li {
+  flex-wrap:wrap;
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;

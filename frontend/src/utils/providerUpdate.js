@@ -4,6 +4,7 @@
  */
 
 export const PROVIDER_UPDATE_SECTIONS = [
+  {key:'spanish_intake',title:'Spanish-Language Intake',shortTitle:'Spanish Intake',description:'Coordinate intake and follow-up for Spanish-speaking clients and parents.',checklist:['Identify the preferred language','Coordinate the intake handoff','Document the next steps'],mode:'ack',icon:'clients',defaultEnabled:false},
   {
     key: 'admin_update',
     title: 'Admin Update',
@@ -35,7 +36,7 @@ export const PROVIDER_UPDATE_SECTIONS = [
     mode: 'embedded',
     icon: 'handbook',
     defaultEnabled: true,
-    previewHint: 'Monthly digest of handbook changes since the last Admin Update. Full handbook stays in Google Docs.'
+    previewHint: 'Monthly digest of handbook changes since the last Admin Update. Keep the change digest with the full handbook.'
   },
   {
     key: 'pin',
@@ -289,7 +290,7 @@ export const PROVIDER_UPDATE_PAGES = [
     description: 'Review school/client-related update items.',
     checklist: ['Client fall update', 'School-related information', 'Required confirmations'],
     icon: 'clients',
-    sectionKeys: ['client_fall_update', 'school_availability']
+    sectionKeys: ['client_fall_update', 'school_availability', 'spanish_intake']
   }
 ];
 

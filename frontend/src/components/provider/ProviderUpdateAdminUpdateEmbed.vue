@@ -1,5 +1,5 @@
 <template>
-  <div class="au-embed" :class="{ preview: previewMode, editable }">
+  <div ref="reader" class="au-embed" :class="{ preview: previewMode, editable }">
     <div v-if="loading" class="au-embed-msg">Loading Admin Update…</div>
     <div v-else-if="!available" class="au-embed-msg">
       <strong>No Admin Update selected</strong>
@@ -8,7 +8,7 @@
     <template v-else>
       <div class="au-embed-bar">
         <div>
-          <div class="au-embed-kicker">Admin Update step · same published page as the token link</div>
+          <div class="au-embed-kicker">Team news</div>
           <strong>{{ editTitle || title || 'Admin Update' }}</strong>
           <span class="status">{{ status }}</span>
         </div>
@@ -16,6 +16,7 @@
           <button v-if="editable && status !== 'sent'" type="button" class="au-link" @click="showEdit = !showEdit">
             {{ showEdit ? 'Hide editor' : 'Edit here' }}
           </button>
+          <button type="button" class="au-link" @click="toggleFullscreen">{{ fullscreen ? 'Exit full screen' : 'Read full screen' }}</button>
           <a v-if="viewUrl && !previewMode" class="au-link" :href="viewUrl" target="_blank" rel="noopener">Open full page →</a>
         </div>
       </div>
@@ -35,10 +36,11 @@
       </div>
 
       <ReadAloudControls :html="pageHtml" />
+      <p v-if="message" class="au-embed-msg" role="status">{{ message }}</p>
       <iframe :sandbox="previewMode ? '' : undefined" class="au-embed-frame" title="Admin Update" :srcdoc="pageHtml" />
-      <div v-if="!previewMode && !editable" class="au-embed-actions">
-        <button type="button" class="au-btn" :disabled="busy" @click="$emit('complete', { adminUpdateId: updateId, viewed: true })">
-          {{ busy ? 'Saving…' : 'I’ve reviewed this Admin Update' }}
+      <div v-if="!editable" class="au-embed-actions">
+        <button type="button" class="au-btn" :disabled="busy || previewMode" @click="$emit('complete', { adminUpdateId: updateId, viewed: true })">
+          {{ previewMode ? 'Mark complete (available in the employee update)' : busy ? 'Saving…' : 'I’ve reviewed this Admin Update — mark complete' }}
         </button>
       </div>
     </template>
@@ -46,7 +48,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import ReadAloudControls from '../communications/ReadAloudControls.vue';
@@ -63,6 +65,11 @@ const props = defineProps({
 const emit = defineEmits(['complete', 'updated']);
 
 const route = useRoute();
+const reader=ref(null),fullscreen=ref(false);
+function syncFullscreen(){fullscreen.value=document.fullscreenElement===reader.value;}
+async function toggleFullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else await reader.value.requestFullscreen();}catch{message.value='Full screen is unavailable in this browser. Use Open full page when available.';}}
+onMounted(()=>document.addEventListener('fullscreenchange',syncFullscreen));
+onBeforeUnmount(()=>document.removeEventListener('fullscreenchange',syncFullscreen));
 const loading = ref(false);
 const available = ref(false);
 const message = ref('');
@@ -167,6 +174,7 @@ watch(() => [props.agencyId, props.token, props.mode, props.updateId], load);
   min-height: 420px;
   backdrop-filter: blur(8px);
 }
+.au-embed:fullscreen{width:100%;height:100%;border-radius:0;display:flex;flex-direction:column;background:#f8fafc;overflow:auto}.au-embed:fullscreen .au-embed-frame{flex:1;min-height:0}.au-embed:fullscreen .au-embed-bar{flex-shrink:0}
 .au-embed.preview { min-height: 520px; }
 .au-embed-msg {
   margin: 1.25rem;

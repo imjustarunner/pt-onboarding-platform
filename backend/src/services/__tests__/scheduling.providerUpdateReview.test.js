@@ -10,7 +10,7 @@ vi.mock('../../models/UserComplianceDocument.model.js',()=>({default:{findById:v
 vi.mock('../../models/SupervisionSession.model.js',()=>({default:{getHoursSummaryForSupervisee:vi.fn()}}));
 vi.mock('../storage.service.js',()=>({default:{}}));
 vi.mock('../licenseCredentialSync.service.js',()=>({saveProviderLicenseUpload:vi.fn()}));
-vi.mock('../providerUpdate.service.js',()=>({getRecipientByToken:vi.fn(),getMyOpenRecipient:vi.fn(),normalizeSectionAudience:vi.fn(v=>v),recipientSeesSection:vi.fn(()=>true)}));
+vi.mock('../providerUpdate.service.js',()=>({getRecipientByToken:vi.fn(),getMyOpenRecipient:vi.fn(),normalizeSectionAudience:vi.fn(v=>v),recipientSeesSection:vi.fn(()=>true),listFallActionClientsForProvider:vi.fn()}));
 vi.mock('../officeAssignmentBookingAvailability.service.js',()=>({setOfficeAssignmentBookingAvailability:vi.fn()}));
 vi.mock('../providerAvailabilityAccess.service.js',()=>({requireProviderAvailabilityAccess:vi.fn()}));
 vi.mock('../../controllers/officeSlotActions.controller.js',()=>({forfeitAssignment:vi.fn(),downgradeStandingAssignment:vi.fn(),rescheduleStandingAssignment:vi.fn()}));
@@ -19,6 +19,14 @@ import {saveStaffCommunicationChoices} from '../staffCommunicationChoices.servic
 import User from '../../models/User.model.js';
 import SupervisionSession from '../../models/SupervisionSession.model.js';
 import {getRecipientByToken} from '../providerUpdate.service.js';
+import {listFallActionClientsForProvider} from '../providerUpdate.service.js';
+vi.mock('../../controllers/client.controller.js',()=>({updateClientComplianceChecklist:vi.fn()}));
+vi.mock('../../controllers/clientLifecycle.controller.js',()=>({postConfirmServicesStarted:vi.fn()}));
+vi.mock('../../controllers/userProfilePhoto.controller.js',()=>({uploadUserProfilePhoto:vi.fn()}));
+import {updateClientComplianceChecklist} from '../../controllers/client.controller.js';
+import {postConfirmServicesStarted} from '../../controllers/clientLifecycle.controller.js';
+import {uploadUserProfilePhoto} from '../../controllers/userProfilePhoto.controller.js';
+import {validateFallChecklist,saveFallClientAction,uploadReviewPhoto} from '../../controllers/providerUpdateReview.controller.js';
 import {rescheduleStandingAssignment} from '../../controllers/officeSlotActions.controller.js';
 import {officeReviewAction,persistReviewSection,setupQuickView} from '../../controllers/providerUpdateReview.controller.js';
 const recipient={id:1,provider_user_id:9,agency_id:6,section_config_json:{office_schedule:true,supervision_hours:true}};
@@ -101,4 +109,19 @@ it('lets a preview open only its recipient’s stored license with a short-lived
 });
 it('does not initialize credentials when a link is expired or closed',async()=>{
  getRecipientByToken.mockRejectedValueOnce(Object.assign(new Error('Expired'),{status:410}));await setupQuickView(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:410}));getRecipientByToken.mockResolvedValueOnce(null);await setupQuickView(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:404}));expect(createInitialPasscode).not.toHaveBeenCalled();
+});
+it('rejects future and invalid service dates without accepting unrelated client fields',()=>{
+ for(const date of ['2026-02-30','2027-01-01','not a date'])expect(()=>validateFallChecklist({serviceDate:date},'confirm_services_started','2026-10-07')).toThrow();
+ expect(validateFallChecklist({parentsContactedAt:'2026-10-06',parentsContactedSuccessful:false,provider_id:999,status:'active'},'provider_intake','2026-10-07')).toEqual({parentsContactedAt:'2026-10-06',parentsContactedSuccessful:false});
+});
+it('restricts inline client actions to assigned clients and strips caller identity',async()=>{
+ getRecipientByToken.mockResolvedValue({...recipient,section_config_json:{client_fall_update:true}});listFallActionClientsForProvider.mockResolvedValue([{id:50,lifecycleAction:{actionKey:'provider_intake'}}]);req.params.clientId='99';req.body={parentsContactedAt:'2026-01-01'};
+ await saveFallClientAction(req,res,next);expect(next).toHaveBeenCalledWith(expect.objectContaining({status:403}));expect(updateClientComplianceChecklist).not.toHaveBeenCalled();
+ next.mockClear();req.params.clientId='50';await saveFallClientAction(req,res,next);expect(next).not.toHaveBeenCalled();const [scoped]=updateClientComplianceChecklist.mock.calls[0];expect(scoped.user.id).toBe(9);expect(scoped.user.role).toBe('provider');expect(scoped.query).toEqual({agencyId:6});expect(scoped.body).toEqual({parentsContactedAt:'2026-01-01'});
+});
+it('blocks preview client actions and profile uploads before side effects',async()=>{
+ getRecipientByToken.mockResolvedValue({...recipient,previewOnly:true});await saveFallClientAction(req,res,next);await uploadReviewPhoto(req,res,next);expect(next.mock.calls.every(([e])=>e.status===403)).toBe(true);expect(updateClientComplianceChecklist).not.toHaveBeenCalled();expect(postConfirmServicesStarted).not.toHaveBeenCalled();expect(uploadUserProfilePhoto).not.toHaveBeenCalled();
+});
+it('uploads a photo only for the invited recipient even when an admin opens the link',async()=>{
+ getRecipientByToken.mockResolvedValue({...recipient,section_config_json:{directory_photo:true}});await uploadReviewPhoto(req,res,next);const [scoped]=uploadUserProfilePhoto.mock.calls[0];expect(scoped.params.id).toBe('9');expect(scoped.user).toEqual({id:9,role:'provider'});
 });

@@ -1,6 +1,8 @@
+import {getAmendment,amendmentSigning} from '../controllers/providerUpdateAmendmentReview.controller.js';
 import {updateAvailability} from '../controllers/providerUpdateAvailability.controller.js';
 import {providerUpdateCredentialLimit} from '../middleware/providerUpdateCredentialLimit.middleware.js';
 import * as review from '../controllers/providerUpdateReview.controller.js';
+import {upload as photoUpload} from '../controllers/userProfilePhoto.controller.js';
 import { licenseUpload } from '../middleware/licenseUpload.middleware.js';
 import express from 'express';
 import * as ctrl from '../controllers/providerUpdate.controller.js';
@@ -22,6 +24,11 @@ router.get('/:token/handbook', hb.publicPublishedByToken);
 router.post('/:token/handbook/views', hb.publicTrackByToken);
 router.post('/:token/handbook/questions', hb.publicAskByToken);
 
+router.post('/:token/photo', photoUpload.single('photo'), review.uploadReviewPhoto);
+router.put('/:token/fall-actions/:clientId', review.saveFallClientAction);
+router.get('/:token/amendment', getAmendment);
+router.get('/:token/amendment/download', (req,res,next)=>{req.params.action='download';return amendmentSigning(req,res,next);});
+router.post('/:token/amendment/:action', amendmentSigning);
 router.get('/:token/review-context', review.reviewContext);
 router.post('/:token/office-assignments/:assignmentId/:action', review.officeReviewAction);
 router.post('/:token/documents/:kind', licenseUpload.single('file'), review.uploadReviewDocument);

@@ -1,7 +1,7 @@
 <template>
  <section><h3>Handbook draft and Colorado appendix</h3><p>Edit the proposed sections here. Saving a draft does not publish a handbook or change pay.</p>
   <p v-if="error" role="alert">{{error}}</p>
-  <div v-for="s in sections" :key="s.id" class="section"><details><summary>{{s.title}}</summary><label>Section title<input v-model="s.title" /></label><DraftHtmlEditor v-model="s.body_html" :label="s.title" /><button :disabled="busy" @click="save(s)">Save section</button></details></div>
+  <div v-for="s in sections" :key="s.id" class="section"><details><summary>{{s.title}}</summary><label>Section title<input v-model="s.title" /></label><DraftHtmlEditor :agency-id="agencyId" v-model="s.body_html" :label="s.title" /><button :disabled="busy" @click="save(s)">Save section</button></details></div>
   <p role="status">{{notice}}</p>
  </section>
 </template>

@@ -8,7 +8,7 @@
           <h2>{{ digest?.title || 'Handbook Updates' }}</h2>
           <p class="muted">
             {{ digest?.period_label ? `${digest.period_label} · ` : '' }}
-            Changes since the previous Admin Update. The full handbook stays in Google Docs.
+            Changes since the previous Admin Update. Keep these updates with your workplace handbook.
           </p>
         </div>
         <a
@@ -20,6 +20,7 @@
         >Open full handbook →</a>
       </header>
 
+      <p v-if="previewMode && digest?.status === 'draft'" class="muted">Private draft preview — these changes have not been published to staff.</p>
       <div v-if="!entries.length" class="empty">
         No handbook updates in this digest.
       </div>
@@ -51,8 +52,8 @@
         <p v-if="askMsg" class="ok">{{ askMsg }}</p>
       </div>
 
-      <div class="ack-row" v-if="!previewMode">
-        <button type="button" class="btn primary" :disabled="acking" @click="acknowledge">
+      <div class="ack-row">
+        <button type="button" class="btn primary" :disabled="acking || previewMode || !entries.length" @click="acknowledge">
           {{ acking ? 'Saving…' : 'I have reviewed these handbook updates' }}
         </button>
       </div>
@@ -61,6 +62,7 @@
 </template>
 
 <script setup>
+import DOMPurify from 'dompurify';
 import { onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 
@@ -87,7 +89,7 @@ const acking = ref(false);
 function formatChanged(text) {
   if (!text) return '<p>—</p>';
   const raw = String(text);
-  if (raw.includes('<')) return raw;
+  if (raw.includes('<')) return DOMPurify.sanitize(raw);
   return `<p>${raw.replace(/\n/g, '<br/>')}</p>`;
 }
 
@@ -139,6 +141,7 @@ async function submitQuestion() {
 }
 
 async function acknowledge() {
+  if(props.previewMode)return;
   acking.value = true;
   try {
     emit('acknowledged');
@@ -152,6 +155,7 @@ watch(() => [props.agencyId, props.token, props.adminUpdateId], load);
 </script>
 
 <style scoped>
+.changed :deep(img),.changed :deep(video){max-width:100%;height:auto}
 .hb-digest {
   --line: rgba(15, 23, 42, 0.08);
   --glass: rgba(255, 255, 255, 0.72);

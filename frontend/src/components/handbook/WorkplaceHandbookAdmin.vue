@@ -66,7 +66,7 @@
         </label>
         <label class="field">
           <span>3 · Changed content</span>
-          <DraftHtmlEditor v-model="e.changed_content" label="Updated policy text" />
+          <DraftHtmlEditor :agency-id="agencyId" v-model="e.changed_content" label="Updated policy text" />
         </label>
         <div class="row">
           <button type="button" class="btn sm" :disabled="busy" @click="saveEntry(e, idx)">Save update</button>

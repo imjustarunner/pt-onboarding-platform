@@ -1,3 +1,4 @@
+import {spanishIntakeProcedure} from '../content/october2026UpdateRevisions.js';
 import {getProviderUpdateRecords} from './providerUpdateRecords.service.js';
 import { getStaffCommunicationChoices } from './staffCommunicationChoices.service.js';
 import {getCredentialStatus} from './quickViewAuth.service.js';
@@ -705,7 +706,7 @@ export async function getRecipientBundle(recipient) {
   });
   const records = await getProviderUpdateRecords(recipient.provider_user_id,recipient.agency_id);
   for(const section of sectionList){
-    const defaults={contact_info:{contact:records.contact},profile_blurb:{blurb:records.blurb},credential_display:{credential:records.credential},work_hours:{typicalAvailability:records.typicalAvailability},specialties:{focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus,specialtyGroups:records.specialtyGroups,specialties:Object.fromEntries(records.specialtyGroups.map(g=>[g.key,g.selected]))},directory_photo:{hasPhoto:!!records.photoPath},school_availability:{schools:records.schools},supervision_hours:{breakdown:records.supervision},license:{license:records.license}}[section.key];
+    const defaults={spanish_intake:{bodyHtml:spanishIntakeProcedure},contact_info:{contact:records.contact},profile_blurb:{blurb:records.blurb},credential_display:{credential:records.credential},work_hours:{typicalAvailability:records.typicalAvailability},specialties:{focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus,specialtyGroups:records.specialtyGroups,specialties:Object.fromEntries(records.specialtyGroups.map(g=>[g.key,g.selected]))},directory_photo:{hasPhoto:!!records.photoPath},school_availability:{schools:records.schools},supervision_hours:{breakdown:records.supervision},license:{license:records.license}}[section.key];
     section.data={...defaults,...section.data};
     if(section.key==='supervision_hours')section.data.breakdown=records.supervision;
     if(section.key==='specialties')section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus};
@@ -1213,7 +1214,8 @@ export async function listFallActionClientsForProvider(providerUserId, agencyId)
           schoolName: c.school_name,
           schoolOrganizationId: c.school_organization_id,
           lifecycleAction: action,
-          actionItems: providerActionItems(c, action)
+          actionItems: providerActionItems(c, action),
+          checklist: {parentsContactedAt:c.parents_contacted_at || '',parentsContactedSuccessful:c.parents_contacted_successful == null ? '' : !!c.parents_contacted_successful,firstServiceAt:c.first_service_at || ''}
         });
       }
     }

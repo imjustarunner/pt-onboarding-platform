@@ -51,3 +51,37 @@ export async function saveCompensationDraft(agencyId,id,patch,userId) {
  if(!updated.affectedRows)throw notFound();
  return {id,data,html,issues:amendmentIssues(data)};
 }
+
+/** Explicit admin release after reviewing a complete draft. No email/SMS or payroll writes. */
+export async function releaseCompensationDraft(agencyId,id,{expectedHtml,pushId},userId){
+ const db=await pool.getConnection();
+ try{await db.beginTransaction();
+  const [[row]]=await db.execute('SELECT * FROM contract_generations WHERE id=? AND agency_id=? FOR UPDATE',[id,agencyId]);
+  if(!row||row.task_id||row.user_specific_document_id||parse(row.token_values_json)?.draftKind!==DRAFT_KIND)throw notFound();
+  const data=parse(row.token_values_json),issues=amendmentIssues(data);
+  if(issues.length)throw Object.assign(new Error(`Complete this draft before releasing: ${issues.join(' ')}`),{status:409});
+  if(!expectedHtml||expectedHtml!==row.rendered_html)throw Object.assign(new Error('The amendment changed. Review its saved preview before releasing it.'),{status:409});
+  const pid=Number(pushId||data.pushId);
+  const [[push]]=await db.execute("SELECT id FROM provider_update_pushes WHERE id=? AND agency_id=? AND status IN ('draft','sent','active')",[pid,agencyId]);
+  const [[preview]]=await db.execute("SELECT id FROM provider_update_recipients WHERE push_id=? AND LEFT(token,8)='preview_' LIMIT 1",[pid]);
+  if(!push||preview)throw Object.assign(new Error('Choose the employee update, not a private preview.'),{status:409});
+  const counter=Number(data.countersignerUserId||3);
+  const [[signer]]=await db.execute("SELECT u.id FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE u.id=? AND ua.agency_id=? AND ua.is_active=1 AND u.is_active=1 AND u.role IN ('admin','super_admin','support')",[counter,agencyId]);
+  const [[employee]]=await db.execute('SELECT user_id FROM user_agencies WHERE user_id=? AND agency_id=? AND is_active=1',[row.candidate_user_id,agencyId]);
+  if(!signer||!employee)throw Object.assign(new Error('The employee and countersigner must be active agency members.'),{status:409});
+  const releasedHtml=row.rendered_html.replace('<p><strong>Editable draft — not issued or signed.</strong></p>','');
+  const title=`Compensation Amendment — ${data.employee.name}`;
+  const [doc]=await db.execute(`INSERT INTO user_specific_documents(user_id,name,description,template_type,html_content,document_action_type,field_definitions,created_by_user_id)
+    VALUES (?,?,?,'html',?,'signature',?,?)`,[row.candidate_user_id,title,'Provider Update compensation amendment',releasedHtml,JSON.stringify([{type:'signature',label:'Employee signature',required:true}]),userId]);
+  const metadata={source:'provider_update',pushId:pid,amendmentMode:'compensation',contractGeneration:true,portalPhase:'ongoing',requiredCountersignerUserId:counter,generationId:id};
+  const [task]=await db.execute(`INSERT INTO tasks(task_type,document_action_type,title,description,assigned_to_user_id,assigned_to_agency_id,assigned_by_user_id,reference_id,metadata,status,is_required)
+    VALUES ('document','signature',?,?,?,?,?,?,?,'pending',1)`,[title,'Review and electronically sign your amendment in the Provider Update.',row.candidate_user_id,agencyId,userId,doc.insertId,JSON.stringify(metadata)]);
+  await db.execute('UPDATE user_specific_documents SET task_id=? WHERE id=?',[task.insertId,doc.insertId]);
+  await db.execute(`INSERT INTO tasks(task_type,document_action_type,title,description,assigned_to_user_id,assigned_to_agency_id,assigned_by_user_id,reference_id,countersign_signer_user_id,metadata,status,is_required)
+    VALUES ('document','countersignature',?,?,?,?,?,?,?,?,'pending',1)`,[`Countersign — ${title}`,'Countersign after the employee signs. The signed copy remains in the employee profile.',counter,agencyId,userId,task.insertId,counter,JSON.stringify({source:'provider_update',pushId:pid,originalDocumentTaskId:task.insertId})]);
+  data.pushId=pid;data.releasedByUserId=userId;data.releasedAt=new Date().toISOString();data.countersignerUserId=counter;
+  await db.execute('UPDATE contract_generations SET task_id=?,user_specific_document_id=?,token_values_json=?,rendered_html=? WHERE id=?',[task.insertId,doc.insertId,JSON.stringify(data),releasedHtml,id]);
+  await db.execute("UPDATE provider_update_pushes SET amendment_plan_json=? WHERE id=? AND agency_id=?",[JSON.stringify({mode:'compensation',title:'Compensation amendment',effectiveDate:data.effectiveDate,countersignerUserId:counter}),pid,agencyId]);
+  await db.commit();return {taskId:task.insertId,countersignerUserId:counter,messagesSent:0};
+ }catch(e){await db.rollback();throw e;}finally{db.release();}
+}
