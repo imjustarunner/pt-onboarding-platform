@@ -1,3 +1,4 @@
+import { resolveRegisteredSmsSender } from './smsCompliance.service.js';
 import { meetingReminderSchedule } from './meetingReminderPolicy.js';
 import { supervisionReminderEvent } from './supervisionAttendancePolicy.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
@@ -177,12 +178,9 @@ async function deliverJoinReminderToUser({ userId, agencyId, joinUrl, label, ses
 
   if (decision?.sms && toPhoneNorm) {
     try {
-      const resolved = await resolveReminderNumber({ providerUserId: userId, clientId: null });
-      const from = resolved?.number?.phone_number
-        ? PhoneNumber.normalizePhone(resolved.number.phone_number) || resolved.number.phone_number
-        : null;
+      const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'workforce' });
       if (from) {
-        const body = `${label} ${when}. Join: ${finalJoinUrl}`.slice(0, 480);
+        const body = `Your staff meeting is ${when}. Sign in to join: ${finalJoinUrl}`.slice(0, 480);
         await VonageService.sendSms({ purpose: 'workforce', agencyId: agencyId, to: toPhoneNorm, from, body });
         smsSent = true;
       }
