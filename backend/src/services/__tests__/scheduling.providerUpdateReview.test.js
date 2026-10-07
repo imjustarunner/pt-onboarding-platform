@@ -1,3 +1,5 @@
+vi.mock('../quickViewAuth.service.js',()=>({getCredentialStatus:vi.fn(async()=>({hasPasscode:true,isLocked:false}))}));
+import {getCredentialStatus} from '../quickViewAuth.service.js';
 vi.mock('../staffCommunicationChoices.service.js',()=>({saveStaffCommunicationChoices:vi.fn()}));
 import { beforeEach, it, expect, vi } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
@@ -60,5 +62,7 @@ it('requires signed communication choices and keeps signatures out of provider-u
  const data={choices,signerName:'Private signature',phone:'+13035550101',acknowledged:true,disclosureHash:'test'};
  await persistReviewSection(recipient,'notification_prefs',data,true);
  expect(saveStaffCommunicationChoices).toHaveBeenLastCalledWith(expect.objectContaining({userId:9,agencyId:6,source:'provider_update'}));
- expect(data).toEqual({choices,reviewedAt:'2026-10-06T12:00:00Z'});
+ expect(data).toEqual({choices,accessRequests:undefined,reviewedAt:'2026-10-06T12:00:00Z'});
 });
+
+it('requires a configured, unlocked Quick View passcode and strips credential material from the update',async()=>{getCredentialStatus.mockResolvedValueOnce({hasPasscode:false,isLocked:false});await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');getCredentialStatus.mockResolvedValueOnce({hasPasscode:true,isLocked:true});await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');const data={quickViewConfirmed:true,pin:'123456'};await persistReviewSection(recipient,'pin',data,true);expect(data).toEqual({quickViewConfirmed:true});expect(getCredentialStatus).toHaveBeenLastCalledWith(recipient.provider_user_id);});

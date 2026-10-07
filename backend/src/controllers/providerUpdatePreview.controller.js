@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import {getStaffCommunicationChoices} from '../services/staffCommunicationChoices.service.js';
 import User from '../models/User.model.js';
 import PayrollCompensationLevel, { COMPENSATION_CATEGORIES } from '../models/PayrollCompensationLevel.model.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
@@ -33,6 +34,7 @@ export async function previewProviderUpdate(req, res, next) {
     const values = Object.fromEntries(fields.map(row => [row.field_key, row.value]));
     res.setHeader('Cache-Control', 'no-store');
     res.json({ previewOnly: true, provider, sections: keys.map(key => ({ key, meta: getSectionMeta(key) })), offices, supervision,
+      communicationChoices:keys.includes('notification_prefs') ? await getStaffCommunicationChoices({userId:providerId,agencyId}) : null,
       license: { number: values.provider_credential_license_type_number || '', issued: values.provider_credential_license_issued_date || '', expires: values.provider_credential_license_expiration_date || '' },
       compensation: pay ? { category: pay.category, categoryLabel: COMPENSATION_CATEGORIES[pay.category]?.label || '', level: pay.level,
         label: pay.label, directRate: pay.direct_rate, indirectRate: pay.indirect_rate, ffsRate: pay.ffs_rate,

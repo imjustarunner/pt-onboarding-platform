@@ -1,4 +1,5 @@
 import { beforeEach, it, expect, vi } from 'vitest';
+vi.mock('../staffCommunicationChoices.service.js',()=>({getStaffCommunicationChoices:vi.fn(async()=>({choices:{},accessRequests:{}}))}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../../models/User.model.js', () => ({ default: { getSupervisors: vi.fn() } }));
 vi.mock('../../models/PayrollCompensationLevel.model.js', () => ({ default: { getForUser: vi.fn() }, COMPENSATION_CATEGORIES: { 2: { label: 'Pre-licensed' } } }));

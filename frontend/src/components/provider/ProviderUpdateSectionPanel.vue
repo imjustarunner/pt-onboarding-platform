@@ -4,6 +4,7 @@
       <h1>{{ section.meta?.title || section.key }}</h1>
       <p>{{ section.meta?.description }}</p>
     </header>
+    <fieldset class="preview-fields" :disabled="recipient?.previewOnly">
 
     <!-- Handbook -->
     <WorkplaceHandbookReader
@@ -12,6 +13,7 @@
       :token="token"
       :agency-id="agencyId"
       :recipient-id="recipient?.id"
+      :preview-mode="!!recipient?.previewOnly"
       @acknowledged="markComplete({ handbookAcknowledged: true })"
     />
 
@@ -23,35 +25,31 @@
       :agency-id="agencyId"
       :update-id="recipient?.attachedAdminUpdateId"
       :busy="saving"
+      :preview-mode="!!recipient?.previewOnly"
       @complete="markComplete"
     />
 
-    <!-- PIN -->
+    <!-- Quick View passcode: uses the existing authenticated setup. -->
     <div v-else-if="section.key === 'pin'" class="pu-panel">
-      <p v-if="!pinSet" class="mode-tag">Set your four-digit kiosk PIN</p>
-      <p v-else class="mode-tag">PIN is on file — confirm or update</p>
-      <label class="field">
-        <span>{{ pinSet && !updatingPin ? 'Enter PIN to confirm' : 'New 4-digit PIN' }}</span>
-        <input v-model="pinValue" type="password" inputmode="numeric" maxlength="6" class="input" />
-      </label>
-      <div class="pu-actions">
-        <button v-if="pinSet && !updatingPin" type="button" class="pu-btn" :disabled="saving" @click="confirmPin">
-          Confirm existing PIN setup
-        </button>
-        <button v-if="pinSet && !updatingPin" type="button" class="pu-btn ghost" @click="updatingPin = true">
-          Update PIN
-        </button>
-        <button v-if="!pinSet || updatingPin" type="button" class="pu-btn primary" :disabled="saving" @click="savePin">
-          {{ saving ? 'Saving…' : 'Save PIN' }}
-        </button>
-      </div>
-      <p v-if="localError" class="err">{{ localError }}</p>
+      <p>The emailed update link opens this updater. Your six-digit Quick View passcode is separate and unlocks Quick View.</p>
+      <p v-if="section.data?.quickView?.isLocked">Quick View is locked. Reset your six-digit passcode in your account before confirming this step.</p>
+      <p v-else-if="section.data?.quickView?.hasPasscode">Your six-digit Quick View passcode is already set. Keep it if you can use it; you do not need a new code for this update.</p>
+      <p v-else>Create your six-digit Quick View passcode in My Dashboard → My Preferences → Privacy &amp; Quick View.</p>
+      <a v-if="!recipient?.previewOnly" :href="orgPath('/dashboard?tab=my&my=preferences#prefs-privacy')" target="_blank" rel="noopener" class="pu-btn">Open secure Quick View setup →</a>
+      <p>Setup or reset uses your own signed-in account. Your existing passcode is never shown here or saved in the update answers.</p>
+      <button v-if="!recipient?.previewOnly" type="button" class="pu-btn" @click="$emit('saved')">Refresh Quick View status after setup</button>
+      <button type="button" class="pu-btn primary" :disabled="saving || !section.data?.quickView?.hasPasscode || section.data?.quickView?.isLocked" @click="markComplete({quickViewConfirmed:true})">I can access Quick View with my six-digit passcode</button>
+      <p v-if="localError" role="alert">{{ localError }}</p>
     </div>
 
     <!-- Work hours -->
     <div v-else-if="section.key === 'work_hours'" class="pu-panel">
       <p class="mode-tag">{{ hasWorkHours ? 'Confirm or update your work hours' : 'Set your work hours' }}</p>
-      <WorkHoursEditor open-by-default />
+      <template v-if="mode === 'token'">
+        <p>Review your availability hours in your signed-in account, then return here to confirm. This update link does not change your work schedule.</p>
+        <a v-if="!recipient?.previewOnly" :href="orgPath('/my-schedule')" target="_blank" rel="noopener" class="pu-btn">Sign in to review availability hours →</a>
+      </template>
+      <WorkHoursEditor v-else :user-id="Number(recipient?.providerUserId)" open-by-default />
       <div class="pu-actions">
         <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ workHoursConfirmed: true })">
           {{ hasWorkHours ? 'Confirm work hours' : 'Mark work hours set' }}
@@ -191,7 +189,7 @@
 
     <!-- Notification prefs -->
     <div v-else-if="section.key === 'notification_prefs'">
-      <StaffCommunicationChoices :initial="section.data?.communicationChoices" :agency-id="agencyId" external-save :busy="saving" @save="markComplete" />
+      <StaffCommunicationChoices :initial="section.data?.communicationChoices" :agency-id="agencyId" external-save :readonly="!!recipient?.previewOnly" :busy="saving" @save="markComplete" />
       <p v-if="localError" role="alert">{{ localError }}</p>
     </div>
 
@@ -303,6 +301,7 @@
       <p class="muted">Complete this section, then mark it done.</p>
       <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({})">Mark complete</button>
     </div>
+    </fieldset>
   </section>
 </template>
 
@@ -328,9 +327,6 @@ const route = useRoute();
 
 const saving = ref(false);
 const localError = ref('');
-const pinSet = ref(false);
-const pinValue = ref('');
-const updatingPin = ref(false);
 const hasWorkHours = ref(true);
 const blurb = ref('');
 const specialtiesText = ref('');
@@ -379,6 +375,7 @@ function orgPath(path) {
 }
 
 async function saveSectionPayload(payload) {
+  if (props.recipient?.previewOnly) return;
   saving.value = true;
   localError.value = '';
   try {
@@ -407,7 +404,7 @@ function markComplete(data = {}) {
   const modeMap = {
     link: 'link',
     embedded: 'ack',
-    set_confirm_update: data.pinSet || data.blurb || data.license ? 'update' : 'confirm',
+    set_confirm_update: data.blurb || data.license ? 'update' : 'confirm',
     ack: 'ack'
   };
   return saveSectionPayload({
@@ -418,41 +415,8 @@ function markComplete(data = {}) {
   });
 }
 
-async function loadPinStatus() {
-  try {
-    const res = await api.get('/user-preferences/me');
-    pinSet.value = !!res.data?.kiosk_pin_set;
-  } catch {
-    pinSet.value = !!(props.section.data?.pinSet);
-  }
-}
-
-async function savePin() {
-  const pin = String(pinValue.value || '').replace(/\D/g, '');
-  if (pin.length < 4 || pin.length > 6) {
-    localError.value = 'PIN must be 4–6 digits';
-    return;
-  }
-  saving.value = true;
-  localError.value = '';
-  try {
-    await api.put('/user-preferences/me/kiosk-pin', { pin });
-    pinSet.value = true;
-    updatingPin.value = false;
-    pinValue.value = '';
-    await markComplete({ pinSet: true });
-  } catch (e) {
-    localError.value = e?.response?.data?.error?.message || 'Could not save PIN';
-  } finally {
-    saving.value = false;
-  }
-}
-
-function confirmPin() {
-  return markComplete({ pinConfirmed: true, pinSet: true });
-}
-
 async function saveBlurb() {
+  if (props.recipient?.previewOnly) return;
   saving.value = true;
   try {
     if (props.mode !== 'token') {
@@ -471,6 +435,7 @@ async function saveSpecialties() {
 }
 
 async function uploadReviewFile(event, kind) {
+  if (props.recipient?.previewOnly) return;
   const file = event.target.files?.[0];
   if (!file) return;
   saving.value = true; localError.value = '';
@@ -527,12 +492,12 @@ onMounted(async () => {
   credential.value = data.credential || '';
   preferredDays.value = data.preferredDays || [];
   if (data.notify) Object.assign(notify, data.notify);
-  if (props.section.key === 'pin') await loadPinStatus();
   if (props.section.key === 'client_fall_update') await loadFallClients();
 });
 </script>
 
 <style scoped>
+.preview-fields{border:0;margin:0;padding:0;min-width:0}
 .pu-section-head h1 { margin: 0 0 0.25rem; }
 .pu-section-head p { color: #6b7280; margin: 0 0 1rem; }
 .pu-panel {

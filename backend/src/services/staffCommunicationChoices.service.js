@@ -7,7 +7,7 @@ import { validateSmsRegistration } from '../utils/smsCompliancePolicy.js';
 import { recordSmsPermission, getSmsSender, isSmsSuppressed } from './smsCompliance.service.js';
 import { encryptChatText, decryptChatText, isChatEncryptionConfigured } from './chatEncryption.service.js';
 import { appendSecurityEvidence } from './securityEvidence.service.js';
-import { isStaffCommunicationRole, STAFF_COMMUNICATION_VERSION, STAFF_COMMUNICATION_CHOICES, staffCommunicationKey, phoneFingerprint, validateStaffCommunicationInput, staffDeliveryKinds } from '../utils/staffCommunicationChoices.js';
+import { isStaffCommunicationRole, STAFF_COMMUNICATION_VERSION, STAFF_COMMUNICATION_CHOICES, STAFF_COMMUNICATION_REQUESTS, staffCommunicationKey, phoneFingerprint, validateStaffCommunicationInput, staffDeliveryKinds } from '../utils/staffCommunicationChoices.js';
 const parse=v=>typeof v==='string'?JSON.parse(v):(v||{});
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const digest=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
@@ -40,7 +40,7 @@ async function context(userId,agencyId) {
   const disclosure={version:STAFF_COMMUNICATION_VERSION,brandName:profile.brandName,legalName:profile.legalName,
     supportContact:profile.supportContact,policyReady,termsUrl:packet.hasPublished?packet.links.termsUrl:(registeredPolicy?.termsUrl||null),privacyUrl:packet.hasPublished?packet.links.privacyUrl:(registeredPolicy?.privacyUrl||null),
     programs:programs.map(p=>({campaignId:p.campaign_id,brandName:p.registration.brandName,termsUrl:p.registration.termsUrl,privacyUrl:p.registration.privacyUrl,purposes:p.registration.purposes.filter(x=>['workforce','polling'].includes(x))})),
-    choices:STAFF_COMMUNICATION_CHOICES,
+    choices:STAFF_COMMUNICATION_CHOICES, accessRequests:STAFF_COMMUNICATION_REQUESTS,
     text:`${profile.brandName} sends only the text categories you choose to your own phone. All choices default to No. Receiving texts is optional and is not a condition of employment or app access. Message frequency varies; message and data rates may apply. Reply HELP for help or contact ${profile.supportContact || 'your organization'}. Reply STOP to stop texts from that campaign; this also stops other categories on the same campaign. You can change your choices here at any time. Carriers are not liable for delayed or undelivered messages. Standard SMS is not end-to-end encrypted. Keep sensitive information in the secure app. These are administrative communications, not an emergency service. Client texts to your assigned business number remain in the app regardless of these personal-phone choices. Choosing No does not disable your app inbox.`,
     future:'Client-message forwarding and replies from your personal phone are not enabled by this form. Call bridging, voicemail, call recording and transcription are not currently available. A phone number or extension does not itself enable these features. Separate setup and disclosures are required before launch.'};
   const [prefs]=await pool.execute('SELECT notification_categories FROM user_preferences WHERE user_id=?',[userId]);
@@ -59,6 +59,7 @@ export async function getStaffCommunicationChoices({userId,agencyId}) {
   }));
   return {agencyId:Number(agencyId),disclosure:c.disclosure,disclosureHash:c.disclosureHash,phone:c.phone,
     choices:c.state?.choices||Object.fromEntries(STAFF_COMMUNICATION_CHOICES.map(x=>[x.key,false])),
+    accessRequests:c.state?.accessRequests||Object.fromEntries(STAFF_COMMUNICATION_REQUESTS.map(x=>[x.key,false])),
     reviewedAt:c.state?.reviewedAt||null,activation,
     needsReview:!c.state||c.state.disclosureHash!==c.disclosureHash||(Object.values(c.state.choices||{}).some(v=>v===true)&&c.state.phoneHash!==phoneFingerprint(c.phone)),
     capabilities:{clientRelay:false,callBridge:false,voicemail:false,recording:false,transcription:false}};
@@ -78,9 +79,9 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
     if(errors.length)throw fail(errors.join(' '));
     if(!isChatEncryptionConfigured())throw fail('Secure consent storage is unavailable. Nothing was saved.',503);
     const reviewedAt=new Date().toISOString(),reference=`staff_communications:${randomUUID()}`;
-    const signed={phone,choices:input.choices,signerName:input.signerName.trim(),acknowledged:true,disclosure:c.disclosure,disclosureHash:c.disclosureHash,reviewedAt,source};
+    const signed={phone,choices:input.choices,accessRequests:input.accessRequests,signerName:input.signerName.trim(),acknowledged:true,disclosure:c.disclosure,disclosureHash:c.disclosureHash,reviewedAt,source};
     const envelope=encryptChatText(JSON.stringify(signed));
-    const state={choices:input.choices,reviewedAt,phoneHash:phoneFingerprint(phone),disclosureHash:c.disclosureHash,reference,envelope,activation:[]};
+    const state={choices:input.choices,accessRequests:input.accessRequests,reviewedAt,phoneHash:phoneFingerprint(phone),disclosureHash:c.disclosureHash,reference,envelope,activation:[]};
     await connection.beginTransaction();
     const evidenceId=await appendSecurityEvidence({requestId:randomUUID(),phase:'completed',userId,method:'PUT',route:'/staff-communication-choices',clientIp:null,ipSource:'not_collected',peerIp:null,
       action:'staff_communication_choices_signed',outcome:'success',statusCode:200,details:{agencyId:Number(agencyId),reference,envelope}},connection,{mirror:false});

@@ -3,8 +3,10 @@ import { licenseUpload } from '../middleware/licenseUpload.middleware.js';
 import express from 'express';
 import * as ctrl from '../controllers/providerUpdate.controller.js';
 import * as hb from '../controllers/workplaceHandbook.controller.js';
+import {protectProviderUpdatePreview} from '../middleware/providerUpdatePreview.middleware.js';
 
 const router = express.Router();
+router.use('/:token',protectProviderUpdatePreview);
 
 router.get('/:token', ctrl.getPublicByToken);
 router.post('/:token/session-heartbeat', ctrl.heartbeatPublic);

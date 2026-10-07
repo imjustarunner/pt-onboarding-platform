@@ -1,0 +1,15 @@
+import {mount,flushPromises} from '@vue/test-utils';
+import {it,expect,vi,beforeEach} from 'vitest';
+import {buildPagesFromSections,PROVIDER_UPDATE_SECTIONS} from '../../../utils/providerUpdate.js';
+vi.mock('vue-router',()=>({useRoute:()=>({params:{organizationSlug:'itsco'}})}));
+vi.mock('../../../services/api',()=>({default:{get:vi.fn(),put:vi.fn(async()=>({data:{sections:[]}}))}}));
+import api from '../../../services/api';
+import Panel from '../ProviderUpdateSectionPanel.vue';
+const recipient={providerUserId:465,agencyId:2};
+const globals={stubs:{WorkHoursEditor:true,WorkplaceHandbookReader:true,ProviderUpdateOfficeSchedule:true,ProviderUpdateAdminUpdateEmbed:true}};
+beforeEach(()=>vi.clearAllMocks());
+it('gives texting exactly one standalone page and uses Quick View instead of kiosk setup',()=>{const pages=buildPagesFromSections(PROVIDER_UPDATE_SECTIONS.map(s=>({key:s.key,meta:s})));expect(pages.find(p=>p.key==='texting_choices').alone).toBe(true);expect(pages.filter(p=>p.sections.some(s=>s.key==='notification_prefs'))).toHaveLength(1);expect(PROVIDER_UPDATE_SECTIONS.find(s=>s.key==='pin').title).toContain('Six-digit');});
+it('shows missing Quick View setup without reading or modifying the logged-in administrator’s PIN',async()=>{const w=mount(Panel,{props:{mode:'token',token:'sample',recipient,section:{key:'pin',data:{quickView:{hasPasscode:false,isLocked:false}}}},global:globals});await flushPromises();expect(w.text()).toContain('six-digit');expect(w.text()).not.toContain('kiosk');expect(w.get('button.primary').element.disabled).toBe(true);expect(w.get('a').attributes('href')).toContain('my=preferences');expect(w.findAll('input')).toHaveLength(0);expect(api.get).not.toHaveBeenCalled();expect(api.put).not.toHaveBeenCalled();w.unmount();});
+it('confirms an existing Quick View code through the intended recipient token without collecting the code',async()=>{const w=mount(Panel,{props:{mode:'token',token:'recipient-token',recipient,section:{key:'pin',data:{quickView:{hasPasscode:true,isLocked:false}}}},global:globals});await w.get('button.primary').trigger('click');expect(api.put).toHaveBeenCalledWith('/public/provider-update/recipient-token/sections/pin',expect.objectContaining({data:expect.objectContaining({quickViewConfirmed:true})}));expect(api.put.mock.calls[0][1].data).not.toHaveProperty('pin');w.unmount();});
+it('keeps real token work-hour edits in signed-in settings and does not mount an unscoped editor',()=>{const w=mount(Panel,{props:{mode:'token',token:'recipient-token',recipient,section:{key:'work_hours',data:{}}},global:globals});expect(w.text()).toContain('signed-in account');expect(w.find('work-hours-editor-stub').exists()).toBe(false);w.unmount();});
+it('blocks preview saves even if a submit event is triggered programmatically',async()=>{const w=mount(Panel,{props:{mode:'token',token:'preview-token',recipient:{...recipient,previewOnly:true},section:{key:'pin',data:{quickView:{hasPasscode:true,isLocked:false}}}},global:globals});await w.get('button.primary').trigger('click');expect(api.put).not.toHaveBeenCalled();expect(w.get('fieldset').element.disabled).toBe(true);w.unmount();});

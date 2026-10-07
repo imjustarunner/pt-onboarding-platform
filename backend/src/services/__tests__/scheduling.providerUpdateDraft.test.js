@@ -16,6 +16,7 @@ it('keeps draft recipient links inaccessible and excludes drafts from the employ
  await getMyOpenRecipient(9, 2);
  expect(pool.execute.mock.calls[1][0]).toContain("p.status = 'sent'");
 });
+it('permits only a valid preview token to read a draft and revokes closed previews',async()=>{const token='preview_'+'a'.repeat(48);pool.execute.mockResolvedValue([[{id:1,token,push_status:'draft',expires_at:'2099-01-01'}]]);expect((await getRecipientByToken(token)).previewOnly).toBe(true);pool.execute.mockResolvedValue([[{id:1,token,push_status:'closed'}]]);expect(await getRecipientByToken(token)).toBeNull();});
 it('cannot release a draft through the ordinary save endpoint', async () => {
  pool.execute.mockResolvedValue([[{ id: 1, agency_id: 2, status: 'draft' }]]);
  await expect(updatePush({ pushId: 1, agencyId: 2, status: 'sent' })).rejects.toThrow('Use Send');

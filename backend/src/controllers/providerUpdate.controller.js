@@ -1,4 +1,5 @@
 import { persistReviewSection } from './providerUpdateReview.controller.js';
+import {createProviderUpdatePreviewLink} from '../services/providerUpdatePreviewLink.service.js';
 import {
   assertAgencyAdmin,
   createPush,
@@ -30,6 +31,18 @@ import * as AdminUpdateService from '../services/adminUpdate.service.js';
 
 export const getCatalog = async (_req, res) => {
   res.json({ sections: await listSectionCatalog() });
+};
+
+export const createPreviewLinkHandler = async (req,res,next) => {
+  try {
+    const agencyId = await assertAgencyAdmin(req.user,req.body.agencyId);
+    const result = await createProviderUpdatePreviewLink({agencyId,providerUserId:Number(req.params.providerUserId),createdByUserId:req.user.id,
+      title:req.body.title,sectionConfig:req.body.sectionConfig,attachedAdminUpdateId:req.body.attachedAdminUpdateId||null,
+      sectionAudience:req.body.sectionAudience,amendmentPlan:req.body.amendmentPlan});
+    const agency = await Agency.findById(agencyId);
+    res.setHeader('Cache-Control','no-store');
+    res.status(201).json({...result,publicUrl:buildProviderUpdatePublicUrl(result.token,agency?.portal_url||agency?.slug||'')});
+  } catch(e) {next(e);}
 };
 
 export const listPushesHandler = async (req, res, next) => {
@@ -162,8 +175,10 @@ export const getPublicByToken = async (req, res, next) => {
   try {
     const recipient = await getRecipientByToken(req.params.token);
     if (!recipient) return res.status(404).json({ error: { message: 'Link not found' } });
-    await recordViewEvent(recipient.id, 'token_click').catch(() => {});
-    await recordViewEvent(recipient.id, 'dashboard_view').catch(() => {});
+    if (!recipient.previewOnly) {
+      await recordViewEvent(recipient.id, 'token_click').catch(() => {});
+      await recordViewEvent(recipient.id, 'dashboard_view').catch(() => {});
+    }
     const bundle = await getRecipientBundle(recipient);
     res.json({
       ...bundle,

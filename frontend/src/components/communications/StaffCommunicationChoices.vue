@@ -1,6 +1,6 @@
 <template>
   <section class="staff-choices" aria-label="Personal phone communication choices">
-    <h2>Text messages to my phone</h2>
+    <h2>Texting access, notifications and forwarding</h2>
     <p>These choices control texts to your personal phone. You can still read and send authorized client messages in the app when every choice is No.</p>
     <label v-if="!initial && !agencyId">Organization <select v-model="selectedAgency" :disabled="saving || busy"><option value="">Choose an organization</option><option v-for="agency in agencies" :key="agency.id" :value="agency.id">{{ agency.name }}</option></select></label>
     <p v-if="loading">Loading your choices…</p><p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
@@ -13,6 +13,14 @@
       <p v-if="data.reviewedAt">Last reviewed: {{ new Date(data.reviewedAt).toLocaleString() }}</p>
       <p v-if="data.needsReview && data.reviewedAt">Your program details or profile phone changed. Review and save your choices again.</p>
       <fieldset :disabled="readonly || busy || saving">
+        <h3>Client texting and forwarding requests</h3>
+        <p>These requests are separate from texts to your personal phone. Choosing No does not remove any existing app access.</p>
+        <fieldset v-for="requestChoice in data.disclosure.accessRequests" :key="requestChoice.key" class="choice" data-testid="access-request">
+          <legend>{{ requestChoice.label }}</legend><p>{{ requestChoice.description }}</p>
+          <label><input type="radio" :name="`${id}-${requestChoice.key}`" :value="false" v-model="accessRequests[requestChoice.key]" /> No</label>
+          <label><input type="radio" :name="`${id}-${requestChoice.key}`" :value="true" v-model="accessRequests[requestChoice.key]" /> Yes</label>
+        </fieldset>
+        <h3>Optional texts to my personal phone</h3>
         <label>Your profile phone <input v-model="phone" type="tel" autocomplete="tel" readonly /></label>
         <p class="hint">Update your personal phone in your profile first if this number is wrong. Choosing No does not require a phone number.</p>
         <fieldset v-for="choice in data.disclosure.choices" :key="choice.key" class="choice">
@@ -39,14 +47,14 @@ import {ref,watch,onMounted,useId} from 'vue';
 import api from '../../services/api';
 const props=defineProps({agencyId:{type:[Number,String],default:null},initial:{type:Object,default:null},externalSave:Boolean,readonly:Boolean,busy:Boolean});
 const emit=defineEmits(['save','saved']);
-const id=useId(),agencies=ref([]),selectedAgency=ref(props.agencyId||''),data=ref(null),choices=ref({}),phone=ref(''),signerName=ref(''),acknowledged=ref(false),loading=ref(false),saving=ref(false),error=ref(''),notice=ref('');let request=0;
-function apply(value){data.value=value;choices.value={...value.choices};phone.value=value.phone||'';acknowledged.value=false;signerName.value='';}
+const id=useId(),agencies=ref([]),selectedAgency=ref(props.agencyId||''),data=ref(null),choices=ref({}),accessRequests=ref({}),phone=ref(''),signerName=ref(''),acknowledged=ref(false),loading=ref(false),saving=ref(false),error=ref(''),notice=ref('');let request=0;
+function apply(value){data.value=value;choices.value={...value.choices};accessRequests.value={inAppTexting:false,personalSmsRelay:false,...value.accessRequests};phone.value=value.phone||'';acknowledged.value=false;signerName.value='';}
 watch(()=>props.initial,value=>{if(value)apply(value)},{immediate:true});
 watch(()=>props.agencyId,value=>{if(value)selectedAgency.value=value});
 async function load(){if(props.externalSave||props.initial)return;const current=++request;data.value=null;notice.value='';error.value='';if(!selectedAgency.value){loading.value=false;return;}loading.value=true;try{const r=await api.get('/me/communication-choices',{params:{agencyId:selectedAgency.value}});if(current===request)apply(r.data);}catch(e){if(current===request)error.value=e.response?.data?.error?.message||'Unable to load your choices.';}finally{if(current===request)loading.value=false;}}
 watch(selectedAgency,load);
 onMounted(async()=>{if(props.initial||props.externalSave)return;if(!props.agencyId){try{const r=await api.get('/me/communication-choices');agencies.value=r.data.agencies||[];if(agencies.value.length===1)selectedAgency.value=agencies.value[0].id;}catch{error.value='Unable to load your organizations.';}}else await load();});
-async function save(){const input={agencyId:Number(selectedAgency.value||data.value.agencyId),phone:phone.value,choices:{...choices.value},signerName:signerName.value,acknowledged:acknowledged.value,disclosureHash:data.value.disclosureHash};if(props.externalSave){emit('save',input);return;}saving.value=true;error.value='';notice.value='';try{const r=await api.put('/me/communication-choices',input);apply(r.data);notice.value='Your choices were saved.';emit('saved',r.data);}catch(e){error.value=e.response?.data?.error?.message||'Unable to save your choices. Please try again.';}finally{saving.value=false;}}
+async function save(){if(props.readonly||props.busy)return;const input={agencyId:Number(selectedAgency.value||data.value.agencyId),phone:phone.value,choices:{...choices.value},accessRequests:{...accessRequests.value},signerName:signerName.value,acknowledged:acknowledged.value,disclosureHash:data.value.disclosureHash};if(props.externalSave){emit('save',input);return;}saving.value=true;error.value='';notice.value='';try{const r=await api.put('/me/communication-choices',input);apply(r.data);notice.value='Your choices were saved.';emit('saved',r.data);}catch(e){error.value=e.response?.data?.error?.message||'Unable to save your choices. Please try again.';}finally{saving.value=false;}}
 </script>
 <style scoped>
 .staff-choices{padding:24px;border:1px solid var(--border-color,#cbd5d1);border-radius:12px;background:var(--bg-primary,#fff);color:var(--text-primary,#203b32);line-height:1.6}.staff-choices>h2{margin-top:0}fieldset{border:0;padding:0;margin:16px 0}.choice{border:1px solid var(--border-color,#cbd5d1);border-radius:8px;padding:16px}.choice legend{font-weight:700}.choice label{display:inline-flex;gap:8px;margin-right:24px}label{display:block;margin:12px 0}input:not([type=radio]):not([type=checkbox]),select{display:block;width:min(100%,480px);padding:10px;border:1px solid #94a39d;border-radius:6px;font:inherit;box-sizing:border-box}.ack{display:flex;align-items:flex-start;gap:10px}.hint,.program-links{font-size:13px}nav{display:flex;gap:20px}aside{background:var(--bg-secondary,#f3f6f4);padding:16px;border-radius:8px}button{padding:12px 18px;border:0;border-radius:6px;background:#285e51;color:white;font:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:default}[role=alert]{color:#a72121}

@@ -56,6 +56,7 @@
       </aside>
 
       <main class="pu-main">
+        <p v-if="recipient.previewOnly" role="status" class="pu-preview-notice"><strong>Read-only preview for {{ displayName }}.</strong> No invitation was sent. Profile changes, signatures, text enrollment, and completion time are disabled. This link expires after seven days; send a separate editable invitation to staff.</p>
         <template v-if="!activePageKey">
           <div class="pu-hero">
             <img v-if="tenantLogo" class="pu-hero-logo" :src="tenantLogo" :alt="tenantName" />
@@ -102,7 +103,7 @@
                 v-else-if="!recipient.finalizedAt"
                 type="button"
                 class="pu-btn light"
-                :disabled="finalizing"
+                :disabled="finalizing || recipient.previewOnly"
                 @click="finalize"
               >
                 {{ finalizing ? 'Submitting…' : 'Mark Provider Update complete' }}
@@ -305,6 +306,7 @@ async function onSectionSaved(bundle) {
 }
 
 async function finalize() {
+  if (recipient.value.previewOnly) return;
   finalizing.value = true;
   error.value = '';
   try {
@@ -324,7 +326,7 @@ async function finalize() {
 
 onMounted(async () => {
   await load();
-  session.start();
+  if (!recipient.value.previewOnly && recipient.value.id) session.start();
 });
 
 watch(
@@ -334,6 +336,7 @@ watch(
 </script>
 
 <style scoped>
+.pu-preview-notice{padding:16px;background:#fff8db;border:1px solid #e6cd70;border-radius:10px;line-height:1.6}
 .pu-hub {
   --pu-green: #3d6b4f;
   --pu-green-soft: rgba(61, 107, 79, 0.12);

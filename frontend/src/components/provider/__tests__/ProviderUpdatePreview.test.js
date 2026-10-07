@@ -19,3 +19,7 @@ it('an empty personal section selection stays empty', async () => {
  const w = mount(Preview, { props: { personPreview: { provider: { first_name: 'Sample' } }, sections: [] }, global: { stubs: { WorkplaceHandbookReader: true, ProviderUpdateAdminUpdateEmbed: true } } });
  expect(w.findAll('.pu-card')).toHaveLength(0); w.unmount();
 });
+it('renders the actual signed choices on the standalone texting preview page',async()=>{
+ const choices={agencyId:2,phone:'',choices:{notifications:false,messageAlerts:false,polling:false},accessRequests:{inAppTexting:false,personalSmsRelay:false},activation:[],disclosure:{brandName:'ITSCO',legalName:'ITSCO, LLC',policyReady:false,programs:[],choices:[{key:'notifications',label:'Staff reminders',description:'Optional reminders'}],accessRequests:[{key:'personalSmsRelay',label:'Future forwarding request',description:'Not enabled by this request'}]}};
+ const w=mount(Preview,{props:{personPreview:{provider:{first_name:'Aunya'},communicationChoices:choices},sections:[{key:'notification_prefs',meta:{title:'Texting & Communication Choices'}}],initialPageKey:'texting_choices'},global:{stubs:{WorkplaceHandbookReader:true,ProviderUpdateAdminUpdateEmbed:true}}});await flushPromises();const card=w.find('.pu-card');if(card.exists())await card.trigger('click');expect(w.text()).toContain('Future forwarding request');expect(w.text()).toContain('Staff reminders');expect(w.find('fieldset[disabled]').exists()).toBe(true);w.unmount();
+});

@@ -1,4 +1,5 @@
 import { saveStaffCommunicationChoices } from '../services/staffCommunicationChoices.service.js';
+import {getCredentialStatus} from '../services/quickViewAuth.service.js';
 import VonageService from '../services/vonage.service.js';
 import { requireProviderAvailabilityAccess } from '../services/providerAvailabilityAccess.service.js';
 import crypto from 'crypto';
@@ -30,6 +31,7 @@ function requireSection(recipient, key) {
 export async function officeReviewAction(req, res, next) {
   try {
     const recipient = await reviewRecipient(req);
+    if(recipient.previewOnly)throw fail('This preview is read-only.',403);
     requireSection(recipient, 'office_schedule');
     const id = Number(req.params.assignmentId);
     const [[assignment]] = await pool.execute('SELECT * FROM office_standing_assignments WHERE id = ? AND provider_id = ? AND is_active = TRUE', [id, recipient.provider_user_id]);
@@ -63,6 +65,7 @@ export async function reviewContext(req, res, next) {
 export async function uploadReviewDocument(req, res, next) {
   try {
     const recipient = await reviewRecipient(req);
+    if(recipient.previewOnly)throw fail('This preview is read-only.',403);
     const kind = req.params.kind;
     if (!['license', 'supervision'].includes(kind)) throw fail('Unknown document type.');
     requireSection(recipient, kind === 'license' ? 'license' : 'supervision_hours');
@@ -82,14 +85,23 @@ export async function uploadReviewDocument(req, res, next) {
 }
 
 export async function persistReviewSection(recipient, key, data, completed) {
+  if(recipient.previewOnly)throw fail('This preview is read-only.',403);
   requireSection(recipient, key);
+  if(key==='pin'&&!completed)throw fail('Complete Quick View setup in your account before confirming this step.');
   if (key === 'notification_prefs') {
     if (!completed) throw fail('Review and sign your phone and text choices before saving this section.');
     const saved=await saveStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id,input:data,source:'provider_update',sendConfirmation:m=>VonageService.sendSms(m)});
     for (const field of Object.keys(data)) delete data[field];
-    Object.assign(data,{choices:saved.choices,reviewedAt:saved.reviewedAt});
+    Object.assign(data,{choices:saved.choices,accessRequests:saved.accessRequests,reviewedAt:saved.reviewedAt});
   }
   if (!completed) return;
+  if(key==='pin'){
+    const status=await getCredentialStatus(recipient.provider_user_id);
+    if(!status.hasPasscode||status.isLocked)throw fail('Create or reset your six-digit Quick View passcode in your account, then return to confirm this step.');
+    if(data?.quickViewConfirmed!==true)throw fail('Confirm that you can access Quick View with your six-digit passcode.');
+    for(const field of Object.keys(data))delete data[field];
+    Object.assign(data,{quickViewConfirmed:true});
+  }
   if (key === 'supervision_hours') {
     const supervisors = await User.getSupervisors(recipient.provider_user_id, recipient.agency_id);
     if (!supervisors.length) return;

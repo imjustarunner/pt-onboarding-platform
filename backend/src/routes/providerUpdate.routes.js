@@ -18,6 +18,7 @@ router.get('/pushes/:pushId/export', authenticate, ctrl.exportPushHandler);
 router.post('/pushes/:pushId/submit-payroll', authenticate, ctrl.submitPayrollHandler);
 router.get('/eligible-providers', authenticate, ctrl.listEligibleProvidersHandler);
 router.post('/providers/:providerUserId/preview', authenticate, previewProviderUpdate);
+router.post('/providers/:providerUserId/preview-link', authenticate, ctrl.createPreviewLinkHandler);
 router.get('/providers/:providerUserId/fall-actions', authenticate, ctrl.fallActionsForRecipient);
 router.get('/me/fall-actions', authenticate, ctrl.fallActionsMine);
 

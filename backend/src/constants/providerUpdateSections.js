@@ -39,14 +39,14 @@ export const PROVIDER_UPDATE_SECTIONS = [
   },
   {
     key: 'pin',
-    title: 'Four-digit PIN',
-    shortTitle: 'PIN',
-    description: 'Set or confirm your kiosk four-digit PIN.',
-    checklist: ['Set four-digit PIN', 'Confirm existing PIN'],
+    title: 'Quick View — Six-digit PIN',
+    shortTitle: 'Quick View',
+    description: 'Create your six-digit Quick View passcode if needed, or confirm access with your existing code.',
+    checklist: ['Check Quick View setup', 'Create a six-digit passcode if needed', 'Confirm Quick View access'],
     mode: 'set_confirm_update',
     icon: 'pin',
     defaultEnabled: true,
-    previewHint: 'If no PIN: Set. If PIN exists: Confirm or Update.'
+    previewHint: 'Uses the existing Quick View setup in account preferences. The update token is separate from the six-digit passcode.'
   },
   {
     key: 'work_hours',
@@ -200,14 +200,14 @@ export const PROVIDER_UPDATE_SECTIONS = [
   },
   {
     key: 'notification_prefs',
-    title: 'Notification Preferences',
-    shortTitle: 'Notifications',
-    description: 'Review and sign separate choices for staff reminders, message-waiting alerts and optional voting. All choices may be No.',
-    checklist: ['Staff reminders', 'Message-waiting alerts', 'Optional voting', 'Sign Yes/No choices'],
+    title: 'Texting & Communication Choices',
+    shortTitle: 'Texting Choices',
+    description: 'Request in-app client texting or future forwarding, and sign separate choices for reminders, message alerts and voting. All choices may be No.',
+    checklist: ['In-app texting access', 'Future forwarding request', 'Reminders and message alerts', 'Optional voting', 'Sign Yes/No choices'],
     mode: 'set_confirm_update',
     icon: 'notify',
     defaultEnabled: true,
-    previewHint: 'Confirm notification preferences on your account.'
+    previewHint: 'Separate access requests and signed personal-phone preferences. Forwarding stays off until separately launched.'
   }
 ];
 
@@ -231,9 +231,18 @@ export const PROVIDER_UPDATE_PAGES = [
     title: 'User Updates',
     shortTitle: 'User Updates',
     description: 'Manage your account and scheduling details.',
-    checklist: ['Set four-digit PIN', 'Set work hours', 'Review office schedule', 'Update license'],
+    checklist: ['Set or confirm six-digit Quick View PIN', 'Set work hours', 'Review office schedule', 'Update license'],
     icon: 'hours',
-    sectionKeys: ['pin', 'work_hours', 'office_schedule', 'supervision_hours', 'license', 'contact_info', 'preferred_days', 'notification_prefs', 'training_ack', 'pay_portal']
+    sectionKeys: ['pin', 'work_hours', 'office_schedule', 'supervision_hours', 'license', 'contact_info', 'preferred_days', 'training_ack', 'pay_portal']
+  },
+  {
+    key: 'texting_choices',
+    title: 'Texting & Communication Choices',
+    shortTitle: 'Texting Choices',
+    description: 'Review client texting access, future forwarding, and optional texts to your phone.',
+    checklist: ['In-app texting access', 'Future forwarding request', 'Staff reminders and message alerts', 'Optional voting', 'Sign Yes/No choices'],
+    icon: 'notify',
+    sectionKeys: ['notification_prefs']
   },
   {
     key: 'profile_specialties',

@@ -95,7 +95,7 @@
               <p>{{ activePage?.description }}</p>
             </header>
 
-            <div v-if="personPreview && activePage?.sections?.some(section => ['amendments','license','office_schedule','supervision_hours'].includes(section.key))" class="demo-panel">
+            <div v-if="personPreview && activePage?.sections?.some(section => ['amendments','license','office_schedule','supervision_hours','notification_prefs'].includes(section.key))" class="demo-panel">
               <section v-for="section in activePage.sections" :key="section.key">
                 <h2>{{ section.meta?.title || section.key }}</h2>
                 <template v-if="section.key === 'amendments'">
@@ -120,6 +120,7 @@
                 </template>
                 <dl v-else-if="section.key === 'license'"><dt>License</dt><dd>{{ personPreview.license.number || 'Not entered' }}</dd><dt>Issued</dt><dd>{{ personPreview.license.issued || 'Not entered' }}</dd><dt>Expires</dt><dd>{{ personPreview.license.expires || 'Not entered' }}</dd></dl>
                 <p v-else-if="section.key === 'supervision_hours'">Credited supervision: {{ personPreview.supervision?.totalHours ?? 'Not available' }} hours. The provider can confirm this or request a correction with a reason and evidence.</p>
+                <StaffCommunicationChoices v-else-if="section.key === 'notification_prefs' && personPreview.communicationChoices" :initial="personPreview.communicationChoices" :agency-id="agencyId" external-save readonly />
                 <p v-else>{{ section.meta?.description }}</p>
               </section>
               <p>Preview only — editing, signatures, and submissions are disabled.</p>
@@ -178,6 +179,7 @@ import { useAgencyStore } from '../../store/agency';
 import { useBrandingStore } from '../../store/branding';
 import ProviderUpdateAdminUpdateEmbed from './ProviderUpdateAdminUpdateEmbed.vue';
 import WorkplaceHandbookReader from '../handbook/WorkplaceHandbookReader.vue';
+import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
 
 const props = defineProps({
   personPreview: { type: Object, default: null },

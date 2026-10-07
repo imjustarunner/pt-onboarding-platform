@@ -84,6 +84,7 @@
               <th>Status</th>
               <th>Sections</th>
               <th>Minutes</th>
+              <th>Texting choices</th>
               <th>Token link</th>
             </tr>
           </thead>
@@ -98,13 +99,14 @@
               <td>{{ r.status }}</td>
               <td>{{ r.sections_completed }}/{{ r.sections_total }}</td>
               <td>{{ Math.round(Number(r.active_seconds || 0) / 60) }}</td>
+              <td>{{ communicationSummary(r.communication_review_json) }}</td>
               <td class="row-actions">
                 <a v-if="r.publicUrl" class="btn sm" :href="r.publicUrl" target="_blank" rel="noopener">Open</a>
                 <button v-if="r.publicUrl" type="button" class="btn sm" @click="copyText(r.publicUrl)">Copy</button>
               </td>
             </tr>
             <tr v-if="!filteredRecipients.length">
-              <td colspan="7" class="muted">No recipients yet — send the push (include demo testers) to generate tokens.</td>
+              <td colspan="8" class="muted">No recipients yet. Use Preview full to create a read-only test link, or send invitations when ready.</td>
             </tr>
           </tbody>
         </table>
@@ -315,7 +317,9 @@
               </select>
             </label>
             <button type="button" class="btn" :disabled="previewLoading || !previewProviderId" @click="loadPersonPreview">Refresh person’s details</button>
+            <button type="button" class="btn" :disabled="previewLoading || !previewProviderId" @click="createPreviewLink">Create read-only token link</button>
           </div>
+          <p v-if="previewTokenUrl"><a :href="previewTokenUrl" target="_blank" rel="noopener noreferrer">Open staff-view test link →</a> · Expires in seven days. No invitation sent and no staff records can be changed.</p>
           <p v-if="previewLoading" role="status">Loading preview…</p>
           <p v-if="previewError" class="err" role="alert">{{ previewError }}</p>
           <ProviderUpdateLivePreview
@@ -402,6 +406,20 @@ const previewProviderId = ref('');
 const personPreview = ref(null);
 const previewLoading = ref(false);
 const previewError = ref('');
+const previewTokenUrl = ref('');
+function communicationSummary(raw){
+  let value;try{value=typeof raw==='string'?JSON.parse(raw):raw;}catch{return 'Not reviewed';}
+  if(!value?.reviewedAt)return 'Not reviewed';
+  const requests=value.accessRequests||{},choices=value.choices||{};
+  return [['App access request',requests.inAppTexting],['Future forwarding request',requests.personalSmsRelay],['Reminders',choices.notifications],['Message alerts',choices.messageAlerts],['Voting',choices.polling]].map(([label,v])=>`${label}: ${v===true?'Yes':v===false?'No':'Not reviewed'}`).join(' · ');
+}
+async function createPreviewLink() {
+  previewLoading.value=true;previewError.value='';previewTokenUrl.value='';
+  try {const {data}=await api.post(`/provider-update/providers/${previewProviderId.value}/preview-link`,pushPayload());previewTokenUrl.value=data.publicUrl;}
+  catch(e){previewError.value=e.response?.data?.error?.message||'Unable to create the test link.';}
+  finally{previewLoading.value=false;}
+}
+watch(previewProviderId,()=>{previewTokenUrl.value='';});
 let previewRequest = 0;
 async function loadPersonPreview() {
   const request = ++previewRequest;

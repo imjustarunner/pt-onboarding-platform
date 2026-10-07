@@ -1,8 +1,10 @@
 import { getStaffCommunicationChoices } from './staffCommunicationChoices.service.js';
+import {getCredentialStatus} from './quickViewAuth.service.js';
 /**
  * Provider Update — modular, toggleable staff update pushes (separate from Fall Update).
  */
 import crypto from 'crypto';
+import {isProviderUpdatePreviewToken} from './providerUpdatePreviewLink.service.js';
 import pool from '../config/database.js';
 import {
   defaultSectionConfig,
@@ -388,6 +390,9 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
     throw Object.assign(new Error('Push is closed'), { status: 400 });
   }
 
+  const [previewRecipients] = await pool.execute("SELECT id FROM provider_update_recipients WHERE push_id=? AND LEFT(token,8)='preview_' LIMIT 1",[pushId]);
+  if (previewRecipients.length) throw Object.assign(new Error('Preview links cannot be sent as invitations. Use a separate staff update draft.'),{status:409});
+
   const providers = await listEligibleProviders(agencyId, { includeDemoTesters: true });
   const allow = providerUserIds?.length
     ? new Set(providerUserIds.map((id) => Number(id)))
@@ -603,6 +608,8 @@ export async function listRecipients(pushId, agencyId) {
             u.first_name, u.last_name, u.email,
             COALESCE(r.role_snapshot, u.role) AS role_snapshot,
             GREATEST(COALESCE(r.is_demo_snapshot, 0), COALESCE(u.is_demo, 0)) AS is_demo_snapshot,
+            (SELECT sp.data_json FROM provider_update_section_progress sp
+              WHERE sp.recipient_id=r.id AND sp.section_key='notification_prefs' AND sp.completed=1 LIMIT 1) AS communication_review_json,
             (SELECT COUNT(*) FROM provider_update_section_progress sp
               WHERE sp.recipient_id = r.id AND sp.completed = 1) AS sections_completed,
             (SELECT COUNT(*) FROM provider_update_section_progress sp
@@ -625,12 +632,13 @@ export async function getRecipientByToken(token) {
      FROM provider_update_recipients r
      JOIN provider_update_pushes p ON p.id = r.push_id
      JOIN users u ON u.id = r.provider_user_id
-     WHERE r.token = ?
+     WHERE BINARY r.token = BINARY ?
      LIMIT 1`,
     [tok]
   );
   const row = rows?.[0];
-  if (!row || row.push_status === 'draft') return null;
+  if (!row || (row.push_status === 'draft' && !isProviderUpdatePreviewToken(row.token))) return null;
+  if (isProviderUpdatePreviewToken(row.token) && row.push_status === 'closed') return null;
   if (row.locked_at) {
     throw Object.assign(new Error('This update link is locked'), { status: 410 });
   }
@@ -639,6 +647,7 @@ export async function getRecipientByToken(token) {
   }
   return {
     ...row,
+    previewOnly:isProviderUpdatePreviewToken(row.token),
     section_config_json: normalizeSectionConfig(parseJson(row.section_config_json, defaultSectionConfig()))
   };
 }
@@ -673,7 +682,7 @@ export async function getRecipientBundle(recipient) {
   enabledKeys = enabledKeys.filter((key) =>
     recipientSeesSection(key, audience, recipient.provider_user_id)
   );
-  await ensureSectionRows(recipient.id, enabledKeys);
+  if (!recipient.previewOnly) await ensureSectionRows(recipient.id, enabledKeys);
   const [sections] = await pool.execute(
     `SELECT * FROM provider_update_section_progress WHERE recipient_id = ?`,
     [recipient.id]
@@ -692,6 +701,12 @@ export async function getRecipientBundle(recipient) {
     };
   });
   const communicationSection=sectionList.find(s=>s.key==='notification_prefs');
+  const quickViewSection=sectionList.find(s=>s.key==='pin');
+  if(quickViewSection){
+    const status=await getCredentialStatus(recipient.provider_user_id);
+    quickViewSection.data={...quickViewSection.data,quickView:{hasPasscode:status.hasPasscode,isLocked:status.isLocked}};
+    if(!recipient.locked_at&&(!status.hasPasscode||status.isLocked||quickViewSection.data.quickViewConfirmed!==true)){quickViewSection.completed=false;quickViewSection.status='not_started';}
+  }
   if (communicationSection) {
     const communicationChoices=await getStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id});
     communicationSection.data={...communicationSection.data,communicationChoices};
@@ -745,6 +760,7 @@ export async function getRecipientBundle(recipient) {
   return {
     recipient: {
       id: recipient.id,
+      previewOnly:!!recipient.previewOnly,
       pushId: recipient.push_id,
       agencyId: recipient.agency_id,
       pushTitle: recipient.push_title,
@@ -773,11 +789,11 @@ export async function getRecipientBundle(recipient) {
 
 export async function recordHeartbeat(recipientId) {
   const [rows] = await pool.execute(
-    `SELECT id, active_seconds, last_heartbeat_at, status, locked_at FROM provider_update_recipients WHERE id = ? LIMIT 1`,
+    `SELECT id, token, active_seconds, last_heartbeat_at, status, locked_at FROM provider_update_recipients WHERE id = ? LIMIT 1`,
     [recipientId]
   );
   const row = rows?.[0];
-  if (!row || row.locked_at) return { activeSeconds: Number(row?.active_seconds || 0) };
+  if (!row || row.locked_at || isProviderUpdatePreviewToken(row.token)) return { activeSeconds: Number(row?.active_seconds || 0) };
   const now = Date.now();
   const last = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : 0;
   let delta = 60;
@@ -847,6 +863,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
   ]);
   const recipient = rows?.[0];
   if (!recipient) throw Object.assign(new Error('Recipient not found'), { status: 404 });
+  if(isProviderUpdatePreviewToken(recipient.token))throw Object.assign(new Error('This preview is read-only.'),{status:403});
   if (recipient.locked_at) return recipient;
 
   const push = await getPush(recipient.push_id);
@@ -857,7 +874,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
     [recipientId]
   );
   const done = new Set((sections || []).filter((s) => s.completed).map((s) => s.section_key));
-  const missing = enabledKeys.filter((k) => !done.has(k) || (k === 'notification_prefs' && bundle.sections.find(s=>s.key===k)?.completed !== true));
+  const missing = enabledKeys.filter((k) => !done.has(k) || (['notification_prefs','pin'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
   if (missing.length) {
     throw Object.assign(new Error(`Complete all sections first: ${missing.join(', ')}`), {
       status: 400,
@@ -935,6 +952,10 @@ export async function submitPushForPayroll({ pushId, agencyId, submittedByUserId
   const today = new Date().toISOString().slice(0, 10);
 
   for (const r of recipients) {
+    if (isProviderUpdatePreviewToken(r.token)) {
+      skipped.push({providerUserId:r.provider_user_id,reason:'read_only_preview'});
+      continue;
+    }
     if (r.payroll_time_claim_id) {
       skipped.push({ providerUserId: r.provider_user_id, reason: 'already_submitted' });
       continue;
@@ -990,6 +1011,7 @@ export async function getMyOpenRecipient(providerUserId, agencyId) {
      WHERE r.provider_user_id = ? AND r.agency_id = ?
        AND r.locked_at IS NULL
        AND p.status = 'sent'
+       AND LEFT(r.token,8) <> 'preview_'
        AND (r.expires_at IS NULL OR r.expires_at > UTC_TIMESTAMP())
      ORDER BY COALESCE(p.sent_at, p.created_at) DESC
      LIMIT 1`,
