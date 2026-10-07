@@ -4,7 +4,9 @@ Keep the approved ITSCO Service Communications campaign unchanged. Use the exist
 
 **Recommended:** Low Volume Mixed, with Polling and Voting plus Account Notification as its sub-use cases. Vonage lists $1.50/month plus $15 per vetting event. The three-month minimum is $4.50, making the initial campaign charges $19.50 before number rental, messages, carrier fees, taxes or any other account-specific charges. Check the live dashboard before submitting. This assumes occasional internal traffic within Low Volume Mixed limits; number count does not increase those limits.
 
-**First, publish the pages:** In ITSCO → Texting Numbers → Campaign registration and consent → Generate a new campaign and branded SMS pages, choose Staff notifications and voting. Enter the confirmed ITSCO details below, save, review and publish. These new URLs will return unavailable until the feature is deployed and the program is published. Publishing does not submit to Vonage or send messages.
+**ITSCO publication:** The submitted URLs stay the same. ITSCO’s confirmed staff program is published with the site release. Its SMS addendum and privacy details link to the main ITSCO Terms of Use and Privacy Policy; those main pages link back to the program. Refresh the links once deployment finishes. This publication does not submit, modify or approve the Vonage application. Other agencies use Texting Numbers → Campaign registration and consent → Generate a new campaign and branded SMS pages to save, review and publish their own details.
+
+Organization main terms: https://www.itsco.health/itsco/terms
 
 Organization privacy-policy URL: https://www.itsco.health/itsco/privacypolicy
 

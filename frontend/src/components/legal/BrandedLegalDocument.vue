@@ -21,6 +21,7 @@
         <p v-for="paragraph in section.paragraphs" :key="paragraph">{{ paragraph }}</p>
         <ul v-if="section.items.length"><li v-for="item in section.items" :key="item">{{ item }}</li></ul>
         <p v-for="link in section.links" :key="link.href"><a :href="link.href.startsWith('/') ? (profile.legalOrigin || profile.origin) + link.href : link.href">{{ link.label }}</a></p>
+        <PublishedSmsPrograms v-if="['sms','sms-privacy'].includes(section.id)" :slug="profile.slug" />
       </section>
     </article>
     <footer>{{ profile.legalName }} · <a :href="profile.origin">{{ profile.name }}</a> · <a href="#legal-document">Back to top</a></footer>
@@ -29,6 +30,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import PublishedSmsPrograms from './PublishedSmsPrograms.vue';
 import { ITSCO_LEGAL_VERSION } from '../../content/itscoLegalDocuments.js';
 import { tenantLegalProfiles, tenantLegalLinks } from '../../content/tenantLegalProfiles.js';
 import { legalDocumentsForProfile } from '../../content/tenantLegalDocuments.js';

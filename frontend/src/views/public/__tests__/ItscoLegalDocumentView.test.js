@@ -18,7 +18,8 @@ describe('native ITSCO legal routes',()=>{
     expect(w.get('h1').text()).toBe('ITSCO Privacy Policy');
     expect(w.find('iframe').exists()).toBe(false);
     expect(w.find('.legal-editor').exists()).toBe(false);
-    expect(state.api.get).not.toHaveBeenCalled();
+    expect(state.api.get).toHaveBeenCalledWith('/sms-numbers/public-programs/itsco',{skipAuthRedirect:true,skipGlobalLoading:true});
+    expect(state.api.get).toHaveBeenCalledTimes(1);
     expect(state.branding.initializePortalTheme).not.toHaveBeenCalled();
     const print=vi.spyOn(window,'print').mockImplementation(()=>{});
     await w.get('.print-button').trigger('click');expect(print).toHaveBeenCalledOnce();print.mockRestore();w.unmount();

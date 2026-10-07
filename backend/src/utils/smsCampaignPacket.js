@@ -13,7 +13,7 @@ const text = (value, max = 180) => typeof value === 'string' ? value.trim().slic
 export function normalizeCampaignProfile(input = {}) {
   const result = {};
   for (const field of ['legalName', 'brandName', 'supportContact', 'brandId', 'resellerId', 'organizationType', 'vertical', 'businessAddress', 'country']) result[field] = text(input[field]);
-  for (const field of ['website', 'portalUrl', 'organizationPrivacyUrl', 'logoUrl']) {
+  for (const field of ['website', 'portalUrl', 'organizationPrivacyUrl', 'organizationTermsUrl', 'logoUrl']) {
     const value = text(input[field], 800);
     if (value) {
       let url; try { url = new URL(value); } catch { throw fail(`${field} must be an HTTPS URL`); }
@@ -27,7 +27,7 @@ export function normalizeCampaignProfile(input = {}) {
 }
 export function campaignProfileErrors(profile) {
   const errors = [];
-  for (const field of ['legalName','brandName','supportContact','website','portalUrl','organizationPrivacyUrl','ownership']) if (!profile[field]) errors.push(`${field} is required`);
+  for (const field of ['legalName','brandName','supportContact','website','portalUrl','organizationPrivacyUrl','organizationTermsUrl','ownership']) if (!profile[field]) errors.push(`${field} is required`);
   if (profile.brandName.length > 60) errors.push('Use a brand name of 60 characters or fewer for SMS response limits');
   if (profile.supportContact.length > 100) errors.push('Use a support contact of 100 characters or fewer');
   if (profile.supportContact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profile.supportContact) && !/^\+?[\d ().-]{7,30}$/.test(profile.supportContact)) errors.push('Enter a support email address or phone number');
@@ -89,7 +89,7 @@ export function campaignPublicContent(packet, audience) {
   if (!['client','guardian','staff'].includes(signerRole)) throw fail('Invalid audience');
   if (['polling','workforce'].includes(packet.program) && signerRole !== 'staff') throw fail('This is a staff program');
   const p = packet.profile;
-  return { brandName: p.brandName, legalName: p.legalName, website: p.website, logoUrl: p.logoUrl, publishedAt: packet.publishedAt, links: packet.links,
+  return { brandName: p.brandName, legalName: p.legalName, website: p.website, logoUrl: p.logoUrl, organizationTermsUrl: p.organizationTermsUrl, organizationPrivacyUrl: p.organizationPrivacyUrl, programName: SMS_PROGRAMS[packet.program].name, publishedAt: packet.publishedAt, links: packet.links,
     consent: { example: true, signerRole, disclosure: buildSmsConsentDisclosure(packet.registration, { signerRole }) },
     terms: [
       { title: 'Program and sender', body: `${p.legalName} operates ${p.brandName} ${SMS_PROGRAMS[packet.program].name}. ${packet.steps[1].fields.Description}` },
@@ -97,7 +97,7 @@ export function campaignPublicContent(packet, audience) {
       { title: 'Frequency and charges', body: 'Message frequency varies. Message and data rates may apply. Carriers are not liable for delayed or undelivered messages.' },
       { title: 'Stop or get help', body: `Reply STOP to stop this program across its sending numbers. END, QUIT, CANCEL, UNSUBSCRIBE, REVOKE and OPT OUT are also accepted. Reply HELP for help or contact ${p.supportContact}. You may also contact us to withdraw consent. We honor opt-out requests; changing numbers does not override them.` },
       { title: 'Using your number and links', body: 'Provide a number you control and tell us if it changes. Keep personal invitation links private. Standard SMS is not end-to-end encrypted. Use your secure account for sensitive information. This program is not an emergency service.' },
-      { title: 'Scope of these terms', body: `These terms govern this SMS program. They supplement the organization’s other terms and privacy practices, available through ${p.website}. The public example demonstrates the consent process and cannot enroll anyone.` }
+      { title: 'Scope of these terms', body: `This SMS addendum is part of the organization’s main Terms of Use at ${p.organizationTermsUrl || p.website}. It adds the details for this messaging program; the main terms continue to govern the website and account. The public example demonstrates the consent process and cannot enroll anyone.` }
     ],
     privacy: [
       { title: 'Who operates this program', body: `${p.legalName} operates the ${p.brandName} SMS program. Contact ${p.supportContact} with privacy questions.` },

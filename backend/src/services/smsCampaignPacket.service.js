@@ -1,3 +1,4 @@
+import { publishedSmsProgramSeed } from '../utils/smsPublishedProgramSeeds.js';
 import pool from '../config/database.js';
 import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
 import { normalizeCampaignProfile, campaignProfileErrors, buildCampaignPacket, campaignPublicContent, campaignPacketMarkdown, SMS_PROGRAMS } from '../utils/smsCampaignPacket.js';
@@ -18,16 +19,17 @@ function defaults(agency) {
     supportContact: agency.support_team_email || agency.phone_number || '',
     website: https(agency.website_url), portalUrl: buildPublicPortalBaseUrl(agency),
     businessAddress: [agency.street_address, agency.city, agency.state, agency.postal_code].filter(Boolean).join(', '),
-    logoUrl: https(agency.logo_url), organizationPrivacyUrl: '', ownership: '', volume: 'low' });
+    logoUrl: https(agency.logo_url), organizationPrivacyUrl: '', organizationTermsUrl: '', ownership: '', volume: 'low' });
 }
 export async function getAgencyCampaignPacket(agencyId, program) {
   checkProgram(program);
   const agency = await agencyRecord(agencyId);
   const stored = flagsOf(agency.feature_flags).smsCampaignPackets?.[program];
-  const profile = stored?.draft?.profile || stored?.published?.profile || flagsOf(agency.feature_flags).smsCampaignProfile || defaults(agency);
-  const hasPublished = !!stored?.published;
+  const published = stored?.published || publishedSmsProgramSeed(agency, program);
+  const profile = stored?.draft?.profile || published?.profile || flagsOf(agency.feature_flags).smsCampaignProfile || defaults(agency);
+  const hasPublished = !!published;
   const packet = buildCampaignPacket(profile, { agencyId, program, origin: buildPublicPortalBaseUrl(agency),
-    published: hasPublished && JSON.stringify(profile) === JSON.stringify(stored.published.profile), publishedAt: stored?.published?.at || null });
+    published: hasPublished && JSON.stringify(profile) === JSON.stringify(published.profile), publishedAt: published?.at || null });
   return { ...packet, hasPublished, markdown: campaignPacketMarkdown(packet), preview: campaignPublicContent(packet), programs: Object.entries(SMS_PROGRAMS).map(([value,p])=>({value,label:p.name})) };
 }
 export async function saveAgencyCampaignPacket({ agencyId, program, input, actorUserId }) {
@@ -55,9 +57,22 @@ export async function saveAgencyCampaignPacket({ agencyId, program, input, actor
 export async function getPublicCampaignPacket(agencyId, program, audience) {
   checkProgram(program);
   const agency = await agencyRecord(agencyId);
-  const published = flagsOf(agency.feature_flags).smsCampaignPackets?.[program]?.published;
+  const published = flagsOf(agency.feature_flags).smsCampaignPackets?.[program]?.published || publishedSmsProgramSeed(agency, program);
   if (!published) throw fail(404, 'This messaging program has not been published');
   const packet = buildCampaignPacket(published.profile, { agencyId, program, origin: buildPublicPortalBaseUrl(agency), published: true, publishedAt: published.at });
   // Public allowlist: no agency row, tax ID, actor, credentials, carrier IDs or recipient data.
   return campaignPublicContent(packet, audience);
+}
+
+export async function getPublicSmsProgramDirectory(slug) {
+  if (!/^[a-z0-9_-]{1,100}$/i.test(String(slug))) throw fail(400, 'Invalid organization');
+  const [rows] = await pool.execute('SELECT * FROM agencies WHERE (slug = ? OR portal_url = ?) AND is_active = TRUE LIMIT 1', [slug, slug]);
+  const agency = rows[0];
+  if (!agency) return [];
+  return Object.keys(SMS_PROGRAMS).flatMap(program => {
+    const published = flagsOf(agency.feature_flags).smsCampaignPackets?.[program]?.published || publishedSmsProgramSeed(agency, program);
+    if (!published) return [];
+    const packet = buildCampaignPacket(published.profile, { agencyId: agency.id, program, origin: buildPublicPortalBaseUrl(agency), published: true, publishedAt: published.at });
+    return [{ name: SMS_PROGRAMS[program].name, termsUrl: packet.links.termsUrl, privacyUrl: packet.links.privacyUrl, consentUrl: packet.registration.evidenceUrl }];
+  });
 }

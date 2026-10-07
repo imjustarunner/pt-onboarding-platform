@@ -4,8 +4,8 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:
 vi.mock('../../utils/publicPortalUrl.js',()=>({buildPublicPortalBaseUrl:a=>`https://portal.example.org/${a.slug}`}));
 import pool from '../../config/database.js';
 import { normalizeCampaignProfile, campaignProfileErrors, buildCampaignPacket, campaignPublicContent, campaignPacketMarkdown } from '../../utils/smsCampaignPacket.js';
-import { getAgencyCampaignPacket, getPublicCampaignPacket, saveAgencyCampaignPacket } from '../smsCampaignPacket.service.js';
-const profile=normalizeCampaignProfile({legalName:'Example Coaching LLC',brandName:'Example Coaching',supportContact:'support@example.org',website:'https://example.org',portalUrl:'https://portal.example.org/coaching',organizationPrivacyUrl:'https://example.org/privacy',ownership:'own',volume:'low'});
+import { getAgencyCampaignPacket, getPublicCampaignPacket, getPublicSmsProgramDirectory, saveAgencyCampaignPacket } from '../smsCampaignPacket.service.js';
+const profile=normalizeCampaignProfile({legalName:'Example Coaching LLC',brandName:'Example Coaching',supportContact:'support@example.org',website:'https://example.org',portalUrl:'https://portal.example.org/coaching',organizationPrivacyUrl:'https://example.org/privacy',organizationTermsUrl:'https://example.org/terms',ownership:'own',volume:'low'});
 const options={agencyId:72,program:'polling',origin:'https://portal.example.org'};
 const packet=()=>buildCampaignPacket(profile,options);
 beforeEach(()=>vi.resetAllMocks());
@@ -27,3 +27,5 @@ describe('draft and public isolation',()=>{
 });
 
 it('keeps packet drafts out of public branding responses without mutating stored data',()=>{const agency={id:2,feature_flags:JSON.stringify({smsCampaignPackets:{polling:{draft:{profile}}},smsCampaignProfile:profile,smsNumbersEnabled:true}),nested:{featureFlags:{smsCampaignProfile:profile,other:true}}};const redacted=redactSmsCampaignSettings(agency);expect(JSON.parse(redacted.feature_flags)).toEqual({smsNumbersEnabled:true});expect(redacted.nested.featureFlags).toEqual({other:true});expect(agency.feature_flags).toContain('smsCampaignPackets');});
+
+it('publishes only the explicitly confirmed ITSCO seed and links its main policies',async()=>{pool.execute.mockResolvedValue([[{id:2,slug:'itsco',feature_flags:{}}]]);const page=await getPublicCampaignPacket(2,'polling');expect(page.legalName).toBe('ITSCO, LLC');expect(page.organizationTermsUrl).toBe('https://www.itsco.health/itsco/terms');expect(page.organizationPrivacyUrl).toBe('https://www.itsco.health/itsco/privacypolicy');expect(page.consent.example).toBe(true);const list=await getPublicSmsProgramDirectory('itsco');expect(list).toHaveLength(1);expect(list[0].name).toBe('Staff Notifications and Voting');expect(JSON.stringify(list)).not.toContain('BRC2ZW3');pool.execute.mockResolvedValue([[{id:99,slug:'itsco',feature_flags:{}}]]);await expect(getPublicCampaignPacket(99,'polling')).rejects.toMatchObject({status:404});});
