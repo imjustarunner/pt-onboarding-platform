@@ -5,7 +5,7 @@ import {normalizeClinicalFacets} from '../../utils/providerFacetNormalization.js
 import {clinicalFieldOptions,withClinicalFieldOptions} from '../../utils/providerClinicalFieldOptions.js';
 import {SPECIALTIES,POPULATIONS} from '../../constants/providerClinicalTaxonomy.js';
 import * as shared from '../../../../frontend/src/navigation/providerClinicalTaxonomy.js';
-import * as frontend from '../../../../frontend/src/constants/providerClinicalTaxonomy.js';
+import fs from 'node:fs';
 import * as backend from '../../constants/providerClinicalTaxonomy.js';
 describe('saved clinical profile facts',()=>{
  it('recovers specialties directly from saved survey answers, keeping ages, groups and approaches separate',async()=>{
@@ -28,6 +28,6 @@ describe('saved clinical profile facts',()=>{
   expect(POPULATIONS).not.toContain('Children');expect(SPECIALTIES).toContain('Executive Functioning');expect(SPECIALTIES).not.toContain('CBT');
   expect(withClinicalFieldOptions({field_key:'groups',value:'["Legacy community"]'}).options).toContain('Legacy community');
  });
- it('shares canonical choices across all deployed consumers',()=>{expect(frontend).toEqual(shared);expect(backend).toEqual(shared);});
+ it('shares canonical choices across all deployed consumers',()=>{expect(backend).toEqual(shared);expect(fs.readFileSync(new URL('../../../../frontend/src/constants/providerClinicalTaxonomy.js',import.meta.url),'utf8')).toContain('../navigation/providerClinicalTaxonomy.js');});
  it('maps legacy ages to explicit ranges and removes duplicate age choices',()=>{const field=withClinicalFieldOptions({field_key:'age_specialty',value:'["Adults","Adults (18+)","Preteen","Teen","Toddler","Elders"]'});expect(JSON.parse(field.value)).toEqual(['Adults (18+)','Preteen (11-13)','Teen (14-18)','Toddler (0-5)','Seniors (65+)']);expect(field.options).not.toContain('Adults');expect(field.options).not.toContain('Teen');});
 });

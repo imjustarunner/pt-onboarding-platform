@@ -523,7 +523,7 @@ onMounted(async () => {
 }
 .badge.pending { background: #fef3c7; color: #92400e; }
 .badge.ok { background: #dcfce7; color: #166534; }
-.fall-list li {
+.fall-list > li {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
