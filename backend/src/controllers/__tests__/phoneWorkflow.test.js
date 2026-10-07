@@ -1,0 +1,22 @@
+import {beforeEach,describe,it,expect,vi} from 'vitest';
+const m=vi.hoisted(()=>({execute:vi.fn(),audit:vi.fn(),tracks:vi.fn(),read:vi.fn(),store:vi.fn()}));
+vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
+vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:m.audit}));
+vi.mock('../../services/focusMusic.service.js',()=>({getFocusMusicCatalog:m.tracks}));
+vi.mock('../../services/phoneWorkflowStorage.service.js',()=>({readPhoneWorkflow:m.read,storePhoneWorkflow:m.store}));
+import {requirePhoneWorkflowAdmin,getPhoneWorkflow,savePhoneWorkflow,previewPhoneWorkflowRoute} from '../phoneWorkflow.controller.js';
+import {defaultPhoneWorkflow} from '../../services/phoneWorkflow.service.js';
+const req=()=>({params:{agencyId:'2'},user:{id:7,role:'admin'},body:{config:defaultPhoneWorkflow('ITSCO'),revision:0}});
+const response=()=>({json:vi.fn(),status:vi.fn().mockReturnThis(),set:vi.fn()});
+beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[{id:7,role:'admin',status:'ACTIVE_EMPLOYEE',is_active:1}]]);m.tracks.mockResolvedValue([]);m.read.mockResolvedValue({config:defaultPhoneWorkflow('ITSCO'),revision:0});m.store.mockResolvedValue(1);});
+describe('phone workflow boundaries',()=>{
+ it('checks database role rather than a stale admin token',async()=>{m.execute.mockResolvedValue([[{id:7,role:'staff',is_active:1}]]);const res=response(),next=vi.fn();await requirePhoneWorkflowAdmin(req(),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();});
+ it.each([{is_active:0},{is_archived:1},{terminated_at:'2026-01-01'},{status:'TERMINATED'}])('denies departed and archived administrators',async patch=>{m.execute.mockResolvedValue([[{id:7,role:'admin',is_active:1,...patch}]]);const res=response();await requirePhoneWorkflowAdmin(req(),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);});
+ it('denies an admin outside the requested agency',async()=>{m.execute.mockResolvedValueOnce([[{id:7,role:'admin',is_active:1}]]).mockResolvedValueOnce([[]]);const res=response();await requirePhoneWorkflowAdmin(req(),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);expect(m.execute.mock.calls[1][1]).toEqual([7,2]);});
+ it('allows current tenant admins without caching private destinations',async()=>{const res=response(),next=vi.fn();await requirePhoneWorkflowAdmin(req(),res,next);expect(next).toHaveBeenCalledOnce();expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');});
+ it('returns preparation status and only limited music metadata',async()=>{m.tracks.mockResolvedValue([{id:'track',title:'Focus',filename:'private-path'}]);const res=response();await getPhoneWorkflow(req(),res,vi.fn());expect(res.json.mock.calls[0][0]).toMatchObject({revision:0,readiness:{live:false,status:'preparation'},tracks:[{id:'track',title:'Focus'}]});expect(res.json.mock.calls[0][0].tracks[0]).not.toHaveProperty('filename');});
+ it('saves the scoped workflow without auditing phone numbers',async()=>{const res=response(),next=vi.fn();await savePhoneWorkflow(req(),res,next);expect(next).not.toHaveBeenCalled();expect(m.store).toHaveBeenCalledWith(expect.objectContaining({agencyId:2,userId:7,revision:0}));expect(m.audit.mock.calls[0][1].metadata).toEqual({revision:1,enabledOptions:4,live:false});});
+ it('rejects unknown music and missing revision before writing',async()=>{const r=req();r.body.config.holdMusicId='https://evil.example';const res=response();await savePhoneWorkflow(r,res,vi.fn());expect(res.status).toHaveBeenCalledWith(400);expect(m.store).not.toHaveBeenCalled();delete r.body.revision;await savePhoneWorkflow(r,res,vi.fn());expect(m.store).not.toHaveBeenCalled();});
+ it('propagates stale-save conflicts',async()=>{m.store.mockRejectedValue(Object.assign(new Error('Reload'),{status:409}));const res=response(),next=vi.fn();await savePhoneWorkflow(req(),res,next);expect(next.mock.calls[0][0].status).toBe(409);expect(res.json).not.toHaveBeenCalled();});
+ it('previews without updating storage or dialing',async()=>{const res=response();await previewPhoneWorkflowRoute(req(),res,vi.fn());expect(res.json.mock.calls[0][0].callsPlaced).toBe(false);expect(m.store).not.toHaveBeenCalled();});
+});

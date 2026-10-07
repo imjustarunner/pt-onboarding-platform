@@ -1,3 +1,105 @@
+## Phone setup: prepare now, keep Grasshopper until voice testing passes
+
+The phone workflow editor is under **Settings → Texting Numbers → Phone setup**.
+This release saves and simulates a workflow; it does **not** activate Vonage Voice,
+port 719-657-7444, forward Grasshopper calls, place calls, or record callers.
+The intended main number is a planning field, separate from the public agency
+contact and the shared care SMS line. A new SMS campaign is not created by it.
+
+### 1. Pick the organization
+
+Select ITSCO before opening Phone setup. Only a current administrator of that
+organization (or a current super administrator) can read or save its workflow.
+Private forwarding destinations are encrypted in `agency_phone_workflows`, not
+stored in public branding flags. Migration: `1553_agency_phone_workflows.sql`.
+
+### 2. Enter the intended main number and hours
+
+Use 719-657-7444 if that is the Grasshopper number you choose to move later.
+Choose the business time zone, opening/closing times, and after-hours destination.
+The initial hours are examples (Monday–Friday, 9–5); review before saving.
+Saving this number does not change your cards, carrier, or inbound calls.
+
+### 3. Configure keypad choices
+
+| Key | Suggested starting purpose | Setup |
+| --- | --- | --- |
+| 0 | Support | Always enabled; enter the support team's destinations. |
+| 1 | Scheduling | Enter scheduling staff destinations. |
+| 2 | Billing | Enter billing staff destinations. This routes a call; it does not enable payment collection. |
+| 3 | Provider assistance | Enter staff who can connect the caller to the correct provider. No automatic provider lookup is active. |
+| 4–9 | Optional departments or programs | Enable only needed choices and give each a clear label. |
+
+Each choice accepts up to five US/Canadian destination numbers. **One at a time**
+rings the displayed order; move a destination earlier with the arrow. **All at
+once** describes simultaneous ringing. Set 10–45 seconds per destination or group.
+Unanswered options can try support or go directly to support voicemail. Support
+itself ends in voicemail; it cannot loop to itself. The public main number cannot
+be its own forwarding destination. Numbers are configured here only; no test
+call is placed by saving.
+
+### 4. Choose music and the final voicemail greeting
+
+Choose an existing focus-music track and use the authenticated browser preview.
+The Vonage media delivery integration is still required; do not enter an
+app-login-protected music URL as a carrier media URL. Write the support greeting
+that should play if nobody accepts. Capturing and securely storing actual
+voicemails is not activated by this configuration screen.
+
+### 5. Preview each path
+
+Select a digit and an open/closed/current-hours scenario, then choose **Preview
+without calling**. Also try No input and Invalid input; both fall back to support.
+The preview shows the no-answer path. Once a staff member accepts a future live
+call, later destinations must stop ringing. The specified acceptance behavior is
+“press 1 to accept,” preventing a personal voicemail from claiming the call.
+That behavior still needs a real Voice implementation and race-condition tests.
+
+### 6. Save phone setup
+
+Saves use an expected revision: two administrators cannot silently overwrite each
+other. A conflict asks you to reload the saved setup. Preparation mode remains
+visible even when every field is complete. Completing the form is not a live
+carrier readiness check.
+
+### 7. Providers prepare personal greetings
+
+In the phone/message workspace, open **Communication Settings → My Voicemail
+Greetings**. Providers can set their forwarding destination and normal,
+after-hours, and vacation greeting text, with browser speech previews. Recorded
+greeting uploads are not yet supported. Enabling voicemail is a saved preference;
+call capture is still inactive. Staff can clear their forwarding number.
+
+### 8. Complete and test live voice before changing Grasshopper
+
+Use a separate, voice-capable test number. Remaining integration work includes:
+Vonage application credentials and signed callbacks; tenant-scoped call state;
+verified destinations and caller ID; simultaneous call cancellation/first staff
+acceptance; sequential fallback; schedule/absence handling; authorized media
+streaming; voicemail ingestion/encryption/access; and reliable per-leg call logs.
+Test busy/unanswered/failed calls, personal voicemail interception, after hours,
+provider departure, callbacks, and support coverage. Carrier minutes and AI usage
+must be metered separately; app payment collection is not enabled by phone setup.
+Confirm healthcare configuration and applicable BAA coverage before patient calls.
+Do not port or enable recording until the appropriate setup and tests are done.
+
+### 9. Consider conversational AI as a later receptionist option
+
+An initial AI receptionist could say, “I'm ITSCO's automated assistant. Are you
+calling about scheduling, billing, or reaching someone?” It would identify the
+administrative request and offer a human transfer. Keep the keypad and 0-for-support
+fallback. Identity verification is needed before discussing balances or private
+appointments; do not collect card details in an ordinary recorded conversation.
+The current editor does not install an AI model or enable automatic EHR changes.
+
+### 10. Schedule the main-number transition only after acceptance testing
+
+Keep Grasshopper active until the replacement has passed live tests and the
+administrator chooses a port date. Saving or deploying this editor never starts
+that port. Existing approved SMS campaigns stay unchanged.
+
+---
+
 # Vonage Communication System Implementation (PT Platform)
 
 > Current registration, signed consent, deployment blockers and proof artifacts: [ITSCO SMS audit](docs/VONAGE_10DLC_ITSCO_AUDIT.md). The shared transport now requires approved program configuration and purpose-specific permission; older opt-in flags alone do not enable sends.

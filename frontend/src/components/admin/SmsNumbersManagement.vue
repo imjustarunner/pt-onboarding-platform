@@ -10,6 +10,7 @@
     </div>
 
     <div v-else class="content">
+      <PhoneWorkflowSetup :key="agencyId" :agency-id="agencyId" />
       <SmsCampaignReadiness :agency-id="agencyId" />
       <CommunicationReviewQueue :agency-id="agencyId" />
       <div v-if="numbers.length === 0" class="card get-started-card">
@@ -496,6 +497,7 @@
 </template>
 
 <script setup>
+import PhoneWorkflowSetup from '../communications/PhoneWorkflowSetup.vue';
 import CommunicationReviewQueue from '../communications/CommunicationReviewQueue.vue';
 import SmsCampaignReadiness from './SmsCampaignReadiness.vue';
 import { computed, onMounted, ref, watch } from 'vue';

@@ -1,3 +1,4 @@
+import { requirePhoneWorkflowAdmin, getPhoneWorkflow, savePhoneWorkflow, previewPhoneWorkflowRoute } from '../controllers/phoneWorkflow.controller.js';
 import { requireCommunicationReviewer, listReview, updateReview } from '../controllers/communicationReview.controller.js';
 import express from 'express';
 import { authenticate, requireAgencyAccess, requireAgencyAdmin } from '../middleware/auth.middleware.js';
@@ -33,6 +34,9 @@ import { getIntakeConsentAudit, getIntakeConsentEvidence, listConsentRequests, c
 const router = express.Router();
 
 router.use(authenticate);
+router.get('/agency/:agencyId/phone-workflow', requirePhoneWorkflowAdmin, getPhoneWorkflow);
+router.put('/agency/:agencyId/phone-workflow', requirePhoneWorkflowAdmin, savePhoneWorkflow);
+router.post('/agency/:agencyId/phone-workflow/preview', requirePhoneWorkflowAdmin, previewPhoneWorkflowRoute);
 router.get('/agency/:agencyId/review-queue', requireAgencyAccess, requireCommunicationReviewer, listReview);
 router.patch('/agency/:agencyId/review-queue/:id', requireAgencyAccess, requireCommunicationReviewer, updateReview);
 

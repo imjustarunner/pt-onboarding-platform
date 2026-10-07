@@ -14,6 +14,7 @@
         Loading settings…
       </div>
       <div v-else class="modal-body">
+        <p v-if="!settings.voice_available" class="section-hint"><strong>Phone setup is in preparation.</strong> You can save your destination and greetings now. Calls, voicemail capture, and greeting recordings are not active yet; saving does not change your current phone service.</p>
         <div v-if="error" class="error-box">{{ error }}</div>
         <div v-if="success" class="success-box">{{ success }}</div>
 
@@ -22,7 +23,7 @@
           <div class="form-row">
             <label class="toggle-label">
               <input type="checkbox" v-model="settings.vacation_mode_enabled" />
-              <span>Vacation Mode (Redirects all calls to vacation voicemail)</span>
+              <span>Vacation mode (use vacation greeting when calling is activated)</span>
             </label>
           </div>
         </section>
@@ -66,8 +67,9 @@
         </section>
 
         <section class="settings-section">
-          <h4>Custom Voicemail Greetings</h4>
-          <p class="section-hint">Messages will be played using Text-to-Speech if no audio is uploaded.</p>
+          <h4>My Voicemail Greetings</h4>
+          <label class="toggle-label"><input v-model="settings.voicemail_enabled" type="checkbox" /> Use my voicemail when I cannot accept a call</label>
+          <p class="section-hint">Write your own greeting for each situation. Browser previews are approximate; recorded greeting uploads will be available with the live phone integration.</p>
           
           <div class="form-group">
             <label>Working Hours Voicemail</label>
@@ -75,7 +77,7 @@
               v-model="settings.voicemail_message" 
               class="input textarea" 
               placeholder="Sorry I missed your call. Please leave a message."
-              rows="2"
+              rows="2" maxlength="1000"
             ></textarea>
           </div>
 
@@ -85,7 +87,7 @@
               v-model="settings.voicemail_ooo_message" 
               class="input textarea" 
               placeholder="You have reached me outside of my office hours. I will respond as soon as possible."
-              rows="2"
+              rows="2" maxlength="1000"
             ></textarea>
           </div>
 
@@ -95,13 +97,17 @@
               v-model="settings.voicemail_vacation_message" 
               class="input textarea" 
               placeholder="I am currently on vacation and will be back on [Date]. Please contact support for urgent needs."
-              rows="2"
+              rows="2" maxlength="1000"
             ></textarea>
           </div>
 
+          <div class="preview-buttons">
+            <button v-for="choice in greetingChoices" :key="choice.key" type="button" class="btn btn-secondary" :disabled="!canSpeak || !settings[choice.key]" @click="speak(settings[choice.key])">Listen: {{ choice.label }}</button>
+            <button v-if="canSpeak" type="button" class="btn btn-secondary" @click="stopSpeaking">Stop preview</button>
+          </div>
           <!-- Voicemail Preview -->
           <div v-if="settings.voicemail_message || settings.voicemail_ooo_message || settings.voicemail_vacation_message" class="voicemail-preview">
-            <div class="preview-header">Voicemail Preview (Text-to-Speech)</div>
+            <div class="preview-header">Greeting text preview</div>
             <div class="preview-card">
               <div class="preview-item">
                 <strong>Working:</strong> "{{ settings.voicemail_message || 'You have reached [Name]...' }}"
@@ -128,10 +134,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 
 const emit = defineEmits(['close', 'saved']);
+const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
+const greetingChoices = [{key:'voicemail_message',label:'Working hours'},{key:'voicemail_ooo_message',label:'After hours'},{key:'voicemail_vacation_message',label:'Vacation'}];
+function stopSpeaking(){ if(canSpeak)window.speechSynthesis.cancel(); }
+function speak(text){ if(!canSpeak)return; stopSpeaking(); window.speechSynthesis.speak(new SpeechSynthesisUtterance(text)); }
+onBeforeUnmount(stopSpeaking);
 
 const loading = ref(true);
 const saving = ref(false);
@@ -171,7 +182,7 @@ async function save() {
     error.value = '';
     success.value = '';
     await api.put('/communications/calls/settings', settings.value);
-    success.value = 'Settings saved successfully';
+    success.value = settings.value.voice_available ? 'Settings saved successfully' : 'Phone preferences saved for activation. Live calls are unchanged.';
     emit('saved');
     setTimeout(() => {
       emit('close');
@@ -187,6 +198,7 @@ onMounted(load);
 </script>
 
 <style scoped>
+.preview-buttons { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
 .modal-overlay {
   position: fixed;
   inset: 0;

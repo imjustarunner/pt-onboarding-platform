@@ -1,3 +1,4 @@
+import { validateProviderVoicemailSettings } from '../services/providerVoicemailSettings.service.js';
 import crypto from 'crypto';
 import { isVoiceCallingConfigured } from '../services/staffPhoneAvailability.service.js';
 import pool from '../config/database.js';
@@ -107,8 +108,6 @@ export const getCallSettings = async (req, res, next) => {
     if (!user) return res.status(404).json({ error: { message: 'User not found' } });
 
     const settings = await UserCallSettings.getByUserId(userId);
-    const fallbackForwardPhone = MessageLog.normalizePhone(user.personal_phone || user.work_phone || user.phone_number) ||
-      user.personal_phone || user.work_phone || user.phone_number || null;
     const agencies = await User.getAgencies(userId);
     const agencyId = agencies?.[0]?.id || null;
     const agency = agencyId ? await Agency.findById(agencyId) : null;
@@ -121,7 +120,7 @@ export const getCallSettings = async (req, res, next) => {
       outbound_enabled: boolOrDefault(settings?.outbound_enabled, true),
       sms_inbound_enabled: boolOrDefault(settings?.sms_inbound_enabled, true),
       sms_outbound_enabled: boolOrDefault(settings?.sms_outbound_enabled, true),
-      forward_to_phone: settings?.forward_to_phone || fallbackForwardPhone,
+      forward_to_phone: settings?.forward_to_phone || '',
       allow_call_recording: false,
       voice_available: isVoiceCallingConfigured(),
       recording_available: false,
@@ -147,6 +146,7 @@ export const updateCallSettings = async (req, res, next) => {
     if (boolOrDefault(req.body?.allow_call_recording, false)) {
       return res.status(409).json({error:{message:'Call recording is not available. Recording requires an implemented voice integration, verified healthcare configuration, participant consent and secure storage.'}});
     }
+    const voicemailPatch = validateProviderVoicemailSettings(req.body);
     const existing = await UserCallSettings.getByUserId(userId);
     const patch = {
       inbound_enabled: boolOrDefault(req.body?.inbound_enabled, boolOrDefault(existing?.inbound_enabled, true)),
@@ -160,7 +160,8 @@ export const updateCallSettings = async (req, res, next) => {
       vacation_mode_enabled: boolOrDefault(req.body?.vacation_mode_enabled, boolOrDefault(existing?.vacation_mode_enabled, false)),
       voicemail_message: req.body?.voicemail_message ?? existing?.voicemail_message ?? null,
       voicemail_ooo_message: req.body?.voicemail_ooo_message ?? existing?.voicemail_ooo_message ?? null,
-      voicemail_vacation_message: req.body?.voicemail_vacation_message ?? existing?.voicemail_vacation_message ?? null
+      voicemail_vacation_message: req.body?.voicemail_vacation_message ?? existing?.voicemail_vacation_message ?? null,
+      ...voicemailPatch
     };
     const saved = await UserCallSettings.upsertForUser(userId, patch);
     res.json(saved);
