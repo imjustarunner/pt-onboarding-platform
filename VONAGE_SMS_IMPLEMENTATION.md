@@ -13,6 +13,23 @@ organization (or a current super administrator) can read or save its workflow.
 Private forwarding destinations are encrypted in `agency_phone_workflows`, not
 stored in public branding flags. Migration: `1553_agency_phone_workflows.sql`.
 
+### Two-number arrangement: public organization line and shared care line
+
+Use **two distinct phone numbers** for ITSCO:
+
+| Line | SMS purpose in Texting Numbers | Intended handling |
+| --- | --- | --- |
+| Public main number | Public main line (organization calls/texts), `tenant_contact` | People contacting ITSCO reach support for general questions, scheduling, and billing. Texts enter agency support review. Calls will use the 0–9 menu when voice is connected. |
+| Shared provider/client care number | Provider/client care line (inbox), `clinical_care` | Select this under Shared provider/client care number. Client assignments determine the care team; unassigned and unfamiliar senders go to support review. Providers can share this line. |
+
+“Contact staff” (`provider_contact`) is not the purpose for client care conversations.
+The setup screen shows the current saved public SMS numbers and selected shared
+care number separately. Saving a phone plan does not buy a number, port a number,
+change its SMS campaign, or publish it. It rejects using an active provider/care
+number as the planned public main number. Keep 719-657-7444 on Grasshopper until
+live voice tests pass and an administrator chooses the port date or a replacement.
+No second number has been purchased by this update.
+
 ### 2. Enter the intended main number and hours
 
 Use 719-657-7444 if that is the Grasshopper number you choose to move later.
@@ -49,6 +66,27 @@ The Vonage media delivery integration is still required; do not enter an
 app-login-protected music URL as a carrier media URL. Write the support greeting
 that should play if nobody accepts. Capturing and securely storing actual
 voicemails is not activated by this configuration screen.
+
+Both lines require **voicemail audio plus a transcript** in the completed voice
+workflow. Keep the transcript with the voicemail and link the appropriate follow-up
+ticket; preserve Billing classification when the caller selected Billing. A failed
+or unavailable transcript must leave the audio and callback task accessible. Show
+transcripts as machine generated and allow staff to check unclear words against the
+audio. Link a client only after identity is established, not from caller ID alone.
+
+The preview includes a recording/transcription notice for the caller. Notifications
+must be generic (for example, “New voicemail — open the app”), without transcript
+content, balances, or clinical details. Audio and transcripts require authenticated,
+agency-scoped access, encryption, and healthcare service/BAA configuration before
+patient use. Voicemail recording does not enable recording of answered calls.
+
+**Current limitation:** the existing transcription service is a placeholder; no
+live voicemail ingestion or automatic transcripts are operating. The setup now
+states this requirement explicitly, rather than displaying an enabled transcription
+switch. Complete authenticated carrier callbacks, recording ingestion, transcription
+retrieval, secure storage, and failure handling before marking it connected.
+Vonage supports recorded-call transcription: [recording and transcription guide](https://developer.vonage.com/en/voice/voice-api/concepts/recording).
+
 
 ### 5. Preview each path
 

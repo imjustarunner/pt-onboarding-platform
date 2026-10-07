@@ -28,3 +28,5 @@ describe('follow-up ticket category',()=>{
  it('does not assume a billing selection after hours or with no input',()=>{expect(previewPhoneWorkflow(configured(),{digit:'2',hours:'closed'}).followUp.topic).toBe('general');expect(previewPhoneWorkflow(configured(),{digit:'none',hours:'open'}).followUp.topic).toBe('general');});
  it('honors a changed department category instead of inferring from the digit',()=>{const c=configured();c.menu[2].ticketTopic='general';expect(previewPhoneWorkflow(c,{digit:'2',hours:'open'}).followUp.topic).toBe('general');c.menu[2].ticketTopic='bad';expect(()=>normalizePhoneWorkflow(c)).toThrow();});
 });
+
+it('requests a voicemail transcript with audio and a notice, without claiming transcription is connected',()=>{const step=previewPhoneWorkflow(configured(),{digit:'2',hours:'open'}).steps.at(-1);expect(step.transcription).toEqual({requested:true,status:'not_connected',retainAudio:true,reviewAgainstAudio:true,notificationIncludesTranscript:false});expect(step.recordingNotice).toContain('recorded and transcribed');expect(step.ticketTopic).toBe('billing');});

@@ -100,7 +100,10 @@ export function previewPhoneWorkflow(config, {digit = '0', hours = 'current', at
   const ticketTopic = selectedOption?.ticketTopic ?? (selectedOption?.key === '2' ? 'billing' : config.menu[0]?.ticketTopic || 'general');
   const followUp = {topic:ticketTopic,status:'open',autoCloseOnAnswer:false,destination:ticketTopic==='billing'?'Ticket Desk → Billing':'Ticket Desk → General support'};
   const steps = [];
-  const voicemail = () => steps.push({type: 'voicemail', text: config.voicemailGreeting, destination: followUp.destination, ticketTopic});
+  const voicemail = () => steps.push({type: 'voicemail', text: config.voicemailGreeting, destination: followUp.destination, ticketTopic,
+    recordingNotice: 'Your voicemail will be recorded and transcribed for our team to review.',
+    transcription: {requested:true,status:'not_connected',retainAudio:true,reviewAgainstAudio:true,notificationIncludesTranscript:false}
+  });
   function group(option, isFallback = false) {
     if (option.targets.length) steps.push({type: 'ring', key: option.key, label: option.label, mode: option.ringMode, seconds: option.ringSeconds, targets: option.targets, onAnswer: 'Staff presses 1 to accept; connect only the first accepting person and stop other ringing.', isFallback});
     if (option.key !== '0' && option.fallback === 'support') {

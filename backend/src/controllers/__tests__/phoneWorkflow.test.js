@@ -1,5 +1,6 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
-const m=vi.hoisted(()=>({execute:vi.fn(),audit:vi.fn(),tracks:vi.fn(),read:vi.fn(),store:vi.fn()}));
+const m=vi.hoisted(()=>({execute:vi.fn(),audit:vi.fn(),tracks:vi.fn(),read:vi.fn(),store:vi.fn(),lines:vi.fn(),separate:vi.fn()}));
+vi.mock('../../services/phoneLineRoles.service.js',()=>({getPhoneLineRoles:m.lines,assertSeparatePublicLine:m.separate}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute}}));
 vi.mock('../../services/auditEvent.service.js',()=>({logAuditEvent:m.audit}));
 vi.mock('../../services/focusMusic.service.js',()=>({getFocusMusicCatalog:m.tracks}));
@@ -8,7 +9,7 @@ import {requirePhoneWorkflowAdmin,getPhoneWorkflow,savePhoneWorkflow,previewPhon
 import {defaultPhoneWorkflow} from '../../services/phoneWorkflow.service.js';
 const req=()=>({params:{agencyId:'2'},user:{id:7,role:'admin'},body:{config:defaultPhoneWorkflow('ITSCO'),revision:0}});
 const response=()=>({json:vi.fn(),status:vi.fn().mockReturnThis(),set:vi.fn()});
-beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[{id:7,role:'admin',status:'ACTIVE_EMPLOYEE',is_active:1}]]);m.tracks.mockResolvedValue([]);m.read.mockResolvedValue({config:defaultPhoneWorkflow('ITSCO'),revision:0});m.store.mockResolvedValue(1);});
+beforeEach(()=>{vi.clearAllMocks();m.execute.mockResolvedValue([[{id:7,role:'admin',status:'ACTIVE_EMPLOYEE',is_active:1}]]);m.tracks.mockResolvedValue([]);m.read.mockResolvedValue({config:defaultPhoneWorkflow('ITSCO'),revision:0});m.store.mockResolvedValue(1);m.lines.mockResolvedValue({publicLines:[],careLine:null,voiceConnected:false,transcriptionConnected:false});m.separate.mockResolvedValue(undefined);});
 describe('phone workflow boundaries',()=>{
  it('checks database role rather than a stale admin token',async()=>{m.execute.mockResolvedValue([[{id:7,role:'staff',is_active:1}]]);const res=response(),next=vi.fn();await requirePhoneWorkflowAdmin(req(),res,next);expect(res.status).toHaveBeenCalledWith(403);expect(next).not.toHaveBeenCalled();});
  it.each([{is_active:0},{is_archived:1},{terminated_at:'2026-01-01'},{status:'TERMINATED'}])('denies departed and archived administrators',async patch=>{m.execute.mockResolvedValue([[{id:7,role:'admin',is_active:1,...patch}]]);const res=response();await requirePhoneWorkflowAdmin(req(),res,vi.fn());expect(res.status).toHaveBeenCalledWith(403);});
@@ -20,3 +21,5 @@ describe('phone workflow boundaries',()=>{
  it('propagates stale-save conflicts',async()=>{m.store.mockRejectedValue(Object.assign(new Error('Reload'),{status:409}));const res=response(),next=vi.fn();await savePhoneWorkflow(req(),res,next);expect(next.mock.calls[0][0].status).toBe(409);expect(res.json).not.toHaveBeenCalled();});
  it('previews without updating storage or dialing',async()=>{const res=response();await previewPhoneWorkflowRoute(req(),res,vi.fn());expect(res.json.mock.calls[0][0].callsPlaced).toBe(false);expect(m.store).not.toHaveBeenCalled();});
 });
+
+it('checks the main number against current care assignments before saving or previewing',async()=>{m.separate.mockRejectedValue(Object.assign(new Error('Use separate numbers'),{status:400}));const next=vi.fn();await savePhoneWorkflow(req(),response(),next);expect(next.mock.calls[0][0].status).toBe(400);expect(m.store).not.toHaveBeenCalled();await previewPhoneWorkflowRoute(req(),response(),next);expect(next).toHaveBeenCalledTimes(2);});

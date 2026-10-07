@@ -2,6 +2,14 @@
   <details class="phone-setup" @toggle="onToggle">
     <summary>Phone setup · menu, ring groups, and voicemail</summary>
     <p class="notice"><strong>Preparation mode.</strong> Save and preview your phone workflow here. This does not move your number, change Grasshopper, or place calls.</p>
+    <section v-if="lineRoles" class="line-roles">
+      <h3>Two separate numbers</h3>
+      <p><strong>Public main line — contact the organization.</strong> Calls use the support menu; texts go to agency support. Use this for general questions, scheduling, and billing.</p>
+      <p>Saved public texting number: {{ lineRoles.publicLines.length ? lineRoles.publicLines.map(n => n.phoneNumber).join(', ') : 'None added yet' }}.</p>
+      <p><strong>Shared provider/client care line — contact the care team.</strong> Texts use client assignments; unassigned or unfamiliar senders go to support review.</p>
+      <p>Selected shared care texting number: {{ lineRoles.careLine?.phoneNumber || 'None selected yet' }}. Select it under Agency SMS Settings.</p>
+      <p class="hint">Number assignments shown here are for texting. Calls and voicemail transcription are not connected yet. Keep your current main carrier until the phone workflow is tested.</p>
+    </section>
     <p v-if="loading" role="status">Loading phone setup…</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="success" role="status">{{ success }}</p>
@@ -13,7 +21,7 @@
         <li>Preview the route, then save. Test live calling on a separate number before moving your main line.</li>
       </ol>
       <div class="grid">
-        <label>Intended public main number<input v-model="config.mainNumber" type="tel" placeholder="719-657-7444" /><small>For planning only; this does not change your published contact number.</small></label>
+        <label>Planned public main number (calls and texts)<input v-model="config.mainNumber" type="tel" placeholder="Choose a separate public main number" /><small>For planning only; this does not change your published contact number.</small></label>
         <label>Business time zone<input v-model="config.timeZone" list="phone-timezones" /><datalist id="phone-timezones"><option v-for="zone in zones" :key="zone" :value="zone" /></datalist></label>
       </div>
       <label>Opening greeting<textarea v-model="config.greeting" maxlength="1000" rows="2" /><small>The enabled menu choices below are added to this greeting automatically.</small></label>
@@ -32,6 +40,8 @@
         <label>Hold music<select v-model="config.holdMusicId"><option value="">No track selected</option><option v-for="track in tracks" :key="track.id" :value="track.id">{{ track.title }}</option></select></label>
         <div class="music-preview"><button type="button" :disabled="!config.holdMusicId || musicLoading" @click="previewMusic">{{ musicLoading ? 'Loading…' : 'Preview selected music' }}</button><audio v-if="musicUrl" :src="musicUrl" controls preload="none" /></div>
       </div>
+      <p><strong>Voicemail on both lines: audio plus a transcript.</strong> The transcript should stay with the voicemail and its follow-up record. Staff should verify unclear words against the audio; a failed transcript must not hide the voicemail. Notifications should say “New voicemail” and link into the app, without including the transcript.</p>
+      <p class="hint">This is the required workflow for the live phone integration. Automatic recording and transcription are not active yet.</p>
       <label>Support voicemail greeting<textarea v-model="config.voicemailGreeting" maxlength="1000" rows="3" /></label>
       <p class="hint">This is the final destination when nobody accepts a call. Voicemail capture and storage require the live phone integration.</p>
       <h3>Menu choices 0–9</h3>
@@ -68,7 +78,7 @@
         <ol v-if="simulation" class="simulation" aria-live="polite">
           <li v-for="(step,index) in simulation.steps" :key="index">
             <template v-if="step.type === 'ring'"><strong>{{ step.label }}:</strong> {{ step.mode === 'simultaneous' ? 'Ring together' : 'Ring in order' }} for {{ step.seconds }} seconds {{ step.mode === 'sequential' ? 'each' : 'total' }}: {{ step.targets.map(t => `${t.label} (${t.phone})`).join(' → ') }}. {{ step.onAnswer }}</template>
-            <template v-else>{{ step.text }}<span v-if="step.type === 'voicemail'"> Final destination: {{ step.destination }} (when voice is activated).</span></template>
+            <template v-else>{{ step.text }}<span v-if="step.type === 'voicemail'"> {{ step.recordingNotice }} Final destination: {{ step.destination }} (when voice is activated). Audio plus transcript requested; transcription is not connected yet.</span></template>
           </li>
         </ol>
         <p v-if="simulation?.followUp">Follow-up destination: <strong>{{ simulation.followUp.destination }}</strong>. Answering a call does not resolve the ticket. Automatic creation requires live voice integration; log current calls through Support Hub → Log a phone follow-up.</p>
@@ -87,7 +97,7 @@
 import { ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api';
 const props = defineProps({agencyId:{type:[Number,String],required:true}});
-const config=ref(null), revision=ref(0), tracks=ref([]), readiness=ref(null);
+const config=ref(null), revision=ref(0), tracks=ref([]), readiness=ref(null), lineRoles=ref(null);
 const loading=ref(false), saving=ref(false), previewing=ref(false), error=ref(''), success=ref('');
 const previewDigit=ref('0'), previewHours=ref('open'), simulation=ref(null), musicUrl=ref(''), musicLoading=ref(false);
 const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -97,7 +107,7 @@ const endpoint=()=>`/sms-numbers/agency/${props.agencyId}/phone-workflow`;
 const message=(e)=>e.response?.data?.error?.message || 'Unable to update phone setup.';
 async function load() {
   const current=++generation; loading.value=true; error.value=''; success.value='';
-  try { const {data}=await api.get(endpoint()); if(current!==generation)return; config.value=data.config; revision.value=data.revision; tracks.value=data.tracks; readiness.value=data.readiness; }
+  try { const {data}=await api.get(endpoint()); if(current!==generation)return; config.value=data.config; lineRoles.value=data.lineRoles || null; revision.value=data.revision; tracks.value=data.tracks; readiness.value=data.readiness; }
   catch(e){if(current===generation)error.value=message(e);}
   finally{if(current===generation)loading.value=false;}
 }
@@ -121,7 +131,7 @@ async function previewMusic(){
 }
 watch([config,previewDigit,previewHours],()=>{simulation.value=null;},{deep:true});
 watch(()=>config.value?.holdMusicId,clearMusic);
-watch(()=>props.agencyId,()=>{generation++;config.value=null;readiness.value=null;clearMusic();load();});
+watch(()=>props.agencyId,()=>{generation++;config.value=null;readiness.value=null;lineRoles.value=null;clearMusic();load();});
 onBeforeUnmount(()=>{generation++;clearMusic();});
 </script>
 <style scoped>

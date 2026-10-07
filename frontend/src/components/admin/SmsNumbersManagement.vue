@@ -56,7 +56,7 @@
               <option :value="null">No shared care line selected</option>
               <option v-for="n in numbers.filter(n => n.number_purpose === 'clinical_care' && n.is_active && n.status === 'active')" :key="n.id" :value="n.id">{{ n.phone_number }} {{ n.friendly_name || '' }}</option>
             </select>
-            <p class="muted">Uses client assignments. Unassigned or unfamiliar senders go to support. Your public main number stays separate.</p>
+            <p class="muted">Providers use this shared care line to communicate with clients. Uses client assignments; unassigned or unfamiliar senders go to support. Add a different number with purpose Public main line for people contacting the organization.</p>
           </div>
           <div class="form-group">
             <label>Reminder sender mode</label>
@@ -222,7 +222,7 @@
           </div>
         </div>
         <p class="muted purpose-help">
-          Assign each DID a role: clinical care inbox, org contact, notifications/reminders, or provider contact.
+          Start with two separate numbers: Public main line for organization inquiries and Provider/client care line for assigned client conversations. Calls still require the live voice setup.
           Notification and contact numbers never enter the clinical SMS inbox.
         </p>
 
@@ -514,10 +514,10 @@ const authStore = useAuthStore();
 const isSuperAdmin = computed(() => String(authStore.user?.role || '').toLowerCase() === 'super_admin');
 
 const tenantPurposeOptions = [
-  { value: 'clinical_care', label: 'Clinical care (inbox)' },
-  { value: 'tenant_contact', label: 'Tenant contact (org public)' },
+  { value: 'clinical_care', label: 'Provider/client care line (inbox)' },
+  { value: 'tenant_contact', label: 'Public main line (organization calls/texts)' },
   { value: 'notification', label: 'Notification / reminders' },
-  { value: 'provider_contact', label: 'Provider contact' }
+  { value: 'provider_contact', label: 'Contact staff (not client care)' }
 ];
 
 const PURPOSE_HINTS = {

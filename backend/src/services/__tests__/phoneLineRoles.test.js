@@ -1,0 +1,13 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn()}}));
+vi.mock('../../models/PhoneNumber.model.js',()=>({default:{listByAgency:vi.fn()}}));
+import Agency from '../../models/Agency.model.js';
+import PhoneNumber from '../../models/PhoneNumber.model.js';
+import {getPhoneLineRoles,assertSeparatePublicLine} from '../phoneLineRoles.service.js';
+const care={id:1,number_purpose:'clinical_care',phone_number:'+17195550123',is_active:1,status:'active'};
+beforeEach(()=>{vi.clearAllMocks();Agency.findById.mockResolvedValue({feature_flags:'{"smsSharedCareNumberId":1}'});PhoneNumber.listByAgency.mockResolvedValue([care,{id:2,number_purpose:'tenant_contact',phone_number:'+17195550234',is_active:1,status:'active'}]);});
+it('shows saved public numbers and the selected shared care number without claiming voice readiness',async()=>{expect(await getPhoneLineRoles(2)).toEqual({publicLines:[{id:2,phoneNumber:'+17195550234'}],careLine:{id:1,phoneNumber:'+17195550123'},voiceConnected:false,transcriptionConnected:false});expect(PhoneNumber.listByAgency).toHaveBeenCalledWith(2,{includeInactive:false});});
+it('does not infer a care assignment or show inactive public lines',async()=>{Agency.findById.mockResolvedValue({feature_flags:{}});PhoneNumber.listByAgency.mockResolvedValue([care,{id:2,number_purpose:'tenant_contact',phone_number:'7195550234',is_active:0,status:'active'}]);expect(await getPhoneLineRoles(2)).toMatchObject({publicLines:[],careLine:null});});
+it.each(['clinical_care','provider_contact'])('rejects reusing an active %s number as the public main line',async purpose=>{PhoneNumber.listByAgency.mockResolvedValue([{...care,number_purpose:purpose,phone_number:'(719) 555-0123'}]);await expect(assertSeparatePublicLine(2,'+17195550123')).rejects.toMatchObject({status:400});});
+it('allows a distinct future main number without buying or assigning it',async()=>{await expect(assertSeparatePublicLine(2,'+17195550345')).resolves.toBeUndefined();});
+it('leaves a blank main-number plan unset',async()=>{await assertSeparatePublicLine(2,'');expect(PhoneNumber.listByAgency).not.toHaveBeenCalled();});
