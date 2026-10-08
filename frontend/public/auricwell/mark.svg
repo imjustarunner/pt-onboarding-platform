@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="240 160 544 544" fill="none">
+  <defs>
+    <radialGradient id="auricwell-blue" cx=".35" cy=".18" r=".95">
+      <stop stop-color="#0647B0"/>
+      <stop offset=".55" stop-color="#06368B"/>
+      <stop offset="1" stop-color="#002352"/>
+    </radialGradient>
+    <linearGradient id="auricwell-gold" x1="376" y1="503" x2="544" y2="292" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A77510"/>
+      <stop offset=".48" stop-color="#D4A017"/>
+      <stop offset="1" stop-color="#F7D97D"/>
+    </linearGradient>
+    <linearGradient id="auricwell-facet" x1="517" y1="281" x2="649" y2="504" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF0AC"/>
+      <stop offset=".55" stop-color="#EBC557"/>
+      <stop offset="1" stop-color="#B88413"/>
+    </linearGradient>
+  </defs>
+  <!-- Standalone AuricWell peak and wave, without the wordmark or raster padding. -->
+  <path d="M458 215C342 237 257 338 257 460C257 521 276 564 321 582C380 610 441 570 510 533C571 497 613 494 653 505L517 272L346 537L328 536L512 247L675 508C703 512 729 521 753 534C762 511 767 487 767 460C767 340 681 237 565 215C621 287 689 388 698 478L512 178L326 478C335 388 403 287 458 215Z" fill="url(#auricwell-blue)"/>
+  <path d="M517 272L653 505C610 484 580 467 550 472C474 482 418 548 346 537Z" fill="url(#auricwell-gold)"/>
+  <path d="M517 282L507 354L512 344L514 288L653 505L577 459Z" fill="url(#auricwell-facet)"/>
+  <path d="M517 282L507 354L512 344L511 396L472 441L499 422L450 507C487 487 520 473 550 472C559 471 569 473 580 477L527 410L577 441L550 369Z" fill="#F5D775"/>
+  <path d="M527 410L577 459L653 505L572 469Z" fill="#9B6A0A"/>
+  <path d="M303 594C373 644 445 588 521 555C598 521 657 520 741 556C694 629 612 678 512 678C431 678 355 647 303 594Z" fill="url(#auricwell-blue)"/>
+</svg>
