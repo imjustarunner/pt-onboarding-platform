@@ -2,7 +2,7 @@ import { personalMessagePreferences, validatePersonalMessagePatch } from '../uti
 import pool from '../config/database.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import { getAgencyEmailSettings } from './emailSettings.service.js';
-import { personalMessageDueAt, isMessageReminderWindow } from '../utils/messageReminderTiming.js';
+import { isPersonalMessageReminderDue } from '../utils/messageReminderTiming.js';
 import { resolveAvailabilitySchedule } from './availabilityWindow.service.js';
 import { messageReminderRecipient } from './messageReminderRecipient.service.js';
 const DEFAULT_DIGEST_HOURS = 24;
@@ -203,7 +203,7 @@ export async function updateCommunicationPrefs(userId, patch = {}) {
 export { runPersonalThreadReminders as runInboxDigestTick } from './personalThreadReminder.service.js';
 
 /**
- * Business-day unread digest for SSO / explicitly verified app-only providers with
+ * Work notifications for SSO; preference-timed personal reminders for app-only staff with
  * unread secure/hub chat messages. Branded messages@ From; never exposes other
  * parties' personal/SSO addresses in headers.
  */
@@ -252,8 +252,7 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     );
 
     const reminderPreferences = personalMessagePreferences(row);
-    const immediatePersonal = reminderPreferences.personalEmailDelayMode === 'immediate' && String(to).toLowerCase() === String(row.personal_email || '').toLowerCase();
-    if (!immediatePersonal && !isMessageReminderWindow(now, schedule, agency?.timezone)) continue;
+    const isPersonalDelivery = String(to).toLowerCase() === String(row.personal_email || '').toLowerCase();
     // Unread chat messages in threads the user belongs to
     const [unread] = await pool.execute(
       `SELECT t.id AS thread_id, MIN(m.created_at) AS oldest_unread_at, MAX(m.id) AS message_id, COUNT(*) AS unread_count
@@ -277,8 +276,9 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     const eligible = [];
     for (const u of unread || []) {
       const started = new Date(u.oldest_unread_at || now);
-      const eligibleAt = personalMessageDueAt(started, { schedule, timeZone: agency?.timezone, preferences: reminderPreferences });
-      if (eligibleAt <= now) eligible.push(u);
+      // Work SSO notifications are not personal-email escalation and never wait
+      // for availability or inherit a saved personal-email delay/opt-out.
+      if (!isPersonalDelivery || isPersonalMessageReminderDue(started, { now, schedule, timeZone: agency?.timezone, preferences: reminderPreferences })) eligible.push(u);
     }
     if (!eligible.length) continue;
 

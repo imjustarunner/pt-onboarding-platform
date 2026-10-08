@@ -117,7 +117,7 @@
 
           <section class="cc-settings-block highlight">
             <h4>Communications policy (Quick View)</h4>
-            <p class="hint">Controls personal-email escalation, Availability Hours holds, Unknown Sender box, client OOO, and Quick View.</p>
+            <p class="hint">Messages arrive in the app immediately. Availability protects personal notifications and away responses; it never hides inbox mail.</p>
             <label class="cc-toggle-row">
               <input v-model="form.personalEmailDigestEnabled" type="checkbox" />
               <span>Personal reminders for non-SSO, app-only providers</span>
@@ -126,11 +126,7 @@
               <span>Remind after</span>
               <select v-model.number="form.personalEmailDigestBusinessHours" class="cc-select"><option :value="24">1 business day</option><option :value="48">2 business days</option></select>
             </div>
-            <p class="hint">Reminders use each provider’s Availability Hours (default weekdays 7 AM–7 PM). Mail arriving at or after 5 PM starts its response window at the next opening. SSO users receive secure-message reminders at their work address.</p>
-            <label class="cc-toggle-row">
-              <input v-model="form.holdStaffSchoolOutsideAvailability" type="checkbox" />
-              <span>Hold app-only providers’ inbox mail until available (still stored immediately)</span>
-            </label>
+            <p class="hint">Default reminders use each provider’s Availability Hours (default weekdays 7 AM–7 PM). Mail arriving at or after 5 PM starts its response window at the next opening. Staff can choose off, immediate, or delayed personal notifications in their own settings. SSO users receive secure-message reminders at their work address.</p>
             <label class="cc-toggle-row">
               <input v-model="form.unknownSenderBoxEnabled" type="checkbox" />
               <span>Route unknown senders to Unknown Sender box</span>
@@ -389,7 +385,6 @@ const form = ref({
   templateSenderIdentityIds: {},
   personalEmailDigestEnabled: true,
   personalEmailDigestBusinessHours: 24,
-  holdStaffSchoolOutsideAvailability: true,
   unknownSenderBoxEnabled: true,
   clientOooAutoReplyEnabled: true,
   clientOooTemplate: '',
@@ -573,7 +568,6 @@ async function load() {
       templateSenderIdentityIds: { ...(agencyRow.templateSenderIdentityIds || {}) },
       personalEmailDigestEnabled: agencyRow.personalEmailDigestEnabled !== false,
       personalEmailDigestBusinessHours: Number(agencyRow.personalEmailDigestBusinessHours) || 24,
-      holdStaffSchoolOutsideAvailability: agencyRow.holdStaffSchoolOutsideAvailability !== false,
       unknownSenderBoxEnabled: agencyRow.unknownSenderBoxEnabled !== false,
       clientOooAutoReplyEnabled: agencyRow.clientOooAutoReplyEnabled !== false,
       clientOooTemplate: agencyRow.clientOooTemplate || '',
@@ -672,7 +666,6 @@ async function save() {
         templateSenderIdentityIds,
         personalEmailDigestEnabled: !!form.value.personalEmailDigestEnabled,
         personalEmailDigestBusinessHours: Number(form.value.personalEmailDigestBusinessHours) || 24,
-        holdStaffSchoolOutsideAvailability: !!form.value.holdStaffSchoolOutsideAvailability,
         unknownSenderBoxEnabled: !!form.value.unknownSenderBoxEnabled,
         clientOooAutoReplyEnabled: !!form.value.clientOooAutoReplyEnabled,
         clientOooTemplate: form.value.clientOooTemplate || null,

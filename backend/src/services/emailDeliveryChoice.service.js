@@ -7,8 +7,10 @@ const addresses = value => (Array.isArray(value) ? value : [value])
   .map(v => v.trim().toLowerCase()).filter(Boolean);
 const envelopeValue = value => addresses(value).join(', ');
 
-/** Plan on the server, before creating or claiming an outbound message. */
-export async function planEmailDelivery({ agencyId, userId, to, cc, bcc, choice = null, requireChoice = false, now = new Date() }) {
+/** App delivery is immediate unless the sender explicitly schedules it.
+ * Personal notification preferences never gate the original work email.
+ * Older clients may still send requireChoice; it no longer forces a prompt. */
+export async function planEmailDelivery({ agencyId, userId, to, cc, bcc, choice = null, now = new Date() }) {
   if (choice != null && !['now', 'next_available'].includes(choice)) {
     throw Object.assign(new Error('Choose Send now or Send at next availability.'), { status: 400 });
   }
@@ -28,7 +30,7 @@ export async function planEmailDelivery({ agencyId, userId, to, cc, bcc, choice 
       [agencyId, ...targets, ...targets]
     );
     recipientIds.push(...rows.map(r => Number(r.id)));
-    if (choice !== 'now') {
+    if (choice === 'next_available') {
       for (let i = 0; i < recipientIds.length; i += 8) {
         const gates = await Promise.all(recipientIds.slice(i, i + 8).map(id => resolveRecipientDeliveryGate({ agencyId, userId: id, now })));
         holds.push(...gates.filter(g => g?.receiveAt && new Date(g.receiveAt) > now));
@@ -39,15 +41,8 @@ export async function planEmailDelivery({ agencyId, userId, to, cc, bcc, choice 
   const nextAvailableAt = holds.length
     ? new Date(Math.max(...holds.map(g => new Date(g.receiveAt).getTime()))).toISOString()
     : null;
-  if (!choice && requireChoice && nextAvailableAt) {
-    throw Object.assign(new Error('Choose when to send this email.'), {
-      status: 409,
-      code: 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED',
-      availability: { recipientCount: holds.length, nextAvailableAt, timezone: holds[0].timezone }
-    });
-  }
   return {
-    choice: choice || (requireChoice ? 'now' : null),
+    choice: choice || 'now',
     recipientIds,
     scheduledAt: choice === 'next_available' ? nextAvailableAt : null
   };

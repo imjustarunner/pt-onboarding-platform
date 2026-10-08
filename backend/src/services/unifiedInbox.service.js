@@ -622,46 +622,8 @@ export async function processScheduledOutboundSends({ limit = 40 } = {}) {
         new Set([...to, ...cc].map((a) => String(a.email || '').toLowerCase()))
       );
 
-      // Re-hold if recipient is still planned out / outside availability.
-      try {
-        if (!row.recipient_delivery_choice) {
-          const primaryEmail = to[0]?.email || to[0];
-          const {
-            resolveRecipientDeliveryGate,
-            findAgencyUserIdByEmail
-          } = await import('./hubRecipientDelivery.service.js');
-          const recipientUserId = await findAgencyUserIdByEmail(conv.agency_id, primaryEmail);
-          if (recipientUserId) {
-            const gate = await resolveRecipientDeliveryGate({
-              agencyId: conv.agency_id,
-              userId: recipientUserId,
-              displayName: to[0]?.name || primaryEmail
-            });
-            if (gate?.receiveAt) {
-              const holdUntil = new Date(gate.receiveAt);
-              if (holdUntil.getTime() > Date.now() + 15000) {
-                await CommunicationConversation.updateMessage(row.id, {
-                  sendStatus: 'scheduled',
-                  scheduledSendAt: holdUntil,
-                  undoExpiresAt: holdUntil
-                });
-                try {
-                  await CommunicationConversation.update(row.conversation_id, {
-                    snoozedUntil: holdUntil,
-                    snoozeRestoreUnread: true
-                  });
-                } catch {
-                  /* ignore */
-                }
-                deferred += 1;
-                continue;
-              }
-            }
-          }
-        }
-      } catch (gateErr) {
-        console.warn('[unifiedInbox] delivery gate recheck:', gateErr?.message || gateErr);
-      }
+      // The sender's scheduled time/undo window has elapsed. Never re-hold
+      // work email based on recipient availability or personal notification settings.
 
       const attachments = await loadScheduledAttachments(row.id);
       const sendResult = await deliverOutboundEmail({

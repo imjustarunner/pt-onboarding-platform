@@ -35,8 +35,8 @@ export async function eligibleClientAfterHoursReply({ agencyId, ownerUserId, inb
   return internal ? null : provider;
 }
 
-/** Availability may hold app-only staff email, never an active SSO mailbox.
- * No personal email or forwarding opt-in is required for app delivery. */
+/** Eligibility for an explicit send-at-next-availability request.
+ * Never use this to hide received mail or automatically defer work email. */
 export async function usesAppEmailAvailability(userId) {
   const user = userId ? await User.findById(userId) : null;
   if (!user || !activeMessageStaff(user) || ![true, 1, '1'].includes(user.sso_password_override) || !Directory.isConfigured()) return false;

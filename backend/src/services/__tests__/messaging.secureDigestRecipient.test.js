@@ -23,9 +23,22 @@ it('respects personal-email opt-out for a verified app-only provider', async () 
   expect(sendEmailFromIdentity).not.toHaveBeenCalled();
 });
 
-it('does not send outside availability hours', async () => {
-  rows(user); await runHubSecureUnreadDigestTick({ now: new Date('2026-09-04T02:00:00Z') });
-  expect(sendEmailFromIdentity).not.toHaveBeenCalled();
+it('sends SSO work notifications outside availability, independent of old personal timing preferences', async () => {
+  rows({...user,personal_email_delay_mode:'hours',personal_email_delay_hours:168});
+  await runHubSecureUnreadDigestTick({ now: new Date('2026-09-04T02:00:00Z') });
+  expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({to:user.email}));
+});
+it.each(['business_day','hours','immediate_available'])('protects personal notifications outside hours for %s',async mode=>{
+ rows({...user,sso_password_override:1,login_is_group_email:1,personal_email_notify:1,personal_email_delay_mode:mode,personal_email_delay_hours:1});
+ await runHubSecureUnreadDigestTick({now:new Date('2026-09-04T02:00:00Z')});
+ expect(sendEmailFromIdentity).not.toHaveBeenCalled();
+ await runHubSecureUnreadDigestTick({now:new Date('2026-09-04T13:00:00Z')});
+ expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({to:user.personal_email}));
+});
+it('allows personal notifications at any hour only with the explicit immediate choice',async()=>{
+ rows({...user,sso_password_override:1,login_is_group_email:1,personal_email_notify:1,personal_email_delay_mode:'immediate'});
+ await runHubSecureUnreadDigestTick({now:new Date('2026-09-04T02:00:00Z')});
+ expect(sendEmailFromIdentity).toHaveBeenCalledWith(expect.objectContaining({to:user.personal_email}));
 });
 it('does not send again when another worker already claimed the attempt', async () => {
   rows(user);

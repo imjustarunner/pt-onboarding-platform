@@ -7,7 +7,7 @@ import { recordSmsProfileAudit } from './smsProfileAudit.service.js';
 import { alertRequestedSupport } from './smsRequestedSupport.service.js';
 
 export const SMS_CRISIS_NOTICE = 'This texting service is not for crises or emergencies. For suicide or emotional distress, call or text 988. For immediate danger or a medical emergency, call 911.';
-export const OUT_OF_OFFICE_SMS = `Your assigned provider(s) are unavailable and are not monitoring texts right now. Reply SUPPORT to request urgent support review. Otherwise, your message will wait in their inbox until they return. Support response times depend on staff availability. ${SMS_CRISIS_NOTICE}`;
+export const OUT_OF_OFFICE_SMS = `Your assigned provider(s) are unavailable and are not monitoring texts right now. Reply SUPPORT to request urgent support review. Your message is saved in their app now; they can respond when available. Support response times depend on staff availability. ${SMS_CRISIS_NOTICE}`;
 
 async function sendLogged({ agencyId, numberId, clientId, userId, from, to, body, metadata }) {
   const log = await MessageLog.createOutbound({ agencyId, numberId, clientId, userId,

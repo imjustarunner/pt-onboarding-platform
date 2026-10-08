@@ -1,5 +1,21 @@
 # Personal message delivery — September 25, 2026
 
+## Current delivery rules — October 8, 2026
+
+This section supersedes the September 29 availability prompt and inbox-hold behavior below.
+
+- **App receipt and reading:** availability never hides received email, SMS, secure messages, or internal messages. Spam, blocked senders, Unknown Senders, tenant access, and intentional snoozing remain separate controls. SMS stays stored in the app before any after-hours response is attempted.
+- **Sending:** ordinary email sends after the sender's undo window, without a required availability prompt. Explicitly scheduled sends still wait for the chosen time without snoozing the entire conversation. Due messages are not silently rescheduled because the recipient is off duty. Opening a recipient no longer queries Google to impose an availability gate.
+- **Eligibility:** active non-SSO/app-only staff and active app staff with verified disabled SSO can use personal delivery. Active SSO work accounts do not use personal fallback. Inactive, archived, and demo accounts stay excluded.
+- **Timing:** default notification-only reminders retain the agreed 24-hour business-day rule and examples below. Users may disable reminders, choose 1–168 elapsed hours, choose immediate delivery during availability, or explicitly choose immediate delivery at any hour. Existing any-hour choices and opt-outs are preserved. Availability defaults to weekdays 7 a.m.–7 p.m.; saved schedules/time zones take precedence. Actual dispatch occurs at the next eligible scheduler check.
+- **Replies:** notification-only means sign in to read/reply. Optional one-to-one forwarding allows both personal-email and app replies. Group, multi-recipient, and secure conversations remain notification-only; attachments and reply-all require the app. Authentication, thread binding, and personal-address protection remain enforced.
+- **SSO:** ordinary work email is immediate; unread secure/chat notifications go to the work address without personal-email delays or availability holds. Secure content is never copied into those notifications.
+- **Settings:** Account/Messages and provider updates preserve the same opt-out, delay, and reply preferences. Completing a provider update no longer silently enables personal mail or resets a custom delay. The obsolete admin inbox-hold checkbox is removed; its server value is always disabled, including writes from older clients.
+- **SMS:** after-hours support offers describe the message as already saved in the app. Availability continues protecting staff alerts and away responses. This change does not launch SMS or opt users into personal SMS forwarding.
+
+No preferences are reset and no historical resends are triggered by this update.
+
+
 ## Staff settings
 
 Available in Account settings and Messages → Email reminders. Active app staff with a verified private Google Group mailbox, or a suspended Workspace account with explicitly enabled password access, can configure personal-email delivery. Active Workspace/SSO accounts never receive personal fallback; secure-message reminders continue to use their work address. Inactive, archived, and demo accounts are excluded. Directory verification failures do not enable personal delivery.

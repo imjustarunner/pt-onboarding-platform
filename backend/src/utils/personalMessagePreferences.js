@@ -4,7 +4,7 @@ export const PERSONAL_MESSAGE_DEFAULTS = Object.freeze({
   personalEmailDelayMode: 'business_day',
   personalEmailDelayHours: 24
 });
-const modes = { personalEmailDeliveryMode: ['notification', 'forward_one_to_one'], personalEmailDelayMode: ['business_day', 'immediate', 'hours'] };
+const modes = { personalEmailDeliveryMode: ['notification', 'forward_one_to_one'], personalEmailDelayMode: ['business_day', 'immediate', 'immediate_available', 'hours'] };
 export function personalMessagePreferences(row = {}) {
   return {
     personalEmailNotify: row.personal_email_notify == null ? true : [true, 1, '1'].includes(row.personal_email_notify),

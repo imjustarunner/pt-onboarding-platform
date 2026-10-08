@@ -1,3 +1,5 @@
+vi.mock('../inboxDigest.service.js',()=>({updateCommunicationPrefs:vi.fn(async()=>({}))}));
+import {updateCommunicationPrefs} from '../inboxDigest.service.js';
 vi.mock('../providerUpdateRecords.service.js',()=>({getProviderUpdateRecords:vi.fn(async()=>({supervision:{current:{total:12}}})),saveProviderReviewProfile:vi.fn()}));
 vi.mock('../quickViewAuth.service.js',()=>({getCredentialStatus:vi.fn(async()=>({hasPasscode:true,isLocked:false})),createInitialPasscode:vi.fn(async()=>({passcode:'123456'}))}));
 import {getCredentialStatus,createInitialPasscode} from '../quickViewAuth.service.js';
@@ -124,4 +126,19 @@ it('blocks preview client actions and profile uploads before side effects',async
 });
 it('uploads a photo only for the invited recipient even when an admin opens the link',async()=>{
  getRecipientByToken.mockResolvedValue({...recipient,section_config_json:{directory_photo:true}});await uploadReviewPhoto(req,res,next);const [scoped]=uploadUserProfilePhoto.mock.calls[0];expect(scoped.params.id).toBe('9');expect(scoped.user).toEqual({id:9,role:'provider'});
+});
+
+it('preserves personal-email opt-out and custom delay when completing the provider update',async()=>{
+ saveStaffCommunicationChoices.mockResolvedValue({choices:{},reviewedAt:'2026-10-08T12:00:00Z'});
+ const prefs={personalEmailNotify:false,personalEmailDelayMode:'hours',personalEmailDelayHours:3,personalEmailDeliveryMode:'forward_one_to_one'};
+ await persistReviewSection(recipient,'notification_prefs',{emailReminderPreferences:prefs},true);
+ expect(updateCommunicationPrefs).toHaveBeenCalledWith(9,prefs);
+});
+it('accepts protected immediate timing and rejects an invalid delay before saving choices',async()=>{
+ saveStaffCommunicationChoices.mockResolvedValue({choices:{},reviewedAt:'2026-10-08T12:00:00Z'});
+ await persistReviewSection(recipient,'notification_prefs',{emailReminderPreferences:{personalEmailDelayMode:'immediate_available'}},true);
+ expect(updateCommunicationPrefs).toHaveBeenCalledWith(9,expect.objectContaining({personalEmailDelayMode:'immediate_available',personalEmailNotify:undefined}));
+ saveStaffCommunicationChoices.mockClear();
+ await expect(persistReviewSection(recipient,'notification_prefs',{emailReminderPreferences:{personalEmailDelayHours:0}},true)).rejects.toMatchObject({status:400});
+ expect(saveStaffCommunicationChoices).not.toHaveBeenCalled();
 });

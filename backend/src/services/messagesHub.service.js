@@ -1692,25 +1692,9 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     if (methods.some((m) => m.id === 'secure' && m.available)) { preferredMethod = 'secure'; secureDefault = true; }
   }
 
-  let deliveryGate = null;
-  const kindsForGate = seed.kinds || [];
-  const recipientIsStaffish = (kindsForGate || []).some((k) =>
-    ['employee', 'staff', 'team', 'school_staff'].includes(String(k).toLowerCase())
-  );
-  // Guardians / clients / external contacts receive email whenever we send —
-  // availability hours apply to staff recipients only.
-  if (seed.userId && recipientIsStaffish) {
-    try {
-      const { resolveRecipientDeliveryGate } = await import('./hubRecipientDelivery.service.js');
-      deliveryGate = await resolveRecipientDeliveryGate({
-        agencyId: resolvedAgencyId,
-        userId: seed.userId,
-        displayName: seed.displayName
-      });
-    } catch (e) {
-      console.warn('[resolveHubPerson] deliveryGate:', e?.message || e);
-    }
-  }
+  // Received work messages are always accessible. Recipient availability is
+  // consulted only for an explicit send-at-next-availability request.
+  const deliveryGate = null;
 
   let senderGate = null;
   try {
@@ -2914,8 +2898,7 @@ export async function sendHubEmail({
     (c) => String(c.email || '').toLowerCase() !== primaryToEmailEarly
   );
 
-  // User signature is appended after the agency identity signature in the send
-  // pipeline (finalizeOutboundContent). Do not embed it here or it would appear first.
+  // The send pipeline appends the author’s signature once. Do not embed it here.
   const html = buildNormalOutboundEmailHtml({
     agencyName,
     senderDisplayName,
@@ -2939,24 +2922,7 @@ export async function sendHubEmail({
   const replyRaw = crypto.randomBytes(24).toString('hex');
   const replyHash = crypto.createHash('sha256').update(replyRaw).digest('hex');
 
-  let deliveryGate = person.deliveryGate || null;
-  const recipientIsStaffish = (person.kinds || []).some((k) =>
-    ['employee', 'staff', 'team', 'school_staff'].includes(String(k).toLowerCase())
-  );
-  if (!deliveryGate && person.userId && recipientIsStaffish) {
-    try {
-      const { resolveRecipientDeliveryGate } = await import('./hubRecipientDelivery.service.js');
-      deliveryGate = await resolveRecipientDeliveryGate({
-        agencyId: aid,
-        userId: person.userId,
-        displayName: person.displayName
-      });
-    } catch {
-      deliveryGate = null;
-    }
-  } else if (!recipientIsStaffish) {
-    deliveryGate = null;
-  }
+  const deliveryGate = null;
 
   let senderGate = person.senderGate || null;
   if (!senderGate) {
@@ -3087,28 +3053,13 @@ export async function sendHubEmail({
     }
   }
 
-  if (deliveryChoice === 'now') deliveryGate = null;
   if (deliveryChoice === 'next_available' && result?.scheduledSendAt) {
     effectiveScheduledAt = new Date(result.scheduledSendAt);
     holdReason = 'recipient';
   }
 
-  // Availability / next-available holds land in Snoozed until release (no notify while held).
-  const shouldSnoozeHold =
-    outConversationId &&
-    effectiveScheduledAt &&
-    (deliveryGate?.receiveAt || wantSenderHold || holdReason);
-  if (shouldSnoozeHold) {
-    try {
-      const CommunicationConversation = (await import('../models/CommunicationConversation.model.js')).default;
-      await CommunicationConversation.update(outConversationId, {
-        snoozedUntil: effectiveScheduledAt,
-        snoozeRestoreUnread: true
-      });
-    } catch (e) {
-      console.warn('[sendHubEmail] snooze hold:', e?.message || e);
-    }
-  }
+  // Scheduling one outbound message must not snooze the whole conversation:
+  // received replies remain readable while that send is queued.
 
   let scheduledSendAtLabel = null;
   if (effectiveScheduledAt) {

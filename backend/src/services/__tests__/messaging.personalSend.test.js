@@ -25,7 +25,7 @@ it('does not send when permission is revoked during the undo window',async()=>{
  expect(await processScheduledOutboundSends()).toMatchObject({failed:1,sent:0});expect(sendEmailFromIdentity).not.toHaveBeenCalled();
 });
 
-it.each(['now','next_available'])('never silently re-holds a queued %s choice',async(choice)=>{
+it.each(['now','next_available',null,undefined])('never silently re-holds a queued %s choice',async(choice)=>{
  const [row]=await Conversation.listDueScheduledMessages();
  Conversation.listDueScheduledMessages.mockResolvedValue([{...row,recipient_delivery_choice:choice}]);
  findAgencyUserIdByEmail.mockResolvedValueOnce(6);

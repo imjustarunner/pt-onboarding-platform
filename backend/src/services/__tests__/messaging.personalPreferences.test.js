@@ -25,3 +25,7 @@ it('rejects invalid settings before writing anything',async()=>{
  for(const patch of [{personalEmailDelayHours:0},{personalEmailDelayHours:169},{personalEmailDelayHours:1.2},{personalEmailDelayHours:'2'},{personalEmailDelayMode:'invalid'},{personalEmailDeliveryMode:'forward_all'},{personalEmailNotify:'false'}])await expect(updateCommunicationPrefs(5,patch)).rejects.toMatchObject({status:400});
  expect(pool.execute).not.toHaveBeenCalled();
 });
+
+it('persists protected immediate delivery separately from the any-hour choice',async()=>{
+ expect(await updateCommunicationPrefs(5,{personalEmailDelayMode:'immediate_available'})).toMatchObject({personalEmailDelayMode:'immediate_available',personalEmailNotify:true,personalEmailDeliveryMode:'notification'});
+});

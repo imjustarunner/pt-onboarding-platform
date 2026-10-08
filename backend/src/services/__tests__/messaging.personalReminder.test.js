@@ -142,3 +142,12 @@ it('delivers opted-in immediate notifications after hours without changing defau
  expect(await runPersonalThreadReminders({now:new Date('2026-09-30T02:01:00Z')})).toMatchObject({sent:0});
  expect(sendEmailFromIdentity).not.toHaveBeenCalled();
 });
+
+it('waits until opening for immediate-within-availability but does not honor obsolete inbox holds',async()=>{
+ const row={...provider,conversation_id:10,message_id:20,agency_id:2,inbox_id:3,user_id:5,from_email:inbox.from_email,received_at:'2026-09-30T02:00:00Z',personal_email_delay_mode:'immediate_available',visible_after:'2026-10-05T13:00:00Z'};
+ pool.execute.mockImplementation(async sql=>sql.startsWith('SELECT c.id')?[[row]]:[{affectedRows:1}]);
+ expect(await runPersonalThreadReminders({now:new Date('2026-09-30T02:01:00Z')})).toMatchObject({sent:0});
+ expect(await runPersonalThreadReminders({now:new Date('2026-09-30T13:00:00Z')})).toMatchObject({sent:1});
+ const [sql,params]=pool.execute.mock.calls[0];
+ expect(sql).not.toContain('visible_after');expect(params).toHaveLength(1);
+});

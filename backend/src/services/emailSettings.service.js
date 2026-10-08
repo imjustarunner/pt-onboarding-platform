@@ -173,7 +173,7 @@ function mapAgencyEmailSettingsRow(agencyId, row) {
     templateSenderIdentityIds: parseTemplateSenderIdentityJson(row),
     personalEmailDigestEnabled: row ? row.personal_email_digest_enabled !== 0 : true,
     personalEmailDigestBusinessHours: Number(row?.personal_email_digest_business_hours || 24),
-    holdStaffSchoolOutsideAvailability: row ? row.hold_staff_school_outside_availability !== 0 : true,
+    holdStaffSchoolOutsideAvailability: false, // Retired: received inbox mail is always visible.
     clientOooAutoReplyEnabled: row ? row.client_ooo_auto_reply_enabled !== 0 : true,
     clientOooTemplate: row?.client_ooo_template || null,
     clientOooSupportKeyword: String(row?.client_ooo_support_keyword || 'SUPPORT').toUpperCase(),

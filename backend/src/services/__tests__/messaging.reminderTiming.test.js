@@ -51,3 +51,16 @@ it('honors immediate and custom-hour choices without rounding up to a business d
  expect(at('2026-09-18T20:00:00-06:00','immediate',0)).toBe('2026-09-19T02:00:00.000Z');
  expect(at('2026-09-21T18:00:00-06:00','business_day',24)).toBe('2026-09-23T13:00:00.000Z');
 });
+
+import {isPersonalMessageReminderDue} from '../../utils/messageReminderTiming.js';
+it('offers immediate delivery within availability separately from explicit any-hour delivery',()=>{
+ const received='2026-10-09T20:00:00-06:00';
+ const options={preferences:{personalEmailDelayMode:'immediate_available'}};
+ expect(personalMessageDueAt(received,options).toISOString()).toBe('2026-10-12T13:00:00.000Z');
+ expect(isPersonalMessageReminderDue(received,{...options,now:new Date('2026-10-09T20:01:00-06:00')})).toBe(false);
+ expect(isPersonalMessageReminderDue(received,{...options,now:new Date('2026-10-12T07:00:00-06:00')})).toBe(true);
+ // A scheduler that missed opening must still respect quiet hours.
+ expect(isPersonalMessageReminderDue(received,{...options,now:new Date('2026-10-12T20:00:00-06:00')})).toBe(false);
+ expect(isPersonalMessageReminderDue(received,{now:new Date('2026-10-09T20:01:00-06:00'),preferences:{personalEmailDelayMode:'immediate'}})).toBe(true);
+ expect(isPersonalMessageReminderDue(received,{now:new Date('2026-10-09T20:01:00-06:00'),preferences:{personalEmailDelayMode:'immediate',personalEmailNotify:false}})).toBe(false);
+});

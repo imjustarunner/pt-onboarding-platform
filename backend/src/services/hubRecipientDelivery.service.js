@@ -1,7 +1,7 @@
 import { usesAppEmailAvailability } from './afterHoursEmailPolicy.service.js';
 /**
- * When a Messages Hub recipient is outside Availability Hours or Planned Out,
- * delay outbound email until they are back and available.
+ * Find a time for an explicit send-at-next-availability request.
+ * Ordinary sends and received app messages never wait for availability.
  */
 import PlannedOut, {
   isPlannedOutActiveNow,

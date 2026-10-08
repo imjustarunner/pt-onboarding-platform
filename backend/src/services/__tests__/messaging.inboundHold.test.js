@@ -24,3 +24,9 @@ it('keeps app-only mail readable when the sender also has a guardian record', as
  verifiedAppOnlyProvider.mockResolvedValue({ id: 5 });
  expect(await classifyInboundSender({ agencyId: 2, ownerUserId: 5, fromEmail: 'staff@itsco.health' })).toMatchObject({ trust: 'guardian', holdForAvailability: false, visibleAfter: null });
 });
+
+import AgencyEmailSettings from '../../models/AgencyEmailSettings.model.js';
+it('reports a legacy enabled inbox-hold setting as retired',async()=>{
+ pool.execute.mockResolvedValueOnce([[{cnt:1}]]).mockResolvedValueOnce([[{agency_id:2,hold_staff_school_outside_availability:1}]]);
+ expect(await AgencyEmailSettings.getByAgencyId(2)).toMatchObject({hold_staff_school_outside_availability:0});
+});

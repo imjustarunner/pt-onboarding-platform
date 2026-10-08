@@ -813,7 +813,6 @@
             </div>
 
             <div v-if="sendMethod !== 'email'" class="msg-hub-composer" :class="{ 'is-email': sendMethod === 'email' }">
-              <p v-if="deliveryNotice" class="msg-hub-delivery-note">{{ deliveryNotice }}</p>
               <div v-if="undoBanner" class="msg-hub-undo">
                 <span>
                   {{ undoBannerLabel }}
@@ -1318,7 +1317,6 @@
                   <strong>{{ methodLabel(selected.preferredMethod) || '—' }}</strong>
                 </li>
               </ul>
-              <p v-if="deliveryNotice" class="msg-hub-delivery-note sidebar">{{ deliveryNotice }}</p>
               <div class="msg-hub-context-actions">
                 <button
                   v-if="clientProfilePath"
@@ -2372,14 +2370,6 @@ function needsGuardianSendConfirm() {
   return portalCount > 1 || !!ctx.clientHasPortal;
 }
 
-const deliveryNotice = computed(() => {
-  // Availability hold only applies to outbound email — not internal/secure chat.
-  if (sendMethod.value !== 'email') return '';
-  const gate = selected.value?.deliveryGate;
-  if (!gate?.message || gate.availableNow) return '';
-  return gate.message;
-});
-
 const senderOutsideHours = computed(() => {
   if (sendMethod.value !== 'email') return false;
   const gate = selected.value?.senderGate;
@@ -2395,7 +2385,7 @@ const myWorkSchedulePath = computed(() => {
 
 const sendButtonLabel = computed(() => {
   if (sending.value) return 'Sending…';
-  if (schedulePreset.value || deliveryNotice.value || customScheduleAt.value) return 'Queue send';
+  if (schedulePreset.value || customScheduleAt.value) return 'Queue send';
   const delay = Number(undoDelaySeconds.value) || 0;
   if (delay > 0) return `Send (${delay}s undo)`;
   return 'Send now';
@@ -2413,10 +2403,6 @@ const sendQueueReason = computed(() => {
       : 'Scheduled for set time';
   }
   if (schedulePreset.value) return scheduleLabel(schedulePreset.value);
-  if (deliveryNotice.value) {
-    const gate = selected.value?.deliveryGate;
-    return 'Choose delivery time when sending';
-  }
   return '';
 });
 

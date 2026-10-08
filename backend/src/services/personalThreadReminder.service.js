@@ -8,7 +8,7 @@ import { buildBrandedMessageEmailHtml } from './hubBrandedEmail.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { replyMessageIds } from '../utils/emailThreading.js';
 import { personalReminderReplyText, personalReminderBody } from '../utils/personalReminderReply.js';
-import { personalMessageDueAt, isMessageReminderWindow } from '../utils/messageReminderTiming.js';
+import { isPersonalMessageReminderDue } from '../utils/messageReminderTiming.js';
 import { personalMessagePreferences } from '../utils/personalMessagePreferences.js';
 import { resolveAvailabilitySchedule } from './availabilityWindow.service.js';
 import { messageReminderRecipient } from './messageReminderRecipient.service.js';
@@ -36,11 +36,11 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
       AND LOWER(u.personal_email) COLLATE utf8mb4_unicode_ci <> LOWER(i.from_email) COLLATE utf8mb4_unicode_ci
       AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=c.agency_id AND ua.is_active=1)
       AND c.archived_at IS NULL AND COALESCE(c.is_spam,0)=0 AND COALESCE(c.is_unknown_sender,0)=0
-      AND (c.visible_after IS NULL OR c.visible_after<=?) AND (c.snoozed_until IS NULL OR c.snoozed_until<=?)
+      AND (c.snoozed_until IS NULL OR c.snoozed_until<=?)
       AND (r.last_read_at IS NULL OR r.last_read_at<COALESCE(m.sent_at,m.created_at))
       AND NOT EXISTS (SELECT 1 FROM communication_messages mo WHERE mo.conversation_id=c.id AND mo.direction='outbound' AND mo.id>m.id AND mo.send_status IN ('sent','scheduled','sending'))
       AND NOT EXISTS (SELECT 1 FROM communication_thread_reminders n WHERE n.conversation_id=c.id AND n.message_id=m.id AND n.user_id=u.id)
-    ORDER BY m.id LIMIT 500`, [now, now]);
+    ORDER BY m.id LIMIT 500`, [now]);
   let sent = 0;
   for (const row of rows) {
     let claimed = false;
@@ -51,8 +51,7 @@ export async function runPersonalThreadReminders({ now = new Date() } = {}) {
       const agency = await Agency.findById(row.agency_id);
       const schedule = await resolveAvailabilitySchedule(row.user_id, { agencyId: row.agency_id });
       const preferences = personalMessagePreferences({...row, digest_hours:row.digest_hours ?? settings?.personalEmailDigestBusinessHours ?? 24});
-      if (preferences.personalEmailDelayMode !== 'immediate' && !isMessageReminderWindow(now, schedule, agency?.timezone)) continue;
-      if (!preferences.personalEmailNotify || !(personalMessageDueAt(row.received_at, { schedule, timeZone:agency?.timezone, preferences }) <= now)) continue;
+      if (!isPersonalMessageReminderDue(row.received_at, { now, schedule, timeZone:agency?.timezone, preferences })) continue;
       const recipient = await messageReminderRecipient(row);
       if (!recipient) continue;
       const inbox = {id:row.inbox_id, agency_id:row.agency_id, owner_user_id:row.user_id, from_email:row.from_email};

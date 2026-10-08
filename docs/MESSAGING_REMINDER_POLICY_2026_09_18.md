@@ -1,5 +1,7 @@
 # Messaging reminder policy — September 18, 2026
 
+**Current policy:** see [October 8 delivery rules](PERSONAL_MESSAGE_DELIVERY_2026_09_25.md#current-delivery-rules--october-8-2026). Availability governs personal notifications and SMS away behavior, never app receipt or reading. SSO secure/chat reminders go to the work address without availability holds. The timing below describes the default personal reminder.
+
 ## Recipients
 
 - SSO users receive no personal-email reminders for ordinary email: their work mailbox already receives that email.

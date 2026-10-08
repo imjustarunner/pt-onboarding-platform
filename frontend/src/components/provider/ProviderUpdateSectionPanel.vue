@@ -169,14 +169,20 @@
     <div v-else-if="section.key === 'notification_prefs'">
       <div class="pu-panel"><h3>Personal email after your app-only transition</h3>
         <p>These choices take effect only when your app-only email access is verified. They do not remove Google or change your sign-in.</p>
+        <p>Messages always arrive in the app. These choices only control your personal inbox.</p>
+        <label class="field"><input type="checkbox" v-model="emailPreference.personalEmailNotify" :disabled="!!recipient?.previewOnly" /> Email me about unread messages</label>
+        <p v-if="!emailPreference.personalEmailNotify">Personal reminders are off. Check the app regularly so you do not miss messages.</p>
+        <fieldset :disabled="!emailPreference.personalEmailNotify || !!recipient?.previewOnly">
         <label class="field">Send to my saved personal email
-          <select v-model="emailPreference.personalEmailDeliveryMode" :disabled="!!recipient?.previewOnly"><option value="notification">A notification with a secure app link</option><option value="forward_one_to_one">Forward eligible individual emails</option></select>
+          <select v-model="emailPreference.personalEmailDeliveryMode" :disabled="!!recipient?.previewOnly"><option value="notification">A notification with a secure app link</option><option value="forward_one_to_one">Both — reply to individual emails by email or in the app</option></select>
         </label>
         <p v-if="emailPreference.personalEmailDeliveryMode==='forward_one_to_one'">Eligible individual emails may include their message content in your personal mailbox. Shared or restricted conversations stay in the app.</p>
         <label class="field">When an email is unread
-          <select v-model="emailPreference.personalEmailDelayMode" :disabled="!!recipient?.previewOnly"><option value="immediate">Instantly</option><option value="business_day">24 business hours — next business day</option></select>
+          <select v-model="emailPreference.personalEmailDelayMode" @change="emailPreference.personalEmailDelayMode==='business_day' &amp;&amp; (emailPreference.personalEmailDelayHours=24)" :disabled="!!recipient?.previewOnly"><option value="business_day">24 hours — next business day (default)</option><option value="immediate_available">Immediately during my Availability Hours</option><option value="immediate">Immediately, at any hour</option><option value="hours">After a set number of hours</option></select>
         </label>
-        <p>Instantly means the next automatic message check. The delayed option follows your contact schedule and skips nonworking days. Check your personal email under Contact &amp; Address. You can change these preferences later.</p>
+        <label v-if="emailPreference.personalEmailDelayMode==='hours'" class="field">Hours <input type="number" min="1" max="168" step="1" v-model.number="emailPreference.personalEmailDelayHours" /></label>
+        <p>Only “Immediately, at any hour” allows after-hours personal notifications. Other choices respect your Availability Hours. Group and secure messages always link to the app. Check your personal email under Contact &amp; Address.</p>
+        </fieldset>
       </div>
       <StaffCommunicationChoices :initial="section.data?.communicationChoices" :agency-id="agencyId" external-save :readonly="!!recipient?.previewOnly" :busy="saving" @save="data => markComplete({...data,emailReminderPreferences:emailPreference})" />
       <p v-if="localError" role="alert">{{ localError }}</p>
@@ -491,7 +497,7 @@ onMounted(async () => {
   if (data.contact) Object.assign(contact, data.contact);
   credential.value = data.credential || '';
   displayLabel.value = data.displayRole?.label || data.displayLabel || '';
-  emailPreference.value = {personalEmailDeliveryMode:data.appEmail?.personalEmailDeliveryMode || 'notification',personalEmailDelayMode:data.appEmail?.personalEmailDelayMode === 'immediate' ? 'immediate' : 'business_day'};
+  emailPreference.value = {personalEmailNotify:data.appEmail?.personalEmailNotify !== false,personalEmailDeliveryMode:data.appEmail?.personalEmailDeliveryMode || 'notification',personalEmailDelayMode:data.appEmail?.personalEmailDelayMode || 'business_day',personalEmailDelayHours:data.appEmail?.personalEmailDelayHours ?? 24};
   preferredDays.value = data.preferredDays || [];
   if (data.notify) Object.assign(notify, data.notify);
   if (props.section.key === 'client_fall_update') await loadFallClients();

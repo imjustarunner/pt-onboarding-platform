@@ -24,3 +24,13 @@ describe('personal message delivery settings',()=>{
   api.patch.mockRejectedValue(new Error('Offline'));const w=mount(Settings);await flushPromises();await w.get('button').trigger('click');await flushPromises();expect(w.get('[role=alert]').text()).toContain('Could not save');expect(w.text()).not.toContain('settings saved.');
  });
 });
+
+it('explains immediate app access and saves protected immediate personal delivery with both reply choices',async()=>{
+ const w=mount(Settings);await flushPromises();
+ expect(w.text()).toContain('Messages arrive in the app immediately');
+ await w.findAll('select')[0].setValue('immediate_available');
+ await w.findAll('select')[1].setValue('forward_one_to_one');
+ expect(w.text()).toContain('You can always read and reply in the app too');
+ await w.get('button').trigger('click');await flushPromises();
+ expect(api.patch).toHaveBeenCalledWith('/communications/prefs',expect.objectContaining({personalEmailDelayMode:'immediate_available',personalEmailDeliveryMode:'forward_one_to_one'}),expect.anything());
+});

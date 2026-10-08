@@ -12,8 +12,9 @@ beforeEach(() => {
   pool.execute.mockResolvedValue([[{ id: 6 }]]);
   resolveRecipientDeliveryGate.mockResolvedValue({ receiveAt: '2026-09-30T13:00:00Z', timezone: 'America/Denver' });
 });
-it('asks before queueing after-hours mail without disclosing recipients', async () => {
-  await expect(planEmailDelivery(request)).rejects.toMatchObject({ status: 409, code: 'RECIPIENT_AVAILABILITY_CHOICE_REQUIRED', availability: { recipientCount: 1, nextAvailableAt: '2026-09-30T13:00:00.000Z' } });
+it('sends app mail without an availability prompt, including older clients requiring a choice', async () => {
+  expect(await planEmailDelivery(request)).toEqual({choice:'now', recipientIds:[6], scheduledAt:null});
+  expect(resolveRecipientDeliveryGate).not.toHaveBeenCalled();
   expect(pool.execute.mock.calls.every(([sql]) => sql.startsWith('SELECT'))).toBe(true);
 });
 it('releases send-now without checking availability and retains intended recipient IDs', async () => {

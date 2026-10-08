@@ -33,6 +33,8 @@ it('stores the original for both providers without any ticket or forwarding', as
  expect(MessageLog.createInbound).toHaveBeenCalledWith(expect.objectContaining({body:'Can we talk tomorrow?',clientId:4,metadata:expect.objectContaining({awaitingProviderReturn:true})}));
  expect(SmsCareThread.upsert).toHaveBeenCalledWith(expect.objectContaining({careState:'under_care',supportAccess:'observe'}));
  expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({body:OUT_OF_OFFICE_SMS}));
+ expect(MessageLog.createInbound.mock.invocationCallOrder[0]).toBeLessThan(Vonage.sendSms.mock.invocationCallOrder[0]);
+ expect(OUT_OF_OFFICE_SMS).toContain('saved in their app now');
  expect(pool.getConnection).not.toHaveBeenCalled();
 });
 it('retains the original when the offer cannot be sent', async () => {

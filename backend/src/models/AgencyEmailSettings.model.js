@@ -47,7 +47,7 @@ class AgencyEmailSettings {
         template_sender_identity_json: null,
         personal_email_digest_enabled: 1,
         personal_email_digest_business_hours: 24,
-        hold_staff_school_outside_availability: 1,
+        hold_staff_school_outside_availability: 0,
         client_ooo_auto_reply_enabled: 1,
         client_ooo_template: null,
         client_ooo_support_keyword: 'SUPPORT',
@@ -70,8 +70,7 @@ class AgencyEmailSettings {
       ai_allowed_sender_identity_keys_json: this.parseJsonMaybe(row.ai_allowed_sender_identity_keys_json) || [],
       personal_email_digest_enabled: row.personal_email_digest_enabled === undefined ? 1 : row.personal_email_digest_enabled,
       personal_email_digest_business_hours: Number(row.personal_email_digest_business_hours || 24),
-      hold_staff_school_outside_availability:
-        row.hold_staff_school_outside_availability === undefined ? 1 : row.hold_staff_school_outside_availability,
+      hold_staff_school_outside_availability: 0,
       client_ooo_auto_reply_enabled: row.client_ooo_auto_reply_enabled === undefined ? 1 : row.client_ooo_auto_reply_enabled,
       client_ooo_support_keyword: row.client_ooo_support_keyword || 'SUPPORT',
       unknown_sender_box_enabled: row.unknown_sender_box_enabled === undefined ? 1 : row.unknown_sender_box_enabled,
@@ -132,7 +131,6 @@ class AgencyEmailSettings {
     templateSenderIdentityJson,
     personalEmailDigestEnabled,
     personalEmailDigestBusinessHours,
-    holdStaffSchoolOutsideAvailability,
     clientOooAutoReplyEnabled,
     clientOooTemplate,
     clientOooSupportKeyword,
@@ -267,9 +265,7 @@ class AgencyEmailSettings {
           ? this.bool01(existing.personal_email_digest_enabled, true)
           : this.bool01(personalEmailDigestEnabled, true),
         digestHours,
-        holdStaffSchoolOutsideAvailability === undefined
-          ? this.bool01(existing.hold_staff_school_outside_availability, true)
-          : this.bool01(holdStaffSchoolOutsideAvailability, true),
+        0, // Retired inbox hold, including writes from older clients.
         clientOooAutoReplyEnabled === undefined
           ? this.bool01(existing.client_ooo_auto_reply_enabled, true)
           : this.bool01(clientOooAutoReplyEnabled, true),

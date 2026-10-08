@@ -64,7 +64,7 @@ export function messageReminderDueAt(receivedAt, { schedule, timeZone, delayHour
   return zonedWallTimeToUtc({ year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, day: d.getUTCDate(), hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: d.getUTCSeconds(), timeZone: p.timeZone });
 }
 
-/** Immediate is the next message check, including outside availability.
+/** Immediate is an explicit any-hour choice; immediate_available waits for opening.
  * Custom hours wait for the next availability window. The default retains the agreed next-business-day response window. */
 export function personalMessageDueAt(receivedAt, { preferences = {}, schedule, timeZone } = {}) {
   const received = new Date(receivedAt);
@@ -72,9 +72,17 @@ export function personalMessageDueAt(receivedAt, { preferences = {}, schedule, t
   const mode = preferences.personalEmailDelayMode || 'business_day';
   if (mode === 'business_day') return messageReminderDueAt(received, { schedule, timeZone, delayHours: preferences.personalEmailDelayHours ?? 24 });
   if (mode === 'immediate') return received;
-  const delay = Number(preferences.personalEmailDelayHours ?? 24);
+  const delay = mode === 'immediate_available' ? 0 : Number(preferences.personalEmailDelayHours ?? 24);
   if (!Number.isFinite(delay) || delay < 0 || delay > 168) return new Date(NaN);
   const p = policy(schedule, timeZone);
   const d = nextWindow(local(new Date(received.getTime() + delay * 3600000), p.timeZone), p);
   return zonedWallTimeToUtc({ year:d.getUTCFullYear(), month:d.getUTCMonth()+1, day:d.getUTCDate(), hour:d.getUTCHours(), minute:d.getUTCMinutes(), second:d.getUTCSeconds(), timeZone:p.timeZone });
+}
+
+/** Shared by ordinary-email and secure/chat personal notifications. Reading the
+ * original message in the app never consults this notification-only policy. */
+export function isPersonalMessageReminderDue(receivedAt, { now = new Date(), preferences = {}, schedule, timeZone } = {}) {
+  if (preferences.personalEmailNotify === false) return false;
+  if (preferences.personalEmailDelayMode !== 'immediate' && !isMessageReminderWindow(now, schedule, timeZone)) return false;
+  return personalMessageDueAt(receivedAt, { preferences, schedule, timeZone }) <= now;
 }

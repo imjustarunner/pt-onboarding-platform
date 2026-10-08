@@ -1,6 +1,7 @@
 <template>
   <section class="personal-delivery" aria-labelledby="personal-delivery-title">
     <h3 id="personal-delivery-title">Messages at your personal email</h3>
+    <p>Messages arrive in the app immediately, even outside your Availability Hours. These settings only control copies and reminders sent to your personal email.</p>
     <p v-if="loading" role="status">Loading message delivery settings…</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="loaded">
@@ -13,22 +14,23 @@
           <label>When to notify me
             <select v-model="form.personalEmailDelayMode" @change="timingChanged">
               <option value="business_day">{{ form.personalEmailDelayMode === 'business_day' && form.personalEmailDelayHours > 24 ? `${Math.ceil(form.personalEmailDelayHours / 24)} business days (saved)` : '24 hours — next business day (default)' }}</option>
-              <option value="immediate">Immediately</option>
+              <option value="immediate_available">Immediately during my Availability Hours</option>
+              <option value="immediate">Immediately, at any hour</option>
               <option value="hours">After a set number of hours</option>
             </select>
           </label>
           <label v-if="form.personalEmailDelayMode === 'hours'">Hours
             <input v-model.number="form.personalEmailDelayHours" type="number" min="1" max="168" step="1" required />
           </label>
-          <p>Immediate means the next message check, including outside your Availability Hours. Other delays follow your Availability Hours (weekdays 7 a.m.–7 p.m. by default). Custom delays count elapsed hours, then wait for your next available time.</p>
+          <p>“Immediately during my Availability Hours” waits for your next opening. “Immediately, at any hour” explicitly allows after-hours notifications. The default and custom delays respect your Availability Hours (weekdays 7 a.m.–7 p.m. by default). Custom delays count elapsed hours, then wait for your next available time.</p>
           <p v-if="form.personalEmailDelayMode === 'business_day'">With the default schedule: Friday at 4 p.m. → Monday at 4 p.m.; Monday at 6 p.m. → Wednesday at 7 a.m.</p>
-          <label>What to send
+          <label>Where to read and reply
             <select v-model="form.personalEmailDeliveryMode">
               <option value="notification">Notification only — read and reply in the app (default)</option>
-              <option value="forward_one_to_one">Include one-to-one emails and let me reply by email</option>
+              <option value="forward_one_to_one">Both — reply to one-to-one emails here or in the app</option>
             </select>
           </label>
-          <p v-if="form.personalEmailDeliveryMode === 'forward_one_to_one'">Ordinary one-to-one email content will be sent to your personal inbox. Reply to that email to send your answer through your organization’s Messages email address. Your personal address is not added to the work conversation.</p>
+          <p v-if="form.personalEmailDeliveryMode === 'forward_one_to_one'">Ordinary one-to-one email content will be sent to your personal inbox. Reply to that email to send your answer through your organization’s Messages email address. Your personal address is not added to the work conversation. You can always read and reply in the app too.</p>
           <p>Group conversations and secure messages always send a notification only. Open the app to reply or reply all. Attachments stay in the app.</p>
         </fieldset>
         <button type="button" :disabled="saving || invalid" @click="save">{{ saving ? 'Saving…' : 'Save message delivery' }}</button>
