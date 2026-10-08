@@ -42,7 +42,6 @@ export function schoolEmailScope(ctx) {
       AND COALESCE(m.is_internal_note,0) = 0 AND m.direction <> 'internal'
       AND COALESCE(m.send_status,'sent') = 'sent'
       AND COALESCE(c.is_spam,0) = 0 AND COALESCE(c.is_unknown_sender,0) = 0
-      AND (c.visible_after IS NULL OR c.visible_after <= NOW())
       AND (
         JSON_CONTAINS(LOWER(COALESCE(m.to_json,JSON_ARRAY())),JSON_OBJECT('email',?))
         OR JSON_CONTAINS(LOWER(COALESCE(m.cc_json,JSON_ARRAY())),JSON_OBJECT('email',?))

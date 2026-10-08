@@ -101,14 +101,19 @@ export async function getUnifiedAttentionSummary(req, res, next) {
     if (hubScope) {
       try {
         const { countHubChatUnreadThreads } = await import('../services/messagesHub.service.js');
-        const chatUnread = await countHubChatUnreadThreads({
+        const chatByChannel = await countHubChatUnreadThreads({
           agencyId,
-          userId: req.user.id
+          userId: req.user.id,
+          byChannel: true
         });
-        const emailUnread = Number(summary?.unread || 0);
-        summary.emailUnread = emailUnread;
-        summary.chatUnread = chatUnread;
-        summary.unread = emailUnread + chatUnread;
+        const unreadByChannel = { ...(summary.unreadByChannel || {}) };
+        for (const [channel, count] of Object.entries(chatByChannel)) {
+          unreadByChannel[channel] = Number(unreadByChannel[channel] || 0) + count;
+        }
+        summary.emailUnread = Number(unreadByChannel.email || 0);
+        summary.chatUnread = Object.values(chatByChannel).reduce((total, count) => total + count, 0);
+        summary.unreadByChannel = unreadByChannel;
+        summary.unread = Object.values(unreadByChannel).reduce((total, count) => total + count, 0);
       } catch (e) {
         console.warn('[attention-summary] chat unread:', e?.message || e);
       }

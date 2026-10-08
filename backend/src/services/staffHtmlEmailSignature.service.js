@@ -894,7 +894,6 @@ export async function resolveDepartmentSignatureContext({
     customTagline = null;
   }
 
-  const displayRole=await getProviderDisplayRole(uid,agencyIdResolved);
   let taglineLeft = '';
   let taglineRight = '';
   ({ taglineLeft, taglineRight } = signatureTaglines({ isItsco, customTagline }));

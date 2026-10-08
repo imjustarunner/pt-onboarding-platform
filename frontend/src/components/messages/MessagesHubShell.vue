@@ -1,8 +1,14 @@
 <template>
+  <Teleport to="body" :disabled="!readerFullscreen">
   <div
     class="msg-hub conversa-surface"
+    :role="readerFullscreen ? 'dialog' : undefined"
+    :aria-modal="readerFullscreen || undefined"
+    aria-label="Messages"
     :class="{
       'msg-hub--drawer': isDrawerLayout,
+      'reader-fullscreen': readerFullscreen,
+      'folders-collapsed': foldersCollapsed,
       'msg-hub--mobile-thread': mobileShowThread && (!!selected || !!selectedConversation || !!conversationPreview),
       'person-focus': personFocus,
       'chat-like': personFocus && isChatLikeMethod
@@ -48,6 +54,24 @@
       <button v-else type="button" class="btn btn-secondary btn-sm" @click="openGroupPicker">Choose a group</button>
     </div>
     <div v-if="error" class="msg-hub-error" role="alert">{{ error }}</div>
+
+    <div class="msg-hub-reading-controls" role="toolbar" aria-label="Reading layout">
+      <button v-if="readerFullscreen" type="button" class="btn btn-secondary" @click="exitReaderFullscreen">← Back to messages</button>
+      <template v-else>
+        <button v-if="hasOpenReader" type="button" class="btn btn-secondary" @click="backToList">← Back to list</button>
+        <div class="msg-hub-panel-controls">
+          <button type="button" class="btn btn-secondary" :aria-expanded="!foldersCollapsed" @click="foldersCollapsed = !foldersCollapsed">{{ foldersCollapsed ? 'Show folders' : 'Hide folders' }}</button>
+          <button type="button" class="btn btn-secondary" :aria-expanded="!listColCollapsed" :disabled="!hasOpenReader" @click="listColCollapsed = !listColCollapsed">{{ listColCollapsed ? 'Show message list' : 'Hide message list' }}</button>
+          <button type="button" class="btn btn-secondary" :aria-expanded="!detailsCollapsed" @click="detailsCollapsed = !detailsCollapsed">{{ detailsCollapsed ? 'Show details' : 'Hide details' }}</button>
+        </div>
+        <button ref="fullscreenButton" type="button" class="btn btn-secondary" :disabled="!hasOpenReader" @click="readerFullscreen = true">Full screen</button>
+      </template>
+      <div v-if="hasOpenReader" class="msg-hub-message-navigation">
+        <button type="button" class="btn btn-secondary" :disabled="readerNavigating || loadingEmail || readingIndex <= 0" @click="navigateReader(-1)">← Previous</button>
+        <span v-if="readingIndex >= 0" role="status">{{ readingIndex + 1 }} of {{ readingSequence.length }}</span>
+        <button type="button" class="btn btn-secondary" :disabled="readerNavigating || loadingEmail || readingIndex < 0 || readingIndex >= readingSequence.length - 1" @click="navigateReader(1)">Next →</button>
+      </div>
+    </div>
 
     <div class="msg-hub-body">
       <div
@@ -108,7 +132,7 @@
         </div>
       </nav>
 
-      <div class="msg-hub-grid" :class="{ 'list-collapsed': listColCollapsed && !!selected }">
+      <div class="msg-hub-grid" :class="{ 'reader-layout': true, 'list-collapsed': listColCollapsed && hasOpenReader, 'context-collapsed': detailsCollapsed }">
         <section
           class="msg-hub-list-col"
           :aria-label="listColumnTitle"
@@ -125,7 +149,7 @@
               «
             </button>
             <button
-              v-else-if="selected"
+              v-else-if="hasOpenReader"
               type="button"
               class="msg-hub-list-collapse"
               :title="listColCollapsed ? 'Expand conversation list' : 'Collapse conversation list'"
@@ -360,7 +384,8 @@
           </ul>
 
           <div v-else class="msg-hub-empty">
-            <p>{{ emptyListCopy }}</p>
+            <p>{{ error ? 'Messages could not be loaded. Please try Refresh.' : emptyListCopy }}</p>
+            <button v-if="navId === 'unread' && inboxChannel !== 'all' && inboxCounts.unread > inboxBadgeCount('unread')" type="button" class="btn btn-secondary" @click="selectInboxChannel('all')">Show unread across all channels ({{ inboxCounts.unread }})</button>
             <button
               v-if="navSection !== 'tools'"
               type="button"
@@ -1544,6 +1569,7 @@
   <Teleport to="body"><aside v-if="hoverEmail" class="email-hover-preview" role="tooltip" :style="{top:hoverEmail.top+'px',left:hoverEmail.left+'px'}" @mouseenter="clearTimeout(hidePreviewTimer)" @mouseleave="scheduleHidePreview">
     <strong>{{ hoverEmail.subject || '(No subject)' }}</strong><pre>{{ hoverEmail.body || 'Loading message…' }}</pre>
   </aside></Teleport>
+  </Teleport>
 </template>
 
 <script setup>
@@ -1688,6 +1714,56 @@ const listSearch = ref('');
 const unreadSort = ref('newest');
 const selected = ref(null);
 const listColCollapsed = ref(false);
+const detailsCollapsed = ref(true);
+const foldersCollapsed = ref(false);
+const readerFullscreen = ref(false);
+const fullscreenButton = ref(null);
+const readingSequence = ref([]);
+const readerNavigating = ref(false);
+const hasOpenReader = computed(() => !!(selected.value || selectedConversation.value || conversationPreview.value));
+const readerKey = c => `${c?.hubKind || c?.channel || 'email'}:${c?.conversationId || c?.threadId || c?.id}`;
+const readingIndex = computed(() => readingSequence.value.findIndex(c => readerKey(c) === readerKey(selectedConversation.value)));
+async function navigateReader(offset) {
+  const target = readingSequence.value[readingIndex.value + offset];
+  if (!target || readingIndex.value < 0 || readerNavigating.value) return;
+  readerNavigating.value = true;
+  try { await pickConversation(target, { preserveSequence: true }); }
+  finally { readerNavigating.value = false; }
+}
+function exitReaderFullscreen() {
+  readerFullscreen.value = false;
+  nextTick(() => fullscreenButton.value?.focus());
+}
+function onReaderEscape(event) {
+  if (!readerFullscreen.value || sessionBlocked.value) return;
+  if (event.key === 'Tab') {
+    const root = document.querySelector('.reader-fullscreen');
+    const controls = [...(root?.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]') || [])]
+      .filter(element => element.getClientRects().length);
+    const first = controls[0], last = controls.at(-1);
+    if (first && ((!root.contains(document.activeElement)) || (event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last))) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
+  }
+  if (event.key === 'Escape' && readerFullscreen.value) {
+    event.preventDefault();
+    exitReaderFullscreen();
+  }
+}
+let previousBodyOverflow = null;
+watch(readerFullscreen, async active => {
+  if (active) {
+    previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    await nextTick();
+    document.querySelector('.reader-fullscreen .msg-hub-reading-controls button')?.focus();
+  } else if (previousBodyOverflow !== null) {
+    document.body.style.overflow = previousBodyOverflow;
+    previousBodyOverflow = null;
+  }
+});
+
 const talkingToUserId = ref(null);
 const includeClientOnSend = ref(false);
 const participantExtraIds = ref([]);
@@ -2050,7 +2126,7 @@ const emptyListCopy = computed(() => {
       return 'No unknown senders right now. New mail from addresses outside your known contacts will land here.';
     }
     if (navId.value === 'unread') {
-      return 'You\'re caught up — no unread email or chat.';
+      return inboxChannel.value === 'all' ? 'You’re caught up — no unread messages.' : `No unread ${inboxChannel.value === 'email' ? 'emails' : inboxChannel.value + ' messages'} in this view.`;
     }
     if (navId.value === 'inbox') {
       return 'No conversations yet. Send a message or wait for the first reply.';
@@ -3859,6 +3935,7 @@ async function loadInboxCounts() {
     inboxCounts.value = {
       ...inboxCounts.value,
       unread: Number(s.unread || 0),
+      unreadByChannel: s.unreadByChannel || null,
       snoozed: Number(s.snoozed || 0),
       unknown: Number(s.unknownSenders || 0)
     };
@@ -3873,7 +3950,10 @@ async function loadInboxCounts() {
 function inboxBadgeCount(id) {
   if (id === 'drafts') return emailWorkspace.value?.draftCount || 0;
   if (id === 'needs_attention') return emailWorkspace.value?.attentionCount || 0;
-  if (id === 'unread') return inboxCounts.value.unread > 0 ? inboxCounts.value.unread : 0;
+  if (id === 'unread') {
+    const counts = inboxCounts.value.unreadByChannel;
+    return inboxChannel.value !== 'all' && counts ? Number(counts[inboxChannel.value] || 0) : Number(inboxCounts.value.unread || 0);
+  }
   if (id === 'snoozed') return inboxCounts.value.snoozed > 0 ? inboxCounts.value.snoozed : 0;
   if (id === 'unknown') return inboxCounts.value.unknown > 0 ? inboxCounts.value.unknown : 0;
   if (id === 'queued') return inboxCounts.value.queued > 0 ? inboxCounts.value.queued : 0;
@@ -4010,7 +4090,11 @@ async function toggleStarByConversationId(conversationId, currentlyStarred, msg 
   }
 }
 
-async function pickConversation(conv) {
+async function pickConversation(conv, { preserveSequence = false } = {}) {
+  if (!preserveSequence && !conv.draftId) {
+    const rows = filteredConversations.value.filter(row => !row.draftId);
+    readingSequence.value = rows.some(row => readerKey(row) === readerKey(conv)) ? [...rows] : [conv];
+  }
   hoverEmail.value = null;
   if (conv.draftId) return openEmailComposer(router, { draftId: conv.draftId });
   const request = ++emailReadRequest;
@@ -4119,6 +4203,8 @@ async function loadPersonContext(personKey) {
 }
 
 function closePerson() {
+  readerFullscreen.value = false;
+  readingSequence.value = [];
   rememberEmailDraft();
   ++emailReadRequest;
   emailReadController?.abort();
@@ -5031,6 +5117,7 @@ async function openLinkedConversation() {
 watch(() => route.query.conversationId, () => openLinkedConversation());
 
 watch(sessionBlocked, (blocked, wasBlocked) => {
+  if (blocked) readerFullscreen.value = false;
   if (!blocked && wasBlocked) {
     if (selectedConversation.value && !conversationPreview.value && !loadingEmail.value) void pickConversation(selectedConversation.value);
     refreshMailInBackground();
@@ -5039,6 +5126,7 @@ watch(sessionBlocked, (blocked, wasBlocked) => {
 
 watch(() => [route.query.folder,route.query.channel], () => {if(route.query.folder || route.query.channel)restoreMailboxView();});
 onMounted(() => {
+  window.addEventListener('keydown', onReaderEscape);
   restoreMailboxView();
   mailPollTimer = setInterval(refreshMailInBackground, 15000);
   window.addEventListener('focus', refreshMailInBackground);
@@ -5057,6 +5145,8 @@ onMounted(() => {
   }, 4000);
 });
 onUnmounted(() => {
+  window.removeEventListener('keydown', onReaderEscape);
+  if (previousBodyOverflow !== null) document.body.style.overflow = previousBodyOverflow;
   clearInterval(mailPollTimer);
   clearTimeout(hoverTimer); clearTimeout(hidePreviewTimer);
   window.removeEventListener('focus', refreshMailInBackground);
@@ -7065,4 +7155,41 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
 
 <style scoped>
 .email-list-row .msg-hub-row-top{flex-wrap:wrap}.email-list-row .msg-hub-row-top strong{flex:1 0 100%;max-width:100%}.email-list-row .msg-hub-time{font-size:10px}
+
+.msg-hub-reading-controls, .msg-hub-panel-controls, .msg-hub-message-navigation {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+}
+.msg-hub-reading-controls { flex-shrink: 0; }
+.msg-hub-reading-controls .btn { padding: 6px 10px; font-size: 13px; }
+.msg-hub-message-navigation { margin-left: auto; }
+.msg-hub-message-navigation [role="status"] { font-size: 13px; color: var(--mh-muted); }
+.msg-hub.folders-collapsed .msg-hub-rail,
+.msg-hub .reader-layout.list-collapsed .msg-hub-list-col,
+.msg-hub .reader-layout.context-collapsed .msg-hub-context { display: none; }
+.msg-hub .msg-hub-grid.reader-layout.context-collapsed { grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); }
+.msg-hub .msg-hub-grid.reader-layout.list-collapsed { grid-template-columns: minmax(0, 1fr) minmax(200px, 260px); }
+.msg-hub .msg-hub-grid.reader-layout.list-collapsed.context-collapsed,
+.msg-hub.person-focus.chat-like .msg-hub-grid.reader-layout.context-collapsed { grid-template-columns: minmax(0, 1fr); }
+.msg-hub.reader-fullscreen {
+  position: fixed; inset: 0; z-index: 2100; width: 100%; height: 100dvh;
+  max-height: none; padding: 12px; box-sizing: border-box; background: var(--mh-surface);
+}
+.reader-fullscreen > .msg-hub-head,
+.reader-fullscreen > .email-channel-filters,
+.reader-fullscreen > .msg-hub-group-help,
+.reader-fullscreen .msg-hub-rail,
+.reader-fullscreen .msg-hub-rail-backdrop,
+.reader-fullscreen .msg-hub-list-col,
+.reader-fullscreen .msg-hub-context { display: none !important; }
+.msg-hub.reader-fullscreen .msg-hub-grid { grid-template-columns: minmax(0, 1fr) !important; }
+.msg-hub.reader-fullscreen .msg-hub-thread-col { display: flex; }
+@media (min-width: 801px) {
+  .msg-hub .reader-layout:not(.context-collapsed) .msg-hub-context { display: flex; }
+  .msg-hub .reader-layout:not(.context-collapsed):not(.list-collapsed) { grid-template-columns: minmax(200px, 280px) minmax(0, 1fr) minmax(180px, 240px); }
+}
+@media (max-width: 800px) {
+  .msg-hub-panel-controls { display: none; }
+  .msg-hub .msg-hub-grid.reader-layout { grid-template-columns: minmax(0, 1fr) !important; }
+  .msg-hub.reader-fullscreen { padding: 8px; }
+}
 </style>

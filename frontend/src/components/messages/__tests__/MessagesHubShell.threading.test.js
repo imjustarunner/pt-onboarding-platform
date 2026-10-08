@@ -26,7 +26,7 @@ beforeEach(async () => {
   api.get.mockResolvedValue({ data: {} });
   api.patch.mockResolvedValue({ data: {} });
   api.post.mockResolvedValue({ data: { threadRef: { conversationId: 20 } } });
-  wrapper = shallowMount(Hub, { global: { stubs: { RouterLink: true } } });
+  wrapper = shallowMount(Hub, { global: { stubs: { RouterLink: true, Teleport: false } } });
   state = wrapper.vm.$.setupState;
   await flushPromises();
   state.selected = person;
@@ -261,5 +261,85 @@ describe('channel and group entry points', () => {
     expect(state.error).toContain('Could not open');
     expect(api.post.mock.calls.some(([url]) => url === '/chat/threads/43/read')).toBe(false);
     expect(group.is_unread).toBe(true);
+  });
+});
+
+describe('reading layout and unread navigation', () => {
+  it('collapses folders, list, and details independently', async () => {
+    expect(state.detailsCollapsed).toBe(true);
+    for (const label of ['Hide folders', 'Hide message list', 'Show details']) {
+      await wrapper.findAll('button').find(button => button.text() === label).trigger('click');
+    }
+    expect(wrapper.find('.msg-hub').classes()).toContain('folders-collapsed');
+    expect(wrapper.find('.msg-hub-grid').classes()).toContain('list-collapsed');
+    expect(wrapper.find('.msg-hub-grid').classes()).not.toContain('context-collapsed');
+    await state.backToList();
+    expect(wrapper.find('.msg-hub-grid').classes()).not.toContain('list-collapsed');
+  });
+  it('opens full screen and returns to the same message and panel layout with Back or Escape', async () => {
+    state.selected = null;
+    state.selectedConversation = { id: 20, channel: 'email' };
+    state.conversationPreview = { conversation: { id: 20 }, messages: [] };
+    state.listColCollapsed = true;
+    await nextTick();
+    const previousOverflow = document.body.style.overflow;
+    await wrapper.findAll('button').find(button => button.text() === 'Full screen').trigger('click');
+    await nextTick();
+    expect(document.querySelector('.reader-fullscreen')).not.toBeNull();
+    expect(document.body.style.overflow).toBe('hidden');
+    document.querySelector('.reader-fullscreen .msg-hub-reading-controls button').click();
+    await nextTick();
+    expect(state.readerFullscreen).toBe(false);
+    expect(state.selectedConversation.id).toBe(20);
+    expect(state.listColCollapsed).toBe(true);
+    expect(document.body.style.overflow).toBe(previousOverflow);
+    state.readerFullscreen = true;
+    await nextTick();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await nextTick();
+    expect(state.readerFullscreen).toBe(false);
+  });
+  it('keeps Previous and Next working when opened unread messages leave the list', async () => {
+    state.selected = null;
+    state.navId = 'unread';
+    const rows = [10, 20, 30].map(id => ({ id, channel: 'email', conversationId: id, is_unread: true }));
+    state.conversations = rows;
+    api.get.mockImplementation(async url => ({ data: url.startsWith('/communications/conversations/')
+      ? { conversation: { id: Number(url.split('/').at(-1)), channel: 'email' }, messages: [] } : {} }));
+    await state.pickConversation(rows[0]);
+    expect(state.conversations.map(row => row.id)).toEqual([20, 30]);
+    expect(state.readingIndex).toBe(0);
+    await state.navigateReader(1);
+    expect(state.selectedConversation.id).toBe(20);
+    expect(state.conversations.map(row => row.id)).toEqual([30]);
+    await state.navigateReader(-1);
+    expect(state.selectedConversation.id).toBe(10);
+    expect(state.readingSequence).toHaveLength(3);
+  });
+  it('shows unread counts for the selected channel and preserves the global dashboard total', async () => {
+    state.inboxChannel = 'email';
+    api.get.mockResolvedValue({ data: { summary: { unread: 6, unreadByChannel: { email: 3, internal: 2, secure: 1 } } } });
+    await state.loadInboxCounts();
+    expect(state.inboxBadgeCount('unread')).toBe(3);
+    expect(state.inboxCounts.unread).toBe(6);
+    state.inboxChannel = 'secure';
+    expect(state.inboxBadgeCount('unread')).toBe(1);
+    state.inboxChannel = 'all';
+    expect(state.inboxBadgeCount('unread')).toBe(6);
+  });
+  it('offers a route to unread messages in other channels instead of saying caught up', async () => {
+    state.selected = null; state.navId = 'unread'; state.inboxChannel = 'email'; state.conversations = [];
+    state.inboxCounts = { unread: 3, unreadByChannel: { internal: 3, email: 0 } };
+    await nextTick();
+    expect(wrapper.text()).toContain('No unread emails in this view.');
+    expect(wrapper.text()).toContain('Show unread across all channels (3)');
+  });
+  it('shows a loading failure rather than an empty-inbox success message', async () => {
+    state.selected = null; state.navId = 'unread'; state.conversations = [];
+    api.get.mockRejectedValueOnce({ response: { status: 503, data: { error: { message: 'Could not load your email. Please try Refresh.' } } } });
+    await state.loadConversations();
+    await nextTick();
+    expect(wrapper.text()).toContain('Messages could not be loaded. Please try Refresh.');
+    expect(wrapper.text()).not.toContain('You’re caught up');
   });
 });

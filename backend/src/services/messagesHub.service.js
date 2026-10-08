@@ -4133,7 +4133,12 @@ export async function listHubConversationFeed({
       });
     }
   } catch (e) {
-    console.warn('[listHubConversationFeed] email:', e?.message || e);
+    console.warn('[listHubConversationFeed] email:', e?.code || 'load_failed');
+    if (['all', 'email', 'sms'].includes(channelFilter)) {
+      const failure = new Error('Could not load your email. Please try Refresh.');
+      failure.status = 503;
+      throw failure;
+    }
   }
 
   // Chat threads (direct + channels / team / club)
@@ -4302,7 +4307,12 @@ export async function listHubConversationFeed({
       });
     }
   } catch (e) {
-    console.warn('[listHubConversationFeed] chat:', e?.message || e);
+    console.warn('[listHubConversationFeed] chat:', e?.code || 'load_failed');
+    if (!['email', 'sms', 'calls'].includes(channelFilter)) {
+      const failure = new Error('Could not load your messages. Please try Refresh.');
+      failure.status = 503;
+      throw failure;
+    }
   }
 
   // Person browsing for direct chat; each email conversation keeps its own identity.
@@ -4400,17 +4410,19 @@ export async function listHubInboxFeed(opts = {}) {
 /**
  * Count unread chat threads only (for Hub badge merge with email unread).
  */
-export async function countHubChatUnreadThreads({ agencyId, userId } = {}) {
+export async function countHubChatUnreadThreads({ agencyId, userId, byChannel = false } = {}) {
   const aid = Number(agencyId || 0) || null;
   const uid = Number(userId || 0);
-  if (!uid) return 0;
+  if (!uid) return byChannel ? {} : 0;
   try {
     const agencyClause = aid ? 'AND t.agency_id = ?' : '';
     const params = [uid, uid, uid, uid, uid];
     if (aid) params.push(aid);
     const [rows] = await pool.execute(
-      `SELECT COUNT(*) AS n FROM (
+      `SELECT channel, COUNT(*) AS n FROM (
          SELECT t.id,
+                CASE WHEN t.thread_type IN ('direct','client_secure') THEN COALESCE(t.message_channel,'internal')
+                     WHEN t.thread_type='channel' THEN 'channel' ELSE 'group' END AS channel,
                 (
                   SELECT COUNT(*)
                   FROM chat_messages m2
@@ -4429,13 +4441,14 @@ export async function countHubChatUnreadThreads({ agencyId, userId } = {}) {
          WHERE td.deleted_at IS NULL
            ${agencyClause}
          HAVING unread_count > 0
-       ) x`,
+       ) x GROUP BY channel`,
       params
     );
-    return Number(rows[0]?.n || 0);
+    const counts = Object.fromEntries(rows.map(row => [row.channel, Number(row.n || 0)]));
+    return byChannel ? counts : Object.values(counts).reduce((total, n) => total + n, 0);
   } catch (e) {
     console.warn('[countHubChatUnreadThreads]', e?.message || e);
-    return 0;
+    return byChannel ? {} : 0;
   }
 }
 
