@@ -33,10 +33,6 @@
             <input v-model="endLocal" type="datetime-local" required />
           </label>
         </div>
-        <p v-if="spanType === 'hours' || spanType === 'half_day'" class="pom-tz-note">
-          Times are in your local time zone — <strong>{{ myTimezoneLabel }}</strong>. Everyone else will see this converted to their own time zone.
-        </p>
-
         <div v-else-if="spanType === 'half_day'" class="pom-row-2">
           <label class="field">
             <span>Date</span>
@@ -45,8 +41,8 @@
           <label class="field">
             <span>Half</span>
             <select v-model="halfDayPart">
-              <option value="am">Morning (AM)</option>
-              <option value="pm">Afternoon (PM)</option>
+              <option value="am">Morning (8:00 AM–12:00 PM)</option>
+              <option value="pm">Afternoon (12:00 PM–5:00 PM)</option>
             </select>
           </label>
         </div>
@@ -61,6 +57,11 @@
             <input v-model="endDateInclusive" type="date" required />
           </label>
         </div>
+
+        <p v-if="spanType !== 'all_day'" class="pom-tz-note">
+          Times are in your local time zone — <strong>{{ myTimezoneLabel }}</strong>. Everyone else will see this converted to their own time zone.
+        </p>
+        <p v-if="selectedWhen" class="pom-info" role="status">Planned out: <strong>{{ selectedWhen }}</strong></p>
 
         <div class="pom-row-3">
           <label class="field">
@@ -123,9 +124,10 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import api from '../../../services/api';
-import { detectLocalTimezone, timezoneLabelFor } from '../../../utils/timezones.js';
+import { detectLocalTimezone, timezoneLabelFor, zonedDatetimeLocalToIso } from '../../../utils/timezones.js';
+import { formatPlannedOutWhen } from '../../../utils/plannedOuts.js';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true }
@@ -151,6 +153,20 @@ const details = ref('');
 const saving = ref(false);
 const error = ref('');
 
+const selectedWhen = computed(() => {
+  if (spanType.value === 'all_day') {
+    return startDate.value ? formatPlannedOutWhen({ all_day: true, start_date: startDate.value, end_date: addOneDay(endDateInclusive.value || startDate.value) }) : '';
+  }
+  let start = startLocal.value, end = endLocal.value;
+  if (spanType.value === 'half_day') {
+    if (!dayDate.value) return '';
+    start = `${dayDate.value}T${halfDayPart.value === 'am' ? '08:00' : '12:00'}`;
+    end = `${dayDate.value}T${halfDayPart.value === 'am' ? '12:00' : '17:00'}`;
+  }
+  if (!start || !end) return '';
+  return formatPlannedOutWhen({ start_at: zonedDatetimeLocalToIso(start, myTimezone), end_at: zonedDatetimeLocalToIso(end, myTimezone) });
+});
+
 function toMysqlLocal(local) {
   if (!local) return null;
   const m = String(local).match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
@@ -162,8 +178,8 @@ function toMysqlLocal(local) {
 }
 
 function addOneDay(ymd) {
-  const d = new Date(`${ymd}T12:00:00`);
-  d.setDate(d.getDate() + 1);
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
 }
 
@@ -184,12 +200,20 @@ async function submit() {
       details: details.value.trim() || undefined
     };
     if (spanType.value === 'hours') {
+      if (!startLocal.value || !endLocal.value || endLocal.value <= startLocal.value) {
+        error.value = 'Choose an end date and time after the start.';
+        return;
+      }
       body.startAt = toMysqlLocal(startLocal.value);
       body.endAt = toMysqlLocal(endLocal.value);
     } else if (spanType.value === 'half_day') {
       body.startDate = dayDate.value;
       body.halfDayPart = halfDayPart.value;
     } else {
+      if (endDateInclusive.value && endDateInclusive.value < startDate.value) {
+        error.value = 'The end date must be on or after the start date.';
+        return;
+      }
       body.startDate = startDate.value;
       body.endDate = addOneDay(endDateInclusive.value || startDate.value);
       body.allDay = true;

@@ -1,0 +1,61 @@
+name: Scheduling regressions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/scheduling-regressions.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/scheduling-regressions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scheduling:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        timezone: [UTC, America/Denver]
+    env:
+      TZ: ${{ matrix.timezone }}
+      SKIP_DB_CONNECT: '1'
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install test dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend --ignore-scripts
+      - name: Meeting and planned-out API regressions
+        run: >-
+          node frontend/node_modules/vitest/vitest.mjs run
+          --config backend/vitest.meeting-launch.config.js
+          backend/src/services/__tests__/meetingScheduleTimezone.test.js
+          backend/src/services/__tests__/meetingCalendarEmail.test.js
+          backend/src/services/__tests__/meetingConfiguredReminders.test.js
+          backend/src/services/__tests__/meetingReminders.test.js
+          backend/src/controllers/__tests__/scheduling.plannedOuts.test.js
+      - name: Planned-out presence boundaries
+        env:
+          NODE_ENV: test
+        run: node --test backend/src/services/__tests__/plannedOutPresence.service.test.js
+      - name: Planned-out form and display regressions
+        working-directory: frontend
+        run: >-
+          npm test --
+          src/components/admin/opsDashboard/__tests__/PlannedOutModal.test.js
+          src/utils/__tests__/plannedOutTimezone.test.js

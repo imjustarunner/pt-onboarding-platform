@@ -72,8 +72,8 @@ export function formatPlannedOutWhen(row) {
     const endExclusive = String(row.end_date || '').slice(0, 10);
     if (endExclusive && start) {
       const endIncl = (() => {
-        const d = new Date(`${endExclusive}T12:00:00`);
-        d.setDate(d.getDate() - 1);
+        const d = new Date(`${endExclusive}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() - 1);
         return fmtMd(d.toISOString().slice(0, 10));
       })();
       if (endIncl && endIncl !== start) return `${start}-${endIncl}`;
@@ -81,12 +81,17 @@ export function formatPlannedOutWhen(row) {
     return start || 'All day';
   }
   if (span === 'half_day') {
-    const day = fmtMd(row.start_date || row.start_at);
+    const day = row.start_at ? formatViewerLocalDate(row.start_at) : fmtMd(row.start_date);
     const part = String(row.half_day_part || 'am').toUpperCase();
-    return `${day} ${part} (half day)`;
+    const range = formatViewerTimeRange(row.start_at, row.end_at);
+    return range ? `${day} ${range} (half day)` : `${day} ${part} (half day)`;
   }
   const { start, end } = effectiveTimedInstants(row);
   const day = formatViewerLocalDate(start || row.start_date);
+  const endDay = formatViewerLocalDate(end);
+  if (day && endDay && day !== endDay) {
+    return `${day} ${formatViewerClockTime(start)} – ${endDay} ${formatViewerClockTime(end)}`;
+  }
   const range = formatViewerTimeRange(start, end);
   if (day && range) return `${day} ${range}`;
   return day || range || '—';

@@ -2,6 +2,7 @@ import { isStaffCommunicationRole } from '../utils/staffCommunicationChoices.js'
 import { getStaffCommunicationChoices } from '../services/staffCommunicationChoices.service.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 import { huddleSubtype, HUDDLE_SUBTYPES } from '../services/huddlePolicy.js';
+import { providerScheduleCalendarTiming } from '../utils/providerScheduleCalendar.js';
 import { randomUUID } from 'node:crypto';
 import { captureMeetingChange, queueMeetingChange } from '../services/meetingScheduleChanges.service.js';
 import { saveEventMeetingSettings, assertMeetingCompensationSetting } from '../services/meetingSettings.service.js';
@@ -3852,42 +3853,6 @@ function wallInTimeZoneToMysqlUtc(value, timeZone) {
   return toMysqlUtc(new Date(utcMs));
 }
 
-/** Format a UTC MySQL/ISO instant as wall-clock `YYYY-MM-DD HH:mm:ss` in `timeZone`. */
-function utcMysqlToWallInTimeZone(value, timeZone) {
-  const tz = String(timeZone || '').trim() || 'America/Denver';
-  if (value == null) return null;
-  let d;
-  if (value instanceof Date) {
-    d = value;
-  } else {
-    const raw = String(value || '').trim();
-    if (!raw) return null;
-    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/.test(raw) && !/[zZ]|[+-]\d{2}:?\d{2}$/.test(raw)) {
-      d = new Date(raw.replace(' ', 'T') + 'Z');
-    } else {
-      d = new Date(raw);
-    }
-  }
-  if (Number.isNaN(d.getTime())) return null;
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23'
-  });
-  const parts = dtf.formatToParts(d);
-  const map = {};
-  for (const p of parts) {
-    if (p.type !== 'literal') map[p.type] = p.value;
-  }
-  const pad2 = (n) => String(n).padStart(2, '0');
-  return `${map.year}-${map.month}-${map.day} ${pad2(Number(map.hour) % 24)}:${map.minute}:${map.second}`;
-}
-
 /** Return ISO string with Z for schedule events so frontend parses as UTC and displays correctly in viewer's timezone. */
 function toIsoUtcForSchedule(value) {
   if (value === null || value === undefined) return null;
@@ -6735,9 +6700,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
     let endAt = undefined;
     let startDate = undefined;
     let endDate = undefined;
-    /** Wall-clock values for Google Calendar (dateTime + timeZone). */
-    let googleStartWall = undefined;
-    let googleEndWall = undefined;
+    // Zone used to interpret incoming wall-clock edits before storing UTC.
     let updateTimeZone = String(
       req.body?.timeZone
       || req.body?.timezone
@@ -6779,8 +6742,6 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const rawEnd = req.body?.endAt != null ? req.body.endAt : target.end_at;
       const startFromStorage = req.body?.startAt == null;
       const endFromStorage = req.body?.endAt == null;
-      googleStartWall = scheduleInstantToWallMysql(rawStart, updateTimeZone, { fromStorage: startFromStorage });
-      googleEndWall = scheduleInstantToWallMysql(rawEnd, updateTimeZone, { fromStorage: endFromStorage });
       // All timed schedule events store UTC.
       startAt = startFromStorage
         ? normalizeUtcMysqlScheduleInstant(rawStart)
@@ -7166,14 +7127,6 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       if (!fresh) continue;
       const googleEventId = String(fresh?.google_event_id || '').trim();
       if (!googleEventId) continue;
-      const occAllDay = Number(fresh.all_day || 0) === 1;
-      // Google dateTime+timeZone expects wall clock — never send stored UTC DATETIME as wall.
-      const gStart = occAllDay
-        ? null
-        : (googleStartWall || utcMysqlToWallInTimeZone(fresh.start_at, tz));
-      const gEnd = occAllDay
-        ? null
-        : (googleEndWall || utcMysqlToWallInTimeZone(fresh.end_at, tz));
       // eslint-disable-next-line no-await-in-loop
       await GoogleCalendarService.upsertProviderPrimaryCalendarEvent({
         subjectEmail,
@@ -7183,12 +7136,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
           ? [fresh.description, `Join with app: ${joinUrlForTeamMeeting(await tenantMeetingBase(fresh.agency_id), fresh.participant_join_token || fresh.join_token || fresh.id)}`].filter(Boolean).join('\n\n')
           : fresh?.description || null,
         ...(['TEAM_MEETING', 'HUDDLE'].includes(kind) ? { sendUpdates: 'none', disableReminders: true } : {}),
-        startAt: gStart,
-        endAt: gEnd,
-        allDay: occAllDay,
-        startDate: occAllDay && fresh.start_date ? String(fresh.start_date).slice(0, 10) : null,
-        endDate: occAllDay && fresh.end_date ? String(fresh.end_date).slice(0, 10) : null,
-        timeZone: tz,
+        ...providerScheduleCalendarTiming(fresh, tz),
         ...(occId === eventId && attendeeEmails && !['TEAM_MEETING', 'HUDDLE'].includes(kind) ? { attendees: attendeeEmails } : {})
       }).catch(() => {});
     }

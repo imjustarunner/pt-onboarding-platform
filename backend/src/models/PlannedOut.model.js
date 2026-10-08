@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { utcDateToZonedYmd, utcMysqlToIso } from '../utils/zonedWallTime.util.js';
 
 const USER_NAME_SQL = `TRIM(CONCAT(COALESCE(u.first_name, ''), ' ', COALESCE(u.last_name, '')))`;
 
@@ -31,6 +32,7 @@ class PlannedOut {
       end_at: row.end_at,
       start_date: row.start_date,
       end_date: row.end_date,
+      time_zone: row.time_zone || null,
       availability: row.availability,
       emergencies: row.emergencies,
       emergencies_redirect_user_id: row.emergencies_redirect_user_id,
@@ -92,6 +94,7 @@ class PlannedOut {
               po.status AS approval_status,
               pse.start_at AS schedule_event_start_at,
               pse.end_at AS schedule_event_end_at,
+              pse.event_timezone AS time_zone,
               ${USER_NAME_SQL} AS user_name,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,
@@ -111,6 +114,7 @@ class PlannedOut {
   static async listForAgency({
     agencyId,
     upcomingOnly = true,
+    timeZone = 'America/Denver',
     includeStatuses = ['pending', 'approved', 'revision'],
     limit = 100
   } = {}) {
@@ -125,19 +129,19 @@ class PlannedOut {
     const params = [aid, ...statusList];
     let upcomingSql = '';
     if (upcomingOnly) {
-      // Include current/future spans — not only entries whose end time is still in the future.
-      // Timed outs for today stay visible for the rest of the calendar day after they end.
+      // Completed spans belong to history, even if nobody acknowledged them.
       upcomingSql = ` AND (
-        (po.all_day = 1 AND po.end_date > CURDATE())
-        OR (po.all_day = 0 AND DATE(po.end_at) >= CURDATE())
-        OR (po.all_day = 0 AND po.end_at IS NULL AND DATE(po.start_at) >= CURDATE())
+        (po.all_day = 1 AND po.end_date > ?)
+        OR (po.all_day = 0 AND po.end_at > UTC_TIMESTAMP())
       )`;
+      params.push(utcDateToZonedYmd(new Date(), timeZone));
     }
     const [rows] = await pool.execute(
       `SELECT po.*,
               po.status AS approval_status,
               pse.start_at AS schedule_event_start_at,
               pse.end_at AS schedule_event_end_at,
+              pse.event_timezone AS time_zone,
               ${USER_NAME_SQL} AS user_name,
               u.first_name AS user_first_name,
               u.last_name AS user_last_name,
@@ -256,12 +260,8 @@ class PlannedOut {
 export default PlannedOut;
 
 function parseStoredInstant(value) {
-  if (!value) return NaN;
-  if (value instanceof Date) return value.getTime();
-  const raw = String(value).trim();
-  if (!raw) return NaN;
-  if (raw.includes('T')) return new Date(raw).getTime();
-  return new Date(`${raw.replace(' ', 'T')}Z`).getTime();
+  const iso = utcMysqlToIso(value);
+  return iso ? new Date(iso).getTime() : NaN;
 }
 
 /**

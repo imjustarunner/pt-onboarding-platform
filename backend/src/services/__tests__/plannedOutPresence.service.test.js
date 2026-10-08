@@ -1,11 +1,14 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
+import pool from '../../config/database.js';
 import {
   overlayPlannedOutsOnPresenceRows,
   plannedOutStatusLabel,
   availabilityBandFromPlannedOut
 } from '../plannedOutPresence.service.js';
 import { isPlannedOutActiveNow, ymdFromStoredDate } from '../../models/PlannedOut.model.js';
+
+after(() => pool.end());
 
 test('plannedOutStatusLabel uses out-for-planned-out copy', () => {
   assert.equal(plannedOutStatusLabel({ availability: 'unavailable' }), 'Out for planned out');
@@ -48,7 +51,7 @@ test('isPlannedOutActiveNow works for all-day rows returned as Date objects', ()
 });
 
 test('overlayPlannedOutsOnPresenceRows marks offline users on active approved planned outs', () => {
-  const now = new Date('2026-08-10T15:00:00');
+  const now = new Date('2026-08-10T15:00:00Z');
   const plannedOut = {
     id: 42,
     user_id: 7,
@@ -67,6 +70,14 @@ test('overlayPlannedOutsOnPresenceRows marks offline users on active approved pl
   assert.equal(person.planned_out_active, true);
   assert.equal(person.availability_band, 'unavailable');
   assert.equal(person.status_label, 'Out for planned out');
+});
+
+test('past and half-day end times never mark someone out after the saved window', () => {
+  const plannedOut = { id: 35, user_id: 539, status: 'approved', all_day: false, start_at: '2026-10-06 16:00:00', end_at: '2026-10-06 19:00:00' };
+  assert.equal(isPlannedOutActiveNow(plannedOut, new Date('2026-10-06T18:59:00Z')), true);
+  assert.equal(isPlannedOutActiveNow(plannedOut, new Date('2026-10-06T19:00:00Z')), false);
+  const person = { id: 539, status: 'online', availability_band: 'available' };
+  assert.deepEqual(overlayPlannedOutsOnPresenceRows([person], [plannedOut], new Date('2026-10-08T14:00:00Z')), [person]);
 });
 
 test('overlay keeps unavailable planned out when user is online / Active', () => {

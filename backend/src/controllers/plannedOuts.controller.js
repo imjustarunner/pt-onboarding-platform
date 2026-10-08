@@ -1,6 +1,7 @@
 import Agency from '../models/Agency.model.js';
 import User from '../models/User.model.js';
-import PlannedOut, { isPlannedOutActiveNow } from '../models/PlannedOut.model.js';
+import PlannedOut, { isPlannedOutActiveNow, ymdFromStoredDate } from '../models/PlannedOut.model.js';
+import Notification from '../models/Notification.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
 import UserPresenceStatus from '../models/UserPresenceStatus.model.js';
 import {
@@ -33,6 +34,8 @@ function serializePlannedOutForApi(mapped) {
     created_at: iso(mapped.created_at),
     updated_at: iso(mapped.updated_at),
     reviewed_at: iso(mapped.reviewed_at),
+    start_date: ymdFromStoredDate(mapped.start_date),
+    end_date: ymdFromStoredDate(mapped.end_date),
     schedule_event_start_at: iso(mapped.schedule_event_start_at),
     schedule_event_end_at: iso(mapped.schedule_event_end_at)
   };
@@ -52,8 +55,7 @@ async function ensureAgencyAccess(req, agencyId) {
 }
 
 function ymd(raw) {
-  const s = String(raw || '').slice(0, 10);
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  return ymdFromStoredDate(raw);
 }
 
 function addDaysYmd(dateStr, days) {
@@ -129,33 +131,26 @@ async function createScheduleBlockForOut({ req, agencyId, userId, payload, userN
     endAt: allDay ? null : payload.endAt,
     startDate: allDay ? payload.startDate : null,
     endDate: allDay ? payload.endDate : null,
+    eventTimezone: payload.timeZone,
     createdByUserId: req.user.id
   });
 }
 
-function plannedOutWhenLabel(row) {
+function plannedOutWhenLabel(row, timeZone = DEFAULT_SCHEDULE_TZ) {
   if (!row) return 'your selected dates';
+  const tz = isValidTimeZone(row.time_zone) ? row.time_zone : timeZone;
+  const dateLabel = (date) => new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'long', day: 'numeric', year: 'numeric' }).format(new Date(`${date}T00:00:00Z`));
   if (row.all_day || row.span_type === 'all_day') {
-    const start = String(row.start_date || '').slice(0, 10);
+    const start = ymd(row.start_date);
     if (!start) return 'your selected dates';
-    try {
-      return new Date(`${start}T12:00:00`).toLocaleDateString('en-US', {
-        month: 'long',
-        day: 'numeric'
-      });
-    } catch {
-      return start;
-    }
+    const end = ymd(row.end_date);
+    const lastDay = end ? addDaysYmd(end, -1) : start;
+    return lastDay > start ? `${dateLabel(start)} – ${dateLabel(lastDay)} (all day)` : `${dateLabel(start)} (all day)`;
   }
-  const startAt = row.start_at || row.start_date;
-  if (!startAt) return 'your selected dates';
-  try {
-    const d = new Date(String(startAt).includes('T') ? startAt : `${String(startAt).replace(' ', 'T')}Z`);
-    if (!Number.isFinite(d.getTime())) return String(startAt).slice(0, 10);
-    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
-  } catch {
-    return String(startAt).slice(0, 10);
-  }
+  const start = utcMysqlToIso(row.start_at), end = utcMysqlToIso(row.end_at);
+  if (!start || !end) return 'your selected dates';
+  const format = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  return `${format.format(new Date(start))} – ${format.format(new Date(end))}`;
 }
 
 async function countScheduleConflictsForPlannedOut(row) {
@@ -279,6 +274,7 @@ function normalizePayload(body = {}, timeZone = DEFAULT_SCHEDULE_TZ) {
   const contactPreference = contactAllowed.includes(contactRaw) ? contactRaw : 'none';
 
   return {
+    timeZone: tz,
     spanType: allDay ? 'all_day' : spanType,
     halfDayPart,
     allDay: allDay || spanType === 'all_day',
@@ -306,6 +302,7 @@ export const listPlannedOuts = async (req, res, next) => {
     const items = await PlannedOut.listForAgency({
       agencyId: access.agencyId,
       upcomingOnly,
+      timeZone: access.agency.timezone || DEFAULT_SCHEDULE_TZ,
       limit: Number(req.query.limit) || 100
     });
     const withConflicts = await Promise.all(
@@ -381,7 +378,7 @@ export const createPlannedOut = async (req, res, next) => {
 
     await syncScheduleEventFromPlannedOut(created?.id);
 
-    const whenLabel = plannedOutWhenLabel(created);
+    const whenLabel = plannedOutWhenLabel(created, submitTz);
     const submitterName = [user.first_name, user.last_name].filter(Boolean).join(' ').trim() || user.email || 'A provider';
     await notifyPlannedOut('planned_out_submitted', {
       userId: targetUserId,
@@ -510,6 +507,7 @@ export const reviewPlannedOut = async (req, res, next) => {
       patch.adminComment = comment;
     }
     const updated = await PlannedOut.updateById(row.id, patch);
+    await Notification.markAsResolvedByRelatedEntity(row.agency_id, 'planned_out', row.id);
 
     if (action === 'approve') {
       await syncScheduleEventFromPlannedOut(updated?.id);
@@ -519,7 +517,7 @@ export const reviewPlannedOut = async (req, res, next) => {
       await applyPlannedOutPresenceForUser(row.user_id, updated);
     }
 
-    const whenLabel = plannedOutWhenLabel(updated || row);
+    const whenLabel = plannedOutWhenLabel(updated || row, access.agency.timezone || DEFAULT_SCHEDULE_TZ);
     if (action === 'approve') {
       await notifyPlannedOut('planned_out_acknowledged', {
         userId: row.user_id,
@@ -568,13 +566,13 @@ export const updatePlannedOut = async (req, res, next) => {
 
     const agencyTz = String(access.agency?.timezone || '').trim() || DEFAULT_SCHEDULE_TZ;
     const requestTz = String(req.body?.timeZone || '').trim();
-    const submitTz = (requestTz && isValidTimeZone(requestTz)) ? requestTz : agencyTz;
+    const submitTz = (requestTz && isValidTimeZone(requestTz)) ? requestTz : row.time_zone || agencyTz;
     // Existing DB times are UTC — pass as ISO-Z so we do not wall-convert again.
     const keepStart = req.body?.startAt == null && row.start_at
-      ? (String(row.start_at).includes('T') ? row.start_at : `${String(row.start_at).replace(' ', 'T')}Z`)
+      ? utcMysqlToIso(row.start_at)
       : req.body?.startAt;
     const keepEnd = req.body?.endAt == null && row.end_at
-      ? (String(row.end_at).includes('T') ? row.end_at : `${String(row.end_at).replace(' ', 'T')}Z`)
+      ? utcMysqlToIso(row.end_at)
       : req.body?.endAt;
     let payload;
     try {
@@ -623,7 +621,7 @@ export const updatePlannedOut = async (req, res, next) => {
     });
     await syncScheduleEventFromPlannedOut(updated?.id);
 
-    const whenLabel = plannedOutWhenLabel(updated);
+    const whenLabel = plannedOutWhenLabel(updated, submitTz);
     await notifyPlannedOut('planned_out_submitted', {
       userId: row.user_id,
       agencyId: row.agency_id,
