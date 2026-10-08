@@ -1,9 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { AVERY_35702, cardPositions, employeeCardDefaults, assignedCardOffices, organizationCardDefaults, isCardEmployee, resolveCard, readCardDraft, cardSvg, safeLogo } from '../businessCards';
+import { AVERY_35702, cardPositions, employeeCardDefaults, groupCardDefaults, assignedCardOffices, organizationCardDefaults, isCardEmployee, resolveCard, readCardDraft, cardSvg, safeLogo } from '../businessCards';
 
 import { printableCardsHtml } from '../businessCardPrint';
 
 describe('employee business cards', () => {
+  it('cleans ITSCO department prefixes only for card display and preserves the agency name', () => {
+    for (const name of ['ITSCO - People Operations','ITSCO People Operations','itsco — People Operations']) {
+      const group={id:'group:1',name,email:'po@itsco.health'};
+      expect(groupCardDefaults(group,[],{slug:'itsco'}).name).toBe('People Operations');
+      expect(group.name).toBe(name);
+    }
+    expect(groupCardDefaults({id:'organization',kind:'organization',name:'ITSCO'},[],{slug:'itsco'}).name).toBe('ITSCO');
+    expect(groupCardDefaults({id:'group:1',name:'ITSCO Support'},[],{slug:'another'}).name).toBe('ITSCO Support');
+  });
+  it('prints every distinct office on shared cards and fits enlarged headings and addresses inside their panels', () => {
+    const offices=[{id:'1',address:'123 North St\nColorado Springs, CO 80919'},{id:'2',address:'456 South St\nColorado Springs, CO 80906'}];
+    for (const [kind,name] of [['organization','ITSCO'],['group','People Operations'],['department','Technology Support']]) {
+      const card=resolveCard(groupCardDefaults({id:'group:1',kind,name},offices),{phone:'719-657-7444',website:'ITSCO.health'});
+      const doc=new DOMParser().parseFromString(cardSvg(card),'image/svg+xml');
+      const heading=doc.querySelector('[data-card-field="display-name"]');
+      expect(Number(heading.querySelector('text').getAttribute('font-size'))).toBeGreaterThan(44);
+      expect(heading.textContent.replace(/\s/g,'')).toBe(name.replace(/\s/g,''));
+      const address=doc.querySelector('[data-card-panel="address"]');
+      expect(address.textContent).toContain('OFFICE LOCATIONS');expect(address.textContent).toContain('123 North St');expect(address.textContent).toContain('456 South St');
+      const offset=Number(address.getAttribute('transform').match(/translate\(0 ([^)]+)\)/)[1]);
+      for(const el of address.querySelectorAll('text'))expect(Number(el.getAttribute('y'))+offset).toBeLessThanOrEqual(715);
+    }
+  });
   it('does not print a disconnected extension when the agency has no office number', () => {
     const svg = cardSvg({ name: 'Michael Mendez', phone: '', extension: '701' });
     expect(svg).not.toContain('data-card-contact="office-phone"');

@@ -41,13 +41,19 @@ export async function getBusinessCardTemplate(req, res, next) {
     let template = null;
     if (flags?.business_card_template) template = normalizeBusinessCardSettings(flags.business_card_template);
     const groups = [];
+    let offices = [];
     if (scope.canManage && !onlyId) {
-      const [[identities], [departments]] = await Promise.all([
+      const [[identities], [departments], [agencyOffices]] = await Promise.all([
         pool.execute(`SELECT id, identity_key, display_name, from_email, reply_to FROM email_sender_identities
           WHERE agency_id = ? AND is_active = TRUE ORDER BY display_name, identity_key`, [scope.agencyId]),
         pool.execute(`SELECT id, name FROM agency_departments
-          WHERE agency_id = ? AND is_active = TRUE ORDER BY display_order, name`, [scope.agencyId])
+          WHERE agency_id = ? AND is_active = TRUE ORDER BY display_order, name`, [scope.agencyId]),
+        pool.execute(`SELECT DISTINCT ol.id, ol.name, ol.street_address, ol.city, ol.state, ol.postal_code
+          FROM office_locations ol JOIN office_location_agencies ola ON ola.office_location_id = ol.id
+          WHERE ola.agency_id = ? AND COALESCE(ol.is_active, TRUE) = TRUE
+          ORDER BY ol.name`, [scope.agencyId])
       ]);
+      offices = agencyOffices.map(office => ({ ...office, agencyIds: [scope.agencyId], isActive: true }));
       for (const identity of identities) {
         if (String(identity.identity_key).toLowerCase().startsWith('personal_')) continue;
         groups.push({ id: `group:${identity.id}`, kind: 'group',
@@ -59,7 +65,7 @@ export async function getBusinessCardTemplate(req, res, next) {
         groups.push({ id: `department:${department.id}`, kind: 'department', name: department.name, email: '' });
       }
     }
-    res.json({ agency, template, groups, canManage: scope.canManage && !selfOnly, people: people.filter(activeStaff).map(p => ({ ...p, agency_ids: String(scope.agencyId) })) });
+    res.json({ agency, template, groups, offices, canManage: scope.canManage && !selfOnly, people: people.filter(activeStaff).map(p => ({ ...p, agency_ids: String(scope.agencyId) })) });
   } catch (error) { if (error.status === 400) return reject(res, 400, error.message); next(error); }
 }
 

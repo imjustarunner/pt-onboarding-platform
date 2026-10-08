@@ -19,6 +19,7 @@ if(sql.includes('FROM twilio_number_assignments'))return[assignments];
 if(sql.startsWith('UPDATE agencies'))return[{affectedRows:1}];
 if(sql.includes('FROM email_sender_identities'))return[[{id:10,identity_key:'people_operations',display_name:'People Operations',from_email:'po@tenant.example'}, {id:11,identity_key:'technology',display_name:'Technology Support',from_email:'outbound@tenant.example',reply_to:'tech@tenant.example'}, {id:12,identity_key:'personal_7',display_name:'Personal',from_email:'personal@tenant.example'}]];
 if(sql.includes('FROM agency_departments'))return[[{id:10,name:'Development'}]];
+if(sql.includes('FROM office_locations ol'))return[[{id:20,name:'North',street_address:'123 North St',city:'Colorado Springs',state:'CO',postal_code:'80919'},{id:21,name:'South',street_address:'456 South St',city:'Colorado Springs',state:'CO',postal_code:'80906'}]];
 throw Error('Unexpected SQL '+sql);
 });});
 describe('business card tenant and employee boundaries',()=>{
@@ -33,10 +34,15 @@ describe('business card tenant and employee boundaries',()=>{
    const [sql,args]=m.execute.mock.calls.find(([sql])=>sql.includes(`FROM ${table}`));
    expect(sql).toContain('agency_id = ? AND is_active = TRUE');expect(args).toEqual([2]);
   }
+  expect(r.json.mock.calls[0][0].offices).toHaveLength(2);
+  expect(r.json.mock.calls[0][0].offices[0]).toMatchObject({id:20,agencyIds:[2],isActive:true});
+  const [officeSql,officeArgs]=m.execute.mock.calls.find(([sql])=>sql.includes('FROM office_locations ol'));
+  expect(officeSql).toContain('ola.agency_id = ? AND COALESCE(ol.is_active, TRUE) = TRUE');expect(officeArgs).toEqual([2]);
  });
  it.each([{role:'staff',query:{}},{role:'admin',query:{self:'true'}},{role:'admin',query:{userId:'7'}}])('omits group contacts from individual card requests: %j',async scenario=>{
   role=scenario.role;const r=res(),next=vi.fn();await getBusinessCardTemplate(req({query:scenario.query}),r,next);
   expect(next).not.toHaveBeenCalled();expect(r.json.mock.calls[0][0].groups).toEqual([]);
+  expect(r.json.mock.calls[0][0].offices).toEqual([]);
   expect(m.execute.mock.calls.some(([sql])=>sql.includes('FROM email_sender_identities')||sql.includes('FROM agency_departments'))).toBe(false);
  });
  it('loads only the profile being printed by an administrator',async()=>{role='admin';const r=res();await getBusinessCardTemplate(req({query:{userId:'538'}}),r,vi.fn());expect(m.execute.mock.calls.find(([s])=>s.includes('SELECT DISTINCT u.id'))[1]).toEqual([2,538]);});

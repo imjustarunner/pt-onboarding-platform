@@ -65,13 +65,14 @@
           <p v-if="editing.loadError" class="card-error">{{ editing.loadError }} Reopen the generator to retry loading this employee.</p>
           <p v-if="missingProfileFields.length" class="card-data-note">Missing details: {{ missingProfileFields.join(', ') }}. Review before printing.</p>
           <label>Office to print<select v-model="editing.officeId" aria-label="Office to print">
+            <option v-if="editing.kind && editing.offices.some(o => o.address)" value="__all">All agency office addresses</option>
             <option value="">{{ editing.kind ? 'No office address' : editing.offices.length ? 'Choose an assigned office' : 'No assigned office — address omitted' }}</option>
             <option v-for="office in editing.offices" :key="office.id" :value="office.id">{{ office.name }}{{ office.primary ? ' (primary)' : '' }}</option>
             <option value="__organization">Use organization address</option>
           </select></label>
           <p v-if="!editing.kind && !editing.offices.length" class="card-data-note">No active office assignment for this organization. Choose the organization address or enter an address override if needed.</p>
           <label v-for="field in fields.filter(f => !editing.kind || f.key !== 'credentials')" :key="field.key">{{ field.label }}
-            <textarea v-if="field.key === 'address'" v-model="editing[field.key]" :maxlength="field.max" :placeholder="assignedAddress || 'Office address override (optional)'" rows="3" />
+            <textarea v-if="field.key === 'address'" v-model="editing[field.key]" :maxlength="editing.kind ? 500 : field.max" :placeholder="assignedAddress || 'Office address override (optional)'" :rows="editing.kind ? 6 : 3" />
             <input v-else v-model="editing[field.key]" :maxlength="field.max" :placeholder="field.shared ? organization[field.key] || 'Optional' : 'Optional'" />
           </label>
           <p>Blank office phone and website fields use organization defaults. The address comes from the selected office unless overridden. Changes apply to this card draft.</p>
@@ -190,13 +191,14 @@ async function loadOrganization(id) {
     }
     if (version !== generation) return;
     if (canManage.value && !singlePerson.value) {
-      const agencyCard = groupCardDefaults({ id: 'organization', kind: 'organization', name: organization.organization });
+      const offices = assignedCardOffices(response.data.offices || [], response.data.offices || [], id);
+      const agencyCard = groupCardDefaults({ id: 'organization', kind: 'organization', name: organization.organization }, offices, agency);
       if (String(agency.slug || '').toLowerCase() === 'itsco') {
         agencyCard.email = 'support@itsco.health';
         agencyCard.extension = '0';
       }
       results.push(agencyCard);
-      results.push(...(response.data.groups || []).map(groupCardDefaults));
+      results.push(...(response.data.groups || []).map(group => groupCardDefaults(group, offices, agency)));
     }
     people.value = results.sort((a, b) => a.name.localeCompare(b.name));
     if (!people.value.some(p => !p.kind) && people.value.some(p => p.kind)) cardType.value = 'groups';
@@ -229,14 +231,17 @@ async function loadDraft(event) {
     if (file.size > 8000000) throw new Error('This draft is too large. Choose a saved business-card draft under 8 MB.');
     const draft = readCardDraft(await file.text(), agencyId.value);
     if (version !== generation) return;
-    for (const person of draft.people) for (const field of fields) if (person[field.key].length > field.max) throw new Error(`The saved ${field.label.toLowerCase()} is too long.`);
+    for (const person of draft.people) for (const field of fields) {
+      const limit = field.key === 'address' && people.value.find(p => p.id === person.id)?.kind ? 500 : field.max;
+      if (person[field.key].length > limit) throw new Error(`The saved ${field.label.toLowerCase()} is too long.`);
+    }
     if (canManage.value) Object.assign(organization, draft.organization);
     if (draft.print) Object.assign(printSettings, normalizePrintSettings(draft.print));
     const byId = new Map(draft.people.map(p => [p.id, p]));
     people.value.forEach(p => {
       if (!byId.has(p.id)) { p.selected = false; return; }
       const saved = { ...byId.get(p.id) };
-      if (saved.officeId && saved.officeId !== '__organization' && !p.offices.some(o => o.id === saved.officeId)) delete saved.officeId;
+      if (saved.officeId && saved.officeId !== '__organization' && !(p.kind && saved.officeId === '__all') && !p.offices.some(o => o.id === saved.officeId)) delete saved.officeId;
       Object.assign(p, saved);
     });
     const firstSelected = selected.value[0];
@@ -269,7 +274,10 @@ async function exportCards(format) {
     const cards = selected.value.map(p => resolveCard(p, organization));
     for (const card of cards) {
       if (!card.name.trim()) throw new Error('Enter a display name for every selected card.');
-      for (const field of fields) if (String(card[field.key] || '').length > field.max) throw new Error(`${card.name}: shorten the ${field.label.toLowerCase()} to ${field.max} characters.`);
+      for (const field of fields) {
+        const limit = card.kind && field.key === 'address' ? 500 : field.max;
+        if (String(card[field.key] || '').length > limit) throw new Error(`${card.name}: shorten the ${field.label.toLowerCase()} to ${limit} characters.`);
+      }
     }
     const logo = await embedCardLogo(organization.logo);
     const watermarkLogo = await embedCardLogo(organization.watermarkLogo);

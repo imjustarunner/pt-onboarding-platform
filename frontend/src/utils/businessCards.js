@@ -80,15 +80,19 @@ export function isCardEmployee(user, agencyId) {
     && ['', 'ACTIVE', 'ACTIVE_EMPLOYEE'].includes(text(user.status).toUpperCase());
 }
 
-export function groupCardDefaults(group) {
-  return { ...employeeCardDefaults(), id: text(group.id), kind: group.kind || 'group',
-    name: text(group.name), email: text(group.email), officeId: '__organization' };
+export function groupCardDefaults(group, offices = [], agency = {}) {
+  const name = text(group.name);
+  const cardName = group.kind !== 'organization' && text(agency.slug).toLowerCase() === 'itsco'
+    ? name.replace(/^ITSCO\b[\s:–—-]*/i, '').trim() || name : name;
+  return { ...employeeCardDefaults({}, offices), id: text(group.id), kind: group.kind || 'group',
+    name: cardName, email: text(group.email), officeId: offices.some(o => o.address) ? '__all' : '__organization' };
 }
 
 export function resolveCard(person, organization) {
   const ownPhone = text(person.phone);
   const office = person.offices?.find(o => o.id === person.officeId);
-  const defaultAddress = person.officeId === '__organization' || !Array.isArray(person.offices) ? organization.address : office?.address || '';
+  const allAddresses = [...new Set((person.offices || []).map(o => text(o.address)).filter(Boolean))];
+  const defaultAddress = person.kind && person.officeId === '__all' ? allAddresses.join('\n\n') : person.officeId === '__organization' || !Array.isArray(person.offices) ? organization.address : office?.address || '';
   return { ...organization, ...person, website: text(person.website) || organization.website,
     qrUrl: text(organization.qrUrl) || text(organization.website), backWebsite: organization.website,
     address: shortZip(text(person.address) || defaultAddress), phone: ownPhone || organization.phone,
@@ -156,14 +160,24 @@ export function cardSvg(card, fonts = {}, bleedInches = 0, bottomBleedInches = b
   const phone = text(card.phone) ? [text(card.phone), extension(card.extension) ? `ext. ${extension(card.extension)}` : ''].filter(Boolean).join(' ') : '';
   const block = (value, x, y, width, size, maxLines, color = '#162f32', heading = false) => textBlock(value, x, y, width, size, maxLines, color, heading ? 700 : 400, heading ? 'CardHeading' : 'CardBody', fonts.measure);
   const svgText = (...args) => block(...args).markup;
-  const name = { bottom: 82, markup: singleLine(card.name, 35, 82, 320, 44, primaryInk, 700, 'CardHeading', fonts.measure, 'name') };
+  const sharedCard = ['organization', 'group', 'department'].includes(card.kind);
+  let sharedNameSize = card.kind === 'organization' ? 100 : 64;
+  // Keep department words intact while using the full name panel.
+  if (sharedCard) {
+    const widestWord = Math.max(1, ...text(card.name).split(/\s+/).map(word => fonts.measure
+      ? fonts.measure(word, sharedNameSize, 'CardHeading', 700) : word.length * sharedNameSize * 0.6));
+    sharedNameSize = Math.min(sharedNameSize, sharedNameSize * 320 / widestWord);
+  }
+  const name = sharedCard
+    ? block(card.name, 35, 110, 320, sharedNameSize, 3, primaryInk, true)
+    : { bottom: 82, markup: singleLine(card.name, 35, 82, 320, 44, primaryInk, 700, 'CardHeading', fonts.measure, 'name') };
   const credentials = block(card.credentials, 35, name.bottom + 34, 320, 26, 1, primaryInk, true);
   const title = block(card.displayLabel === 'Unlicensed Masters' ? '' : card.candidate ? String(card.title || '').replace(/\s*\bCandidate\b/gi,'').trim() : card.title, 35, (credentials.lines ? credentials.bottom : name.bottom) + 38, 320, 24, 3, primaryInk);
   const roleLabel = card.displayLabel && card.displayLabel !== card.title ? block(card.candidate ? card.displayLabel.replace(/\s*\bCandidate\b/gi,'').trim() : card.displayLabel,35,title.bottom+30,320,22,2,primaryInk) : {bottom:title.bottom,markup:''};
   const candidate = card.candidate ? block('Candidate',35,roleLabel.bottom+30,320,22,1,primaryInk) : {bottom:roleLabel.bottom,markup:''};
-  const dividerY = candidate.bottom + 20;
+  const dividerY = (sharedCard ? (title.lines ? title.bottom : name.bottom) : candidate.bottom) + 20;
   // Keep the identity centered alongside the logo after moving phones below.
-  const topOffset = Math.max(0, 220 - (56 + dividerY) / 2);
+  const topOffset = sharedCard ? 187.5 - ((110 - name.size * 0.8) + dividerY) / 2 : Math.max(0, 220 - (56 + dividerY) / 2);
   const displayEmail = text(card.email).replace(/@itsco\.health$/i, '@ITSCO.health');
   const workLine = card.workLine?.number && (card.workLine.canText || card.workLine.canCall) ? card.workLine : null;
   const workLabel = workLine?.canCall ? (workLine.canText ? 'Call / Text' : 'Call') : 'Text';
@@ -181,7 +195,20 @@ export function cardSvg(card, fonts = {}, bleedInches = 0, bottomBleedInches = b
   contactRow('website', card.website, 'website');
   // Center the entire address group against the visible contact rows, including
   // the optional work line. Keep both groups safely inside the bottom panels.
-  const address = block(shortZip(card.address), 423, 470, 292, 26, 6, accentInk);
+  const addressParts = shortZip(card.address).split(/\n\s*\n/).filter(Boolean);
+  let address = block(shortZip(card.address), 423, 470, 292, 26, 6, accentInk);
+  if (addressParts.length > 1) {
+    for (let size = 26; size >= 15; size--) {
+      let y = 470;
+      const blocks = addressParts.map(part => {
+        const partBlock = block(part, 423, y, 292, size, 8, accentInk);
+        y = partBlock.bottom + size * 1.18 + 16;
+        return partBlock;
+      });
+      address = { bottom: blocks.at(-1).bottom, markup: blocks.map(b => b.markup).join('') };
+      if (address.bottom <= 715) break;
+    }
+  }
   const contactCenter = contactRows.length ? (447 + contactY - 58) / 2 : 562.5;
   const addressOffset = Math.max(400 - 406, Math.min(715 - address.bottom, contactCenter - (406 + address.bottom) / 2));
   const fontFace = (value, family, weight) => /^data:font\/ttf;base64,[a-z0-9+/=]+$/i.test(value || '') ? `@font-face{font-family:${family};src:url('${value}') format('truetype');font-weight:${weight};}` : '';
@@ -194,7 +221,7 @@ export function cardSvg(card, fonts = {}, bleedInches = 0, bottomBleedInches = b
   ${logo || watermark ? `${cardLogoMarkup(watermark ? {logo:watermark} : card, -65, 260, 880, 590, 'data-card-watermark="logo" opacity="0.08"')}<rect x="390" y="${-bleed}" width="${360 + bleed}" height="${375 + bleed}" fill="#f6f7f4"/>` : ''}
   <g>
     <g data-card-panel="identity" transform="translate(0 ${topOffset})">
-    ${name.markup}
+    <g data-card-field="display-name">${name.markup}</g>
     ${credentials.markup}
     ${title.markup}
     ${roleLabel.markup}
@@ -203,7 +230,7 @@ export function cardSvg(card, fonts = {}, bleedInches = 0, bottomBleedInches = b
     </g>
     ${logo ? cardLogoMarkup(card, 416, 71, 308, 303, 'data-card-logo="primary"') : svgText(card.organization, 421, 155, 298, 38, 5)}
     ${contactRows.join('')}
-    ${card.address ? `<g data-card-panel="address" transform="translate(0 ${addressOffset})">${contactIcon('location', 421, 406, 25, accentInk)}${svgText('OFFICE LOCATION', 460, 427, 255, 20, 1, accentInk, true)}${address.markup}</g>` : ''}
+    ${card.address ? `<g data-card-panel="address" transform="translate(0 ${addressOffset})">${contactIcon('location', 421, 406, 25, accentInk)}${svgText(addressParts.length > 1 ? 'OFFICE LOCATIONS' : 'OFFICE LOCATION', 460, 427, 255, 20, 1, accentInk, true)}${address.markup}</g>` : ''}
   </g></svg>`;
 }
 
