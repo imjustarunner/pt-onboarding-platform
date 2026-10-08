@@ -13,16 +13,17 @@
       <div v-else-if="!knownSection" class="ptco-loading"><h1>Page not found</h1><router-link to="/p/ptco">Return to Plot Twist Co.</router-link></div>
       <template v-else>
         <section v-if="section !== 'conversa'" class="ptco-hero" :class="`ptco-hero-${section||'home'}`" :style="{'--ptco-hero':`url(${JSON.stringify(hero.image)})`}">
-          <div class="ptco-wrap"><div class="ptco-hero-copy"><p class="ptco-eyebrow">{{ hero.kicker }}</p><h1>{{ hero.title }} <em>{{ hero.accent }}</em></h1><p class="ptco-hero-intro">{{ hero.body }}</p><p v-if="hero.note" class="ptco-hero-note">{{ hero.note }}</p><div class="ptco-actions"><router-link class="ptco-button" :to="section==='start'?'#business-intake':'/p/ptco/start'" @click="section==='start'&&scrollToIntake($event)">{{ section==='start'?'Begin intake':section==='about'?'Partner with us':'Get started' }} <PtcoIcon name="arrow"/></router-link><router-link v-if="section!== 'start'" class="ptco-button ptco-button-outline" :to="section==='about'?'/p/ptco/about#partnership':section==='hq'?'/p/ptco/hq#hq-walkthrough':'/p/ptco/hq'">{{ section==='about'?'See our model':section==='hq'?'See the walkthrough':'Explore Plot Twist HQ' }}</router-link></div>
+          <div class="ptco-wrap"><div class="ptco-hero-copy"><p class="ptco-eyebrow">{{ hero.kicker }}</p><h1>{{ hero.title }} <em>{{ hero.accent }}</em></h1><p class="ptco-hero-intro">{{ hero.body }}</p><p v-if="hero.note" class="ptco-hero-note">{{ hero.note }}</p><div class="ptco-actions"><router-link class="ptco-button" :to="!section?'/p/ptco/hq':section==='start'?'#business-intake':'/p/ptco/start'" @click="section==='start'&&scrollToIntake($event)">{{ !section?'Explore Plot Twist HQ':section==='start'?'Begin intake':section==='about'?'Partner with us':'Get started' }} <PtcoIcon name="arrow"/></router-link><router-link v-if="section!== 'start'" class="ptco-button ptco-button-outline" :to="!section?'/p/ptco/start':section==='about'?'/p/ptco/about#partnership':section==='hq'?'/p/ptco/hq#hq-walkthrough':'/p/ptco/hq'">{{ !section?'Let’s talk':section==='about'?'See our model':section==='hq'?'See the walkthrough':'Explore Plot Twist HQ' }}</router-link></div>
           <div class="ptco-hero-values"><span><PtcoIcon name="people"/>Expert support<br>from setup to scale</span><span><PtcoIcon name="heart"/>A healthier tomorrow<br>for your business</span><span><PtcoIcon name="chart"/>People. Operations.<br>Possibility.</span></div></div></div>
           <small v-if="!section||section==='hq'" class="ptco-preview-label">Illustrative platform preview</small>
         </section>
 
-        <PtcoProducts v-if="!section || section==='products'" />
+        <PtcoProductSpotlight v-if="!section" />
+        <PtcoProducts v-if="section==='products'" />
 
         <template v-if="!section">
-          <section class="ptco-band"><div class="ptco-wrap"><div class="ptco-centered"><p class="ptco-eyebrow">End-to-end business support</p><h2>Everything you need to run and grow</h2><p>From initial setup to long-term growth, we handle the operational details so you can focus on what you do best.</p></div><div class="ptco-services"><router-link v-for="service in ptcoServices" :key="service.id" :to="`/p/ptco/services#${service.id}`" class="ptco-card"><PtcoIcon :name="service.icon"/><h3>{{ service.title }}</h3><p>{{ service.body }}</p></router-link></div></div></section>
           <section class="ptco-band ptco-soft"><div class="ptco-wrap ptco-suite"><div><p class="ptco-eyebrow">Plot Twist HQ</p><h2>The all-in-one<br>management suite</h2><p>Bring your people, workflows, and services together in a workspace that reflects your business.</p><router-link class="ptco-button" to="/p/ptco/hq">Explore Plot Twist HQ →</router-link></div><ul class="ptco-checklist"><li v-for="text in ['Client & guardian workflows','Scheduling & programs','People operations & onboarding','Billing & payment workflows','Public websites & intake','Tenant branding & access']" :key="text"><PtcoIcon name="check"/>{{ text }}</li></ul><blockquote>Less chaos.<br>More clarity.<br>A bigger impact.<small>Tools today.<br>Greater tomorrows.</small></blockquote></div></section>
+          <section class="ptco-band"><div class="ptco-wrap"><div class="ptco-centered"><p class="ptco-eyebrow">End-to-end business support</p><h2>Everything you need to run and grow</h2><p>From initial setup to long-term growth, we handle the operational details so you can focus on what you do best.</p></div><div class="ptco-services"><router-link v-for="service in ptcoServices" :key="service.id" :to="`/p/ptco/services#${service.id}`" class="ptco-card"><PtcoIcon :name="service.icon"/><h3>{{ service.title }}</h3><p>{{ service.body }}</p></router-link></div></div></section>
           <section class="ptco-band"><div class="ptco-wrap"><div class="ptco-centered"><p class="ptco-eyebrow">A longer journey. A brighter tomorrow.</p><h2>We’re with you at every stage</h2><p>From your first step to your next big chapter — and beyond.</p></div><ol class="ptco-timeline"><li v-for="(stage,i) in stages" :key="stage[0]"><span>{{ i+1 }}</span><h3>{{ stage[0] }}</h3><p>{{ stage[1] }}</p></li></ol></div></section>
         </template>
 
@@ -33,7 +34,7 @@
         </template>
 
         <PtcoConversaProduct v-if="section === 'conversa'" />
-        <PtcoProducts v-if="section==='about'" />
+        <PtcoProducts v-if="!section || section==='about'" />
         <ConversaFeature v-if="section === 'products'" product="ptco" />
         <PtcoDivisions v-if="['','services','about'].includes(section)" :detailed="section==='services'" />
         <PtcoPartnerships v-if="['','about','industries'].includes(section)" />
@@ -70,6 +71,7 @@ import PublicWebsiteContactForm from "../../components/public/PublicWebsiteConta
 import { PLOTLINE_WEBSITE_URL } from '../../utils/plotline';
 import PtcoConversaProduct from '../../components/ptco/PtcoConversaProduct.vue';
 import PtcoProducts from '../../components/ptco/PtcoProducts.vue';
+import PtcoProductSpotlight from '../../components/ptco/PtcoProductSpotlight.vue';
 import PtcoDivisions from '../../components/ptco/PtcoDivisions.vue';
 import PtcoPlatformShowcase from '../../components/ptco/PtcoPlatformShowcase.vue';
 import PtcoPartnerships from '../../components/ptco/PtcoPartnerships.vue';
@@ -97,7 +99,7 @@ function scrollToIntake(event){event?.preventDefault();document.getElementById('
 function choosePath(path){selectedPath.value=path;scrollToIntake();}
 const activeFeature=ref('clients');const feature=computed(()=>ptcoHqFeatures.find(f=>f.id===activeFeature.value));
 const heroes={
- '':{kicker:'People. Operations. Possibility.',title:'Build. Manage. Scale.',accent:'Your Next Chapter.',body:'Plot Twist Co. helps service-based businesses — especially mental health agencies — go from idea to impact with expert support and focused products: Plot Twist HQ, AuricWell, Conversa, Plotline, SchoolCareBridge, and Summit Stats Team Challenge.',image:'/assets/ptco/home-hero.webp'},
+ '':{kicker:'Plot Twist HQ · Your connected management suite',title:'Build. Manage. Scale.',accent:'Your Next Chapter.',body:'Bring your people, client care, and business operations together with Plot Twist HQ, the all-in-one management suite by Plot Twist Co. Add focused products and expert support as your organization grows.',image:'/assets/ptco/home-hero.webp'},
  about:{kicker:'Same purpose. A brighter tomorrow.',title:'Built to Support Your Vision',accent:'— Not Replace It.',body:'We partner with service-based businesses to help them build, manage, and grow without losing ownership of their purpose or identity.',note:'Independent associates, equity affiliates, and majority-owned subsidiaries each have a clear relationship and agreed scope of support.',image:'/assets/ptco/about-hero.webp'},
  start:{kicker:'Same purpose. A brighter tomorrow.',title:'Let’s Get Your',accent:'Business Moving.',body:'Expert support and a connected workspace for your next chapter. Tell us where you are today and what you need.',note:'From initial setup to long-term operations, we’re with you every step of the way.',image:'/assets/ptco/start-hero.webp'},
  services:{kicker:'Support from setup to scale.',title:'Your Purpose.',accent:'A Stronger Foundation.',body:'Bring clarity to the work behind your business, with support built around your goals, your team, and the people you serve.',image:'/assets/ptco/about-hero.webp'},
