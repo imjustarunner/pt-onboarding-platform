@@ -1,3 +1,4 @@
+import { recordSecureMessageEvent } from './secureMessageBoundary.service.js';
 /**
  * Secure client/guardian message notifications.
  * Email from securemessage@tenant with noreply reply-to; deep link to thread after login/setup.
@@ -109,6 +110,7 @@ export async function sendLearningClientMessageEmail({
   const senderName = [sender?.first_name, sender?.last_name].filter(Boolean).join(' ') || 'Your team';
   const tenant = agency?.name || 'your learning team';
   const slug = agency?.slug || '';
+  const portalPrefix = slug ? `/${slug}` : '';
   const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(
     /\/$/,
     ''
@@ -224,17 +226,6 @@ export async function sendSecureMessageNotification({
   });
   const resolvedClientId = ctx.clientId || clientId || null;
   const clientType = ctx.clientType;
-  // Unknown type: do not send secure (avoids learning/basic getting secure by accident).
-  // Callers that know clinical/school should pass clientId.
-  if (!isSecureMessageEligibleClientType(clientType)) {
-    return {
-      sent: false,
-      reason: clientType === 'learning' ? 'learning_uses_regular_email' : 'client_type_not_eligible',
-      clientType: clientType || null,
-      clientId: resolvedClientId
-    };
-  }
-
   const email = String(recipientEmail || '').trim().toLowerCase();
   if (!email) return { sent: false, reason: 'no_email' };
 
@@ -249,7 +240,7 @@ export async function sendSecureMessageNotification({
     `INSERT INTO secure_message_notifications
       (agency_id, conversation_id, chat_thread_id, message_id, message_source,
        sender_user_id, recipient_user_id, recipient_email, client_id, notification_token_hash, sent_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
     [
       agencyId,
       conversationId,
@@ -269,30 +260,31 @@ export async function sendSecureMessageNotification({
   const senderName = [sender?.first_name, sender?.last_name].filter(Boolean).join(' ') || 'Your provider';
   const tenant = agency?.name || 'your care team';
   const slug = agency?.slug || '';
+  const portalPrefix = slug ? `/${slug}` : '';
   const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(/\/$/, '');
   const deepPath = safeRedirectPath(
     chatThreadId
-      ? `/${slug}/messages?view=workspace&threadId=${chatThreadId}`
-      : (conversationId ? `/${slug}/admin/communications?mode=home&conversationId=${conversationId}` : `/${slug}/messages`)
+      ? `${portalPrefix}/messages?view=workspace&threadId=${chatThreadId}`
+      : (conversationId ? `/${slug}/admin/communications?mode=home&conversationId=${conversationId}` : `${portalPrefix}/messages`)
   ) || '/messages';
   // Public claim URL that routes to setup or login then redirects to message
   const claimUrl = `${baseUrl}/secure-message/${encodeURIComponent(rawToken)}`;
 
-  const subject = `You have a secure message from your provider`;
+  const subject = 'You have a secure message';
   const { buildBrandedMessageEmailHtml } = await import('./hubBrandedEmail.service.js');
   const html = buildBrandedMessageEmailHtml({
     agencyName: tenant,
     senderDisplayName: senderName,
     senderTitle: sender?.title || '',
     bodyText:
-      'You have a secure message from your provider on our portal. Open the link below to sign in and read it securely. Message content is not included in this email.',
+      'You have a secure message in Messages by Conversa. Open the link below to sign in and read it securely. Message content is not included in this email.',
     history: [],
     appUrl: claimUrl,
     footerNote:
       'Replies to this email go to an unmonitored address (noreply) and will not be read — please use the secure link to view and reply in the portal. Personal email addresses are never shared.'
   });
   const text =
-    `You have a secure message from your provider on our portal.\n\n` +
+    `You have a secure message in Messages by Conversa.\n\n` +
     `${senderName} at ${tenant} sent you a message.\n\n` +
     `Click this link to sign in and access your message:\n${claimUrl}\n\n` +
     `If you have not set a password yet, you will create one and then sign in to read the message.`;
@@ -318,8 +310,12 @@ export async function sendSecureMessageNotification({
     );
   }
 
+  const sent = !!sendResult && !sendResult?.blocked && !sendResult?.skipped && !sendResult?.pendingApproval;
+  if (sent) await pool.execute('UPDATE secure_message_notifications SET sent_at = NOW() WHERE id = ?', [ins.insertId]);
+  await recordSecureMessageEvent({ agencyId, threadId: chatThreadId, messageId, notificationId: ins.insertId,
+    userId: senderUserId, eventType: sent ? 'notification_sent' : 'notification_pending' });
   return {
-    sent: true,
+    sent,
     id: ins.insertId,
     claimUrl,
     deepPath,
@@ -333,116 +329,14 @@ export async function sendSecureMessageNotification({
  * Secure message notification for school staff who receive email (no SSO portal DM).
  * Same "You have a secure message" pattern as clients — no PHI in the email.
  */
-export async function sendSchoolStaffSecureMessageNotification({
-  agencyId,
-  senderUserId,
-  recipientUserId = null,
-  recipientEmail,
-  chatThreadId = null,
-  conversationId = null,
-  messageId = null,
-  messageSource = 'chat'
-} = {}) {
-  const settings = await getAgencyEmailSettings(agencyId);
-  if (!settings.secureClientMessageEmailEnabled) {
-    return { sent: false, reason: 'disabled' };
-  }
-
-  const email = String(recipientEmail || '').trim().toLowerCase();
-  if (!email) return { sent: false, reason: 'no_email' };
-
-  const mailboxes = await ensureSecureMessageMailboxes(agencyId);
-  if (!mailboxes.fromIdentity?.id) {
-    return { sent: false, reason: 'secure_message_identity_missing' };
-  }
-
-  const rawToken = crypto.randomBytes(24).toString('hex');
-  const tokenHash = sha256(rawToken);
-  const [ins] = await pool.execute(
-    `INSERT INTO secure_message_notifications
-      (agency_id, conversation_id, chat_thread_id, message_id, message_source,
-       sender_user_id, recipient_user_id, recipient_email, client_id, notification_token_hash, sent_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NOW())`,
-    [
-      agencyId,
-      conversationId,
-      chatThreadId,
-      messageId,
-      messageSource,
-      senderUserId,
-      recipientUserId,
-      email,
-      tokenHash
-    ]
-  );
-
-  const agency = await Agency.findById(agencyId);
-  const sender = await User.findById(senderUserId);
-  const senderName = [sender?.first_name, sender?.last_name].filter(Boolean).join(' ') || 'Your team';
-  const tenant = agency?.name || 'your care team';
-  const slug = agency?.slug || '';
-  const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(/\/$/, '');
-  const deepPath = safeRedirectPath(
-    chatThreadId
-      ? `/${slug}/messages?view=workspace&threadId=${chatThreadId}`
-      : `/${slug}/messages`
-  ) || '/messages';
-  const claimUrl = `${baseUrl}/secure-message/${encodeURIComponent(rawToken)}`;
-
-  const subject = `You have a secure message from ${tenant}`;
-  const { buildBrandedMessageEmailHtml } = await import('./hubBrandedEmail.service.js');
-  const html = buildBrandedMessageEmailHtml({
-    agencyName: tenant,
-    senderDisplayName: senderName,
-    senderTitle: sender?.title || '',
-    bodyText:
-      'You have a secure message on our portal. Open the link below to sign in and access it. Message content is not included in this email.',
-    history: [],
-    appUrl: claimUrl,
-    footerNote:
-      'Replies to this email go to an unmonitored address and will not be read — please use the secure link to view and reply in the portal.'
-  });
-  const text =
-    `You have a secure message on our portal.\n\n` +
-    `${senderName} at ${tenant} sent you a message.\n\n` +
-    `Click this link to sign in and access your message:\n${claimUrl}\n`;
-
-  const sendResult = await sendEmailFromIdentity({
-    senderIdentityId: mailboxes.fromIdentity.id,
-    to: email,
-    subject,
-    html,
-    text,
-    replyToOverride: mailboxes.noreplyEmail || undefined,
-    source: 'auto',
-    generatedByUserId: senderUserId,
-    templateType: 'secure_message_notification_school_staff',
-    userId: recipientUserId
-  });
-
-  if (sendResult?.communicationId) {
-    await pool.execute(
-      `UPDATE secure_message_notifications SET user_communication_id = ? WHERE id = ?`,
-      [sendResult.communicationId, ins.insertId]
-    );
-  }
-
-  return {
-    sent: !sendResult?.blocked && !sendResult?.skipped,
-    id: ins.insertId,
-    claimUrl,
-    deepPath,
-    fromEmail: mailboxes.fromIdentity.from_email,
-    replyTo: mailboxes.noreplyEmail,
-    channel: 'secure_school_staff',
-    ...sendResult
-  };
+export async function sendSchoolStaffSecureMessageNotification(args = {}) {
+  return sendSecureMessageNotification(args);
 }
 
 export async function resolveSecureMessageClaim(rawToken) {
   const hash = sha256(rawToken);
   const [rows] = await pool.execute(
-    `SELECT * FROM secure_message_notifications WHERE notification_token_hash = ? LIMIT 1`,
+    `SELECT * FROM secure_message_notifications WHERE notification_token_hash = ? AND created_at >= (NOW() - INTERVAL 30 DAY) LIMIT 1`,
     [hash]
   );
   const row = rows?.[0];
@@ -457,6 +351,7 @@ export async function markSecureMessageRead({
   userAgent = null,
   ip = null
 }) {
+  if (!userId) throw Object.assign(new Error('Sign in to read a secure message'), { status: 401 });
   const ipHash = ip ? sha256(ip) : null;
   await pool.execute(
     `UPDATE secure_message_notifications
@@ -464,8 +359,8 @@ export async function markSecureMessageRead({
          first_read_via = COALESCE(first_read_via, ?),
          first_read_user_agent = COALESCE(first_read_user_agent, ?),
          first_read_ip_hash = COALESCE(first_read_ip_hash, ?)
-     WHERE id = ?`,
-    [via, userAgent ? String(userAgent).slice(0, 512) : null, ipHash, notificationId]
+     WHERE id = ? AND recipient_user_id = ?`,
+    [via, userAgent ? String(userAgent).slice(0, 512) : null, ipHash, notificationId, userId]
   );
   return { ok: true, approximateContextOnly: true };
 }
@@ -473,6 +368,7 @@ export async function markSecureMessageRead({
 export async function buildSecureClaimRedirect(row) {
   const agency = await Agency.findById(row.agency_id);
   const slug = agency?.slug || '';
+  const portalPrefix = slug ? `/${slug}` : '';
   const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(/\/$/, '');
   let recipient = null;
   if (row.recipient_user_id) {
@@ -486,14 +382,14 @@ export async function buildSecureClaimRedirect(row) {
   }
 
   const targetPath = row.chat_thread_id
-    ? `/${slug}/messages?view=workspace&threadId=${row.chat_thread_id}&secure=1`
-    : `/${slug}/messages?secure=1`;
+    ? `${portalPrefix}/messages?view=workspace&threadId=${row.chat_thread_id}&secure=1`
+    : `${portalPrefix}/messages?secure=1`;
 
   const needsSetup = !recipient?.password_hash;
   if (!recipient) {
     return {
       mode: 'unknown',
-      loginUrl: `${baseUrl}/${slug}/login?redirect=${encodeURIComponent(targetPath)}`,
+      loginUrl: `${baseUrl}${portalPrefix}/login?redirect=${encodeURIComponent(targetPath)}`,
       targetPath
     };
   }
@@ -502,14 +398,14 @@ export async function buildSecureClaimRedirect(row) {
     const token = await User.generatePasswordlessToken(recipient.id, 48, 'setup');
     return {
       mode: 'setup',
-      setupUrl: `${baseUrl}/${slug}/new_account/${encodeURIComponent(token)}?redirect=${encodeURIComponent(targetPath)}`,
+      setupUrl: `${baseUrl}${portalPrefix}/new_account/${encodeURIComponent(token)}?redirect=${encodeURIComponent(targetPath)}`,
       targetPath,
       userId: recipient.id
     };
   }
   return {
     mode: 'login',
-    loginUrl: `${baseUrl}/${slug}/login?redirect=${encodeURIComponent(targetPath)}`,
+    loginUrl: `${baseUrl}${portalPrefix}/login?redirect=${encodeURIComponent(targetPath)}`,
     targetPath,
     userId: recipient.id
   };

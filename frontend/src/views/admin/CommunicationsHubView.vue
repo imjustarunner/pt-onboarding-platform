@@ -11,7 +11,7 @@
     <aside class="comms-hub__sidebar">
       <div v-if="!embedded" class="sidebar-top">
         <div>
-          <h2 class="sidebar-title">Messages</h2>
+          <ConversaBrand heading="h2" compact />
           <p class="sidebar-sub">SMS conversations with clients</p>
         </div>
         <div class="sidebar-actions">
@@ -109,6 +109,7 @@
 </template>
 
 <script setup>
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ConversationList from '../../components/communications/ConversationList.vue';

@@ -1,4 +1,8 @@
 <script setup>
+import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
+import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
+import ConversaSender from '../../components/conversa/ConversaSender.vue';
+import ConversaMailbox from '../conversa/ConversaMailbox.vue';
 import { computed, ref } from 'vue';
 const props = defineProps({
   conversations: { type: Array, default: () => [] },
@@ -36,18 +40,6 @@ const tabs = [
   { id: 'snoozed', label: 'Snoozed' }
 ];
 
-function channelIcon(ch) {
-  const m = {
-    email: '✉',
-    secure: '💬',
-    sms: '📱',
-    call: '📞',
-    voicemail: '📞',
-    internal: '👥',
-    mention: '@'
-  };
-  return m[ch] || '✉';
-}
 
 function statusLabel(s) {
   const m = {
@@ -77,11 +69,6 @@ function formatWhen(v) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function initials(row) {
-  const name = row.primary_participant_name || row.subject || '?';
-  const parts = String(name).trim().split(/\s+/);
-  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '?';
-}
 </script>
 
 <template>
@@ -107,18 +94,23 @@ function initials(row) {
         v-for="row in groupedConversations"
         :key="row.id"
         :class="{ on: row.copies.some(copy => selectedId === copy.id), unread: row.copies.some(copy => copy.is_unread) }"
+        tabindex="0"
+        :aria-label="`Open conversation: ${row.subject || row.primary_participant_name || 'No subject'}`"
+        @keydown.enter.self="emit('select', row.id)"
+        @keydown.space.self.prevent="emit('select', row.id)"
         @click="emit('select', row.id)"
       >
-        <div class="uc-avatar" aria-hidden="true">{{ initials(row) }}</div>
+        <ConversaSender avatar-only :name="row.primary_participant_name || row.primary_participant_email || row.inbox_display_name || 'Conversation'" :organization="row.sending_organization || null" />
         <div class="uc-list-main">
           <div class="uc-list-top">
             <span class="uc-list-name">
-              <span class="uc-ch" :title="row.channel">{{ channelIcon(row.channel) }}</span>
+              <ConversaIcon :type="row.channel" :size="15" />
               {{ row.primary_participant_name || row.inbox_display_name || 'Conversation' }}
             </span>
             <time>{{ formatWhen(row.last_message_at) }}</time>
           </div>
           <div class="uc-list-subject">{{ row.subject || '(no subject)' }}</div>
+          <ConversaMailbox :conversation="row" />
           <div class="uc-list-preview">{{ row.last_message_preview || '' }}</div>
           <div v-if="row.copies.length > 1" class="uc-copy-list">
             <button type="button" class="uc-copy-toggle" @click.stop="toggleCopies(row.copies[0].id)">{{ row.copies.length }} inbox copies · {{ expandedCopies.has(row.copies[0].id) ? 'Hide' : 'Show mailboxes' }}</button>
@@ -127,6 +119,7 @@ function initials(row) {
             </template>
           </div>
           <div class="uc-list-tags">
+            <ConversaBadge :type="row.channel" />
             <span v-if="row.starred" class="uc-star" title="Starred">★</span>
             <span class="uc-pill" :class="statusClass(row.status)">{{ statusLabel(row.status) }}</span>
           </div>
@@ -138,20 +131,20 @@ function initials(row) {
 </template>
 
 <style scoped>
-.uc-copy-toggle { display:block; margin:5px 0; padding:2px 0; border:0; background:transparent; color:var(--app-muted, #356b52); text-align:left; font:inherit; font-size:12px; cursor:pointer; }
+.uc-copy-toggle { display:block; margin:5px 0; padding:2px 0; border:0; background:transparent; color:var(--conversa-blue); text-align:left; font:inherit; font-size:12px; cursor:pointer; }
 .uc-list {
-  border-right: 1px solid var(--app-line, #e2e8f0);
+  border-right: 1px solid var(--conversa-border);
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--app-surface, #fff);
+  background: var(--conversa-surface);
 }
 .uc-list-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   padding: 10px;
-  border-bottom: 1px solid var(--app-line, #e2e8f0);
+  border-bottom: 1px solid var(--conversa-border);
 }
 .uc-list-tabs button {
   border: none;
@@ -160,17 +153,17 @@ function initials(row) {
   border-radius: 999px;
   font-size: 0.78rem;
   font-weight: 600;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
   cursor: pointer;
 }
 .uc-list-tabs button.on {
-  background: var(--app-tint-green, #dcfce7);
-  color: var(--app-ink, #14532d);
+  background: var(--conversa-blue-soft);
+  color: var(--conversa-blue);
 }
 .uc-list-empty {
   padding: 28px 16px;
   text-align: center;
-  color: var(--app-muted, #94a3b8);
+  color: var(--conversa-muted);
   font-size: 0.9rem;
 }
 .uc-list-items {
@@ -182,22 +175,22 @@ function initials(row) {
 }
 .uc-list-items li {
   display: grid;
-  grid-template-columns: 40px 1fr 10px;
+  grid-template-columns: 36px minmax(0, 1fr) 8px;
   gap: 10px;
   padding: 12px 12px;
-  border-bottom: 1px solid var(--app-line, #f1f5f9);
+  border-bottom: 1px solid var(--conversa-wash);
   cursor: pointer;
   position: relative;
 }
-.uc-list-items li:hover { background: var(--app-surface-muted, #f8fafc); }
-.uc-list-items li.on { background: var(--app-surface-muted, #f0fdf4); }
+.uc-list-items li:hover { background: var(--conversa-wash); }
+.uc-list-items li.on { background: var(--conversa-blue-soft); }
 .uc-list-items li.unread .uc-list-name { font-weight: 700; }
 .uc-avatar {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: var(--app-tint-green, #dcfce7);
-  color: var(--app-text-green, #166534);
+  background: var(--conversa-blue-soft);
+  color: var(--conversa-blue);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -212,25 +205,28 @@ function initials(row) {
 }
 .uc-list-name {
   font-size: 0.88rem;
-  color: var(--app-ink, #0f172a);
+  color: var(--conversa-ink);
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
 }
 .uc-ch { font-size: 0.8rem; }
-.uc-list-top time { font-size: 0.72rem; color: var(--app-muted, #94a3b8); white-space: nowrap; }
+.uc-list-main { min-width: 0; }
+.uc-list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uc-list-top time { flex-shrink: 0; }
+.uc-list-top time { font-size: 0.72rem; color: var(--conversa-muted); white-space: nowrap; }
 .uc-list-subject {
   font-size: 0.82rem;
   font-weight: 600;
-  color: var(--app-ink, #334155);
+  color: var(--conversa-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .uc-list-preview {
   font-size: 0.78rem;
-  color: var(--app-muted, #94a3b8);
+  color: var(--conversa-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -243,17 +239,17 @@ function initials(row) {
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 999px;
-  background: var(--app-surface-muted, #e2e8f0);
-  color: var(--app-muted, #475569);
+  background: var(--conversa-border);
+  color: var(--conversa-muted);
 }
-.uc-pill.needs { background: var(--app-tint-green, #dcfce7); color: var(--app-text-green, #166534); }
-.uc-pill.waiting { background: var(--app-tint-blue, #dbeafe); color: var(--app-text-blue, #1d4ed8); }
-.uc-pill.follow { background: var(--app-tint-red, #ffedd5); color: var(--app-text-red, #c2410c); }
+.uc-pill.needs { background: var(--conversa-blue-soft); color: var(--conversa-blue); }
+.uc-pill.waiting { background: var(--conversa-blue-soft); color: var(--conversa-blue); }
+.uc-pill.follow { background: var(--conversa-gold-soft); color: var(--app-text-amber, #8a6100); }
 .uc-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #16a34a;
+  background: var(--conversa-blue);
   align-self: center;
 }
 </style>

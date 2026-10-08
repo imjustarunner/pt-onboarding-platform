@@ -59,6 +59,11 @@ class ClientContactAffiliation {
        WHERE a.client_id = ?
          AND a.is_active = 1
          AND c.is_active = 1
+         AND a.notify_ack_at IS NOT NULL
+         AND EXISTS (SELECT 1 FROM client_guardians cg WHERE cg.client_id = a.client_id
+           AND cg.guardian_user_id = a.notify_ack_by_user_id AND cg.access_enabled = 1
+           AND COALESCE(JSON_EXTRACT(cg.permissions_json, '$.noView'), false) = false
+           AND COALESCE(JSON_EXTRACT(cg.permissions_json, '$.noViewOtherGuardian'), false) = false)
          AND (a.email_reminders_enabled = 1 OR a.sms_reminders_enabled = 1)`,
       [clientId]
     );

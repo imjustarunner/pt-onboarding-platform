@@ -60,7 +60,7 @@ export const SECTION_LABELS = Object.freeze([
   { key: 'schoolUpdates', label: 'School Updates & Changes' },
   { key: 'events', label: 'Events' },
   { key: 'programs', label: 'Programs' },
-  { key: 'communications', label: 'Communications Center' },
+  { key: 'communications', label: 'Communications management' },
   { key: 'peopleOps', label: 'Hiring & Pre-Hire Pipeline' },
   { key: 'systemAlerts', label: 'System Alerts' },
   { key: 'todaysSchedule', label: "Today's Schedule" },

@@ -1,3 +1,5 @@
+import { refreshClientSecureAccess } from '../services/clientSecureConversation.service.js';
+import pool from '../config/database.js';
 import express from 'express';
 import multer from 'multer';
 import { authenticate } from '../middleware/auth.middleware.js';
@@ -35,7 +37,7 @@ import {
   removeChannelMember,
   leaveChannel
 } from '../controllers/chatChannels.controller.js';
-import { uploadChatAttachment } from '../controllers/chatAttachments.controller.js';
+import { downloadSecureChatAttachment, uploadChatAttachment } from '../controllers/chatAttachments.controller.js';
 import {
   addReaction,
   removeReaction,
@@ -88,6 +90,28 @@ router.get('/inbox/files', listFilesInbox);
 router.get('/inbox/bookmarks', listBookmarksInbox);
 router.get('/inbox/pins', listPinsInbox);
 
+router.get('/threads/:threadId/secure-events', async (req, res, next) => {
+  try {
+    const threadId = Number(req.params.threadId);
+    await refreshClientSecureAccess(threadId, req.user.id);
+    const [threads] = await pool.execute(
+      `SELECT t.id FROM chat_threads t JOIN chat_thread_participants p ON p.thread_id = t.id AND p.user_id = ?
+       WHERE t.id = ? AND t.message_channel = 'secure'`, [req.user.id, threadId]);
+    if (!threads.length) return res.status(404).json({ error: { message: 'Secure conversation not found' } });
+    if (['client_guardian', 'client'].includes(String(req.user.role))) {
+      const { requireGuardianThreadDisclosure } = await import('../services/guardianClinicalAccess.service.js');
+      await requireGuardianThreadDisclosure(req.user.id, threadId);
+    }
+    const [events] = await pool.execute(
+      `SELECT e.id, e.event_type, e.message_id, e.created_at, CONCAT_WS(' ', u.first_name, u.last_name) AS actor_name
+       FROM secure_message_events e LEFT JOIN users u ON u.id = e.actor_user_id
+       WHERE e.thread_id = ? ORDER BY e.id DESC LIMIT 100`, [threadId]);
+    res.set('Cache-Control', 'no-store');
+    res.json({ events });
+  } catch (e) { next(e); }
+});
+
+router.get('/attachments/:attachmentId', downloadSecureChatAttachment);
 router.get('/threads', listMyThreads);
 router.post('/threads/direct', createOrGetDirectThread);
 router.post('/threads/group', createGroupThread);

@@ -1,3 +1,7 @@
+import { assertSecureAttachmentPath } from '../services/secureChatAttachment.service.js';
+import { ensureClientSecureConversation, resolveClientForSecureRecipients, refreshClientSecureAccess } from '../services/clientSecureConversation.service.js';
+import { resolveSecureMessageClient, recordSecureMessageInChart } from '../services/secureMessageRecord.service.js';
+import { defaultChatChannel, recordSecureMessageEvent, recordSecureThreadOpen } from '../services/secureMessageBoundary.service.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
@@ -222,7 +226,8 @@ async function loadAttachmentsForMessages(messageIds) {
     arr.push({
       id: Number(r.id),
       file_path: r.file_path,
-      file_url: `${baseUrl}/uploads/${r.file_path}`,
+      file_url: r.file_path.startsWith('secure-messages/') ? null : `${baseUrl}/uploads/${r.file_path}`,
+      downloadPath: r.file_path.startsWith('secure-messages/') ? `/chat/attachments/${r.id}` : null,
       mime_type: r.mime_type || null,
       file_kind: r.file_kind || 'file',
       width: r.width != null ? Number(r.width) : null,
@@ -311,8 +316,7 @@ async function assertAgencyOrOrgAccess(reqUser, agencyId, organizationId = null)
 }
 
 async function assertThreadAccess(reqUserId, threadId) {
-  const { assertSharedChildThreadAccess } = await import('../services/guardianSharedMessages.service.js');
-  await assertSharedChildThreadAccess(reqUserId, threadId);
+  await refreshClientSecureAccess(threadId, reqUserId);
   const [rows] = await pool.execute(
     'SELECT 1 FROM chat_thread_participants WHERE thread_id = ? AND user_id = ? LIMIT 1',
     [threadId, reqUserId]
@@ -370,11 +374,12 @@ async function userInAgency(userId, agencyId) {
 export async function findExistingDirectThreadBetweenUsers(
   meUserId,
   otherUserId,
-  { requestedAgencyId = null, organizationId = null } = {}
+  { requestedAgencyId = null, organizationId = null, messageChannel = null } = {}
 ) {
   const me = Number(meUserId);
   const other = Number(otherUserId);
   if (!me || !other || me === other) return null;
+  messageChannel = messageChannel || await defaultChatChannel([me, other]);
 
   const [rows] = await pool.execute(
     `SELECT t.id AS thread_id,
@@ -398,9 +403,10 @@ export async function findExistingDirectThreadBetweenUsers(
        ON p_me.thread_id = t.id AND p_me.user_id = ?
      INNER JOIN chat_thread_participants p_other
        ON p_other.thread_id = t.id AND p_other.user_id = ?
-     WHERE t.thread_type = 'direct'
+     WHERE t.thread_type = 'direct' AND t.message_channel = ?
+       AND (? <> 'secure' OR t.agency_id = ?)
      GROUP BY t.id, t.agency_id, t.organization_id, t.updated_at`,
-    [me, me, me, me, other]
+    [me, me, me, me, other, messageChannel, messageChannel, requestedAgencyId]
   );
   if (!rows?.length) return null;
 
@@ -525,7 +531,16 @@ async function assertUsersInAgency(agencyId, userIds) {
   return ids;
 }
 
-export async function findOrCreateDirectThread(agencyId, organizationId, userAId, userBId) {
+export async function findOrCreateDirectThread(agencyId, organizationId, userAId, userBId, messageChannel = null) {
+  messageChannel = messageChannel || await defaultChatChannel([userAId, userBId]);
+  const clientId = await resolveClientForSecureRecipients({ agencyId, actorUserId: userAId, recipientUserId: userBId });
+  if (clientId) {
+    if (messageChannel !== 'secure') throw Object.assign(new Error('Client and guardian communication must use secure messages'), { status: 400 });
+    const shared = await ensureClientSecureConversation({ clientId, actorUserId: userAId, agencyId });
+    if (!shared.audienceUserIds.includes(Number(userBId))) throw Object.assign(new Error('Recipient does not have access to this client conversation'), { status: 403 });
+    return shared.threadId;
+  }
+
   if (Number(userAId) === Number(userBId)) {
     const err = new Error('Cannot create a chat with yourself');
     err.status = 400;
@@ -538,18 +553,18 @@ export async function findOrCreateDirectThread(agencyId, organizationId, userAId
      JOIN chat_thread_participants tp ON tp.thread_id = t.id
      WHERE t.agency_id = ?
        AND (t.organization_id <=> ?)
-       AND t.thread_type = 'direct'
+       AND t.thread_type = 'direct' AND t.message_channel = ?
        AND tp.user_id IN (?, ?)
      GROUP BY tp.thread_id
      HAVING COUNT(DISTINCT tp.user_id) = 2
      LIMIT 1`,
-    [agencyId, organizationId || null, userAId, userBId]
+    [agencyId, organizationId || null, messageChannel, userAId, userBId]
   );
   if (rows.length) return rows[0].thread_id;
 
   const [ins] = await pool.execute(
-    'INSERT INTO chat_threads (agency_id, organization_id, thread_type) VALUES (?, ?, ?)',
-    [agencyId, organizationId || null, 'direct']
+    'INSERT INTO chat_threads (agency_id, organization_id, thread_type, message_channel) VALUES (?, ?, ?, ?)',
+    [agencyId, organizationId || null, 'direct', messageChannel]
   );
   const threadId = ins.insertId;
   await pool.execute(
@@ -568,8 +583,8 @@ export async function createGroupThreadInDb(agencyId, organizationId, participan
   }
 
   const [ins] = await pool.execute(
-    'INSERT INTO chat_threads (agency_id, organization_id, thread_type) VALUES (?, ?, ?)',
-    [agencyId, organizationId || null, 'group']
+    'INSERT INTO chat_threads (agency_id, organization_id, thread_type, message_channel) VALUES (?, ?, ?, ?)',
+    [agencyId, organizationId || null, 'group', await defaultChatChannel(participantUserIds)]
   );
   const threadId = ins.insertId;
 
@@ -870,9 +885,11 @@ export const listMyThreads = async (req, res, next) => {
               t.organization_id,
               t.company_event_id,
               t.thread_type${teamCol}${channelCols},
+              t.message_channel,
+              t.client_id,
               t.updated_at,
               lm.id AS last_message_id,
-              lm.body AS last_message_body,
+              CASE WHEN t.message_channel = 'secure' THEN 'Secure message — open to read' ELSE lm.body END AS last_message_body,
               lm.created_at AS last_message_at,
               lm.sender_user_id AS last_message_sender_user_id,
               r.last_read_message_id,
@@ -902,13 +919,20 @@ export const listMyThreads = async (req, res, next) => {
          LIMIT 1
        )
        WHERE t.agency_id IN (${placeholders})
+         ${req.quickView ? "AND t.message_channel = 'internal'" : ''}
          AND (td.deleted_at IS NULL OR (lm.created_at IS NOT NULL AND lm.created_at > td.deleted_at))
        ORDER BY t.updated_at DESC`,
       [userId, userId, userId, userId, userId, userId, ...agencyIds]
     );
 
+    const visibleRows = [];
+    for (const row of rows || []) {
+      try { if (row.client_id) await refreshClientSecureAccess(row.thread_id, userId); visibleRows.push(row); }
+      catch (e) { if (![403, 404].includes(e.status)) throw e; }
+    }
+
     // Enrich with "other participant" for direct threads
-    const threadIds = (rows || []).map((r) => r.thread_id);
+    const threadIds = visibleRows.map((r) => r.thread_id);
     let participantsByThread = {};
     if (threadIds.length) {
       const placeholders2 = threadIds.map(() => '?').join(',');
@@ -928,9 +952,9 @@ export const listMyThreads = async (req, res, next) => {
 
     // For team / club threads, look up labels (team name or agency name).
     const teamThreadRows = hasTeamCol
-      ? (rows || []).filter((r) => String(r.thread_type || '').toLowerCase() === 'team' && Number(r.team_id) > 0)
+      ? visibleRows.filter((r) => String(r.thread_type || '').toLowerCase() === 'team' && Number(r.team_id) > 0)
       : [];
-    const clubThreadRows = (rows || []).filter((r) => String(r.thread_type || '').toLowerCase() === 'club');
+    const clubThreadRows = visibleRows.filter((r) => String(r.thread_type || '').toLowerCase() === 'club');
     const teamLabelById = new Map();
     if (teamThreadRows.length) {
       const teamIds = [...new Set(teamThreadRows.map((r) => Number(r.team_id)).filter(Boolean))];
@@ -964,7 +988,7 @@ export const listMyThreads = async (req, res, next) => {
       }
     }
 
-    const eventThreadRows = (rows || []).filter(
+    const eventThreadRows = visibleRows.filter(
       (r) => String(r.thread_type || '').toLowerCase() === 'skill_builders_event' && Number(r.company_event_id) > 0
     );
     const eventLabelById = new Map();
@@ -978,7 +1002,7 @@ export const listMyThreads = async (req, res, next) => {
       }
     }
 
-    const threads = (rows || []).map((r) => {
+    const threads = visibleRows.map((r) => {
       const participants = participantsByThread[r.thread_id] || [];
       const others = participants.filter((p) => p.user_id !== userId);
       const other = others[0] || null;
@@ -999,14 +1023,15 @@ export const listMyThreads = async (req, res, next) => {
       } else if (tType === 'group') {
         label = 'Group chat';
       }
-      const isDirect = tType === 'direct';
+      const isDirect = tType === 'direct' || tType === 'client_secure';
+      if (tType === 'client_secure') label = 'Shared care';
       return {
         thread_id: r.thread_id,
         agency_id: r.agency_id,
         agency_name: r.agency_name || null,
         organization_id: r.organization_id || null,
         company_event_id: r.company_event_id || null,
-        thread_type: tType,
+        thread_type: tType, message_channel: r.message_channel, client_id: r.client_id || null,
         team_id: hasTeamCol ? (r.team_id || null) : null,
         thread_label: label,
         channel_name: r.channel_name || null,
@@ -1064,8 +1089,15 @@ export const createOrGetDirectThread = async (req, res, next) => {
         return res.status(400).json({ error: { message: 'organizationId is not affiliated to this agency' } });
       }
     }
-    await assertAgencyOrOrgAccess(req.user, agencyId, organizationId);
 
+    const sharedClientId = await resolveClientForSecureRecipients({ agencyId, actorUserId: req.user.id, recipientUserId: otherUserId, clientId: req.body.clientId });
+    if (sharedClientId) {
+      const shared = await ensureClientSecureConversation({ clientId: sharedClientId, actorUserId: req.user.id, agencyId });
+      if (!shared.audienceUserIds.includes(otherUserId)) return res.status(403).json({ error: { message: 'Recipient does not have access to this client conversation' } });
+      return res.status(201).json({ threadId: shared.threadId, agencyId, clientId: sharedClientId, messageChannel: 'secure' });
+    }
+
+    await assertAgencyOrOrgAccess(req.user, agencyId, organizationId);
     const me = req.user.id;
     if (me === otherUserId) {
       return res.status(400).json({ error: { message: 'Cannot create a chat with yourself' } });
@@ -1343,7 +1375,10 @@ export const listMessages = async (req, res, next) => {
         reactions
       };
     });
-    res.json(enriched);
+    const messageChannel = await recordSecureThreadOpen({ threadId, userId: req.user.id, messageIds, req });
+    res.set?.('X-Message-Channel', messageChannel);
+    res.set?.('Cache-Control', 'no-store');
+    res.json(enriched.map((message) => ({ ...message, message_channel: messageChannel })));
   } catch (e) {
     next(e);
   }
@@ -1370,12 +1405,25 @@ export const sendMessage = async (req, res, next) => {
 
     // Resolve agency + participants
     const [[t]] = await pool.execute(
-      'SELECT id, agency_id, organization_id, company_event_id, thread_type FROM chat_threads WHERE id = ?',
+      'SELECT id, agency_id, organization_id, company_event_id, thread_type, message_channel, client_id FROM chat_threads WHERE id = ?',
       [threadId]
     );
     if (!t) return res.status(404).json({ error: { message: 'Thread not found' } });
     const agencyId = t.agency_id;
+    const isSecureMessage = t.message_channel === 'secure';
+    if (req.body?.method && ['secure', 'internal'].includes(req.body.method) && req.body.method !== t.message_channel) {
+      return res.status(409).json({ error: { message: 'Message channel does not match this conversation' } });
+    }
     const roleNorm = String(req.user?.role || '').toLowerCase();
+    const [clientParticipants] = await pool.execute(`SELECT 1 FROM chat_thread_participants p JOIN users u ON u.id = p.user_id WHERE p.thread_id = ? AND LOWER(u.role) IN ('client', 'client_guardian') LIMIT 1`, [threadId]);
+    if (!isSecureMessage && (['client', 'client_guardian'].includes(roleNorm) || clientParticipants.length)) {
+      return res.status(409).json({ error: { message: 'Clients and guardians can only use secure messages inside the app' } });
+    }
+    if (clientParticipants.length && t.thread_type !== 'client_secure') {
+      return res.status(409).json({ error: { message: 'Open the client’s shared secure conversation to message guardians and the care team together' } });
+    }
+    if (isSecureMessage) for (const attachment of incomingAttachments) assertSecureAttachmentPath(attachment.filePath, threadId, req.user.id);
+    const recordClientId = isSecureMessage ? await resolveSecureMessageClient({ agencyId, threadId, clientId: t.client_id || req.body?.clientId }) : null;
     const evId = t.company_event_id ? Number(t.company_event_id) : null;
     const isSbEventThread =
       String(t.thread_type || '').toLowerCase() === 'skill_builders_event' && evId && Number.isFinite(evId) && evId > 0;
@@ -1384,7 +1432,7 @@ export const sendMessage = async (req, res, next) => {
       if (!okG) {
         return res.status(403).json({ error: { message: 'Access denied to this chat' } });
       }
-    } else {
+    } else if (t.thread_type !== 'client_secure') {
       await assertAgencyOrOrgAccess(req.user, agencyId, t.organization_id || null);
     }
 
@@ -1432,7 +1480,7 @@ export const sendMessage = async (req, res, next) => {
         threadNeedsEncrypt = senderNeedsEncrypt;
       }
     }
-    const requireEncrypt = threadNeedsEncrypt && String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+    const requireEncrypt = isSecureMessage || (threadNeedsEncrypt && String(process.env.NODE_ENV || '').toLowerCase() === 'production');
 
     if (hasEncCols && isChatEncryptionConfigured()) {
       try {
@@ -1466,41 +1514,57 @@ export const sendMessage = async (req, res, next) => {
       columns.push('body_ciphertext', 'body_iv', 'body_auth_tag', 'encryption_key_id');
       values.push(bodyCipher, bodyIv, bodyTag, bodyKeyId);
     }
-    const [ins] = await pool.execute(`INSERT INTO chat_messages (${columns.join(', ')}) VALUES (${values.map(() => '?').join(', ')})`, values);
-    const insertedMessageId = Number(ins.insertId);
-    const subjectRaw = String(req.body?.subject || '').trim();
-    if (subjectRaw) {
-      try {
-        await pool.execute(`UPDATE chat_messages SET subject = ? WHERE id = ?`, [
-          subjectRaw.slice(0, 500),
-          insertedMessageId
-        ]);
-      } catch {
-        /* column may not exist until migration 1391 */
+    let insertedMessageId;
+    const messageDb = isSecureMessage ? await pool.getConnection() : pool;
+    try {
+      if (isSecureMessage) await messageDb.beginTransaction();
+      const [ins] = await messageDb.execute(`INSERT INTO chat_messages (${columns.join(', ')}) VALUES (${values.map(() => '?').join(', ')})`, values);
+      insertedMessageId = Number(ins.insertId);
+      const subjectRaw = String(req.body?.subject || '').trim();
+      if (subjectRaw) {
+        try {
+          await messageDb.execute(`UPDATE chat_messages SET subject = ? WHERE id = ?`, [
+            subjectRaw.slice(0, 500),
+            insertedMessageId
+          ]);
+        } catch (e) {
+          if (isSecureMessage) throw e;
+          /* column may not exist until migration 1391 */
+        }
       }
-    }
 
-    if (incomingAttachments.length && (await hasChatMessageAttachmentsTable())) {
-      const values = incomingAttachments.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(',');
-      const params = [];
-      for (const a of incomingAttachments) {
-        params.push(
-          insertedMessageId,
-          a.filePath,
-          a.mimeType || null,
-          a.kind,
-          a.width,
-          a.height,
-          a.byteSize,
-          a.originalFilename
+      if (incomingAttachments.length && (await hasChatMessageAttachmentsTable())) {
+        const values = incomingAttachments.map(() => '(?, ?, ?, ?, ?, ?, ?, ?)').join(',');
+        const params = [];
+        for (const a of incomingAttachments) {
+          params.push(
+            insertedMessageId,
+            a.filePath,
+            a.mimeType || null,
+            a.kind,
+            a.width,
+            a.height,
+            a.byteSize,
+            a.originalFilename
+          );
+        }
+        await messageDb.execute(
+          `INSERT INTO chat_message_attachments
+             (message_id, file_path, mime_type, file_kind, width, height, byte_size, original_filename)
+           VALUES ${values}`,
+          params
         );
       }
-      await pool.execute(
-        `INSERT INTO chat_message_attachments
-           (message_id, file_path, mime_type, file_kind, width, height, byte_size, original_filename)
-         VALUES ${values}`,
-        params
-      );
+      if (isSecureMessage) {
+        await recordSecureMessageEvent({ agencyId, threadId, messageId: insertedMessageId, userId: req.user.id, eventType: 'message_sent', req, executor: messageDb });
+        await recordSecureMessageInChart({ agencyId, clientId: recordClientId, threadId, messageId: insertedMessageId, senderUserId: req.user.id, executor: messageDb });
+        await messageDb.commit();
+      }
+    } catch (e) {
+      if (isSecureMessage) await messageDb.rollback();
+      throw e;
+    } finally {
+      if (isSecureMessage) messageDb.release();
     }
     await pool.execute('UPDATE chat_threads SET updated_at = NOW() WHERE id = ?', [threadId]);
 
@@ -1518,86 +1582,17 @@ export const sendMessage = async (req, res, next) => {
       /* ignore */
     }
 
-    // Client/guardian email notify: secure for clinical+school; regular email for learning
+    // Secure notifications contain only a sign-in link, for every client type.
     try {
-      const staffRoles = new Set([
-        'admin', 'super_admin', 'support', 'staff', 'provider', 'provider_plus',
-        'supervisor', 'clinical_practice_assistant', 'intern', 'intern_plus'
-      ]);
-      if (staffRoles.has(String(req.user.role || '').toLowerCase())) {
-        const [guardianParts] = await pool.execute(
-          `SELECT u.id, u.email, u.personal_email, u.role, cg.client_id
-           FROM chat_thread_participants p
-           JOIN users u ON u.id = p.user_id
-           LEFT JOIN client_guardians cg ON cg.guardian_user_id = u.id
-           WHERE p.thread_id = ?
-             AND p.user_id <> ?
-             AND LOWER(u.role) IN ('client_guardian', 'client')
-           LIMIT 5`,
-          [threadId, req.user.id]
-        );
-        if (guardianParts?.length) {
-          const {
-            sendSecureMessageNotification,
-            sendLearningClientMessageEmail,
-            resolveClientContextForMessageNotify,
-            isSecureMessageEligibleClientType
-          } = await import('../services/secureMessageNotify.service.js');
-          const notifyAgencyId = Number(agencyId) || null;
-          const messagePlain = body || (incomingAttachments.length ? '[attachment]' : '');
-          for (const g of guardianParts) {
-            const email = String(g.email || g.personal_email || '').trim();
-            if (!email || !notifyAgencyId) continue;
-            const ctx = await resolveClientContextForMessageNotify({
-              agencyId: notifyAgencyId,
-              recipientUserId: g.id,
-              clientId: g.client_id || null
-            });
-            const { shouldDefaultToSecureMessage } = await import('../services/secureMessagingPolicy.service.js');
-            let clientStatusKey = null;
-            if (ctx.clientId) {
-              const [st] = await pool.execute(
-                `SELECT cs.status_key AS client_status_key
-                 FROM clients c
-                 LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-                 WHERE c.id = ? LIMIT 1`,
-                [ctx.clientId]
-              );
-              clientStatusKey = st?.[0]?.client_status_key || null;
-            }
-            const useSecure = shouldDefaultToSecureMessage({
-              clientStatusKey,
-              clientType: ctx.clientType,
-              isClientOrGuardian: true
-            });
-            if (useSecure && isSecureMessageEligibleClientType(ctx.clientType)) {
-              await sendSecureMessageNotification({
-                agencyId: notifyAgencyId,
-                senderUserId: req.user.id,
-                recipientUserId: g.id,
-                recipientEmail: email,
-                clientId: ctx.clientId || g.client_id || null,
-                chatThreadId: threadId,
-                messageId: insertedMessageId,
-                messageSource: 'chat'
-              }).catch((err) => {
-                console.warn('[chat] secure notify failed:', err?.message || err);
-              });
-            } else if (email) {
-              // Pre-active / learning / non-secure: regular email notify (not a secure claim link)
-              await sendLearningClientMessageEmail({
-                agencyId: notifyAgencyId,
-                senderUserId: req.user.id,
-                recipientUserId: g.id,
-                recipientEmail: email,
-                clientId: ctx.clientId || g.client_id || null,
-                chatThreadId: threadId,
-                messageBody: messagePlain
-              }).catch((err) => {
-                console.warn('[chat] regular email notify failed:', err?.message || err);
-              });
-            }
-          }
+      if (isSecureMessage) {
+        const [participants] = await pool.execute(
+          `SELECT u.id, u.email, u.personal_email FROM chat_thread_participants p JOIN users u ON u.id = p.user_id
+           WHERE p.thread_id = ? AND p.user_id <> ?`, [threadId, req.user.id]);
+        const { sendSecureMessageNotification } = await import('../services/secureMessageNotify.service.js');
+        for (const recipient of participants) {
+          const recipientEmail = recipient.email || recipient.personal_email;
+          if (recipientEmail) await sendSecureMessageNotification({ agencyId, senderUserId: req.user.id,
+            recipientUserId: recipient.id, recipientEmail, clientId: recordClientId, chatThreadId: threadId, messageId: insertedMessageId });
         }
       }
     } catch (e) {
@@ -1644,8 +1639,8 @@ export const sendMessage = async (req, res, next) => {
       await Notification.create({
         type: 'chat_message',
         severity: 'info',
-        title: 'New chat message',
-        message: `${senderName}: ${snippet}`,
+        title: isSecureMessage ? 'New secure message' : 'New chat message',
+        message: isSecureMessage ? 'Open Messages by Conversa to read your secure message.' : `${senderName}: ${snippet}`,
         userId: rid,
         agencyId,
         relatedEntityType: 'chat_thread',
@@ -1668,6 +1663,7 @@ export const sendMessage = async (req, res, next) => {
     );
     const out = row[0] || {};
     if (!out.body && body) out.body = body;
+    out.message_channel = t.message_channel;
     out.parent_message_id = out.parent_message_id != null ? Number(out.parent_message_id) : rootParentId;
     out.mentioned_user_ids = mentionedIds;
     out.reply_count = 0;
@@ -1742,7 +1738,7 @@ export const listThreadsInbox = async (req, res, next) => {
        ) mx ON mx.parent_message_id = root.id
        JOIN chat_messages latest ON latest.id = mx.max_id
        JOIN users lu ON lu.id = latest.sender_user_id
-      WHERE root.parent_message_id IS NULL
+      WHERE t.message_channel = 'internal' AND root.parent_message_id IS NULL
         AND (
           root.sender_user_id = ?
           OR EXISTS (
@@ -1839,7 +1835,7 @@ export const listMentionsInbox = async (req, res, next) => {
        JOIN chat_threads t ON t.id = m.thread_id
        JOIN chat_thread_participants tp ON tp.thread_id = t.id AND tp.user_id = ?
        JOIN users u ON u.id = m.sender_user_id
-      WHERE mn.mentioned_user_id = ?
+      WHERE t.message_channel = 'internal' AND mn.mentioned_user_id = ?
         ${agencyClause}
       ORDER BY mn.created_at DESC
       LIMIT 80`,
@@ -1879,6 +1875,8 @@ export const unsendMessage = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'threadId and messageId are required' } });
     }
     await assertThreadAccess(req.user.id, threadId);
+    const [secureThread] = await pool.execute('SELECT message_channel FROM chat_threads WHERE id = ?', [threadId]);
+    if (secureThread[0]?.message_channel === 'secure') return res.status(409).json({ error: { message: 'Sent secure messages are retained in the record. Send a correction or hide the message from your inbox.' } });
 
     const hasEncCols = await hasChatMessageEncryptionColumns();
     const encCols = hasEncCols ? ', body_ciphertext, body_iv, body_auth_tag, encryption_key_id' : '';
@@ -2165,6 +2163,7 @@ export const getThreadMeta = async (req, res, next) => {
               t.company_event_id,
               t.thread_type,
               t.name AS thread_name,
+              t.message_channel, t.client_id,
               org.slug AS organization_slug,
               org.name AS organization_name
        FROM chat_threads t
@@ -2184,7 +2183,7 @@ export const getThreadMeta = async (req, res, next) => {
     if (roleNorm2 === 'client_guardian' && sbThread) {
       const okG = await guardianCanPostSkillBuilderEventChat(req.user.id, evMeta);
       if (!okG) return res.status(403).json({ error: { message: 'Access denied' } });
-    } else {
+    } else if (t.thread_type !== 'client_secure') {
       await assertAgencyOrOrgAccess(req.user, t.agency_id, t.organization_id || null);
     }
 
@@ -2205,6 +2204,7 @@ export const getThreadMeta = async (req, res, next) => {
       organization_slug: t.organization_slug || null,
       organization_name: t.organization_name || null,
       thread_type: t.thread_type || 'direct',
+      message_channel: t.message_channel, client_id: t.client_id || null,
       thread_name: t.thread_name || null,
       company_event_id: t.company_event_id || null,
       event_title: eventTitle
@@ -2250,7 +2250,7 @@ export const listFilesInbox = async (req, res, next) => {
        INNER JOIN chat_thread_participants p ON p.thread_id = t.id AND p.user_id = ?
        LEFT JOIN users u ON u.id = m.sender_user_id
        LEFT JOIN chat_message_deletes d ON d.message_id = m.id AND d.user_id = ?
-       WHERE d.message_id IS NULL
+       WHERE t.message_channel = 'internal' AND d.message_id IS NULL
        ORDER BY a.created_at DESC
        LIMIT ${limit}`,
       [req.user.id, req.user.id]
@@ -2303,7 +2303,7 @@ export const listBookmarksInbox = async (req, res, next) => {
        INNER JOIN chat_threads t ON t.id = m.thread_id
        INNER JOIN chat_thread_participants p ON p.thread_id = t.id AND p.user_id = ?
        LEFT JOIN users u ON u.id = m.sender_user_id
-       WHERE b.user_id = ?
+       WHERE t.message_channel = 'internal' AND b.user_id = ?
        ORDER BY b.created_at DESC
        LIMIT 100`,
       [req.user.id, req.user.id]
@@ -2389,6 +2389,7 @@ export const listPinsInbox = async (req, res, next) => {
        INNER JOIN chat_threads t ON t.id = pin.thread_id
        INNER JOIN chat_thread_participants p ON p.thread_id = t.id AND p.user_id = ?
        LEFT JOIN users u ON u.id = m.sender_user_id
+       WHERE t.message_channel = 'internal'
        ORDER BY pin.created_at DESC
        LIMIT 100`,
       [req.user.id]

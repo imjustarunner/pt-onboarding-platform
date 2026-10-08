@@ -825,7 +825,7 @@ export const APP_PAGES = [
     desc: 'View and manage notifications.'
   },
   {
-    title: 'Messages',
+    title: 'Messages by Conversa',
     section: 'Communications',
     path: '/messages',
     keywords: ['messages', 'messaging', 'inbox', 'direct messages'],
@@ -839,7 +839,7 @@ export const APP_PAGES = [
     desc: 'Tenant automated emails — From identity, triggers, and approval vs. send.'
   },
   {
-    title: 'Communications Center',
+    title: 'Communications management',
     section: 'Communications',
     path: '/admin/communications',
     keywords: ['communications center', 'automation', 'pending approval', 'quality issues', 'admin update', 'newsletter'],

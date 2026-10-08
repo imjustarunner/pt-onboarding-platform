@@ -1,8 +1,8 @@
 <template>
-  <section class="comms-mobile">
+  <section class="comms-mobile conversa-surface">
     <div class="comms-header">
       <div class="header-title">
-        <h2>Messages</h2>
+        <ConversaBrand heading="h2" compact />
         <p>Text and call clients</p>
       </div>
       <button class="btn btn-secondary btn-sm" type="button" :disabled="loading" @click="refreshAll">
@@ -43,7 +43,7 @@
 
       <section class="chat-panel">
         <div v-if="!selectedClientId" class="chat-empty">
-          <span class="chat-empty-icon">💬</span>
+          <ConversaIcon type="chat" :size="32" tile />
           <p>Select a conversation to view messages</p>
         </div>
         <template v-else>
@@ -74,14 +74,14 @@
                 </span>
               </div>
               <input ref="fileInputRef" type="file" accept="image/jpeg,image/png,image/gif" class="hidden" @change="onFileSelected" />
-              <button type="button" class="btn btn-secondary btn-sm" @click="triggerFileInput">📷</button>
+              <button type="button" class="btn btn-secondary btn-sm" @click="triggerFileInput" aria-label="Attach an image"><ConversaIcon type="attachment" /></button>
             </div>
             <div class="composer-buttons">
               <button class="btn btn-secondary btn-sm" type="button" :disabled="calling || conferencing || !selectedClientId" @click="startCall" title="Call">
-                📞
+                <ConversaIcon type="call" label="Call" />
               </button>
               <button class="btn btn-secondary btn-sm" type="button" :disabled="calling || conferencing || !selectedClientId" @click="startConference" title="Conference call">
-                👥
+                <ConversaIcon type="group" label="Conference call" />
               </button>
               <button class="btn btn-primary" type="button" :disabled="sending || (!draft.trim() && !pendingMediaUrls.length) || !selectedClientId" @click="send">
                 {{ sending ? '…' : 'Send' }}
@@ -95,6 +95,8 @@
 </template>
 
 <script setup>
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
+import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import { computed, onMounted, ref } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';

@@ -5,7 +5,7 @@
         <h3 class="cca-title">{{ title }}</h3>
         <p class="cca-sub">
           Add people who can receive appointment reminders for this client without portal access.
-          They can later be converted to a guardian account if needed.
+          Either account guardian can authorize minimal session reminders. These contacts cannot read messages or access the record. Both guardians can see the notification history.
         </p>
       </div>
       <button type="button" class="btn btn-primary btn-sm" @click="showForm = !showForm">
@@ -43,11 +43,11 @@
       </div>
       <div class="cca-toggles">
         <label class="cca-check">
-          <input v-model="form.emailRemindersEnabled" type="checkbox" />
+          <input v-model="form.emailRemindersEnabled" type="checkbox" :disabled="mode !== 'guardian'" />
           Email appointment reminders
         </label>
         <label class="cca-check">
-          <input v-model="form.smsRemindersEnabled" type="checkbox" />
+          <input v-model="form.smsRemindersEnabled" type="checkbox" :disabled="mode !== 'guardian'" />
           Text appointment reminders
         </label>
       </div>
@@ -116,11 +116,11 @@
           <button type="button" class="cca-close" @click="editing = null">×</button>
         </header>
         <label class="cca-check">
-          <input v-model="editForm.emailRemindersEnabled" type="checkbox" />
+          <input v-model="editForm.emailRemindersEnabled" type="checkbox" :disabled="mode !== 'guardian' && !editing?.emailRemindersEnabled" />
           Email appointment reminders
         </label>
         <label class="cca-check">
-          <input v-model="editForm.smsRemindersEnabled" type="checkbox" />
+          <input v-model="editForm.smsRemindersEnabled" type="checkbox" :disabled="mode !== 'guardian' && !editing?.smsRemindersEnabled" />
           Text appointment reminders
         </label>
         <label v-if="editNeedsAck" class="cca-ack">
@@ -171,7 +171,7 @@ const form = reactive({
   email: '',
   phone: '',
   relationshipType: 'parent',
-  emailRemindersEnabled: true,
+  emailRemindersEnabled: props.mode === 'guardian',
   smsRemindersEnabled: false,
   acknowledgeNotify: false
 });

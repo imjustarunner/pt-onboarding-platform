@@ -1,5 +1,5 @@
 <template>
-  <div class="user-communications-tab">
+  <div class="user-communications-tab conversa-surface">
     <div class="tab-header">
       <h3>Post Announcement / Splash</h3>
     </div>

@@ -242,7 +242,7 @@ defineExpose({ refresh: loadMessages });
 </script>
 
 <template>
-  <div class="message-thread" :class="`message-thread--${mode}`">
+  <div class="message-thread conversa-surface" :class="`message-thread--${mode}`">
     <div class="thread-scroll" ref="scrollEl">
       <div v-if="loading && !messages.length" class="thread-empty">Loading messages…</div>
       <div v-else-if="!messages.length" class="thread-empty">

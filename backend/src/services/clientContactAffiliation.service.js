@@ -1,6 +1,7 @@
 /**
  * Client-affiliated contacts: create/link, reminder prefs, notify email.
  */
+import ClientGuardian from '../models/ClientGuardian.model.js';
 import Agency from '../models/Agency.model.js';
 import AgencyContact from '../models/AgencyContact.model.js';
 import Client from '../models/Client.model.js';
@@ -11,6 +12,13 @@ import { buildContactReminderLinks } from './contactReminderToken.service.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { inferAgencyMailDomain } from './tenantMessageMailboxes.service.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
+
+export async function requireReminderGuardian(clientId, userId) {
+  const link = await ClientGuardian.getLink({ clientId, guardianUserId: userId });
+  if (!link || Number(link.access_enabled) !== 1 || ClientGuardian.isNoView(link.permissions_json)) {
+    throw Object.assign(new Error('An account guardian must authorize reminders for an additional contact'), { status: 403 });
+  }
+}
 
 function clientInitials(client) {
   const a = String(client?.preferred_name || client?.preferredName || client?.first_name || client?.firstName || '').trim();
@@ -60,6 +68,7 @@ export async function sendContactAssignedNotifyEmail({
     return { skipped: true, reason: 'missing_ack' };
   }
 
+  await requireReminderGuardian(row.client_id, row.notify_ack_by_user_id);
   const { agency, domain, notificationsEmail } = await loadAgencyContext(agencyId || row.agency_id);
   const assigner = assignerUserId ? await User.findById(assignerUserId).catch(() => null) : null;
   const assignerName = assigner
@@ -72,9 +81,9 @@ export async function sendContactAssignedNotifyEmail({
     agencyName: agency.name || 'Care team',
     assignerName,
     contactName: row.contact_full_name,
-    clientFirstName: row.client_first_name,
-    clientLastName: row.client_last_name,
-    clientPreferredName: row.client_preferred_name,
+    clientFirstName: clientInitials({ first_name: row.client_first_name, last_name: row.client_last_name }),
+    clientLastName: '',
+    clientPreferredName: '',
     emailRemindersEnabled: !!row.email_reminders_enabled,
     smsRemindersEnabled: !!row.sms_reminders_enabled,
     notificationsEmail,
@@ -138,6 +147,7 @@ export async function upsertClientAffiliatedContact({
   }
 
   const wantsReminders = !!(emailRemindersEnabled || smsRemindersEnabled);
+  if (wantsReminders) await requireReminderGuardian(clientId, userId);
   if (wantsReminders && !acknowledgeNotify) {
     const err = new Error(
       'You must acknowledge that an email will be sent on your behalf notifying this contact of their reminder subscription.'
@@ -279,6 +289,8 @@ export async function updateClientAffiliatedContact({
   const enabling =
     (nextEmail && !row.email_reminders_enabled) || (nextSms && !row.sms_reminders_enabled);
 
+  if (enabling || (patch.isActive && (nextEmail || nextSms))) await requireReminderGuardian(clientId, userId);
+
   if (enabling && !patch.acknowledgeNotify) {
     const err = new Error(
       'You must acknowledge that an email will be sent on your behalf notifying this contact of their reminder subscription.'
@@ -321,6 +333,7 @@ export async function applyContactReminderChoice({ affiliationId, action }) {
     throw err;
   }
 
+  if (action !== 'off' && action !== 'view') await requireReminderGuardian(row.client_id, row.notify_ack_by_user_id);
   let emailOn = !!row.email_reminders_enabled;
   let smsOn = !!row.sms_reminders_enabled;
   let choice = action;

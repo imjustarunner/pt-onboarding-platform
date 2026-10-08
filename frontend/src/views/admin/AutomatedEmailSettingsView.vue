@@ -8,7 +8,7 @@
         </p>
       </div>
       <div class="header-actions">
-        <router-link class="btn btn-secondary btn-sm" :to="commsTo">Communications Center</router-link>
+        <router-link class="btn btn-secondary btn-sm" :to="commsTo">Communications management</router-link>
         <button class="btn btn-primary btn-sm" type="button" :disabled="savingAgency || loading" @click="saveAgencySettings">
           {{ savingAgency ? 'Saving…' : 'Save agency settings' }}
         </button>
@@ -184,7 +184,7 @@
 
           <div v-if="selected.usesFallback" class="aes-note warn">
             No tenant From is assigned. Sends of this type currently queue in
-            <router-link :to="pendingTo">Communications › Automation (pending)</router-link>
+            <router-link :to="pendingTo">Communications management › Automation (pending)</router-link>
             for individual approval instead of going out from a fallback mailbox.
           </div>
 
@@ -519,7 +519,7 @@ function triggerSourceLinks(triggerKey) {
   if (k.includes('hiring') || k.includes('job')) return [{ label: 'Hiring candidates', path: '/admin/hiring-candidates' }];
   if (k.includes('school')) return [{ label: 'School Operations', path: '/school-operations' }];
   if (k.includes('meeting') || k.includes('schedule')) return [{ label: 'Schedule', path: '/dashboard?tab=my_schedule' }];
-  return [{ label: 'Communications › Automation', path: '/admin/communications?mode=automation' }];
+  return [{ label: 'Communications management › Automation', path: '/admin/communications?mode=automation' }];
 }
 
 function buildCatalogRows(triggers) {

@@ -1,6 +1,9 @@
 <script setup>
 import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
 const availabilityPrompt = ref(null);
+import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
+import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
+import ConversaSender from '../../components/conversa/ConversaSender.vue';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { downloadAttachment, encodeEmailFiles } from '../../utils/communicationAttachments';
@@ -196,10 +199,6 @@ function clearUndoBanner() {
   }
 }
 
-function channelIcon(ch) {
-  const m = { email: '✉', secure: '💬', sms: '📱', call: '📞', voicemail: '📞', internal: '👥', mention: '@' };
-  return m[ch] || '✉';
-}
 
 function formatWhen(v) {
   if (!v) return '';
@@ -421,7 +420,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         <div>
           <h3>
             {{ conv.subject || '(no subject)' }}
-            <span class="uc-channel-pill">{{ channelIcon(conv.channel) }} {{ conv.channel }}</span>
+            <ConversaBadge :type="conv.channel" />
           </h3>
           <p class="uc-meta">
             <template v-if="conv.inbox_from_email || conv.inbox_display_name">
@@ -514,8 +513,8 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           }"
         >
           <div class="uc-msg-head">
-            <span class="uc-ch">{{ channelIcon(msg.channel || conv.channel) }}</span>
-            <strong>{{ fromLabel(msg) }}</strong>
+            <ConversaIcon :type="msg.is_internal_note ? 'internal' : (msg.channel || conv.channel)" :size="16" />
+            <ConversaSender :name="fromLabel(msg)" :address="msg.from?.email || ''" :organization="msg.sending_organization || msg.from?.organization || null" :logo="msg.from?.logo_url || ''" />
             <time>{{ formatWhen(msg.sent_at || msg.scheduled_send_at || msg.created_at) }}</time>
             <span v-if="msg.is_internal_note" class="uc-tag">Internal</span>
             <span v-else-if="msg.is_auto_reply" class="uc-tag auto">Auto-reply</span>
@@ -528,7 +527,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           <div v-if="msg.body_html" class="uc-msg-body" v-html="DOMPurify.sanitize(msg.body_html)" />
           <div v-else class="uc-msg-body pre">{{ msg.body_text }}</div>
           <ul v-if="msg.attachments?.length" class="uc-atts">
-            <li v-for="a in msg.attachments" :key="a.id"><button class="btn btn-link" @click="downloadMessageAttachment(a)">📎 {{ a.filename }}</button></li>
+            <li v-for="a in msg.attachments" :key="a.id"><button class="btn btn-link" @click="downloadMessageAttachment(a)"><ConversaIcon type="attachment" :size="14" /> {{ a.filename }}</button></li>
           </ul>
         </article>
       </div>
@@ -630,26 +629,26 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--app-surface, #fff);
+  background: var(--conversa-surface);
 }
 .uc-thread-empty {
   margin: auto;
   text-align: center;
-  color: var(--app-muted, #94a3b8);
+  color: var(--conversa-muted);
   padding: 40px 20px;
 }
-.uc-thread-empty h3 { color: var(--app-ink, #334155); margin: 0 0 6px; }
+.uc-thread-empty h3 { color: var(--conversa-ink); margin: 0 0 6px; }
 .uc-thread-head {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   padding: 14px 16px;
-  border-bottom: 1px solid var(--app-line, #e2e8f0);
+  border-bottom: 1px solid var(--conversa-border);
 }
 .uc-thread-head h3 {
   margin: 0;
   font-size: 1.05rem;
-  color: var(--app-ink, #0f172a);
+  color: var(--conversa-ink);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -659,17 +658,17 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: capitalize;
-  background: var(--app-surface-muted, #e2e8f0);
-  color: var(--app-muted, #475569);
+  background: var(--conversa-border);
+  color: var(--conversa-muted);
   padding: 2px 8px;
   border-radius: 999px;
 }
-.uc-meta { margin: 4px 0 0; font-size: 0.8rem; color: var(--app-muted, #64748b); }
+.uc-meta { margin: 4px 0 0; font-size: 0.8rem; color: var(--conversa-muted); }
 .uc-thread-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start; }
 .uc-btn.danger { color: var(--app-text-red, #b91c1c); }
 .uc-undo {
-  background: #166534;
-  color: #fff;
+  background: var(--conversa-blue);
+  color: var(--conversa-surface);
   padding: 8px 14px;
   font-size: 0.85rem;
   font-weight: 600;
@@ -681,7 +680,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
 .uc-undo button {
   border: 1px solid rgba(255,255,255,0.7);
   background: transparent;
-  color: #fff;
+  color: var(--conversa-surface);
   border-radius: 6px;
   padding: 4px 10px;
   font-weight: 700;
@@ -690,14 +689,14 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
 .uc-insight {
   margin: 0;
   padding: 10px 16px;
-  background: var(--app-surface-muted, #f0fdf4);
-  border-bottom: 1px solid var(--app-line, #bbf7d0);
+  background: var(--conversa-blue-soft);
+  border-bottom: 1px solid var(--conversa-border);
   font-size: 0.85rem;
-  color: var(--app-ink, #14532d);
+  color: var(--conversa-blue);
 }
 .uc-insight.empty {
-  background: var(--app-surface-muted, #f8fafc);
-  border-bottom: 1px solid var(--app-line, #e2e8f0);
+  background: var(--conversa-wash);
+  border-bottom: 1px solid var(--conversa-border);
 }
 .uc-insight-top {
   display: flex;
@@ -714,11 +713,11 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   align-items: center;
   font-weight: 600;
 }
-.uc-composer-tabs .linkish.ai { color: var(--app-text-green, #166534); font-weight: 700; }
+.uc-composer-tabs .linkish.ai { color: var(--conversa-blue); font-weight: 700; }
 .uc-channel-hint {
   margin: 0 0 8px;
   font-size: 0.8rem;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
 }
 .uc-msg.scheduled { border-left: 3px solid #f59e0b; }
 .uc-tag.sched { background: var(--app-tint-amber, #fef3c7); color: var(--app-text-red, #92400e); }
@@ -729,8 +728,8 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   right: 0;
   top: 100%;
   z-index: 5;
-  background: var(--app-surface, #fff);
-  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--conversa-surface);
+  border: 1px solid var(--conversa-border);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
   min-width: 140px;
@@ -747,7 +746,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   cursor: pointer;
   font-size: 0.85rem;
 }
-.uc-snooze-menu button:hover { background: var(--app-surface-muted, #f1f5f9); }
+.uc-snooze-menu button:hover { background: var(--conversa-wash); }
 
 .uc-messages {
   flex: 1;
@@ -758,13 +757,13 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   gap: 14px;
 }
 .uc-msg {
-  border: 1px solid var(--app-line, #e2e8f0);
+  border: 1px solid var(--conversa-border);
   border-radius: 12px;
   padding: 12px 14px;
-  background: var(--app-surface, #fff);
+  background: var(--conversa-surface);
 }
-.uc-msg.internal { background: var(--app-surface-muted, #fffbeb); border-color: var(--app-line, #fde68a); }
-.uc-msg.outbound { background: var(--app-surface-muted, #f8fafc); }
+.uc-msg.internal { background: var(--conversa-gold-soft); border-color: var(--conversa-border); }
+.uc-msg.outbound { background: var(--conversa-wash); }
 .uc-msg-head {
   display: flex;
   flex-wrap: wrap;
@@ -773,7 +772,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   margin-bottom: 8px;
   font-size: 0.85rem;
 }
-.uc-msg-head time { color: var(--app-muted, #94a3b8); margin-left: auto; font-size: 0.75rem; }
+.uc-msg-head time { color: var(--conversa-muted); margin-left: auto; font-size: 0.75rem; }
 .uc-tag {
   font-size: 0.68rem;
   font-weight: 700;
@@ -787,14 +786,14 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   font-size: 0.92rem;
   line-height: 1.5;
   white-space: pre-wrap;
-  color: var(--app-ink, #1e293b);
+  color: var(--conversa-ink);
 }
-.uc-atts { margin: 8px 0 0; padding: 0; list-style: none; font-size: 0.8rem; color: var(--app-muted, #64748b); }
+.uc-atts { margin: 8px 0 0; padding: 0; list-style: none; font-size: 0.8rem; color: var(--conversa-muted); }
 
 .uc-composer {
-  border-top: 1px solid var(--app-line, #e2e8f0);
+  border-top: 1px solid var(--conversa-border);
   padding: 12px 14px 14px;
-  background: var(--app-surface-muted, #f8fafc);
+  background: var(--conversa-wash);
 }
 .uc-composer-tabs {
   display: flex;
@@ -809,10 +808,10 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   border-radius: 8px;
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
   cursor: pointer;
 }
-.uc-composer-tabs button.on { background: var(--app-tint-green, #dcfce7); color: var(--app-ink, #14532d); }
+.uc-composer-tabs button.on { background: var(--conversa-blue-soft); color: var(--conversa-blue); }
 .uc-composer-tabs .linkish { font-weight: 500; text-decoration: underline; }
 .uc-addr {
   display: grid;
@@ -825,17 +824,17 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   gap: 8px;
   align-items: center;
   font-size: 0.8rem;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
 }
 .uc-addr input {
-  border: 1px solid var(--app-line, #cbd5e1);
+  border: 1px solid var(--conversa-border);
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 0.85rem;
 }
 .uc-body-input {
   width: 100%;
-  border: 1px solid var(--app-line, #cbd5e1);
+  border: 1px solid var(--conversa-border);
   border-radius: 10px;
   padding: 10px 12px;
   font-size: 0.92rem;
@@ -851,7 +850,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   align-items: center;
   margin-top: 10px;
 }
-.uc-from-hint { margin-left: auto; font-size: 0.75rem; color: var(--app-muted, #94a3b8); }
+.uc-from-hint { margin-left: auto; font-size: 0.75rem; color: var(--conversa-muted); }
 .uc-send-err { color: var(--app-text-red, #b91c1c); font-size: 0.85rem; margin-top: 6px; }
 .uc-confirm-inline {
   margin-top: 8px;
@@ -863,21 +862,21 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
 }
 .uc-confirm-inline ul { margin: 6px 0 0; padding-left: 18px; }
 .uc-btn {
-  border: 1px solid var(--app-line, #cbd5e1);
-  background: var(--app-surface, #fff);
+  border: 1px solid var(--conversa-border);
+  background: var(--conversa-surface);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
-  color: var(--app-ink, #334155);
+  color: var(--conversa-ink);
 }
 .uc-btn.primary {
-  background: #166534;
-  border-color: #166534;
-  color: #fff;
+  background: var(--conversa-blue);
+  border-color: var(--conversa-blue);
+  color: var(--conversa-surface);
 }
 .uc-btn.primary:disabled { opacity: 0.55; cursor: not-allowed; }
 .uc-btn.ghost { background: transparent; }
-.uc-btn:hover { border-color: #166534; }
+.uc-btn:hover { border-color: var(--conversa-blue); }
 </style>

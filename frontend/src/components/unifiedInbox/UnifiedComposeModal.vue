@@ -1,6 +1,8 @@
 <script setup>
 import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
 const availabilityPrompt = ref(null);
+import ConversaSender from '../../components/conversa/ConversaSender.vue';
+import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import { encodeEmailFiles } from '../../utils/communicationAttachments';
@@ -54,6 +56,13 @@ watch(
 const isEmailMode = computed(() => channelMode.value === 'email');
 const isSecureMode = computed(() => channelMode.value === 'secure');
 const isDmMode = computed(() => channelMode.value === 'dm');
+const channelDrafts = new Map();
+watch(channelMode, (mode, previous) => {
+  channelDrafts.set(previous, { body: body.value, subject: subject.value, attachments: attachments.value });
+  const draft = channelDrafts.get(mode);
+  body.value = draft?.body || ''; subject.value = draft?.subject || '';
+  attachments.value = draft?.attachments || []; cc.value = ''; bcc.value = ''; error.value = '';
+});
 
 async function runPreflight() {
   const { data } = await api.post(
@@ -80,7 +89,7 @@ async function sendSecureSchoolStaff(email) {
     await api.post('/communications/secure-notify', {
       agencyId: props.agencyId,
       recipientEmail: email || to.value.trim(),
-      note: body.value || null,
+      body: body.value,
       recipientKind: 'school_staff',
       asSchoolStaff: true
     }, { skipGlobalLoading: true });
@@ -103,8 +112,8 @@ async function send({ skipConfirm = false, deliveryChoice = null } = {}) {
     return;
   }
   if (isSecureMode.value) {
-    if (!to.value.trim()) {
-      error.value = 'Recipient email is required for secure message notification';
+    if (!to.value.trim() || !body.value.trim()) {
+      error.value = 'A recipient and secure message are required';
       return;
     }
     sending.value = true;
@@ -112,13 +121,13 @@ async function send({ skipConfirm = false, deliveryChoice = null } = {}) {
       await api.post('/communications/secure-notify', {
         agencyId: props.agencyId,
         recipientEmail: to.value.trim(),
-        note: body.value || null
+        body: body.value
       }, { skipGlobalLoading: true });
       emit('sent');
     } catch (e) {
-      // Fallback: compose email with secure channel intent when endpoint missing
+      // Keep a secure draft secure if the service is unavailable.
       if (e?.response?.status === 404) {
-        error.value = 'Secure notify endpoint unavailable — send via Messages secure thread, or use Email.';
+        error.value = 'Secure messaging is unavailable. Your message has not been sent.';
       } else {
         error.value = e?.response?.data?.error?.message || e?.message || 'Secure send failed';
       }
@@ -179,8 +188,9 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
 </script>
 
 <template>
+  <Teleport to="body">
   <div class="uc-modal-backdrop" @click.self="emit('close')">
-    <div class="uc-modal" role="dialog" aria-label="New message">
+    <div class="uc-modal conversa-surface" role="dialog" aria-label="New message">
       <header>
         <h3>New Message</h3>
         <button type="button" class="uc-x" aria-label="Close" @click="emit('close')">×</button>
@@ -191,12 +201,9 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         <button type="button" :class="{ on: channelMode === 'secure' }" @click="channelMode = 'secure'">Secure Message</button>
         <button type="button" :class="{ on: channelMode === 'dm' }" @click="channelMode = 'dm'">Direct Message</button>
       </div>
-      <p v-if="isSecureMode" class="uc-hint">
-        Clinical and school guardians/clients only — sends a secure notification (no PHI) with a deep link.
-        Learning clients should use Email (they receive a regular message email).
-      </p>
-      <p v-else-if="isDmMode" class="uc-hint">
-        Staff Direct Messages use the Messages workspace. Open Messages to chat with school/app staff.
+      <SecureMessageBanner v-if="isSecureMode" />
+      <p v-if="isDmMode" class="uc-hint">
+        Open Messages by Conversa team chat to send direct messages to staff.
       </p>
 
       <label v-if="isEmailMode" class="uc-row">
@@ -207,6 +214,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           </option>
         </select>
       </label>
+      <ConversaSender v-if="isEmailMode && selectedInbox" :name="selectedInbox.display_name || ''" :address="selectedInbox.from_email || ''" :organization="selectedInbox.organization || null" :logo="selectedInbox.logo_url || ''" />
       <p v-if="isEmailMode && selectedInbox?.from_email" class="uc-hint">
         From {{ selectedInbox.from_email }} — replies come back to this mailbox in the app.
       </p>
@@ -224,7 +232,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         <span>Subject</span>
         <input v-model="subject" type="text" />
       </label>
-      <textarea v-model="body" rows="8" :placeholder="isSecureMode ? 'Optional note for your records (not emailed)…' : 'Message…'" />
+      <textarea v-model="body" rows="8" :placeholder="isSecureMode ? 'Write your secure message…' : 'Message…'" />
 
       <label v-if="isEmailMode">Attachments <input type="file" multiple @change="selectAttachments" /></label>
       <p v-if="attachments.length">{{ attachments.map((a) => a.filename).join(', ') }} <button type="button" @click="attachments = []">Remove attachments</button></p>
@@ -234,7 +242,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
       <footer>
         <button type="button" class="uc-cancel" @click="emit('close')">Cancel</button>
         <button type="button" class="uc-send" :disabled="sending || isDmMode" @click="send()">
-          {{ sending ? 'Sending…' : (isSecureMode ? 'Send secure notification' : 'Send') }}
+          {{ sending ? 'Sending…' : (isSecureMode ? 'Send secure message' : 'Send') }}
         </button>
       </footer>
     </div>
@@ -261,6 +269,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
       </div>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -276,7 +285,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
 }
 .uc-modal {
   width: min(560px, 100%);
-  background: var(--app-surface, #fff);
+  background: var(--conversa-surface);
   border-radius: 14px;
   padding: 18px;
   box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
@@ -294,26 +303,26 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   flex-wrap: wrap;
 }
 .uc-channel-switch button {
-  border: 1px solid var(--app-line, #cbd5e1);
-  background: var(--app-surface-muted, #f8fafc);
+  border: 1px solid var(--conversa-border);
+  background: var(--conversa-wash);
   border-radius: 999px;
   padding: 6px 12px;
   font-size: 0.8rem;
   cursor: pointer;
 }
 .uc-channel-switch button.on {
-  background: #166534;
-  border-color: #166534;
-  color: #fff;
+  background: var(--conversa-blue);
+  border-color: var(--conversa-blue);
+  color: var(--conversa-surface);
 }
-.uc-modal h3 { margin: 0; color: var(--app-text-green, #166534); }
+.uc-modal h3 { margin: 0; color: var(--conversa-blue); }
 .uc-x {
   border: none;
   background: transparent;
   font-size: 1.5rem;
   line-height: 1;
   cursor: pointer;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
 }
 .uc-row {
   display: grid;
@@ -322,13 +331,13 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   align-items: center;
   margin-bottom: 10px;
   font-size: 0.85rem;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
 }
 .uc-row input,
 .uc-row select,
 .uc-modal textarea {
   width: 100%;
-  border: 1px solid var(--app-line, #cbd5e1);
+  border: 1px solid var(--conversa-border);
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 0.9rem;
@@ -336,11 +345,11 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   box-sizing: border-box;
 }
 .uc-modal textarea { margin-top: 4px; resize: vertical; }
-.uc-hint { font-size: 0.75rem; color: var(--app-muted, #94a3b8); margin: -4px 0 10px 82px; }
+.uc-hint { font-size: 0.75rem; color: var(--conversa-muted); margin: -4px 0 10px 82px; }
 .uc-link {
   border: none;
   background: none;
-  color: var(--app-text-green, #166534);
+  color: var(--conversa-blue);
   font-size: 0.8rem;
   cursor: pointer;
   margin: 0 0 10px 82px;
@@ -361,19 +370,19 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
   cursor: pointer;
   font-size: 0.9rem;
 }
-.uc-cancel { border: 1px solid var(--app-line, #cbd5e1); background: var(--app-surface, #fff); }
-.uc-send { border: none; background: #166534; color: #fff; }
+.uc-cancel { border: 1px solid var(--conversa-border); background: var(--conversa-surface); }
+.uc-send { border: none; background: var(--conversa-blue); color: var(--conversa-surface); }
 .uc-send:disabled { opacity: 0.6; }
 .uc-confirm {
   position: absolute;
   width: min(420px, 92vw);
-  background: var(--app-surface, #fff);
+  background: var(--conversa-surface);
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 16px 40px rgba(15, 23, 42, 0.3);
   border: 1px solid var(--app-line, #fde68a);
 }
-.uc-confirm h4 { margin: 0 0 8px; color: var(--app-text-red, #92400e); }
-.uc-confirm ul { margin: 0 0 12px; padding-left: 18px; font-size: 0.88rem; color: var(--app-ink, #334155); }
+.uc-confirm h4 { margin: 0 0 8px; color: var(--app-text-amber, #92400e); }
+.uc-confirm ul { margin: 0 0 12px; padding-left: 18px; font-size: 0.88rem; color: var(--conversa-ink); }
 .uc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
 </style>

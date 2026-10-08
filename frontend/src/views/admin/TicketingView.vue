@@ -1,11 +1,11 @@
 <template>
-  <div class="page">
+  <div class="page conversa-surface">
     <div v-if="!ready" class="muted" style="padding: 24px;">Loading ticketing...</div>
     <div v-else>
       <div class="header" data-tour="tickets-header">
         <div>
-          <h2 style="margin: 0;" data-tour="tickets-title">Ticketing</h2>
-          <div class="muted">Queue (school staff requests)</div>
+          <ConversaBrand heading="h2" compact data-tour="tickets-title" />
+          <div class="muted">Tickets · School staff requests</div>
         </div>
         <div class="actions" data-tour="tickets-filters">
           <label class="field">
@@ -352,6 +352,7 @@
 </template>
 
 <script setup>
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import ClientDetailPanel from '../../components/admin/ClientDetailPanel.vue';
 import { useTicketingQueue } from '../../composables/useTicketingQueue';
 

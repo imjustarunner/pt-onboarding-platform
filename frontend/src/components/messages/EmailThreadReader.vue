@@ -22,14 +22,14 @@
       <button v-if="hasOlder" type="button" :disabled="loadingOlder" @click="$emit('older')">{{ loadingOlder ? 'Loading…' : 'Load earlier emails' }}</button>
       <details v-for="message in messages" :key="message.id" class="email-message" :open="isExpanded(message)" @toggle="rememberExpansion(message, $event)">
         <summary>
-        <div class="sender"><strong>{{ message.from?.name || message.from?.email || (message.direction === 'outbound' ? 'You' : 'Sender') }}</strong><time>{{ formatDate(message.sent_at || message.created_at) }}</time></div>
+        <div class="sender"><ConversaSender :name="message.from?.name || (message.direction === 'outbound' ? 'You' : '')" :address="message.from?.email || ''" :organization="message.sending_organization || message.from?.organization || null" :logo="message.from?.logo_url || ''" /><time>{{ formatDate(message.sent_at || message.created_at) }}</time></div>
         </summary>
         <p class="addresses" v-if="message.to?.length">To: {{ addresses(message.to) }}<template v-if="message.cc?.length"> · Cc: {{ addresses(message.cc) }}</template></p>
         <p v-if="emailDeliveryLabel(message)" role="status">{{ emailDeliveryLabel(message) }}</p>
         <button v-if="rendered[message.id]?.hasBlockedImages" type="button" class="load-images" @click="showImages[message.id]=true">Show external images</button>
         <div class="body" :class="{ 'plain-body': !message.body_html }" v-html="rendered[message.id]?.html || '(Empty message)'" />
         <div class="actions">
-          <button v-for="file in message.attachments || []" :key="file.id" type="button" @click="$emit('attachment',file)">📎 {{ file.filename }}</button>
+          <button v-for="file in message.attachments || []" :key="file.id" type="button" @click="$emit('attachment',file)"><ConversaIcon type="attachment" :size="14" /> {{ file.filename }}</button>
           <button v-if="!readOnly && !message.is_internal_note && (!message.send_status || message.send_status === 'sent')" type="button" :aria-pressed="!!message.reactions?.some(r => r.reactedByMe)" @click="$emit('like',message)">♥ Like {{ message.reactions?.find(r => r.emoji === '❤️')?.count || '' }}</button>
         </div>
       </details>
@@ -38,6 +38,8 @@
   </section>
 </template>
 <script setup>
+import ConversaSender from '../../components/conversa/ConversaSender.vue';
+import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import { computed, ref, watch } from 'vue';
 import { renderEmailContent, emailDeliveryLabel } from '../../utils/emailPresentation';
 const props = defineProps({ conversation:Object,messages:{type:Array,default:()=>[]},hasOlder:Boolean,loadingOlder:Boolean,readOnly:Boolean,canPrint:Boolean,canFile:Boolean });

@@ -48,9 +48,9 @@
   
   /* Typography */
   --font-header: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-body: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-numeric: 'IBM Plex Mono', 'Courier New', monospace;
-  --font-display: 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   
   /* Logo sizing */
   --logo-height-small: 20px;
@@ -1805,7 +1805,7 @@
 body {
   /* Agency branding can override fonts; fall back to platform typography */
   font-family: var(--agency-font-family, var(--font-body));
-  line-height: 1.7;
+  line-height: 1.6;
   color: var(--text-primary);
   background-color: var(--bg-alt);
   font-size: 15px;
@@ -1821,7 +1821,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 h1 {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .numeric, .report-number, code, pre {
@@ -2052,8 +2052,8 @@ select option {
 
 h1, h2, h3, h4, h5, h6 {
   color: var(--text-primary);
-  font-weight: 700;
-  line-height: 1.2;
+  font-weight: 600;
+  line-height: 1.25;
   margin-bottom: 16px;
 }
 

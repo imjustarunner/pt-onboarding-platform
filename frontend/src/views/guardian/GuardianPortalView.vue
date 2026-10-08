@@ -418,6 +418,7 @@
 
             <template v-else-if="activePanel === 'messages'">
               <GuardianMessagesPanel v-if="!isSuperadminPreview" />
+              <ClientNotificationHistory v-if="!isSuperadminPreview && selectedChildId" :client-id="selectedChildId" guardian />
               <div v-else class="hint">Guardian messaging is hidden in platform preview.</div>
             </template>
 
@@ -635,6 +636,7 @@ import GuardianDependentsTab from '../../components/guardian/GuardianDependentsT
 import GuardianPlanProgressPanel from '../../components/guardian/GuardianPlanProgressPanel.vue';
 import GuardianSkillBuildersEventView from './GuardianSkillBuildersEventView.vue';
 import GuardianSessionBookingDrawer from '../../components/guardian/GuardianSessionBookingDrawer.vue';
+import ClientNotificationHistory from '../../components/conversa/ClientNotificationHistory.vue';
 import GuardianMessagesPanel from '../../components/guardian/GuardianMessagesPanel.vue';
 import GuardianTutoringDashboard from '../../components/guardian/GuardianTutoringDashboard.vue';
 import ClientAffiliatedContactsPanel from '../../components/client/ClientAffiliatedContactsPanel.vue';
@@ -895,7 +897,7 @@ const dashboardTabs = computed(() => {
     });
   }
   tabs.push(
-    { key: 'messages', label: 'Messages', meta: pm('Provider chat', 'Messaging shell') },
+    { key: 'messages', label: 'Messages by Conversa', meta: pm('Provider chat', 'Messaging shell') },
     { key: 'dependents', label: 'Dependents', meta: pm('Health and emergency info', 'Health shell (preview)') },
     {
       key: 'payment_methods',
@@ -1168,7 +1170,7 @@ async function openLearningClassWorkspace(item) {
 const panelTitle = computed(() => {
   if (activePanel.value === 'overview') return 'Family overview';
   if (activePanel.value === 'billing') return 'Billing';
-  if (activePanel.value === 'messages') return 'Messages';
+  if (activePanel.value === 'messages') return 'Messages by Conversa';
   if (activePanel.value === 'notifications') return 'Notifications';
   if (activePanel.value === 'policy') return 'Policy & Procedures';
   return 'My Dashboard';

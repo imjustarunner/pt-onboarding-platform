@@ -1,6 +1,6 @@
 <template>
-  <main class="email-composer">
-    <header><h1>{{ title }}</h1><button type="button" :disabled="busy || loading" @click="saveAndClose">Save &amp; close ×</button></header>
+  <main class="email-composer conversa-surface">
+    <header><div class="composer-heading"><ConversaBrand compact /><h1>{{ title }}</h1></div><button type="button" :disabled="busy || loading" @click="saveAndClose">Save &amp; close ×</button></header>
     <p v-if="error" role="alert" class="error">{{ error }} <button v-if="record?.state==='editing'" type="button" :disabled="busy" @click="retrySave">Retry saving</button></p>
     <p v-if="loading" role="status">Opening draft…</p>
     <button v-else-if="!record" type="button" @click="openDraft">Try opening draft again</button>
@@ -38,6 +38,7 @@
   </main>
 </template>
 <script setup>
+import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import EmailRecipientField from '../components/messages/EmailRecipientField.vue';
 import EmailDeliveryChoice from '../components/messages/EmailDeliveryChoice.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -118,5 +119,7 @@ watch([status,error,busy,loading,()=>record.value?.id,()=>draft.value.subject,()
 defineExpose({save,saveAndClose,preparePopout});
 </script>
 <style scoped>
-fieldset{border:0;padding:0;margin:0;min-width:0}.email-composer{max-width:1050px;margin:auto;padding:24px;color:var(--text-primary,#20352b);background:var(--bg-primary,#fff);min-height:100vh}header,footer,.recipients,.to-row{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}h1{font-size:1.5rem}label{display:flex;flex-direction:column;gap:6px;margin:12px 0;flex:1}input,textarea,button{font:inherit;color:inherit;border:1px solid #a5b9af;border-radius:6px;padding:10px;background:transparent}textarea{min-height:250px;resize:vertical;line-height:1.5;width:100%;box-sizing:border-box}button{cursor:pointer}button:disabled{opacity:.5}.send{background:#16664c;color:white;min-width:120px}.error{color:#af2929}.status{font-size:.85rem;color:#47755f}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.6}details{margin-top:24px;border-top:1px solid #a5b9af;padding-top:14px;opacity:.85}footer{justify-content:flex-start}@media(max-width:600px){.email-composer{padding:12px}.recipients{display:block}}
+.composer-heading{display:flex;align-items:center;gap:20px;flex-wrap:wrap}.composer-heading h1{font-size:18px}.email-composer header{flex-wrap:wrap;gap:12px}
+
+fieldset{border:0;padding:0;margin:0;min-width:0}.email-composer{max-width:1050px;margin:auto;padding:24px;color:var(--text-primary,#20352b);background:var(--bg-primary,#fff);min-height:100vh}header,footer,.recipients,.to-row{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}h1{font-size:1.5rem}label{display:flex;flex-direction:column;gap:6px;margin:12px 0;flex:1}input,textarea,button{font:inherit;color:inherit;border:1px solid #a5b9af;border-radius:6px;padding:10px;background:transparent}textarea{min-height:250px;resize:vertical;line-height:1.5;width:100%;box-sizing:border-box}button{cursor:pointer}button:disabled{opacity:.5}.send{background:#0047b3;color:white;min-width:120px}.error{color:#af2929}.status{font-size:.85rem;color:#47755f}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.6}details{margin-top:24px;border-top:1px solid #a5b9af;padding-top:14px;opacity:.85}footer{justify-content:flex-start}@media(max-width:600px){.email-composer{padding:12px}.recipients{display:block}}
 </style>

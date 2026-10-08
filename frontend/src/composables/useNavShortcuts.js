@@ -30,7 +30,7 @@ const PAGE_META = {
   'school-portals':                 { label: 'School Portals',       icon: '🔗' },
   'referral-directory':             { label: 'Referrals',            icon: '📂' },
   'intake':                         { label: 'Intake Queue',         icon: '📥' },
-  'communications':                 { label: 'Communications',       icon: '💬' },
+  'communications':                 { label: 'Communications management',       icon: '💬' },
   'notes':                          { label: 'Notes',                icon: '📝' },
   'settings':                       { label: 'Settings',             icon: '⚙️'  },
   'schools/overview':               { label: 'Schools Overview',     icon: '🏫' },

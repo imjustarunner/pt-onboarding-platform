@@ -2,6 +2,7 @@
 import PersonalMessageDeliverySettings from '../messages/PersonalMessageDeliverySettings.vue';
 import { computed, ref } from 'vue';
 const showPersonalDelivery = ref(false);
+import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 
 const props = defineProps({
   inboxes: { type: Array, default: () => [] },
@@ -23,13 +24,13 @@ const emit = defineEmits([
 ]);
 
 const channels = [
-  { id: 'all', label: 'All Conversations', icon: '◎' },
-  { id: 'email', label: 'Email', icon: '✉' },
-  { id: 'secure', label: 'Secure Messages', icon: '💬' },
-  { id: 'sms', label: 'SMS', icon: '📱' },
-  { id: 'call', label: 'Calls & Voicemail', icon: '📞' },
-  { id: 'mention', label: 'Mentions', icon: '@' },
-  { id: 'internal', label: 'Team Discussions', icon: '👥' }
+  { id: 'all', label: 'All Conversations' },
+  { id: 'email', label: 'Email' },
+  { id: 'secure', label: 'Secure Messages' },
+  { id: 'sms', label: 'SMS' },
+  { id: 'call', label: 'Calls & Voicemail' },
+  { id: 'mention', label: 'Mentions' },
+  { id: 'internal', label: 'Team Discussions' }
 ];
 
 function channelCount(id, attention) {
@@ -64,12 +65,13 @@ function onInboxChange(e) {
 <template>
   <aside class="uc-side">
     <button type="button" class="uc-new" @click="emit('compose')">
-      + New Message
+      <ConversaIcon type="chat" :size="17" /> New message
     </button>
 
     <label class="uc-inbox-label">Inbox</label>
     <select
       class="uc-inbox-select"
+      aria-label="Sending and receiving inbox"
       :value="selectedInboxId == null ? 'null' : String(selectedInboxId)"
       @change="onInboxChange"
     >
@@ -82,7 +84,7 @@ function onInboxChange(e) {
       </option>
     </select>
     <p v-if="selectedIsAppInbox" class="uc-inbox-help">
-      App inbox sends and receives through your organization’s group mail the app is authorized to use — not a personal Google Workspace seat.
+      Send and receive using your organization’s shared address.
     </p>
 
     <div class="uc-prefs">
@@ -114,7 +116,7 @@ function onInboxChange(e) {
         :class="{ on: channel === ch.id }"
         @click="emit('update:channel', ch.id)"
       >
-        <span class="uc-ch-icon" aria-hidden="true">{{ ch.icon }}</span>
+        <ConversaIcon :type="ch.id" :size="17" />
         <span class="uc-ch-label">{{ ch.label }}</span>
         <em v-if="channelCount(ch.id, attention)">{{ channelCount(ch.id, attention) }}</em>
       </button>
@@ -133,15 +135,15 @@ function onInboxChange(e) {
 
 <style scoped>
 .uc-side {
-  background: var(--app-surface-muted, #f8fafc);
-  border-right: 1px solid var(--app-line, #e2e8f0);
+  background: var(--conversa-wash);
+  border-right: 1px solid var(--conversa-border);
   padding: 14px 12px;
   overflow-y: auto;
 }
 .uc-new {
   width: 100%;
-  background: #166534;
-  color: #fff;
+  background: var(--conversa-blue);
+  color: var(--conversa-surface);
   border: none;
   border-radius: 10px;
   padding: 11px 12px;
@@ -149,7 +151,7 @@ function onInboxChange(e) {
   font-size: 0.92rem;
   cursor: pointer;
 }
-.uc-new:hover { background: #14532d; }
+.uc-new:hover { background: var(--conversa-blue); }
 .uc-inbox-label {
   display: block;
   margin-top: 16px;
@@ -157,28 +159,28 @@ function onInboxChange(e) {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
 }
 .uc-inbox-select {
   width: 100%;
   margin-top: 6px;
-  border: 1px solid var(--app-line, #cbd5e1);
+  border: 1px solid var(--conversa-border);
   border-radius: 8px;
   padding: 8px;
   font-size: 0.85rem;
-  background: var(--app-surface, #fff);
+  background: var(--conversa-surface);
 }
 .uc-inbox-help {
   margin: 6px 0 0;
   font-size: 11px;
   line-height: 1.4;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
 }
 .uc-prefs {
   margin-top: 12px;
   padding: 10px;
-  background: var(--app-surface, #fff);
-  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--conversa-surface);
+  border: 1px solid var(--conversa-border);
   border-radius: 10px;
 }
 .uc-prefs .uc-section { margin-top: 0; }
@@ -187,14 +189,14 @@ function onInboxChange(e) {
   align-items: center;
   gap: 8px;
   font-size: 0.8rem;
-  color: var(--app-ink, #334155);
+  color: var(--conversa-ink);
   margin-top: 6px;
 }
 .uc-pref-row.digest {
   justify-content: space-between;
 }
 .uc-pref-row select {
-  border: 1px solid var(--app-line, #cbd5e1);
+  border: 1px solid var(--conversa-border);
   border-radius: 6px;
   padding: 4px 6px;
   font-size: 0.78rem;
@@ -202,7 +204,7 @@ function onInboxChange(e) {
 .uc-pref-hint {
   margin: 8px 0 0;
   font-size: 0.7rem;
-  color: var(--app-muted, #94a3b8);
+  color: var(--conversa-muted);
   line-height: 1.35;
 }
 .uc-smart {
@@ -221,14 +223,14 @@ function onInboxChange(e) {
   border-radius: 8px;
   font-size: 0.82rem;
   cursor: pointer;
-  color: var(--app-ink, #334155);
+  color: var(--conversa-ink);
   text-align: left;
 }
-.uc-smart button:hover { background: var(--app-surface-muted, #e2e8f0); }
+.uc-smart button:hover { background: var(--conversa-border); }
 .uc-smart em {
   font-style: normal;
-  background: #166534;
-  color: #fff;
+  background: var(--conversa-blue);
+  color: var(--conversa-surface);
   border-radius: 999px;
   padding: 1px 7px;
   font-size: 0.72rem;
@@ -240,7 +242,7 @@ function onInboxChange(e) {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
 }
 .uc-channels {
   display: flex;
@@ -258,7 +260,7 @@ function onInboxChange(e) {
   border-radius: 8px;
   font-size: 0.82rem;
   cursor: pointer;
-  color: var(--app-ink, #334155);
+  color: var(--conversa-ink);
   text-align: left;
 }
 .uc-channels.compact button {
@@ -266,13 +268,13 @@ function onInboxChange(e) {
 }
 .uc-channels button.on,
 .uc-channels button:hover {
-  background: var(--app-tint-green, #dcfce7);
-  color: var(--app-ink, #14532d);
+  background: var(--conversa-blue-soft);
+  color: var(--conversa-blue);
 }
 .uc-ch-icon { opacity: 0.85; }
 .uc-channels em {
   font-style: normal;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
   font-size: 0.75rem;
 }
 </style>

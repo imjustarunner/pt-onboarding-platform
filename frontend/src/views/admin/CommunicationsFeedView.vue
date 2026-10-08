@@ -1,5 +1,5 @@
 <template>
-  <div class="container comms-feed">
+  <div class="container comms-feed conversa-surface">
     <div class="header" data-tour="comms-header">
       <div>
         <h2 data-tour="comms-title">Engagement Feed</h2>
@@ -34,12 +34,12 @@
           >Compliance proof</button>
         </div>
         <router-link v-if="!isPublicProofMode && canUseCommunicationsCenter" class="btn btn-secondary" :to="communicationsCenterLink">
-          Communications Center
+          Communications management
         </router-link>
         <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="smsInboxLink">SMS Inbox</router-link>
         <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="preferencesLink">Preferences</router-link>
         <router-link v-if="!isPublicProofMode && canManageTexting" class="btn btn-secondary" :to="textingSettingsLink">Texting settings</router-link>
-        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Messages</router-link>
+        <router-link v-if="!isPublicProofMode" class="btn btn-secondary" :to="chatsLink" data-tour="comms-go-chats">Messages by Conversa</router-link>
         <router-link v-if="!isPublicProofMode && !hideSscTicketsButton" class="btn btn-secondary" :to="ticketsLink">
           Tickets
           <span v-if="openTicketsCount > 0" class="header-badge">{{ openTicketsCount }}</span>
@@ -808,7 +808,7 @@ const commsSubtitle = computed(() => {
   if (isSscSstcTenant.value && authStore.isAuthenticated) {
     return 'Texting, chat, and calls for your club.';
   }
-  return 'Delivery queues, automation, school alerts, and activity — part of Communications Center.';
+  return 'Delivery queues, automation, school alerts, and activity — part of Communications management.';
 });
 
 const loading = ref(true);

@@ -25,6 +25,14 @@ import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service
 
 const escapeHtml = value => String(value || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+export function minimalContactSessionReminder(appointment) {
+  const start = parseStartAt(appointment.startAt);
+  const when = start && !Number.isNaN(start.getTime()) ? new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium', timeStyle: 'short', timeZone: appointment.timeZone || appointment.timezone || 'America/Denver'
+  }).format(start) : 'the scheduled time';
+  return `An upcoming session is scheduled for ${when}. Please contact the account guardian for details.`;
+}
+
 const CHANNELS = ['in_app', 'email', 'sms', 'phone'];
 
 /** Default Book Session reminder cadence: 7d always; 24h/4h gated by interaction. */
@@ -984,6 +992,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
     }
     const body = serviceSetting.isSchool ? buildSchoolReminder(appt)
       : row.message_body || defaultMessage(appt, kind.replace(':in_app', ''), !!row.requires_confirmation);
+    const contactBody = minimalContactSessionReminder(appt);
     const prefs = clientId ? await getClientPreferences(appt.agencyId, clientId, consent.guardianUserId) : null;
     const participant = participants.find((p) => p.clientId === clientId);
     const optedOut = participant?.receivesReminders === false || (!prefs?.isDefault && prefs?.channels?.[channel] === false)
@@ -1076,7 +1085,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
             if (!c.sms_reminders_enabled || !c.sms_opt_in || !c.contact_phone) continue;
             const toC = PhoneNumber.normalizePhone(c.contact_phone);
             if (!toC || !from || toC === toPhoneNorm) continue;
-            await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, to: toC, from, body: body.slice(0, 480) });
+            await VonageService.sendSms({ purpose: 'reminders', agencyId: appt.agencyId, to: toC, from, body: contactBody });
             await logCommunication({
               appointmentId: appt.id,
               agencyId: appt.agencyId,
@@ -1084,7 +1093,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
               kind: 'reminder',
               bodyPreview: body.slice(0, 500),
               reminderId: row.id,
-              metadata: { recipientRole: 'contact', affiliationId: c.affiliation_id }
+              metadata: { recipientRole: 'contact', affiliationId: c.affiliation_id, recipient: c.contact_phone, status: 'sent' }
             });
           }
         } catch (fanErr) {
@@ -1144,9 +1153,9 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
           if (!c.email_reminders_enabled || !c.contact_email || String(c.contact_email).toLowerCase() === String(consent.emailAddress).toLowerCase()) continue;
           await sendSessionEmail({
             to: c.contact_email,
-            subject: serviceSetting.isSchool ? 'School visit notice' : kind.startsWith('confirmation') ? 'Please confirm your session' : 'Session reminder',
-            text: body,
-            html: `<p>${escapeHtml(body).replace(/\n/g, '<br/>')}</p>`,
+            subject: 'Upcoming session reminder',
+            text: contactBody,
+            html: `<p>${escapeHtml(contactBody)}</p>`,
             agencyId: appt.agencyId || null,
             clientId: clientId || null,
             kind
@@ -1158,7 +1167,7 @@ export async function processDueSessionNotifications({ limit = 50 } = {}) {
             kind: 'reminder',
             bodyPreview: body.slice(0, 500),
             reminderId: row.id,
-            metadata: { recipientRole: 'contact', affiliationId: c.affiliation_id }
+            metadata: { recipientRole: 'contact', affiliationId: c.affiliation_id, recipient: c.contact_email, status: 'sent' }
           });
         }
       } catch (fanErr) {

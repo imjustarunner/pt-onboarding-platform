@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="isAuthenticated"
-    class="messages-workspace"
+    class="messages-workspace conversa-surface"
     :class="[
       `layout-${layout}`,
       `theme-${theme}`,
@@ -15,7 +15,7 @@
     <aside class="mw-list-col">
       <div class="panel-header">
         <div class="org-header">
-          <div class="title">Messages</div>
+          <ConversaBrand compact />
           <button v-if="!isSchoolStaffViewer" type="button" class="delivery-settings" title="Email reminder settings" aria-label="Email reminder settings" @click="personalDeliveryOpen = true"><Settings2 :size="17" /></button>
           <div class="subtitle">{{ panelSubtitle }}</div>
         </div>
@@ -795,6 +795,7 @@
               </button>
             </div>
 
+            <SecureMessageBanner v-if="activeMessageChannel === 'secure'" :thread-id="activeThreadId" />
             <div class="chat-messages" ref="chatMessagesEl">
               <div v-if="chatLoading" class="chat-loading-strip" aria-label="Loading messages" />
               <div v-if="chatError" class="error">{{ chatError }}</div>
@@ -815,7 +816,7 @@
                         {{ m.is_read_by_other ? '✓✓' : '✓' }}
                       </span>
                       <button
-                        v-if="m.sender_user_id === meId && !m.is_read_by_other"
+                        v-if="activeMessageChannel !== 'secure' && m.sender_user_id === meId && !m.is_read_by_other"
                         type="button"
                         class="msg-action"
                         @click="unsend(m)"
@@ -831,7 +832,7 @@
                         :disabled="sending"
                         title="Delete for me"
                       >
-                        Delete
+                        {{ activeMessageChannel === 'secure' ? 'Hide for me' : 'Delete' }}
                       </button>
                       <button
                         type="button"
@@ -863,6 +864,7 @@
                       <button
                         type="button"
                         class="msg-action"
+                        v-if="activeMessageChannel !== 'secure'"
                         @click="createTaskFromMessage(m)"
                         :disabled="taskBusy"
                         title="Create a personal task"
@@ -886,8 +888,9 @@
                   >{{ m.body }}</div>
                   <div v-if="m.attachments?.length" class="msg-attachments">
                     <template v-for="a in m.attachments" :key="a.id || a.file_path">
+                      <button v-if="a.downloadPath" type="button" class="btn btn-secondary btn-sm" @click="downloadAttachment(a.downloadPath, a.original_filename)">{{ a.original_filename || 'Secure attachment' }}</button>
                       <a
-                        v-if="isImageAttachment(a)"
+                        v-else-if="isImageAttachment(a)"
                         :href="a.file_url"
                         target="_blank"
                         rel="noopener"
@@ -966,8 +969,9 @@
                         <div class="msg-body">{{ r.body }}</div>
                         <div v-if="r.attachments?.length" class="msg-attachments">
                           <template v-for="a in r.attachments" :key="a.id || a.file_path">
+                            <button v-if="a.downloadPath" type="button" class="btn btn-secondary btn-sm" @click="downloadAttachment(a.downloadPath, a.original_filename)">{{ a.original_filename || 'Secure attachment' }}</button>
                             <a
-                              v-if="isImageAttachment(a)"
+                              v-else-if="isImageAttachment(a)"
                               :href="a.file_url"
                               target="_blank"
                               rel="noopener"
@@ -1192,6 +1196,9 @@
 <script setup>
 import { Settings2 } from '@lucide/vue';
 import { isMessagingTenant } from '../../utils/peerTenantBrand';
+import { downloadAttachment } from '../../utils/communicationAttachments';
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
+import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -1735,6 +1742,7 @@ const activeChatUser = ref(null);
 const activeThreadId = ref(null);
 const activeThreadAgencyId = ref(null);
 const chatMessages = ref([]);
+const activeMessageChannel = ref('internal');
 const chatLoading = ref(false);
 const chatError = ref('');
 const draft = ref('');
@@ -3195,6 +3203,7 @@ const loadMessages = async ({ markRead, scrollToBottom } = { markRead: true, scr
       `/chat/threads/${activeThreadId.value}/messages`,
       { params: { limit: 60 }, skipGlobalLoading: true }
     );
+    activeMessageChannel.value = resp.data?.[0]?.message_channel || resp.headers?.['x-message-channel'] || (threads.value || []).find((t) => Number(t.thread_id) === Number(activeThreadId.value))?.message_channel || 'internal';
     chatMessages.value = resp.data || [];
     if (scrollToBottom) {
       await scrollMessagesToBottom();

@@ -1,6 +1,6 @@
 <template>
   <div
-    class="ticket-desk"
+    class="ticket-desk conversa-surface"
     :class="{
       compact,
       'ticket-desk--platform': isPlatformTheme,
@@ -9,8 +9,8 @@
   >
     <header v-if="!compact && !selectedId" class="desk-header">
       <div>
-        <h2 class="desk-title">Tickets</h2>
-        <p class="desk-sub">Manage and respond to support requests.</p>
+        <ConversaBrand heading="h2" compact />
+        <p class="desk-sub">Tickets · Manage and respond to support requests.</p>
       </div>
       <div class="desk-header-actions">
         <button
@@ -1048,6 +1048,7 @@
 </template>
 
 <script setup>
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { recordsRequestQueueUrl } from '../../utils/recordsRequestTicket.js';
 import TicketAttachmentFiling from './TicketAttachmentFiling.vue';
 import { publicTicketOriginalInquiry, websiteTicket, ticketAgencyColor, ticketAgencyLogo } from '../../utils/publicTicketPresentation';

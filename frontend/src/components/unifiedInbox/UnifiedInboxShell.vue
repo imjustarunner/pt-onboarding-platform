@@ -1,4 +1,5 @@
 <script setup>
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -54,6 +55,7 @@ const searchHasAttachment = ref('');
 const searchDateFrom = ref('');
 const searchDateTo = ref('');
 const showCompose = ref(false);
+const mobileFiltersOpen = ref(false);
 const prefs = ref({ personalEmailNotify: false, digestHours: 48, lastInboxDigestAt: null });
 
 let draftTimer = null;
@@ -164,6 +166,7 @@ async function openConversation(id) {
     return;
   }
   selectedId.value = id;
+  mobileFiltersOpen.value = false;
   detail.value = null;
   detailLoading.value = true;
   try {
@@ -334,18 +337,18 @@ defineExpose({ refreshAll });
 </script>
 
 <template>
-  <div class="uc-shell">
+  <div class="uc-shell conversa-surface" :class="{ 'uc-shell--thread': !!selectedId, 'uc-shell--filters': mobileFiltersOpen }">
     <header class="uc-top">
       <div class="uc-top-brand">
-        <h2>Communications Center</h2>
-        <p class="uc-muted">Unified inbox — people, schools, and work</p>
+        <ConversaBrand heading="h2" compact />
+        <p class="uc-muted">One place for every conversation.</p>
       </div>
       <div class="uc-search-wrap">
         <input
           v-model="searchQ"
           class="uc-search"
           type="search"
-          placeholder="Search keyword, from:email, subject:…, file:…"
+          placeholder="Search conversations, people, or subjects…"
           aria-label="Search conversations"
         />
         <button type="button" class="uc-search-toggle" @click="showSearchExtras = !showSearchExtras">
@@ -421,6 +424,12 @@ defineExpose({ refreshAll });
 
     <div v-if="error" class="uc-error">{{ error }}</div>
 
+    <div class="uc-mobile-toolbar">
+      <button v-if="selectedId" type="button" class="btn btn-secondary btn-sm" @click="openConversation(null)">← Back to inbox</button>
+      <button v-else type="button" class="btn btn-secondary btn-sm" :aria-expanded="mobileFiltersOpen" @click="mobileFiltersOpen = !mobileFiltersOpen">Inboxes &amp; channels</button>
+      <button type="button" class="btn btn-primary btn-sm" @click="showCompose = true">New message</button>
+    </div>
+
     <div class="uc-body">
       <UnifiedInboxSidebar
         :inboxes="inboxes"
@@ -483,7 +492,7 @@ defineExpose({ refreshAll });
   flex-direction: column;
   gap: 12px;
   min-height: calc(100vh - 220px);
-  color: var(--app-ink, #0f172a);
+  color: var(--conversa-ink);
 }
 .uc-top {
   display: grid;
@@ -494,9 +503,9 @@ defineExpose({ refreshAll });
 .uc-top-brand h2 {
   margin: 0;
   font-size: 1.35rem;
-  color: var(--app-text-green, #166534);
+  color: var(--conversa-blue);
 }
-.uc-muted { color: var(--app-muted, #64748b); font-size: 0.85rem; margin: 2px 0 0; }
+.uc-muted { color: var(--conversa-muted); font-size: 0.85rem; margin: 2px 0 0; }
 .uc-muted.small { font-size: 0.75rem; }
 .uc-search-wrap { display: flex; align-items: center; gap: 8px; justify-content: center; }
 .uc-search {
@@ -506,11 +515,11 @@ defineExpose({ refreshAll });
   border-radius: 10px;
   padding: 10px 14px;
   font-size: 0.95rem;
-  background: var(--app-surface, #fff);
+  background: var(--conversa-surface);
 }
 .uc-search-toggle {
-  border: 1px solid var(--app-line, #cbd5e1);
-  background: var(--app-surface, #fff);
+  border: 1px solid var(--conversa-border);
+  background: var(--conversa-surface);
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 0.78rem;
@@ -522,8 +531,8 @@ defineExpose({ refreshAll });
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  background: var(--app-surface-muted, #f8fafc);
-  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--conversa-wash);
+  border: 1px solid var(--conversa-border);
   border-radius: 10px;
   padding: 10px 12px;
 }
@@ -535,19 +544,19 @@ defineExpose({ refreshAll });
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
 }
 .uc-search-extras input,
 .uc-search-extras select {
-  border: 1px solid var(--app-line, #cbd5e1);
+  border: 1px solid var(--conversa-border);
   border-radius: 8px;
   padding: 7px 8px;
   font-size: 0.85rem;
   font-weight: 500;
   text-transform: none;
   letter-spacing: normal;
-  color: var(--app-ink, #0f172a);
-  background: var(--app-surface, #fff);
+  color: var(--conversa-ink);
+  background: var(--conversa-surface);
 }
 .uc-top-user { text-align: right; }
 .uc-user-name { display: block; font-weight: 600; font-size: 0.9rem; }
@@ -559,8 +568,8 @@ defineExpose({ refreshAll });
 }
 .uc-kpi {
   text-align: left;
-  background: var(--app-surface, #fff);
-  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--conversa-surface);
+  border: 1px solid var(--conversa-border);
   border-radius: 12px;
   padding: 12px 14px;
   cursor: pointer;
@@ -568,13 +577,13 @@ defineExpose({ refreshAll });
 }
 .uc-kpi.metric { cursor: default; }
 .uc-kpi:hover, .uc-kpi.on {
-  border-color: #166534;
-  box-shadow: 0 0 0 1px #16653422;
+  border-color: var(--conversa-blue);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--conversa-blue) 14%, transparent);
 }
-.uc-kpi.metric:hover { border-color: var(--app-line, #e2e8f0); box-shadow: none; }
-.uc-kpi-label { display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--app-muted, #64748b); }
-.uc-kpi strong { display: block; font-size: 1.6rem; color: var(--app-text-green, #166534); line-height: 1.2; margin: 4px 0; }
-.uc-kpi-hint { font-size: 0.78rem; color: var(--app-muted, #94a3b8); }
+.uc-kpi.metric:hover { border-color: var(--conversa-border); box-shadow: none; }
+.uc-kpi-label { display: block; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--conversa-muted); }
+.uc-kpi strong { display: block; font-size: 1.6rem; color: var(--conversa-blue); line-height: 1.2; margin: 4px 0; }
+.uc-kpi-hint { font-size: 0.78rem; color: var(--conversa-muted); }
 
 .uc-error {
   background: var(--app-surface-muted, #fef2f2);
@@ -589,8 +598,8 @@ defineExpose({ refreshAll });
   display: grid;
   grid-template-columns: 220px minmax(260px, 320px) minmax(0, 1fr) 280px;
   gap: 0;
-  background: var(--app-surface, #fff);
-  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--conversa-surface);
+  border: 1px solid var(--conversa-border);
   border-radius: 14px;
   overflow: hidden;
   min-height: 560px;

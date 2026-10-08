@@ -1,12 +1,12 @@
 <template>
-  <div class="container sms-inbox">
+  <div class="container sms-inbox conversa-surface">
     <div class="header">
       <div>
-        <h2>SMS Inbox</h2>
-        <p class="subtitle">Texting workspace for client conversations.</p>
+        <ConversaBrand heading="h2" compact />
+        <p class="subtitle">SMS · Client conversations</p>
       </div>
       <div class="header-actions">
-        <router-link class="btn btn-secondary" :to="communicationsLink">Communications</router-link>
+        <router-link class="btn btn-secondary" :to="communicationsLink">Communications management</router-link>
         <router-link class="btn btn-secondary" :to="preferencesLink">Preferences</router-link>
         <router-link v-if="canManageTexting" class="btn btn-secondary" :to="textingSettingsLink">Texting settings</router-link>
         <button class="btn btn-secondary" type="button" @click="refreshAll" :disabled="loadingThreads || loadingThread">
@@ -120,6 +120,7 @@
 </template>
 
 <script setup>
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useAuthStore } from '../../store/auth';
 import { useRoute, useRouter } from 'vue-router';

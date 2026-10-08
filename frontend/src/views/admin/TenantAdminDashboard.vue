@@ -457,6 +457,7 @@
 </template>
 
 <script setup>
+import { CONVERSA_ICON_URL } from '../../constants/conversa';
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
@@ -959,7 +960,7 @@ const glanceCards = computed(() => {
       },
       {
         key: 'messages',
-        label: 'Messages',
+        label: 'Messages by Conversa',
         value: unreadMessages.value,
         hint: 'Unread messages',
         cta: 'Open Inbox',
@@ -1006,7 +1007,7 @@ const glanceCards = computed(() => {
     },
     {
       key: 'messages',
-      label: 'Messages',
+      label: 'Messages by Conversa',
       value: unreadMessages.value,
       hint: 'Unread messages',
       cta: 'Open Inbox',
@@ -1548,7 +1549,8 @@ const quickActionsCatalog = computed(() => {
     },
     {
       id: 'communications',
-      title: 'Messages',
+      title: 'Messages by Conversa',
+      brandIconUrl: CONVERSA_ICON_URL,
       description: 'Direct messages, channels, threads, and mentions',
       to: `${p}/messages`,
       emoji: '💬',
@@ -1559,7 +1561,7 @@ const quickActionsCatalog = computed(() => {
     },
     {
       id: 'communications_center',
-      title: 'Communications Center',
+      title: 'Communications management',
       description: 'Messages hub and communication tools you can access',
       to: `${p}/admin/communications`,
       emoji: '📡',
@@ -1716,7 +1718,7 @@ const quickActionsCatalog = computed(() => {
 
   return base.filter((a) => {
     if (isOperationsMode.value) {
-      // No Engagement Feed on Operations; Communications Center covers messaging.
+      // No Engagement Feed on Operations; Communications management covers messaging.
       if (a.id === 'chats') return false;
       if (a.id === 'payroll' || a.id === 'payroll_pending' || a.id === 'billing' || a.id === 'billing_policy_rules') return false;
       if (a.id === 'audit_center' || a.id === 'settings' || a.id === 'management_team') return false;

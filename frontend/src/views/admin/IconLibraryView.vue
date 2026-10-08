@@ -9,6 +9,8 @@
       </div>
     </div>
 
+    <ConversaIconLibrary />
+
     <div class="library-controls">
       <div class="search-controls">
         <input
@@ -532,6 +534,7 @@
 </template>
 
 <script setup>
+import ConversaIconLibrary from '../../components/conversa/ConversaIconLibrary.vue';
 import { ref, computed, onMounted, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';

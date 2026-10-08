@@ -316,12 +316,10 @@
         >
           <span class="sp-nav-icon">
             <img
-              v-if="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
-              :src="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
+              :src="CONVERSA_ICON_URL"
               alt=""
               class="sp-nav-icon-img"
             />
-            <PortalIcon v-else name="messages" class="sp-nav-fallback" />
             <span
               v-if="messagesUnreadCount > 0"
               class="sp-nav-badge pulse"
@@ -330,7 +328,7 @@
               {{ messagesUnreadCount }}
             </span>
           </span>
-          <span class="sp-nav-label">Messages</span>
+          <span class="sp-nav-label">Messages by Conversa</span>
         </button>
 
         <button
@@ -1056,14 +1054,12 @@
               <button data-tour="school-home-card-messages" class="dash-card" type="button" @click="openMessages">
                 <div class="dash-card-icon">
                   <img
-                    v-if="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
-                    :src="brandingStore.getSchoolPortalCardIconUrl('messages', cardIconOrg)"
-                    alt="Messages icon"
+                    :src="CONVERSA_ICON_URL"
+                    alt="Messages by Conversa icon"
                     class="dash-card-icon-img"
                   />
-                  <div v-else class="dash-card-icon-fallback" aria-hidden="true"><PortalIcon name="messages" /></div>
                 </div>
-                <div class="dash-card-title">Messages</div>
+                <div class="dash-card-title">Messages by Conversa</div>
                 <div class="dash-card-desc">Chat with providers and school staff. New messages appear here.</div>
                 <div class="dash-card-meta">
                   <span v-if="messagesUnreadCount > 0" class="dash-card-badge dash-card-badge-pulse" :title="`${messagesUnreadCount} unread`">
@@ -2558,6 +2554,7 @@ import PortalIcon from '../../components/portal/PortalIcon.vue';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';
 import '../../styles/schoolCareBridgeWorkspaceBrand.css';
+import { CONVERSA_ICON_URL } from '../../constants/conversa';
 import { computed, onMounted, onUnmounted, provide, reactive, ref, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import {

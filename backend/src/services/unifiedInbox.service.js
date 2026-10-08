@@ -819,6 +819,12 @@ function plainTextToHtml(text) {
 }
 
 export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
+  if (payload.clientId) {
+    const { resolveClientRecordAccess } = await import('./clientRecordAccess.service.js');
+    const [actors] = await pool.execute('SELECT role FROM users WHERE id = ?', [userId]);
+    const access = await resolveClientRecordAccess({ userId, role: actors[0]?.role, clientId: payload.clientId });
+    if (!access.ok || Number(access.client.agency_id) !== Number(agencyId)) throw Object.assign(new Error('Client communication access denied'), { status: 403 });
+  }
   const requestedInbox = inboxId ? await CommunicationInbox.findById(inboxId) : null;
   const mailbox = await resolveEmailSendMailbox({ agencyId, userId, inbox: requestedInbox });
   const inbox = mailbox.inbox;

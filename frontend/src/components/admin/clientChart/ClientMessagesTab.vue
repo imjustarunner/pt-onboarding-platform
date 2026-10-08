@@ -1,5 +1,5 @@
 <template>
-  <div class="detail-section cc-messages-tab">
+  <div class="detail-section cc-messages-tab conversa-surface">
     <div class="cc-messages-banner" role="status">
       <span aria-hidden="true">ℹ️</span>
       <span><strong>Reminder:</strong> Use initials only. Do not include PHI. This is not Therapy Notes.</span>
@@ -13,7 +13,7 @@
       <section class="cc-messages-card">
         <div class="cc-messages-card__head">
           <div>
-            <h3 class="cc-messages-card__title">Messages</h3>
+            <h3 class="cc-messages-card__title">Client notes</h3>
             <p class="cc-messages-card__sub">Client-facing notes (initials only)</p>
           </div>
           <div class="cc-messages-filters">
@@ -38,7 +38,7 @@
           </article>
         </div>
         <div v-else class="cc-messages-empty">
-          <div class="cc-messages-empty__icon" aria-hidden="true">💬</div>
+          <ConversaIcon type="chat" :size="28" tile />
           <p><strong>No messages yet.</strong></p>
           <p>Add the first message using the form below.</p>
         </div>
@@ -157,6 +157,7 @@
 </template>
 
 <script setup>
+import ConversaIcon from '../../../components/conversa/ConversaIcon.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import api from '../../../services/api';
 import '../../../styles/client-messages-tab.css';

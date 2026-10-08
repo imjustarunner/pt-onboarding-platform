@@ -85,8 +85,10 @@
       </nav>
 
       <QuickViewPresence v-if="tab==='presence'" :http="presenceHttp" />
-      <div v-if="tab === 'home'" class="qv-pane">
+      <div v-if="tab === 'home'" class="qv-pane conversa-surface">
+        <ConversaBrand class="qv-conversa-brand" compact tagline />
         <div class="qv-suite">
+          <a class="qv-btn ghost sm" :href="secureMessagesUrl">Secure messages ↗</a>
           <button type="button" :class="{ on: msgSuite === 'email' }" @click="switchMsgSuite('email')">Email</button>
           <button type="button" :class="{ on: msgSuite === 'direct' }" @click="switchMsgSuite('direct')">Direct</button>
           <button type="button" :class="{ on: msgSuite === 'channels' }" @click="switchMsgSuite('channels')">Channels</button>
@@ -760,6 +762,7 @@
 </template>
 
 <script setup>
+import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import { privateSpeechRecognition } from '../utils/privateSpeechRecognition.js';
 import { quickViewDeepLink } from '../utils/quickViewDeepLink';
 import QuickViewPresence from '../components/quickView/QuickViewPresence.vue';
@@ -820,6 +823,12 @@ const agencyLogoUrl = ref('');
 const agencyPrimaryColor = ref('');
 const colorPalette = ref({});
 const loginUrl = ref('');
+const secureMessagesUrl = computed(() => {
+  const url = new URL(loginUrl.value || '/login', window.location.origin);
+  url.pathname = url.pathname.replace(/\/login\/?$/, '/messages');
+  url.search = '?channel=secure'; url.hash = '';
+  return url.href;
+});
 const isLocked = ref(false);
 const tab = ref('home');
 const sort = ref('all');
@@ -1371,7 +1380,7 @@ async function switchMsgSuite(suite) {
       });
       if (request !== homeRequest) return;
       const rows = Array.isArray(data) ? data : (data.threads || []);
-      chatList.value = rows.filter((t) => String(t.thread_type || 'direct').toLowerCase() === 'direct');
+      chatList.value = rows.filter((t) => String(t.thread_type || 'direct').toLowerCase() === 'direct' && t.message_channel !== 'secure');
     } else if (suite === 'channels') {
       const { data } = await axios.get(`${apiBase}/chat/channels`, {
         headers: authHeaders(),
@@ -2412,6 +2421,8 @@ watch([replyTo, replyCc, replyBcc, replyText, () => activeConv.value?.id, sessio
 </script>
 
 <style scoped>
+.qv-conversa-brand{padding:16px 18px;border-bottom:1px solid var(--conversa-border)}
+
 .qv :deep(.email-reader){--email-message-background:var(--qv-surface,#153c29);--email-message-color:var(--qv-text,#f4faf6)}
 .qv-agenda-item { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px; border-bottom:1px solid var(--qv-border); cursor:pointer; }
 .qv-agenda-item p { margin:6px 0; font-size:13px; color:var(--qv-muted); }

@@ -10,7 +10,7 @@
       </div>
       <div class="pthq-personal-actions">
         <router-link to="/admin" class="pthq-personal-link">← Command center</router-link>
-        <router-link to="/admin?panel=messages" class="pthq-personal-link">Messages</router-link>
+        <router-link to="/admin?panel=messages" class="pthq-personal-link"><img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages by Conversa</router-link>
         <span class="pthq-personal-pill">PERSONAL</span>
         <button
           type="button"
@@ -373,7 +373,7 @@
             :first="railCardSiblings(card)[0]?.id === card.id"
             :last="railCardSiblings(card).at(-1)?.id === card.id"
             @move="(delta) => moveRailCard(card, delta)" />
-          <DashboardIconEditor :icon-key="String(card.id)" :label="card.label" :current-url="card.iconUrl"
+          <DashboardIconEditor v-if="!card.brandIconUrl" :icon-key="String(card.id)" :label="card.label" :current-url="card.iconUrl"
             :disabled="previewMode" />
           <div
             v-if="card.id === 'clients' && clientActionItemCount > 0"
@@ -466,7 +466,7 @@
             :first="railCardSiblings(card)[0]?.id === card.id"
             :last="railCardSiblings(card).at(-1)?.id === card.id"
             @move="(delta) => moveRailCard(card, delta)" />
-              <DashboardIconEditor :icon-key="String(card.id)" :label="card.label" :current-url="card.iconUrl"
+              <DashboardIconEditor v-if="!card.brandIconUrl" :icon-key="String(card.id)" :label="card.label" :current-url="card.iconUrl"
                 :disabled="previewMode" />
             </li>
           </ul>
@@ -1320,6 +1320,7 @@
 </template>
 
 <script setup>
+import { CONVERSA_ICON_URL } from '../constants/conversa';
 import { ref, onMounted, onUnmounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
 import ProfileContentSearch from '../components/profile/ProfileContentSearch.vue';
 import { buildQuickNavContext, getAccessibleQuickNavEntries, resolveQuickNavRoute } from '../navigation/quickNavCatalog.js';
@@ -4173,10 +4174,10 @@ const dashboardCards = computed(() => {
     if (!isLimitedAccessNonProvider) {
       cards.push({
         id: 'chats',
-        label: 'Messages',
+        label: 'Messages by Conversa',
         kind: 'content',
         badgeCount: 0,
-        iconUrl: brandingStore.getDashboardCardIconUrl('chats', iconOrg),
+        brandIconUrl: CONVERSA_ICON_URL,
         description: isClubContext.value ? 'Club members online.' : 'Direct messages, channels, threads, and mentions.'
       });
     }
@@ -4361,7 +4362,7 @@ const railCardsForDisplay = computed(() => {
   }
   return out.map((card) => ({
     ...card,
-    iconUrl: brandingStore.getDashboardIconOverrideUrl('dashboard', card.id) || card.iconUrl
+    iconUrl: card.brandIconUrl || brandingStore.getDashboardIconOverrideUrl('dashboard', card.id) || card.iconUrl
   }));
 });
 
@@ -6715,6 +6716,11 @@ h1 {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.rail-card[data-card-id="chats"] .rail-card-title {
+  white-space: normal;
+  line-height: 1.3;
 }
 
 .rail-card-meta {

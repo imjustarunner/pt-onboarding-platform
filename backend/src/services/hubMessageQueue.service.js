@@ -2,6 +2,7 @@
  * Hub delayed/scheduled sends for secure, internal, and SMS (email uses communication_messages).
  */
 import pool from '../config/database.js';
+import { protectQueuedMessage, openQueuedMessage } from './secureQueuePayload.service.js';
 
 const MAX_DELAY_SECONDS = 600; // 10 minutes
 export const DEFAULT_DELAY_SECONDS = 20;
@@ -32,6 +33,7 @@ export async function enqueueHubMessage({
     err.status = 400;
     throw err;
   }
+  ({ body, subject, payload } = protectQueuedMessage({ channel, body, subject, payload }));
   const [result] = await pool.execute(
     `INSERT INTO hub_message_queue
       (agency_id, user_id, person_key, channel, body, subject, payload_json,
@@ -56,7 +58,7 @@ export async function enqueueHubMessage({
 
 export async function findHubQueueItem(id) {
   const [rows] = await pool.execute(`SELECT * FROM hub_message_queue WHERE id = ? LIMIT 1`, [id]);
-  return rows?.[0] || null;
+  return openQueuedMessage(rows?.[0] || null);
 }
 
 export async function listHubQueuedMessages({ userId, agencyId = null, limit = 50 } = {}) {
@@ -74,7 +76,7 @@ export async function listHubQueuedMessages({ userId, agencyId = null, limit = 5
      LIMIT ${lim}`,
     params
   );
-  return rows || [];
+  return (rows || []).map(openQueuedMessage);
 }
 
 export async function cancelHubQueuedMessage({ id, userId }) {
@@ -187,7 +189,7 @@ export async function listHubQueuedForPerson({
      LIMIT ${lim}`,
     params
   );
-  return rows || [];
+  return (rows || []).map(openQueuedMessage);
 }
 
 export async function markHubQueueSent(id) {

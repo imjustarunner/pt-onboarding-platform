@@ -26,10 +26,7 @@ async function assertCanManageClientContacts(req, clientId) {
   }
   const role = String(req.user?.role || '').toLowerCase();
   const uid = Number(req.user?.id);
-  if (['admin', 'super_admin', 'support', 'staff', 'scheduler'].includes(role)) {
-    return client;
-  }
-  if (['provider', 'provider_plus', 'clinical_practice_assistant'].includes(role)) {
+  if (['admin', 'super_admin', 'support', 'staff', 'scheduler', 'provider', 'provider_plus', 'clinical_practice_assistant'].includes(role)) {
     const { resolveClientRecordAccess } = await import('../services/clientRecordAccess.service.js');
     const access = await resolveClientRecordAccess({
       userId: uid,
@@ -47,7 +44,7 @@ async function assertCanManageClientContacts(req, clientId) {
   // Guardian / client self
   if (role === 'client_guardian' || role === 'guardian') {
     const link = await ClientGuardian.getLink({ clientId, guardianUserId: uid });
-    if (!link || !link.access_enabled) {
+    if (!link || !link.access_enabled || ClientGuardian.isNoView(link.permissions_json)) {
       const err = new Error('Access denied');
       err.status = 403;
       throw err;

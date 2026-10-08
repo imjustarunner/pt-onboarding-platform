@@ -1,0 +1,171 @@
+/* Conversa is shared by every organization and communication surface. */
+:root {
+  --conversa-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --conversa-blue: #0047b3;
+  --conversa-navy: #0f2d6b;
+  --conversa-gold: #d4a017;
+  --conversa-sky: #60b5ff;
+  --conversa-teal: #008578;
+  --conversa-purple: #7040c8;
+  --conversa-rose: #c82161;
+  --conversa-ink: #172d50;
+  --conversa-muted: #627087;
+  --conversa-border: #dce5f0;
+  --conversa-surface: #ffffff;
+  --conversa-wash: #f5f8fd;
+  --conversa-blue-soft: #eaf3ff;
+  --conversa-teal-soft: #e5f7f2;
+  --conversa-purple-soft: #f0eaff;
+  --conversa-gold-soft: #fff5db;
+  --conversa-rose-soft: #fff0f5;
+  --conversa-slate-soft: #edf1f6;
+}
+[data-theme='dark'] {
+  --conversa-blue: #8abbff;
+  --conversa-navy: #dbe9ff;
+  --conversa-teal: #73dcca;
+  --conversa-purple: #c3a7ff;
+  --conversa-rose: #ff9abe;
+  --conversa-ink: #e0e8f5;
+  --conversa-muted: #a8b7cd;
+  --conversa-border: #344663;
+  --conversa-surface: #182437;
+  --conversa-wash: #111c2d;
+  --conversa-blue-soft: #223958;
+  --conversa-teal-soft: #193e3c;
+  --conversa-purple-soft: #35294c;
+  --conversa-gold-soft: #453a22;
+  --conversa-rose-soft: #45283a;
+  --conversa-slate-soft: #2a374a;
+}
+.conversa-tone--blue { --conversa-tone-ink: var(--conversa-blue); --conversa-tone-bg: var(--conversa-blue-soft); }
+.conversa-tone--teal { --conversa-tone-ink: var(--conversa-teal); --conversa-tone-bg: var(--conversa-teal-soft); }
+.conversa-tone--purple { --conversa-tone-ink: var(--conversa-purple); --conversa-tone-bg: var(--conversa-purple-soft); }
+.conversa-tone--gold { --conversa-tone-ink: #8a6100; --conversa-tone-bg: var(--conversa-gold-soft); }
+.conversa-tone--rose { --conversa-tone-ink: var(--conversa-rose); --conversa-tone-bg: var(--conversa-rose-soft); }
+.conversa-tone--slate { --conversa-tone-ink: var(--conversa-muted); --conversa-tone-bg: var(--conversa-slate-soft); }
+[data-theme='dark'] .conversa-tone--gold { --conversa-tone-ink: #f4ce6e; }
+
+/* The authenticated product shares readable typography; organization logos and palettes remain independent. */
+#app.conversa-app {
+  --agency-font-family: var(--conversa-font);
+  --font-body: var(--conversa-font);
+  --font-header: var(--conversa-font);
+  font-family: var(--conversa-font);
+}
+.conversa-app :where(button, input, textarea, select) { font-family: inherit; }
+.conversa-app :where(button, a, input, textarea, select):focus-visible,
+.conversa-surface :where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 3px solid var(--conversa-sky);
+  outline-offset: 3px;
+}
+.conversa-surface {
+  --primary: #0047b3;
+  --primary-light: #00388e;
+  --secondary: #0f2d6b;
+  --accent: #d4a017;
+  --agency-primary-color: var(--primary);
+  --agency-font-family: var(--conversa-font);
+  --text-primary: var(--conversa-ink);
+  --text-secondary: var(--conversa-muted);
+  --border: var(--conversa-border);
+  --bg: var(--conversa-surface);
+  --bg-card: var(--conversa-surface);
+  --bg-alt: var(--conversa-wash);
+  font-family: var(--conversa-font);
+  color: var(--conversa-ink);
+}
+.conversa-surface :where(button, input, textarea, select) { font-family: var(--conversa-font); }
+.conversa-surface :where(h1, h2, h3) { font-weight: 600; }
+.conversa-surface .btn { gap: 7px; font-weight: 500; letter-spacing: 0; }
+.conversa-surface .btn-secondary { background: var(--conversa-surface); border: 1px solid var(--conversa-border); color: var(--conversa-blue); }
+.conversa-surface .btn-secondary:hover { background: var(--conversa-blue-soft); }
+.conversa-surface .btn-primary { background: #0047b3; color: #fff; }
+.conversa-surface .btn-primary:hover { background: #00388e; }
+.conversa-surface :where(.btn, button):disabled { cursor: not-allowed; }
+.conversa-mailbox { margin: 4px 0; color: var(--conversa-muted); font-size: 11px; overflow-wrap: anywhere; }
+
+/* Main workspace: quiet white chrome and blue selection, with gold reserved for signals. */
+.cc-shell.conversa-surface {
+  --cc-primary: #0047b3;
+  --cc-secondary: #0f2d6b;
+  --cc-accent: #d4a017;
+  --cc-ink: var(--conversa-ink);
+  --cc-muted: var(--conversa-muted);
+  --cc-surface: var(--conversa-surface);
+  --cc-wash: var(--conversa-wash);
+  --cc-line: var(--conversa-border);
+  background: var(--conversa-wash);
+}
+.cc-shell.conversa-surface .cc-bg { background: var(--conversa-wash); }
+.cc-shell.conversa-surface .cc-top { background: var(--conversa-surface); color: var(--conversa-ink); box-shadow: 0 2px 12px #0f2d6b05; border-bottom: 1px solid var(--conversa-border); align-items: center; }
+.cc-shell.conversa-surface .cc-eyebrow { color: var(--conversa-muted); font-size: 10px; font-weight: 500; margin-bottom: 10px; }
+.cc-shell.conversa-surface .cc-tag { color: var(--conversa-muted); font-size: 12px; }
+.cc-shell.conversa-surface .cc-switch { background: var(--conversa-wash); border: 1px solid var(--conversa-border); border-radius: 10px; backdrop-filter: none; flex-wrap: wrap; }
+.cc-shell.conversa-surface .cc-switch-btn { color: var(--conversa-muted) !important; background: transparent; border-radius: 7px; font-weight: 500; }
+.cc-shell.conversa-surface .cc-switch-btn.on { color: var(--conversa-blue) !important; background: var(--conversa-blue-soft) !important; box-shadow: inset 0 -2px 0 var(--conversa-blue); }
+.cc-shell.conversa-surface .cc-switch-btn:hover { background: var(--conversa-blue-soft); }
+.cc-shell.conversa-surface .cc-switch-btn em { background: #0047b3; color: #fff; }
+.cc-shell.conversa-surface .uc-top-brand .conversa-brand { display: none; }
+.cc-shell.conversa-surface .uc-top-brand .uc-muted { margin: 0; font-size: 14px; font-weight: 600; color: var(--conversa-navy); }
+
+.msg-hub.conversa-surface { --mh-primary: var(--conversa-blue); --mh-ink: var(--conversa-ink); --mh-muted: var(--conversa-muted); --mh-line: var(--conversa-border); --mh-bg: var(--conversa-wash); --mh-surface: var(--conversa-surface); }
+.msg-hub.conversa-surface .msg-hub-head { background: var(--conversa-surface); border-bottom: 1px solid var(--conversa-border); }
+.msg-hub.conversa-surface .msg-hub-rail { background: var(--conversa-wash); }
+.msg-hub.conversa-surface .msg-hub-rail-item.active { background: var(--conversa-blue-soft); color: var(--conversa-blue); }
+.msg-hub.conversa-surface .email-channel-filters { padding: 12px 16px; background: var(--conversa-surface); border-bottom: 1px solid var(--conversa-border); gap: 6px; }
+.msg-hub.conversa-surface .email-channel-filters button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 7px; border: 1px solid transparent; font-weight: 500; color: var(--conversa-muted); }
+.msg-hub.conversa-surface .email-channel-filters button[aria-pressed='true'] { color: var(--conversa-blue); background: var(--conversa-blue-soft); border-color: var(--conversa-border); }
+.msg-hub.conversa-surface .msg-hub-row { border-bottom-color: var(--conversa-border); }
+.msg-hub.conversa-surface .msg-hub-row:hover, .msg-hub.conversa-surface .msg-hub-row.active { background: var(--conversa-blue-soft); }
+.msg-hub.conversa-surface .msg-hub-row.unread { border-left-color: var(--conversa-blue); }
+.msg-hub.conversa-surface .msg-hub-rail-label { font-weight: 600; letter-spacing: .06em; }
+.uc-shell.conversa-surface .uc-body { border: 1px solid var(--conversa-border); border-radius: 14px; overflow: hidden; background: var(--conversa-surface); }
+.conversa-surface .uc-side { background: var(--conversa-wash); border-color: var(--conversa-border); }
+.conversa-surface .uc-side .uc-new { display: flex; align-items: center; justify-content: center; gap: 8px; background: #0047b3; color: #fff; border-color: #0047b3; }
+.conversa-surface .uc-new .conversa-icon { color: inherit; }
+.conversa-surface .uc-channels button.on, .conversa-surface .uc-list-tabs button.on { background: var(--conversa-blue-soft); color: var(--conversa-blue); }
+.conversa-surface .uc-list-items li.on, .conversa-surface .uc-list-items li:hover { background: var(--conversa-blue-soft); }
+.conversa-surface .uc-list-items li.unread { border-left: 3px solid var(--conversa-blue); }
+.conversa-surface .uc-list-items li { min-width: 0; }
+.conversa-surface .uc-list-items li > .conversa-sender { flex-shrink: 0; }
+.conversa-surface .uc-thread, .conversa-surface .uc-list, .conversa-surface .uc-thread-head { background: var(--conversa-surface); color: var(--conversa-ink); }
+.conversa-surface .uc-msg { background: var(--conversa-surface); border-color: var(--conversa-border); }
+.conversa-surface .uc-msg.outbound { background: var(--conversa-blue-soft); }
+.conversa-surface .uc-msg.internal { background: var(--conversa-teal-soft); }
+.messages-workspace.conversa-surface .panel-header { background: var(--conversa-surface); border-bottom-color: var(--conversa-border); }
+.messages-workspace.conversa-surface .nav-stub.active { color: var(--conversa-blue); background: var(--conversa-blue-soft); border-color: var(--conversa-border); }
+.conversa-surface .uc-inbox-help { line-height: 1.5; }
+.conversa-surface .uc-prefs { margin-top: 14px; }
+.conversa-surface .uc-prefs summary { cursor: pointer; font-size: 12px; color: var(--conversa-muted); font-weight: 500; }
+.conversa-surface .uc-pill { color: var(--conversa-muted); background: var(--conversa-slate-soft); }
+.conversa-surface .uc-list-tags { flex-wrap: wrap; }
+.conversa-surface .uc-kpi { border-color: var(--conversa-border); }
+.conversa-surface .uc-mobile-toolbar { display: none; }
+@media (max-width: 900px) {
+  .conversa-surface .uc-mobile-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .conversa-surface .uc-side { display: none; min-width: 0; border-right: 0; border-bottom: 1px solid var(--conversa-border); }
+  .conversa-surface.uc-shell--filters .uc-side { display: block; max-height: 50vh; overflow: auto; }
+  .conversa-surface .uc-body { display: flex; flex-direction: column; min-width: 0; }
+  .conversa-surface .uc-body > .uc-thread { display: none; }
+  .conversa-surface.uc-shell--thread .uc-body > .uc-thread { display: flex; }
+  .conversa-surface.uc-shell--thread .uc-body > .uc-list,
+  .conversa-surface.uc-shell--thread > .uc-kpi-row { display: none; }
+  .conversa-surface .uc-list { min-width: 0; }
+  .conversa-surface .uc-msg-head { flex-wrap: wrap; }
+  .conversa-surface .uc-msg-head time { margin-left: 0; }
+  .conversa-surface .uc-thread-head { flex-direction: column; }
+  .conversa-surface .uc-top { gap: 10px; }
+}
+@media (max-width: 640px) {
+  .cc-shell.conversa-surface .cc-top { position: relative; top: auto; padding: 18px 16px; gap: 14px; }
+  .cc-shell.conversa-surface .cc-switch { width: 100%; }
+  .cc-shell.conversa-surface .cc-switch-btn { padding: 9px 10px; font-size: 12px; }
+  .msg-hub.conversa-surface .msg-hub-head-actions { flex-wrap: wrap; }
+  .msg-hub.conversa-surface .email-channel-filters { flex-wrap: wrap; }
+}
+
+.conversa-nav-mark { display: inline-block; width: 20px; height: 20px; flex: 0 0 20px; object-fit: contain; vertical-align: middle; margin-right: 6px; }
+
+.conversa-nav-label { display: inline-flex; align-items: center; gap: 6px; }
+.conversa-nav-label .conversa-nav-mark { margin-right: 0; }

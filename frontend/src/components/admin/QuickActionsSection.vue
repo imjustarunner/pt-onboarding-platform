@@ -67,7 +67,7 @@
           </span>
         </div>
       </router-link>
-      <DashboardIconEditor surface="admin" :icon-key="String(action.id)" :label="action.title" :current-url="iconUrl(action)" />
+      <DashboardIconEditor v-if="!action.brandIconUrl" surface="admin" :icon-key="String(action.id)" :label="action.title" :current-url="iconUrl(action)" />
       </div>
     </div>
 
@@ -268,6 +268,7 @@ const selectedIdsSet = computed(() => new Set(selectedIds.value || []));
 const failedIconIds = ref(new Set());
 
 const iconUrl = (action) => {
+  if (action.brandIconUrl) return action.brandIconUrl;
   try {
     const override = brandingStore.getDashboardIconOverrideUrl('admin', action.id);
     if (override) return override;

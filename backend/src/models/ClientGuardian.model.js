@@ -113,8 +113,17 @@ class ClientGuardian {
     const pj = permissionsJson ? JSON.stringify(permissionsJson) : null;
     const createdBy = createdByUserId ? Number(createdByUserId) : null;
 
+    const db = await pool.getConnection();
+    try {
+      await db.beginTransaction();
+      await db.execute('SELECT id FROM clients WHERE id = ? FOR UPDATE', [cid]);
+      if (enabled && relType !== 'self') {
+        const [active] = await db.execute(
+          `SELECT guardian_user_id FROM client_guardians WHERE client_id = ? AND access_enabled = 1 AND guardian_user_id <> ? ${hasRelationshipType ? "AND relationship_type <> 'self'" : ''}`, [cid, uid]);
+        if (active.length >= 2) throw Object.assign(new Error('This account already has two guardians with access. Additional people can receive guardian-authorized session reminders.'), { status: 409 });
+      }
     if (hasRelationshipType) {
-      await pool.execute(
+      await db.execute(
         `INSERT INTO client_guardians
           (client_id, guardian_user_id, relationship_type, relationship_title, access_enabled, permissions_json, created_by_user_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -126,7 +135,7 @@ class ClientGuardian {
         [cid, uid, relType, title, enabled, pj, createdBy]
       );
     } else {
-      await pool.execute(
+      await db.execute(
         `INSERT INTO client_guardians
           (client_id, guardian_user_id, relationship_title, access_enabled, permissions_json, created_by_user_id)
          VALUES (?, ?, ?, ?, ?, ?)
@@ -137,7 +146,9 @@ class ClientGuardian {
         [cid, uid, title, enabled, pj, createdBy]
       );
     }
+    await db.commit();
     return true;
+    } catch (e) { await db.rollback(); throw e; } finally { db.release(); }
   }
 
   static async removeLink({ clientId, guardianUserId }) {

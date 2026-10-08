@@ -893,117 +893,22 @@ export async function postSecureNotify(req, res, next) {
   try {
     if (!isAllowedRole(req.user)) return deny(res);
     const agencyId = resolveAgencyId(req);
-    const recipientEmail = String(req.body?.recipientEmail || req.body?.to || '').trim();
-    if (!agencyId || !recipientEmail) {
-      return res.status(400).json({ error: { message: 'agencyId and recipientEmail required' } });
+    const recipientEmail = String(req.body?.recipientEmail || req.body?.to || '').trim().toLowerCase();
+    const body = String(req.body?.body || req.body?.text || req.body?.note || '').trim();
+    if (!agencyId || !recipientEmail || !body) {
+      return res.status(400).json({ error: { message: 'An agency, recipient and secure message are required' } });
     }
-    const {
-      sendSecureMessageNotification,
-      sendLearningClientMessageEmail,
-      sendSchoolStaffSecureMessageNotification,
-      resolveClientContextForMessageNotify,
-      isSecureMessageEligibleClientType
-    } = await import('../services/secureMessageNotify.service.js');
-
-    let recipientUserId = req.body?.recipientUserId || null;
-    if (!recipientUserId && recipientEmail) {
-      const pool = (await import('../config/database.js')).default;
-      const [urows] = await pool.execute(
-        `SELECT id, role FROM users
-         WHERE LOWER(email) = ? OR LOWER(COALESCE(personal_email, '')) = ? OR LOWER(COALESCE(work_email, '')) = ?
-         LIMIT 1`,
-        [recipientEmail.toLowerCase(), recipientEmail.toLowerCase(), recipientEmail.toLowerCase()]
-      );
-      recipientUserId = urows?.[0]?.id || null;
-      const role = String(urows?.[0]?.role || '').toLowerCase();
-      if (role === 'school_staff' || req.body?.recipientKind === 'school_staff') {
-        const result = await sendSchoolStaffSecureMessageNotification({
-          agencyId,
-          senderUserId: req.user.id,
-          recipientUserId,
-          recipientEmail,
-          chatThreadId: req.body?.chatThreadId || null,
-          conversationId: req.body?.conversationId || null,
-          messageSource: 'secure_notify'
-        });
-        return res.json({ ok: true, channel: 'secure_school_staff', ...result });
-      }
+    const pool = (await import('../config/database.js')).default;
+    const [users] = await pool.execute(
+      `SELECT id FROM users WHERE LOWER(email) = ? OR LOWER(COALESCE(personal_email, '')) = ?
+       OR LOWER(COALESCE(work_email, '')) = ? LIMIT 2`, [recipientEmail, recipientEmail, recipientEmail]);
+    if (users.length !== 1) {
+      return res.status(400).json({ error: { message: 'Select a recipient with a portal account in Messages by Conversa before sending securely' } });
     }
-
-    // Explicit school-staff secure send (directory pick without users.role join yet)
-    if (req.body?.recipientKind === 'school_staff' || req.body?.asSchoolStaff === true) {
-      const result = await sendSchoolStaffSecureMessageNotification({
-        agencyId,
-        senderUserId: req.user.id,
-        recipientUserId,
-        recipientEmail,
-        chatThreadId: req.body?.chatThreadId || null,
-        conversationId: req.body?.conversationId || null,
-        messageSource: 'secure_notify'
-      });
-      return res.json({ ok: true, channel: 'secure_school_staff', ...result });
-    }
-
-    const ctx = await resolveClientContextForMessageNotify({
-      agencyId,
-      recipientUserId,
-      clientId: req.body?.clientId || null
-    });
-
-    if (String(ctx.clientType || '').toLowerCase() === 'learning') {
-      const note = String(req.body?.note || req.body?.body || req.body?.text || '').trim();
-      if (!note) {
-        return res.status(400).json({
-          error: {
-            message:
-              'Learning clients receive regular emails (not secure messages). Use Email compose, or include a message body.'
-          },
-          result: { sent: false, reason: 'learning_uses_regular_email', clientType: 'learning' }
-        });
-      }
-      const result = await sendLearningClientMessageEmail({
-        agencyId,
-        senderUserId: req.user.id,
-        recipientUserId,
-        recipientEmail,
-        clientId: ctx.clientId,
-        chatThreadId: req.body?.chatThreadId || null,
-        messageBody: note
-      });
-      return res.json({ ok: true, channel: 'email', ...result });
-    }
-
-    if (ctx.clientType && !isSecureMessageEligibleClientType(ctx.clientType)) {
-      return res.status(400).json({
-        error: {
-          message: 'Secure messages are only for clinical and school clients/guardians. Use Email for other recipients.'
-        },
-        result: { sent: false, reason: 'client_type_not_eligible', clientType: ctx.clientType }
-      });
-    }
-
-    const result = await sendSecureMessageNotification({
-      agencyId,
-      senderUserId: req.user.id,
-      recipientUserId,
-      recipientEmail,
-      clientId: ctx.clientId || req.body?.clientId || null,
-      chatThreadId: req.body?.chatThreadId || null,
-      conversationId: req.body?.conversationId || null,
-      messageId: req.body?.messageId || null,
-      messageSource: req.body?.messageSource || 'compose'
-    });
-    if (!result.sent) {
-      const msg =
-        result.reason === 'learning_uses_regular_email'
-          ? 'Learning clients receive regular emails — use Email compose.'
-          : result.reason === 'client_type_not_eligible'
-            ? 'Secure messages are only for clinical and school clients/guardians.'
-            : result.reason || 'Not sent';
-      return res.status(400).json({ error: { message: msg }, result });
-    }
-    res.json({ ok: true, channel: 'secure', ...result });
-  } catch (e) {
-    next(e);
-  }
+    // prepareHubSend checks recipient access and channel eligibility for the actor and agency.
+    req.body = { agencyId, personKey: `user:${users[0].id}@${agencyId}`, method: 'secure',
+      body, clientId: req.body?.clientId || null, subject: String(req.body?.subject || '').trim(), newTopic: true };
+    const { postMessagesHubSend } = await import('./messagesHub.controller.js');
+    return postMessagesHubSend(req, res, next);
+  } catch (e) { next(e); }
 }

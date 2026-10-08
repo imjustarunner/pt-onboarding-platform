@@ -312,59 +312,59 @@ async function addSchoolNote() {
 
 <style scoped>
 .uc-ctx {
-  border-left: 1px solid var(--app-line, #e2e8f0);
-  background: var(--app-surface-muted, #f8fafc);
+  border-left: 1px solid var(--conversa-border);
+  background: var(--conversa-wash);
   padding: 12px;
   overflow-y: auto;
 }
 .uc-ctx-empty {
-  color: var(--app-muted, #94a3b8);
+  color: var(--conversa-muted);
   font-size: 0.85rem;
   padding: 20px 8px;
   text-align: center;
 }
 .uc-card {
-  background: var(--app-surface, #fff);
-  border: 1px solid var(--app-line, #e2e8f0);
+  background: var(--conversa-surface);
+  border: 1px solid var(--conversa-border);
   border-radius: 12px;
   padding: 12px;
   margin-bottom: 10px;
 }
-.uc-card.recog { border-color: var(--app-line, #86efac); background: var(--app-surface-muted, #f0fdf4); }
-.uc-card.ai { border-color: var(--app-line, #86efac); background: var(--app-surface-muted, #f7fee7); }
-.uc-ai-action { margin: 0; font-weight: 700; color: var(--app-text-green, #3f6212); font-size: 0.9rem; }
+.uc-card.recog { border-color: var(--conversa-border); background: var(--conversa-blue-soft); }
+.uc-card.ai { border-color: var(--conversa-border); background: var(--conversa-teal-soft); }
+.uc-ai-action { margin: 0; font-weight: 700; color: var(--conversa-teal); font-size: 0.9rem; }
 .uc-card h4 {
   margin: 0 0 8px;
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
 }
-.uc-recog-title { margin: 0; font-weight: 700; color: var(--app-text-green, #166534); }
-.uc-muted { color: var(--app-muted, #64748b); font-size: 0.8rem; margin: 4px 0 0; }
+.uc-recog-title { margin: 0; font-weight: 700; color: var(--conversa-blue); }
+.uc-muted { color: var(--conversa-muted); font-size: 0.8rem; margin: 4px 0 0; }
 .uc-dl { margin: 0; display: grid; grid-template-columns: 72px 1fr; gap: 6px 8px; font-size: 0.85rem; }
-.uc-dl dt { color: var(--app-muted, #94a3b8); }
-.uc-dl dd { margin: 0; color: var(--app-ink, #0f172a); font-weight: 600; }
+.uc-dl dt { color: var(--conversa-muted); }
+.uc-dl dd { margin: 0; color: var(--conversa-ink); font-weight: 600; }
 .uc-mini {
   font-size: 0.68rem;
   font-weight: 700;
   margin-left: 6px;
-  background: var(--app-tint-green, #dcfce7);
-  color: var(--app-text-green, #166534);
+  background: var(--conversa-blue-soft);
+  color: var(--conversa-blue);
   padding: 1px 6px;
   border-radius: 999px;
 }
 .uc-ctx-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .uc-btn {
-  border: 1px solid var(--app-line, #cbd5e1);
-  background: var(--app-surface, #fff);
+  border: 1px solid var(--conversa-border);
+  background: var(--conversa-surface);
   border-radius: 8px;
   padding: 6px 10px;
   font-size: 0.78rem;
   font-weight: 600;
   cursor: pointer;
 }
-.uc-btn:hover { border-color: #166534; color: var(--app-text-green, #166534); }
+.uc-btn:hover { border-color: var(--conversa-blue); color: var(--conversa-blue); }
 .uc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .uc-field {
   display: flex;
@@ -372,14 +372,14 @@ async function addSchoolNote() {
   gap: 4px;
   margin-bottom: 8px;
   font-size: 0.78rem;
-  color: var(--app-muted, #64748b);
+  color: var(--conversa-muted);
 }
 .uc-field select {
-  border: 1px solid var(--app-line, #cbd5e1);
+  border: 1px solid var(--conversa-border);
   border-radius: 8px;
   padding: 7px 8px;
   font-size: 0.85rem;
-  background: var(--app-surface, #fff);
+  background: var(--conversa-surface);
 }
 .uc-action {
   display: block;
@@ -391,28 +391,28 @@ async function addSchoolNote() {
   border-radius: 8px;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--app-text-green, #166534);
+  color: var(--conversa-blue);
   cursor: pointer;
 }
-.uc-action:hover { background: var(--app-tint-green, #dcfce7); }
+.uc-action:hover { background: var(--conversa-blue-soft); }
 .uc-action:disabled { opacity: 0.6; cursor: wait; }
 .uc-attach { margin-top: 10px; }
 .uc-attach-tabs { display: flex; gap: 4px; margin-bottom: 6px; }
 .uc-attach-tabs button {
-  border: 1px solid var(--app-line, #cbd5e1);
-  background: var(--app-surface, #fff);
+  border: 1px solid var(--conversa-border);
+  background: var(--conversa-surface);
   border-radius: 6px;
   padding: 4px 8px;
   font-size: 0.75rem;
   font-weight: 600;
   cursor: pointer;
 }
-.uc-attach-tabs button.on { background: #166534; color: #fff; border-color: #166534; }
+.uc-attach-tabs button.on { background: var(--conversa-blue); color: var(--conversa-surface); border-color: var(--conversa-blue); }
 .uc-attach input[type='search'],
 .uc-mini-form input,
 .uc-mini-form textarea {
   width: 100%;
-  border: 1px solid var(--app-line, #cbd5e1);
+  border: 1px solid var(--conversa-border);
   border-radius: 8px;
   padding: 7px 8px;
   font-size: 0.85rem;
@@ -429,6 +429,6 @@ async function addSchoolNote() {
   cursor: pointer;
   border-radius: 6px;
 }
-.uc-attach li button:hover { background: var(--app-surface-muted, #f1f5f9); }
-.uc-mini-form { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; padding: 8px; background: var(--app-surface-muted, #f8fafc); border-radius: 8px; }
+.uc-attach li button:hover { background: var(--conversa-wash); }
+.uc-mini-form { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; padding: 8px; background: var(--conversa-wash); border-radius: 8px; }
 </style>

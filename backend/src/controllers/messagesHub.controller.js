@@ -1,3 +1,6 @@
+import { openQueuedMessage } from '../services/secureQueuePayload.service.js';
+import { resolveClientForSecureRecipients, ensureClientSecureConversation } from '../services/clientSecureConversation.service.js';
+import { assertChatChannel, recordSecureThreadOpen } from '../services/secureMessageBoundary.service.js';
 import { resolveChatTopic, findExistingTopicThread } from '../services/chatTopics.service.js';
 import {
   searchHubPeople,
@@ -299,16 +302,26 @@ export const getMessagesHubTimeline = async (req, res, next) => {
       userId: req.user.id,
       personKey,
       conversationId: Number(req.query?.conversationId) || null,
-      beforeId: Number(req.query?.beforeId) || null, channel: req.query?.channel || null
+      beforeId: Number(req.query?.beforeId) || null, channel: req.query?.channel || null, clientId: Number(req.query?.clientId) || null
     });
     if (!data.person) return res.status(404).json({ error: { message: 'Person not found' } });
+    if (req.query?.channel === 'secure') {
+      const threads = new Map();
+      for (const item of data.items || []) {
+        if (item.channel !== 'secure' || !item.meta?.messageId || !item.meta?.threadId) continue;
+        const ids = threads.get(item.meta.threadId) || [];
+        ids.push(item.meta.messageId); threads.set(item.meta.threadId, ids);
+      }
+      for (const [threadId, messageIds] of threads) await recordSecureThreadOpen({ threadId, messageIds, userId: req.user.id, req });
+    }
+    res.set?.('Cache-Control', 'no-store');
     const skipRead =
       req.query.markRead === '0' || req.query.markRead === 'false';
     if (!skipRead) {
       await markHubPersonRead({
         agencyId,
         userId: req.user.id,
-        person: data.person
+        person: data.person, channel: req.query?.channel || 'internal'
       }).catch((e) => console.warn('[hub timeline] markRead:', e?.message || e));
     }
     res.json(data);
@@ -448,11 +461,12 @@ export const postMessagesHubEnsureThread = async (req, res, next) => {
     const personKey = String(req.body?.personKey || '').trim();
     if (!personKey) return res.status(400).json({ error: { message: 'personKey is required' } });
 
+    const method = req.body?.method === 'secure' ? 'secure' : 'internal';
     const person = await prepareHubSend({
       agencyId,
       userId: req.user.id,
       personKey,
-      method: 'internal'
+      method
     });
     agencyId = person.agencyId || agencyId;
     if (!agencyId) return res.status(400).json({ error: { message: 'agencyId is required' } });
@@ -461,9 +475,10 @@ export const postMessagesHubEnsureThread = async (req, res, next) => {
         error: { message: 'Secure/internal messaging requires a user account on the recipient' }
       });
     }
-    const threadId = await ensureHubChatThread({
-      agencyId, userId: req.user.id, otherUserId: person.userId
-    });
+    const clientId = method === 'secure' ? await resolveClientForSecureRecipients({ agencyId, actorUserId: req.user.id, recipientUserId: person.userId, clientId: req.body?.clientId || person.clientId }) : null;
+    const shared = clientId ? await ensureClientSecureConversation({ clientId, actorUserId: req.user.id, agencyId }) : null;
+    if (shared && !shared.audienceUserIds.includes(Number(person.userId))) return res.status(403).json({ error: { message: 'Recipient does not have access to this client conversation' } });
+    const threadId = shared?.threadId || await ensureHubChatThread({ agencyId, userId: req.user.id, otherUserId: person.userId, messageChannel: method });
     return res.json({ ok: true, threadId, person });
   } catch (e) {
     if (e?.status) {
@@ -570,7 +585,7 @@ export const postMessagesHubSend = async (req, res, next) => {
       agencyId: person.agencyId || agencyId,
       userId: req.user.id,
       person,
-      includeEmail: false
+      includeEmail: false, channel: method
     }).catch((e) => console.warn('[hub send] markRead:', e?.message || e));
 
     // Per-channel undo delay / schedule → queue (email keeps communication_messages path)
@@ -597,7 +612,7 @@ export const postMessagesHubSend = async (req, res, next) => {
         deliveryChoice: req.body?.deliveryChoice,
         agencyId,
         userId: req.user.id,
-        person,
+        person: { ...person, clientId: req.body?.clientId || person.clientId || null },
         body,
         bodyHtml: bodyHtmlRaw || null,
         subject,
@@ -630,7 +645,16 @@ export const postMessagesHubSend = async (req, res, next) => {
         person = await prepareHubSend({ agencyId, userId: req.user.id, personKey: invited?.personKey || personKey, method });
       }
       if (!person.userId) return res.status(400).json({ error: { message: 'Messaging requires a recipient account' } });
-      chatThreadId = (!req.body?.newTopic && await findExistingTopicThread({ userId: req.user.id, otherUserId: person.userId, topicId: req.body?.topicId, legacyRootMessageId: req.body?.legacyRootMessageId })) || await ensureHubChatThread({ agencyId, userId: req.user.id, otherUserId: person.userId });
+      const clientId = method === 'secure' ? await resolveClientForSecureRecipients({ agencyId, actorUserId: req.user.id, recipientUserId: person.userId, clientId: req.body?.clientId || person.clientId }) : null;
+      if (method === 'secure' && clientId) {
+        const shared = await ensureClientSecureConversation({ clientId, actorUserId: req.user.id, agencyId });
+        if (!shared.audienceUserIds.includes(Number(person.userId))) return res.status(403).json({ error: { message: 'Recipient does not have access to this client conversation' } });
+        chatThreadId = shared.threadId;
+        req.body.clientId = clientId;
+      } else {
+        chatThreadId = (!req.body?.newTopic && await findExistingTopicThread({ userId: req.user.id, otherUserId: person.userId, topicId: req.body?.topicId, legacyRootMessageId: req.body?.legacyRootMessageId })) || await ensureHubChatThread({ agencyId, userId: req.user.id, otherUserId: person.userId, messageChannel: method });
+      }
+      await assertChatChannel(chatThreadId, method);
       if (method === 'secure' || req.body?.topicId || req.body?.newTopic || req.body?.legacyRootMessageId) {
         chatTopicId = await resolveChatTopic({ threadId: chatThreadId, userId: req.user.id,
           topicId: req.body?.newTopic ? null : req.body?.topicId,
@@ -680,7 +704,7 @@ export const postMessagesHubSend = async (req, res, next) => {
           body,
           subject: subject || null,
           payload: {
-            topicId: chatTopicId, threadId: chatThreadId, smsThreadKey: req.body?.smsThreadKey || null,
+            clientId: req.body?.clientId || person.clientId || null, topicId: chatTopicId, threadId: chatThreadId, smsThreadKey: req.body?.smsThreadKey || null,
             numberId: req.body?.numberId || null,
             attachments: attachments.length ? attachments : null,
             cc: req.body?.cc || null,
@@ -756,7 +780,7 @@ export const postMessagesHubSend = async (req, res, next) => {
       });
     }
     const threadId = chatThreadId || await ensureHubChatThread({
-      agencyId, userId: req.user.id, otherUserId: person.userId
+      agencyId, userId: req.user.id, otherUserId: person.userId, messageChannel: method
     });
     req.params = { ...(req.params || {}), threadId: String(threadId) };
     // Chat attachments use filePath from prior upload; strip email-style base64 payloads.
@@ -767,7 +791,7 @@ export const postMessagesHubSend = async (req, res, next) => {
         return null;
       })
       .filter(Boolean);
-    req.body = { ...req.body, topicId: chatTopicId, body, attachments: chatAttachments, subject: subject || req.body?.subject || null };
+    req.body = { ...req.body, clientId: req.body?.clientId || person.clientId || null, topicId: chatTopicId, body, attachments: chatAttachments, subject: subject || req.body?.subject || null };
 
     const originalJson = res.json.bind(res);
     res.json = (payload) => {
@@ -940,7 +964,7 @@ export const getMessagesHubSmartReply = async (req, res, next) => {
       limit: 16
     });
     if (!person) return res.status(404).json({ error: { message: 'Person not found' } });
-    const recent = Array.isArray(items) ? items : [];
+    const recent = Array.isArray(items) ? items.filter(item => item.channel === channel && !item.meta?.secureContentHidden) : [];
     const last = recent.length ? recent[recent.length - 1] : null;
     // Only suggest replies to the other person's latest message — not after our own send,
     // and not on an empty / brand-new thread.
@@ -1051,8 +1075,8 @@ export const getMessagesHubQueued = async (req, res, next) => {
       source: 'hub_queue',
       channel: r.channel,
       personKey: r.person_key,
-      bodyPreview: String(r.body || '').slice(0, 200),
-      subject: r.subject || null,
+      bodyPreview: r.channel === 'secure' ? 'Secure message — open to read' : String(r.body || '').slice(0, 200),
+      subject: r.channel === 'secure' ? 'Secure message' : r.subject || null,
       scheduledSendAt: r.scheduled_send_at,
       queueReason: r.queue_reason,
       agencyId: r.agency_id
@@ -1180,7 +1204,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
       );
     });
 
-  for (const row of due) {
+  for (let row of due) {
     let claimed = false;
     try {
       claimed = await claimHubQueueRow(row.id);
@@ -1188,6 +1212,7 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
         skipped += 1;
         continue;
       }
+      row = openQueuedMessage(row);
       const payload =
         row.payload_json && typeof row.payload_json === 'string'
           ? JSON.parse(row.payload_json)
@@ -1226,18 +1251,22 @@ export async function processHubMessageQueue({ limit = 40 } = {}) {
           });
         }
         if (!person.userId) throw new Error('Recipient has no user account');
-        const threadId = await findExistingTopicThread({ userId: row.user_id, otherUserId: person.userId, topicId: payload.topicId, threadId: payload.threadId }) || await ensureHubChatThread({
+        const sharedClientId = row.channel === 'secure' ? await resolveClientForSecureRecipients({ agencyId: row.agency_id, actorUserId: row.user_id, recipientUserId: person.userId, clientId: payload.clientId || person.clientId }) : null;
+        const shared = row.channel === 'secure' && sharedClientId ? await ensureClientSecureConversation({ clientId: sharedClientId, actorUserId: row.user_id, agencyId: row.agency_id }) : null;
+        if (shared && !shared.audienceUserIds.includes(Number(person.userId))) throw new Error('Recipient no longer has access to this client conversation');
+        const threadId = shared?.threadId || await findExistingTopicThread({ userId: row.user_id, otherUserId: person.userId, topicId: payload.topicId, threadId: payload.threadId }) || await ensureHubChatThread({
           agencyId: row.agency_id,
           userId: row.user_id,
-          otherUserId: person.userId
+          otherUserId: person.userId, messageChannel: row.channel
         });
+        await assertChatChannel(threadId, row.channel);
         const chatAttachments = Array.isArray(payload.attachments)
           ? payload.attachments.filter((a) => a && (a.filePath || a.file_path))
           : [];
         await runWithMockRes(sendChatMessage, {
           user,
           params: { threadId: String(threadId) },
-          body: { body: row.body || '', attachments: chatAttachments, subject: row.subject || null, topicId: payload.topicId || null }
+          body: { method: row.channel, clientId: payload.clientId || person.clientId || null, body: row.body || '', attachments: chatAttachments, subject: row.subject || null, topicId: payload.topicId || null }
         });
       } else {
         throw new Error(`Unsupported queue channel: ${row.channel}`);

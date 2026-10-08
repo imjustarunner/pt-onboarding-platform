@@ -195,7 +195,7 @@
       </header>
       <div class="pp-tool-grid">
         <button v-for="tool in toolCards" :key="tool.key" type="button" class="pp-tool-card" @click="openTool(tool.key)">
-          <span class="pp-tool-icon" aria-hidden="true">{{ tool.icon }}</span>
+          <span class="pp-tool-icon" aria-hidden="true"><img v-if="tool.key === 'messages'" :src="CONVERSA_ICON_URL" width="28" height="28" alt="" /><template v-else>{{ tool.icon }}</template></span>
           <span class="pp-tool-text">
             <span class="pp-tool-title">{{ tool.title }}</span>
             <span class="pp-tool-desc">{{ tool.description }}</span>
@@ -216,6 +216,7 @@
 </template>
 
 <script setup>
+import { CONVERSA_ICON_URL } from '../../constants/conversa';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
@@ -346,8 +347,7 @@ const toolCards = computed(() => [
   },
   {
     key: 'messages',
-    icon: '💬',
-    title: 'Messages',
+    title: 'Messages by Conversa',
     description: 'Chats with providers, staff, and program coordinators.',
     badge: messagesUnread.value || null
   },

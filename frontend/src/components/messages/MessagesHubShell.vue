@@ -1,6 +1,6 @@
 <template>
   <div
-    class="msg-hub"
+    class="msg-hub conversa-surface"
     :class="{
       'msg-hub--drawer': isDrawerLayout,
       'msg-hub--mobile-thread': mobileShowThread && (!!selected || !!selectedConversation || !!conversationPreview),
@@ -19,7 +19,7 @@
           Menu
         </button>
         <div>
-          <h2 class="msg-hub-title">Messaging Hub</h2>
+          <ConversaBrand heading="h2" compact />
           <p class="msg-hub-sub">{{ hubSubtitle }}</p>
         </div>
       </div>
@@ -40,7 +40,7 @@
     </header>
 
     <div class="email-channel-filters" role="group" aria-label="Filter conversations by channel">
-      <button v-for="channel in inboxChannels" :key="channel.id" type="button" :aria-pressed="inboxChannel === channel.id" @click="selectInboxChannel(channel.id)">{{ channel.label }}</button>
+      <button v-for="channel in inboxChannels" :key="channel.id" type="button" :aria-pressed="inboxChannel === channel.id" @click="selectInboxChannel(channel.id)"><ConversaIcon :type="channel.id" :size="16" />{{ channel.label }}</button>
     </div>
     <div v-if="['channel', 'group'].includes(inboxChannel)" class="msg-hub-group-help">
       <span>Messages go to the members of the selected channel or group.</span>
@@ -59,7 +59,7 @@
       <nav
         class="msg-hub-rail"
         :class="{ open: railOpen }"
-        aria-label="Messaging navigation"
+        aria-label="Messages by Conversa navigation"
       >
         <div class="msg-hub-rail-section">
           <p class="msg-hub-rail-label">Inbox</p>
@@ -240,19 +240,14 @@
                   :title="hubChannelTitle(c)"
                   aria-hidden="true"
                 >
-                  <svg v-if="(c.channel || c.hubKind) === 'email'" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
-                  <svg v-else-if="(c.channel || c.hubKind) === 'secure'" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
-                  <svg v-else-if="(c.channel || c.hubKind) === 'sms'" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 5h16v11H8l-4 3V5z"/></svg>
-                  <svg v-else-if="(c.channel || c.hubKind) === 'internal'" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="8" r="3.2"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0"/></svg>
-                  <svg v-else-if="(c.channel || c.hubKind) === 'group' || (c.channel || c.hubKind) === 'channel'" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="9" cy="9" r="2.5"/><circle cx="16" cy="10" r="2.2"/><path d="M4.5 18a4.5 4.5 0 0 1 9 0"/><path d="M13 18a3.8 3.8 0 0 1 6.5-2.5"/></svg>
-                  <svg v-else viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
+                  <ConversaIcon :type="c.channel || c.hubKind" :size="12" />
                 </span>
                 <span v-if="c.is_unread" class="msg-hub-unread-dot" aria-hidden="true" />
               </div>
               <div class="msg-hub-row-body">
                 <div class="msg-hub-row-top">
                   <strong>{{ conversationThreadTitle(c) }}</strong>
-                  <span v-if="c.hubChannelLabel" class="msg-hub-channel-pill">{{ c.hubChannelLabel }}</span>
+                  <ConversaBadge :type="c.channel || c.hubKind" :label="c.hubChannelLabel || undefined" />
                   <span v-if="c.is_unread" class="msg-hub-unread-pill">
                     {{ c.unreadCount > 1 ? `${c.unreadCount} unread` : 'Unread' }}
                   </span>
@@ -261,6 +256,7 @@
                 <p v-if="c.channel === 'email'" class="msg-hub-snippet"><strong>{{ c.subject || '(No subject)' }}</strong></p>
                 <p v-if="c.deliveryLabel" role="status">{{ c.deliveryLabel }}</p>
                 <button v-if="!c.draftId && draftByConversation[c.conversationId || c.id]" type="button" class="msg-hub-btn secondary sm" @click.stop="openEmailComposer(router,{draftId:draftByConversation[c.conversationId || c.id]})" @keydown.enter.stop>Draft · Continue writing</button>
+                <ConversaMailbox :conversation="c" />
                 <p class="msg-hub-snippet">
                   <span v-if="isConversationSnoozed(c)" class="msg-hub-snooze-tag" title="Snoozed">⏰</span>
                   <span
@@ -377,6 +373,7 @@
         </section>
 
         <section class="msg-hub-thread-col" aria-label="Conversation">
+          <SecureMessageBanner v-if="selected && sendMethod === 'secure'" :thread-id="chatThreadId" :shared="!!clientMessaging || !!selectedClientId || (selected.kinds || []).some(k => ['guardian', 'client'].includes(k))" />
           <template v-if="selected">
             <header class="msg-hub-thread-head">
               <button
@@ -436,7 +433,7 @@
               {{ clientNoPortalBanner }}
             </p>
 
-            <div v-if="clientMessaging?.guardians?.length" class="msg-hub-talking-bar">
+            <div v-if="clientMessaging?.guardians?.length && sendMethod !== 'secure'" class="msg-hub-talking-bar">
               <label>
                 Talking to
                 <select v-model.number="talkingToUserId" class="msg-hub-talking-select" @change="onTalkingToChange">
@@ -1322,6 +1319,7 @@
 
             <section v-if="clientMessaging" class="msg-hub-panel">
               <h3>Client &amp; guardians</h3>
+              <p v-if="sendMethod === 'secure'" class="msg-hub-muted">All guardians with access and the authorized care team share this secure conversation.</p>
               <div class="msg-hub-party-card">
                 <router-link
                   v-if="clientProfilePath"
@@ -1335,7 +1333,7 @@
                 <span class="msg-hub-portal-flag" :class="{ on: clientMessaging.clientHasPortal }">
                   {{ clientMessaging.clientHasPortal ? 'Portal access' : 'No portal access' }}
                 </span>
-                <label v-if="clientMessaging.clientHasPortal" class="msg-hub-party-check">
+                <label v-if="clientMessaging.clientHasPortal && sendMethod !== 'secure'" class="msg-hub-party-check">
                   <input v-model="includeClientOnSend" type="checkbox" />
                   Include client on send
                 </label>
@@ -1345,7 +1343,7 @@
                 :key="g.userId"
                 class="msg-hub-party-card"
                 :class="{ active: Number(talkingToUserId) === Number(g.userId) }"
-                @click="talkingToUserId = g.userId; onTalkingToChange()"
+                @click="sendMethod !== 'secure' && (talkingToUserId = g.userId, onTalkingToChange())"
               >
                 <strong>{{ g.displayName }}</strong>
                 <span class="msg-hub-muted">{{ g.relationshipTitle || 'Guardian' }}</span>
@@ -1361,7 +1359,7 @@
                 >
                   Invite to portal
                 </button>
-                <label class="msg-hub-party-check" @click.stop>
+                <label v-if="sendMethod !== 'secure'" class="msg-hub-party-check" @click.stop>
                   <input
                     type="checkbox"
                     :checked="Number(talkingToUserId) === Number(g.userId) || participantExtraIds.includes(g.userId)"
@@ -1550,6 +1548,11 @@
 
 <script setup>
 import EmailDeliveryChoice from './EmailDeliveryChoice.vue';
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
+import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
+import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
+import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
+import ConversaMailbox from '../conversa/ConversaMailbox.vue';
 import { downloadAttachment } from '../../utils/communicationAttachments';
 import { groupEmailThreads, groupSecureTopics, emailComposeTarget, emailReplyRecipients } from '../../utils/messageThreads';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -1574,7 +1577,7 @@ const inboxChannel = ref('all');
 const newConversationChannel = ref('all');
 const newMessageLabel = computed(() => ({email:'New email',internal:'New internal message',secure:'New secure message',sms:'New SMS · Coming soon',calls:'Calls / Voicemails · Coming soon',group:'New group'})[inboxChannel.value] || 'New conversation');
 const channelComingSoon = computed(() => ['sms','calls'].includes(inboxChannel.value));
-const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS · Coming soon'},{id:'calls',label:'Calls / Voicemails · Coming soon'},{id:'channel',label:'# Channels'},{id:'group',label:'Groups'}];
+const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS · Coming soon'},{id:'calls',label:'Calls / Voicemails · Coming soon'},{id:'channel',label:'Channels'},{id:'group',label:'Groups'}];
 const readerSmsText=ref('');
 async function replyReaderSms(){const cid=conversationPreview.value?.conversation?.id;if(!cid||sending.value)return;sending.value=true;try{await api.post(`/communications/conversations/${cid}/reply`,{text:readerSmsText.value,mode:'reply'},{skipGlobalLoading:true});readerSmsText.value='';await refreshMail();}catch(e){error.value=e.response?.data?.error?.message||'Could not send text';}finally{sending.value=false;}}
 const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = ref(null);
@@ -1807,7 +1810,7 @@ const peopleNavItems = [
 ];
 
 const toolsNavItems = [
-  { id: 'calls', label: 'Calls & Voicemail', stub: true },
+  ...(['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff'].includes(authStore.user?.role) ? [{ id: 'calls', label: 'Calls & Voicemail' }] : []),
   { id: 'shared_files', label: 'Shared Files' },
   { id: 'channels', label: 'Channels' },
   { id: 'mentions_chat', label: 'Mentions' },
@@ -1821,7 +1824,7 @@ const isPageLayout = computed(() => !isDrawerLayout.value);
 
 const hubSubtitle = computed(() => {
   if (navSection.value === 'tools' && navId.value === 'calls') {
-    return 'Calls & voicemail are coming soon.';
+    return 'Calls and voicemail in Communications management.';
   }
   if (navSection.value === 'tools' && navId.value === 'shared_files') {
     return 'Files shared in conversations will appear here.';
@@ -2035,7 +2038,7 @@ const filteredConversations = computed(() => {
 const emptyListCopy = computed(() => {
   if (channelComingSoon.value) return inboxChannel.value === 'calls' ? 'Calls and voicemails are coming soon.' : 'SMS is coming soon.';
   if (navSection.value === 'tools' && navId.value === 'calls') {
-    return 'Calls & voicemail are coming soon.';
+    return 'Calls and voicemail in Communications management.';
   }
   if (navSection.value === 'tools' && navId.value === 'shared_files') {
     return 'No shared files yet. Attachments from conversations will show here.';
@@ -2267,6 +2270,7 @@ async function onTalkingToChange() {
     if (data?.person) {
       selected.value = {
         ...data.person,
+        clientId: selected.value?.clientId || data.person.clientId,
         clientMessaging: data.person.clientMessaging || priorMessaging
       };
       talkingToUserId.value = g.userId;
@@ -2374,7 +2378,20 @@ const activeDelaySeconds = computed(() => {
   return undoDelaySeconds.value;
 });
 
-watch(sendMethod, (m) => {
+const privateDrafts = new Map();
+const privateDraftKey = (method) => `${selected.value?.personKey || ''}:${clientMessaging.value?.clientId || selectedClientId.value || ''}:${method}`;
+watch(sendMethod, (m, previous) => {
+  if (previous && m !== previous) {
+    if (previous !== 'email') privateDrafts.set(privateDraftKey(previous), { body: composeBody.value, subject: composeSubject.value, attachments: [...chatStagedAttachments.value] });
+    const draft = m === 'email' ? null : privateDrafts.get(privateDraftKey(m));
+    clearTimeout(draftSaveTimer);
+    composeBody.value = draft?.body || ''; composeSubject.value = draft?.subject || '';
+    chatStagedAttachments.value = draft?.attachments || [];
+    composeAttachments.value = []; composeCc.value = ''; composeBcc.value = '';
+    activeEmailThreadKey.value = null; chatThreadId.value = null;
+    if (m !== 'secure') timeline.value = timeline.value.map((item) => item.channel === 'secure' ? { ...item, bodyPreview: 'Secure message — open to read', attachments: [], meta: { ...item.meta, subject: 'Secure message', secureContentHidden: true } } : item);
+    if (selected.value?.personKey && loadedTimelinePersonKey === selected.value.personKey) loadTimeline(selected.value.personKey);
+  }
   undoDelaySeconds.value = activeDelaySeconds.value;
   if ((m === 'email' || m === 'secure') && !activeEmailThreadKey.value) {
     const threads = m === 'secure' ? secureSubjectThreads.value : emailSubjectThreads.value;
@@ -2433,39 +2450,9 @@ function buildStoredDraft() {
 }
 
 function scheduleDraftAutosave() {
-  if (suppressDraftAutosave || sendMethod.value === 'email') return;
-  const convId = emailComposeMode.value === 'new' ? null :
-    emailSubjectThreads.value.find((t) => t.key === activeEmailThreadKey.value)?.conversationId ||
-    selectedConversation.value?.conversationId || selectedConversation.value?.id;
-  if (!convId) return;
-  const body = String(composeBody.value || '').trim();
-  const subject = String(composeSubject.value || '').trim();
   clearTimeout(draftSaveTimer);
-  const payload = body ? buildStoredDraft() : '';
-  draftSaveTimer = setTimeout(() => {
-    api
-      .patch(
-        `/communications/conversations/${convId}`,
-        { draftBody: payload || null },
-        { skipGlobalLoading: true }
-      )
-      .then(() => {
-        if (selectedConversation.value?.id === convId) {
-          selectedConversation.value = {
-            ...selectedConversation.value,
-            draft_body: payload || null
-          };
-        }
-        draftSaveHint.value = payload ? 'Draft saved' : '';
-        clearTimeout(draftHintTimer);
-        if (payload) {
-          draftHintTimer = setTimeout(() => {
-            draftSaveHint.value = '';
-          }, 2500);
-        }
-      })
-      .catch(() => {});
-  }, 800);
+  if (suppressDraftAutosave || sendMethod.value === 'email' || !selected.value?.personKey) return;
+  privateDrafts.set(privateDraftKey(sendMethod.value), { body: composeBody.value, subject: composeSubject.value, attachments: [...chatStagedAttachments.value] });
 }
 
 async function hydrateComposeFromConversation(conv) {
@@ -2495,6 +2482,7 @@ async function hydrateComposeFromConversation(conv) {
     }
   }
   const parsed = parseStoredDraft(raw);
+  if (parsed.method && parsed.method !== 'email') return;
   suppressDraftAutosave = true;
   if (parsed.body) composeBody.value = parsed.body;
   if (parsed.subject) composeSubject.value = parsed.subject;
@@ -3183,8 +3171,7 @@ const methodButtons = computed(() => {
     !kinds.includes('school_staff') &&
     !isClientish;
   let next = methods;
-  if (isPureStaff) next = next.filter((m) => m.id !== 'secure');
-  if (isClientish) next = next.filter((m) => m.id !== 'internal');
+  if (isClientish || ['client', 'client_guardian'].includes(authStore.user?.role)) next = next.filter((m) => m.id !== 'internal');
   return next;
 });
 
@@ -3299,7 +3286,7 @@ async function ensureChatThread() {
   const sendAgencyId = selected.value.agencyId || agencyId.value;
   const { data } = await api.post(
     '/messages/hub/ensure-thread',
-    { agencyId: sendAgencyId, personKey: selected.value.personKey },
+    { agencyId: sendAgencyId, personKey: selected.value.personKey, method: sendMethod.value, clientId: clientMessaging.value?.clientId || selectedClientId.value || selected.value.clientId },
     { skipGlobalLoading: true }
   );
   chatThreadId.value = data?.threadId || null;
@@ -3704,8 +3691,8 @@ function selectNav(section, id) {
       return;
     }
     if (id === 'calls') {
-      people.value = [];
-      conversations.value = [];
+      const slug = String(route.params?.organizationSlug || '').trim();
+      router.push({ path: `${slug ? '/' + slug : ''}/admin/communications/feed`, query: { tab: 'calls' } });
       return;
     }
   }
@@ -3798,7 +3785,7 @@ async function loadConversations({ quiet = false, append = false } = {}) {
         hubKind: item.kind,
         hubChannelLabel: hubUnreadChannelLabel(item),
         conversationId: item.conversationId || null,
-        threadId: item.threadId || null,
+        threadId: item.threadId || null, clientId: item.clientId || null,
         threadType: item.threadType || null,
         personKey: item.personKey || null,
         channel: item.channel,
@@ -4038,7 +4025,7 @@ async function pickConversation(conv) {
           personKey: conv.personKey,
           displayName: conv.primary_participant_name,
           photoUrl: conv.photoUrl,
-          preferredMethod: 'internal'
+          preferredMethod: conv.channel || 'internal', clientId: conv.clientId || null
         });
         dropOpenedFromUnread(conv);
         return;
@@ -4346,7 +4333,7 @@ async function pickPerson(person, opts = {}) {
     (isClientish
       ? (person.methods || []).find((m) => m.available && (m.id === 'secure' || m.id === 'email'))?.id
       : available?.id) ||
-    (isClientish ? 'secure' : 'internal');
+    (isClientish || ['client', 'client_guardian'].includes(authStore.user?.role) ? 'secure' : 'internal');
   mobileShowThread.value = !['email', 'secure'].includes(String(sendMethod.value || ''));
   suppressDraftAutosave = true;
   composeBody.value = '';
@@ -4441,7 +4428,7 @@ async function pickPerson(person, opts = {}) {
 
 const historyLoading = ref(false);
 const exhaustedHistory = ref(new Set());
-const historyKey = computed(() => `${selected.value?.personKey}:${sendMethod.value}:${sendMethod.value === 'email' ? activeEmailThreadKey.value || 'all' : ''}`);
+const historyKey = computed(() => `${selected.value?.personKey}:${selectedClientId.value || ''}:${sendMethod.value}:${sendMethod.value === 'email' ? activeEmailThreadKey.value || 'all' : ''}`);
 const historyAvailable = computed(() => !exhaustedHistory.value.has(historyKey.value) && timeline.value.some((m) => m.channel === sendMethod.value && !m.meta?.queueId));
 async function loadOlderHistory() {
   const personKey = selected.value?.personKey;
@@ -4454,7 +4441,7 @@ async function loadOlderHistory() {
   historyLoading.value = true;
   try {
     const { data } = await api.get(`/messages/hub/people/${encodeURIComponent(personKey)}/timeline`, {
-      params: { agencyId: selected.value?.agencyId || agencyId.value, channel, conversationId: cid || undefined, beforeId: Math.min(...ids), markRead: '0' }, skipGlobalLoading: true
+      params: { agencyId: selected.value?.agencyId || agencyId.value, clientId: selectedClientId.value || undefined, channel, conversationId: cid || undefined, beforeId: Math.min(...ids), markRead: '0' }, skipGlobalLoading: true
     });
     if (historyKey.value !== key) return;
     timeline.value = [...new Map([...(data.items || []), ...timeline.value].map((m) => [m.id, m])).values()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
@@ -4474,7 +4461,7 @@ async function loadTimeline(personKey, { quiet = false } = {}) {
   if (!quiet && !samePerson) loadingTimeline.value = true;
   try {
     const aid = selected.value?.agencyId || agencyId.value;
-    const reqParams = { markRead: '0' };
+    const reqParams = { markRead: '0', channel: sendMethod.value, clientId: clientMessaging.value?.clientId || selectedClientId.value || selected.value?.clientId || undefined };
     const conversationId = Number(selectedConversation.value?.conversationId || selectedConversation.value?.id);
     if (conversationId > 0) reqParams.conversationId = conversationId;
     if (aid) reqParams.agencyId = aid;
@@ -4487,6 +4474,7 @@ async function loadTimeline(personKey, { quiet = false } = {}) {
       const priorMessaging = selected.value?.clientMessaging;
       selected.value = {
         ...data.person,
+        clientId: selected.value?.clientId || data.person.clientId,
         clientMessaging: data.person.clientMessaging || priorMessaging || null
       };
     }
@@ -4499,8 +4487,8 @@ async function loadTimeline(personKey, { quiet = false } = {}) {
     timeline.value = [...new Map([...older, ...incoming].map((m) => [m.id, m])).values()].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
     loadedTimelinePersonKey = personKey;
     if (!selectedSmsThreadKey.value && sendMethod.value === 'sms') selectedSmsThreadKey.value = [...incoming].reverse().find((m) => m.channel === 'sms')?.meta?.smsThreadKey || null;
-    const chatMsg = [...timeline.value].reverse().find((m) => m?.meta?.threadId);
-    if (chatMsg?.meta?.threadId) chatThreadId.value = chatMsg.meta.threadId;
+    const chatMsg = [...timeline.value].reverse().find((m) => m.channel === sendMethod.value && m?.meta?.threadId);
+    chatThreadId.value = chatMsg?.meta?.threadId || null;
 
     // Don't yank the composer channel on refresh — only set when unset / unavailable.
     const current = String(sendMethod.value || '').toLowerCase();
@@ -4774,6 +4762,8 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
       emailCcExtra = [...extraEmails, emailCcExtra].filter(Boolean).join(', ');
       targets.splice(1);
     }
+    // Secure clinical messages go once to the shared client conversation, including every authorized guardian.
+    if (sendMethod.value === 'secure' && (ctx?.clientId || selected.value?.clientId)) targets.splice(1);
     const primaryKey = targets[0];
     let lastData = null;
     for (const personKey of targets) {
@@ -4781,6 +4771,7 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
         agencyId: sendAgencyId,
         personKey,
         method: sendMethod.value,
+        clientId: clientMessaging.value?.clientId || selected.value?.clientId || null,
         body:
           sendMethod.value === 'email'
             ? htmlToPlainText(composeBody.value)
@@ -4866,6 +4857,7 @@ async function executeSend({ deliveryChoice = null, sendToAllPortalGuardians = f
     const sentSubject = composeSubject.value.trim();
     const sentMethod = sendMethod.value;
     emailDrafts.delete(activeEmailThreadKey.value || `new:${sendingPersonKey}`);
+    privateDrafts.delete(privateDraftKey(sentMethod));
     await clearConversationDraft();
     if (selected.value?.personKey !== sendingPersonKey) return;
     suppressDraftAutosave = true;

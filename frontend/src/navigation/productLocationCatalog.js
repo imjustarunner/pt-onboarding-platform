@@ -526,10 +526,10 @@ export const PRODUCT_LOCATIONS = [
   {
     id: 'platform-chats',
     routeName: 'PlatformChats',
-    label: 'Platform Chats',
+    label: 'Messages by Conversa',
     description: 'Message your team.',
     group: 'workspace',
-    howToFind: 'My Dashboard → Chats',
+    howToFind: 'My Dashboard → Messages by Conversa',
     keywords: ['chats', 'chat', 'messages', 'messaging', 'platform chats']
   },
   {
@@ -635,9 +635,9 @@ export const PRODUCT_LOCATIONS = [
     id: 'admin-update',
     routeName: 'CommunicationsHub',
     label: 'Admin Update',
-    description: 'Monthly branded staff newsletter from Communications Center.',
+    description: 'Monthly branded staff newsletter from Communications management.',
     group: 'admin',
-    howToFind: 'Admin → Communications → Admin Update',
+    howToFind: 'Admin → Communications management → Admin Update',
     keywords: ['admin update', 'newsletter', 'staffing updates', 'communications center'],
     rolesAny: ['admin', 'super_admin', 'support', 'staff', 'clinical_practice_assistant', 'provider_plus']
   },

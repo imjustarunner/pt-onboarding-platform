@@ -1,3 +1,4 @@
+import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { listMyGuardianClients } from '../controllers/clientGuardian.controller.js';
@@ -87,6 +88,7 @@ router.get('/clients/:clientId/appointments', guardianAppointments.list);
 router.get('/clients/:clientId/reminder-preferences', guardianAppointments.getPreferences);
 router.put('/clients/:clientId/reminder-preferences', guardianAppointments.savePreferences);
 router.post('/clients/:clientId/appointments/:appointmentId/requests', guardianAppointments.requestChange);
+router.get('/clients/:clientId/notification-history', listClientNotificationHistory);
 router.get('/clients', listMyGuardianClients);
 router.get('/messages', listGuardianMessageThreads);
 router.post('/messages/open', openGuardianClientThread);

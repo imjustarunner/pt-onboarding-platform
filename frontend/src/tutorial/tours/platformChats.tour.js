@@ -32,7 +32,7 @@ export default {
     {
       element: '[data-tour="chats-messages"]',
       popover: {
-        title: 'Messages',
+        title: 'Messages by Conversa',
         description: 'Read the conversation here. Some actions (unsend/delete) depend on message state.',
         side: 'left',
         align: 'start'

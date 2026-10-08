@@ -1,14 +1,14 @@
 <template>
-  <div class="cc-shell">
+  <div class="cc-shell conversa-surface">
     <div class="cc-bg" aria-hidden="true" />
 
     <header class="cc-top">
       <div class="cc-brand">
-        <p class="cc-eyebrow">{{ agencyLabel }} · Support</p>
-        <h1>Communications Center</h1>
-        <p class="cc-tag">Unified Inbox, Messages, Support Hub, Automation, Admin Update, and School alerts</p>
+        <p class="cc-eyebrow">{{ agencyLabel }} · Communications management</p>
+        <ConversaBrand heading="h1" tagline />
+        <p class="cc-tag">Inbox, team conversations, tickets, and communication tools</p>
       </div>
-      <nav class="cc-switch" role="tablist" aria-label="Communications Center sections">
+      <nav class="cc-switch" role="tablist" aria-label="Communications management sections">
         <button
           type="button"
           role="tab"
@@ -17,7 +17,7 @@
           :class="{ on: activeMode === 'home' }"
           @click.prevent.stop="setMode('home')"
         >
-          Home
+          Shared inbox
           <span class="cc-visually-hidden"> (Unified Inbox)</span>
         </button>
         <button
@@ -28,7 +28,7 @@
           :class="{ on: activeMode === 'messages' }"
           @click.prevent.stop="setMode('messages')"
         >
-          Messages
+          My messages
           <em v-if="personalUnread > 0">{{ personalUnread > 99 ? '99+' : personalUnread }}</em>
         </button>
         <button
@@ -84,7 +84,7 @@
     </header>
 
     <div v-if="error" class="cc-banner-err">{{ error }}</div>
-    <div v-if="loading && !hasLoadedOnce" class="cc-loading">Loading Communications Center…</div>
+    <div v-if="loading && !hasLoadedOnce" class="cc-loading">Loading communications…</div>
 
     <template v-if="!loading || hasLoadedOnce">
       <!-- ========== HOME (unified inbox) ========== -->
@@ -105,7 +105,7 @@
             <p>Support tickets, escalations, SMS care inbox, and org communication tools.</p>
           </div>
           <div class="cc-intro-actions">
-            <button type="button" class="cc-btn outline" @click.prevent.stop="setMode('home')">← Center Home</button>
+            <button type="button" class="cc-btn outline" @click.prevent.stop="setMode('home')">← Inbox</button>
             <router-link class="cc-btn outline" :to="escalationsPath">Escalations</router-link>
             <router-link class="cc-btn solid" :to="ticketsPath">Ticket desk</router-link>
           </div>
@@ -234,6 +234,7 @@
 </template>
 
 <script setup>
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import CommunicationReviewQueue from '../../components/communications/CommunicationReviewQueue.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -517,7 +518,7 @@ async function load() {
     };
     hasLoadedOnce.value = true;
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Failed to load Communications Center';
+    error.value = e?.response?.data?.error?.message || 'Failed to load communications';
     hasLoadedOnce.value = true;
   } finally {
     loading.value = false;

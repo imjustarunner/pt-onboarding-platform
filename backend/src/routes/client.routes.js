@@ -1,3 +1,5 @@
+import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
+import { listClientSecureMessages, getClientSecureMessage } from '../controllers/clientSecureMessages.controller.js';
 import express from 'express';
 import { getClientCareBillingSummary } from '../controllers/clientCareBillingSummary.controller.js';
 import { body } from 'express-validator';
@@ -227,6 +229,9 @@ router.get('/:id/access-log', getClientAccessLog);
 router.get('/:id/communications', listClientCommunications);
 router.get('/:id/communications/export', exportClientCommunications);
 router.get('/:id/communications/conversations/:conversationId', getClientEmailConversation);
+router.get('/:id/notification-history', listClientNotificationHistory);
+router.get('/:id/secure-messages', listClientSecureMessages);
+router.get('/:id/secure-messages/:messageId', getClientSecureMessage);
 router.get('/:id/communications/email/:commId/body', getClientCommunicationBody);
 router.get('/:id/sms-audit', listClientSmsAudit);
 

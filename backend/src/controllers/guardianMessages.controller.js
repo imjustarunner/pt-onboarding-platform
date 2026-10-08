@@ -1,3 +1,4 @@
+import { refreshClientSecureAccess, ensureClientSecureConversation } from '../services/clientSecureConversation.service.js';
 import pool from '../config/database.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
 import { ensureSharedChildThread } from '../services/guardianSharedMessages.service.js';
@@ -158,12 +159,7 @@ export const listGuardianMessageThreads = async (req, res, next) => {
           if (provider?.id) {
             let threadId = null;
             try {
-              threadId = await findOrCreateDirectThread(
-                self.agency_id,
-                self.organization_id || null,
-                req.user.id,
-                provider.id
-              );
+              threadId = (await ensureClientSecureConversation({ clientId: self.client_id, actorUserId: req.user.id, agencyId: self.agency_id })).threadId;
             } catch {
               threadId = null;
             }
@@ -269,14 +265,9 @@ export const listGuardianThreadMessages = async (req, res, next) => {
     }
     const threadId = parseInt(req.params.threadId, 10);
     if (!threadId) return res.status(400).json({ error: { message: 'Invalid thread id' } });
+    await refreshClientSecureAccess(threadId, req.user.id);
     if (!(await hasThreadAccess(req.user.id, threadId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
-    }
-    try {
-      const { markChatThreadReadToLatest } = await import('../services/messagesHub.service.js');
-      await markChatThreadReadToLatest({ threadId, userId: req.user.id });
-    } catch {
-      /* ignore */
     }
     // Delegate to chat listMessages
     req.params.threadId = String(threadId);
@@ -296,6 +287,7 @@ export const sendGuardianThreadMessage = async (req, res, next) => {
     }
     const threadId = parseInt(req.params.threadId, 10);
     if (!threadId) return res.status(400).json({ error: { message: 'Invalid thread id' } });
+    await refreshClientSecureAccess(threadId, req.user.id);
     if (!(await hasThreadAccess(req.user.id, threadId))) {
       return res.status(403).json({ error: { message: 'Access denied' } });
     }

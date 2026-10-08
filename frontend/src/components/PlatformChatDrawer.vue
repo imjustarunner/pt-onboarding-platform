@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="isAuthenticated"
-    class="chat-drawer"
+    class="chat-drawer conversa-surface"
     :class="[
       { open: isOpen && !isDragging, dragging: isDragging, 'has-chat': hasActiveChatLocal },
       `dock-${dock.edge}`
@@ -21,11 +21,10 @@
       </div>
 
       <div class="rail-icon">
-        <img v-if="iconUrl" :src="iconUrl" alt="Messages" />
-        <span v-else class="icon-fallback">Team</span>
+        <img src="/assets/conversa/mark.svg" alt="Messages by Conversa" />
       </div>
 
-      <div class="rail-badge rail-badge-bottom" :class="{ disabled: needsAgency }">
+      <div v-if="drawerView === 'team'" class="rail-badge rail-badge-bottom" :class="{ disabled: needsAgency }">
         {{ loggedInNow }}
       </div>
 
@@ -45,7 +44,7 @@
     <div class="panel" :class="{ 'panel--wide': hasActiveChatLocal }"><p class="communication-standards"><a href="/community-standards" target="_blank" rel="noopener">Community Standards &amp; communication privacy</a> apply to all communications. Use approved secure channels for protected health information.</p>
       <div class="drawer-dash-bar">
         <button type="button" class="drawer-dash-btn" @click="goToMessagesDashboard">
-          Open full Messages
+          Open Messages by Conversa
         </button>
         <button type="button" class="drawer-dash-btn drawer-dash-btn-assistant" @click="openAssistant">
           Assistant
@@ -61,13 +60,15 @@
         <button
           type="button"
           class="drawer-dash-btn"
-          title="Hide the side chat rail (turn it back on from Team chat)"
+          title="Hide the side chat rail (turn it back on from Messages by Conversa)"
           @click="disableSideRail"
         >
           Hide rail
         </button>
       </div>
-      <MessagesWorkspace
+      <button v-if="drawerView === 'team'" type="button" class="drawer-dash-btn" @click="drawerView = 'hub'">Back to Messages</button>
+      <MessagesHubShell v-if="drawerView === 'hub'" ref="workspaceRef" layout="drawer" @open-team-chat="showTeamChat" @unread-change="refreshUnread" />
+      <MessagesWorkspace v-else
         ref="workspaceRef"
         layout="drawer"
         @unread-change="onUnreadChange"
@@ -81,10 +82,10 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../store/agency';
 import { useAuthStore } from '../store/auth';
-import { useBrandingStore } from '../store/branding';
-import { toUploadsUrl } from '../utils/uploadsUrl';
 import { dockToStyle, loadDock, saveDock, snapPointerToEdge } from '../utils/chatDrawerDock';
 import { setChatSideRailEnabled } from '../utils/chatSideRail.js';
+import { useCommunicationsCountsStore } from '../store/communicationsCounts';
+import MessagesHubShell from './messages/MessagesHubShell.vue';
 import MessagesWorkspace from './messages/MessagesWorkspace.vue';
 
 const OPEN_MODE_KEY = 'pt.messages.openMode.v1';
@@ -102,11 +103,13 @@ const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 const agencyStore = useAgencyStore();
-const brandingStore = useBrandingStore();
 
 const isAuthenticated = computed(() => authStore.isAuthenticated);
 const isOpen = ref(false);
-const totalUnread = ref(0);
+const communicationsCounts = useCommunicationsCountsStore();
+const totalUnread = computed(() => communicationsCounts.unreadMessagesCount);
+const drawerView = ref('hub');
+const refreshUnread = () => communicationsCounts.fetchCounts();
 const loggedInNow = ref(0);
 const workspaceRef = ref(null);
 const openMode = ref(loadOpenMode());
@@ -118,17 +121,6 @@ const needsAgency = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
   if (role === 'super_admin') return false;
   return !agencyStore.currentAgency?.id;
-});
-
-const iconUrl = computed(() => {
-  const a = agencyStore.currentAgency;
-  if (a?.chat_icon_path) return toUploadsUrl(a.chat_icon_path);
-  const pb = brandingStore.platformBranding;
-  if (pb?.chat_icon_path) return toUploadsUrl(pb.chat_icon_path);
-  if (pb?.communications_icon_path) return toUploadsUrl(pb.communications_icon_path);
-  if (a?.icon_file_path) return toUploadsUrl(a.icon_file_path);
-  if (pb?.master_brand_icon_path) return toUploadsUrl(pb.master_brand_icon_path);
-  return null;
 });
 
 const dock = ref(loadDock());
@@ -148,7 +140,7 @@ const drawerStyle = computed(() => {
   const panelWidth = isOpen.value
     ? (hasActiveChatLocal.value
       ? Math.min(720, vw - 56)
-      : Math.min(320, vw - 56))
+      : Math.min(420, vw - 56))
     : 0;
   return dockToStyle(dock.value, isDragging.value ? dragPoint.value : null, {
     isOpen: isOpen.value,
@@ -160,7 +152,7 @@ const drawerStyle = computed(() => {
 const railTitle = computed(() => {
   const modeHint = openMode.value === 'hover' ? 'hover to open' : 'tap to open';
   if (needsAgency.value) return `Select an agency to use team chat — hold & drag to move`;
-  return `Team chat — ${modeHint} · hold & drag to snap to an edge`;
+  return `Messages by Conversa — ${modeHint} · hold & drag to snap to an edge`;
 });
 
 function toggleOpenMode() {
@@ -174,7 +166,7 @@ function disableSideRail() {
 }
 
 function onUnreadChange(payload) {
-  totalUnread.value = Number(payload?.totalUnread || 0);
+  refreshUnread();
   loggedInNow.value = Number(payload?.loggedInNow || 0);
 }
 
@@ -182,15 +174,17 @@ function goToMessagesDashboard() {
   const slug = String(route.params?.organizationSlug || '').trim();
   const path = slug ? `/${slug}/messages` : '/messages';
   isOpen.value = false;
-  router.push({ path, query: { view: 'workspace' } }).catch(() => {});
+  router.push({ path, query: { view: 'hub' } }).catch(() => {});
 }
 
 function showTeamChat(tab = null) {
+  drawerView.value = 'team';
   isOpen.value = true;
   if (tab) setTimeout(() => applyChatTab(tab), 50);
 }
 
 function openAssistant() {
+  drawerView.value = 'team';
   isOpen.value = true;
   setTimeout(() => workspaceRef.value?.switchToAssistant?.(), 50);
 }
@@ -198,6 +192,7 @@ function openAssistant() {
 function applyChatTab(tab) {
   const t = String(tab || '').trim().toLowerCase();
   if (!t) return;
+  drawerView.value = 'team';
   setTimeout(() => {
     if (!workspaceRef.value) return;
     if (t === 'assistant') workspaceRef.value.switchToAssistant?.();

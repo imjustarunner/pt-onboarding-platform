@@ -184,7 +184,7 @@ export const AUTOMATED_EMAIL_CATALOG = [
     trigger: 'Staff compose a message, or approve a queued Automation item that has no stored From.',
     triggerKind: 'Manual',
     sourceLinks: [
-      { label: 'Communications › Automation', path: '/admin/communications?mode=automation' }
+      { label: 'Communications management › Automation', path: '/admin/communications?mode=automation' }
     ],
     preferredKeys: ['notifications']
   },
@@ -193,11 +193,11 @@ export const AUTOMATED_EMAIL_CATALOG = [
     kind: 'template',
     category: 'Staff-composed',
     label: 'Admin Update newsletter',
-    description: 'Monthly branded HTML newsletter composed in Communications Center and scheduled to internal staff.',
-    trigger: 'Staff schedule an Admin Update from Communications Center.',
+    description: 'Monthly branded HTML newsletter composed in Communications management workspace and scheduled to internal staff.',
+    trigger: 'Staff schedule an Admin Update from Communications management workspace.',
     triggerKind: 'Scheduled · Staff action',
     sourceLinks: [
-      { label: 'Communications › Admin Update', path: '/admin/communications?mode=admin-update' }
+      { label: 'Communications management › Admin Update', path: '/admin/communications?mode=admin-update' }
     ],
     preferredKeys: ['notifications']
   },
@@ -225,7 +225,7 @@ export const AUTOMATED_EMAIL_CATALOG = [
     trigger: 'Any automated email whose type has no assigned sender.',
     triggerKind: 'Fallback (queued for approval)',
     sourceLinks: [
-      { label: 'Communications › Automation', path: '/admin/communications?mode=automation&status=pending' }
+      { label: 'Communications management › Automation', path: '/admin/communications?mode=automation&status=pending' }
     ],
     preferredKeys: ['notifications'],
     isFallbackDefault: true

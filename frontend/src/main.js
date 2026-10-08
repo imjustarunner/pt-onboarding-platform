@@ -8,6 +8,7 @@ import router from './router';
 import './style.css';
 import './styles/data-surfaces.css';
 import './styles/application-appearance.css';
+import './styles/conversa.css';
 import 'driver.js/dist/driver.css';
 
 import { useAgencyStore } from './store/agency';

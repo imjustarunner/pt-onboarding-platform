@@ -1,3 +1,5 @@
+import { resolveClientForSecureRecipients, refreshClientSecureAccess } from './clientSecureConversation.service.js';
+import { protectSecurePreview } from './secureMessageBoundary.service.js';
 import { messageSender } from '../utils/messageSender.js';
 /**
  * People-first Messaging Hub: search, method availability, timeline merge, send dispatch helpers.
@@ -334,7 +336,7 @@ function buildMethods({
     ? !!hasUserId
     : isClientish
       ? !!(hasEmail || hasUserId)
-      : false;
+      : !!hasUserId;
 
   const internalAvailable = hasUserId && (isStaffish || isSchoolStaff) && !isClientish;
   // SMS: platform not shipping yet — always unavailable with clear copy.
@@ -359,7 +361,7 @@ function buildMethods({
     secureReason =
       'Secure message is their portal invite — they set a password (and confirm the client’s date of birth) from the link';
   } else if (secureOk) {
-    secureReason = 'Secure in-app message with this client or guardian';
+    secureReason = isClientish ? 'Shared with all guardians who have access and the authorized care team; retained in the client record' : 'Protected in-app conversation with an access log';
   } else if (isClientish && !hasEmail && !hasUserId) {
     secureReason = 'Add an email on the client or guardian record to send a secure message';
   } else {
@@ -397,12 +399,8 @@ function buildMethods({
     emailAvailable &&
     (!portalReady || isPendingPortalSetupStatus(userStatus));
 
-  const isPureStaff = isStaffish && !isSchoolStaff && !isClientish;
   const methods = [];
-  // Pure staff already use the portal — hide Secure/portal scare UI. Keep SMS visible for when it's enabled.
-  if (!isPureStaff) {
-    methods.push(method('secure', secureOk, secureReason, preferred === 'secure'));
-  }
+  methods.push(method('secure', secureOk, secureReason, preferred === 'secure'));
   methods.push(method('sms', smsAvailable, smsReason, preferred === 'sms'));
   methods.push(
     method(
@@ -1531,10 +1529,10 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
             AND cg.access_enabled = 1
             AND LOWER(COALESCE(cg.relationship_type, cg.relationship_title, '')) = 'self'
            WHERE c.agency_id = ?
-           LIMIT 1`,
+           LIMIT 2`,
           [u.id, resolvedAgencyId]
         );
-        if (links?.[0]) {
+        if (links?.length === 1) {
           seed.clientId = links[0].id;
           seed.clientType = links[0].client_type || null;
           seed.clientStatusKey = links[0].client_status_key || null;
@@ -1554,17 +1552,19 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
            FROM client_guardians cg
            INNER JOIN clients c ON c.id = cg.client_id
            LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
-           WHERE cg.guardian_user_id = ? AND c.agency_id = ?
+           WHERE cg.guardian_user_id = ? AND c.agency_id = ? AND cg.access_enabled = 1
            ORDER BY cg.access_enabled DESC, c.id ASC
-           LIMIT 1`,
+           LIMIT 2`,
           [u.id, resolvedAgencyId]
         );
-        if (links?.[0]) {
+        if (links?.length === 1) {
           seed.clientId = links[0].id;
           seed.clientType = links[0].client_type || null;
           seed.clientStatusKey = links[0].client_status_key || null;
           seed.portalAccess = links[0].access_enabled === 1 || links[0].access_enabled === true;
           seed.relationshipMeta = `Guardian of ${links[0].full_name || links[0].initials || links[0].id}`;
+        } else if (links?.length > 1) {
+          seed.relationshipMeta = 'Guardian of multiple clients — choose a client to message securely';
         }
       } catch {
         /* ignore */
@@ -1672,7 +1672,7 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
   }
 
   const hasAppInbox = await actorHasAppInbox(resolvedAgencyId, userId);
-  const { methods, preferredMethod, secureDefault, isActiveClient, canInviteToPortal, portalReady } =
+  let { methods, preferredMethod, secureDefault, isActiveClient, canInviteToPortal, portalReady } =
     buildMethods({
     kinds: seed.kinds,
     hasUserId: !!seed.userId,
@@ -1685,6 +1685,12 @@ export async function resolveHubPerson({ agencyId, userId, personKey }) {
     portalAccess: !!seed.portalAccess,
     userStatus: seed.userStatus || null
   });
+
+  const [actors] = await pool.execute('SELECT role FROM users WHERE id = ? LIMIT 1', [userId]);
+  if (['client', 'client_guardian'].includes(String(actors[0]?.role).toLowerCase())) {
+    methods = methods.filter((m) => m.id !== 'internal');
+    if (methods.some((m) => m.id === 'secure' && m.available)) { preferredMethod = 'secure'; secureDefault = true; }
+  }
 
   let deliveryGate = null;
   const kindsForGate = seed.kinds || [];
@@ -1837,7 +1843,7 @@ async function loadClientMessagingContext({ clientId, agencyId, selectedUserId =
   };
 }
 
-async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40, beforeId = null }) {
+async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40, beforeId = null, channel = null, clientId = null }) {
   if (!otherUserId) return [];
   try {
     // Merge across all direct threads between these two users. Hub send may create a
@@ -1850,13 +1856,14 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
          ON p_me.thread_id = t.id AND p_me.user_id = ?
        INNER JOIN chat_thread_participants p_other
          ON p_other.thread_id = t.id AND p_other.user_id = ?
-       WHERE t.thread_type = 'direct'
+       WHERE t.thread_type IN ('direct', 'client_secure')
+         AND (t.client_id IS NULL OR t.client_id = ?)
        ORDER BY COALESCE(
          (SELECT MAX(m.created_at) FROM chat_messages m WHERE m.thread_id = t.id),
          t.updated_at,
          t.created_at
        ) DESC`,
-      [actorUserId, otherUserId]
+      [actorUserId, otherUserId, clientId]
     );
     let threadIds = (threadRows || []).map((r) => Number(r.thread_id)).filter(Boolean);
     if (!threadIds.length && agencyId) {
@@ -1865,25 +1872,32 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
          FROM chat_threads t
          JOIN chat_thread_participants tp ON tp.thread_id = t.id
          WHERE t.agency_id = ?
-           AND t.thread_type = 'direct'
+           AND t.thread_type IN ('direct', 'client_secure') AND (t.client_id IS NULL OR t.client_id = ?)
            AND tp.user_id IN (?, ?)
          GROUP BY tp.thread_id
          HAVING COUNT(DISTINCT tp.user_id) = 2
          LIMIT 1`,
-        [agencyId, actorUserId, otherUserId]
+        [agencyId, clientId, actorUserId, otherUserId]
       );
       threadIds = (fallback || []).map((r) => Number(r.thread_id)).filter(Boolean);
     }
     if (!threadIds.length) return [];
 
+    const allowedThreadIds = [];
+    for (const id of threadIds) {
+      try { await refreshClientSecureAccess(id, actorUserId); allowedThreadIds.push(id); } catch (e) { if (![403, 404].includes(e.status)) throw e; }
+    }
+    threadIds = allowedThreadIds;
+    if (!threadIds.length) return [];
     const ph = threadIds.map(() => '?').join(',');
     const [rows] = await pool.execute(
       `SELECT m.id, m.thread_id, m.body, m.body_ciphertext, m.body_iv, m.body_auth_tag, m.created_at, m.sender_user_id,
-              m.subject, m.topic_id, m.parent_message_id,
+              m.subject, m.topic_id, m.parent_message_id, m.encryption_key_id, t.message_channel,
               u.first_name AS sender_first_name, u.last_name AS sender_last_name,
               u.profile_photo_path AS sender_profile_photo_path, u.role AS sender_role, u.title AS sender_title
-       FROM chat_messages m LEFT JOIN users u ON u.id = m.sender_user_id
+       FROM chat_messages m JOIN chat_threads t ON t.id = m.thread_id LEFT JOIN users u ON u.id = m.sender_user_id
        WHERE m.thread_id IN (${ph})
+         ${['secure', 'internal'].includes(channel) ? `AND t.message_channel = '${channel}'` : ''}
          ${Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0 ? 'AND m.id < ' + Number(beforeId) : ''}
          AND NOT EXISTS (SELECT 1 FROM chat_message_deletes d WHERE d.message_id = m.id AND d.user_id = ?)
        ORDER BY m.id DESC LIMIT ${Math.min(Math.max(Number(limit) || 40, 1), 200)}`, [...threadIds, actorUserId]
@@ -1938,7 +1952,8 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
           arr.push({
             id: Number(r.id),
             file_path: r.file_path,
-            file_url: `${baseUrl}/uploads/${r.file_path}`,
+            file_url: r.file_path.startsWith('secure-messages/') ? null : `${baseUrl}/uploads/${r.file_path}`,
+      downloadPath: r.file_path.startsWith('secure-messages/') ? `/chat/attachments/${r.id}` : null,
             mime_type: r.mime_type || null,
             file_kind: r.file_kind || 'file',
             original_filename: r.original_filename || null
@@ -1992,7 +2007,7 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
           body = decryptChatText({
             ciphertextB64: m.body_ciphertext,
             ivB64: m.body_iv,
-            authTagB64: m.body_auth_tag
+            authTagB64: m.body_auth_tag, keyId: m.encryption_key_id
           });
         } catch {
           body = '[Encrypted message]';
@@ -2017,7 +2032,7 @@ async function loadChatTimeline({ agencyId, actorUserId, otherUserId, limit = 40
           : [];
       items.push({
         id: `chat-${m.id}`,
-        channel: 'secure',
+        channel: m.message_channel || 'internal',
         bodyPreview: String(body || ''),
         createdAt: m.created_at,
         direction,
@@ -2332,7 +2347,7 @@ export async function markChatThreadReadToLatest({ threadId, userId } = {}) {
  * Opening or sending in Hub means you saw the thread.
  * Marks direct chat with this person + email conversations with their address as read.
  */
-export async function markHubPersonRead({ agencyId, userId, person, includeEmail = true } = {}) {
+export async function markHubPersonRead({ agencyId, userId, person, includeEmail = true, channel = 'internal' } = {}) {
   const uid = Number(userId || 0);
   if (!uid || !person) return { chat: 0, email: 0 };
   const aid = Number(person.agencyId || agencyId || 0) || null;
@@ -2348,8 +2363,8 @@ export async function markHubPersonRead({ agencyId, userId, person, includeEmail
            ON p_me.thread_id = t.id AND p_me.user_id = ?
          INNER JOIN chat_thread_participants p_other
            ON p_other.thread_id = t.id AND p_other.user_id = ?
-         WHERE t.thread_type = 'direct'`,
-        [uid, Number(person.userId)]
+         WHERE t.thread_type = 'direct' AND t.message_channel = ?`,
+        [uid, Number(person.userId), channel]
       );
       for (const row of threadRows || []) {
         const ok = await markChatThreadReadToLatest({ threadId: row.thread_id, userId: uid });
@@ -2490,17 +2505,18 @@ export async function markHubPersonUnread({ agencyId, userId, person } = {}) {
 /**
  * Merge-on-read timeline for a person.
  */
-export async function getHubPersonTimeline({ agencyId, userId, personKey, limit = 60, conversationId = null, beforeId = null, channel = null }) {
+export async function getHubPersonTimeline({ agencyId, userId, personKey, limit = 60, conversationId = null, beforeId = null, channel = null, clientId = null }) {
   const person = await resolveHubPerson({ agencyId, userId, personKey });
   if (!person) return { person: null, items: [] };
   const aid = person.agencyId || agencyId;
+  const secureClientId = channel === 'secure' && person.userId ? await resolveClientForSecureRecipients({ agencyId: aid, actorUserId: userId, recipientUserId: person.userId, clientId: clientId || person.clientId }) : clientId || person.clientId || null;
 
   if (Number.isSafeInteger(Number(beforeId)) && Number(beforeId) > 0) {
     let items = [];
-    const args = { agencyId: aid, actorUserId: userId, beforeId, limit: 200 };
+    const args = { agencyId: aid, actorUserId: userId, beforeId, limit: 200, clientId: secureClientId };
     if (channel === 'email') items = await loadEmailTimeline({ ...args, email: person.email, conversationId });
     else if (channel === 'sms') items = await loadSmsTimeline({ ...args, clientId: person.clientId, contactId: person.contactId });
-    else if (['internal', 'secure'].includes(channel)) items = (await loadChatTimeline({ ...args, otherUserId: person.userId })).map((m) => ({ ...m, channel: person.kinds.includes('guardian') || person.kinds.includes('client') ? 'secure' : 'internal' }));
+    else if (['internal', 'secure'].includes(channel)) items = await loadChatTimeline({ ...args, channel, otherUserId: person.userId });
     else throw Object.assign(new Error('Invalid history channel'), { status: 400 });
     return { person, items, hasMore: items.length === 200 };
   }
@@ -2508,7 +2524,7 @@ export async function getHubPersonTimeline({ agencyId, userId, personKey, limit 
     loadChatTimeline({
       agencyId: aid,
       actorUserId: userId,
-      otherUserId: person.userId,
+      otherUserId: person.userId, clientId: secureClientId, channel,
       limit
     }),
     loadSmsTimeline({
@@ -2535,16 +2551,11 @@ export async function getHubPersonTimeline({ agencyId, userId, personKey, limit 
       : []
   ]);
 
-  const isClientFacing = person.kinds.includes('guardian') || person.kinds.includes('client');
-  const normalizedChat = chat.map((item) => ({
-    ...item,
-    channel: isClientFacing ? 'secure' : 'internal'
-  }));
+  const normalizedChat = chat.map((item) => protectSecurePreview(item, channel));
 
   const pendingItems = (pendingQueue || []).map((r) => {
     const channel = String(r.channel || 'internal').toLowerCase();
-    const resolvedChannel =
-      channel === 'secure' && isClientFacing ? 'secure' : channel === 'secure' ? 'internal' : channel;
+    const resolvedChannel = channel;
     return {
       id: `hubq-${r.id}`,
       channel: resolvedChannel,
@@ -2568,7 +2579,7 @@ export async function getHubPersonTimeline({ agencyId, userId, personKey, limit 
   });
 
   const emailItems = [...new Map([...email, ...selectedEmail].map((m) => [m.id, m])).values()];
-  const items = [...normalizedChat, ...sms, ...emailItems, ...pendingItems].sort(
+  const items = [...normalizedChat, ...sms, ...emailItems, ...pendingItems.map((item) => protectSecurePreview(item, channel))].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   );
 
@@ -3174,7 +3185,7 @@ export async function listHubSendAgencies({ userId, role = null } = {}) {
  */
 export { reactToHubMessage } from './hubMessageReactions.service.js';
 
-export async function ensureHubChatThread({ agencyId, userId, otherUserId }) {
+export async function ensureHubChatThread({ agencyId, userId, otherUserId, messageChannel = 'internal' }) {
   if (!otherUserId) {
     const err = new Error('Chat requires a user account on the other person');
     err.status = 400;
@@ -3187,10 +3198,10 @@ export async function ensureHubChatThread({ agencyId, userId, otherUserId }) {
   }
   // Prefer an existing DM between these users (any agency) so hub timeline + Team chat stay in sync.
   const existing = await findExistingDirectThreadBetweenUsers(userId, otherUserId, {
-    requestedAgencyId: agencyId
+    requestedAgencyId: agencyId, messageChannel
   });
   if (existing?.threadId) return existing.threadId;
-  return findOrCreateDirectThread(agencyId, null, userId, otherUserId);
+  return findOrCreateDirectThread(agencyId, null, userId, otherUserId, messageChannel);
 }
 
 const HUB_CONTACT_RELATIONSHIPS = new Set([
@@ -4162,6 +4173,8 @@ export async function listHubConversationFeed({
       `SELECT t.id AS thread_id,
               t.agency_id,
               t.thread_type,
+              t.message_channel, t.client_id,
+              (SELECT COALESCE(c.full_name, c.initials) FROM clients c WHERE c.id = t.client_id) AS client_name,
               t.name AS channel_name,
               lm.id AS last_message_id,
               lm.body AS last_message_body,
@@ -4214,13 +4227,17 @@ export async function listHubConversationFeed({
     );
 
     for (const row of chatRows || []) {
+      if (row.client_id) {
+        try { await refreshClientSecureAccess(row.thread_id, userId); }
+        catch (e) { if ([403, 404].includes(e.status)) continue; throw e; }
+      }
       const unreadCount = Number(row.unread_count || 0);
       if (unreadOnly && unreadCount <= 0) continue;
       const threadType = String(row.thread_type || 'direct').toLowerCase();
-      const isDirect = threadType === 'direct';
+      const isDirect = threadType === 'direct' || threadType === 'client_secure';
       const isChannel = threadType === 'channel';
       let preview = String(row.last_message_body || '').trim();
-      if (!preview && row.body_ciphertext && isChatEncryptionConfigured()) {
+      if (row.message_channel !== 'secure' && !preview && row.body_ciphertext && isChatEncryptionConfigured()) {
         try {
           preview = decryptChatText({
             ciphertextB64: row.body_ciphertext,
@@ -4242,7 +4259,9 @@ export async function listHubConversationFeed({
           [row.other_first_name, row.other_last_name].filter(Boolean).join(' ').trim() ||
           `User #${otherId || '?'}`;
         kind = 'chat';
-        channel = CLIENT_FACING_ROLES.has(otherRole) ? 'secure' : 'internal';
+        if (threadType === 'client_secure') displayName = `${row.client_name || 'Client'} · Shared care`;
+        channel = row.message_channel || 'internal';
+        if (channel === 'secure') preview = 'Secure message — open to read';
       } else if (isChannel) {
         displayName = row.channel_name || 'Channel';
         kind = 'channel';
@@ -4270,7 +4289,7 @@ export async function listHubConversationFeed({
         primaryEmail: null,
         personKey: isDirect && otherId ? formatPersonKey('user', otherId, row.agency_id || aid) : null,
         threadId: Number(row.thread_id),
-        threadType,
+        threadType, clientId: row.client_id || null,
         photoUrl: isDirect
           ? publicUploadsUrlFromStoredPath(row.other_photo) || row.other_photo || null
           : null,

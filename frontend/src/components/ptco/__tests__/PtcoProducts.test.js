@@ -2,9 +2,9 @@ import {describe,it,expect} from 'vitest';
 import {mount} from '@vue/test-utils';
 import Products from '../PtcoProducts.vue';
 describe('Plot Twist product family',()=>{
-  it('includes Summit Stats as the fourth product with the real website and walkthrough',()=>{
+  it('includes Summit Stats in the product family with the real website and walkthrough',()=>{
     const wrapper = mount(Products,{global:{stubs:{RouterLink:{template:'<a><slot/></a>'}}}});
-    expect(wrapper.findAll('.ptco-product-family article')).toHaveLength(4);
+    expect(wrapper.findAll('.ptco-product-family article')).toHaveLength(5);
     const product = wrapper.find('#sstc');
     expect(product.text()).toContain('Fitness clubs & community groups');
     expect(product.text()).toContain('web application');

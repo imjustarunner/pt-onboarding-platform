@@ -14,13 +14,14 @@ describe.skipIf(!enabled)('isolated MySQL guardian workflows',()=>{
   await db.query(`
    CREATE TABLE agencies(id INT PRIMARY KEY,name VARCHAR(100),slug VARCHAR(100),portal_url VARCHAR(100),logo_url VARCHAR(100),organization_type VARCHAR(30));
    CREATE TABLE users(id INT PRIMARY KEY,first_name VARCHAR(100),last_name VARCHAR(100),email VARCHAR(200),status VARCHAR(30),role VARCHAR(30));
-   CREATE TABLE clients(id INT PRIMARY KEY,agency_id INT,organization_id INT,full_name VARCHAR(100),initials VARCHAR(10),date_of_birth DATE,grade VARCHAR(10),status VARCHAR(30),document_status VARCHAR(30),submission_date DATETIME,client_type VARCHAR(30),guardian_portal_enabled BOOLEAN,provider_id INT,billing_insurance_payload TEXT,primary_insurer_name VARCHAR(100));
+   CREATE TABLE clients(id INT PRIMARY KEY,user_id INT NULL,agency_id INT,organization_id INT,full_name VARCHAR(100),initials VARCHAR(10),date_of_birth DATE,grade VARCHAR(10),status VARCHAR(30),document_status VARCHAR(30),submission_date DATETIME,client_type VARCHAR(30),guardian_portal_enabled BOOLEAN,provider_id INT,billing_insurance_payload TEXT,primary_insurer_name VARCHAR(100));
    CREATE TABLE client_guardians(client_id INT,guardian_user_id INT,access_enabled BOOLEAN,relationship_type VARCHAR(30),relationship_title VARCHAR(100),permissions_json JSON,PRIMARY KEY(client_id,guardian_user_id));
    CREATE TABLE client_provider_assignments(id INT PRIMARY KEY,client_id INT,organization_id INT,provider_user_id INT,is_active BOOLEAN);
    CREATE TABLE guardian_clinical_grants(agency_id INT,client_id INT,guardian_user_id INT,access_level VARCHAR(20),medical_rights_verified BOOLEAN,consent_basis VARCHAR(50),scopes_json JSON,review_due_date DATE,revoked_at DATETIME);
    CREATE TABLE chat_threads(id INT AUTO_INCREMENT PRIMARY KEY,agency_id INT,organization_id INT,thread_type VARCHAR(30),name VARCHAR(100));
+   CREATE TABLE chat_messages(id INT PRIMARY KEY,thread_id INT,sender_user_id INT);
    CREATE TABLE chat_thread_participants(thread_id INT,user_id INT,PRIMARY KEY(thread_id,user_id));
-   CREATE TABLE appointments(id INT PRIMARY KEY,agency_id INT,provider_user_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(40),modality VARCHAR(20),source_timezone VARCHAR(40),cancellation_reason TEXT,canceled_by_user_id INT);
+   CREATE TABLE appointments(id INT PRIMARY KEY,agency_id INT,provider_user_id INT,start_at DATETIME,end_at DATETIME,status VARCHAR(40),modality VARCHAR(20),source_timezone VARCHAR(40),cancellation_reason TEXT,canceled_by_user_id INT,service_location_id INT,office_event_id INT,clinical_session_id INT);
    CREATE TABLE appointment_participants(id INT PRIMARY KEY,appointment_id INT,client_id INT);
    CREATE TABLE notifications(id INT AUTO_INCREMENT PRIMARY KEY,type VARCHAR(80),severity VARCHAR(20),title VARCHAR(255),message TEXT,user_id INT,agency_id INT,related_entity_type VARCHAR(50),related_entity_id INT,actor_user_id INT,actor_source VARCHAR(80));
    CREATE TABLE client_billing_payers(agency_id INT,client_id INT,guardian_user_id INT,status VARCHAR(20));
@@ -32,12 +33,12 @@ describe.skipIf(!enabled)('isolated MySQL guardian workflows',()=>{
    INSERT INTO clients(id,agency_id,organization_id,full_name,client_type,guardian_portal_enabled,provider_id,date_of_birth) VALUES(8,2,2,'Synthetic Child','clinical',1,9,'2020-01-01'),(88,3,3,'Other Child','clinical',1,10,'2020-01-01');
    INSERT INTO client_guardians VALUES(8,1,1,'guardian','Parent',JSON_OBJECT()),(8,2,1,'guardian','Parent',JSON_OBJECT());
    INSERT INTO guardian_clinical_grants VALUES(2,8,1,'full',1,'legal_representative','["clinical_messages","session_frequency"]','2099-01-01',NULL),(2,8,2,'full',1,'legal_representative','["clinical_messages","session_frequency"]','2099-01-01',NULL);
-   INSERT INTO appointments VALUES(40,2,9,'2030-01-01 16:00:00','2030-01-01 17:00:00','scheduled','VIDEO','America/Denver',NULL,NULL);
+   INSERT INTO appointments(id,agency_id,provider_user_id,start_at,end_at,status,modality,source_timezone,cancellation_reason,canceled_by_user_id) VALUES(40,2,9,'2030-01-01 16:00:00','2030-01-01 17:00:00','scheduled','VIDEO','America/Denver',NULL,NULL);
    INSERT INTO appointment_participants VALUES(1,40,8);
    INSERT INTO client_billing_payers VALUES(2,8,1,'active'),(2,8,2,'active');
    INSERT INTO family_receivable_allocations VALUES(1,60,1,4000,0,2);
   `);
-  for(const file of ['1518_guardian_shared_conversations.sql','1519_guardian_appointment_requests.sql','1520_guardian_shared_billing.sql'])await db.query(await fs.readFile(new URL('../../../../database/migrations/'+file,import.meta.url),'utf8'));
+  for(const file of ['1518_guardian_shared_conversations.sql','1519_guardian_appointment_requests.sql','1520_guardian_shared_billing.sql','1556_secure_message_boundaries.sql'])await db.query(await fs.readFile(new URL('../../../../database/migrations/'+file,import.meta.url),'utf8'));
   ({default:pool}=await import('../../config/database.js'));
   shared=await import('../guardianSharedMessages.service.js');appointments=await import('../guardianAppointments.service.js');notifications=await import('../familyLedger/balanceNotifications.js');
  },30000);
@@ -46,7 +47,7 @@ describe.skipIf(!enabled)('isolated MySQL guardian workflows',()=>{
   const results=await Promise.all([1,2,9].map(userId=>shared.ensureSharedChildThread({clientId:8,agencyId:2,userId})));
   expect(new Set(results.map(r=>r.threadId)).size).toBe(1);
   const [rows]=await db.query('SELECT user_id FROM chat_thread_participants ORDER BY user_id');expect(rows.map(r=>r.user_id)).toEqual([1,2,9]);
-  await expect(shared.ensureSharedChildThread({clientId:8,agencyId:3,userId:1})).rejects.toMatchObject({status:404});
+  await expect(shared.ensureSharedChildThread({clientId:8,agencyId:3,userId:1})).rejects.toMatchObject({status:403});
  });
  it('revoking a clinical grant removes access without removing message history',async()=>{
   await db.query('UPDATE guardian_clinical_grants SET revoked_at=NOW() WHERE guardian_user_id=2');
@@ -54,6 +55,24 @@ describe.skipIf(!enabled)('isolated MySQL guardian workflows',()=>{
   await shared.assertSharedChildThreadAccess(9,1);
   const [rows]=await db.query('SELECT user_id FROM chat_thread_participants ORDER BY user_id');expect(rows.map(r=>r.user_id)).toEqual([1,9]);
   await db.query('UPDATE guardian_clinical_grants SET revoked_at=NULL WHERE guardian_user_id=2');
+ });
+ it('retains secure messages in the client record and snapshots the shared audience',async()=>{
+  const {recordSecureMessageInChart}=await import('../secureMessageRecord.service.js');
+  const {recordSecureMessageEvent}=await import('../secureMessageBoundary.service.js');
+  await shared.assertSharedChildThreadAccess(9,1);
+  await db.query('INSERT INTO chat_messages(id,thread_id,sender_user_id) VALUES(701,1,9)');
+  await db.beginTransaction();
+  await recordSecureMessageInChart({agencyId:2,clientId:8,threadId:1,messageId:701,senderUserId:9,executor:db});
+  await recordSecureMessageEvent({agencyId:2,threadId:1,messageId:701,userId:9,eventType:'message_sent',executor:db});
+  await db.rollback();
+  const [[rolledBack]]=await db.query('SELECT COUNT(*) AS count FROM client_secure_message_records');expect(rolledBack.count).toBe(0);
+  await db.beginTransaction();
+  await recordSecureMessageInChart({agencyId:2,clientId:8,threadId:1,messageId:701,senderUserId:9,executor:db});
+  await recordSecureMessageEvent({agencyId:2,threadId:1,messageId:701,userId:9,eventType:'message_sent',executor:db});
+  await db.commit();
+  const [[record]]=await db.query('SELECT audience_json FROM client_secure_message_records WHERE message_id=701');
+  expect(record.audience_json.map(p=>p.id).sort((a,b)=>a-b)).toEqual([1,2,9]);
+  await expect(db.query('DELETE FROM chat_messages WHERE id=701')).rejects.toMatchObject({code:'ER_ROW_IS_REFERENCED_2'});
  });
  it('a parent request is visible to the other parent but does not cancel the appointment',async()=>{
   await appointments.requestGuardianAppointmentChange({userId:1,clientId:8,appointmentId:40,type:'cancel',reason:'School event'});

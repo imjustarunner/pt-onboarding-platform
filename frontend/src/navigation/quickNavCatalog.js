@@ -424,7 +424,7 @@ function buildAppEntries() {
     {
       id: 'workspace-chats',
       routeName: 'PlatformChats',
-      label: 'Platform Chats',
+      label: 'Messages by Conversa',
       description: 'Message your team.',
       group: 'workspace',
       keywords: ['chats', 'chat', 'messages', 'messaging'],
@@ -751,7 +751,7 @@ function buildAppEntries() {
       id: 'admin-update-newsletter',
       routeName: 'CommunicationsHub',
       label: 'Admin Update',
-      description: 'Monthly branded staff newsletter from Communications Center.',
+      description: 'Monthly branded staff newsletter from Communications management.',
       group: 'admin',
       keywords: ['admin update', 'newsletter', 'staffing updates', 'departures', 'monthly email', 'communications center'],
       kind: 'path',

@@ -1,5 +1,5 @@
 <template>
-  <div class="chats-view" :class="{ 'is-hub': !showWorkspace, 'is-workspace': showWorkspace }">
+  <div class="chats-view conversa-surface" :class="{ 'is-hub': !showWorkspace, 'is-workspace': showWorkspace }">
     <div class="toolbar" data-tour="chats-header">
       <div class="toolbar-left">
         <button class="btn btn-secondary btn-xs" type="button" @click="goBack">Back</button>
@@ -9,14 +9,14 @@
           type="button"
           @click="goToHubView"
         >
-          Messages hub
+          Messages by Conversa inbox
         </button>
         <router-link
           v-if="canUseCommunicationsCenter"
           class="btn btn-secondary btn-xs"
           :to="communicationsCenterPath"
         >
-          Communications Center
+          Communications management
         </router-link>
       </div>
       <div v-if="canChooseAgency" class="agency-picker" data-tour="chats-agency-picker">
@@ -31,8 +31,8 @@
     <div v-if="showWorkspace" class="workspace-title">
       <div class="workspace-title-row">
         <div>
-          <h2 data-tour="chats-title">Team chat</h2>
-          <p class="subtitle" data-tour="chats-subtitle">Channels, threads, and mentions. Use this full Messages workspace for day-to-day team chat.</p>
+          <h2 data-tour="chats-title">Messages by Conversa · Team chat</h2>
+          <p class="subtitle" data-tour="chats-subtitle">Channels, threads, and mentions. Use Messages by Conversa for day-to-day team chat.</p>
         </div>
         <button
           type="button"

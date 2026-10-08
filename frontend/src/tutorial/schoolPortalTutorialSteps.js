@@ -285,15 +285,15 @@ export const schoolPortalHoverTips = {
     description: 'Opens a support ticket to agency staff.'
   },
   'school-nav-messages': {
-    title: 'Messages',
+    title: 'Messages by Conversa',
     description: 'Conversations with providers, school staff, and agency admin.'
   },
   'school-messages-panel': {
-    title: 'Messages inbox',
+    title: 'Messages by Conversa inbox',
     description: 'Reply to threads from providers or staff; agency questions may appear here too.'
   },
   'school-home-card-messages': {
-    title: 'Messages card',
+    title: 'Messages by Conversa card',
     description: 'Jump to your message threads from the home dashboard.'
   },
   'school-home-card-notifications': {

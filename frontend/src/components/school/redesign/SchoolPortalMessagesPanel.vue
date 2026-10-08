@@ -1,5 +1,5 @@
 <template>
-  <div class="spm">
+  <div class="spm conversa-surface">
     <div class="spm-channel-tabs" role="tablist" aria-label="Message channel">
       <button id="school-messages-tab" role="tab" type="button" :aria-selected="activeChannel === 'messages'" aria-controls="school-messages-panel" @click="activeChannel = 'messages'">Messages <span v-if="totalUnread">({{ totalUnread }})</span></button>
       <button id="school-email-tab" role="tab" type="button" :aria-selected="activeChannel === 'email'" aria-controls="school-email-panel" @click="activeChannel = 'email'">Email <span v-if="emailUnread">({{ emailUnread }} unread)</span></button>
@@ -11,7 +11,7 @@
     <!-- ── Header ── -->
     <div class="spm__header">
       <div>
-        <h2 class="spm__title">Messages</h2>
+        <ConversaBrand heading="h2" compact />
         <p class="spm__sub">Chat with providers and school staff, or send a question to our admin team.</p>
       </div>
       <div class="spm__header-actions">
@@ -38,7 +38,7 @@
         <div class="spm__section-label">Conversations</div>
         <div v-if="loading && !allItems.length" class="spm__muted spm__muted--pad">Loading…</div>
         <div v-else-if="!allItems.length" class="spm__empty-threads">
-          <div class="spm__empty-icon">💬</div>
+          <ConversaIcon type="chat" :size="28" tile />
           <div>No conversations yet.</div>
           <div class="spm__muted">Tap "+ New message" to start one.</div>
         </div>
@@ -241,6 +241,8 @@
 </template>
 
 <script setup>
+import ConversaBrand from '../../../components/conversa/ConversaBrand.vue';
+import ConversaIcon from '../../../components/conversa/ConversaIcon.vue';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import SchoolPortalEmailPanel from './SchoolPortalEmailPanel.vue';
 const activeChannel = ref('messages');

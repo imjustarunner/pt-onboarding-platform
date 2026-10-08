@@ -117,7 +117,7 @@ function openInMessages() {
 
 <template>
   <div v-if="open" class="modal-overlay" @click.self="close">
-    <div class="modal-content modal-wide" @click.stop>
+    <div class="modal-content modal-wide conversa-surface" @click.stop>
       <h2>{{ heading }}</h2>
       <p class="hint">
         Banner / splash also post to the {{ mode === 'club' ? 'club' : 'team' }} Messages thread

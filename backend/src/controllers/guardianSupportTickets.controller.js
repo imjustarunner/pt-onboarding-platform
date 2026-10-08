@@ -118,15 +118,17 @@ function enrichTicket(ticket) {
 
 async function assertGuardianOwnsTicket(guardianUserId, ticketId) {
   const [rows] = await pool.execute(
-    `SELECT * FROM support_tickets WHERE id = ? AND created_by_user_id = ? LIMIT 1`,
-    [ticketId, guardianUserId]
+    `SELECT * FROM support_tickets WHERE id = ? LIMIT 1`,
+    [ticketId]
   );
-  return rows?.[0] || null;
+  const ticket = rows?.[0];
+  if (!ticket || !await assertGuardianClientAccess(guardianUserId, ticket.client_id)) return null;
+  return ticket;
 }
 
 async function assertGuardianClientAccess(guardianUserId, clientId) {
   const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId });
-  return (clients || []).find((c) => Number(c.client_id) === Number(clientId)) || null;
+  return (clients || []).find((c) => Number(c.client_id) === Number(clientId) && !ClientGuardian.isNoView(c.permissions_json)) || null;
 }
 
 /**
@@ -137,6 +139,9 @@ export const listGuardianSupportTickets = async (req, res, next) => {
     if (req.guardianPreviewMode) {
       return res.json({ tickets: [] });
     }
+    const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: req.user.id });
+    const ids = linked.filter(c => !ClientGuardian.isNoView(c.permissions_json)).map(c => Number(c.client_id));
+    if (!ids.length) return res.json({ tickets: [] });
     const [rows] = await pool.execute(
       `SELECT t.*,
               u.first_name AS answered_by_first_name,
@@ -150,9 +155,9 @@ export const listGuardianSupportTickets = async (req, res, next) => {
        LEFT JOIN agencies s ON s.id = t.school_organization_id
        LEFT JOIN agencies a ON a.id = t.agency_id
        LEFT JOIN clients c ON c.id = t.client_id
-       WHERE t.created_by_user_id = ?
+       WHERE t.client_id IN (${ids.map(() => '?').join(',')})
        ORDER BY t.created_at DESC`,
-      [req.user.id]
+      ids
     );
     res.json({ tickets: (rows || []).map((t) => enrichTicket(t)) });
   } catch (e) {

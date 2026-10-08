@@ -221,6 +221,7 @@
 </template>
 
 <script setup>
+import { CONVERSA_ICON_URL } from '../../constants/conversa';
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -1067,7 +1068,8 @@ const quickActions = computed(() => {
   },
   {
     id: 'communications',
-    title: 'Messages',
+    title: 'Messages by Conversa',
+    brandIconUrl: CONVERSA_ICON_URL,
     description: 'Direct messages, channels, threads, and mentions',
     to: '/messages',
     emoji: '💬',

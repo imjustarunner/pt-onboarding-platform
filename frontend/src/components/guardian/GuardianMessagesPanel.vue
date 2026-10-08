@@ -1,7 +1,7 @@
 <template>
-  <div class="gmsg">
+  <div class="gmsg conversa-surface">
     <div class="panel-head">
-      <div class="panel-title">Messages</div>
+      <ConversaBrand compact />
       <div class="panel-subtitle">Secure messages and email with your care team — open, read, reply.</div>
     </div>
 
@@ -33,7 +33,7 @@
             @click="selectMailboxItem(item)"
           >
             <div class="gmsg-row-title">
-              <span class="gmsg-type" :class="'gmsg-type--' + item.type">{{ item.type === 'email' ? 'Email' : 'Secure' }}</span>
+              <ConversaBadge :type="item.type" />
               {{ item.title }}
             </div>
             <div class="gmsg-row-meta">{{ item.subtitle }}</div>
@@ -44,6 +44,7 @@
         <section class="gmsg-chat">
           <div v-if="!selectedKey" class="muted pad">Select a conversation to read and reply.</div>
           <template v-else>
+            <SecureMessageBanner v-if="selectedType === 'secure'" :thread-id="selected?.thread_id" />
             <div class="gmsg-chat-head">
               <strong>{{ selectedTitle }}</strong>
               <span class="muted">{{ selectedSubtitle }}</span>
@@ -145,6 +146,7 @@
 
         <section class="gmsg-chat">
           <template v-if="creatingTicket">
+            <p class="muted pad">This support request is shared with all authorized guardians and the support team. Use secure messages for care conversations.</p>
             <div class="gmsg-chat-head">
               <strong>New support request</strong>
               <span class="muted">Agency staff will reply here</span>
@@ -184,6 +186,7 @@
             </div>
           </template>
           <template v-else-if="selectedTicket">
+            <p class="muted pad">This support request is shared with all authorized guardians and the support team. Use secure messages for care conversations.</p>
             <div class="gmsg-chat-head">
               <strong>#{{ selectedTicket.id }} {{ selectedTicket.subject || 'Support' }}</strong>
               <span class="muted">{{ selectedTicket.display_status || selectedTicket.status }}</span>
@@ -230,6 +233,9 @@
 </template>
 
 <script setup>
+import SecureMessageBanner from '../conversa/SecureMessageBanner.vue';
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
+import ConversaBadge from '../../components/conversa/ConversaBadge.vue';
 import { computed, nextTick, onMounted, ref } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
@@ -448,6 +454,7 @@ async function send() {
     }
     if (!selected.value?.thread_id) return;
     await api.post(`/guardian-portal/messages/${selected.value.thread_id}`, {
+      clientId: selected.value.client_id,
       body: draft.value.trim()
     });
     draft.value = '';

@@ -2,6 +2,7 @@
  * Client / guardian portal mailbox: email conversations they are a participant on.
  * No staff Communications permissions — list, read, simple reply.
  */
+import ClientGuardian from '../models/ClientGuardian.model.js';
 import pool from '../config/database.js';
 import CommunicationConversation from '../models/CommunicationConversation.model.js';
 
@@ -18,9 +19,20 @@ async function userEmails(userId) {
   )];
 }
 
-async function assertEmailParticipant(conversationId, emails) {
-  if (!emails.length) return null;
-  const ph = emails.map(() => '?').join(',');
+async function sharedEmailScope(userId, emails) {
+  const linked = await ClientGuardian.listClientsForGuardian({ guardianUserId: userId, requiredClinicalScope: 'clinical_messages' });
+  const [self] = await pool.execute('SELECT id FROM clients WHERE user_id = ?', [userId]);
+  const ids = [...new Set([...linked.filter(c => !ClientGuardian.isNoView(c.permissions_json)).map(c => Number(c.client_id)), ...self.map(c => Number(c.id))])];
+  return {
+    sql: `((EXISTS (SELECT 1 FROM communication_links cl WHERE cl.conversation_id = c.id AND cl.entity_type = 'client' AND cl.entity_id IN (${ids.map(() => '?').join(',') || 'NULL'})))
+      OR (NOT EXISTS (SELECT 1 FROM communication_links cl WHERE cl.conversation_id = c.id AND cl.entity_type = 'client')
+      AND EXISTS (SELECT 1 FROM communication_participants p WHERE p.conversation_id = c.id AND LOWER(COALESCE(p.email, '')) IN (${emails.map(() => '?').join(',') || 'NULL'}))))`,
+    params: [...ids, ...emails]
+  };
+}
+
+async function assertEmailParticipant(conversationId, emails, userId) {
+  const scope = await sharedEmailScope(userId, emails);
   const [rows] = await pool.execute(
     `SELECT c.id, c.subject, c.agency_id, c.inbox_id, c.channel, i.from_email AS inbox_from
      FROM communication_conversations c
@@ -28,13 +40,9 @@ async function assertEmailParticipant(conversationId, emails) {
      WHERE c.id = ?
        AND c.channel = 'email'
        AND c.archived_at IS NULL
-       AND EXISTS (
-         SELECT 1 FROM communication_participants p
-         WHERE p.conversation_id = c.id
-           AND LOWER(COALESCE(p.email, '')) IN (${ph})
-       )
+       AND ${scope.sql}
      LIMIT 1`,
-    [conversationId, ...emails]
+    [conversationId, ...scope.params]
   );
   return rows?.[0] || null;
 }
@@ -43,13 +51,12 @@ export async function listPortalEmails({ userId } = {}) {
   const uid = Number(userId || 0);
   if (!uid) return [];
   const emails = await userEmails(uid);
-  if (!emails.length) return [];
-  const ph = emails.map(() => '?').join(',');
+  const scope = await sharedEmailScope(uid, emails);
   const [rows] = await pool.execute(
     `SELECT c.id,
             c.subject,
             c.last_message_at,
-            c.last_message_preview,
+            (SELECT m.body_text FROM communication_messages m WHERE m.conversation_id = c.id AND COALESCE(m.is_internal_note, 0) = 0 AND m.direction <> 'internal' AND (m.send_status IS NULL OR m.send_status = 'sent') ORDER BY m.id DESC LIMIT 1) AS last_message_preview,
             c.agency_id,
             (
               SELECT r.last_read_at
@@ -63,7 +70,7 @@ export async function listPortalEmails({ userId } = {}) {
               WHERE m.conversation_id = c.id
                 AND m.direction = 'outbound'
                 AND COALESCE(m.is_internal_note, 0) = 0
-                AND (m.send_status IS NULL OR m.send_status NOT IN ('cancelled'))
+                AND (m.send_status IS NULL OR m.send_status = 'sent')
               ORDER BY COALESCE(m.sent_at, m.created_at) DESC, m.id DESC
               LIMIT 1
             ) AS last_from_staff_at
@@ -71,14 +78,10 @@ export async function listPortalEmails({ userId } = {}) {
      WHERE c.channel = 'email'
        AND c.archived_at IS NULL
        AND COALESCE(c.is_spam, 0) = 0
-       AND EXISTS (
-         SELECT 1 FROM communication_participants p
-         WHERE p.conversation_id = c.id
-           AND LOWER(COALESCE(p.email, '')) IN (${ph})
-       )
+       AND ${scope.sql}
      ORDER BY COALESCE(c.last_message_at, c.updated_at) DESC
      LIMIT 80`,
-    [uid, ...emails]
+    [uid, ...scope.params]
   );
   return (rows || []).map((r) => {
     const lastStaff = r.last_from_staff_at ? new Date(r.last_from_staff_at) : null;
@@ -101,7 +104,7 @@ export async function getPortalEmail({ userId, conversationId } = {}) {
   const cid = Number(conversationId || 0);
   if (!uid || !cid) return null;
   const emails = await userEmails(uid);
-  const conv = await assertEmailParticipant(cid, emails);
+  const conv = await assertEmailParticipant(cid, emails, uid);
   if (!conv) return null;
   const messages = await CommunicationConversation.listMessages(cid, { limit: 200 });
   await CommunicationConversation.markRead(cid, uid);
@@ -113,7 +116,7 @@ export async function getPortalEmail({ userId, conversationId } = {}) {
       agency_id: conv.agency_id
     },
     messages: (messages || [])
-      .filter((m) => String(m.direction || '') !== 'internal' && !m.is_internal_note)
+      .filter((m) => String(m.direction || '') !== 'internal' && !m.is_internal_note && (!m.send_status || m.send_status === 'sent'))
       .map((m) => {
     const fromEmail = String(
       m.from?.email ||
@@ -144,7 +147,7 @@ export async function replyPortalEmail({ userId, conversationId, body } = {}) {
     throw err;
   }
   const emails = await userEmails(uid);
-  const conv = await assertEmailParticipant(cid, emails);
+  const conv = await assertEmailParticipant(cid, emails, uid);
   if (!conv) {
     const err = new Error('Conversation not found');
     err.status = 404;

@@ -1,8 +1,8 @@
 <template>
-  <div class="conv-thread">
+  <div class="conv-thread conversa-surface">
     <!-- Empty state when no client selected -->
     <div v-if="!clientId && !contactId" class="conv-thread__empty">
-      <div class="empty-icon">💬</div>
+      <ConversaIcon type="chat" :size="32" tile />
       <h3>Select a conversation</h3>
       <p>Pick a thread from the left, or start a new one.</p>
     </div>
@@ -211,6 +211,7 @@
 </template>
 
 <script setup>
+import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';

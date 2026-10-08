@@ -223,7 +223,7 @@ const dashboardTour = {
     {
       element: '[data-tour="dash-rail-card-chats"]',
       popover: {
-        title: 'Messages',
+        title: 'Messages by Conversa',
         description: 'Open direct platform chats.',
         side: 'right',
         align: 'center'

@@ -1,5 +1,5 @@
 <template>
-  <div class="conv-list">
+  <div class="conv-list conversa-surface">
     <div class="conv-list__search">
       <div class="search-wrap">
         <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

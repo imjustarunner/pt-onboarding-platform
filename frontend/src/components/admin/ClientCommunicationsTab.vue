@@ -1,8 +1,8 @@
 <template>
-  <div class="client-communications-tab">
+  <div class="client-communications-tab conversa-surface">
     <div class="tab-header">
       <div>
-        <h3 style="margin: 0;">Communications</h3>
+        <ConversaBrand heading="h3" compact />
         <p class="muted" style="margin: 6px 0 0 0;">
           Emails, replies, texts, and shared care conversations filed for this client.
           <span v-if="counts.opened > 0" style="color: #166534; font-weight: 700;">
@@ -27,6 +27,9 @@
         </select>
       </div>
     </div>
+
+    <ClientSecureMessageRecords :client-id="clientId" />
+    <ClientNotificationHistory :client-id="clientId" />
 
     <section v-if="intakeCommPrefsLoading" class="intake-comm-prefs muted">Loading intake communication preferences…</section>
     <section v-else-if="intakeCommPrefsError" class="intake-comm-prefs error-box">{{ intakeCommPrefsError }}</section>
@@ -341,6 +344,9 @@
 </template>
 
 <script setup>
+import ClientSecureMessageRecords from '../conversa/ClientSecureMessageRecords.vue';
+import ClientNotificationHistory from '../conversa/ClientNotificationHistory.vue';
+import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import api from '../../services/api';
 import EmailThreadReader from '../messages/EmailThreadReader.vue';

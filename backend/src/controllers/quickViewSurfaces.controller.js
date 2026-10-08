@@ -64,18 +64,33 @@ function wrap(handler) {
   };
 }
 
+// Quick View's team-chat surface never opens secure content. Use the full secure workspace.
+function internalChat(handler) {
+  return wrap(async (req, res, next) => {
+    const threadId = Number(req.params?.threadId);
+    const messageId = Number(req.params?.messageId);
+    const [rows] = threadId
+      ? await pool.execute('SELECT message_channel FROM chat_threads WHERE id = ?', [threadId])
+      : await pool.execute('SELECT t.message_channel FROM chat_threads t JOIN chat_messages m ON m.thread_id = t.id WHERE m.id = ?', [messageId]);
+    if (rows[0]?.message_channel === 'secure') {
+      return res.status(409).json({ error: { code: 'SECURE_WORKSPACE_REQUIRED', message: 'Open Secure messages in Messages by Conversa to view or reply to this conversation.' } });
+    }
+    return handler(req, res, next);
+  });
+}
+
 export const qvListChatThreads = wrap(listMyThreads);
 export const qvListChatChannels = wrap(listChannels);
 export const qvOpenChannel = wrap(openChannel);
 export const qvListThreadsInbox = wrap(listThreadsInbox);
 export const qvListMentions = wrap(listMentionsInbox);
 export const qvListFiles = wrap(listFilesInbox);
-export const qvListChatMessages = wrap(listMessages);
-export const qvSendChatMessage = wrap(sendMessage);
-export const qvMarkChatRead = wrap(markRead);
-export const qvUploadChatAttachment = wrap(uploadChatAttachment);
-export const qvAddChatReaction = wrap(addReaction);
-export const qvRemoveChatReaction = wrap(removeReaction);
+export const qvListChatMessages = internalChat(listMessages);
+export const qvSendChatMessage = internalChat(sendMessage);
+export const qvMarkChatRead = internalChat(markRead);
+export const qvUploadChatAttachment = internalChat(uploadChatAttachment);
+export const qvAddChatReaction = internalChat(addReaction);
+export const qvRemoveChatReaction = internalChat(removeReaction);
 
 export const qvCreateDirectThread = wrap(async (req, res, next) => {
   if (!req.body) req.body = {};

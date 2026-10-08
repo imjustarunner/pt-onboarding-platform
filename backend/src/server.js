@@ -481,7 +481,7 @@ const uploadsHandler = async (req, res, next) => {
 
     // HIPAA hardening: block sensitive PHI/intake object prefixes from generic /uploads routing.
     // These files must be accessed via dedicated authenticated controllers with audit logging.
-    const sensitivePrefixes = ['phi-documents/', 'intake_signed/', 'intake_uploads/'];
+    const sensitivePrefixes = ['secure-messages/', 'phi-documents/', 'intake_signed/', 'intake_uploads/'];
     const unprefixedFilePath = filePath.replace(/^(?:uploads\/)+/, '');
     if (sensitivePrefixes.some((prefix) => unprefixedFilePath.startsWith(prefix))) {
       return res.status(403).json({ error: { message: 'Access denied for sensitive document path' } });

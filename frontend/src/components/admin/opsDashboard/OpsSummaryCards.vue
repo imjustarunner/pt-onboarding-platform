@@ -31,7 +31,7 @@
 
     <article v-if="showCommunications" class="panel" :style="orderStyles.communications || undefined">
       <div class="panel-header">
-        <h2>Communications Center</h2>
+        <h2>Communications management</h2>
         <button type="button" class="link-btn" @click="$emit('navigate', paths.communications)">Open</button>
       </div>
       <div class="stat-rows">
