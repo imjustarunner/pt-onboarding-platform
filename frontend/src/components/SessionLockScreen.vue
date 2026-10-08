@@ -82,6 +82,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useBrandingStore } from '../store/branding';
 import { useAgencyStore } from '../store/agency';
+import { fundthredBrowserBrand } from '../composables/useFundThredBranding';
 import BrandingLogo from './BrandingLogo.vue';
 import { useSessionLockStore } from '../store/sessionLock';
 import { resumeSession, refetchSessionLockConfig } from '../utils/activityTracker';
@@ -127,7 +128,7 @@ const tenantKey = computed(() => {
 });
 // Initial verification is not an inactivity timeout; use the neutral branded
 // background until a real lock policy is known instead of the timeout artwork.
-const isPlatformBrand = computed(() => !agencyStore.currentAgency && (!brandingStore.activeRouteSlug || agencyStore.platformMode));
+const isPlatformBrand = computed(() => !!fundthredBrowserBrand.value || (!agencyStore.currentAgency && (!brandingStore.activeRouteSlug || agencyStore.platformMode)));
 const showTenantVideo = computed(() => !isPlatformBrand.value && !isMobile.value && !!sessionLockStore.lockConfig);
 const posterUrl = computed(() => getTimedownPosterUrl(tenantKey.value));
 const videoUrl = computed(() => getTimedownVideoUrl(tenantKey.value));
@@ -144,10 +145,10 @@ const error = ref('');
 const verifying = ref(false);
 const pinInputRef = ref(null);
 
-const agencyLogoUrl = computed(() => brandingStore.displayLogoUrl || null);
+const agencyLogoUrl = computed(() => fundthredBrowserBrand.value ? '/assets/fundthred/wordmark.svg' : brandingStore.displayLogoUrl || null);
 
 const cardStyle = computed(() => {
-  const primary = brandingStore.effectivePrimaryColor || '#B80016';
+  const primary = fundthredBrowserBrand.value ? '#087d76' : brandingStore.effectivePrimaryColor || '#B80016';
   return {
     '--lock-accent': primary
   };

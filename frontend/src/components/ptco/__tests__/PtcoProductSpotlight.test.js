@@ -17,13 +17,13 @@ beforeEach(()=>{
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();});
 
 describe('homepage product spotlight',()=>{
-  it('starts with HQ, rotates through all six products, and can pause and resume',async()=>{
+  it('starts with HQ, rotates through all seven products, and can pause and resume',async()=>{
     wrapper=render();
     expect(showing()).toBe('Plot Twist HQ');
     expect(wrapper.find('.is-active .spotlight-action .ptco-button').attributes('href')).toBe('/p/ptco/hq');
     const seen=[showing()];
-    for(let i=0;i<5;i++){await advance();seen.push(showing());}
-    expect(new Set(seen).size).toBe(6);
+    for(let i=0;i<6;i++){await advance();seen.push(showing());}
+    expect(new Set(seen).size).toBe(7);
     await advance();expect(showing()).toBe('Plot Twist HQ');
     await wrapper.find('[aria-label="Pause product rotation"]').trigger('click');
     await advance();expect(showing()).toBe('Plot Twist HQ');

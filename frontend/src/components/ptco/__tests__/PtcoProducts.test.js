@@ -4,7 +4,10 @@ import Products from '../PtcoProducts.vue';
 describe('Plot Twist product family',()=>{
   it('includes Summit Stats in the product family with the real website and walkthrough',()=>{
     const wrapper = mount(Products,{global:{stubs:{RouterLink:{template:'<a><slot/></a>'}}}});
-    expect(wrapper.findAll('.ptco-product-family article')).toHaveLength(6);
+    expect(wrapper.findAll('.ptco-product-family article')).toHaveLength(7);
+    const finance = wrapper.find('#fundthred');
+    expect(finance.text()).toContain('Follow the thread of every dollar');
+    expect(finance.find('.ptco-button').attributes('href')).toBe('https://plottwisthq.com/fundthred');
     const plotline = wrapper.find('#plotline');
     expect(plotline.text()).toContain('Workforce Operations');
     expect(plotline.find('.ptco-button').attributes('href')).toBe('https://plottwistco.com/plottline');

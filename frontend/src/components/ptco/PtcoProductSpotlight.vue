@@ -13,7 +13,7 @@
         <article v-for="(product,index) in products" :key="product.id" class="spotlight-slide" :class="{'is-active':activeIndex===index}" :aria-hidden="activeIndex!==index" :inert="activeIndex!==index" role="group" aria-roledescription="slide" :aria-label="`${index+1} of ${products.length}: ${product.name}`">
           <div class="spotlight-mark"><img :src="product.logo" :alt="product.name" width="190" height="100"></div>
           <div class="spotlight-copy"><p class="ptco-eyebrow">{{ product.audience }}</p><h2>{{ product.name }}</h2><p class="spotlight-description">{{ product.description }}</p></div>
-          <div class="spotlight-action"><router-link v-if="product.id==='plottwisthq' || product.route" class="ptco-button" :to="product.id==='plottwisthq'?'/p/ptco/hq':product.route">{{ product.actionLabel || `Explore ${product.name}` }} →</router-link><a v-else class="ptco-button" :href="product.url">Explore {{ product.name }} ↗</a><a href="#products" class="spotlight-all">See all six products ↓</a></div>
+          <div class="spotlight-action"><router-link v-if="product.id==='plottwisthq' || product.route" class="ptco-button" :to="product.id==='plottwisthq'?'/p/ptco/hq':product.route">{{ product.actionLabel || `Explore ${product.name}` }} →</router-link><a v-else class="ptco-button" :href="product.url">Explore {{ product.name }} ↗</a><a href="#products" class="spotlight-all">See all products ↓</a></div>
         </article>
       </div>
       <div class="spotlight-selector" role="group" aria-label="Choose a product to spotlight">
@@ -28,7 +28,7 @@ import {computed,onMounted,onUnmounted,ref} from 'vue';
 import {ptcoProducts as products} from '../../constants/ptcoProducts';
 const region=ref(null),activeIndex=ref(0),paused=ref(false),hovered=ref(false),visible=ref(true);
 const active=computed(()=>products[activeIndex.value]);
-const accents={plottwisthq:'#970e22',plotline:'#0f2d24',auricwell:'#0649ce',conversa:'#a57b0e',schoolcarebridge:'#139e61',sstc:'#638c35'};
+const accents={plottwisthq:'#970e22',plotline:'#0f2d24',auricwell:'#0649ce',conversa:'#a57b0e',fundthred:'#0b8d82',schoolcarebridge:'#139e61',sstc:'#638c35'};
 let timer,observer,motion;
 function select(index){paused.value=true;activeIndex.value=(index+products.length)%products.length;}
 function pauseForFocus(event){if(!event.target.closest('[data-rotation-control]'))paused.value=true;}

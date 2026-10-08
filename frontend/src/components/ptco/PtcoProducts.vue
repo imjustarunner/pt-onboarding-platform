@@ -1,6 +1,6 @@
 <template>
  <section id="products" class="ptco-band ptco-products"><div class="ptco-wrap">
-  <div class="ptco-section-heading"><div><p class="ptco-eyebrow">Products by Plot Twist Co.</p><h2>One family.<br>Six focused products.</h2></div><p>Plot Twist HQ, AuricWell, Conversa, Plotline, SchoolCareBridge, and Summit Stats Team Challenge are Plot Twist Co. products. Choose the workspace that fits your team, with connected services behind the scenes. {{ CONVERSA_RELATIONSHIP }}</p></div>
+  <div class="ptco-section-heading"><div><p class="ptco-eyebrow">Products by Plot Twist Co.</p><h2>One family.<br>Seven focused products.</h2></div><p>Plot Twist HQ, FundThred, AuricWell, Conversa, Plotline, SchoolCareBridge, and Summit Stats Team Challenge are Plot Twist Co. products. Choose the workspace that fits your team, with connected services behind the scenes. {{ CONVERSA_RELATIONSHIP }}</p></div>
   <div class="ptco-product-family"><article v-for="product in products" :id="product.id" :key="product.id" :class="product.id">
    <div class="product-mark"><router-link v-if="product.route" :to="product.route" :aria-label="`Explore ${product.name}`"><img :src="product.logo" :alt="product.name"/></router-link><img v-else :src="product.logo" :alt="product.name"/><span>A Plot Twist Co. product</span></div>
    <p class="ptco-eyebrow">{{product.audience}}</p><h3><router-link v-if="product.route" :to="product.route">{{ product.name }}</router-link><template v-else>{{product.name}}</template></h3><p>{{product.description}}</p>

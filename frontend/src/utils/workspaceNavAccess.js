@@ -258,7 +258,7 @@ export function buildDashboardQuickAccessLinks(opts = {}) {
     });
   }
 
-  if(access.finance)links.push({key:'finance',label:'Finance Ops',sub:'Funding & spending',to:`${prefix}/finance-operations`,icon:'finance'});
+  if(access.finance)links.push({key:'finance',label:'FundThred',sub:'Funding & spending',to:`${prefix}/finance-operations`,icon:'finance'});
   return links;
 }
 
@@ -269,7 +269,7 @@ export function buildHubSwitcherLinks(opts = {}) {
   const access = resolveWorkspaceAccess(opts);
 
   const defs = [
-    {key:'finance',label:'Finance Ops',to:`${prefix}/finance-operations`,icon:'finance',show:access.finance},
+    {key:'finance',label:'FundThred',to:`${prefix}/finance-operations`,icon:'finance',show:access.finance},
     { key: 'my', label: 'My Dashboard', to: `${prefix}/dashboard`, icon: 'my', show: true },
     {
       key: 'management',

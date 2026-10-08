@@ -14,7 +14,7 @@
      <label class="check"><input v-model="settings.taxExemptConfirmed" type="checkbox" /> MH4Kidz’s tax-exempt charitable status is confirmed</label>
      <label class="check"><input v-model="settings.noBenefitsConfirmed" type="checkbox" /> These gifts provide no goods or services in return</label>
      <label>Donation fund<select v-model="settings.fundId"><option :value="null">Choose an unrestricted fund</option><option v-for="fund in funds.filter(f=>f.kind==='unrestricted')" :key="fund.id" :value="fund.id">{{fund.name}}</option></select></label>
-     <p v-if="!funds.some(f=>f.kind==='unrestricted')">Create an unrestricted fund in Finance Operations → Funds, then return here.</p>
+     <p v-if="!funds.some(f=>f.kind==='unrestricted')">Create an unrestricted fund in FundThred → Funds, then return here.</p>
      <label>Receipt sender<select v-model="settings.senderIdentityId"><option :value="null">Choose a MH4Kidz sender</option><option v-for="sender in settings.senders" :key="sender.id" :value="sender.id">{{sender.display_name}} · {{sender.from_email}}</option></select></label>
      <p v-if="!settings.senders.length">Add an active MH4Kidz email identity in the organization’s email settings.</p>
      <p>Stripe account: <strong>{{settings.stripeConnected?'Connected':'Not connected'}}</strong>. <router-link :to="`/mh4kidz/admin/family-billing?tab=setup&amp;agencyId=${agencyId}`">Open MH4Kidz Stripe setup</router-link>.</p>

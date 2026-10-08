@@ -1,4 +1,5 @@
 import { schoolCareBridgeBrowserBrand } from './composables/useSchoolCareBridgeBranding';
+import { fundthredBrowserBrand } from './composables/useFundThredBranding';
 import { PLATFORM_BRAND } from './config/platformBrand.js';
 import { publicBrowserBranding, legacyTisiPublicDestination } from './utils/publicBrowserBranding.js';
 import { createApp, watchEffect } from 'vue';
@@ -213,6 +214,7 @@ async function bootstrap() {
   // - For slug routes (/:organizationSlug/...) we can also infer the slug from the route.
   const setTitle = () => {
     try {
+      if (fundthredBrowserBrand.value) { document.title = fundthredBrowserBrand.value.title; return; }
       if (schoolCareBridgeBrowserBrand.value) { document.title = schoolCareBridgeBrowserBrand.value.title; return; }
       const website = publicBrowserBranding(window.location.hostname, router.currentRoute.value?.path);
       const publicTitle = router.currentRoute.value?.meta?.publicMarketingTitle || website?.title;
@@ -290,7 +292,7 @@ async function bootstrap() {
       tenantFaviconUrl(agencyStore.currentAgency?.slug || agencyStore.currentAgency?.portal_url);
     // Favicon: tenant mark, else organization master icon, else full logo.
     const platformSelected = authStore.isAuthenticated && agencyStore.platformMode && !agencyStore.currentAgency && !brandingStore.activeRouteSlug;
-    const mark = schoolCareBridgeBrowserBrand.value?.favicon || (platformSelected ? PLATFORM_BRAND.logo : tenantFav) || brandingStore.displayChromeIconUrl || brandingStore.displayLogoUrl;
+    const mark = fundthredBrowserBrand.value?.favicon || schoolCareBridgeBrowserBrand.value?.favicon || (platformSelected ? PLATFORM_BRAND.logo : tenantFav) || brandingStore.displayChromeIconUrl || brandingStore.displayLogoUrl;
     if (mark) setFavicon(mark);
   };
 

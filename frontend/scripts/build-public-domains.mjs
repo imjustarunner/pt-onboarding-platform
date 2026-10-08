@@ -140,6 +140,8 @@ server {
  ${slug === 'mh4kidz' ? 'location = /schoolcarebridge { add_header Cache-Control "no-cache"; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location = /schoolcarebridge/app { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/app/ { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/ { add_header Cache-Control "no-store"; try_files /_public-sites/schoolcarebridge/home.html =404; }' : ''}
  ${legalLocations}
  ${slug === 'ptco' ? plotlineLocations : ''}
+ location = /fundthred { return 302 https://plottwisthq.com/fundthred$is_args$args; }
+ location ^~ /fundthred/ { return 302 https://plottwisthq.com$request_uri; }
  location = /login { return 302 https://app.${domain}/login$is_args$args; }
  location = /app { return 302 https://app.${domain}/login$is_args$args; }
  location ~ ^/[^/]+/login$ { return 302 https://app.${domain}/login$is_args$args; }

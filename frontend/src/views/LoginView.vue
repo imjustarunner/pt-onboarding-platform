@@ -1,6 +1,6 @@
 <template>
   <component
-    :is="isPlatformLogin ? HqLoginShell : 'div'"
+    :is="isFundThredLogin ? FundThredLoginShell : isPlatformLogin ? HqLoginShell : 'div'"
     class="login-page"
     :class="{ 'login-page--sstc': isSSTCLogin, 'login-page--app-like': isAppLike, 'login-page--platform': isPlatformLogin, 'login-page--tenant-video': showTenantLoginVideo, 'login-page--tisi-video': showTisiLoginVideo, 'login-page--nlu-video': showNluLoginVideo, 'login-page--video-auth': useVideoAuthLayout }"
     :style="tenantLoginPageStyle"
@@ -96,7 +96,7 @@
           </div>
         </div>
         <div
-          v-if="loginParentBranding && (loginParentBranding.name || loginParentBranding.logoUrl)"
+          v-if="!isFundThredLogin && loginParentBranding && (loginParentBranding.name || loginParentBranding.logoUrl)"
           class="login-dual-brand"
         >
           <div class="login-dual-brand__col">
@@ -160,7 +160,12 @@
           </div>
         </div>
 
-        <div v-if="isPlatformLogin" class="hq-cardhead">
+        <div v-if="isFundThredLogin" class="hq-cardhead">
+          <FundThredBrand />
+          <h2>Sign in to FundThred</h2>
+          <p>Continue to your organization’s finances</p>
+        </div>
+        <div v-else-if="isPlatformLogin" class="hq-cardhead">
           <img src="/assets/ptco/logo-flat.webp" alt="" width="90" height="112" />
           <h2>PlotTwist<span>HQ</span></h2>
           <p>Sign in to your account</p>
@@ -498,7 +503,8 @@
               <img src="/branding/google-g.png" alt="" width="22" height="22" /> Continue with Google
             </button>
           </template>
-          <RouterLink v-if="isPlatformLogin" to="/plans" class="help-link">Compare Basic, Premium and Premium Plus</RouterLink>
+          <RouterLink v-if="isFundThredLogin" to="/fundthred/pricing" class="help-link">Explore FundThred plans and bundles</RouterLink>
+          <RouterLink v-else-if="isPlatformLogin" to="/plans" class="help-link">Compare Basic, Premium and Premium Plus</RouterLink>
           <div v-if="!isPlatformLogin" class="login-help">
             <a href="#" @click.prevent="showForgotPassword" class="help-link">Forgot Password?</a>
             <span class="help-separator">|</span>
@@ -736,6 +742,10 @@ import { startActivityTracking } from '../utils/activityTracker';
 import { useSessionLockStore } from '../store/sessionLock';
 import { signalFreshLogin } from '../composables/useReminderSnooze';
 import HqLoginShell from '../components/HqLoginShell.vue';
+import FundThredLoginShell from '../components/fundthred/FundThredLoginShell.vue';
+import FundThredBrand from '../components/fundthred/FundThredBrand.vue';
+import { isFundthredLogin } from '../utils/fundthred';
+import { useFundThredBranding } from '../composables/useFundThredBranding';
 import { Eye, EyeOff } from '@lucide/vue';
 import api from '../services/api';
 import { getBackendBaseUrl } from '../utils/uploadsUrl';
@@ -770,6 +780,8 @@ import {
 // Removed hardcoded credentials for security
 const router = useRouter();
 const route = useRoute();
+const isFundThredLogin = computed(() => isFundthredLogin(route));
+useFundThredBranding('Sign in | FundThred', isFundThredLogin);
 const authStore = useAuthStore();
 const brandingStore = useBrandingStore();
 const agencyStore = useAgencyStore();
@@ -1014,6 +1026,7 @@ const printablePdfDownloading = ref({ en: false, es: false });
 
 // Logo and title for agency login
 const displayLogoUrl = computed(() => {
+  if (isFundThredLogin.value) return '/assets/fundthred/wordmark.svg';
   if (isPlatformLogin.value) return PLATFORM_BRAND.logo;
   // Both /:slug/login and custom-domain /login use the fetched login identity.
   // A previous user's Platform selection is never a tenant login fallback.
@@ -1035,6 +1048,7 @@ const schoolPortalCredentialsRow = computed(
 );
 
 const displayTitle = computed(() => {
+  if (isFundThredLogin.value) return 'FundThred';
   if (loginTheme.value?.agency?.name) {
     if (isSchoolPortalOrg.value) {
       return `${loginTheme.value.agency.name} — ${String(loginTheme.value.agency.organizationType).toLowerCase()==='school' ? 'SchoolCareBridge' : 'School Portal'}`;
@@ -1121,6 +1135,7 @@ const _isOnPlatformHost =
   _currentHostname === '127.0.0.1';
 
 const isPlatformLogin = computed(() => {
+  if (isFundThredLogin.value) return true;
   if (isSchoolCareBridge.value) return false;
   // If we're not on the platform host (e.g. we're on app.itsco.health), this
   // is always a tenant login — never show platform branding.
@@ -1190,6 +1205,7 @@ const isMainTenantHubLogin = (portalSlug) => {
 };
 
 const activeTenantLoginVideos = computed(() => {
+  if (isFundThredLogin.value) return null;
   for (const [portalSlug, sources] of Object.entries(TENANT_LOGIN_BG_VIDEOS)) {
     if (isMainTenantHubLogin(portalSlug)) return sources;
   }
@@ -1309,7 +1325,7 @@ const fetchLoginTheme = async (portalUrl) => {
     console.error('Failed to fetch login theme:', error);
     // If agency not found, redirect to default login
     if (error.response?.status === 404) {
-      router.replace('/login');
+      router.replace(isFundThredLogin.value ? {path:'/login',query:route.query} : '/login');
     }
   } finally {
     loadingTheme.value = false;
@@ -2130,7 +2146,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
       }
       await router.replace({
         path: targetLoginPath,
-        query: { u }
+        query: { ...(isFundThredLogin.value ? route.query : {}), u }
       });
       return;
     }
@@ -2174,7 +2190,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
           }
           await router.replace({
             path: normalizedTarget,
-            query: { u }
+            query: { ...(isFundThredLogin.value ? route.query : {}), u }
           });
           return;
         }

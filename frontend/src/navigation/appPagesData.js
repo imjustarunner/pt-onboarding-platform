@@ -5,8 +5,8 @@
  */
 
 export const APP_PAGES = [
-  { title: 'Finance Operations', section: 'Finance', path: '/finance-operations',
-    keywords: ['finance', 'financial operations', 'nonprofit', 'fiscal sponsorship', 'portfolio'],
+  { title: 'FundThred', section: 'Finance', path: '/finance-operations',
+    keywords: ['fundthred', 'finance operations', 'finance', 'financial operations', 'nonprofit', 'fiscal sponsorship', 'portfolio'],
     desc: 'Budgets, grants, funds, expenses, payments, and financial oversight.' },
   ...[
     ['budgets', 'Program Budgets', ['budget', 'planning', 'forecast']],
@@ -22,7 +22,7 @@ export const APP_PAGES = [
     ['partners', 'Financial People & Partners', ['grantors', 'vendors']],
     ['events', 'Funded Events & Trips', ['mentoring', 'training', 'trips']]
   ].map(([area, title, keywords]) => ({ title, section: 'Finance', path: `/finance-operations?area=${area}`,
-    keywords, desc: `Open ${title.toLowerCase()} in Finance Operations.` })),
+    keywords, desc: `Open ${title.toLowerCase()} in FundThred.` })),
   { title: 'Family Billing', section: 'Billing & Payments', path: '/admin/family-billing', requiresBilling: true,
     keywords: ['family', 'client billing', 'copays', 'self pay', 'balances', 'receipts', 'payment authorization'],
     desc: 'Review client balances, payments, and signed billing authorizations.' },

@@ -1,7 +1,7 @@
 <template>
   <BrandingProvider>
     <AccountSecurityNotice v-if="isAuthenticated" />
-    <OfficeArrivalSplash v-if="isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" :key="user.id" />
+    <OfficeArrivalSplash v-if="isAuthenticated && user?.id && !isLoginEntry && !sessionLockStore.isLocked && !sessionLockStore.warningActive && !isPublicOfficeRoute && !route.meta?.publicMarketingHub && !route.meta?.fundthred" :key="user.id" />
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
@@ -701,7 +701,7 @@
                         {{ formatNavBadgeCount(workforceOperationsPendingCount) }}
                       </span>
                     </router-link>
-                    <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeAllNavMenus"><span>Finance Operations</span></router-link>
+                    <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeAllNavMenus"><span>FundThred</span></router-link>
                     <router-link
                       v-if="canSeePeopleOperationsNav"
                       :to="orgTo('/people-operations')"
@@ -1774,7 +1774,7 @@
                       {{ formatNavBadgeCount(workforceOperationsPendingCount) }}
                     </span>
                   </router-link>
-                  <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink"><span>Finance Operations</span></router-link>
+                  <router-link v-if="canSeeFinanceOperationsNav" :to="orgTo('/finance-operations')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink"><span>FundThred</span></router-link>
                   <router-link
                     v-if="canSeePeopleOperationsNav"
                     :to="orgTo('/people-operations')"
@@ -2006,7 +2006,7 @@
         v-if="isAuthenticated && !route.path.startsWith('/schoolcarebridge')"
         :login-trigger="privilegedLoginBriefingTrigger"
       />
-      <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute" />
+      <PoweredByFooter v-if="isAuthenticated && !isImmersiveJoinRoute && !isPublicIntakeRoute && !route.meta?.fundthred" />
       <Teleport to="body">
         <div
           v-if="showLoginNotificationsModal && !isOnNotificationsRoute"

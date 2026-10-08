@@ -65,6 +65,7 @@ export function publicSitePaths(host) {
   },
   internal(value) {
    const path = String(value);
+   if (/^\/fundthred(?:[/?#]|$)/.test(path)) return path;
    if (isSchoolCareBridgePath(path)) return path;
    const pathname = path.split(/[?#]/)[0];
    const rest = path.slice(pathname.length);

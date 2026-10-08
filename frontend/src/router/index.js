@@ -1,4 +1,5 @@
 import { isTokenAuthenticationRoute } from '../utils/loginHandoff';
+import { fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
 import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowPath } from '../utils/schoolCareBridge.js';
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
@@ -338,6 +339,11 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  { path: '/fundthred/:section(product|solutions|pricing|resources|start)?', name: 'FundThredWebsite', component: () => import('../views/public/FundThredWebsite.vue'), meta: { publicMarketingHub: true, hideNav: true, fundthred: true, publicMarketingTitle: 'FundThred | Finance operations' } },
+  { path: '/fundthred/app', name: 'FundThredEntry', component: () => import('../views/FundThredEntryView.vue'), meta: { hideNav: true, fundthred: true, fundthredEntry: true } },
+  { path: '/fundthred/login', redirect: () => fundthredLoginLocation() },
+  { path: '/:organizationSlug/finance-operations',  name: 'OrganizationFinanceOperations', component: () => import('../views/FinanceOperationsView.vue'), meta: { requiresAuth: true, organizationSlug: true, hideNav: true, fundthred: true } },
+  { path: '/finance-operations', name: 'FinanceOperations', component: () => import('../views/FinanceOperationsView.vue'), meta: { requiresAuth: true, hideNav: true, fundthred: true } },
   { path: '/schoolcarebridge/session-ended', name: 'SchoolCareBridgeSessionEnded', component: () => import('../views/school/SchoolCareBridgeSessionEnded.vue'), meta: { requiresGuest: false } },
   { path: '/schoolcarebridge/app', name: 'SchoolCareBridgeLogin', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true } },
   { path: '/schoolcarebridge/app/:organizationSlug', name: 'SchoolCareBridgeSchool', component: () => import('../views/school/SchoolCareBridgeEntryView.vue'), meta: { schoolCareBridgeEntry: true, organizationSlug: true } },
@@ -4950,6 +4956,13 @@ router.beforeEach(async (to, from, next) => {
     }
   };
 
+  if (to.meta.fundthredEntry) {
+    await tryBootstrapAuthFromCookie();
+    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
+      next({ path: '/change-password', query: { redirect: '/fundthred/app' }, replace: true }); return;
+    }
+    next(); return;
+  }
   // Keep links emitted by the shared school components on the SchoolCareBridge surface.
   if (isSchoolCareBridgePath(from.path) && !isSchoolCareBridgePath(to.path)) {
     if (['OrganizationDashboard', 'OrganizationLogin'].includes(String(to.name)) && to.params.organizationSlug) {
@@ -5215,7 +5228,7 @@ router.beforeEach(async (to, from, next) => {
 
   // Canonicalize tenant entries before applying any tenant state or branding.
   // Child portals (schools/programs) remain under their existing parent navigation.
-  if (authStore.isAuthenticated && to.meta.requiresAuth && routeWorkspaceSlug && (
+  if (authStore.isAuthenticated && to.meta.requiresAuth && !to.meta.fundthred && routeWorkspaceSlug && (
     (hostPortalEarly && routeWorkspaceSlug !== hostPortalEarly) ||
     (isPlatformWorkspaceHost(workspaceHost) && !isSuperadminRole(authStore.user?.role))
   )) {
@@ -5657,7 +5670,8 @@ router.beforeEach(async (to, from, next) => {
     !to.meta.organizationSlug &&
     !allowUnscopedDashboard &&
     !allowUnscopedNotifications &&
-    !allowUnscopedDocumentSigning
+    !allowUnscopedDocumentSigning &&
+    !to.meta.fundthred
   ) {
     const slug = getDefaultOrganizationSlug();
     if (slug && !isPortalHostSlugRedundantInPath(brandingStore, slug)) {
@@ -5905,6 +5919,9 @@ router.beforeEach(async (to, from, next) => {
       return;
     }
     const redirectPath = to.fullPath || to.path;
+    if (isFundthredWorkspacePath(to.path)) {
+      next({ ...fundthredLoginLocation(redirectPath), replace: true }); return;
+    }
     const redirectQuery = redirectPath && redirectPath !== '/' ? `?redirect=${encodeURIComponent(redirectPath)}` : '';
     // If this is an organization-slug route, always keep the slug in the login redirect
     // so users land on "/:organizationSlug/login" (branded) instead of platform "/login".
@@ -5943,6 +5960,7 @@ router.beforeEach(async (to, from, next) => {
       next({ path: getDashboardRoute(), replace: true });
     }
   } else if (to.meta.requiresGuest && authStore.isAuthenticated && !isTokenAuthenticationRoute(to)) {
+    if (isFundthredLogin(to)) { next({ path: '/fundthred/app', replace: true }); return; }
     // Redirect to appropriate dashboard based on user role
     next({ path: getDashboardRoute(), replace: true });
   } else if (to.meta.requiresApprovedEmployee) {
