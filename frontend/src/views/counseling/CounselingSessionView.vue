@@ -1,7 +1,7 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalSessionBranding" immersive :tenant-id="session?.agencyId || session?.agency_id" context-label="Counseling session" :back-disabled="phase !== 'pre' && phase !== 'ended'">
   <div class="cs" :class="{ 'cs--provider': participantRole === 'provider', 'cs--activity': inActivityMode }">
-    <header v-if="phase !== 'connected'" class="clinical-brand"><img :src="'/assets/auricwell-session-logo.png'" alt="AuricWell" /><div><strong>AuricWell</strong><small>{{ branding?.agencyName || 'Virtual care' }}</small></div></header>
+    <header v-if="phase !== 'connected'" class="clinical-brand"><img :src="AURICWELL_MARK_URL" alt="AuricWell" /><div><strong>AuricWell</strong><small>{{ branding?.agencyName || 'Virtual care' }}</small></div></header>
     <ClientRecordingConsentPanel v-if="session && phase !== 'ended'" :base-url="transcriptionBase" :is-provider="participantRole === 'provider'" />
     <ConsentedTranscriptionPanel v-if="phase === 'connected'" ref="transcriptionPanel" :base-url="transcriptionBase" :connected="videoConnected" :is-host="participantRole === 'provider'" :get-stream="getTranscriptionStream" />
     <label v-if="participantRole === 'provider' && phase !== 'joining'" class="cs__note-type">Note type for a recorded session
@@ -57,6 +57,7 @@
 </template>
 
 <script setup>
+import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import { practiceCategoryForBusinessType } from '../../config/practiceCategories.js';
 import { useAgencyStore } from '../../store/agency';
 import { isMentalHealthWorkspace } from '../../utils/clinicalWorkspace.js';

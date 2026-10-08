@@ -50,11 +50,12 @@
   </div>
 </template>
 <script setup>
+import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import {computed, ref, nextTick} from 'vue';
 import KioskProviderCard from '../../components/kiosk/KioskProviderCard.vue';
 const props=defineProps({product:{type:String,default:'auricwell'}});
 const brandName=computed(()=>props.product === 'hq' ? 'Plot Twist HQ' : 'AuricWell');
-const brandLogo=computed(()=>props.product === 'hq' ? '/assets/ptco/logo-flat.webp' : '/auricwell/logo.png');
+const brandLogo=computed(()=>props.product === 'hq' ? '/assets/ptco/logo-flat.webp' : AURICWELL_MARK_URL);
 const step=ref('welcome'), stepHeading=ref(null), respondent=ref(''), arrived=ref(false), acknowledged=ref(false), channel=ref('app');
 // This shared card resolves uploaded photos against the backend. Absolute,
 // same-origin public asset URLs keep this example entirely on the website.

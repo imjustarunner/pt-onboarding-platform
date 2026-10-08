@@ -1,7 +1,7 @@
 <template>
   <main class="records-requests" :class="{ 'public-records': !base }">
     <header class="records-header">
-      <a class="records-brand" href="/auricwell" aria-label="AuricWell home"><span class="brand-mark"><img src="/auricwell/logo.png" alt="" width="96" height="96" /></span><span>AuricWell</span></a>
+      <a class="records-brand" href="/auricwell" aria-label="AuricWell home"><span class="brand-mark"><img :src="AURICWELL_MARK_URL" alt="" width="48" height="48" /></span><span>AuricWell</span></a>
       <span class="header-label">Records center</span>
       <RouterLink v-if="!base" class="sign-in" to="/my-records">Sign in <span aria-hidden="true">↗</span></RouterLink>
     </header>
@@ -90,6 +90,7 @@
   </main>
 </template>
 <script setup>
+import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import { ref, computed, onMounted } from 'vue';
 import PracticePicker from './PracticePicker.vue';
 import PracticeLogo from './PracticeLogo.vue';
@@ -147,8 +148,8 @@ onMounted(load);
 .records-header { display:flex; align-items:center; gap:24px; padding:16px 0; border-bottom:1px solid #e3eaf3; }
 .public-records .records-header { padding:16px max(24px,calc((100% - 1200px)/2)); background:#fff; }
 .records-brand { display:inline-flex; align-items:center; gap:8px; font-size:27px; font-weight:720; letter-spacing:-1px; text-decoration:none; }
-.brand-mark { display:block; width:48px; height:49px; overflow:hidden; position:relative; }
-.brand-mark img { position:absolute; width:96px; height:96px; max-width:none; object-fit:contain; left:-24px; top:-16px; }
+.brand-mark { display:block; width:48px; height:48px; flex-shrink:0; }
+.brand-mark img { display:block; width:100%; height:100%; object-fit:contain; }
 .header-label { border-left:1px solid #dce4ef; padding-left:24px; color:#5b6982; font-size:14px; }
 .records-requests a { color:#0649ce; text-underline-offset:3px; }
 .records-requests .records-brand { color:#082761; }

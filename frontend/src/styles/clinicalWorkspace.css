@@ -37,7 +37,7 @@
 .clinical-workspace--compact>.clinical-workspace__header { padding:12px 16px;gap:16px; }
 .clinical-workspace--compact .clinical-workspace__product img { width:44px;height:44px; }
 .is-clinical-workspace { background:#fff; }
-@media(max-width:700px){.clinical-workspace__header{padding:14px 16px;gap:14px}.clinical-workspace__tenant{font-size:15px}.clinical-workspace__product{margin-left:auto;padding-left:14px}.clinical-workspace__product img{width:105px;height:34px}.clinical-workspace__actions{margin:0;width:100%;justify-content:space-between;gap:8px}.clinical-workspace__header button{padding:9px 11px}.clinical-workspace__tenant-logo{width:36px;height:36px}}
+@media(max-width:700px){.clinical-workspace__header{padding:14px 16px;gap:14px}.clinical-workspace__tenant{font-size:15px}.clinical-workspace__product{margin-left:auto;padding-left:14px}.clinical-workspace__product img{width:40px;height:40px;flex-shrink:0}.clinical-workspace__actions{margin:0;width:100%;justify-content:space-between;gap:8px}.clinical-workspace__header button{padding:9px 11px}.clinical-workspace__tenant-logo{width:36px;height:36px}}
 @media print{.clinical-workspace__actions{display:none}.clinical-workspace__header{break-after:avoid}}
 
 .auricwell-surface .na-app .na-wq-add { background:#2467a7; }

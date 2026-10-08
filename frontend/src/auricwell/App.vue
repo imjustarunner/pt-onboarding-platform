@@ -1,6 +1,6 @@
 <template>
   <div class="aw-app">
-    <header class="aw-header"><a :href="websiteBase" aria-label="AuricWell website"><img src="/auricwell/logo.png" alt="AuricWell"></a><div v-if="context"><strong>{{ context.practice.name }}</strong><small>Practice workspace</small></div><a class="aw-exit" :href="demoContext ? websiteBase : '/admin'">{{ demoContext ? 'AuricWell website ↗' : 'Return to full suite ↗' }}</a></header>
+    <header class="aw-header"><a class="aw-brand" :href="websiteBase" aria-label="AuricWell website"><img :src="AURICWELL_MARK_URL" alt="" width="48" height="48"><span>AuricWell</span></a><div v-if="context"><strong>{{ context.practice.name }}</strong><small>Practice workspace</small></div><a class="aw-exit" :href="demoContext ? websiteBase : '/admin'">{{ demoContext ? 'AuricWell website ↗' : 'Return to full suite ↗' }}</a></header>
     <main v-if="isLogin" class="aw-welcome aw-login"><p class="aw-eyebrow">AURICWELL · ADMINISTRATOR PREVIEW</p><h1>A clear place for your clinical work.</h1><p>Sign in with your authorized PlotTwist HQ superadmin account to open your practice workspace.</p><a class="aw-button" :href="loginUrl">Continue to secure sign-in →</a><p>Your identity remains visible, and edits affect real practice records.</p><a :href="websiteBase">← Back to the AuricWell website</a></main>
     <main v-else-if="error" class="aw-welcome"><h1>Practice access</h1><p role="alert">{{ error }}</p><a class="aw-button" :href="loginUrl">Sign in or unlock in PlotTwist HQ</a><p>Use your own superadmin account, then return here.</p></main>
     <main v-else-if="loading" class="aw-welcome" role="status">Opening AuricWell…</main>
@@ -22,6 +22,7 @@
   </div>
 </template>
 <script setup>
+import { AURICWELL_MARK_URL } from '../constants/auricwellBrand';
 import { ref, computed, watch, onBeforeUnmount, defineAsyncComponent } from 'vue';
 import { useRoute } from 'vue-router';
 import { useAgencyStore } from '../store/agency';

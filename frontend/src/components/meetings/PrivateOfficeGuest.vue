@@ -5,7 +5,7 @@
     <template v-else>
       <div class="jmr-card">
         <p v-if="error" role="alert" class="jmr-error">{{ error }}</p>
-        <header class="visit-header"><div class="visit-brand"><img v-if="productName" :src="'/assets/auricwell-session-logo.png'" :alt="productName" /><img v-else-if="room?.branding?.logoUrl" :src="room.branding.logoUrl" alt="" /><div><strong>{{ productName || room?.branding?.agencyName || 'Virtual office' }}</strong><small v-if="productName">{{ room?.branding?.agencyName }}</small></div></div><ol class="visit-steps" aria-label="Visit progress"><li :class="{active:phase==='form'}">1 · Check-in</li><li :class="{active:phase==='waiting'}">2 · Waiting room</li><li :class="{active:phase==='video'}">3 · Visit</li></ol></header>
+        <header class="visit-header"><div class="visit-brand"><img v-if="productName" :src="AURICWELL_MARK_URL" :alt="productName" /><img v-else-if="room?.branding?.logoUrl" :src="room.branding.logoUrl" alt="" /><div><strong>{{ productName || room?.branding?.agencyName || 'Virtual office' }}</strong><small v-if="productName">{{ room?.branding?.agencyName }}</small></div></div><ol class="visit-steps" aria-label="Visit progress"><li :class="{active:phase==='form'}">1 · Check-in</li><li :class="{active:phase==='waiting'}">2 · Waiting room</li><li :class="{active:phase==='video'}">3 · Visit</li></ol></header>
         <div v-if="phase === 'waiting'" class="jmr-waiting">
           <SupervisionWaitingRoomStage :meeting-title="`${productName || room?.branding?.agencyName || 'Virtual office'} · ${roomDisplayName}`" :host-present="hostPresent" host-role-label="Provider" :show-preview-hint="false" />
           <div class="waiting-identity"><img v-if="photoDataUrl" :src="photoDataUrl" alt="Your check-in photo" /><span>Joining as {{ guestDisplayName || 'Guest' }}</span><button class="jmr-btn" @click="leaveVisit">Leave waiting room</button></div>
@@ -92,6 +92,7 @@
 </template>
 
 <script setup>
+import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import TherapySessionWorkspace from './TherapySessionWorkspace.vue';
 import SupervisionWaitingRoomStage from '../supervision/SupervisionWaitingRoomStage.vue';

@@ -1,6 +1,6 @@
 <template>
   <section class="private-office">
-    <header><div><div class="office-brand"><img :src="'/assets/auricwell-session-logo.png'" alt="AuricWell" /><strong>AuricWell</strong></div><p class="eyebrow">Your private space</p><h1>My virtual office</h1></div><span v-if="plan">{{ plan.name }}</span></header>
+    <header><div><div class="office-brand"><img :src="AURICWELL_MARK_URL" alt="AuricWell" /><strong>AuricWell</strong></div><p class="eyebrow">Your private space</p><h1>My virtual office</h1></div><span v-if="plan">{{ plan.name }}</span></header>
     <p>A permanent link you can share. Guests can add a name and photo, then wait for you to admit them individually.</p>
     <p v-if="error" role="alert">{{ error }}</p><a v-if="needsMfa" href="/account-security">Open Account security</a><p v-if="encounter.state==='ending'" role="status">Ending the session and disconnecting everyone. The next visit stays locked until disconnection completes.</p><p v-else-if="encounter.hasParticipants && encounter.state==='active'">This encounter stays open until you end it, even if the client leaves.</p>
     <template v-if="room">
@@ -29,6 +29,7 @@
   </section>
 </template>
 <script setup>
+import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue';
 import TherapySessionWorkspace from './TherapySessionWorkspace.vue';
 const props=defineProps({agencyId:{type:Number,default:0},request:{type:Function,required:true},publicOrigin:{type:String,default:''},productName:{type:String,default:'AuricWell'}});

@@ -1,7 +1,7 @@
 <template>
   <section class="therapy-workspace">
     <header class="therapy-header">
-      <div class="therapy-brand"><img v-if="productName" :src="'/assets/auricwell-session-logo.png'" :alt="productName" /><img v-else-if="branding?.logoUrl" :src="branding.logoUrl" alt="" /><div><strong>{{ productName || branding?.agencyName || 'Virtual office' }}</strong><small>{{ productName ? branding?.agencyName : 'Virtual care' }}</small></div></div>
+      <div class="therapy-brand"><img v-if="productName" :src="AURICWELL_MARK_URL" :alt="productName" /><img v-else-if="branding?.logoUrl" :src="branding.logoUrl" alt="" /><div><strong>{{ productName || branding?.agencyName || 'Virtual office' }}</strong><small>{{ productName ? branding?.agencyName : 'Virtual care' }}</small></div></div>
       <span class="therapy-status">● In session</span><span class="therapy-clock">{{ elapsed }}</span>
       <button class="danger" @click="$emit('leave-request')">{{ isHost ? 'End session' : 'Leave session' }}</button>
     </header>
@@ -54,6 +54,7 @@
   </section>
 </template>
 <script setup>
+import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import {defineAsyncComponent,computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {Mic,Video,ScreenShare,Pencil,MessageCircle,FolderOpen,FileText,Gamepad2,Play,Link,BookOpen,ClipboardList,Heart,ChevronRight} from '@lucide/vue';
 import VideoSessionRoom from '../video/VideoSessionRoom.vue';

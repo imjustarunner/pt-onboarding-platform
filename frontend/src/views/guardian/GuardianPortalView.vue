@@ -1,6 +1,6 @@
 <template>
   <ClinicalWorkspaceFrame :enabled="clinicalGuardianContext" :mode="guardianWorkspaceMode" :immersive="clinicalGuardianContext" :tenant-id="selectedChildAgencyId" :tenant-name="careAgencyName" :tenant-logo="selectedChild?.agency_logo_url || tenantAgencyLogoUrl || programLogoUrl || ''" :context-label="schoolWorkspaceActive ? 'SchoolCareBridge' : 'Family care'" :overview-label="hasSchoolAffiliations ? 'SchoolCareBridge' : 'Family overview'" clinical-label="AuricWell care" switchable :return-label="'Family overview'" @update:mode="changeGuardianWorkspaceMode" @back="returnToFamilyOverview">
-  <FamilyPortalShell :brand-name="schoolWorkspaceActive ? 'SchoolCareBridge' : clinicalGuardianContext ? 'AuricWell' : currentAgencyName || tenantAgencyName" :brand-subtitle="schoolWorkspaceActive ? schoolWorkspaceLabel : clinicalGuardianContext ? careAgencyName : dualBranding ? tenantAgencyName : ''" :logo-url="schoolWorkspaceActive ? 'https://mh4kidz.org/assets/schoolcarebridge/logo.png' : clinicalGuardianContext ? '/auricwell/logo.png' : programLogoUrl || tenantAgencyLogoUrl || brandingStore.displayLogoUrl" :primary-color="clinicalGuardianContext && guardianWorkspaceMode === 'clinical' ? '#2467a7' : brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
+  <FamilyPortalShell :logo-is-symbol="clinicalGuardianContext && !schoolWorkspaceActive" :brand-name="schoolWorkspaceActive ? 'SchoolCareBridge' : clinicalGuardianContext ? 'AuricWell' : currentAgencyName || tenantAgencyName" :brand-subtitle="schoolWorkspaceActive ? schoolWorkspaceLabel : clinicalGuardianContext ? careAgencyName : dualBranding ? tenantAgencyName : ''" :logo-url="schoolWorkspaceActive ? 'https://mh4kidz.org/assets/schoolcarebridge/logo.png' : clinicalGuardianContext ? AURICWELL_MARK_URL : programLogoUrl || tenantAgencyLogoUrl || brandingStore.displayLogoUrl" :primary-color="clinicalGuardianContext && guardianWorkspaceMode === 'clinical' ? '#2467a7' : brandingStore.primaryColor" :title="portalTitle" :subtitle="portalSubtitle" :user-name="userName" :navigation="portalNavigation" :active="activePanel" @navigate="navigatePortal">
     <router-link :to="`/my-records${selectedChildAgencyId ? '?agencyId=' + selectedChildAgencyId : ''}`" class="btn btn-secondary">Request my records</router-link>
     <PlatformPreviewBanner
       v-if="isSuperadminPreview"
@@ -609,6 +609,7 @@
 </template>
 
 <script setup>
+import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import GuardianSchoolCareBridge from '../../components/guardian/GuardianSchoolCareBridge.vue';
 import { isClinicalClient } from '../../utils/clinicalWorkspace';
 import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalWorkspaceFrame.vue';

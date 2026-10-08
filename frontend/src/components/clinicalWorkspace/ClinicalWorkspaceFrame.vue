@@ -6,7 +6,7 @@
         <div><strong class="clinical-workspace__tenant">{{ tenantLabel }}</strong><span class="clinical-workspace__context">{{ contextLabel }}</span></div>
       </div>
       <div v-if="clinical" class="clinical-workspace__product">
-        <img v-if="!productLogoFailed" :src="'/auricwell/logo.png'" alt="" @error="productLogoFailed = true" />
+        <img v-if="!productLogoFailed" :src="AURICWELL_MARK_URL" alt="" @error="productLogoFailed = true" />
         <div><strong>AuricWell</strong><span>Clinical workspace</span></div>
       </div>
       <nav class="clinical-workspace__actions" aria-label="Workspace view">
@@ -21,6 +21,7 @@
   </section>
 </template>
 <script setup>
+import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import { computed, getCurrentInstance, inject, provide, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../../store/agency';
