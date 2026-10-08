@@ -76,7 +76,7 @@ const date=v=>v?instant(v).toLocaleString():'—';
 const minutes=e=>Math.round((instant(e.end_at)-instant(e.start_at))/60000);
 let generation=0,active=true,requestId='',requestPayload='';
 onBeforeUnmount(()=>{active=false;generation++;});
-const base=()=>`/supervision-sessions/supervisee/${props.providerId}`;
+const base=()=>`/supervision/supervisee/${props.providerId}`;
 const params=()=>({agencyId:props.agencyId});
 async function run(fn){if(busy.value)return;const g=generation;busy.value=true;error.value='';notice.value='';try{await fn(g);}catch(e){if(active&&g===generation)error.value=e.response?.data?.error?.message||e.message||'Unable to save';}finally{if(active&&g===generation)busy.value=false;}}
 async function load(){const g=++generation;policy.value=null;opened.value=null;documents.value=[];documentPage.value=1;documentClientId.value=null;hasMoreDocuments.value=false;queueOpen.value=false;times.value=[];busy.value=false;loading.value=true;error.value='';visible.value=true;try{const {data}=await api.get(`${base()}/documentation-policy`,{params:params()});if(active&&g===generation){policy.value=data.policy;canManage.value=data.canManage;canAttest.value=data.canAttest;canReview.value=data.canReview ?? data.canAttest;noteTypes.value=data.noteTypes;policyReason.value='';}}catch(e){if(active&&g===generation){if(e.response?.status===403)visible.value=false;else error.value=e.response?.data?.error?.message||'Documentation settings are awaiting setup.';}}finally{if(active&&g===generation)loading.value=false;}}

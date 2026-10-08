@@ -1,5 +1,6 @@
 <template>
   <div class="pcp">
+    <AnnualMileagePanel :agency-id="agencyId" />
     <div class="pcp-toolbar">
       <div class="pcp-filters" role="tablist" aria-label="Compliance view">
         <button
@@ -150,6 +151,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api.js';
+import AnnualMileagePanel from './AnnualMileagePanel.vue';
 
 const props = defineProps({
   agencyId: { type: [Number, String], required: true },

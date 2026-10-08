@@ -374,12 +374,14 @@ export async function createAppointment({
   return getAppointmentBundle(appt.id);
 }
 
-export async function updateAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true } = {}) {
+export async function updateAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
   if ((patch.status && patch.status !== existing.status) || patch.startAt != null || patch.endAt != null) {
-    const { requireAppointmentRequestProvider } = await import('./guardianAppointments.service.js');
-    await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
+    const { requireAppointmentRequestProvider, requireGuardianCancellation } = await import('./guardianAppointments.service.js');
+    if (guardianCancellationClientId && ['canceled_by_client','canceled_by_guardian','late_canceled'].includes(patch.status) && patch.startAt == null && patch.endAt == null) {
+      await requireGuardianCancellation({ userId: actorUserId, clientId: guardianCancellationClientId, appointment: existing });
+    } else await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
   }
   if (patch.serviceLocationId != null) {
     const location = await AgencyServiceLocation.findById(patch.serviceLocationId);
@@ -465,7 +467,11 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
   if(existing.packageEntitlementId){
     const ent=await BookingPackage.findEntitlementById(existing.packageEntitlementId,existing.agencyId);
     assertPackageProviderBinding(ent?.pricingSnapshot,{...existing,...updatePatch});
-    assertPackageExpiration(ent?.pricingSnapshot,ent?.activatedAt,updatePatch.startAt||existing.startAt);
+    // Expiration prevents using/moving a booking, not releasing an existing
+    // reservation. Cancellation policy still decides any fee/package charge.
+    const cancellationOnly = ['canceled_by_client','canceled_by_guardian','canceled_by_provider','canceled_by_agency','late_canceled'].includes(updatePatch.status)
+      && !moved && patch.providerUserId === undefined && patch.tenantServiceId === undefined && patch.participants === undefined;
+    if (!cancellationOnly) assertPackageExpiration(ent?.pricingSnapshot,ent?.activatedAt,updatePatch.startAt||existing.startAt);
   }
   await Appointment.update(appointmentId, updatePatch);
   if (patch.serviceCode !== undefined || patch.addonServiceCodes !== undefined) {
@@ -509,7 +515,12 @@ export async function cancelAppointment(appointmentId, {
   if (!existing) return null;
 
   const { requireAppointmentRequestProvider, recordGuardianAppointmentApproval } = await import('./guardianAppointments.service.js');
-  await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
+  if (actorRole === 'guardian') {
+    const { requireGuardianCancellation } = await import('./guardianAppointments.service.js');
+    await requireGuardianCancellation({ userId: actorUserId, clientId, appointment: existing });
+  } else {
+    await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
+  }
   if (!String(reason || notes || '').trim()) throw Object.assign(new Error('Cancellation reason is required'), { status: 400 });
   if (status && !['canceled_by_provider', 'canceled_by_client', 'canceled_by_guardian', 'canceled_by_organization', 'late_canceled', 'rescheduled'].includes(status)) {
     throw Object.assign(new Error('Invalid cancellation status'), { status: 400 });
@@ -574,7 +585,7 @@ export async function cancelAppointment(appointmentId, {
     canceledAt: toMysqlDateTime(new Date()),
     canceledByUserId: actorUserId,
     updatedByUserId: actorUserId
-  }, { actorUserId });
+  }, { actorUserId, guardianCancellationClientId: actorRole === 'guardian' ? billingClientId : null });
 
   try {
     await cancelPendingReminders(appointmentId);

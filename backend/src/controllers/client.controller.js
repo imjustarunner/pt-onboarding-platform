@@ -907,7 +907,14 @@ export const getClientsForUser = async (req, res, next) => {
     const out = includeArchived
       ? clients
       : (clients || []).filter((c) => String(c?.status || '').toUpperCase() !== 'ARCHIVED');
-    res.json(out);
+    const [assignments] = await pool.execute(`SELECT ca.client_id, MIN(ca.created_at) AS assigned_at
+      FROM client_provider_assignments ca JOIN clients c ON c.id = ca.client_id
+      WHERE c.agency_id = ? AND ca.provider_user_id = ? AND ca.is_active = 1
+      GROUP BY ca.client_id`, [agencyId, userId]);
+    const assignedDates = new Map(assignments.map(row => [Number(row.client_id), row.assigned_at]));
+    res.json(out.map(client => ({ ...client,
+      assigned_at: client.provider_assigned_at || assignedDates.get(Number(client.id)) || null
+    })));
   } catch (error) {
     console.error('Get clients for user error:', error);
     next(error);

@@ -1,6 +1,6 @@
 <template>
-  <div class="modal-overlay" @click.self="$emit('close')">
-    <div class="modal" @click.stop data-tour="school-client-modal">
+  <div class="modal-overlay" :class="{ 'client-side-panel': presentation === 'side-panel' }" @click.self="$emit('close')">
+    <div class="modal" @click.stop data-tour="school-client-modal" :role="presentation === 'side-panel' ? 'region' : 'dialog'" :aria-modal="presentation === 'side-panel' ? undefined : true" aria-label="Client details">
       <div class="modal-header">
         <div class="modal-header-left">
           <h2>Student: {{ client.initials }}</h2>
@@ -547,6 +547,7 @@ import {
 } from '../../utils/schoolStaffRoiLabels.js';
 
 const props = defineProps({
+  presentation: { type: String, default: 'modal' },
   client: { type: Object, required: true },
   schoolOrganizationId: { type: Number, default: null },
   /** Parent agency id (affiliated agency) for Skill Builders APIs */
@@ -1127,6 +1128,20 @@ watch(
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.client-side-panel {
+  left: auto;
+  width: min(720px, 95vw);
+  background: transparent;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+.client-side-panel > .modal {
+  width: 100%;
+  max-width: 100%;
+  max-height: 100dvh;
+  border-radius: 12px 0 0 12px;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, .18);
 }
 .modal-header-left {
   display: grid;
@@ -1723,4 +1738,3 @@ textarea, select {
   margin-bottom: 10px;
 }
 </style>
-

@@ -1,5 +1,6 @@
 import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import pool from '../config/database.js';
+import { assertRecurringWindow } from '../utils/recurringWindow.js';
 import Notification from './Notification.model.js';
 import { generateJoinToken } from '../utils/joinToken.js';
 import { resolveArtifactPlainFields } from '../services/supervisionArtifactEncryption.service.js';
@@ -13,6 +14,7 @@ function normalizeInviteScopeValue(raw) {
 
 class SupervisionSession {
   static async create(input) {
+    assertRecurringWindow(input);
     const ids=[input.supervisorUserId,input.coFacilitatorUserId,input.superviseeUserId];
     return withSupervisorTimeLock(ids,async db=>{
       await assertNoReviewTimeOverlap(db,ids,input.startAt,input.endAt,0,true);
@@ -170,7 +172,7 @@ class SupervisionSession {
       `SELECT *
        FROM supervision_sessions
        WHERE recurrence_series_id = ?
-         AND UPPER(COALESCE(status, 'SCHEDULED')) <> 'CANCELLED'
+         AND (UPPER(COALESCE(status, 'SCHEDULED')) <> 'CANCELLED' OR recurrence_horizon_held=1)
          AND (? IS NULL OR start_at >= ?)
        ORDER BY start_at ASC, id ASC`,
       [sid, from, from]
@@ -916,7 +918,7 @@ class SupervisionSession {
     const sid = parseInt(id, 10);
     await pool.execute(
       `UPDATE supervision_sessions
-       SET status = 'CANCELLED', updated_at = CURRENT_TIMESTAMP
+       SET status = 'CANCELLED', recurrence_horizon_held=0, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [sid]
     );
@@ -1394,6 +1396,7 @@ class SupervisionSession {
          )
          ${whereAgency}
          AND (ss.status IS NULL OR ss.status <> 'CANCELLED')
+         AND ss.start_at <= UTC_TIMESTAMP()
        ORDER BY ss.start_at DESC
        LIMIT ${lim}`
     );

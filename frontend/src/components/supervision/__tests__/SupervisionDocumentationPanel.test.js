@@ -23,7 +23,7 @@ describe('supervisee documentation controls',()=>{
   });
   it('saves policy against its version and tenant, without financial fields',async()=>{
     const w=mount(SupervisionDocumentationPanel,{props:{agencyId:1,providerId:7}});await flushPromises();await w.find('select').setValue('after_submission');await w.find('textarea').setValue('Approved permitted deferred review workflow');await w.find('form').trigger('submit');await flushPromises();
-    expect(api.put).toHaveBeenCalledWith('/supervision-sessions/supervisee/7/documentation-policy',expect.objectContaining({agencyId:1,version:2,policy:expect.objectContaining({cosignTiming:'after_submission'})}));expect(w.text()).not.toContain('Billed amount');w.unmount();
+    expect(api.put).toHaveBeenCalledWith('/supervision/supervisee/7/documentation-policy',expect.objectContaining({agencyId:1,version:2,policy:expect.objectContaining({cosignTiming:'after_submission'})}));expect(w.text()).not.toContain('Billed amount');w.unmount();
   });
   it('shows a supervisee read-only controls and no ability to attest on a supervisor’s behalf',async()=>{
     api.get.mockResolvedValue({data:{...settings,canManage:false,canAttest:false}});const w=mount(SupervisionDocumentationPanel,{props:{agencyId:1,providerId:7}});await flushPromises();

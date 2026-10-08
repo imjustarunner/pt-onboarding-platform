@@ -3729,12 +3729,13 @@ export const createSupervisionSession = async (req, res, next) => {
       recurrenceSeriesId,
       recurrenceFrequency,
       recurrenceIndex,
+      eventTimezone: supervisionTimeZone,
       enrollmentMode: isSignupOnly ? 'signup_only' : enrollmentMode,
       signupClosesAt,
       autoCancelIfEmpty: isSignupOnly
     });
 
-    await pool.execute('UPDATE supervision_sessions SET reminder_minutes=?,event_timezone=?,meeting_settings_json=? WHERE id=?',[meetingReminderMinutes,supervisionTimeZone,Object.keys(reminderSettings).length ? JSON.stringify(reminderSettings) : null,created.id]);
+    await pool.execute('UPDATE supervision_sessions SET reminder_minutes=?,event_timezone=?,meeting_settings_json=?,recurrence_policy=? WHERE id=?',[meetingReminderMinutes,supervisionTimeZone,Object.keys(reminderSettings).length ? JSON.stringify(reminderSettings) : null,req.body?.recurrencePolicy === 'INDEFINITE' ? 'INDEFINITE' : 'FINITE',created.id]);
     // Ensure newly scheduled sessions immediately appear in supervision rosters.
     if (!isSignupOnly) {
       await SupervisorAssignment.ensure(
@@ -4178,7 +4179,7 @@ export const patchSupervisionSession = async (req, res, next) => {
       if (!occId) continue;
       // eslint-disable-next-line no-await-in-loop
       const fresh = await SupervisionSession.findById(occId);
-      if (!fresh) continue;
+      if (!fresh || Number(fresh.recurrence_horizon_held)) continue;
       const desc = fresh?.notes ? String(fresh.notes) : null;
       const appJoinUrl = useVideo ? await supervisionAppJoinUrl(fresh) : null;
       // eslint-disable-next-line no-await-in-loop
@@ -4224,7 +4225,7 @@ export const patchSupervisionSession = async (req, res, next) => {
     const out = await SupervisionSession.findById(id);
     if (notifyParticipants && Number(out?.notify_participants ?? 1)!==0 && timingChanged) {
       const fresh = await Promise.all(rowsToUpdate.map(e=>SupervisionSession.findById(e.id)));
-      await sendMeetingScheduleChange(fresh.filter(Boolean),'updated');
+      await sendMeetingScheduleChange(fresh.filter(row=>row && !Number(row.recurrence_horizon_held)),'updated');
     }
     res.json({ ok: true, session: out });
   } catch (e) {

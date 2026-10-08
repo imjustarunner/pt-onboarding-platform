@@ -2406,6 +2406,32 @@ if (!isBootstrap) {
   closeEmptyPastMeetings();
   setInterval(closeEmptyPastMeetings, 5 * 60 * 1000);
 
+  let recurringWindowRunning = false;
+  const recurringWindowTick = async () => {
+    if (recurringWindowRunning) return;
+    recurringWindowRunning = true;
+    try {
+      const service = await import('./services/recurringScheduleWindow.service.js');
+      await service.maintainRecurringScheduleWindow();
+    } catch (error) { console.warn('[Recurring schedule window] Retry pending', error.code || 'error'); }
+    finally { recurringWindowRunning = false; }
+  };
+  // A daily idempotent sweep keeps weekly occurrences topped up as their date
+  // enters the rolling year, without a weekly burst of invitation messages.
+  void recurringWindowTick();
+  setInterval(recurringWindowTick, 24 * 60 * 60 * 1000).unref();
+  let recurringCalendarRunning=false;
+  const recurringCalendarTick=async()=>{
+    if(recurringCalendarRunning)return;
+    recurringCalendarRunning=true;
+    try { await (await import('./services/recurringScheduleWindow.service.js')).syncRecurringCalendars(); }
+    catch(error) { console.warn('[Recurring calendars] Retry pending',error.code || 'error'); }
+    finally { recurringCalendarRunning=false; }
+  };
+  // Drain old calendar-copy removals in bounded batches, independently of the
+  // daily materialization sweep. A failed copy never holds up app scheduling.
+  setInterval(recurringCalendarTick,5*60*1000).unref();
+
   // Session documentation Notes tasks (~5 min before booked clinical sessions)
   const scheduleSessionDocTasks = async () => {
     try {

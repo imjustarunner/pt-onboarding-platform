@@ -10,6 +10,13 @@ beforeEach(()=>{
   vi.spyOn(GoogleCalendarService,'buildCalendarClientForSubject').mockReturnValue({events:{insert,patch}});
 });
 describe('app-owned meeting notifications',()=>{
+  it('retries a stable recurring insert as a patch instead of creating duplicates',async()=>{
+    insert.mockRejectedValueOnce({code:409});
+    const result=await GoogleCalendarService.upsertProviderPrimaryCalendarEvent({subjectEmail:'host@example.com',stableInsertId:'reca1d0',summary:'Supervision',startAt:'2027-10-01 10:00:00',endAt:'2027-10-01 11:00:00',sendUpdates:'none',disableReminders:true});
+    expect(result).toMatchObject({ok:true,googleEventId:'reca1d0'});
+    expect(insert).toHaveBeenCalledOnce();expect(insert.mock.calls[0][0].requestBody.id).toBe('reca1d0');
+    expect(patch.mock.calls[0][0]).toMatchObject({eventId:'reca1d0',sendUpdates:'none'});
+  });
   it.each(['TEAM_MEETING','HUDDLE'])('never sends a Google guest invitation for %s',async kind=>{
     await GoogleCalendarService.createProviderScheduleEvent({subjectEmail:'host@example.com',startAt:'2026-09-28T16:00:00',endAt:'2026-09-28T17:00:00',summary:'Leadership',kind,attendeeEmails:['invitee@example.com'],sendUpdates:'all'});
     expect(insert).toHaveBeenCalledOnce();

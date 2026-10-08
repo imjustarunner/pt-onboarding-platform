@@ -1,6 +1,7 @@
 <template>
   <SchoolClientChatModal
     :client="client"
+    :presentation="presentation"
     :schoolOrganizationId="schoolOrganizationId"
     :organization-slug="organizationSlug"
     :parent-agency-id="parentAgencyId || null"
@@ -18,6 +19,7 @@
 import SchoolClientChatModal from '../SchoolClientChatModal.vue';
 
 defineProps({
+  presentation: { type: String, default: 'modal' },
   client: { type: Object, required: true },
   schoolOrganizationId: { type: Number, required: true },
   organizationSlug: { type: String, default: '' },
@@ -28,4 +30,3 @@ defineProps({
 });
 defineEmits(['close', 'open-edit', 'open-checklist', 'client-updated']);
 </script>
-

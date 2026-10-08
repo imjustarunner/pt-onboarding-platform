@@ -16339,6 +16339,18 @@ export const deleteMyMileageClaim = async (req, res, next) => {
   }
 };
 
+export const getMileageAnnualSummary = async (req, res, next) => {
+  try {
+    const requestedAgencyId = Number(req.query.agencyId);
+    if (!Number.isSafeInteger(requestedAgencyId) || requestedAgencyId <= 0) return res.status(400).json({ error: { message: 'agencyId is required' } });
+    const agencyId = await requirePayrollAccess(req, res, requestedAgencyId);
+    if (!agencyId) return;
+    const { getAnnualMileageReport } = await import('../services/annualMileage.service.js');
+    const agency = await Agency.findById(agencyId);
+    res.set('Cache-Control', 'no-store').json(await getAnnualMileageReport({ agencyId, agency, year: req.query.year }));
+  } catch (error) { next(error); }
+};
+
 export const listMileageClaims = async (req, res, next) => {
   try {
     const agencyId = req.query.agencyId ? parseInt(req.query.agencyId, 10) : null;
@@ -21938,6 +21950,8 @@ export const getSuperviseeDashboardSummary = async (req, res, next) => {
     }
 
     const payload = await buildDashboardSummaryPayload(superviseeId, resolvedAgencyId);
+    const { getSchoolMileageYearSummary } = await import('../services/annualMileage.service.js');
+    payload.schoolMileageYear = await getSchoolMileageYearSummary({ agencyId: resolvedAgencyId, userId: superviseeId });
     if (payload.lastPaycheck) {
       payload.lastPaycheck.totalPay = null;
       payload.lastPaycheck.breakdown = null;

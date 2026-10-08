@@ -12,7 +12,7 @@ describe('clinical case overview',()=>{
     await click(w,'Refresh cases');await click(w,'Build case overview');expect(w.text()).toContain('Improving');expect(w.text()).toContain('Amendments/addenda are attached');
     await click(w,'Read note & addenda');expect(w.emitted('open-document')[0][0]).toMatchObject({id:4,type:'note'});
     await w.find('input[type=checkbox]').setValue(true);await w.find('form').trigger('submit');await flushPromises();
-    expect(api.post).toHaveBeenCalledExactlyOnceWith('/supervision-sessions/supervisee/7/cases/3/acknowledgement',{agencyId:1,contentHash:'current',attested:true});w.unmount();
+    expect(api.post).toHaveBeenCalledExactlyOnceWith('/supervision/supervisee/7/cases/3/acknowledgement',{agencyId:1,contentHash:'current',attested:true});w.unmount();
   });
   it('clears chart content and discards an in-flight response when agency changes',async()=>{
     let finish;const w=mount(SupervisionCaseOverview,{props:{agencyId:1,providerId:7,canReview:true}});await click(w,'Refresh cases');

@@ -97,6 +97,7 @@ import {
   deleteMyMileageClaim,
   createUserMileageClaim,
   listMileageClaims,
+  getMileageAnnualSummary,
   patchMileageClaim
   ,createMyMedcancelClaim
   ,createUserMedcancelClaim
@@ -422,6 +423,7 @@ router.delete('/me/pto-requests/:id', deleteMyPtoRequest);
 router.patch('/org-address/:orgId', updateOrganizationAddressForPayroll);
 router.patch('/office-address/:locationId', updateOfficeLocationAddressForPayroll);
 router.get('/mileage-claims', listMileageClaims);
+router.get('/mileage-annual-summary', getMileageAnnualSummary);
 router.patch('/mileage-claims/:id', patchMileageClaim);
 router.get('/medcancel-claims', listMedcancelClaims);
 router.patch('/medcancel-claims/:id', patchMedcancelClaim);

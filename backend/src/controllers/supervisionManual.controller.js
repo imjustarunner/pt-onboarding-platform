@@ -1,11 +1,13 @@
 import {randomUUID} from 'node:crypto';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
+import SupervisionSessionArtifact from '../models/SupervisionSessionArtifact.model.js';
 import {isMentalHealthAgency} from '../services/supervisionAgreement.service.js';
 import {hasActiveMeetingMembership} from '../services/meetingJoinPolicy.service.js';
 import {finalizeSupervisionSession} from './supervisionSessions.controller.js';
 const fail=(message,status=403)=>{throw Object.assign(new Error(message),{status});};
 const sqlDate=d=>d.toISOString().slice(0,19).replace('T',' ');
+const utcInstant=value=>new Date(value instanceof Date?value:String(value).replace(' ','T')+(/[zZ]|[+-]\d{2}:?\d{2}$/.test(String(value))?'':'Z'));
 export function validateManualSupervision(input) {
   const reason=String(input.reason||'').trim();
   if(reason.length<10||reason.length>2000)fail('Explain why supervision was not performed using platform video (10–2,000 characters).',400);
@@ -16,7 +18,10 @@ export function validateManualSupervision(input) {
   if(input.recordNow!==true && end>Date.now()+60000)fail('Manual logs must describe supervision that has already occurred.',400);
   if(input.recordNow===true && (input.modality!=='IN_PERSON'||Math.abs(start-Date.now())>5*60000))fail('Start an in-person recording at the current time.',400);
   if(!/^[\w-]{8,80}$/.test(input.requestKey||''))fail('A submission id is required.',400);
-  return {reason,start,end,modality:input.modality,sessionType:input.sessionType||'individual'};
+  const note=String(input.note||'').trim();
+  if(note.length>20000)fail('The supervision note must be no more than 20,000 characters.',400);
+  if(input.recordNow!==true && note.length<10)fail('Write a supervision note (at least 10 characters).',400);
+  return {reason,start,end,note,modality:input.modality,sessionType:input.sessionType||'individual'};
 }
 async function assignment(req,assignmentId) {
   const [[a]]=await pool.execute('SELECT * FROM supervisor_assignments WHERE id=?',[assignmentId]);
@@ -40,13 +45,27 @@ export async function createManualSupervision(req,res,next){let db;try{
   if(!currentAssignment||Number(currentAssignment.supervisor_id)!==Number(a.supervisor_id)||Number(currentAssignment.supervisee_id)!==Number(a.supervisee_id))fail('The supervisor assignment changed.',409);
   const [[existing]]=await db.execute('SELECT session_id FROM supervision_manual_entries WHERE agency_id=? AND created_by_user_id=? AND request_key=?',[a.agency_id,req.user.id,req.body.requestKey]);
   if(existing){await db.commit();return res.json({sessionId:existing.session_id,existing:true});}
-  const [overlap]=await db.execute(`SELECT ss.id FROM supervision_sessions ss WHERE ss.agency_id=? AND (ss.supervisee_user_id=? OR ss.supervisor_user_id=?) AND ss.status NOT IN ('CANCELLED','MISSED','RESCHEDULED') AND ss.start_at<? AND ss.end_at>? AND (ss.status LIKE 'MANUAL_%' OR EXISTS(SELECT 1 FROM supervision_session_attendance_events ev WHERE ev.session_id=ss.id AND ev.user_id=?)) LIMIT 1`,[a.agency_id,a.supervisee_id,a.supervisor_id,sqlDate(input.end),sqlDate(input.start),a.supervisee_id]);
+  const relatedSessionId=Number(req.body.relatedSessionId||0);
+  if(!Number.isSafeInteger(relatedSessionId)||relatedSessionId<0)fail('Choose a valid original session.',400);
+  if(relatedSessionId){
+    if(req.body.recordNow===true || Number(req.user.id)!==Number(a.supervisor_id))fail('Only the assigned supervisor can add a completed continuation.');
+    const [[original]]=await db.execute('SELECT * FROM supervision_sessions WHERE id=? AND agency_id=? FOR UPDATE',[relatedSessionId,a.agency_id]);
+    if(!original || Number(original.supervisor_user_id)!==Number(a.supervisor_id) || Number(original.supervisee_user_id)!==Number(a.supervisee_id) || original.session_type!=='individual' || input.sessionType!=='individual')fail('Choose this supervisee’s individual session with the same supervisor.',400);
+    if(!original.finalized_at)fail('Finalize the original session before adding a continuation so recorded time can be checked.',409);
+    const [attendance]=await db.execute('SELECT user_id,last_left_at,is_finalized FROM supervision_session_attendance_rollups WHERE session_id=? AND user_id IN (?,?)',[relatedSessionId,a.supervisor_id,a.supervisee_id]);
+    if(attendance.length!==2 || attendance.some(row=>Number(row.is_finalized)!==1 || !row.last_left_at))fail('The original session needs finalized attendance for both people before a continuation can be added.',409);
+    const lastLeft=Math.max(...attendance.map(row=>+utcInstant(row.last_left_at)));
+    if(!Number.isFinite(lastLeft) || +input.start<lastLeft)fail('Continuation time cannot overlap the original recorded attendance.',409);
+  }
+  const [overlap]=await db.execute(`SELECT ss.id FROM supervision_sessions ss WHERE ss.agency_id=? AND ss.id<>? AND (ss.supervisee_user_id=? OR ss.supervisor_user_id=?) AND ss.status NOT IN ('CANCELLED','MISSED','RESCHEDULED') AND ss.start_at<? AND ss.end_at>? AND (ss.status LIKE 'MANUAL_%' OR EXISTS(SELECT 1 FROM supervision_session_attendance_events ev WHERE ev.session_id=ss.id AND ev.user_id=?)) LIMIT 1`,[a.agency_id,relatedSessionId,a.supervisee_id,a.supervisor_id,sqlDate(input.end),sqlDate(input.start),a.supervisee_id]);
   if(overlap.length)fail('This supervisee already has a supervision record during that time. Review the existing record to avoid counting hours twice.',409);
   const recording=req.body.recordNow===true;
   const [created]=await db.execute(`INSERT INTO supervision_sessions (agency_id,supervisor_user_id,supervisee_user_id,session_type,start_at,end_at,modality,status,created_by_user_id,notify_participants,waiting_room_enabled,join_token) VALUES (?,?,?,?,?,?,?, ?,?,0,0,?)`,
     [a.agency_id,a.supervisor_id,a.supervisee_id,input.sessionType,sqlDate(input.start),sqlDate(input.end),input.modality,recording?'MANUAL_RECORDING':'MANUAL_PENDING',req.user.id,randomUUID().replaceAll('-','')]);
   const sid=created.insertId;
-  await db.execute(`INSERT INTO supervision_manual_entries (session_id,agency_id,supervisor_user_id,supervisee_user_id,created_by_user_id,reason,modality,request_key) VALUES (?,?,?,?,?,?,?,?)`,[sid,a.agency_id,a.supervisor_id,a.supervisee_id,req.user.id,input.reason,input.modality,req.body.requestKey]);
+  if(input.note)await SupervisionSessionArtifact.upsertBySessionId({sessionId:sid,summaryText:input.note,updatedByUserId:req.user.id},db);
+  const auditReason=relatedSessionId?`Continuation of supervision session #${relatedSessionId}. ${input.reason}`:input.reason;
+  await db.execute(`INSERT INTO supervision_manual_entries (session_id,agency_id,supervisor_user_id,supervisee_user_id,created_by_user_id,reason,modality,request_key) VALUES (?,?,?,?,?,?,?,?)`,[sid,a.agency_id,a.supervisor_id,a.supervisee_id,req.user.id,auditReason,input.modality,req.body.requestKey]);
   const compensable=await User.getAgencySupervisionCompensableMap(a.agency_id,[a.supervisee_id]);
   for(const [uid,role] of [[a.supervisor_id,'supervisor'],[a.supervisee_id,'supervisee']]) {
     await db.execute(`INSERT INTO supervision_session_attendees (session_id,user_id,participant_role,status,is_required,is_compensable_snapshot) VALUES (?,?,?,'JOINED',?,?)`,[sid,uid,role,role==='supervisor'||input.sessionType==='individual'||req.body.isRequired===true?1:0,role==='supervisee'&&compensable[uid]&&(input.sessionType==='individual'||req.body.isRequired===true)?1:0]);

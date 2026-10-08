@@ -70,7 +70,16 @@
                 <p v-if="selectedSupervisee?.agency_name" class="supervision-hero-meta">{{ selectedSupervisee.agency_name }}</p>
               </div>
             </section>
-            <section class="supervision-detail-section at-a-glance-card">
+            <nav class="supervision-jump-links" aria-label="Supervisee sections">
+              <a href="#supervision-snapshot">At a glance</a>
+              <a href="#supervision-documentation">Documentation review</a>
+              <a href="#supervision-clients">Clients</a>
+              <a href="#supervision-schedules">Schedules</a>
+              <a href="#supervision-documents">Documents</a>
+              <a href="#supervision-manual">Log supervision</a>
+              <a href="#supervision-history">Past sessions</a>
+            </nav>
+            <section id="supervision-snapshot" class="supervision-detail-section at-a-glance-card">
               <h3>At a glance</h3>
               <div v-if="summaryLoading" class="supervision-placeholder">Loading snapshot…</div>
               <div v-else-if="summaryError" class="supervision-error-inline">{{ summaryError }}</div>
@@ -122,10 +131,27 @@
                   <span class="summary-label">Supervisor</span>
                   <span class="summary-value">{{ summary.supervisor?.name || '—' }}</span>
                 </div>
+                <div class="summary-cell">
+                  <span class="summary-label">Clients added · {{ snapshotYear }} calendar year</span>
+                  <span v-if="clientsLoading" class="summary-meta">Loading…</span>
+                  <span v-else-if="clientsError" class="summary-meta">Unavailable</span>
+                  <template v-else>
+                    <span class="summary-value">{{ yearlyClientCounts.office }} office · {{ yearlyClientCounts.school }} school</span>
+                    <span class="summary-meta">Current caseload assigned Jan 1–Dec 31; archived clients excluded.<template v-if="yearlyClientCounts.other"> {{ yearlyClientCounts.other }} other/unclassified.</template><template v-if="yearlyClientCounts.unknown"> {{ yearlyClientCounts.unknown }} without a recorded assignment date.</template></span>
+                  </template>
+                </div>
+                <div v-if="summary.schoolMileageYear" class="summary-cell">
+                  <span class="summary-label">School mileage · {{ summary.schoolMileageYear.year }} calendar year</span>
+                  <span class="summary-value">{{ summary.schoolMileageYear.claimCount }} claims · {{ fmtNum(summary.schoolMileageYear.miles) }} eligible miles</span>
+                  <span class="summary-meta">Jan 1–Dec 31 trip dates; submitted, approved and paid, excluding rejected claims.</span>
+                </div>
               </div>
             </section>
             <section class="supervision-detail-section">
-              <SupervisionDocumentationPanel v-if="selectedSuperviseeAgencyId" :key="`${selectedSuperviseeAgencyId}-${selectedSupervisee.supervisee_id}`" :agency-id="Number(selectedSuperviseeAgencyId)" :provider-id="Number(selectedSupervisee.supervisee_id)" />
+              <div id="supervision-documentation">
+                <p>Review clinical notes and treatment plans, and log documentation review time. This is separate from logging a supervision session.</p>
+                <SupervisionDocumentationPanel v-if="selectedSuperviseeAgencyId" :key="`${selectedSuperviseeAgencyId}-${selectedSupervisee.supervisee_id}`" :agency-id="Number(selectedSuperviseeAgencyId)" :provider-id="Number(selectedSupervisee.supervisee_id)" />
+              </div>
               <h3>School / program portals</h3>
               <p class="supervision-placeholder" style="margin-bottom: 0.5rem;">You have read-only access to each school or program this supervisee is affiliated with.</p>
               <div v-if="affiliatedPortalsLoading" class="supervision-placeholder">Loading…</div>
@@ -145,7 +171,8 @@
               </div>
             </section>
             <section class="supervision-detail-section">
-              <h3>Clients (caseload)</h3>
+              <h3 id="supervision-clients">Clients (caseload)</h3>
+              <p class="summary-meta">Feedback shows scores from client check-ins and questionnaires, not an evaluation of the supervisee.</p>
               <div v-if="clientsLoading" class="supervision-placeholder">Loading clients…</div>
               <div v-else-if="clientsError" class="supervision-error-inline">{{ clientsError }}</div>
               <div v-else-if="clientsList?.length" class="supervision-readonly-summary">
@@ -198,7 +225,7 @@
               <p class="supervision-placeholder">Included in the caseload table above. Sort by Status or Missing checklist to prioritize follow-up.</p>
             </section>
             <section class="supervision-detail-section">
-              <h3>Schedules</h3>
+              <h3 id="supervision-schedules">Schedules</h3>
               <div v-if="scheduleLoading" class="supervision-placeholder">Loading schedule…</div>
               <div v-else-if="scheduleError" class="supervision-error-inline">{{ scheduleError }}</div>
               <div v-else-if="scheduleSummary" class="supervision-readonly-summary">
@@ -259,7 +286,7 @@
             </section>
             <!-- Documents: upload-only assign. When the main document process/feature is fixed in the main document section, update this flow to stay in sync. -->
             <section class="supervision-detail-section">
-              <h3>Documents</h3>
+              <h3 id="supervision-documents">Documents</h3>
               <p class="summary-meta" style="margin-bottom: 0.5rem;">Read-only status. You cannot open or view document content unless you assigned it. You can assign new documents for signature or review below.</p>
               <div v-if="documentsLoading" class="supervision-placeholder">Loading documents…</div>
               <div v-else-if="documentsError" class="supervision-error-inline">{{ documentsError }}</div>
@@ -472,9 +499,12 @@
                   </li>
                 </ul>
               </div>
-              <div class="upcoming-sessions" style="margin-top: 1rem;">
+              <div id="supervision-manual">
+                <ManualSupervisionPanel v-if="selectedSuperviseeAgencyId" :key="`manual-${selectedSuperviseeAgencyId}-${selectedSupervisee.supervisee_id}`" :agency-id="selectedSuperviseeAgencyId" :user-id="selectedSupervisee.supervisee_id" :sessions="sessionHistory" @saved="refreshSupervisionLog" />
+              </div>
+              <div id="supervision-history" class="upcoming-sessions" style="margin-top: 1rem;">
                 <div class="supervision-actions-row" style="justify-content: space-between; align-items: center;">
-                  <h4 style="margin: 0; font-size: 0.95rem;">Recent sessions (audit trail)</h4>
+                  <h4 style="margin: 0; font-size: 0.95rem;">Past sessions (audit trail)</h4>
                   <button type="button" class="btn btn-primary btn-sm" @click="openSupervisionScheduler">Schedule supervision</button>
                   <button
                     type="button"
@@ -487,8 +517,10 @@
                 </div>
                 <div v-if="sessionHistoryLoading" class="summary-meta" style="margin-top: 0.5rem;">Loading session history…</div>
                 <div v-else-if="sessionHistoryError" class="supervision-error-inline" style="margin-top: 0.5rem;">{{ sessionHistoryError }}</div>
-                <ul v-else-if="sessionHistory.length" class="supervision-docs-list supervision-history-list">
-                  <li v-for="s in sessionHistory" :key="`history-${s.id}`" class="supervision-history-item">
+                <label>Search loaded past sessions <input v-model="historySearch" type="search" placeholder="Date, supervisor, type, or status" /></label>
+                <p class="summary-meta">Most recent 50 past sessions. Future bookings remain in your schedule.</p>
+                <ul v-if="filteredSessionHistory.length" class="supervision-docs-list supervision-history-list">
+                  <li v-for="s in filteredSessionHistory" :key="`history-${s.id}`" class="supervision-history-item">
                     <button
                       type="button"
                       class="supervision-history-toggle"
@@ -634,13 +666,14 @@
                     </div>
                   </li>
                 </ul>
-                <p v-else class="summary-meta" style="margin-top: 0.5rem;">No recent sessions found.</p>
+                <p v-else class="summary-meta" style="margin-top: 0.5rem;">{{ historySearch ? 'No loaded past sessions match your search.' : 'No past sessions found.' }}</p>
               </div>
             </section>
           </div>
         </template>
     </div>
     <ClientModal
+      presentation="side-panel"
       v-if="selectedSchoolClient && selectedSchoolClientOrgId"
       :client="selectedSchoolClient"
       :school-organization-id="selectedSchoolClientOrgId"
@@ -730,6 +763,7 @@ import { toUploadsUrl } from '../../utils/uploadsUrl';
 import ModuleAssignmentDialog from '../admin/ModuleAssignmentDialog.vue';
 import UserSpecificDocumentUploadDialog from '../documents/UserSpecificDocumentUploadDialog.vue';
 import ClientModal from '../school/redesign/ClientModal.vue';
+import ManualSupervisionPanel from './ManualSupervisionPanel.vue';
 import MeetingAgendaPanel from '../meetings/MeetingAgendaPanel.vue';
 import BrandingLogo from '../BrandingLogo.vue';
 import SupervisionVideoRoom from './SupervisionVideoRoom.vue';
@@ -764,6 +798,23 @@ const documentsList = ref([]);
 const documentsLoading = ref(false);
 const documentsError = ref('');
 const clientsList = ref([]);
+const snapshotYear = new Date().getFullYear();
+const yearlyClientCounts = computed(() => {
+  const counts = { office: 0, school: 0, other: 0, unknown: 0 };
+  const seen = new Set();
+  for (const client of clientsList.value) {
+    if (seen.has(client.id)) continue;
+    seen.add(client.id);
+    const date = String(client.provider_assigned_at || client.assigned_at || client.date_assigned || '').slice(0, 10);
+    if (!date) { counts.unknown++; continue; }
+    if (date < `${snapshotYear}-01-01` || date >= `${snapshotYear + 1}-01-01`) continue;
+    const type = String(client.organization_type || '').toLowerCase();
+    if (type === 'school') counts.school++;
+    else if (['agency', 'office'].includes(type)) counts.office++;
+    else counts.other++;
+  }
+  return counts;
+});
 const clientsLoading = ref(false);
 const clientsError = ref('');
 const compliancePendingList = ref([]);
@@ -810,6 +861,11 @@ const activityErrorById = ref({});
 const activityExpandedById = ref({});
 const sessionActivityById = ref({});
 const sessionHistory = ref([]);
+const historySearch = ref('');
+const filteredSessionHistory = computed(() => {
+  const query = historySearch.value.trim().toLowerCase();
+  return sessionHistory.value.filter(s => !query || [s.startAt, new Date(s.startAt).toLocaleDateString(), s.supervisorName, s.sessionType, s.status].join(' ').toLowerCase().includes(query));
+});
 const sessionHistoryLoading = ref(false);
 const sessionHistoryError = ref('');
 const sessionFinalizeLoadingById = ref({});
@@ -1680,6 +1736,10 @@ function fmtPct(ratio) {
   return (ratio * 100).toFixed(1) + '%';
 }
 
+async function refreshSupervisionLog() {
+  await Promise.all([fetchSessionHistory(), fetchSuperviseeSummary(), fetchSuperviseeExtras()]);
+}
+
 async function fetchSuperviseeSummary() {
   const s = selectedSupervisee.value;
   const agencyId = selectedSuperviseeAgencyId.value;
@@ -2353,6 +2413,8 @@ onUnmounted(() => {
   list-style: none;
   padding-left: 0;
 }
+.supervision-jump-links { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px 0; }
+.supervision-detail [id] { scroll-margin-top: 100px; }
 .supervision-history-item {
   margin-bottom: 0.55rem;
   border: 1px solid var(--border, #e5e7eb);

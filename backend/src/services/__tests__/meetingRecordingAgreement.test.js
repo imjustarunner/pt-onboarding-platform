@@ -19,7 +19,8 @@ describe('agreement signature evidence',()=>{
  it('blocks onboarding completion when an assigned agreement lacks either signature',async()=>{m.execute.mockResolvedValue([[{id:1}]]);await expect(assertOnboardingSupervisionAgreements(8,2)).rejects.toMatchObject({status:409});});
 });
 describe('manual supervision validation',()=>{
- const input=()=>({reason:'The supervision took place in person.',modality:'IN_PERSON',sessionType:'individual',startAt:'2026-01-01T15:00:00Z',endAt:'2026-01-01T16:00:00Z',requestKey:'test-request-123'});
+ const input=()=>({reason:'The supervision took place in person.',note:'Reviewed cases and agreed next steps.',modality:'IN_PERSON',sessionType:'individual',startAt:'2026-01-01T15:00:00Z',endAt:'2026-01-01T16:00:00Z',requestKey:'test-request-123'});
+ it('requires a supervision note for historical logs',()=>{expect(()=>validateManualSupervision({...input(),note:''})).toThrow(/supervision note/);});
  it('requires a reason even for in-person supervision',()=>{expect(()=>validateManualSupervision({...input(),reason:''})).toThrow(/Explain/);});
  it('rejects reversed, excessive, and future hours',()=>{expect(()=>validateManualSupervision({...input(),endAt:'2026-01-01T14:00:00Z'})).toThrow(/valid/);expect(()=>validateManualSupervision({...input(),endAt:'2026-01-02T16:00:00Z'})).toThrow(/eight/);expect(()=>validateManualSupervision({...input(),startAt:'2099-01-01T15:00:00Z',endAt:'2099-01-01T16:00:00Z'})).toThrow(/already/);});
  it('accepts an explained historical log without requiring it to have been recorded',()=>{expect(validateManualSupervision(input())).toMatchObject({modality:'IN_PERSON',sessionType:'individual'});});

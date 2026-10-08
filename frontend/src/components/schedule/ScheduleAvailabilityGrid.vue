@@ -3728,7 +3728,7 @@
               class="input"
             >
               <option value="count">After number of occurrences</option>
-              <option value="indefinite">Indefinite (prebuild future sessions)</option>
+              <option value="indefinite">Ongoing (rolling one-year schedule)</option>
             </select>
             <label
               v-if="RECURRING_FREQUENCIES.includes(supervisionRecurrence) && supervisionRecurrenceEndMode === 'count'"
@@ -4234,7 +4234,7 @@
                 class="input"
               >
                 <option value="count">After number of occurrences</option>
-                <option value="indefinite">Indefinite (prebuild future meetings)</option>
+                <option value="indefinite">Ongoing (rolling one-year schedule)</option>
               </select>
               <label
                 v-if="RECURRING_FREQUENCIES.includes(scheduleEventRecurrence) && scheduleEventRecurrenceEndMode === 'count'"
@@ -4257,7 +4257,7 @@
                 class="muted"
                 style="margin-top: 6px;"
               >
-                Indefinite creates a long-running future series and supports deleting this occurrence or all future.
+                Ongoing keeps at most one year on the schedule, adding upcoming dates automatically without new invitation emails.
               </div>
             </div>
           </div>
@@ -22228,6 +22228,7 @@ const submitRequest = async () => {
             ? {
                 recurrenceSeriesId: supervisionSeriesId,
                 recurrenceFrequency: recurrence,
+                recurrencePolicy: supervisionRecurrenceEndMode.value === 'indefinite' ? 'INDEFINITE' : 'FINITE',
                 recurrenceIndex: supervisionRecurrenceIndex
               }
             : {})

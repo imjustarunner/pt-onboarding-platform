@@ -88,6 +88,7 @@ router.get('/clients/:clientId/appointments', guardianAppointments.list);
 router.get('/clients/:clientId/reminder-preferences', guardianAppointments.getPreferences);
 router.put('/clients/:clientId/reminder-preferences', guardianAppointments.savePreferences);
 router.post('/clients/:clientId/appointments/:appointmentId/requests', guardianAppointments.requestChange);
+router.post('/clients/:clientId/appointments/:appointmentId/cancel', guardianAppointments.cancel);
 router.get('/clients/:clientId/notification-history', listClientNotificationHistory);
 router.get('/clients', listMyGuardianClients);
 router.get('/messages', listGuardianMessageThreads);

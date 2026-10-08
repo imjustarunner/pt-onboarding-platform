@@ -110,16 +110,22 @@ function weekdayShortFromYmd(ymd) {
 }
 
 /**
- * Default occurrence count for indefinite series (~5 years).
+ * Maximum initial single-weekday materialization (~one year).
  */
 export function indefiniteOccurrenceCount(raw) {
   const freq = normalizeRecurrenceFrequency(raw);
-  if (freq === RECURRENCE_WEEKLY) return 260;
-  if (freq === RECURRENCE_BIWEEKLY) return 130;
-  if (freq === RECURRENCE_EVERY_3_WEEKS) return 87;
-  if (freq === RECURRENCE_EVERY_4_WEEKS) return 65;
-  if (freq === RECURRENCE_MONTHLY) return 60;
+  if (freq === RECURRENCE_WEEKLY) return 53;
+  if (freq === RECURRENCE_BIWEEKLY) return 27;
+  if (freq === RECURRENCE_EVERY_3_WEEKS) return 18;
+  if (freq === RECURRENCE_EVERY_4_WEEKS) return 14;
+  if (freq === RECURRENCE_MONTHLY) return 12;
   return 1;
+}
+
+export function withinRecurringYear(dates, now = new Date()) {
+  const today = `${now.getFullYear()}-${pad2(now.getMonth()+1)}-${pad2(now.getDate())}`;
+  const end = addMonthsYmd(today, 12);
+  return dates.filter(day => day < end);
 }
 
 /**
@@ -143,7 +149,7 @@ export function expandRecurrenceDates({
   const until = endMode === 'until' ? String(untilDate || '').slice(0, 10) : '';
   const occurrenceCap = endMode === 'count'
     ? maxCount
-    : (endMode === 'indefinite' ? indefiniteOccurrenceCount(freq) : 52);
+    : 520;
 
   if (freq === RECURRENCE_MONTHLY) {
     const out = [];
@@ -151,10 +157,10 @@ export function expandRecurrenceDates({
     while (out.length < occurrenceCap) {
       if (until && cursor > until) break;
       out.push(cursor);
-      cursor = addMonthsYmd(cursor, 1);
+      cursor = addMonthsYmd(start, out.length);
       if (!cursor || out.length > 600) break;
     }
-    return out;
+    return withinRecurringYear(out);
   }
 
   const stepWeeks = stepWeeksForRecurrence(freq) || 1;
@@ -185,7 +191,7 @@ export function expandRecurrenceDates({
     if (hitPastUntil && until) break;
     weekOffset += stepWeeks;
   }
-  return out.sort().slice(0, occurrenceCap);
+  return withinRecurringYear(out.sort().slice(0, occurrenceCap));
 }
 
 /**
@@ -200,9 +206,9 @@ export function occurrenceDatesSimple(baseDateYmd, recurrence, occurrenceCount) 
   const dates = [];
   if (freq === RECURRENCE_MONTHLY) {
     for (let i = 0; i < count; i += 1) dates.push(addMonthsYmd(base, i));
-    return dates;
+    return withinRecurringYear(dates);
   }
   const step = stepDaysForRecurrence(freq);
   for (let i = 0; i < count; i += 1) dates.push(addDaysYmd(base, i * step));
-  return dates;
+  return withinRecurringYear(dates);
 }

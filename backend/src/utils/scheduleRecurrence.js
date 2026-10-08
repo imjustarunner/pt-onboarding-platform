@@ -82,11 +82,11 @@ export function addMonthsYmd(ymd, monthsToAdd) {
 
 export function indefiniteOccurrenceCount(raw) {
   const freq = normalizeRecurrenceFrequency(raw);
-  if (freq === RECURRENCE_WEEKLY) return 260;
-  if (freq === RECURRENCE_BIWEEKLY) return 130;
-  if (freq === RECURRENCE_EVERY_3_WEEKS) return 87;
-  if (freq === RECURRENCE_EVERY_4_WEEKS) return 65;
-  if (freq === RECURRENCE_MONTHLY) return 60;
+  if (freq === RECURRENCE_WEEKLY) return 53;
+  if (freq === RECURRENCE_BIWEEKLY) return 27;
+  if (freq === RECURRENCE_EVERY_3_WEEKS) return 18;
+  if (freq === RECURRENCE_EVERY_4_WEEKS) return 14;
+  if (freq === RECURRENCE_MONTHLY) return 12;
   return 1;
 }
 
@@ -94,7 +94,7 @@ export function indefiniteOccurrenceCount(raw) {
  * Generate occurrence dates for a recurrence series.
  * Monthly uses same day-of-month (clamped). Week-based uses day steps.
  */
-export function generateOccurrenceDates({ startDate, recurrence, occurrenceCount }) {
+export function generateOccurrenceDates({ startDate, recurrence, occurrenceCount, now = new Date() }) {
   const normalized = String(startDate || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return [];
   const freq = normalizeRecurrenceFrequency(recurrence);
@@ -105,12 +105,21 @@ export function generateOccurrenceDates({ startDate, recurrence, occurrenceCount
     : Math.max(1, Number(occurrenceCount || 1));
 
   const dates = [];
+  const boundary = addMonthsYmd(now.toISOString().slice(0,10), 12);
   if (freq === RECURRENCE_MONTHLY) {
-    for (let i = 0; i < count; i += 1) dates.push(addMonthsYmd(normalized, i));
+    for (let i = 0; i < count && i < 520; i += 1) {
+      const day = addMonthsYmd(normalized, i);
+      if (day >= boundary) break;
+      dates.push(day);
+    }
     return dates.filter(Boolean);
   }
   const step = stepDaysForRecurrence(freq);
-  for (let i = 0; i < count; i += 1) dates.push(addDaysYmd(normalized, i * step));
+  for (let i = 0; i < count && i < 520; i += 1) {
+    const day = addDaysYmd(normalized, i * step);
+    if (day >= boundary) break;
+    dates.push(day);
+  }
   return dates.filter(Boolean);
 }
 

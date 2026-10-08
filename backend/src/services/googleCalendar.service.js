@@ -283,7 +283,7 @@ export class GoogleCalendarService {
       return { ok: true };
     } catch (e) {
       const code = Number(e?.code || e?.response?.status || 0);
-      if (code === 404) return { ok: true, skipped: true, reason: 'already_deleted' };
+      if (code === 404 || code === 410) return { ok: true, skipped: true, reason: 'already_deleted' };
       logGoogleUnauthorizedHint(e, { context: 'GoogleCalendarService.deleteEvent' });
       return { ok: false, reason: 'google_api_error', error: String(e?.message || e) };
     }
@@ -676,6 +676,7 @@ export class GoogleCalendarService {
   static async upsertProviderPrimaryCalendarEvent({
     subjectEmail,
     existingGoogleEventId = null,
+    stableInsertId = null,
     summary,
     description = null,
     location = null,
@@ -745,12 +746,20 @@ export class GoogleCalendarService {
         });
         googleEventId = upd.data?.id || googleEventId;
       } else {
-        const ins = await cal.events.insert({
-          calendarId,
-          requestBody,
-          sendUpdates
-        });
-        googleEventId = ins.data?.id || null;
+        try {
+          const ins = await cal.events.insert({
+            calendarId,
+            requestBody: stableInsertId ? { ...requestBody, id: stableInsertId } : requestBody,
+            sendUpdates
+          });
+          googleEventId = ins.data?.id || null;
+        } catch (error) {
+          // Worker may have persisted to Google before losing its DB connection.
+          // A stable provider ID makes that retry an update, not a duplicate.
+          if (!stableInsertId || Number(error?.code || error?.response?.status) !== 409) throw error;
+          await cal.events.patch({ calendarId, eventId: stableInsertId, requestBody, sendUpdates });
+          googleEventId = stableInsertId;
+        }
       }
       return { ok: true, googleEventId, calendarId: subject, htmlLink: null };
     } catch (e) {

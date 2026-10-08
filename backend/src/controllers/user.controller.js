@@ -59,6 +59,7 @@ import {
   toTypedPeerScheduleSummary
 } from '../services/scheduleSummaryPrivacy.service.js';
 import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
+import { assertRecurringWindow } from '../utils/recurringWindow.js';
 import { normalizeSupervisionStartDateYmd } from '../utils/supervisionHoursGate.util.js';
 import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import {
@@ -6307,6 +6308,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
     );
 
     const isAppMeeting = ['TEAM_MEETING', 'HUDDLE'].includes(kind);
+    assertRecurringWindow({ recurrenceSeriesId, startAt: allDay ? null : clientScheduleInstantToUtcMysql(rawStartAt,timeZone), startDate: allDay ? startDate : null, eventTimezone: timeZone });
     const meetingReminderMinutes = isAppMeeting ? normalizeMeetingReminder(req.body?.reminderMinutes) : undefined;
     // Notifications belong to the branded app, not Google's guest-invite channel.
     const result = await GoogleCalendarService.createProviderScheduleEvent({
@@ -7124,7 +7126,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       if (!occId || !subjectEmail) continue;
       // eslint-disable-next-line no-await-in-loop
       const fresh = await ProviderScheduleEvent.findById(occId);
-      if (!fresh) continue;
+      if (!fresh || Number(fresh.recurrence_horizon_held)) continue;
       const googleEventId = String(fresh?.google_event_id || '').trim();
       if (!googleEventId) continue;
       // eslint-disable-next-line no-await-in-loop
@@ -7145,6 +7147,7 @@ export const updateUserScheduleEvent = async (req, res, next) => {
       const changeBatchKey = randomUUID();
       for (const occurrence of rowsToUpdate) {
         const fresh = await ProviderScheduleEvent.findById(occurrence.id);
+        if (!fresh || Number(fresh.recurrence_horizon_held)) continue;
         await queueMeetingChange(fresh,meetingChangeBefore.get(Number(occurrence.id)),req.body?.notifyChanges !== false && Number(fresh.notify_participants ?? 1)!==0,changeBatchKey);
       }
     }
@@ -7267,6 +7270,11 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
     }
 
     const ids = rowsToCancel.map((r) => Number(r.id || 0)).filter((n) => n > 0);
+    if (scope === 'future' || scope === 'others') {
+      await pool.execute('UPDATE provider_schedule_events SET recurrence_stopped=1 WHERE agency_id=? AND provider_id=? AND recurrence_series_id=?', [target.agency_id,hostProviderId,seriesId]);
+      // Also permanently cancel held dates outside the materialization window.
+      await pool.execute(`UPDATE provider_schedule_events SET recurrence_horizon_held=0 WHERE agency_id=? AND provider_id=? AND recurrence_series_id=? AND recurrence_horizon_held=1 AND (?='others' OR start_at>=?)`, [target.agency_id,hostProviderId,seriesId,scope,target.start_at]);
+    }
     // Soft-cancel in-app; best-effort mark Google copy cancelled via delete
     // (keeps Google clean while app calendars retain CANCELLED rows).
     await Promise.all(rowsToCancel.map(async (row) => {

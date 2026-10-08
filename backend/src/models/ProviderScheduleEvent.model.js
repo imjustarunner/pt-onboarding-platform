@@ -2,6 +2,7 @@ import {interviewCalendarEventId} from '../utils/interviewCalendarLink.js';
 import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import { assertProviderEventCanMove, syncAppointmentFromProviderEvent, moveOfficeFromProviderEvent, cancelAppointmentsFromCalendar } from '../services/appointmentScheduleSync.service.js';
 import pool from '../config/database.js';
+import { assertRecurringWindow } from '../utils/recurringWindow.js';
 import { generateJoinToken } from '../utils/joinToken.js';
 
 class ProviderScheduleEvent {
@@ -39,6 +40,7 @@ class ProviderScheduleEvent {
     notifyParticipants = true,
     focusSessionEnabled = false
   }) {
+    assertRecurringWindow({ recurrenceSeriesId, startAt, startDate, eventTimezone });
     const kindUpper = String(kind || '').trim().toUpperCase();
     const needsJoinToken = ['TEAM_MEETING', 'HUDDLE'].includes(kindUpper) && !!platformVideoLink;
     const participantToken = needsJoinToken ? String(joinToken || generateJoinToken()).slice(0, 64) : (joinToken || null);
@@ -300,6 +302,7 @@ class ProviderScheduleEvent {
            (${scopeClause} AND ${userClause})
            OR ${fallVisitClause}
          )
+         AND pse.recurrence_horizon_held=0
          AND (
            (pse.all_day = 1 AND pse.start_date < DATE(?) AND pse.end_date > DATE(?))
            OR
@@ -481,7 +484,7 @@ class ProviderScheduleEvent {
         `UPDATE provider_schedule_events
          SET ${sets.join(', ')}
          WHERE id = ? AND provider_id = ?
-           AND UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED'`,
+           AND (UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED' OR recurrence_horizon_held=1)`,
         params
       );
     } catch (e) {
@@ -552,7 +555,7 @@ class ProviderScheduleEvent {
        FROM provider_schedule_events
        WHERE recurrence_series_id = ?
          AND provider_id = ?
-         AND UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED'
+         AND (UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED' OR recurrence_horizon_held=1)
          AND (
            (? = 1 AND start_at IS NOT NULL AND start_at >= ?)
            OR
@@ -581,7 +584,7 @@ class ProviderScheduleEvent {
        WHERE recurrence_series_id = ?
          AND provider_id = ?
          AND id <> ?
-         AND UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED'
+         AND (UPPER(COALESCE(status, 'ACTIVE')) <> 'CANCELLED' OR recurrence_horizon_held=1)
        ORDER BY
          CASE WHEN all_day = 1 THEN CONCAT(start_date, ' 00:00:00') ELSE start_at END ASC,
          id ASC`,
@@ -597,7 +600,7 @@ class ProviderScheduleEvent {
     const placeholders = ids.map(() => '?').join(',');
     const [result] = await pool.execute(
       `UPDATE provider_schedule_events
-       SET status = 'CANCELLED', updated_by_user_id = ?
+       SET status = 'CANCELLED', recurrence_horizon_held=0, updated_by_user_id = ?
        WHERE id IN (${placeholders})`,
       [updatedByUserId ? Number(updatedByUserId) : null, ...ids]
     );

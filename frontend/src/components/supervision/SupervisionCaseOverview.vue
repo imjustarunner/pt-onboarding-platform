@@ -38,7 +38,7 @@ const cases=ref([]),nextCursor=ref(null),overview=ref(null),busy=ref(false),erro
 let generation=0;
 watch(()=>[props.agencyId,props.providerId],()=>{generation++;cases.value=[];overview.value=null;nextCursor.value=null;error.value='';busy.value=false;});
 onBeforeUnmount(()=>{generation++;});
-const base=()=>`/supervision-sessions/supervisee/${props.providerId}/cases`;
+const base=()=>`/supervision/supervisee/${props.providerId}/cases`;
 async function run(fn){if(busy.value)return;const g=generation;busy.value=true;error.value='';try{await fn(g);}catch(e){if(g===generation)error.value=e.response?.data?.error?.message||'Unable to load or acknowledge this case.';}finally{if(g===generation)busy.value=false;}}
 const loadCases=more=>run(async g=>{const {data}=await api.get(base(),{params:{agencyId:props.agencyId,afterClientId:more?nextCursor.value:0}});if(g===generation){cases.value=more?[...cases.value,...data.cases]:data.cases;nextCursor.value=data.nextCursor;}});
 const onToggle=e=>{if(e.target.open&&!cases.value.length)loadCases(false);};
