@@ -10,12 +10,12 @@ const auth = useAuthStore();
 const allowed = computed(() => canManageConversaTeam(auth.user));
 const events = ref([]), users = ref([]), loading = ref(false), busy = ref(false);
 const error = ref(''), notice = ref(''), reviewing = ref(null), delivery = ref(null);
-const blank = () => ({ kind: 'text', title: '', message: '', userIds: [], question: '', options: ['Yes', 'No'], viaSms: false, shareResults: true, allowOther: false });
+const blank = () => ({ kind: 'text', title: '', message: '', userIds: [], question: '', options: ['Yes', 'No'], deliveryMode: 'internal', shareResults: true, allowOther: false });
 const draft = ref(blank());
 const editing = ref(null);
 function edit(event) {
   editing.value = event;
-  draft.value = { ...blank(), kind: event.votingConfig?.enabled ? 'poll' : 'text', title: event.title, message: event.splashContent || event.description || '', userIds: [...(event.audience?.userIds || [])], question: event.votingConfig?.question || '', options: event.votingConfig?.options?.map(o => o.label) || ['Yes', 'No'], viaSms: !!event.votingConfig?.viaSms, shareResults: event.votingConfig?.shareResults !== false, allowOther: !!event.votingConfig?.allowOther };
+  draft.value = { ...blank(), kind: event.votingConfig?.enabled ? 'poll' : 'text', title: event.title, message: event.splashContent || event.description || '', userIds: (event.audience?.userIds || []).filter(id => users.value.some(user => user.id === id)), question: event.votingConfig?.question || '', options: event.votingConfig?.options?.map(o => o.label) || ['Yes', 'No'], deliveryMode: event.votingConfig?.deliveryMode || (event.votingConfig?.viaSms ? 'both' : 'internal'), shareResults: event.votingConfig?.shareResults !== false, allowOther: !!event.votingConfig?.allowOther };
 }
 function cancelEdit() { editing.value = null; draft.value = blank(); }
 let generation = 0;
@@ -27,11 +27,11 @@ async function load() {
   error.value = '';
   try {
     const [list, audience] = await Promise.all([
-      api.get(base(), { params: { communicationsOnly: 1 } }), api.get(`${base()}/audience-options`)
+      api.get(base(), { params: { communicationsOnly: 1 } }), api.get(`${base()}/audience-options`, { params: { communicationsOnly: 1 } })
     ]);
     if (g !== generation) return;
     events.value = Array.isArray(list.data) ? list.data : [];
-    users.value = (audience.data?.users || []).filter(u => !['client', 'client_guardian'].includes(String(u.role).toLowerCase()));
+    users.value = (audience.data?.users || []).filter(u => !['client', 'client_guardian', 'guardian', 'school_staff'].includes(String(u.role).toLowerCase()));
   } catch (e) { if (g === generation) error.value = e.response?.data?.error?.message || 'Could not load team communications.'; }
   finally { if (g === generation) loading.value = false; }
 }
@@ -39,6 +39,7 @@ async function create() {
   if (!allowed.value || !props.agencyId || busy.value) return;
   if (!draft.value.userIds.length) { error.value = 'Select at least one team member.'; return; }
   const g = generation, url = base(), poll = draft.value.kind === 'poll';
+  if (poll && draft.value.deliveryMode === 'sms' && draft.value.userIds.some(id => !users.value.find(u => u.id === id)?.pollingSms?.eligible)) { error.value = 'SMS-only polls require polling SMS opt-in for every selected recipient.'; return; }
   busy.value = true; error.value = ''; notice.value = '';
   const now = new Date();
   try {
@@ -51,21 +52,21 @@ async function create() {
       startsAt: existing?.startsAt || now.toISOString(), endsAt: existing?.endsAt || new Date(now.getTime() + 30 * 86400000).toISOString(),
       audience: { userIds: [...draft.value.userIds], groupIds: existing?.audience?.groupIds || [], roleKeys: existing?.audience?.roleKeys || [] },
       rsvpMode: poll ? 'custom_vote' : 'none',
-      votingConfig: { enabled: poll, viaSms: poll && draft.value.viaSms, question: draft.value.question,
+      votingConfig: { enabled: poll, deliveryMode: draft.value.deliveryMode, viaSms: poll && draft.value.deliveryMode !== 'internal', question: draft.value.question,
         options: draft.value.options.map((label, i) => ({ key: existing?.votingConfig?.options?.[i]?.key || String(i + 1), label: label.trim() })),
         shareResults: draft.value.shareResults, allowOther: draft.value.allowOther },
       reminderConfig: existing?.reminderConfig || { enabled: false, channels: { inApp: true, sms: false } }
     });
     if (g !== generation) return;
     cancelEdit();
-    notice.value = existing ? 'Team communication updated.' : poll ? 'Poll created. Selected team members can respond from their dashboard. Use Send poll text to invite them by SMS.' : 'Team message saved. Review it below, then choose Send to team.';
+    notice.value = existing ? 'Team communication updated.' : poll ? 'Poll created. Use Send poll to notify the team through the selected delivery methods. Internal polls are available on their dashboard.' : 'Team message saved. Review it below, then choose Send to team.';
     await load();
   } catch (e) { if (g === generation) error.value = e.response?.data?.error?.message || 'Could not save team communication.'; }
   finally { busy.value = false; }
 }
 async function action(event, kind) {
   if (!allowed.value || busy.value) return;
-  const confirmations = { send: `Send “${event.title}” to its selected team members in the app and by SMS where eligible?`, poll: `Send the “${event.title}” poll by SMS to eligible team members?`, close: `Close “${event.title}” and send any requested final results texts?` };
+  const confirmations = { send: `Send “${event.title}” to its selected team members in the app and by SMS where eligible?`, poll: `Send “${event.title}” using ${deliveryLabel(event)}? SMS goes only to members with polling consent. Answered polls are skipped.`, close: `Close “${event.title}” and send any requested final results texts?` };
   if (confirmations[kind] && !window.confirm(confirmations[kind])) return;
   const g = generation, url = `${base()}/${event.id}`;
   busy.value = true; error.value = ''; notice.value = '';
@@ -75,17 +76,25 @@ async function action(event, kind) {
       if (g === generation) delivery.value = { title: event.title, ...data };
       return;
     }
-    const endpoint = { send: 'send-direct-message', poll: 'send-sms-vote', close: 'close-voting' }[kind];
+    const endpoint = { send: 'send-direct-message', poll: 'send-poll', close: 'close-voting' }[kind];
     const body = kind === 'send' ? { title: event.title, message: event.splashContent || event.description, sendInApp: true, sendSms: true } : {};
     const { data } = await api.post(`${url}/${endpoint}`, body);
     if (g !== generation) return;
     notice.value = kind === 'close' ? 'Voting closed. Check delivery history for requested results texts.'
       : kind === 'send' ? `Sent: ${data.inAppCount || 0} in-app notifications, ${data.smsCount || 0} texts. Check delivery history for skipped or failed recipients.`
-      : `Poll texts sent: ${data.sentCount || 0}. Check delivery history for skipped or failed recipients.`;
+      : `Poll sent: ${data.inAppCount || 0} internal, ${data.sentCount || 0} SMS · ${data.skippedCount || 0} skipped · ${data.failedCount || 0} failed. See delivery history for details.`;
     await load();
   } catch (e) { if (g === generation) error.value = e.response?.data?.error?.message || 'Could not complete this action.'; }
   finally { busy.value = false; }
 }
+function deliveryLabel(event) {
+  const mode = event.votingConfig?.deliveryMode || (event.votingConfig?.viaSms ? 'both' : 'internal');
+  return { internal: 'Internal message', sms: 'SMS', both: 'Internal message + SMS' }[mode];
+}
+const smsOnly = computed(() => draft.value.kind === 'poll' && draft.value.deliveryMode === 'sms');
+watch(() => draft.value.deliveryMode, () => {
+  if (smsOnly.value) draft.value.userIds = draft.value.userIds.filter(id => users.value.find(u => u.id === id)?.pollingSms?.eligible);
+});
 watch(() => [props.agencyId, allowed.value], () => {
   events.value = []; users.value = []; cancelEdit(); reviewing.value = null; delivery.value = null; notice.value = ''; load();
 }, { immediate: true });
@@ -108,12 +117,14 @@ watch(() => [props.agencyId, allowed.value], () => {
             <label>Poll question<input v-model.trim="draft.question" required maxlength="255" /></label>
             <div v-for="(_, i) in draft.options" :key="i" class="team-option"><label>Answer {{ i + 1 }}<input v-model="draft.options[i]" required maxlength="64" /></label><button v-if="draft.options.length > 2" type="button" @click="draft.options.splice(i, 1)">Remove</button></div>
             <button type="button" :disabled="draft.options.length >= 12" @click="draft.options.push('')">Add answer</button>
-            <label class="team-check"><input v-model="draft.viaSms" type="checkbox" /> Allow SMS voting</label>
+            <label>Poll delivery<select v-model="draft.deliveryMode" aria-label="Poll delivery"><option value="internal">Internal message</option><option value="sms">SMS only</option><option value="both">Both · Internal message + SMS</option></select></label>
+            <p class="team-note">Internal polls appear on the team member’s dashboard. SMS requires separate polling opt-in. With Both, members who opted out of SMS still receive the internal poll. A reply through either method completes the same poll.</p>
             <label class="team-check"><input v-model="draft.allowOther" type="checkbox" /> Allow written answers for review</label>
             <label class="team-check"><input v-model="draft.shareResults" type="checkbox" /> Share final totals with participants</label>
             <p class="team-note">Replies are identified to organizers. Participants see their own responses. New polls are available for 30 days. Close voting when you are ready to publish final totals.</p>
           </template>
-          <fieldset class="team-recipients"><legend>Team members · {{ draft.userIds.length }} selected</legend><p v-if="loading">Loading team members…</p><p v-else-if="!users.length">No team members available.</p><label v-for="user in users" :key="user.id" class="team-check"><input v-model="draft.userIds" type="checkbox" :value="user.id" /> {{ user.name }}</label></fieldset>
+          <p class="team-note">Active internal staff only. School staff and inactive accounts are excluded. SMS opt-outs stay visible.</p>
+          <fieldset class="team-recipients"><legend>Team members · {{ draft.userIds.length }} selected</legend><p v-if="loading">Loading team members…</p><p v-else-if="!users.length">No active internal team members available.</p><label v-for="user in users" :key="user.id" class="team-check"><input v-model="draft.userIds" type="checkbox" :value="user.id" :disabled="smsOnly && !user.pollingSms?.eligible" /> <span>{{ user.name }}<small v-if="draft.kind === 'poll'" class="sms-status" :class="{ 'sms-blocked': !user.pollingSms?.eligible }">{{ user.pollingSms?.label || 'SMS consent not confirmed' }}<span v-if="draft.deliveryMode === 'both' && !user.pollingSms?.eligible"> · Internal only</span></small></span></label></fieldset>
           <button class="team-primary" :disabled="!draft.userIds.length || busy || loading">{{ busy ? 'Saving…' : editing ? 'Save changes' : draft.kind === 'poll' ? 'Create poll' : 'Save team message' }}</button>
           <button v-if="editing" type="button" @click="cancelEdit">Cancel editing</button>
         </fieldset>
@@ -122,11 +133,12 @@ watch(() => [props.agencyId, allowed.value], () => {
       <p v-if="loading">Loading communications…</p><p v-else-if="!events.length">Your team texts and polls will appear here.</p>
       <article v-for="event in events" :key="event.id" class="team-entry">
         <span class="team-type">{{ event.votingConfig?.enabled ? 'Team poll' : 'Team text' }} · Conversa</span><h3>{{ event.title }}</h3><p>{{ event.votingConfig?.enabled ? event.votingConfig.question : event.splashContent || event.description }}</p>
+        <p v-if="event.votingConfig?.enabled" class="team-note">{{ deliveryLabel(event) }}</p>
         <p v-if="event.votingClosedAt">Voting closed</p>
         <div class="team-actions">
           <button v-if="['direct_notice', 'team_poll'].includes(event.eventType) && !event.votingClosedAt" type="button" :disabled="busy" @click="edit(event)">Edit</button>
           <button v-if="!event.votingConfig?.enabled" type="button" :disabled="busy" @click="action(event, 'send')">Send to team</button>
-          <button v-if="event.votingConfig?.viaSms && !event.votingClosedAt" type="button" :disabled="busy" @click="action(event, 'poll')">Send poll text</button>
+          <button v-if="event.votingConfig?.enabled && !event.votingClosedAt" type="button" :disabled="busy" @click="action(event, 'poll')">Send poll</button>
           <button v-if="event.votingConfig?.enabled" type="button" :disabled="busy" @click="reviewing = event">Results &amp; review</button>
           <button v-if="event.votingConfig?.enabled && !event.votingClosedAt" type="button" :disabled="busy" @click="action(event, 'close')">Close voting</button>
           <button type="button" :disabled="busy" @click="action(event, 'delivery')">Delivery history</button>
@@ -139,5 +151,5 @@ watch(() => [props.agencyId, allowed.value], () => {
 </template>
 
 <style scoped>
-.conversa-team{max-width:1040px;margin:0 auto;color:var(--conversa-navy,#0b2352)}.team-header{display:flex;align-items:center;justify-content:space-between;gap:16px}.team-header h2,.team-header h3{margin:0}.team-header p{margin:8px 0}.team-note{color:#52627a;font-size:.9rem;line-height:1.6}.team-compose,.team-entry{background:var(--conversa-surface,#fff);border:1px solid #dce5f0;border-radius:16px;padding:24px;margin:20px 0}.team-grid{display:grid;grid-template-columns:1fr 2fr;gap:16px}fieldset{border:0;padding:0;min-width:0}label{display:grid;gap:6px;margin:12px 0;font-weight:600}input:not([type=checkbox]),select,textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #b8c8df;border-radius:8px;background:#fff;color:#0b2352;font:inherit}.team-check{display:flex;align-items:center;gap:9px;font-weight:400}.team-recipients{max-height:240px;overflow:auto;border:1px solid #dce5f0;border-radius:10px;padding:12px;margin:16px 0}.team-recipients legend{font-weight:600;padding:0 4px}.team-option{display:flex;align-items:center;gap:12px}.team-option label{flex:1}.team-actions{display:flex;flex-wrap:wrap;gap:8px}button{border:1px solid #b8c8df;border-radius:8px;background:#fff;color:#0047b3;padding:10px 14px;font:inherit;cursor:pointer}button:disabled{opacity:.55;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #60b5ff;outline-offset:2px}.team-primary{background:#0047b3;color:#fff}.team-type{font-size:.8rem;color:#0047b3;font-weight:700}.team-entry p{white-space:pre-wrap;overflow-wrap:anywhere}[role=alert]{color:#b91c1c}[role=status]{padding:12px;background:#e5f5f0;color:#165a43;border-radius:8px}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0)}@media(max-width:600px){.team-grid{grid-template-columns:1fr}.team-compose,.team-entry{padding:16px}.team-header{align-items:flex-start}}
+.conversa-team{max-width:1040px;margin:0 auto;color:var(--conversa-navy,#0b2352)}.team-header{display:flex;align-items:center;justify-content:space-between;gap:16px}.team-header h2,.team-header h3{margin:0}.team-header p{margin:8px 0}.team-note{color:#52627a;font-size:.9rem;line-height:1.6}.team-compose,.team-entry{background:var(--conversa-surface,#fff);border:1px solid #dce5f0;border-radius:16px;padding:24px;margin:20px 0}.team-grid{display:grid;grid-template-columns:1fr 2fr;gap:16px}fieldset{border:0;padding:0;min-width:0}label{display:grid;gap:6px;margin:12px 0;font-weight:600}input:not([type=checkbox]),select,textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #b8c8df;border-radius:8px;background:#fff;color:#0b2352;font:inherit}.sms-status{display:block;font-size:.8rem;color:#16704b;margin-top:3px}.sms-blocked{color:#76521c}.team-check{display:flex;align-items:center;gap:9px;font-weight:400}.team-recipients{max-height:240px;overflow:auto;border:1px solid #dce5f0;border-radius:10px;padding:12px;margin:16px 0}.team-recipients legend{font-weight:600;padding:0 4px}.team-option{display:flex;align-items:center;gap:12px}.team-option label{flex:1}.team-actions{display:flex;flex-wrap:wrap;gap:8px}button{border:1px solid #b8c8df;border-radius:8px;background:#fff;color:#0047b3;padding:10px 14px;font:inherit;cursor:pointer}button:disabled{opacity:.55;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #60b5ff;outline-offset:2px}.team-primary{background:#0047b3;color:#fff}.team-type{font-size:.8rem;color:#0047b3;font-weight:700}.team-entry p{white-space:pre-wrap;overflow-wrap:anywhere}[role=alert]{color:#b91c1c}[role=status]{padding:12px;background:#e5f5f0;color:#165a43;border-radius:8px}.sr-only{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip:rect(0,0,0,0)}@media(max-width:600px){.team-grid{grid-template-columns:1fr}.team-compose,.team-entry{padding:16px}.team-header{align-items:flex-start}}
 </style>

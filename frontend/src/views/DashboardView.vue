@@ -1978,6 +1978,10 @@ const dashboardBannerError = ref('');
 const dashboardBanner = ref(null); // { type, message, agencyId, names } | null
 const scheduledBannerItems = ref([]);
 const companyEvents = ref([]);
+let teamPollRefreshTimer;
+function refreshPendingTeamEvents() {
+  if (document.visibilityState !== 'hidden' && companyEvents.value.some(event => event.votingConfig?.enabled && !event.myResponse)) void loadMyCompanyEvents();
+}
 
 const SKILL_BUILDERS_SERIES_COLLAPSE_KEY = 'dashboard.skillBuildersSeriesCollapsed.v1';
 
@@ -5713,6 +5717,8 @@ onMounted(async () => {
   document.addEventListener('keydown', handleDocumentKeydown);
   document.addEventListener('fullscreenchange', updateScheduleFullscreenState);
   document.addEventListener('visibilitychange', handleSkillBuilderBiweeklyVisibility);
+  window.addEventListener('focus', refreshPendingTeamEvents);
+  teamPollRefreshTimer = setInterval(refreshPendingTeamEvents, 15000);
   supervisionPromptTimer = setInterval(() => {
     loadSupervisionPrompts();
     loadPresenterAssignments();
@@ -5837,6 +5843,8 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleDocumentKeydown);
   document.removeEventListener('fullscreenchange', updateScheduleFullscreenState);
   document.removeEventListener('visibilitychange', handleSkillBuilderBiweeklyVisibility);
+  window.removeEventListener('focus', refreshPendingTeamEvents);
+  clearInterval(teamPollRefreshTimer);
   if (supervisionPromptTimer) clearInterval(supervisionPromptTimer);
 });
 </script>

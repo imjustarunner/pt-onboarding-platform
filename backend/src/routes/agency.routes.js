@@ -693,6 +693,7 @@ router.post('/:id/company-events/:eventId/session-surveys', authenticate, attach
 router.delete('/:id/company-events/:eventId/session-surveys/:attachmentId', authenticate, detachCompanyEventSessionSurvey);
 router.post('/:id/company-events/:eventId/close-voting', authenticate, closeCompanyEventVoting);
 router.post('/:id/company-events/:eventId/send-sms-vote', authenticate, sendCompanyEventVotingSms);
+router.post('/:id/company-events/:eventId/send-poll', authenticate, sendCompanyEventVotingSms);
 router.post('/:id/company-events/:eventId/send-direct-message', authenticate, sendCompanyEventDirectMessage);
 router.get('/:id/company-events/:eventId/need-list', authenticate, listCompanyEventNeedList);
 router.post('/:id/company-events/:eventId/need-list', authenticate, createCompanyEventNeedListItem);
