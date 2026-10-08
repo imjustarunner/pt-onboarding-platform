@@ -1,5 +1,18 @@
 import pool from '../config/database.js';
 
+// Propagate explicit folder grants down the same agency's folder tree. DISTINCT
+// also terminates traversal safely if legacy folder data contains a cycle.
+const sharedFoldersCte = `WITH RECURSIVE shared_folders (id, agency_id, permission) AS (
+  SELECT f.id, f.agency_id, p.permission
+  FROM library_folders f
+  JOIN library_permissions p ON p.folder_id = f.id AND p.agency_id = f.agency_id
+  WHERE f.agency_id = ? AND p.grantee_type = 'user' AND p.grantee_value = ?
+  UNION DISTINCT
+  SELECT child.id, child.agency_id, parent.permission
+  FROM library_folders child
+  JOIN shared_folders parent ON child.parent_folder_id = parent.id AND child.agency_id = parent.agency_id
+)`;
+
 export const DEFAULT_LIBRARY_CATEGORIES = [
   { slug: 'guides_resources', name: 'Guides & Resources', sortOrder: 10 },
   { slug: 'templates', name: 'Templates', sortOrder: 20 },
@@ -207,16 +220,14 @@ class Library {
         COALESCE(f.scope, 'organization') = 'organization'
         OR f.owner_user_id = ?
         OR EXISTS (
-          SELECT 1 FROM library_permissions p
-          WHERE p.folder_id = f.id
-            AND p.grantee_type = 'user'
-            AND p.grantee_value = ?
+          SELECT 1 FROM shared_folders sf WHERE sf.id = f.id AND sf.agency_id = f.agency_id
         )
       )`;
-      params.push(uid, String(uid));
+      params.push(uid);
     }
     sql += ' ORDER BY COALESCE(f.scope, \'organization\') ASC, f.sort_order ASC, f.name ASC';
-    const [rows] = await pool.execute(sql, params);
+    const [rows] = await pool.execute(userId ? `${sharedFoldersCte} ${sql}` : sql,
+      userId ? [Number(agencyId), String(userId), ...params] : params);
     return rows.map(mapFolder);
   }
 
@@ -417,12 +428,14 @@ class Library {
       WHERE r.id = ? AND r.agency_id = ?
       ${userId ? `AND (COALESCE(r.scope, 'organization') = 'organization' OR r.owner_user_id = ?
         OR EXISTS (SELECT 1 FROM library_permissions p WHERE p.agency_id = r.agency_id
-          AND (p.resource_id = r.id OR p.folder_id = r.folder_id)
-          AND p.grantee_type = 'user' AND p.grantee_value = ?))` : ''}
+          AND p.resource_id = r.id
+          AND p.grantee_type = 'user' AND p.grantee_value = ?)
+        OR EXISTS (SELECT 1 FROM shared_folders sf WHERE sf.id = r.folder_id AND sf.agency_id = r.agency_id))` : ''}
       LIMIT 1
     `;
     if (userId) params.push(Number(userId), String(userId));
-    const [rows] = await pool.execute(sql, params);
+    const [rows] = await pool.execute(userId ? `${sharedFoldersCte} ${sql}` : sql,
+      userId ? [Number(agencyId), String(userId), ...params] : params);
     return mapResource(rows[0]);
   }
 
@@ -497,16 +510,15 @@ class Library {
         OR r.owner_user_id = ?
         OR EXISTS (
           SELECT 1 FROM library_permissions p
-          WHERE p.resource_id = r.id AND p.grantee_type = 'user' AND p.grantee_value = ?
+          WHERE p.agency_id = r.agency_id AND p.resource_id = r.id AND p.grantee_type = 'user' AND p.grantee_value = ?
         )
         OR (
           r.folder_id IS NOT NULL AND EXISTS (
-            SELECT 1 FROM library_permissions p
-            WHERE p.folder_id = r.folder_id AND p.grantee_type = 'user' AND p.grantee_value = ?
+            SELECT 1 FROM shared_folders sf WHERE sf.id = r.folder_id AND sf.agency_id = r.agency_id
           )
         )
       )`);
-      params.push(uid, String(uid), String(uid));
+      params.push(uid, String(uid));
     }
 
     let orderBy = 'r.updated_at DESC, r.name ASC';
@@ -547,7 +559,8 @@ class Library {
       LIMIT ${lim} OFFSET ${off}
     `;
 
-    const [rows] = await pool.execute(sql, params);
+    const [rows] = await pool.execute(userId ? `${sharedFoldersCte} ${sql}` : sql,
+      userId ? [Number(agencyId), String(userId), ...params] : params);
     return rows.map(mapResource);
   }
 
@@ -921,11 +934,16 @@ class Library {
 
   static async userHasResourcePermission(resourceId, agencyId, userId, minPermission = 'view') {
     const [rows] = await pool.execute(
-      `SELECT p.permission FROM library_permissions p
+      `${sharedFoldersCte}
+       SELECT p.permission FROM library_permissions p
        JOIN library_resources r ON r.id = ? AND r.agency_id = p.agency_id
        WHERE p.agency_id = ? AND (p.resource_id = r.id OR p.folder_id = r.folder_id)
-         AND p.grantee_type = 'user' AND p.grantee_value = ?`,
-      [Number(resourceId), Number(agencyId), String(userId)]
+         AND p.grantee_type = 'user' AND p.grantee_value = ?
+       UNION ALL
+       SELECT sf.permission FROM shared_folders sf
+       JOIN library_resources r ON r.folder_id = sf.id AND r.agency_id = sf.agency_id
+       WHERE r.id = ? AND r.agency_id = ?`,
+      [Number(agencyId), String(userId), Number(resourceId), Number(agencyId), String(userId), Number(resourceId), Number(agencyId)]
     );
     const rank = { view: 1, edit: 2, manage: 3 };
     return (rows || []).some(row => (rank[row.permission] || 0) >= (rank[minPermission] || 1));

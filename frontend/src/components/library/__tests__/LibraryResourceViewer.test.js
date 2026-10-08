@@ -12,12 +12,13 @@ it('uses an authenticated portal PDF, with a new-window option, instead of embed
  expect(wrapper.text()).toContain('Opening document');expect(wrapper.find('iframe').exists()).toBe(false);await flushPromises();
  expect(fetchLibraryGooglePreview).toHaveBeenCalledWith(1,2,expect.any(AbortSignal));expect(wrapper.get('iframe').attributes('src')).toBe('blob:portal-preview');
  const open=wrapper.findAll('a').find(a=>a.text()==='Open document');expect(open.attributes('target')).toBe('_blank');expect(open.attributes('href')).toBe('blob:portal-preview');
- expect(wrapper.find('a[href^="https://docs.google.com"]').exists()).toBe(false);
+ const original=wrapper.get('a[href^="https://docs.google.com"]');expect(original.attributes('href')).toBe(resource.externalUrl);expect(original.attributes('target')).toBe('_blank');expect(original.text()).toBe('Open in Google');
  wrapper.unmount();expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:portal-preview');wrapper=null;
 });
-it('offers a retryable portal error instead of falling back to a Google-cookie prompt',async()=>{
+it('offers a retry and a Google link when the portal preview fails',async()=>{
  fetchLibraryGooglePreview.mockRejectedValueOnce(new Error('Ask the resource owner to upload a PDF.'));
  wrapper=mount(Viewer,{props:{resource},global:{stubs:{LibraryDocumentWorkspace:true}}});await flushPromises();expect(wrapper.get('[role="alert"]').text()).toContain('upload a PDF');expect(wrapper.find('iframe').exists()).toBe(false);
+ expect(wrapper.get('[role="alert"] a').attributes('href')).toBe(resource.externalUrl);
  await wrapper.findAll('button').find(b=>b.text()==='Try again').trigger('click');await flushPromises();expect(wrapper.get('iframe').attributes('src')).toBe('blob:portal-preview');
 });
 it('does not reuse a prior resource’s document when a slower request resolves after switching resources',async()=>{
@@ -29,4 +30,12 @@ it('does not reuse a prior resource’s document when a slower request resolves 
 it('keeps normal uploaded PDF previews without calling Google',async()=>{
  wrapper=mount(Viewer,{props:{resource:{id:3,name:'Uploaded guide',resourceType:'file',fileType:'pdf',fileUrl:'/uploads/guide.pdf'}},global:{stubs:{LibraryDocumentWorkspace:true}}});await flushPromises();
  expect(fetchLibraryGooglePreview).not.toHaveBeenCalled();expect(wrapper.get('iframe').attributes('src')).toBe('/uploads/guide.pdf');expect(wrapper.findAll('a').find(a=>a.text()==='Download').attributes('download')).toBe('');
+});
+
+it('opens shared Drive folders directly and preserves the sharing key',async()=>{
+ const externalUrl='https://drive.google.com/drive/u/0/folders/all-employees?resourcekey=abc';
+ wrapper=mount(Viewer,{props:{resource:{...resource,resourceType:'link',externalUrl}},global:{stubs:{LibraryDocumentWorkspace:true}}});await flushPromises();
+ expect(fetchLibraryGooglePreview).not.toHaveBeenCalled();expect(wrapper.find('iframe').exists()).toBe(false);
+ const links=wrapper.findAll('a');expect(links.length).toBeGreaterThan(0);
+ for(const link of links){expect(link.attributes('href')).toBe(externalUrl);expect(link.attributes('target')).toBe('_blank');expect(link.attributes('rel')).toContain('noopener');}
 });

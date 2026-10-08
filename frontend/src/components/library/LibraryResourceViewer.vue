@@ -17,13 +17,13 @@
         </button>
         <a v-if="googlePreviewUrl" class="btn btn-secondary btn-sm" :href="googlePreviewUrl" target="_blank" rel="noopener noreferrer">Open document</a>
         <a
-          v-if="openExternalUrl && (!isGoogle || resource?.canEdit || canDistribute)"
+          v-if="openExternalUrl"
           class="btn btn-secondary btn-sm"
           :href="openExternalUrl"
           target="_blank"
           rel="noopener noreferrer"
         >
-          {{ isGoogle ? 'Google original' : 'Open in new tab' }}
+          {{ isGoogle ? 'Open in Google' : 'Open in new tab' }}
         </a>
         <a
           v-if="downloadUrl && (isGoogle || resource?.resourceType === 'file')"
@@ -43,6 +43,8 @@
       <div v-if="isGoogle && previewLoading" class="lib-viewer__fallback" role="status">Opening document…</div>
       <div v-else-if="isGoogle && previewError" class="lib-viewer__fallback" role="alert">
         <p>{{ previewError }}</p>
+        <a v-if="openExternalUrl" class="btn btn-primary" :href="openExternalUrl" target="_blank" rel="noopener noreferrer">Open in Google</a>
+        <p>Use the Google account this resource was shared with. If Google asks you to request access, the owner needs to share it with that account.</p>
         <button type="button" class="btn btn-primary" @click="loadGooglePreview">Try again</button>
       </div>
       <iframe
@@ -56,7 +58,8 @@
         <img :src="imageUrl" :alt="resource?.name || 'Image'" class="lib-viewer__image" />
       </div>
       <div v-else class="lib-viewer__fallback">
-        <p>Preview isn’t available for this resource in the app.</p>
+        <p v-if="isGoogle">Open this resource in Google in a new tab using the account it was shared with.</p>
+        <p v-else>Preview isn’t available for this resource in the app.</p>
         <a
           v-if="openExternalUrl"
           class="btn btn-primary"
@@ -64,7 +67,7 @@
           target="_blank"
           rel="noopener noreferrer"
         >
-          Open resource
+          {{ isGoogle ? 'Open in Google' : 'Open resource' }}
         </a>
       </div>
     </div>
@@ -98,6 +101,13 @@ const isGoogle = computed(() => {
   if (!r || isBranded.value) return false;
   if (r.resourceType === 'google_doc' || r.isGoogleWorkspace) return true;
   return isGoogleWorkspaceUrl(r.externalUrl || r.previewUrl);
+});
+
+const isGoogleFolder = computed(() => {
+  try {
+    const url = new URL(props.resource?.externalUrl || '');
+    return url.hostname === 'drive.google.com' && /\/folders\//.test(url.pathname);
+  } catch { return false; }
 });
 
 const subtitle = computed(() => {
@@ -148,8 +158,8 @@ function releasePreview() {
 async function loadGooglePreview() {
   const sequence = ++previewSequence;
   previewRequest?.abort(); releasePreview(); previewError.value = '';
-  previewLoading.value = isGoogle.value;
-  if (!isGoogle.value) return;
+  previewLoading.value = isGoogle.value && !isGoogleFolder.value;
+  if (!previewLoading.value) return;
   previewRequest = new AbortController();
   try {
     const blob = await fetchLibraryGooglePreview(props.resource.id, props.resource.agencyId, previewRequest.signal);

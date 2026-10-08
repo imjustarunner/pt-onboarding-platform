@@ -43,7 +43,14 @@ describe('library document rendering and permissions', () => {
     const execute = mock.method(pool, 'execute', async () => [[]]);
     assert.equal(await Library.findResource(10, 2, { userId: 7 }), null);
     const [sql, params] = execute.mock.calls[0].arguments;
-    assert.match(sql, /r.owner_user_id = \?/); assert.match(sql, /p.agency_id = r.agency_id/); assert.match(sql, /p.resource_id = r.id OR p.folder_id = r.folder_id/); assert.deepEqual(params, [7, 10, 2, 7, '7']);
+    assert.match(sql, /r.owner_user_id = \?/); assert.match(sql, /p.agency_id = r.agency_id/); assert.match(sql, /p.resource_id = r.id/); assert.match(sql, /sf.id = r.folder_id AND sf.agency_id = r.agency_id/); assert.deepEqual(params, [2, '7', 7, 10, 2, 7, '7']);
+  });
+  it('keeps inherited view shares read-only and denies missing grants', async () => {
+    const execute = mock.method(pool, 'execute', async () => [[{ permission: 'view' }]]);
+    assert.equal(await Library.userHasResourcePermission(10, 2, 7), true);
+    assert.equal(await Library.userHasResourcePermission(10, 2, 7, 'edit'), false);
+    execute.mock.mockImplementation(async () => [[]]);
+    assert.equal(await Library.userHasResourcePermission(10, 2, 7), false);
   });
   it('honors a folder edit grant even when a direct view grant also exists', async () => {
     const execute = mock.method(pool, 'execute', async () => [[{ permission: 'view' }, { permission: 'edit' }]]);

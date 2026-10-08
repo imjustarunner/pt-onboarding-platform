@@ -144,7 +144,7 @@
             <section class="ov-card ov-quick-contact">
               <div class="ov-card-hdr"><span class="ov-card-title">Contact</span></div>
               <div class="ov-field-list">
-                <div class="ov-field-row"><span class="ov-fl">Work Email</span><span class="ov-fv"><a :href="`mailto:${user.work_email || user.email}`">{{ user.work_email || user.email || '—' }}</a></span></div>
+                <div class="ov-field-row"><span class="ov-fl">Login Email</span><span class="ov-fv"><a :href="`mailto:${user.email}`">{{ user.email || '—' }}</a></span></div>
                 <div class="ov-field-row"><span class="ov-fl">Phone</span><span class="ov-fv">{{ ai?.phoneNumber || ai?.personalPhone || '—' }}</span></div>
                 <div class="ov-field-row"><span class="ov-fl">City, State</span><span class="ov-fv">{{ [ai?.homeCity, ai?.homeState].filter(Boolean).join(', ') || '—' }}</span></div>
               </div>
@@ -229,7 +229,7 @@
               <template v-if="!editingPersonal">
                 <div class="ov-field-list">
                   <div class="ov-field-row"><span class="ov-fl">Preferred Name</span><span class="ov-fv">{{ ai?.preferredName || '—' }}</span></div>
-                  <div class="ov-field-row"><span class="ov-fl">Email</span><span class="ov-fv">{{ user.email || '—' }}</span></div>
+                  <div class="ov-field-row"><span class="ov-fl" title="Edit this email in Access">Login Email (Access)</span><span class="ov-fv">{{ user.email || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Personal Email</span><span class="ov-fv">{{ ai?.personalEmail || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Phone Number</span><span class="ov-fv">{{ ai?.phoneNumber || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Personal Phone</span><span class="ov-fv">{{ ai?.personalPhone || '—' }}</span></div>
@@ -240,7 +240,6 @@
                   <div class="ov-field-row"><span class="ov-fl">Date of Birth</span><span class="ov-fv">{{ fmtDate(lifecycle?.summary?.dateOfBirth) || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Language Spoken</span><span class="ov-fv">{{ ai?.languagesSpoken || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Pronouns</span><span class="ov-fv">{{ user.pronouns || '—' }}</span></div>
-                  <div class="ov-field-row"><span class="ov-fl">Work Email</span><span class="ov-fv">{{ user.work_email || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Title</span><span class="ov-fv">{{ user.title || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Service Focus</span><span class="ov-fv">{{ ai?.serviceFocus || '—' }}</span></div>
                   <div v-if="ai?.psychologyTodayUrl" class="ov-field-row">
@@ -254,6 +253,7 @@
 
               <!-- Edit form -->
               <template v-else>
+                <p class="ov-fl">The login email is managed in Access.</p>
                 <div class="ov-edit-grid">
                   <label class="ov-eg-row"><span class="ov-fl">Preferred Name</span><input v-model="personalDraft.preferredName" class="ov-input" type="text"/></label>
                   <label class="ov-eg-row"><span class="ov-fl">Personal Email</span><input v-model="personalDraft.personalEmail" class="ov-input" type="email"/></label>
