@@ -40,7 +40,26 @@ export async function getBusinessCardTemplate(req, res, next) {
       ORDER BY u.last_name, u.first_name`, onlyId ? [scope.agencyId, onlyId] : [scope.agencyId]);
     let template = null;
     if (flags?.business_card_template) template = normalizeBusinessCardSettings(flags.business_card_template);
-    res.json({ agency, template, canManage: scope.canManage && !selfOnly, people: people.filter(activeStaff).map(p => ({ ...p, agency_ids: String(scope.agencyId) })) });
+    const groups = [];
+    if (scope.canManage && !onlyId) {
+      const [[identities], [departments]] = await Promise.all([
+        pool.execute(`SELECT id, identity_key, display_name, from_email, reply_to FROM email_sender_identities
+          WHERE agency_id = ? AND is_active = TRUE ORDER BY display_name, identity_key`, [scope.agencyId]),
+        pool.execute(`SELECT id, name FROM agency_departments
+          WHERE agency_id = ? AND is_active = TRUE ORDER BY display_order, name`, [scope.agencyId])
+      ]);
+      for (const identity of identities) {
+        if (String(identity.identity_key).toLowerCase().startsWith('personal_')) continue;
+        groups.push({ id: `group:${identity.id}`, kind: 'group',
+          name: identity.display_name || String(identity.identity_key).replace(/[_-]+/g, ' '),
+          email: identity.reply_to || identity.from_email || '' });
+      }
+      for (const department of departments) {
+        if (groups.some(group => group.name.trim().toLowerCase() === department.name.trim().toLowerCase())) continue;
+        groups.push({ id: `department:${department.id}`, kind: 'department', name: department.name, email: '' });
+      }
+    }
+    res.json({ agency, template, groups, canManage: scope.canManage && !selfOnly, people: people.filter(activeStaff).map(p => ({ ...p, agency_ids: String(scope.agencyId) })) });
   } catch (error) { if (error.status === 400) return reject(res, 400, error.message); next(error); }
 }
 

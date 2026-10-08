@@ -17,9 +17,28 @@ if(sql.includes('FROM users u JOIN user_agencies'))return[people];
 if(sql.includes('FROM user_office_locations'))return[[{id:1,name:'Windchime',isActive:1,isPrimary:1}]];
 if(sql.includes('FROM twilio_number_assignments'))return[assignments];
 if(sql.startsWith('UPDATE agencies'))return[{affectedRows:1}];
+if(sql.includes('FROM email_sender_identities'))return[[{id:10,identity_key:'people_operations',display_name:'People Operations',from_email:'po@tenant.example'}, {id:11,identity_key:'technology',display_name:'Technology Support',from_email:'outbound@tenant.example',reply_to:'tech@tenant.example'}, {id:12,identity_key:'personal_7',display_name:'Personal',from_email:'personal@tenant.example'}]];
+if(sql.includes('FROM agency_departments'))return[[{id:10,name:'Development'}]];
 throw Error('Unexpected SQL '+sql);
 });});
 describe('business card tenant and employee boundaries',()=>{
+ it('returns active tenant group contacts and departments for the admin picker',async()=>{
+  role='admin';const r=res(),next=vi.fn();await getBusinessCardTemplate(req(),r,next);
+  expect(next).not.toHaveBeenCalled();expect(r.json.mock.calls[0][0].groups).toEqual([
+   {id:'group:10',kind:'group',name:'People Operations',email:'po@tenant.example'},
+   {id:'group:11',kind:'group',name:'Technology Support',email:'tech@tenant.example'},
+   {id:'department:10',kind:'department',name:'Development',email:''}
+  ]);
+  for(const table of ['email_sender_identities','agency_departments']){
+   const [sql,args]=m.execute.mock.calls.find(([sql])=>sql.includes(`FROM ${table}`));
+   expect(sql).toContain('agency_id = ? AND is_active = TRUE');expect(args).toEqual([2]);
+  }
+ });
+ it.each([{role:'staff',query:{}},{role:'admin',query:{self:'true'}},{role:'admin',query:{userId:'7'}}])('omits group contacts from individual card requests: %j',async scenario=>{
+  role=scenario.role;const r=res(),next=vi.fn();await getBusinessCardTemplate(req({query:scenario.query}),r,next);
+  expect(next).not.toHaveBeenCalled();expect(r.json.mock.calls[0][0].groups).toEqual([]);
+  expect(m.execute.mock.calls.some(([sql])=>sql.includes('FROM email_sender_identities')||sql.includes('FROM agency_departments'))).toBe(false);
+ });
  it('loads only the profile being printed by an administrator',async()=>{role='admin';const r=res();await getBusinessCardTemplate(req({query:{userId:'538'}}),r,vi.fn());expect(m.execute.mock.calls.find(([s])=>s.includes('SELECT DISTINCT u.id'))[1]).toEqual([2,538]);});
  it('cannot use target-user selection to bypass self-service access',async()=>{const r=res();await getBusinessCardTemplate(req({query:{userId:'538'}}),r,vi.fn());expect(r.status).toHaveBeenCalledWith(403);});
  it('limits staff directory to the actor and returns only the card template flag',async()=>{const r=res(),next=vi.fn();await getBusinessCardTemplate(req(),r,next);expect(next).not.toHaveBeenCalled();expect(r.json.mock.calls[0][0]).toMatchObject({canManage:false,template:template(),people:[{id:7}]});expect(r.json.mock.calls[0][0].agency).not.toHaveProperty('feature_flags');const call=m.execute.mock.calls.find(([sql])=>sql.includes('SELECT DISTINCT u.id'));expect(call[0]).toContain('AND u.id = ?');expect(call[1]).toEqual([2,7]);});

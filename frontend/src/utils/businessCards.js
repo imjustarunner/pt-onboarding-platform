@@ -80,6 +80,11 @@ export function isCardEmployee(user, agencyId) {
     && ['', 'ACTIVE', 'ACTIVE_EMPLOYEE'].includes(text(user.status).toUpperCase());
 }
 
+export function groupCardDefaults(group) {
+  return { ...employeeCardDefaults(), id: text(group.id), kind: group.kind || 'group',
+    name: text(group.name), email: text(group.email), officeId: '__organization' };
+}
+
 export function resolveCard(person, organization) {
   const ownPhone = text(person.phone);
   const office = person.offices?.find(o => o.id === person.officeId);

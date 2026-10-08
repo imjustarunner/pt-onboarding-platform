@@ -2,7 +2,7 @@
   <Teleport to="body">
     <dialog ref="dialog" class="business-cards-dialog" :class="{ 'self-service-dialog': singlePerson }" aria-labelledby="business-cards-title" @close="$emit('close')">
       <header>
-        <div><h2 id="business-cards-title">{{ selfOnly ? 'My business cards' : 'Employee business cards' }}</h2><p>Avery 35702 · 2.5 × 2.5 inches · Nine matching cards per employee</p></div>
+        <div><h2 id="business-cards-title">{{ selfOnly ? 'My business cards' : 'Business cards' }}</h2><p>Avery 35702 · 2.5 × 2.5 inches · Nine matching cards per selection</p></div>
         <button class="btn btn-secondary" aria-label="Close business cards" @click="dialog.close()">Close</button>
       </header>
       <div class="card-toolbar">
@@ -14,7 +14,7 @@
       </div>
       <p v-if="error" class="card-error" role="alert">{{ error }}</p>
       <p v-if="notice" role="status">{{ notice }}</p>
-      <p v-if="loading" role="status">Loading employee work details…</p>
+      <p v-if="loading" role="status">Loading card details…</p>
       <div v-else-if="agencyId" class="card-workspace" :class="{ 'self-service': singlePerson }">
         <section class="card-settings" aria-label="Organization card settings">
           <h3>Organization template</h3><p>{{ canManage ? 'Save the design and print defaults once for everyone in this organization.' : 'Your organization’s saved card design and QR back.' }}</p><fieldset :disabled="!canManage || busy">
@@ -40,23 +40,24 @@
           </details>
           <button v-if="canManage" class="btn btn-primary" :disabled="busy" @click="saveTemplate">{{ saving ? 'Saving…' : 'Save organization template' }}</button>
         </section>
-        <section v-if="!singlePerson" class="card-people" aria-label="Employee selection">
-          <h3>Employees &amp; providers</h3><p>{{ selected.length }} selected · {{ selected.length * 9 }} cards</p>
-          <label>Find an employee<input v-model="search" type="search" placeholder="Name or credentials" /></label>
+        <section v-if="!singlePerson" class="card-people" aria-label="Card selection">
+          <h3>Choose cards</h3><p>{{ selected.length }} selected · {{ selected.length * 9 }} cards</p>
+          <label>Card type<select v-model="cardType" aria-label="Card type"><option value="people">Employees &amp; providers</option><option v-if="canManage" value="groups">Groups &amp; departments</option></select></label>
+          <p v-if="cardType === 'groups'">Choose a general organization card or a configured group email or department. Review the contact details before printing.</p>
+          <label>{{ cardType === 'groups' ? 'Find a group or department' : 'Find an employee' }}<input v-model="search" type="search" :placeholder="cardType === 'groups' ? 'Name or group email' : 'Name or credentials'" /></label>
           <div class="selection-actions"><button class="btn btn-secondary btn-sm" @click="visiblePeople.forEach(p => { if (!p.loadError) p.selected = true; })">Select shown</button><button class="btn btn-secondary btn-sm" @click="people.forEach(p => p.selected = false)">Clear selection</button></div>
-          <p v-if="!people.length">No active employees or providers in this organization.</p>
-          <p v-else-if="!visiblePeople.length">No matching employees.</p>
+          <p v-if="!visiblePeople.length">{{ cardType === 'groups' ? 'No matching groups or departments.' : 'No matching employees or providers.' }}</p>
           <div v-for="person in visiblePeople" :key="person.id" class="person-row" :class="{ current: editingId === person.id }">
             <input v-model="person.selected" type="checkbox" :disabled="Boolean(person.loadError)" :aria-label="`Include ${person.name}`" />
-            <button @click="editingId = person.id"><strong>{{ person.name }}</strong><small>{{ person.loadError || person.credentials || person.title || 'Edit card details' }}</small></button>
+            <button @click="editingId = person.id"><strong>{{ person.name }}</strong><small>{{ person.loadError || (person.kind ? person.email || (person.kind === 'organization' ? 'General organization card' : 'Add a public email before printing') : person.credentials || person.title) || 'Edit card details' }}</small></button>
           </div>
         </section>
         <section v-if="editing" class="card-editor" aria-label="Individual card editor">
           <h3>Edit once, print nine</h3>
-          <p>Filled from this employee’s profile, organization contact settings, and primary office assignment.</p>
+          <p>{{ editing.kind ? 'Filled from the organization’s group or department settings. Edits apply to this card draft.' : 'Filled from this employee’s profile, organization contact settings, and primary office assignment.' }}</p>
           <p class="phone-source">Office: <strong>{{ resolvedPreview.phone || 'Not configured for this agency' }}{{ resolvedPreview.phone && resolvedPreview.extension ? ` ext. ${resolvedPreview.extension}` : '' }}</strong></p>
           <p class="phone-source" v-if="editing.workLine">Work number: <strong>{{ editing.workLine.number }}</strong> · {{ editing.workLine.canCall ? (editing.workLine.canText ? 'Call / Text' : 'Call') : 'Text' }}</p>
-          <p class="card-data-note" v-else>No enabled work number assigned. Only the office number will print.</p>
+          <p class="card-data-note" v-else-if="!editing.kind">No enabled work number assigned. Only the office number will print.</p>
           <div class="selection-actions"><button class="btn btn-secondary btn-sm" @click="previewSide = 'front'">Front preview</button><button class="btn btn-secondary btn-sm" @click="previewSide = 'back'">QR back preview</button></div>
           <p v-if="previewError" class="card-error">{{ previewError }}</p>
           <img v-if="preview" class="card-preview" :src="preview" :alt="`Card preview for ${editing.name}`" />
@@ -64,16 +65,16 @@
           <p v-if="editing.loadError" class="card-error">{{ editing.loadError }} Reopen the generator to retry loading this employee.</p>
           <p v-if="missingProfileFields.length" class="card-data-note">Missing details: {{ missingProfileFields.join(', ') }}. Review before printing.</p>
           <label>Office to print<select v-model="editing.officeId" aria-label="Office to print">
-            <option value="">{{ editing.offices.length ? 'Choose an assigned office' : 'No assigned office — address omitted' }}</option>
+            <option value="">{{ editing.kind ? 'No office address' : editing.offices.length ? 'Choose an assigned office' : 'No assigned office — address omitted' }}</option>
             <option v-for="office in editing.offices" :key="office.id" :value="office.id">{{ office.name }}{{ office.primary ? ' (primary)' : '' }}</option>
             <option value="__organization">Use organization address</option>
           </select></label>
-          <p v-if="!editing.offices.length" class="card-data-note">No active office assignment for this organization. Choose the organization address or enter an address override if needed.</p>
-          <label v-for="field in fields" :key="field.key">{{ field.label }}
+          <p v-if="!editing.kind && !editing.offices.length" class="card-data-note">No active office assignment for this organization. Choose the organization address or enter an address override if needed.</p>
+          <label v-for="field in fields.filter(f => !editing.kind || f.key !== 'credentials')" :key="field.key">{{ field.label }}
             <textarea v-if="field.key === 'address'" v-model="editing[field.key]" :maxlength="field.max" :placeholder="assignedAddress || 'Office address override (optional)'" rows="3" />
             <input v-else v-model="editing[field.key]" :maxlength="field.max" :placeholder="field.shared ? organization[field.key] || 'Optional' : 'Optional'" />
           </label>
-          <p>Blank office phone and website fields use organization defaults. The optional work number and its Call / Text label come from current number assignments and communication settings. The address comes from the selected office unless overridden. Changes apply to this card draft.</p>
+          <p>Blank office phone and website fields use organization defaults. The address comes from the selected office unless overridden. Changes apply to this card draft.</p>
         </section>
       </div>
       <footer>
@@ -85,10 +86,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
-import { cardSvg, svgDataUrl, employeeCardDefaults, assignedCardOffices, organizationCardDefaults, isCardEmployee, resolveCard, readCardDraft, CARD_FIELDS } from '../../utils/businessCards';
+import { cardSvg, svgDataUrl, employeeCardDefaults, groupCardDefaults, assignedCardOffices, organizationCardDefaults, isCardEmployee, resolveCard, readCardDraft, CARD_FIELDS } from '../../utils/businessCards';
 import { cardBackSvg, cardQrUrl } from '../../utils/businessCardBack';
 import { printSettingsDefaults, normalizePrintSettings, printableCardsHtml } from '../../utils/businessCardPrint';
 import { businessCardsPdf, downloadCardFile, embedCardLogo } from '../../utils/businessCardsExport';
@@ -101,6 +102,7 @@ const initialAgency = props.agencies.find(a => String(a.id) === String(props.ini
 const dialog = ref(null), agencyId = ref(String(initialAgency)), people = ref([]), editingId = ref('');
 const organization = reactive(organizationCardDefaults());
 const loading = ref(false), exporting = ref(false), error = ref(''), notice = ref(''), search = ref('');
+const cardType = ref('people');
 const printSettings = reactive(printSettingsDefaults()), guides = ref(false), canManage = ref(false), saving = ref(false);
 const previewSide = ref('front'), printSide = ref('front');
 const pageCount = computed(() => selected.value.length * (printSide.value === 'both' ? 2 : 1));
@@ -109,15 +111,19 @@ const selected = computed(() => people.value.filter(p => p.selected && !p.loadEr
 const editing = computed(() => people.value.find(p => p.id === editingId.value));
 const assignedAddress = computed(() => resolveCard({ ...editing.value, address: '' }, organization).address);
 const missingProfileFields = computed(() => editing.value ? [
-  ...[['title', 'title'], ['credentials', 'credentials'], ['email', 'work email']].filter(([key]) => !editing.value[key]).map(([, label]) => label),
+  ...(editing.value.kind ? [['email', 'public email']] : [['title', 'title'], ['credentials', 'credentials'], ['email', 'work email']]).filter(([key]) => !editing.value[key]).map(([, label]) => label),
   ...(!resolvedPreview.value.phone ? ['agency office phone (omitted from card)'] : []),
-  ...(!resolvedPreview.value.address ? ['assigned office address'] : [])
+  ...(!resolvedPreview.value.address ? [editing.value.kind ? 'office address (omitted from card)' : 'assigned office address'] : [])
 ] : []);
 const fonts = ref({});
 const resolvedPreview = computed(() => resolveCard(editing.value || {}, organization));
 const previewResult = computed(() => { try { return { url: svgDataUrl((previewSide.value === 'back' ? cardBackSvg : cardSvg)(resolvedPreview.value, fonts.value)), error: '' }; } catch (err) { return { url: '', error: err.message }; } });
 const preview = computed(() => previewResult.value.url), previewError = computed(() => previewResult.value.error);
-const visiblePeople = computed(() => people.value.filter(p => `${p.name} ${p.credentials}`.toLowerCase().includes(search.value.toLowerCase())));
+const visiblePeople = computed(() => people.value.filter(p => (cardType.value === 'groups' ? Boolean(p.kind) : !p.kind) && `${p.name} ${p.credentials} ${p.email}`.toLowerCase().includes(search.value.toLowerCase())));
+watch(cardType, () => {
+  search.value = '';
+  editingId.value = visiblePeople.value[0]?.id || '';
+});
 const fields = [
   { key: 'name', label: 'Display name', max: 90 }, { key: 'title', label: 'Title', max: 90 },
   { key: 'credentials', label: 'Credentials', max: 70 }, { key: 'email', label: 'Public work email', max: 100 },
@@ -135,6 +141,7 @@ onMounted(async () => {
 async function loadOrganization(id) {
   const version = ++generation;
   people.value = []; editingId.value = ''; error.value = ''; notice.value = ''; search.value = '';
+  cardType.value = 'people';
   canManage.value = false;
   Object.assign(organization, organizationCardDefaults());
   Object.assign(printSettings, printSettingsDefaults());
@@ -182,8 +189,18 @@ async function loadOrganization(id) {
       }
     }
     if (version !== generation) return;
+    if (canManage.value && !singlePerson.value) {
+      const agencyCard = groupCardDefaults({ id: 'organization', kind: 'organization', name: organization.organization });
+      if (String(agency.slug || '').toLowerCase() === 'itsco') {
+        agencyCard.email = 'support@itsco.health';
+        agencyCard.extension = '0';
+      }
+      results.push(agencyCard);
+      results.push(...(response.data.groups || []).map(groupCardDefaults));
+    }
     people.value = results.sort((a, b) => a.name.localeCompare(b.name));
-    editingId.value = people.value[0]?.id || '';
+    if (!people.value.some(p => !p.kind) && people.value.some(p => p.kind)) cardType.value = 'groups';
+    editingId.value = visiblePeople.value[0]?.id || '';
   } catch (err) { if (version === generation) error.value = err.response?.data?.error?.message || 'Could not load this organization’s employees.'; }
   finally { if (version === generation) loading.value = false; }
 }
@@ -222,7 +239,9 @@ async function loadDraft(event) {
       if (saved.officeId && saved.officeId !== '__organization' && !p.offices.some(o => o.id === saved.officeId)) delete saved.officeId;
       Object.assign(p, saved);
     });
-    notice.value = 'Draft loaded for employees currently in this organization. Use Reload from records to replace draft edits with current details.';
+    const firstSelected = selected.value[0];
+    if (firstSelected) { cardType.value = firstSelected.kind ? 'groups' : 'people'; await nextTick(); editingId.value = firstSelected.id; }
+    notice.value = 'Draft loaded for cards currently available in this organization. Use Reload from records to replace draft edits with current details.';
   } catch (err) { error.value = err.message || 'Could not load this draft.'; }
   event.target.value = '';
 }
@@ -245,11 +264,11 @@ async function exportCards(format) {
     fonts.value = await loadBusinessCardFonts();
     for (const person of selected.value) {
       if (person.offices.length && !person.officeId && !person.address.trim()) throw new Error(`${person.name}: choose an assigned office before printing.`);
-      if (person.officeId && !resolveCard(person, organization).address) throw new Error(`${person.name}: the selected office has no address. Enter an address override before printing.`);
+      if (!person.kind && person.officeId && !resolveCard(person, organization).address) throw new Error(`${person.name}: the selected office has no address. Enter an address override before printing.`);
     }
     const cards = selected.value.map(p => resolveCard(p, organization));
     for (const card of cards) {
-      if (!card.name.trim()) throw new Error('Enter a display name for every selected employee.');
+      if (!card.name.trim()) throw new Error('Enter a display name for every selected card.');
       for (const field of fields) if (String(card[field.key] || '').length > field.max) throw new Error(`${card.name}: shorten the ${field.label.toLowerCase()} to ${field.max} characters.`);
     }
     const logo = await embedCardLogo(organization.logo);
@@ -258,7 +277,7 @@ async function exportCards(format) {
     const filename = `business-cards-${agencyId.value}-avery-35702`;
     if (format === 'pdf') downloadCardFile(await businessCardsPdf(cards, { ...printSettings, guides: guides.value, side: printSide.value }), 'application/pdf', `${filename}.pdf`);
     else downloadCardFile(printableCardsHtml(cards, { ...printSettings, guides: guides.value, side: printSide.value }, fonts.value), 'text/html', `${filename}.html`);
-    notice.value = `Downloaded ${pageCount.value} pages for ${cards.length} employees.`;
+    notice.value = `Downloaded ${pageCount.value} pages for ${cards.length} selections.`;
   } catch (err) { error.value = err.message || 'Could not export cards. Please check the logo and card details.'; }
   finally { exporting.value = false; }
 }
