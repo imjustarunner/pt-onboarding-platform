@@ -1308,6 +1308,8 @@ export async function getProviderClientPosFlags({ agencyId, providerUserId }) {
 /**
  * Client IDs on this provider's caseload that are (or have been) school-affiliated.
  * Includes inactive COA rows so historical school portal clients stay "In School".
+ * A client moved to a clinical organization needs a current school link to keep
+ * that affiliation; retired school assignments must not undo the transfer.
  */
 export async function getProviderSchoolAffiliatedClientIds({ agencyId, providerUserId }) {
   const aid = Number(agencyId);
@@ -1321,6 +1323,26 @@ export async function getProviderSchoolAffiliatedClientIds({ agencyId, providerU
        FROM clients c
        LEFT JOIN agencies org ON org.id = c.organization_id
        WHERE c.agency_id = ?
+         AND NOT (
+           LOWER(COALESCE(c.client_type, '')) = 'clinical'
+           AND LOWER(COALESCE(org.organization_type, '')) = 'clinical'
+           AND NOT EXISTS (
+             SELECT 1
+             FROM client_organization_assignments current_coa
+             INNER JOIN agencies current_org ON current_org.id = current_coa.organization_id
+             WHERE current_coa.client_id = c.id
+               AND current_coa.is_active = TRUE
+               AND LOWER(COALESCE(current_org.organization_type, '')) IN ('school', 'program', 'learning')
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM client_provider_assignments current_cpa
+             INNER JOIN agencies current_org ON current_org.id = current_cpa.organization_id
+             WHERE current_cpa.client_id = c.id
+               AND current_cpa.is_active = TRUE
+               AND LOWER(COALESCE(current_org.organization_type, '')) IN ('school', 'program', 'learning')
+           )
+         )
          AND (
            c.provider_id = ?
            OR EXISTS (
