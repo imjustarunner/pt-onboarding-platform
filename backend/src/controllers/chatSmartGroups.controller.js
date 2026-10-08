@@ -49,7 +49,7 @@ export const listSmartGroups = async (req, res, next) => {
       groups.push({
         key: 'office_available',
         label: 'Office Available',
-        description: 'Everyone currently marked Office Available. Client Exchange posts land here.',
+        description: 'Everyone currently marked Office Available. Client Exchange sends separate alerts to matching providers.',
         threadId: office.threadId,
         memberCount: (office.memberIds || []).length,
         membershipRule: 'office_available',

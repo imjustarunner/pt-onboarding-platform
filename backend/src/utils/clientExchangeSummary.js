@@ -41,7 +41,7 @@ export function buildExchangeEmail({ listing, link, client = {} }) {
     ['Insurance', summaryItems(preferences.insurance)],
     ['When the client needs a provider', exchangeScheduleLines(preferences.schedule)]
   ].map(([label, values]) => [label, values.map(value => exchangeSafeText(value, client))]).filter(([, values]) => values.length);
-  const intro = 'A new client is available in the exchange. Review the shared information and request the client if you are interested. Multiple providers may request; the current provider or support team chooses the assignment.';
+  const intro = '1 client is available in Client Exchange. You are receiving this because you are open for scheduling and match the client’s care preferences, including in-office or virtual care. Review the shared information and request the client if you are interested. Multiple providers may request; the current provider or support team chooses the assignment.';
   return {
     text: `${intro}\n\n${sections.map(([label, values]) => `${label}:\n${values.map(value => `- ${value}`).join('\n')}`).join('\n\n')}\n\nView client and request: ${link}`,
     html: `<p>${intro}</p>${sections.map(([label, values]) => `<h3>${label}</h3><ul>${values.map(value => `<li style="white-space:pre-wrap">${escapeHtml(value)}</li>`).join('')}</ul>`).join('')}<p><a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 18px;background:#1f6b4a;color:white;border-radius:8px;text-decoration:none">View client and request</a></p>`

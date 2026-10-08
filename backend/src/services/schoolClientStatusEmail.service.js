@@ -30,8 +30,10 @@ async function loadProviders(database,client,schoolId) {
   return rows;
 }
 
-/** Queue in the assignment transaction; the worker cannot see a rolled-back assignment. */
-export async function queueSchoolClientStatusEmails(database=pool,{clientId,waitlistReason=null}={}) {
+/** Assignment hooks explicitly opt in to assignment notices. Lifecycle updates
+ * reconcile/cancel stale state and may notify waitlist changes, but never announce
+ * an existing provider as newly assigned. Use the same transaction as assignment. */
+export async function queueSchoolClientStatusEmails(database=pool,{clientId,waitlistReason=null,assignmentChanged=false}={}) {
   const owned=database===pool;
   const db=owned?await pool.getConnection():database;
   try {
@@ -50,7 +52,8 @@ export async function queueSchoolClientStatusEmails(database=pool,{clientId,wait
       const revision=Number(prior.revision)+1;
       await db.execute('UPDATE school_client_status_email_states SET state_hash=?,revision=? WHERE client_id=? AND school_organization_id=?',[hash,revision,clientId,school.id]);
       await db.execute("UPDATE school_client_status_emails SET delivery_status='obsolete' WHERE client_id=? AND school_organization_id=? AND delivery_status='pending'",[clientId,school.id]);
-      if(state.kind)await db.execute('INSERT INTO school_client_status_emails(agency_id,school_organization_id,client_id,revision,state_hash,state_json) VALUES(?,?,?,?,?,?)',[client.agency_id,school.id,clientId,revision,hash,JSON.stringify(state)]);
+      // A lifecycle/date save establishes the baseline but cannot invent an assignment event.
+      if(state.kind && (state.kind!=='assigned' || assignmentChanged))await db.execute('INSERT INTO school_client_status_emails(agency_id,school_organization_id,client_id,revision,state_hash,state_json) VALUES(?,?,?,?,?,?)',[client.agency_id,school.id,clientId,revision,hash,JSON.stringify(state)]);
     }
     if(owned)await db.commit();
   }catch(error){if(owned)await db.rollback();throw error;}finally{if(owned)db.release();}

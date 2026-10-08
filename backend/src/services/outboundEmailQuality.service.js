@@ -78,6 +78,19 @@ export function validateOutboundEmailQuality({
   const explicitLink = String(linkUrl || '').trim();
   const hasRealLink = links.length > 0 || (explicitLink && /^https?:\/\//i.test(explicitLink));
 
+  // Generated reminder links must never send staff to their own computer.
+  // Do not scan quoted external content in optional one-to-one forwarded mail.
+  const reminderTemplate = ['personal_thread_reminder', 'personal_thread_forward', 'hub_secure_unread_digest', 'hub_sms_unread_digest'].includes(templateType);
+  const reminderLinks = templateType === 'personal_thread_forward' ? [explicitLink] : [...links, explicitLink];
+  if (reminderTemplate && reminderLinks.some(value => {
+    try {
+      const host = new URL(value).hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+      return host === 'localhost' || host.endsWith('.localhost') || host === '::1' || host === '0.0.0.0' || /^127\./.test(host);
+    } catch { return false; }
+  })) {
+    flags.push({ code: 'local_reminder_link', message: 'The message reminder links to a local development address. Use the tenant’s public app URL.' });
+  }
+
   if (LINK_RX.test(combined) && !hasRealLink) {
     flags.push({
       code: 'missing_link',

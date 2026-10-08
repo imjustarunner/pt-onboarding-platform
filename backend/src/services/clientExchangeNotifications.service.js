@@ -14,7 +14,8 @@ export async function notifyExchangeMatches({ listing, client }) {
   const agencyId = Number(listing.agencyId);
   const [users] = await pool.execute(`SELECT DISTINCT u.* FROM users u
     JOIN user_agencies ua ON ua.user_id = u.id AND ua.agency_id = ?
-    WHERE COALESCE(u.is_active, 1) = 1 AND COALESCE(u.is_archived, 0) = 0
+    WHERE COALESCE(ua.is_active, 1) = 1
+      AND COALESCE(u.is_active, 1) = 1 AND COALESCE(u.is_archived, 0) = 0
       AND UPPER(COALESCE(u.status, '')) NOT IN ('ARCHIVED','PROSPECTIVE','INACTIVE_EMPLOYEE','TERMINATED_PENDING')
       AND (u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant') OR u.has_provider_access = 1)`, [agencyId]);
   const facets = await listClinicalFacetsForUsers(users.map(u => u.id), { agencyId });
@@ -29,11 +30,11 @@ export async function notifyExchangeMatches({ listing, client }) {
     if (listing.targetProviderUserId && Number(user.id) !== Number(listing.targetProviderUserId)) continue;
     try {
       const profile = await Profile.getForProvider({ providerUserId: user.id, agencyId });
-      if (!listing.targetProviderUserId && !matchesExchangeListing({ user, profile, facets: facets.get(Number(user.id)), listing, client })) continue;
+      if (!matchesExchangeListing({ user, profile, facets: facets.get(Number(user.id)), listing, client })) continue;
       summary.matched++;
       await Notification.create({
-        type: 'client_exchange_match', severity: 'info', title: 'New Client Exchange match',
-        message: 'A new referral matches your client preferences. View the client and request it in the exchange.',
+        type: 'client_exchange_match', severity: 'info', title: '1 client is available in Client Exchange',
+        message: 'A client matches your care preferences and you are open for scheduling. Open Client Exchange to review the requested care and request the client.',
         userId: user.id, agencyId, relatedEntityType: 'client_exchange_listing', relatedEntityId: listing.id,
         actorUserId: listing.postedByUserId, actorSource: 'client_exchange',
         audienceJson: { agencySlug: agency?.slug || agency?.portal_url }
@@ -44,7 +45,7 @@ export async function notifyExchangeMatches({ listing, client }) {
       if (!sender?.id || !to) { summary.failed++; continue; }
       const result = await sendEmailFromIdentity({
         senderIdentityId: sender.id, to, userId: user.id, source: 'auto',
-        subject: 'New Client Exchange match',
+        subject: '1 client is available in Client Exchange',
         ...buildExchangeEmail({ listing, link, client }),
         templateType: 'client_exchange_match', linkUrl: link, fromDisplayNameOverride: 'Notifications'
       });

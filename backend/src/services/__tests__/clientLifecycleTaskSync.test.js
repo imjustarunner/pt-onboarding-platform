@@ -25,6 +25,7 @@ describe('service confirmation reconciles existing provider tasks', () => {
     expect(mocks.sync).toHaveBeenCalledWith({ clientId: 101, actorUserId: 9 });
     expect(mocks.update.mock.invocationCallOrder[0]).toBeLessThan(mocks.sync.mock.invocationCallOrder[0]);
     expect(mocks.history).not.toHaveBeenCalled();
+    expect(mocks.queue).toHaveBeenCalledWith(expect.anything(), {clientId:101});
   });
 
   it('reconciles tasks on an idempotent retry without rewriting service dates', async () => {
@@ -39,6 +40,7 @@ describe('service confirmation reconciles existing provider tasks', () => {
     const result = await markClientBeingSeen({ clientId: 101, actorUserId: 9, serviceDate: '2026-09-25' });
     expect(result.changed).toBe(true);
     expect(mocks.history).toHaveBeenCalledOnce();expect(mocks.sync).toHaveBeenCalledOnce();
+    expect(mocks.queue).toHaveBeenCalledWith(expect.anything(), expect.not.objectContaining({assignmentChanged:true}));
   });
 
   it('does not sync or reopen a terminal client when service confirmation is rejected', async () => {

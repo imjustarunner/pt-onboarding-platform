@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: () => {} }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: vi.fn(async () => ({ id: 'sent' })), sendNotificationEmail: vi.fn() }));
 vi.mock('../emailSettings.service.js', () => ({ getAgencyEmailSettings: vi.fn(async () => ({})) }));
@@ -59,4 +59,22 @@ it('honors immediate notification for new chat activity without waiting for the 
  rows({...user,personal_email_delay_mode:'immediate',last_inbox_digest_at:'2026-09-03T17:59:00Z'});
  await runHubSecureUnreadDigestTick({now:new Date('2026-09-03T18:00:00Z')});expect(sendEmailFromIdentity).toHaveBeenCalledOnce();
  const query=pool.execute.mock.calls.find(([sql])=>sql.includes('SELECT t.id AS thread_id'))[0];expect(query).toContain('user_chat_email_reminders');expect(query).not.toContain('m.created_at >');
+});
+
+afterEach(()=>vi.unstubAllEnvs());
+it('links SSO app notifications to ITSCO unread app conversations even with a local frontend environment',async()=>{
+ vi.stubEnv('APP_PUBLIC_URL','http://localhost:5173');
+ vi.stubEnv('FRONTEND_URL','http://localhost:5173');
+ rows(user);await runHubSecureUnreadDigestTick({now:new Date('2026-10-08T22:36:00Z')});
+ const email=sendEmailFromIdentity.mock.calls[0][0];
+ expect(email.to).toBe('provider@itsco.health');
+ expect(email.linkUrl).toBe('https://app.itsco.health/messages?folder=unread&channel=all&agencyId=2');
+ expect(email.text).toContain(email.linkUrl);expect(email.html).toContain('https://app.itsco.health/messages?');
+ expect(email.subject).toBe('ITSCO: 2 unread app messages');
+ expect(email.text).toContain('not unread emails');
+ expect(JSON.stringify(email)).not.toContain('localhost');
+ const sql=pool.execute.mock.calls.find(([sql])=>sql.includes('SELECT t.id AS thread_id'))[0];
+ expect(sql).toContain('chat_thread_deletes');expect(sql).toContain('chat_message_deletes');
+ expect(sql).toContain("COALESCE(t.membership_rule, '') = 'office_available'");
+ expect(sql).toContain("m.body LIKE 'Client Exchange: new listing #%'");
 });

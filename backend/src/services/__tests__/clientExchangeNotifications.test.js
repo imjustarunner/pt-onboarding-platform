@@ -59,10 +59,34 @@ it('sends assignment confirmation to the requesting provider in both channels', 
   expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'provider@example.com', templateType: 'client_exchange_assigned' }));
 });
 
-it('sends a direct referral only to its recipient even when matching preferences differ', async () => {
+it('does not bypass matching for a directly addressed referral', async () => {
   await notifyExchangeMatches({ listing: { ...listing, targetProviderUserId: 11 } });
+  expect(mocks.notify).not.toHaveBeenCalled();
+  expect(mocks.send).not.toHaveBeenCalled();
+});
+it('sends a direct referral only to its matching recipient', async () => {
+  await notifyExchangeMatches({ listing: { ...listing, targetProviderUserId: 10 } });
   expect(mocks.notify).toHaveBeenCalledTimes(1);
-  expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ userId: 11 }));
+  expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ userId: 10 }));
+});
+it('clearly identifies available clients instead of calling them unread messages', async () => {
+  await notifyExchangeMatches({ listing });
+  expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({
+    subject: '1 client is available in Client Exchange',
+    text: expect.stringContaining('open for scheduling'),
+    html: expect.stringContaining('in-office or virtual care')
+  }));
+  expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({title: '1 client is available in Client Exchange'}));
+});
+it.each([false, true])('excludes closed scheduling, including directed referrals (%s)', async direct => {
+  mocks.profile.mockResolvedValue({agencyAvailability:{seesClients:true, acceptingNewClients:false, virtual:true, inPerson:true}});
+  await notifyExchangeMatches({listing:{...listing, targetProviderUserId:direct?10:null}});
+  expect(mocks.notify).not.toHaveBeenCalled();expect(mocks.send).not.toHaveBeenCalled();
+});
+it('only notifies providers offering the requested visit format', async () => {
+  mocks.profile.mockResolvedValue({agencyAvailability:{seesClients:true, acceptingNewClients:true, virtual:false, inPerson:true}});
+  await notifyExchangeMatches({listing});
+  expect(mocks.send).not.toHaveBeenCalled();
+  await notifyExchangeMatches({listing:{...listing, preferences:{modality:'in_person'}}});
   expect(mocks.send).toHaveBeenCalledTimes(1);
-  expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ userId: 11 }));
 });

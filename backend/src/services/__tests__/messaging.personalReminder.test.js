@@ -151,3 +151,10 @@ it('waits until opening for immediate-within-availability but does not honor obs
  const [sql,params]=pool.execute.mock.calls[0];
  expect(sql).not.toContain('visible_after');expect(params).toHaveLength(1);
 });
+
+it.each(['http://localhost:5173/itsco/messages','http://127.0.0.1:5173/messages','http://[::1]:5173/messages'])('blocks a generated reminder with a local app link: %s',linkUrl=>{
+ expect(validateOutboundEmailQuality({templateType:'hub_secure_unread_digest',text:`Open: ${linkUrl}`,linkUrl}).flags).toEqual(expect.arrayContaining([expect.objectContaining({code:'local_reminder_link'})]));
+});
+it('does not mistake quoted local URLs for the app link in an opted-in personal forward',()=>{
+ expect(validateOutboundEmailQuality({templateType:'personal_thread_forward',text:'Original: http://localhost:5173',linkUrl:'https://app.itsco.health/messages'})).toEqual({ok:true,flags:[]});
+});

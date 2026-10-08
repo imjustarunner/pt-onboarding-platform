@@ -192,8 +192,8 @@ export async function setClientLifecycleStatus({
     }
   }
 
-  // Queue every meaningful lifecycle transition, including cancellation of stale
-  // notices. Provider assignment changes also queue through the assignment hook.
+  // Reconcile lifecycle state and waitlist notices without manufacturing a new
+  // provider assignment. Only assignment hooks opt in to assignment notices.
   try {
     const { queueSchoolClientStatusEmails } = await import('./schoolClientStatusEmail.service.js');
     await queueSchoolClientStatusEmails(pool, { clientId: cid,

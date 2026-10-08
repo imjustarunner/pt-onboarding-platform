@@ -87,7 +87,7 @@ export async function ensureOfficeAvailableChannel(agencyId) {
       `INSERT INTO chat_threads
          (agency_id, organization_id, thread_type, name, slug, visibility, membership_rule, description)
        VALUES (?, NULL, 'channel', 'Office Available', ?, 'private', 'office_available',
-               'Smart group: members who are Office Available. Client Exchange posts land here.')`,
+               'Smart group: members who are Office Available.')`,
       [aid, slug]
     );
     threadId = Number(ins.insertId);
@@ -174,32 +174,6 @@ export async function postSystemMessage({ threadId, senderUserId, body }) {
     [tid, uid, text]
   );
   return Number(ins.insertId);
-}
-
-/**
- * After a Client Exchange listing is created — refresh Office Available channel and announce.
- */
-export async function announceClientExchangeListing({
-  agencyId,
-  listingId,
-  postedByUserId,
-  preview = null
-}) {
-  const { threadId, memberIds } = await ensureOfficeAvailableChannel(agencyId);
-  if (!memberIds.length) {
-    return { threadId, memberIds, messageId: null, skipped: 'no_office_available_members' };
-  }
-  const bits = [
-    `Client Exchange: new listing #${listingId}`,
-    preview ? String(preview).slice(0, 240) : null,
-    'Open Client Exchange to request this client.'
-  ].filter(Boolean);
-  const messageId = await postSystemMessage({
-    threadId,
-    senderUserId: postedByUserId,
-    body: bits.join('\n')
-  });
-  return { threadId, memberIds, messageId };
 }
 
 /**

@@ -295,20 +295,9 @@ export async function createListing({
     console.warn('[createListing] office acceptance tracking failed:', e?.message || e);
   }
 
-  // Announce into the Office Available smart group (replaces Google Chat referral routing).
-  try {
-    const SmartGroups = await import('./smartChatGroups.service.js');
-    const previewBits = ['A new referral is available. Open Client Exchange to review it.'];
-    if (!targetProviderUserId) await SmartGroups.announceClientExchangeListing({
-      agencyId: aid,
-      listingId: result.insertId,
-      postedByUserId: posterId,
-      preview: previewBits.join(' · ') || null
-    });
-  } catch (e) {
-    console.warn('[createListing] Office Available chat announce failed:', e?.message || e);
-  }
-
+  // Referral alerts belong to the matched-provider notification path below.
+  // Broadcasting into Office Available bypassed matching and generated unrelated
+  // unread-message reminder emails for every member of that channel.
   const listing = await getListingById(result.insertId, { viewerUserId: posterId, viewerRole: 'admin' });
   try {
     listing.notifications = await notifyExchangeMatches({ listing, client });

@@ -1,3 +1,4 @@
+import { buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { personalMessagePreferences, validatePersonalMessagePatch } from '../utils/personalMessagePreferences.js';
 import pool from '../config/database.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
@@ -263,8 +264,12 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
        WHERE p.user_id = ?
          AND t.agency_id = ?
          AND m.sender_user_id <> ?
+         AND NOT (COALESCE(t.membership_rule, '') = 'office_available'
+           AND m.body LIKE 'Client Exchange: new listing #%')
          AND (r.last_read_message_id IS NULL OR m.id > r.last_read_message_id)
          AND m.created_at <= ?
+         AND NOT EXISTS (SELECT 1 FROM chat_thread_deletes d WHERE d.thread_id=t.id AND d.user_id=p.user_id AND d.deleted_at IS NOT NULL)
+         AND NOT EXISTS (SELECT 1 FROM chat_message_deletes d WHERE d.message_id=m.id AND d.user_id=p.user_id)
          AND m.id > COALESCE((SELECT MAX(n.message_id) FROM user_chat_email_reminders n WHERE n.user_id=p.user_id AND n.thread_id=t.id),0)
        GROUP BY t.id
        HAVING unread_count > 0
@@ -289,19 +294,16 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
     }
     if(!claimed.length)continue;
     const tenantName = agency?.name || 'Your care team';
-    const slug = agency?.slug || '';
-    const baseUrl = String(process.env.APP_PUBLIC_URL || process.env.FRONTEND_URL || 'https://plottwisthq.com').replace(
-      /\/$/,
-      ''
-    );
-    const messagesUrl = `${baseUrl}/${slug}/messages`;
+    // Use the tenant's public portal, never a development FRONTEND_URL.
+    // Explicitly open all unread app channels instead of a saved email-only filter.
+    const messagesUrl = buildPublicAppUrl(agency, `messages?folder=unread&channel=all&agencyId=${Number(agencyId)}`);
 
     const count = claimed.reduce((n, x) => n + Number(x.unread_count || 0), 0);
     const { buildBrandedMessageEmailHtml } = await import('./hubBrandedEmail.service.js');
     const html = buildBrandedMessageEmailHtml({
       agencyName: tenantName,
       senderDisplayName: tenantName,
-      bodyText: `You have ${count} unread message${count === 1 ? '' : 's'} waiting in Messages. Open the app to read and reply. Message content is not included in this email.`,
+      bodyText: `You have ${count} unread app message${count === 1 ? '' : 's'} waiting in Messages. These are internal or secure conversations, not unread emails in your work mailbox. Open the app to read and reply. Message content is not included in this email.`,
       history: [],
       appUrl: messagesUrl,
       footerNote:
@@ -324,9 +326,10 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
         result = await sendEmailFromIdentity({
           senderIdentityId: mailboxes.messages.id,
           to,
-          subject: `${tenantName}: ${count} unread message${count === 1 ? '' : 's'}`,
+          subject: `${tenantName}: ${count} unread app message${count === 1 ? '' : 's'}`,
           html,
-          text: `You have ${count} unread message(s).\n\nOpen: ${messagesUrl}`,
+          text: `You have ${count} unread app message(s) in internal or secure conversations, not unread emails in your work mailbox.\n\nOpen: ${messagesUrl}`,
+          linkUrl: messagesUrl,
           replyToOverride: mailboxes.messages.from_email,
           source: 'auto',
           templateType: 'hub_secure_unread_digest',
@@ -335,9 +338,10 @@ export async function runHubSecureUnreadDigestTick({ now = new Date() } = {}) {
       } else {
         result = await sendNotificationEmail({
           to,
-          subject: `${tenantName}: ${count} unread message${count === 1 ? '' : 's'}`,
+          subject: `${tenantName}: ${count} unread app message${count === 1 ? '' : 's'}`,
           html,
-          text: `You have ${count} unread message(s).\n\nOpen: ${messagesUrl}`,
+          text: `You have ${count} unread app message(s) in internal or secure conversations, not unread emails in your work mailbox.\n\nOpen: ${messagesUrl}`,
+          linkUrl: messagesUrl,
           agencyId,
           userId: row.user_id,
           templateType: 'hub_secure_unread_digest',
