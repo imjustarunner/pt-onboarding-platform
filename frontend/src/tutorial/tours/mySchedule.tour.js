@@ -47,10 +47,10 @@ export default {
       }
     },
     {
-      element: '[data-tour="my-schedule-ehr-calendars"]',
+      element: '[data-tour="my-schedule-subscription"]',
       popover: {
-        title: 'Therapy Notes calendars',
-        description: 'Use chips to toggle Therapy Notes busy overlays. “All/None” are quick filters, and “Hide calendars” hides Google+Therapy Notes overlays while keeping office overlays.',
+        title: 'Your personal calendar',
+        description: 'Create a private subscription link for Google, Apple, or Outlook. Your calendar shows schedule basics, client initials, and meeting links. You can replace or revoke the link here.',
         side: 'bottom',
         align: 'start'
       }

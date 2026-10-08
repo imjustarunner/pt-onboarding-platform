@@ -8,13 +8,16 @@ export function calendarWindow(from, to, maxDays = 370) {
   return {start,end};
 }
 export function workTitle(event) {
-  if (event.is_private || event.kind === 'PERSONAL_EVENT') return 'Busy';
-  const names={TEAM_MEETING:'Team meeting',HUDDLE:'Huddle',SESSION:'Session',CLINICAL_SESSION:'Clinical session',APPOINTMENT:'Appointment',INDIVIDUAL_SESSION:'Individual session',GROUP_SESSION:'Group session',SUPERVISION:'Supervision',OFFICE:'Office booking',WORK_HOURS:'Work hours'};
+  if (event.is_private || ['PERSONAL_EVENT','SCHEDULE_HOLD'].includes(event.kind)) return 'Busy';
+  const names={TEAM_MEETING:'Team meeting',HUDDLE:'Huddle',SESSION:'Session',CLINICAL_SESSION:'Clinical session',APPOINTMENT:'Appointment',INDIVIDUAL_SESSION:'Individual session',GROUP_SESSION:'Group session',SUPERVISION:'Supervision',OFFICE:'Office booking',WORK_HOURS:'Work hours',TRAINING:'Training',INDIRECT_SERVICES:'Indirect services',OUTREACH_TRIP:'Outreach trip'};
   const subtypes={GROUP_THERAPY:'Group therapy',TELEHEALTH:'Telehealth session',ASSESSMENT:'Assessment',INDIRECT_SERVICES:'Indirect services',SUPERVISION:'Supervision',MEETING:'Meeting'};
   const title=subtypes[event.appointment_subtype_code] || subtypes[event.appointment_type_code] || names[event.kind] || (event.client_id ? 'Session' : 'Work');
   // Only the dedicated initials field is eligible; titles/notes/full_name never leave the app.
   const rawInitials=String(event.client_initials || '').trim();
-  const initials=/^[\p{L}. -]{1,10}$/u.test(rawInitials) && rawInitials.replace(/[^\p{L}]/gu,'').length<=4 ? rawInitials : rawInitials.split(/\s+/).map(part=>part.match(/\p{L}/u)?.[0] || '').slice(0,3).join('.');
+  const letters=rawInitials.replace(/[^\p{L}]/gu,'');
+  const initials=letters && letters.length<=4 && letters===letters.toUpperCase()
+    ? rawInitials.replace(/[^\p{L}. -]/gu,'')
+    : (rawInitials.match(/\p{Lu}/gu) || rawInitials.split(/\s+/).map(part=>part.match(/\p{L}/u)?.[0] || '')).slice(0,4).join('.').toUpperCase();
   return event.client_id && initials ? `${title} · ${initials}` : title;
 }
 const escapeText = v => String(v || '').replace(/\\/g,'\\\\').replace(/\r?\n/g,'\\n').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r/g,'');
@@ -27,7 +30,7 @@ const stamp = value => new Date(value).toISOString().replace(/[-:]/g,'').replace
 export function renderCalendar(name,events) {
   const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//PlotTwist//Private Calendar//EN','CALSCALE:GREGORIAN','METHOD:PUBLISH',`X-WR-CALNAME:${escapeText(name)}`];
   for(const event of events){
-    lines.push('BEGIN:VEVENT',`UID:${digest(event.key)}@calendar.plottwisthq.com`,`DTSTAMP:${stamp(event.updatedAt || new Date())}`,`SUMMARY:${escapeText(event.title)}`);
+    lines.push('BEGIN:VEVENT',`UID:${digest(event.key)}@calendar.plottwisthq.com`,`DTSTAMP:${stamp(event.updatedAt || new Date())}`,`SUMMARY:${escapeText(event.title)}`,'CLASS:PRIVATE');
     if(event.startDate && event.endDate) lines.push(`DTSTART;VALUE=DATE:${event.startDate.replace(/-/g,'')}`,`DTEND;VALUE=DATE:${event.endDate.replace(/-/g,'')}`);
     else lines.push(`DTSTART:${stamp(event.start)}`,`DTEND:${stamp(event.end)}`);
     if(event.location)lines.push(`LOCATION:${escapeText(event.location)}`);

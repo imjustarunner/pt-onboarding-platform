@@ -21,34 +21,6 @@
         <button class="btn btn-secondary btn-sm" @click="toggleWeekStartMode" :disabled="loading || !officeId">
           {{ weekStartMode === 'MONDAY' ? 'Mon' : 'Sun' }} start
         </button>
-        <button
-          v-if="canManageSchedule"
-          class="btn btn-secondary btn-sm"
-          type="button"
-          @click="refreshEhrAssignedBookings"
-          :disabled="refreshingEhrBookings || !officeId"
-        >
-          {{ refreshingEhrBookings ? 'Refreshing…' : 'Refresh Therapy Notes' }}
-        </button>
-        <button
-          v-if="canViewIcsCoverage"
-          class="btn btn-secondary btn-sm"
-          type="button"
-          :class="{ 'btn-ics-on': showIcsGaps }"
-          :title="showIcsGaps ? 'Hide Therapy Notes coverage gaps on the grid' : 'Highlight booked hours missing a Therapy Notes session (uses prior audit flags)'"
-          @click="toggleIcsGaps"
-          :disabled="loading || !officeId"
-        >
-          {{ showIcsGaps ? 'ICS gaps: On' : 'Show ICS gaps' }}
-        </button>
-        <router-link
-          v-if="canViewIcsCoverage"
-          class="btn btn-secondary btn-sm"
-          :to="officeApprovalsConflictsTo"
-          title="Review and keep or release flagged hours"
-        >
-          Reported conflicts
-        </router-link>
         <button class="btn btn-secondary btn-sm" @click="loadGrid" :disabled="loading || !officeId">Refresh</button>
       </div>
     </div>
@@ -70,7 +42,6 @@
         <div class="legend-item"><span class="dot intake-ip"></span> In-person intake</div>
         <div class="legend-item"><span class="dot intake-v"></span> Virtual intake</div>
         <div class="legend-item"><span class="dot own-slot"></span> Your schedule</div>
-        <div v-if="showIcsGaps" class="legend-item"><span class="dot ics-gap"></span> No Therapy Notes session during booking</div>
       </div>
       <div v-if="gridConflictCount > 0" class="schedule-conflict-banner">
         <strong>{{ gridConflictCount }} room/time conflict{{ gridConflictCount === 1 ? '' : 's' }} detected.</strong>
@@ -1269,22 +1240,7 @@ const loadGrid = async () => {
   }
 };
 
-const refreshEhrAssignedBookings = async () => {
-  if (!officeId.value) return;
-  try {
-    refreshingEhrBookings.value = true;
-    error.value = '';
-    const resp = await api.post(`/office-schedule/locations/${officeId.value}/refresh-ehr-assigned-bookings`, {});
-    const booked = Number(resp?.data?.bookedFromEhr || 0);
-    const scanned = Number(resp?.data?.scannedAssigned || 0);
-    setSuccessToast(`Therapy Notes refresh complete: ${booked} booked from ${scanned} assigned slot${scanned === 1 ? '' : 's'}.`);
-    await loadGrid();
-  } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to refresh Therapy Notes/assigned room booking';
-  } finally {
-    refreshingEhrBookings.value = false;
-  }
-};
+
 
 const runAvailabilitySearch = async () => {
   if (!officeId.value) return;
@@ -1405,9 +1361,7 @@ const officeApprovalsConflictsTo = computed(() => {
   return { path, query: { tab: 'conflicts' } };
 });
 const ICS_GAPS_STORAGE_KEY = 'officeSchedule.showIcsGaps';
-const showIcsGaps = ref(
-  typeof window !== 'undefined' && window.localStorage.getItem(ICS_GAPS_STORAGE_KEY) === '1'
-);
+const showIcsGaps = ref(false);
 const toggleIcsGaps = () => {
   showIcsGaps.value = !showIcsGaps.value;
   try {

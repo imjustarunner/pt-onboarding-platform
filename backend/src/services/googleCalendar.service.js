@@ -1,3 +1,4 @@
+import { googleScheduleAllowedForEmail, GOOGLE_SCHEDULE_DISABLED } from './scheduleCalendarPolicy.service.js';
 import { google } from 'googleapis';
 import { randomUUID } from 'crypto';
 import pool from '../config/database.js';
@@ -77,6 +78,7 @@ export class GoogleCalendarService {
   static async freeBusy({ subjectEmail, timeMin, timeMax, calendarId = 'primary' }) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_subject_email', busy: [] };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!timeMin || !timeMax) return { ok: false, reason: 'missing_time_window', busy: [] };
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured', busy: [] };
 
@@ -106,6 +108,7 @@ export class GoogleCalendarService {
   static async listEvents({ subjectEmail, timeMin, timeMax, calendarId = 'primary', maxItems = 250 } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_subject_email', events: [] };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!timeMin || !timeMax) return { ok: false, reason: 'missing_time_window', events: [] };
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured', events: [] };
 
@@ -152,6 +155,7 @@ export class GoogleCalendarService {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const eid = String(eventId || '').trim();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!eid) return { ok: false, reason: 'missing_event_id' };
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
 
@@ -200,6 +204,7 @@ export class GoogleCalendarService {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const eid = String(eventId || '').trim();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!eid) return { ok: false, reason: 'missing_event_id' };
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
 
@@ -265,6 +270,7 @@ export class GoogleCalendarService {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const eid = String(eventId || '').trim();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!eid) return { ok: false, reason: 'missing_event_id' };
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
     const sendUpdatesMode = ['all', 'externalOnly', 'none'].includes(String(sendUpdates || ''))
@@ -304,6 +310,7 @@ export class GoogleCalendarService {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const eid = String(eventId || '').trim();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!eid) return { ok: false, reason: 'missing_event_id' };
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
 
@@ -402,6 +409,7 @@ export class GoogleCalendarService {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const eid = String(eventId || '').trim();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!eid) return { ok: false, reason: 'missing_event_id' };
     if (!startAtIso || !endAtIso) return { ok: false, reason: 'missing_time' };
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
@@ -451,6 +459,7 @@ export class GoogleCalendarService {
   } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
 
     const normalizedSummary = String(summary || '').trim();
@@ -563,6 +572,7 @@ export class GoogleCalendarService {
     const gid = String(googleEventId || '').trim();
     const append = String(appendText || '').trim();
     if (!subject || !gid || !append) return { ok: false, reason: 'missing_params' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
 
     try {
@@ -624,6 +634,7 @@ export class GoogleCalendarService {
 
     const slotState = String(row.slot_state || '').toUpperCase();
     const providerEmail = String(row.provider_email || '').trim().toLowerCase();
+    if (!(await googleScheduleAllowedForEmail(providerEmail))) return GOOGLE_SCHEDULE_DISABLED;
     const roomResourceEmail = String(row.room_google_resource_email || '').trim().toLowerCase();
     const timeZone = String(row.building_timezone || '').trim() || 'America/New_York';
     const start = toRfc3339Local(row.start_at, timeZone);
@@ -681,6 +692,7 @@ export class GoogleCalendarService {
   } = {}) {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
     const normalizedSummary = String(summary || '').trim();
     if (!normalizedSummary) return { ok: false, reason: 'missing_summary' };
@@ -751,6 +763,7 @@ export class GoogleCalendarService {
     const subject = String(subjectEmail || '').trim().toLowerCase();
     const eventId = String(googleEventId || '').trim();
     if (!subject) return { ok: false, reason: 'missing_subject_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!eventId) return { ok: true, skipped: true, reason: 'no_google_event_linked' };
     if (!this.isConfigured()) return { ok: false, reason: 'not_configured' };
 
@@ -807,6 +820,7 @@ export class GoogleCalendarService {
     }
 
     const providerEmail = String(row.provider_email || '').trim().toLowerCase();
+    if (!(await googleScheduleAllowedForEmail(providerEmail))) return GOOGLE_SCHEDULE_DISABLED;
     if (!providerEmail) {
       await pool.execute(
         `UPDATE office_events
@@ -945,6 +959,7 @@ export class GoogleCalendarService {
   }) {
     const subject = String(hostEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_host_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     const attendee = String(attendeeEmail || '').trim().toLowerCase();
     if (!attendee) return { ok: false, reason: 'missing_attendee_email' };
     if (!startAt || !endAt) return { ok: false, reason: 'missing_start_end' };
@@ -1043,6 +1058,7 @@ export class GoogleCalendarService {
   } = {}) {
     const subject = String(hostEmail || '').trim().toLowerCase();
     if (!subject) return { ok: false, reason: 'missing_host_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!startAt || !endAt) return { ok: false, reason: 'missing_start_end' };
 
     const cal = this.buildCalendarClientForSubject(subject);
@@ -1091,6 +1107,7 @@ export class GoogleCalendarService {
     const subject = String(hostEmail || '').trim().toLowerCase();
     const eventId = String(googleEventId || '').trim();
     if (!subject) return { ok: false, reason: 'missing_host_email' };
+    if (!(await googleScheduleAllowedForEmail(subject))) return GOOGLE_SCHEDULE_DISABLED;
     if (!eventId) return { ok: false, reason: 'missing_event_id' };
     const sendUpdatesMode = ['all', 'externalOnly', 'none'].includes(String(sendUpdates || ''))
       ? String(sendUpdates)
@@ -1148,6 +1165,7 @@ export class GoogleCalendarService {
     if (!row) return { ok: false, reason: 'assignment_not_found' };
 
     const providerEmail = String(row.provider_email || '').trim().toLowerCase();
+    if (!(await googleScheduleAllowedForEmail(providerEmail))) return GOOGLE_SCHEDULE_DISABLED;
     if (!providerEmail) {
       await pool.execute(
         `UPDATE company_event_session_providers
@@ -1262,6 +1280,7 @@ export class GoogleCalendarService {
 
     const googleEventId = String(row.google_provider_event_id || '').trim();
     const providerEmail = String(row.google_provider_calendar_id || '').trim().toLowerCase();
+    if (!(await googleScheduleAllowedForEmail(providerEmail))) return GOOGLE_SCHEDULE_DISABLED;
     if (!googleEventId || !providerEmail) {
       await pool.execute(
         `UPDATE company_event_session_providers
@@ -1324,6 +1343,7 @@ export class GoogleCalendarService {
     if (!row) return { ok: false, reason: 'assignment_not_found' };
 
     const providerEmail = String(row.provider_email || '').trim().toLowerCase();
+    if (!(await googleScheduleAllowedForEmail(providerEmail))) return GOOGLE_SCHEDULE_DISABLED;
     if (!providerEmail) {
       await pool.execute(
         `UPDATE skill_builders_event_session_providers
@@ -1406,6 +1426,7 @@ export class GoogleCalendarService {
 
     const googleEventId = String(row.google_provider_event_id || '').trim();
     const providerEmail = String(row.google_provider_calendar_id || '').trim().toLowerCase();
+    if (!(await googleScheduleAllowedForEmail(providerEmail))) return GOOGLE_SCHEDULE_DISABLED;
     if (!googleEventId || !providerEmail) {
       await pool.execute(
         `UPDATE skill_builders_event_session_providers
@@ -1462,6 +1483,7 @@ export class GoogleCalendarService {
 
     const googleEventId = String(row.google_provider_event_id || '').trim();
     const providerEmail = String(row.google_provider_calendar_id || '').trim().toLowerCase();
+    if (!(await googleScheduleAllowedForEmail(providerEmail))) return GOOGLE_SCHEDULE_DISABLED;
     if (!googleEventId || !providerEmail) {
       await pool.execute(
         `UPDATE office_events

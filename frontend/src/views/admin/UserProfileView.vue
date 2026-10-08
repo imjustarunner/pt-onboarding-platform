@@ -40,7 +40,7 @@
               </div>
               <button type="button" class="header-availability-info" @click="showGlobalAvailabilityHint = !showGlobalAvailabilityHint">i</button>
               <div v-if="showGlobalAvailabilityHint" class="header-availability-hint">
-                <strong>Reminder:</strong> Please ensure your schedule is open in Therapy Notes for the times that you are available via “Extra availability”.
+                <strong>Reminder:</strong> Keep your availability up to date in My Schedule.
               </div>
             </div>
             <button v-if="canRepairProviderSlots && isAffiliationTabActive && selectedSchoolAffiliationId" type="button" class="btn btn-secondary btn-sm" :disabled="repairingProviderSlots" @click="repairProviderSlots" title="Recalculate and repair stored slot availability for this affiliation">
@@ -144,7 +144,7 @@
               <span class="slider"></span>
             </div>
             <button type="button" class="header-availability-info" @click="showGlobalAvailabilityHint = !showGlobalAvailabilityHint">i</button>
-            <div v-if="showGlobalAvailabilityHint" class="header-availability-hint"><strong>Reminder:</strong> Please ensure your schedule is open in Therapy Notes for the times that you are available via “Extra availability”.</div>
+            <div v-if="showGlobalAvailabilityHint" class="header-availability-hint"><strong>Reminder:</strong> Keep your availability up to date in My Schedule.</div>
           </div>
           <button v-if="canRepairProviderSlots && isAffiliationTabActive && selectedSchoolAffiliationId" type="button" class="btn btn-secondary btn-sm" :disabled="repairingProviderSlots" @click="repairProviderSlots">{{ repairingProviderSlots ? 'Repairing…' : 'Repair slots' }}</button>
         </div>
@@ -1012,167 +1012,13 @@
             </template>
 
             <template #external-calendars-modal>
-                <div v-if="showExternalCalendarsModal" class="modal-overlay" @click.self="closeExternalCalendarsModal">
-                  <div class="modal-content" style="max-width: 980px;">
-                    <div style="display:flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
-                      <h3 style="margin: 0;">Calendar connections &amp; sharing</h3>
-                      <div style="display:flex; gap: 8px; align-items:center;">
-                        <button type="button" class="btn btn-secondary btn-sm" @click="loadExternalCalendars" :disabled="externalCalendarsSaving">
-                          Refresh
-                        </button>
-                        <button type="button" class="btn btn-secondary btn-sm" @click="closeExternalCalendarsModal">
-                          Close
-                        </button>
-                      </div>
-                    </div>
-                    <CalendarSharing v-if="Number(userId)===Number(authStore.user?.id) && (agencyStore.currentAgency?.id || userAgencies[0]?.id)" :agency-id="agencyStore.currentAgency?.id || userAgencies[0]?.id" />
-                    <p class="hint" style="margin: 8px 0 14px;">
-                      Add one or more named calendars (e.g., “Therapy Notes”). Each calendar can have multiple ICS feed URLs.
-                    </p>
-
-                    <div style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg);">
-                      <div style="font-weight: 900;">Therapy Notes calendar (paste URL only)</div>
-                      <p class="hint" style="margin: 6px 0 10px;">
-                        Paste this user’s personal ICS feed URL from Therapy Notes. You don’t need to create or name a calendar — we save it under this user automatically.
-                      </p>
-                      <div class="muted small" style="margin: -6px 0 10px;">
-                        If Therapy Notes gives you a <strong>webcal://</strong> link, that’s OK — we’ll fetch it as <strong>https://</strong>.
-                      </div>
-                      <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
-                        <div style="flex: 1; min-width: 260px;">
-                          <label class="lbl">ICS URL</label>
-                          <input
-                            class="agency-select"
-                            v-model="ehrIcsUrl"
-                            type="url"
-                            placeholder="https://…/calendar.ics"
-                            :disabled="ehrIcsSaving || externalCalendarsSaving"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          class="btn btn-secondary btn-sm"
-                          @click="saveEhrIcsUrl"
-                          :disabled="ehrIcsSaving || externalCalendarsSaving"
-                        >
-                          {{ ehrIcsSaving ? 'Saving…' : 'Save' }}
-                        </button>
-                      </div>
-                      <div v-if="ehrIcsError" class="error" style="margin-top: 8px;">{{ ehrIcsError }}</div>
-                      <div class="muted small" style="margin-top: 8px;">
-                        Tip: pasting a new URL will automatically make it the only active Therapy Notes feed for this user.
-                      </div>
-                    </div>
-
-                    <div v-if="externalCalendarsError" class="error" style="margin-top: 12px;">{{ externalCalendarsError }}</div>
-                    <div v-if="externalCalendarsLoading" class="muted" style="margin-top: 12px;">Loading external calendars…</div>
-
-                    <div v-else style="margin-top: 12px;">
-                      <div style="display:flex; gap: 8px; align-items: end; flex-wrap: wrap;">
-                        <div style="flex: 1; min-width: 240px;">
-                          <label class="lbl">New calendar label</label>
-                          <input class="agency-select" v-model="newExternalCalendarLabel" placeholder="e.g. Therapy Notes" />
-                        </div>
-                        <button
-                          type="button"
-                          class="btn btn-secondary btn-sm"
-                          @click="createExternalCalendar"
-                          :disabled="externalCalendarsSaving || !newExternalCalendarLabel.trim()"
-                        >
-                          {{ externalCalendarsSaving ? 'Saving…' : 'Create calendar' }}
-                        </button>
-                      </div>
-
-                      <div v-if="externalCalendars.length === 0" class="muted" style="margin-top: 10px;">
-                        No external calendars yet.
-                      </div>
-
-                      <div v-else style="margin-top: 10px; display:flex; flex-direction: column; gap: 10px;">
-                        <div v-for="c in externalCalendars" :key="`ec-${c.id}`" style="border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg-alt);">
-                          <div style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
-                            <div style="display:flex; align-items: end; gap: 8px; flex-wrap: wrap;">
-                              <div style="min-width: 240px;">
-                                <label class="lbl">Calendar label</label>
-                                <input
-                                  class="agency-select"
-                                  :value="editExternalCalendarLabelById[c.id] ?? c.label"
-                                  :disabled="externalCalendarsSaving"
-                                  @input="editExternalCalendarLabelById = { ...(editExternalCalendarLabelById || {}), [c.id]: $event.target.value }"
-                                />
-                              </div>
-                              <button
-                                type="button"
-                                class="btn btn-secondary btn-sm"
-                                :disabled="externalCalendarsSaving"
-                                @click="saveExternalCalendarLabel(c)"
-                              >
-                                Save label
-                              </button>
-                            </div>
-                            <label class="toggle-label" style="margin:0;">
-                              <span style="font-size: 12px;">Active</span>
-                              <div class="toggle-switch">
-                                <input
-                                  type="checkbox"
-                                  :checked="!!c.isActive"
-                                  :disabled="externalCalendarsSaving"
-                                  @change="toggleExternalCalendar(c, $event.target.checked)"
-                                />
-                                <span class="slider"></span>
-                              </div>
-                            </label>
-                          </div>
-
-                          <div class="muted" style="margin-top: 6px;">Feeds</div>
-                          <div v-if="(c.feeds || []).length === 0" class="muted" style="margin-top: 4px;">No feeds yet.</div>
-                          <div v-else style="margin-top: 6px; display:flex; flex-direction: column; gap: 6px;">
-                            <div
-                              v-for="f in c.feeds"
-                              :key="`ecf-${f.id}`"
-                              style="display:flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;"
-                            >
-                              <div class="muted" style="max-width: 100%; overflow: hidden; text-overflow: ellipsis;">
-                                {{ f.icsUrl }}
-                              </div>
-                              <label class="toggle-label" style="margin:0;">
-                                <span style="font-size: 12px;">Active</span>
-                                <div class="toggle-switch">
-                                  <input
-                                    type="checkbox"
-                                    :checked="!!f.isActive"
-                                    :disabled="externalCalendarsSaving"
-                                    @change="toggleExternalFeed(c, f, $event.target.checked)"
-                                  />
-                                  <span class="slider"></span>
-                                </div>
-                              </label>
-                            </div>
-                          </div>
-
-                          <div style="display:flex; gap: 8px; align-items: end; margin-top: 10px; flex-wrap: wrap;">
-                            <div style="flex: 1; min-width: 260px;">
-                              <label class="lbl">Add ICS URL</label>
-                              <input
-                                class="agency-select"
-                                v-model="newExternalFeedUrlByCalendarId[c.id]"
-                                placeholder="https://…/calendar.ics"
-                                :disabled="externalCalendarsSaving"
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              class="btn btn-secondary btn-sm"
-                              @click="addExternalFeed(c)"
-                              :disabled="externalCalendarsSaving || !String(newExternalFeedUrlByCalendarId[c.id] || '').trim()"
-                            >
-                              Add feed
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+              <div v-if="showExternalCalendarsModal" class="modal-overlay" @click.self="closeExternalCalendarsModal">
+                <div class="modal-content" style="max-width: 980px;">
+                  <button type="button" class="btn btn-secondary btn-sm" @click="closeExternalCalendarsModal">Close</button>
+                  <CalendarSharing v-if="Number(userId)===Number(authStore.user?.id) && (agencyStore.currentAgency?.id || userAgencies[0]?.id)" :agency-id="agencyStore.currentAgency?.id || userAgencies[0]?.id" />
+                  <p v-else>Each person can create a private subscription link from their own My Schedule page.</p>
                 </div>
+              </div>
             </template>
           </UserAccountDashboard>
         </div>
@@ -4333,249 +4179,9 @@ const canToggleGlobalAvailability = computed(() => {
   return isAdminLike || isSelf;
 });
 
-const canEditExternalBusyIcsUrl = computed(() => {
-  const r = String(authStore.user?.role || '').toLowerCase();
-  return r === 'admin' || r === 'super_admin';
-});
-
-const ehrIcsUrl = ref('');
-const ehrIcsSaving = ref(false);
-const ehrIcsError = ref('');
-
-const externalCalendarsLoading = ref(false);
-const externalCalendarsError = ref('');
-const externalCalendarsSaving = ref(false);
-const externalCalendars = ref([]);
-const newExternalCalendarLabel = ref('');
-const newExternalFeedUrlByCalendarId = ref({});
-const editExternalCalendarLabelById = ref({});
 const showExternalCalendarsModal = ref(false);
-
-const THERAPY_NOTES_DEFAULT_CALENDAR_LABEL = 'Therapy Notes';
-
-const therapyNotesCalendar = computed(() => {
-  const list = Array.isArray(externalCalendars.value) ? externalCalendars.value : [];
-  return list.find((c) => String(c?.label || '').trim().toLowerCase() === THERAPY_NOTES_DEFAULT_CALENDAR_LABEL.toLowerCase()) || null;
-});
-
-const syncEhrIcsFromCalendars = () => {
-  const cal = therapyNotesCalendar.value;
-  if (!cal) {
-    ehrIcsUrl.value = '';
-    return;
-  }
-  const feeds = Array.isArray(cal.feeds) ? cal.feeds : [];
-  const activeFeed = feeds.find((f) => !!f?.isActive) || feeds[0] || null;
-  ehrIcsUrl.value = String(activeFeed?.icsUrl || '').trim();
-};
-
-const loadExternalCalendars = async () => {
-  if (!canEditExternalBusyIcsUrl.value) return;
-  try {
-    externalCalendarsLoading.value = true;
-    externalCalendarsError.value = '';
-    const r = await api.get(`/users/${userId.value}/external-calendars`);
-    externalCalendars.value = Array.isArray(r.data?.calendars) ? r.data.calendars : [];
-    // Keep the simple Therapy Notes ICS field in sync with loaded calendars.
-    if (!ehrIcsSaving.value) syncEhrIcsFromCalendars();
-  } catch (e) {
-    externalCalendars.value = [];
-    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to load external calendars';
-    if (!ehrIcsSaving.value) ehrIcsUrl.value = '';
-  } finally {
-    externalCalendarsLoading.value = false;
-  }
-};
-
-const openExternalCalendarsModal = async () => {
-  showExternalCalendarsModal.value = true;
-  // Load calendars (if allowed). Keeps modal content fresh.
-  try {
-    await loadExternalCalendars();
-  } catch {
-    // loadExternalCalendars already sets an error message
-  }
-};
-
-const closeExternalCalendarsModal = () => {
-  showExternalCalendarsModal.value = false;
-};
-
-const saveEhrIcsUrl = async () => {
-  if (!canEditExternalBusyIcsUrl.value) return;
-  const url = String(ehrIcsUrl.value || '').trim();
-  try {
-    ehrIcsSaving.value = true;
-    ehrIcsError.value = '';
-
-    // Ensure calendars are loaded so we can find existing Therapy Notes feed(s).
-    if (!externalCalendarsLoading.value && (!Array.isArray(externalCalendars.value) || externalCalendars.value.length === 0)) {
-      await loadExternalCalendars();
-    }
-
-    let cal = therapyNotesCalendar.value;
-    let calendarId = Number(cal?.id || 0);
-
-    if (!calendarId && url) {
-      const created = await api.post(`/users/${userId.value}/external-calendars`, { label: THERAPY_NOTES_DEFAULT_CALENDAR_LABEL });
-      calendarId = Number(created.data?.calendar?.id || 0);
-      await loadExternalCalendars();
-      cal = therapyNotesCalendar.value;
-      calendarId = Number(cal?.id || calendarId || 0);
-    }
-
-    if (!calendarId) {
-      // Nothing to do (e.g. blank URL and no calendar exists)
-      return;
-    }
-
-    // Always keep the calendar active if a URL is provided.
-    if (url) {
-      await api.patch(`/users/${userId.value}/external-calendars/${calendarId}`, { isActive: true });
-    }
-
-    const feeds = Array.isArray(cal?.feeds) ? cal.feeds : [];
-
-    if (!url) {
-      // Blank URL means disable all feeds for the Therapy Notes calendar.
-      for (const f of feeds) {
-        const feedId = Number(f?.id || 0);
-        if (!feedId) continue;
-        if (f?.isActive) {
-          await api.patch(`/users/${userId.value}/external-calendars/${calendarId}/feeds/${feedId}`, { isActive: false });
-        }
-      }
-      await loadExternalCalendars();
-      return;
-    }
-
-    // If this exact URL already exists, enable it and disable others.
-    const existingSame = feeds.find((f) => String(f?.icsUrl || '').trim() === url) || null;
-    if (existingSame?.id) {
-      const keepId = Number(existingSame.id);
-      if (!existingSame.isActive) {
-        await api.patch(`/users/${userId.value}/external-calendars/${calendarId}/feeds/${keepId}`, { isActive: true });
-      }
-      for (const f of feeds) {
-        const feedId = Number(f?.id || 0);
-        if (!feedId || feedId === keepId) continue;
-        if (f?.isActive) {
-          await api.patch(`/users/${userId.value}/external-calendars/${calendarId}/feeds/${feedId}`, { isActive: false });
-        }
-      }
-      await loadExternalCalendars();
-      return;
-    }
-
-    // Otherwise create a new feed for this URL, then disable all others.
-    const added = await api.post(`/users/${userId.value}/external-calendars/${calendarId}/feeds`, { icsUrl: url });
-    const newFeedId = Number(added.data?.feed?.id || 0);
-
-    // Refresh so we have the latest feed list, then deactivate all but the new one.
-    await loadExternalCalendars();
-    const nextCal = therapyNotesCalendar.value;
-    const nextFeeds = Array.isArray(nextCal?.feeds) ? nextCal.feeds : [];
-    for (const f of nextFeeds) {
-      const feedId = Number(f?.id || 0);
-      if (!feedId || (newFeedId && feedId === newFeedId)) continue;
-      if (f?.isActive) {
-        await api.patch(`/users/${userId.value}/external-calendars/${calendarId}/feeds/${feedId}`, { isActive: false });
-      }
-    }
-    await loadExternalCalendars();
-  } catch (e) {
-    ehrIcsError.value = e.response?.data?.error?.message || 'Failed to save ICS URL';
-  } finally {
-    ehrIcsSaving.value = false;
-  }
-};
-
-const createExternalCalendar = async () => {
-  if (!canEditExternalBusyIcsUrl.value) return;
-  const label = String(newExternalCalendarLabel.value || '').trim();
-  if (!label) return;
-  try {
-    externalCalendarsSaving.value = true;
-    externalCalendarsError.value = '';
-    await api.post(`/users/${userId.value}/external-calendars`, { label });
-    newExternalCalendarLabel.value = '';
-    await loadExternalCalendars();
-  } catch (e) {
-    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to create calendar';
-  } finally {
-    externalCalendarsSaving.value = false;
-  }
-};
-
-const addExternalFeed = async (calendar) => {
-  if (!canEditExternalBusyIcsUrl.value) return;
-  const calendarId = Number(calendar?.id || 0);
-  if (!calendarId) return;
-  const url = String(newExternalFeedUrlByCalendarId.value?.[calendarId] || '').trim();
-  if (!url) return;
-  try {
-    externalCalendarsSaving.value = true;
-    externalCalendarsError.value = '';
-    await api.post(`/users/${userId.value}/external-calendars/${calendarId}/feeds`, { icsUrl: url });
-    newExternalFeedUrlByCalendarId.value = { ...(newExternalFeedUrlByCalendarId.value || {}), [calendarId]: '' };
-    await loadExternalCalendars();
-  } catch (e) {
-    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to add feed';
-  } finally {
-    externalCalendarsSaving.value = false;
-  }
-};
-
-const toggleExternalCalendar = async (calendar, enabled) => {
-  if (!canEditExternalBusyIcsUrl.value) return;
-  const calendarId = Number(calendar?.id || 0);
-  if (!calendarId) return;
-  try {
-    externalCalendarsSaving.value = true;
-    externalCalendarsError.value = '';
-    await api.patch(`/users/${userId.value}/external-calendars/${calendarId}`, { isActive: !!enabled });
-    await loadExternalCalendars();
-  } catch (e) {
-    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to update calendar';
-  } finally {
-    externalCalendarsSaving.value = false;
-  }
-};
-
-const saveExternalCalendarLabel = async (calendar) => {
-  if (!canEditExternalBusyIcsUrl.value) return;
-  const calendarId = Number(calendar?.id || 0);
-  if (!calendarId) return;
-  const label = String(editExternalCalendarLabelById.value?.[calendarId] ?? calendar?.label ?? '').trim();
-  if (!label) return;
-  try {
-    externalCalendarsSaving.value = true;
-    externalCalendarsError.value = '';
-    await api.patch(`/users/${userId.value}/external-calendars/${calendarId}`, { label });
-    await loadExternalCalendars();
-  } catch (e) {
-    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to update calendar label';
-  } finally {
-    externalCalendarsSaving.value = false;
-  }
-};
-
-const toggleExternalFeed = async (calendar, feed, enabled) => {
-  if (!canEditExternalBusyIcsUrl.value) return;
-  const calendarId = Number(calendar?.id || 0);
-  const feedId = Number(feed?.id || 0);
-  if (!calendarId || !feedId) return;
-  try {
-    externalCalendarsSaving.value = true;
-    externalCalendarsError.value = '';
-    await api.patch(`/users/${userId.value}/external-calendars/${calendarId}/feeds/${feedId}`, { isActive: !!enabled });
-    await loadExternalCalendars();
-  } catch (e) {
-    externalCalendarsError.value = e.response?.data?.error?.message || 'Failed to update feed';
-  } finally {
-    externalCalendarsSaving.value = false;
-  }
-};
+const openExternalCalendarsModal = () => { showExternalCalendarsModal.value = true; };
+const closeExternalCalendarsModal = () => { showExternalCalendarsModal.value = false; };
 
 const saveGlobalAvailability = async () => {
   try {
@@ -5917,7 +5523,6 @@ const fetchUser = async () => {
         fetchAccountInfo(),
         fetchProviderCredential(),
         fetchLicenseCredentialSummary(),
-        loadExternalCalendars(),
         loadOfficeAssignments(),
         loadLeaveOfAbsence(),
         fetchAssignedTextingNumbers(),
@@ -7122,11 +6727,6 @@ const saveAccount = async (options = {}) => {
       payloadToSave.hasSkillBuilderCoordinatorAccess = Boolean(accountForm.value.hasSkillBuilderCoordinatorAccess);
     }
 
-    // External busy ICS URL: admins/super admins only
-    if (canEditExternalBusyIcsUrl.value && !isSscMemberProfileMode.value) {
-      payloadToSave.externalBusyIcsUrl = String(accountForm.value.externalBusyIcsUrl || '').trim() || null;
-    }
-    
     // Include supervisor privileges if user has eligible role
     // Always include it if the toggle is visible (even if false) to ensure it's saved
     if (canToggleSupervisorPrivileges.value && !isSscMemberProfileMode.value) {

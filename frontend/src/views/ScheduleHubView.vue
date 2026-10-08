@@ -1118,7 +1118,7 @@ const allSections = computed(() => [
         id: 'office',
         title: 'Approve office requests',
         shortDesc: 'Office requests and TN conflicts.',
-        desc: 'Dedicated inbox for office requests and reported Therapy Notes coverage conflicts.',
+        desc: 'Dedicated inbox for office requests and reported booking conflicts.',
         cta: officePending.value > 0 ? `Review ${officePending.value} →` : 'Open →',
         to: officeApprovalsTo.value,
         tone: 'orange',

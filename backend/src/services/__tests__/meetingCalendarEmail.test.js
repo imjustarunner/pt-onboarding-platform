@@ -1,3 +1,4 @@
+vi.mock('../scheduleCalendarPolicy.service.js',()=>({googleScheduleAllowedForEmail:vi.fn(async()=>true),GOOGLE_SCHEDULE_DISABLED:{skipped:true}}));
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 vi.mock('../googleMeetTranscript.service.js',()=>({ensureMeetAutoTranscriptionEnabled:vi.fn()}));

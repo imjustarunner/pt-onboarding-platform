@@ -1,3 +1,5 @@
+vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn(async id=>({id}))}}));
+vi.mock('../scheduleCalendarPolicy.service.js',()=>({usesGoogleSchedule:vi.fn(async()=>true)}));
 import {describe,it,expect,vi,beforeEach} from 'vitest';
 import {calendarWindow,workTitle,renderCalendar,googleEventBody} from '../calendarPublicationPolicy.js';
 const mocks=vi.hoisted(()=>({execute:vi.fn(),household:vi.fn(),benefit:vi.fn(),familyEvents:vi.fn(),workEvents:vi.fn()}));
@@ -29,4 +31,21 @@ describe('private subscriptions',()=>{
  it('revokes an existing link without deleting app events',async()=>{mocks.execute.mockResolvedValue([[{id:7}]]);await revokeSubscription({userId:501,agencyId:1},1);expect(mocks.execute).toHaveBeenCalledWith('UPDATE calendar_publications SET token_hash=NULL WHERE id=?',[7]);});
  it('does not reveal feed hashes or owner credentials in settings',async()=>{mocks.execute.mockImplementation(async sql=>sql.startsWith('SELECT *')?[[{id:7,token_hash:'secret',google_subject:'automation@example.com'}]]:[[]]);const status=await publicationStatus({userId:501,agencyId:1},1);expect(JSON.stringify(status)).not.toMatch(/secret|automation/);});
  it('requires active agency membership independent of SSO',async()=>{mocks.execute.mockResolvedValue([[]]);await expect(assertWorkCalendar(1,2)).rejects.toMatchObject({status:403});expect(mocks.execute.mock.calls[0][0]).toContain('ua.is_active=1');});
+});
+
+describe('personal subscription content boundaries',()=>{
+ it('reduces accidental names and mixed-case client codes to initials',()=>{
+   for(const [value,want] of [['Anna','A'],['Michael Mendez','M.M'],['TaRo','T.R'],['A.B.','A.B.']]) {
+     expect(workTitle({kind:'SESSION',client_id:3,client_initials:value})).toBe(`Session · ${want}`);
+   }
+ });
+ it('exports private holds as Busy and marks calendar entries private',()=>{
+   expect(workTitle({kind:'SCHEDULE_HOLD',title:'Medical appointment'})).toBe('Busy');
+   expect(renderCalendar('Work',[event])).toContain('CLASS:PRIVATE');
+ });
+});
+
+it('redacts bearer subscription URLs in application request logs',async()=>{
+ const {redactPrivateBillingUrl}=await import('../../utils/sanitizeRequest.js');
+ expect(redactPrivateBillingUrl('/api/calendar-sharing/feed/SECRET.ics?download=1')).toBe('/api/calendar-sharing/feed/[REDACTED]?download=1');
 });

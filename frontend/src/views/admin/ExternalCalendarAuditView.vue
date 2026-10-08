@@ -4,7 +4,7 @@
       <div>
         <h1>Agency Calendar</h1>
         <p class="subtitle">
-          Review provider schedules with Google busy and external calendar (ICS) overlays.
+          Review provider schedules with Google busy overlays for SSO accounts.
         </p>
       </div>
       <div class="header-actions">
@@ -33,7 +33,7 @@
 
         <div class="group-save">
           <label class="lbl" style="margin-top: 10px;">Save current selection</label>
-          <input v-model="newGroupLabel" class="input" type="text" placeholder="e.g. Therapy Notes (Team A)" />
+          <input v-model="newGroupLabel" class="input" type="text" placeholder="e.g. Team A" />
           <div class="group-save-actions">
             <button class="btn btn-primary btn-sm" type="button" @click="saveGroup" :disabled="!canSaveGroup">
               Save group

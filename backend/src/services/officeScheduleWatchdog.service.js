@@ -6,12 +6,6 @@ import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js'
 import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import GoogleCalendarService from './googleCalendar.service.js';
-import {
-  refreshAllLocationsFromEhr,
-  auditIcsCoverageAllLocations,
-  ehrSyncAlreadyRanToday,
-  downgradeBookedWithoutExternalOverlap
-} from './officeScheduleEhrSync.service.js';
 import { retryFailedProviderAssignmentGoogleSync } from './providerAssignmentGoogleSync.service.js';
 import { deactivateStaleStandingAssignments } from './officeStandingAssignmentMaintenance.service.js';
 

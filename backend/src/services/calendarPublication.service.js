@@ -1,3 +1,5 @@
+import User from '../models/User.model.js';
+import { usesGoogleSchedule } from './scheduleCalendarPolicy.service.js';
 import crypto from 'crypto';
 import { google } from 'googleapis';
 import pool from '../config/database.js';
@@ -13,6 +15,7 @@ export async function assertWorkCalendar(userId,agencyId) {
   const [rows]=await pool.execute(`SELECT u.id,u.email,u.first_name,u.last_name,a.name AS agency_name FROM users u
     JOIN user_agencies ua ON ua.user_id=u.id JOIN agencies a ON a.id=ua.agency_id
     WHERE u.id=? AND ua.agency_id=? AND ua.is_active=1 AND a.is_active=1
+    AND COALESCE(u.is_active,1)=1
     AND UPPER(COALESCE(u.status,'')) NOT IN ('INACTIVE','INACTIVE_EMPLOYEE','ARCHIVED','TERMINATED','DELETED')`,[userId,agencyId]);
   if(!rows.length)throw familyError('This account no longer has access to this agency calendar.',403);
   return rows[0];
@@ -28,10 +31,21 @@ async function publication(session,id,create=false){
   if(create)await pool.execute(`INSERT INTO calendar_publications (scope_key,agency_id,user_id,household_id,calendar_kind) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE scope_key=VALUES(scope_key)`,[key,session.agencyId,session.userId,id || null,id?'family':'work']);
   const [rows]=await pool.execute('SELECT * FROM calendar_publications WHERE scope_key=?',[key]);return rows[0] || null;
 }
+async function googleSharingEnabled(session, id) {
+  // Family calendar sharing is independent of the work schedule integration.
+  return !!id || usesGoogleSchedule(await User.findById(session.userId));
+}
+async function assertGoogleSharing(session, id) {
+  if (!(await googleSharingEnabled(session, id))) {
+    throw familyError('Use your private calendar subscription in My Schedule. Google integration is available only for SSO accounts.', 403);
+  }
+}
 export async function publicationStatus(session,id){
-  const p=await publication(session,id);if(!p)return {enabled:false,readers:[]};
+  const p=await publication(session,id);
+  const googleEnabled=await googleSharingEnabled(session,id);
+  if(!p)return {enabled:false,googleEnabled,readers:[]};
   const [readers]=await pool.execute('SELECT email,managed_member FROM calendar_publication_readers WHERE publication_id=? ORDER BY email',[p.id]);
-  return {enabled:true,hasSubscription:!!p.token_hash,details:p.detail_mode==='details',googleCalendarId:p.google_calendar_id,googleName:p.google_name,
+  return {enabled:true,googleEnabled,hasSubscription:!!p.token_hash,details:p.detail_mode==='details',googleCalendarId:p.google_calendar_id,googleName:p.google_name,
     googleAddUrl:p.google_calendar_id?`https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(p.google_calendar_id)}`:null,
     lastSyncedAt:p.last_synced_at,lastError:p.last_error,readers};
 }
@@ -120,6 +134,7 @@ async function syncUnlocked(p){
   await pool.execute('UPDATE calendar_publications SET last_synced_at=NOW(),last_error=NULL WHERE id=?',[p.id]);
 }
 export async function createGooglePublication(session,id){
+  await assertGoogleSharing(session,id);
   const initial=await publication(session,id,true);
   await locked(initial.id,async()=>{
     const p=await publication(session,id);if(!p.google_calendar_id){
@@ -139,9 +154,10 @@ export async function createGooglePublication(session,id){
   setTimeout(()=>syncDueCalendarPublications().catch(()=>{}),100).unref?.();
   return publicationStatus(session,id);
 }
-export async function syncGooglePublication(session,id){const p=await publication(session,id);if(!p?.google_calendar_id)throw familyError('Create your shared calendar first.');await locked(p.id,()=>syncUnlocked(p));return publicationStatus(session,id);}
+export async function syncGooglePublication(session,id){await assertGoogleSharing(session,id);const p=await publication(session,id);if(!p?.google_calendar_id)throw familyError('Create your shared calendar first.');await locked(p.id,()=>syncUnlocked(p));return publicationStatus(session,id);}
 export async function setPublicationDetails(session,id,details){const p=await publication(session,id,true);if(!id&&details)throw familyError('Work calendars always use limited details.');await pool.execute('UPDATE calendar_publications SET detail_mode=? WHERE id=?',[details?'details':'limited',p.id]);if(p.google_calendar_id)await syncGooglePublication(session,id);return publicationStatus(session,id);}
 export async function addPublicationReader(session,id,email){
+  await assertGoogleSharing(session,id);
   const p=await publication(session,id);if(!p?.google_calendar_id)throw familyError('Create your shared calendar first.');
   email=String(email || '').trim().toLowerCase();if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>254)throw familyError('Enter a valid email address.');
   return locked(p.id,async()=>{const [count]=await pool.execute('SELECT COUNT(*) n FROM calendar_publication_readers WHERE publication_id=?',[p.id]);if(count[0].n>=30)throw familyError('This calendar already has 30 readers.');await pool.execute('INSERT IGNORE INTO calendar_publication_readers (publication_id,email) VALUES (?,?)',[p.id,email]);await reconcileReaders(p,await googleClient(p.google_subject));return publicationStatus(session,id);});
@@ -153,13 +169,18 @@ async function deleteMirror(p){
   if(p.google_calendar_id)try{await(await googleClient(p.google_subject)).calendars.delete({calendarId:p.google_calendar_id});}catch(e){if(![404,410].includes(Number(e.code)))throw e;}
   await pool.execute('DELETE FROM calendar_publication_events WHERE publication_id=?',[p.id]);
   await pool.execute('DELETE FROM calendar_publication_readers WHERE publication_id=?',[p.id]);
-  await pool.execute('UPDATE calendar_publications SET google_calendar_id=NULL,google_subject=NULL,google_name=NULL,last_synced_at=NULL WHERE id=?',[p.id]);
+  await pool.execute('UPDATE calendar_publications SET google_calendar_id=NULL,google_subject=NULL,google_name=NULL,last_synced_at=NULL,last_error=NULL WHERE id=?',[p.id]);
 }
 export async function deleteGooglePublication(session,id){const p=await publication(session,id);if(p)await locked(p.id,()=>deleteMirror(p));}
 export async function syncDueCalendarPublications(){
   const [rows]=await pool.execute(`SELECT * FROM calendar_publications WHERE google_calendar_id IS NOT NULL AND (last_synced_at IS NULL OR last_synced_at<DATE_SUB(NOW(),INTERVAL 4 MINUTE)) ORDER BY COALESCE(last_synced_at,created_at) LIMIT 30`);
   for(const p of rows)try{await locked(p.id,async()=>{
     try{await authorizePublication({userId:p.user_id,agencyId:p.agency_id},p.household_id);}catch(e){if(e.status===403 || e.status===404){await deleteMirror(p);await pool.execute('UPDATE calendar_publications SET token_hash=NULL WHERE id=?',[p.id]);return;}throw e;}
+    if (!(await googleSharingEnabled({userId:p.user_id,agencyId:p.agency_id},p.household_id))) {
+      // Remove only the app-managed mirror; retain private subscription access.
+      await deleteMirror(p);
+      return;
+    }
     await syncUnlocked(p);
   });}catch(e){if(e.status===409)continue;await pool.execute('UPDATE calendar_publications SET last_error=? WHERE id=?',['Calendar sync failed. Check sharing permissions and try Sync now.',p.id]);console.warn('[Calendar sharing] Sync failed',p.id,e.code || e.status || 'unknown');}
 }

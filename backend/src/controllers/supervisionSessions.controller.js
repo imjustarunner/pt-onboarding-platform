@@ -3919,7 +3919,7 @@ export const createSupervisionSession = async (req, res, next) => {
         status: 'SYNCED',
         errorMessage: null
       });
-    } else {
+    } else if (!sync?.skipped) {
       await SupervisionSession.setGoogleSync(created.id, {
         hostEmail,
         calendarId: 'primary',
@@ -4208,7 +4208,7 @@ export const patchSupervisionSession = async (req, res, next) => {
           status: 'SYNCED',
           errorMessage: null
         });
-      } else {
+      } else if (!sync?.skipped) {
         // eslint-disable-next-line no-await-in-loop
         await SupervisionSession.setGoogleSync(occId, {
           hostEmail,

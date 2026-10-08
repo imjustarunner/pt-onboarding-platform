@@ -8,6 +8,15 @@
     :style="scheduleWrapVars"
     data-tour="my-schedule-grid"
   >
+    <details v-if="Number(userId) === Number(authStore.user?.id) && effectiveAgencyIds.length" class="sched-subscription" data-tour="my-schedule-subscription" @toggle="subscriptionOpen = $event.target.open">
+      <summary>Add my schedule to a personal calendar</summary>
+      <template v-if="subscriptionOpen">
+        <div v-for="id in effectiveAgencyIds" :key="id">
+          <h3 v-if="effectiveAgencyIds.length > 1">{{ agencyLabel(id) }}</h3>
+          <CalendarSharing :agency-id="id" />
+        </div>
+      </template>
+    </details>
     <AppointmentWaiverReviewQueue :agency-ids="effectiveAgencyIds" @reviewed="onAppointmentWaiverReviewed" />
     <div class="sched-toolbar" data-tour="my-schedule-toolbar">
       <label v-if="familyScheduleEnabled && Number(userId) === Number(authStore.user?.id)" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px">
@@ -505,10 +514,10 @@
         </div>
 
         <div
-          v-if="!hideOfficeAndCalendarIntegration"
+          v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled"
           id="sched-settings-feeds"
           class="sched-tool-cluster"
-          title="Google / Therapy Notes for this calendar only. Peer ICS overlays come with Peers (busy)."
+          title="Google Calendar for this SSO account."
         >
           <span class="sched-tool-cluster__label">My calendars</span>
           <button
@@ -538,24 +547,12 @@
             Google titles
           </button>
           <button
-            type="button"
-            class="sched-pill"
-            :class="{ on: showExternalBusy }"
-            role="switch"
-            :aria-checked="String(!!showExternalBusy)"
-            :disabled="loading || !externalCalendarsAvailable.length"
-            @click="toggleExternalBusy"
-            title="Show Therapy Notes / ICS busy for this calendar. Peer Therapy Notes overlays are included when Peers (busy) is on — no need to enable this for peers."
-          >
-            Therapy Notes
-          </button>
-          <button
             v-if="!calendarsHidden"
             class="sched-pill"
             type="button"
             :disabled="loading"
             @click="hideAllCalendars"
-            title="Temporarily hide Google and Therapy Notes overlays so your platform events stand out."
+            title="Temporarily hide Google overlays so your platform events stand out."
             data-tour="my-schedule-hide-calendars"
           >
             Hide
@@ -566,7 +563,7 @@
             type="button"
             :disabled="loading"
             @click="showAllCalendars"
-            title="Restore Google / Therapy Notes overlays to your last settings."
+            title="Restore Google overlays to your last settings."
             data-tour="my-schedule-show-calendars"
           >
             Show
@@ -693,20 +690,6 @@
               Events / Classes / Programs
             </button>
             <button
-              v-if="!hideOfficeAndCalendarIntegration && externalCalendarsAvailable.length"
-              type="button"
-              class="sched-pill"
-              :class="{ on: !hideExternalIcsTitles }"
-              role="switch"
-              :aria-checked="String(!hideExternalIcsTitles)"
-              :disabled="loading || !showExternalBusy"
-              title="When on, show ICS event titles on Therapy Notes busy blocks (if the feed includes titles)"
-              @click="hideExternalIcsTitles = !hideExternalIcsTitles"
-              data-tour="my-schedule-ehr-titles-toggle"
-            >
-              Therapy Notes titles
-            </button>
-            <button
               v-if="!hideOfficeAndCalendarIntegration && isOfficeScopeSpecific"
               type="button"
               class="sched-pill"
@@ -723,40 +706,6 @@
           </div>
 
           <div class="sched-toolbar-secondary">
-            <div v-if="!hideOfficeAndCalendarIntegration" class="sched-calendars" data-tour="my-schedule-ehr-calendars">
-              <div class="sched-calendars-label" title="Which Therapy Notes / ICS feeds contribute busy blocks">Therapy Notes calendars</div>
-              <div class="sched-calendars-actions">
-                <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" title="Include all connected Therapy Notes calendars" @click="selectAllExternalCalendars">All</button>
-                <button type="button" class="sched-chip" :disabled="loading || !externalCalendarsAvailable.length" title="Clear all Therapy Notes calendar selections" @click="clearExternalCalendars">None</button>
-                <button
-                  v-if="showExternalBusy && externalCalendarsAvailable.length"
-                  type="button"
-                  class="sched-chip"
-                  :class="{ on: hideExternalIcsTitles }"
-                  :disabled="loading"
-                  title="Hide event titles from ICS feeds (busy times stay visible)"
-                  @click="hideExternalIcsTitles = !hideExternalIcsTitles"
-                >
-                  {{ hideExternalIcsTitles ? 'ICS titles off' : 'ICS titles on' }}
-                </button>
-              </div>
-              <button
-                v-for="c in externalCalendarsAvailable"
-                :key="`cal-${c.id}`"
-                type="button"
-                class="sched-chip"
-                :class="{ on: selectedExternalCalendarIds.includes(Number(c.id)) }"
-                :disabled="loading || !showExternalBusy"
-                :title="`Toggle busy overlay for “${c.label}”`"
-                @click="toggleExternalCalendar(Number(c.id))"
-              >
-                {{ c.label }}
-              </button>
-              <div v-if="!externalCalendarsAvailable.length" class="muted" style="font-size: 12px;">
-                No Therapy Notes calendars connected for this provider.
-              </div>
-            </div>
-
             <div v-if="agencyFilterOptions.length" class="sched-org-filters">
               <div class="sched-calendars-label" title="Focus the calendar on one organization, or show all">Organization</div>
               <select
@@ -862,9 +811,8 @@
                 <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-ip sched-legend-dot--ring" aria-hidden="true"></span> In-person intake</span>
                 <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--intake-vi sched-legend-dot--ring" aria-hidden="true"></span> Virtual intake</span>
                 <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--portal sched-legend-dot--ring" aria-hidden="true"></span> Open for new clients</span>
-                <span v-if="showGoogleBusy" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gbusy" aria-hidden="true"></span> Google busy</span>
-                <span v-if="showGoogleEvents" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gevt" aria-hidden="true"></span> Google event</span>
-                <span v-if="showExternalBusy && selectedExternalCalendarIds.length" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--ebusy" aria-hidden="true"></span> Therapy Notes busy</span>
+                <span v-if="googleCalendarEnabled && showGoogleBusy" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gbusy" aria-hidden="true"></span> Google busy</span>
+                <span v-if="googleCalendarEnabled && showGoogleEvents" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--gevt" aria-hidden="true"></span> Google event</span>
                 <span v-if="showPeerBusyOverlay" class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--peerbusy" aria-hidden="true"></span> Peer activity (color = person)</span>
                 <span class="sched-legend-chip"><span class="sched-legend-dot sched-legend-dot--agency" aria-hidden="true"></span> Agency</span>
               </template>
@@ -1010,7 +958,7 @@
     <!-- Open finder view (existing personal grid) -->
     <template v-else>
       <div v-if="error" class="error" style="margin-top: 10px;">{{ error }}</div>
-      <div v-if="!hideOfficeAndCalendarIntegration && googleBusyDisabledHint" class="hint" style="margin-top: 10px;">
+      <div v-if="!hideOfficeAndCalendarIntegration && googleCalendarEnabled && googleBusyDisabledHint" class="hint" style="margin-top: 10px;">
         {{ googleBusyDisabledHint }}
       </div>
       <div
@@ -1021,7 +969,7 @@
         <div class="peer-busy-panel__head">
           <strong>Peers</strong>
           <span class="muted" style="font-size: 12px;">
-            {{ peerBusySelectedIds.length }} selected · overlays their sessions, office, Google busy, and Therapy Notes ICS on your grid.
+            {{ peerBusySelectedIds.length }} selected · overlays their sessions, office bookings, and available SSO Google busy times on your grid.
             {{ canManagePeerCalendar ? 'Click a peer block to inspect or manage their calendar.' : 'For side-by-side compare, use Staff schedules.' }}
           </span>
         </div>
@@ -3910,7 +3858,7 @@
             <div v-if="scheduleVideoConfigured && linkMeetingPlatformVideo" class="muted nr-help" style="margin-top: 6px;">
               Creates an in-app video room for this meeting. The join link is added to the calendar invite.
             </div>
-            <label v-if="!scheduleVideoConfigured || !linkMeetingPlatformVideo" class="sched-toggle" style="margin-top: 8px;">
+            <label v-if="googleCalendarEnabled && (!scheduleVideoConfigured || !linkMeetingPlatformVideo)" class="sched-toggle" style="margin-top: 8px;">
               <input type="checkbox" v-model="createMeetingMeetLink" />
               <span>Create Google Meet link</span>
             </label>
@@ -4062,7 +4010,7 @@
 
           <div v-if="isScheduleEventRequestType" style="margin-top: 10px;">
             <div class="modern-help">
-              Creates a calendar event for this provider. It appears in Google titles when enabled.
+              Creates an event in this provider’s schedule and private calendar subscription.
             </div>
 
             <div v-if="requestType === 'personal_event'" style="margin-top: 10px;">
@@ -5828,6 +5776,7 @@
 </template>
 
 <script setup>
+import CalendarSharing from '../CalendarSharing.vue';
 import ClinicalWorkspaceFrame from '../clinicalWorkspace/ClinicalWorkspaceFrame.vue';
 import { virtualPublicationRanges, virtualAvailabilityCellSlice } from '../../utils/virtualAvailabilityGrid';
 import './schedule-new-request-modal.css';
@@ -6240,6 +6189,8 @@ const hasAnyAfterBandEvents = computed(() =>
 const loading = ref(false);
 const error = ref('');
 const rawSummary = ref(null);
+const subscriptionOpen = ref(false);
+const googleCalendarEnabled = computed(() => Number(rawSummary.value?.providerId) === Number(props.userId) && rawSummary.value?.googleCalendarEnabled === true);
 const familyPersonalMode = ref('busy');
 const familyScheduleDetails = ref({});
 const familyScheduleEnabled = computed(() => {
@@ -6268,10 +6219,13 @@ watch(familyPersonalMode, async mode => {
 // Defaults for provider UX:
 // - Google busy: ON
 // - Google titles: OFF (sensitive)
-// - External/Therapy Notes calendars: ALL ON (once available list is loaded)
-const showGoogleBusy = ref(true);
-const showGoogleEvents = ref(false);
-const showExternalBusy = ref(true);
+// - Incoming TherapyNotes feeds are disabled for every account.
+const googleBusyPreference = ref(true);
+const googleEventsPreference = ref(false);
+const showGoogleBusy = computed({ get: () => googleCalendarEnabled.value && googleBusyPreference.value, set: value => { googleBusyPreference.value = !!value; } });
+const showGoogleEvents = computed({ get: () => googleCalendarEnabled.value && googleEventsPreference.value, set: value => { googleEventsPreference.value = !!value; } });
+// Incoming TherapyNotes feeds have been retired, including saved overlay preferences.
+const showExternalBusy = computed({ get: () => false, set: () => {} });
 const showOfficeOverlay = ref(true);
 const showQuarterDetail = ref(false);
 /** Peer busy overlay on My Schedule (anonymous intervals unless privileged Show details). */
@@ -26499,6 +26453,9 @@ defineExpose({ resetToOpenFinder, openQuickBook });
 </script>
 
 <style scoped>
+.sched-subscription { margin-bottom: 12px; padding: 10px 14px; border: 1px solid var(--border, #d6d5ce); border-radius: 10px; }
+.sched-subscription summary { cursor: pointer; font-weight: 600; }
+
 .sched-wrap {
   --sched-ink: #0f172a;
   --sched-muted: #64748b;

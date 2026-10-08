@@ -30,8 +30,7 @@ import { publicUploadsUrlFromStoredPath } from '../utils/uploads.js';
 import { sanitizePsychologyTodayUrl } from '../utils/psychologyTodayUrl.js';
 import OfficeScheduleMaterializer from '../services/officeScheduleMaterializer.service.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
-import ExternalBusyCalendarService from '../services/externalBusyCalendar.service.js';
-import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
+import { usesGoogleSchedule } from '../services/scheduleCalendarPolicy.service.js';
 import { syncUserState as syncUserFeatureState } from '../services/featureEntitlement.service.js';
 import SupervisionSession from '../models/SupervisionSession.model.js';
 import ProviderScheduleEvent from '../models/ProviderScheduleEvent.model.js';
@@ -3220,12 +3219,8 @@ export const updateUser = async (req, res, next) => {
     }
 
     // External busy calendar (ICS) URL (admin/support/super admin only)
-    if (externalBusyIcsUrl !== undefined) {
-      if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
-        return res.status(403).json({ error: { message: 'Only admins or super admins can change external busy calendar URL' } });
-      }
-      const v = externalBusyIcsUrl === null ? null : String(externalBusyIcsUrl || '').trim();
-      updateData.externalBusyIcsUrl = v || null;
+    if (externalBusyIcsUrl) {
+      return res.status(410).json({ error: { message: 'TherapyNotes calendar integration has been removed.' } });
     }
 
     if (skillBuilderEligible !== undefined && updateData.skillBuilderEligible === true) {
@@ -4144,20 +4139,9 @@ export const getUserScheduleSummary = async (req, res, next) => {
     const timeMinIso = `${weekStart}T00:00:00Z`;
     const timeMaxIso = `${weekEnd}T00:00:00Z`;
 
-    const includeGoogleBusyRequested = String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
-    const includeGoogleEvents = String(req.query.includeGoogleEvents || '').toLowerCase() === 'true';
-    // Google overlays are mutually exclusive: titles mode wins when both are requested.
-    const includeGoogleBusy = includeGoogleBusyRequested && !includeGoogleEvents;
-    const includeExternalBusy = String(req.query.includeExternalBusy || '').toLowerCase() === 'true';
-    const includeAllExternalCalendars =
-      String(req.query.includeAllExternalCalendars || '').toLowerCase() === 'true';
-    const externalCalendarIdsRaw = String(req.query.externalCalendarIds || '').trim();
-    let externalCalendarIds = externalCalendarIdsRaw
-      ? externalCalendarIdsRaw
-        .split(',')
-        .map((x) => parseInt(String(x).trim(), 10))
-        .filter((n) => Number.isInteger(n) && n > 0)
-      : [];
+    const googleCalendarEnabled = await usesGoogleSchedule(provider);
+    const includeGoogleEvents = googleCalendarEnabled && String(req.query.includeGoogleEvents || '').toLowerCase() === 'true';
+    const includeGoogleBusy = googleCalendarEnabled && !includeGoogleEvents && String(req.query.includeGoogleBusy || '').toLowerCase() === 'true';
 
     // Ensure office_events are materialized for this week for buildings relevant to this provider (best-effort).
     // My Schedule personal grid can skip this — materialize only when office board needs it.
@@ -5687,24 +5671,6 @@ export const getUserScheduleSummary = async (req, res, next) => {
     let googleBusyError = null;
     let googleEvents = [];
     let googleEventsError = null;
-    let externalBusy = [];
-    let externalCalendarsAvailable = [];
-    let externalCalendars = [];
-
-    // Always include available calendars (labels only; no URLs)
-    try {
-      externalCalendarsAvailable = await UserExternalCalendar.listAvailableCalendars({ userId: providerId });
-    } catch {
-      externalCalendarsAvailable = [];
-    }
-
-    // Peer busy / “show all ICS feeds” — load every active Therapy Notes calendar for this provider.
-    if (includeAllExternalCalendars && !externalCalendarIds.length) {
-      externalCalendarIds = (externalCalendarsAvailable || [])
-        .map((c) => Number(c?.id || 0))
-        .filter((n) => Number.isInteger(n) && n > 0);
-    }
-
     if (includeGoogleBusy) {
       try {
         const providerEmail = String(provider?.email || '').trim().toLowerCase();
@@ -5730,7 +5696,7 @@ export const getUserScheduleSummary = async (req, res, next) => {
         .filter(Boolean)
     );
     const needsGoogleInboundSync = scheduleGoogleEventIds.size > 0 || supervisionGoogleEventIds.size > 0;
-    if (includeGoogleEvents || needsGoogleInboundSync) {
+    if (googleCalendarEnabled && (includeGoogleEvents || needsGoogleInboundSync)) {
       try {
         const providerEmail = String(provider?.email || '').trim().toLowerCase();
         const r = await GoogleCalendarService.listEvents({
@@ -5808,63 +5774,6 @@ export const getUserScheduleSummary = async (req, res, next) => {
           googleEvents = [];
           googleEventsError = 'Google events lookup failed';
         }
-      }
-    }
-
-    // New: per-calendar external busy overlays
-    // - If externalCalendarIds is provided, return per-calendar busy for those ids.
-    // - If includeExternalBusy=true and no ids provided, fall back to legacy single-URL behavior.
-    if (externalCalendarIds.length > 0) {
-      try {
-        const feeds = await UserExternalCalendar.listFeedsForCalendars({
-          userId: providerId,
-          calendarIds: externalCalendarIds,
-          activeOnly: true
-        });
-        const byCalendar = new Map();
-        for (const f of feeds || []) {
-          if (!byCalendar.has(f.calendarId)) {
-            byCalendar.set(f.calendarId, { id: f.calendarId, label: f.calendarLabel, feeds: [] });
-          }
-          byCalendar.get(f.calendarId).feeds.push({ id: f.feedId, url: f.icsUrl });
-        }
-        const calendarsToFetch = Array.from(byCalendar.values());
-        const out = [];
-        for (const c of calendarsToFetch) {
-          // Busy per feed is fetched/parsed server-side; we union per calendar in the service layer.
-          const r = await ExternalBusyCalendarService.getBusyForFeeds({
-            userId: providerId,
-            weekStart,
-            feeds: c.feeds,
-            timeMinIso,
-            timeMaxIso
-          });
-          out.push({
-            id: c.id,
-            label: c.label,
-            busy: r?.ok ? (r.busy || []) : [],
-            events: r?.ok ? (r.events || r.busy || []) : [],
-            ok: r?.ok !== false,
-            error: r?.ok ? null : (r?.error || r?.reason || 'Failed to fetch calendar feed')
-          });
-        }
-        externalCalendars = out;
-      } catch {
-        externalCalendars = [];
-      }
-    } else if (includeExternalBusy) {
-      try {
-        const icsUrl = provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || null;
-        const r = await ExternalBusyCalendarService.getBusyForWeek({
-          userId: providerId,
-          weekStart,
-          icsUrl,
-          timeMinIso,
-          timeMaxIso
-        });
-        if (r?.ok) externalBusy = r.busy || [];
-      } catch {
-        externalBusy = [];
       }
     }
 
@@ -6096,12 +6005,14 @@ export const getUserScheduleSummary = async (req, res, next) => {
       supervisionSessions,
       scheduleEvents,
       virtualWorkingHours,
-      externalCalendarsAvailable,
+      googleCalendarEnabled,
+      externalCalendarsAvailable: [],
+      externalCalendars: [],
+      externalBusy: [],
       videoConfigured,
-      ...(externalCalendarIds.length ? { externalCalendars } : {}),
       ...(includeGoogleBusy ? { googleBusy, googleBusyError } : {}),
       ...(includeGoogleEvents ? { googleEvents, googleEventsError } : {}),
-      ...(includeExternalBusy ? { externalBusy } : {})
+
     };
 
     const detailLevel = resolveScheduleDetailLevel({
@@ -6452,7 +6363,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
     });
 
     const googleOk = !!result?.ok;
-    const googleError = googleOk
+    const googleError = googleOk || result?.skipped
       ? null
       : String(result?.error || result?.reason || 'Could not create calendar event');
     // Platform video / counseling / team meetings must not hard-fail when Workspace calendar
@@ -6461,7 +6372,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
     const allowLocalFallback = req.body?.allowLocalOnly === true
       || ['PERSONAL_EVENT', 'SCHEDULE_HOLD', 'INDIRECT_SERVICES', 'TEAM_MEETING', 'HUDDLE', 'OUTREACH_TRIP'].includes(kind)
       || ((kind === 'TEAM_MEETING' || kind === 'HUDDLE') && createPlatformVideoLink && !createMeetLink);
-    if (!googleOk && !allowLocalFallback) {
+    if (!googleOk && !result?.skipped && !allowLocalFallback) {
       return res.status(502).json({ error: { message: googleError || 'Could not create calendar event' } });
     }
     if (!googleOk && googleError) {
@@ -6663,7 +6574,7 @@ export const createUserScheduleEvent = async (req, res, next) => {
       ok: true,
       googleSynced: googleOk,
       invitationWarning,
-      ...(googleOk ? {} : {
+      ...(googleOk || result?.skipped ? {} : {
         googleCalendarWarning: googleError?.includes('invalid_grant')
           ? 'Saved in-app, but Google Calendar could not sync (invalid Google user/email grant). Platform video still works.'
           : `Saved in-app, but Google Calendar could not sync: ${googleError}`
@@ -8190,6 +8101,8 @@ export const getUserGoogleEvent = async (req, res, next) => {
       if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
     }
 
+    if (!(await usesGoogleSchedule(provider))) return res.status(403).json({ error: { message: 'Use your private calendar subscription in My Schedule.' } });
+
     const providerEmail = String(provider?.email || '').trim().toLowerCase();
     if (!providerEmail) return res.status(400).json({ error: { message: 'Provider email is required' } });
 
@@ -8223,6 +8136,8 @@ export const patchUserGoogleEvent = async (req, res, next) => {
 
     const provider = await User.findById(providerId);
     if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
+
+    if (!(await usesGoogleSchedule(provider))) return res.status(403).json({ error: { message: 'Use your private calendar subscription in My Schedule.' } });
 
     const providerEmail = String(provider?.email || '').trim().toLowerCase();
     if (!providerEmail) return res.status(400).json({ error: { message: 'Provider email is required' } });
@@ -8277,6 +8192,8 @@ export const deleteUserGoogleEvent = async (req, res, next) => {
     const provider = await User.findById(providerId);
     if (!provider) return res.status(404).json({ error: { message: 'User not found' } });
 
+    if (!(await usesGoogleSchedule(provider))) return res.status(403).json({ error: { message: 'Use your private calendar subscription in My Schedule.' } });
+
     const providerEmail = String(provider?.email || '').trim().toLowerCase();
     if (!providerEmail) return res.status(400).json({ error: { message: 'Provider email is required' } });
 
@@ -8296,144 +8213,16 @@ export const deleteUserGoogleEvent = async (req, res, next) => {
   }
 };
 
-export const getUserExternalCalendars = async (req, res, next) => {
-  try {
-    const userId = parseInt(req.params.id, 10);
-    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
-    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const ok = await requireSharedAgencyAccessOrSuperAdmin({
-      actorUserId: req.user.id,
-      targetUserId: userId,
-      actorRole: req.user.role
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const calendars = await UserExternalCalendar.listForUser({ userId, includeFeeds: true, activeOnly: false });
-    res.json({ ok: true, userId, calendars });
-  } catch (e) {
-    next(e);
-  }
-};
-
-export const createUserExternalCalendar = async (req, res, next) => {
-  try {
-    const userId = parseInt(req.params.id, 10);
-    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
-    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const ok = await requireSharedAgencyAccessOrSuperAdmin({
-      actorUserId: req.user.id,
-      targetUserId: userId,
-      actorRole: req.user.role
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const label = String(req.body?.label || '').trim();
-    if (!label) return res.status(400).json({ error: { message: 'label is required' } });
-
-    const calendar = await UserExternalCalendar.createCalendar({
-      userId,
-      label,
-      createdByUserId: req.user.id
-    });
-    res.status(201).json({ ok: true, calendar });
-  } catch (e) {
-    if (e?.statusCode === 409) return res.status(409).json({ error: { message: e.message } });
-    next(e);
-  }
-};
-
-export const addUserExternalCalendarFeed = async (req, res, next) => {
-  try {
-    const userId = parseInt(req.params.id, 10);
-    const calendarId = parseInt(req.params.calendarId, 10);
-    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
-    if (!calendarId) return res.status(400).json({ error: { message: 'Invalid calendar id' } });
-    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const ok = await requireSharedAgencyAccessOrSuperAdmin({
-      actorUserId: req.user.id,
-      targetUserId: userId,
-      actorRole: req.user.role
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const icsUrl = String(req.body?.icsUrl || '').trim();
-    if (!icsUrl) return res.status(400).json({ error: { message: 'icsUrl is required' } });
-
-    const feed = await UserExternalCalendar.addFeed({ userId, calendarId, icsUrl });
-    res.status(201).json({ ok: true, feed });
-  } catch (e) {
-    if (e?.statusCode === 404) return res.status(404).json({ error: { message: e.message } });
-    if (e?.statusCode === 409) return res.status(409).json({ error: { message: e.message } });
-    next(e);
-  }
-};
-
-export const patchUserExternalCalendar = async (req, res, next) => {
-  try {
-    const userId = parseInt(req.params.id, 10);
-    const calendarId = parseInt(req.params.calendarId, 10);
-    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
-    if (!calendarId) return res.status(400).json({ error: { message: 'Invalid calendar id' } });
-    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const ok = await requireSharedAgencyAccessOrSuperAdmin({
-      actorUserId: req.user.id,
-      targetUserId: userId,
-      actorRole: req.user.role
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const isActive = req.body?.isActive;
-    const label = req.body?.label;
-    if (isActive === undefined && label === undefined) {
-      return res.status(400).json({ error: { message: 'isActive or label is required' } });
-    }
-
-    if (label !== undefined) {
-      const updatedLabel = await UserExternalCalendar.setCalendarLabel({ userId, calendarId, label });
-      if (!updatedLabel) return res.status(404).json({ error: { message: 'Calendar not found' } });
-    }
-    if (isActive !== undefined) {
-      const updatedActive = await UserExternalCalendar.setCalendarActive({ userId, calendarId, isActive });
-      if (!updatedActive) return res.status(404).json({ error: { message: 'Calendar not found' } });
-    }
-    res.json({ ok: true });
-  } catch (e) {
-    if (e?.statusCode === 409) return res.status(409).json({ error: { message: e.message } });
-    next(e);
-  }
-};
-
-export const patchUserExternalCalendarFeed = async (req, res, next) => {
-  try {
-    const userId = parseInt(req.params.id, 10);
-    const calendarId = parseInt(req.params.calendarId, 10);
-    const feedId = parseInt(req.params.feedId, 10);
-    if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
-    if (!calendarId) return res.status(400).json({ error: { message: 'Invalid calendar id' } });
-    if (!feedId) return res.status(400).json({ error: { message: 'Invalid feed id' } });
-    if (!isAdminOrSuperAdmin(req)) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const ok = await requireSharedAgencyAccessOrSuperAdmin({
-      actorUserId: req.user.id,
-      targetUserId: userId,
-      actorRole: req.user.role
-    });
-    if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
-
-    const isActive = req.body?.isActive;
-    if (isActive === undefined) return res.status(400).json({ error: { message: 'isActive is required' } });
-
-    const updated = await UserExternalCalendar.setFeedActive({ userId, calendarId, feedId, isActive });
-    if (!updated) return res.status(404).json({ error: { message: 'Feed not found' } });
-    res.json({ ok: true });
-  } catch (e) {
-    next(e);
-  }
-};
+// Retired incoming TherapyNotes feeds. Keep a clear response for older clients;
+// stored URLs are never returned or fetched.
+const retiredExternalCalendar = (_req, res) => res.status(410).json({
+  error: { message: 'TherapyNotes calendar integration has been removed. Use your private subscription link in My Schedule.' }
+});
+export const getUserExternalCalendars = retiredExternalCalendar;
+export const createUserExternalCalendar = retiredExternalCalendar;
+export const addUserExternalCalendarFeed = retiredExternalCalendar;
+export const patchUserExternalCalendar = retiredExternalCalendar;
+export const patchUserExternalCalendarFeed = retiredExternalCalendar;
 
 export const toggleSupervisorPrivileges = async (req, res, next) => {
   try {

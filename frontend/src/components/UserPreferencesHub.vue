@@ -232,10 +232,6 @@
                 <label>Google busy</label>
                 <input v-model="scheduleColors.google_busy" type="color" :disabled="viewOnly" />
               </div>
-              <div class="field">
-                <label>Therapy Notes busy</label>
-                <input v-model="scheduleColors.ehr_busy" type="color" :disabled="viewOnly" />
-              </div>
             </div>
 
             <div style="display:flex; gap: 10px; margin-top: 10px;">

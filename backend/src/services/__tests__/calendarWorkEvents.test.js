@@ -20,3 +20,23 @@ describe('work calendar source projection',()=>{
   expect(m.personal).toHaveBeenCalledWith(event,5);expect(events[0].url).toContain('/join/invitation/personal');expect(JSON.stringify(events)).not.toContain('SECRET');
  });
 });
+
+it('omits join links for private and in-person meetings',async()=>{
+  const event={id:12,agency_id:2,provider_id:9,kind:'TEAM_MEETING',start_at:office.start_at,end_at:office.end_at,platform_video_link:0};
+  m.execute.mockImplementation(async sql=>sql.includes('FROM provider_schedule_events')?[[event,{...event,id:13,is_private:1,platform_video_link:1}]]:[[]]);
+  const events=await workCalendarEvents(5,2,'2026-09-26','2026-09-27');
+  expect(events.map(e=>e.url)).toEqual([null,null]);expect(events[1].title).toBe('Busy');expect(m.personal).not.toHaveBeenCalled();
+});
+it('includes co-facilitators and excludes removed or declined supervision attendees',async()=>{
+  m.execute.mockResolvedValue([[]]);
+  await workCalendarEvents(5,2,'2026-09-26','2026-09-27');
+  const [sql,args]=m.execute.mock.calls.find(([sql])=>sql.includes('FROM supervision_sessions'));
+  expect(sql).toContain('s.co_facilitator_user_id=?');expect(sql).toContain("'DECLINED','REMOVED','CANCELLED','WITHDRAWN'");expect(args.slice(0,5)).toEqual([2,5,5,5,5]);
+});
+
+it('publishes session type and initials for appointments stored as personal calendar facets',async()=>{
+ const event={id:14,agency_id:2,provider_id:5,kind:'PERSONAL_EVENT',client_id:3,client_initials:'A.B.',appointment_id:22,appointment_modality:'TELEHEALTH',start_at:office.start_at,end_at:office.end_at,title:'Full Name - confidential assessment',description:'Private note'};
+ m.execute.mockImplementation(async sql=>sql.includes('FROM provider_schedule_events')?[[event]]:[[]]);
+ const events=await workCalendarEvents(5,2,'2026-09-26','2026-09-27');
+ expect(events[0].title).toBe('Telehealth session · A.B.');expect(JSON.stringify(events)).not.toMatch(/Full Name|confidential|Private note/);
+});

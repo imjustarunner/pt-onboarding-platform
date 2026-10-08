@@ -9,14 +9,19 @@ const dateOnly = v => v instanceof Date ? v.toISOString().slice(0,10) : String(v
 export async function workCalendarEvents(userId,agencyId,from,to) {
   const {start,end}=calendarWindow(from,to);
   const [events]=await pool.execute(`SELECT p.id,p.agency_id,p.provider_id,p.recurrence_series_id,p.kind,p.client_id,c.initials AS client_initials,p.is_private,p.start_at,p.end_at,p.start_date,p.end_date,p.all_day,p.updated_at,
-    p.participant_join_token,p.join_token,p.platform_video_link,p.google_meet_link
-    FROM provider_schedule_events p LEFT JOIN clients c ON c.id=p.client_id AND c.agency_id=p.agency_id
-    WHERE p.agency_id=? AND p.status='ACTIVE' AND p.kind NOT IN ('PERSONAL_EVENT','SCHEDULE_HOLD','FALL_CHECKIN_PRESLOT')
+    p.participant_join_token,p.join_token,p.platform_video_link,p.google_meet_link,
+    ap.id AS appointment_id,ap.modality AS appointment_modality,ap.participant_mode
+    FROM provider_schedule_events p
+    LEFT JOIN appointments ap ON ap.provider_schedule_event_id=p.id AND ap.agency_id=p.agency_id
+    LEFT JOIN clients c ON c.id=p.client_id AND c.agency_id=p.agency_id
+    WHERE p.agency_id=? AND p.status='ACTIVE' AND p.kind NOT IN ('SCHEDULE_HOLD','FALL_CHECKIN_PRESLOT')
+    AND (p.kind<>'PERSONAL_EVENT' OR ap.id IS NOT NULL)
+    AND (ap.id IS NULL OR ap.status IN ('scheduled','confirmed','client_confirmed','completed','reschedule_requested','cancellation_requested','no_show'))
     AND (p.provider_id=? OR EXISTS(SELECT 1 FROM provider_schedule_event_attendees a WHERE a.event_id=p.id AND a.user_id=?))
     AND COALESCE(p.end_at,p.end_date)>? AND COALESCE(p.start_at,p.start_date)<?`,[agencyId,userId,userId,start,end]);
-  const output=await Promise.all(events.map(async e=>({key:`work:${agencyId}:event:${e.id}`,title:workTitle(e),start:e.start_at,end:e.end_at,updatedAt:e.updated_at,
+  const output=await Promise.all(events.map(async e=>({key:`work:${agencyId}:event:${e.id}`,title:workTitle(e.appointment_id ? {...e,kind:e.participant_mode==='multi'?'GROUP_SESSION':'INDIVIDUAL_SESSION',appointment_subtype_code:e.appointment_modality==='TELEHEALTH'?'TELEHEALTH':null} : e),start:e.start_at,end:e.end_at,updatedAt:e.updated_at,
     ...(e.all_day?{startDate:dateOnly(e.start_date),endDate:dateOnly(e.end_date)}:{}),
-    url:!e.is_private && ['TEAM_MEETING','HUDDLE'].includes(e.kind)?(await personalMeetingInvitation(e,userId)).url:null})));
+    url:!e.is_private && ['TEAM_MEETING','HUDDLE'].includes(e.kind) && (Number(e.platform_video_link ?? 1)!==0 || !!e.google_meet_link)?(await personalMeetingInvitation(e,userId)).url:null})));
   const [office]=await pool.execute(`SELECT o.id,o.office_location_id,o.room_id,r.room_number,r.label AS room_label,r.name AS room_name,o.clinical_session_id,o.start_at,o.end_at,o.updated_at,o.client_id,c.initials AS client_initials,l.name,l.street_address,l.timezone,l.events_stored_utc,o.appointment_type_code,o.appointment_subtype_code
     FROM office_events o JOIN office_locations l ON l.id=o.office_location_id LEFT JOIN office_rooms r ON r.id=o.room_id LEFT JOIN clients c ON c.id=o.client_id AND c.agency_id=?
     WHERE COALESCE(o.booked_provider_id,o.assigned_provider_id)=? AND o.status='BOOKED'
@@ -30,8 +35,8 @@ export async function workCalendarEvents(userId,agencyId,from,to) {
   }
   const [supervision]=await pool.execute(`SELECT s.id,s.agency_id,s.supervisor_user_id,s.recurrence_series_id,s.start_at,s.end_at,s.updated_at,s.modality,s.location_text,s.participant_join_token,s.join_token
     FROM supervision_sessions s WHERE s.agency_id=? AND s.status IN ('SCHEDULED','IN_PROGRESS')
-    AND (s.supervisor_user_id=? OR s.supervisee_user_id=? OR EXISTS(SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=?))
-    AND s.end_at>? AND s.start_at<?`,[agencyId,userId,userId,userId,start,end]);
+    AND (s.supervisor_user_id=? OR s.co_facilitator_user_id=? OR s.supervisee_user_id=? OR EXISTS(SELECT 1 FROM supervision_session_attendees a WHERE a.session_id=s.id AND a.user_id=? AND a.status NOT IN ('DECLINED','REMOVED','CANCELLED','WITHDRAWN')))
+    AND s.end_at>? AND s.start_at<?`,[agencyId,userId,userId,userId,userId,start,end]);
   output.push(...await Promise.all(supervision.map(async s=>({key:`work:${agencyId}:supervision:${s.id}`,title:'Supervision',start:s.start_at,end:s.end_at,updatedAt:s.updated_at,
     url:['VIRTUAL','VIDEO','TELEHEALTH'].includes(String(s.modality).toUpperCase())?(await personalMeetingInvitation(s,userId)).url:null}))));
   const schedule=await UserWorkSchedule.getForUser(userId,{agencyId});

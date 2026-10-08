@@ -115,5 +115,5 @@ export function sanitizeRequestBody(body) {
 }
 
 export function redactPrivateBillingUrl(value) {
-  return String(value||'').replace(/(\/family-billing\/task-link\/|\/billing\/complete\/)[^/?#]+/g,'$1[REDACTED]');
+  return String(value||'').replace(/(\/calendar-sharing\/feed\/)[^/?#]+/g,'$1[REDACTED]').replace(/(\/family-billing\/task-link\/|\/billing\/complete\/)[^/?#]+/g,'$1[REDACTED]');
 }

@@ -1,3 +1,4 @@
+import { usesGoogleSchedule } from './scheduleCalendarPolicy.service.js';
 import { readProviderCalendarBusy } from './providerCalendarBusy.service.js';
 import {careTypes} from '../utils/availabilityCareTypes.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
@@ -6,9 +7,7 @@ import { readActiveHolds, expandWeeklyHold } from './publicProviderHold.service.
 import { availabilityOccursOn, availabilityPurpose } from '../utils/availabilityRecurrence.js';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
-import UserExternalCalendar from '../models/UserExternalCalendar.model.js';
 import { availabilityDiagnostics } from './availabilityDiagnostics.js';
-import ExternalBusyCalendarService from './externalBusyCalendar.service.js';
 import GoogleCalendarService from './googleCalendar.service.js';
 import ProviderVirtualWorkingHours from '../models/ProviderVirtualWorkingHours.model.js';
 import OfficeScheduleMaterializer from './officeScheduleMaterializer.service.js';
@@ -590,53 +589,13 @@ export class ProviderAvailabilityService {
       if (e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
 
-    // 4) External Therapy Notes busy (ICS) blocks both modalities
     const calendarWarnings = [];
-    let externalBusy = [];
-    if (includeExternalBusy) {
-      try {
-        let feeds = [];
-        const ids = Array.isArray(externalCalendarIds)
-          ? externalCalendarIds.map((n) => Number(n)).filter((n) => Number.isInteger(n) && n > 0)
-          : [];
-        if (ids.length > 0) {
-          feeds = await UserExternalCalendar.listFeedsForCalendars({ userId: pid, calendarIds: ids, activeOnly: true });
-        } else {
-          const calendars = await UserExternalCalendar.listForUser({ userId: pid, includeFeeds: true, activeOnly: true });
-          for (const c of calendars || []) {
-            for (const f of c.feeds || []) {
-              if (f?.isActive) feeds.push({ icsUrl: f.icsUrl });
-            }
-          }
-        }
-        // Legacy fallback
-        if (feeds.length === 0) {
-          const legacy = provider?.external_busy_ics_url || provider?.externalBusyIcsUrl || null;
-          if (legacy) feeds = [{ icsUrl: legacy }];
-        }
-        const r = await ExternalBusyCalendarService.getBusyForFeeds({
-          userId: pid,
-          weekStart,
-          feeds: feeds.map((f, idx) => ({ id: idx + 1, url: f.icsUrl || f.url || f.icsUrl })),
-          timeMinIso,
-          timeMaxIso
-        });
-        if (r?.ok) externalBusy = r.busy || [];
-        else calendarWarnings.push('External calendar could not be checked. Confirm conflicts before booking.');
-      } catch {
-        calendarWarnings.push('External calendar could not be checked. Confirm conflicts before booking.');
-        externalBusy = [];
-      }
-    }
-    const externalBusyIntervals = (externalBusy || [])
-      .map((b) => ({ start: new Date(b.startAt), end: new Date(b.endAt) }))
-      .filter((i) => i.start instanceof Date && i.end instanceof Date && i.end > i.start && !Number.isNaN(i.start.getTime()) && !Number.isNaN(i.end.getTime()));
+    const externalBusyIntervals = [];
 
     // 5) Google busy blocks both modalities (optional)
     let googleBusyIntervals = [];
-    // App-managed group addresses have no personal Google Calendar. Their app
-    // appointments and explicitly connected external feeds were checked above.
-    if (includeGoogleBusy && ![true,1,'1'].includes(provider?.login_is_group_email)) {
+    // Only SSO accounts read Google; all accounts use app appointments for conflicts.
+    if (includeGoogleBusy && await usesGoogleSchedule(provider)) {
       try {
         const providerEmail = String(provider?.email || '').trim().toLowerCase();
         const r = await GoogleCalendarService.freeBusy({

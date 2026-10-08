@@ -99,3 +99,10 @@ it('only returns private busy blocks when explicitly requested by the staff cale
  expect(Array.isArray(privateResult.busyBlocks)).toBe(true);expect(Array.isArray(privateResult.officeReservations)).toBe(true);
  expect(JSON.stringify(privateResult.busyBlocks)).not.toMatch(/client_id|client_name|description/);
 });
+
+it('ignores saved TherapyNotes feeds and Google preferences for password accounts',async()=>{
+ User.findById.mockResolvedValueOnce({id:9,sso_password_override:1,external_busy_ics_url:'https://old.example/feed.ics'});
+ const result=await Availability.computeWeekAvailability({agencyId:1,providerId:9,weekStartYmd:'2030-01-07',intakeOnly:true,includeGoogleBusy:true,includeExternalBusy:true,externalCalendarIds:[4],materializeOfficeEvents:false});
+ expect(Google.freeBusy).not.toHaveBeenCalled();expect(result.calendarWarnings).toEqual([]);
+ expect(result.inPersonSlots).toHaveLength(1);
+});

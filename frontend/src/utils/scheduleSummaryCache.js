@@ -4,7 +4,7 @@
  */
 const CACHE_TTL_MS = 90 * 1000;
 const SESSION_TTL_MS = 30 * 60 * 1000;
-const SESSION_PREFIX = 'sched_summary_v1:';
+const SESSION_PREFIX = 'sched_summary_v2:';
 const cache = new Map();
 
 function sessionKey(key) {

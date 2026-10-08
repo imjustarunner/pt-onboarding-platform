@@ -1,3 +1,5 @@
+vi.mock('../../models/User.model.js',()=>({default:{findById:vi.fn(async id=>({id}))}}));
+vi.mock('../scheduleCalendarPolicy.service.js',()=>({usesGoogleSchedule:vi.fn(async()=>true)}));
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),lock:vi.fn(),release:vi.fn(),events:vi.fn(),insert:vi.fn(),update:vi.fn(),remove:vi.fn(),aclDelete:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>({execute:m.lock,release:m.release})}}));

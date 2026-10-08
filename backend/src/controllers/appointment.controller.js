@@ -211,7 +211,7 @@ export const createAppointmentHandler = async (req, res, next) => {
                 if (mirrored.ok && mirrored.googleEventId) {
                   await pool.execute('UPDATE provider_schedule_events SET google_event_id = ?, google_html_link = ? WHERE id = ?',
                     [mirrored.googleEventId, mirrored.htmlLink || null, saved.id]);
-                } else {
+                } else if (!mirrored.skipped) {
                   calendarWarnings.push(`Session ${appointment.id} saved locally; Google Calendar was not synchronized.`);
                 }
               } catch {
