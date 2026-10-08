@@ -12,7 +12,7 @@ page.on('pageerror',error=>errors.push(error.message));
 try{
   for(const width of [1440,390,320]){
     await page.setViewportSize({width,height:width===1440?1000:844});
-    for(const section of ['','product','solutions','resources','about','pricing','start']){
+    for(const section of ['','product','solutions','careers','resources','about','pricing','start']){
       await page.goto(`${origin}/plottline${section?'/'+section:''}`,{waitUntil:'networkidle'});
       await page.evaluate(()=>document.fonts.ready);
       await page.locator('.pl-site-footer').scrollIntoViewIfNeeded();
@@ -34,6 +34,10 @@ try{
   assert.match(await page.getByRole('dialog').innerText(),/Captured from the application/);
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('dialog[open]').count(),0);
+  await page.goto(`${origin}/plottline/careers`);
+  assert.equal(await page.locator('[data-careers-organization]').count(),2);
+  assert.equal(await page.getByRole('link',{name:'Visit ITSCO careers',exact:true}).getAttribute('href'),'https://www.itsco.health/careers');
+  assert.equal(await page.getByRole('link',{name:'Visit Next Level Up careers',exact:true}).getAttribute('href'),'https://nextleveluplcc.com/careers/nlu');
   await page.goto(`${origin}/plottline/pricing`);
   await page.getByLabel('Active employees',{exact:true}).fill('50');
   await page.getByLabel('AuricWell',{exact:true}).check();

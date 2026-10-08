@@ -2,6 +2,7 @@ export const plotlinePages = {
   home: { title: 'People have a journey. Plotline brings it to life.', description: 'Hiring, onboarding, training, and people growth in one thoughtful workspace. Meet Plotline by PlotTwistCo.' },
   product: { title: 'One platform. Every next chapter.', description: 'Explore Plotline careers, applicant tracking, interviews, onboarding, learning, people records, and growth.' },
   solutions: { title: 'People operations for real-world organizations.', description: 'Find a connected approach to recruiting, onboarding, training, people management, and multi-organization work.' },
+  careers: { title: 'Find your next chapter.', description: 'Explore real organization careers pages powered by Plotline, including ITSCO and Next Level Up. Visit each organization to see roles and apply.' },
   resources: { title: 'A little guidance for what comes next.', description: 'Practical hiring, onboarding, and learning checklists for people-centered teams.' },
   about: { title: 'People make the plot.', description: 'Get to know Plotline, the people operations product by PlotTwistCo.' },
   pricing: { title: 'Simple pricing. Room to grow.', description: 'Plotline starts at $199 per month for 25 active employees. Explore connected product savings and calculate your estimate.' },

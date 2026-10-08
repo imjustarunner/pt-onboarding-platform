@@ -2,7 +2,7 @@
 
 Public address: **https://plottwistco.com/plottline**. The two-t path is intentional. `plotlinepo.com` remains the future product domain.
 
-The site includes Home, Product, Solutions, Resources, About, Pricing, and Get Started. It uses the supplied Plotline brand assets, Sora/Inter fonts, and established $199 / $149 / $129 monthly prices. The calculator includes 25 active employees and adds $4 per additional employee. Demo requests use the existing public business intake with the `people` service and an explicit Plotline request description; they do not activate or charge a subscription.
+The site includes Home, Product, Solutions, Careers, Resources, About, Pricing, and Get Started. It uses the supplied Plotline brand assets, Sora/Inter fonts, and established $199 / $149 / $129 monthly prices. The calculator includes 25 active employees and adds $4 per additional employee. Demo requests use the existing public business intake with the `people` service and an explicit Plotline request description; they do not activate or charge a subscription.
 
 ## Real product examples
 
@@ -18,4 +18,8 @@ The ordinary frontend `npm run build` creates the standalone marketing bundle an
 
 Publishing occurs through the existing main-branch frontend deployment workflow. This replaces the earlier temporary image overlay with a reproducible source-controlled release. The broader in-app Plotline rebrand, dedicated-domain setup, subscription activation, and cross-product SSO are separate workstreams.
 
-Validation: `node scripts/plotline-website.test.mjs` after the frontend build checks real-screen provenance, removal of concept images, pricing, all seven pages, and canonical hosting rules. `scripts/verify-plotline-site.mjs` checks all pages at desktop and mobile widths, the enlarged screen viewer, filters, downloads, pricing, and a mocked request/retry flow. It never sends a real test inquiry.
+Validation: `node scripts/plotline-website.test.mjs` after the frontend build checks real-screen provenance, removal of concept images, pricing, all eight pages, and canonical hosting rules. `scripts/verify-plotline-site.mjs` checks all pages at desktop and mobile widths, the enlarged screen viewer, filters, downloads, pricing, and a mocked request/retry flow. It never sends a real test inquiry.
+
+## Public careers directory
+
+The Careers page at `/plottline/careers` and the homepage/product directory link to the configured ITSCO and Next Level Up careers pages. The public partner directory and careers APIs were checked on October 7, 2026; these were the two public organizations with saved careers-page branding and published roles. Generic unconfigured pages, missing agencies, and demonstration records are not advertised as established careers sites. `src/content/plotlineCareers.js` is the curated directory; add organizations after verifying their public configuration and destination. Cards use the organizations’ existing logos and link to their live pages without duplicating job postings. Public careers pages carry a subtle linked Plotline credit below the organization’s contact controls.

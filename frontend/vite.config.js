@@ -23,7 +23,7 @@ export default defineConfig({
     configureServer(server) {
       server.middlewares.use((req, _res, next) => {
         const url = new URL(req.url || '/', 'http://localhost');
-        if (/^\/plott?line(?:\/(?:product|solutions|resources|about|pricing|start))?\/?$/.test(url.pathname)) req.url = '/plotline-site/index.html' + url.search;
+        if (/^\/plott?line(?:\/(?:product|solutions|careers|resources|about|pricing|start))?\/?$/.test(url.pathname)) req.url = '/plotline-site/index.html' + url.search;
         next();
       });
     }

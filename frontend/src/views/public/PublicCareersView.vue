@@ -724,6 +724,7 @@
     <button type="button" class="cr-apply-btn cr-apply-btn--outline" @click="showSupportModal = true">
       Contact us
     </button>
+    <a v-if="agencyId" class="cr-powered-by-plotline" :href="PLOTLINE_WEBSITE_URL"><span>Powered by</span><img src="/assets/plotline/website/brand/logos/plotline-primary-transparent.webp" alt="Plotline by PlotTwistCo" width="92" height="37"></a>
   </footer>
 
   <div v-if="showSupportModal" class="cr-modal-overlay" @click.self="showSupportModal = false">
@@ -740,6 +741,7 @@
 </template>
 
 <script setup>
+import { PLOTLINE_WEBSITE_URL } from '../../utils/plotline';
 import { careerLocations } from '../../utils/careerLocations';
 import {publicWebsitePath} from '../../utils/publicWebsitePath';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
@@ -1827,4 +1829,8 @@ watch(slug, () => loadCareers(), { immediate: true });
   justify-content: space-between;
   gap: 1rem;
 }
+</style>
+
+<style scoped>
+.cr-powered-by-plotline{display:flex;align-items:center;justify-content:center;gap:9px;width:fit-content;max-width:100%;margin:22px auto 0;color:#5c6760;font-size:12px;text-decoration:none}.cr-powered-by-plotline img{width:92px;height:auto}.cr-powered-by-plotline:focus-visible{outline:3px solid #6b8f7a;outline-offset:5px;border-radius:4px}
 </style>

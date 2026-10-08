@@ -2,7 +2,7 @@ export const PLOTLINE_ORIGIN = 'https://plotlinepo.com';
 // Public marketing lives here until the dedicated product domain is launched.
 export const PLOTLINE_WEBSITE_PATH = '/plottline';
 export const PLOTLINE_WEBSITE_URL = `https://plottwistco.com${PLOTLINE_WEBSITE_PATH}`;
-export const PLOTLINE_MARKETING_PAGES = ['product', 'solutions', 'resources', 'about', 'pricing', 'start'];
+export const PLOTLINE_MARKETING_PAGES = ['product', 'solutions', 'careers', 'resources', 'about', 'pricing', 'start'];
 export const PLOTLINE_PREFIX = '/plotline';
 export const isPlotlineHost = (host = '') => ['plotlinepo.com', 'www.plotlinepo.com'].includes(String(host).toLowerCase().split(':')[0]);
 export const isPlotlinePath = (path = '') => /^\/plott?line(?:[/?#]|$)/.test(path);

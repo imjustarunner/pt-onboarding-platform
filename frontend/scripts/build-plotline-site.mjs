@@ -18,7 +18,7 @@ mkdirSync(`${dist}/public-assets`,{recursive:true});
 cpSync(`${root}/public/assets/plotline`,`${dist}/public-assets/plotline`,{recursive:true});
 writeFileSync(`${dist}/sitemap.xml`,`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${Object.keys(plotlinePages).map(key=>`<url><loc>${PLOTLINE_WEBSITE_URL}${key==='home'?'':'/'+key}</loc></url>`).join('')}</urlset>`);
 writeFileSync(`${dist}/404.html`,'<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Page not found | Plotline</title><body style="font-family:system-ui;padding:10%;background:#faf8f4;color:#0f2d24"><h1>This chapter hasn’t been written.</h1><p>The page you’re looking for isn’t here.</p><a href="/plottline">Return to Plotline →</a></body></html>');
-console.log('Plotline website packaged: 7 pages, public assets, metadata, and sitemap.');
+console.log(`Plotline website packaged: ${Object.keys(plotlinePages).length} pages, public assets, metadata, and sitemap.`);
 
 // Package into the normal frontend image as well as the isolated preview artifact.
 mkdirSync(`${root}/dist/plottline`,{recursive:true});

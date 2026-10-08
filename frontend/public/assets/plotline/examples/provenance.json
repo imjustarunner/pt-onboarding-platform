@@ -49,7 +49,7 @@
     {
       "screen": "careers",
       "source": "src/views/public/PublicCareersView.vue",
-      "sourceSha256": "3564204393d1bbcfbf2862192138e47c2ba10afa79c5163becc31175d28226f7",
+      "sourceSha256": "e8837847c20c36b308511f0c1bf9bfbb2ff23a137a1c557a2ad855a3f0968ba5",
       "records": "Fictional local fixtures; no customer records or network access",
       "image": "careers.jpg",
       "width": 1440,

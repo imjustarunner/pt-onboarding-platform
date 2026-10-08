@@ -7,7 +7,7 @@ const types={'.html':'text/html','.js':'application/javascript','.css':'text/css
 http.createServer((req,res)=>{
   const path=new URL(req.url,'http://localhost').pathname;
   let file;
-  if(/^\/plottline\/(?:product|solutions|resources|about|pricing|start)\/?$/.test(path))file=`pages/${path.split('/')[2]}/index.html`;
+  if(/^\/plottline\/(?:product|solutions|careers|resources|about|pricing|start)\/?$/.test(path))file=`pages/${path.split('/')[2]}/index.html`;
   else if(/^\/plottline\/?$/.test(path))file='pages/index.html';
   else if(/^\/plottline\/assets\/[^/]+$/.test(path))file=path.replace('/plottline/','');
   else if(path.startsWith('/assets/plotline/')&&!path.includes('..'))file=path.replace('/assets/','public-assets/');
