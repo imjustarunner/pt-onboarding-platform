@@ -130,3 +130,8 @@ it('does not reintroduce free-text profile insurance after credential filtering'
   const provider=res.json.mock.calls[0][0].providers[0];expect(provider).toBeDefined();
   expect(provider.profile.acceptedInsurances).toEqual([]);expect(provider.profile.insurancesAccepted).toEqual([]);
 });
+
+it('does not let a waitlist in one format authorize another closed format',async()=>{
+ Profile.getForProvider.mockResolvedValue({agencyAvailability:{seesClients:true,inPerson:true,virtual:true,waitlistEnabled:true,acceptingNewClients:false,intakeStatusByFormat:{IN_PERSON:'waitlist',VIRTUAL:'unavailable'}},details:{waitlistEnabled:true}});
+ const res=response(),next=vi.fn();await joinProviderWaitlist({...request(),params:{agencySlug:'test',providerId:'9'},body:{serviceType:'counseling',format:'VIRTUAL'}},res,next);expect(res.status).toHaveBeenCalledWith(409);expect(createPublicAgencySupportTicket).not.toHaveBeenCalled();
+});

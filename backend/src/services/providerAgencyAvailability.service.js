@@ -32,6 +32,11 @@ export async function saveAgencyAvailability(database,{providerId,agencyId,actor
  }
  const [[person]]=await database.execute('SELECT id,sees_clients FROM users WHERE id=? FOR UPDATE',[providerId]);
  const [[profile]]=await database.execute('SELECT public_details_json FROM provider_public_profiles WHERE user_id=?',[providerId]);
+ if(!Object.hasOwn(body,'intakeStatusByFormat'))for(const agency of agencies){
+  const prior=agencyAvailability(profile?.public_details_json,agency.id);
+  const changed=['seesClients','acceptingNewClients','inPerson','virtual','waitlistEnabled'].some(key=>prior&&prior[key]!==policy[key]);
+  map[String(agency.id)].intakeStatusByFormat=changed?null:prior?.intakeStatusByFormat??null;
+ }
  // Availability self-service must never grant or revoke a care-provider assignment.
  if(!context.canManageCareAssignment)for(const agency of agencies){
   const prior=agencyAvailability(profile?.public_details_json,agency.id);

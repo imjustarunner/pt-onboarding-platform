@@ -1,5 +1,5 @@
 import {appointmentTimePredicate} from '../utils/publicAppointmentTimeSearch.js';
-import {agencyFormatAllowed,agencyOfficeAllowed,scopeProviderRow} from '../utils/providerAgencyAvailability.js';
+import {agencyFormatAllowed,agencyOfficeAllowed,agencyIntakeStatus,agencyWaitlistAllowed,scopeProviderRow} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
 import {readPublicWeekAvailability} from './publicAvailabilitySnapshot.service.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
@@ -35,21 +35,21 @@ export async function readPublicProviderSchedule(providerId, agencyId, {weeks=4,
  const policy=profile?.agencyAvailability;
  const schools=[...new Map((policy?.school===false?[]:schoolRows).map(s=>{
   const hasOpenings=agencyFormatAllowed(policy,'SCHOOL')&&schoolRows.some(row=>Number(row.id)===Number(s.id)&&Number(row.slots_available)>0);
-  return [s.id,{id:s.id,name:s.name,city:s.city,state:s.state,hasOpenings,status:hasOpenings?'accepting':agencyFormatAllowed(policy,'SCHOOL',{intake:false})&&(details.waitlistEnabled===true||details.schoolAvailability==='waitlist')?'waitlist':'unavailable'}];
+  return [s.id,{id:s.id,name:s.name,city:s.city,state:s.state,hasOpenings,status:hasOpenings?'accepting':(policy?agencyWaitlistAllowed(policy,'SCHOOL'):details.waitlistEnabled===true||details.schoolAvailability==='waitlist')?'waitlist':'unavailable'}];
  })).values()];
  const schoolOpenings=schools.some(s=>s.hasOpenings);
  const formats={};
  for(const [key,format,manual,enabled] of [['inPerson','IN_PERSON','officeAvailability',Boolean(user.in_office_available)||offices.length>0||details.inPersonEnabled],['virtual','VIRTUAL','virtualAvailability',details.virtualEnabled||(details.sessionFormats||[]).some(v=>/virtual|telehealth|online/i.test(v))],['school','SCHOOL','schoolAvailability',schoolRows.length>0]]) {
   const next=slots.find(s=>s.format===format);
   const acceptance=publicAcceptance({globalAccepting:user.provider_accepting_new_clients??true,manual:!policy&&details.waitlistEnabled&&details[manual]!=='unavailable'?'waitlist':details[manual],assigned:Boolean(enabled||next||['accepting','waitlist'].includes(details[manual])),hasOpenings:key==='school'?schoolOpenings:Boolean(next)});
-  if(policy&&!agencyFormatAllowed(policy,format)){acceptance.status=policy.seesClients&&policy.waitlistEnabled&&agencyFormatAllowed({...policy,acceptingNewClients:true},format)?'waitlist':'unavailable';acceptance.hasOpenings=false;}
+  if(policy&&!agencyFormatAllowed(policy,format)){acceptance.status=agencyIntakeStatus(policy,format);acceptance.hasOpenings=false;}
   if(key==='school')acceptance.status=schoolOpenings?'accepting':schools.some(s=>s.status==='waitlist')?'waitlist':'unavailable';
   formats[key]={...acceptance,nextAvailableAt:next?.startAt||null,hasPublishedOpenings:acceptance.hasOpenings};
  }
+ const waitlistFormats=[['IN_PERSON','officeAvailability'],['VIRTUAL','virtualAvailability'],['SCHOOL','schoolAvailability']].filter(([format,key])=>policy?agencyWaitlistAllowed(policy,format):details.waitlistEnabled===true||details[key]==='waitlist').map(([format])=>format);
  return {timeZone,checkedAt:checkedAt||new Date().toISOString(),...formats,slots:['IN_PERSON','VIRTUAL'].flatMap(format=>slots.filter(s=>s.format===format).slice(0,60)).sort((a,b)=>a.startAt.localeCompare(b.startAt)),nextAvailableAt:slots[0]?.startAt||null,
   hasPublishedOpenings:slots.length>0||schoolOpenings,
-  waitlistEnabled:details.waitlistEnabled===true||['officeAvailability','virtualAvailability','schoolAvailability'].some(k=>details[k]==='waitlist'),
-  waitlistFormats:[['IN_PERSON','officeAvailability'],['VIRTUAL','virtualAvailability'],['SCHOOL','schoolAvailability']].filter(([format,key])=>agencyFormatAllowed(policy,format,{intake:false})&&(details.waitlistEnabled===true||details[key]==='waitlist')).map(([format])=>format),
+  waitlistEnabled:waitlistFormats.length>0,waitlistFormats,
   typicalAvailability:Array.isArray(details.typicalAvailability)?[...new Set(details.typicalAvailability)].slice(0,30):[],
   locations:offices.filter(o=>agencyOfficeAllowed(policy,o.id)).map(o=>({id:o.id,name:o.name,address:[o.street_address,o.city,o.state,o.postal_code].filter(Boolean).join(', ')})),
   schools};

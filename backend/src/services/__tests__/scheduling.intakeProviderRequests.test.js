@@ -20,3 +20,9 @@ describe('full enrollment provider requests',()=>{
  it('does not offer in-person-only providers for virtual requests',async()=>expect(await listOfficeIntakeProviders(2,{includeNotAccepting:false,programType:'VIRTUAL'})).toEqual([]));
  it('requires a matching couples service even without a posted opening',async()=>{const people=await listOfficeIntakeProviders(2,{includeNotAccepting:false,includeWaitlist:true,serviceMode:'couple',programType:'IN_PERSON'});expect(people.map(p=>p.id)).toEqual([1]);});
 });
+
+it('shows the selected format as waitlisted even if the other format is open',async()=>{
+ Profile.getForProvider.mockImplementation(async({providerUserId})=>({agencyAvailability:providerUserId===1?{...profiles[1],virtual:true,waitlistEnabled:true,intakeStatusByFormat:{IN_PERSON:'waitlist',VIRTUAL:'accepting'}}:profiles[providerUserId],details:{}}));
+ const people=await listOfficeIntakeProviders(2,{includeNotAccepting:false,includeWaitlist:true,programType:'IN_PERSON'});expect(people.find(p=>p.id===1)).toMatchObject({acceptingNewClients:false,waitlist:true});
+ expect((await listOfficeIntakeProviders(2,{includeNotAccepting:false,includeWaitlist:false,programType:'IN_PERSON'})).map(p=>p.id)).not.toContain(1);
+});

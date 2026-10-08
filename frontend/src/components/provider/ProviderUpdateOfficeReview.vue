@@ -21,7 +21,7 @@ const base=computed(()=>props.mode==='token'?`/public/provider-update/${encodeUR
 const items=ref([]),confirmed=ref(props.data?.confirmedAssignmentIds||[]),loading=ref(false),busy=ref(false),error=ref(''),removing=ref(null);
 async function load(){loading.value=true;try{const {data}=await api.get(`${base.value}/office-schedule-review`,{params:{agencyId:props.agencyId}});items.value=data.items||[];}catch(e){error.value=e.response?.data?.error?.message||'Unable to load office reservations.';}finally{loading.value=false;}}
 function confirm(id){if(!confirmed.value.includes(id))confirmed.value.push(id);}
-async function release(item){busy.value=true;error.value='';try{await api.post(`${base.value}/office-assignments/${item.id}/forfeit`,{agencyId:props.agencyId,scope:'future',acknowledged:true,date:new Intl.DateTimeFormat('en-CA',{timeZone:item.timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())});removing.value=null;await load();}catch(e){error.value=e.response?.data?.error?.message||'The reservation was not released.';}finally{busy.value=false;}}
+async function release(item){busy.value=true;error.value='';try{await api.post(`${base.value}/office-assignments/${item.id}/forfeit`,{agencyId:props.agencyId,scope:'future',acknowledged:true,date:new Intl.DateTimeFormat('en-CA',{timeZone:item.timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date())});removing.value=null;window.dispatchEvent(new CustomEvent('provider-update-availability-changed',{detail:{agencyId:props.agencyId}}));await load();}catch(e){error.value=e.response?.data?.error?.message||'The reservation was not released.';}finally{busy.value=false;}}
 onMounted(load);
 </script>
 <style scoped>

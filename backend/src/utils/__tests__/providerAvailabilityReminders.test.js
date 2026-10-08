@@ -29,3 +29,9 @@ test('a supervisor who does not see clients has no opening reminders; global clo
  assert.deepEqual(missingAvailabilityFormats(p,{},now),[]);
  assert.equal(providerAvailabilityPreferences({provider_accepting_new_clients:0},{acceptingNewClientsOverride:true}).acceptingNewClients,false);
 });
+
+test('an open format does not create missing-opening tasks for a waitlisted or closed format',()=>{
+ const preferences={seesClients:true,acceptingNewClients:true,inPerson:true,virtual:true,intakeStatusByFormat:{IN_PERSON:'waitlist',VIRTUAL:'accepting'}};
+ assert.deepEqual(missingAvailabilityFormats(preferences,{},now),['VIRTUAL']);
+ assert.deepEqual(missingAvailabilityFormats({...preferences,intakeStatusByFormat:{IN_PERSON:'unavailable',VIRTUAL:'accepting'}},{virtualSlots:[opening]},now),[]);
+});

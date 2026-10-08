@@ -6,7 +6,7 @@ import Profile from '../models/ProviderPublicProfile.model.js';
 import User from '../models/User.model.js';
 import { listOpenForBookingForProvider } from './providerUpdate.service.js';
 import { providerAvailabilityPreferences } from '../utils/providerAvailabilityReminders.js';
-import { agencyFormatAllowed } from '../utils/providerAgencyAvailability.js';
+import { agencyFormatAllowed,agencyIntakeStatus } from '../utils/providerAgencyAvailability.js';
 import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
 import { availabilityOccursOn } from '../utils/availabilityRecurrence.js';
 import { editAvailabilityPublication } from './availabilityPublicationEdit.service.js';
@@ -25,7 +25,7 @@ const overlaps = (a,b) => Date.parse(a.startAt) < Date.parse(b.endAt) && Date.pa
 export function virtualOpening(input, timeZone) {
   const date = calendarDate(input.date), startTime = String(input.startTime || '');
   if (!/^(?:[01]\d|2[0-2]):[0-5]\d$/.test(startTime)) throw fail('Choose a start time before 11 PM for your one-hour opening.');
-  if (!['ONCE','WEEKLY','BIWEEKLY','MONTHLY'].includes(input.frequency)) throw fail('Choose once, weekly, every other week, or monthly.');
+  if (!['WEEKLY','BIWEEKLY','MONTHLY'].includes(input.frequency)) throw fail('Choose weekly, every other week, or monthly recurring availability.');
   const endTime = String(Number(startTime.slice(0,2)) + 1).padStart(2,'0') + startTime.slice(2);
   const startAt = wallMysqlToUtcMysql(`${date} ${startTime}:00`, timeZone).replace(' ','T')+'Z';
   const endAt = wallMysqlToUtcMysql(`${date} ${endTime}:00`, timeZone).replace(' ','T')+'Z';
@@ -62,7 +62,11 @@ export async function readUpdateCalendar(ids, {weekStart,previewOnly=false}={}) 
   const selectedServices=context.profile?.details?.serviceOfferingsByAgency?.[String(ids.agencyId)];
   const services=(Array.isArray(selectedServices)?selectedServices:enrollments[0].map(e=>e.service_type)).filter(s=>['counseling','coaching','tutoring','consulting'].includes(s));
   const profileServices=services.length||Array.isArray(selectedServices)?services:[agencies[0][0]?.organization_type==='life_coach'?'coaching':agencies[0][0]?.organization_type==='consultant'?'consulting':'counseling'];
-  return {...calendar,assignments,weekly,profileServices,preferences:context.preferences,
+  const intakeStatusByFormat=Object.fromEntries(['IN_PERSON','VIRTUAL','SCHOOL'].map(format=>{
+    const legacy=context.profile?.details?.[{IN_PERSON:'officeAvailability',VIRTUAL:'virtualAvailability',SCHOOL:'schoolAvailability'}[format]];
+    return [format,context.policy?agencyIntakeStatus(context.policy,format):['accepting','waitlist','unavailable'].includes(legacy)?legacy:agencyIntakeStatus(context.preferences,format)];
+  }));
+  return {...calendar,assignments,weekly,profileServices,preferences:{...context.preferences,intakeStatusByFormat},
     canEdit:!previewOnly && Number(sourceId)===Number(ids.agencyId) && context.preferences.seesClients,
     previewOnly, today, agency:agencies[0][0], provider:{id:ids.providerId,...people[0][0]}};
 }
@@ -97,7 +101,8 @@ export async function closeUpdateVirtualOpening(ids, {id,date,scope}) {
   if(date<today)throw fail('Choose today or a future date.');
   return editAvailabilityPublication({...ids,kind:'weekly',id:Number(id),action:'delete',scope,occurrenceDate:date});
 }
-export async function openUpdateOfficeHours(ids,{eventId,assignmentId,inPerson,virtual,frequency='ONCE'}) {
+export async function openUpdateOfficeHours(ids,{eventId,assignmentId,inPerson,virtual,frequency='WEEKLY'}) {
+  if(!['WEEKLY','BIWEEKLY','MONTHLY'].includes(frequency))throw fail('Choose recurring office availability: weekly, every other week, or monthly.');
   const {policy} = await writableContext(ids);
   if (typeof inPerson!=='boolean'||typeof virtual!=='boolean') throw fail('Choose the formats to publish.');
   if ((inPerson&&!agencyFormatAllowed(policy,'IN_PERSON'))||(virtual&&!agencyFormatAllowed(policy,'VIRTUAL'))) throw fail('Enable the selected formats and accepting new clients in your profile availability settings first.',409);
@@ -105,17 +110,25 @@ export async function openUpdateOfficeHours(ids,{eventId,assignmentId,inPerson,v
   if(!eventId)return setOfficeAssignmentBookingAvailability({...ids,assignmentId:Number(assignmentId),inPerson,virtual,...(inPerson && policy?.officeIds ? {allowedOfficeIds:policy.officeIds}: {})});
   const [[event]]=await pool.execute(`SELECT e.* FROM office_events e LEFT JOIN office_standing_assignments a ON a.id=e.standing_assignment_id
     WHERE e.id=? AND e.assigned_provider_id=? AND ((a.booking_agency_id=? AND a.is_active=1) OR (e.standing_assignment_id IS NULL AND EXISTS(SELECT 1 FROM office_location_agencies ola WHERE ola.office_location_id=e.office_location_id AND ola.agency_id=?))) AND e.start_at>UTC_TIMESTAMP() AND e.status<>'CANCELLED'`,[eventId,ids.providerId,ids.agencyId,ids.agencyId]);
-  if(event&&!event.standing_assignment_id&&frequency!=='ONCE')throw fail('A one-time room reservation can only publish its own date.');
+  if(event&&!event.standing_assignment_id)throw fail('Use a recurring office reservation to publish availability from this update.');
   if(!event)throw fail('Choose one of your future office reservations in this agency.',403);
   if(inPerson&&Array.isArray(policy?.officeIds)&&!policy.officeIds.includes(Number(event.office_location_id)))throw fail('This office is not enabled in your public profile.',409);
   return publishOfficeAvailability({event,...ids,frequency,format:inPerson&&virtual?'BOTH':inPerson?'IN_PERSON':virtual?'VIRTUAL':'PRIVATE',availableForIntake:true,availableForSession:true,actorId:ids.providerId,replaceFormats:true});
 }
 export async function saveUpdateAvailabilitySettings(ids, input) {
   const {preferences} = await writableContext(ids);
-  for(const key of ['acceptingNewClients','inPerson','virtual'])if(typeof input[key]!=='boolean')throw fail('Choose your profile availability settings.');
+  let choices;
+  if(input.inPersonStatus!==undefined||input.virtualStatus!==undefined){
+    if([input.inPersonStatus,input.virtualStatus].some(status=>!['accepting','waitlist','unavailable'].includes(status)))throw fail('Choose Open, Waitlist, or Closed for both appointment formats.');
+    const intakeStatusByFormat={IN_PERSON:input.inPersonStatus,VIRTUAL:input.virtualStatus,SCHOOL:agencyIntakeStatus(preferences,'SCHOOL')};
+    choices={intakeStatusByFormat,inPerson:input.inPersonStatus!=='unavailable'||preferences.inPerson===true,virtual:input.virtualStatus!=='unavailable'||preferences.virtual===true,acceptingNewClients:[input.inPersonStatus,input.virtualStatus].includes('accepting'),waitlistEnabled:Object.values(intakeStatusByFormat).includes('waitlist')};
+  }else{
+    for(const key of ['acceptingNewClients','inPerson','virtual'])if(typeof input[key]!=='boolean')throw fail('Choose your profile availability settings.');
+    choices={acceptingNewClients:input.acceptingNewClients,inPerson:input.inPerson,virtual:input.virtual,intakeStatusByFormat:null};
+  }
   const db=await pool.getConnection();
   try {await db.beginTransaction();
-    await saveAgencyAvailability(db,{...ids,actor:{id:ids.providerId,role:'provider'},body:{...preferences,acceptingNewClients:input.acceptingNewClients,inPerson:input.inPerson,virtual:input.virtual,applyToAll:false}});
+    await saveAgencyAvailability(db,{...ids,actor:{id:ids.providerId,role:'provider'},body:{...preferences,...choices,applyToAll:false}});
     await db.commit();return {ok:true};
   } catch(e){await db.rollback();throw e;}finally{db.release();}
 }

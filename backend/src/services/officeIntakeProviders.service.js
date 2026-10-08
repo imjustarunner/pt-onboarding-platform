@@ -1,5 +1,5 @@
 import Profile from '../models/ProviderPublicProfile.model.js';
-import {agencyFormatAllowed} from '../utils/providerAgencyAvailability.js';
+import {agencyFormatAllowed,agencyWaitlistAllowed} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
 import { ageYearsFromDob } from '../utils/intakeShowIf.js';
 import { providerServesAgeBucket } from '../utils/ageMatch.util.js';
@@ -454,11 +454,12 @@ export async function listOfficeIntakeProviders(agencyId, { ages = [], includeNo
    const profile=await Profile.getForProvider({providerUserId:person.id,agencyId:aid}),policy=profile?.agencyAvailability,details=profile?.details||{};
    const format=String(programType||'ALL').toUpperCase().replace(/[ -]/g,'_');
    const supports=f=>policy?agencyFormatAllowed(policy,f,{intake:false}):f==='IN_PERSON'?(details.inPersonEnabled!==false&&(person.inOfficeAvailable||details.inPersonEnabled||person.openOfficeSlots>0)):details.virtualEnabled!==false&&(details.virtualEnabled||person.openVirtualSlots>0||(details.sessionFormats||[]).some(v=>/virtual/i.test(v)));
-   const accepting=policy?policy.seesClients&&policy.acceptingNewClients:person.acceptingNewClients;
-   const waitlist=policy?policy.seesClients&&policy.waitlistEnabled:details.waitlistEnabled===true;
+   const selectedFormats=['IN_PERSON','VIRTUAL'].includes(format)?[format]:['IN_PERSON','VIRTUAL'];
+   const accepting=policy?selectedFormats.some(f=>agencyFormatAllowed(policy,f)):person.acceptingNewClients;
+   const waitlist=policy?selectedFormats.some(f=>agencyWaitlistAllowed(policy,f)):details.waitlistEnabled===true;
    if(!includeNotAccepting&&!accepting&&!(includeWaitlist&&waitlist))continue;
    if(format==='IN_PERSON'&&!supports('IN_PERSON')||format==='VIRTUAL'&&!supports('VIRTUAL'))continue;
-   scoped.push({...person,clinicalFocus:details.clinicalFocus||null,acceptingNewClients:accepting,waitlist:!accepting,inOfficeAvailable:!!supports('IN_PERSON')});
+   scoped.push({...person,clinicalFocus:details.clinicalFocus||null,acceptingNewClients:accepting,waitlist:!accepting&&waitlist,inOfficeAvailable:!!supports('IN_PERSON')});
   }
   mapped=scoped;
   mapped.sort((a, b) => {

@@ -146,6 +146,7 @@
             :agency-id="agencyId || recipient.agencyId"
             :recipient="recipient"
             @saved="onSectionSaved"
+            @advance="advancePage"
             @close="activePageKey = ''"
           />
         </template>
@@ -163,7 +164,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { buildPagesFromSections } from '../../utils/providerUpdate';
 import { agencyDisplayName, logoSrc, parseAgencyPalette } from '../../utils/schoolReinit';
@@ -281,6 +282,14 @@ function openPage(key) {
   session.changeSection('overview');
   activeSectionKey.value = 'overview';
   activePageKey.value = key;
+  nextTick(()=>pagePanel.value?.focusTop());
+}
+
+function advancePage(){
+  const index=pages.value.findIndex(p=>p.key===activePageKey.value);
+  const next=pages.value.slice(index+1).find(p=>!p.completed)||pages.value.find(p=>!p.completed);
+  if(next)openPage(next.key);
+  else activePageKey.value='';
 }
 
 async function load() {

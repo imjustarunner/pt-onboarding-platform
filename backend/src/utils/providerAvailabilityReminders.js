@@ -15,7 +15,7 @@ export function missingAvailabilityFormats(preferences, slots, now = Date.now())
  const future = list => (list || []).some(s => Date.parse(s.startAt) > now && Date.parse(s.endAt) > Date.parse(s.startAt));
  if (preferences.seesClients === false || !preferences.acceptingNewClients) return [];
  return [['IN_PERSON',preferences.inPerson,slots.inPersonSlots],['VIRTUAL',preferences.virtual,slots.virtualSlots]]
-  .filter(([,enabled,list]) => enabled && !future(list)).map(([format]) => format);
+  .filter(([format,enabled,list]) => enabled && (!preferences.intakeStatusByFormat || agencyFormatAllowed(preferences,format)) && !future(list)).map(([format]) => format);
 }
 export const availabilitySettingsPath = (providerId, agencyId) => `/admin/users/${Number(providerId)}?agencyId=${Number(agencyId)}&section=public-profile`;
 

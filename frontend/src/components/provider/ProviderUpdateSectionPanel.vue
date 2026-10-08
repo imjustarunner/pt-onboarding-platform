@@ -5,7 +5,7 @@
       <p>{{ section.meta?.description }}</p>
     </header>
     <p v-if="localError" class="err" role="alert">{{localError}}</p>
-    <fieldset class="preview-fields" :disabled="recipient?.previewOnly && !['office_schedule','public_availability','office_review','admin_update','handbook','amendments'].includes(section.key)">
+    <fieldset class="preview-fields" :disabled="recipient?.previewOnly && !['office_schedule','public_availability','public_profile_review','office_review','admin_update','handbook','amendments'].includes(section.key)">
 
     <!-- Handbook -->
     <WorkplaceHandbookReader
@@ -50,8 +50,8 @@
     <ProviderUpdateOfficeReview v-else-if="section.key==='office_review'" :agency-id="agencyId" :mode="mode" :token="token" :data="section.data" :readonly="!!recipient?.previewOnly" @complete="markComplete" />
     <!-- Office schedule -->
     <ProviderUpdateOfficeSchedule
-      v-else-if="['office_schedule','public_availability'].includes(section.key)"
-      :view="section.key==='public_availability'?'settings':'calendar'"
+      v-else-if="['office_schedule','public_availability','public_profile_review'].includes(section.key)"
+      :view="section.key==='public_availability'?'settings':section.key==='public_profile_review'?'profile':'calendar'"
       :agency-id="agencyId"
       :mode="mode"
       :token="token"

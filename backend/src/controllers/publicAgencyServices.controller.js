@@ -2,7 +2,7 @@ import {slotAllowsCare} from '../utils/availabilityCareTypes.js';
 import { readPublicWeekAvailability } from '../services/publicAvailabilitySnapshot.service.js';
 import {appointmentTimePredicate} from '../utils/publicAppointmentTimeSearch.js';
 import {publicSchoolAssignmentSql} from '../utils/providerDirectoryEligibility.js';
-import {scopeProviderRow,agencyOfficeAllowed,agencyFormatAllowed} from '../utils/providerAgencyAvailability.js';
+import {scopeProviderRow,agencyOfficeAllowed,agencyFormatAllowed,agencyWaitlistAllowed} from '../utils/providerAgencyAvailability.js';
 import {listPublicProviderOffices} from '../services/publicProviderOffices.service.js';
 import { offersProviderService } from '../utils/providerServiceOfferings.js';
 import {publicFormatEnabled} from '../utils/providerAvailabilityReminders.js';
@@ -1179,7 +1179,7 @@ export const joinProviderWaitlist = async (req,res,next) => {
   const format=String(req.body?.format||'').toUpperCase();
   const key={IN_PERSON:'officeAvailability',VIRTUAL:'virtualAvailability',SCHOOL:'schoolAvailability'}[format];
   if(!key)return res.status(400).json({error:{message:'Choose in-person, virtual, or school-based support.'}});
-  if(!agencyFormatAllowed(profile?.agencyAvailability,format,{intake:false}) || (profile?.details?.waitlistEnabled!==true && profile?.details?.[key]!=='waitlist'))return res.status(409).json({error:{message:'This provider is not accepting waitlist requests for that format. Please inquire with our team.'}});
+  if(profile?.agencyAvailability ? !agencyWaitlistAllowed(profile.agencyAvailability,format) : profile?.details?.waitlistEnabled!==true && profile?.details?.[key]!=='waitlist')return res.status(409).json({error:{message:'This provider is not accepting waitlist requests for that format. Please inquire with our team.'}});
   const {createPublicAgencySupportTicket}=await import('../services/publicAgencySupport.service.js');
   const result=await createPublicAgencySupportTicket(agency.slug,{...req.body,category:'provider',message:`Please add me to the ${format.toLowerCase().replace('_','-')} ${serviceType} waitlist for ${provider.first_name} ${provider.last_name}.\n${String(req.body?.message||'').slice(0,2000)}`},req,{providerWaitlist:{providerId,serviceType,format,providerName:`${provider.first_name} ${provider.last_name}`}});
   if(result.suppressed)return res.status(201).json({ok:true});

@@ -46,3 +46,10 @@ describe('public provider schedule summaries',()=>{
  });
 
 });
+
+it.each(['waitlist','unavailable'])('keeps in-person %s independent from open virtual appointments',async status=>{
+ const policy={seesClients:true,inPerson:true,virtual:true,school:false,acceptingNewClients:true,waitlistEnabled:true,intakeStatusByFormat:{IN_PERSON:status,VIRTUAL:'accepting'}};
+ Profile.getForProvider.mockResolvedValue({agencyAvailability:policy,details:{officeAvailability:status,virtualAvailability:'accepting',waitlistEnabled:true,typicalAvailability:['Monday afternoons'],availabilityByAgency:{2:policy}}});
+ Availability.computeWeekAvailability.mockResolvedValue({virtualSlots:[{startAt:'2030-01-08T16:00:00Z',endAt:'2030-01-08T17:00:00Z'}],inPersonSlots:[{startAt:'2030-01-08T18:00:00Z',endAt:'2030-01-08T19:00:00Z'}]});
+ const result=await readPublicProviderSchedule(9,2);expect(result.inPerson.status).toBe(status);expect(result.virtual.status).toBe('accepting');expect(result.slots.map(s=>s.format)).toEqual(['VIRTUAL']);expect(result.waitlistFormats).toEqual(status==='waitlist'?['IN_PERSON']:[]);expect(result.typicalAvailability).toEqual(['Monday afternoons']);
+});

@@ -61,18 +61,19 @@ export const PROVIDER_UPDATE_SECTIONS = [
     previewHint: 'Uses the same work-hours editor as My Schedule.'
   },
   {key:'office_review',title:'Confirm Office Reservations',shortTitle:'Office Reservations',description:'Confirm each current office reservation or release incorrect room bookings.',checklist:['Review each reservation','Keep or release office time'],mode:'embedded',icon:'office',defaultEnabled:true},
-  {key:'public_availability',title:'Public Profile Availability',shortTitle:'Public Availability',description:'Choose whether you accept new clients and offer in-person or virtual appointments.',checklist:['Accepting new clients','In-person and virtual formats','View your live profile'],mode:'embedded',icon:'office',defaultEnabled:true},
+  {key:'public_availability',title:'Public Profile Availability',shortTitle:'Public Availability',description:'Choose Open, Waitlist, or Closed separately for in-person and virtual appointments.',checklist:['In-person status','Virtual status','Waitlist and typical availability'],mode:'embedded',icon:'office',defaultEnabled:true},
   {
     key: 'office_schedule',
     title: 'Set Availability',
     shortTitle: 'Availability',
-    description: 'Review your week, publish client openings, and share your provider profile.',
-    checklist: ['Review your weekly calendar', 'Open virtual or reserved office hours', 'View your public profile and shareable link'],
+    description: 'Review your week and publish recurring client openings.',
+    checklist: ['Review your weekly calendar', 'Open virtual or reserved office hours', 'Weekly, every-other-week, or monthly availability'],
     mode: 'embedded',
     icon: 'office',
     defaultEnabled: true,
     previewHint: 'Shows office schedule with quick-add for open booking slots.'
   },
+  {key:'public_profile_review',title:'My Public Profile',shortTitle:'My Profile',description:'Review your completed profile, availability, and shareable link.',checklist:['Open your public profile','Review information and appointment statuses','Copy your link or create a QR code'],mode:'embedded',icon:'photo',defaultEnabled:true},
   {
     key: 'client_fall_update',
     title: 'Client Fall Update',
@@ -269,6 +270,7 @@ export const PROVIDER_UPDATE_PAGES = [
     icon: 'specialties',
     sectionKeys: ['profile_blurb', 'specialties', 'credential_display', 'directory_photo']
   },
+  {key:'public_profile_review',title:'My Public Profile',shortTitle:'My Profile',description:'Check how your profile and availability look to clients.',checklist:['Review your live profile','Copy your link or create a QR code'],icon:'photo',sectionKeys:['public_profile_review']},
   {
     key: 'handbook',
     title: 'Handbook Updates',
@@ -308,7 +310,7 @@ export function normalizeSectionConfig(raw) {
   const base = defaultSectionConfig();
   if (!raw || typeof raw !== 'object') return base;
   const out = { ...base };
-  for(const key of ['office_review','public_availability'])if(!Object.hasOwn(raw,key)&&Object.hasOwn(raw,'office_schedule'))out[key]=!!raw.office_schedule;
+  for(const key of ['office_review','public_availability','public_profile_review'])if(!Object.hasOwn(raw,key)&&Object.hasOwn(raw,'office_schedule'))out[key]=!!raw.office_schedule;
   for (const key of PROVIDER_UPDATE_SECTION_KEYS) {
     if (Object.prototype.hasOwnProperty.call(raw, key)) out[key] = !['pay_portal','training_ack','preferred_days'].includes(key) && !!raw[key];
   }

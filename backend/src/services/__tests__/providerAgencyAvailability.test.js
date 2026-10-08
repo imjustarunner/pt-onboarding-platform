@@ -56,3 +56,13 @@ describe('authorized availability edits',()=>{
  await expect(save({virtual:'false'})).rejects.toMatchObject({status:400});expect(writes).toHaveLength(0);
  });
 });
+
+it('preserves explicit format statuses during unrelated edits, and clears them for a legacy overall status change',async()=>{
+ const statuses={IN_PERSON:'waitlist',VIRTUAL:'accepting',SCHOOL:'unavailable'},original=database.execute.getMockImplementation();
+ database.execute.mockImplementation((sql,args)=>sql.includes('SELECT public_details_json FROM provider_public_profiles')?Promise.resolve([[{public_details_json:{availabilityByAgency:{1:{...open,intakeStatusByFormat:statuses}}}}]]):original(sql,args));
+ await save({officeIds:[8]});expect(writes[0].availabilityByAgency[1].intakeStatusByFormat).toEqual(statuses);
+ await save({acceptingNewClients:false});expect(writes[1].availabilityByAgency[1].intakeStatusByFormat).toBeNull();
+});
+it('rejects unknown appointment statuses before writing any profile',async()=>{
+ await expect(save({intakeStatusByFormat:{VIRTUAL:'maybe'}})).rejects.toMatchObject({status:400});expect(writes).toHaveLength(0);
+});

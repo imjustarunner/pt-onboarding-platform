@@ -1,5 +1,5 @@
 <template>
-  <div class="pu-page">
+  <div ref="pageRoot" class="pu-page">
     <header class="pu-page-head">
       <h1>{{ page.title }}</h1>
       <p>{{ page.description }}</p>
@@ -90,7 +90,8 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   recipient: { type: Object, default: null }
 });
-const emit = defineEmits(['saved', 'close', 'section']);
+const emit = defineEmits(['saved', 'close', 'section', 'advance']);
+const pageRoot = ref(null);
 
 const soleSection = computed(() => props.page.sections?.[0] || null);
 const expandedKey = ref('');
@@ -109,17 +110,24 @@ function toggle(key) {
   expandedKey.value = expandedKey.value === key ? '' : key;
 }
 
-async function focusSection(key){expandedKey.value=key;await nextTick();const block=document.querySelector(`[data-section-key="${key}"]`);block?.scrollIntoView({behavior:'smooth',block:'start'});block?.querySelector('input:invalid, select:invalid, textarea:invalid')?.focus();}
-defineExpose({focusSection});
+async function focusSection(key){expandedKey.value=key;await nextTick();const block=pageRoot.value?.querySelector(`[data-section-key="${key}"]`);block?.scrollIntoView?.({behavior:'smooth',block:'start'});block?.querySelector('.pu-page-block-toggle')?.focus({preventScroll:true});}
+async function focusTop(){await nextTick();pageRoot.value?.scrollIntoView?.({behavior:'smooth',block:'start'});}
+defineExpose({focusSection,focusTop});
 
 async function onSaved(bundle) {
+  const completedKey=props.page.alone?soleSection.value?.key:expandedKey.value;
+  const previousIndex=(props.page.sections||[]).findIndex(s=>s.key===completedKey);
   emit('saved', bundle);
   await nextTick();
-  // Advance to next incomplete item on this page
+  // Partial saves stay in place. A completed item opens the next item at its top.
   const list = props.page.sections || [];
-  const idx = list.findIndex((s) => s.key === expandedKey.value);
-  const next = list.slice(idx + 1).find((s) => !s.completed) || list.find((s) => !s.completed);
-  if (next && next.key !== expandedKey.value) expandedKey.value = next.key;
+  const saved=(bundle?.sections||list).find(s=>s.key===completedKey);
+  if(saved&&!saved.completed)return;
+  const idx=list.findIndex(s=>s.key===completedKey);
+  const next=list.slice(idx<0?Math.max(0,previousIndex):idx+1).find(s=>!s.completed);
+  if(next)await focusSection(next.key);
+  else if(list.every(s=>s.completed))emit('advance');
+  else {const unfinished=list.find(s=>!s.completed);if(unfinished)await focusSection(unfinished.key);}
 }
 </script>
 
