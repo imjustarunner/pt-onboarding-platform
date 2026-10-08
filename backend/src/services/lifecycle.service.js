@@ -28,11 +28,14 @@ import {
 import { ensureD11ComplianceForProvider } from './d11Compliance.service.js';
 import { listProviderDistrictFlags } from '../utils/districtCompliance.js';
 
-// Milestone date field keys we manage via user_info_values EAV
-const MILESTONE_FIELD_KEYS = [
+// Share the editable fields with the endpoint so new dates cannot be dropped on save.
+export const EDITABLE_MILESTONE_FIELD_KEYS = Object.freeze([
   'start_date',
   'first_client_date',
   'employment_agreement_date',
+]);
+const MILESTONE_FIELD_KEYS = [
+  ...EDITABLE_MILESTONE_FIELD_KEYS,
   'probation_end_date',
 ];
 
@@ -557,7 +560,7 @@ export async function getLifecycleData(userId) {
  */
 export async function saveMilestoneDates(userId, dates) {
   const uid = Number(userId);
-  const allowed = new Set(MILESTONE_FIELD_KEYS.filter(key => key !== 'probation_end_date'));
+  const allowed = new Set(EDITABLE_MILESTONE_FIELD_KEYS);
   for (const [key,value] of Object.entries(dates)) {
     if (allowed.has(key) && value && (!/^\d{4}-\d{2}-\d{2}$/.test(String(value)) || !Number.isFinite(Date.parse(`${value}T12:00:00Z`)) || new Date(`${value}T12:00:00Z`).toISOString().slice(0,10) !== value)) throw Object.assign(new Error('Use a valid date.'), {status:400});
   }
@@ -573,7 +576,9 @@ export async function saveMilestoneDates(userId, dates) {
       [key]
     );
     const defId = defRows?.[0]?.id;
-    if (!defId) continue;
+    if (!defId) {
+      throw Object.assign(new Error('Employment date settings are not ready. Your date was not saved; please try again after the database update.'), { status: 503 });
+    }
 
     const v = value || null;
     if (v) {
