@@ -2078,7 +2078,7 @@ const dashboardBannerTexts = computed(() => {
     }
   }
 
-  return [...scheduledTexts, ...celebrationItems].filter(Boolean).slice(0, 12);
+  return [...scheduledTexts, ...celebrationItems].filter(Boolean);
 });
 
 const SPLASH_DISMISS_STORAGE_PREFIX = 'dashboardSplashDismissed.v1';

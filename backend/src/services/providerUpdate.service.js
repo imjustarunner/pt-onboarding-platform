@@ -1,3 +1,4 @@
+import {recordUpdateTime,submitCompletedUpdateTime,createUpdateTimeClaim,updateTimeSummary} from './providerUpdateTime.service.js';
 import {spanishIntakeProcedure} from '../content/october2026UpdateRevisions.js';
 import {getProviderUpdateRecords} from './providerUpdateRecords.service.js';
 import { getStaffCommunicationChoices } from './staffCommunicationChoices.service.js';
@@ -21,13 +22,12 @@ import { listSchoolAssignedProviders } from './providerYearUpdate.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
 import { resolveSenderIdentityForSend } from './emailSenderIdentityResolver.service.js';
 import CommunicationLoggingService from './communicationLogging.service.js';
-import PayrollTimeClaim from '../models/PayrollTimeClaim.model.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
 
 const TOKEN_TTL_DAYS = 90;
-const HEARTBEAT_MAX_DELTA_SEC = 120;
-const HEARTBEAT_SESSION_GAP_MS = 30 * 60 * 1000;
+
+
 
 function parseJson(raw, fallback = null) {
   if (raw == null) return fallback;
@@ -706,8 +706,9 @@ export async function getRecipientBundle(recipient) {
   });
   const records = await getProviderUpdateRecords(recipient.provider_user_id,recipient.agency_id);
   for(const section of sectionList){
-    const defaults={spanish_intake:{bodyHtml:spanishIntakeProcedure},contact_info:{contact:records.contact},profile_blurb:{blurb:records.blurb},credential_display:{credential:records.credential},work_hours:{typicalAvailability:records.typicalAvailability},specialties:{focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus,specialtyGroups:records.specialtyGroups,specialties:Object.fromEntries(records.specialtyGroups.map(g=>[g.key,g.selected]))},directory_photo:{hasPhoto:!!records.photoPath},school_availability:{schools:records.schools},supervision_hours:{breakdown:records.supervision},license:{license:records.license}}[section.key];
+    const defaults={spanish_intake:{bodyHtml:spanishIntakeProcedure},contact_info:{contact:records.contact},profile_blurb:{blurb:records.blurb},credential_display:{credential:records.credential,displayRole:records.displayRole},work_hours:{typicalAvailability:records.typicalAvailability},specialties:{focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus,specialtyGroups:records.specialtyGroups,specialties:Object.fromEntries(records.specialtyGroups.map(g=>[g.key,g.selected]))},directory_photo:{hasPhoto:!!records.photoPath},school_availability:{schools:records.schools},supervision_hours:{breakdown:records.supervision},license:{license:records.license}}[section.key];
     section.data={...defaults,...section.data};
+    if(section.key==='credential_display')section.data.displayRole=records.displayRole;
     if(section.key==='supervision_hours')section.data.breakdown=records.supervision;
     if(section.key==='specialties')section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus};
     if(section.key==='school_availability')section.data.schools=records.schools;
@@ -721,7 +722,8 @@ export async function getRecipientBundle(recipient) {
   }
   if (communicationSection) {
     const communicationChoices=await getStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id});
-    communicationSection.data={...communicationSection.data,communicationChoices};
+    const {getCommunicationPrefs}=await import('./inboxDigest.service.js');
+    communicationSection.data={...communicationSection.data,communicationChoices,appEmail:await getCommunicationPrefs(recipient.provider_user_id)};
     if (!recipient.locked_at && communicationChoices.needsReview) {communicationSection.completed=false;communicationSection.status='in_progress';}
   }
   let agency = null;
@@ -802,34 +804,7 @@ export async function getRecipientBundle(recipient) {
   };
 }
 
-export async function recordHeartbeat(recipientId) {
-  const [rows] = await pool.execute(
-    `SELECT id, token, active_seconds, last_heartbeat_at, status, locked_at FROM provider_update_recipients WHERE id = ? LIMIT 1`,
-    [recipientId]
-  );
-  const row = rows?.[0];
-  if (!row || row.locked_at || isProviderUpdatePreviewToken(row.token)) return { activeSeconds: Number(row?.active_seconds || 0) };
-  const now = Date.now();
-  const last = row.last_heartbeat_at ? new Date(row.last_heartbeat_at).getTime() : 0;
-  let delta = 60;
-  if (last) {
-    const gap = now - last;
-    if (gap > HEARTBEAT_SESSION_GAP_MS) delta = 60;
-    else delta = Math.min(HEARTBEAT_MAX_DELTA_SEC, Math.max(0, Math.round(gap / 1000)));
-  }
-  await pool.execute(
-    `UPDATE provider_update_recipients
-     SET active_seconds = active_seconds + ?,
-         last_heartbeat_at = UTC_TIMESTAMP(),
-         status = IF(status = 'not_started', 'in_progress', status)
-     WHERE id = ?`,
-    [delta, recipientId]
-  );
-  const [after] = await pool.execute(`SELECT active_seconds FROM provider_update_recipients WHERE id = ?`, [
-    recipientId
-  ]);
-  return { activeSeconds: Number(after?.[0]?.active_seconds || 0) };
-}
+export const recordHeartbeat = recordUpdateTime;
 
 export async function updateSectionProgress({
   recipientId,
@@ -879,7 +854,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
   const recipient = rows?.[0];
   if (!recipient) throw Object.assign(new Error('Recipient not found'), { status: 404 });
   if(isProviderUpdatePreviewToken(recipient.token))throw Object.assign(new Error('This preview is read-only.'),{status:403});
-  if (recipient.locked_at) return recipient;
+  if (recipient.locked_at) { await submitCompletedUpdateTime(recipient.id,actorUserId); return recipient; }
 
   const push = await getPush(recipient.push_id);
   const bundle = await getRecipientBundle({ ...recipient, section_config_json: push.section_config_json });
@@ -897,24 +872,19 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
     });
   }
 
-  const snapshot = {
-    enabledKeys,
-    sections: sections || [],
-    activeSeconds: Number(recipient.active_seconds || 0),
-    finalizedAt: new Date().toISOString()
-  };
-  await pool.execute(
-    `UPDATE provider_update_recipients
-     SET status = 'finalized',
-         finalized_at = UTC_TIMESTAMP(),
-         finalized_by_actor_type = ?,
-         finalized_by_user_id = ?,
-         locked_at = UTC_TIMESTAMP(),
-         snapshot_json = ?
-     WHERE id = ?`,
-    [actorType, actorUserId, JSON.stringify(snapshot), recipientId]
-  );
-  const [after] = await pool.execute(`SELECT * FROM provider_update_recipients WHERE id = ?`, [recipientId]);
+  const db = await pool.getConnection();
+  try {
+    await db.beginTransaction();
+    const [[current]] = await db.execute('SELECT * FROM provider_update_recipients WHERE id=? FOR UPDATE',[recipientId]);
+    const summary = await updateTimeSummary(recipientId,db);
+    const finalizedAt = current.finalized_at || new Date();
+    if (!current.locked_at) await db.execute(`UPDATE provider_update_recipients SET status='finalized',finalized_at=?,
+      finalized_by_actor_type=?,finalized_by_user_id=?,locked_at=?,snapshot_json=? WHERE id=?`,
+      [finalizedAt,actorType,actorUserId,finalizedAt,JSON.stringify({enabledKeys,sections,activeSeconds:Number(current.active_seconds),sectionSeconds:summary.sections,finalizedAt}),recipientId]);
+    await createUpdateTimeClaim(db,{...current,finalized_at:finalizedAt},actorUserId);
+    await db.commit();
+  } catch(error) { await db.rollback(); throw error; } finally { db.release(); }
+  const [after] = await pool.execute('SELECT * FROM provider_update_recipients WHERE id=?',[recipientId]);
   return after[0];
 }
 
@@ -964,8 +934,6 @@ export async function submitPushForPayroll({ pushId, agencyId, submittedByUserId
   const recipients = await listRecipients(pushId, agencyId);
   const created = [];
   const skipped = [];
-  const today = new Date().toISOString().slice(0, 10);
-
   for (const r of recipients) {
     if (isProviderUpdatePreviewToken(r.token)) {
       skipped.push({providerUserId:r.provider_user_id,reason:'read_only_preview'});
@@ -975,36 +943,13 @@ export async function submitPushForPayroll({ pushId, agencyId, submittedByUserId
       skipped.push({ providerUserId: r.provider_user_id, reason: 'already_submitted' });
       continue;
     }
-    const seconds = Number(r.active_seconds || 0);
-    if (seconds < 60) {
-      skipped.push({ providerUserId: r.provider_user_id, reason: 'under_one_minute' });
-      continue;
-    }
-    const hours = Math.round((seconds / 3600) * 100) / 100;
-    const claim = await PayrollTimeClaim.create({
-      agencyId,
-      userId: Number(r.provider_user_id),
-      submittedByUserId: submittedByUserId || Number(r.provider_user_id),
-      status: 'submitted',
-      claimType: 'indirect_time',
-      claimDate: today,
-      payload: {
-        source: 'provider_update',
-        pushId: Number(pushId),
-        recipientId: Number(r.id),
-        activeSeconds: seconds,
-        creditsHours: hours,
-        description: `Provider Update: ${push.title}`,
-        bucket: 'indirect'
-      }
-    });
-    await pool.execute(
-      `UPDATE provider_update_recipients SET payroll_time_claim_id = ? WHERE id = ?`,
-      [claim.id, r.id]
-    );
-    created.push({ providerUserId: r.provider_user_id, claimId: claim.id, hours });
+    if (!r.finalized_at) { skipped.push({providerUserId:r.provider_user_id,reason:'not_completed'}); continue; }
+    const claimId=await submitCompletedUpdateTime(r.id,submittedByUserId);
+    if(claimId)created.push({providerUserId:r.provider_user_id,claimId,hours:Number(r.active_seconds)/3600});
+    else skipped.push({providerUserId:r.provider_user_id,reason:'no_recorded_time'});
   }
 
+  if(recipients.some(r=>!isProviderUpdatePreviewToken(r.token)&&!r.finalized_at))return {created,skipped,push};
   await pool.execute(
     `UPDATE provider_update_pushes
      SET payroll_submitted_at = UTC_TIMESTAMP(), payroll_submitted_by_user_id = ?, status = IF(status = 'sent', 'closed', status),

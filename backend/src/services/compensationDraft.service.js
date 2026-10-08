@@ -25,7 +25,7 @@ export async function getCompensationDraft(agencyId,id,db=pool) {
 }
 export function editCompensationDraft(existing,patch,userId) {
  const result=structuredClone(existing);
- for(const key of ['category','level','creditRate','hcodeRate','indirectRate','supportRate','ptoRate']) {
+ for(const key of ['category','level','creditRate','hcodeRate','indirectRate','supportRate','ptoRate','creditRateProbation','hcodeRateProbation','indirectRateProbation','supportRateProbation']) {
   if(!Object.hasOwn(patch.schedule || {},key))continue;
   const raw=patch.schedule[key];
   const v=raw===''||raw==null?null:Number(raw);
@@ -73,7 +73,7 @@ export async function releaseCompensationDraft(agencyId,id,{expectedHtml,pushId}
   const title=`Compensation Amendment — ${data.employee.name}`;
   const [doc]=await db.execute(`INSERT INTO user_specific_documents(user_id,name,description,template_type,html_content,document_action_type,field_definitions,created_by_user_id)
     VALUES (?,?,?,'html',?,'signature',?,?)`,[row.candidate_user_id,title,'Provider Update compensation amendment',releasedHtml,JSON.stringify([{type:'signature',label:'Employee signature',required:true}]),userId]);
-  const metadata={source:'provider_update',pushId:pid,amendmentMode:'compensation',contractGeneration:true,portalPhase:'ongoing',requiredCountersignerUserId:counter,generationId:id};
+  const metadata={source:'provider_update',pushId:pid,amendmentMode:'compensation',contractGeneration:true,portalPhase:'ongoing',requiredCountersignerUserId:counter,generationId:id,effectiveDate:data.effectiveDate,compensationPolicyVersion:data.compensationPolicyVersion};
   const [task]=await db.execute(`INSERT INTO tasks(task_type,document_action_type,title,description,assigned_to_user_id,assigned_to_agency_id,assigned_by_user_id,reference_id,metadata,status,is_required)
     VALUES ('document','signature',?,?,?,?,?,?,?,'pending',1)`,[title,'Review and electronically sign your amendment in the Provider Update.',row.candidate_user_id,agencyId,userId,doc.insertId,JSON.stringify(metadata)]);
   await db.execute('UPDATE user_specific_documents SET task_id=? WHERE id=?',[task.insertId,doc.insertId]);

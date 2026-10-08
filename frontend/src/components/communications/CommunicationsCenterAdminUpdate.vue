@@ -232,8 +232,9 @@
                   v-html="DOMPurify.sanitize(topic.body_html || '')"
                 />
 
+                <details v-if="topic.rendered_body_html" class="au-live-people"><summary>View current photos and timeline dates</summary><div v-html="DOMPurify.sanitize(topic.rendered_body_html)" /></details>
                 <article v-for="item in includedItems(topic)" :key="item.id" class="au-person">
-                  <img v-if="item.photo_url" :src="item.photo_url" alt="" />
+                  <img v-if="item.kind !== 'departure' && item.photo_url" :src="item.photo_url" alt="" />
                   <div v-else class="au-avatar" :style="{ color: topic.color, background: topic.color + '22' }">
                     {{ (item.display_name || '?').slice(0, 1) }}
                   </div>
@@ -307,11 +308,11 @@
         <div v-if="previewing" class="au-preview-loading">Loading preview…</div>
         <div v-else-if="previewError" class="au-preview-loading">{{ previewError }}</div>
         <div v-else class="au-preview-body">
-          <iframe
+          <iframe @load="connectAdminUpdateFrame" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
             v-if="previewTab === 'email'"
             class="au-preview-frame"
             title="Branded email preview"
-            :srcdoc="previewEmailHtml"
+            :srcdoc="adminUpdateFrameHtml(previewEmailHtml)"
           />
           <div v-else-if="previewTab === 'splash'" class="au-splash-stage">
             <div class="au-splash-backdrop">
@@ -329,11 +330,11 @@
               </div>
             </div>
           </div>
-          <iframe
+          <iframe @load="connectAdminUpdateFrame" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
             v-else
             class="au-preview-frame"
             title="Published Admin Update preview"
-            :srcdoc="previewPageHtml"
+            :srcdoc="adminUpdateFrameHtml(previewPageHtml)"
           />
         </div>
       </div>
@@ -374,6 +375,7 @@
 </template>
 
 <script setup>
+import {connectAdminUpdateFrame,adminUpdateFrameHtml} from '../../utils/adminUpdateFrame';
 import TrainingMediaAttachment from '../admin/TrainingMediaAttachment.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';

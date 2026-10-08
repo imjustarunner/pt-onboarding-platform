@@ -473,20 +473,15 @@
                 <div v-if="lcDatesSaveError" class="ov-err">{{ lcDatesSaveError }}</div>
                 <div class="ov-lc-dates-grid">
                   <template v-if="!editingLcDates">
-                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">Offer Accepted Date</span><input type="text" :value="fmtDate(lifecycle.dates?.offer_accepted_date) || ''" readonly class="ov-date-input ov-date-input--ro" placeholder="mm/dd/yyyy"/></div>
+                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">Employment Agreement Date</span><input type="text" :value="fmtDate(lifecycle.dates?.employment_agreement_date) || ''" readonly class="ov-date-input ov-date-input--ro" /></div>
+                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">Probation End Date</span><input type="text" :value="fmtDate(lifecycle.dates?.probation_end_date) || ''" readonly class="ov-date-input ov-date-input--ro" /></div>
                     <div class="ov-lc-date-row"><span class="ov-lc-date-label">Start Date</span><input type="text" :value="fmtDate(lifecycle.summary?.startDate) || ''" readonly class="ov-date-input ov-date-input--ro" placeholder="mm/dd/yyyy"/></div>
-                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">First Client Date</span><input type="text" :value="fmtDate(lifecycle.summary?.firstClientDate) || ''" readonly class="ov-date-input ov-date-input--ro" placeholder="mm/dd/yyyy"/></div>
-                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">TherapyNotes Training Date</span><input type="text" :value="fmtDate(lifecycle.dates?.therapy_notes_training_date) || ''" readonly class="ov-date-input ov-date-input--ro" placeholder="mm/dd/yyyy"/></div>
-                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">First Payroll Submission</span><input type="text" :value="fmtDate(lifecycle.dates?.first_payroll_submission_date) || ''" readonly class="ov-date-input ov-date-input--ro" placeholder="mm/dd/yyyy"/></div>
-                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">TherapyNotes Login</span><input type="text" :value="fmtDate(lifecycle.dates?.orientation_date) || ''" readonly class="ov-date-input ov-date-input--ro" placeholder="mm/dd/yyyy"/></div>
+                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">First Client Seen Date</span><input type="text" :value="fmtDate(lifecycle.summary?.firstClientDate) || ''" readonly class="ov-date-input ov-date-input--ro" placeholder="mm/dd/yyyy"/></div>
                   </template>
                   <template v-else>
-                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">Offer Accepted Date</span><input type="date" v-model="lcDatesDraft.offer_accepted_date" class="ov-date-input"/></div>
                     <div class="ov-lc-date-row"><span class="ov-lc-date-label">Start Date</span><input type="date" v-model="lcDatesDraft.start_date" class="ov-date-input"/></div>
-                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">First Client Date</span><input type="date" v-model="lcDatesDraft.first_client_date" class="ov-date-input"/></div>
-                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">TherapyNotes Training Date</span><input type="date" v-model="lcDatesDraft.therapy_notes_training_date" class="ov-date-input"/></div>
-                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">First Payroll Submission</span><input type="date" v-model="lcDatesDraft.first_payroll_submission_date" class="ov-date-input"/></div>
-                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">TherapyNotes Login</span><input type="date" v-model="lcDatesDraft.orientation_date" class="ov-date-input"/></div>
+                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">Employment Agreement Date</span><input type="date" v-model="lcDatesDraft.employment_agreement_date" class="ov-date-input"/></div>
+                    <div class="ov-lc-date-row"><span class="ov-lc-date-label">First Client Seen Date</span><input type="date" v-model="lcDatesDraft.first_client_date" class="ov-date-input"/></div>
                   </template>
                 </div>
               </div>
@@ -872,12 +867,9 @@ const startEditLcDates = () => {
   const dates = lifecycle.value?.dates || {};
   const summary = lifecycle.value?.summary || {};
   lcDatesDraft.value = {
-    offer_accepted_date: toDateInput(dates.offer_accepted_date),
     start_date: toDateInput(summary.startDate),
+    employment_agreement_date: toDateInput(dates.employment_agreement_date),
     first_client_date: toDateInput(summary.firstClientDate),
-    therapy_notes_training_date: toDateInput(dates.therapy_notes_training_date),
-    first_payroll_submission_date: toDateInput(dates.first_payroll_submission_date),
-    orientation_date: toDateInput(dates.orientation_date),
   };
   lcDatesSaveError.value = '';
   editingLcDates.value = true;
@@ -888,12 +880,9 @@ const saveLcDates = async () => {
   lcDatesSaveError.value = '';
   try {
     await api.patch(`/users/${props.userId}/lifecycle/dates`, {
-      offer_accepted_date: lcDatesDraft.value.offer_accepted_date || null,
       start_date: lcDatesDraft.value.start_date || null,
+      employment_agreement_date: lcDatesDraft.value.employment_agreement_date || null,
       first_client_date: lcDatesDraft.value.first_client_date || null,
-      therapy_notes_training_date: lcDatesDraft.value.therapy_notes_training_date || null,
-      first_payroll_submission_date: lcDatesDraft.value.first_payroll_submission_date || null,
-      orientation_date: lcDatesDraft.value.orientation_date || null,
     });
     await fetchLifecycle().catch(() => {});
     editingLcDates.value = false;

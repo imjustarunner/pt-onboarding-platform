@@ -2,7 +2,7 @@ import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{getConnection:vi.fn(async()=>m)}}));
 import {releaseCompensationDraft} from '../compensationDraft.service.js';
-const draft=()=>({draftKind:'provider_update_compensation',pushId:2,countersignerUserId:3,employee:{name:'Provider',originalAgreementDate:'2025 agreement'},schedule:{category:2,level:2,levelDescription:'Approved level',creditRate:44,hcodeRate:40,indirectRate:22,supportRate:22,ptoRate:44},leaveChoice:'sick'});
+const draft=()=>({draftKind:'provider_update_compensation',pushId:2,countersignerUserId:3,employee:{name:'Provider',originalAgreementDate:'2025 agreement'},schedule:{category:2,level:2,levelDescription:'Approved level',creditRate:44,hcodeRate:40,indirectRate:22,supportRate:22,ptoRate:44,creditRateProbation:36,hcodeRateProbation:32,indirectRateProbation:22,supportRateProbation:22},leaveChoice:'sick'});
 let row,preview;
 beforeEach(()=>{vi.clearAllMocks();preview=false;row={id:14,candidate_user_id:9,rendered_html:'<p><strong>Editable draft — not issued or signed.</strong></p><p>Reviewed terms</p>',token_values_json:draft()};
  m.execute.mockImplementation(async(sql)=>{

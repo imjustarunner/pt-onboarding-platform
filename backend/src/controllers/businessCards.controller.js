@@ -1,3 +1,4 @@
+import {getProviderDisplayRole} from '../services/providerDisplayRole.service.js';
 import pool from '../config/database.js';
 import { employeeBusinessCardWorkLine } from '../services/businessCardContact.service.js';
 import { resolveStaffSignatureContext } from '../services/staffHtmlEmailSignature.service.js';
@@ -72,8 +73,9 @@ export async function getEmployeeBusinessCard(req, res, next) {
       WHERE uol.user_id = ? AND ola.agency_id = ? AND COALESCE(uol.is_active, TRUE) = TRUE AND COALESCE(ol.is_active, TRUE) = TRUE
       ORDER BY isPrimary DESC, ol.name`, [userId, scope.agencyId]);
     const contact = await resolveStaffSignatureContext({ userId, agencyId: scope.agencyId });
+    const displayRole=await getProviderDisplayRole(userId,scope.agencyId);
     const workLine = await employeeBusinessCardWorkLine(userId, scope.agencyId);
-    res.json({ user: { ...user, agency_ids: String(scope.agencyId) }, offices: offices.map(o => ({ ...o, agencyIds: [scope.agencyId] })), contact: {
+    res.json({ user: { ...user, displayRole, agency_ids: String(scope.agencyId) }, offices: offices.map(o => ({ ...o, agencyIds: [scope.agencyId] })), contact: {
       email: contact.email, phone: contact.phone, website: contact.website, workLine,
       logoUrl: contact.logoUrl?.replace(/^https?:\/\/[^/]+\/(email-signatures\/.*)$/i, '/$1') || ''
     } });

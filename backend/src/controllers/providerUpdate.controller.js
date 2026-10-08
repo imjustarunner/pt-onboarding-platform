@@ -1,3 +1,4 @@
+import {updateTimeSummary} from '../services/providerUpdateTime.service.js';
 import { persistReviewSection } from './providerUpdateReview.controller.js';
 import {createProviderUpdatePreviewLink} from '../services/providerUpdatePreviewLink.service.js';
 import {
@@ -88,6 +89,7 @@ export const getPushHandler = async (req, res, next) => {
       ...r,
       publicUrl: buildProviderUpdatePublicUrl(r.token, agency?.portal_url || agency?.slug || '')
     }));
+    for(const recipient of recipients)recipient.timeSummary=await updateTimeSummary(recipient.id);
     res.json({ push, recipients });
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -194,7 +196,7 @@ export const heartbeatPublic = async (req, res, next) => {
   try {
     const recipient = await getRecipientByToken(req.params.token);
     if (!recipient) return res.status(404).json({ error: { message: 'Link not found' } });
-    const result = await recordHeartbeat(recipient.id);
+    const result = await recordHeartbeat(recipient.id, req.body);
     res.json(result);
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message } });
@@ -261,7 +263,7 @@ export const heartbeatMyUpdate = async (req, res, next) => {
     const agencyId = Number(req.body.agencyId);
     const recipient = await getMyOpenRecipient(req.user.id, agencyId);
     if (!recipient) return res.json({ activeSeconds: 0 });
-    res.json(await recordHeartbeat(recipient.id));
+    res.json(await recordHeartbeat(recipient.id, req.body));
   } catch (e) {
     next(e);
   }

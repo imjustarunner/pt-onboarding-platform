@@ -259,7 +259,7 @@ export const goPaySystem = async (req, res, next) => {
     await PayrollPaySystemRate.setAgencyEnabled(agencyId, true);
     const result = await PayrollCompensationLevel.applyGo(agencyId, {
       effectiveStart,
-      waiveProbation: req.body?.waiveProbation !== false,
+      waiveProbation: req.body?.waiveProbation === true,
       enrollExistingWithoutPending: req.body?.enrollExistingWithoutPending !== false,
       appliedByUserId: req.user?.id || null
     });
@@ -522,6 +522,8 @@ export const estimatePaySystem = async (req, res, next) => {
       useReducedRates: false
     };
     // Recompute useReducedRates with proposed tier
+    if (status.inInitiationProtection) status.isMinimumWorkload=false;
+    if (status.compensationPolicyVersion && proposedTier >= 3) status.inProbation=false;
     status.useReducedRates = !!(status.inProbation || status.isMinimumWorkload);
 
     if (req.body?.assumeSpanish === true || req.body?.spanishBonusEligible === true) {

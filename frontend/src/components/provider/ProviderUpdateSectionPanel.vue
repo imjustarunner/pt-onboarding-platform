@@ -120,9 +120,16 @@
 
     <!-- Credential display -->
     <div v-else-if="section.key === 'credential_display'" class="pu-panel">
-      <label class="field"><span>Display credential / title</span><input v-model="credential" class="input" /></label>
+      <p>Current role label: <strong>{{ section.data?.displayRole?.currentLabel || 'Not set' }}</strong></p>
+      <p v-if="section.data?.displayRole?.fixed">Your display label is <strong>{{ section.data.displayRole.label }}</strong>.</p>
+      <label v-else class="field"><span>Public role label</span><select v-model="displayLabel" class="input">
+        <option v-if="displayLabel && !['Counselor','Provider','Therapist','Social Worker'].includes(displayLabel)" :value="displayLabel">{{displayLabel}} (current)</option>
+        <option v-for="label in ['Counselor','Provider','Therapist','Social Worker']" :key="label">{{label}}</option>
+      </select></label>
+      <p v-if="section.data?.displayRole?.candidate">Candidate appears on its own line in your email signature and business card.</p>
+      <label class="field"><span>Display credential</span><input v-model="credential" class="input" /></label>
       <div class="pu-actions">
-        <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ credential })">
+        <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ credential, displayLabel })">
           Confirm credential display
         </button>
       </div>
@@ -160,7 +167,18 @@
 
     <!-- Notification prefs -->
     <div v-else-if="section.key === 'notification_prefs'">
-      <StaffCommunicationChoices :initial="section.data?.communicationChoices" :agency-id="agencyId" external-save :readonly="!!recipient?.previewOnly" :busy="saving" @save="markComplete" />
+      <div class="pu-panel"><h3>Personal email after your app-only transition</h3>
+        <p>These choices take effect only when your app-only email access is verified. They do not remove Google or change your sign-in.</p>
+        <label class="field">Send to my saved personal email
+          <select v-model="emailPreference.personalEmailDeliveryMode" :disabled="!!recipient?.previewOnly"><option value="notification">A notification with a secure app link</option><option value="forward_one_to_one">Forward eligible individual emails</option></select>
+        </label>
+        <p v-if="emailPreference.personalEmailDeliveryMode==='forward_one_to_one'">Eligible individual emails may include their message content in your personal mailbox. Shared or restricted conversations stay in the app.</p>
+        <label class="field">When an email is unread
+          <select v-model="emailPreference.personalEmailDelayMode" :disabled="!!recipient?.previewOnly"><option value="immediate">Instantly</option><option value="business_day">24 business hours — next business day</option></select>
+        </label>
+        <p>Instantly means the next automatic message check. The delayed option follows your contact schedule and skips nonworking days. Check your personal email under Contact &amp; Address. You can change these preferences later.</p>
+      </div>
+      <StaffCommunicationChoices :initial="section.data?.communicationChoices" :agency-id="agencyId" external-save :readonly="!!recipient?.previewOnly" :busy="saving" @save="data => markComplete({...data,emailReminderPreferences:emailPreference})" />
       <p v-if="localError" role="alert">{{ localError }}</p>
     </div>
 
@@ -294,14 +312,16 @@ const reviewContext = ref({});
 const reviewLoading = ref(false);
 const supervisionReview = reactive({ decision: 'confirmed', requestedHours: null, reason: '', documentId: null, ...(props.section.key === 'supervision_hours' ? props.section.data : {}) });
 const reviewBase = computed(() => props.mode === 'token' ? `/public/provider-update/${encodeURIComponent(props.token)}` : '/provider-update/me');
-const contact = reactive({phone:'',street:'',line2:'',city:'',state:'',postalCode:'',emergency:''});
-const contactFields=[{key:'phone',label:'Personal mobile phone',autocomplete:'tel'},{key:'street',label:'Street address',autocomplete:'address-line1'},{key:'line2',label:'Address line 2',autocomplete:'address-line2'},{key:'city',label:'City',autocomplete:'address-level2'},{key:'state',label:'State',autocomplete:'address-level1'},{key:'postalCode',label:'ZIP code',autocomplete:'postal-code'},{key:'emergency',label:'Emergency contact',autocomplete:'off'}];
+const contact = reactive({personalEmail:'',phone:'',street:'',line2:'',city:'',state:'',postalCode:'',emergency:''});
+const contactFields=[{key:'personalEmail',label:'Personal email for app-only email reminders',autocomplete:'email'},{key:'phone',label:'Personal mobile phone',autocomplete:'tel'},{key:'street',label:'Street address',autocomplete:'address-line1'},{key:'line2',label:'Address line 2',autocomplete:'address-line2'},{key:'city',label:'City',autocomplete:'address-level2'},{key:'state',label:'State',autocomplete:'address-level1'},{key:'postalCode',label:'ZIP code',autocomplete:'postal-code'},{key:'emergency',label:'Emergency contact',autocomplete:'off'}];
 const supervisionRows=computed(()=>Object.entries({baseline:'Reported starting hours',period:'Imported / period hours',app:'Finalized app credits',calculated:'Calculated total',current:'Current recorded balance'}).map(([key,label])=>({key,label,value:props.section.data?.breakdown?.[key]||{individual:'—',group:'—',total:'—'}})));
 function formatTime(value){if(!value)return 'Not set';const [h,m='00']=String(value).split(':');return `${Number(h)%12||12}:${m} ${Number(h)<12?'AM':'PM'}`;}
 async function openAsset(kind){try{const {data}=await api.get(`${reviewBase.value}/assets/${kind}`,{params:{agencyId:props.agencyId}});if(kind==='photo')photoUrl.value=data.url;else window.open(data.url,'_blank','noopener,noreferrer');}catch(e){localError.value=e.response?.data?.error?.message||'Could not open the saved document.';}}
 async function setupQuickView(){if(props.recipient?.previewOnly)return;saving.value=true;localError.value='';try{const {data}=await api.post(`${reviewBase.value}/quick-view-setup`,{agencyId:props.agencyId});newPasscode.value=data.passcode;}catch(e){localError.value=e.response?.data?.error?.message||'Could not create the code.';}finally{saving.value=false;}}
 
 const credential = ref('');
+const displayLabel = ref('');
+const emailPreference=ref({});
 const preferredDays = ref([]);
 const notify = reactive({ email: true, sms: false });
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
@@ -470,6 +490,8 @@ onMounted(async () => {
   if (data.license) Object.assign(license, data.license);
   if (data.contact) Object.assign(contact, data.contact);
   credential.value = data.credential || '';
+  displayLabel.value = data.displayRole?.label || data.displayLabel || '';
+  emailPreference.value = {personalEmailDeliveryMode:data.appEmail?.personalEmailDeliveryMode || 'notification',personalEmailDelayMode:data.appEmail?.personalEmailDelayMode === 'immediate' ? 'immediate' : 'business_day'};
   preferredDays.value = data.preferredDays || [];
   if (data.notify) Object.assign(notify, data.notify);
   if (props.section.key === 'client_fall_update') await loadFallClients();

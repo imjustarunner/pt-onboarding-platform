@@ -32,7 +32,7 @@ async function main(){
   await db.execute("UPDATE admin_update_topics SET enabled=0 WHERE update_id=1 AND topic_key IN ('staffing','departures')");
   let [[update]]=await db.execute("SELECT id,status FROM admin_updates WHERE agency_id=6 AND title='Next Level Up · October 2026 — Our next chapter' FOR UPDATE");
   if(update&&update.status!=='draft')throw new Error('NLU update is no longer a draft.');
-  if(!update){const [ins]=await db.execute(`INSERT INTO admin_updates(agency_id,created_by_user_id,title,subtitle,greeting,intro_html,status,public_token,delivery_mode,push_splash) VALUES (6,?,'Next Level Up · October 2026 — Our next chapter',?,'Hello NLU team,',?,'draft',?,'html',0)`,[author,'Your people, programs and work tools.','Welcome to NLU’s October roundup. Review the changes below and complete your own staff update when invited.',crypto.randomBytes(24).toString('hex')]);update={id:ins.insertId};}
+  if(!update){const [ins]=await db.execute(`INSERT INTO admin_updates(agency_id,created_by_user_id,title,subtitle,greeting,intro_html,status,public_token,delivery_mode,push_splash) VALUES (6,?,'Next Level Up · October 2026 — Our next chapter',?,'Hello NLU team,',?,'draft',?,'html',0)`,[author,'Your people, programs and work tools.','Welcome to NLU’s October roundup. Review the changes below and complete the remaining steps in this same staff update invitation.',crypto.randomBytes(24).toString('hex')]);update={id:ins.insertId};}
   nluUpdateId=update.id;for(const [i,t]of nluTopics.entries())await topic(nluUpdateId,t,i);
   const config=defaultSectionConfig();config.spanish_intake=true;
   const nluConfig={...config,license:false,supervision_hours:false,school_availability:false,client_fall_update:false,amendments:false};

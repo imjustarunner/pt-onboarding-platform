@@ -89,10 +89,11 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   recipient: { type: Object, default: null }
 });
-const emit = defineEmits(['saved', 'close']);
+const emit = defineEmits(['saved', 'close', 'section']);
 
 const soleSection = computed(() => props.page.sections?.[0] || null);
 const expandedKey = ref('');
+watch(() => props.page.alone ? soleSection.value?.key : expandedKey.value, key => emit('section',key || 'overview'), { immediate: true });
 
 watch(
   () => props.page?.key,

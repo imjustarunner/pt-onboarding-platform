@@ -3,18 +3,19 @@
     <div v-if="error" class="au-public-err">{{ error }}</div>
     <div v-else-if="loading" class="au-public-err">Loading Admin Update…</div>
     <ReadAloudControls v-if="!loading && !error" :html="html" />
-    <iframe
+    <iframe sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       v-if="!loading && !error"
       ref="frameEl"
       class="au-frame"
       title="Admin Update"
-      :srcdoc="html"
+      :srcdoc="adminUpdateFrameHtml(html)"
       @load="onFrameLoad"
     />
   </div>
 </template>
 
 <script setup>
+import {connectAdminUpdateFrame,adminUpdateFrameHtml} from '../../utils/adminUpdateFrame';
 import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
@@ -76,7 +77,8 @@ async function flushDwell() {
   });
 }
 
-function onFrameLoad() {
+function onFrameLoad(event) {
+  connectAdminUpdateFrame(event);
   docRef = frameEl.value?.contentDocument || null;
   if (!docRef) return;
   docRef.addEventListener('scroll', onScroll, { passive: true });

@@ -399,7 +399,6 @@ export async function listUpcomingBirthdays(agencyId, { daysAhead = 30 } = {}) {
       WHERE
         u.is_active = 1
         AND ${ACTIVE_EMPLOYEE_CLAUSE}
-        AND ${PROVIDER_ROLE_CLAUSE}
         AND uifd.field_key IN ('date_of_birth', 'provider_birthdate')
         AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
         AND uiv.value IS NOT NULL AND uiv.value <> ''
@@ -451,7 +450,6 @@ export async function listUpcomingAnniversaries(agencyId, { daysAhead = 30 } = {
       WHERE
         u.is_active = 1
         AND ${ACTIVE_EMPLOYEE_CLAUSE}
-        AND ${PROVIDER_ROLE_CLAUSE}
         AND uifd.field_key = 'first_client_date'
         AND (uifd.agency_id IS NULL OR uifd.agency_id = ?)
         AND uiv.value IS NOT NULL AND uiv.value <> ''
@@ -498,7 +496,6 @@ export async function listProvidersMissingCelebrationDates(agencyId) {
     WHERE
       u.is_active = 1
       AND ${ACTIVE_EMPLOYEE_CLAUSE}
-      AND ${PROVIDER_ROLE_CLAUSE}
     GROUP BY u.id, u.first_name, u.last_name, u.role, u.profile_photo_path
     HAVING has_birthday = 0 OR has_anniversary = 0
     ORDER BY u.last_name ASC, u.first_name ASC

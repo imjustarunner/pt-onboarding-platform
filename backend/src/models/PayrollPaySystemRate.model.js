@@ -49,7 +49,7 @@ function rowToProfile(row) {
     hcodeRateProbation: row.hcode_rate_probation != null ? Number(row.hcode_rate_probation) : null,
     indirectRate: row.indirect_rate != null ? Number(row.indirect_rate) : null,
     supportActivityRate: row.support_activity_rate != null ? Number(row.support_activity_rate) : null,
-    autoIndirectMinutesPerHour: Number(row.auto_indirect_minutes_per_hour ?? 10) || 10,
+    autoIndirectMinutesPerHour: Number(row.auto_indirect_minutes_per_hour ?? 10),
     tierBonus,
     tierBonusFfs,
     tierBonusHcode,

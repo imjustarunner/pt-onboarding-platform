@@ -111,3 +111,32 @@ export function paidTimeBasisFromSummaryRow(summaryRow) {
   const basis = direct + indirect + otherPaid;
   return Number.isFinite(basis) && basis > 0 ? basis : 0;
 }
+
+/** Signed service-credit amendment: credit pay is unchanged; only its leave basis
+ * includes the handbook admin ratio. H-code admin is already on the paid ledger.
+ * Keep old service-date rows on their prior accrual policy in a mixed pay period. */
+export function computeServiceCreditLeave({summaryRow, alreadyCreditedManualDirect=0, policy, employmentType, trainingPtoEligible}) {
+  const breakdown=parseBreakdown(summaryRow);
+  const ps=breakdown?.__paySystem;
+  const modernLines=(ps?.lines||[]).filter(l=>l.compensationPolicyVersion==='itsco-2026-10-service-credit-v2');
+  if (employmentType!=='fee_for_service' || !modernLines.length) return null;
+  const basis=ps.leaveBasis;
+  const allLinePaid=(ps.lines||[]).reduce((n,l)=>n+Number(l.hourEquivalent||0)+Number(l.autoIndirectHours||0),0);
+  const remaining=Math.max(0,paidTimeBasisFromSummaryRow(summaryRow)-allLinePaid-Number(alreadyCreditedManualDirect||0));
+  const direct=Number(basis.direct||0), indirect=Number(basis.indirect||0), support=Number(basis.support||0)+remaining;
+  const legacy=Number(basis.legacyPaidBasis||0);
+  const programEarn=(direct+indirect+support)/30+legacy*Number(policy?.sickFfsMultiplier??0.04);
+  const recordedActual=Number(summaryRow?.actual_worked_hours ?? breakdown?.actualWorkedHours ?? 0);
+  const statutoryFloor=Math.max(0,recordedActual/30-Number(alreadyCreditedManualDirect||0)*Number(policy?.sickFfsMultiplier??0.04));
+  const old=computeAccrualFromBasisHours({basisHours:Math.max(0,paidTimeBasisFromSummaryRow(summaryRow)-alreadyCreditedManualDirect),policy,employmentType,trainingPtoEligible});
+  return {sickEarn:Math.round(Math.max(programEarn,statutoryFloor)*100)/100,trainingEarn:old.trainingEarn,
+    directBasisHours:direct,indirectBasisHours:indirect,supportBasisHours:support,legacyBasisHours:legacy,
+    reconciliationAddedHours:Math.max(0,statutoryFloor-programEarn)};
+}
+
+/** ITSCO's Colorado protected sick-leave bank must retain the statutory carryover. */
+export function protectedSickRolloverLimit({agencyId,configuredLimit}) {
+  const value=Number(configuredLimit);
+  const configured=Number.isFinite(value)&&value>=0?value:48;
+  return Number(agencyId)===2?Math.max(48,configured):configured;
+}

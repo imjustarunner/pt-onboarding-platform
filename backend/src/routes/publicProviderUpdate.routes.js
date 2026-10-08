@@ -1,3 +1,4 @@
+import {helpUpload,submitUpdateHelp} from '../controllers/providerUpdateHelp.controller.js';
 import {getAmendment,amendmentSigning} from '../controllers/providerUpdateAmendmentReview.controller.js';
 import {updateAvailability} from '../controllers/providerUpdateAvailability.controller.js';
 import {providerUpdateCredentialLimit} from '../middleware/providerUpdateCredentialLimit.middleware.js';
@@ -43,5 +44,7 @@ router.post('/:token/school-assignments/:assignmentId/request',review.schoolAdju
 
 router.get('/:token/availability-calendar',updateAvailability);
 router.post('/:token/availability-calendar/:action',updateAvailability);
+
+router.post('/:token/help-ticket',helpUpload.array('screenshots',3),submitUpdateHelp);
 
 export default router;

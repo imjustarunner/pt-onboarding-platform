@@ -129,9 +129,12 @@ export async function persistReviewSection(recipient, key, data, completed) {
   if(key==='pin'&&!completed)throw fail('Complete Quick View setup in your account before confirming this step.');
   if (key === 'notification_prefs') {
     if (!completed) throw fail('Review and sign your phone and text choices before saving this section.');
+    const emailPrefs=data?.emailReminderPreferences;
+    if(emailPrefs && (!['notification','forward_one_to_one'].includes(emailPrefs.personalEmailDeliveryMode)||!['immediate','business_day'].includes(emailPrefs.personalEmailDelayMode)))throw fail('Choose a personal email delivery option and timing.');
     const saved=await saveStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id,input:data,source:'provider_update',sendConfirmation:m=>VonageService.sendSms(m)});
+    if(emailPrefs){const {updateCommunicationPrefs}=await import('../services/inboxDigest.service.js');await updateCommunicationPrefs(recipient.provider_user_id,{personalEmailNotify:true,personalEmailDeliveryMode:emailPrefs.personalEmailDeliveryMode,personalEmailDelayMode:emailPrefs.personalEmailDelayMode,personalEmailDelayHours:24});}
     for (const field of Object.keys(data)) delete data[field];
-    Object.assign(data,{choices:saved.choices,accessRequests:saved.accessRequests,reviewedAt:saved.reviewedAt});
+    Object.assign(data,{emailReminderPreferences:emailPrefs,choices:saved.choices,accessRequests:saved.accessRequests,reviewedAt:saved.reviewedAt});
   }
   if (!completed) return;
   if(key==='amendments'){

@@ -63,6 +63,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import { announcementSequence } from '../../utils/announcementSequence.js';
 import { toUploadsUrl } from '../../utils/uploadsUrl.js';
 
 const props = defineProps({
@@ -164,22 +165,7 @@ const normalizedItems = computed(() =>
     }))
 );
 
-const TONE_COUNT = 5;
-
-/** Repeat short lists so the ticker stays filled; each slot gets a rotating color. */
-const scrollItems = computed(() => {
-  const items = normalizedItems.value;
-  if (!items.length) return [];
-  const base = items.length >= 5 ? items : (() => {
-    const out = [];
-    while (out.length < 5) out.push(...items);
-    return out;
-  })();
-  return base.map((item, idx) => ({
-    ...item,
-    tone: idx % TONE_COUNT
-  }));
-});
+const scrollItems = computed(() => announcementSequence(normalizedItems.value));
 
 const hasCelebration = computed(() =>
   normalizedItems.value.some((t) => CELEBRATION_KINDS.has(t.kind) || /birthday|anniversary/i.test(t.text))
@@ -372,6 +358,8 @@ function onClick() {
   --chip-border: rgba(225, 29, 72, 0.35);
 }
 
+.ann-marquee__item.tone-5 { --chip-fg:#5b21b6; --chip-muted:#6d28d9; --chip-accent:#7c3aed; --chip-bg:#ede9fe; --chip-border:#c4b5fd; }
+.ann-marquee__item.tone-6 { --chip-fg:#155e75; --chip-muted:#0e7490; --chip-accent:#0891b2; --chip-bg:#cffafe; --chip-border:#67e8f9; }
 .ann-marquee__avatar {
   width: 2rem;
   height: 2rem;
