@@ -1,0 +1,28 @@
+{
+  "generatedWith": "Built-in image_gen",
+  "createdAt": "2026-10-08",
+  "purpose": "Editorial brand photography recreated from the supplied mockup crops. These are generated lifestyle visuals, not customer photographs or product UI examples.",
+  "encoding": "WebP quality 92; native dimensions preserved without upscaling.",
+  "images": [
+    {
+      "file": "portrait-v2.webp",
+      "reference": "../reference/portrait-warm.jpg",
+      "prompt": "Use case: identity-preserve. Asset: high-resolution Plotline website lifestyle portrait. Edit target: supplied soft reference portrait. Recreate the same woman, warm smile, upturned gaze, wavy brown hair, neutral linen clothing and warm evening light with crisp lifelike facial detail, individual hair strands, realistic skin and fabric texture. Preserve the approachable human mood and subject identity. Fresh full-bleed photographic image, no baked rounded corners, borders, text, logos or graphics. Medium head-and-shoulders framing with comfortable space around head, woman centered, keep her whole head inside middle 70% of image for responsive crop. Landscape 3:2, highest available resolution, at least 2400 pixels wide. The source is an enlarged small mockup crop; reconstruct genuine fine detail rather than repeating its blur or sharpening artifacts."
+    },
+    {
+      "file": "mountain-v2.webp",
+      "reference": "../reference/mountain-journey.jpg",
+      "prompt": "Use case: precise-object-edit. Asset: very wide Plotline website photographic banner. Edit target: supplied mountain journey reference. Recreate in crisp high-resolution landscape photography: a brown-haired woman with a dark backpack seen from behind, looking toward layered mountain peaks and a warm sunrise. Preserve calm hopeful mood, evergreen hills and peach sky. Expand to a panoramic composition 3:1, ideally 3840x1280, move the woman to the right third with head and backpack readable in the frame, broad scenic negative space on left for separately rendered website copy. Crisp hair, backpack fabric, mountain contours and trees; no mushy blur. Full bleed, no rounded corners, frames, typography, logos, watermarks or dark overlay; the website applies its own contrast gradient."
+    },
+    {
+      "file": "team-v2.webp",
+      "reference": "../reference/people-collaboration.jpg",
+      "prompt": "Use case: identity-preserve. Asset: Plotline website team photograph. Edit target: supplied soft photograph of three colleagues. Recreate the same three adults in a warm natural office conversation, preserve their appearance, clothing, placement and approachable expressions: brown-haired woman at left, dark-haired woman in a white shirt behind, smiling Black man in pale gray shirt at right. Improve definition substantially: sharply focused natural faces, eyes, hair and fabric; soft light but not soft subject detail. Photorealistic editorial photography, landscape 3:2, at least 2400 pixels wide. Compose all faces comfortably inside frame with realistic proportions. No additional people, no text, no logos, no baked borders or rounded corners. Full bleed."
+    },
+    {
+      "file": "plant-v2.webp",
+      "reference": "../reference/plant-detail.jpg",
+      "prompt": "Use case: precise-object-edit. Asset: Plotline website growth photograph. Edit target: supplied soft plant reference. Recreate same young green leaves reaching into warm golden window light, crisp fine veins and leaf edges, real botanical texture and delicate stem, rich evergreen and sage with warm sand bokeh background. Editorial botanical macro photograph with focused leaves, square composition at least 2048x2048. Main sprig centered with generous natural background. Remove the baked border and rounded corners; full bleed photographic image, no text, graphics or watermark. Restore convincing detail rather than preserving the enlarged reference blur."
+    }
+  ]
+}

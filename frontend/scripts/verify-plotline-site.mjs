@@ -35,10 +35,18 @@ try{
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('dialog[open]').count(),0);
   await page.goto(`${origin}/plottline/careers`);
+  await page.getByRole('heading',{name:'Your careers page. Built into recruiting.'}).waitFor();
+  assert.match(await page.locator('.pl-recruiting-overview').innerText(),/included in every plan/);
+  assert.equal(await page.locator('.pl-recruiting-journey li').count(),4);
   assert.equal(await page.locator('[data-careers-organization]').count(),2);
   assert.equal(await page.getByRole('link',{name:'Visit ITSCO careers',exact:true}).getAttribute('href'),'https://www.itsco.health/careers');
   assert.equal(await page.getByRole('link',{name:'Visit Next Level Up careers',exact:true}).getAttribute('href'),'https://nextleveluplcc.com/careers/nlu');
   await page.goto(`${origin}/plottline/pricing`);
+  assert.equal(await page.getByText('Recruiting: branded careers page included',{exact:true}).count(),3);
+  await page.getByText('Is a branded careers page included with recruiting?',{exact:false}).click();
+  assert.match(await page.locator('details[open]').innerText(),/no separate add-on fee/);
+  for(const image of await page.locator('img[src*="photos/production"]').all()){await image.scrollIntoViewIfNeeded();await image.evaluate(img=>img.decode());assert.ok(await image.evaluate(img=>img.naturalWidth>=1254));}
+  assert.equal(await page.locator('img[src*="photos/reference"]').count(),0);
   await page.getByLabel('Active employees',{exact:true}).fill('50');
   await page.getByLabel('AuricWell',{exact:true}).check();
   await page.getByLabel('Conversa',{exact:true}).check();

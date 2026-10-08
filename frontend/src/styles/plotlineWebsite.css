@@ -7,3 +7,8 @@
 
 /* Actual application captures retain their full frame and readable proportions. */
 .pl-hero-dashboard .pl-example-open{border:5px solid #19352a;border-radius:18px}.pl-hero-dashboard .pl-example-open>img{aspect-ratio:1.44}.pl-feature-grid .pl-real-example{margin-bottom:18px}.pl-pillar-photo{object-fit:cover;object-position:top;border:1px solid #dce0d5}.pl-pillar>.pl-icon{margin-top:12px}.pl-product-stage .pl-real-example figcaption{color:#c2d1c4}.pl-solution-row .pl-real-example{padding:12px;background:#eee7df;border-radius:18px}
+
+/* Detailed production photography; keep the landscape visible beside the copy. */
+.pl-site-header nav{gap:22px}.pl-suite-label{font-size:10px;font-weight:600;margin:20px 0 12px;color:#30473d}.pl-suite-recruiting{padding-bottom:16px;border-bottom:1px solid #d3d5c8}.pl-careers-hero{padding-bottom:0!important}.pl-closing>img{opacity:1;object-position:center}.pl-closing:after{background:linear-gradient(90deg,#0e291cf5 0%,#0e291cd9 40%,#0e291c40 70%,#0e291c12 100%)}.pl-closing>div{max-width:68%}.pl-pricing-picture>img{object-position:center 42%}.pl-hero-person{object-position:60% center}
+@media(max-width:1150px) and (min-width:951px){.pl-site-header{gap:20px}.pl-site-header nav{gap:14px}.pl-site-header nav>a{font-size:11px}.pl-nav-actions .pl-button{padding:11px 13px}}
+@media(max-width:700px){.pl-closing>div{max-width:100%}.pl-closing:after{background:linear-gradient(90deg,#0e291cf0,#0e291cb0)}.pl-closing>img{object-position:75% center}}

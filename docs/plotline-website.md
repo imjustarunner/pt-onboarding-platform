@@ -23,3 +23,11 @@ Validation: `node scripts/plotline-website.test.mjs` after the frontend build ch
 ## Public careers directory
 
 The Careers page at `/plottline/careers` and the homepage/product directory link to the configured ITSCO and Next Level Up careers pages. The public partner directory and careers APIs were checked on October 7, 2026; these were the two public organizations with saved careers-page branding and published roles. Generic unconfigured pages, missing agencies, and demonstration records are not advertised as established careers sites. `src/content/plotlineCareers.js` is the curated directory; add organizations after verifying their public configuration and destination. Cards use the organizations’ existing logos and link to their live pages without duplicating job postings. Public careers pages carry a subtle linked Plotline credit below the organization’s contact controls.
+
+## Recruiting includes the careers page
+
+Careers pages are presented as the included public entry point to recruiting across Home, Product, Solutions, Careers & recruiting, and Pricing. The shared recruiting overview connects the branded online presence to applications, interviews, hiring, and onboarding. The customer directory remains available as live examples, with a clear route for people looking for roles. Every plan explicitly includes the careers-page feature; custom implementation services remain separately scoped.
+
+## Production photography
+
+The enlarged mockup crops are replaced with detailed editorial visuals created using the built-in image_gen tool from the supplied references. Native dimensions are preserved in quality-92 WebP files under `frontend/public/assets/plotline/website/photos/production`: portrait (1536×1024), team (1536×1024), plant (1254×1254), and panoramic mountain journey (2172×724). No artificial upscaling is applied. The banner uses a directional contrast gradient so the copy stays readable and the scene remains visible. These are brand illustrations in photographic style; actual product examples remain the existing captured application screens. The exact prompts, references, and tool provenance are in that folder’s `provenance.json`.

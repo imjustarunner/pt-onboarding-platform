@@ -1,6 +1,6 @@
 <template>
   <section id="careers-powered-by-plotline" class="pl-wide pl-section pl-careers-directory" aria-labelledby="pl-careers-title">
-    <div class="pl-section-heading"><div><p class="pl-eyebrow">Careers powered by Plotline</p><h2 id="pl-careers-title">Their mission.<br>Your <em>next chapter.</em></h2></div><p>Real organizations. Their own stories, teams, and opportunities. Visit each organization’s careers page to explore current roles and apply.</p></div>
+    <div class="pl-section-heading"><div><p class="pl-eyebrow">Recruiting in action · Powered by Plotline</p><h2 id="pl-careers-title">Their brand.<br>Their <em>recruiting front door.</em></h2></div><p>See how organizations use the branded careers pages included with Plotline recruiting to introduce their teams, share open roles, and welcome applications.</p></div>
     <div class="pl-careers-grid">
       <article v-for="organization in plotlineCareers" :key="organization.slug" :data-careers-organization="organization.slug" :style="{'--organization-color':organization.color}">
         <a :href="organization.url" class="pl-careers-logo" :aria-label="`${organization.name} careers`"><img :src="organization.logo" :alt="organization.name" loading="lazy" width="180" height="80"></a>
@@ -8,8 +8,8 @@
         <a :href="organization.url" class="pl-button" :aria-label="`Visit ${organization.name} careers`">Visit careers page <span aria-hidden="true">↗</span></a><small>Powered by Plotline</small>
       </article>
     </div>
-    <p class="pl-careers-note">Each organization manages its own roles, hiring decisions, and applications.</p>
-    <router-link v-if="showDirectoryLink" to="/plottline/careers" class="pl-text-link">Explore careers powered by Plotline →</router-link>
+    <p class="pl-careers-note">Looking for a role? Visit an organization’s page to explore its opportunities and apply. Each organization manages its own roles, hiring decisions, and applications.</p>
+    <router-link v-if="showDirectoryLink" to="/plottline/careers" class="pl-text-link">Explore careers pages included with recruiting →</router-link>
   </section>
 </template>
 <script setup>
