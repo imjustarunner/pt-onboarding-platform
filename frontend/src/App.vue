@@ -5,7 +5,7 @@
     <router-view v-if="route.meta?.familyCommandCenter" />
     <div v-else class="preview-root" :data-preview-viewport="effectivePreviewViewport">
       <div id="app" :inert="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive)" :aria-hidden="!applicantInterviewMode && !isLoginEntry && (sessionLockStore.isLocked || sessionLockStore.warningActive) ? 'true' : undefined" :class="{ 'conversa-app': isAuthenticated, 'is-native': isNative, 'is-platform-hq': isPlatformHqShell, 'is-clinical-workspace': clinicalWorkspaceActive }">
-      <div v-if="pageLoading && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute" class="agency-loading-overlay" aria-label="Loading">
+      <div v-if="pageLoading && !applicantInterviewMode && !isLoginEntry && !isPublicOfficeRoute && !route.meta?.publicMarketingHub" class="agency-loading-overlay" aria-label="Loading">
         <div class="agency-loading-card">
           <div class="agency-loading-logo"><BrandingLogo :logoUrl="loaderLogoUrl" size="xlarge" class="loader-logo" /></div>
           <div class="agency-loading-text">{{ loadingText }}</div>
@@ -212,7 +212,7 @@
                   v-if="showSscMessagesLink"
                   :to="orgTo('/messages')"
                   @click="closeMobileMenu"
-                ><span class="conversa-nav-label"><img class="conversa-nav-mark" src="/assets/conversa/mark.svg" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
+                ><span class="conversa-nav-label"><img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
                 <router-link :to="orgTo('/clubs')" @click="closeMobileMenu">Browse Clubs</router-link>
               </template>
               <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
@@ -306,7 +306,7 @@
                   v-if="showSscMessagesLink"
                   :to="orgTo('/messages')"
                   @click="closeMobileMenu"
-                ><span class="conversa-nav-label"><img class="conversa-nav-mark" src="/assets/conversa/mark.svg" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
+                ><span class="conversa-nav-label"><img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
                 <router-link :to="orgTo('/clubs')" @click="closeMobileMenu">Browse Clubs</router-link>
               </template>
               <template v-else>
@@ -354,7 +354,7 @@
                 :to="orgTo('/messages')"
                 @click="closeMobileMenu"
               >
-                <img class="conversa-nav-mark" src="/assets/conversa/mark.svg" alt="" />Messages by Conversa
+                <img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages by Conversa
               </router-link>
               </template>
               <button
@@ -799,7 +799,7 @@
                     <router-link
                       v-if="canUseChats && !canUseCommunicationsCenter"
                       :to="orgTo('/messages')"
-                    ><span class="conversa-nav-label"><img class="conversa-nav-mark" src="/assets/conversa/mark.svg" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
+                    ><span class="conversa-nav-label"><img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
                     <router-link
                       v-if="canUseAgencyCampaigns && !isSscSstcTenant"
                       :to="orgTo('/admin/communications/campaigns')"
@@ -1263,7 +1263,7 @@
                 :to="orgTo('/messages')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              ><span class="conversa-nav-label"><img class="conversa-nav-mark" src="/assets/conversa/mark.svg" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
+              ><span class="conversa-nav-label"><img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
               <router-link :to="orgTo('/clubs')" @click="closeMobileMenu" class="mobile-nav-link">Browse Clubs</router-link>
             </template>
             <template v-else-if="isSummitStatsChallengeChrome && isAuthenticated">
@@ -1344,7 +1344,7 @@
                 :to="orgTo('/messages')"
                 @click="closeMobileMenu"
                 class="mobile-nav-link"
-              ><span class="conversa-nav-label"><img class="conversa-nav-mark" src="/assets/conversa/mark.svg" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
+              ><span class="conversa-nav-label"><img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
               <router-link :to="orgTo('/clubs')" @click="closeMobileMenu" class="mobile-nav-link">Browse Clubs</router-link>
             </template>
             <template v-else>
@@ -1427,7 +1427,7 @@
               :to="orgTo('/messages')"
               @click="closeMobileMenu"
               class="mobile-nav-link"
-            ><span class="conversa-nav-label"><img class="conversa-nav-mark" src="/assets/conversa/mark.svg" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
+            ><span class="conversa-nav-label"><img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
             </template>
             <router-link
               v-if="hasCapability('canJoinProgramEvents') && user?.role !== 'provider' && !isSscSstcTenant"
@@ -1854,7 +1854,7 @@
                     :to="orgTo('/messages')"
                     @click="closeMobileMenu"
                     class="mobile-nav-link mobile-nav-sublink"
-                  ><span class="conversa-nav-label"><img class="conversa-nav-mark" src="/assets/conversa/mark.svg" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
+                  ><span class="conversa-nav-label"><img class="conversa-nav-mark" :src="CONVERSA_ICON_URL" alt="" />Messages by Conversa</span><span v-if="communicationsUnreadMessagesCount > 0" class="nav-badge" :title="`${communicationsUnreadMessagesCount} unread conversations`">{{ formatNavBadgeCount(communicationsUnreadMessagesCount) }}</span></router-link>
                   <router-link v-if="canUseAgencyCampaigns && !isSscSstcTenant" :to="orgTo('/admin/communications/campaigns')" @click="closeMobileMenu" class="mobile-nav-link mobile-nav-sublink">Campaigns</router-link>
                   <router-link
                     v-if="canUseCommunicationsCenter && !isSscSstcTenant"
@@ -2252,6 +2252,7 @@
 </template>
 
 <script setup>
+import { CONVERSA_ICON_URL } from './constants/conversa';
 import { clinicalWorkspaceActive } from './composables/useClinicalWorkspace';
 import SchoolCareBridgeBrand from './components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import DashboardMeetings from './components/meetings/DashboardMeetings.vue';

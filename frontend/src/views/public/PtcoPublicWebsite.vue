@@ -12,7 +12,7 @@
       <div v-else-if="error" class="ptco-loading"><h1>We couldn’t load this page.</h1><p role="alert">{{ error }}</p><button class="ptco-button" @click="load">Try again</button></div>
       <div v-else-if="!knownSection" class="ptco-loading"><h1>Page not found</h1><router-link to="/p/ptco">Return to Plot Twist Co.</router-link></div>
       <template v-else>
-        <section class="ptco-hero" :class="`ptco-hero-${section||'home'}`" :style="{'--ptco-hero':`url(${JSON.stringify(hero.image)})`}">
+        <section v-if="section !== 'conversa'" class="ptco-hero" :class="`ptco-hero-${section||'home'}`" :style="{'--ptco-hero':`url(${JSON.stringify(hero.image)})`}">
           <div class="ptco-wrap"><div class="ptco-hero-copy"><p class="ptco-eyebrow">{{ hero.kicker }}</p><h1>{{ hero.title }} <em>{{ hero.accent }}</em></h1><p class="ptco-hero-intro">{{ hero.body }}</p><p v-if="hero.note" class="ptco-hero-note">{{ hero.note }}</p><div class="ptco-actions"><router-link class="ptco-button" :to="section==='start'?'#business-intake':'/p/ptco/start'" @click="section==='start'&&scrollToIntake($event)">{{ section==='start'?'Begin intake':section==='about'?'Partner with us':'Get started' }} <PtcoIcon name="arrow"/></router-link><router-link v-if="section!== 'start'" class="ptco-button ptco-button-outline" :to="section==='about'?'/p/ptco/about#partnership':section==='hq'?'/p/ptco/hq#hq-walkthrough':'/p/ptco/hq'">{{ section==='about'?'See our model':section==='hq'?'See the walkthrough':'Explore Plot Twist HQ' }}</router-link></div>
           <div class="ptco-hero-values"><span><PtcoIcon name="people"/>Expert support<br>from setup to scale</span><span><PtcoIcon name="heart"/>A healthier tomorrow<br>for your business</span><span><PtcoIcon name="chart"/>People. Operations.<br>Possibility.</span></div></div></div>
           <small v-if="!section||section==='hq'" class="ptco-preview-label">Illustrative platform preview</small>
@@ -32,8 +32,9 @@
           <section class="ptco-band"><div class="ptco-wrap ptco-model"><div><p class="ptco-eyebrow">Smarter systems. Stronger businesses.</p><h2>Thoughtful technology.<br>Human partnership.</h2><p>Use automation and AI where they help reduce repetitive work. Keep people responsible for the decisions that affect your business and clients.</p></div><div><h3 class="ptco-editorial">AI where it helps. Human partnership where it matters most.</h3><div class="ptco-services"><router-link v-for="s in ptcoServices" :key="s.id" class="ptco-card" :to="`/p/ptco/services#${s.id}`"><PtcoIcon :name="s.icon"/><h3>{{ s.title }}</h3></router-link></div></div></div></section>
         </template>
 
+        <PtcoConversaProduct v-if="section === 'conversa'" />
         <PtcoProducts v-if="section==='about'" />
-        <ConversaFeature v-if="section === 'products'" product="ptco" cta-href="https://plottwistco.com/start?product=conversa" />
+        <ConversaFeature v-if="section === 'products'" product="ptco" />
         <PtcoDivisions v-if="['','services','about'].includes(section)" :detailed="section==='services'" />
         <PtcoPartnerships v-if="['','about','industries'].includes(section)" />
         <PtcoConsultants v-if="['','services','about'].includes(section)" />
@@ -57,16 +58,17 @@
         <PtcoPlatformShowcase v-if="!section || section==='contact'" faq-only :compact="!section" />
         <section v-if="!section" class="ptco-band"><div class="ptco-wrap ptco-values"><div><p class="ptco-eyebrow">More than a service</p><h2>A true partnership.</h2></div><article v-for="[icon,title,body] in values" :key="title"><PtcoIcon :name="icon"/><h3>{{ title }}</h3><p>{{ body }}</p></article></div></section>
 <PublicWebsiteContactForm v-if="section==='contact'" agency-slug="ptco" />
-        <section class="ptco-final"><div class="ptco-wrap"><div><p class="ptco-eyebrow">Your next chapter starts here.</p><h2>Let’s build a brighter tomorrow — together.</h2><p>Get support, useful tools, and a partner who understands your purpose.</p></div><router-link class="ptco-button ptco-button-light" to="/p/ptco/start">Let’s talk →</router-link><span class="ptco-motto">People.<br>Purpose.<br>Possibility.</span></div></section>
+        <section v-if="section !== 'conversa'" class="ptco-final"><div class="ptco-wrap"><div><p class="ptco-eyebrow">Your next chapter starts here.</p><h2>Let’s build a brighter tomorrow — together.</h2><p>Get support, useful tools, and a partner who understands your purpose.</p></div><router-link class="ptco-button ptco-button-light" to="/p/ptco/start">Let’s talk →</router-link><span class="ptco-motto">People.<br>Purpose.<br>Possibility.</span></div></section>
       </template>
     </main>
-    <footer class="ptco-footer"><div class="ptco-wrap ptco-footer-grid"><router-link class="ptco-brand" to="/p/ptco"><img src="/assets/ptco/logo.webp" alt=""><span>Plot Twist Co.<small>Businesses for a brighter tomorrow</small></span></router-link><nav aria-label="Footer"><a href="https://plottwisthq.com/records-request">Request my records</a><h3>Quick links</h3><a :href="PLOTLINE_WEBSITE_URL">Plotline · People operations</a><router-link v-for="[label,slug] in ptcoNav" :key="slug" :to="`/p/ptco${slug?'/'+slug:''}`">{{ label }}</router-link></nav><div><h3>Your next step</h3><router-link to="/p/ptco/contact">Contact our team</router-link><router-link to="/p/ptco/products">Our products</router-link><router-link to="/p/ptco/hq">Explore Plot Twist HQ</router-link><router-link to="/p/ptco/hq#compare">Compare clinical workflows</router-link><router-link to="/p/ptco/hq#faq">Platform FAQs</router-link><a :href="portalLoginUrl">Portal Login</a></div><div><h3>Start a conversation</h3><p>Tell us where you are today<br>and where you want to go.</p><router-link class="ptco-button" to="/p/ptco/start">Begin intake →</router-link></div></div><div class="ptco-wrap ptco-footer-bottom"><small>© {{ new Date().getFullYear() }} Plot Twist Co. All rights reserved.</small><small>Different support. A brighter tomorrow.</small></div><p><a href="/community-standards">Community Standards &amp; communication privacy</a></p></footer>
+    <footer class="ptco-footer"><div class="ptco-wrap ptco-footer-grid"><router-link class="ptco-brand" to="/p/ptco"><img src="/assets/ptco/logo.webp" alt=""><span>Plot Twist Co.<small>Businesses for a brighter tomorrow</small></span></router-link><nav aria-label="Footer"><a href="https://plottwisthq.com/records-request">Request my records</a><h3>Quick links</h3><a :href="PLOTLINE_WEBSITE_URL">Plotline · People operations</a><router-link v-for="[label,slug] in ptcoNav" :key="slug" :to="`/p/ptco${slug?'/'+slug:''}`">{{ label }}</router-link></nav><div><h3>Your next step</h3><router-link to="/p/ptco/contact">Contact our team</router-link><router-link to="/p/ptco/products">Our products</router-link><router-link to="/p/ptco/conversa">Explore Conversa</router-link><router-link to="/p/ptco/hq">Explore Plot Twist HQ</router-link><router-link to="/p/ptco/hq#compare">Compare clinical workflows</router-link><router-link to="/p/ptco/hq#faq">Platform FAQs</router-link><a :href="portalLoginUrl">Portal Login</a></div><div><h3>Start a conversation</h3><p>Tell us where you are today<br>and where you want to go.</p><router-link class="ptco-button" to="/p/ptco/start">Begin intake →</router-link></div></div><div class="ptco-wrap ptco-footer-bottom"><small>© {{ new Date().getFullYear() }} Plot Twist Co. All rights reserved.</small><small>Different support. A brighter tomorrow.</small></div><p><a href="/community-standards">Community Standards &amp; communication privacy</a></p></footer>
   </div>
 </template>
 <script setup>
 import ConversaFeature from '../../components/conversa/ConversaFeature.vue';
 import PublicWebsiteContactForm from "../../components/public/PublicWebsiteContactForm.vue";
 import { PLOTLINE_WEBSITE_URL } from '../../utils/plotline';
+import PtcoConversaProduct from '../../components/ptco/PtcoConversaProduct.vue';
 import PtcoProducts from '../../components/ptco/PtcoProducts.vue';
 import PtcoDivisions from '../../components/ptco/PtcoDivisions.vue';
 import PtcoPlatformShowcase from '../../components/ptco/PtcoPlatformShowcase.vue';
@@ -85,11 +87,12 @@ import {portalLoginUrlForPublicSite} from '../../utils/publicPortalUrl.js';
 const portalLoginUrl=portalLoginUrlForPublicSite('ptco');
 const route=useRoute(),menuOpen=ref(false),page=ref(null),loading=ref(true),error=ref('');
 const section=computed(()=>String(route.params.section||''));
-const knownSection=computed(()=>['','about','services','products','hq','industries','resources','start','contact'].includes(section.value));
+const knownSection=computed(()=>['','about','services','products','conversa','hq','industries','resources','start','contact'].includes(section.value));
 const logo=computed(()=>safeMarketingHref(page.value?.branding?.logoUrl)||'/assets/ptco/logo-flat.webp');
 const selectedPath=ref('starting');
 watch(()=>route.query.path,p=>{if(ptcoPaths.some(x=>x.id===p))selectedPath.value=p;},{immediate:true});
-watch(section,()=>{menuOpen.value=false;document.title=`${ptcoNav.find(([,s])=>s===section.value)?.[0]||'Get started'} | Plot Twist Co.`;});
+function updatePageTitle(){document.title=section.value==='conversa'?'Conversa — Messages, Team Texts & Secure Care | Plot Twist Co.':`${ptcoNav.find(([,s])=>s===section.value)?.[0]||'Get started'} | Plot Twist Co.`;}
+watch(section,()=>{menuOpen.value=false;updatePageTitle();});
 function scrollToIntake(event){event?.preventDefault();document.getElementById('business-intake')?.scrollIntoView({behavior:'smooth',block:'start'});}
 function choosePath(path){selectedPath.value=path;scrollToIntake();}
 const activeFeature=ref('clients');const feature=computed(()=>ptcoHqFeatures.find(f=>f.id===activeFeature.value));
@@ -109,7 +112,7 @@ const previewMode=window.parent!==window&&route.query.marketingPreview==='1';
 let loadId=0;
 async function load(){const id=++loadId;loading.value=true;error.value='';try{const {data}=await api.get('/public/marketing-pages/ptco',{skipAuthRedirect:true,skipGlobalLoading:true});if(id===loadId)page.value=data.page;}catch{if(id===loadId)error.value='The site is temporarily unavailable. Please try again.';}finally{if(id===loadId)loading.value=false;}}
 function receive(event){if(previewMode&&event.origin===location.origin&&event.source===window.parent&&event.data?.type==='marketing-preview'&&event.data.page?.slug==='ptco'){page.value=event.data.page;loading.value=false;}}
-onMounted(async()=>{document.title='Plot Twist Co. | Your Next Chapter';window.addEventListener('message',receive);if(previewMode)window.parent.postMessage({type:'marketing-preview-ready'},location.origin);else await load();await nextTick();if(route.hash&&!route.hash.startsWith('#invite='))document.getElementById(route.hash.slice(1))?.scrollIntoView();});
+onMounted(async()=>{updatePageTitle();window.addEventListener('message',receive);if(previewMode)window.parent.postMessage({type:'marketing-preview-ready'},location.origin);else await load();await nextTick();if(route.hash&&!route.hash.startsWith('#invite='))document.getElementById(route.hash.slice(1))?.scrollIntoView();});
 onUnmounted(()=>{loadId++;window.removeEventListener('message',receive);});
 const stages=[['Start your business','Set up with expert guidance and a strong foundation.'],['Build operations','Put systems, people, and processes in place.'],['Manage growth','Streamline, optimize, and adapt as you grow.'],['Scale smarter','Expand your impact with strategic support.'],['Prepare for the future','Build for long-term opportunities.']];
 const principles=[{icon:'shield',title:'Support without takeover',body:'Your purpose, culture, and business identity belong to you. Our role is to strengthen them.'},{icon:'settings',title:'Systems that serve your vision',body:'Build practical processes around your mission and the way your team works.'},{icon:'people',title:'A partner, not a replacement',body:'Stay in control with a partner who brings support, perspective, and shared commitment.'}];

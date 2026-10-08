@@ -28,7 +28,7 @@
       </section>
       <section class="hq-auth" aria-label="Sign in to PlotTwistHQ"><slot /></section>
     </main>
-    <ConversaFeature product="hq" cta-href="https://plottwistco.com/hq#conversa-features" />
+    <ConversaFeature product="hq" />
     <footer class="hq-footer">
       <span>&copy; {{ year }} Plot Twist Co. All rights reserved.</span>
       <nav aria-label="Legal"><router-link to="/privacypolicy">Privacy</router-link><router-link to="/terms">Terms</router-link><router-link to="/support">Support</router-link></nav>

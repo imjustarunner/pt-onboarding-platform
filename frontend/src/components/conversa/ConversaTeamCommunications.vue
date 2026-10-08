@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';
-import { canManageConversaTeam } from '../../constants/conversa';
+import { canManageConversaTeam, CONVERSA_ICON_URL } from '../../constants/conversa';
 import StaffPollResultsReview from '../admin/StaffPollResultsReview.vue';
 
 const props = defineProps({ agencyId: { type: [Number, String], default: null } });
@@ -93,7 +93,7 @@ watch(() => [props.agencyId, allowed.value], () => {
 
 <template>
   <section class="conversa-team" aria-labelledby="conversa-team-title">
-    <header class="team-header"><div><h2 id="conversa-team-title">Team texts &amp; polls</h2><p>Conversa brings team broadcasts, replies, and delivery history together.</p></div><img src="/assets/conversa/mark.svg" alt="Conversa" width="56" height="56" /></header>
+    <header class="team-header"><div><h2 id="conversa-team-title">Team texts &amp; polls</h2><p>Conversa brings team broadcasts, replies, and delivery history together.</p></div><img :src="CONVERSA_ICON_URL" alt="Conversa" width="56" height="56" /></header>
     <p v-if="!allowed" role="alert">Only superadmins, admins, and support can manage team texts and polls.</p>
     <p v-else-if="!agencyId">Select an agency to manage its team communications.</p>
     <template v-else>

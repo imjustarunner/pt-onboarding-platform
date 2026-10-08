@@ -1,14 +1,42 @@
-<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-<defs>
-  <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#DDB54A"/><stop offset="1" stop-color="#9D7018"/></linearGradient>
-</defs>
-<!-- rounded speech-bubble field -->
-<path d="M128 18C66 18 22 63 22 122c0 47 29 86 75 102l-11 22 33-17c4 .3 7 .5 11 .5 61 0 108-44 108-105C238 64 190 18 128 18Z" fill="#003382"/>
-<!-- peak -->
-<path d="M128 43 184 132l-33-16-23-39-32 51-28 11 60-96Z" fill="url(#gold)"/>
-<path d="M128 61l16 31-16-16-17 28 17-43Z" fill="#FFF" opacity=".36"/>
-<!-- conversation capsule -->
-<path d="M66 146h124c15 0 26 11 26 25s-11 25-26 25h-65l-27 15 8-15H66c-15 0-26-11-26-25s11-25 26-25Z" fill="#FFFFFF"/>
-<!-- three conversation dots -->
-<circle cx="104" cy="171" r="6.5" fill="#003382"/><circle cx="128" cy="171" r="6.5" fill="#003382"/><circle cx="152" cy="171" r="6.5" fill="#003382"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <radialGradient id="conversa-blue" cx=".32" cy=".14" r=".94">
+      <stop stop-color="#0B48CB"/>
+      <stop offset=".38" stop-color="#0038BE"/>
+      <stop offset=".76" stop-color="#07328C"/>
+      <stop offset="1" stop-color="#002352"/>
+    </radialGradient>
+    <linearGradient id="conversa-gold" x1="81" y1="104" x2="150" y2="31" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A97611"/>
+      <stop offset=".38" stop-color="#D4A017"/>
+      <stop offset=".76" stop-color="#F1CA61"/>
+      <stop offset="1" stop-color="#FFE49A"/>
+    </linearGradient>
+    <linearGradient id="conversa-facet" x1="128" y1="25" x2="194" y2="136" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF0B2"/>
+      <stop offset=".46" stop-color="#EAC05C"/>
+      <stop offset="1" stop-color="#B17D16"/>
+    </linearGradient>
+    <linearGradient id="conversa-pearl" x1="108" y1="127" x2="108" y2="208" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F0F6FF"/>
+    </linearGradient>
+  </defs>
+  <!-- Board silhouette: one circular conversation field with an integrated tail. -->
+  <path d="M128 16C68 16 20 64 20 124C20 156 34 185 57 205L48 244L88 226C100 231 114 233 128 233C188 233 236 185 236 124C236 64 188 16 128 16Z" fill="url(#conversa-blue)"/>
+  <!-- The faceted gold peak follows the board's curved lower edge. -->
+  <path d="M128 14L215 146C183 129 160 106 133 99C107 91 84 95 60 107Z" fill="#FFFFFF"/>
+  <path d="M128 25L199 131C174 115 153 99 130 94C110 88 93 92 76 99Z" fill="url(#conversa-gold)"/>
+  <path d="M128 25L109 87L76 99L116 93Z" fill="#A97611" fill-opacity=".62"/>
+  <path d="M128 25L199 131L150 100Z" fill="url(#conversa-facet)"/>
+  <path d="M128 25L129 64L123 58L112 89L107 93L130 92L150 100Z" fill="#FFE18A"/>
+  <path d="M128 25L129 64L123 58L112 89Z" fill="#FFF2BE" fill-opacity=".58"/>
+  <!-- The blue wave shares the conversation field; only its upper edge is separated. -->
+  <path d="M171 118C200 139 222 160 246 161C221 177 192 166 165 147Z" fill="url(#conversa-blue)"/>
+  <path d="M28 174C30 142 47 116 76 103C109 88 141 96 171 118C200 139 222 160 246 161" fill="none" stroke="#FFFFFF" stroke-width="6"/>
+  <!-- The broad conversation bubble and wave share the same continuous white shape. -->
+  <path d="M61 138C86 122 116 122 143 137C174 153 207 176 236 169C213 183 189 176 169 168C166 190 145 207 116 208C81 210 53 192 53 166C53 154 55 142 61 138Z" fill="url(#conversa-pearl)"/>
+  <circle cx="84" cy="164" r="7.3" fill="#002E82"/>
+  <circle cx="109" cy="164" r="7.3" fill="#002E82"/>
+  <circle cx="134" cy="164" r="7.3" fill="#002E82"/>
 </svg>

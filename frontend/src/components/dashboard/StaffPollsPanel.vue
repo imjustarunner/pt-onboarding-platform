@@ -1,6 +1,6 @@
 <template>
   <details class="staff-polls" @toggle="onToggle">
-    <summary><img src="/assets/conversa/mark.svg" alt="" width="24" height="24" style="vertical-align:middle;margin-right:8px" />Team polls · Conversa</summary>
+    <summary><img :src="CONVERSA_ICON_URL" alt="" width="24" height="24" style="vertical-align:middle;margin-right:8px" />Team polls · Conversa</summary>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="loading">Loading polls…</p>
     <template v-else-if="opened">
@@ -25,6 +25,7 @@
   </details>
 </template>
 <script setup>
+import { CONVERSA_ICON_URL } from '../../constants/conversa';
 import { ref, watch } from 'vue';
 import api from '../../services/api';
 const props=defineProps({agencyId:{type:[Number,String],default:null}});

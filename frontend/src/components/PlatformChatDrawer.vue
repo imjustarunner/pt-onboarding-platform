@@ -21,7 +21,7 @@
       </div>
 
       <div class="rail-icon">
-        <img src="/assets/conversa/mark.svg" alt="Messages by Conversa" />
+        <img :src="CONVERSA_ICON_URL" alt="Messages by Conversa" />
       </div>
 
       <div v-if="drawerView === 'team'" class="rail-badge rail-badge-bottom" :class="{ disabled: needsAgency }">
@@ -78,6 +78,7 @@
 </template>
 
 <script setup>
+import { CONVERSA_ICON_URL } from '../constants/conversa';
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAgencyStore } from '../store/agency';

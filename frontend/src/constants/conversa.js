@@ -3,7 +3,12 @@ export const CONVERSA_OWNER = 'Plot Twist Co.';
 export const CONVERSA_OWNERSHIP = 'A Plot Twist Co. product';
 export const CONVERSA_RELATIONSHIP = 'Conversa and AuricWell are wholly owned Plot Twist Co. products. Conversa brings communications together across AuricWell and Plot Twist HQ.';
 export const CONVERSA_NAME = 'Messages by Conversa';
-export const CONVERSA_ICON_URL = '/assets/conversa/mark.svg';
+// Public assets are cached as immutable; bump this revision when the artwork changes.
+export const CONVERSA_PRODUCT_URL = 'https://plottwistco.com/conversa';
+export const CONVERSA_ASSET_REVISION = '20261007-board';
+export const CONVERSA_ICON_URL = `/assets/conversa/mark.svg?v=${CONVERSA_ASSET_REVISION}`;
+export const CONVERSA_LOGO_URL = `/assets/conversa/brand/conversa-logo-horizontal.svg?v=${CONVERSA_ASSET_REVISION}`;
+export const CONVERSA_PREVIEW_URL = `/assets/conversa/ui/conversa-interface-preview.svg?v=${CONVERSA_ASSET_REVISION}`;
 export const CONVERSA_TAGLINE = 'Every conversation, clearly connected.';
 
 export const CONVERSA_TYPES = Object.freeze({
