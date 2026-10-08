@@ -14,7 +14,7 @@
  */
 import multer from 'multer';
 import path from 'path';
-import { getLifecycleData, saveMilestoneDates } from '../services/lifecycle.service.js';
+import { EDITABLE_MILESTONE_FIELD_KEYS, getLifecycleData, saveMilestoneDates } from '../services/lifecycle.service.js';
 import { syncLifecycleItems } from '../services/lifecycleSync.service.js';
 import UserLifecycleChecklistItem from '../models/UserLifecycleChecklistItem.model.js';
 import UserSeparationInfo from '../models/UserSeparationInfo.model.js';
@@ -140,15 +140,7 @@ export const updateLifecycleDates = async (req, res, next) => {
     const userId = parseInt(req.params.id, 10);
     if (!userId) return res.status(400).json({ error: { message: 'Invalid user id' } });
 
-    const allowed = new Set([
-      'offer_accepted_date',
-      'start_date',
-      'orientation_date',
-      'therapy_notes_training_date',
-      'first_client_date',
-      'first_payroll_submission_date',
-      'probation_end_date',
-    ]);
+    const allowed = new Set(EDITABLE_MILESTONE_FIELD_KEYS);
 
     const payload = {};
     for (const [k, v] of Object.entries(req.body || {})) {

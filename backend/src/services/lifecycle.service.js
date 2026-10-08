@@ -1,3 +1,4 @@
+import { latestEmploymentAgreementDate, probationEndDate } from './employmentAgreementPolicy.service.js';
 /**
  * lifecycle.service.js
  *
@@ -27,14 +28,14 @@ import {
 import { ensureD11ComplianceForProvider } from './d11Compliance.service.js';
 import { listProviderDistrictFlags } from '../utils/districtCompliance.js';
 
-// Milestone date field keys we manage via user_info_values EAV
-const MILESTONE_FIELD_KEYS = [
-  'offer_accepted_date',
+// Share the editable fields with the endpoint so new dates cannot be dropped on save.
+export const EDITABLE_MILESTONE_FIELD_KEYS = Object.freeze([
   'start_date',
-  'orientation_date',
-  'therapy_notes_training_date',
   'first_client_date',
-  'first_payroll_submission_date',
+  'employment_agreement_date',
+]);
+const MILESTONE_FIELD_KEYS = [
+  ...EDITABLE_MILESTONE_FIELD_KEYS,
   'probation_end_date',
 ];
 
@@ -135,6 +136,8 @@ async function fetchMilestoneDates(userId) {
   for (const r of rows) {
     map[r.field_key] = r.value || null;
   }
+  const agreementDate = await latestEmploymentAgreementDate(userId);
+  if (agreementDate && (!map.employment_agreement_date || agreementDate > map.employment_agreement_date)) map.employment_agreement_date = agreementDate;
   return map;
 }
 
@@ -145,17 +148,15 @@ function buildTimeline(user, dates, firstSupervisionDate) {
     if (ymd) events.push({ label, date: ymd });
   };
 
-  add('Offer Accepted', dates.offer_accepted_date);
   // hired_at is the hiring pipeline timestamp — label it "Hired / Pre-Hire Started"
-  if (user.hired_at && !dates.offer_accepted_date) {
+  if (user.hired_at) {
     add('Hired / Pre-Hire Started', user.hired_at);
   }
-  add('Start Date', dates.start_date || user.provider_start_date);
-  add('Orientation', dates.orientation_date);
-  add('TherapyNotes Training', dates.therapy_notes_training_date);
+  add('Start Date', dates.start_date || user.provider_start_date || dates.first_client_date);
   add('First Supervision', firstSupervisionDate);
-  add('First Client', dates.first_client_date);
-  add('First Payroll', dates.first_payroll_submission_date);
+  add('First Client Seen', dates.first_client_date);
+  add('Employment Agreement', dates.employment_agreement_date);
+  add('Probation End', probationEndDate(dates.start_date || user.provider_start_date || dates.first_client_date));
   add('Became Active Employee', user.completed_at);
 
   // Sort chronologically
@@ -464,10 +465,11 @@ export async function getLifecycleData(userId) {
   const offboardingStatus = computeOffboardingStatus(user.termination_date, allOffboardItems);
 
   return {
+    dates: {...milestones, start_date: milestones.start_date || toYmd(user.provider_start_date) || milestones.first_client_date || null, probation_end_date: probationEndDate(milestones.start_date || user.provider_start_date || milestones.first_client_date)},
     summary: {
       employeeStatus: user.status,
       isActive: user.is_active,
-      startDate: milestones.start_date || toYmd(user.provider_start_date),
+      startDate: milestones.start_date || toYmd(user.provider_start_date) || milestones.first_client_date || null,
       firstClientDate: milestones.first_client_date || null,
       supervisorName: supervisor ? `${supervisor.first_name} ${supervisor.last_name}`.trim() : null,
       supervisorEmail: supervisor?.email || null,
@@ -475,7 +477,7 @@ export async function getLifecycleData(userId) {
       terminationDate: toYmd(user.termination_date),
       offboardingStatus,
       // Birthday — read-only mirror; source of truth is Provider Info EAV.
-      // Anniversary automation uses EAV `start_date` (not provider_start_date).
+      // Anniversary announcements continue to use the original first_client_date.
       dateOfBirth: dateOfBirth || null,
       // Leave of absence — read-only mirror; edit via header "Record leave" button.
       leave: leaveInfo
@@ -507,13 +509,10 @@ export async function getLifecycleData(userId) {
       timeline: buildTimeline(user, milestones, firstSupervisionDate),
       firstSupervisionDate,
       employmentDates: {
-        offerAcceptedDate: milestones.offer_accepted_date || null,
-        startDate: milestones.start_date || toYmd(user.provider_start_date),
-        orientationDate: milestones.orientation_date || null,
-        therapyNotesTrainingDate: milestones.therapy_notes_training_date || null,
+        startDate: milestones.start_date || toYmd(user.provider_start_date) || milestones.first_client_date || null,
         firstClientDate: milestones.first_client_date || null,
-        firstPayrollSubmissionDate: milestones.first_payroll_submission_date || null,
-        probationEndDate: milestones.probation_end_date || null,
+        probationEndDate: probationEndDate(milestones.start_date || user.provider_start_date || milestones.first_client_date),
+        employmentAgreementDate: milestones.employment_agreement_date || null,
         // Read-only: stamped by hiring pipeline, not editable on profile
         hiredAt: toYmd(user.hired_at),
         // Read-only: set when status becomes ACTIVE_EMPLOYEE
@@ -561,7 +560,10 @@ export async function getLifecycleData(userId) {
  */
 export async function saveMilestoneDates(userId, dates) {
   const uid = Number(userId);
-  const allowed = new Set(MILESTONE_FIELD_KEYS);
+  const allowed = new Set(EDITABLE_MILESTONE_FIELD_KEYS);
+  for (const [key,value] of Object.entries(dates)) {
+    if (allowed.has(key) && value && (!/^\d{4}-\d{2}-\d{2}$/.test(String(value)) || !Number.isFinite(Date.parse(`${value}T12:00:00Z`)) || new Date(`${value}T12:00:00Z`).toISOString().slice(0,10) !== value)) throw Object.assign(new Error('Use a valid date.'), {status:400});
+  }
 
   for (const [key, value] of Object.entries(dates)) {
     if (!allowed.has(key)) continue;
@@ -574,7 +576,9 @@ export async function saveMilestoneDates(userId, dates) {
       [key]
     );
     const defId = defRows?.[0]?.id;
-    if (!defId) continue;
+    if (!defId) {
+      throw Object.assign(new Error('Employment date settings are not ready. Your date was not saved; please try again after the database update.'), { status: 503 });
+    }
 
     const v = value || null;
     if (v) {

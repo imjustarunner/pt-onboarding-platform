@@ -44,3 +44,8 @@ it('uses the outgoing recipient avatar without changing the message author; unre
   const unread = await listHubConversationFeed({ agencyId: 2, userId: 1, mode: 'unread' });
   expect(unread.items[0]).toMatchObject({ latestSenderName: 'Haley', latestMessageDirection: 'inbound' });
 });
+
+it('reports email-load failures instead of returning an empty unread inbox', async () => {
+  mocks.list.mockRejectedValueOnce(Object.assign(new Error('Database unavailable'), { code: 'ECONNRESET' }));
+  await expect(listHubConversationFeed({ agencyId: 2, userId: 1, channel: 'email', mode: 'unread' })).rejects.toMatchObject({ status: 503 });
+});

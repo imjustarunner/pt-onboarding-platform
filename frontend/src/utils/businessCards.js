@@ -64,7 +64,7 @@ export function employeeCardDefaults(user = {}, offices = [], contact = {}) {
   return {
     id: String(user.id), selected: false,
     name: [user.preferred_name || user.first_name, user.last_name].filter(Boolean).join(' '),
-    title: text(user.agency_position) || text(user.title), credentials: text(user.credential || user.provider_credential),
+    title: text(user.agency_position) || text(user.title), displayLabel: user.displayRole?.label || '', candidate: !!user.displayRole?.candidate, credentials: text(user.credential || user.provider_credential),
     // Use the app's tenant-specific public contact identity, not a raw login email.
     email: text(contact.email) || text(user.work_email), phone: '', workLine: contact.workLine || null, extension: extension(user.work_phone_extension),
     website: '', address: '', offices,
@@ -153,8 +153,10 @@ export function cardSvg(card, fonts = {}, bleedInches = 0, bottomBleedInches = b
   const svgText = (...args) => block(...args).markup;
   const name = { bottom: 82, markup: singleLine(card.name, 35, 82, 320, 44, primaryInk, 700, 'CardHeading', fonts.measure, 'name') };
   const credentials = block(card.credentials, 35, name.bottom + 34, 320, 26, 1, primaryInk, true);
-  const title = block(card.title, 35, (credentials.lines ? credentials.bottom : name.bottom) + 38, 320, 24, 3, primaryInk);
-  const dividerY = (title.lines ? title.bottom : credentials.lines ? credentials.bottom : name.bottom) + 20;
+  const title = block(card.displayLabel === 'Unlicensed Masters' ? '' : card.candidate ? String(card.title || '').replace(/\s*\bCandidate\b/gi,'').trim() : card.title, 35, (credentials.lines ? credentials.bottom : name.bottom) + 38, 320, 24, 3, primaryInk);
+  const roleLabel = card.displayLabel && card.displayLabel !== card.title ? block(card.candidate ? card.displayLabel.replace(/\s*\bCandidate\b/gi,'').trim() : card.displayLabel,35,title.bottom+30,320,22,2,primaryInk) : {bottom:title.bottom,markup:''};
+  const candidate = card.candidate ? block('Candidate',35,roleLabel.bottom+30,320,22,1,primaryInk) : {bottom:roleLabel.bottom,markup:''};
+  const dividerY = candidate.bottom + 20;
   // Keep the identity centered alongside the logo after moving phones below.
   const topOffset = Math.max(0, 220 - (56 + dividerY) / 2);
   const displayEmail = text(card.email).replace(/@itsco\.health$/i, '@ITSCO.health');
@@ -190,6 +192,8 @@ export function cardSvg(card, fonts = {}, bleedInches = 0, bottomBleedInches = b
     ${name.markup}
     ${credentials.markup}
     ${title.markup}
+    ${roleLabel.markup}
+    ${candidate.markup}
     <path d="M35 ${dividerY} H355" stroke="${accent}" stroke-width="3"/>
     </g>
     ${logo ? cardLogoMarkup(card, 416, 71, 308, 303, 'data-card-logo="primary"') : svgText(card.organization, 421, 155, 298, 38, 5)}

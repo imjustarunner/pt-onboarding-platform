@@ -123,17 +123,6 @@
             <h4 class="lc-block-title">Employment Dates</h4>
             <div class="lc-dates-grid">
               <div class="lc-date-field">
-                <label class="lc-date-label">Offer Accepted Date</label>
-                <input
-                  type="date"
-                  class="lc-date-input"
-                  :value="datesForm.offer_accepted_date"
-                  :disabled="viewOnly"
-                  @change="datesForm.offer_accepted_date = $event.target.value"
-                  @blur="saveDates"
-                />
-              </div>
-              <div class="lc-date-field">
                 <label class="lc-date-label">Start Date</label>
                 <input
                   type="date"
@@ -145,18 +134,7 @@
                 />
               </div>
               <div class="lc-date-field">
-                <label class="lc-date-label">Orientation Date</label>
-                <input
-                  type="date"
-                  class="lc-date-input"
-                  :value="datesForm.orientation_date"
-                  :disabled="viewOnly"
-                  @change="datesForm.orientation_date = $event.target.value"
-                  @blur="saveDates"
-                />
-              </div>
-              <div class="lc-date-field">
-                <label class="lc-date-label">First Client Date</label>
+                <label class="lc-date-label">First Client Seen Date</label>
                 <input
                   type="date"
                   class="lc-date-input"
@@ -167,26 +145,9 @@
                 />
               </div>
               <div class="lc-date-field">
-                <label class="lc-date-label">First Payroll Submission</label>
-                <input
-                  type="date"
-                  class="lc-date-input"
-                  :value="datesForm.first_payroll_submission_date"
-                  :disabled="viewOnly"
-                  @change="datesForm.first_payroll_submission_date = $event.target.value"
-                  @blur="saveDates"
-                />
-              </div>
-              <div class="lc-date-field">
-                <label class="lc-date-label">TherapyNotes Training Date</label>
-                <input
-                  type="date"
-                  class="lc-date-input"
-                  :value="datesForm.therapy_notes_training_date"
-                  :disabled="viewOnly"
-                  @change="datesForm.therapy_notes_training_date = $event.target.value"
-                  @blur="saveDates"
-                />
+                <label class="lc-date-label">Employment Agreement Date</label>
+                <input type="date" class="lc-date-input" v-model="datesForm.employment_agreement_date" :disabled="viewOnly" @blur="saveDates" />
+                <small>Most recent completed agreement; signed amendments update this date. Original start and first-client dates stay unchanged.</small>
               </div>
               <div class="lc-date-field">
                 <label class="lc-date-label">Probation End Date</label>
@@ -194,9 +155,8 @@
                   type="date"
                   class="lc-date-input"
                   :value="datesForm.probation_end_date"
-                  :disabled="viewOnly"
-                  @change="datesForm.probation_end_date = $event.target.value"
-                  @blur="saveDates"
+                  disabled
+                  title="Automatically calculated: original start date plus 90 days"
                 />
               </div>
             </div>
@@ -938,12 +898,9 @@ async function saveDistrictBgProcess(row) {
 }
 
 const datesForm = ref({
-  offer_accepted_date: null,
   start_date: null,
-  orientation_date: null,
-  therapy_notes_training_date: null,
+  employment_agreement_date: null,
   first_client_date: null,
-  first_payroll_submission_date: null,
   probation_end_date: null,
 });
 
@@ -1031,12 +988,9 @@ function populateForms() {
   if (!d) return;
   const ed = d.onboarding.employmentDates;
   datesForm.value = {
-    offer_accepted_date: toYmd(ed.offerAcceptedDate),
     start_date: toYmd(ed.startDate),
-    orientation_date: toYmd(ed.orientationDate),
-    therapy_notes_training_date: toYmd(ed.therapyNotesTrainingDate),
+    employment_agreement_date: toYmd(ed.employmentAgreementDate),
     first_client_date: toYmd(ed.firstClientDate),
-    first_payroll_submission_date: toYmd(ed.firstPayrollSubmissionDate),
     probation_end_date: toYmd(ed.probationEndDate),
   };
   const cred = d.onboarding.credentials || {};

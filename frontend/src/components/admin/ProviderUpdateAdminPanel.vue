@@ -99,7 +99,11 @@
               <td>{{ r.email }}</td>
               <td>{{ r.status }}</td>
               <td>{{ r.sections_completed }}/{{ r.sections_total }}</td>
-              <td>{{ Math.round(Number(r.active_seconds || 0) / 60) }}</td>
+              <td>{{ Math.floor(Number(r.active_seconds || 0) / 60) }}m {{ Number(r.active_seconds || 0) % 60 }}s
+                <details v-if="r.timeSummary?.sessions?.length"><summary>Sessions and sections</summary>
+                  <div v-for="(seconds,key) in r.timeSummary.sections" :key="key">{{ key.replaceAll('_',' ') }}: {{Math.floor(seconds/60)}}m {{seconds%60}}s</div>
+                  <div v-for="s in r.timeSummary.sessions" :key="s.session_id">{{new Date(String(s.started_at).replace(' ','T').replace(/(?<!Z)$/, 'Z')).toLocaleString()}} — {{Math.floor(s.active_seconds/60)}}m {{s.active_seconds%60}}s</div>
+                </details><small v-if="r.payroll_time_claim_id">Payroll claim #{{r.payroll_time_claim_id}}</small></td>
               <td>{{ communicationSummary(r.communication_review_json) }}</td>
               <td class="row-actions">
                 <a v-if="r.publicUrl" class="btn sm" :href="r.publicUrl" target="_blank" rel="noopener">Open</a>
@@ -737,7 +741,7 @@ async function exportPush(p) {
 }
 
 async function submitPayroll(p) {
-  if (!window.confirm('Create indirect payroll time claims from tracked Provider Update minutes?')) return;
+  if (!window.confirm('Submit any remaining completed Provider Updates as support activity payroll claims? Existing claims will not be duplicated.')) return;
   busy.value = true;
   try {
     const res = await api.post(`/provider-update/pushes/${p.id}/submit-payroll`, {

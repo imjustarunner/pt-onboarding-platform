@@ -161,3 +161,9 @@ describe('agency card artwork',()=>{
   expect(draft.organization.logoCrop).toBe(card.logoCrop);expect(draft.organization.watermarkLogo).toBe(card.watermarkLogo);
  });
 });
+it('puts Candidate on a separate card line and suppresses ambiguous titles for Unlicensed Masters',()=>{
+ const card=employeeCardDefaults({first_name:'A',credential:'LPCC',title:'Counselor Candidate',displayRole:{label:'Counselor',candidate:true}});
+ const doc=new DOMParser().parseFromString(cardSvg(card),'image/svg+xml');
+ expect([...doc.querySelectorAll('tspan,text')].some(e=>e.textContent==='Candidate')).toBe(true);
+ const unlicensed=cardSvg({...card,title:'Counselor',displayLabel:'Unlicensed Masters',candidate:false});expect(unlicensed).toContain('Unlicensed Masters');expect(unlicensed).not.toContain('>Counselor<');expect(unlicensed).not.toContain('>Candidate<');
+});

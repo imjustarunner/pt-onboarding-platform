@@ -1,0 +1,20 @@
+import {it,expect,vi,beforeEach} from 'vitest';
+import sharp from 'sharp';
+const mocks=vi.hoisted(()=>({recipient:vi.fn(),assign:vi.fn(),execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),save:vi.fn(),delete:vi.fn()}));
+vi.mock('../providerUpdateReview.controller.js',()=>({reviewRecipient:mocks.recipient}));
+vi.mock('../../config/database.js',()=>({default:{getConnection:async()=>mocks}}));
+vi.mock('../../services/technologySupport.service.js',()=>({assignTechnologyTicket:mocks.assign}));
+vi.mock('../../utils/supportTicketCrypto.js',()=>({prepareEncryptedTicketText:()=>({encrypted:true,plain:null,ciphertext:'encrypted',iv:'iv',authTag:'tag',keyId:'key'})}));
+vi.mock('../../services/storage.service.js',()=>({default:{getGCSBucket:async()=>({file:()=>({save:mocks.save,delete:mocks.delete})})}}));
+import {submitUpdateHelp} from '../providerUpdateHelp.controller.js';
+beforeEach(()=>{vi.clearAllMocks();mocks.recipient.mockResolvedValue({id:5,agency_id:2,provider_user_id:465,token:'test'});mocks.execute.mockResolvedValue([{}]);});
+const req=()=>({body:{requestId:'12345678-1234-1234-1234-123456789abc',subject:'Help',question:'My screen is stuck',agencyId:999,userId:999},params:{token:'test'},files:[]});
+const res=()=>({status:vi.fn().mockReturnThis(),json:vi.fn()});
+it('refuses submission from a read-only preview',async()=>{mocks.recipient.mockResolvedValue({previewOnly:true});const next=vi.fn();await submitUpdateHelp(req(),res(),next);expect(next.mock.calls[0][0].status).toBe(403);expect(mocks.beginTransaction).not.toHaveBeenCalled();});
+it('creates a technology ticket scoped to the recipient and stores screenshots privately',async()=>{
+ mocks.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([{insertId:70}]).mockResolvedValue([{}]);
+ const request=req();request.files=[{buffer:await sharp({create:{width:1,height:1,channels:3,background:'#ffffff'}}).png().toBuffer()}];
+ const response=res(),next=vi.fn();await submitUpdateHelp(request,response,next);
+ expect(next).not.toHaveBeenCalled();expect(mocks.execute.mock.calls[2][1].slice(0,3)).toEqual([2,2,465]);expect(mocks.execute.mock.calls[2][0]).toContain("'technology'");expect(mocks.assign).toHaveBeenCalledWith({ticketId:70,agencyId:2},mocks);expect(mocks.save).toHaveBeenCalledOnce();expect(mocks.commit).toHaveBeenCalledOnce();expect(response.json).toHaveBeenCalledWith({ticketId:70,topic:'technology'});
+});
+it('returns an existing ticket on retry without creating another',async()=>{mocks.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ticket_id:70}]]);const response=res();await submitUpdateHelp(req(),response,vi.fn());expect(response.json).toHaveBeenCalledWith({ticketId:70,topic:'technology'});expect(mocks.assign).not.toHaveBeenCalled();expect(mocks.commit).not.toHaveBeenCalled();});

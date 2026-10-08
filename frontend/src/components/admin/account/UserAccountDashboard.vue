@@ -881,10 +881,8 @@ const employmentRows = computed(() => {
   return [
     { label: 'Hire Date', value: fmtDate(hireDate.value) },
     { label: 'Start Date', value: fmt('start_date') || fmtDate(activeSince.value) },
-    { label: 'First Client Date', value: fmt('first_client_date') },
-    { label: 'Offer Accepted', value: fmt('offer_accepted_date') },
-    { label: 'Orientation / TherapyNotes Login', value: fmt('orientation_date') },
-    { label: 'First Payroll Submission', value: fmt('first_payroll_submission_date') },
+    { label: 'First Client Seen Date', value: fmt('first_client_date') },
+    { label: 'Employment Agreement Date', value: fmt('employment_agreement_date') },
     { label: 'Work Anniversary', value: fmt('work_anniversary_date') },
     { label: 'Termination Date', value: fmtDate(user.value?.terminated_at) },
     { label: 'Date of Birth', value: fmtDate(user.value?.date_of_birth) }

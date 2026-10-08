@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import pool from '../config/database.js';
-import {SEED_KEY, EFFECTIVE_DATE, commonAmendmentClauses, renderAmendment, amendmentIssues, handbookSections} from '../content/itscoOctober2026Drafts.js';
+import {SEED_KEY, EFFECTIVE_DATE, SERVICE_POLICY_VERSION, commonAmendmentClauses, renderAmendment, amendmentIssues, handbookSections} from '../content/itscoOctober2026Drafts.js';
 import {octoberAdminTopics} from '../content/itscoOctober2026AdminUpdate.js';
 
 const aid=2, author=501, pushId=2;
@@ -28,11 +28,11 @@ async function main() {
  const eligible=staff.filter(u=>u.status==='ACTIVE_EMPLOYEE'&&Number(u.agency_active)===1&&Number(u.is_active)===1);
  const drafts=eligible.map(u=>{
   const a=assignments.find(a=>a.user_id===u.id),r=rates.find(r=>r.category===a?.category&&r.level===a?.level),account=pto.find(p=>p.user_id===u.id);
-  const data={draftKind:'provider_update_compensation',seedKey:SEED_KEY,pushId,effectiveDate:EFFECTIVE_DATE,leaveChoice:'sick',example:[82,480].includes(u.id),
+  const data={compensationPolicyVersion:SERVICE_POLICY_VERSION,draftKind:'provider_update_compensation',seedKey:SEED_KEY,pushId,effectiveDate:EFFECTIVE_DATE,leaveChoice:'sick',example:[82,480].includes(u.id),
    employee:{userId:u.id,name:`${u.first_name} ${u.last_name}`,title:u.title||'',credential:u.credential||'',employmentType:u.employment_type||account?.employment_type||null,originalAgreementDate:''},
    schedule:{category:a?.category??null,level:a?.level??null,levelDescription:levels.find(l=>l.category===a?.category&&l.level===a?.level)?.label||'',
     creditRate:r?.credit_rate??null,hcodeRate:r?.hcode_rate??null,indirectRate:r?.indirect_rate??null,supportRate:r?.support_activity_rate??null,
-    ptoRate:account?.pto_pay_rate??null,autoIndirectMinutes:r?.auto_indirect_minutes_per_hour??null},
+    ptoRate:account?.pto_pay_rate??null,autoIndirectMinutes:12,leaveAdminRatio:0.2,creditRateProbation:r?.credit_rate_probation??r?.credit_rate??null,hcodeRateProbation:r?.hcode_rate_probation??r?.hcode_rate??null,indirectRateProbation:r?.indirect_rate??null,supportRateProbation:r?.support_activity_rate??null},
    commonClausesHtml:commonAmendmentClauses('sick'),additionalTerms:'',
    source:{capturedAt:new Date().toISOString(),assignment:a||null,rateProfile:r||null,ptoRate:account?.pto_pay_rate??null,
     notice:'Saved matrix values are draft inputs, not a finding that these rates are already effective. Missing values are not inferred.'}};
@@ -47,7 +47,7 @@ async function main() {
   await db.beginTransaction();
   const [lock]=await db.execute('SELECT id,status FROM provider_update_pushes WHERE id=? AND agency_id=? FOR UPDATE',[pushId,aid]);
   if(lock[0]?.status!=='draft')throw new Error('The October provider update must still be a draft.');
-  let [updates]=await db.execute('SELECT id,status FROM admin_updates WHERE agency_id=? AND title=?',[aid,'ITSCO · October 2026 — Together since March']);
+  let [updates]=await db.execute('SELECT id,status FROM admin_updates WHERE agency_id=? AND title=?',[aid,'ITSCO · October 2026']);
   let updateId=updates[0]?.id;
   if(updates[0]&&updates[0].status!=='draft')throw new Error('Seeded admin update was released; refusing to modify it.');
   if(!updateId){
@@ -55,8 +55,8 @@ async function main() {
     (agency_id,created_by_user_id,title,subtitle,greeting,intro_html,featured_enabled,featured_title,featured_body,
      support_enabled,support_title,support_body,footer_tagline,staffing_since,departures_since,public_token,delivery_mode,push_splash,status)
     VALUES (?,?,?,?,?,?,1,?,?,1,?,?,?,?,?,?,'html',0,'draft')`,
-    [aid,author,'ITSCO · October 2026 — Together since March','People, schools, your work tools and the next chapter.','Hello team,',
-     'Here is our October roundup, bringing together changes since March and the next steps ahead. Please use the Now and Coming soon guidance in each section, and complete your personal Provider Update when invited.',
+    [aid,author,'ITSCO · October 2026','People, schools, your work tools and the next chapter.','Hello team,',
+     'Here is our October roundup, bringing together changes since March and the next steps ahead. Please use the Now and Coming soon guidance in each section, and complete the remaining steps in this same Provider Update invitation.',
      'Your provider review, in one place','Review your profile, availability, supervision, communication choices and individual documents. Our planned TherapyNotes transition is Thanksgiving weekend.',
      'Questions or something missing?','Use the app’s support channel or your supervisor. We will help with access, corrections and transition questions.',
      'ITSCO · Clear information. Connected care.','2026-04-01','2026-04-01',crypto.randomBytes(24).toString('hex')]);

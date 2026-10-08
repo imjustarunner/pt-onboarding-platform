@@ -8,6 +8,8 @@ import PayrollPeriod from '../models/PayrollPeriod.model.js';
 import { computeSubmissionWindow, resolveClaimTimeZone } from '../utils/payrollSubmissionWindow.js';
 import {
   computeAccrualFromBasisHours,
+  computeServiceCreditLeave,
+  protectedSickRolloverLimit,
   paidTimeBasisFromSummaryRow,
   DEFAULT_PTO_ACCRUAL_POLICY
 } from '../utils/payrollPtoAccrual.util.js';
@@ -1084,7 +1086,7 @@ export async function runPtoAccrualForPostedPeriod({
     let sickBal = Number(acct.sick_balance_hours || 0);
     let trainingBal = Number(acct.training_balance_hours || 0);
     if (year && Number(acct.last_sick_rollover_year || 0) !== year) {
-      const rolloverCap = Number(policy.sickAnnualRolloverCap ?? DEFAULT_PTO_POLICY.sickAnnualRolloverCap);
+      const rolloverCap = protectedSickRolloverLimit({agencyId,configuredLimit:policy.sickAnnualRolloverCap ?? DEFAULT_PTO_POLICY.sickAnnualRolloverCap});
       const rolled = Math.min(sickBal, rolloverCap);
       const delta = rolled - sickBal;
       if (Math.abs(delta) > 1e-9) {
@@ -1115,7 +1117,8 @@ export async function runPtoAccrualForPostedPeriod({
     const paidBasis = paidTimeBasisFromSummaryRow(sum);
     const basis = Math.max(0, paidBasis - alreadyCreditedManualDirect);
 
-    const earned = computeAccrualFromBasisHours({
+    const serviceCreditLeave=computeServiceCreditLeave({summaryRow:sum,alreadyCreditedManualDirect,policy,employmentType:employment,trainingPtoEligible:trainingEligible});
+    const earned = serviceCreditLeave || computeAccrualFromBasisHours({
       basisHours: basis,
       policy,
       employmentType: employment,
@@ -1127,7 +1130,9 @@ export async function runPtoAccrualForPostedPeriod({
     if (sickEarn > 0) {
       const hourlyMult = Number(policy.sickHourlyMultiplier ?? 0.034);
       const ffsMult = Number(policy.sickFfsMultiplier ?? 0.04);
-      const note = employment === 'fee_for_service'
+      const note = serviceCreditLeave
+        ? `Sick leave: (${serviceCreditLeave.directBasisHours.toFixed(2)} direct + ${serviceCreditLeave.indirectBasisHours.toFixed(2)} indirect + ${serviceCreditLeave.supportBasisHours.toFixed(2)} support equivalent hours) / 30; prior-policy basis ${serviceCreditLeave.legacyBasisHours.toFixed(2)}; actual-hours reconciliation ${serviceCreditLeave.reconciliationAddedHours.toFixed(4)}`
+        : employment === 'fee_for_service'
         ? `Sick leave accrual (${basis.toFixed(2)} credits × ${ffsMult})`
         : `Sick leave accrual (${basis.toFixed(2)} hours × ${hourlyMult})`;
       await PayrollPtoLedger.create({

@@ -4,3 +4,9 @@ it('places Steele and Tesla in Colorado Springs and uses absence-report reminder
 it('includes the Spanish handoff and kiosk instructions',()=>{expect(spanishIntakeProcedure).toContain('no new approval step');expect(spanishIntakeProcedure).toContain('handle their intake');expect(kioskTopic.body).toContain('in-app notification');expect(kioskTopic.body).toContain('Optional feedback may be skipped');});
 
 it('uses the NLU kiosk entry in NLU announcements',()=>{const t=nextLevelUpTopics().find(t=>t.key==='office_kiosk');expect(t.body).toContain('/nlu/kiosk');expect(t.body).not.toContain('/itsco/kiosk');});
+it('congratulates Emmi rather than Emma, welcomes Eden and announces only Megan’s new role',()=>{
+ const staff=[{id:478,first_name:'Emma',last_name:'Boese',title:'Counselor'},{id:479,first_name:'Emmi',last_name:'Regenbogen'},{id:1147,first_name:'Eden',last_name:'Olsen Edwards'},{id:496,first_name:'Megan',last_name:'Geil-Crader',title:'Program Support Coordinator'},{id:465,first_name:'Aunya',last_name:'Albinana',title:'Counselor'}];
+ const topics=itscoRevisionTopics(staff);const congrats=topics.find(t=>t.key==='credentials_roles').body;
+ expect(congrats).toContain('Emmi Regenbogen');expect(congrats).not.toContain('Emma Boese');expect(congrats).not.toContain('Aunya');expect(congrats).toContain('{{staff:479:photo}}');
+ expect(topics.find(t=>t.key==='people_since_march').body).toContain('recent SWC licensure');
+});

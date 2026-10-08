@@ -182,12 +182,11 @@ const PayrollCompensationLevel = {
     );
   },
 
-  /** Bulk-enroll all assigned users into the new pay system, grandfathering waive_probation. */
+  /** Bulk-enroll assigned users without silently waiving new-hire probation. */
   async transitionAgencyUsersToPaySystem(agencyId) {
     const [result] = await pool.execute(
       `UPDATE payroll_user_compensation_levels
        SET pay_system_enabled = 1,
-           waive_probation = 1,
            updated_at = CURRENT_TIMESTAMP
        WHERE agency_id = ?`,
       [agencyId]
@@ -313,7 +312,7 @@ const PayrollCompensationLevel = {
    */
   async applyGo(agencyId, {
     effectiveStart,
-    waiveProbation = true,
+    waiveProbation = false,
     enrollExistingWithoutPending = true,
     appliedByUserId = null
   } = {}) {
@@ -335,7 +334,7 @@ const PayrollCompensationLevel = {
         Number(row.bypass) === 1,
         {
           paySystemEnabled: Number(row.pay_system_enabled) !== 0,
-          waiveProbation: !!waiveProbation,
+          waiveProbation: !!waiveProbation || Number(existingBefore?.waive_probation) === 1,
           waiveMinimumWorkload: Number(existingBefore?.waive_minimum_workload || 0) === 1,
           probationStartOverride: existingBefore?.probation_start_override || null,
           spanishBonusEligible: Number(existingBefore?.spanish_bonus_eligible || 0) === 1
@@ -343,7 +342,7 @@ const PayrollCompensationLevel = {
       );
       await this.updatePaySystemFlags(agencyId, row.user_id, {
         paySystemEnabled: Number(row.pay_system_enabled) !== 0,
-        waiveProbation: !!waiveProbation,
+        waiveProbation: !!waiveProbation || Number(existingBefore?.waive_probation) === 1,
         paySystemEffectiveStart: start,
         locationBonusEligible: Number(existingBefore?.location_bonus_eligible || 0) === 1
       });

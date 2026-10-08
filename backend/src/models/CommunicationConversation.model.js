@@ -156,10 +156,7 @@ class CommunicationConversation {
       where.push('(c.agency_id = ? OR c.agency_id IS NULL)');
       params.push(agencyId);
     }
-    // Hold school/staff mail until visible_after for non-admin employee views
-    if (!includeHeld && !isAdminViewer) {
-      where.push('(c.visible_after IS NULL OR c.visible_after <= NOW())');
-    }
+    // Already-received mail stays readable, including legacy availability holds.
     if (unknownOnly) {
       where.push('COALESCE(c.is_unknown_sender, 0) = 1');
     } else if (!isAdminViewer && filter !== 'unknown') {
@@ -529,9 +526,10 @@ class CommunicationConversation {
                AND pi.kind = 'personal'
                AND pi.owner_user_id = ?
            )
-         )`
+         )
+         AND (c.inbox_id IS NULL OR NOT EXISTS (SELECT 1 FROM communication_inboxes private_box WHERE private_box.id=c.inbox_id AND private_box.kind='personal' AND private_box.owner_user_id <> ?))`
       : '';
-    const scopeParams = scopeUid ? [scopeUid, scopeUid, scopeUid, scopeUid, scopeUid] : [];
+    const scopeParams = scopeUid ? [scopeUid, scopeUid, scopeUid, scopeUid, scopeUid, scopeUid] : [];
 
     const count = async (extra, extraParams = []) => {
       const [rows] = await pool.execute(
@@ -570,15 +568,18 @@ class CommunicationConversation {
     }
 
     let unread = 0;
+    let unreadByChannel = {};
     if (userId) {
       try {
         const [uRows] = await pool.execute(
-          `SELECT COUNT(*) AS n FROM communication_conversations c
+          `SELECT c.channel, COUNT(*) AS n FROM communication_conversations c
            WHERE c.archived_at IS NULL AND COALESCE(c.is_spam, 0) = 0 AND ${agencyClause}
              AND COALESCE(c.is_unknown_sender, 0) = 0
              AND (c.snoozed_until IS NULL OR c.snoozed_until <= ?)
              ${scopeClause}
-             AND EXISTS (
+             AND (
+               EXISTS (SELECT 1 FROM communication_conversation_reads fr WHERE fr.conversation_id=c.id AND fr.user_id=? AND COALESCE(fr.forced_unread,0)=1)
+               OR EXISTS (
                SELECT 1 FROM communication_messages m
                WHERE m.conversation_id = c.id
                  AND m.direction = 'inbound'
@@ -595,10 +596,12 @@ class CommunicationConversation {
                        AND r.last_read_at < COALESCE(m.sent_at, m.created_at)
                    )
                  )
-             )`,
-          [...paramsBase, now, ...scopeParams, userId, userId]
+             ))
+           GROUP BY c.channel`,
+          [...paramsBase, now, ...scopeParams, userId, userId, userId]
         );
-        unread = Number(uRows[0]?.n || 0);
+        unreadByChannel = Object.fromEntries(uRows.map(row => [row.channel, Number(row.n || 0)]));
+        unread = Object.values(unreadByChannel).reduce((total, n) => total + n, 0);
       } catch {
         unread = 0;
       }
@@ -623,6 +626,7 @@ class CommunicationConversation {
       unknownSenders,
       snoozed,
       unread,
+      unreadByChannel,
       channels: {
         email: channels.email || 0,
         secure: channels.secure || 0,

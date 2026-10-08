@@ -7170,10 +7170,15 @@ async function recomputeSummariesFromStaging({ payrollPeriodId, agencyId, period
         }
       }
     } catch (paySysErr) {
-      // Never fail a payroll recompute because of pay-system overlay.
+      // A signed amendment cannot silently fall back to the old pay terms.
+      if (paySysErr?.code === 'AMENDMENT_PAYROLL_REVIEW_REQUIRED') throw paySysErr;
       console.warn('[payroll] pay system overlay failed:', paySysErr?.message || paySysErr);
     }
 
+    if (breakdown.__paySystem?.status?.compensationPolicyVersion && Number(breakdown.__paySystem.status.currentTierLevel) >= 3) {
+      await pool.execute(`UPDATE payroll_user_compensation_levels SET probation_ended_on=?
+        WHERE agency_id=? AND user_id=? AND (probation_ended_on IS NULL OR probation_ended_on>?)`, [periodEnd,agencyId,userId,periodEnd]);
+    }
     await PayrollSummary.upsert({
       payrollPeriodId,
       agencyId,
@@ -19289,6 +19294,20 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
     const claimBucket = normalizeTimeClaimBucket(
       approveBucket || claim?.bucket || payload?.bucket || 'indirect'
     );
+    if (payload.source === 'provider_update' && payload.categoryGroup === 'support_activity') {
+      const ctx = await loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)});
+      if (ctx?.enabled) {
+        const rate=Number(ctx.status?.inProbation ? (ctx.rateProfile?.supportActivityRateProbation ?? ctx.rateProfile?.supportActivityRate) : ctx.rateProfile?.supportActivityRate);
+        // A missing support rate must be resolved in payroll, never silently replaced by indirect pay.
+        if (!Number.isFinite(rate) || rate <= 0) return null;
+        return Math.round(hrs * rate * 100) / 100;
+      }
+      const PayrollRate=(await import('../models/PayrollRate.model.js')).default;
+      const best=await PayrollRate.findBestRate({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),serviceCode:'MEETING',asOf:claim.claim_date});
+      const rate=Number(best?.rate_amount ?? best?.rate);
+      return rate > 0 ? Math.round(hrs * rate * 100) / 100 : null;
+    }
+
 
     // Per-user Log Time duty rate override (compensation tab).
     if (type === 'indirect_time') {

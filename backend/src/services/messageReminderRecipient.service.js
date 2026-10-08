@@ -7,7 +7,7 @@ export function isAppOnlyProvider(user) {
   return provider && enabled(user.sso_password_override) && enabled(user.login_is_group_email) && !enabled(user.is_demo);
 }
 
-const staffRoles = new Set(['admin','super_admin','support','staff','provider','provider_plus','clinical_practice_assistant','intern','intern_plus','supervisor','schedule_manager']);
+const staffRoles = new Set(['admin','super_admin','support','staff','provider','provider_plus','clinical_practice_assistant','intern','intern_plus','supervisor','schedule_manager','facilitator','tutor']);
 export function activeMessageStaff(user) {
   return (staffRoles.has(String(user.role || '').toLowerCase()) || enabled(user.has_provider_access)) && !enabled(user.is_demo)
     && !enabled(user.is_archived) && (user.is_active == null || enabled(user.is_active))

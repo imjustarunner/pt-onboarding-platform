@@ -5,13 +5,8 @@
  * Personal / limited agency contacts do NOT make a sender known for other staff.
  */
 import pool from '../config/database.js';
-import { verifiedAppOnlyProvider } from './afterHoursEmailPolicy.service.js';
 import UserCommunicationContact from '../models/UserCommunicationContact.model.js';
 import { getAgencyEmailSettings } from './emailSettings.service.js';
-import {
-  isUserAvailable,
-  nextAvailableAt
-} from './availabilityWindow.service.js';
 
 function normEmail(v) {
   return String(v || '').trim().toLowerCase();
@@ -298,16 +293,9 @@ export async function classifyInboundSender({
     }
   }
 
-  // Store mail immediately; only verified app-only providers wait for availability.
+  // Received email is always readable in the app. Availability belongs to
+  // explicit outbound scheduling and personal-email notifications, not inbox access.
   const settings = await getAgencyEmailSettings(aid);
-  const holdEnabled = settings.holdStaffSchoolOutsideAvailability !== false;
-  if (checkAvailability && holdEnabled && oid && await verifiedAppOnlyProvider(oid)) {
-    const { available, schedule } = await isUserAvailable(oid, now, { agencyId: aid });
-    if (!available && schedule?.enabled) {
-      result.holdForAvailability = true;
-      result.visibleAfter = nextAvailableAt(schedule, now);
-    }
-  }
 
   if (result.trust === 'unknown') {
     result.isUnknownSender = settings.unknownSenderBoxEnabled !== false;

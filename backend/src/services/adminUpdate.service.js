@@ -1,3 +1,4 @@
+import {staffMilestones,staffStartDate,fillStaffMarkers} from './staffMilestonePresentation.service.js';
 import pool from '../config/database.js';
 import crypto from 'crypto';
 import {sanitizeTrainingHtml,resolveTrainingHtml,emailTrainingLinks} from './updateTrainingMedia.service.js';
@@ -208,6 +209,10 @@ export async function hydrateUpdate(row) {
   const topics = await loadTopics(row.id);
   const items = await loadItemsForTopics(topics.map((t) => t.id));
   for(const topic of topics)if(String(topic.body_html||'').includes('data-training-key'))topic.body_html=await resolveTrainingHtml(topic.body_html,row.agency_id);
+  if(row.status !== 'sent' && topics.some(t=>String(t.body_html).includes('{{staff:'))){
+    const staff=await staffMilestones(row.agency_id);
+    for(const topic of topics)topic.rendered_body_html=fillStaffMarkers(topic.body_html,staff);
+  }
   const itemsByTopic = new Map();
   for (const item of items) {
     const list = itemsByTopic.get(item.topic_id) || [];
@@ -570,7 +575,8 @@ export async function refreshPeople(agencyId, updateId) {
   const departuresTopic = topicByKey(update.topics, 'departures');
   if (!staffingTopic && !departuresTopic) return update;
 
-  const staff = await listInternalStaff(agencyId);
+  const dates=new Map((await staffMilestones(agencyId)).map(s=>[Number(s.id),s]));
+  const staff = (await listInternalStaff(agencyId)).map(s=>({...s,...dates.get(Number(s.id))}));
   const staffingSince = toDateOnly(update.staffing_since) || firstOfMonth();
   const departuresSince = toDateOnly(update.departures_since) || firstOfMonth();
 
@@ -579,7 +585,7 @@ export async function refreshPeople(agencyId, updateId) {
     const existingByUser = new Map(existing.filter((i) => i.user_id).map((i) => [Number(i.user_id), i]));
     const hires = staff.filter((u) => {
       if (u.terminated_at) return false;
-      const start = toDateOnly(u.completed_at || u.created_at);
+      const start = staffStartDate(u);
       return start && start >= staffingSince;
     });
     const keepIds = new Set();
@@ -596,7 +602,7 @@ export async function refreshPeople(agencyId, updateId) {
             displayName(user),
             user.title || null,
             photo,
-            toDateOnly(user.completed_at || user.created_at),
+            staffStartDate(user),
             'New hire',
             existingRow.id
           ]
@@ -613,7 +619,7 @@ export async function refreshPeople(agencyId, updateId) {
             displayName(user),
             user.title || null,
             photo,
-            toDateOnly(user.completed_at || user.created_at),
+            staffStartDate(user),
             existing.length
           ]
         );
@@ -635,7 +641,7 @@ export async function refreshPeople(agencyId, updateId) {
     });
     for (const user of leavers) {
       const photo = publicUploadsUrlFromStoredPath(user.profile_photo_path);
-      const tenure = formatTenure(user.completed_at || user.created_at, user.terminated_at);
+      const tenure = formatTenure(staffStartDate(user), user.terminated_at);
       const blurb = farewellBlurbForUserId(user.id);
       const existingRow = existingByUser.get(Number(user.id));
       if (existingRow) {
@@ -691,7 +697,7 @@ function topicAnchor(topic) {
 
 function renderPeopleCards(items, color) {
   return (items || []).filter((i) => Number(i.included) !== 0).map((item) => {
-    const photo = item.photo_url
+    const photo = item.kind !== 'departure' && item.photo_url
       ? `<img src="${escapeHtml(item.photo_url)}" alt="" width="56" height="56" style="width:56px;height:56px;border-radius:50%;object-fit:cover;display:block;" />`
       : `<div style="width:56px;height:56px;border-radius:50%;background:${escapeHtml(color)}22;color:${escapeHtml(color)};font-weight:700;font-size:18px;line-height:56px;text-align:center;">${escapeHtml((item.display_name || '?').slice(0, 1))}</div>`;
     const dest = item.destination ? `<div style="color:#64748b;font-size:13px;margin-top:4px;">Next: ${escapeHtml(item.destination)}</div>` : '';
@@ -768,7 +774,8 @@ export function renderAdminUpdateHtml(update, agency, { viewUrl, layout = 'email
     const icon = iconByKey(topic.icon_key);
     const peopleKinds = topic.topic_key === 'staffing' || topic.topic_key === 'departures';
     const itemHtml = peopleKinds ? renderPeopleCards(topic.items, topic.color) : renderCustomItems(topic.items, topic.color);
-    const body = topic.body_html ? `<div style="color:#334155;font-size:14px;line-height:1.6;margin:8px 0 12px;">${layout === 'email' ? emailTrainingLinks(topic.body_html,viewUrl) : sanitizeHtml(topic.body_html)}</div>` : '';
+    const topicBody=topic.rendered_body_html ?? topic.body_html;
+    const body = topicBody ? `<div style="color:#334155;font-size:14px;line-height:1.6;margin:8px 0 12px;">${layout === 'email' ? emailTrainingLinks(topicBody,viewUrl) : sanitizeHtml(topicBody)}</div>` : '';
     return `
       <tr>
         <td style="padding:0 28px 28px;" id="${topicAnchor(topic)}">
@@ -1040,7 +1047,8 @@ export async function cancelSchedule(agencyId, updateId) {
 }
 
 async function queueRecipients(updateId, agencyId) {
-  const staff = await listInternalStaff(agencyId);
+  const dates=new Map((await staffMilestones(agencyId)).map(s=>[Number(s.id),s]));
+  const staff = (await listInternalStaff(agencyId)).map(s=>({...s,...dates.get(Number(s.id))}));
   const seen = new Set();
   let queued = 0;
   for (const user of staff) {

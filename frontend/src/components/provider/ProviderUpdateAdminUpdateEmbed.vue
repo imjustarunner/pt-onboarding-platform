@@ -37,7 +37,7 @@
 
       <ReadAloudControls :html="pageHtml" />
       <p v-if="message" class="au-embed-msg" role="status">{{ message }}</p>
-      <iframe :sandbox="previewMode ? '' : undefined" class="au-embed-frame" title="Admin Update" :srcdoc="pageHtml" />
+      <iframe @load="connectAdminUpdateFrame" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox" class="au-embed-frame" title="Admin Update" :srcdoc="adminUpdateFrameHtml(pageHtml)" />
       <div v-if="!editable" class="au-embed-actions">
         <button type="button" class="au-btn" :disabled="busy || previewMode" @click="$emit('complete', { adminUpdateId: updateId, viewed: true })">
           {{ previewMode ? 'Mark complete (available in the employee update)' : busy ? 'Saving…' : 'I’ve reviewed this Admin Update — mark complete' }}
@@ -48,6 +48,7 @@
 </template>
 
 <script setup>
+import {connectAdminUpdateFrame,adminUpdateFrameHtml} from '../../utils/adminUpdateFrame';
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';

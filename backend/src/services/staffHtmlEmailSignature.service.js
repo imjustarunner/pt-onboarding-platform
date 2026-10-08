@@ -1,3 +1,4 @@
+import {getProviderDisplayRole} from './providerDisplayRole.service.js';
 /**
  * Tenant-branded HTML staff email signatures (email-safe tables + inline CSS).
  * ITSCO master layout: photo | name/credentials/title/contact | logo + footer.
@@ -503,6 +504,7 @@ export async function resolveStaffSignatureContext({
     customTagline = null;
   }
 
+  const displayRole=await getProviderDisplayRole(uid,agencyIdResolved);
   let taglineLeft = '';
   let taglineRight = '';
   ({ taglineLeft, taglineRight } = signatureTaglines({ isItsco, customTagline }));
@@ -519,6 +521,8 @@ export async function resolveStaffSignatureContext({
     credential: String(u.credential || '').trim() || null,
     // Job title from profile — never substitute role (admin / CPA / etc.)
     title: String(u.title || '').trim() || null,
+    displayRole: displayRole.label,
+    candidate: displayRole.candidate,
     email,
     extension: String(u.work_phone_extension || '').trim() || null,
     photoUrl,
@@ -555,7 +559,7 @@ export function buildStaffSignatureHtml(ctx) {
   if (!ctx) return '';
   const c = ctx.colors || ITSCO_SIGNATURE_DEFAULTS.colors;
   const name = escapeHtml(ctx.displayName);
-  const title = escapeHtml(ctx.title || '');
+  const title = escapeHtml(ctx.displayRole === 'Unlicensed Masters' ? '' : ctx.candidate ? String(ctx.title || '').replace(/\s*\bCandidate\b/gi,'').trim() : ctx.title || '');
   const org = escapeHtml(ctx.orgShortName || '');
   const email = escapeHtml(ctx.email || '');
   const emailHref = ctx.email ? `mailto:${String(ctx.email).replace(/\s/g, '')}` : '#';
@@ -752,6 +756,8 @@ export function buildStaffSignatureHtml(ctx) {
         ${name}
       </div>
       ${titleLine}
+      ${ctx.displayRole && ctx.displayRole !== ctx.title ? `<div style="font-size:13px;">${escapeHtml(ctx.candidate ? ctx.displayRole.replace(/\s*\bCandidate\b/gi,'').trim() : ctx.displayRole)}</div>` : ''}
+      ${ctx.candidate ? '<div style="font-size:13px;">Candidate</div>' : ''}
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:3px 0 1px;">
         <tr><td style="border-top:1px solid ${c.divider};font-size:0;line-height:0;height:1px;">&nbsp;</td></tr>
       </table>
@@ -809,7 +815,9 @@ export function buildStaffSignatureText(ctx) {
   if (!ctx) return '';
   const lines = [
     ctx.displayName,
-    ctx.title ? `${ctx.orgShortName} | ${ctx.title}` : ctx.orgShortName,
+    ctx.title && ctx.displayRole !== 'Unlicensed Masters' ? `${ctx.orgShortName} | ${ctx.candidate ? ctx.title.replace(/\s*\bCandidate\b/gi,'').trim() : ctx.title}` : ctx.orgShortName,
+    ctx.displayRole !== ctx.title ? ctx.displayRole : null,
+    ctx.candidate ? 'Candidate' : null,
     ctx.email ? `Email: ${ctx.email}` : null,
     ctx.phone?.display
       ? `Phone: ${ctx.phone.display}${signaturePhoneExtension(ctx)}`

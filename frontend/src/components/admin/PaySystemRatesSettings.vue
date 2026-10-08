@@ -68,7 +68,7 @@
           </label>
           <label class="ps-go-check">
             <input v-model="goWaiveProbation" type="checkbox" :disabled="going" />
-            Current staff: skip probation rates (they still get 90 days from this start date before minimum-workload rates can apply)
+            Manually waive probation for this activation. Signed October amendments separately waive minimum-workload reductions for 60 days.
           </label>
           <button
             type="button"
@@ -298,7 +298,7 @@ const transitionMsg = ref('');
 const goMsg = ref('');
 const enabled = ref(false);
 const goEffectiveStart = ref('');
-const goWaiveProbation = ref(true);
+const goWaiveProbation = ref(false);
 const rosterFilter = ref('');
 const roster = ref([]);
 
@@ -576,8 +576,8 @@ const runGo = async () => {
     '• Staff with a compensation level will be enrolled\n' +
     '• New rates override compensation tables for pay periods ending on/after this date\n' +
     (goWaiveProbation.value
-      ? '• Current enrolled staff skip probation rates and have 90 days from this date before they can drop into minimum-workload rates\n'
-      : '• Enrolled staff will use probation rates until 90 days after their hire date\n')
+      ? '• Manually waive probation. Signed October amendments retain their separate 60-day minimum-workload waiver\n'
+      : '• New hires retain probation until 90 days after their original start date, manual waiver, or Tier 3 under the signed October terms\n')
   )) return;
 
   going.value = true;

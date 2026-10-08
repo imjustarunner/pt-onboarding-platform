@@ -14,13 +14,13 @@ it('keeps SSO inbox delivery immediate outside availability', async () => {
  expect(await classifyInboundSender({ agencyId: 2, ownerUserId: 5, fromEmail: 'staff@itsco.health' })).toMatchObject({ trust: 'staff', holdForAvailability: false, visibleAfter: null });
  expect(isUserAvailable).not.toHaveBeenCalled();
 });
-it('quietly holds app-only staff mail for the next opening', async () => {
+it('keeps received app-only staff mail readable outside availability', async () => {
  verifiedAppOnlyProvider.mockResolvedValue({ id: 5 });
- expect(await classifyInboundSender({ agencyId: 2, ownerUserId: 5, fromEmail: 'staff@itsco.health' })).toMatchObject({ trust: 'staff', holdForAvailability: true, visibleAfter: new Date('2026-09-28T13:00:00Z') });
+ expect(await classifyInboundSender({ agencyId: 2, ownerUserId: 5, fromEmail: 'staff@itsco.health' })).toMatchObject({ trust: 'staff', holdForAvailability: false, visibleAfter: null });
 });
 
-it('still holds app-only mail when a sender has a guardian test record', async () => {
+it('keeps app-only mail readable when the sender also has a guardian record', async () => {
  pool.execute.mockResolvedValueOnce([[{ id: 9, role: 'client_guardian', first_name: 'Sender' }]]);
  verifiedAppOnlyProvider.mockResolvedValue({ id: 5 });
- expect(await classifyInboundSender({ agencyId: 2, ownerUserId: 5, fromEmail: 'staff@itsco.health' })).toMatchObject({ trust: 'guardian', holdForAvailability: true });
+ expect(await classifyInboundSender({ agencyId: 2, ownerUserId: 5, fromEmail: 'staff@itsco.health' })).toMatchObject({ trust: 'guardian', holdForAvailability: false, visibleAfter: null });
 });

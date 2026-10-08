@@ -51,11 +51,17 @@
         </div>
         <div class="pu-help">
           <strong>Need help?</strong>
-          <p>Contact {{ tenantName }} support<br />technology@itsco.health</p>
+          <ProviderUpdateHelp :base="accessMode === 'token' ? `/public/provider-update/${encodeURIComponent(token)}` : '/provider-update/me'" :agency-id="recipient.agencyId || agencyId" :readonly="!!recipient.previewOnly" />
         </div>
       </aside>
 
       <main class="pu-main">
+        <div v-if="!recipient.previewOnly && recipient.id" class="pu-preview-notice" role="status">
+          <strong>Paid review time: {{ Math.floor(session.activeSeconds.value / 60) }}m {{ session.activeSeconds.value % 60 }}s</strong>
+          <p>Time is saved while this update is visible and active, and pauses after five minutes without interaction. Completed time is submitted at your support activity rate. Need a time correction? Use Need help.</p>
+          <button v-if="session.paused.value" type="button" @click="session.activity">Time paused — continue reviewing</button>
+          <p v-if="session.timeError.value">{{ session.timeError.value }}</p>
+        </div>
         <p v-if="recipient.previewOnly" role="status" class="pu-preview-notice"><strong>Read-only preview for {{ displayName }}.</strong> No invitation was sent. Profile changes, signatures, text enrollment, and completion time are disabled. This link expires after seven days; send a separate editable invitation to staff.</p>
         <template v-if="!activePageKey">
           <div class="pu-hero">
@@ -132,7 +138,7 @@
 
         <template v-else>
           <button type="button" class="pu-back" @click="activePageKey = ''">← Back to overview</button>
-          <ProviderUpdatePagePanel
+          <ProviderUpdatePagePanel @section="key => { session.changeSection(key); activeSectionKey = key || 'overview'; }"
             v-if="activePage"
             :page="activePage"
             :mode="accessMode"
@@ -162,6 +168,7 @@ import api from '../../services/api';
 import { buildPagesFromSections } from '../../utils/providerUpdate';
 import { agencyDisplayName, logoSrc, parseAgencyPalette } from '../../utils/schoolReinit';
 import { useBrandingStore } from '../../store/branding';
+import ProviderUpdateHelp from './ProviderUpdateHelp.vue';
 import { useProviderUpdateSession } from '../../composables/useProviderUpdateSession';
 import ProviderUpdatePagePanel from './ProviderUpdatePagePanel.vue';
 
@@ -224,7 +231,9 @@ const etaLabel = computed(() => {
   return `${remaining * 2}–${remaining * 4} minutes`;
 });
 
+const activeSectionKey = ref('overview');
 const session = useProviderUpdateSession({
+  sectionKey: activeSectionKey,
   agencyId: computed(() => props.agencyId),
   mode: props.accessMode,
   token: computed(() => props.token)
@@ -265,6 +274,8 @@ function iconFor(icon) {
 }
 
 function openPage(key) {
+  session.changeSection('overview');
+  activeSectionKey.value = 'overview';
   activePageKey.value = key;
 }
 
@@ -310,15 +321,19 @@ async function finalize() {
   finalizing.value = true;
   error.value = '';
   try {
+    await session.flush();
+    if (session.timeError.value) throw new Error(session.timeError.value);
+    await session.stop();
     if (props.accessMode === 'token') {
       await api.post(`/public/provider-update/${encodeURIComponent(props.token)}/finalize`);
     } else {
       await api.post('/provider-update/me/finalize', { agencyId: props.agencyId });
     }
-    success.value = 'Provider Update marked complete.';
+    success.value = 'Provider Update complete. Your recorded time has been submitted for payroll review at your support activity rate.';
     await load();
   } catch (e) {
-    error.value = e?.response?.data?.error?.message || 'Could not finalize';
+    session.start(session.activeSeconds.value);
+    error.value = e?.response?.data?.error?.message || e.message || 'Could not finalize';
   } finally {
     finalizing.value = false;
   }
@@ -326,7 +341,7 @@ async function finalize() {
 
 onMounted(async () => {
   await load();
-  if (!recipient.value.previewOnly && recipient.value.id) session.start();
+  if (!recipient.value.previewOnly && !recipient.value.finalizedAt && recipient.value.id) session.start(Number(recipient.value.activeSeconds || 0));
 });
 
 watch(
