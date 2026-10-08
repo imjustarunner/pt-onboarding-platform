@@ -22,7 +22,7 @@
         </div>
         <div class="pu-user">
           <div class="pu-user-name">{{ personPreview ? `${personPreview.provider.first_name} ${personPreview.provider.last_name || ''}` : 'Alex Provider' }}</div>
-          <div class="pu-user-role">{{personPreview?.provider.title || personPreview?.provider.role || 'External Staff'}}</div>
+          <div class="pu-user-role">{{ personPreview?.records?.displayRole?.label || personPreview?.provider.title || 'Team member' }}</div>
         </div>
       </header>
 

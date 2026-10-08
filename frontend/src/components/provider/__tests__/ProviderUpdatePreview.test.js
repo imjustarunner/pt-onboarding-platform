@@ -4,7 +4,7 @@ vi.mock('../../../store/agency', () => ({ useAgencyStore: () => ({ currentAgency
 vi.mock('../../../store/branding', () => ({ useBrandingStore: () => ({}) }));
 import Preview from '../ProviderUpdateLivePreview.vue';
 it('shows selected profile pay values without a signing or sending action', async () => {
- const person = { provider: { id: 9, first_name: 'Rachel', last_name: 'Example', role: 'provider' },
+ const person = { provider: { id: 9, first_name: 'Rachel', last_name: 'Example', role: 'provider', title: 'Therapist' }, records: { displayRole: { label: 'Counselor' } },
   compensation: { categoryLabel: 'Pre-licensed', level: 3, directRate: '42.00', indirectRate: null },
   amendment: { title: 'Fall amendment', status: 'Draft preview', effectiveDate: '2026-10-15' }, offices: [], license: {}, supervision: null };
  const w = mount(Preview, { props: { personPreview: person, sections: [{ key: 'amendments', meta: { title: 'Amendment Updates' } }], initialPageKey: 'amendments' }, global: { stubs: { WorkplaceHandbookReader: true, ProviderUpdateAdminUpdateEmbed: true } } });
@@ -12,6 +12,7 @@ it('shows selected profile pay values without a signing or sending action', asyn
  // Use the visible card if the page grouping opens the overview first.
  const card = w.find('.pu-card'); if (card.exists()) await card.trigger('click');
  expect(w.text()).toContain('Rachel Example'); expect(w.text()).toContain('$42.00'); expect(w.text()).toContain('Not configured');
+ expect(w.get('.pu-user-role').text()).toBe('Counselor');
  expect(w.text()).toContain('Final amendment wording is still being developed');
  expect(w.findAll('button').some(button => /sign|send|submit/i.test(button.text()))).toBe(false); w.unmount();
 });

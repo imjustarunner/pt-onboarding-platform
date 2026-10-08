@@ -18,7 +18,7 @@
       </div>
       <div class="pu-user">
         <div class="pu-user-name">{{ displayName }}</div>
-        <div class="pu-user-role">External Staff</div>
+        <div class="pu-user-role">{{ recipient.displayRole || 'Team member' }}</div>
       </div>
     </header>
 

@@ -786,6 +786,7 @@ export async function getRecipientBundle(recipient) {
       providerUserId: recipient.provider_user_id,
       firstName: recipient.first_name,
       lastName: recipient.last_name,
+      displayRole: records.displayRole?.label || null,
       email: recipient.email,
       finalizedAt: recipient.finalized_at,
       lockedAt: recipient.locked_at,
