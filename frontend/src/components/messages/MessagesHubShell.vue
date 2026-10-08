@@ -1567,6 +1567,7 @@ import { useEmailWorkspace } from '../../composables/useEmailWorkspace';
 import { useAgencyStore } from '../../store/agency';
 import { useCommunicationsCountsStore } from '../../store/communicationsCounts';
 import { useAuthStore } from '../../store/auth';
+import { canManageConversaTeam } from '../../constants/conversa';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { isTenantOrganizationType } from '../../utils/organizationTypes';
 import StartConversationModal from './StartConversationModal.vue';
@@ -1810,6 +1811,7 @@ const peopleNavItems = [
 ];
 
 const toolsNavItems = [
+  ...(canManageConversaTeam(authStore.user) ? [{ id: 'team_communications', label: 'Team texts & polls' }] : []),
   ...(['admin', 'support', 'super_admin', 'clinical_practice_assistant', 'schedule_manager', 'provider', 'staff'].includes(authStore.user?.role) ? [{ id: 'calls', label: 'Calls & Voicemail' }] : []),
   { id: 'shared_files', label: 'Shared Files' },
   { id: 'channels', label: 'Channels' },
@@ -3664,6 +3666,10 @@ function selectNav(section, id) {
   conversationPreview.value = null;
 
   if (section === 'tools') {
+    if (id === 'team_communications' && canManageConversaTeam(authStore.user)) {
+      router.push({ path: communicationsPath.value, query: { mode: 'team' } });
+      return;
+    }
     if (id === 'team_chat') {
       openTeamChat();
       return;

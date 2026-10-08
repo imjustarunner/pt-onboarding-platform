@@ -33,3 +33,7 @@ export function conversaType(type) {
   const key = String(type || '').trim().toLowerCase();
   return CONVERSA_TYPES[aliases[key] || key] || { label: 'Conversation', icon: 'MessageCircle', tone: 'slate' };
 }
+
+export function canManageConversaTeam(user) {
+  return ['super_admin', 'admin', 'support'].includes(String(user?.role || '').trim().toLowerCase());
+}

@@ -31,6 +31,7 @@
         </template>
 
         <PtcoProducts v-if="['','about','products'].includes(section)" />
+        <ConversaFeature v-if="section === 'products'" product="ptco" cta-href="https://plottwistco.com/start?product=conversa" />
         <PtcoDivisions v-if="['','services','about'].includes(section)" :detailed="section==='services'" />
         <PtcoPartnerships v-if="['','about','industries'].includes(section)" />
         <PtcoConsultants v-if="['','services','about'].includes(section)" />
@@ -61,6 +62,7 @@
   </div>
 </template>
 <script setup>
+import ConversaFeature from '../../components/conversa/ConversaFeature.vue';
 import PublicWebsiteContactForm from "../../components/public/PublicWebsiteContactForm.vue";
 import PtcoProducts from '../../components/ptco/PtcoProducts.vue';
 import PtcoDivisions from '../../components/ptco/PtcoDivisions.vue';

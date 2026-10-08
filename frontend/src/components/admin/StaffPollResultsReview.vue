@@ -1,5 +1,6 @@
 <template>
  <section class="poll-results" aria-label="Poll results and response review">
+  <p class="hint">Team polls · Conversa</p>
   <header><h3>{{event.title}} — results</h3><button type="button" @click="$emit('close')">Close results</button></header>
   <p>{{event.votingConfig?.shareResults===false?'Aggregate results are private to organizers. Participants can see their own replies.':'Participants can see aggregate results after voting closes.'}}</p>
   <p v-if="error" role="alert">{{error}}</p><p v-if="loading">Loading responses…</p>

@@ -1,3 +1,4 @@
+import { canManageConversaTeam, isConversaTeamCommunication, assertConversaTeamManager } from '../services/conversaTeamAccess.service.js';
 import {reviewedPollResponses,reviewedPollSummary,reviewPollResponse} from '../services/staffPollReview.service.js';
 import {validatePollOptions,unmatchedPollReply} from '../utils/staffPollResponses.js';
 import { getPollResultPreference, setPollResultPreference, deliverPollResults } from '../services/companyEventPollResults.service.js';
@@ -1696,6 +1697,8 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
     if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
+    const communicationsOnly = String(req.query?.communicationsOnly || '') === '1';
+    if (communicationsOnly) assertConversaTeamManager(req.user);
     const [rows] = await pool.execute(
       `SELECT *
        FROM company_events
@@ -1704,7 +1707,9 @@ export const listCompanyEventsForAgency = async (req, res, next) => {
        LIMIT 300`,
       [agencyId]
     );
-    const events = (rows || []).map((row) => mapEventRow(row, req));
+    const events = (rows || [])
+      .filter((row) => communicationsOnly ? isConversaTeamCommunication(row) : canManageConversaTeam(req.user) || !isConversaTeamCommunication(row))
+      .map((row) => mapEventRow(row, req));
     const orgIds = [...new Set(events.map((e) => e.organizationId).filter((id) => Number(id) > 0))];
     const slugByOrgId = new Map();
     if (orgIds.length) {
@@ -1891,6 +1896,7 @@ export const listCompanyEventAudienceOptions = async (req, res, next) => {
  * @returns {Promise<{ error: string } | { event: object, eventId: number }>}
  */
 async function createCompanyEventCore(req, agencyId, userId, parsed) {
+  assertConversaTeamManager(req.user, parsed);
   let organizationIdForRow = null;
   if (parsed.organizationId) {
     const v = await validateAffiliatedOrganizationForEvent(agencyId, parsed.organizationId);
@@ -2122,6 +2128,7 @@ export async function persistCompanyEventUpdate(req, agencyId, eventId, body) {
   const existing = await loadEventByIdForAgency(eventId, agencyId);
   if (!existing) return { error: { status: 404, message: 'Company event not found' } };
 
+  assertConversaTeamManager(req.user, existing, body || {});
   const parsed = parseEventPayload(body || {});
   if (parsed.error) return { error: { status: 400, message: parsed.error } };
   if (isServiceProgramEventType(parsed.eventType)) {
@@ -2314,6 +2321,9 @@ export const deleteCompanyEvent = async (req, res, next) => {
     if (!(await userCanManageCompanyEventsAsync(req))) {
       return res.status(403).json({ error: { message: 'Admin or staff access required' } });
     }
+    const event = await loadEventByIdForAgency(eventId, agencyId);
+    if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+    assertConversaTeamManager(req.user, event);
     const [result] = await pool.execute(
       'DELETE FROM company_events WHERE id = ? AND agency_id = ?',
       [eventId, agencyId]
@@ -2338,6 +2348,7 @@ export const listCompanyEventResponses = async (req, res, next) => {
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+    assertConversaTeamManager(req.user, event);
 
     const [rows] = await pool.execute(
       `SELECT cer.*, u.first_name, u.last_name, u.email,
@@ -2386,6 +2397,7 @@ export const listCompanyEventDeliveryLogs = async (req, res, next) => {
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+    assertConversaTeamManager(req.user, event);
     const [rows] = await pool.execute(
       `SELECT l.*, u.first_name, u.last_name, u.email
        FROM company_event_dispatch_logs l
@@ -2426,6 +2438,7 @@ export const getCompanyEventAnalytics = async (req, res, next) => {
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
+    assertConversaTeamManager(req.user, row);
     const event = mapEventRow(row, req);
     const audience = await getAudienceForEvent(eventId);
     const recipients = await resolveRecipientUserIds(agencyId, eventId, audience);
@@ -2458,6 +2471,7 @@ export const exportCompanyEventResponsesCsv = async (req, res, next) => {
     }
     const event = await loadEventByIdForAgency(eventId, agencyId);
     if (!event) return res.status(404).json({ error: { message: 'Company event not found' } });
+    assertConversaTeamManager(req.user, event);
     const [rows] = await pool.execute(
       `SELECT cer.response_key, cer.response_label, cer.source, cer.received_at,
               u.first_name, u.last_name, u.email,
@@ -2618,6 +2632,7 @@ async function sendClosedPollResults(row, req) {
 
 export const closeCompanyEventVoting = async (req, res, next) => {
   try {
+    assertConversaTeamManager(req.user);
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
@@ -2644,6 +2659,7 @@ export const closeCompanyEventVoting = async (req, res, next) => {
 
 export const sendCompanyEventVotingSms = async (req, res, next) => {
   try {
+    assertConversaTeamManager(req.user);
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
@@ -2775,6 +2791,7 @@ export const sendCompanyEventVotingSms = async (req, res, next) => {
 
 export const sendCompanyEventDirectMessage = async (req, res, next) => {
   try {
+    assertConversaTeamManager(req.user);
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     if (!agencyId || !eventId) return res.status(400).json({ error: { message: 'Invalid request' } });
@@ -2840,7 +2857,7 @@ export const sendCompanyEventDirectMessage = async (req, res, next) => {
             agencyId,
             relatedEntityType: 'company_event',
             relatedEntityId: eventId,
-            actorSource: 'Company Events'
+            actorSource: 'Conversa'
           });
           await writeDispatchLog({
             eventId,
@@ -3060,6 +3077,7 @@ export const deleteCompanyEventNeedListItem = async (req, res, next) => {
 
 export const saveCompanyEventSmsDraft = async (req, res, next) => {
   try {
+    assertConversaTeamManager(req.user);
     const agencyId = parsePositiveInt(req.params.id);
     const eventId = parsePositiveInt(req.params.eventId);
     const target = String(req.body?.target || '').trim().toLowerCase();
@@ -3138,6 +3156,7 @@ export const sendCompanyEventInvitations = async (req, res, next) => {
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
+    assertConversaTeamManager(req.user, row);
     if (isServiceProgramEventType(row.event_type)) {
       return res.status(400).json({
         error: { message: 'Staff invitations are disabled for program service events.' }
@@ -3266,6 +3285,7 @@ export const sendCompanyEventReminders = async (req, res, next) => {
     }
     const row = await loadEventByIdForAgency(eventId, agencyId);
     if (!row) return res.status(404).json({ error: { message: 'Company event not found' } });
+    assertConversaTeamManager(req.user, row);
     if (isServiceProgramEventType(row.event_type)) {
       return res.status(400).json({
         error: { message: 'Staff RSVP reminders are disabled for program service events.' }
@@ -3775,6 +3795,7 @@ export const downloadCompanyEventIcsForAgency = async (req, res, next) => {
 
 export const listCompanyEventTemplates = async (req, res, next) => {
   try {
+    assertConversaTeamManager(req.user);
     const agencyId = parsePositiveInt(req.params.id);
     if (!agencyId) return res.status(400).json({ error: { message: 'Invalid agency id' } });
     if (!(await userHasAgencyAccess(req, agencyId)) || !(await userCanManageCompanyEventsAsync(req))) {
@@ -3802,6 +3823,7 @@ export const listCompanyEventTemplates = async (req, res, next) => {
 
 export const createCompanyEventTemplate = async (req, res, next) => {
   try {
+    assertConversaTeamManager(req.user);
     const agencyId = parsePositiveInt(req.params.id);
     const userId = parsePositiveInt(req.user?.id);
     if (!agencyId || !userId) return res.status(400).json({ error: { message: 'Invalid request' } });
@@ -3829,6 +3851,7 @@ export const createCompanyEventTemplate = async (req, res, next) => {
 
 export const updateCompanyEventTemplate = async (req, res, next) => {
   try {
+    assertConversaTeamManager(req.user);
     const agencyId = parsePositiveInt(req.params.id);
     const templateId = parsePositiveInt(req.params.templateId);
     const userId = parsePositiveInt(req.user?.id);
@@ -3858,6 +3881,7 @@ export const updateCompanyEventTemplate = async (req, res, next) => {
 
 export const deleteCompanyEventTemplate = async (req, res, next) => {
   try {
+    assertConversaTeamManager(req.user);
     const agencyId = parsePositiveInt(req.params.id);
     const templateId = parsePositiveInt(req.params.templateId);
     if (!agencyId || !templateId) return res.status(400).json({ error: { message: 'Invalid request' } });
@@ -3887,6 +3911,8 @@ export const processCompanyEventResponseReminders = async () => {
      LIMIT 300`
   );
   for (const row of rows || []) {
+    const manager = await User.findById(row.updated_by_user_id || row.created_by_user_id);
+    if (!canManageConversaTeam(manager)) continue;
     const event = mapEventRow(row, null);
     const targetStart = new Date(event.nextOccurrenceStart || event.startsAt);
     if (!Number.isFinite(targetStart.getTime())) continue;
@@ -3953,7 +3979,7 @@ export const processCompanyEventResponseReminders = async () => {
               agencyId: event.agencyId,
               relatedEntityType: 'company_event',
               relatedEntityId: event.id,
-              actorSource: 'Company Events'
+              actorSource: 'Conversa'
             });
             await writeDispatchLog({
               eventId: event.id,
@@ -4801,7 +4827,7 @@ export const copyCompanyEventToTarget = async (req, res, next) => {
 };
 
 export const classifyCompanyEventResponse=async(req,res,next)=>{
- try{const agencyId=parsePositiveInt(req.params.id),eventId=parsePositiveInt(req.params.eventId);
+ try{assertConversaTeamManager(req.user);const agencyId=parsePositiveInt(req.params.id),eventId=parsePositiveInt(req.params.eventId);
  if(!await userHasAgencyAccess(req,agencyId)||!await userCanManageCompanyEventsAsync(req))return res.status(403).json({error:{message:'Not authorized to review this agency’s polls.'}});
  const event=await loadEventByIdForAgency(eventId,agencyId);if(!event)return res.status(404).json({error:{message:'Poll not found.'}});
  const config=parseVotingConfig(parseJsonMaybe(event.voting_config_json));

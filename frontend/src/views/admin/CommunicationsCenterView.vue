@@ -31,6 +31,7 @@
           My messages
           <em v-if="personalUnread > 0">{{ personalUnread > 99 ? '99+' : personalUnread }}</em>
         </button>
+        <button v-if="canManageTeam" type="button" role="tab" :aria-selected="activeMode === 'team'" class="cc-switch-btn" :class="{ on: activeMode === 'team' }" @click.prevent.stop="setMode('team')">Team texts &amp; polls</button>
         <button
           v-if="canUseSupportHub"
           type="button"
@@ -96,6 +97,9 @@
         <MessagesHubShell />
       </section>
 
+      <section v-if="activeMode === 'team' && canManageTeam" class="cc-mode">
+        <ConversaTeamCommunications :agency-id="agencyStore.currentAgency?.id" />
+      </section>
       <!-- ========== SUPPORT HUB ========== -->
       <section v-show="activeMode === 'support'" class="cc-mode">
         <CommunicationReviewQueue v-if="activeMode === 'support' && ['admin','super_admin','support','clinical_practice_assistant'].includes(roleLower)" :agency-id="agencyStore.currentAgency?.id" />
@@ -235,6 +239,8 @@
 
 <script setup>
 import ConversaBrand from '../../components/conversa/ConversaBrand.vue';
+import ConversaTeamCommunications from '../../components/conversa/ConversaTeamCommunications.vue';
+import { canManageConversaTeam } from '../../constants/conversa';
 import CommunicationReviewQueue from '../../components/communications/CommunicationReviewQueue.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -269,7 +275,8 @@ const escalationSummary = ref({ counts: { open: 0 }, recent: [] });
 
 function modeFromQuery(raw) {
   const m = String(raw || 'home').toLowerCase();
-  if (['home', 'messages', 'support', 'automation', 'admin-update', 'school'].includes(m)) return m;
+  if (m === 'team' && !canManageConversaTeam(authStore.user)) return 'messages';
+  if (['home', 'messages', 'support', 'automation', 'admin-update', 'school', 'team'].includes(m)) return m;
   // legacy feed deep-links
   if (m === 'dashboard') return 'home';
   return 'home';
@@ -293,6 +300,7 @@ const agencyLabel = computed(
 );
 
 const roleLower = computed(() => String(authStore.user?.role || '').toLowerCase());
+const canManageTeam = computed(() => canManageConversaTeam(authStore.user));
 const canUseSupportHub = computed(() =>
   ['admin', 'support', 'super_admin'].includes(roleLower.value)
 );
@@ -381,6 +389,7 @@ const homeAutomationRows = computed(() =>
 
 const managementTools = computed(() => {
   const all = [
+    { id: 'team', label: 'Team texts & polls', desc: 'Conversa team broadcasts, voting, and delivery history', to: `${prefix.value}/admin/communications?mode=team`, roles: ['admin', 'support', 'super_admin'] },
     { id: 'campaigns', label: 'Broadcasts', desc: 'Campaigns and one-time sends', to: campaignsPath.value, roles: ['admin', 'support', 'super_admin', 'staff', 'clinical_practice_assistant', 'provider', 'schedule_manager', 'supervisor'] },
     { id: 'contacts', label: 'Contacts', desc: 'Agency contact directory', to: contactsPath.value, roles: ['admin', 'support', 'super_admin'] },
     { id: 'routing', label: 'Message routing', desc: 'SMS numbers and assignments', to: textingSettingsPath.value, roles: ['admin', 'support', 'super_admin'] },

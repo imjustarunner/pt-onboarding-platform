@@ -4,8 +4,9 @@
       <div>
         <h4>{{ title }}</h4>
         <small class="hint">{{ subtitle }}</small>
-        <div class="hint" :class="{ 'status-ready': smsReadiness.ready, 'status-not-ready': !smsReadiness.ready }" style="margin-top: 4px;">
-          Company Events SMS: {{ smsReadiness.message }}
+        <p v-if="canManageTeam" class="hint"><router-link :to="teamCommunicationsPath">Open team texts &amp; polls in Conversa →</router-link></p>
+        <div v-if="canManageTeam" class="hint" :class="{ 'status-ready': smsReadiness.ready, 'status-not-ready': !smsReadiness.ready }" style="margin-top: 4px;">
+          Conversa team SMS: {{ smsReadiness.message }}
         </div>
       </div>
       <div class="actions">
@@ -15,7 +16,7 @@
         <button type="button" class="btn btn-primary btn-sm" @click="startCreate" :disabled="saving || !agencyId">
           {{ newEventLabel }}
         </button>
-        <button type="button" class="btn btn-secondary btn-sm" @click="startDirectMessage" :disabled="saving || !agencyId">
+        <button type="button" class="btn btn-secondary btn-sm" v-if="canManageTeam" @click="startDirectMessage" :disabled="saving || !agencyId">
           {{ newDirectMessageLabel }}
         </button>
       </div>
@@ -24,7 +25,7 @@
     <div v-if="error" class="error-modal"><strong>Error:</strong> {{ error }}</div>
 
     <StaffPollResultsReview v-if="reviewingPoll" :agency-id="agencyId" :event="reviewingPoll" @close="reviewingPoll=null;loadEvents()" />
-    <div class="template-bar">
+    <div v-if="canManageTeam" class="template-bar">
       <label class="lbl" for="direct-template">Direct message template</label>
       <select id="direct-template" v-model="selectedTemplateId" class="input">
         <option value="">Select template…</option>
@@ -210,17 +211,17 @@
       </div>
 
       <div v-if="!isServiceProgramEventType" class="voting-block">
-        <strong>RSVP / voting</strong>
+        <strong>RSVP / Conversa team polls</strong>
         <div class="grid" style="margin-top: 8px;">
           <div class="form-group">
             <label class="lbl">Mode</label>
             <select v-model="draft.rsvpMode" class="input">
               <option value="none">Disabled</option>
               <option value="yes_no_maybe">Yes/No/Maybe</option>
-              <option value="custom_vote">Custom vote</option>
+              <option v-if="canManageTeam" value="custom_vote">Custom vote</option>
             </select>
           </div>
-          <div class="form-group">
+          <div v-if="canManageTeam" class="form-group">
             <label class="lbl">Voting enabled</label>
             <select v-model="draft.votingConfig.enabled" class="input">
               <option :value="false">No</option>
@@ -228,7 +229,7 @@
             </select>
           </div>
         </div>
-        <div v-if="draft.votingConfig.enabled" class="grid">
+        <div v-if="canManageTeam && draft.votingConfig.enabled" class="grid">
           <div class="form-group">
             <label class="lbl">Question</label>
             <input v-model.trim="draft.votingConfig.question" class="input" placeholder="Will you attend?" />
@@ -245,7 +246,7 @@
             <input v-model.trim="draft.smsCode" class="input" maxlength="32" placeholder="BOOKCLUB" />
           </div>
         </div>
-        <div v-if="draft.votingConfig.enabled" class="grid">
+        <div v-if="canManageTeam && draft.votingConfig.enabled" class="grid">
           <div v-for="(opt, idx) in draft.votingConfig.options" :key="`opt-${idx}`" class="form-group">
             <label class="lbl">Option {{ idx + 1 }}</label>
             <div class="option-row">
@@ -254,13 +255,13 @@
             </div>
           </div>
         </div>
-        <div v-if="draft.votingConfig.enabled" class="poll-settings">
+        <div v-if="canManageTeam && draft.votingConfig.enabled" class="poll-settings">
           <button type="button" class="btn btn-secondary" :disabled="draft.votingConfig.options.length>=12" @click="draft.votingConfig.options.push({key:'',label:''})">Add answer choice</button>
           <label><input v-model="draft.votingConfig.allowOther" type="checkbox" /> Allow written answers for review (SMS: poll code followed by their answer)</label>
           <label><input v-model="draft.votingConfig.shareResults" type="checkbox" /> Share final aggregate results with participants</label>
           <p class="hint">Reply codes can be numbers or words, such as 1 or MON. Participants always see their own reply. Staff replies are identified to organizers; this is not an anonymous poll.</p>
         </div>
-        <div v-if="draft.votingConfig.enabled" class="grid" style="margin-top: 6px;">
+        <div v-if="canManageTeam && draft.votingConfig.enabled" class="grid" style="margin-top: 6px;">
           <div class="form-group">
             <label class="lbl">Reminders enabled</label>
             <select v-model="draft.reminderConfig.enabled" class="input">
@@ -376,12 +377,12 @@
               >
                 {{ pushingSplashEventId === event.id ? 'Pushing…' : 'Push as splash →' }}
               </button>
-              <button type="button" class="btn btn-secondary btn-sm" @click="sendDirectMessage(event)" :disabled="saving">Send message</button>
-              <button type="button" class="btn btn-secondary btn-sm" @click="sendSmsVote(event)" :disabled="saving || !event.votingConfig?.enabled || !event.votingConfig?.viaSms || !!event.votingClosedAt">Send SMS</button>
+              <button type="button" class="btn btn-secondary btn-sm" v-if="canManageTeam" @click="sendDirectMessage(event)" :disabled="saving">Send message</button>
+              <button type="button" class="btn btn-secondary btn-sm" v-if="canManageTeam" @click="sendSmsVote(event)" :disabled="saving || !event.votingConfig?.enabled || !event.votingConfig?.viaSms || !!event.votingClosedAt">Send SMS</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="viewDeliveryLogs(event)" :disabled="saving">Delivery</button>
               <button type="button" class="btn btn-secondary btn-sm" @click="downloadResponsesCsv(event)" :disabled="saving">CSV</button>
-              <button v-if="event.votingConfig?.enabled" type="button" class="btn btn-secondary btn-sm" @click="reviewingPoll=event">Results &amp; review replies</button>
-              <button type="button" class="btn btn-secondary btn-sm" @click="closeVoting(event)" :disabled="saving || !event.votingConfig?.enabled || !!event.votingClosedAt">Close</button>
+              <button v-if="canManageTeam && event.votingConfig?.enabled" type="button" class="btn btn-secondary btn-sm" @click="reviewingPoll=event">Results &amp; review replies</button>
+              <button type="button" class="btn btn-secondary btn-sm" v-if="canManageTeam" @click="closeVoting(event)" :disabled="saving || !event.votingConfig?.enabled || !!event.votingClosedAt">Close</button>
               <button type="button" class="btn btn-danger btn-sm" @click="removeEvent(event)" :disabled="saving">Delete</button>
             </td>
           </tr>
@@ -400,6 +401,8 @@ import StaffPollResultsReview from './StaffPollResultsReview.vue';
 import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/auth';
+import { canManageConversaTeam } from '../../constants/conversa';
 import {
   formatBusinessDateTime,
   isoToZonedDatetimeLocal,
@@ -408,6 +411,12 @@ import {
 } from '../../utils/timezones';
 
 const router = useRouter();
+const auth = useAuthStore();
+const canManageTeam = computed(() => canManageConversaTeam(auth.user));
+const teamCommunicationsPath = computed(() => {
+  const slug = router.currentRoute.value.params.organizationSlug;
+  return { path: `${slug ? '/' + slug : ''}/admin/communications`, query: { mode: 'team' } };
+});
 const reviewingPoll=ref(null);
 const affiliateProgramOrgs = ref([]);
 const pushingSplashEventId = ref(null);
@@ -1093,13 +1102,14 @@ const loadAudienceOptions = async () => {
 };
 
 const loadTemplates = async () => {
-  if (!props.agencyId) return;
+  if (!props.agencyId || !canManageTeam.value) return;
   const resp = await api.get(`/agencies/${props.agencyId}/company-events/templates`);
   const templates = Array.isArray(resp.data) ? resp.data : [];
   if (templates.length) directMessageTemplates.value = templates;
 };
 
 const loadSmsReadiness = async () => {
+  if (!canManageTeam.value) return;
   if (!props.agencyId) {
     smsReadiness.value = { ready: false, message: 'Select an agency' };
     return;
@@ -1112,11 +1122,11 @@ const loadSmsReadiness = async () => {
       return;
     }
     if (settings.companyEventsEnabled !== true) {
-      smsReadiness.value = { ready: false, message: 'Company Events SMS disabled in agency settings' };
+      smsReadiness.value = { ready: false, message: 'Conversa team SMS disabled in agency settings' };
       return;
     }
     if (!settings.companyEventsSenderNumberId) {
-      smsReadiness.value = { ready: false, message: 'Select Company Events sender number in Texting Numbers' };
+      smsReadiness.value = { ready: false, message: 'Select Conversa team sender number in Texting Numbers' };
       return;
     }
     smsReadiness.value = { ready: true, message: 'Ready' };

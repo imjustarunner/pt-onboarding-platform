@@ -1,10 +1,10 @@
 <template>
   <details class="staff-polls" @toggle="onToggle">
-    <summary>Staff polls and results</summary>
+    <summary><img src="/assets/conversa/mark.svg" alt="" width="24" height="24" style="vertical-align:middle;margin-right:8px" />Team polls · Conversa</summary>
     <p v-if="error" role="alert">{{ error }}</p><p v-if="notice" role="status">{{ notice }}</p>
     <p v-if="loading">Loading polls…</p>
     <template v-else-if="opened">
-      <p v-if="!polls.length">No staff polls available.</p>
+      <p v-if="!polls.length">No team polls available.</p>
       <article v-for="poll in polls" :key="poll.id">
         <h4>{{ poll.title }}</h4><p>{{ poll.question }}</p>
         <p v-if="poll.myResponse">Your reply: {{poll.myResponse.original||poll.myResponse.label}} <span v-if="poll.myResponse.excluded">— excluded from totals</span><span v-else-if="poll.myResponse.bucketKey">— categorized as {{poll.options.find(o=>o.key===poll.myResponse.bucketKey)?.label||poll.myResponse.bucketKey}}</span></p>

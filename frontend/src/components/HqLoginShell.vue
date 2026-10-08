@@ -7,6 +7,7 @@
         <span>PlotTwist<b>HQ</b></span>
       </a>
       <nav aria-label="PlotTwistHQ">
+        <a href="#conversa-features">Conversa</a>
         <button type="button" @click="$emit('security')">Security</button>
         <router-link to="/support">Support</router-link>
         <a class="hq-company-link" href="https://plottwistco.com/">Visit PlotTwistCo <ArrowUpRight :size="17" /></a>
@@ -27,6 +28,7 @@
       </section>
       <section class="hq-auth" aria-label="Sign in to PlotTwistHQ"><slot /></section>
     </main>
+    <ConversaFeature product="hq" cta-href="https://plottwistco.com/hq#conversa-features" />
     <footer class="hq-footer">
       <span>&copy; {{ year }} Plot Twist Co. All rights reserved.</span>
       <nav aria-label="Legal"><router-link to="/privacypolicy">Privacy</router-link><router-link to="/terms">Terms</router-link><router-link to="/support">Support</router-link></nav>
@@ -35,6 +37,7 @@
 </template>
 
 <script setup>
+import ConversaFeature from './conversa/ConversaFeature.vue';
 import { onMounted, onBeforeUnmount } from 'vue';
 import { ArrowUpRight, ChartNoAxesColumnIncreasing, UsersRound, ClipboardList, Settings } from '@lucide/vue';
 defineEmits(['security']);

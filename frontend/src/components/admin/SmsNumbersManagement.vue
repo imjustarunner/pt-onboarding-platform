@@ -75,14 +75,14 @@
             </select>
           </div>
           <div class="form-group">
-            <label>Company Events SMS</label>
+            <label>Conversa team SMS</label>
             <select v-model="settings.companyEventsEnabled" class="select">
               <option :value="false">Disabled</option>
               <option :value="true">Enabled</option>
             </select>
           </div>
           <div class="form-group">
-            <label>Company Events sender number</label>
+            <label>Conversa team sender number</label>
             <select v-model="settings.companyEventsSenderNumberId" class="select">
               <option :value="null">Select number…</option>
               <option v-for="n in activeAgencyNumbers" :key="n.id" :value="n.id">
@@ -137,7 +137,7 @@
           </div>
         </div>
         <p v-if="settings.companyEventsEnabled && !settings.companyEventsSenderNumberId" class="muted" style="margin-top:8px;">
-          Set a sender number before using Company Events SMS.
+          Set a sender number before using Conversa team SMS.
         </p>
         <div class="webhook-status-card">
           <div class="webhook-status-header">

@@ -1,4 +1,4 @@
-<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 620 176" xmlns="http://www.w3.org/2000/svg"><g transform="translate(8 8) scale(.45)">
 <defs>
   <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#DDB54A"/><stop offset="1" stop-color="#9D7018"/></linearGradient>
 </defs>
@@ -11,4 +11,4 @@
 <path d="M66 146h124c15 0 26 11 26 25s-11 25-26 25h-65l-27 15 8-15H66c-15 0-26-11-26-25s11-25 26-25Z" fill="#FFFFFF"/>
 <!-- three conversation dots -->
 <circle cx="104" cy="171" r="6.5" fill="#003382"/><circle cx="128" cy="171" r="6.5" fill="#003382"/><circle cx="152" cy="171" r="6.5" fill="#003382"/>
-</svg>
+</g><text x="140" y="106" font-family="Inter,Arial,sans-serif" font-size="88" font-weight="800" letter-spacing="-5" fill="#003382">Conversa</text><text x="144" y="151" font-family="Inter,Arial,sans-serif" font-size="28" font-weight="500" fill="#475569">by <tspan font-weight="750" fill="#003382">Plot Twist Co.</tspan></text></svg>
