@@ -1,0 +1,15 @@
+{
+  "plotline": {
+    "evergreen": "#0F2D24",
+    "sage": "#6B8F7A",
+    "plot-peach": "#D89B7F",
+    "blush": "#F6E9E3",
+    "sand": "#EDE7DF",
+    "charcoal": "#1F1F1F",
+    "warm-white": "#FAF8F4",
+    "white": "#FFFFFF",
+    "peach-dark": "#C97F63",
+    "evergreen-soft": "#173B32",
+    "sage-light": "#DCE7E1"
+  }
+}

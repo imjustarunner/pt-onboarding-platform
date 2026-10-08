@@ -73,3 +73,6 @@ database/recovery_snapshots/
 
 # One-off repair / dry-run outputs (local only)
 backend/tmp-*
+# Standalone Plotline website build and local browser verification
+frontend/dist-plotline/
+deliverables/plotline/website/

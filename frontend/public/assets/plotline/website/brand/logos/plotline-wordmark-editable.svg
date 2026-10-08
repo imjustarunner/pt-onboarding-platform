@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 260" role="img" aria-label="Plotline by PlotTwistCo">
+<defs><linearGradient id="peach" x1="0" x2="1"><stop offset="0" stop-color="#D89B7F"/><stop offset="1" stop-color="#C97F63"/></linearGradient></defs>
+<path d="M102 80 C102 35 148 26 205 34 C276 44 308 82 383 82 C449 82 500 66 528 42" fill="none" stroke="#0F2D24" stroke-width="8" stroke-linecap="round"/>
+<path d="M381 82 C449 82 500 66 528 42" fill="none" stroke="url(#peach)" stroke-width="8" stroke-linecap="round"/>
+<path d="M550 22 L559 44 L581 53 L559 62 L550 84 L541 62 L519 53 L541 44 Z" fill="#D89B7F"/>
+<text x="68" y="180" font-family="Inter, Arial, sans-serif" font-size="132" font-weight="500" letter-spacing="-8" fill="#0F2D24">plot</text>
+<text x="316" y="180" font-family="Inter, Arial, sans-serif" font-size="132" font-weight="500" letter-spacing="-8" fill="#D89B7F">line</text>
+<text x="310" y="224" font-family="Inter, Arial, sans-serif" font-size="22" letter-spacing="11" fill="#1F1F1F">BY PLOTTWISTCO</text>
+</svg>

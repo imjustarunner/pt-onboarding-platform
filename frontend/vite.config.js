@@ -19,6 +19,15 @@ export default defineConfig({
   // Always resolve root relative to this config file (works even when invoked from repo root).
   root: rootDir,
   plugins: [vue(), {
+    name: 'plotline-marketing-entry',
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const url = new URL(req.url || '/', 'http://localhost');
+        if (/^\/plott?line(?:\/(?:product|solutions|resources|about|pricing|start))?\/?$/.test(url.pathname)) req.url = '/plotline-site/index.html' + url.search;
+        next();
+      });
+    }
+  }, {
     name: 'summit-stats-public-website',
     closeBundle: buildSstcWebsite,
     configureServer(server) {

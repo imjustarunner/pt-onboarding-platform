@@ -107,6 +107,18 @@ function nativeLegalLocations(profile, canonicalOnly=false) {
 }
 // Canonical tenant URLs also work on shared/app hosts without requiring JavaScript.
 writeFileSync(`${dist}/tenant-legal-locations.conf`,Object.values(tenantLegalProfiles).map(profile=>nativeLegalLocations(profile,true)).join('\n'));
+// Plotline is a separate public entry, keeping the marketing site independent of staff sessions.
+const { plotlinePages } = await import('../src/content/plotlineWebsite.js');
+const plotlineLocations = Object.keys(plotlinePages).map(key => {
+ const suffix = key === 'home' ? '' : `/${key}`;
+ return `location = /plottline${suffix} { add_header Cache-Control "no-cache"; try_files /_public-sites/plotline${suffix}/index.html =404; }
+ location = /plottline${suffix}/ { return 302 https://plottwistco.com/plottline${suffix}$is_args$args; }
+ location = /plotline${suffix} { return 302 https://plottwistco.com/plottline${suffix}$is_args$args; }`;
+}).join('\n') + `
+ location ^~ /plottline/assets/ { add_header Cache-Control "public, max-age=31536000, immutable"; try_files $uri =404; }
+ location = /plottline/sitemap.xml { default_type application/xml; try_files /_public-sites/plotline/sitemap.xml =404; }
+ location ^~ /plottline/ { return 404; }
+`;
 const publicServers = Object.entries(PUBLIC_SITE_DOMAINS).map(([domain, slug]) => {
  mkdirSync(`${dist}/_public-sites/${slug}`, {recursive:true});
  const meta = buildShareMeta({host:domain,path:'/'});
@@ -127,6 +139,7 @@ server {
  location = /schoolcarebridge/demo { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /schoolcarebridge-demo.html =404; }
  ${slug === 'mh4kidz' ? 'location = /schoolcarebridge { add_header Cache-Control "no-cache"; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location = /schoolcarebridge/app { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/app/ { add_header Cache-Control \"no-store\"; add_header X-Robots-Tag \"noindex\" always; try_files /_public-sites/schoolcarebridge/home.html =404; }\n location ^~ /schoolcarebridge/ { add_header Cache-Control "no-store"; try_files /_public-sites/schoolcarebridge/home.html =404; }' : ''}
  ${legalLocations}
+ ${slug === 'ptco' ? plotlineLocations : ''}
  location = /login { return 302 https://app.${domain}/login$is_args$args; }
  location = /app { return 302 https://app.${domain}/login$is_args$args; }
  location ~ ^/[^/]+/login$ { return 302 https://app.${domain}/login$is_args$args; }

@@ -1,0 +1,78 @@
+import { chromium } from 'playwright';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import assert from 'node:assert/strict';
+const origin=process.env.PLOTLINE_TEST_ORIGIN||'http://127.0.0.1:5176';
+const out=fileURLToPath(new URL('../../deliverables/plotline/website/',import.meta.url));
+mkdirSync(out,{recursive:true});
+const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});
+const context=await browser.newContext();
+const page=await context.newPage(),errors=[],results=[];
+page.on('pageerror',error=>errors.push(error.message));
+try{
+  for(const width of [1440,390,320]){
+    await page.setViewportSize({width,height:width===1440?1000:844});
+    for(const section of ['','product','solutions','resources','about','pricing','start']){
+      await page.goto(`${origin}/plottline${section?'/'+section:''}`,{waitUntil:'networkidle'});
+      await page.evaluate(()=>document.fonts.ready);
+      await page.locator('.pl-site-footer').scrollIntoViewIfNeeded();
+      await page.waitForTimeout(150);
+      await page.evaluate(()=>scrollTo(0,0));
+      assert.equal(await page.locator('h1').count(),1,`one h1: ${section}`);
+      assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,`overflow: ${section} at ${width}`);
+      const badImages=await page.locator('img').evaluateAll(images=>images.filter(img=>img.complete&&img.naturalWidth===0).map(img=>img.src));
+      assert.deepEqual(badImages,[],`images: ${section}`);
+      if(width!==320)await page.screenshot({path:`${out}${section||'home'}-${width}.png`,fullPage:true});
+      results.push({section:section||'home',width,pass:true});
+    }
+  }
+  await page.setViewportSize({width:1440,height:1000});
+  await page.goto(`${origin}/plottline`);
+  assert.equal(await page.locator('img[src*="ui-previews"], img[src*="home-dashboard-preview"]').count(),0);
+  await page.getByRole('button',{name:'Enlarge Hiring dashboard example'}).click();
+  await page.getByRole('dialog').waitFor();
+  assert.match(await page.getByRole('dialog').innerText(),/Captured from the application/);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('dialog[open]').count(),0);
+  await page.goto(`${origin}/plottline/pricing`);
+  await page.getByLabel('Active employees',{exact:true}).fill('50');
+  await page.getByLabel('AuricWell',{exact:true}).check();
+  await page.getByLabel('Conversa',{exact:true}).check();
+  assert.equal(await page.locator('.pl-quote>strong').innerText(),'$229');
+  await page.getByRole('link',{name:'Request this plan'}).click();
+  await page.waitForURL('**/plottline/start?plan=suite');
+  assert.equal(await page.getByLabel('What would you like to explore?').inputValue(),'Suite plan');
+  await page.goto(`${origin}/plottline/solutions`);
+  await page.getByRole('button',{name:'Onboarding',exact:true}).click();
+  assert.equal(await page.locator('.pl-solution-row').count(),1);
+  assert.match(await page.locator('.pl-solution-row').innerText(),/first day/);
+  await page.reload();
+  assert.equal(await page.locator('.pl-solution-row').count(),1);
+  await page.getByRole('button',{name:'All solutions',exact:true}).click();
+  assert.equal(await page.locator('.pl-solution-row').count(),7);
+  await page.goto(`${origin}/plottline/resources`);
+  await page.locator('.pl-guides summary').first().click();
+  const downloadPromise=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Download checklist'}).first().click();
+  const download=await downloadPromise;assert.equal(download.suggestedFilename(),'plotline-hiring-checklist.txt');
+  await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:/Menu/}).click();
+  await page.locator('#pl-main-nav').getByRole('link',{name:'Pricing',exact:true}).click();
+  await page.waitForURL('**/plottline/pricing');assert.equal(await page.getByRole('button',{name:/Menu/}).getAttribute('aria-expanded'),'false');
+  // Exercise the form without submitting a real request or contacting anyone.
+  const requests=[];
+  await page.route('**/api/public/marketing-pages/ptco/business/requests',async route=>{requests.push({body:route.request().postDataJSON(),key:route.request().headers()['idempotency-key']});await route.fulfill({status:requests.length===1?503:200,contentType:'application/json',body:JSON.stringify(requests.length===1?{error:{message:'Temporary test failure'}}:{id:'plotline-qa-only'})});});
+  await page.goto(`${origin}/plottline/start?plan=connected`);
+  for(const [label,value] of [['Organization name','Example Organization'],['First name','Test'],['Last name','User'],['Work email','test@example.com'],['Phone number','5555550100'],['What would make a difference for your team?','A clearer onboarding process.']])await page.getByLabel(label,{exact:true}).fill(value);
+  await page.getByLabel('Organization type').selectOption('other');
+  await page.locator('.pl-consent input').check();
+  await page.getByRole('button',{name:'Let’s talk about your team'}).click();
+  await page.getByRole('alert').waitFor();
+  await page.getByRole('button',{name:'Let’s talk about your team'}).click();
+  await page.getByRole('heading',{name:'Your next chapter is underway.'}).waitFor();
+  assert.equal(requests.length,2);assert.equal(requests[0].key,requests[1].key);
+  assert.deepEqual(requests[0].body.services,['people']);assert.match(requests[0].body.goals,/Plotline website · Connected plan/);
+  assert.deepEqual(errors,[]);
+  writeFileSync(`${out}verification.json`,JSON.stringify({origin,results,pricing:'50 employees + two products = $229',solutions:'filter and reload passed',resourceDownload:'passed',mobileNavigation:'passed',form:'mocked failure + idempotent retry + confirmation passed; no real requests sent',errors},null,2));
+  console.log(`Verified ${results.length} responsive page checks, pricing, solution filters, downloads, navigation, and form. No browser errors.`);
+}finally{await browser.close();}

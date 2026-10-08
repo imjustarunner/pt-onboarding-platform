@@ -1,0 +1,24 @@
+/* Plotline design tokens */
+:root {
+  --plotline-evergreen: #0F2D24;
+  --plotline-sage: #6B8F7A;
+  --plotline-plot-peach: #D89B7F;
+  --plotline-blush: #F6E9E3;
+  --plotline-sand: #EDE7DF;
+  --plotline-charcoal: #1F1F1F;
+  --plotline-warm-white: #FAF8F4;
+  --plotline-white: #FFFFFF;
+  --plotline-peach-dark: #C97F63;
+  --plotline-evergreen-soft: #173B32;
+  --plotline-sage-light: #DCE7E1;
+  --plotline-font-display: "Sora", "Inter", system-ui, sans-serif;
+  --plotline-font-body: "Inter", system-ui, sans-serif;
+  --plotline-radius-sm: 12px;
+  --plotline-radius-md: 20px;
+  --plotline-radius-lg: 30px;
+  --plotline-radius-pill: 999px;
+  --plotline-shadow-soft: 0 16px 50px rgba(15,45,36,.10);
+  --plotline-shadow-card: 0 8px 26px rgba(15,45,36,.08);
+  --plotline-gradient-peach: linear-gradient(135deg,#F6E9E3 0%,#D89B7F 100%);
+  --plotline-gradient-forest: linear-gradient(135deg,#173B32 0%,#0F2D24 100%);
+}

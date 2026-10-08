@@ -6,3 +6,5 @@
 @media(prefers-reduced-motion:reduce){.ptco-site *{scroll-behavior:auto!important;transition:none!important;transform:none!important}}
 
 .ptco-header nav{font-size:14px;font-weight:600}.ptco-header .public-resources{font-size:14px;font-weight:600}
+
+@media(min-width:1101px){#ptco-nav.ptco-nav-plotline{gap:14px}}
