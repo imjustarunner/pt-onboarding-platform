@@ -11340,9 +11340,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
           roomId
         });
       } else {
-        const bookedLabel = colorBlocksByTenant.value
-          ? `Booked · ${roomShort}`
-          : roomShort || 'Booked';
+        const bookedLabel = `Booked · ${roomShort}`;
         blocks.push({
           key: `office-booked-${blockKeySuffix}`,
           kind: 'ob',
@@ -11355,7 +11353,7 @@ const cellBlocks = (dayName, hour, minute = 0, expanded = false) => {
           canReschedule: canManageOffices.value || Number(top?.bookedProviderId || top?.assignedProviderId || 0) === Number(authStore.user?.id),
           isOfficeBlock: true,
           officeStatus: 'booked',
-          officeStatusLabel: 'Office reserved',
+          officeStatusLabel: 'Booked / reserved — not open for another booking',
           officeRoomLabel,
           shortLabel: `${buildingPrefix}${bookedLabel}${intakeSuffix}`,
           title: officeTitle(dayName, hour, top),

@@ -53,6 +53,10 @@ jobs:
         env:
           NODE_ENV: test
         run: node --test backend/src/services/__tests__/plannedOutPresence.service.test.js
+      - name: Recurring reservations, guardian cancellation, and payroll privacy
+        run: >-
+          node frontend/node_modules/vitest/vitest.mjs run
+          --config backend/vitest.recurring-reservations.config.js
       - name: Planned-out form and display regressions
         working-directory: frontend
         run: >-

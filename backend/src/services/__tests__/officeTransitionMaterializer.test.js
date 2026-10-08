@@ -37,3 +37,11 @@ it('never rewrites historical office time', async () => {
  await Materializer.materializeWeek({ officeLocationId: 8, weekStartRaw: '2026-09-21', force: true });
  expect(Event.upsertSlotState).not.toHaveBeenCalled();
 });
+it('keeps an eight-week-ahead client reservation booked without drafting a claim', async () => {
+ pool.execute.mockResolvedValue([[{ agency_id: 4, transition_date: '2026-10-05' }]]);
+ Plan.listActiveByAssignmentIds.mockResolvedValue([{ id:10,standing_assignment_id:1,is_active:1,booking_start_date:'2026-09-01',booked_frequency:'WEEKLY',session_context_json:{agencyId:4,clientId:9} }]);
+ await Materializer.materializeWeek({ officeLocationId:8,weekStartRaw:'2026-11-30',force:true });
+ expect(Event.upsertSlotState).toHaveBeenCalledWith(expect.objectContaining({slotState:'ASSIGNED_BOOKED',bookedProviderId:3,bookingPlanId:10}));
+ expect(pool.execute.mock.calls.some(([sql,args])=>sql.includes('UPDATE office_events SET client_id')&&args[0]===9)).toBe(true);
+ expect(pool.execute.mock.calls.some(([sql])=>sql.includes('clinical_claims'))).toBe(false);
+});

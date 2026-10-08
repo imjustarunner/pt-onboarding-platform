@@ -113,7 +113,7 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     expect(await getAgencySelfPayOnly(1)).toBe(true);
   });
   it('blocks claim creation for a self-pay-only clinical session', async () => {
-    await clinicalPool.execute("UPDATE clinical_sessions SET claim_blocked_reason = 'SELF_PAY_ONLY: Insurance claims disabled' WHERE id = 30");
+    await clinicalPool.execute("UPDATE clinical_sessions SET scheduled_start_at = '2020-01-01 17:00:00', claim_blocked_reason = 'SELF_PAY_ONLY: Insurance claims disabled' WHERE id = 30");
     await expect(ClinicalClaim.create({ clinicalSessionId: 30, agencyId: 1, clientId: 8, createdByUserId: 9 })).rejects.toMatchObject({ status: 409 });
     const [[row]] = await clinicalPool.query('SELECT COUNT(*) AS total FROM clinical_claims');
     expect(row.total).toBe(0);
@@ -136,8 +136,16 @@ describe.skipIf(!process.env.SCHEDULING_TEST_MYSQL_PORT)('disposable MySQL sched
     expect(note.is_billable).toBe(0); expect(note.provider_signed_by_user_id).toBe(9);
     expect(note.provider_signed_at.toISOString()).toBe('2026-09-12T16:00:00.000Z');
     expect(note.clinical_session_id).toBe(30); expect(note.note_type).toBe('APPOINTMENT_CHANGE');
+    await clinicalPool.execute("UPDATE clinical_sessions SET scheduled_start_at = '2020-01-01 17:00:00' WHERE id = 30");
     await expect(ClinicalClaim.create({ clinicalSessionId: 30, agencyId: 1, clientId: 8, createdByUserId: 9 })).rejects.toThrow('blocked');
     const [[count]] = await clinicalPool.query('SELECT COUNT(*) AS n FROM clinical_claims'); expect(count.n).toBe(0);
+  });
+  it('rejects a claim for a future reservation without releasing the appointment or office', async () => {
+    await expect(ClinicalClaim.create({clinicalSessionId:30,agencyId:1,clientId:8,createdByUserId:9})).rejects.toMatchObject({code:'FUTURE_SESSION_RESERVED'});
+    const [[appointment]]=await pool.query('SELECT status FROM appointments WHERE id=10');
+    const [[office]]=await pool.query('SELECT status FROM office_events WHERE id=20');
+    expect(appointment.status).toBe('scheduled');expect(office.status).toBe('BOOKED');
+    const [[count]]=await clinicalPool.query('SELECT COUNT(*) AS n FROM clinical_claims');expect(count.n).toBe(0);
   });
   it('uses a practitioner free miss once across concurrent retries', async () => {
     await pool.query(`INSERT INTO practitioner_session_packages VALUES (7, 1, 'Synthetic package', '{"type":"free_rebook"}')`);

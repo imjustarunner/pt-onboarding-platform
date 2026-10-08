@@ -9,6 +9,15 @@ export async function assertAppointmentWindowAvailable(db, row, appointmentId = 
     AND status NOT IN ('draft','canceled_by_provider','canceled_by_client','canceled_by_guardian','canceled_by_organization','late_canceled','rescheduled','voided')
     AND (? IS NULL OR id <> ?) LIMIT 1`, [row.providerUserId, row.endAt, row.startAt, appointmentId, appointmentId]);
   if (appointments.length) throw fail();
+  // Lazy office materialization can reserve a client slot before its canonical
+  // appointment is linked. That reservation must still block another booking,
+  // including a virtual booking, beyond the guardian's six-item display.
+  const [officeBookings] = await db.execute(`SELECT id FROM office_events
+    WHERE (booked_provider_id = ? OR assigned_provider_id = ?) AND client_id IS NOT NULL
+      AND status = 'BOOKED' AND start_at < ? AND end_at > ?
+      AND (? IS NULL OR id <> ?) LIMIT 1`,
+    [row.providerUserId,row.providerUserId,row.endAt,row.startAt,row.officeEventId || null,row.officeEventId || null]);
+  if (officeBookings.length) throw fail();
   const busy = await readProviderCalendarBusy(db, { providerId: row.providerUserId, startAt: row.startAt, endAt: row.endAt,
     excludeEventId: row.providerScheduleEventId || null, timeZone: row.sourceTimezone || 'America/Denver' });
   if (busy.length) throw fail();

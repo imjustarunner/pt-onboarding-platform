@@ -5,7 +5,10 @@ class ClinicalClaim {
     const own=!args.db,db=args.db||await clinicalPool.getConnection();
     try {
       if(own)await db.beginTransaction();
-      await db.execute('SELECT id FROM clinical_sessions WHERE id=? AND agency_id=? FOR UPDATE',[args.clinicalSessionId,args.agencyId]);
+      const [[session]]=await db.execute('SELECT id, scheduled_start_at FROM clinical_sessions WHERE id=? AND agency_id=? FOR UPDATE',[args.clinicalSessionId,args.agencyId]);
+      const start=session?.scheduled_start_at;
+      const startTime=start instanceof Date ? +start : start ? Date.parse(String(start).replace(' ','T').replace(/Z?$/, 'Z')) : null;
+      if(startTime>Date.now())throw Object.assign(new Error('This session is booked for the future. Keep the reservation; a billing claim cannot be drafted before the session starts.'),{status:409,code:'FUTURE_SESSION_RESERVED'});
       const [[existing]]=await db.execute('SELECT id FROM clinical_claims WHERE clinical_session_id=? AND agency_id=? LIMIT 1',[args.clinicalSessionId,args.agencyId]);
       if(existing)throw Object.assign(new Error('An original claim already exists for this encounter. Review it for correction; deletion, voiding or a new note does not authorize a second original.'),{status:409});
       const claim=await this.insertOriginal({...args,db});
@@ -31,6 +34,7 @@ class ClinicalClaim {
        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM clinical_sessions s
        WHERE s.id = ? AND s.agency_id = ? AND s.client_id = ?
          AND s.encounter_status NOT IN ('no_show', 'cancelled', 'canceled', 'voided', 'rescheduled')
+         AND (s.scheduled_start_at IS NULL OR s.scheduled_start_at <= UTC_TIMESTAMP())
          AND (s.claim_blocked_reason IS NULL OR s.claim_blocked_reason = '')`,
       [
         clinicalSessionId,
