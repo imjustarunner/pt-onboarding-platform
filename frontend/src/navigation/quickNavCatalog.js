@@ -94,6 +94,7 @@ function buildAccountEntries() {
  */
 function buildAppEntries() {
   return [
+    {id:'my-business-cards',label:'My business cards',description:'Review and print your agency business cards.',group:'account',keywords:['business cards','print cards','Avery','QR code'],kind:'dashboard',tab:'my',my:'account',section:'my-business-cards'},
     {
       id: 'workspace-overview',
       routeName: 'Dashboard',
@@ -1107,6 +1108,7 @@ export function resolveQuickNavLocation(entry, { currentPath, orgSlug, dashboard
   if (entry.kind === 'dashboard') {
     const query = { tab: entry.tab };
     if (entry.my) query.my = entry.my;
+    if (entry.section) query.section = entry.section;
     const base = dashboardPath || (/\/dashboard$/.test(currentPath || '') ? currentPath : `${slug ? '/' + slug : ''}/dashboard`);
     return { path: base, query };
   }

@@ -102,3 +102,14 @@ export function normalizeClinicalFacets(facets={}) {
  result.summaryTags=unique([...result.specialties.slice(0,3),...result.modalities.slice(0,2),...result.ageGroups.slice(0,2)]).slice(0,6);
  return result;
 }
+
+export function normalizeFocusAgeValues(value){
+ if(!value)return value;
+ const result=structuredClone(value);
+ for(const field of ['top','excluded']){
+  result[field] ||= {};
+  result[field].ageGroups=[...new Set((result[field].ageGroups||[]).map(canonicalAge).filter(Boolean))];
+ }
+ result.top.ageGroups=result.top.ageGroups.filter(v=>!result.excluded.ageGroups.includes(v)).slice(0,3);
+ return result;
+}

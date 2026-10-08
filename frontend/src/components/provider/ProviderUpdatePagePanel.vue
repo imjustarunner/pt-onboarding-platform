@@ -27,6 +27,7 @@
       <article
         v-for="s in page.sections"
         :key="s.key"
+        :data-section-key="s.key"
         class="pu-page-block"
         :class="{ done: s.completed }"
       >
@@ -107,6 +108,9 @@ watch(
 function toggle(key) {
   expandedKey.value = expandedKey.value === key ? '' : key;
 }
+
+async function focusSection(key){expandedKey.value=key;await nextTick();const block=document.querySelector(`[data-section-key="${key}"]`);block?.scrollIntoView({behavior:'smooth',block:'start'});block?.querySelector('input:invalid, select:invalid, textarea:invalid')?.focus();}
+defineExpose({focusSection});
 
 async function onSaved(bundle) {
   emit('saved', bundle);

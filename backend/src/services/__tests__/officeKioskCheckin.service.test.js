@@ -52,12 +52,12 @@ describe('office arrival atomicity and privacy', () => {
     await expect(checkIn()).rejects.toHaveProperty('status', reason === 'other location' ? 404 : 409);
     expect(mocks.commit).not.toHaveBeenCalled();
   });
-  it('queues fallback atomically without sending immediate email or SMS', async () => {
+  it('queues email fallback and dispatches SMS through the consent-gated notification service', async () => {
     expect((await checkIn()).notification.email).toBe('queued');
     const insert=mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO office_arrival_deliveries'));
     expect(insert[0]).toContain('INTERVAL 90 SECOND');
     expect(insert[1]).toEqual([12,7,2]);
-    expect(mocks.email).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();
+    expect(mocks.email).not.toHaveBeenCalled();expect(mocks.dispatch).toHaveBeenCalledOnce();
   });
   it('rejects a stale client when the next hourly window begins',async()=>{
     vi.setSystemTime(new Date('2026-09-30T01:31:00Z'));

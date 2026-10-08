@@ -4,7 +4,12 @@ import pool from '../../config/database.js';
 import { publishOfficeAssignmentEvent, setOfficeAssignmentBookingAvailability } from '../officeAssignmentBookingAvailability.service.js';
 const assignment = { id:1,provider_id:9,office_location_id:3,room_id:4,booking_agency_id:6,bookable_in_person:1,bookable_virtual:1 };
 const event = { id:10,standing_assignment_id:1,assigned_provider_id:9,start_at:'2099-01-01 17:00:00',end_at:'2099-01-01 18:00:00',status:'RELEASED' };
-beforeEach(()=>pool.execute.mockReset().mockResolvedValue([[]]));
+beforeEach(()=>{pool.execute.mockReset().mockResolvedValue([[]]);});
+it('preserves an explicit per-occurrence choice during routine materialization',async()=>{
+ pool.execute.mockImplementation(async sql=>[sql.includes('series_id IS NOT NULL')?[{id:7}]:[]]);
+ await publishOfficeAssignmentEvent(assignment,event);
+ expect(pool.execute.mock.calls.some(([sql])=>/^(UPDATE|INSERT)/.test(sql))).toBe(false);
+});
 it('opens both modalities for new and current clients without releasing the reserved office',async()=>{
  await publishOfficeAssignmentEvent(assignment,event);
  expect(pool.execute.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO'))).toHaveLength(2);

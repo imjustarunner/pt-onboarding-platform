@@ -1,7 +1,7 @@
 <template>
   <form class="clinical-profile-form" @submit.prevent="save(true)">
-    <p>Choose the areas that reflect your experience and training. You can leave a section empty if it does not apply. These answers become part of your provider profile.</p>
-    <ClinicalMultiSelect v-for="field in step.fields" :key="field.key" v-model="values[field.key]" :label="field.label" :description="field.description" :options="field.options" :disabled="busy" :readonly="readonly" />
+    <p>Deselect areas you do not serve, then highlight up to three in each category. Areas you do not exclude remain eligible for matching; your top three appear first on your public profile.</p>
+    <fieldset :disabled="busy || readonly"><ProviderFocusEditor v-model="clinicalFocus" :groups="focusGroups" /></fieldset>
     <details v-if="step.reviewNeeded?.length" class="previous-answers">
       <summary>Previous profile information to review</summary>
       <p>These earlier answers are retained. Review them as you choose your options above.</p>
@@ -14,17 +14,19 @@
   </form>
 </template>
 <script setup>
-import { ref, watch } from 'vue';
-import ClinicalMultiSelect from '../profile/ClinicalMultiSelect.vue';
+import { computed, ref, watch } from 'vue';
+import ProviderFocusEditor from '../provider/ProviderFocusEditor.vue';
 const props = defineProps({ step: { type:Object, required:true }, busy:Boolean, readonly:Boolean });
 const emit = defineEmits(['save']);
 const copy = value => Object.fromEntries(Object.entries(value || {}).map(([key, selections]) => [key, [...selections]]));
 const values = ref(copy(props.step.values));
 const reviewed = ref(false);
+const focusGroups=computed(()=>props.step.fields.map(f=>({key:f.group,field:f.key,label:f.label,options:f.options})));
+const clinicalFocus=ref(props.step.clinicalFocus||{top:Object.fromEntries(focusGroups.value.map(g=>[g.key,[]])),excluded:Object.fromEntries(focusGroups.value.map(g=>[g.key,[]]))});
 watch(() => props.step.values, (value, previous) => {
   if (JSON.stringify(values.value) === JSON.stringify(previous)) values.value = copy(value);
 });
-function save(complete) { emit('save', { values: copy(values.value), reviewed: reviewed.value, complete }); }
+function save(complete) { emit('save', { values: copy(values.value), clinicalFocus:clinicalFocus.value, reviewed: reviewed.value, complete }); }
 </script>
 <style scoped>
 .clinical-profile-form { display:grid; gap:24px; }

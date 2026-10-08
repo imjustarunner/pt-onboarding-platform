@@ -121,7 +121,7 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     for (const row of staff) {
       const state=row.choices?json(row.choices):null;
       const kind=purpose==='polling'?'polling':staffNotificationKind;
-      if(state && (state.phoneHash!==phoneFingerprint(recipient)||!['notifications','messageAlerts','polling'].includes(kind)||state.choices?.[kind]!==true))
+      if(state && (state.phoneHash!==phoneFingerprint(recipient)||!['notifications','messageAlerts','appointmentReplies','kioskArrivals','polling'].includes(kind)||state.choices?.[kind]!==true))
         throw smsPolicyError('sms_staff_choice_off','This staff member has not enabled this personal-phone text category');
     }
   }

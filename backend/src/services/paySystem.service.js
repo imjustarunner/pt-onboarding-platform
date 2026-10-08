@@ -1,4 +1,5 @@
 import {effectiveCompensationAgreement, agreementRateProfile, COMPENSATION_POLICY_VERSION} from './employmentAgreementPolicy.service.js';
+import {isServiceCreditPolicy} from '../utils/serviceCreditPolicy.js';
 /**
  * New pay system calculation service.
  * Used by both the self-serve Pay Calculator estimator and live payroll recompute.
@@ -50,6 +51,7 @@ function daysBetween(start, end) {
 }
 
 function applyAutoIndirect({ rateProfile, hourEquivalent, status }) {
+  if (rateProfile?.compensationPolicyVersion === COMPENSATION_POLICY_VERSION && Number(rateProfile.category) === 1) return {autoIndirectHours:0,autoIndirectAmount:0};
   const minsPerHour = Number(rateProfile?.autoIndirectMinutesPerHour ?? 10);
   if (!(minsPerHour > 0) || !(hourEquivalent > 1e-9)) {
     return { autoIndirectHours: 0, autoIndirectAmount: 0 };
@@ -188,7 +190,7 @@ export function resolveUserPaySystemStatus({
   );
   const hiredBeforeGoLive = !!(goLive && start && start < goLive);
   const amendmentStart = parseDateOnly(assignment?.compensation_agreement_effective_on);
-  const newPolicy = assignment?.compensation_policy_version === COMPENSATION_POLICY_VERSION;
+  const newPolicy = isServiceCreditPolicy(assignment?.compensation_policy_version);
   const initiationProtectionEnd = newPolicy && amendmentStart
     ? addCalendarDays(amendmentStart, 60)
     : (hiredBeforeGoLive && goLive ? addCalendarDays(goLive, PROBATION_DAYS) : null);
@@ -224,7 +226,7 @@ export function resolveUserPaySystemStatus({
     hiredBeforeGoLive,
     inInitiationProtection,
     minimumWorkloadGraceDays: newPolicy ? 60 : PROBATION_DAYS,
-    compensationPolicyVersion: newPolicy ? COMPENSATION_POLICY_VERSION : null,
+    compensationPolicyVersion: newPolicy ? assignment.compensation_policy_version : null,
     initiationProtectionEnd: initiationProtectionEnd ? toYmd(initiationProtectionEnd) : null,
     asOfDate: toYmd(asOf),
     eraLabel: eraLabelForStatus({
@@ -281,7 +283,7 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
       rateLabel = reduced ? 'credit_rate_probation_hcode_fallback' : 'credit_rate_hcode_fallback';
       amount = qty.hourEquivalent * rate;
       // Probation / MWR still get the 10-min auto-indirect add-on on that reduced rate.
-      if (reduced || rateProfile?.compensationPolicyVersion === COMPENSATION_POLICY_VERSION) {
+      if (reduced || isServiceCreditPolicy(rateProfile?.compensationPolicyVersion)) {
         const auto = applyAutoIndirect({ rateProfile, hourEquivalent: qty.hourEquivalent, status });
         autoIndirectHours = auto.autoIndirectHours;
         autoIndirectAmount = auto.autoIndirectAmount;
@@ -306,7 +308,7 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
     rate,
     rateLabel,
     amount: round2(amount),
-    autoIndirectHours: round2(autoIndirectHours),
+    autoIndirectHours,
     autoIndirectAmount: round2(autoIndirectAmount),
     autoIndirectRate: Number(reduced ? (rateProfile?.indirectRateProbation ?? rateProfile?.indirectRate ?? 0) : (rateProfile?.indirectRate ?? 0)),
     /** H-code face-time pay before auto-indirect add-on. */
@@ -339,8 +341,12 @@ export function computeBonuses({
   const hHours = hcodeHourEquivalent != null ? Number(hcodeHourEquivalent) || 0 : 0;
   const tier = Number(status?.tierLevel || 0);
 
+  // Level-chart additions depend on this period's session tier, not a retained
+  // benefit tier during grace. Other historical bonus policies remain unchanged.
+  const bonusTier = rateProfile?.compensationPolicyVersion === 'itsco-2026-10-service-credit-v3'
+    ? Number(status?.currentTierLevel ?? tier) : tier;
   const sharedTier = (map) =>
-    tier >= 1 ? Number(map?.[tier] ?? map?.[String(tier)] ?? 0) || 0 : 0;
+    bonusTier >= 1 ? Number(map?.[bonusTier] ?? map?.[String(bonusTier)] ?? 0) || 0 : 0;
 
   const ffsTierMap = rateProfile?.tierBonusFfs || rateProfile?.tierBonus;
   const hTierMap = rateProfile?.tierBonusHcode || rateProfile?.tierBonus;
@@ -651,7 +657,7 @@ export async function loadUserPaySystemContext({
   catch(error) { error.code='AMENDMENT_PAYROLL_REVIEW_REQUIRED'; throw error; }
   if (agreement) {
     assignment.compensation_agreement_effective_on = agreement.effectiveOn;
-    assignment.compensation_policy_version = COMPENSATION_POLICY_VERSION;
+    assignment.compensation_policy_version = agreement.data.compensationPolicyVersion;
     rateProfile = agreementRateProfile(rateProfile,agreement);
 
   }
@@ -872,6 +878,13 @@ export function applyPaySystemToBreakdown({
   let hcodeHours = 0;
   const lineResults = [];
   const autoIndirectLines = [];
+  const bonusSegments=new Map();
+  function collectBonus(profile,era,ffs,hcode){
+    if(!status?.agreementBoundary)return;
+    const key=JSON.stringify([profile,era.tierLevel,era.currentTierLevel,era.spanishBonusEligible,era.locationBonusEligible]);
+    const part=bonusSegments.get(key)||{rateProfile:profile,status:era,ffsHourEquivalent:0,hcodeHourEquivalent:0,totalHourEquivalent:0};
+    part.ffsHourEquivalent+=ffs;part.hcodeHourEquivalent+=hcode;part.totalHourEquivalent+=ffs+hcode;bonusSegments.set(key,part);
+  }
 
   for (const [code, row] of Object.entries(breakdown || {})) {
     if (!row || typeof row !== 'object') continue;
@@ -922,9 +935,11 @@ export function applyPaySystemToBreakdown({
     if (result.payType === 'credit' || result.hcodeFallbackToCredit) {
       productiveHours += result.hourEquivalent;
       ffsHours += result.hourEquivalent;
+      collectBonus(row.agreementRateProfile||rateProfile,lineStatus,result.hourEquivalent,0);
     } else if (result.payType === 'hcode') {
       productiveHours += result.hourEquivalent;
       hcodeHours += result.hourEquivalent;
+      collectBonus(row.agreementRateProfile||rateProfile,lineStatus,0,result.hourEquivalent);
     }
     if (result.autoIndirectAmount > 1e-9) {
       autoIndirectTotal += result.autoIndirectAmount;
@@ -953,6 +968,7 @@ export function applyPaySystemToBreakdown({
   if ((Number(shiftDirectHours) || 0) > 1e-9) {
     productiveHours += Number(shiftDirectHours) || 0;
     ffsHours += Number(shiftDirectHours) || 0;
+    collectBonus(rateProfile,status,Number(shiftDirectHours)||0,0);
   }
 
   const bonuses = computeBonuses({
@@ -962,6 +978,12 @@ export function applyPaySystemToBreakdown({
     ffsHourEquivalent: ffsHours,
     hcodeHourEquivalent: hcodeHours
   });
+
+  if(status?.agreementBoundary){
+    const parts=[...bonusSegments.values()].map(computeBonuses);
+    for(const key of ['tierBonusAmount','spanishBonusAmount','locationBonusAmount','totalBonusAmount'])bonuses[key]=round2(parts.reduce((sum,part)=>sum+Number(part[key]||0),0));
+    if(parts.length>1)for(const key of ['tierBonusPerHour','tierBonusPerFfsHour','tierBonusPerHcodeHour'])bonuses[key]=null;
+  }
 
   const paySystemBase = round2(servicePay + autoIndirectTotal + shiftHoursPay);
   const paySystemTotal = round2(paySystemBase + bonuses.totalBonusAmount);
@@ -992,10 +1014,10 @@ export function applyPaySystemToBreakdown({
     paySystemTotal,
     lines: lineResults,
     leaveBasis: {
-      direct: lineResults.filter(l=>l.compensationPolicyVersion===COMPENSATION_POLICY_VERSION && ['credit','hcode'].includes(l.payType)).reduce((v,l)=>v+l.hourEquivalent,0),
-      indirect: lineResults.filter(l=>l.compensationPolicyVersion===COMPENSATION_POLICY_VERSION).reduce((v,l)=>v+(l.payType==='credit'?l.hourEquivalent*l.leaveAdminRatio:l.payType==='hcode'?l.autoIndirectHours:l.payType==='indirect'?l.hourEquivalent:0),0),
-      support: lineResults.filter(l=>l.compensationPolicyVersion===COMPENSATION_POLICY_VERSION && l.payType==='support_activity').reduce((v,l)=>v+l.hourEquivalent,0),
-      legacyPaidBasis: lineResults.filter(l=>l.compensationPolicyVersion!==COMPENSATION_POLICY_VERSION).reduce((v,l)=>v+l.hourEquivalent+l.autoIndirectHours,0)
+      direct: lineResults.filter(l=>isServiceCreditPolicy(l.compensationPolicyVersion) && ['credit','hcode'].includes(l.payType)).reduce((v,l)=>v+l.hourEquivalent,0),
+      indirect: lineResults.filter(l=>isServiceCreditPolicy(l.compensationPolicyVersion)).reduce((v,l)=>v+(l.payType==='credit'?l.hourEquivalent*l.leaveAdminRatio:l.payType==='hcode'?l.autoIndirectHours:l.payType==='indirect'?l.hourEquivalent:0),0),
+      support: lineResults.filter(l=>isServiceCreditPolicy(l.compensationPolicyVersion) && l.payType==='support_activity').reduce((v,l)=>v+l.hourEquivalent,0),
+      legacyPaidBasis: lineResults.filter(l=>!isServiceCreditPolicy(l.compensationPolicyVersion)).reduce((v,l)=>v+l.hourEquivalent+l.autoIndirectHours,0)
     }
   };
 

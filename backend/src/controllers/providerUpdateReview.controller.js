@@ -36,7 +36,7 @@ export async function officeReviewAction(req, res, next) {
   try {
     const recipient = await reviewRecipient(req);
     if(recipient.previewOnly)throw fail('This preview is read-only.',403);
-    requireSection(recipient, 'office_schedule');
+    requireSection(recipient, req.params.action==='forfeit'?'office_review':'office_schedule');
     const id = Number(req.params.assignmentId);
     const [[assignment]] = await pool.execute('SELECT * FROM office_standing_assignments WHERE id = ? AND provider_id = ? AND is_active = TRUE', [id, recipient.provider_user_id]);
     if (!assignment || Number(assignment.booking_agency_id) !== Number(recipient.agency_id)) throw fail('This assignment is not part of your agency update.', 403);
@@ -138,6 +138,12 @@ export async function persistReviewSection(recipient, key, data, completed) {
     Object.assign(data,{emailReminderPreferences:emailPrefs,choices:saved.choices,accessRequests:saved.accessRequests,reviewedAt:saved.reviewedAt});
   }
   if (!completed) return;
+  if(key==='office_review'){
+    const {listOpenForBookingForProvider}=await import('../services/providerUpdate.service.js');
+    const current=await listOpenForBookingForProvider(recipient.provider_user_id,recipient.agency_id);
+    if(!Array.isArray(data?.confirmedAssignmentIds)||current.some(i=>!data.confirmedAssignmentIds.map(Number).includes(i.id)))throw fail('Confirm each current office reservation or release it before continuing.');
+    data.confirmedAssignmentIds=current.map(i=>i.id);
+  }
   if(key==='amendments'){
     const {listAmendmentTasksForRecipient}=await import('../services/providerUpdateAmendment.service.js');
     const tasks=await listAmendmentTasksForRecipient({userId:recipient.provider_user_id,pushId:recipient.push_id});
@@ -147,9 +153,9 @@ export async function persistReviewSection(recipient, key, data, completed) {
   if(key==='pin'){
     const status=await getCredentialStatus(recipient.provider_user_id);
     if(!status.hasPasscode||status.isLocked)throw fail('Create or reset your six-digit Quick View passcode in your account, then return to confirm this step.');
-    if(data?.quickViewConfirmed!==true)throw fail('Confirm that you can access Quick View with your six-digit passcode.');
+    if(data?.quickViewConfirmed!==true||data?.codeStoredSafely!==true)throw fail('Save your new Quick View code somewhere safe before continuing.');
     for(const field of Object.keys(data))delete data[field];
-    Object.assign(data,{quickViewConfirmed:true});
+    Object.assign(data,{quickViewConfirmed:true,codeStoredSafely:true});
   }
   if (key === 'supervision_hours') {
     const supervisors = await User.getSupervisors(recipient.provider_user_id, recipient.agency_id);
@@ -212,7 +218,7 @@ export async function setupQuickView(req,res,next){
 }
 
 export async function contactHours(req,res,next){
- try{const r=await reviewRecipient(req);requireSection(r,'office_schedule');
+ try{const r=await reviewRecipient(req);requireSection(r,'notification_prefs');
   const {getContactHours,saveContactHours}=await import('../services/providerUpdateContactHours.service.js');
   if(req.method==='PUT'&&r.previewOnly)throw fail('This preview is read-only.',403);
   res.json(req.method==='PUT'?await saveContactHours(r.provider_user_id,req.body):await getContactHours(r.provider_user_id));

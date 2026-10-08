@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import sanitizeHtml from 'sanitize-html';
 import {amendmentIssues, renderAmendment} from '../content/itscoOctober2026Drafts.js';
+import {SERVICE_CREDIT_POLICY_VERSION, conditionalLevelBonus, defaultHcodeIndirectMinutes} from '../utils/serviceCreditPolicy.js';
 
 export const DRAFT_KIND = 'provider_update_compensation';
 export function cleanDraftHtml(value) {
@@ -39,6 +40,10 @@ export function editCompensationDraft(existing,patch,userId) {
  if(patch.additionalTerms!==undefined)result.additionalTerms=String(patch.additionalTerms).slice(0,6000);
  if(patch.commonClausesHtml!==undefined)result.commonClausesHtml=cleanDraftHtml(patch.commonClausesHtml).slice(0,100000);
  result.editedByUserId=userId;result.editedAt=new Date().toISOString();
+ if(result.compensationPolicyVersion===SERVICE_CREDIT_POLICY_VERSION){
+  result.schedule.tier3LevelBonus=conditionalLevelBonus(result.schedule.level);
+  result.schedule.autoIndirectMinutes=defaultHcodeIndirectMinutes(result.schedule.category);
+ }
  return result;
 }
 export async function saveCompensationDraft(agencyId,id,patch,userId) {

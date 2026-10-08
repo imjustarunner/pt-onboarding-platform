@@ -8,6 +8,6 @@ it('uses timeline start then legacy start then first client, never record creati
 });
 it('refreshes the marked dates while retaining edited prose',()=>{
  const body='Welcome! {{staff:5:startDate}} {{staff:5:tenure}}';
- expect(fillStaffMarkers(body,[{id:5,timeline_start_date:'2025-10-09'}],new Date('2026-10-08'))).toContain('Welcome! Start date: 2025-10-09 0 years');
+ expect(fillStaffMarkers(body,[{id:5,timeline_start_date:'2025-10-09'}],new Date('2026-10-08'))).toContain('Welcome! Start date: 10-09-2025 <strong>0 years!</strong>');
  expect(fillStaffMarkers(body,[{id:5,timeline_start_date:'2024-10-01'}],new Date('2026-10-08'))).toContain('2 years');
 });

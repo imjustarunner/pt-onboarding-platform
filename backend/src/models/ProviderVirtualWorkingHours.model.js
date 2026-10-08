@@ -59,6 +59,7 @@ function flagsFromSessionType(sessionType) {
 function normFrequency(v) {
   const s = String(v || '').trim().toUpperCase();
   if (s === 'ONCE') return 'ONCE';
+  if (s === 'MONTHLY') return 'MONTHLY';
   if (s === 'BIWEEKLY') return 'BIWEEKLY';
   if (s === 'EVERY_3_WEEKS') return 'EVERY_3_WEEKS';
   if (s === 'EVERY_4_WEEKS') return 'EVERY_4_WEEKS';
@@ -207,7 +208,7 @@ class ProviderVirtualWorkingHours {
       values.push(sessionType, Number(flags.availableForIntake), Number(flags.availableForSession));
     }
     if (frequency != null) {
-      if (!['ONCE', 'WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'EITHER'].includes(String(frequency).toUpperCase())) {
+      if (!['ONCE', 'MONTHLY', 'WEEKLY', 'BIWEEKLY', 'EVERY_3_WEEKS', 'EVERY_4_WEEKS', 'EITHER'].includes(String(frequency).toUpperCase())) {
         throw new Error('Invalid recurring availability frequency');
       }
       assignments.push('frequency = ?');

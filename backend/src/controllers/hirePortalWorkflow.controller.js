@@ -1,6 +1,6 @@
 import { PDFDocument } from 'pdf-lib';
 import { isEmploymentContract, addContractSignatureFields } from '../utils/contractSignatureFields.js';
-import { validateClinicalProfile } from '../utils/hireClinicalProfile.js';
+import {validateFocus} from '../../../frontend/src/navigation/providerFocus.js';
 import { randomUUID } from 'node:crypto';
 import { portalStateForUser, getPortalTask, viewPortalSignedFile } from './prehirePortal.controller.js';
 import { savePortalStep, portalStepSubmissions, validatePreemployment } from '../services/hirePortalWorkflow.service.js';
@@ -25,7 +25,9 @@ export async function saveWorkflowStep(req, res, next) {
       value = validatePreemployment(req.body?.values, req.body?.complete !== false);
     } else if (ctx.phase === 'onboarding' && ctx.step?.kind === 'clinical-profile') {
       if (req.body?.complete !== false && req.body?.reviewed !== true) fail('Confirm that you have reviewed all four sections.');
-      value = { values: validateClinicalProfile(req.body?.values, ctx.step.fields), reviewed: req.body?.reviewed === true };
+      const groups=ctx.step.fields.map(f=>({key:f.group,label:f.label,options:f.options}));
+      const clinicalFocus=validateFocus(req.body?.clinicalFocus,groups);
+      value={clinicalFocus,values:Object.fromEntries(ctx.step.fields.map(f=>[f.key, f.options.filter(v=>!clinicalFocus.excluded[f.group].includes(v))])),reviewed:req.body?.reviewed===true};
     } else if (ctx.phase === 'onboarding' && ctx.key === 'work-email') {
       const email = String(req.body?.email || '').trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('Enter your preferred work email.');

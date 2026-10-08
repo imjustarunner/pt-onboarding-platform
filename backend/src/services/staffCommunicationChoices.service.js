@@ -43,10 +43,13 @@ async function context(userId,agencyId) {
     choices:STAFF_COMMUNICATION_CHOICES, accessRequests:STAFF_COMMUNICATION_REQUESTS,
     text:`${profile.brandName} sends only the text categories you choose to your own phone. All choices default to No. Receiving texts is optional and is not a condition of employment or app access. Message frequency varies; message and data rates may apply. Reply HELP for help or contact ${profile.supportContact || 'your organization'}. Reply STOP to stop texts from that campaign; this also stops other categories on the same campaign. You can change your choices here at any time. Carriers are not liable for delayed or undelivered messages. Standard SMS is not end-to-end encrypted. Keep sensitive information in the secure app. These are administrative communications, not an emergency service. Client texts to your assigned business number remain in the app regardless of these personal-phone choices. Choosing No does not disable your app inbox.`,
     future:'Client-message forwarding and replies from your personal phone are not enabled by this form. Call bridging, voicemail, call recording and transcription are not currently available. A phone number or extension does not itself enable these features. Separate setup and disclosures are required before launch.'};
-  const [prefs]=await pool.execute('SELECT notification_categories FROM user_preferences WHERE user_id=?',[userId]);
+  const [prefs]=await pool.execute(`SELECT notification_categories,
+    (SELECT email_enabled FROM user_notification_type_preferences n WHERE n.user_id=user_preferences.user_id AND n.notification_type='kiosk_checkin' LIMIT 1) AS kiosk_email_enabled
+    FROM user_preferences WHERE user_id=?`,[userId]);
   const state=parse(prefs[0]?.notification_categories)[staffCommunicationKey(agencyId)]||null;
+  const arrivalEmail=prefs[0]?.kiosk_email_enabled==null?(state?.arrivalEmail??null):Number(prefs[0].kiosk_email_enabled)===1;
   const phone=normalizeSmsPhone(user.personal_phone||user.work_phone||user.phone_number)||'';
-  return {user,programs,disclosure,disclosureHash:digest(disclosure),state,phone};
+  return {user,programs,disclosure,disclosureHash:digest(disclosure),state,phone,arrivalEmail};
 }
 export async function getStaffCommunicationChoices({userId,agencyId}) {
   const c=await context(userId,agencyId);
@@ -58,7 +61,9 @@ export async function getStaffCommunicationChoices({userId,agencyId}) {
     return {...item,status:active?'active':'pending_review'};
   }));
   return {agencyId:Number(agencyId),disclosure:c.disclosure,disclosureHash:c.disclosureHash,phone:c.phone,
-    choices:c.state?.choices||Object.fromEntries(STAFF_COMMUNICATION_CHOICES.map(x=>[x.key,false])),
+    choices:{...Object.fromEntries(STAFF_COMMUNICATION_CHOICES.map(x=>[x.key,false])),...c.state?.choices},
+    answeredChoices:Object.keys(c.state?.choices||{}),
+    arrivalEmail:c.arrivalEmail,
     accessRequests:c.state?.accessRequests||Object.fromEntries(STAFF_COMMUNICATION_REQUESTS.map(x=>[x.key,false])),
     reviewedAt:c.state?.reviewedAt||null,activation,
     needsReview:!c.state||c.state.disclosureHash!==c.disclosureHash||(Object.values(c.state.choices||{}).some(v=>v===true)&&c.state.phoneHash!==phoneFingerprint(c.phone)),
@@ -72,6 +77,7 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
     if(!locked)throw fail('Your choices are being saved. Please try again.',409);
     const c=await context(userId,agencyId);
     const errors=validateStaffCommunicationInput(input,c.disclosureHash);
+    if(typeof input?.arrivalEmail!=='boolean')errors.push('Choose Yes or No for kiosk check-in emails.');
     const anyYes=Object.values(input?.choices||{}).some(v=>v===true);
     const phone=anyYes?(normalizeSmsPhone(input?.phone)||''):c.phone;
     if(anyYes&&!c.disclosure.policyReady)errors.push('Your organization must publish its SMS policies before text enrollment. You may choose No for every category now.');
@@ -79,14 +85,16 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
     if(errors.length)throw fail(errors.join(' '));
     if(!isChatEncryptionConfigured())throw fail('Secure consent storage is unavailable. Nothing was saved.',503);
     const reviewedAt=new Date().toISOString(),reference=`staff_communications:${randomUUID()}`;
-    const signed={phone,choices:input.choices,accessRequests:input.accessRequests,signerName:input.signerName.trim(),acknowledged:true,disclosure:c.disclosure,disclosureHash:c.disclosureHash,reviewedAt,source};
+    const signed={phone,choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,signerName:input.signerName.trim(),acknowledged:true,disclosure:c.disclosure,disclosureHash:c.disclosureHash,reviewedAt,source};
     const envelope=encryptChatText(JSON.stringify(signed));
-    const state={choices:input.choices,accessRequests:input.accessRequests,reviewedAt,phoneHash:phoneFingerprint(phone),disclosureHash:c.disclosureHash,reference,envelope,activation:[]};
+    const state={choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,reviewedAt,phoneHash:phoneFingerprint(phone),disclosureHash:c.disclosureHash,reference,envelope,activation:[]};
     await connection.beginTransaction();
     const evidenceId=await appendSecurityEvidence({requestId:randomUUID(),phase:'completed',userId,method:'PUT',route:'/staff-communication-choices',clientIp:null,ipSource:'not_collected',peerIp:null,
       action:'staff_communication_choices_signed',outcome:'success',statusCode:200,details:{agencyId:Number(agencyId),reference,envelope}},connection,{mirror:false});
     state.evidenceId=evidenceId;
     await writeState(connection,userId,agencyId,state);
+    await connection.execute(`INSERT INTO user_notification_type_preferences (user_id,notification_type,in_app_enabled,email_enabled)
+      VALUES (?,'kiosk_checkin',1,?) ON DUPLICATE KEY UPDATE in_app_enabled=1,email_enabled=VALUES(email_enabled)`,[userId,input.arrivalEmail?1:0]);
     // Personal-phone forwarding never becomes enabled as a side effect of consent.
     await connection.execute('UPDATE user_preferences SET sms_forwarding_enabled=FALSE WHERE user_id=?',[userId]);
     await connection.commit();

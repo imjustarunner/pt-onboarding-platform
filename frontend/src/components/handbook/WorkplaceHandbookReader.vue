@@ -20,7 +20,9 @@
         >Open full handbook →</a>
       </header>
 
-      <p v-if="previewMode && digest?.status === 'draft'" class="muted">Private draft preview — these changes have not been published to staff.</p>
+      <p v-if="digest?.status === 'draft'" class="muted">Draft for review — these changes are still being edited. Formal acknowledgment opens when they are published.</p>
+      <p v-if="canEdit" class="editor-notice">Administrator editing: changes saved here update this shared handbook digest for everyone in the agency.</p>
+      <p v-if="editMessage" role="status">{{editMessage}}</p>
       <div v-if="!entries.length" class="empty">
         No handbook updates in this digest.
       </div>
@@ -28,6 +30,14 @@
       <article v-for="(e, idx) in entries" :key="e.id || idx" class="entry">
         <div class="entry-num">{{ idx + 1 }}</div>
         <div class="entry-body">
+          <div v-if="editing?.id===e.id" class="inline-editor">
+            <label>Subject<input v-model="editing.subject" /></label>
+            <label>Rationale<textarea v-model="editing.rationale" rows="2" /></label>
+            <DraftHtmlEditor :agency-id="agencyId" v-model="editing.changed_content" label="Shared handbook update" />
+            <button type="button" class="btn primary" :disabled="editBusy" @click="saveEdit">Save for everyone</button>
+            <button type="button" class="btn" :disabled="editBusy" @click="editing=null">Cancel</button>
+          </div>
+          <template v-else>
           <div class="part">
             <span class="part-label">Subject</span>
             <h3>{{ e.subject }}</h3>
@@ -40,6 +50,8 @@
             <span class="part-label">Changed content</span>
             <div class="changed" v-html="formatChanged(e.changed_content)" />
           </div>
+          <button v-if="canEdit" type="button" class="btn" @click="editing={...e}">Edit shared update</button>
+          </template>
         </div>
       </article>
 
@@ -53,7 +65,7 @@
       </div>
 
       <div class="ack-row">
-        <button type="button" class="btn primary" :disabled="acking || previewMode || !entries.length" @click="acknowledge">
+        <button type="button" class="btn primary" :disabled="acking || previewMode || digest?.status==='draft' || !entries.length" @click="acknowledge">
           {{ acking ? 'Saving…' : 'I have reviewed these handbook updates' }}
         </button>
       </div>
@@ -65,6 +77,8 @@
 import DOMPurify from 'dompurify';
 import { onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
+import DraftHtmlEditor from '../admin/DraftHtmlEditor.vue';
+import {useAuthStore} from '../../store/auth';
 
 const props = defineProps({
   accessMode: { type: String, default: 'auth' },
@@ -85,6 +99,18 @@ const question = ref('');
 const asking = ref(false);
 const askMsg = ref('');
 const acking = ref(false);
+const auth=useAuthStore(),canEdit=ref(false),editing=ref(null),editBusy=ref(false),editMessage=ref('');
+async function checkEditAccess(){
+  canEdit.value=false;
+  if(digest.value?.status!=='draft'||!auth.user||!['admin','super_admin','support','assistant_admin'].includes(auth.user.role))return;
+  try{await api.get(`/provider-update/handbook/digests/${digest.value.id}`,{params:{agencyId:props.agencyId}});canEdit.value=true;}catch{canEdit.value=false;}
+}
+async function saveEdit(){
+  if(!canEdit.value||!editing.value)return;
+  editBusy.value=true;editMessage.value='';
+  try{const {data}=await api.post(`/provider-update/handbook/digests/${digest.value.id}/entries`,{agencyId:Number(props.agencyId),entryId:editing.value.id,subject:editing.value.subject,rationale:editing.value.rationale,changedContent:editing.value.changed_content,sortOrder:editing.value.sort_order});entries.value=data.entries;editing.value=null;editMessage.value='Shared handbook update saved for everyone.';}
+  catch(e){editMessage.value=e.response?.data?.error?.message||'The update could not be saved.';}finally{editBusy.value=false;}
+}
 
 function formatChanged(text) {
   if (!text) return '<p>—</p>';
@@ -113,6 +139,7 @@ async function load() {
     digest.value = data.digest || null;
     entries.value = data.entries || [];
     fullHandbookUrl.value = data.fullHandbookUrl || '';
+    await checkEditAccess();
   } finally {
     loading.value = false;
   }
@@ -156,6 +183,7 @@ watch(() => [props.agencyId, props.token, props.adminUpdateId], load);
 
 <style scoped>
 .changed :deep(img),.changed :deep(video){max-width:100%;height:auto}
+.changed{overflow-x:auto}.changed :deep(table){width:100%;border-collapse:collapse;margin:16px 0}.changed :deep(th){background:#173e5a;color:#fff;text-align:left}.changed :deep(td),.changed :deep(th){padding:12px;border:1px solid #d4dee5;min-width:100px}.changed :deep(h2){color:#173e5a;border-top:3px solid #c8dce9;padding-top:22px;margin-top:28px}.changed :deep(h3){color:#173e5a;background:#edf3f8;padding:12px;border-radius:8px}.changed :deep(dd){margin:6px 0 18px}.inline-editor{display:grid;gap:12px}.inline-editor label{display:grid;gap:6px}.inline-editor input,.inline-editor textarea{font:inherit;padding:10px;color:#19344e;border:1px solid #849bad;border-radius:6px}.editor-notice{background:#e7f0fb;color:#173e5a;padding:16px;border-radius:10px}
 .hb-digest {
   --line: rgba(15, 23, 42, 0.08);
   --glass: rgba(255, 255, 255, 0.72);

@@ -16,7 +16,7 @@ export function needsClinicalProfile(user) {
 
 export function clinicalProfileForm(facets) {
   return {
-    fields: CLINICAL_PROFILE_FIELDS.map(field => ({ ...field, options: [...new Set([...field.options, ...(facets?.[field.group] || [])])] })),
+    fields: CLINICAL_PROFILE_FIELDS.map(field => ({ ...field, options: field.group==='ageGroups'?field.options:[...new Set([...field.options, ...(facets?.[field.group] || [])])] })),
     values: Object.fromEntries(CLINICAL_PROFILE_FIELDS.map(field => [field.key, facets?.[field.group] || []])),
     reviewNeeded: facets?.reviewNeeded || []
   };

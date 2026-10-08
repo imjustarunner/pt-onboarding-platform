@@ -244,7 +244,7 @@
         <label class="field">
           <span>Send to</span>
           <select v-model="sendMode" class="input">
-            <option value="all">Everyone eligible (school + demo testers)</option>
+            <option value="all">All eligible staff (work email)</option>
             <option value="demo">Demo / Hogwarts testers only</option>
             <option value="selected">Selected people only</option>
           </select>
@@ -294,7 +294,8 @@
       <div class="compose-actions">
         <button type="button" class="btn" :disabled="busy" @click="saveDraft">Save draft</button>
         <button type="button" class="btn" @click="previewFullOpen = true">Preview full</button>
-        <button type="button" class="btn primary" :disabled="busy" @click="saveAndSend">
+        <button type="button" class="btn" :disabled="busy" @click="saveAndSend(true)">Prepare editable links — no email</button>
+        <button type="button" class="btn primary" :disabled="busy" @click="saveAndSend(false)">
           {{ busy ? 'Sending…' : 'Send to providers' }}
         </button>
       </div>
@@ -686,7 +687,7 @@ async function saveDraft() {
   }
 }
 
-async function saveAndSend() {
+async function saveAndSend(prepareOnly=false) {
   busy.value = true;
   error.value = '';
   success.value = '';
@@ -709,13 +710,13 @@ async function saveAndSend() {
       pushId = res.data.id;
       draft.id = pushId;
     }
-    const res = await api.post(`/provider-update/pushes/${pushId}/send`, {
+    const res = await api.post(`/provider-update/pushes/${pushId}/${prepareOnly?'prepare-links':'send'}`, {
       agencyId: Number(props.agencyId),
       orgSlug: props.organizationSlug,
       providerUserIds
     });
     const sent = (res.data?.results || []).filter((r) => r.deliveryStatus === 'sent').length;
-    success.value = `Sent (${sent} delivered / ${(res.data?.results || []).length} total). Open Past pushes → View for token links.`;
+    success.value = prepareOnly ? 'Editable links prepared. No email or text was sent. Copy links from the recipient list below.' : `Sent (${sent} delivered / ${(res.data?.results || []).length} total). Open Past pushes → View for token links.`;
     tab.value = 'pushes';
     await loadPushes();
     const push = pushes.value.find((p) => Number(p.id) === Number(pushId));

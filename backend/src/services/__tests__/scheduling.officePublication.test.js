@@ -7,6 +7,10 @@ import IP from '../../models/ProviderInPersonSlotAvailability.model.js';
 import {officePublicationMatches,publishOfficeAvailability} from '../publishOfficeAvailability.service.js';
 const first={id:1,room_id:5,office_location_id:2,start_at:'2026-10-08 13:00:00',end_at:'2026-10-08 14:00:00'};
 describe('office-linked publication cadence',()=>{
+ it('monthly means the same ordinal weekday, not every four weeks',()=>{
+  expect(officePublicationMatches({start_at:'2026-11-12 14:00:00',end_at:'2026-11-12 15:00:00'},first,'MONTHLY','America/Denver')).toBe(true);
+  expect(officePublicationMatches({start_at:'2026-11-05 14:00:00',end_at:'2026-11-05 15:00:00'},first,'MONTHLY','America/Denver')).toBe(false);
+ });
  it('matches actual reservations every four weeks across DST',()=>{
   expect(officePublicationMatches({start_at:'2026-11-05 14:00:00',end_at:'2026-11-05 15:00:00'},first,'EVERY_4_WEEKS','America/Denver')).toBe(true);
   expect(officePublicationMatches({start_at:'2026-10-15 13:00:00',end_at:'2026-10-15 14:00:00'},first,'EVERY_4_WEEKS','America/Denver')).toBe(false);

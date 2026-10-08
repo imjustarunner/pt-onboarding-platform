@@ -10,6 +10,7 @@ export function availabilityOccursOn(row, ymd) {
   if (start && ymd < start || end && ymd > end) return false;
   if (frequency === 'ONCE') return !!start && ymd === start;
   if (!start) return frequency === 'WEEKLY' || frequency === 'EITHER';
+  if(frequency==='MONTHLY'){const a=new Date(start+'T12:00:00Z'),b=new Date(ymd+'T12:00:00Z');return ymd>=start&&a.getUTCDay()===b.getUTCDay()&&Math.floor((a.getUTCDate()-1)/7)===Math.floor((b.getUTCDate()-1)/7);}
   const days = Math.round((Date.parse(ymd + 'T12:00:00Z') - Date.parse(start + 'T12:00:00Z')) / 86400000);
   return days >= 0 && days % (steps[frequency] || 7) === 0;
 }

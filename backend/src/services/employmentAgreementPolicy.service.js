@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
+import {SERVICE_CREDIT_POLICY_VERSION, isServiceCreditPolicy, defaultHcodeIndirectMinutes, conditionalLevelBonus} from '../utils/serviceCreditPolicy.js';
 
-export const COMPENSATION_POLICY_VERSION = 'itsco-2026-10-service-credit-v2';
+export const COMPENSATION_POLICY_VERSION = SERVICE_CREDIT_POLICY_VERSION;
 const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : (value || {}); } catch { return {}; } };
 const ymd = value => value instanceof Date ? value.toISOString().slice(0,10) : /^\d{4}-\d{2}-\d{2}/.test(String(value || '')) ? String(value).slice(0,10) : null;
 export function probationEndDate(start) {
@@ -33,18 +34,22 @@ export async function latestEmploymentAgreementDate(userId, db = pool) {
 }
 export async function effectiveCompensationAgreement({agencyId,userId,asOfDate}, db = pool) {
   const agreements = await signedAgreements(userId,agencyId,db);
-  return agreements.filter(a=>a.data.compensationPolicyVersion === COMPENSATION_POLICY_VERSION && a.effectiveOn <= ymd(asOfDate))
+  return agreements.filter(a=>isServiceCreditPolicy(a.data.compensationPolicyVersion) && a.effectiveOn <= ymd(asOfDate))
     .sort((a,b)=>b.effectiveOn.localeCompare(a.effectiveOn)||b.id-a.id)[0] || null;
 }
 export function agreementRateProfile(profile, agreement) {
   if (!agreement) return profile;
   const s = agreement.data.schedule;
-  return {...profile, category:s.category,level:s.level,creditRate:s.creditRate,hcodeRate:s.hcodeRate,
+  const bonus = Number(s.tier3LevelBonus ?? conditionalLevelBonus(s.level));
+  const tierTerms = agreement.data.compensationPolicyVersion === COMPENSATION_POLICY_VERSION
+    ? {tierBonusFfs:{1:0,2:0,3:bonus},tierBonusHcode:{1:0,2:0,3:Number(s.category)===1?bonus:0}}
+    : {};
+  return {...profile, ...tierTerms, category:s.category,level:s.level,creditRate:s.creditRate,hcodeRate:s.hcodeRate,
     indirectRate:s.indirectRate,supportActivityRate:s.supportRate,
     creditRateProbation:s.creditRateProbation,hcodeRateProbation:s.hcodeRateProbation,
     indirectRateProbation:s.indirectRateProbation ?? s.indirectRate,
     supportActivityRateProbation:s.supportRateProbation ?? s.supportRate,
-    autoIndirectMinutesPerHour:s.autoIndirectMinutes ?? 12,
-    leaveAdminRatio:s.leaveAdminRatio ?? 0.2,compensationPolicyVersion:COMPENSATION_POLICY_VERSION,
+    autoIndirectMinutesPerHour:s.autoIndirectMinutes ?? (agreement.data.compensationPolicyVersion === 'itsco-2026-10-service-credit-v2' ? 12 : defaultHcodeIndirectMinutes(s.category)),
+    leaveAdminRatio:s.leaveAdminRatio ?? 0.2,compensationPolicyVersion:agreement.data.compensationPolicyVersion,
     agreementEffectiveOn:agreement.effectiveOn,agreementId:agreement.id};
 }

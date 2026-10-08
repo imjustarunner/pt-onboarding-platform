@@ -27,6 +27,7 @@ router.post('/pushes', authenticate, ctrl.createPushHandler);
 router.get('/pushes/:pushId', authenticate, ctrl.getPushHandler);
 router.put('/pushes/:pushId', authenticate, ctrl.updatePushHandler);
 router.post('/pushes/:pushId/send', authenticate, ctrl.sendPushHandler);
+router.post('/pushes/:pushId/prepare-links', authenticate, ctrl.sendPushHandler);
 router.get('/pushes/:pushId/export', authenticate, ctrl.exportPushHandler);
 router.post('/pushes/:pushId/submit-payroll', authenticate, ctrl.submitPayrollHandler);
 router.get('/eligible-providers', authenticate, ctrl.listEligibleProvidersHandler);

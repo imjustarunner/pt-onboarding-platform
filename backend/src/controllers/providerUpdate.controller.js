@@ -135,6 +135,7 @@ export const sendPushHandler = async (req, res, next) => {
       pushId: req.params.pushId,
       agencyId,
       sentByUserId: req.user.id,
+      prepareOnly: req.path.endsWith('/prepare-links'),
       providerUserIds: req.body.providerUserIds || null,
       orgSlug: req.body.orgSlug || agency?.portal_url || agency?.slug || ''
     });

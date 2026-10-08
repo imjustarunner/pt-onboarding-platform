@@ -27,14 +27,15 @@ export function fillStaffMarkers(html,staff,asOf=new Date()) {
     const person=byId.get(Number(id));if(!person)return '';
     if(field==='photo'){
       const url=publicUploadsUrlFromStoredPath(person.profile_photo_path);
-      return url?`<img src="${escape(url)}" alt="${escape(`${person.first_name} ${person.last_name}`)}" width="80" height="80" />`:'';
+      return url?`<img src="${escape(url)}" alt="${escape(`${person.first_name} ${person.last_name}`)}" width="112" height="112" style="width:112px;height:112px;object-fit:cover;border-radius:50%;border:4px solid #719567" />`:'';
     }
     const date=staffStartDate(person);
-    if(field==='startDate')return date?`Start date: ${escape(date)}`:'Start date: not yet recorded';
+    const displayDate=date?`${date.slice(5,7)}-${date.slice(8,10)}-${date.slice(0,4)}`:'';
+    if(field==='startDate')return date?`Start date: ${displayDate}`:'Start date: not yet recorded';
     if(!date)return 'Start date: not yet recorded';
     const start=new Date(`${date}T00:00:00Z`),end=new Date(asOf);
     let years=end.getUTCFullYear()-start.getUTCFullYear();
     if(end.getUTCMonth()<start.getUTCMonth()||(end.getUTCMonth()===start.getUTCMonth()&&end.getUTCDate()<start.getUTCDate()))years--;
-    return `${Math.max(0,years)} ${years===1?'year':'years'} · Start date: ${escape(date)}`;
+    return `<strong>${Math.max(0,years)} ${years===1?'year':'years'}!</strong> · Start date: ${displayDate}`;
   });
 }

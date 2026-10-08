@@ -326,7 +326,10 @@ const displayedProviders = computed(() => {
       return String(aT).localeCompare(String(bT));
     });
   }
-  if(searchMode.value==='needs')list.sort((a,b)=>matchFor(b).score-matchFor(a).score);
+  if(searchMode.value==='needs')list.sort((a,b)=>{
+    const rank=p=>(matchFor(p).score>0 && Date.parse(p.availability?.nextAvailableAt)>Date.now())?1:0;
+    return rank(b)-rank(a)||matchFor(b).score-matchFor(a).score;
+  });
   return list;
 });
 

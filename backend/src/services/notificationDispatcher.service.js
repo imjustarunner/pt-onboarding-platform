@@ -17,6 +17,7 @@ const SMS_CATEGORY_BY_TYPE = {
   support_safety_net_alert: 'messaging_support_safety_net_alerts',
   client_note: 'messaging_client_notes',
   kiosk_checkin: 'surveys_client_checked_in',
+  client_appointment_reply: 'scheduling_schedule_changes',
   survey_completed: 'surveys_survey_completed',
   credential_expiring: 'compliance_credential_expiration_reminders',
   credential_expired_blocking: 'compliance_access_restriction_warnings',

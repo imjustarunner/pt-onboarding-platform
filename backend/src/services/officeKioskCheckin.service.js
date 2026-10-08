@@ -112,7 +112,7 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
     conn.release();
   }
   // The durable fallback waits 90 seconds for acknowledgment. Push stays opt-in.
-  if (notification) await Promise.allSettled([NotificationDispatcher.dispatchPushForNotification(notification)]);
+  if (notification) await Promise.allSettled([NotificationDispatcher.dispatchPushForNotification(notification),NotificationDispatcher.dispatchForNotification(notification)]);
   const email = notification ? 'queued' : 'not_requested';
   return { ok: true, eventId, alreadyCheckedIn, ...(submission ? {submission} : {}), notification: { inApp: true, email } };
 }

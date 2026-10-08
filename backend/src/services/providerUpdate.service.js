@@ -1,3 +1,4 @@
+import {buildQuickViewHomeUrl} from '../utils/publicPortalUrl.js';
 import {recordUpdateTime,submitCompletedUpdateTime,createUpdateTimeClaim,updateTimeSummary} from './providerUpdateTime.service.js';
 import {spanishIntakeProcedure} from '../content/october2026UpdateRevisions.js';
 import {getProviderUpdateRecords} from './providerUpdateRecords.service.js';
@@ -80,9 +81,9 @@ export async function listEligibleProviders(agencyId, { includeDemoTesters = tru
     ])
   );
 
-  const [agencyStaff] = await pool.execute(`SELECT u.id AS provider_user_id, u.first_name, u.last_name, u.email, u.role,
+  const [agencyStaff] = await pool.execute(`SELECT u.id AS provider_user_id, u.first_name, u.last_name, u.email, u.work_email, u.role,
       COALESCE(u.is_demo, 0) AS is_demo FROM users u JOIN user_agencies ua ON ua.user_id = u.id
-      WHERE ua.agency_id = ? AND COALESCE(u.is_archived, 0) = 0
+      WHERE ua.agency_id = ? AND COALESCE(u.is_archived, 0) = 0 AND COALESCE(u.is_active,1)=1 AND COALESCE(ua.is_active,1)=1
       AND u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','staff','admin','super_admin')`, [Number(agencyId)]);
   for (const person of agencyStaff) byId.set(Number(person.provider_user_id), { ...person, source: 'agency_staff' });
 
@@ -91,14 +92,18 @@ export async function listEligibleProviders(agencyId, { includeDemoTesters = tru
     const ids = [...byId.keys()];
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT u.id, u.role, COALESCE(u.is_demo, 0) AS is_demo
-       FROM users u WHERE u.id IN (${placeholders})`,
-      ids
+      `SELECT u.id, u.work_email, u.role, COALESCE(u.is_demo, 0) AS is_demo
+       FROM users u WHERE u.id IN (${placeholders})
+         AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+         AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1)`,
+      [...ids,Number(agencyId)]
     );
+    const activeIds=new Set((rows||[]).map(row=>Number(row.id)));
+    for(const id of byId.keys())if(!activeIds.has(id))byId.delete(id);
     for (const r of rows || []) {
       const cur = byId.get(Number(r.id));
       if (cur) {
-        cur.role = r.role;
+        cur.role = r.role;cur.work_email=r.work_email;
         cur.is_demo = Number(r.is_demo) ? 1 : 0;
       }
     }
@@ -107,11 +112,12 @@ export async function listEligibleProviders(agencyId, { includeDemoTesters = tru
   if (includeDemoTesters) {
     try {
       const [testers] = await pool.execute(
-        `SELECT u.id AS provider_user_id, u.first_name, u.last_name, u.email, u.role,
+        `SELECT u.id AS provider_user_id, u.first_name, u.last_name, u.email, u.work_email, u.role,
                 COALESCE(u.is_demo, 0) AS is_demo, dta.account_group
          FROM demo_test_accounts dta
          JOIN users u ON u.id = dta.user_id
          WHERE dta.is_active = 1
+           AND COALESCE(u.is_active,1)=1
            AND LOWER(COALESCE(u.role, '')) IN (
              'provider', 'provider_plus', 'clinical_practice_assistant',
              'intern', 'intern_plus', 'staff'
@@ -383,7 +389,7 @@ async function ensureSectionRows(recipientId, enabledKeys) {
   }
 }
 
-export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds = null, orgSlug = '' }) {
+export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds = null, orgSlug = '', prepareOnly = false }) {
   const push = await getPush(pushId);
   if (!push || Number(push.agency_id) !== Number(agencyId)) {
     throw Object.assign(new Error('Push not found'), { status: 404 });
@@ -401,7 +407,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
     : null;
   const targets = allow
     ? providers.filter((p) => allow.has(Number(p.provider_user_id)))
-    : providers;
+    : providers.filter(p=>!Number(p.is_demo));
   if (!targets.length) {
     throw Object.assign(new Error('No providers to send'), { status: 400 });
   }
@@ -412,7 +418,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
   const amendmentPlan = parseJson(push.amendment_plan_json, null);
   const enabledKeys = enabledSectionKeys(push.section_config_json);
 
-  const resolved = await resolveSenderIdentityForSend({
+  const resolved = prepareOnly ? null : await resolveSenderIdentityForSend({
     agencyId,
     templateType: 'provider_update_invite',
     preferredKeys: ['people_operations', 'people_ops', 'po', 'notifications']
@@ -434,7 +440,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
     await ensureSectionRows(recipient.id, keysForRecipient.length ? keysForRecipient : enabledKeys);
 
     // Assign amendment document tasks when plan is attached and section is enabled for this user
-    if (keysForRecipient.includes('amendments') && amendmentPlan) {
+    if (!prepareOnly && keysForRecipient.includes('amendments') && amendmentPlan) {
       try {
         const {
           isJobDescriptionAcknowledgmentPlan,
@@ -472,7 +478,8 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
     }
 
     const link = buildProviderUpdatePublicUrl(recipient.token, orgSlug || agency?.portal_url || agency?.slug);
-    const to = String(p.email || '').trim().toLowerCase();
+    if(prepareOnly){results.push({providerUserId:Number(p.provider_user_id),deliveryStatus:'link_prepared',link,token:recipient.token});continue;}
+    const to = String(p.work_email || '').trim().toLowerCase();
     const subject = PROVIDER_UPDATE_EMAIL_SUBJECT;
     const text = [
       `Hello ${p.first_name || 'there'},`,
@@ -493,7 +500,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
 
     if (!to || !to.includes('@')) {
       deliveryStatus = 'failed';
-      errorMessage = 'No email on provider account';
+      errorMessage = 'No work email is saved on this provider account';
     } else {
       try {
         let comm = null;
@@ -521,7 +528,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
             html: `<pre style="font-family:inherit;white-space:pre-wrap;">${text
               .replace(/&/g, '&amp;')
               .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')}</pre>`,
+              .replace(/>/g, '&gt;')}</pre><p><a href="${link.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" target="_blank" rel="noopener">Open your Provider Update</a></p>`,
             source: 'auto',
             agencyId,
             userId: Number(p.provider_user_id),
@@ -713,6 +720,9 @@ export async function getRecipientBundle(recipient) {
     if(section.key==='specialties')section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus};
     if(section.key==='school_availability')section.data.schools=records.schools;
   }
+  if(!records.schools?.length){const index=sectionList.findIndex(s=>s.key==='school_availability');if(index>=0)sectionList.splice(index,1);}
+  const officeReview=sectionList.find(s=>s.key==='office_review');
+  if(officeReview?.completed){const current=await listOpenForBookingForProvider(recipient.provider_user_id,recipient.agency_id);const confirmed=(officeReview.data.confirmedAssignmentIds||[]).map(Number);if(current.some(i=>!confirmed.includes(i.id))){officeReview.completed=false;officeReview.status='in_progress';}}
   const communicationSection=sectionList.find(s=>s.key==='notification_prefs');
   const quickViewSection=sectionList.find(s=>s.key==='pin');
   if(quickViewSection){
@@ -723,7 +733,7 @@ export async function getRecipientBundle(recipient) {
   if (communicationSection) {
     const communicationChoices=await getStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id});
     const {getCommunicationPrefs}=await import('./inboxDigest.service.js');
-    communicationSection.data={...communicationSection.data,communicationChoices,appEmail:await getCommunicationPrefs(recipient.provider_user_id)};
+    communicationSection.data={...communicationSection.data,communicationChoices,hasSchoolAssignments:!!records.schools?.length,appEmail:await getCommunicationPrefs(recipient.provider_user_id)};
     if (!recipient.locked_at && communicationChoices.needsReview) {communicationSection.completed=false;communicationSection.status='in_progress';}
   }
   let agency = null;
@@ -738,7 +748,8 @@ export async function getRecipientBundle(recipient) {
         logo_path: row.logo_path || null,
         logo_url: row.logo_url || null,
         icon_file_path: row.icon_file_path || null,
-        color_palette: row.color_palette || null
+        color_palette: row.color_palette || null,
+        quickViewUrl:buildQuickViewHomeUrl(row)
       };
     }
   } catch {
@@ -787,6 +798,7 @@ export async function getRecipientBundle(recipient) {
       firstName: recipient.first_name,
       lastName: recipient.last_name,
       displayRole: records.displayRole?.label || null,
+      quickViewUrl:agency?.quickViewUrl || null,
       email: recipient.email,
       finalizedAt: recipient.finalized_at,
       lockedAt: recipient.locked_at,
@@ -865,7 +877,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
     [recipientId]
   );
   const done = new Set((sections || []).filter((s) => s.completed).map((s) => s.section_key));
-  const missing = enabledKeys.filter((k) => !done.has(k) || (['notification_prefs','pin','amendments'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
+  const missing = enabledKeys.filter((k) => !done.has(k) || (['notification_prefs','pin','amendments','office_review'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
   if (missing.length) {
     throw Object.assign(new Error(`Complete all sections first: ${missing.join(', ')}`), {
       status: 400,

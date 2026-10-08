@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 const fail = (message, status = 409) => Object.assign(new Error(message), { status });
 
-export async function publishOfficeAssignmentEvent(assignment, event, db = pool, actorUserId = null) {
+export async function publishOfficeAssignmentEvent(assignment, event, db = pool, actorUserId = null, replaceOverrides = false) {
   if (!event?.id || assignment.bookable_in_person == null && assignment.bookable_virtual == null) return;
   if (event.client_id || event.clinical_session_id || event.billing_context_id || event.status === 'CANCELLED') return;
   if (Number(event.assigned_provider_id) !== Number(assignment.provider_id) || Number(event.standing_assignment_id) !== Number(assignment.id)) return;
@@ -11,6 +11,10 @@ export async function publishOfficeAssignmentEvent(assignment, event, db = pool,
   if (!agencyId) throw fail('Choose the booking agency before opening this office time.');
   for (const [flag, table] of [['bookable_in_person', 'provider_in_person_slot_availability'], ['bookable_virtual', 'provider_virtual_slot_availability']]) {
     if (assignment[flag] == null) continue;
+    if(!replaceOverrides){
+      const [overrides]=await db.execute(`SELECT id FROM ${table} WHERE source_event_id=? AND provider_id=? AND agency_id=? AND series_id IS NOT NULL LIMIT 1`,[event.id,assignment.provider_id,agencyId]);
+      if(overrides.length)continue;
+    }
     if (!Number(assignment[flag])) {
       await db.execute(`UPDATE ${table} SET is_active = FALSE WHERE source_event_id = ? AND provider_id = ? AND agency_id = ?`, [event.id, assignment.provider_id, agencyId]);
       continue;
@@ -37,7 +41,7 @@ export async function setOfficeAssignmentBookingAvailability({ assignmentId, pro
     if (!membership.length) throw fail('This reservation needs a valid provider and office agency before it can be opened.');
     await conn.execute('UPDATE office_standing_assignments SET bookable_in_person = ?, bookable_virtual = ? WHERE id = ?', [Number(inPerson), Number(virtual), assignmentId]);
     const [events] = await conn.execute("SELECT * FROM office_events WHERE standing_assignment_id = ? AND end_at > UTC_TIMESTAMP() AND status <> 'CANCELLED' FOR UPDATE", [assignmentId]);
-    for (const event of events) await publishOfficeAssignmentEvent({ ...assignment, bookable_in_person: Number(inPerson), bookable_virtual: Number(virtual) }, event, conn, providerId);
+    for (const event of events) await publishOfficeAssignmentEvent({ ...assignment, bookable_in_person: Number(inPerson), bookable_virtual: Number(virtual) }, event, conn, providerId, true);
     await conn.commit();
     return { ok: true, inPerson, virtual };
   } catch (error) { await conn.rollback(); throw error; }

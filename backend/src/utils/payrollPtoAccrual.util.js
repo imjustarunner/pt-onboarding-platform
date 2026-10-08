@@ -118,7 +118,7 @@ export function paidTimeBasisFromSummaryRow(summaryRow) {
 export function computeServiceCreditLeave({summaryRow, alreadyCreditedManualDirect=0, policy, employmentType, trainingPtoEligible}) {
   const breakdown=parseBreakdown(summaryRow);
   const ps=breakdown?.__paySystem;
-  const modernLines=(ps?.lines||[]).filter(l=>l.compensationPolicyVersion==='itsco-2026-10-service-credit-v2');
+  const modernLines=(ps?.lines||[]).filter(l=>['itsco-2026-10-service-credit-v2','itsco-2026-10-service-credit-v3'].includes(l.compensationPolicyVersion));
   if (employmentType!=='fee_for_service' || !modernLines.length) return null;
   const basis=ps.leaveBasis;
   const allLinePaid=(ps.lines||[]).reduce((n,l)=>n+Number(l.hourEquivalent||0)+Number(l.autoIndirectHours||0),0);

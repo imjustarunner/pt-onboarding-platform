@@ -2,6 +2,7 @@
  * enroll payroll or alter signed terms. --apply requires an explicit backup path. */
 import fs from 'node:fs';
 import pool from '../config/database.js';
+import {conditionalLevelBonus} from '../utils/serviceCreditPolicy.js';
 import {handbookSections,commonAmendmentClauses,renderAmendment,SERVICE_POLICY_VERSION} from '../content/itscoOctober2026Drafts.js';
 import {octoberAdminTopics} from '../content/itscoOctober2026AdminUpdate.js';
 import {renderAdminUpdateHtml} from '../services/adminUpdate.service.js';
@@ -50,7 +51,7 @@ async function main(){
    const data=parse(row.token_values_json),s=data.schedule;
    const rate=rates.find(r=>Number(r.category)===Number(s.category)&&Number(r.level)===Number(s.level))||{};
    data.compensationPolicyVersion=SERVICE_POLICY_VERSION;
-   s.autoIndirectMinutes=12;s.leaveAdminRatio=0.2;
+   s.tier3LevelBonus=conditionalLevelBonus(s.level);s.autoIndirectMinutes=Number(s.category)===1?0:10;s.leaveAdminRatio=0.2;
    s.creditRateProbation??=rate.credit_rate_probation??s.creditRate;
    s.hcodeRateProbation??=rate.hcode_rate_probation??s.hcodeRate;
    s.indirectRateProbation??=s.indirectRate;s.supportRateProbation??=s.supportRate;

@@ -1,5 +1,7 @@
+import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
 import pool from '../config/database.js';
+import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
 import { agreementsForUser, agreementPublic } from './supervisionAgreement.service.js';
 import { CLINICAL_PROFILE_FIELDS, needsClinicalProfile, clinicalProfileForm } from '../utils/hireClinicalProfile.js';
 import { listClinicalFacetsForUser } from './providerClinicalFacets.service.js';
@@ -82,6 +84,9 @@ export async function savePortalStep({ userId, agencyId, phase, key, value, comp
           ON DUPLICATE KEY UPDATE value = VALUES(value)`, [userId, id, JSON.stringify(value.values[field.key])]);
       }
     }
+    if(phase==='onboarding'&&key==='clinical-profile'&&complete&&value.clinicalFocus){
+      await db.execute("INSERT INTO provider_public_profiles(user_id,public_details_json) VALUES(?,JSON_OBJECT('clinicalFocus',CAST(? AS JSON))) ON DUPLICATE KEY UPDATE public_details_json=JSON_SET(COALESCE(public_details_json,JSON_OBJECT()),'$.clinicalFocus',CAST(? AS JSON))",[userId,JSON.stringify(value.clinicalFocus),JSON.stringify(value.clinicalFocus)]);
+    }
     if (file) {
       await db.execute(`INSERT INTO user_admin_docs (user_id, title, doc_type, storage_path, original_name, mime_type, created_by_user_id, is_legal_hold)
         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`, [userId, file.title, file.docType || 'prehire_upload', file.path, file.name, file.mime, userId]);
@@ -159,8 +164,10 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   if ((needsClinicalProfile(user) && !onboardingClosed) || stored('onboarding', 'clinical-profile')) {
     const saved = stored('onboarding', 'clinical-profile');
     const form = clinicalProfileForm(await listClinicalFacetsForUser(user.id, { agencyId }));
+    const publicProfile=await ProviderPublicProfile.getForProvider({providerUserId:user.id,agencyId});
     add('onboarding', { key: 'clinical-profile', kind: 'clinical-profile', title: 'Your clinical profile',
-      instructions: 'Choose the specialties, ages, populations and approaches that reflect your experience.',
+      instructions: 'Deselect areas you do not serve and highlight up to three in each category.',
+      clinicalFocus:normalizeFocusAgeValues(saved?.value?.clinicalFocus||publicProfile?.details?.clinicalFocus)||null,
       complete: !!saved?.completedAt, ...form, values: saved?.value?.values || form.values });
   }
   for (const task of uniquePortalTasks(user.status === 'ONBOARDING' ? tasks : [])) add('onboarding', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });

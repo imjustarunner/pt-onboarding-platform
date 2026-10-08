@@ -60,9 +60,11 @@ export const PROVIDER_UPDATE_SECTIONS = [
     defaultEnabled: true,
     previewHint: 'Uses the same work-hours editor as My Schedule.'
   },
+  {key:'office_review',title:'Confirm Office Reservations',shortTitle:'Office Reservations',description:'Confirm each current office reservation or release incorrect room bookings.',checklist:['Review each reservation','Keep or release office time'],mode:'embedded',icon:'office',defaultEnabled:true},
+  {key:'public_availability',title:'Public Profile Availability',shortTitle:'Public Availability',description:'Choose whether you accept new clients and offer in-person or virtual appointments.',checklist:['Accepting new clients','In-person and virtual formats','View your live profile'],mode:'embedded',icon:'office',defaultEnabled:true},
   {
     key: 'office_schedule',
-    title: 'Weekly Calendar & Public Availability',
+    title: 'Set Availability',
     shortTitle: 'Availability',
     description: 'Review your week, publish client openings, and share your provider profile.',
     checklist: ['Review your weekly calendar', 'Open virtual or reserved office hours', 'View your public profile and shareable link'],
@@ -240,6 +242,8 @@ export const PROVIDER_UPDATE_PAGES = [
     sectionKeys: [
       'pin',
       'work_hours',
+      'office_review',
+      'public_availability',
       'office_schedule',
       'supervision_hours',
       'license',
@@ -304,6 +308,7 @@ export function normalizeSectionConfig(raw) {
   const base = defaultSectionConfig();
   if (!raw || typeof raw !== 'object') return base;
   const out = { ...base };
+  for(const key of ['office_review','public_availability'])if(!Object.hasOwn(raw,key)&&Object.hasOwn(raw,'office_schedule'))out[key]=!!raw.office_schedule;
   for (const key of PROVIDER_UPDATE_SECTION_KEYS) {
     if (Object.prototype.hasOwnProperty.call(raw, key)) out[key] = !['pay_portal','training_ack','preferred_days'].includes(key) && !!raw[key];
   }

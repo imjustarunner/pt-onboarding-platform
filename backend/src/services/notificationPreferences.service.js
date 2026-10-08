@@ -70,11 +70,11 @@ export function resolveNotificationTypePreference(type, context) {
   let inApp = resolveBoolean(override.inApp, defaultInApp);
   let locked = false;
   let lockReason = null;
-  const requiredForRole = entry.required || (type === 'support_safety_net_alert' && context?.userRole === 'support');
+  const requiredForRole = type === 'kiosk_checkin' || entry.required || (type === 'support_safety_net_alert' && context?.userRole === 'support');
   if (requiredForRole) {
     inApp = true;
     locked = true;
-    lockReason = entry.required ? 'Required safety notification' : 'Required for support users';
+    lockReason = type === 'kiosk_checkin' ? 'Client check-ins always appear in the app' : entry.required ? 'Required safety notification' : 'Required for support users';
   } else if (!recommendedForRole) {
     inApp = false;
     locked = true;

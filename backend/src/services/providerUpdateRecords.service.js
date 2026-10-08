@@ -1,3 +1,4 @@
+import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import {getProviderDisplayRole,DISPLAY_ROLE_OPTIONS} from './providerDisplayRole.service.js';
 import {FOCUS_GROUPS,validateFocus} from '../../../frontend/src/navigation/providerFocus.js';
 import {withClinicalFieldOptions} from '../utils/providerClinicalFieldOptions.js';
@@ -33,8 +34,8 @@ export async function getProviderUpdateRecords(userId,agencyId){
   const selected=field?facets[field.group]||[]:facets.interventions||strings(values[k]);
   return {key:k,label:defs[k].field_label,options:[...new Set([...strings(defs[k].options),...selected])],selected};
  });
- const focusGroups=FOCUS_GROUPS.map(g=>({...g,previous:groups.find(v=>v.key===g.field)?.selected||[],options:[...new Set([...g.options,...(groups.find(v=>v.key===g.field)?.options||[])])]}));
- const clinicalFocus=profile?.details?.clinicalFocus||{top:Object.fromEntries(FOCUS_GROUPS.map(g=>[g.key,[]])),excluded:Object.fromEntries(FOCUS_GROUPS.map(g=>[g.key,[]]))};
+ const focusGroups=FOCUS_GROUPS.map(g=>({...g,previous:groups.find(v=>v.key===g.field)?.selected||[],options:g.key==='ageGroups'?g.options:[...new Set([...g.options,...(groups.find(v=>v.key===g.field)?.options||[])])]}));
+ const clinicalFocus=normalizeFocusAgeValues(profile?.details?.clinicalFocus)||{top:Object.fromEntries(FOCUS_GROUPS.map(g=>[g.key,[]])),excluded:Object.fromEntries(FOCUS_GROUPS.map(g=>[g.key,[]]))};
  const [docs]=await pool.execute("SELECT id,file_path FROM user_compliance_documents WHERE user_id=? AND (agency_id=? OR agency_id IS NULL) AND document_type='license' AND file_path IS NOT NULL ORDER BY uploaded_at DESC LIMIT 1",[userId,agencyId]);
  return {displayRole:await getProviderDisplayRole(userId,agencyId),contact:{personalEmail:u.personal_email||'',phone:u.personal_phone||u.phone_number||'',street:u.home_street_address||String(values.mailing_address||values.provider_address||''),line2:u.home_address_line2||'',city:u.home_city||'',state:u.home_state||'',postalCode:u.home_postal_code||'',emergency:String(values.emergency_contact||values.emergency_contact_name||'')},blurb:profile?.publicBlurb||u.provider_school_info_blurb||'',credential:u.credential||String(values.provider_credential_license_type_number||'').match(/^[A-Za-z]+/)?.[0]||u.title||'',photoPath:u.profile_photo_path||null,typicalAvailability:profile?.details?.typicalAvailability||[],specialtyGroups:groups,focusGroups,clinicalFocus,schools,
  license:{number:String(values.provider_credential_license_type_number||''),issued:String(values.provider_credential_license_issued_date||'').slice(0,10),expires:String(values.provider_credential_license_expiration_date||'').slice(0,10),hasUpload:!!(docs[0]?.file_path||values.license_upload)},licensePath:docs[0]?.file_path||values.license_upload||null,

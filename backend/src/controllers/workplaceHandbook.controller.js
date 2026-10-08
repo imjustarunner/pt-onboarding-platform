@@ -284,7 +284,7 @@ export const publicPublishedByToken = async (req, res, next) => {
       adminUpdateId: push?.attached_admin_update_id || null,
       pushId: push?.id || null
     });
-    if(recipient.previewOnly){
+    if(recipient.previewOnly || (!digest?.digest && push?.attached_admin_update_id)){
       const drafts=await listDigests(recipient.agency_id);
       const match=drafts.find(d=>d.status==='draft' && (Number(d.provider_update_push_id)===Number(push?.id) || (push?.attached_admin_update_id && Number(d.admin_update_id)===Number(push.attached_admin_update_id))));
       if(match)digest=await getDigest(match.id,recipient.agency_id);

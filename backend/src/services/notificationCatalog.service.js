@@ -40,7 +40,7 @@ const TYPES_BY_CATEGORY = {
     'medical_records_release_submitted', 'psychotherapy_threshold_exceeded'
   ],
   scheduling_office: [
-    'kiosk_checkin', 'office_schedule_biweekly_review',
+    'kiosk_checkin', 'client_appointment_reply', 'office_schedule_biweekly_review',
     'office_schedule_booking_confirm_6_weeks', 'office_schedule_unbooked_forfeit',
     'office_schedule_booked_no_external_calendar_2_weeks',
     'office_schedule_booked_reverted_no_tn', 'office_schedule_slot_rescheduled',
@@ -97,6 +97,7 @@ const TYPES_BY_CATEGORY = {
 const LABEL_OVERRIDES = {
   client_exchange_claim: 'Client Exchange request',
   kiosk_checkin: 'Client arrival at office',
+  client_appointment_reply: 'Client appointment replies and cancellations',
   user_login: 'User logged in',
   user_logout: 'User logged out',
   presence_user_returned: 'Teammate is back',
@@ -178,7 +179,7 @@ const LABEL_OVERRIDES = {
 };
 
 const WORKFORCE_RELEVANT = new Set([
-  'kiosk_checkin', // Personal arrivals also apply to staff with provider duties.
+  'kiosk_checkin', 'client_appointment_reply', // Personal arrivals also apply to staff with provider duties.
   'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned',
   'temp_password_expired', 'invitation_expired', 'password_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
@@ -204,7 +205,7 @@ const PROVIDER_RELEVANT = new Set([
   'paperwork_received', 'client_became_current', 'client_checklist_updated',
   'client_terminated', 'client_assigned', 'client_school_roi_link_sent',
   'client_school_roi_completed', 'client_school_roi_provider_reminder',
-  'medical_records_release_submitted', 'psychotherapy_threshold_exceeded', 'kiosk_checkin',
+  'medical_records_release_submitted', 'psychotherapy_threshold_exceeded', 'kiosk_checkin', 'client_appointment_reply',
   'office_schedule_biweekly_review', 'office_schedule_booking_confirm_6_weeks',
   'office_schedule_unbooked_forfeit', 'office_schedule_booked_no_external_calendar_2_weeks',
   'office_schedule_booked_reverted_no_tn', 'office_schedule_slot_rescheduled',
@@ -279,7 +280,7 @@ const GUARDIAN_RELEVANT = new Set([
 // smaller subset enabled when a user has not made an explicit per-type choice.
 // Optional relevant types remain available in settings, but start off.
 const WORKFORCE_ESSENTIAL = new Set([
-  'kiosk_checkin',
+  'kiosk_checkin', 'client_appointment_reply',
   'client_exchange_match', 'client_exchange_claim', 'client_exchange_assigned',
   'temp_password_expired', 'invitation_expired', 'password_changed',
   'passwordless_token_expired', 'credential_expiring', 'credential_expired_blocking',
@@ -294,7 +295,7 @@ const WORKFORCE_ESSENTIAL = new Set([
 
 const PROVIDER_ESSENTIAL = new Set([
   ...WORKFORCE_ESSENTIAL,
-  'kiosk_checkin',
+  'kiosk_checkin', 'client_appointment_reply',
   'inbound_client_message', 'support_ticket_forwarded_to_provider',
   'paperwork_received', 'client_terminated', 'client_assigned',
   'medical_records_release_submitted', 'psychotherapy_threshold_exceeded',
@@ -443,7 +444,7 @@ const LEGACY_CATEGORY_BY_TYPE = {
 };
 
 const SMS_CAPABLE = new Set([
-  'inbound_client_message', 'support_safety_net_alert', 'client_note', 'kiosk_checkin',
+  'inbound_client_message', 'support_safety_net_alert', 'client_note', 'kiosk_checkin', 'client_appointment_reply',
   'survey_completed', 'credential_expiring', 'credential_expired_blocking',
   'program_reminder', 'client_assigned', 'shift_calloff_need_coverage',
   'school_provider_slot_verification_requested'

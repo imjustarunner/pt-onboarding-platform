@@ -106,7 +106,7 @@ async function notifyProviderInApp(appt, title, message) {
     await NotificationDispatcher.createNotificationAndDispatch({
       userId: appt.providerUserId,
       agencyId: appt.agencyId,
-      type: 'public_appointment_request_received',
+      type: 'client_appointment_reply',
       title,
       message,
       relatedEntityType: 'appointment',
@@ -170,6 +170,7 @@ export async function applyAppointmentReply({
   }
 
   if (!autoApply || intent === 'unknown') {
+    await notifyProviderInApp(appt, 'Appointment reply needs review', 'A client replied about an appointment. Review the response in the app.');
     return {
       reviewId,
       intent,
@@ -245,6 +246,7 @@ export async function applyAppointmentReply({
         [reviewId]
       );
       clientReply = 'cancel_blocked';
+      await notifyProviderInApp(appt, 'Cancellation reply needs review', 'A client requested a cancellation that could not be applied automatically. Review the appointment in the app.');
       ackMessage = e?.message
         ? `We could not cancel automatically (${e.message}). Staff will follow up.`
         : 'We could not cancel automatically. Staff will follow up.';

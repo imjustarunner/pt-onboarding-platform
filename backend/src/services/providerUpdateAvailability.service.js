@@ -1,3 +1,4 @@
+import {publishOfficeAvailability} from './publishOfficeAvailability.service.js';
 import pool from '../config/database.js';
 import Availability from './providerAvailability.service.js';
 import Hours from '../models/ProviderVirtualWorkingHours.model.js';
@@ -24,7 +25,7 @@ const overlaps = (a,b) => Date.parse(a.startAt) < Date.parse(b.endAt) && Date.pa
 export function virtualOpening(input, timeZone) {
   const date = calendarDate(input.date), startTime = String(input.startTime || '');
   if (!/^(?:[01]\d|2[0-2]):[0-5]\d$/.test(startTime)) throw fail('Choose a start time before 11 PM for your one-hour opening.');
-  if (!['ONCE','WEEKLY'].includes(input.frequency)) throw fail('Choose one date or every week.');
+  if (!['ONCE','WEEKLY','BIWEEKLY','MONTHLY'].includes(input.frequency)) throw fail('Choose once, weekly, every other week, or monthly.');
   const endTime = String(Number(startTime.slice(0,2)) + 1).padStart(2,'0') + startTime.slice(2);
   const startAt = wallMysqlToUtcMysql(`${date} ${startTime}:00`, timeZone).replace(' ','T')+'Z';
   const endAt = wallMysqlToUtcMysql(`${date} ${endTime}:00`, timeZone).replace(' ','T')+'Z';
@@ -96,11 +97,18 @@ export async function closeUpdateVirtualOpening(ids, {id,date,scope}) {
   if(date<today)throw fail('Choose today or a future date.');
   return editAvailabilityPublication({...ids,kind:'weekly',id:Number(id),action:'delete',scope,occurrenceDate:date});
 }
-export async function openUpdateOfficeHours(ids,{assignmentId,inPerson,virtual}) {
+export async function openUpdateOfficeHours(ids,{eventId,assignmentId,inPerson,virtual,frequency='ONCE'}) {
   const {policy} = await writableContext(ids);
   if (typeof inPerson!=='boolean'||typeof virtual!=='boolean') throw fail('Choose the formats to publish.');
   if ((inPerson&&!agencyFormatAllowed(policy,'IN_PERSON'))||(virtual&&!agencyFormatAllowed(policy,'VIRTUAL'))) throw fail('Enable the selected formats and accepting new clients in your profile availability settings first.',409);
-  return setOfficeAssignmentBookingAvailability({...ids,assignmentId:Number(assignmentId),inPerson,virtual,...(inPerson && policy?.officeIds ? {allowedOfficeIds:policy.officeIds}: {})});
+  // Older updater clients keep their established assignment-level behavior.
+  if(!eventId)return setOfficeAssignmentBookingAvailability({...ids,assignmentId:Number(assignmentId),inPerson,virtual,...(inPerson && policy?.officeIds ? {allowedOfficeIds:policy.officeIds}: {})});
+  const [[event]]=await pool.execute(`SELECT e.* FROM office_events e LEFT JOIN office_standing_assignments a ON a.id=e.standing_assignment_id
+    WHERE e.id=? AND e.assigned_provider_id=? AND ((a.booking_agency_id=? AND a.is_active=1) OR (e.standing_assignment_id IS NULL AND EXISTS(SELECT 1 FROM office_location_agencies ola WHERE ola.office_location_id=e.office_location_id AND ola.agency_id=?))) AND e.start_at>UTC_TIMESTAMP() AND e.status<>'CANCELLED'`,[eventId,ids.providerId,ids.agencyId,ids.agencyId]);
+  if(event&&!event.standing_assignment_id&&frequency!=='ONCE')throw fail('A one-time room reservation can only publish its own date.');
+  if(!event)throw fail('Choose one of your future office reservations in this agency.',403);
+  if(inPerson&&Array.isArray(policy?.officeIds)&&!policy.officeIds.includes(Number(event.office_location_id)))throw fail('This office is not enabled in your public profile.',409);
+  return publishOfficeAvailability({event,...ids,frequency,format:inPerson&&virtual?'BOTH':inPerson?'IN_PERSON':virtual?'VIRTUAL':'PRIVATE',availableForIntake:true,availableForSession:true,actorId:ids.providerId,replaceFormats:true});
 }
 export async function saveUpdateAvailabilitySettings(ids, input) {
   const {preferences} = await writableContext(ids);

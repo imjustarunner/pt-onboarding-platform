@@ -5,7 +5,7 @@
       <p>{{ section.meta?.description }}</p>
     </header>
     <p v-if="localError" class="err" role="alert">{{localError}}</p>
-    <fieldset class="preview-fields" :disabled="recipient?.previewOnly && !['office_schedule','admin_update','handbook','amendments'].includes(section.key)">
+    <fieldset class="preview-fields" :disabled="recipient?.previewOnly && !['office_schedule','public_availability','office_review','admin_update','handbook','amendments'].includes(section.key)">
 
     <!-- Handbook -->
     <WorkplaceHandbookReader
@@ -31,10 +31,13 @@
     />
 
     <div v-else-if="section.key === 'pin'" class="pu-panel">
+      <button type="button" class="pu-btn" @click="showQuickViewHelp=!showQuickViewHelp">What’s Quick View?</button>
+      <div v-if="showQuickViewHelp" class="qv-help"><h3>Your app essentials on your phone</h3><p>Quick View gives you quick access to your assigned work, messages, schedule, and meeting links without opening the full dashboard. Your private six-digit code unlocks your access; it is separate from your account password.</p><p>Save your agency link to your phone’s home screen. Keep your device locked and store your code somewhere safe. Do not share it.</p><video v-if="section.data?.quickViewVideoUrl" :src="section.data.quickViewVideoUrl" controls preload="metadata" /><p v-else>Video instructions can be added to the Quick View section of the Admin Update. You can create your code now.</p><button type="button" class="pu-btn" @click="showQuickViewHelp=false">Continue without watching a video</button></div>
+      <p>Your agency’s Quick View: <a :href="recipient?.quickViewUrl" target="_blank" rel="noopener noreferrer">{{recipient?.quickViewUrl}}</a></p>
       <p>Create your six-digit Quick View code here. Your invitation already identifies your account; no password or login is needed.</p>
       <p v-if="newPasscode" role="status">Your new code: <strong>{{newPasscode}}</strong>. Store it safely. This code is shown only once.</p>
       <button v-if="!newPasscode" type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="setupQuickView">Create my six-digit Quick View code</button>
-      <button v-else type="button" class="pu-btn primary" @click="$emit('saved')">I saved my code — continue</button>
+      <button v-else type="button" class="pu-btn primary" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">I saved my code somewhere safe — continue</button>
       <p>This step disappears if a code is already set. Existing codes are never shown or replaced here.</p>
     </div>
 
@@ -44,9 +47,11 @@
       <button class="pu-btn primary" :disabled="saving" @click="markComplete({typicalAvailability:typicalAvailability.split(',').map(s=>s.trim()).filter(Boolean)})">Save &amp; confirm typical availability</button>
     </div>
 
+    <ProviderUpdateOfficeReview v-else-if="section.key==='office_review'" :agency-id="agencyId" :mode="mode" :token="token" :data="section.data" :readonly="!!recipient?.previewOnly" @complete="markComplete" />
     <!-- Office schedule -->
     <ProviderUpdateOfficeSchedule
-      v-else-if="section.key === 'office_schedule'"
+      v-else-if="['office_schedule','public_availability'].includes(section.key)"
+      :view="section.key==='public_availability'?'settings':'calendar'"
       :agency-id="agencyId"
       :mode="mode"
       :token="token"
@@ -178,13 +183,15 @@
         </label>
         <p v-if="emailPreference.personalEmailDeliveryMode==='forward_one_to_one'">Eligible individual emails may include their message content in your personal mailbox. Shared or restricted conversations stay in the app.</p>
         <label class="field">When an email is unread
-          <select v-model="emailPreference.personalEmailDelayMode" @change="emailPreference.personalEmailDelayMode==='business_day' &amp;&amp; (emailPreference.personalEmailDelayHours=24)" :disabled="!!recipient?.previewOnly"><option value="business_day">24 hours — next business day (default)</option><option value="immediate_available">Immediately during my Availability Hours</option><option value="immediate">Immediately, at any hour</option><option value="hours">After a set number of hours</option></select>
+          <select v-model="emailPreference.personalEmailDelayMode" @change="emailPreference.personalEmailDelayMode==='business_day' &amp;&amp; (emailPreference.personalEmailDelayHours=24)" :disabled="!!recipient?.previewOnly"><option value="business_day">24 business hours after an unread email</option><option value="immediate">Instantly</option></select>
         </label>
-        <label v-if="emailPreference.personalEmailDelayMode==='hours'" class="field">Hours <input type="number" min="1" max="168" step="1" v-model.number="emailPreference.personalEmailDelayHours" /></label>
-        <p>Only “Immediately, at any hour” allows after-hours personal notifications. Other choices respect your Availability Hours. Group and secure messages always link to the app. Check your personal email under Contact &amp; Address.</p>
+        <p v-if="!['business_day','immediate'].includes(emailPreference.personalEmailDelayMode)">Your earlier timing setting is saved. To enable these reminders now, choose Instantly or 24 business hours above.</p>
+        <p>Instant email reminders can arrive at any hour. The 24-business-hour option follows your Availability Hours. Group and secure messages always link to the app. Check your personal email under Contact &amp; Address.</p>
         </fieldset>
       </div>
-      <StaffCommunicationChoices :initial="section.data?.communicationChoices" :agency-id="agencyId" external-save :readonly="!!recipient?.previewOnly" :busy="saving" @save="data => markComplete({...data,emailReminderPreferences:emailPreference})" />
+      <ProviderContactHours :base="reviewBase" :agency-id="agencyId" :readonly="!!recipient?.previewOnly" />
+      <p v-if="section.data?.hasSchoolAssignments" class="pu-panel">School visits: reminders do not require families to confirm attendance. Appointment-reply alerts below also cover school absences and scheduling concerns. Review those replies in the app; they do not automatically cancel the visit.</p>
+      <StaffCommunicationChoices :initial="section.data?.communicationChoices" :agency-id="agencyId" external-save :readonly="!!recipient?.previewOnly" :busy="saving" @save="saveCommunication" />
       <p v-if="localError" role="alert">{{ localError }}</p>
     </div>
 
@@ -289,6 +296,8 @@ import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import TypicalAvailabilityInput from '../publicServices/TypicalAvailabilityInput.vue';
 import WorkplaceHandbookReader from '../handbook/WorkplaceHandbookReader.vue';
+import ProviderUpdateOfficeReview from './ProviderUpdateOfficeReview.vue';
+import ProviderContactHours from './ProviderContactHours.vue';
 import ProviderUpdateOfficeSchedule from './ProviderUpdateOfficeSchedule.vue';
 import ProviderUpdateAdminUpdateEmbed from './ProviderUpdateAdminUpdateEmbed.vue';
 
@@ -308,11 +317,16 @@ const localError = ref('');
 const hasWorkHours = ref(true);
 const blurb = ref('');
 const specialties=reactive({});
+function saveCommunication(data){
+ if(emailPreference.value.personalEmailNotify&&!['business_day','immediate'].includes(emailPreference.value.personalEmailDelayMode)){localError.value='Choose Instantly or 24 business hours for personal email reminders.';return;}
+ return markComplete({...data,emailReminderPreferences:emailPreference.value});
+}
 const clinicalFocus=ref({top:{},excluded:{}});
 const typicalAvailability=ref('');
 const schoolChanges=ref('');
 const photoUrl=ref('');
 const newPasscode=ref('');
+const showQuickViewHelp=ref(false);
 const license = reactive({ number: '', issued: '', expires: '', hasUpload: false });
 const reviewContext = ref({});
 const reviewLoading = ref(false);
