@@ -6,7 +6,7 @@ The site includes Home, Product, Solutions, Careers, Resources, About, Pricing, 
 
 ## Real product examples
 
-All interface examples are browser captures of existing application Vue components: hiring dashboard, onboarding roster, employee learning, onboarding checklist, employee evaluations, public careers, and the multi-organization hiring pipeline. Visitors can enlarge the captures. Every example is labeled as an actual product screen with fictional records.
+All interface examples are browser captures of existing application Vue components: hiring dashboard, onboarding roster, employee learning, onboarding checklist, employee evaluations, public careers, and the multi-organization hiring pipeline. Visitors can enlarge the captures. Capture URLs include their image hash so a refreshed example bypasses browser and CDN caches; the capture script maintains `src/content/plotlineExampleVersions.json`. Every example is labeled as an actual product screen with fictional records.
 
 No customer account, applicant information, or live API is used. `frontend/scripts/plotline-capture` mounts the unchanged application components with local fixtures; writes are disabled. The capture browser blocks network requests outside its local server. `frontend/public/assets/plotline/examples/provenance.json` records each source component and its hash. Original brand-kit interface concept crops are not shipped.
 

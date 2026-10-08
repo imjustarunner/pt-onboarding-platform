@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {plotlineExampleUrl} from '../src/utils/plotlineExamples.js';
 import {estimatePlotlinePrice} from '../src/config/plotlineProduct.js';
 import {plotlineSolutions,plotlinePages} from '../src/content/plotlineWebsite.js';
 const root=fileURLToPath(new URL('..',import.meta.url));
@@ -14,6 +15,7 @@ test('product examples come from the current real application components',()=>{
     assert.equal(createHash('sha256').update(readFileSync(`${root}/${screen.source}`)).digest('hex'),screen.sourceSha256,`${screen.source} changed; recapture the product example`);
     const image=readFileSync(`${root}/public/assets/plotline/examples/${screen.image}`);
     assert.equal(image[0],0xff);assert.equal(image[1],0xd8);
+    assert.equal(new URL(plotlineExampleUrl(screen.screen),'https://plottwistco.com').searchParams.get('v'),createHash('sha256').update(image).digest('hex'),'capture URL must change whenever image bytes change');
   }
 });
 test('all marketed solutions use captured screens rather than concept artwork',()=>{

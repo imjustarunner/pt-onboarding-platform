@@ -11,8 +11,9 @@
 </template>
 <script setup>
 import {computed,ref} from 'vue';
+import {plotlineExampleUrl} from '../../utils/plotlineExamples';
 const props=defineProps({screen:{type:String,required:true},title:{type:String,required:true},eager:Boolean});
-const dialog=ref(null),src=computed(()=>`/assets/plotline/examples/${props.screen}.jpg`);
+const dialog=ref(null),src=computed(()=>plotlineExampleUrl(props.screen));
 function closeBackdrop(event){if(event.target!==dialog.value)return;const rect=dialog.value.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dialog.value.close();}
 </script>
 <style scoped>
