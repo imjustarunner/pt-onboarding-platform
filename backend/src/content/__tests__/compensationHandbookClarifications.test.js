@@ -24,6 +24,6 @@ it('keeps benefit drafts separate and does not invent forfeiture authority or re
 
 it('replaces future funding percentages without changing prior earnings or salary terms',()=>{
  const rendered=renderAmendment({employee:{name:'Example'},schedule:{category:2,level:2},commonClausesHtml:commonAmendmentClauses()});
- expect(rendered).toContain('11. Compensation regardless of funding source');expect(rendered).toContain('12. Employee acknowledgment');expect(rendered).toContain('iMatter');expect(rendered).toContain('replace prior funding-specific percentage');expect(rendered).toContain('does not reduce compensation already earned');
+ expect(rendered).toContain('11. Compensation regardless of funding source');expect(rendered).toContain('13. Employee acknowledgment');expect(rendered).toContain('iMatter');expect(rendered).toContain('replace prior funding-specific percentage');expect(rendered).toContain('does not reduce compensation already earned');
  expect(rendered.match(/<h3>11. Compensation regardless of funding source/g)).toHaveLength(1);
 });

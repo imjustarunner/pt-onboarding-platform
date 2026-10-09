@@ -29,3 +29,18 @@ export function addFundingNeutralClause(html){
  if(signature.test(text))return text.replace(signature,(_,n)=>'<h3>'+n+'. Compensation regardless of funding source</h3><p>'+FUNDING_NEUTRAL_PAY_CLAUSE+'</p><h3>'+(Number(n)+1)+'. Employee acknowledgment and signatures</h3>');
  return text+'<h3>Compensation regardless of funding source</h3><p>'+FUNDING_NEUTRAL_PAY_CLAUSE+'</p>';
 }
+
+export const HEALTH_INSURANCE_CLAUSE='If I am eligible for and enroll in agency-sponsored health insurance, the agency contribution is calculated using the employee-only premium and the contribution percentage or amount applicable to my benefit eligibility, as described in the app’s My Benefits → Health Insurance section and the Workplace Handbook. Electing spouse, child or family coverage does not increase the agency contribution. I am responsible for my share of the employee-only premium and the full additional premium for any enrolled dependents. Dependent enrollment remains subject to the health plan’s eligibility and enrollment rules. The governing plan documents and applicable law control coverage and administration.';
+export const HEALTH_INSURANCE_SECTION={
+ slug:'health-insurance-employee-only-contribution',
+ title:'Health Insurance — employee-only employer contribution',
+ bodyHtml:'<h2>Basis of the agency contribution</h2><p>For eligible employees enrolled in agency-sponsored health insurance, the agency contribution is based on the premium for employee-only coverage and the contribution percentage or amount applicable to the employee’s benefit eligibility. Enrollment in employee-plus-spouse, employee-plus-child or family coverage does not increase the agency contribution. The agency does not contribute toward the additional cost of dependent coverage.</p><h2>Employee responsibility and dependent enrollment</h2><p>The employee pays the portion of the employee-only premium not covered by the agency contribution, plus the full additional premium for enrolled dependents. Eligible dependents may still enroll when permitted by the plan; this policy limits the agency’s premium contribution and does not exclude dependents from coverage. It does not promise payment of the employee’s full premium.</p><h2>Where to review your benefit</h2><p>Review My Benefits → Health Insurance in the app for enrollment information, the applicable employer contribution and benefit eligibility. People Operations maintains the employee-only premium used to calculate the contribution, separately from any additional dependent premium. Contact People Operations if the displayed premium includes family coverage or differs from the carrier’s employee-only amount.</p><p>The governing plan documents and applicable law control coverage, eligibility, enrollment and administration. Any change affecting an existing contribution arrangement must be applied prospectively with required notice and any required agreement; this handbook update does not itself change payroll deductions or an existing signed agreement.</p>'
+};
+
+export function addHealthInsuranceClause(html){
+ const text=String(html||'');
+ if(text.includes('Health insurance contribution</h3>'))return text;
+ const signature=/<h3>(\d+)\. Employee acknowledgment and signatures<\/h3>/;
+ if(signature.test(text))return text.replace(signature,(_,n)=>'<h3>'+n+'. Health insurance contribution</h3><p>'+HEALTH_INSURANCE_CLAUSE+'</p><h3>'+(Number(n)+1)+'. Employee acknowledgment and signatures</h3>');
+ return text+'<h3>Health insurance contribution</h3><p>'+HEALTH_INSURANCE_CLAUSE+'</p>';
+}
