@@ -1564,6 +1564,19 @@ if (!isBootstrap) {
   };
   processAdminUpdates();
   setInterval(processAdminUpdates, 60 * 1000);
+  let trainingNoticesBusy = false;
+  const processTrainingNotices = async () => {
+    if (trainingNoticesBusy) return;
+    trainingNoticesBusy = true;
+    try {
+      const { processQueuedTrainingNotices } = await import('./services/providerUpdateTrainingNotice.service.js');
+      await processQueuedTrainingNotices();
+    } catch (error) {
+      if (error?.code !== 'ER_NO_SUCH_TABLE') console.error('[ProviderUpdate training notices]', error?.message);
+    } finally { trainingNoticesBusy = false; }
+  };
+  setInterval(processTrainingNotices, 60 * 1000).unref();
+
 
   // Set up periodic processing of terminated and completed users
   // Run every hour to check for users that need to be marked inactive or archived

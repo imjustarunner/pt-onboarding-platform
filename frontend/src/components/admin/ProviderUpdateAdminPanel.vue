@@ -3,7 +3,7 @@
     <header class="head">
       <div>
         <h1>Provider Update</h1>
-        <p class="muted">Modular staff updates with toggleable sections, email from People Ops, time tracking, and payroll submit.</p>
+        <p class="muted">Review each person’s update, send their invitation, and follow their progress in one place.</p>
       </div>
       <div class="head-actions">
         <button type="button" class="btn" @click="invitationPreviewOpen = true">Preview invitation email</button>
@@ -415,7 +415,7 @@ const route = useRoute();
 const invitationPreviewOpen = ref(route.query.preview === 'email');
 const invitationPreview = computed(() => buildProviderUpdateInvitation({firstName: 'Aunya', agencyName: props.agencyName || 'Your agency', link: '[Your personalized update link]'}));
 const adminUpdateEditorTo = computed(() => ({path: `${props.organizationSlug ? '/' + props.organizationSlug : ''}/admin/communications`, query: {mode: 'admin-update', ...(draft.attachedAdminUpdateId ? {updateId: String(draft.attachedAdminUpdateId)} : {})}}));
-const tab = ref(['handbook', 'compensation', 'review'].includes(route.query.tab) ? route.query.tab : 'pushes');
+const tab = ref(['handbook', 'compensation', 'review'].includes(route.query.tab) ? route.query.tab : (canManageCompensation.value ? 'review' : 'pushes'));
 const catalog = PROVIDER_UPDATE_SECTIONS;
 const pageCatalog = PROVIDER_UPDATE_PAGES.map((p) => ({
   ...p,

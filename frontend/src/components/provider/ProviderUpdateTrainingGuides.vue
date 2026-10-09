@@ -16,7 +16,7 @@ import {computed,nextTick,onBeforeUnmount,ref} from 'vue';
 import DOMPurify from 'dompurify';
 import api from '../../services/api';
 import {youtubeVideoId} from '../../utils/trainingVideo';
-const props=defineProps({guides:{type:Array,default:()=>[]},base:{type:String,required:true},sectionKey:{type:String,required:true},agencyId:{type:[Number,String],required:true}});
+const props=defineProps({guides:{type:Array,default:()=>[]},base:{type:String,required:true},sectionKey:{type:String,required:true},agencyId:{type:[Number,String],required:true},endpoint:{type:String,default:''}});
 const dialog=ref(null),active=ref(null),loading=ref(false),error=ref('');let trigger=null;
 const displayHtml=computed(()=>{
  const doc=new DOMParser().parseFromString(DOMPurify.sanitize(active.value?.html||''),'text/html');
@@ -28,7 +28,7 @@ const displayHtml=computed(()=>{
  return doc.body.innerHTML;
 });
 async function open(guide,event){loading.value=true;error.value='';trigger=event.currentTarget;
- try{const {data}=await api.get(`${props.base}/training/${props.sectionKey}`,{params:{agencyId:props.agencyId}});active.value=data.guides.find(g=>g.id===guide.id);if(!active.value)throw Error('These instructions changed. Refresh your update and try again.');await nextTick();dialog.value.showModal();}
+ try{const {data}=await api.get(props.endpoint || `${props.base}/training/${props.sectionKey}`,{params:{agencyId:props.agencyId}});active.value=data.guides.find(g=>g.id===guide.id);if(!active.value)throw Error('These instructions changed. Refresh your update and try again.');await nextTick();dialog.value.showModal();}
  catch(e){error.value=e.response?.data?.error?.message||e.message||'Could not open instructions.';}finally{loading.value=false;}}
 function close(){active.value=null;if(dialog.value?.open)dialog.value.close();trigger?.focus?.();}
 onBeforeUnmount(close);

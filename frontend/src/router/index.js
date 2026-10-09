@@ -366,6 +366,8 @@ const routes = [
     {path:`/p/${slug}/live-chat-support`,name:`LiveChatSupport-${slug}`,component:()=>import('../views/public/LiveChatSupportView.vue'),props:{agencySlug:slug},meta:{requiresGuest:false}}
   ]),
   { path: '/privacy-review', name: 'PrivacyReview', component: () => import('../components/ActivityProtectionPanel.vue'), props: { review: true }, meta: { requiresAuth: true, accountSecurity: true } },
+  { path: '/:organizationSlug/provider-update-instructions/:pushId/:sectionKey', name: 'OrganizationProviderUpdateInstructions', component: () => import('../views/provider/ProviderUpdateInstructionsView.vue'), meta: { requiresAuth: true, organizationSlug: true } },
+  { path: '/provider-update-instructions/:pushId/:sectionKey', name: 'ProviderUpdateInstructions', component: () => import('../views/provider/ProviderUpdateInstructionsView.vue'), meta: { requiresAuth: true } },
   { path: '/provider-update-security-verified', name: 'ProviderUpdateSecurityVerified', component: () => import('../views/public/ProviderUpdateSecurityVerifiedView.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   { path: '/account-security', name: 'AccountSecurity', component: () => import('../components/AccountSecurityPanel.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
