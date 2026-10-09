@@ -1,3 +1,4 @@
+import {loadAdditionHistory,profileWithDatedAddition,HANDBOOK_ADDITION_MODE} from './conditionalAdditionPolicy.service.js';
 import {effectiveCompensationAgreement, agreementRateProfile, COMPENSATION_POLICY_VERSION} from './employmentAgreementPolicy.service.js';
 import {isServiceCreditPolicy} from '../utils/serviceCreditPolicy.js';
 /**
@@ -336,6 +337,7 @@ export function computeBonuses({
   ffsHourEquivalent = null,
   hcodeHourEquivalent = null
 }) {
+  rateProfile=profileWithDatedAddition(rateProfile,status?.asOfDate);
   const hours = Number(totalHourEquivalent) || 0;
   const ffsHours = ffsHourEquivalent != null ? Number(ffsHourEquivalent) || 0 : hours;
   const hHours = hcodeHourEquivalent != null ? Number(hcodeHourEquivalent) || 0 : 0;
@@ -659,6 +661,8 @@ export async function loadUserPaySystemContext({
     assignment.compensation_agreement_effective_on = agreement.effectiveOn;
     assignment.compensation_policy_version = agreement.data.compensationPolicyVersion;
     rateProfile = agreementRateProfile(rateProfile,agreement);
+    if(rateProfile.conditionalAdditionMode===HANDBOOK_ADDITION_MODE)rateProfile.conditionalAdditionHistory=await loadAdditionHistory({agencyId,category:rateProfile.category,level:rateProfile.level});
+    if(agreement.data.schedule?.probationWaived){assignment.waive_probation=1;assignment.probation_ended_on=null;}
 
   }
   const statusArgs = {
@@ -836,8 +840,9 @@ function splitAgreementDatedLines(breakdown, {status,rateProfile,datedUnitsByCod
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw Object.assign(new Error(`A valid service date is required for ${code}.`),{code:'AMENDMENT_PAYROLL_REVIEW_REQUIRED'});
       const prior=date<boundary;
       const lineStatus=resolveUserPaySystemStatus({...args,assignment:prior?status.agreementLegacyAssignment:args.assignment,asOfDate:date});
-      const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}`;
-      const group=groups.get(groupKey)||{units:0,status:lineStatus,profile:prior?status.agreementPriorRateProfile:rateProfile};
+      const datedProfile=prior?status.agreementPriorRateProfile:profileWithDatedAddition(rateProfile,date);
+      const groupKey=`${prior?'prior':'amendment'}-${lineStatus.useReducedRates?'reduced':'regular'}-${datedProfile.conditionalAdditionPolicyId||''}`;
+      const group=groups.get(groupKey)||{units:0,status:lineStatus,profile:datedProfile};
       group.units+=Number(item.units??item.payable_units??0)*units/total;groups.set(groupKey,group);
     }
     delete breakdown[key];

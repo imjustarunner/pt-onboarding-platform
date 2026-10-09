@@ -1,3 +1,5 @@
+import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
+import {additionsFromRate,HANDBOOK_ADDITION_MODE} from './conditionalAdditionPolicy.service.js';
 import pool from '../config/database.js';
 import sanitizeHtml from 'sanitize-html';
 import {amendmentIssues, renderAmendment} from '../content/itscoOctober2026Drafts.js';
@@ -41,7 +43,7 @@ export function editCompensationDraft(existing,patch,userId) {
  if(patch.commonClausesHtml!==undefined)result.commonClausesHtml=cleanDraftHtml(patch.commonClausesHtml).slice(0,100000);
  result.editedByUserId=userId;result.editedAt=new Date().toISOString();
  if(result.compensationPolicyVersion===SERVICE_CREDIT_POLICY_VERSION){
-  result.schedule.tier3LevelBonus=conditionalLevelBonus(result.schedule.level);
+  if(result.conditionalAdditionMode!==HANDBOOK_ADDITION_MODE)result.schedule.tier3LevelBonus=conditionalLevelBonus(result.schedule.level);
   result.schedule.autoIndirectMinutes=defaultHcodeIndirectMinutes(result.schedule.category);
  }
  return result;
@@ -49,6 +51,7 @@ export function editCompensationDraft(existing,patch,userId) {
 export async function saveCompensationDraft(agencyId,id,patch,userId) {
  const prior=await getCompensationDraft(agencyId,id);
  const data=editCompensationDraft(prior.data,patch,userId);
+ if(data.conditionalAdditionMode===HANDBOOK_ADDITION_MODE){const rate=await PayrollPaySystemRate.get(agencyId,data.schedule.category,data.schedule.level);if(rate)data.schedule.tier3LevelBonus=additionsFromRate(rate).clinical;}
  const html=renderAmendment(data);
  const [updated]=await pool.execute(`UPDATE contract_generations SET token_values_json=?,rendered_html=?
   WHERE id=? AND agency_id=? AND task_id IS NULL AND user_specific_document_id IS NULL

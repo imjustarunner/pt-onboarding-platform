@@ -1,3 +1,4 @@
+import {currentEligibleSickRate} from './sickLeaveRate.service.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import PayrollPtoAccount from '../models/PayrollPtoAccount.model.js';
@@ -222,9 +223,7 @@ async function getUserTerminationInfo({ userId }) {
 export async function getPtoBalances({ agencyId, userId }) {
   const { policy, defaultPayRate } = await getAgencyPtoPolicy({ agencyId });
   const acct = await PayrollPtoAccount.findForAgencyUser({ agencyId, userId });
-  const effectivePtoPayRate = (acct?.pto_pay_rate !== null && acct?.pto_pay_rate !== undefined)
-    ? Number(acct.pto_pay_rate)
-    : Number(defaultPayRate || 0);
+  const effectivePtoPayRate = await currentEligibleSickRate({agencyId,userId,asOfDate:todayYmd(),fallbackRate:acct?.pto_pay_rate??defaultPayRate});
   if (!acct) {
     return {
       policy,
@@ -276,7 +275,7 @@ export async function getPtoBalances({ agencyId, userId }) {
     return {
       policy,
       defaultPayRate,
-      effectivePtoPayRate: refreshedRate,
+      effectivePtoPayRate,
       account: refreshed,
       balances: {
         sickHours: Number(refreshed?.sick_balance_hours || 0),
@@ -651,6 +650,10 @@ export async function approvePtoRequestAndPostToPayroll({
     );
   }
 
+  // Validate leave-date rates before deducting balances or approving the request.
+  const leaveRates=new Map();
+  for(const item of items){const d=ymd(item.request_date);if(d&&Number(item.hours)>0&&!leaveRates.has(d))leaveRates.set(d,bucket==='sick'?await currentEligibleSickRate({agencyId,userId,asOfDate:d,fallbackRate:acct.pto_pay_rate??defaultPayRate}):Number(acct.pto_pay_rate??defaultPayRate??0));}
+
   // ── Phase 1: Deduct balance + mark approved (atomic via connection transaction) ──
   const conn = await pool.getConnection();
   try {
@@ -733,6 +736,7 @@ export async function approvePtoRequestAndPostToPayroll({
   }
 
   const byPeriod = new Map();
+  const payByPeriod = new Map();
   const skippedDates = [];
   for (const it of items) {
     const d = ymd(it.request_date);
@@ -762,7 +766,11 @@ export async function approvePtoRequestAndPostToPayroll({
     } catch {
       // Period lookup failure: skip pay posting for this date, balance already deducted.
     }
-    if (pid) byPeriod.set(pid, (byPeriod.get(pid) || 0) + h);
+    if (pid) {
+      const leaveRate=leaveRates.get(d)??rate;
+      byPeriod.set(pid, (byPeriod.get(pid) || 0) + h);
+      payByPeriod.set(pid,(payByPeriod.get(pid)||0)+h*leaveRate);
+    }
     else skippedDates.push(d);
   }
 
@@ -785,7 +793,7 @@ export async function approvePtoRequestAndPostToPayroll({
         ptoHours: nextSick + nextTraining,
         sickPtoHours: nextSick,
         trainingPtoHours: nextTraining,
-        ptoRate: rate,
+        ptoRate: (nextSick+nextTraining)>0?((currentSick+currentTraining)*Number(existing?.pto_rate??rate)+(payByPeriod.get(payrollPeriodId)||0))/(nextSick+nextTraining):rate,
         updatedByUserId: approvedByUserId
       });
     } catch {

@@ -1,3 +1,4 @@
+import {recordAdditionChange} from '../services/conditionalAdditionPolicy.service.js';
 import pool from '../config/database.js';
 import PayrollPaySystemRate from '../models/PayrollPaySystemRate.model.js';
 import PayrollCompensationLevel, {
@@ -126,6 +127,10 @@ export const savePaySystemRates = async (req, res, next) => {
     if (!Array.isArray(rates)) {
       return res.status(400).json({ error: { message: 'rates array is required' } });
     }
+    const tomorrow=new Date();tomorrow.setUTCDate(tomorrow.getUTCDate()+1);
+    const defaultAdditionDate=tomorrow.toISOString().slice(0,10);
+    const additionEffectiveOn=String(req.body.conditionalAdditionEffectiveOn||defaultAdditionDate);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(additionEffectiveOn)||additionEffectiveOn<defaultAdditionDate)return res.status(400).json({error:{message:'Conditional-addition changes must take effect tomorrow or later, after notice to staff.'}});
     for (const row of rates) {
       const cat = parseInt(row.category, 10);
       const lvl = parseInt(row.level, 10);
@@ -149,7 +154,8 @@ export const savePaySystemRates = async (req, res, next) => {
       PayrollPaySystemRate.listForAgency(agencyId),
       PayrollPaySystemRate.isAgencyEnabled(agencyId)
     ]);
-    res.json({ rates: saved, enabled });
+    for(const profile of saved)await recordAdditionChange({agencyId,profile,effectiveOn:additionEffectiveOn,actorId:req.user?.id||null});
+    res.json({ rates: saved, enabled, conditionalAdditionEffectiveOn:additionEffectiveOn });
   } catch (e) { next(e); }
 };
 

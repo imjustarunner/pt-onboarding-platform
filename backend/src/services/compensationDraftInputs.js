@@ -13,6 +13,6 @@ export function fillSavedCompensationInputs(existing,{assignment,rates=[],levels
  const json=v=>typeof v==='string'?JSON.parse(v):v;
  if(rate){s.spanishDifferentialRates=json(rate.spanish_bonus_json)||{};s.denverDifferentialRates=json(rate.location_bonus_json)||{};}
  s.autoIndirectMinutes=[1,2,3].includes(Number(s.category))?defaultHcodeIndirectMinutes(s.category):null;
- s.tier3LevelBonus=conditionalLevelBonus(s.level);
+ s.tier3LevelBonus=Number((rate?json(rate.tier_bonus_json)?.[3]:undefined) ?? s.tier3LevelBonus ?? conditionalLevelBonus(s.level));
  return data;
 }

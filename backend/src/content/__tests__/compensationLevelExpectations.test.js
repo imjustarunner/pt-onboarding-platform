@@ -9,8 +9,8 @@ it('inserts before signatures while preserving customized compensation and indiv
   const revised = addLevelExpectationsToClauses(existing);
   expect(revised).toContain('<p>Employee-specific approved wording.</p>');
   expect(revised).toContain('<h3>11. Employee acknowledgment and signatures</h3><p>Custom acknowledgment.</p>');
-  expect(revised.indexOf('Weekly paid indirect-work commitment')).toBeLessThan(revised.indexOf('Employee acknowledgment and signatures'));
-  expect(existing).not.toContain('Weekly paid indirect-work commitment');
+  expect(revised.indexOf('Annual paid event-work commitment')).toBeLessThan(revised.indexOf('Employee acknowledgment and signatures'));
+  expect(existing).not.toContain('Annual paid event-work commitment');
 });
 
 it('survives saving in the draft editor and rerunning the seed without duplicating clauses', () => {

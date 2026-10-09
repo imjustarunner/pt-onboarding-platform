@@ -68,14 +68,14 @@ export const itscoSuggestedTopicEdits = {
     title: 'Print your own business cards',
     body: p('You can print your own ITSCO business cards at the office. Preprinted cardstock with the ITSCO website QR code will be available, so you can print your provider information on the other side.') + '<h3>How to print</h3>' + steps([
       '<strong>Check your profile first.</strong> Open your public provider profile from the Provider Update and make sure your name, credentials, photo, contact information, and profile link are correct.',
-      'Open the business card template in the app and use the current version.',
+      'Open <strong>Business Cards</strong> from Quick Navigation or the app search, and use the current agency template. Choose the <strong>agency website</strong> QR (the default) or <strong>your provider profile</strong> QR for the back.',
       '<strong>Get the cardstock.</strong> Preprinted business-card cardstock is located in the right drawer of the kitchen desk.',
       'Use the color Brother printer on the back side of the kitchen desk. The printer can only take one sheet at a time.',
-      'Load the cardstock with the QR-code side facing up so the QR code is readable when you look at it.',
+      'For stock with the agency QR already printed, print <strong>fronts only</strong>. Load the cardstock with the QR-code side facing up so the QR code is readable when you look at it. For your own profile QR, use <strong>blank-backed stock</strong> and print the generated front and back; test the feed direction before printing a batch.',
       'In the printer settings, set <strong>Print Quality to Great</strong> instead of Good and <strong>Paper Type to Matte Photo Paper</strong>. Click OK.',
       'Print one sheet first. Check that your information is correct and everything is properly aligned before printing additional cards.',
       'Once the test sheet looks correct, print additional sheets one at a time.'
-    ]) + p('The preprinted QR code links to the main ITSCO website. If needed, the cards can also be printed on both sides.') + p('Please use the current app-generated template and do not add a private care-texting number or other personal contact information that is not intended for public use.') + p('If your profile information is incorrect or you have trouble with the template, printer, or alignment, use <strong>Need help</strong> in the Provider Update to submit a <strong>Technology support ticket</strong> before continuing. You can attach screenshots. General ITSCO support: <a href="mailto:support@itsco.health">support@itsco.health</a>.')
+    ]) + p('The preprinted QR links to the main agency website. Your optional personal profile QR uses the agency logo and links directly to your public provider page. Scan the test card to check its destination.') + p('Please use the current app-generated template and do not add a private care-texting number or other personal contact information that is not intended for public use.') + p('If your profile information is incorrect or you have trouble with the template, printer, or alignment, use <strong>Need help</strong> in the Provider Update to submit a <strong>Technology support ticket</strong> before continuing. You can attach screenshots. General ITSCO support: <a href="mailto:support@itsco.health">support@itsco.health</a>.')
   },
   communication_rollout: {
     title: 'App messaging, calling & team polls · staged rollout',

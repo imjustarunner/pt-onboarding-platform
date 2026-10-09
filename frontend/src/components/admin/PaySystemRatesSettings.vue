@@ -20,6 +20,7 @@
       </div>
     </div>
 
+    <p class="ps-sub">For handbook-based amendments, conditional Tier 3 additions changed here take effect the next day. Update the handbook and notify staff before the change takes effect. Setting an addition to $0 removes it prospectively; earlier earned additions are preserved.</p>
     <div v-if="error" class="ps-error">{{ error }}</div>
     <div v-if="saveSuccess" class="save-success">Pay system rates saved.</div>
     <div v-if="transitionMsg" class="save-success">{{ transitionMsg }}</div>
