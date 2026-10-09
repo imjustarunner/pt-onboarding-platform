@@ -607,6 +607,10 @@ export async function listRecipients(pushId, agencyId) {
   const [rows] = await pool.execute(
     `SELECT r.*,
             u.first_name, u.last_name, u.email,
+            CASE WHEN delivery_log.delivery_status IN ('sent','delivered','failed','bounced') THEN delivery_log.delivery_status ELSE delivery.delivery_status END AS last_delivery_status,
+            COALESCE(delivery_log.sent_at,delivery.sent_at) AS last_sent_at,
+            CASE WHEN delivery_log.delivery_status IN ('sent','delivered') THEN NULL ELSE COALESCE(delivery_log.error_message,delivery.error_message) END AS last_delivery_error,
+            delivery.created_at AS last_delivery_attempt_at,
             COALESCE(r.role_snapshot, u.role) AS role_snapshot,
             GREATEST(COALESCE(r.is_demo_snapshot, 0), COALESCE(u.is_demo, 0)) AS is_demo_snapshot,
             (SELECT sp.data_json FROM provider_update_section_progress sp
@@ -617,6 +621,12 @@ export async function listRecipients(pushId, agencyId) {
               WHERE sp.recipient_id = r.id) AS sections_total
      FROM provider_update_recipients r
      JOIN users u ON u.id = r.provider_user_id
+     LEFT JOIN provider_update_sends delivery ON delivery.id = (
+       SELECT MAX(attempt.id) FROM provider_update_sends attempt
+       WHERE attempt.push_id=r.push_id AND attempt.recipient_id=r.id
+     )
+     LEFT JOIN user_communications delivery_log ON delivery_log.id=delivery.communication_id
+       AND delivery_log.agency_id=r.agency_id AND delivery_log.user_id=r.provider_user_id
      WHERE r.push_id = ? AND r.agency_id = ?
      ORDER BY u.last_name, u.first_name`,
     [Number(pushId), Number(agencyId)]

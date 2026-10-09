@@ -22,7 +22,7 @@
       </div>
     </div>
     <nav class="tabs">
-      <button v-if="canManageCompensation" type="button" :class="{active:tab === 'review'}" @click="tab = 'review'">Review &amp; send individually</button>
+      <button v-if="canManageCompensation" type="button" :class="{active:tab === 'review'}" @click="tab = 'review'">Staff progress &amp; sending</button>
       <button type="button" :class="{ active: tab === 'pushes' }" @click="tab = 'pushes'">Past pushes</button>
       <button type="button" :class="{ active: tab === 'compose' }" @click="tab = 'compose'">Compose</button>
       <button type="button" :class="{ active: tab === 'handbook' }" @click="tab = 'handbook'">Handbook Updates</button>
