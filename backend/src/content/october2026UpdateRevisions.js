@@ -26,7 +26,7 @@ export function itscoRevisionTopics(staff,schoolTopics){
  const credentials=[[494,'SWC'],[8,'LSW'],[496,'LPCC'],...(emmi.length===1?[[emmi[0].id,'LPCC']]:[]),[457,'LPCC'],[505,'LPCC']].filter(([id])=>byId(id)).map(([id,credential])=>`${person(id)} — ${credential}`);
  if(!emmi.length)credentials.push('Emmi Regenbogen — congratulations on your LPCC licensure!');
  const roles=byId(496)?[`${person(496)} — congratulations on your new team role! ${e(byId(496).title||'')}`]:[];
- const milestoneIds={Michael:501,Pauli:506,Hannah:559,'Haley Inyart':3,Jacque:485,Mariela:494,Bobby:529,Liz:193};
+ const milestoneIds={Rachel:507,Michael:501,Pauli:506,Hannah:559,'Haley Inyart':3,Jacque:485,Mariela:494,Bobby:529,Liz:193};
  const anniversaryPeople=milestones.map(([label])=>{if(milestoneIds[label]&&byId(milestoneIds[label]))return byId(milestoneIds[label]);const matches=staff.filter(s=>[`${s.first_name} ${s.last_name}`.toLowerCase(),String(s.first_name).toLowerCase(),String(s.preferred_name||'').toLowerCase()].includes(label.toLowerCase()));return matches.length===1?matches[0]:{milestoneName:label};});
  return [
  {key:'people_since_march',title:'Welcome to the team',icon:'people',body:'<h2 style="font-family:Georgia,serif;font-style:italic;font-size:46px;color:#4b7144;margin:0;text-align:center">Welcome</h2><p style="font-size:24px;color:#123c3c;text-align:center;margin:6px 0 20px">to our new team members!</p><table role="presentation" style="width:100%;border-collapse:collapse"><tbody>'+hires.join('')+'</tbody></table><h3>With appreciation</h3>'+p(`We thank ${departures.join(', ')} for their contributions. Use current app assignments for coverage and contact support about reassigned work.`)},
