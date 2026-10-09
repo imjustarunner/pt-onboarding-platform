@@ -1,7 +1,7 @@
 <template>
  <section class="review-send">
   <div class="roster-heading"><span class="eyebrow">YOUR TEAM · PROVIDER UPDATE</span><h2>Everyone, in one place.</h2></div>
-  <p>See all active staff in one list, including those who have not received an invitation. Preview a person’s update and amendment, mark your review complete, then send from their row. Time shown is recorded active time; idle and timed-out periods are excluded.</p>
+  <p>See all active staff in one list, including those who have not received an invitation. Preview a person’s update and amendment, mark your review complete, then send from their row. Invitations go to work email; non-SSO staff also receive a brief personal-email notice to sign in. Time shown is recorded active time; idle and timed-out periods are excluded.</p>
   <label>Saved Provider Update<select v-model="pushId" :disabled="busy" @change="loadPush"><option value="">Choose an update…</option><option v-for="p in availablePushes" :key="p.id" :value="p.id">{{p.title}} · #{{p.id}} · {{p.status}}</option></select></label>
   <p v-if="!availablePushes.length">Create and save a Provider Update from Compose first.</p>
   <p v-if="error" role="alert" class="error">{{error}}</p><p v-if="notice" role="status">{{notice}}</p>
@@ -126,6 +126,7 @@ async function sendOne(){if(!approved.value||!ready.value||busy.value||push.valu
   const {data}=await api.post(`/provider-update/pushes/${push.value.id}/send`,{agencyId:Number(props.agencyId),providerUserIds:[id]});
   const result=(data.results||[]).find(r=>Number(r.providerUserId)===id);
   notice.value=result?.deliveryStatus==='sent'?`Invitation sent to ${name.value}.`:`Invitation status: ${result?.deliveryStatus||'unknown'}. ${result?.errorMessage||'Check delivery before retrying.'}`;
+  if(result?.personalNotice?.status==='failed')notice.value+=' '+result.personalNotice.error;
   approved.value=false;delete reviews.value[id];reviewOpen.value=false;await refreshProgress();emit('sent');
  }catch(e){approved.value=false;delete reviews.value[id];error.value=e.response?.data?.error?.message||'Could not send. Check delivery before retrying.';}finally{busy.value=false;}}
 function download(){const url=URL.createObjectURL(new Blob([amendmentHtml.value],{type:'text/html'}));const a=document.createElement('a');a.href=url;a.download=`amendment-${personId.value}.html`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}

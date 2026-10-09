@@ -3279,6 +3279,7 @@ const routes = [
         'admin',
         'super_admin',
         'support',
+        'staff',
         'clinical_practice_assistant',
         'supervisor'
       ]
@@ -3299,6 +3300,7 @@ const routes = [
         'admin',
         'super_admin',
         'support',
+        'staff',
         'clinical_practice_assistant',
         'supervisor'
       ]

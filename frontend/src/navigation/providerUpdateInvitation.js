@@ -7,7 +7,8 @@ export function buildProviderUpdateInvitation({ firstName = 'there', agencyName 
     'Your personalized Provider Update is ready. Please take time to review the agency announcements and complete each section assigned to you.',
     'Inside, you can review your profile and specialties, update your availability and communication preferences, and complete any assigned handbook acknowledgments or agreements. Your Admin Update is included in the same place.',
     'You can save your progress and return using this link. Mark each section complete as you finish, then submit the completed update.',
-    'Have a question? Use “Need help?” inside your update to contact People Operations about employment or pay, or Technology about an app issue. You can attach a screenshot.',
+    'If you notice any issues or have questions, please do not hesitate to reply to People Operations. You can also use “Need help?” inside your update to contact People Operations about employment or pay, or Technology about an app issue. You can attach a screenshot.',
+    'Some guide videos will be uploaded this weekend. Please look out for emails when new instructions are added to your Provider Update—even if you have already completed it.',
     'Thank you for keeping your information current and helping us prepare for the next steps together.'
   ];
   const text = [`Hello ${firstName || 'there'},`, '', ...paragraphs.flatMap(p => [p, '']), `Open my Provider Update: ${link}`, '', 'This link is personalized for you. Please do not forward it.', '', `People Operations | ${agencyName}`].join('\n');
@@ -18,7 +19,7 @@ export function buildProviderUpdateInvitation({ firstName = 'there', agencyName 
 <p style="margin:26px 0"><a href="${escapeHtml(link)}" target="_blank" rel="noopener" style="display:inline-block;background:#3d6b4f;color:#fff;padding:14px 24px;border-radius:8px;font-weight:bold;text-decoration:none">Open my Provider Update →</a></p>
 <h2 style="font-size:18px;margin:24px 0 8px">What to review</h2><p>${escapeHtml(paragraphs[1])}</p><p>${escapeHtml(paragraphs[2])}</p>
 <div style="background:#eef4f8;border-left:4px solid #42748c;padding:14px 18px;margin:24px 0"><strong>We’re here to help</strong><p style="margin:6px 0 0">${escapeHtml(paragraphs[3])}</p></div>
-<p>${escapeHtml(paragraphs[4])}</p><p style="margin-bottom:0"><strong>People Operations</strong><br>${escapeHtml(agencyName)}</p></td></tr>
+<h2 style="font-size:18px">Guide videos coming this weekend</h2><p>${escapeHtml(paragraphs[4])}</p><p>${escapeHtml(paragraphs[5])}</p><p style="margin-bottom:0"><strong>People Operations</strong><br>${escapeHtml(agencyName)}</p></td></tr>
 <tr><td style="padding:18px 32px;background:#f6f8f7;font-size:12px;color:#526763">This link is personalized for you. Please do not forward it.<br>If the button does not open, copy this link into your browser:<br><a href="${escapeHtml(link)}" style="color:#174b49;word-break:break-all">${escapeHtml(link)}</a></td></tr>
 </table></td></tr></table></body></html>`;
   return { subject: PROVIDER_UPDATE_EMAIL_SUBJECT, text, html };

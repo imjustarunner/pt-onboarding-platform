@@ -292,7 +292,7 @@ export const PROVIDER_UPDATE_SECTION_KEYS = PROVIDER_UPDATE_SECTIONS.map((s) => 
 
 export {PROVIDER_UPDATE_EMAIL_SUBJECT} from '../../../frontend/src/navigation/providerUpdateInvitation.js';
 export const PROVIDER_UPDATE_FROM_HINT = 'po@itsco.health';
-export const PROVIDER_UPDATE_REPLY_TO = 'technology@itsco.health';
+// Provider Update From and Reply-To are resolved from the agency’s active PO identity.
 
 export function defaultSectionConfig() {
   const cfg = {};

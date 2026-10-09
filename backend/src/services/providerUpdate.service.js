@@ -19,12 +19,11 @@ import {
   normalizeSectionConfig,
   enabledSectionKeys,
   getSectionMeta,
-  PROVIDER_UPDATE_REPLY_TO,
   PROVIDER_UPDATE_SECTIONS
 } from '../constants/providerUpdateSections.js';
 import { listSchoolAssignedProviders } from './providerYearUpdate.service.js';
 import { sendEmailFromIdentity } from './unifiedEmail/unifiedEmailSender.service.js';
-import { resolveSenderIdentityForSend } from './emailSenderIdentityResolver.service.js';
+import { resolveProviderUpdateSender } from './providerUpdateEmailSender.service.js';
 import CommunicationLoggingService from './communicationLogging.service.js';
 import User from '../models/User.model.js';
 import Agency from '../models/Agency.model.js';
@@ -423,11 +422,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
   const amendmentPlan = parseJson(push.amendment_plan_json, null);
   const enabledKeys = enabledSectionKeys(push.section_config_json);
 
-  const resolved = prepareOnly ? null : await resolveSenderIdentityForSend({
-    agencyId,
-    templateType: 'provider_update_invite',
-    preferredKeys: ['people_operations', 'people_ops', 'po', 'notifications']
-  });
+  const resolved = prepareOnly ? null : await resolveProviderUpdateSender(agencyId);
 
   const results = [];
   for (const p of targets) {
@@ -527,7 +522,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
             existingCommunicationId: comm?.id || null,
             templateType: 'provider_update_invite',
             usedFallbackSender: false,
-            replyToOverride: PROVIDER_UPDATE_REPLY_TO
+            replyToOverride: resolved.replyTo
           });
           if (sendResult?.queued) {
             deliveryStatus = 'pending';
@@ -543,7 +538,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
             communicationId = sendResult?.communicationId || comm?.id || null;
             if (comm?.id && sendResult?.id) {
               await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
-                replyTo: PROVIDER_UPDATE_REPLY_TO
+                replyTo: resolved.replyTo
               }).catch(() => {});
             }
           }
@@ -566,7 +561,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
       }
     }
 
-    await pool.execute(
+    const [sendRecord] = await pool.execute(
       `INSERT INTO provider_update_sends
         (push_id, recipient_id, provider_user_id, to_email, subject, delivery_status, error_message, external_message_id, communication_id, sent_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'sent' THEN UTC_TIMESTAMP() ELSE NULL END)`,
@@ -584,10 +579,22 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
       ]
     );
 
+    let personalNotice = {status:'not_applicable'};
+    if (['sent','pending'].includes(deliveryStatus)) {
+      try {
+        const {queuePersonalUpdateNotice}=await import('./providerUpdatePersonalNotice.service.js');
+        personalNotice=await queuePersonalUpdateNotice({workSendId:sendRecord.insertId,agencyId,userId:Number(p.provider_user_id)});
+      } catch (e) {
+        personalNotice={status:'failed',error:'The work invitation was processed, but the personal sign-in notice could not be queued.'};
+        console.warn('[providerUpdate] personal notice queue failed', e?.code || 'queue_failed');
+      }
+    }
+
     results.push({
       providerUserId: Number(p.provider_user_id),
       email: to,
       deliveryStatus,
+      personalNotice,
       token: recipient.token,
       link
     });
@@ -999,6 +1006,8 @@ export async function getMyOpenRecipient(providerUserId, agencyId) {
      JOIN provider_update_pushes p ON p.id = r.push_id
      JOIN users u ON u.id = r.provider_user_id
      WHERE r.provider_user_id = ? AND r.agency_id = ?
+       AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+       AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=r.agency_id AND COALESCE(ua.is_active,1)=1)
        AND r.locked_at IS NULL
        AND p.status = 'sent'
        AND LEFT(r.token,8) <> 'preview_'

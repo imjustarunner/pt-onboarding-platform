@@ -1576,6 +1576,17 @@ if (!isBootstrap) {
     } finally { trainingNoticesBusy = false; }
   };
   setInterval(processTrainingNotices, 60 * 1000).unref();
+  let personalUpdateNoticesBusy = false;
+  setInterval(async () => {
+    if (personalUpdateNoticesBusy) return;
+    personalUpdateNoticesBusy = true;
+    try {
+      const {processPersonalUpdateNotices}=await import('./services/providerUpdatePersonalNotice.service.js');
+      await processPersonalUpdateNotices();
+    } catch (error) {
+      if (error?.code !== 'ER_NO_SUCH_TABLE') console.error('[ProviderUpdate personal notices]', error?.message);
+    } finally { personalUpdateNoticesBusy = false; }
+  }, 60 * 1000).unref();
 
 
   // Set up periodic processing of terminated and completed users

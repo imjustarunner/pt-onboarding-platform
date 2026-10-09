@@ -206,7 +206,7 @@ export const AUTOMATED_EMAIL_CATALOG = [
     kind: 'template',
     category: 'People Operations',
     label: 'Provider Update invite',
-    description: 'Magic-link email inviting providers to complete a modular Provider Update push. From People Ops; Reply-To technology@itsco.health.',
+    description: 'Magic-link email inviting providers to complete a modular Provider Update push. From and Reply-To the agency’s People Operations (po@) mailbox.',
     trigger: 'Admin sends a Provider Update push from Provider Update admin.',
     triggerKind: 'Immediate · Staff action',
     sourceLinks: [

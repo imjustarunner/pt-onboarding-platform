@@ -246,6 +246,16 @@ export const finalizePublic = async (req, res, next) => {
   }
 };
 
+export const getMyUpdateStatus = async (req,res,next) => {
+ try {
+  const agencyId=Number(req.query.agencyId);
+  if(!agencyId)return res.status(400).json({error:{message:'agencyId required'}});
+  const recipient=await getMyOpenRecipient(req.user.id,agencyId);
+  res.set('Cache-Control','no-store');
+  res.json(recipient?{available:true,title:recipient.push_title}:{available:false});
+ }catch(e){next(e);}
+};
+
 export const getMyUpdate = async (req, res, next) => {
   try {
     const agencyId = Number(req.query.agencyId || req.body?.agencyId);

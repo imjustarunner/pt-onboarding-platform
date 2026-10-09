@@ -3,12 +3,12 @@ const m=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn()
 vi.mock('../../config/database.js',()=>({default:{execute:m.execute,getConnection:async()=>m}}));
 vi.mock('../providerUpdate.service.js',()=>({recipientSeesSection:(_key,audience,id)=>!audience.only||audience.only.includes(id)}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:m.send}));
-vi.mock('../emailSenderIdentityResolver.service.js',()=>({resolveSenderIdentityForSend:m.sender}));
+vi.mock('../providerUpdateEmailSender.service.js',()=>({resolveProviderUpdateSender:m.sender}));
 vi.mock('../storage.service.js',()=>({default:{getSignedUrl:vi.fn()}}));
 import {trainingRevision,changedTrainingGuides,trainingNoticeEmail,saveTrainingAndNotify,dispatchTrainingNotices} from '../providerUpdateTrainingNotice.service.js';
 const guide={id:'video',title:'Set your availability',html:'<a href="https://youtu.be/abc12345678">Watch</a>'};
 let config,notices;
-beforeEach(()=>{vi.clearAllMocks();config={pin:true,license:true,_training:{license:[guide]}};notices=[];m.sender.mockResolvedValue({identity:{id:4}});m.send.mockResolvedValue({id:'email-1',communicationId:7});
+beforeEach(()=>{vi.clearAllMocks();config={pin:true,license:true,_training:{license:[guide]}};notices=[];m.sender.mockResolvedValue({identity:{id:4},replyTo:'po@itsco.health'});m.send.mockResolvedValue({id:'email-1',communicationId:7});
  m.execute.mockImplementation(async(sql,args)=>{
   if(sql.startsWith('SELECT * FROM provider_update_pushes'))return [[{id:2,agency_id:2,title:'October',status:'sent',section_config_json:config,section_audience_json:{}}]];
   if(sql.startsWith('UPDATE provider_update_pushes')){config=JSON.parse(args[0]);return [{affectedRows:1}];}

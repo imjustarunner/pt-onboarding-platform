@@ -312,8 +312,8 @@
         </button>
       </div>
       <p class="muted">
-        Email: from People Ops (po@itsco.health) · reply-to technology@itsco.health · subject
-        “Provider Update : Response Needed”
+        Email: from People Operations · replies go to the same agency PO mailbox · subject
+        “Your Provider Update is ready — please review and complete”
       </p>
     </section>
 

@@ -34,6 +34,7 @@
         'pthq-personal-inner': usePlatformShell,
       }"
     >
+    <ProviderUpdateAssignedBanner v-if="!previewMode && !isClubContext" :agency-id="currentAgencyId" />
     <!-- Dashboard Header with Logo (shown in preview mode) -->
     <div v-if="previewMode" class="dashboard-header-preview">
       <div class="header-content">
@@ -1322,6 +1323,7 @@
 </template>
 
 <script setup>
+import ProviderUpdateAssignedBanner from '../components/provider/ProviderUpdateAssignedBanner.vue';
 import { CONVERSA_ICON_URL } from '../constants/conversa';
 import { ref, onMounted, onUnmounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
 import ProfileContentSearch from '../components/profile/ProfileContentSearch.vue';

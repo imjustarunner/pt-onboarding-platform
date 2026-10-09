@@ -216,7 +216,7 @@ export const PROVIDER_UPDATE_SECTIONS = [
 ];
 
 export const PROVIDER_UPDATE_SECTION_KEYS = PROVIDER_UPDATE_SECTIONS.map((s) => s.key);
-export const PROVIDER_UPDATE_EMAIL_SUBJECT = 'Provider Update : Response Needed';
+export {PROVIDER_UPDATE_EMAIL_SUBJECT} from '../navigation/providerUpdateInvitation.js';
 
 /**
  * Overview / hub “pages”. Each page is one card in the Update Overview.

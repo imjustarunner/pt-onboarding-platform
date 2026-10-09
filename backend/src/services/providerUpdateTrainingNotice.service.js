@@ -3,7 +3,7 @@ import pool from '../config/database.js';
 import {sanitizeSectionTraining} from './providerUpdateTraining.service.js';
 import {getSectionMeta} from '../constants/providerUpdateSections.js';
 import {sendEmailFromIdentity} from './unifiedEmail/unifiedEmailSender.service.js';
-import {resolveSenderIdentityForSend} from './emailSenderIdentityResolver.service.js';
+import {resolveProviderUpdateSender} from './providerUpdateEmailSender.service.js';
 import {recipientSeesSection} from './providerUpdate.service.js';
 
 const parse = value => typeof value === 'string' ? JSON.parse(value) : value || {};
@@ -69,7 +69,7 @@ export async function dispatchTrainingNotices({pushId,agencyId,sectionKey,retryF
  AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=n.agency_id AND COALESCE(ua.is_active,1)=1)`,[pushId,agencyId,sectionKey]);
  const result={sent:0,pending:0,failed:0};
  if(!rows.length)return result;
- const sender=await resolveSenderIdentityForSend({agencyId,templateType:'provider_update_training',preferredKeys:['people_operations','people_ops','notifications']}).catch(()=>null);
+ const sender=await resolveProviderUpdateSender(agencyId).catch(()=>null);
  const origin=String(process.env.PUBLIC_APP_URL||process.env.FRONTEND_URL||'https://app.itsco.health').replace(/\/$/,'');
  for(const row of rows) {
   const config=parse(row.section_config_json),audience=parse(row.section_audience_json);
@@ -84,7 +84,7 @@ export async function dispatchTrainingNotices({pushId,agencyId,sectionKey,retryF
    if(!sender?.identity?.id)throw Error('No People Operations email sender is configured.');
    if(!row.work_email?.includes('@'))throw Error('No work email is saved.');
    const email=trainingNoticeEmail({firstName:row.first_name,section:getSectionMeta(sectionKey),guideTitles:parse(row.guide_titles_json),link:`${origin}/provider-update-instructions/${pushId}/${sectionKey}`});
-   const sent=await sendEmailFromIdentity({senderIdentityId:sender.identity.id,to:row.work_email,...email,source:'auto',agencyId,userId:row.provider_user_id,templateType:'provider_update_training'});
+   const sent=await sendEmailFromIdentity({senderIdentityId:sender.identity.id,to:row.work_email,...email,source:'auto',agencyId,userId:row.provider_user_id,templateType:'provider_update_training',replyToOverride:sender.replyTo});
    communicationId=sent?.communicationId||null;
    status=sent?.queued?'pending':sent?.skipped||sent?.blocked?'failed':'sent';error=sent?.reason||null;
   }catch(e){error=String(e.message||e).slice(0,500);}

@@ -10,6 +10,9 @@ describe('Provider Update invitation', () => {
       expect(body).toContain('Your Admin Update is included');
       expect(body).toContain('Mark each section complete');
       expect(body).toContain('People Operations');
+      expect(body).toContain('this weekend');
+      expect(body).toContain('do not hesitate');
+      expect(body).toContain('reply to People Operations');
       expect(body).toContain('Technology');
       expect(body).not.toMatch(/junk|spam/i);
     }

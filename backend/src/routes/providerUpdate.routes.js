@@ -40,6 +40,7 @@ router.post('/providers/:providerUserId/preview-link', authenticate, ctrl.create
 router.get('/providers/:providerUserId/fall-actions', authenticate, ctrl.fallActionsForRecipient);
 router.get('/me/fall-actions', authenticate, ctrl.fallActionsMine);
 
+router.get('/me/status', authenticate, ctrl.getMyUpdateStatus);
 router.get('/me', authenticate, ctrl.getMyUpdate);
 router.post('/me/session-heartbeat', authenticate, ctrl.heartbeatMyUpdate);
 router.put('/me/sections/:sectionKey', authenticate, ctrl.updateMySection);

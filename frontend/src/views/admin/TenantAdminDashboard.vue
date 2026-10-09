@@ -1,5 +1,6 @@
 <template>
   <div class="tenant-admin-dashboard" :style="brandVars">
+    <ProviderUpdateAssignedBanner v-if="!isSuperadminPreview" :agency-id="currentAgencyId" />
     <header class="top-bar">
       <div class="top-bar-left">
         <BrandingLogo size="medium" :logo-url="brandingStore.displayLogoUrl" />
@@ -457,6 +458,7 @@
 </template>
 
 <script setup>
+import ProviderUpdateAssignedBanner from '../../components/provider/ProviderUpdateAssignedBanner.vue';
 import { CONVERSA_ICON_URL } from '../../constants/conversa';
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
