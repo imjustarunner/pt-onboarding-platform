@@ -14,6 +14,7 @@ const withOptionalSignatureValidation = (handler) => (req, res, next) => {
 
     const signature = req.body?.sig || req.query?.sig || '';
     if (!signature) {
+      req.evidenceAction = 'vonage_signature_missing';
       return res.status(403).json({ error: 'Missing Vonage signature' });
     }
 
@@ -22,6 +23,7 @@ const withOptionalSignatureValidation = (handler) => (req, res, next) => {
     delete params.sig;
     const ok = VonageService.validateWebhook({ params, signature });
     if (!ok) {
+      req.evidenceAction = 'vonage_signature_invalid';
       return res.status(403).json({ error: 'Invalid Vonage signature' });
     }
 

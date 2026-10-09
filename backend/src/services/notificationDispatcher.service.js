@@ -184,7 +184,12 @@ class NotificationDispatcherService {
       return { dispatched: false, reason: 'missing_phone' };
     }
 
-    const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'workforce' });
+    const agency = await Agency.findById(agencyId);
+    const agencyFlags = parseJsonMaybe(agency?.feature_flags) || {};
+    // Staff alerts share the configured notification/polling program. Never
+    // silently switch to a care sender when that configured number is unavailable.
+    const from = await resolveRegisteredSmsSender({ agencyId, purpose: 'workforce',
+      numberId: agencyFlags.companyEventsSenderNumberId ?? null, requiredPurpose: 'polling' });
     if (!from) {
       await NotificationSmsLog.create({
         userId,
@@ -210,15 +215,10 @@ class NotificationDispatcherService {
     if (!decision?.sms) return { dispatched: false, reason: 'gatekeeper_sms_false', decision };
 
     // Never put client identities, message bodies or reusable sign-in tokens in SMS alerts.
-    const agency=await Agency.findById(agencyId);
     const urgentSupport = notification.type === 'support_safety_net_alert' && notification.severity === 'urgent'
       && notification.related_entity_type === 'support_ticket';
-    const exchangeLink=`${buildPublicAppUrl(agency,'client-exchange')}?agencyId=${Number(agencyId)}${notification.related_entity_type==='client_exchange_listing'&&Number(notification.related_entity_id)>0?`&listingId=${Number(notification.related_entity_id)}`:''}`;
-    // Off by default. Enable an agency only after its healthcare SMS delivery has been verified; a BAA alone is not sufficient.
-    const clinicalExchangeSms=String(process.env.CLIENT_EXCHANGE_CLINICAL_SMS_AGENCY_IDS||'').split(',').map(Number).includes(Number(agencyId));
-    const body = notification.type==='client_exchange_match' && clinicalExchangeSms && context.exchangeSummary
-      ? `New client added to the exchange. ${context.exchangeSummary} Review and request securely: ${exchangeLink}`
-      : urgentSupport
+    const exchangeLink=`${buildPublicAppUrl(agency,'client-exchange')}?agencyId=${Number(agencyId)}`;
+    const body = urgentSupport
       ? `Urgent: a support request needs your attention. Sign in to claim it and reply securely: ${buildPublicPortalBaseUrl(agency)}`
       : staffNotificationBody(notification.type,notification.type==='client_exchange_match'?exchangeLink:buildPublicPortalBaseUrl(agency));
 

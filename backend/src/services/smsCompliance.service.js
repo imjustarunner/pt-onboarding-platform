@@ -1,5 +1,5 @@
 import {ITSCO_STAFF_ASSISTANT_NUMBER} from '../utils/staffSmsAssistant.js';
-import { staffCommunicationKey, phoneFingerprint } from '../utils/staffCommunicationChoices.js';
+import { staffCommunicationKey, phoneFingerprint, STAFF_COMMUNICATION_CHOICES } from '../utils/staffCommunicationChoices.js';
 import pool from '../config/database.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
 import { parseSmsKeyword, SMS_PURPOSES, smsPolicyError, validateSmsRegistration, formatRegisteredSms } from '../utils/smsCompliancePolicy.js';
@@ -135,7 +135,7 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     for (const row of staff) {
       const state=row.choices?json(row.choices):null;
       const kind=purpose==='polling'?'polling':staffNotificationKind;
-      if(state && (state.phoneHash!==phoneFingerprint(recipient)||!['notifications','messageAlerts','appointmentReplies','kioskArrivals','polling'].includes(kind)||state.choices?.[kind]!==true))
+      if(state && (state.phoneHash!==phoneFingerprint(recipient)||!STAFF_COMMUNICATION_CHOICES.some(choice=>choice.key===kind)||state.choices?.[kind]!==true))
         throw smsPolicyError('sms_staff_choice_off','This staff member has not enabled this personal-phone text category');
     }
   }
@@ -152,15 +152,19 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
   return { to: recipient, from: sender.phone_number, body: formatRegisteredSms(body, registration.brandName, purpose === 'care' ? senderFirstName : null), registration, purpose };
 }
 
-export async function resolveRegisteredSmsSender({ agencyId, purpose }) {
+export async function resolveRegisteredSmsSender({ agencyId, purpose, numberId = null, requiredPurpose = null }) {
   if (!Number(agencyId) || !SMS_PURPOSES.includes(purpose)) return null;
+  if (numberId != null && (!Number.isSafeInteger(Number(numberId)) || Number(numberId) <= 0)) return null;
+  if (requiredPurpose != null && !SMS_PURPOSES.includes(requiredPurpose)) return null;
   const [rows] = await pool.execute(
     `SELECT n.phone_number FROM twilio_numbers n JOIN sms_sender_registrations r ON r.number_id = n.id
      WHERE n.agency_id = ? AND n.is_active = TRUE AND n.status <> 'released'
        AND JSON_CONTAINS(JSON_EXTRACT(r.registration_json, '$.purposes'), JSON_QUOTE(?))
        AND JSON_EXTRACT(r.registration_json, '$.approved') = TRUE
        AND JSON_EXTRACT(r.registration_json, '$.numberLinked') = TRUE
-     ORDER BY n.id LIMIT 1`, [Number(agencyId), purpose]
+       AND (? IS NULL OR n.id = ?)
+       AND (? IS NULL OR JSON_CONTAINS(JSON_EXTRACT(r.registration_json, '$.purposes'), JSON_QUOTE(?)))
+     ORDER BY n.id LIMIT 1`, [Number(agencyId), purpose, numberId, numberId, requiredPurpose, requiredPurpose]
   );
   return rows[0]?.phone_number || null;
 }

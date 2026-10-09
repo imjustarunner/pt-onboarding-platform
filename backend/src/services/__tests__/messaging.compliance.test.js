@@ -47,12 +47,13 @@ describe('campaign-wide SMS delivery gate', () => {
     const original=pool.execute.getMockImplementation();
     pool.execute.mockImplementation(async(sql,args)=> {
       if(sql.includes('FROM twilio_numbers')) return [[{...sender,registration_json:{...registration,purposes:['workforce','polling']}}]];
-      if(sql.includes('AS choices')) return [[{choices:{phoneHash:phoneFingerprint(message.to),choices:{notifications:false,messageAlerts:true,polling:false}}}]];
+      if(sql.includes('AS choices')) return [[{choices:{phoneHash:phoneFingerprint(message.to),choices:{notifications:false,messageAlerts:true,exchangeMatches:true,polling:false}}}]];
       return original(sql,args);
     });
     permissions.push({scope:'campaign:C123',phone:message.to,purpose:'workforce',status:'opted_in'});
     await expect(prepareSmsDelivery({...message,purpose:'workforce'})).rejects.toMatchObject({code:'sms_staff_choice_off'});
     await expect(prepareSmsDelivery({...message,purpose:'workforce',staffNotificationKind:'messageAlerts'})).resolves.toMatchObject({to:message.to});
+    await expect(prepareSmsDelivery({...message,purpose:'workforce',staffNotificationKind:'exchangeMatches'})).resolves.toMatchObject({to:message.to});
     await expect(prepareSmsDelivery({...message,purpose:'polling'})).rejects.toMatchObject({code:'sms_staff_choice_off'});
   });
 
