@@ -180,3 +180,30 @@ describe('onboarding contact staff profile', () => {
     expect(await onboardingContactForAgency(2)).toMatchObject({ name: 'Aunya Albinana', photoPath: null });
   });
 });
+
+ it('requires retained school availability during final submission', async () => {
+   expect(requiredSubmissionKeys([{key:'school-availability',kind:'school-availability'}])).toEqual(['school-availability']);
+   mocks.execute.mockResolvedValue([[]]);
+   await expect(assertPortalStepCompletion(1,'onboarding',['school-availability'],db)).rejects.toThrow('Complete all required steps');
+ });
+ it('includes school availability in live and progress-only onboarding', async () => {
+   mocks.execute.mockResolvedValue([[]]);
+   const input={user:{id:1,role:'provider',status:'ONBOARDING',service_focus:'School-Based Counseling'},agencyId:9,tasks:[],prehireTasks:[],extras:{},backgroundCheck:{},journey:{}};
+   const full=await buildPortalWorkflow(input);
+   expect(full.steps.onboarding.find(s=>s.kind==='school-availability')).toMatchObject({required:true,complete:false,values:{available:null,blocks:[]}});
+   const progress=await buildPortalWorkflow({...input,progressOnly:true});
+   expect(progress.progress.onboarding).toEqual(full.progress.onboarding);
+ });
+ it('saves school hours and encrypted onboarding completion in one transaction', async () => {
+   mocks.execute.mockImplementation(async sql => sql.startsWith('SELECT status') ? [[{status:'ONBOARDING'}]] : sql.includes('SELECT id FROM user_info_field_definitions') ? [[{id:12}]] : [[]]);
+   await savePortalStep({userId:1,agencyId:2,phase:'onboarding',key:'school-availability',value:{available:true,notes:'',blocks:[{dayOfWeek:'Tuesday',startTime:'09:00',endTime:'14:00'}]}});
+   expect(mocks.execute.mock.calls.some(([sql,args])=>sql.startsWith('INSERT INTO user_info_values') && args[2]==='Tuesday: 9:00 a.m.–2:00 p.m.')).toBe(true);
+   expect(mocks.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO hire_portal_submissions'))[1][4]).toBeInstanceOf(Date);
+   expect(db.commit).toHaveBeenCalled();
+ });
+ it('rolls back invalid school hours without completing the step', async () => {
+   mocks.execute.mockImplementation(async sql => sql.startsWith('SELECT status') ? [[{status:'ONBOARDING'}]] : [[]]);
+   await expect(savePortalStep({userId:1,agencyId:2,phase:'onboarding',key:'school-availability',value:{available:true,notes:'',blocks:[]}})).rejects.toThrow('at least one');
+   expect(db.rollback).toHaveBeenCalled(); expect(db.commit).not.toHaveBeenCalled();
+   expect(mocks.execute.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO'))).toBe(false);
+ });

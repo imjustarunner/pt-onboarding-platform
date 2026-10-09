@@ -1,6 +1,8 @@
 import { shallowMount, flushPromises } from '@vue/test-utils';
 import { beforeEach, expect, it, vi } from 'vitest';
 import Portal from '../CandidatePreHirePortalView.vue';
+// Account readiness does not render PDFs; avoid loading PDF.js browser APIs in jsdom.
+vi.mock('../../components/prehire/HireDocumentPreview.vue', () => ({ default: { template: '<div />' } }));
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock('../../services/api', () => ({ default: api }));
 vi.mock('axios', () => ({ default: { create: () => api } }));

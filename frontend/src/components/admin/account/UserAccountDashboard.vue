@@ -453,6 +453,7 @@
               <div class="acct-field"><span class="acct-field-label">Session Length</span><span class="acct-field-value">{{ serviceAvailability.sessionLength || '—' }}</span></div>
               <div class="acct-field"><span class="acct-field-label">Typical Caseload</span><span class="acct-field-value">{{ serviceAvailability.caseload || '—' }}</span></div>
               <div class="acct-field"><span class="acct-field-label">School Days Preference</span><span class="acct-field-value">{{ serviceAvailability.schoolDays || '—' }}</span></div>
+              <div class="acct-field"><span class="acct-field-label">In-school Availability</span><span class="acct-field-value" style="white-space: pre-line">{{ serviceAvailability.schoolHours || '—' }}</span></div>
             </div>
             <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px;">
               <button type="button" class="acct-link-btn" @click="ctx.navigate?.('provider_info')">
@@ -872,7 +873,8 @@ const serviceAvailability = computed(() => ({
   settings: formatSnapshotValue(fieldByKey.value, { fieldKeys: ['outside_school_availability', 'school_days_preference', 'psych_today_outside_school_interest'] }),
   sessionLength: clinicalSnapshot.value.sessionLength,
   caseload: clinicalSnapshot.value.caseload,
-  schoolDays: fieldDisplay(['school_days_preference'])
+  schoolDays: fieldDisplay(['school_days_preference']),
+  schoolHours: fieldDisplay(['school_service_hours'])
 }));
 
 const employmentRows = computed(() => {

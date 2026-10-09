@@ -1,3 +1,5 @@
+import { schoolAvailabilityStep, validateSchoolServiceAvailability } from '../utils/schoolServiceAvailability.js';
+import { persistSchoolServiceAvailability } from './schoolServiceAvailability.service.js';
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
 import pool from '../config/database.js';
@@ -29,7 +31,7 @@ export async function portalStepSubmissions(userId, { completionOnly = false } =
 }
 
 export function requiredSubmissionKeys(steps, hasWorkEmail = false) {
-  const savedKinds = new Set(['user-setup', 'staff-communications', 'clinical-profile', 'profile', 'headshot', 'handbook', 'work-email', 'upload', 'video', 'meeting', 'link', 'acknowledgement']);
+  const savedKinds = new Set(['school-availability', 'user-setup', 'staff-communications', 'clinical-profile', 'profile', 'headshot', 'handbook', 'work-email', 'upload', 'video', 'meeting', 'link', 'acknowledgement']);
   return steps.filter((step) => step.required !== false && savedKinds.has(step.kind)
     && !(step.kind === 'work-email' && hasWorkEmail)).map((step) => step.key);
 }
@@ -57,6 +59,11 @@ export async function savePortalStep({ userId, agencyId, phase, key, value, comp
       const saved=await saveStaffCommunicationChoices({userId,agencyId,input:value,source:'onboarding',database:db});
       value={choices:saved.choices,accessRequests:saved.accessRequests,reviewedAt:saved.reviewedAt};
       encrypted=JSON.stringify(encryptGuardianIntake(JSON.stringify(value)));
+    }
+    if (phase === 'onboarding' && key === 'school-availability') {
+      value = validateSchoolServiceAvailability(value);
+      encrypted = JSON.stringify(encryptGuardianIntake(JSON.stringify(value)));
+      if (complete) await persistSchoolServiceAvailability(db, userId, agencyId, value);
     }
     await db.execute(`INSERT INTO hire_portal_submissions (user_id, phase, step_key, encrypted_value, completed_at)
       VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE encrypted_value = VALUES(encrypted_value), completed_at = VALUES(completed_at)`,
@@ -187,6 +194,10 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
     const setup = await getHireUserSetup(user, agencyId);
     add('onboarding', {key:'user-setup',kind:'user-setup',title:'Your user setup',...setup,
       values:saved?.value || setup.values,complete:!!saved?.completedAt});
+  }
+  if (user.status === 'ONBOARDING') {
+    const schoolStep = schoolAvailabilityStep(user, stored('onboarding', 'school-availability'), onboardingClosed);
+    if (schoolStep) add('onboarding', schoolStep);
   }
   if (user.status === 'ONBOARDING' && isStaffCommunicationRole(user.role) && (!onboardingClosed || stored('onboarding','staff-communications'))) {
     const choices = await getStaffCommunicationChoices({userId:user.id,agencyId});

@@ -64,6 +64,7 @@
                 <p v-if="step.submission?.scheduledAt">Scheduled for {{ new Date(step.submission.scheduledAt).toLocaleString() }}</p><a v-if="step.submission?.receiptPath" :href="fileUrl(phase,step.key)" target="_blank" rel="noopener">View signed acknowledgement</a>
               </template><div v-else class="notice"><Icon name="clock" /><p>People Operations needs to attach this resource. Message the team so they can help you continue.</p></div>
             </div>
+            <div v-else-if="step.kind === 'school-availability'" class="card"><HireSchoolAvailability :key="step.key" :step="step" :busy="busy" :readonly="closed" @save="save(step.key,$event)" /></div>
             <div v-else-if="step.kind === 'user-setup'" class="card"><HireUserSetup :key="step.key" :step="step" :busy="busy" :readonly="closed" @save="save(step.key,$event)" /></div>
             <div v-else-if="step.kind === 'staff-communications'" class="card"><StaffCommunicationChoices :initial="step.communicationChoices" :agency-id="agency.id" external-save :busy="busy" :readonly="closed" @save="save(step.key,$event)" /><HireStaffEnrollments :http="http" :token="token" /></div>
             <div v-else-if="step.kind === 'clinical-profile'" class="card"><HireClinicalProfile :step="step" :busy="busy" :readonly="closed" @save="save(step.key, $event)" /></div>
@@ -98,6 +99,7 @@ import Icon from './HirePortalIcon.vue';
 import HireClinicalProfile from './HireClinicalProfile.vue';
 import HireStaffEnrollments from './HireStaffEnrollments.vue';
 import HireUserSetup from './HireUserSetup.vue';
+import HireSchoolAvailability from './HireSchoolAvailability.vue';
 import HiringNotificationChoices from '../communications/HiringNotificationChoices.vue';
 import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
 import SupervisionAgreementCard from '../supervision/SupervisionAgreementCard.vue';
@@ -148,7 +150,7 @@ watch(() => step.value?.key, () => { emit('media', false); error.value = ''; sav
 function navigate(value) { emit('media', false); section.value = value; emit('section', value, step.value); }
 function select(item) { if (!item) return; selectedKey.value = item.key; nextTick(() => { const current = document.querySelector('.steps [aria-current=step]'); if (window.innerWidth < 761) current?.scrollIntoView({ block: 'nearest', inline: 'center' }); }); }
 function switchPhase(value) { phase.value = value; selectedKey.value = steps.value.find(s => !s.complete)?.key || steps.value[0]?.key || ''; emit('phase', value); navigate('steps'); }
-function iconFor(item) { return ({ background: 'lock', 'job-description': 'document', 'work-email': 'mail', profile: 'people', 'clinical-profile': 'people', headshot: 'camera', handbook: 'book', account: 'lock', meeting: 'calendar', video: 'video', upload: 'upload', link: 'link', review: 'check' })[item.kind] || (item.task?.taskType === 'training' ? 'video' : 'document'); }
+function iconFor(item) { return ({ background: 'lock', 'job-description': 'document', 'work-email': 'mail', profile: 'people', 'clinical-profile': 'people', headshot: 'camera', handbook: 'book', account: 'lock', 'school-availability': 'calendar', meeting: 'calendar', video: 'video', upload: 'upload', link: 'link', review: 'check' })[item.kind] || (item.task?.taskType === 'training' ? 'video' : 'document'); }
 function fileUrl(p, key) { return `${props.http.defaults.baseURL}/prehire-portal/${encodeURIComponent(props.token)}/workflow/${p}/${encodeURIComponent(key)}/file${key === 'headshot' ? `?v=${encodeURIComponent(workflow.value.headshot?.version || '')}` : ''}`; }
 function intakeUrl(task) { const t = task.metadata?.intakeLinkPublicKey || task.metadata?.intakeToken || task.metadata?.intakeLinkToken; return t ? buildFormUrl(t, task.metadata?.formType || task.metadata?.form_type) : task.metadata?.formUrl || ''; }
 function embedUrl(raw) {
