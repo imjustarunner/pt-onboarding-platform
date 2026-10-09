@@ -17,7 +17,7 @@
         <div class="portal-program-picker"><GuardianProgramSelector :programs="programs" /><button class="btn btn-secondary btn-sm" @click="refreshAll" :disabled="loading">Refresh</button></div>
       </section>
 
-      <PortalNotificationSetup v-if="['overview','tutoring','notifications'].includes(activePanel)" :client-id="selectedChildId" :preview="isSuperadminPreview" @contact="navigatePortal('messages')" />
+      <PortalNotificationSetup v-if="['overview','tutoring','notifications'].includes(activePanel)" :client-id="selectedChildId" :preview="isSuperadminPreview" :organization-name="careAgencyName || currentAgencyName" @contact="navigatePortal('messages')" />
 
       <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing'].includes(activePanel)" class="empty-state">
         <p>No children or programs are linked to this guardian account yet.</p>

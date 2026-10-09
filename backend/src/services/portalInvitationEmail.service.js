@@ -114,7 +114,7 @@ export function buildPortalInvitationEmail(opts = {}) {
   <tr>
     <td style="padding:28px 28px 8px;">
       <p style="margin:0 0 14px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;color:${navy};">
-        Your first task: review your notification preferences and complete text enrollment if you choose text reminders. Then, with your portal account, you can:
+        Your first task: review your notification preferences and complete text enrollment if you choose text reminders. With your portal account, you can:
       </p>
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
         <tr>${featureCells}</tr>
@@ -123,12 +123,13 @@ export function buildPortalInvitationEmail(opts = {}) {
   </tr>
   <tr>
     <td style="padding:12px 28px 8px;">
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:${soft};border-radius:12px;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f3f7fe;border-top:3px solid #0047b3;border-radius:12px;">
         <tr>
-          <td style="padding:16px 18px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#334155;">
-            <span style="font-size:18px;margin-right:8px;">🔒</span>
-            <strong style="color:${navy};">Your information is secure.</strong>
-            The ${escapeHtml(agencyName)} portal is HIPAA-compliant and designed to keep your information private and protected.
+          <td style="padding:22px;font-family:Arial,Helvetica,sans-serif;line-height:1.6;color:#536680;">
+            <p style="margin:0 0 8px;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#4f6684;">Your communications, connected</p>
+            <h2 style="margin:0 0 10px;font-size:21px;line-height:1.3;letter-spacing:-0.4px;color:#0f2d6b;">Messaging managed by Conversa</h2>
+            <p style="margin:0 0 14px;font-size:14px;">Conversa manages messaging and notifications for <strong style="color:#244a78;">${escapeHtml(agencyName)}</strong>. Your organization remains your point of contact.</p>
+            <p style="margin:0;font-size:13px;">Choose your email and text preferences in your dashboard. Text messages are optional. If you choose texts, review and sign your choices; your organization reviews them before activating selected subscriptions.</p>
           </td>
         </tr>
       </table>
@@ -162,7 +163,9 @@ ${setupUrl}
 
 Your first task: review your notification preferences and complete text enrollment if you choose text reminders.
 
-Your information is secure. The ${agencyName} portal is HIPAA-compliant.
+Messaging managed by Conversa for ${agencyName}. Your organization remains your point of contact.
+
+Choose your email and text preferences in your dashboard. Text messages are optional. If you choose texts, review and sign your choices; your organization reviews them before activating selected subscriptions.
 
 Questions? ${supportUrl}
 

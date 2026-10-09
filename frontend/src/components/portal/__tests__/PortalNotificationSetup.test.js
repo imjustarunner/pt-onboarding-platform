@@ -27,5 +27,5 @@ it('does not fetch or modify private settings in preview', async () => {
 it('ignores responses for a previously selected client', async () => {
   let old; api.get.mockImplementationOnce(() => new Promise(resolve => { old = resolve; })).mockResolvedValue(response(true));
   const w = mount(Setup, { props: { clientId: 1 } }); await w.setProps({ clientId: 2 }); await flushPromises();
-  old(response()); await flushPromises(); expect(w.text()).toContain('Completed'); expect(w.text()).not.toContain('Priority task'); w.unmount();
+  old(response()); await flushPromises(); expect(w.text()).toContain('Preferences saved'); expect(w.text()).not.toContain('Priority task'); w.unmount();
 });

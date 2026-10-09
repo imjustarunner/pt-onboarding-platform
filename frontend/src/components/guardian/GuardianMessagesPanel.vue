@@ -2,7 +2,7 @@
   <div class="gmsg conversa-surface">
     <div class="panel-head">
       <ConversaBrand compact />
-      <div class="panel-subtitle">Secure messages and email with your care team — open, read, reply.</div>
+      <div class="panel-subtitle">Messaging managed by Conversa. Connect with your care team, read updates, and keep your conversations together.</div>
     </div>
 
     <div class="gmsg-tabs">
