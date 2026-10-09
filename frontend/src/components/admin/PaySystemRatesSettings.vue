@@ -4,9 +4,9 @@
       <div>
         <h4 class="ps-title">Pay System Rates</h4>
         <p class="ps-sub">
-          Category × level rates for the new pay system. FFS pays at the fee-for-service rate × credits
-          (0.75 / 1.0 / 1.5 for extended 90834 as 2 units). H-codes pay the full H rate for face time;
-          Cat 2/3 also add auto-indirect minutes (default 10 min/hr at the indirect rate) on top of the H pay.
+          Category × level rates for the new pay system. Clinical Session Rate applies to approved 9-series services × assigned credits
+          (0.75 / 1.0 / 1.5 for extended 90834 as 2 units). Approved H-codes currently use the Direct Care Rate;
+          Cat 2/3 also add auto-indirect minutes (default 10 min/hr at the indirect rate) on top of Direct Care Rate pay.
           <strong>MWR / Probationary</strong> rates apply during the 90-day window or when below minimum workload (waivable).
         </p>
       </div>
@@ -103,10 +103,10 @@
               <thead>
                 <tr>
                   <th class="col-level">Level</th>
-                  <th class="col-rate" title="Fee-for-service rate per 1 credit (all FFS codes)">FFS $/credit</th>
-                  <th class="col-rate" title="Minimum workload / 90-day probationary FFS rate">FFS Min / Probation</th>
-                  <th class="col-rate" title="H-code rate (per hour or per 4 units depending on code)">H-code $/hr</th>
-                  <th class="col-rate" title="Minimum workload / probationary H-code rate">H Min / Probation</th>
+                  <th class="col-rate" title="Clinical Session Rate per credit for approved 9-series services">Clinical Session Rate $/credit</th>
+                  <th class="col-rate" title="Minimum workload / 90-day probationary Clinical Session Rate">Clinical Session Min / Probation</th>
+                  <th class="col-rate" title="Direct Care Rate per hour equivalent; currently approved H-codes">Direct Care Rate $/hr</th>
+                  <th class="col-rate" title="Minimum workload / probationary Direct Care Rate">Direct Care Min / Probation</th>
                   <th class="col-rate">Indirect $/hr</th>
                   <th class="col-rate">Support activity $/hr</th>
                   <th class="col-bonus" title="Tier performance bonus per productive credit/hour-eq (typically L3–L5)">Tier bonus $/cr</th>

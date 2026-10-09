@@ -41,8 +41,8 @@
             <span v-else class="pay-calc__chip">Current pay</span>
             <span v-if="activeProfile" class="pay-calc__chip">
               {{ categoryLabel }} L{{ activeProfile.level }}
-              · FFS ${{ fmt(activeCreditRate) }}
-              · H ${{ fmt(activeHcodeRate) || '—' }}
+              · Clinical Session Rate ${{ fmt(activeCreditRate) }}
+              · Direct Care Rate ${{ fmt(activeHcodeRate) || '—' }}
               · Indirect ${{ fmt(activeProfile.indirectRate) }}
             </span>
           </div>
@@ -224,7 +224,7 @@
               <strong>${{ fmt(estimate.summary.grandTotal) }}</strong>
             </div>
             <p class="pay-calc__hint">
-              H-codes with an H rate pay the full H amount for face time, plus auto-indirect on top (e.g. 4 units of H0004 = 1 hr @ $32 + 10 min indirect @ $24 = $36). Levels without an H-code rate pay direct for that time; staff enter other indirect separately.
+              Approved H-codes currently use the Direct Care Rate, plus auto-indirect on top (e.g. 4 units of H0004 = 1 hr @ $32 + 10 min indirect @ $24 = $36). Levels without a Direct Care Rate pay direct for that time; staff enter other indirect separately.
             </p>
           </div>
         </div>
@@ -335,8 +335,8 @@ const fmtHrs = (n) => {
 };
 
 const payTypeLabel = (t) => {
-  if (t === 'credit') return 'FFS';
-  if (t === 'hcode') return 'H-code';
+  if (t === 'credit') return 'Clinical Session Rate';
+  if (t === 'hcode') return 'Direct Care Rate';
   if (t === 'indirect') return 'indirect';
   if (t === 'support_activity') return 'support';
   return t || '';
