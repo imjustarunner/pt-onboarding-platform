@@ -27,7 +27,7 @@
  </div>
 </template>
 <script setup>
-import {sessionLanguageLabels} from '../../utils/providerLanguages';
+import {sessionLanguageLabels} from '../../navigation/providerLanguages';
 import {publishedFocus} from '../../navigation/providerFocus.js';
 import {uniquePublicFacets} from '../../utils/publicProviderFacets';
 import { computed, ref, watch } from 'vue';

@@ -52,7 +52,7 @@
  </section>
 </template>
 <script setup>
-import {sessionLanguageLabels} from '../../utils/providerLanguages';
+import {sessionLanguageLabels} from '../../navigation/providerLanguages';
 import {mentalRangeSearchUrl,providerOpeningGroups,networkSearchKeys} from '../../utils/networkProviderSearch';
 import Icon from '../rise/RiseIcon.vue';
 import ItscoProfilePlaceholders from './ItscoProfilePlaceholders.vue';

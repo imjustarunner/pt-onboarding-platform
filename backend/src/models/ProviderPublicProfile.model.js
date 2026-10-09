@@ -1,4 +1,4 @@
-import {validateSessionLanguages} from '../../../frontend/src/utils/providerLanguages.js';
+import {validateSessionLanguages} from '../../../frontend/src/navigation/providerLanguages.js';
 import {scopeProviderProfile} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
 import {publicLanguages,restrictPublicInsurances} from '../utils/publicProviderPresentation.js';

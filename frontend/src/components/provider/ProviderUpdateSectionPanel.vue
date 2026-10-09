@@ -290,7 +290,7 @@
 
 <script setup>
 import ProviderSessionLanguages from './ProviderSessionLanguages.vue';
-import {validateSessionLanguages} from '../../utils/providerLanguages';
+import {validateSessionLanguages} from '../../navigation/providerLanguages';
 import DOMPurify from 'dompurify';
 import ProviderUpdateAmendment from './ProviderUpdateAmendment.vue';
 import ProviderUpdateSchoolSchedule from './ProviderUpdateSchoolSchedule.vue';

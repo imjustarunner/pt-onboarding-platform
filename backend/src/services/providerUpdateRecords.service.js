@@ -1,4 +1,4 @@
-import {validateSessionLanguages} from '../../../frontend/src/utils/providerLanguages.js';
+import {validateSessionLanguages} from '../../../frontend/src/navigation/providerLanguages.js';
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import {getProviderDisplayRole,DISPLAY_ROLE_OPTIONS} from './providerDisplayRole.service.js';
 import {FOCUS_GROUPS,validateFocus} from '../../../frontend/src/navigation/providerFocus.js';
