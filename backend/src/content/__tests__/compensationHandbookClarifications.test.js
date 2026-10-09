@@ -1,0 +1,23 @@
+import {it,expect} from 'vitest';
+import {SIMPLE_HANDBOOK_CLAUSE,workloadHandbookSection,codeReferenceSection,GROUP_POLICY_HTML,TRAINING_LEAVE_SECTION,SCHOOL_SUPPORT_SECTION} from '../compensationHandbookClarifications.js';
+import {renderAmendment,commonAmendmentClauses} from '../itscoOctober2026Drafts.js';
+it('replaces the old dense clause even in saved custom amendment text and preserves other edits',()=>{
+ const old=commonAmendmentClauses().replace(/<h3>8\.[\s\S]*?(?=<h3>9\.)/,'<h3>8. Handbook appendix, group policy and prospective changes</h3><p>Old dense wording.</p>')+'<p>Owner individual edit.</p>';
+ const result=renderAmendment({employee:{name:'Example'},schedule:{category:2,level:2},commonClausesHtml:old});
+ expect(result).toContain(SIMPLE_HANDBOOK_CLAUSE);expect(result).not.toContain('Old dense wording');expect(result).toContain('Owner individual edit.');expect(result).toContain('Supervisory reviews');expect(result).toContain('mileage reimbursement');expect(result).toContain('Training Leave policy');
+});
+it('uses the saved threshold and separate reduced rates rather than guessing from the regular rate',()=>{
+ const section=workloadHandbookSection({thresholds:{tier1MinWeekly:6},rates:[{category:2,credit_rate_probation:38,hcode_rate_probation:25}]});
+ expect(section.bodyHtml).toContain('12 per two-week');expect(section.bodyHtml).toContain('$38.00');expect(section.bodyHtml).toContain('$25.00');expect(section.bodyHtml).toContain('December 9');expect(section.bodyHtml).toContain('prior-period tier grace');
+});
+it('does not treat a saved group rate or zero-credit mapping as approval',()=>{
+ const section=codeReferenceSection([{service_code:'90853',category:'direct',credit_value:1},{service_code:'99051',category:'direct',credit_value:0},{service_code:'H0031',category:'direct',credit_value:1/60,pay_divisor:60},{service_code:'Homework',category:'direct',credit_value:1/60,pay_divisor:60}]);
+ expect(section.bodyHtml).toContain('Group moratorium — written exception required');expect(section.bodyHtml).toContain('No automatic credit payment');expect(section.bodyHtml).toContain('Actual service minutes ÷ 60');expect(section.bodyHtml).not.toContain('<th>Homework</th>');
+});
+it('keeps the group proposal option while requiring funded legal wages and official dated sources',()=>{
+ expect(GROUP_POLICY_HTML).toContain('Staff may propose a group');expect(GROUP_POLICY_HTML).toContain('reasonable likelihood');expect(GROUP_POLICY_HTML).toContain('individual written agreement');expect(GROUP_POLICY_HTML).toContain('Public Law 119-21');expect(GROUP_POLICY_HTML).toContain('leg.colorado.gov/bills/hb26-1410');expect(GROUP_POLICY_HTML).toContain('historical context');
+});
+it('keeps benefit drafts separate and does not invent forfeiture authority or remove wages from payroll',()=>{
+ expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('all employees');expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('0.25');expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('must be confirmed');
+ expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('2 hours');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('15 qualifying credits plus 10');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('not be sent to ADP as a leave bank');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('normal payroll, tax and wage records');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('before activation');
+});

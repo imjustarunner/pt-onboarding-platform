@@ -1,3 +1,4 @@
+import {SUPERVISORY_REVIEW_CONSIDERATION} from './compensationHandbookClarifications.js';
 /** Shared editorial policy. It never assigns work, changes pay, or records hours. */
 export const LEVEL_EXPECTATIONS_VERSION = 'itsco-level-expectations-2026-10-09-annual';
 export const LEVEL_EXPECTATIONS_SLUG = 'compensation-level-expectations-and-review';
@@ -8,6 +9,7 @@ export const ANNUAL_INDIRECT_COMMITMENT = 'I agree to participate in a minimum o
 export const INDIRECT_WORK_ADMINISTRATION = 'ITSCO and the employee will identify and schedule the indirect duties that satisfy this commitment, including assigned outreach, community and school events. Required outreach under this commitment is paid indirect work, not unpaid volunteering. Other activities retain the pay classification disclosed in the compensation schedule unless expressly designated as part of this indirect-work assignment. The commitment does not automatically add four or eight hours to payroll: record all actual time worked, including additional compensable time. ITSCO will make assignments and scheduling expectations clear. Management will address unavailable assignments, school closures, approved schedule changes, protected leave and reasonable accommodations; an employee will not be treated as failing this commitment solely because ITSCO did not make the work available. Requirements are adjusted as required for protected leave and accommodations, without unpaid make-up work. Applicable minimum wage and overtime protections continue to apply.';
 
 export const LEVEL_REVIEW_CATEGORIES = [
+  {title:'Supervisory review and evaluations',expectation:SUPERVISORY_REVIEW_CONSIDERATION,evidence:'Documented supervisory feedback, clinical review findings, formal evaluations and the employee’s response.'},
   {
     title: 'Annual paid event-work commitment',
     expectation: 'Complete the assigned four-hour annual event commitment, or eight-hour annual total while school-assigned (January 1–December 31), with accurate actual-time records and timely follow-through. Review both the work made available and the work performed; do not substitute automatic payroll allowances for actual participation.',
