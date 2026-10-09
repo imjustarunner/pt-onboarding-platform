@@ -1103,12 +1103,13 @@ export const getClientById = async (req, res, next) => {
       !membershipHasAgency &&
       !access.isAssignedClinician;
 
-    if (isNonAgencyOrgStaff && !hasAgencyAccess) {
+    if (String(userRole || '').toLowerCase() === 'school_staff' || (isNonAgencyOrgStaff && !hasAgencyAccess)) {
       if (String(userRole || '').toLowerCase() === 'school_staff') {
         const canAccessClient = await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
           clientId: client.id,
           schoolOrganizationId: client.organization_id,
-          schoolStaffUserId: userId
+          schoolStaffUserId: userId,
+          allowExpiredOverview: true
         });
         if (!canAccessClient) {
           return res.status(403).json({
@@ -4863,6 +4864,14 @@ export const getClientNotes = async (req, res, next) => {
       return res.status(404).json({ error: { message: 'Client not found' } });
     }
 
+    if (roleNorm === 'school_staff' && !(await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
+      clientId: currentClient.id,
+      schoolOrganizationId: currentClient.organization_id,
+      schoolStaffUserId: userId
+    }))) {
+      return res.status(403).json({ error: { message: 'Current ROI access required for client notes' } });
+    }
+
     // Permission check
     let hasAgencyAccess = false;
     if (isGuardian) {
@@ -5016,6 +5025,14 @@ export const createClientNote = async (req, res, next) => {
     const currentClient = await Client.findById(id);
     if (!currentClient) {
       return res.status(404).json({ error: { message: 'Client not found' } });
+    }
+
+    if (roleNorm === 'school_staff' && !(await ClientSchoolStaffRoiAccess.schoolStaffHasActiveRoiAccess({
+      clientId: currentClient.id,
+      schoolOrganizationId: currentClient.organization_id,
+      schoolStaffUserId: userId
+    }))) {
+      return res.status(403).json({ error: { message: 'Current ROI access required for client notes' } });
     }
 
     // Permission check

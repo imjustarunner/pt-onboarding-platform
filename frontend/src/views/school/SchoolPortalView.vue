@@ -473,6 +473,7 @@
         >
           ☰
         </button>
+        <img v-if="schoolLogoUrl" :src="schoolLogoUrl" alt="" class="sp-header-school-logo" />
         <div class="sp-topbar-titles">
           <h1 data-tour="school-header-title">{{ organizationDisplayName }} Portal</h1>
           <p class="sp-topbar-subtitle"><strong>{{ tenantBrandName }}</strong><span v-if="tenantBrandName"> · </span>SchoolCareBridge · Schedule + roster</p>
@@ -482,24 +483,6 @@
             v-if="affiliatedAgencyId && canManageSchoolPortalBackofficeNav"
             :agency-id="affiliatedAgencyId"
           />
-          <div v-if="showSchoolSelector" class="school-selector-wrap">
-            <label for="school-selector" class="school-selector-label">School:</label>
-            <select
-              id="school-selector"
-              v-model="selectedSchoolSlug"
-              class="school-selector"
-              aria-label="Switch school"
-              @change="onSchoolSelect"
-            >
-              <option
-                v-for="school in schoolStaffSchools"
-                :key="school.slug"
-                :value="school.slug"
-              >
-                {{ school.name }}
-              </option>
-            </select>
-          </div>
           <router-link
             v-if="canManageMarketingCampaigns"
             to="/admin/marketing-campaigns"
@@ -508,24 +491,9 @@
           >
             School Marketing Campaign
           </router-link>
-          <button
-            v-if="isSchoolStaff && (showFallReinitSummaryButton || fallReinitStatus?.splashEnabled || fallReinitStatus?.campaign?.isPushed)"
-            type="button"
-            class="btn btn-primary btn-sm"
-            title="Open collaborative update"
-            @click="openFallReinitModal"
-          >
-            {{ showFallReinitSummaryButton ? 'View fall summary' : 'Collaborative update' }}
-          </button>
-          <button
-            v-if="isSchoolStaff && (fallReinitStatus?.splashEnabled || fallReinitStatus?.campaign?.isPushed)"
-            type="button"
-            class="btn btn-secondary btn-sm sp-copy-token-btn"
-            title="Copy shareable collaborative update link"
-            @click="copyFallReinitToken"
-          >
-            {{ fallReinitTokenCopied ? 'Copied!' : 'Copy Token' }}
-          </button>
+          <a class="sp-mh4kidz-button" href="https://mh4kidz.org" target="_blank" rel="noopener noreferrer" aria-label="MH4Kidz (opens in a new tab)">
+            <img src="/assets/mh4kidz/logo.webp" alt="MH4Kidz" />
+          </a>
           <button
             v-if="isSchoolStaff"
             type="button"
@@ -664,6 +632,7 @@
               >
                 Admin Dashboard
               </router-link>
+
               <div
                 v-if="showAdminSchoolSwitcher"
                 class="admin-school-switcher"
@@ -1355,7 +1324,7 @@
                   Open a staffable event to request assignment. An administrator will approve or deny your request.
                 </template>
                 <template v-else>
-                  Manage events and important dates for this school. Assigned providers can request to staff attendable events from here or the calendar.
+                  Upcoming school dates and events. Open the calendar for a month view.
                 </template>
               </p>
             </div>
@@ -1369,9 +1338,16 @@
             </button>
           </div>
           <div v-if="schoolPortalEventsLoading" class="empty-state">Loading events…</div>
-          <div v-else-if="schoolPortalEventsError" class="empty-state">{{ schoolPortalEventsError }}</div>
+          <div v-else-if="schoolPortalEventsError" class="empty-state" role="alert">
+            <p>{{ schoolPortalEventsError }}</p>
+            <button type="button" class="btn btn-secondary btn-sm" @click="loadSchoolPortalEvents">Try again</button>
+          </div>
           <ul v-else-if="schoolPortalEvents.length" class="school-events-list">
-            <li v-for="ev in schoolPortalEvents" :key="ev.id" class="school-event-row">
+            <li v-for="ev in sortedSchoolPortalEvents" :key="ev.id" class="school-event-row">
+              <div class="school-event-date" aria-hidden="true">
+                <span>{{ new Date(ev.startsAt).toLocaleDateString('en-US', { month: 'short', timeZone: ev.timezone || 'America/Denver' }) }}</span>
+                <strong>{{ new Date(ev.startsAt).toLocaleDateString('en-US', { day: 'numeric', timeZone: ev.timezone || 'America/Denver' }) }}</strong>
+              </div>
               <div class="school-event-main">
                 <strong>
                   {{ ev.title }}
@@ -1467,6 +1443,7 @@
             :school-organization-id="organizationId"
             :school-name="organizationName"
             :show-codes-button="true"
+            :client-label-mode="clientLabelMode"
             :show-school-switcher="showAdminSchoolSwitcher"
             :codes-privacy-help="codesPrivacyHelp"
             @toggle-client-label-mode="toggleClientLabelMode"
@@ -1476,6 +1453,24 @@
           </div>
 
           <div v-else-if="portalMode === 'settings'">
+          <div v-if="showSchoolSelector" class="school-selector-wrap">
+            <label for="school-selector" class="school-selector-label">School:</label>
+            <select
+              id="school-selector"
+              v-model="selectedSchoolSlug"
+              class="school-selector"
+              aria-label="Switch school"
+              @change="onSchoolSelect"
+            >
+              <option
+                v-for="school in schoolStaffSchools"
+                :key="school.slug"
+                :value="school.slug"
+              >
+                {{ school.name }}
+              </option>
+            </select>
+          </div>
             <div data-tour="school-settings-panel">
               <div v-if="!organizationId" class="empty-state">Organization not loaded.</div>
               <SchoolPortalSettingsPanel
@@ -2695,7 +2690,6 @@ const showHelpDesk = ref(false);
 const fallReinitStatus = ref(null); // payload from /school-reinit/me
 const showFallReinitModal = ref(false);
 const fallReinitSessionDismissed = ref(false);
-const fallReinitTokenCopied = ref(false);
 const showPostSchoolEvent = ref(false);
 const editingSchoolEvent = ref(null);
 const postSchoolEventCategory = ref('back_to_school');
@@ -2750,6 +2744,17 @@ const formatSchoolEventStatus = (s) => {
   return 'Scheduled';
 };
 
+const sortedSchoolPortalEvents = computed(() => {
+  const now = Date.now();
+  return [...schoolPortalEvents.value].sort((a, b) => {
+    const aPast = new Date(a.endsAt || a.startsAt).getTime() < now;
+    const bPast = new Date(b.endsAt || b.startsAt).getTime() < now;
+    if (aPast !== bPast) return aPast ? 1 : -1;
+    const delta = new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime();
+    return aPast ? -delta : delta;
+  });
+});
+
 const loadSchoolPortalEvents = async () => {
   if (!organizationId.value) return;
   schoolPortalEventsLoading.value = true;
@@ -2758,7 +2763,7 @@ const loadSchoolPortalEvents = async () => {
     const res = await api.get(`/school-portal/${organizationId.value}/school-events`, { skipGlobalLoading: true });
     schoolPortalEvents.value = Array.isArray(res.data?.events) ? res.data.events : (Array.isArray(res.data) ? res.data : []);
   } catch (e) {
-    schoolPortalEventsError.value = e?.response?.data?.error?.message || 'Failed to load school events';
+    schoolPortalEventsError.value = 'School events could not be loaded. Please try again.';
     schoolPortalEvents.value = [];
   } finally {
     schoolPortalEventsLoading.value = false;
@@ -2982,10 +2987,6 @@ function openSchoolOnboardingInNewWindow() {
   window.open(link, '_blank', 'noopener,noreferrer');
 }
 
-const showFallReinitSummaryButton = computed(() => {
-  const c = fallReinitStatus.value?.cycle;
-  return Boolean(fallReinitStatus.value?.showReceiptButton && c?.status === 'finalized');
-});
 const showFallReinitSplash = computed(() => {
   if (!isSchoolStaff.value || isPreviewOrDemo.value || fallReinitSessionDismissed.value) return false;
   if (showFallReinitModal.value) return true;
@@ -3016,10 +3017,6 @@ const loadFallReinitStatus = async () => {
     fallReinitStatus.value = null;
   }
 };
-const openFallReinitModal = () => {
-  fallReinitSessionDismissed.value = false;
-  showFallReinitModal.value = true;
-};
 const dismissFallReinitSplash = async () => {
   fallReinitSessionDismissed.value = true;
   showFallReinitModal.value = false;
@@ -3036,37 +3033,6 @@ const onFallReinitFinalized = async () => {
   showFallReinitModal.value = false;
   await loadFallReinitStatus();
 };
-const copyFallReinitToken = async () => {
-  if (!organizationId.value) return;
-  try {
-    let token = fallReinitStatus.value?.shareToken?.token;
-    if (!token) {
-      const res = await api.post('/school-reinit/me/ensure-token', {
-        schoolOrganizationId: organizationId.value,
-        agencyId: affiliatedAgencyId.value || undefined,
-        skipGlobalLoading: true,
-      });
-      token = res.data?.token;
-      if (fallReinitStatus.value) {
-        fallReinitStatus.value = { ...fallReinitStatus.value, shareToken: res.data };
-      }
-    }
-    if (!token) throw new Error('No token available');
-    const url = `${window.location.origin}/school-reinit/${token}`;
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      window.prompt('Copy this collaborative update link:', url);
-    }
-    fallReinitTokenCopied.value = true;
-    setTimeout(() => {
-      fallReinitTokenCopied.value = false;
-    }, 2000);
-  } catch (e) {
-    window.alert(e?.response?.data?.error?.message || e?.message || 'Failed to copy token');
-  }
-};
-
 const showIntakeModal = ref(false);
 const intakeModalMode = ref('qr'); // 'qr' | 'sign'
 const intakeLinkLoading = ref(false);
@@ -3594,7 +3560,7 @@ const isProvider = computed(() =>
 const isSupervisorProviderContext = computed(() => hasSupervisorCapability.value && isProvider.value);
 const isSchoolStaff = computed(() => isPublicDemo.value || roleNorm.value === 'school_staff');
 const canAddSchoolProviders = computed(() =>
-  ['school_staff', 'admin', 'support', 'super_admin'].includes(roleNorm.value) && !isPreviewOrDemo.value
+  ['admin', 'support', 'super_admin'].includes(roleNorm.value) && !isPreviewOrDemo.value
 );
 const onSchoolProviderAdded = async () => {
   try {
@@ -8212,4 +8178,15 @@ watch(() => store.selectedWeekday, async (weekday) => {
   font-size: 0.9rem;
   color: #6b7280;
 }
+</style>
+
+<style scoped>
+.sp-header-school-logo { width: 52px; height: 52px; object-fit: contain; flex-shrink: 0; }
+.sp-mh4kidz-button { display: inline-flex; align-items: center; justify-content: center; background: white; border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; }
+.sp-mh4kidz-button img { width: 76px; height: 32px; object-fit: contain; }
+.school-event-date { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 54px; padding: 8px; border-radius: 10px; background: var(--bg-alt); }
+.school-event-date span { text-transform: uppercase; font-size: 11px; }
+.school-event-date strong { font-size: 22px; line-height: 1.2; }
+.school-event-main { flex: 1; min-width: 0; }
+.school-event-row { gap: 14px; }
 </style>

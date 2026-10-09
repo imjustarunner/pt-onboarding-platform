@@ -161,6 +161,10 @@ function canManageSchoolDayProviders(req) {
   return role === 'school_staff' || role === 'admin' || role === 'support' || role === 'super_admin';
 }
 
+function canAddSchoolProviders(req) {
+  return ['admin', 'support', 'super_admin'].includes(String(req.user?.role || '').toLowerCase());
+}
+
 function canEditSoftSchedule(req, providerUserId) {
   const role = String(req.user?.role || '').toLowerCase();
   if (role === 'school_staff') return true;
@@ -666,8 +670,8 @@ export const addProviderToDay = async (req, res, next) => {
     const access = await ensureSchoolAccess(req, schoolId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
 
-    if (!canManageSchoolDayProviders(req)) {
-      return res.status(403).json({ error: { message: 'Only school staff or admin/support can add providers to a day.' } });
+    if (!canAddSchoolProviders(req)) {
+      return res.status(403).json({ error: { message: 'Only admin, superadmin, or support can add providers to a day.' } });
     }
 
     const weekday = normalizeDay(weekdayParam);
@@ -1910,8 +1914,8 @@ export const listAddableSchoolProviders = async (req, res, next) => {
     const { schoolId } = req.params;
     const access = await ensureSchoolAccess(req, schoolId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
-    if (!canManageSchoolDayProviders(req)) {
-      return res.status(403).json({ error: { message: 'Only school staff or admin/support can add providers.' } });
+    if (!canAddSchoolProviders(req)) {
+      return res.status(403).json({ error: { message: 'Only admin, superadmin, or support can add providers.' } });
     }
 
     const schoolOrgId = parseInt(schoolId, 10);
@@ -2021,8 +2025,8 @@ export const addSchoolProviderWithSchedule = async (req, res, next) => {
     const { schoolId } = req.params;
     const access = await ensureSchoolAccess(req, schoolId);
     if (!access.ok) return res.status(access.status).json({ error: { message: access.message } });
-    if (!canManageSchoolDayProviders(req)) {
-      return res.status(403).json({ error: { message: 'Only school staff or admin/support can add providers.' } });
+    if (!canAddSchoolProviders(req)) {
+      return res.status(403).json({ error: { message: 'Only admin, superadmin, or support can add providers.' } });
     }
 
     const schoolOrgId = parseInt(schoolId, 10);

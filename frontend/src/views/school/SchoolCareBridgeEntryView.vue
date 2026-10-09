@@ -1,7 +1,7 @@
 <template>
  <div class="scb-entry" :class="{'school-login-view':school&&!auth.isAuthenticated}" :style="schoolStyle">
-  <header class="scb-header"><SchoolCareBridgeBrand/><div class="scb-school-identity" v-if="school"><img v-if="school.logoUrl" :src="asset(school.logoUrl)" alt="" @error="hideImage"/><strong>{{school.name}}<small>School portal</small></strong></div><div class="scb-entry-links"><router-link v-if="school&&!auth.isAuthenticated" class="scb-active-login" :to="schoolCareBridgePath(school.slug)">⌂ &nbsp; Sign in</router-link><router-link :to="schoolCareBridgePath()">{{school ? 'Switch school' : 'Portal home'}}</router-link><a href="https://mh4kidz.org">MH4Kidz ↗</a><button v-if="auth.isAuthenticated" @click="logout">Sign out</button></div></header>
-  <div v-if="school?.agencies?.length" class="scb-affiliates"><span>Affiliated agencies</span><div v-for="agency in school.agencies" :key="agency.id"><img v-if="agency.logoUrl" :src="asset(agency.logoUrl)" alt="" @error="hideImage"/><strong>{{agency.name}}</strong></div></div>
+  <header v-if="!portalOpen" class="scb-header"><SchoolCareBridgeBrand/><div class="scb-school-identity" v-if="school"><img v-if="school.logoUrl" :src="asset(school.logoUrl)" alt="" @error="hideImage"/><strong>{{school.name}}<small>School portal</small></strong></div><div class="scb-entry-links"><router-link v-if="school&&!auth.isAuthenticated" class="scb-active-login" :to="schoolCareBridgePath(school.slug)">⌂ &nbsp; Sign in</router-link><router-link :to="schoolCareBridgePath()">{{school ? 'Switch school' : 'Portal home'}}</router-link><a href="https://mh4kidz.org">MH4Kidz ↗</a><button v-if="auth.isAuthenticated" @click="logout">Sign out</button></div></header>
+  <div v-if="!portalOpen && school?.agencies?.length" class="scb-affiliates"><span>Affiliated agencies</span><div v-for="agency in school.agencies" :key="agency.id"><img v-if="agency.logoUrl" :src="asset(agency.logoUrl)" alt="" @error="hideImage"/><strong>{{agency.name}}</strong></div></div>
   <p v-if="busy" class="scb-status" role="status">Opening your portal…</p>
   <section v-else-if="error" class="scb-status" role="alert"><h1>We couldn’t open this portal</h1><p>{{error}}</p><router-link :to="schoolCareBridgePath()">Choose a school</router-link> <button @click="load">Try again</button></section>
   <template v-else-if="auth.isAuthenticated">
@@ -43,6 +43,7 @@ import '../../styles/schoolCareBridge.css';
 const route=useRoute(),router=useRouter(),auth=useAuthStore(),agencyStore=useAgencyStore(),organizationStore=useOrganizationStore(),brandingStore=useBrandingStore();
 const partners=ref([]);
 const school=ref(null),schools=ref([]),busy=ref(true),error=ref(''),authorized=ref(false);
+const portalOpen=computed(()=>auth.isAuthenticated && school.value && authorized.value && !busy.value && !error.value);
 const asset=value=>value?.startsWith('/assets/')?value:toUploadsUrl(value);
 const hideImage=event=>{event.target.style.display='none';};
 const options={skipAuthRedirect:true,skipGlobalLoading:true};

@@ -1,6 +1,7 @@
 import { isDistrictCalendarDate, createDistrictCalendarDate, updateDistrictCalendarDate, listDistrictCalendarDatesForSchool, DISTRICT_DATE_TYPES } from './districtCalendarDates.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
+import { sqlUnicodeIn } from '../utils/mysqlCollation.js';
 import OrganizationAffiliation from '../models/OrganizationAffiliation.model.js';
 import AgencySchool from '../models/AgencySchool.model.js';
 import ProviderAvailabilityService from './providerAvailability.service.js';
@@ -1356,11 +1357,11 @@ export async function attachSchoolEventStaffingSummary(events, { viewerUserId = 
 
 export async function listSchoolEventsForOrg(organizationId, { viewerUserId = null } = {}) {
   const orgId = Number(organizationId);
-  const placeholders = [...SCHOOL_PORTAL_EVENT_TYPES].map(() => '?').join(', ');
+  const eventTypeFilter = sqlUnicodeIn('event_type', SCHOOL_PORTAL_EVENT_TYPES.size);
   const [rows] = await pool.execute(
     `SELECT * FROM company_events
      WHERE organization_id = ?
-       AND event_type IN (${placeholders})
+       AND ${eventTypeFilter}
        AND is_active = 1
      ORDER BY starts_at DESC`,
     [orgId, ...SCHOOL_PORTAL_EVENT_TYPES]

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { sqlUnicodeEq, sqlUnicodeIn } from '../utils/mysqlCollation.js';
 
 export const DISTRICT_DATE_TYPES = ['school_holiday', 'school_day_off', 'school_first_day', 'school_fall_check_in', 'school_spring_event'];
 export const isDistrictCalendarDate = (row) => row?.organization_id == null && !!row?.district_name && DISTRICT_DATE_TYPES.includes(row?.event_type);
@@ -66,9 +67,9 @@ export async function listDistrictCalendarDatesForSchool({ agencyId, organizatio
   const [rows] = await pool.execute(
     `SELECT ce.* FROM company_events ce
      WHERE ce.agency_id = ? AND ce.organization_id IS NULL AND ce.is_active = 1
-       AND ce.event_type IN (${DISTRICT_DATE_TYPES.map(() => '?').join(', ')})
+       AND ${sqlUnicodeIn('ce.event_type', DISTRICT_DATE_TYPES.length)}
        AND EXISTS (SELECT 1 FROM school_profiles sp WHERE sp.school_organization_id = ?
-         AND LOWER(TRIM(sp.district_name)) = LOWER(TRIM(ce.district_name)))`,
+         AND ${sqlUnicodeEq('LOWER(TRIM(sp.district_name))', 'LOWER(TRIM(ce.district_name))')})`,
     [agencyId, ...DISTRICT_DATE_TYPES, organizationId]
   );
   return rows;

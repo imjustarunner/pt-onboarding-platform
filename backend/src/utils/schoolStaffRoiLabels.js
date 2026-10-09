@@ -23,7 +23,7 @@ const LABELS = {
   },
   expired: {
     label: 'ROI expired',
-    hover: 'ROI is expired. Schedule and comments remain available. Referral documents are paused until renewed. They may still upload and view documents they added themselves.'
+    hover: 'ROI is expired. The client overview and schedule remain available. Collaboration, comments, messages, and all documents are unavailable until ROI is renewed.'
   }
 };
 
@@ -47,10 +47,15 @@ export function schoolStaffHasReferralDocs(state) {
 
 export function schoolStaffOwnDocumentsOnly(state) {
   const key = String(state || '').trim().toLowerCase();
-  return SCHOOL_STAFF_OPEN_STATES.includes(key) && key !== 'roi_docs';
+  return key === 'limited' || key === 'roi';
 }
 
 /** ROI (Speak) cannot see referral packets, even ones they uploaded. */
 export function schoolStaffHidesReferralPackets(state) {
   return String(state || '').trim().toLowerCase() === 'roi';
+}
+
+/** Collaboration and documents require a current ROI, even when the overview can open. */
+export function schoolStaffCanCollaborateFromState(state) {
+  return ['limited', 'roi', 'roi_docs'].includes(String(state || '').trim().toLowerCase());
 }

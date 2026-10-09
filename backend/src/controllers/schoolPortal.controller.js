@@ -814,7 +814,7 @@ function getSchoolStaffPortalAccessMeta(client, accessMap, resolvedStateMap = ne
   const accessLevel = resolvedState
     ? (effectiveState === 'expired' ? 'expired' : effectiveState)
     : (record?.is_active ? String(record.access_level || 'packet').toLowerCase() : 'none');
-  // Soft school UX: keep schedule/comments available; only docs are hard-blocked when expired.
+  // The overview stays available after expiry; collaboration and documents require renewal.
   const docsBlocked = effectiveState === 'expired' || !canViewDocuments;
   return {
     school_staff_access_level: accessLevel,
@@ -826,7 +826,7 @@ function getSchoolStaffPortalAccessMeta(client, accessMap, resolvedStateMap = ne
     school_portal_gray: false,
     school_portal_docs_blocked: docsBlocked,
     school_portal_roi_soft_message: effectiveState === 'expired'
-      ? 'ROI is currently expired. We have likely reached out to the parent to get this updated. Please submit a ticket and we will update you on the process.'
+      ? 'ROI expired. The client overview and schedule remain available. Collaboration, comments, messages, and documents are unavailable until ROI is renewed.'
       : null,
     school_portal_roi_ticket_title: effectiveState === 'expired' ? 'ROI expiration inquiry' : null
   };
@@ -6772,7 +6772,7 @@ export const listSchoolPortalNotificationsFeed = async (req, res, next) => {
           accessByClientId,
           resolvedStateByClientId
         );
-        if (accessMeta.school_portal_can_open === false) {
+        if (accessMeta.school_portal_can_open === false || accessMeta.school_staff_effective_access_state === 'expired') {
           return [];
         }
         return [{

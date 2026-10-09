@@ -1025,6 +1025,10 @@ async function getAccessibleTicketScopeForUser(userId, role, req) {
  */
 async function applyTicketVisibilityScope({ req, role, where, params, targetScopeFilter = null, agencyIdFilter = null }) {
   const scope = await getAccessibleTicketScopeForUser(req.user.id, role, req);
+  if (role === 'school_staff') {
+    // Client history must disappear from every queue when its ROI expires.
+    where.push(`(t.client_id IS NULL OR EXISTS (SELECT 1 FROM clients roi_client WHERE roi_client.id = t.client_id AND DATE(roi_client.roi_expires_at) >= CURRENT_DATE()))`);
+  }
   const hasTargetScope = await hasSupportTicketTargetScopeColumn();
   const wantsPlatform = String(targetScopeFilter || '').toLowerCase() === 'platform';
 

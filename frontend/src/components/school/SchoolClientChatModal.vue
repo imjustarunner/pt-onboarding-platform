@@ -369,7 +369,7 @@
           </div>
         </div>
 
-        <div v-if="subView === 'default'" class="dual" :class="dualClass">
+        <div v-if="subView === 'default' && canViewCollaboration" class="dual" :class="dualClass">
           <section
             class="pane pane-comments"
             :class="paneClass('comments')"
@@ -469,18 +469,8 @@
         <div v-if="schoolStaffRoiExpired" class="documents-section">
           <div class="documents-section-title">ROI expired</div>
           <div class="muted" style="margin-bottom: 8px;">
-            ROI is currently expired. We have likely reached out to the parent to get this updated.
-            Please submit a ticket and we will update you on the process.
+            The client overview and schedule remain available. Collaboration, comments, messages, and documents are unavailable until ROI is renewed. Contact your agency for renewal help.
           </div>
-          <button
-            type="button"
-            class="btn btn-secondary btn-sm"
-            :disabled="roiTicketSubmitting || roiTicketDone"
-            @click="openRoiExpirationTicket"
-          >
-            {{ roiTicketDone ? 'Ticket submitted' : (roiTicketSubmitting ? 'Submitting…' : 'Submit ticket — ROI expiration inquiry') }}
-          </button>
-          <div v-if="roiTicketError" class="error" style="margin-top: 8px;">{{ roiTicketError }}</div>
         </div>
 
         <div v-if="canViewPacketAudit" class="packet-audit">
@@ -513,7 +503,7 @@
     @close="showWaitlistModal = false"
   />
 
-  <div v-if="documentsOpen" class="docs-overlay" @click.self="documentsOpen = false">
+  <div v-if="documentsOpen && canOpenDocuments" class="docs-overlay" @click.self="documentsOpen = false">
     <div class="docs-modal" @click.stop>
       <div class="docs-modal-head">
         <strong>{{ documentsModalTitle }}</strong>
@@ -541,8 +531,8 @@ import { formatSkillBuilderWallTime12h } from '../../utils/skillBuildersDisplay.
 import { formatGradeDisplay } from '../../utils/clientGrade.js';
 import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 import {
-  schoolStaffCanOpenFromState,
   schoolStaffOwnDocumentsOnly,
+  schoolStaffCanCollaborateFromState,
   schoolStaffRoiHover
 } from '../../utils/schoolStaffRoiLabels.js';
 
@@ -559,39 +549,6 @@ const props = defineProps({
   showChecklistAction: { type: Boolean, default: false }
 });
 const emit = defineEmits(['close', 'open-edit', 'open-checklist', 'client-updated']);
-const roiTicketSubmitting = ref(false);
-const roiTicketError = ref('');
-const roiTicketDone = ref(false);
-
-const openRoiExpirationTicket = async () => {
-  if (roiTicketSubmitting.value || roiTicketDone.value) return;
-  const clientId = Number(props.client?.id || 0);
-  const schoolOrganizationId = Number(props.schoolOrganizationId || 0);
-  if (!clientId || !schoolOrganizationId) {
-    roiTicketError.value = 'Missing client or school context.';
-    return;
-  }
-  try {
-    roiTicketSubmitting.value = true;
-    roiTicketError.value = '';
-    await api.post('/support-tickets', {
-      schoolOrganizationId,
-      clientId,
-      subject: props.client?.school_portal_roi_ticket_title || 'ROI expiration inquiry',
-      question:
-        props.client?.school_portal_roi_soft_message
-        || 'ROI is currently expired. We have likely reached out to the parent to get this updated. Please update us on the process.',
-      topic: 'roi_expiration',
-      priority: 'medium'
-    });
-    roiTicketDone.value = true;
-  } catch (e) {
-    roiTicketError.value = e?.response?.data?.error?.message || e?.message || 'Failed to submit ticket';
-  } finally {
-    roiTicketSubmitting.value = false;
-  }
-};
-
 const router = useRouter();
 const authStore = useAuthStore();
 const roleNorm = computed(() => String(authStore.user?.role || '').toLowerCase());
@@ -601,9 +558,10 @@ const schoolStaffEffectiveState = computed(() =>
   String(props.client?.school_staff_effective_access_state || schoolStaffAccessLevel.value || '').trim().toLowerCase()
 );
 const schoolStaffRoiExpired = computed(() => isSchoolStaff.value && schoolStaffEffectiveState.value === 'expired');
+const canViewCollaboration = computed(() => !isSchoolStaff.value || schoolStaffCanCollaborateFromState(schoolStaffEffectiveState.value));
 const canViewClientDocuments = computed(() => {
   if (isSchoolStaff.value) {
-    return schoolStaffCanOpenFromState(schoolStaffEffectiveState.value);
+    return schoolStaffCanCollaborateFromState(schoolStaffEffectiveState.value);
   }
   return ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value);
 });
@@ -815,6 +773,8 @@ const load = async () => {
     error.value = '';
     staffRoiSummary.value = null;
     staffRoiError.value = '';
+    comments.value = [];
+    if (!canViewCollaboration.value) return;
     // Comments (non-ticket notes) from school portal endpoint.
     if (props.schoolOrganizationId) {
       try {
@@ -892,6 +852,7 @@ const load = async () => {
 };
 
 const sendComment = async () => {
+  if (!canViewCollaboration.value) return;
   try {
     if (!props.schoolOrganizationId) return;
     const body = String(commentDraft.value || '').trim();
@@ -1076,7 +1037,7 @@ onMounted(() => {
 });
 
 watch(
-  () => [props.client?.id, props.client?.client_status_key],
+  () => [props.client?.id, props.client?.client_status_key, schoolStaffEffectiveState.value],
   () => {
     showWaitlistModal.value = false;
     hoveringWaitlist.value = false;

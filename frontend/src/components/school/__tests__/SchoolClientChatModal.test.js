@@ -23,6 +23,7 @@ describe('SchoolClientChatModal', () => {
     const authStore = useAuthStore();
     authStore.user = { id: 1, role: 'school_staff' };
 
+    vi.clearAllMocks();
     api.get.mockImplementation(async (url) => {
       if (String(url).includes('/comments')) {
         return { data: [] };
@@ -38,7 +39,7 @@ describe('SchoolClientChatModal', () => {
   it('renders comments + messages panes and auto-expands on interaction', async () => {
     const wrapper = mount(SchoolClientChatModal, {
       props: {
-        client: { id: 10, initials: 'AB', client_status_key: 'active', client_status_label: 'Active' },
+        client: { id: 10, initials: 'AB', client_status_key: 'active', client_status_label: 'Active', school_staff_effective_access_state: 'roi' },
         schoolOrganizationId: 123
       },
       global: {
@@ -72,3 +73,21 @@ describe('SchoolClientChatModal', () => {
   });
 });
 
+
+it('hides expired ROI history and documents without requesting their contents', async () => {
+  const pinia = createPinia();
+  setActivePinia(pinia);
+  useAuthStore().user = { id: 1, role: 'school_staff' };
+  vi.clearAllMocks();
+  const wrapper = mount(SchoolClientChatModal, {
+    props: { client: { id: 10, initials: 'AB', school_staff_effective_access_state: 'expired' }, schoolOrganizationId: 123 },
+    global: { plugins: [pinia], stubs: { ClientTicketThreadPanel: true, PhiDocumentsPanel: true } }
+  });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(wrapper.text()).toContain('ROI expired');
+  expect(wrapper.find('.dual').exists()).toBe(false);
+  expect(wrapper.findComponent({ name: 'PhiDocumentsPanel' }).exists()).toBe(false);
+  expect(api.get).not.toHaveBeenCalled();
+  expect(api.post).not.toHaveBeenCalled();
+  wrapper.unmount();
+});

@@ -184,7 +184,10 @@
       </div>
     </div>
 
-    <div class="dual" :class="dualClass">
+    <div v-if="!canViewCollaboration" class="sco-packet-notice" role="status">
+      <strong>ROI expired.</strong> The client overview and schedule remain available. Collaboration, comments, messages, and documents are unavailable until ROI is renewed.
+    </div>
+    <div v-else class="dual" :class="dualClass">
       <section
         class="pane"
         :class="paneClass('comments')"
@@ -268,7 +271,7 @@
     </div>
   </div>
 
-  <div v-if="documentsOpen" class="docs-overlay" @click.self="documentsOpen = false">
+  <div v-if="documentsOpen && canOpenDocuments" class="docs-overlay" @click.self="documentsOpen = false">
     <div class="docs-modal" @click.stop>
       <div class="docs-modal-head">
         <strong>{{ documentsModalTitle }}</strong>
@@ -291,8 +294,8 @@ import ClientTicketThreadPanel from './ClientTicketThreadPanel.vue';
 import PhiDocumentsPanel from '../admin/PhiDocumentsPanel.vue';
 import { assignedDayDisplay, displaySchoolClientStatusLabel } from '../../utils/schoolClientStatusDisplay.js';
 import {
-  schoolStaffCanOpenFromState,
   schoolStaffOwnDocumentsOnly,
+  schoolStaffCanCollaborateFromState,
   schoolStaffRoiHover
 } from '../../utils/schoolStaffRoiLabels.js';
 
@@ -318,10 +321,11 @@ const schoolStaffEffectiveState = computed(() =>
 );
 const canOpenDocuments = computed(() => {
   if (isSchoolStaff.value) {
-    return schoolStaffCanOpenFromState(schoolStaffEffectiveState.value);
+    return schoolStaffCanCollaborateFromState(schoolStaffEffectiveState.value);
   }
   return ['provider', 'admin', 'staff', 'support', 'super_admin', 'clinical_practice_assistant', 'provider_plus'].includes(roleNorm.value);
 });
+const canViewCollaboration = computed(() => !isSchoolStaff.value || schoolStaffCanCollaborateFromState(schoolStaffEffectiveState.value));
 const documentsOwnOnly = computed(() => isSchoolStaff.value && schoolStaffOwnDocumentsOnly(schoolStaffEffectiveState.value));
 const showOwnDocumentsSection = computed(() => documentsOwnOnly.value);
 const documentsModalTitle = computed(() => (documentsOwnOnly.value ? 'My documents' : 'Documents'));
@@ -464,9 +468,9 @@ async function loadOverviewBody() {
   commentError.value = '';
   activePane.value = null;
   documentsOpen.value = false;
-  if (!clientId) return;
+  if (!clientId || !canViewCollaboration.value) return;
 
-  if (orgId) {
+  if (orgId && canViewCollaboration.value) {
     try {
       const r = await api.get(`/school-portal/${orgId}/clients/${clientId}/comments`, { skipGlobalLoading: true });
       comments.value = Array.isArray(r.data) ? r.data : [];
@@ -506,6 +510,7 @@ async function loadOverviewBody() {
 }
 
 async function sendComment() {
+  if (!canViewCollaboration.value) return;
   const orgId = schoolOrganizationId.value;
   const clientId = Number(props.client?.id || 0);
   const body = String(commentDraft.value || '').trim();
@@ -524,7 +529,7 @@ async function sendComment() {
   }
 }
 
-watch(() => props.client?.id, () => {
+watch(() => [props.client?.id, schoolStaffEffectiveState.value], () => {
   adminNotePopoverOpen.value = false;
   adminNoteMessage.value = '';
   adminNoteDraft.value = '';

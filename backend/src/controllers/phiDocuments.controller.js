@@ -2,9 +2,9 @@ import Client from '../models/Client.model.js';
 import ClientPhiDocument from '../models/ClientPhiDocument.model.js';
 import ReferralPacketDraft from '../models/ReferralPacketDraft.model.js';
 import ClientGuardian from '../models/ClientGuardian.model.js';
-import ClientSchoolStaffRoiAccess from '../models/ClientSchoolStaffRoiAccess.model.js';
+import ClientSchoolStaffRoiAccess, { isRoiExpired } from '../models/ClientSchoolStaffRoiAccess.model.js';
 import {
-  schoolStaffCanOpenFromState,
+  schoolStaffCanCollaborateFromState,
   schoolStaffHidesReferralPackets,
   schoolStaffOwnDocumentsOnly
 } from '../utils/schoolStaffRoiLabels.js';
@@ -162,6 +162,9 @@ async function resolveSchoolStaffAccessStateForClient({ requestingUserId, reques
   const normalizedRole = String(requestingUserRole || '').toLowerCase();
   if (normalizedRole !== 'school_staff') return 'none';
   const schoolOrgId = client?.organization_id || client?.school_organization_id;
+  if (isRoiExpired(client?.roi_expires_at)) return 'expired';
+  const roiState = await ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({ clientId: client?.id, schoolOrganizationId: schoolOrgId, schoolStaffUserId: requestingUserId });
+  if (roiState === 'expired') return roiState;
   const user = await User.findById(requestingUserId);
   const emails = [user?.email, user?.work_email, user?.username, user?.personal_email]
     .map((v) => String(v || '').trim().toLowerCase())
@@ -183,11 +186,7 @@ async function resolveSchoolStaffAccessStateForClient({ requestingUserId, reques
       if (e?.code !== 'ER_BAD_FIELD_ERROR' && e?.code !== 'ER_NO_SUCH_TABLE') throw e;
     }
   }
-  return ClientSchoolStaffRoiAccess.resolveSchoolStaffClientAccessState({
-    clientId: client?.id,
-    schoolOrganizationId: schoolOrgId,
-    schoolStaffUserId: requestingUserId
-  });
+  return roiState;
 }
 
 function isSchoolStaffOwnDocumentScope({ requestingUserRole, schoolStaffAccessState }) {
@@ -196,7 +195,7 @@ function isSchoolStaffOwnDocumentScope({ requestingUserRole, schoolStaffAccessSt
 }
 
 function schoolStaffMayUsePhi(state) {
-  return schoolStaffCanOpenFromState(state);
+  return schoolStaffCanCollaborateFromState(state);
 }
 
 function isReferralPacketPhiDocument(doc) {

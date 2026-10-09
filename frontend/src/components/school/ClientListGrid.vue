@@ -23,9 +23,9 @@
           placeholder="Search name, initials, birthday, guardian…"
         />
         <div v-if="showSearch" class="roster-search-opts">
-          <label>
-            <input v-model="searchIncludeTerminated" type="checkbox" />
-            Display terminated clients
+          <label v-if="showTerminatedToggle">
+            <input v-model="showTerminatedLocal" type="checkbox" />
+            Show terminated
           </label>
           <label>
             <input v-model="searchIncludePastYears" type="checkbox" />
@@ -162,9 +162,9 @@
               placeholder="Search name, initials, birthday, guardian…"
             />
             <div class="roster-search-opts">
-              <label>
-                <input v-model="searchIncludeTerminated" type="checkbox" />
-                Display terminated clients
+              <label v-if="showTerminatedToggle">
+                <input v-model="showTerminatedLocal" type="checkbox" />
+                Show terminated
               </label>
               <label>
                 <input v-model="searchIncludePastYears" type="checkbox" />
@@ -172,10 +172,7 @@
               </label>
             </div>
           </div>
-          <label v-if="showTerminatedToggle" class="show-terminated-check">
-            <input v-model="showTerminatedLocal" type="checkbox" />
-            Show terminated
-          </label>
+
         </div>
       </div>
       <div v-if="rosterRefreshing" class="roster-refresh-bar" role="status">
@@ -234,10 +231,7 @@
             <th v-else>
               ROI Status
             </th>
-            <th class="sortable" @click="toggleSort('skills')" role="button" tabindex="0">
-              Skills
-              <span class="sort-indicator" v-if="sortKey === 'skills'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
-            </th>
+
             <th class="sortable" @click="toggleSort('service_day')" role="button" tabindex="0">
               Assigned Day
               <span class="sort-indicator" v-if="sortKey === 'service_day'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
@@ -273,8 +267,8 @@
               Assigned
               <span class="sort-indicator" v-if="sortKey === 'provider_assigned_at'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
-            <th class="sortable" @click="toggleSort('submission_date')" role="button" tabindex="0">
-              Submission Date
+            <th class="sortable col-submitted" @click="toggleSort('submission_date')" role="button" tabindex="0">
+              Submitted
               <span class="sort-indicator" v-if="sortKey === 'submission_date'">{{ sortDir === 'asc' ? '▲' : '▼' }}</span>
             </th>
           </tr>
@@ -351,7 +345,7 @@
                   Event: {{ eventAssignmentLabel(ea) }}
                 </span>
                 <button
-                  v-if="Number(client.open_ticket_count || 0) > 0"
+                  v-if="canViewCollaboration(client) && Number(client.open_ticket_count || 0) > 0"
                   class="ticket-status-badge ticket-status-open ticket-status-btn"
                   type="button"
                   :title="`Ticket open (${Number(client.open_ticket_count || 0)}) — click to open messages`"
@@ -360,7 +354,7 @@
                   Ticket Open {{ Number(client.open_ticket_count || 0) }}
                 </button>
                 <button
-                  v-if="Number(client.answered_ticket_count || 0) > 0"
+                  v-if="canViewCollaboration(client) && Number(client.answered_ticket_count || 0) > 0"
                   class="ticket-status-badge ticket-status-answered ticket-status-btn"
                   type="button"
                   :title="`Ticket answered (${Number(client.answered_ticket_count || 0)}) — click to open messages`"
@@ -369,7 +363,7 @@
                   Ticket Answered {{ Number(client.answered_ticket_count || 0) }}
                 </button>
                 <button
-                  v-if="Number(client.unread_notes_count || 0) > 0"
+                  v-if="canViewCollaboration(client) && Number(client.unread_notes_count || 0) > 0"
                   class="unread-badge unread-badge-comments"
                   type="button"
                   :title="commentBadgeTitle(client)"
@@ -378,7 +372,7 @@
                   {{ commentBadgeCount(client) }}
                 </button>
                 <button
-                  v-if="Number(client.unread_ticket_messages_count || 0) > 0"
+                  v-if="canViewCollaboration(client) && Number(client.unread_ticket_messages_count || 0) > 0"
                   class="unread-badge unread-badge-messages"
                   type="button"
                   :title="messageBadgeTitle(client)"
@@ -387,7 +381,7 @@
                   {{ messageBadgeCount(client) }}
                 </button>
                 <button
-                  v-if="Number(client.unread_updates_count || 0) > 0"
+                  v-if="canViewCollaboration(client) && Number(client.unread_updates_count || 0) > 0"
                   class="unread-badge unread-badge-updates"
                   type="button"
                   :title="`${Number(client.unread_updates_count || 0)} new update(s) — click to open`"
@@ -399,6 +393,7 @@
             </td>
             <td class="col-status">
               <div class="status-cell">
+                <span v-if="isSchoolStaff && client.school_staff_effective_access_state === 'expired'" class="roi-expired-badge">ROI expired</span>
                 <span
                   :class="[
                     'status-badge',
@@ -429,10 +424,9 @@
                 </span>
                 <div
                   v-if="isSchoolStaff && showProviderMilestonesReadonly(client)"
-                  class="muted"
-                  style="font-size: 11px; margin-top: 4px;"
+                  class="provider-milestones"
                 >
-                  {{ providerMilestonesLabel(client) }}
+                  <span v-for="step in providerMilestonesLabel(client).split(' · ')" :key="step">{{ step }}</span>
                 </div>
               </div>
             </td>
@@ -488,7 +482,6 @@
               </button>
               <div class="roi-status-hint">{{ roiStatusDateHint(client) }}</div>
             </td>
-            <td>{{ client.skills ? 'Yes' : 'No' }}</td>
             <td>
               <button
                 v-if="canEditAssignedDay(client)"
@@ -530,10 +523,10 @@
                   :disabled="isClientTerminated(client) || (isSchoolStaff && !canOpenSchoolClient(client))"
                   :title="isClientTerminated(client)
                     ? lockedClientTitle(client)
-                    : (isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientTitle(client) : 'Open comments and messages')"
+                    : (isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientTitle(client) : (canViewCollaboration(client) ? 'Open comments and messages' : 'Open client overview — ROI expired'))"
                   @click.stop="openClient(client)"
                 >
-                  {{ isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientButtonLabel(client) : 'Comments' }}
+                  {{ isSchoolStaff && !canOpenSchoolClient(client) ? lockedClientButtonLabel(client) : (!canViewCollaboration(client) ? 'View client' : 'Comments') }}
                 </button>
                 <button
                   v-if="showChecklistButton && client.user_is_assigned_provider"
@@ -565,7 +558,7 @@
               </div>
             </td>
             <td v-if="showAssignedColumn">{{ formatDate(client.provider_assigned_at) }}</td>
-            <td>{{ formatDate(client.submission_date) }}</td>
+            <td class="col-submitted">{{ formatDate(client.submission_date) }}</td>
           </tr>
         </tbody>
         </table>
@@ -801,7 +794,7 @@ const props = defineProps({
   /** When true, hide clients with client_status_key === terminated */
   hideTerminated: {
     type: Boolean,
-    default: false
+    default: true
   },
   /** Roster toolbar checkbox. Parent toggles (e.g. dashboard) can turn this off. */
   showTerminatedToggle: {
@@ -907,9 +900,8 @@ const assignDayClient = ref(null);
 const assignDayProviderUserId = ref(null);
 const assignDayOrgId = ref(null);
 const searchQuery = ref('');
-const searchIncludeTerminated = ref(false);
 const searchIncludePastYears = ref(false);
-const showTerminatedLocal = ref(true);
+const showTerminatedLocal = ref(false);
 const router = useRouter();
 const authStore = useAuthStore();
 
@@ -949,6 +941,9 @@ const isSchoolClientLocked = (client) => {
   if (!isSchoolStaff.value) return false;
   return isSchoolScheduleClientLocked(client);
 };
+const canViewCollaboration = (client) => !isSchoolStaff.value || ['limited', 'roi', 'roi_docs'].includes(
+  String(client?.school_staff_effective_access_state || client?.school_staff_access_level || '').toLowerCase()
+);
 const canOpenSchoolClient = (client) => {
   if (isClientTerminated(client)) return false;
   return !isSchoolClientLocked(client) && !props.previewMode;
@@ -1256,7 +1251,7 @@ const fetchClients = async () => {
     const q = String(searchQuery.value || '').trim();
     if (q) {
       params.q = q;
-      if (searchIncludeTerminated.value) params.includeTerminated = true;
+      params.includeTerminated = true;
       if (searchIncludePastYears.value) params.includePastYears = true;
     }
     const response = await api.get(endpoint, { params });
@@ -1919,7 +1914,7 @@ const activeActionFilterLabel = computed(() => {
 
 const hideTerminatedEffective = computed(() => {
   if (String(searchQuery.value || '').trim()) {
-    return !searchIncludeTerminated.value;
+    return false;
   }
   if (!props.showTerminatedToggle) return props.hideTerminated;
   return !showTerminatedLocal.value;
@@ -1974,6 +1969,8 @@ const sortedClients = computed(() => {
   const dir = sortDir.value === 'asc' ? 1 : -1;
   const useBuckets = !columnSortActive.value && key !== 'submission_date';
   return list.sort((a, b) => {
+    const terminatedOrder = Number(isClientTerminated(a)) - Number(isClientTerminated(b));
+    if (terminatedOrder) return terminatedOrder;
     if (useBuckets) {
       const bucketCmp = lifecycleSortBucket(a) - lifecycleSortBucket(b);
       if (bucketCmp !== 0) return bucketCmp;
@@ -2005,7 +2002,7 @@ const formatDateTime = (value) => {
 };
 
 const formatRosterLabel = (client) => {
-  const initials = String(client?.initials || '').replace(/\s+/g, '').toUpperCase();
+  const initials = String(client?.initials || '').replace(/\s+/g, '');
   const code = String(client?.identifier_code || '').replace(/\s+/g, '').toUpperCase();
   const fullName = String(client?.full_name || '').trim();
   const mode = String(props.clientLabelMode || 'initials');
@@ -2094,7 +2091,7 @@ const rosterLabelTitle = (client) => {
     // Already showing the full name as the label — a duplicate tooltip would be redundant.
     return props.clientLabelMode === 'full_name' ? '' : fullName;
   }
-  const initials = String(client?.initials || '').replace(/\s+/g, '').toUpperCase();
+  const initials = String(client?.initials || '').replace(/\s+/g, '');
   return initials || '';
 };
 
@@ -2275,6 +2272,7 @@ const closeOverview = () => {
 
 const openClient = (client, initialPane = null) => {
   if (!canOpenSchoolClient(client)) return;
+  if (!canViewCollaboration(client)) return openOverview(client);
   if (props.clientOpenMode === 'detail-panel') {
     emit('open-profile', client);
     return;
@@ -2407,7 +2405,7 @@ watch(
 
 let rosterSearchDebounce = null;
 watch(
-  () => [searchQuery.value, searchIncludeTerminated.value, searchIncludePastYears.value],
+  () => [searchQuery.value, searchIncludePastYears.value],
   ([q], [prevQ]) => {
     if (useClientsOverride()) return;
     const needle = String(q || '').trim();
@@ -2464,9 +2462,10 @@ onMounted(() => {
 }
 
 .client-label {
-  display: inline-flex;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
 }
 
 .unread-legend {
@@ -2813,6 +2812,7 @@ onMounted(() => {
   border-collapse: collapse;
   font-size: 0.8125rem; /* ~13px – compact row height */
   table-layout: fixed;
+  min-width: 760px;
 }
 
 .table-toolbar {
@@ -3323,13 +3323,11 @@ onMounted(() => {
 }
 
 .clients-table .col-client {
-  width: 8%;
-  max-width: 96px;
+  width: 19%;
 }
 
 .clients-table .col-status {
-  width: 11%;
-  max-width: 138px;
+  width: 24%;
 }
 
 .clients-table .lifecycle-action-col .roster-action-btn {
@@ -3504,4 +3502,14 @@ onMounted(() => {
   content: ' *';
   color: var(--danger, #c33);
 }
+</style>
+
+<style scoped>
+.clients-table .col-submitted { width: 88px; font-size: 11px; white-space: nowrap; }
+.initials-btn { max-width: 100%; overflow-wrap: anywhere; text-align: left; padding: 3px 0; }
+.client-label { letter-spacing: normal; }
+.status-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; }
+.provider-milestones { display: flex; flex-wrap: wrap; gap: 4px; font-size: 10px; color: var(--text-secondary); }
+.provider-milestones span { padding: 2px 5px; background: var(--bg-alt); border-radius: 4px; white-space: nowrap; }
+.roi-expired-badge { font-size: 11px; color: #92400e; background: #fef3c7; border-radius: 4px; padding: 2px 5px; }
 </style>

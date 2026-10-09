@@ -42,7 +42,8 @@ describe('shared district important dates', () => {
     const [sql, params] = m.execute.mock.calls[0];
     expect(sql).toContain('ce.agency_id = ?');
     expect(sql).toContain('sp.school_organization_id = ?');
-    expect(sql).toContain('LOWER(TRIM(sp.district_name)) = LOWER(TRIM(ce.district_name))');
+    expect(sql).toContain('LOWER(TRIM(sp.district_name)) COLLATE utf8mb4_unicode_ci = LOWER(TRIM(ce.district_name)) COLLATE utf8mb4_unicode_ci');
+    expect(sql).toContain('ce.event_type COLLATE utf8mb4_unicode_ci IN');
     expect(params[0]).toBe(1);
     expect(params.at(-1)).toBe(2);
     expect(await listDistrictCalendarDatesForSchool({ agencyId: null, organizationId: 2 })).toEqual([]);

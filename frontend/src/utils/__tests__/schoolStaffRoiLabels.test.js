@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isSchoolScheduleClientLocked,
   schoolStaffCanOpenFromState,
+  schoolStaffCanCollaborateFromState,
   schoolStaffHidesReferralPackets,
   schoolStaffOwnDocumentsOnly,
   schoolStaffRoiLabel
@@ -26,7 +27,7 @@ describe('schoolStaffRoiLabels', () => {
   it('keeps own-document scope off for ROI All Active', () => {
     expect(schoolStaffOwnDocumentsOnly('limited')).toBe(true);
     expect(schoolStaffOwnDocumentsOnly('roi')).toBe(true);
-    expect(schoolStaffOwnDocumentsOnly('expired')).toBe(true);
+    expect(schoolStaffOwnDocumentsOnly('expired')).toBe(false);
     expect(schoolStaffOwnDocumentsOnly('roi_docs')).toBe(false);
   });
 
@@ -57,4 +58,11 @@ describe('schoolStaffRoiLabels', () => {
 it('keeps expired-ROI schedule entries open despite a stale lock flag without unlocking missing ROI',()=>{
  expect(isSchoolScheduleClientLocked({school_staff_effective_access_state:'expired',school_portal_can_open:false,school_portal_force_placeholder:true})).toBe(false);
  expect(isSchoolScheduleClientLocked({school_staff_effective_access_state:'none',school_portal_can_open:false})).toBe(true);
+});
+
+it('keeps expired overviews open but blocks all collaboration', () => {
+  expect(schoolStaffCanOpenFromState('expired')).toBe(true);
+  expect(schoolStaffCanCollaborateFromState('expired')).toBe(false);
+  for (const state of ['limited', 'roi', 'roi_docs']) expect(schoolStaffCanCollaborateFromState(state)).toBe(true);
+  expect(isSchoolScheduleClientLocked({school_staff_effective_access_state: 'expired', school_portal_can_open: false})).toBe(false);
 });

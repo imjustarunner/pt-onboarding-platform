@@ -14,7 +14,7 @@
           @click="$emit('toggle-client-label-mode')"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Zm8.94-2.06a9 9 0 0 0 .06-1.88 9 9 0 0 0-.06-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a8.06 8.06 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.5.42l-.36 2.54a8.06 8.06 0 0 0-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.6 7.44a.5.5 0 0 0 .12.64l2.03 1.58a9 9 0 0 0-.06 1.88c0 .64.02 1.27.06 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.39 1.05.7 1.63.94l.36 2.54A.5.5 0 0 0 10 22h4a.5.5 0 0 0 .5-.42l.36-2.54c.58-.24 1.13-.55 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58Z" fill="currentColor"/></svg>
-          Show codes
+          {{ clientLabelMode === 'codes' ? 'Show initials' : 'Show codes' }}
         </button>
         <button
           v-if="showSchoolSwitcher"
@@ -610,6 +610,7 @@ import {
 const props = defineProps({
   schoolOrganizationId: { type: Number, required: true },
   schoolName: { type: String, default: '' },
+  clientLabelMode: { type: String, default: 'codes' },
   showCodesButton: { type: Boolean, default: false },
   showSchoolSwitcher: { type: Boolean, default: false },
   codesPrivacyHelp: { type: String, default: '' }
