@@ -4,16 +4,28 @@
       <div class="modal company-events-calendar-modal" @click.stop>
         <div class="modal-header">
           <div>
-            <h2 id="cec-title">Company events</h2>
-            <p class="muted sub">Agency-wide events and school outreach opportunities.</p>
+            <h2 id="cec-title">Events &amp; outreach</h2>
+            <p class="muted sub">Your invitations, assigned shifts, and opportunities to work upcoming events.</p>
           </div>
           <button class="close" type="button" aria-label="Close" @click="$emit('close')">×</button>
         </div>
 
         <div class="body">
+          <div class="calendar-filters">
+            <label>Show
+              <select v-model="viewFilter">
+                <option value="relevant">For you</option>
+                <option value="workable">Open shifts</option>
+                <option value="all">All upcoming</option>
+              </select>
+            </label>
+            <label>Month <input v-model="selectedMonth" type="month" /></label>
+            <button v-if="selectedMonth" type="button" class="btn btn-secondary btn-sm" @click="selectedMonth = ''">All dates</button>
+          </div>
+          <p class="muted sub calendar-help">All upcoming also includes calendar dates at your schools. Days off and other calendar-only dates cannot be requested as shifts.</p>
           <div v-if="loading" class="muted">Loading events…</div>
           <div v-else-if="error" class="error">{{ error }}</div>
-          <div v-else-if="!sortedEvents.length" class="muted">No upcoming company events.</div>
+          <div v-else-if="!sortedEvents.length" class="muted">No upcoming events match these filters.</div>
           <div v-else class="cards">
             <article
               v-for="event in sortedEvents"
@@ -22,6 +34,7 @@
               :class="{ 'card-muted': !isRequestableCompanyEvent(event) }"
             >
               <div class="card-title">{{ event.title }}</div>
+              <div class="card-meta">{{ providerEventCategoryLabel(event) }}</div>
               <div v-if="event.schoolName" class="card-meta">{{ event.schoolName }}</div>
               <div v-else-if="event.isGeneralOutreach" class="card-meta">General outreach · agency-wide</div>
               <div v-else-if="event.districtName" class="card-meta">
@@ -29,7 +42,7 @@
                 <span v-if="event.isDistrictOutreach || event.eventType === 'school_outreach'"> · Outreach</span>
               </div>
               <div v-else-if="event.eventType === 'school_outreach'" class="card-meta">Outreach</div>
-              <div class="card-meta">{{ formatRange(event.startsAt, event.endsAt) }}</div>
+              <div class="card-meta">{{ formatRange(companyEventDisplayWindow(event).startsAt, companyEventDisplayWindow(event).endsAt) }}</div>
               <div v-if="event.description" class="card-desc">{{ event.description }}</div>
               <div class="card-actions">
                 <a
@@ -41,17 +54,20 @@
                 >
                   View flier
                 </a>
+              </div>
+              <div v-for="session in visibleSessions(event)" :key="session.sessionDateId" class="session-row">
+                <div class="card-meta">{{ formatRange(session.startsAt, session.endsAt) }}</div>
                 <button
-                  v-if="canRequestCompanyEventShift(event)"
+                  v-if="canRequestCompanyEventShift(event, session)"
                   type="button"
                   class="btn btn-primary btn-sm"
-                  :disabled="requestingKey === requestKey(event)"
-                  @click="requestShift(event)"
+                  :disabled="requestingKey === companyEventRequestKey(event, session)"
+                  @click="requestShift(event, session)"
                 >
-                  {{ requestingKey === requestKey(event) ? 'Requesting…' : 'Request shift' }}
+                  {{ requestingKey === companyEventRequestKey(event, session) ? 'Requesting…' : 'Request shift' }}
                 </button>
-                <span v-else-if="statusLabel(event)" class="status-pill" :class="statusPillClass(event)">
-                  {{ statusLabel(event) }}
+                <span v-else-if="companyEventRequestStatusLabel(event, session)" class="status-pill" :class="statusPillClass(event, session)">
+                  {{ companyEventRequestStatusLabel(event, session) }}
                 </span>
               </div>
             </article>
@@ -71,7 +87,9 @@ import {
   companyEventRequestKey,
   companyEventRequestStatusLabel,
   isRequestableCompanyEvent,
-  primaryCompanyEventSession,
+  companyEventDisplayWindow,
+  providerEventCategoryLabel,
+  isUpcomingCompanyEvent,
   shouldShowOnProviderDashboardEvents
 } from '../../utils/companyEventStaffing';
 
@@ -81,13 +99,35 @@ const loading = ref(false);
 const error = ref('');
 const events = ref([]);
 const requestingKey = ref('');
+const viewFilter = ref('relevant');
+const selectedMonth = ref('');
+
+const matchesMonth = (start, end) => {
+  if (!selectedMonth.value) return true;
+  const [year, month] = selectedMonth.value.split('-').map(Number);
+  const from = new Date(year, month - 1, 1).getTime();
+  const to = new Date(year, month, 1).getTime();
+  return new Date(start).getTime() < to && new Date(end || start).getTime() >= from;
+};
+
+const visibleSessions = (event) => (event.sessions || []).filter((session) =>
+  new Date(session.endsAt || session.startsAt).getTime() > Date.now()
+  && matchesMonth(session.startsAt, session.endsAt)
+  && (viewFilter.value !== 'workable' || canRequestCompanyEventShift(event, session))
+);
 
 const sortedEvents = computed(() =>
   [...(events.value || [])]
-    .filter((e) => shouldShowOnProviderDashboardEvents(e))
+    .filter((event) => {
+      if (!isUpcomingCompanyEvent(event)) return false;
+      if (viewFilter.value === 'relevant' && !shouldShowOnProviderDashboardEvents(event)) return false;
+      if (viewFilter.value === 'workable') return visibleSessions(event).some((session) => canRequestCompanyEventShift(event, session));
+      const window = companyEventDisplayWindow(event);
+      return matchesMonth(window.startsAt, window.endsAt) || visibleSessions(event).length > 0;
+    })
     .sort((a, b) => {
-    const at = new Date(a?.startsAt || 0).getTime();
-    const bt = new Date(b?.startsAt || 0).getTime();
+    const at = new Date(companyEventDisplayWindow(a).startsAt || 0).getTime();
+    const bt = new Date(companyEventDisplayWindow(b).startsAt || 0).getTime();
     return (Number.isFinite(at) ? at : 0) - (Number.isFinite(bt) ? bt : 0);
   })
 );
@@ -109,14 +149,9 @@ const formatRange = (startsAt, endsAt) => {
   return endTime ? `${datePart} · ${startTime}–${endTime}` : `${datePart} · ${startTime}`;
 };
 
-const requestKey = (event) => companyEventRequestKey(event);
-
-const statusLabel = (event) => companyEventRequestStatusLabel(event);
-
-const statusPillClass = (event) => {
-  const label = statusLabel(event);
+const statusPillClass = (event, sess) => {
+  const label = companyEventRequestStatusLabel(event, sess);
   if (label === 'Staffing full') return 'is-full';
-  const sess = primaryCompanyEventSession(event);
   const st = String(sess?.myRequest?.status || '').toLowerCase();
   if (st === 'pending') return 'is-pending';
   if (st === 'approved' || sess?.myAssignment) return 'is-confirmed';
@@ -137,10 +172,9 @@ const load = async () => {
   }
 };
 
-const requestShift = async (event) => {
-  const sess = primaryCompanyEventSession(event);
-  if (!sess || !event.agencyId) return;
-  const key = requestKey(event);
+const requestShift = async (event, sess) => {
+  if (!canRequestCompanyEventShift(event, sess) || !event.agencyId) return;
+  const key = companyEventRequestKey(event, sess);
   try {
     requestingKey.value = key;
     error.value = '';
@@ -162,6 +196,11 @@ onMounted(load);
 </script>
 
 <style scoped>
+.calendar-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.calendar-filters label { display: grid; gap: 4px; font-size: 0.85rem; }
+.calendar-filters select, .calendar-filters input { padding: 8px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 6px; background: var(--surface-elevated, #fff); color: inherit; }
+.calendar-help { margin: 12px 0 16px; }
+.session-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
 .cec-overlay {
   position: fixed;
   inset: 0;

@@ -5,7 +5,7 @@
 import { computed, ref, watch } from 'vue';
 import api from '../services/api';
 import { buildRecentSubmissionActivityItems } from '../utils/submitSubmissionHistory';
-import { shouldShowOnProviderDashboardEvents } from '../utils/companyEventStaffing';
+import { shouldShowOnProviderDashboardEvents, companyEventDisplayWindow } from '../utils/companyEventStaffing';
 import { formatViewerTimeRangeMs } from '../utils/timezones.js';
 import { parseScheduleUtcInstant } from '../utils/scheduleEventInstants.js';
 import { notificationDestination } from '../utils/notificationActions.js';
@@ -101,7 +101,9 @@ export function useDashboardOverview(opts = {}) {
   const effectiveCompanyEvents = computed(() => {
     const fromParent = resolve(opts.companyEvents);
     const list = Array.isArray(fromParent) ? fromParent : localCompanyEvents.value;
-    return (Array.isArray(list) ? list : []).filter((e) => shouldShowOnProviderDashboardEvents(e));
+    const merged = new Map((Array.isArray(list) ? list : []).map((event) => [Number(event.id), event]));
+    for (const [id, event] of calendarEventsById.value) merged.set(id, event);
+    return [...merged.values()].filter((event) => shouldShowOnProviderDashboardEvents(event));
   });
 
   const effectiveSupervisionPrompts = computed(() => {
@@ -290,7 +292,6 @@ export function useDashboardOverview(opts = {}) {
 
   const upcomingEvents = computed(() => {
     const now = Date.now();
-    const ymd = todayYmd.value;
     const fromPrompts = (effectiveSupervisionPrompts.value || []).map((p) => {
       const startMs = parseAt(p.startAt);
       const endMs = parseAt(p.endAt);
@@ -311,8 +312,9 @@ export function useDashboardOverview(opts = {}) {
 
     const fromCompany = (effectiveCompanyEvents.value || []).map((e) => {
       const enriched = calendarEventsById.value.get(Number(e.id)) || e;
-      const startMs = parseAt(enriched.nextOccurrenceStart || enriched.startsAt || e.nextOccurrenceStart || e.startsAt);
-      const endMs = parseAt(enriched.endsAt || e.endsAt);
+      const window = companyEventDisplayWindow(enriched);
+      const startMs = parseAt(window.startsAt);
+      const endMs = parseAt(window.endsAt);
       const title = String(enriched.title || enriched.name || e.title || e.name || 'Company event').trim();
       const schoolName = String(enriched.schoolName || enriched.organizationName || e.schoolName || e.organizationName || '').trim();
       const location = String(
@@ -346,9 +348,7 @@ export function useDashboardOverview(opts = {}) {
         raw: enriched
       };
     }).filter((e) => {
-      if (e.startMs == null) return true;
-      // Today or future
-      return isSameLocalDay(e.startMs, ymd) || e.startMs >= now - 60 * 60 * 1000;
+      return e.endMs != null && e.endMs > now;
     });
 
     const merged = [...fromPrompts, ...fromCompany]
@@ -575,7 +575,6 @@ export function useDashboardOverview(opts = {}) {
             const rows = Array.isArray(r.data) ? r.data : [];
             const map = new Map();
             for (const row of rows) {
-              if (!shouldShowOnProviderDashboardEvents(row)) continue;
               const id = Number(row?.id);
               if (id) map.set(id, row);
             }

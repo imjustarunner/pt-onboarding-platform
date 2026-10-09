@@ -1,7 +1,7 @@
 <template>
   <section class="ov-card" data-tour="dash-overview-events">
     <header class="ov-card-head">
-      <h3 class="ov-card-title">Today's Events</h3>
+      <h3 class="ov-card-title">Events for you</h3>
       <button type="button" class="ov-link" @click="$emit('view-all')">View All</button>
     </header>
 
@@ -73,7 +73,7 @@
       </li>
     </ul>
 
-    <button type="button" class="ov-link ov-link--block" @click="$emit('view-all')">View All Events</button>
+    <button type="button" class="ov-link ov-link--block" @click="$emit('view-all')">Events &amp; outreach calendar</button>
     <StaffPollsPanel :agency-id="agencyId" />
   </section>
 </template>
@@ -85,7 +85,8 @@ import api from '../../services/api';
 import {
   canRequestCompanyEventShift,
   companyEventRequestKey,
-  companyEventRequestStatusLabel
+  companyEventRequestStatusLabel,
+  primaryCompanyEventSession
 } from '../../utils/companyEventStaffing';
 
 const props = defineProps({
@@ -151,7 +152,7 @@ function isRequesting(ev) {
 async function requestShift(ev) {
   const raw = eventRaw(ev);
   if (!raw || !canRequestCompanyEventShift(raw)) return;
-  const sess = raw.sessions?.[0];
+  const sess = primaryCompanyEventSession(raw);
   if (!sess?.sessionDateId || !raw.id || !raw.agencyId) return;
   const key = companyEventRequestKey(raw);
   try {

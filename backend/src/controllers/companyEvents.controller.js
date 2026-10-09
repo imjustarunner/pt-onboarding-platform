@@ -78,7 +78,8 @@ function parseInstantWithTimezone(raw, timezone) {
 import { resolveScopedAgencyIdsForMyDashboard } from '../utils/meDashboardTenantScope.js';
 import {
   isSchoolPortalEventType,
-  SCHOOL_PORTAL_EVENT_TYPES
+  CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES,
+  eventTypeToCategory
 } from '../services/schoolPortalEvents.service.js';
 import { assertSkillBuildersSchoolProgramForRequest } from '../utils/skillBuildersSchoolProgramFeature.js';
 import { userHasAgencyOrAffiliatedOrgAccessForRequest } from '../utils/userAgencyAffiliationAccess.js';
@@ -419,6 +420,7 @@ function mapEventRow(row, req, opts = {}) {
     title: row.title,
     description: row.description || '',
     eventType: row.event_type || 'company_event',
+    schoolEventStatus: row.school_event_status || null,
     splashContent: row.splash_content || '',
     startsAt,
     endsAt,
@@ -3548,9 +3550,21 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
     if (!agencyIds.length) return res.json([]);
 
     const placeholders = agencyIds.map(() => '?').join(', ');
-    const schoolTypePlaceholders = [...SCHOOL_PORTAL_EVENT_TYPES].map(() => '?').join(', ');
     const [rows] = await pool.execute(
       `SELECT ce.*,
+              (EXISTS (
+                SELECT 1 FROM provider_school_assignments psa
+                WHERE psa.school_organization_id = ce.organization_id
+                  AND psa.provider_user_id = ? AND psa.is_active = TRUE
+              ) OR EXISTS (
+                SELECT 1 FROM client_provider_assignments cpa
+                WHERE cpa.organization_id = ce.organization_id
+                  AND cpa.provider_user_id = ? AND cpa.is_active = TRUE
+              )) AS is_provider_school,
+              EXISTS (
+                SELECT 1 FROM company_event_session_providers mine
+                WHERE mine.company_event_id = ce.id AND mine.provider_user_id = ?
+              ) AS is_assigned_provider,
               sch.name AS school_name,
               sch.portal_url AS school_portal_url,
               sch.slug AS school_slug,
@@ -3559,20 +3573,46 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
        LEFT JOIN agencies sch ON sch.id = ce.organization_id
        WHERE ce.agency_id IN (${placeholders})
          AND ce.is_active = 1
+         AND COALESCE(ce.school_event_status, 'scheduled') NOT IN ('canceled', 'cancelled')
          AND NOT EXISTS (
            SELECT 1 FROM skills_groups sg
            WHERE sg.company_event_id = ce.id AND sg.agency_id = ce.agency_id
          )
          AND (
-           ce.ends_at >= DATE_SUB(NOW(), INTERVAL ${options.includePollHistory === true ? 90 : 1} DAY)
-           OR ce.event_type IN (${schoolTypePlaceholders})
+           ce.ends_at >= NOW()
+           OR JSON_EXTRACT(ce.recurrence_json, '$.frequency') IN ('weekly', 'monthly')
+           OR EXISTS (
+             SELECT 1 FROM company_event_session_dates upcoming
+             WHERE upcoming.company_event_id = ce.id AND upcoming.ends_at >= NOW()
+           )
          )
        ORDER BY ce.starts_at ASC
        LIMIT 400`,
-      [...agencyIds, ...SCHOOL_PORTAL_EVENT_TYPES]
+      [userId, userId, userId, ...agencyIds]
     );
 
-    const filteredRows = (rows || []).filter((row) => !isFirstDayOfSchoolDashboardEvent(row));
+    if (!rows?.length) return res.json([]);
+    const audienceMap = await fetchAudienceMap(rows.map((row) => Number(row.id)));
+    const userGroupIds = await getUserGroupIds(userId);
+    const [userRows] = await pool.execute('SELECT role FROM users WHERE id = ? LIMIT 1', [userId]);
+    const userRole = String(userRows?.[0]?.role || '').toLowerCase();
+    const filteredRows = rows.filter((row) => {
+      const audience = audienceMap.get(Number(row.id));
+      const inAudience = !!Number(row.is_assigned_provider) || !audience || audience.userIds.includes(userId)
+        || audience.roleKeys.includes(userRole)
+        || audience.groupIds.some((id) => userGroupIds.has(id));
+      if (!inAudience) return false;
+      const calendarOnly = CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(eventTypeToCategory(row.event_type))
+        || isFirstDayOfSchoolDashboardEvent(row);
+      const staffing = parseJsonMaybe(row.staffing_config_json);
+      const staffable = (staffing?.enabled && staffing?.providerSignup?.enabled !== false)
+        || Number(row.outreach_table_invited) === 1;
+      // Unstaffed school dates belong only to providers who currently work at that school.
+      if (isSchoolPortalEventType(row.event_type) && (calendarOnly || !staffable)) {
+        return !!Number(row.is_provider_school) || !!Number(row.is_assigned_provider) || !!audience;
+      }
+      return true;
+    });
     const eventIds = filteredRows.map((r) => Number(r.id)).filter(Boolean);
     if (!eventIds.length) return res.json([]);
 
@@ -3581,7 +3621,7 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
       `SELECT cesd.id AS session_date_id, cesd.company_event_id, cesd.session_date,
               cesd.starts_at, cesd.ends_at
        FROM company_event_session_dates cesd
-       WHERE cesd.company_event_id IN (${idPlaceholders})
+       WHERE cesd.company_event_id IN (${idPlaceholders}) AND cesd.ends_at >= NOW()
        ORDER BY cesd.starts_at ASC`,
       eventIds
     );
@@ -3647,8 +3687,10 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
       const eid = Number(row.id);
       const eventType = String(row.event_type || '').toLowerCase();
       const isSchoolEvent = isSchoolPortalEventType(eventType);
+      const calendarOnly = CALENDAR_ONLY_SCHOOL_EVENT_CATEGORIES.has(eventTypeToCategory(eventType))
+        || isFirstDayOfSchoolDashboardEvent(row);
       const staffingRequestable =
-        eventType !== 'skills_group' &&
+        !calendarOnly && eventType !== 'skills_group' &&
         !!(base.staffingConfig?.enabled && base.staffingConfig?.providerSignup?.enabled !== false);
       const sessions = (sessionsByEvent.get(eid) || []).map((sess) => {
         const minProviders = Number.isFinite(Number(base.staffingConfig?.minProvidersPerSession))
@@ -3664,6 +3706,7 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
       return {
         ...base,
         isSchoolPortalEvent: isSchoolEvent,
+        calendarOnly,
         schoolName: row.school_name ? String(row.school_name).trim() : null,
         schoolSlug: String(row.school_portal_url || row.school_slug || '').trim() || null,
         schoolLogoUrl: row.school_logo_url ? String(row.school_logo_url).trim() : null,
@@ -3678,10 +3721,10 @@ export const listMyCompanyEventsCalendar = async (req, res, next) => {
           !String(row.district_name || '').trim(),
         sessions,
         canRequestOutreachShift:
-          (isSchoolEvent &&
+          !calendarOnly && ((isSchoolEvent &&
             (!!(row.outreach_table_invited === 1 || row.outreach_table_invited === true) ||
               !!(base.staffingConfig?.enabled && base.staffingConfig?.providerSignup?.enabled !== false))) ||
-          staffingRequestable
+          staffingRequestable)
       };
     });
 

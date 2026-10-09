@@ -16,19 +16,65 @@ export function isFirstDayOfSchoolCompanyEvent(event) {
   return false;
 }
 
-/** Provider dashboard surfaces: hide calendar-only first-day dates (not requestable). */
-export function shouldShowOnProviderDashboardEvents(event) {
-  return !isFirstDayOfSchoolCompanyEvent(event);
+export function isCalendarOnlyCompanyEvent(event) {
+  if (!event) return false;
+  const type = String(event.eventType || event.event_type || '').toLowerCase();
+  return event.calendarOnly === true || isFirstDayOfSchoolCompanyEvent(event)
+    || ['school_holiday', 'school_day_off', 'school_fall_check_in', 'school_spring_event'].includes(type);
 }
 
-export function primaryCompanyEventSession(event) {
+export function isUpcomingCompanyEvent(event, now = Date.now()) {
+  if (!event || event.isActive === false || event.is_active === 0) return false;
+  if (['canceled', 'cancelled'].includes(String(event.schoolEventStatus || event.school_event_status || '').toLowerCase())) return false;
+  const sessions = Array.isArray(event.sessions) ? event.sessions : [];
+  if (sessions.some((session) => new Date(session.endsAt || session.startsAt).getTime() > now)) return true;
+  const end = new Date(event.nextOccurrenceEnd || event.endsAt || event.nextOccurrenceStart || event.startsAt).getTime();
+  return Number.isFinite(end) && end > now;
+}
+
+/** Invitations, current assignments/requests, and shifts that still have room. */
+export function shouldShowOnProviderDashboardEvents(event, now = Date.now()) {
+  if (!isUpcomingCompanyEvent(event, now) || isCalendarOnlyCompanyEvent(event)) return false;
+  const sessions = Array.isArray(event.sessions) ? event.sessions : [];
+  const upcoming = sessions.filter((session) => new Date(session.endsAt || session.startsAt).getTime() > now);
+  if (upcoming.some((session) => session.myAssignment || ['pending', 'approved'].includes(session.myRequest?.status))) return true;
+  if (upcoming.some((session) => canRequestCompanyEventShift(event, session, now))) return true;
+  const type = String(event.eventType || event.event_type || '').toLowerCase();
+  // School/program events require a staffing opportunity or a personal assignment.
+  if (type.startsWith('school_') || type.startsWith('program_') || type === 'guardian_program_class' || type === 'skills_group') return false;
+  return !isRequestableCompanyEvent(event);
+}
+
+export function primaryCompanyEventSession(event, now = Date.now()) {
   if (!event) return null;
-  return (Array.isArray(event.sessions) && event.sessions[0]) || null;
+  const sessions = (Array.isArray(event.sessions) ? event.sessions : [])
+    .filter((session) => new Date(session.endsAt || session.startsAt).getTime() > now)
+    .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt));
+  return sessions.find((session) => session.myAssignment || ['pending', 'approved'].includes(session.myRequest?.status))
+    || sessions.find((session) => canRequestCompanyEventShift(event, session, now))
+    || sessions[0] || null;
+}
+
+export function companyEventDisplayWindow(event) {
+  const session = primaryCompanyEventSession(event);
+  return {
+    startsAt: session?.startsAt || event?.nextOccurrenceStart || event?.startsAt,
+    endsAt: session?.endsAt || event?.nextOccurrenceEnd || event?.endsAt
+  };
+}
+
+export function providerEventCategoryLabel(event) {
+  if (isCalendarOnlyCompanyEvent(event)) return 'School calendar date';
+  const type = String(event?.eventType || '').toLowerCase();
+  if (type === 'school_outreach') return 'Outreach';
+  if (type.startsWith('school_')) return 'School event';
+  if (type.startsWith('program_') || type === 'guardian_program_class') return 'Program event';
+  return 'Company event';
 }
 
 /** Event allows provider/staff shift requests (school outreach or program staffing blocks). */
 export function isRequestableCompanyEvent(event) {
-  if (!event) return false;
+  if (!event || isCalendarOnlyCompanyEvent(event)) return false;
   if (event.canRequestOutreachShift) return true;
   const cfg = event.staffingConfig;
   const t = String(event.eventType || '').toLowerCase();
@@ -67,8 +113,9 @@ export function companyEventRequestStatusLabel(event, session = primaryCompanyEv
   return '';
 }
 
-export function canRequestCompanyEventShift(event, session = primaryCompanyEventSession(event)) {
+export function canRequestCompanyEventShift(event, session = primaryCompanyEventSession(event), now = Date.now()) {
   if (!isRequestableCompanyEvent(event) || !session) return false;
+  if (!isUpcomingCompanyEvent(event, now) || !(new Date(session.endsAt || session.startsAt).getTime() > now)) return false;
   if (session.myAssignment) return false;
   const st = String(session.myRequest?.status || '').toLowerCase();
   if (st === 'pending' || st === 'approved') return false;
