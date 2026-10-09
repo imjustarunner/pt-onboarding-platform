@@ -27,3 +27,13 @@ it('replaces future funding percentages without changing prior earnings or salar
  expect(rendered).toContain('11. Compensation regardless of funding source');expect(rendered).toContain('13. Employee acknowledgment');expect(rendered).toContain('iMatter');expect(rendered).toContain('replace prior funding-specific percentage');expect(rendered).toContain('does not reduce compensation already earned');
  expect(rendered.match(/<h3>11. Compensation regardless of funding source/g)).toHaveLength(1);
 });
+
+it('places named benefits before agreement clauses, with school benefits only for assigned staff',()=>{
+ const base={employee:{name:'Example'},schedule:{category:2,level:2},benefitsEligibility:{schoolAssigned:true}};
+ const html=renderAmendment(base);
+ for(const text of ['Benefits and handbook policies','Earned training benefit','Earned school support benefit','School mileage reimbursement','weather-related school closures','client absences or cancellations','only after payroll approves'])expect(html).toContain(text);
+ expect(html.indexOf('Benefits and handbook policies')).toBeLessThan(html.indexOf('1. Effective date'));
+ const office=renderAmendment({...base,benefitsEligibility:{schoolAssigned:false}});
+ expect(office).toContain('Earned training benefit');expect(office).not.toContain('Earned school support benefit');expect(office).not.toContain('<h4>School mileage reimbursement');
+ expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('weather-related school closures');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('20-hour balance cap');
+});
