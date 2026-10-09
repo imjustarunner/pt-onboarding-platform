@@ -17,7 +17,7 @@ try{
  const report=[];
  for(const row of drafts){const data=parse(row.token_values_json),uid=Number(row.candidate_user_id);let html;
   if(uid===496){data.draftKind=EXEMPT_DRAFT_KIND;data.exemptionReason='Salaried employee; owner confirmed no compensation amendment is required.';data.exemptedAt=new Date().toISOString();html=row.rendered_html;}
-  else{const roles={...data.roleCompensation};if(supervisors.some(s=>s.id===uid)&&data.employee.employmentType!=='salaried')roles.supervisor={hourlyRate:65,groupMultiplier:1.5,noteReviewMultiplier:.5,noteReviewBasis:'actual_other_provider_note_review_hours',source:'Owner confirmation October 9, 2026'};
+  else{const roles={...data.roleCompensation};if(supervisors.some(s=>s.id===uid)&&data.employee.employmentType!=='salaried')roles.supervisor={hourlyRate:65,groupMultiplier:1.5,noteReviewMultiplier:.5,noteReviewBasis:'actual_other_provider_note_review_hours',sickLeaveBasis:'clinical_service_rate',source:'Owner confirmation October 9, 2026'};
    if([465,477].includes(uid)){const get=code=>{const r=rates.find(r=>r.user_id===uid&&r.service_code===code);if(!(Number(r?.rate_amount)>0))throw Error(`Missing role rate for ${uid}/${code}`);return Number(r.rate_amount)};
     roles[uid===465?'cpa':'mentor']={meetingRate:get('Individual Meeting'),adminRate:get('Admin Time'),...(uid===477?{outreachRate:get('Outreach')}:{}),source:'Existing individual payroll rates, captured October 9, 2026'};}
    data.roleCompensation=roles;html=renderAmendment(data);

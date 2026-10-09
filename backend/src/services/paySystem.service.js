@@ -1,3 +1,4 @@
+import {roleCompensationRate} from './roleCompensationRate.js';
 import {loadAdditionHistory,profileWithDatedAddition,HANDBOOK_ADDITION_MODE} from './conditionalAdditionPolicy.service.js';
 import {effectiveCompensationAgreement, agreementRateProfile, COMPENSATION_POLICY_VERSION} from './employmentAgreementPolicy.service.js';
 import {isServiceCreditPolicy} from '../utils/serviceCreditPolicy.js';
@@ -242,7 +243,7 @@ export function resolveUserPaySystemStatus({
  */
 export function computeLineAmount({ rateProfile, status, serviceCode, quantity, rule = null }) {
   const code = String(serviceCode || '').trim().toUpperCase();
-  const payType = classifyPayType(code, rule || payrollDefaultsForCode(code));
+  let payType = classifyPayType(code, rule || payrollDefaultsForCode(code));
   const qty = resolveQuantities({ serviceCode: code, quantity, rule });
   const reduced = !!status?.useReducedRates;
 
@@ -253,7 +254,10 @@ export function computeLineAmount({ rateProfile, status, serviceCode, quantity, 
   let autoIndirectAmount = 0;
   let hcodeFallbackToCredit = false;
 
-  if (payType === 'credit') {
+  const roleRate=roleCompensationRate(rateProfile?.roleCompensation,code,{categoryGroup:code==='ADMIN TIME'?'supervision_note':undefined});
+  if(roleRate>0){
+    payType='indirect';rate=roleRate;rateLabel='assigned_role_hourly_rate';qty.hourEquivalent=qty.payHours;amount=qty.payHours*roleRate;
+  } else if (payType === 'credit') {
     rate = Number(reduced
       ? (rateProfile?.creditRateProbation ?? rateProfile?.creditRate ?? 0)
       : (rateProfile?.creditRate ?? 0)) || 0;
