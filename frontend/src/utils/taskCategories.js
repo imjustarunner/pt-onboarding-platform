@@ -10,6 +10,7 @@ export const TASK_CATEGORIES = [
   { value: 'analytics', label: 'Analytics & reporting' },
   { value: 'scheduling', label: 'Scheduling' },
   { value: 'billing', label: 'Billing' },
+  { value: 'client', label: 'Client (excluded from text-assistant replies)' },
   { value: 'general', label: 'General' }
 ];
 

@@ -1,4 +1,4 @@
-import { ITSCO_STAFF_ASSISTANT_NUMBER, STAFF_ASSISTANT_EXAMPLES } from '../utils/staffSmsAssistant.js';
+import { ITSCO_STAFF_ASSISTANT_NUMBER, STAFF_SMS_COMMAND_VERSION, STAFF_ASSISTANT_EXAMPLES } from '../utils/staffSmsAssistant.js';
 import { staffCommunicationAgreement } from '../utils/staffCommunicationAgreement.js';
 import { createHash, randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
@@ -44,8 +44,8 @@ async function context(userId,agencyId) {
     programs:programs.map(p=>({campaignId:p.campaign_id,brandName:p.registration.brandName,termsUrl:p.registration.termsUrl,privacyUrl:p.registration.privacyUrl,purposes:p.registration.purposes.filter(x=>['workforce','polling'].includes(x))})),
     choices:STAFF_COMMUNICATION_CHOICES, accessRequests:STAFF_COMMUNICATION_REQUESTS, agreement:staffCommunicationAgreement(profile.brandName),
     assistant:programs.some(p=>p.phone_number===ITSCO_STAFF_ASSISTANT_NUMBER&&p.registration.purposes.includes('workforce')&&validateSmsRegistration(p.registration).length===0)?{
-      number:ITSCO_STAFF_ASSISTANT_NUMBER,displayNumber:'719-716-3884',examples:STAFF_ASSISTANT_EXAMPLES,
-      text:'Text MENU to 719-716-3884 for instructions. Enable staff text-assistant requests below and text from your saved mobile number. Texting a request asks for a reply to that request only; it does not subscribe you to recurring notifications or voting. Client details, payroll, task contents and other private information stay in the signed-in app. The reply opens your request securely with the app assistant. Review it there; the text alone does not send messages, create tasks or change schedules. Do not text clinical details or passwords. Standard SMS is not end-to-end encrypted. Message and data rates may apply. Reply STOP to stop texts from this campaign or HELP for help.'}:null,
+      number:ITSCO_STAFF_ASSISTANT_NUMBER,version:STAFF_SMS_COMMAND_VERSION,displayNumber:'719-716-3884',examples:STAFF_ASSISTANT_EXAMPLES,
+      text:'Text MENU to 719-716-3884 anytime for instructions and available features. After enabling this assistant, #task followed by text immediately adds a personal task in Tasks. #task alone returns your top five non-client open tasks; Client-tagged and client-linked tasks are excluded. #calendar returns today’s app calendar meeting types and times, without names, locations or contents. Use your saved mobile number. Do not text client details, payroll information, passwords or other sensitive content. Each request permits its reply, not recurring enrollment. SMS is not end-to-end encrypted.'}:null,
     text:`${profile.brandName} sends only the text categories you choose to your own phone. All choices default to No. Receiving texts is optional and is not a condition of employment or app access. Message frequency varies; message and data rates may apply. Reply HELP for help or contact ${profile.supportContact || 'your organization'}. Reply STOP to stop texts from that campaign; this also stops other categories on the same campaign. You can change your choices here at any time. Carriers are not liable for delayed or undelivered messages. Standard SMS is not end-to-end encrypted. Keep sensitive information in the secure app. These are administrative communications, not an emergency service. Client texts to your assigned business number remain in the app regardless of these personal-phone choices. Choosing No does not disable your app inbox.`,
     future:'Client-message forwarding and replies from your personal phone are not enabled by this form. Call bridging, voicemail, call recording and transcription are not currently available. A phone number or extension does not itself enable these features. Separate setup and disclosures are required before launch.'};
   const [prefs]=await pool.execute(`SELECT notification_categories,
@@ -89,15 +89,16 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
     if(typeof input?.arrivalEmail!=='boolean')errors.push('Choose Yes or No for kiosk check-in emails.');
     if(typeof input?.exchangeEmail!=='boolean')errors.push('Choose Yes or No for Client Exchange emails.');
     const anyYes=Object.values(input?.choices||{}).some(v=>v===true);
-    const phone=anyYes?(normalizeSmsPhone(input?.phone)||''):c.phone;
-    if(anyYes&&!c.disclosure.policyReady)errors.push('Your organization must publish its SMS policies before text enrollment. You may choose No for every category now.');
-    if(anyYes&&(!phone||phone!==c.phone))errors.push('Use the phone number saved in your profile, or update your profile first.');
+    const needsPhone=anyYes||input?.accessRequests?.staffSmsAssistant===true;
+    const phone=needsPhone?(normalizeSmsPhone(input?.phone)||''):c.phone;
+    if(needsPhone&&!c.disclosure.policyReady)errors.push('Your organization must publish its SMS policies before text enrollment. You may choose No for every category now.');
+    if(needsPhone&&(!phone||phone!==c.phone))errors.push('Use the phone number saved in your profile, or update your profile first.');
     if(errors.length)throw fail(errors.join(' '));
     if(!isChatEncryptionConfigured())throw fail('Secure consent storage is unavailable. Nothing was saved.',503);
     const reviewedAt=new Date().toISOString(),reference=`staff_communications:${randomUUID()}`;
     const signed={phone,choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,exchangeEmail:input.exchangeEmail,signerName:input.signerName.trim(),acknowledged:true,usageAcknowledged:true,agencyId:Number(agencyId),disclosure:c.disclosure,disclosureHash:c.disclosureHash,reviewedAt,source};
     const envelope=encryptChatText(JSON.stringify(signed));
-    const state={choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,exchangeEmail:input.exchangeEmail,reviewedAt,phoneHash:phoneFingerprint(phone),disclosureHash:c.disclosureHash,reference,envelope,activation:[]};
+    const state={staffAssistantVersion:STAFF_SMS_COMMAND_VERSION,choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,exchangeEmail:input.exchangeEmail,reviewedAt,phoneHash:phoneFingerprint(phone),disclosureHash:c.disclosureHash,reference,envelope,activation:[]};
     await connection.beginTransaction();
     const evidenceId=await appendSecurityEvidence({requestId:randomUUID(),phase:'completed',userId,method:'PUT',route:'/staff-communication-choices',clientIp:null,ipSource:'not_collected',peerIp:null,
       action:'staff_communication_choices_signed',outcome:'success',statusCode:200,details:{agencyId:Number(agencyId),reference,envelope}},connection,{mirror:false});

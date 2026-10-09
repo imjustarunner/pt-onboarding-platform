@@ -1,3 +1,4 @@
+import {runStaffSmsCommand,staffSmsMenu} from './staffSmsCommands.service.js';
 import {createHash,randomUUID} from 'node:crypto';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -6,18 +7,18 @@ import VonageService from './vonage.service.js';
 import {getSmsSender,isSmsSuppressed,staffAssistantReplyCapability} from './smsCompliance.service.js';
 import {validateSmsRegistration} from '../utils/smsCompliancePolicy.js';
 import {normalizeSmsPhone} from '../utils/smsThreadIdentity.js';
-import {ITSCO_STAFF_ASSISTANT_NUMBER,parseStaffSmsRequest} from '../utils/staffSmsAssistant.js';
+import {ITSCO_STAFF_ASSISTANT_NUMBER,STAFF_SMS_COMMAND_VERSION,parseStaffSmsRequest} from '../utils/staffSmsAssistant.js';
 import {isStaffCommunicationRole,staffCommunicationKey,phoneFingerprint} from '../utils/staffCommunicationChoices.js';
 import {isCommunicationStaffActive} from '../utils/communicationReceptionPolicy.js';
 import {encryptChatText,decryptChatText} from './chatEncryption.service.js';
 import {appendSecurityEvidence} from './securityEvidence.service.js';
 import {buildPublicPortalBaseUrl} from '../utils/publicPortalUrl.js';
 const json=v=>typeof v==='string'?JSON.parse(v):(v||{});
-const deps={db:pool,sender:getSmsSender,suppressed:isSmsSuppressed,agency:id=>Agency.findById(id),send:options=>VonageService.sendSms(options),encrypt:encryptChatText,decrypt:decryptChatText,evidence:appendSecurityEvidence,capability:staffAssistantReplyCapability};
+const deps={db:pool,sender:getSmsSender,suppressed:isSmsSuppressed,agency:id=>Agency.findById(id),send:options=>VonageService.sendSms(options),encrypt:encryptChatText,decrypt:decryptChatText,evidence:appendSecurityEvidence,capability:staffAssistantReplyCapability,command:runStaffSmsCommand};
 export async function handleStaffSmsAssistant({from,to,body,messageId},d=deps){
  if(normalizeSmsPhone(to)!==ITSCO_STAFF_ASSISTANT_NUMBER)return false;
  const request=parseStaffSmsRequest(body);if(!request)return false;
- // No identifiable information is returned based on a telephone number alone.
+ // Limit commands to the saved, explicitly opted-in staff phone and the current feature consent.
  if(!messageId)return true;
  const sender=await d.sender(to);
  if(validateSmsRegistration(sender.registration).length||!sender.registration.purposes.includes('workforce')||await d.suppressed(sender,from))return true;
@@ -34,7 +35,7 @@ export async function handleStaffSmsAssistant({from,to,body,messageId},d=deps){
  const user=active[0],state=json(user.notification_categories)[staffCommunicationKey(sender.agency_id)];
  const agency=await d.agency(sender.agency_id);if(!agency)return true;
  const base=new URL(buildPublicPortalBaseUrl(agency)).origin;
- const enabled=state?.accessRequests?.staffSmsAssistant===true&&state.phoneHash===phoneFingerprint(phone);
+ const enabled=state?.accessRequests?.staffSmsAssistant===true&&state.phoneHash===phoneFingerprint(phone)&&state.staffAssistantVersion===STAFF_SMS_COMMAND_VERSION;
  const requestKey=createHash('sha256').update(`${sender.id}:${messageId}`).digest('hex');
  const db=await d.db.getConnection();let locked=false;
  try{
@@ -43,11 +44,16 @@ export async function handleStaffSmsAssistant({from,to,body,messageId},d=deps){
    if(prior.length)return true;
    const [recent]=await db.execute(`SELECT event_id FROM security_evidence WHERE user_id=? AND action='staff_sms_assistant_requested' AND occurred_at>DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 MINUTE) LIMIT 6`,[user.id]);
    if(recent.length>=5)return true;
-   const requestId=randomUUID(),envelope=enabled&&request.kind==='request'?d.encrypt(JSON.stringify({prompt:request.text})):null;
-   const evidenceId=await d.evidence({requestId,phase:'completed',userId:user.id,method:'POST',route:'/vonage/sms',clientIp:null,ipSource:'not_collected',peerIp:null,action:'staff_sms_assistant_requested',outcome:'success',statusCode:200,details:{requestKey,agencyId:sender.agency_id,kind:request.kind,enabled,envelope}},db,{mirror:false});
-   const reply=enabled&&request.kind==='request'
-     ?`Your request is ready to review securely: ${base}/staff-text-assistant/${evidenceId} Sign in to view account details and confirm any changes. Nothing has been sent or scheduled. Reply STOP to opt out.`
-     :`Text MENU for help. Account questions, tasks, messages and scheduling requests open securely in the app. Enable Staff text-assistant requests in Provider Update or My Account preferences, using your saved mobile number. ${base}/login Texting asks for one reply, not recurring enrollment. Msg & data rates may apply. Reply STOP to opt out or HELP for help.`;
+   // Task creation and evidence share one transaction. A retry can never create a
+   // second task after a committed first attempt, even if its reply was not delivered.
+   let result;
+   await db.beginTransaction();
+   try {
+     result=enabled ? await d.command({request,user,agency,db,requestKey}) : {reply:`${staffSmsMenu()} Enable or review Staff text-assistant requests in Provider Update or My Account using your saved mobile number: ${base}/login`};
+     await d.evidence({requestId:randomUUID(),phase:'completed',userId:user.id,method:'POST',route:'/vonage/sms',clientIp:null,ipSource:'not_collected',peerIp:null,action:'staff_sms_assistant_requested',outcome:'success',statusCode:200,details:{requestKey,agencyId:sender.agency_id,kind:request.kind,enabled,taskId:result.taskId||null,version:STAFF_SMS_COMMAND_VERSION}},db,{mirror:false});
+     await db.commit();
+   } catch(error) { await db.rollback(); throw error; }
+   const reply=`${result.reply} Msg & data rates may apply. Reply STOP to opt out or HELP for help.`;
    const capability=d.capability({from:to,to:from,body:reply,messageId});
    try{await d.send({purpose:'workforce',agencyId:sender.agency_id,from:to,to:from,body:reply,staffAssistantReply:capability});}
    catch(e){console.warn('[staffSmsAssistant] Reply not delivered:',e.code||'delivery_failed');}

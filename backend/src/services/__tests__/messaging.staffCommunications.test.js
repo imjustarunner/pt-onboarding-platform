@@ -85,3 +85,11 @@ it('requires the use agreement independently of optional text consent and preser
  expect(signed.disclosure.agreement.sections.map(s=>s.body).join(' ')).toContain('three years');
  expect(signed.choices.notifications).toBe(false);
 });
+
+it('requires a saved phone for assistant-only consent and records the command version',async()=>{
+ const form=await input();form.accessRequests.staffSmsAssistant=true;
+ await expect(saveStaffCommunicationChoices({userId:7,agencyId:2,input:{...form,phone:''}})).rejects.toThrow('profile');
+ await saveStaffCommunicationChoices({userId:7,agencyId:2,input:form});
+ expect(stored.staff_communications_2.staffAssistantVersion).toBe('2026-10-09.commands1');
+ expect(stored.staff_communications_2.accessRequests.staffSmsAssistant).toBe(true);
+});

@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import { normalizeTaskCategories, resolveTaskCategories } from '../constants/taskCategories.js';
+import { normalizeTaskCategories, resolveTaskCategories, isClientRelatedTask } from '../constants/taskCategories.js';
 import {
   ENCRYPTED_TASK_DESCRIPTION_PLACEHOLDER,
   encryptTaskDescriptionText,
@@ -98,6 +98,7 @@ class Task {
 
     const targetCountVal = targetCount != null ? Math.max(0, parseInt(targetCount, 10) || 0) : null;
     const categoriesVal = resolveTaskCategories(categories, title);
+    if (isClientRelatedTask({...taskData,task_type:taskType,source_ref_type:sourceRefType,source_ref_id:sourceRefId,reference_id:referenceId,linked_schedule_event_id:linkedScheduleEventId}) && !categoriesVal.includes('client')) categoriesVal.unshift('client');
     const primaryCategory = categoriesVal[0] || 'general';
 
     let descriptionVal = description;

@@ -1,4 +1,5 @@
 export const TASK_CATEGORY_VALUES = new Set([
+  'client',
   'qa_testing',
   'bug_fix',
   'feature',
@@ -84,4 +85,19 @@ export function resolveTaskCategories(categories, title) {
     return normalized;
   }
   return normalizeTaskCategories(inferTaskCategoryFromTitle(title));
+}
+
+// Client-linked and explicitly Client-tagged tasks must not be disclosed by SMS.
+// This also protects legacy tasks created before the Client category existed.
+export function isClientRelatedTask(task = {}) {
+  const parse = value => { try { return typeof value === 'string' ? JSON.parse(value) : value; } catch { return null; } };
+  const meta = parse(task.metadata) || {};
+  const parsedCategories = parse(task.categories);
+  const tags = [task.category, ...(Array.isArray(parsedCategories) ? parsedCategories : []), ...(Array.isArray(meta.tags) ? meta.tags : [meta.tags])];
+  if (tags.some(t => /^clients?$/i.test(String(t || '').trim()))) return true;
+  if (task.linked_schedule_event_id || task.description_ciphertext || task.encryptDescription) return true;
+  if (/client|clinical|intake|documentation|office_event|appointment/i.test(String(task.task_type || '')+' '+String(task.source_ref_type || '')+' '+String(meta.source || ''))) return true;
+  const hasClient = object => object && typeof object === 'object' && Object.entries(object).some(([key,value]) =>
+    value != null && value !== '' && value !== false && value !== 0 && (/client|patient/i.test(key) || hasClient(value)));
+  return Boolean(hasClient(meta));
 }
