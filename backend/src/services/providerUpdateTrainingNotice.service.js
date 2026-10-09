@@ -1,3 +1,4 @@
+import {resolveProviderUpdateRecipients} from './providerUpdateRecipient.service.js';
 import crypto from 'crypto';
 import pool from '../config/database.js';
 import {sanitizeSectionTraining} from './providerUpdateTraining.service.js';
@@ -62,7 +63,7 @@ export async function saveTrainingAndNotify({pushId,agencyId,sectionKey,guides,n
  return {push:saved,delivery};
 }
 export async function dispatchTrainingNotices({pushId,agencyId,sectionKey,retryFailed=true}) {
- const [rows]=await pool.execute(`SELECT n.*,r.provider_user_id,u.first_name,u.work_email,p.section_config_json,p.section_audience_json FROM provider_update_training_notices n
+ const [rows]=await pool.execute(`SELECT n.*,r.provider_user_id,u.first_name,u.email,u.work_email,p.section_config_json,p.section_audience_json FROM provider_update_training_notices n
  JOIN provider_update_recipients r ON r.id=n.recipient_id JOIN users u ON u.id=r.provider_user_id JOIN provider_update_pushes p ON p.id=n.push_id
  WHERE n.push_id=? AND n.agency_id=? AND n.section_key=? AND n.status IN (${retryFailed ? "'queued','failed'" : "'queued'"}) AND p.status<>'draft'
  AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(u.status)='ACTIVE_EMPLOYEE'
@@ -82,9 +83,10 @@ export async function dispatchTrainingNotices({pushId,agencyId,sectionKey,retryF
   let status='failed',error=null,communicationId=null;
   try {
    if(!sender?.identity?.id)throw Error('No People Operations email sender is configured.');
-   if(!row.work_email?.includes('@'))throw Error('No work email is saved.');
+   const [recipient]=await resolveProviderUpdateRecipients(agencyId,[row]);
+   if(!recipient.work_email?.includes('@'))throw Error('No work email is saved.');
    const email=trainingNoticeEmail({firstName:row.first_name,section:getSectionMeta(sectionKey),guideTitles:parse(row.guide_titles_json),link:`${origin}/provider-update-instructions/${pushId}/${sectionKey}`});
-   const sent=await sendEmailFromIdentity({senderIdentityId:sender.identity.id,to:row.work_email,...email,source:'auto',agencyId,userId:row.provider_user_id,templateType:'provider_update_training',replyToOverride:sender.replyTo});
+   const sent=await sendEmailFromIdentity({senderIdentityId:sender.identity.id,to:recipient.work_email,...email,source:'auto',agencyId,userId:row.provider_user_id,templateType:'provider_update_training',replyToOverride:sender.replyTo});
    communicationId=sent?.communicationId||null;
    status=sent?.queued?'pending':sent?.skipped||sent?.blocked?'failed':'sent';error=sent?.reason||null;
   }catch(e){error=String(e.message||e).slice(0,500);}

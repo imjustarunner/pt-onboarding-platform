@@ -6,6 +6,7 @@ vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdent
 vi.mock('../providerUpdateEmailSender.service.js',()=>({resolveProviderUpdateSender:m.sender}));
 vi.mock('../storage.service.js',()=>({default:{getSignedUrl:vi.fn()}}));
 import {trainingRevision,changedTrainingGuides,trainingNoticeEmail,saveTrainingAndNotify,dispatchTrainingNotices} from '../providerUpdateTrainingNotice.service.js';
+vi.mock('../../models/EmailSenderIdentity.model.js',()=>({default:{list:async()=>[{agency_id:2,is_active:1,from_email:'po@example.test'}]}}));
 const guide={id:'video',title:'Set your availability',html:'<a href="https://youtu.be/abc12345678">Watch</a>'};
 let config,notices;
 beforeEach(()=>{vi.clearAllMocks();config={pin:true,license:true,_training:{license:[guide]}};notices=[];m.sender.mockResolvedValue({identity:{id:4},replyTo:'po@itsco.health'});m.send.mockResolvedValue({id:'email-1',communicationId:7});
@@ -34,3 +35,5 @@ it('rejects unknown sections and cross-agency media before any write or email',a
 it('saves and queues notifications without waiting for outbound email',async()=>{const result=await saveTrainingAndNotify({pushId:2,agencyId:2,sectionKey:'pin',guides:[guide]});expect(result.delivery.pending).toBe(1);expect(m.send).not.toHaveBeenCalled();expect(m.commit).toHaveBeenCalled();});
 
 it('keeps revision hashes stable when MySQL JSON reorders object keys',()=>{expect(trainingRevision([guide])).toBe(trainingRevision([{html:guide.html,id:guide.id,title:guide.title}]))});
+
+it('routes training notices to saved work login when the historical work field is personal',async()=>{const args={pushId:2,agencyId:2,sectionKey:'pin',guides:[guide]};await saveTrainingAndNotify(args);notices[0].email='staff@example.test';notices[0].work_email='personal@gmail.com';await dispatchTrainingNotices(args);expect(m.send.mock.calls[0][0].to).toBe('staff@example.test');});

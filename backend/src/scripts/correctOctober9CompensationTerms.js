@@ -40,7 +40,7 @@ try{
    // The new matrix is not activated. Seed its regular starting rate; the signed policy resolves MWR for leave dates after its 60-day waiver.
    if(a?.pay_system_enabled)throw new Error('Review activated payroll before reseeding rates.');
    const profile={category:s.category,level:s.level,creditRate:s.creditRate,hcodeRate:s.hcodeRate,indirectRate:s.indirectRate,supportActivityRate:s.supportRate,tierBonusFfs:{1:0,2:0,3:bonus},tierBonusHcode:{1:0,2:0,3:Number(s.category)===1?bonus:0},spanishBonus:parse(rate.spanish_bonus_json),locationBonus:parse(rate.location_bonus_json),compensationPolicyVersion:data.compensationPolicyVersion};
-   s.ptoRate=highestEligibleSickRate({rateProfile:profile,status,clinicalEligible:s.clinicalEligible});s.sickLeaveRateAsOf='2026-10-09';s.sickLeaveRateSource='Approved category/level; recorded workload tier; conditional additions and eligible differentials. Minimum-workload reduction waived for first 60 days after the amendment takes effect.';
+   s.ptoRate=highestEligibleSickRate({rateProfile:profile,status,clinicalEligible:s.clinicalEligible});s.sickLeaveRateAsOf='2026-10-09';s.sickLeaveRateSource='Approved category/level clinical per-credit or direct hourly base rate; excluding Tier 3 additions and other bonuses or differentials. Minimum-workload reduction waived for first 60 days after the amendment takes effect.';
    if(apply&&pto.some(x=>x.user_id===uid)&&pto.find(x=>x.user_id===uid).employment_type!=='salaried')await db.execute('UPDATE payroll_pto_accounts SET pto_pay_rate=?,updated_by_user_id=501 WHERE agency_id=2 AND user_id=?',[s.ptoRate,uid]);
   }
   data.schedule=s;

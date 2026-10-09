@@ -1,3 +1,4 @@
+import {resolveProviderUpdateRecipients} from './providerUpdateRecipient.service.js';
 import {sanitizeSectionTraining} from './providerUpdateTraining.service.js';
 import {buildProviderUpdateInvitation} from '../../../frontend/src/navigation/providerUpdateInvitation.js';
 import {isCompensationAmendmentExempt,isCompensationUpdatePlan} from './compensationAmendmentExemption.service.js';
@@ -94,7 +95,7 @@ export async function listEligibleProviders(agencyId, { includeDemoTesters = tru
     const ids = [...byId.keys()];
     const placeholders = ids.map(() => '?').join(',');
     const [rows] = await pool.execute(
-      `SELECT u.id, u.work_email, u.role, COALESCE(u.is_demo, 0) AS is_demo
+      `SELECT u.id, u.email, u.work_email, u.role, COALESCE(u.is_demo, 0) AS is_demo
        FROM users u WHERE u.id IN (${placeholders})
          AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(u.status)='ACTIVE_EMPLOYEE'
          AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1)`,
@@ -105,7 +106,7 @@ export async function listEligibleProviders(agencyId, { includeDemoTesters = tru
     for (const r of rows || []) {
       const cur = byId.get(Number(r.id));
       if (cur) {
-        cur.role = r.role;cur.work_email=r.work_email;
+        cur.role = r.role;cur.work_email=r.work_email;cur.email=r.email;
         cur.is_demo = Number(r.is_demo) ? 1 : 0;
       }
     }
@@ -160,7 +161,7 @@ export async function listEligibleProviders(agencyId, { includeDemoTesters = tru
     }
   }
 
-  return [...byId.values()].sort((a, b) =>
+  return (await resolveProviderUpdateRecipients(agencyId,[...byId.values()])).sort((a, b) =>
     String(a.last_name || '').localeCompare(String(b.last_name || '')) ||
     String(a.first_name || '').localeCompare(String(b.first_name || ''))
   );
@@ -583,7 +584,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
     if (['sent','pending'].includes(deliveryStatus)) {
       try {
         const {queuePersonalUpdateNotice}=await import('./providerUpdatePersonalNotice.service.js');
-        personalNotice=await queuePersonalUpdateNotice({workSendId:sendRecord.insertId,agencyId,userId:Number(p.provider_user_id)});
+        personalNotice=await queuePersonalUpdateNotice({workSendId:sendRecord.insertId,agencyId,userId:Number(p.provider_user_id),workEmail:to});
       } catch (e) {
         personalNotice={status:'failed',error:'The work invitation was processed, but the personal sign-in notice could not be queued.'};
         console.warn('[providerUpdate] personal notice queue failed', e?.code || 'queue_failed');

@@ -1,20 +1,13 @@
 import pool from '../config/database.js';
-import {computeBonuses,loadUserPaySystemContext} from './paySystem.service.js';
+import {loadUserPaySystemContext} from './paySystem.service.js';
 export const SICK_RATE_MODE='highest_current_eligible';
 const parse=v=>typeof v==='string'?JSON.parse(v):v;
 export function highestEligibleSickRate({rateProfile,status={},clinicalEligible=true}) {
  const reduced=!!status.useReducedRates;
- const bonus=computeBonuses({rateProfile,status,totalHourEquivalent:1,ffsHourEquivalent:1,hcodeHourEquivalent:0});
- const hBonus=computeBonuses({rateProfile,status,totalHourEquivalent:1,ffsHourEquivalent:0,hcodeHourEquivalent:1});
  const credit=Number(reduced?rateProfile.creditRateProbation:rateProfile.creditRate)||0;
  const hcode=Number(reduced?rateProfile.hcodeRateProbation:rateProfile.hcodeRate)||0;
  // An indirect allowance pays additional time; it is not added to the hourly sick-leave rate.
- const candidates=[
-  clinicalEligible&&credit>0?credit+bonus.totalBonusAmount:0,
-  hcode>0?hcode+hBonus.totalBonusAmount:0,
-  Number(reduced?rateProfile.indirectRateProbation??rateProfile.indirectRate:rateProfile.indirectRate)||0,
-  Number(reduced?rateProfile.supportActivityRateProbation??rateProfile.supportActivityRate:rateProfile.supportActivityRate)||0
- ];
+ const candidates=[clinicalEligible ? credit : 0, hcode];
  return Math.round(Math.max(...candidates)*100)/100;
 }
 export async function currentEligibleSickRate({agencyId,userId,asOfDate,fallbackRate}) {

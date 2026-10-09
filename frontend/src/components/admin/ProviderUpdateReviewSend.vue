@@ -25,12 +25,12 @@
      <thead><tr><th scope="col">Staff member</th><th scope="col">Invitation</th><th scope="col">Progress</th><th scope="col">Active time</th><th scope="col">Last opened</th><th scope="col">Individual actions</th></tr></thead>
      <tbody>
       <tr v-for="row in filteredRows" :key="row.provider_user_id" :data-person-id="row.provider_user_id">
-       <th scope="row"><div class="person-cell"><span class="person-avatar" aria-hidden="true">{{row.first_name?.[0]}}{{row.last_name?.[0]}}</span><div>{{row.first_name}} {{row.last_name}}<small>{{row.work_email || row.email || 'No work email saved'}}</small><span class="role-label">{{String(row.role || row.role_snapshot || 'Staff').replaceAll('_',' ')}}</span><small v-if="!row.eligible">No longer eligible for a new invitation</small></div></div></th>
+       <th scope="row"><div class="person-cell"><span class="person-avatar" aria-hidden="true">{{row.first_name?.[0]}}{{row.last_name?.[0]}}</span><div>{{row.first_name}} {{row.last_name}}<small>Work email: {{row.work_email || 'Missing — cannot send'}}</small><span class="role-label">{{String(row.role || row.role_snapshot || 'Staff').replaceAll('_',' ')}}</span><small v-if="!row.eligible">No longer eligible for a new invitation</small></div></div></th>
        <td><span class="status" :class="`delivery-${row.recipient?.last_delivery_status || 'none'}`">{{invitationStatus(row.recipient)}}</span><small v-if="row.recipient?.last_sent_at">{{formatDate(row.recipient.last_sent_at)}}</small><small v-if="row.recipient?.last_delivery_error" class="error">{{row.recipient.last_delivery_error}}</small></td>
        <td><strong class="progress-label" :class="{complete:row.recipient?.status==='finalized'}">{{progressStatus(row.recipient)}}</strong><template v-if="Number(row.recipient?.sections_total)"><small>{{row.recipient.sections_completed}} / {{row.recipient.sections_total}} sections</small><progress :value="Number(row.recipient.sections_completed)" :max="Number(row.recipient.sections_total)" :aria-label="`${row.first_name}’s section progress`" /></template></td>
        <td><strong>{{duration(row.recipient?.active_seconds)}}</strong><details v-if="Object.keys(row.recipient?.timeSummary?.sections || {}).length"><summary>Time by section</summary><div v-for="(seconds,key) in row.recipient.timeSummary.sections" :key="key" class="section-time">{{sectionTitle(key)}}: {{duration(seconds)}}</div></details></td>
        <td>{{formatDate(row.recipient?.last_viewed_at)}}</td>
-       <td><div class="row-actions"><button type="button" class="row-preview" :disabled="busy || !row.eligible" @click="previewPerson(row)">Preview / review</button><button type="button" class="row-send primary" :disabled="busy || !row.eligible || push.status === 'closed' || !reviews[row.provider_user_id]?.approved" @click="sendRow(row)">{{['sent','delivered'].includes(row.recipient?.last_delivery_status)?'Resend':'Send'}} to {{row.first_name}}</button></div><small>{{reviews[row.provider_user_id]?.approved?'Reviewed — ready to send':'Review before sending'}}</small></td>
+       <td><div class="row-actions"><button type="button" class="row-preview" :disabled="busy || !row.eligible" @click="previewPerson(row)">Preview / review</button><button type="button" class="row-send primary" :disabled="busy || !row.eligible || !row.work_email || push.status === 'closed' || !reviews[row.provider_user_id]?.approved" @click="sendRow(row)">{{['sent','delivered'].includes(row.recipient?.last_delivery_status)?'Resend':'Send'}} to {{row.first_name}}</button></div><small>{{reviews[row.provider_user_id]?.approved?'Reviewed — ready to send':'Review before sending'}}</small></td>
       </tr>
       <tr v-if="!filteredRows.length"><td colspan="6">No matching staff.</td></tr>
      </tbody>
@@ -39,7 +39,7 @@
    <div v-if="reviewOpen && person" class="review-overlay" @click.self="closeReview">
     <section class="review-dialog" role="dialog" aria-modal="true" :aria-label="`${name}’s update review`" @keydown.esc="closeReview">
     <button type="button" class="close-review" :disabled="busy" @click="closeReview">Back to staff list</button>
-    <h3>{{name}}</h3><p>{{person.work_email || person.email || 'No work email saved'}}</p>
+    <h3>{{name}}</h3><p>Invitation destination: {{person.work_email || 'No agency work email found — cannot send'}}</p>
     <p v-if="busy" role="status">Loading / saving…</p>
     <p v-if="error" role="alert" class="error">{{error}}</p>
     <div v-if="previewUrl" class="preview">
@@ -80,7 +80,7 @@ const rows=computed(()=>{
  for(const r of recipients.value){if(Number(r.is_demo_snapshot))continue;const id=Number(r.provider_user_id);if(byId.has(id))byId.set(id,{...byId.get(id),recipient:r});}
  return [...byId.values()].sort((a,b)=>`${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
 });
-const filteredRows=computed(()=>rows.value.filter(p=>`${p.first_name} ${p.last_name} ${p.work_email||p.email||''}`.toLowerCase().includes(search.value.toLowerCase())).filter(row=>statusFilter.value==='Everyone'||(statusFilter.value==='Not sent'?!['sent','delivered'].includes(row.recipient?.last_delivery_status):progressStatus(row.recipient)===statusFilter.value)));
+const filteredRows=computed(()=>rows.value.filter(p=>`${p.first_name} ${p.last_name} ${p.work_email||''}`.toLowerCase().includes(search.value.toLowerCase())).filter(row=>statusFilter.value==='Everyone'||(statusFilter.value==='Not sent'?!['sent','delivered'].includes(row.recipient?.last_delivery_status):progressStatus(row.recipient)===statusFilter.value)));
 function duration(raw){const n=Math.max(0,Math.floor(Number(raw)||0));return `${n>=3600?Math.floor(n/3600)+'h ':''}${Math.floor(n%3600/60)}m ${n%60}s`;}
 function formatDate(raw){if(!raw)return '—';const d=new Date(typeof raw==='string'&&!/[zZ]|[+-]\d\d:\d\d$/.test(raw)?raw.replace(' ','T')+'Z':raw);return Number.isNaN(d.getTime())?'—':d.toLocaleString();}
 function sectionTitle(key){return PROVIDER_UPDATE_SECTIONS.find(s=>s.key===key)?.title||key.replaceAll('_',' ');}
@@ -99,7 +99,7 @@ async function previewPerson(row){reviewTrigger=document.activeElement;personId.
 async function sendRow(row){const saved=reviews.value[row.provider_user_id];if(!saved?.approved||busy.value)return;personId.value=row.provider_user_id;previewUrl.value=saved.previewUrl;amendment.value=saved.amendment;needsAmendment.value=saved.needsAmendment;approved.value=saved.approved;await sendOne();}
 
 const wrongReleasedPush=computed(()=>!!amendment.value&&!amendment.value.draft&&Number(amendment.value.pushId)!==Number(push.value?.id));
-const ready=computed(()=>!wrongReleasedPush.value&&!!previewUrl.value&&(!needsAmendment.value||!!amendment.value)&&!(amendment.value?.issues?.length));
+const ready=computed(()=>!!person.value?.work_email&&!wrongReleasedPush.value&&!!previewUrl.value&&(!needsAmendment.value||!!amendment.value)&&!(amendment.value?.issues?.length));
 const amendmentHtml=computed(()=>`<!doctype html><html><head><meta charset="utf-8"><style>body{font:16px/1.6 system-ui;padding:24px;color:#243b30}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:9px}h1,h2,h3{color:#3e6d54}
 </style></head><body>${amendment.value?.html||''}</body></html>`);
 function resetReview(){previewUrl.value='';amendment.value=null;approved.value=false;needsAmendment.value=false;notice.value='';error.value='';}
