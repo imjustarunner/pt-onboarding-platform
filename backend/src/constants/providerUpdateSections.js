@@ -1,3 +1,4 @@
+import {normalizeSectionTraining} from '../../../frontend/src/navigation/providerUpdateTraining.js';
 /**
  * Modular Provider Update section catalog.
  * All sections default ON for each new push; admins toggle per send.
@@ -311,6 +312,7 @@ export function normalizeSectionConfig(raw) {
       out[key] = !['pay_portal','training_ack','preferred_days'].includes(key) && !!raw[key];
     }
   }
+  if (raw._training) out._training = normalizeSectionTraining(raw._training, PROVIDER_UPDATE_SECTION_KEYS);
   return out;
 }
 

@@ -1,3 +1,4 @@
+import {sectionTraining} from '../controllers/providerUpdateTraining.controller.js';
 import {updateRoomRequest} from '../controllers/providerUpdateRoomRequest.controller.js';
 import {helpUpload,submitUpdateHelp} from '../controllers/providerUpdateHelp.controller.js';
 import {trainingMediaUpload,uploadTrainingMedia} from '../controllers/updateTrainingMedia.controller.js';
@@ -68,6 +69,7 @@ router.post('/handbook/digests/:digestId/publish', authenticate, hb.publishDiges
 
 router.post('/me/photo', authenticate, photoUpload.single('photo'), review.uploadReviewPhoto);
 router.put('/me/fall-actions/:clientId', authenticate, review.saveFallClientAction);
+router.get('/me/training/:sectionKey', authenticate, sectionTraining);
 router.get('/me/amendment', authenticate, getAmendment);
 router.get('/me/amendment/download', authenticate, (req,res,next)=>{req.params.action='download';return amendmentSigning(req,res,next);});
 router.post('/me/amendment/:action', authenticate, amendmentSigning);

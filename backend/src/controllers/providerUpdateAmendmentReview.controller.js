@@ -14,7 +14,7 @@ export async function recipientAmendment(recipient){
  const row=rows.find(r=>recipient.previewOnly || (r.task_id && Number(parse(r.token_values_json)?.pushId)===Number(recipient.push_id)));
  if(!row)return null;
  const data=parse(row.token_values_json),audit=parse(row.audit_trail)||{};
- return {id:row.id,html:row.rendered_html,taskId:row.task_id,name:data.employee?.name,
+ return {id:row.id,pushId:Number(data.pushId)||null,html:row.rendered_html,taskId:row.task_id,name:data.employee?.name,
   draft:!row.task_id,issues:amendmentIssues(data),signed:!!row.signed_pdf_path,countersigned:!!audit.adminCountersign?.signedAt,
   countersignerName:data.countersignerName||'Haley Inyart',countersignerUserId:data.countersignerUserId||3};
 }

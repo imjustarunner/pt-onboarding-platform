@@ -1,3 +1,4 @@
+import {sanitizeSectionTraining} from './providerUpdateTraining.service.js';
 import crypto from 'node:crypto';
 import pool from '../config/database.js';
 import {normalizeSectionConfig} from '../constants/providerUpdateSections.js';
@@ -24,7 +25,7 @@ export async function createProviderUpdatePreviewLink({agencyId, providerUserId,
     await db.beginTransaction();
     const [push] = await db.execute(`INSERT INTO provider_update_pushes
       (agency_id,title,status,section_config_json,notes,created_by_user_id,attached_admin_update_id,section_audience_json,amendment_plan_json)
-      VALUES (?,?,'draft',?,?,?,?,?,?)`,[agencyId,`[PREVIEW] ${String(title||'Provider Update').slice(0,245)}`,JSON.stringify(normalizeSectionConfig(sectionConfig)),
+      VALUES (?,?,'draft',?,?,?,?,?,?)`,[agencyId,`[PREVIEW] ${String(title||'Provider Update').slice(0,245)}`,JSON.stringify({...normalizeSectionConfig(sectionConfig), _training:sanitizeSectionTraining(sectionConfig?._training, agencyId, Object.keys(normalizeSectionConfig(sectionConfig)).filter(k=>k!=='_training'))}),
       'Read-only preview. No invitation sent. Create or use a separate sending draft for staff invitations.',createdByUserId,attachedAdminUpdateId,JSON.stringify(sectionAudience||{}),amendmentPlan?JSON.stringify(amendmentPlan):null]);
     const [recipient] = await db.execute(`INSERT INTO provider_update_recipients (push_id,agency_id,provider_user_id,token,expires_at,role_snapshot)
       VALUES (?,?,?,?,?,?)`,[push.insertId,agencyId,providerUserId,token,expiresAt,person.role]);

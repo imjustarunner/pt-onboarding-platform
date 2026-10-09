@@ -1,0 +1,10 @@
+import {it,expect,vi,beforeEach} from 'vitest';
+vi.mock('../providerUpdateReview.controller.js',()=>({reviewRecipient:vi.fn(),requireSection:vi.fn()}));
+vi.mock('../../services/providerUpdateTraining.service.js',()=>({resolveSectionTraining:vi.fn()}));
+import {reviewRecipient,requireSection} from '../providerUpdateReview.controller.js';
+import {resolveSectionTraining} from '../../services/providerUpdateTraining.service.js';
+import {sectionTraining} from '../providerUpdateTraining.controller.js';
+beforeEach(()=>{vi.resetAllMocks();reviewRecipient.mockResolvedValue({agency_id:2,section_config_json:{pin:true}});resolveSectionTraining.mockResolvedValue([{id:'g',html:'<img>'}]);});
+it('uses the scoped recipient agency, not a caller-supplied agency, and disables caching',async()=>{const req={params:{token:'preview',sectionKey:'pin'},query:{agencyId:99}},res={set:vi.fn(),json:vi.fn()},next=vi.fn();await sectionTraining(req,res,next);expect(requireSection).toHaveBeenCalledWith({agency_id:2,section_config_json:{pin:true}},'pin');expect(resolveSectionTraining).toHaveBeenCalledWith({pin:true},'pin',2);expect(res.set).toHaveBeenCalledWith('Cache-Control','no-store');expect(next).not.toHaveBeenCalled();});
+it('does not resolve private files for a disabled or out-of-audience section',async()=>{const error=Object.assign(new Error('Not enabled'),{status:403});requireSection.mockImplementation(()=>{throw error});const next=vi.fn();await sectionTraining({params:{sectionKey:'license'}},{},next);expect(next).toHaveBeenCalledWith(error);expect(resolveSectionTraining).not.toHaveBeenCalled();});
+it('does not resolve files when the token/session is expired',async()=>{reviewRecipient.mockRejectedValue(new Error('Expired'));const next=vi.fn();await sectionTraining({params:{sectionKey:'pin'}},{},next);expect(next).toHaveBeenCalled();expect(resolveSectionTraining).not.toHaveBeenCalled();});

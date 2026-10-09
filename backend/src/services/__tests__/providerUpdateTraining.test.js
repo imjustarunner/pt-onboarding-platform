@@ -1,0 +1,12 @@
+import {beforeEach,it,expect,vi} from 'vitest';
+const signed=vi.hoisted(()=>vi.fn(async key=>`https://storage.example/${key}?fresh=1`));
+vi.mock('../storage.service.js',()=>({default:{getSignedUrl:signed}}));
+import {sanitizeSectionTraining,resolveSectionTraining} from '../providerUpdateTraining.service.js';
+import {normalizeSectionConfig,enabledSectionKeys} from '../../constants/providerUpdateSections.js';
+const html='<figure><img data-training-key="uploads/training_media/agency_2/image/setup.png" src="https://expired.example"><figcaption>Setup</figcaption></figure>';
+beforeEach(()=>vi.clearAllMocks());
+it('preserves section and subsection guide metadata without enabling extra sections',()=>{const cfg=normalizeSectionConfig({pin:true,license:false,_training:{pin:[{id:'a',title:'Quick View',html}],license:[{id:'b',title:'Upload',html}],unknown:[{html}]}});expect(cfg._training.pin[0].title).toBe('Quick View');expect(cfg._training.unknown).toBeUndefined();expect(enabledSectionKeys(cfg)).not.toContain('_training');expect(enabledSectionKeys(cfg)).not.toContain('license');});
+it('rejects cross-agency attachments before they are saved',()=>{expect(()=>sanitizeSectionTraining({pin:[{html:html.replace('agency_2','agency_6')}]},2,['pin'])).toThrow('belong to this agency');});
+it('strips scripts and handlers while keeping safe images and videos',()=>{const out=sanitizeSectionTraining({pin:[{html:html+'<script>bad()</script><video onplay="bad()" controls src="https://example.test/a.mp4"></video>'}]},2,['pin']);expect(out.pin[0].html).not.toMatch(/<script|onplay/);expect(out.pin[0].html).toContain('controls');});
+it('renews only the requested section’s protected attachments on every opening',async()=>{const cfg={_training:{pin:[{id:'a',title:'Quick View',html}],license:[{id:'b',html:html.replace('setup.png','license.png')}]}};const guides=await resolveSectionTraining(cfg,'pin',2);expect(guides[0].html).toContain('fresh=1');expect(guides[0].html).not.toContain('expired.example');expect(signed).toHaveBeenCalledExactlyOnceWith('uploads/training_media/agency_2/image/setup.png',60);});
+it('bounds guide payloads',()=>{expect(()=>sanitizeSectionTraining({pin:[{html:'a'.repeat(500001)}]},2,['pin'])).toThrow('too many');});

@@ -1,3 +1,4 @@
+import {sectionTraining} from '../controllers/providerUpdateTraining.controller.js';
 import {updateRoomRequest} from '../controllers/providerUpdateRoomRequest.controller.js';
 import {helpUpload,submitUpdateHelp} from '../controllers/providerUpdateHelp.controller.js';
 import {getAmendment,amendmentSigning} from '../controllers/providerUpdateAmendmentReview.controller.js';
@@ -28,6 +29,7 @@ router.post('/:token/handbook/questions', hb.publicAskByToken);
 
 router.post('/:token/photo', photoUpload.single('photo'), review.uploadReviewPhoto);
 router.put('/:token/fall-actions/:clientId', review.saveFallClientAction);
+router.get('/:token/training/:sectionKey', sectionTraining);
 router.get('/:token/amendment', getAmendment);
 router.get('/:token/amendment/download', (req,res,next)=>{req.params.action='download';return amendmentSigning(req,res,next);});
 router.post('/:token/amendment/:action', amendmentSigning);

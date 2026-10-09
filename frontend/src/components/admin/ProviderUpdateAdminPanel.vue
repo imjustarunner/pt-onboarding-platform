@@ -22,6 +22,7 @@
       </div>
     </div>
     <nav class="tabs">
+      <button v-if="canManageCompensation" type="button" :class="{active:tab === 'review'}" @click="tab = 'review'">Review &amp; send individually</button>
       <button type="button" :class="{ active: tab === 'pushes' }" @click="tab = 'pushes'">Past pushes</button>
       <button type="button" :class="{ active: tab === 'compose' }" @click="tab = 'compose'">Compose</button>
       <button type="button" :class="{ active: tab === 'handbook' }" @click="tab = 'handbook'">Handbook Updates</button>
@@ -34,6 +35,7 @@
     <p v-if="error" class="err">{{ error }}</p>
     <p v-if="success" class="ok">{{ success }}</p>
 
+    <ProviderUpdateReviewSend v-if="tab === 'review' && canManageCompensation" :agency-id="agencyId" :pushes="pushes" @sent="loadPushes" />
     <!-- Past pushes -->
     <section v-if="tab === 'pushes'" class="panel">
       <div class="toolbar">
@@ -391,6 +393,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import ProviderUpdateReviewSend from './ProviderUpdateReviewSend.vue';
 import {buildProviderUpdateInvitation} from '../../navigation/providerUpdateInvitation.js';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
@@ -412,7 +415,7 @@ const route = useRoute();
 const invitationPreviewOpen = ref(route.query.preview === 'email');
 const invitationPreview = computed(() => buildProviderUpdateInvitation({firstName: 'Aunya', agencyName: props.agencyName || 'Your agency', link: '[Your personalized update link]'}));
 const adminUpdateEditorTo = computed(() => ({path: `${props.organizationSlug ? '/' + props.organizationSlug : ''}/admin/communications`, query: {mode: 'admin-update', ...(draft.attachedAdminUpdateId ? {updateId: String(draft.attachedAdminUpdateId)} : {})}}));
-const tab = ref(['handbook', 'compensation'].includes(route.query.tab) ? route.query.tab : 'pushes');
+const tab = ref(['handbook', 'compensation', 'review'].includes(route.query.tab) ? route.query.tab : 'pushes');
 const catalog = PROVIDER_UPDATE_SECTIONS;
 const pageCatalog = PROVIDER_UPDATE_PAGES.map((p) => ({
   ...p,

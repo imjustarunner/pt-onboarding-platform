@@ -4,6 +4,7 @@
       <h1>{{ section.meta?.title || section.key }}</h1>
       <p>{{ section.meta?.description }}</p>
     </header>
+    <ProviderUpdateTrainingGuides :guides="section.trainingGuides || []" :section-key="section.key" :base="reviewBase" :agency-id="agencyId" />
     <p v-if="localError" class="err" role="alert">{{localError}}</p>
     <fieldset class="preview-fields" :disabled="recipient?.previewOnly && !['pin','office_schedule','public_availability','public_profile_review','office_review','admin_update','handbook','amendments'].includes(section.key)">
 
@@ -292,6 +293,7 @@
 </template>
 
 <script setup>
+import ProviderUpdateTrainingGuides from './ProviderUpdateTrainingGuides.vue';
 import ProviderSessionLanguages from './ProviderSessionLanguages.vue';
 import {openTrainingVideo} from '../../utils/trainingVideo';
 import {validateSessionLanguages} from '../../navigation/providerLanguages';

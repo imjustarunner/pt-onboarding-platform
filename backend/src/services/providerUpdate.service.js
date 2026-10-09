@@ -1,3 +1,4 @@
+import {sanitizeSectionTraining} from './providerUpdateTraining.service.js';
 import {buildProviderUpdateInvitation} from '../../../frontend/src/navigation/providerUpdateInvitation.js';
 import {isCompensationAmendmentExempt,isCompensationUpdatePlan} from './compensationAmendmentExemption.service.js';
 import {missingFocusGroups} from '../../../frontend/src/navigation/providerFocus.js';
@@ -209,6 +210,7 @@ export async function createPush({
 }) {
   const aid = Number(agencyId);
   const cfg = normalizeSectionConfig(sectionConfig);
+  if (sectionConfig?._training) cfg._training = sanitizeSectionTraining(sectionConfig._training, aid, PROVIDER_UPDATE_SECTIONS.map(s=>s.key));
   const audience = normalizeSectionAudience(sectionAudience || {});
   try {
     const [result] = await pool.execute(
@@ -258,6 +260,7 @@ export async function updatePush({ pushId, agencyId, title, sectionConfig, notes
   const nextTitle = title != null ? String(title).trim().slice(0, 255) : push.title;
   const nextCfg =
     sectionConfig != null ? normalizeSectionConfig(sectionConfig) : normalizeSectionConfig(push.section_config_json);
+  if (sectionConfig?._training) nextCfg._training = sanitizeSectionTraining(sectionConfig._training, agencyId, PROVIDER_UPDATE_SECTIONS.map(s=>s.key));
   const nextNotes = notes !== undefined ? (notes != null ? String(notes) : null) : push.notes;
   if (status === 'sent' && push.status !== 'sent') throw Object.assign(new Error('Use Send to providers to release a draft.'), { status: 409 });
   const nextStatus = status && ['draft', 'closed'].includes(status) ? status : push.status;
@@ -695,6 +698,7 @@ export async function getRecipientBundle(recipient) {
     return {
       key,
       meta,
+      trainingGuides: (push?.section_config_json?._training?.[key] || []).map(({id,title})=>({id,title})),
       status: prog.completed ? 'completed' : prog.status || 'not_started',
       completed: !!prog.completed,
       mode: prog.mode || meta?.mode || null,
