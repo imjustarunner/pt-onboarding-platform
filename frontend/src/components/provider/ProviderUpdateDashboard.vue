@@ -137,17 +137,17 @@
         </template>
 
         <template v-else>
-          <button type="button" class="pu-back" @click="activePageKey = ''">← Back to overview</button>
+          <button type="button" class="pu-back" @click="openPage('')">← Back to overview</button>
           <ProviderUpdatePagePanel ref="pagePanel" @section="key => { session.changeSection(key); activeSectionKey = key || 'overview'; }"
             v-if="activePage"
-            :page="activePage"
+            :page="activePage" :key="activePage.key"
             :mode="accessMode"
             :token="token"
             :agency-id="agencyId || recipient.agencyId"
             :recipient="recipient"
             @saved="onSectionSaved"
             @advance="advancePage"
-            @close="activePageKey = ''"
+            @close="openPage('')"
           />
         </template>
 
@@ -276,7 +276,7 @@ function iconFor(icon) {
 }
 
 function openPage(key) {
-  const required=activePage.value?.sections?.find(s=>['pin','notification_prefs','office_review'].includes(s.key)&&!s.completed);
+  const required=activePage.value?.sections?.find(s=>['pin','notification_prefs','office_review','specialties'].includes(s.key)&&!s.completed);
   if(!recipient.value.previewOnly&&key!==activePageKey.value&&required){error.value=`Complete ${required.meta?.title||required.key} before continuing.`;pagePanel.value?.focusSection(required.key);return;}
   error.value='';
   session.changeSection('overview');

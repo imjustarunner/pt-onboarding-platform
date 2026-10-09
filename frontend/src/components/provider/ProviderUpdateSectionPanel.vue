@@ -75,7 +75,7 @@
 
     <!-- Specialties -->
     <div v-else-if="section.key === 'specialties'" class="pu-panel">
-      <ProviderFocusEditor v-if="section.data?.focusGroups" v-model="clinicalFocus" :groups="section.data.focusGroups" />
+      <ProviderFocusEditor ref="focusEditor" require-three :show-errors="focusErrors" v-if="section.data?.focusGroups" v-model="clinicalFocus" :groups="section.data.focusGroups" />
       <button class="pu-btn primary" :disabled="saving || !section.data?.focusGroups?.length" @click="saveSpecialties">Save &amp; confirm focus areas</button>
     </div>
 
@@ -209,7 +209,7 @@
     <!-- Client Fall action items -->
     <div v-else-if="section.key === 'client_fall_update'" class="pu-panel">
       <p class="muted">
-        Complete the steps for your assigned clients here. Enter dates only for contact or services that actually occurred; a planned appointment does not mean a client is being seen.
+        “Mark Being Seen” confirms that a returning client from last fall has actually resumed services this school year. Enter the first completed session date this year—not a planned appointment. This is a temporary manual check during our EHR transition; once the EHR connection is active and verified to update service status, completed sessions will replace this manual step.
       </p>
       <p v-if="fallLoading" class="muted">Loading action-item clients…</p>
       <ul v-else-if="fallClients.length" class="fall-list">
@@ -236,6 +236,7 @@
           >
             Open portal →
           </a>
+          <ProviderUpdateHelp :base="reviewBase" :agency-id="agencyId" :client="c" :readonly="!!recipient?.previewOnly" />
         </li>
       </ul>
       <p v-else-if="!localError" class="muted">No open Fall action-item clients right now — you can mark this complete.</p>
@@ -290,8 +291,10 @@ import DOMPurify from 'dompurify';
 import ProviderUpdateAmendment from './ProviderUpdateAmendment.vue';
 import ProviderUpdateSchoolSchedule from './ProviderUpdateSchoolSchedule.vue';
 import ProviderFocusEditor from './ProviderFocusEditor.vue';
+import {missingFocusGroups} from '../../navigation/providerFocus';
+import ProviderUpdateHelp from './ProviderUpdateHelp.vue';
 import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import api from '../../services/api';
 import TypicalAvailabilityInput from '../publicServices/TypicalAvailabilityInput.vue';
@@ -431,7 +434,11 @@ async function saveBlurb() {
   }
 }
 
+const focusEditor=ref(null),focusErrors=ref(false);
 async function saveSpecialties() {
+  focusErrors.value=true;
+  const missing=missingFocusGroups(clinicalFocus.value,props.section.data?.focusGroups||[]);
+  if(missing.length){localError.value='Select three top choices in each highlighted category before continuing.';await nextTick();const group=focusEditor.value?.$el?.querySelector('[data-focus-group="'+missing[0].key+'"]');group?.scrollIntoView?.({behavior:'smooth',block:'start'});group?.focus({preventScroll:true});return;}
   await markComplete({clinicalFocus:clinicalFocus.value});
 }
 

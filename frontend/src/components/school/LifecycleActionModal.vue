@@ -610,10 +610,10 @@
         <!-- Confirm returning client is being seen -->
         <div v-else-if="actionKey === 'confirm_services_started'" class="form-grid">
           <p class="hint">
-            This returning client is on the schedule. Confirm you are seeing them this year to mark status as Being Seen.
+            This confirms that a returning client from last fall has actually resumed services this school year. Enter the first completed session date this year, not a planned appointment. This manual check is temporary; once the EHR connection is active and verified to update service status, completed sessions will replace this step.
           </p>
           <div class="form-group">
-            <label>Date being seen (this year)</label>
+            <label>First completed session this school year</label>
             <div class="input-with-today">
               <input v-model="services.serviceDate" type="date" class="input" />
               <button type="button" class="btn-today" @click="services.serviceDate = todayYmd()">Today</button>
@@ -1470,8 +1470,8 @@ async function save() {
       });
       serviceConfirmation.value = response.data?.message || 'Being Seen confirmed.';
     }
-    emit('saved');
-    if (props.actionKey !== 'confirm_services_started') emit('close');
+    emit('saved', {message:serviceConfirmation.value});
+    emit('close');
   } catch (e) {
     await revealSaveError(e.response?.data?.error?.message || e.message || 'Save failed');
   } finally {

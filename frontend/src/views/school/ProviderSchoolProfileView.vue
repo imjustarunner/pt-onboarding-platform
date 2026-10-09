@@ -21,6 +21,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
+import { isSchoolScheduleClientLocked } from '../../utils/schoolStaffRoiLabels.js';
 import { useRoute } from 'vue-router';
 import { useOrganizationStore } from '../../store/organization';
 import ProviderSchoolProfile from '../../components/school/redesign/ProviderSchoolProfile.vue';
@@ -45,7 +46,7 @@ const organizationName = computed(() => {
   return org?.official_name?.trim() || org?.name || '';
 });
 
-const isClientPortalLocked = (client) => client?.school_portal_can_open === false;
+const isClientPortalLocked = isSchoolScheduleClientLocked;
 
 const openClient = (c) => {
   if (isClientPortalLocked(c)) return;

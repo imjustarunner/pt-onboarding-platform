@@ -53,3 +53,8 @@ describe('schoolStaffRoiLabels', () => {
     })).toBe(true);
   });
 });
+
+it('keeps expired-ROI schedule entries open despite a stale lock flag without unlocking missing ROI',()=>{
+ expect(isSchoolScheduleClientLocked({school_staff_effective_access_state:'expired',school_portal_can_open:false,school_portal_force_placeholder:true})).toBe(false);
+ expect(isSchoolScheduleClientLocked({school_staff_effective_access_state:'none',school_portal_can_open:false})).toBe(true);
+});

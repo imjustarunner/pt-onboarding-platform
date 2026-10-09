@@ -1,5 +1,6 @@
 <template>
   <div class="client-list-grid" :class="{ 'is-overview-split': !!overviewClient }">
+    <p v-if="lifecycleSaveMessage" class="lifecycle-save-message" role="status">{{ lifecycleSaveMessage }}</p>
     <div v-if="loading && clients.length === 0" class="loading-state">
       <p>Loading clients...</p>
     </div>
@@ -888,6 +889,7 @@ const clients = ref([]);
 const loading = ref(false);
 const rosterRefreshing = ref(false);
 const error = ref('');
+const lifecycleSaveMessage = ref('');
 const selectedClient = ref(null);
 const selectedClientInitialPane = ref(null); // null | 'comments' | 'messages'
 const overviewClient = ref(null);
@@ -1613,7 +1615,8 @@ const fallHoverBody = (client) => {
   return 'Provider and day are assigned. This client should move to Ready to Schedule.';
 };
 
-const onLifecycleActionSaved = () => {
+const onLifecycleActionSaved = (result) => {
+  lifecycleSaveMessage.value = result?.message || 'Client update saved.';
   try {
     const cid = lifecycleActionClient.value?.id;
     if (cid) {
@@ -2452,6 +2455,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.lifecycle-save-message { padding: 12px 16px; background: #e9f4ed; color: #254d37; border-radius: 8px; }
 .status-cell {
   display: inline-flex;
   align-items: center;

@@ -11,7 +11,7 @@
     <!-- Standalone page (Admin Update, Handbook, Amendments): one section fills the view -->
     <ProviderUpdateSectionPanel
       v-if="page.alone && soleSection"
-      :section="soleSection" hide-heading
+      :section="soleSection" :key="soleSection.key" hide-heading
       :mode="mode"
       :token="token"
       :agency-id="agencyId"
@@ -20,7 +20,7 @@
       @close="$emit('close')"
     />
 
-    <div v-if="page.alone" class="pu-page-footer"><button type="button" class="pu-btn" @click="$emit('close')">Back to steps</button><span v-if="recipient?.previewOnly">Preview only — completion buttons are shown but do not save.</span></div>
+    <div v-if="page.alone" class="pu-page-footer"><button v-if="page.completed" type="button" class="pu-btn primary" @click="$emit('advance')">Continue to next section →</button><button type="button" class="pu-btn" @click="$emit('close')">Back to steps</button><span v-if="recipient?.previewOnly">Preview only — completion buttons are shown but do not save.</span></div>
 
     <!-- Bundled page: several related sections on one interface -->
     <div v-if="!page.alone" class="pu-page-stack">
@@ -46,7 +46,7 @@
         </button>
         <div v-if="expandedKey === s.key" class="pu-page-block-body">
           <ProviderUpdateSectionPanel
-            :section="s" hide-heading
+            :section="s" :key="s.key" hide-heading
             :mode="mode"
             :token="token"
             :agency-id="agencyId"
@@ -62,9 +62,9 @@
           v-if="page.completed"
           type="button"
           class="pu-btn primary"
-          @click="$emit('close')"
+          @click="$emit('advance')"
         >
-          Back to overview
+          Continue to next section →
         </button>
         <button
           v-else
@@ -107,6 +107,8 @@ watch(
 );
 
 function toggle(key) {
+  const required=props.page.sections?.find(s=>s.key==='specialties'&&!s.completed);
+  if(!props.recipient?.previewOnly&&required&&expandedKey.value===required.key&&key!==required.key){focusSection(required.key);return;}
   expandedKey.value = expandedKey.value === key ? '' : key;
 }
 

@@ -2550,6 +2550,7 @@
 </template>
 
 <script setup>
+import { isSchoolScheduleClientLocked } from '../../utils/schoolStaffRoiLabels.js';
 import PortalIcon from '../../components/portal/PortalIcon.vue';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import {useSchoolCareBridgeBranding} from '../../composables/useSchoolCareBridgeBranding';
@@ -5740,7 +5741,7 @@ const handleMoveSlot = async ({ providerUserId, slotId, direction }) => {
   await store.moveSoftSlot(store.selectedWeekday, providerUserId, slotId, direction);
 };
 
-const isClientPortalLocked = (client) => String(authStore.user?.role || '').toLowerCase() === 'school_staff' && client?.school_portal_can_open === false;
+const isClientPortalLocked = (client) => String(authStore.user?.role || '').toLowerCase() === 'school_staff' && isSchoolScheduleClientLocked(client);
 
 const resolveSelectedClientNavigationIds = (payload = null) => {
   const explicit = Array.isArray(payload?.navigationClientIds)

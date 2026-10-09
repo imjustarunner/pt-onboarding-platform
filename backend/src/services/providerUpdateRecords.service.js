@@ -68,7 +68,7 @@ export async function saveProviderReviewProfile(recipient,key,data){
  }
  if(key==='specialties'){
   const records=await getProviderUpdateRecords(uid,aid);
-  const focus=validateFocus(data.clinicalFocus,records.focusGroups);
+  const focus=validateFocus(data.clinicalFocus,records.focusGroups,{requireThree:true});
   const pending=[];
   for(const group of records.focusGroups){
    const existing=records.specialtyGroups.find(g=>g.key===group.field)?.selected||[];

@@ -1,3 +1,4 @@
+import {missingFocusGroups} from '../../../frontend/src/navigation/providerFocus.js';
 import {buildQuickViewHomeUrl} from '../utils/publicPortalUrl.js';
 import {recordUpdateTime,submitCompletedUpdateTime,createUpdateTimeClaim,updateTimeSummary} from './providerUpdateTime.service.js';
 import {spanishIntakeProcedure} from '../content/october2026UpdateRevisions.js';
@@ -717,7 +718,7 @@ export async function getRecipientBundle(recipient) {
     section.data={...defaults,...section.data};
     if(section.key==='credential_display')section.data.displayRole=records.displayRole;
     if(section.key==='supervision_hours')section.data.breakdown=records.supervision;
-    if(section.key==='specialties')section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus};
+    if(section.key==='specialties'){section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus};if(!recipient.locked_at&&missingFocusGroups(records.clinicalFocus,records.focusGroups||[]).length){section.completed=false;section.status='in_progress';}}
     if(section.key==='school_availability')section.data.schools=records.schools;
   }
   if(!records.schools?.length){const index=sectionList.findIndex(s=>s.key==='school_availability');if(index>=0)sectionList.splice(index,1);}
@@ -877,7 +878,7 @@ export async function finalizeRecipient({ recipientId, actorType = 'provider', a
     [recipientId]
   );
   const done = new Set((sections || []).filter((s) => s.completed).map((s) => s.section_key));
-  const missing = enabledKeys.filter((k) => !done.has(k) || (['notification_prefs','pin','amendments','office_review'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
+  const missing = enabledKeys.filter((k) => !done.has(k) || (['notification_prefs','pin','amendments','office_review','specialties'].includes(k) && bundle.sections.find(s=>s.key===k)?.completed !== true));
   if (missing.length) {
     throw Object.assign(new Error(`Complete all sections first: ${missing.join(', ')}`), {
       status: 400,
