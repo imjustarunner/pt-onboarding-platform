@@ -1,9 +1,10 @@
+import { withRecurringScheduleEdit } from './recurringScheduleCancellation.service.js';
 import pool from '../config/database.js';
 import { generateJoinToken, joinUrlForSupervision, joinUrlForTeamMeeting } from '../utils/joinToken.js';
 import { tenantMeetingBase } from '../utils/tenantMeetingUrl.js';
 import { recurringWindowEnd, nextRecurringWindow } from '../utils/recurringWindow.js';
 import { utcToZonedMysqlWall, parseUtcDate } from '../utils/officeEventDateTime.util.js';
-import { withSupervisorTimeLock, assertNoReviewTimeOverlap } from './supervisionReviewTime.service.js';
+import { withMeetingWindow } from './meetingWindowConflict.service.js';
 
 // Explicit allowlists: never copy recordings, consent, attendance, live-room
 // state, RSVP responses, join tokens, payroll completion, or presentation text.
@@ -41,6 +42,21 @@ export async function copyRecurringRoster(db, kind, oldId, newId) {
     await db.execute(`INSERT INTO provider_schedule_event_invite_groups (event_id,invite_group_id)
       SELECT ?,invite_group_id FROM provider_schedule_event_invite_groups WHERE event_id=?`, [newId,oldId]);
   }
+}
+
+
+async function withOccurrenceWindow(db, kind, row, window, restoring, work) {
+  let userIds;
+  if (kind === 'supervision') {
+    const [required] = await db.execute("SELECT user_id FROM supervision_session_attendees WHERE session_id=? AND is_required=1 AND status NOT IN ('REMOVED','CANCELLED','WITHDRAWN')", [row.id]);
+    userIds = [row.supervisor_user_id, row.co_facilitator_user_id, row.supervisee_user_id, ...required.map(a => a.user_id)];
+  } else {
+    const [required] = await db.execute('SELECT user_id FROM meeting_participant_preferences WHERE event_id=? AND (is_required=1 OR is_cohost=1)', [row.id]);
+    userIds = [row.provider_id, ...required.map(a => a.user_id)];
+  }
+  return withMeetingWindow({ userIds, startAt: window.startAt, endAt: window.endAt, timeZone: row.event_timezone,
+    excludeMeetingId: restoring && kind === 'meeting' ? row.id : null,
+    excludeSupervisionId: restoring && kind === 'supervision' ? row.id : null }, work);
 }
 
 async function appendOccurrence(db, kind, template, window, index) {
@@ -93,13 +109,7 @@ export async function maintainRecurringScheduleWindow({ now = new Date() } = {})
           && day < boundary && day >= date(row, now)) {
           try {
             const restore=()=>db.execute(`UPDATE ${def.table} SET status=?,recurrence_horizon_held=0,recurrence_calendar_pending=1 WHERE id=? AND recurrence_horizon_held=1 AND recurrence_stopped=0`, [def.active,row.id]);
-            if(kind==='supervision'){
-              const ids=[row.supervisor_user_id,row.co_facilitator_user_id,row.supervisee_user_id].filter(Boolean);
-              await withSupervisorTimeLock(ids,async lockDb=>{
-                await assertNoReviewTimeOverlap(lockDb,ids,row.start_at,row.end_at);
-                await restore();
-              });
-            }else await restore();
+            await withOccurrenceWindow(db, kind, row, { startAt: row.start_at, endAt: row.end_at }, true, restore);
             row.status = def.active; row.recurrence_horizon_held = 0; counts.restored++;
           }catch(error){
             counts.deferred=(counts.deferred || 0)+1;
@@ -135,18 +145,12 @@ export async function maintainRecurringScheduleWindow({ now = new Date() } = {})
             index=Number(stopped?.next_index ?? index);
             const [existing] = await db.execute(`SELECT id FROM ${def.table} WHERE agency_id=? AND recurrence_series_id=? AND start_at=? LIMIT 1`, [template.agency_id,template.recurrence_series_id,window.startAt]);
             if (!existing.length) {
-              if (kind === 'supervision') {
-                const ids=[template.supervisor_user_id,template.co_facilitator_user_id,template.supervisee_user_id].filter(Boolean);
-                await withSupervisorTimeLock(ids,async lockDb=>{
-                  await assertNoReviewTimeOverlap(lockDb,ids,window.startAt,window.endAt);
-                  await appendOccurrence(db,kind,template,window,index);
-                  // Commit while review-time locks are still held.
-                  await db.commit();
-                });
-              } else await appendOccurrence(db,kind,template,window,index);
+              await withOccurrenceWindow(db, kind, template, window, false, async () => {
+                await appendOccurrence(db, kind, template, window, index);
+                await db.commit();
+              });
               counts.added++;
-            }
-            await db.commit();
+            } else await db.commit();
           } catch(error) {
             await db.rollback();
             counts.deferred=(counts.deferred || 0)+1;
@@ -171,25 +175,39 @@ export async function syncRecurringCalendars() {
   for (const [kind,def] of Object.entries(definitions)) {
     const [rows] = await pool.execute(`SELECT e.*,u.email AS host_email FROM ${def.table} e
       JOIN users u ON u.id=e.${def.host} WHERE e.recurrence_calendar_pending=1 ORDER BY e.id LIMIT 100`);
-    for (const row of rows) {
+    for (const candidate of rows) {
       try {
-        let result;
-        if (row.status === 'CANCELLED') {
-          result = row.google_event_id ? await Google.deleteEvent({subjectEmail:row.host_email,eventId:row.google_event_id,sendUpdates:'none'}) : {ok:true};
-        } else {
-          const base = await tenantMeetingBase(row.agency_id);
-          let join = kind === 'supervision' ? joinUrlForSupervision(base,row.participant_join_token || row.join_token || row.id)
-            : joinUrlForTeamMeeting(base,row.participant_join_token || row.join_token || row.id);
-          if (kind === 'supervision' && String(row.modality).toLowerCase()==='in_person') join=null;
-          if (kind === 'meeting' && Number(row.platform_video_link)===0 && row.platform_video_link!=null) join=row.google_meet_link || null;
-          result = await Google.upsertProviderPrimaryCalendarEvent({subjectEmail:row.host_email,
-            existingGoogleEventId:row.google_event_id, stableInsertId:`rec${kind === 'supervision' ? 'a' : 'b'}${row.id.toString(16)}d${Number(row.recurrence_calendar_generation || 0).toString(16)}`,
-            summary:row.title || 'Supervision', description:[row.description || row.notes,join ? `Join: ${join}` : row.location_text].filter(Boolean).join('\n\n'),
-            startAt:utcToZonedMysqlWall(row.start_at,row.event_timezone || 'America/Denver'),endAt:utcToZonedMysqlWall(row.end_at,row.event_timezone || 'America/Denver'),
-            timeZone:row.event_timezone || 'America/Denver',sendUpdates:'none',disableReminders:true});
-        }
-        if (result?.ok || result?.skipped) await pool.execute(`UPDATE ${def.table} SET google_event_id=?,recurrence_calendar_pending=0 WHERE id=? AND status=?`,[row.status === 'CANCELLED' ? null : result.googleEventId || row.google_event_id || null,row.id,row.status]);
-      } catch(error) { console.warn('[Recurring calendar] Retry pending',kind,row.id,error.code || 'error'); }
+        await withRecurringScheduleEdit(async db => {
+          const [[row]] = await db.execute(`SELECT e.*,u.email AS host_email FROM ${def.table} e
+            JOIN users u ON u.id=e.${def.host} WHERE e.id=? AND e.recurrence_calendar_pending=1`, [candidate.id]);
+          if (!row) return;
+          let result;
+          if (row.status === 'CANCELLED') {
+            // If a process stopped after inserting into Google but before saving its
+            // ID, the deterministic ID still lets cancellation remove that copy.
+            const generations = [...new Set([Number(row.recurrence_calendar_generation || 0),Math.max(0,Number(row.recurrence_calendar_generation || 0)-1)])];
+            const ids = row.google_event_id ? [row.google_event_id] : row.recurrence_series_id
+              ? generations.map(g => `rec${kind === 'supervision' ? 'a' : 'b'}${row.id.toString(16)}d${g.toString(16)}`) : [];
+            result = {ok:true};
+            for (const eventId of ids) {
+              const deleted = await Google.deleteEvent({subjectEmail:row.google_host_email || row.host_email,eventId,sendUpdates:'none'});
+              if (!deleted?.ok && !deleted?.skipped) result=deleted;
+            }
+          } else {
+            const base = await tenantMeetingBase(row.agency_id);
+            let join = kind === 'supervision' ? joinUrlForSupervision(base,row.participant_join_token || row.join_token || row.id)
+              : joinUrlForTeamMeeting(base,row.participant_join_token || row.join_token || row.id);
+            if (kind === 'supervision' && String(row.modality).toLowerCase()==='in_person') join=null;
+            if (kind === 'meeting' && Number(row.platform_video_link)===0 && row.platform_video_link!=null) join=row.google_meet_link || null;
+            result = await Google.upsertProviderPrimaryCalendarEvent({subjectEmail:row.google_host_email || row.host_email,
+              existingGoogleEventId:row.google_event_id, stableInsertId:`rec${kind === 'supervision' ? 'a' : 'b'}${row.id.toString(16)}d${Number(row.recurrence_calendar_generation || 0).toString(16)}`,
+              summary:row.title || 'Supervision', description:[row.description || row.notes,join ? `Join: ${join}` : row.location_text].filter(Boolean).join('\n\n'),
+              startAt:utcToZonedMysqlWall(row.start_at,row.event_timezone || 'America/Denver'),endAt:utcToZonedMysqlWall(row.end_at,row.event_timezone || 'America/Denver'),
+              timeZone:row.event_timezone || 'America/Denver',sendUpdates:'none',disableReminders:true});
+          }
+          if (result?.ok || result?.skipped) await db.execute(`UPDATE ${def.table} SET google_event_id=?,recurrence_calendar_pending=0 WHERE id=? AND status=?`,[row.status === 'CANCELLED' ? null : result.googleEventId || row.google_event_id || null,row.id,row.status]);
+        });
+      } catch(error) { console.warn('[Recurring calendar] Retry pending',kind,candidate.id,error.code || 'error'); }
     }
   }
 }

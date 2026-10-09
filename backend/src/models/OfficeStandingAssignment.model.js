@@ -14,7 +14,15 @@ class OfficeStandingAssignment {
     return conflicts[0] || null;
   }
 
-  static async create({
+  static async create(input) {
+    const row = await this.createAssignment(input);
+    if (row?.id && String(input.assignedFrequency).toUpperCase() === 'MONTHLY') {
+      await pool.execute('UPDATE office_standing_assignments SET legacy_monthly_four_weeks=0 WHERE id=?', [row.id]);
+      return { ...row, legacy_monthly_four_weeks: 0 };
+    }
+    return row;
+  }
+  static async createAssignment({
     officeLocationId,
     roomId,
     providerId,
@@ -333,6 +341,13 @@ class OfficeStandingAssignment {
     }
   }
 
+  static async listActiveAtDate({ officeLocationId, roomId, date, hour }) {
+    const [rows] = await pool.execute(`SELECT * FROM office_standing_assignments
+      WHERE office_location_id=? AND room_id=? AND hour=? AND is_active=1`, [officeLocationId,roomId,hour]);
+    const { isAssignmentActiveOnDate } = await import('../services/officeScheduleMaterializer.service.js');
+    return rows.filter(row => isAssignmentActiveOnDate(row,date));
+  }
+
   static async findActiveBySlot({ officeLocationId, roomId, weekday, hour }) {
     const [rows] = await pool.execute(
       `SELECT a.*, u.first_name, u.last_name, u.role AS provider_role
@@ -490,12 +505,14 @@ class OfficeStandingAssignment {
   }
 
   static async update(id, updates = {}) {
+    if (String(updates.assigned_frequency || '').toUpperCase() === 'MONTHLY') updates = { ...updates, legacy_monthly_four_weeks: 0 };
     const allowed = [
       'booking_agency_id',
       'room_id',
       'weekday',
       'hour',
       'assigned_frequency',
+      'legacy_monthly_four_weeks',
       'availability_mode',
       'temporary_until_date',
       'temporary_extension_count',

@@ -1,3 +1,4 @@
+import { assertClientNotTerminated } from './clientSchedulingGuard.service.js';
 import AgencyServiceLocation from '../models/AgencyServiceLocation.model.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
@@ -6,13 +7,14 @@ import Client from '../models/Client.model.js';
 import ClinicalSession from '../models/clinical/ClinicalSession.model.js';
 import { ensureAppointmentContext } from './appointmentContext.service.js';
 
-export async function assertAppointmentClients(agencyId, participants) {
+export async function assertAppointmentClients(agencyId, participants, { allowTerminated = false } = {}) {
   const clients = [];
   for (const participant of participants || []) {
     const clientId = Number(participant.clientId || participant.client_id || 0);
     if (!clientId) continue;
     const client = await Client.findById(clientId);
     if (!client) throw Object.assign(new Error('Client not found'), { status: 404 });
+    if (!allowTerminated) assertClientNotTerminated(client);
     clients.push(client);
     if (Number(client.agency_id) !== Number(agencyId)) {
       const [memberships] = await pool.execute(
@@ -30,7 +32,7 @@ export async function ensureAppointmentClinicalLink(appointmentId, actorUserId =
   const appointment = await Appointment.findById(appointmentId);
   if (!appointment) throw Object.assign(new Error('Appointment not found'), { status: 404 });
   const participants = await Appointment.listParticipants(appointmentId);
-  await assertAppointmentClients(appointment.agencyId, participants);
+  await assertAppointmentClients(appointment.agencyId, participants, { allowTerminated: true });
   if ((appointment.packageEntitlementId && !['mental_health', 'healthcare'].includes(appointment.businessType)) || ['tutoring', 'learning', 'coaching', 'consulting', 'mentorship', 'skills_development'].includes(appointment.businessType)) return [];
   const billing = await Appointment.getBilling(appointmentId);
   const claimBlocked = appointment.packageEntitlementId ? 'SELF_PAY_ONLY: Prepaid package appointment; insurance claims are disabled'

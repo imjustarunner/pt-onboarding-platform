@@ -1,3 +1,5 @@
+import { withClientSchedulingLock } from '../services/clientSchedulingGuard.service.js';
+import { assertRoomBookingStart } from '../utils/roomBookingWindow.js';
 import {publishOfficeAvailability} from '../services/publishOfficeAvailability.service.js';
 import { releaseOfficeReservation } from '../services/officeReservationRelease.service.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
@@ -645,6 +647,12 @@ async function cancelFutureEventsForStandingAssignment(standingAssignmentId, fro
 
 export const setBookingPlan = async (req, res, next) => {
   try {
+    const event = !req.body?.clientId && req.params?.eventId ? await OfficeEvent.findById(req.params.eventId) : null;
+    return await withClientSchedulingLock([req.body?.clientId || event?.client_id], () => setBookingPlanLocked(req,res,next));
+  } catch (error) { next(error); }
+};
+const setBookingPlanLocked = async (req, res, next) => {
+  try {
     const { officeId, assignmentId } = req.params;
     const officeLocationId = parseInt(officeId, 10);
     const sid = parseInt(assignmentId, 10);
@@ -666,6 +674,8 @@ export const setBookingPlan = async (req, res, next) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(bookingStartDate)) {
       return res.status(400).json({ error: { message: 'bookingStartDate must be YYYY-MM-DD' } });
     }
+
+    assertRoomBookingStart(bookingStartDate,(await OfficeLocation.findById(officeLocationId))?.timezone || 'America/Denver');
 
     // Only provider who owns it (or schedule managers) can set booking plans
     const isOwner = req.user.id === assignment.provider_id;
@@ -692,6 +702,7 @@ export const setBookingPlan = async (req, res, next) => {
       createdByUserId: req.user.id
     });
     await pool.execute("UPDATE office_booking_plans SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?, '$.bookingLimitsExplicit', TRUE) WHERE id = ?", [agencyId, plan.id]);
+    await OfficeStandingAssignment.update(sid, { assigned_frequency: freq, ...(freq === 'MONTHLY' ? { available_since_date: bookingStartDate } : {}), booking_agency_id: agencyId });
     if (clientId) await OfficeBookingPlan.setSessionContext(plan.id, { agencyId, clientId, ...validated,
       serviceLocationId: selection.serviceLocationId || null, tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null });
     try {
@@ -1030,6 +1041,12 @@ export const forfeitAssignment = (req, res, next) => releaseReservation(req, res
 
 export const staffBookEvent = async (req, res, next) => {
   try {
+    const event = !req.body?.clientId && req.params?.eventId ? await OfficeEvent.findById(req.params.eventId) : null;
+    return await withClientSchedulingLock([req.body?.clientId || event?.client_id], () => staffBookEventLocked(req,res,next));
+  } catch (error) { next(error); }
+};
+const staffBookEventLocked = async (req, res, next) => {
+  try {
     const { officeId, eventId } = req.params;
     const officeLocationId = parseInt(officeId, 10);
     const eid = parseInt(eventId, 10);
@@ -1039,6 +1056,7 @@ export const staffBookEvent = async (req, res, next) => {
     if (!ok) return res.status(403).json({ error: { message: 'Access denied' } });
 
     const ev = await OfficeEvent.findById(eid);
+    if (ev) assertRoomBookingStart(ev.start_at,(await OfficeLocation.findById(officeLocationId))?.timezone || 'America/Denver');
     if (!ev || ev.office_location_id !== officeLocationId) {
       return res.status(404).json({ error: { message: 'Event not found' } });
     }
@@ -1520,6 +1538,12 @@ export const setEventInPersonIntakeAvailability = async (req, res, next) => {
 
 export const setEventBookingPlan = async (req, res, next) => {
   try {
+    const event = !req.body?.clientId && req.params?.eventId ? await OfficeEvent.findById(req.params.eventId) : null;
+    return await withClientSchedulingLock([req.body?.clientId || event?.client_id], () => setEventBookingPlanLocked(req,res,next));
+  } catch (error) { next(error); }
+};
+const setEventBookingPlanLocked = async (req, res, next) => {
+  try {
     const { officeId, eventId } = req.params;
     const officeLocationId = parseInt(officeId, 10);
     const eid = parseInt(eventId, 10);
@@ -1551,6 +1575,7 @@ export const setEventBookingPlan = async (req, res, next) => {
 
     const loc = await OfficeLocation.findById(officeLocationId);
     const tz = String(loc?.timezone || 'America/New_York');
+    assertRoomBookingStart(bookingStartDate,tz);
     const wh = weekdayHourInTz(ev.start_at, tz);
     if (!wh) return res.status(400).json({ error: { message: 'Invalid event start time' } });
 
@@ -1632,7 +1657,7 @@ export const setEventBookingPlan = async (req, res, next) => {
       createdByUserId: req.user.id
     });
     await pool.execute("UPDATE office_booking_plans SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?, '$.bookingLimitsExplicit', TRUE) WHERE id = ?", [policyAgencyId, plan.id]);
-    await OfficeStandingAssignment.update(assignment.id, { assigned_frequency: freq, booking_agency_id: policyAgencyId });
+    await OfficeStandingAssignment.update(assignment.id, { assigned_frequency: freq, ...(freq === 'MONTHLY' ? { available_since_date: bookingStartDate } : {}), booking_agency_id: policyAgencyId });
     if (planClientId) {
       await OfficeBookingPlan.setSessionContext(plan.id, { agencyId: policyAgencyId, clientId: planClientId,
         ...validatedSelection, serviceLocationId: rawSelection.serviceLocationId || null, tenantServiceId: Number(req.body?.tenantServiceId || 0) || null, packageEntitlementId: Number(req.body?.packageEntitlementId || 0) || null });
@@ -2533,6 +2558,7 @@ export const rescheduleOfficeEvent = async (req, res, next) => {
     const endWall = normalizeWallMysqlDatetime(req.body.endAt);
     if (!startWall || !endWall) return res.status(400).json({ error: { message: 'Valid local start and end times are required' } });
     const startAt = wallMysqlToUtcMysql(startWall, timeZone);
+    assertRoomBookingStart(startAt,timeZone);
     const endAt = wallMysqlToUtcMysql(endWall, timeZone);
     if (req.body.scope === 'future') {
       if (!event.standing_assignment_id) return res.status(409).json({ error: { message: 'This occurrence is independent of an office series; move only this session' } });
@@ -2775,6 +2801,7 @@ export const staffAssignOpenSlot = async (req, res, next) => {
     const officeTz = await resolveOfficeTimezone(officeLocationId);
     const startHour = Number(hour);
     const finalHour = Number(endHour !== null ? endHour : hour + 1);
+    assertRoomBookingStart(date,officeTz);
     const startAt = mysqlDateTimeForDateHour(date, hour, officeTz);
     const endAt = mysqlDateTimeForDateHour(date, finalHour, officeTz);
 

@@ -1,3 +1,4 @@
+import { withClientSchedulingLock, hasClientSchedulingLock } from './clientSchedulingGuard.service.js';
 import { publishOfficeAssignmentEvent } from './officeAssignmentBookingAvailability.service.js';
 import { officePlanHasClient, officeYearBoundary, withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
@@ -9,6 +10,7 @@ import OfficeBookingPlan from '../models/OfficeBookingPlan.model.js';
 import OfficeEvent from '../models/OfficeEvent.model.js';
 import OfficeLocation from '../models/OfficeLocation.model.js';
 import { dayDiffYmd } from './officeSlotSeries.service.js';
+import { addMonthsYmd } from '../utils/scheduleRecurrence.js';
 import { mysqlDateTimeForDateHour as mysqlDateTimeForDateHourZoned } from '../utils/officeEventDateTime.util.js';
 import { utcToZonedMysqlWall } from '../utils/officeEventDateTime.util.js';
 
@@ -109,6 +111,13 @@ function weekdayIndexFromYmd(dateStr) {
   return new Date(Date.UTC(p.y, p.mo - 1, p.d)).getUTCDay();
 }
 
+export function isCalendarMonthlyDate(anchor, dateStr) {
+  if (!anchor || dateStr < anchor) return false;
+  const months = (Number(dateStr.slice(0, 4)) - Number(anchor.slice(0, 4))) * 12
+    + Number(dateStr.slice(5, 7)) - Number(anchor.slice(5, 7));
+  return addMonthsYmd(anchor, months) === dateStr;
+}
+
 export function isAssignmentActiveOnDate(assignment, dateStr) {
   const availableSince = normalizeYmd(assignment.available_since_date);
   if (availableSince && dateStr < availableSince) return false;
@@ -120,15 +129,16 @@ export function isAssignmentActiveOnDate(assignment, dateStr) {
     const availableUntil = normalizeYmd(assignment.temporary_until_date);
     if (availableUntil && dateStr > availableUntil) return false;
   }
-  // Weekly always active; other cadences use week offset from available_since_date.
-  // Office MONTHLY is weekday-bound ≈ every 4 weeks (meetings use calendar same-day).
+  // Calendar-month assignments keep their original day, including month-end clamping.
   const freq = String(assignment.assigned_frequency || 'WEEKLY').toUpperCase();
+  if (freq === 'MONTHLY' && !Number(assignment.legacy_monthly_four_weeks)) return isCalendarMonthlyDate(availableSince, dateStr);
+  if (weekdayIndexFromYmd(dateStr) !== Number(assignment.weekday)) return false;
   if (freq === 'WEEKLY') return true;
   const anchor = normalizeYmd(assignment.available_since_date) || new Date().toISOString().slice(0, 10);
   const wi = weekIndexFromAnchor(dateStr, anchor);
   if (freq === 'BIWEEKLY') return wi % 2 === 0;
   if (freq === 'EVERY_3_WEEKS') return wi % 3 === 0;
-  if (freq === 'EVERY_4_WEEKS' || freq === 'MONTHLY') return wi % 4 === 0;
+  if (freq === 'EVERY_4_WEEKS' || (freq === 'MONTHLY' && Number(assignment.legacy_monthly_four_weeks))) return wi % 4 === 0;
   return true;
 }
 
@@ -194,13 +204,7 @@ export function shouldBookOnDate(plan, assignment, dateStr) {
     return wi % 4 === 0;
   }
 
-  if (freq === 'MONTHLY') {
-    // Office slots are weekday-bound; monthly ≈ every 4 weeks on the same weekday
-    // from booking_start_date. Calendar same-day monthly is used for meetings/supervision.
-    if (String(assignment.assigned_frequency || '').toUpperCase() === 'MONTHLY') return true;
-    const wi = weekIndexFromAnchor(dateStr, start);
-    return wi % 4 === 0;
-  }
+  if (freq === 'MONTHLY') return isCalendarMonthlyDate(start, dateStr);
 
   return false;
 }
@@ -215,8 +219,7 @@ function bookingOccurrenceNumberForDate(plan, assignment, dateStr) {
 
   let count = 0;
   for (let d = start; d && d <= upperBound; d = addDays(d, 1)) {
-    const weekday = weekdayIndexFromYmd(d);
-    if (!Number.isInteger(weekday) || Number(weekday) !== Number(assignment?.weekday)) continue;
+    if (!isAssignmentActiveOnDate(assignment, d)) continue;
     // A cancellation/move consumes its original position; it must not append a replacement session.
     if (!shouldBookOnDate({ ...plan, skipped_dates_json: [] }, assignment, d)) continue;
     count += 1;
@@ -290,7 +293,7 @@ export class OfficeScheduleMaterializer {
       }
     }
     // Always de-dupe concurrent runs for the same week.
-    if (materializeInFlight.has(key)) return materializeInFlight.get(key);
+    if (materializeInFlight.has(key) && !hasClientSchedulingLock()) return materializeInFlight.get(key);
 
     const runner = (async () => {
       const loc = await OfficeLocation.findById(officeId);
@@ -328,8 +331,6 @@ export class OfficeScheduleMaterializer {
           // A policy change must never rewrite historical office occurrences.
           if (date < utcToZonedMysqlWall(new Date(), officeTz).slice(0, 10)) continue;
           // Materialize only on the assignment's configured weekday.
-          const weekday = weekdayIndexFromYmd(date);
-          if (!Number.isInteger(weekday) || Number(weekday) !== Number(a.weekday)) continue;
           if (!isAssignmentActiveOnDate(a, date)) continue;
           const startAt = mysqlDateTimeForDateHour(date, a.hour, officeTz);
           const endAt = mysqlDateTimeForDateHour(date, Number(a.hour) + 1, officeTz);
@@ -389,38 +390,44 @@ export class OfficeScheduleMaterializer {
           );
           if (hasMatchingRow) continue;
 
-          const sessionEvent = await OfficeEvent.upsertSlotState({
-            allowAutomaticReservationDowngrade: appointmentsOnly,
-            officeLocationId: officeId,
-            roomId: a.room_id,
-            startAt,
-            endAt,
-            slotState,
-            standingAssignmentId: a.id,
-            // Skipped (unbooked) dates keep the assignment but must not re-link the booking plan.
-            bookingPlanId: desiredPlanId || null,
-            recurrenceGroupId: a.recurrence_group_id || null,
-            assignedProviderId: a.provider_id,
-            bookedProviderId: desiredBookedProviderId || null,
-            createdByUserId: uid || 1,
-            // Never resurrect explicit cancellations — occurrence cancels + forfeits must stick.
-            replaceCancelled: false
+          await withClientSchedulingLock([sessionContext?.clientId], async () => {
+            const sessionEvent = await OfficeEvent.upsertSlotState({
+              allowAutomaticReservationDowngrade: appointmentsOnly,
+              officeLocationId: officeId,
+              roomId: a.room_id,
+              startAt,
+              endAt,
+              slotState,
+              standingAssignmentId: a.id,
+              // Skipped (unbooked) dates keep the assignment but must not re-link the booking plan.
+              bookingPlanId: desiredPlanId || null,
+              recurrenceGroupId: a.recurrence_group_id || null,
+              assignedProviderId: a.provider_id,
+              bookedProviderId: desiredBookedProviderId || null,
+              createdByUserId: uid || 1,
+              // Never resurrect explicit cancellations — occurrence cancels + forfeits must stick.
+              replaceCancelled: false
+            });
+            if (sessionEvent?.id && sessionContext?.bookingSource && !sessionContext?.clientId) {
+              await pool.execute("UPDATE office_events SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?, '$.bookingSource', ?) WHERE id = ? AND client_id IS NULL AND clinical_session_id IS NULL", [sessionContext.agencyId || null, sessionContext.bookingSource || 'office_assignment', sessionEvent.id]);
+            }
+            if (sessionEvent?.id && sessionContext?.clientId) {
+              await pool.execute(
+                `UPDATE office_events SET client_id = ?, appointment_type_code = ?, appointment_subtype_code = ?,
+                 service_code = ?, modality = ?, service_location_id = ?, session_context_json = ?
+                 WHERE id = ? AND clinical_session_id IS NULL AND (client_id IS NULL OR client_id = ?)`,
+                [sessionContext.clientId, sessionContext.appointmentTypeCode || 'SESSION', sessionContext.appointmentSubtypeCode || null,
+                  sessionContext.serviceCode || null, sessionContext.modality || null, sessionContext.serviceLocationId || null, JSON.stringify(sessionContext),
+                  sessionEvent.id, sessionContext.clientId]
+              );
+            }
+            await publishOfficeAssignmentEvent(a, sessionEvent);
+            upsertedCount += 1;
+          }).catch(error => {
+            // Pending termination owns these dates; render other slots while its
+            // durable cleanup retries, without creating more client reservations.
+            if (error.code !== 'CLIENT_TERMINATION_PENDING') throw error;
           });
-          if (sessionEvent?.id && sessionContext?.bookingSource && !sessionContext?.clientId) {
-            await pool.execute("UPDATE office_events SET session_context_json = JSON_SET(COALESCE(session_context_json, JSON_OBJECT()), '$.agencyId', ?, '$.bookingSource', ?) WHERE id = ? AND client_id IS NULL AND clinical_session_id IS NULL", [sessionContext.agencyId || null, sessionContext.bookingSource || 'office_assignment', sessionEvent.id]);
-          }
-          if (sessionEvent?.id && sessionContext?.clientId) {
-            await pool.execute(
-              `UPDATE office_events SET client_id = ?, appointment_type_code = ?, appointment_subtype_code = ?,
-               service_code = ?, modality = ?, service_location_id = ?, session_context_json = ?
-               WHERE id = ? AND clinical_session_id IS NULL AND (client_id IS NULL OR client_id = ?)`,
-              [sessionContext.clientId, sessionContext.appointmentTypeCode || 'SESSION', sessionContext.appointmentSubtypeCode || null,
-                sessionContext.serviceCode || null, sessionContext.modality || null, sessionContext.serviceLocationId || null, JSON.stringify(sessionContext),
-                sessionEvent.id, sessionContext.clientId]
-            );
-          }
-          await publishOfficeAssignmentEvent(a, sessionEvent);
-          upsertedCount += 1;
         }
       }
 
@@ -448,7 +455,7 @@ export class OfficeScheduleMaterializer {
       materializeRecent.set(key, { at: Date.now(), value });
       return value;
     } finally {
-      materializeInFlight.delete(key);
+      if (materializeInFlight.get(key) === runner) materializeInFlight.delete(key);
     }
   }
 }

@@ -5544,8 +5544,11 @@
             <button type="button" class="btn btn-secondary cancel-meeting-btn-secondary" :disabled="cancelSupvBusy" @click="closeCancelSupvConfirm">
               Never mind
             </button>
-            <button type="button" class="btn btn-danger" :disabled="cancelSupvBusy" @click="confirmCancelSupvSession">
-              {{ cancelSupvBusy ? 'Cancelling…' : 'Cancel session' }}
+            <button type="button" class="btn btn-danger" :disabled="cancelSupvBusy" @click="confirmCancelSupvSession('single')">
+              {{ cancelSupvBusy ? 'Cancelling…' : 'Just this session' }}
+            </button>
+            <button v-if="selectedSupvSession?.recurrence_series_id || selectedSupvSession?.recurrenceSeriesId" type="button" class="btn btn-danger" :disabled="cancelSupvBusy" @click="confirmCancelSupvSession('future')">
+              This and all future sessions
             </button>
           </div>
         </div>
@@ -12196,12 +12199,12 @@ const scheduleEventAgencyScope = ref(0);
 const scheduleEventAllDay = ref(false);
 const scheduleEventPrivate = ref(false);
 const scheduleEventRecurrence = ref('ONCE'); // ONCE | WEEKLY | BIWEEKLY | EVERY_3_WEEKS | EVERY_4_WEEKS | MONTHLY
-const scheduleEventRecurrenceEndMode = ref('count'); // count | indefinite
+const scheduleEventRecurrenceEndMode = ref('indefinite'); // count | indefinite
 const scheduleEventOccurrenceCount = ref(7); // 1–104 for recurring meeting/huddle
 const supervisionReminderOffsets = ref([5]);
 const supervisionAttendanceReminders = ref({ mandatory: [1440, 5], optional: [1440, 5] });
 const supervisionRecurrence = ref('ONCE');
-const supervisionRecurrenceEndMode = ref('count'); // count | indefinite
+const supervisionRecurrenceEndMode = ref('indefinite'); // count | indefinite
 const supervisionOccurrenceCount = ref(6);
 const scheduleHoldReasonCode = ref('DOCUMENTATION');
 const scheduleHoldCustomReason = ref('');
@@ -18502,10 +18505,10 @@ const openSlotActionModal = async ({
   supervisionAttendanceReminders.value = { mandatory: [1440, 5], optional: [1440, 5] };
   notifyMeetingParticipants.value = true;
   scheduleEventRecurrence.value = 'ONCE';
-  scheduleEventRecurrenceEndMode.value = 'count';
+  scheduleEventRecurrenceEndMode.value = 'indefinite';
   scheduleEventOccurrenceCount.value = 7;
   supervisionRecurrence.value = 'ONCE';
-  supervisionRecurrenceEndMode.value = 'count';
+  supervisionRecurrenceEndMode.value = 'indefinite';
   supervisionOccurrenceCount.value = 6;
   modalStartMinute.value = 0;
   modalEndMinute.value = 0;
@@ -20610,10 +20613,10 @@ const closeModal = () => {
   selectedMeetingParticipantIds.value = [];
   selectedMeetingInviteGroupIds.value = [];
   scheduleEventRecurrence.value = 'ONCE';
-  scheduleEventRecurrenceEndMode.value = 'count';
+  scheduleEventRecurrenceEndMode.value = 'indefinite';
   scheduleEventOccurrenceCount.value = 7;
   supervisionRecurrence.value = 'ONCE';
-  supervisionRecurrenceEndMode.value = 'count';
+  supervisionRecurrenceEndMode.value = 'indefinite';
   supervisionOccurrenceCount.value = 6;
   modalStartMinute.value = 0;
   modalEndMinute.value = 0;
@@ -22477,7 +22480,7 @@ watch(requestType, (t) => {
       supervisionRecurrence.value = 'ONCE';
     }
     if (!['count', 'until', 'indefinite'].includes(String(supervisionRecurrenceEndMode.value || ''))) {
-      supervisionRecurrenceEndMode.value = 'count';
+      supervisionRecurrenceEndMode.value = 'indefinite';
     }
     supervisionOccurrenceCount.value = Math.min(104, Math.max(1, Number(supervisionOccurrenceCount.value) || 6));
     void loadSupervisionProviders();
@@ -22488,7 +22491,7 @@ watch(requestType, (t) => {
       scheduleEventRecurrence.value = 'ONCE';
     }
     if (!['count', 'indefinite'].includes(String(scheduleEventRecurrenceEndMode.value || ''))) {
-      scheduleEventRecurrenceEndMode.value = 'count';
+      scheduleEventRecurrenceEndMode.value = 'indefinite';
     }
     scheduleEventOccurrenceCount.value = Math.min(104, Math.max(1, Number(scheduleEventOccurrenceCount.value) || 6));
     void loadMeetingCandidates();
@@ -22554,12 +22557,12 @@ watch(requestType, (t) => {
   }
   if (!['agency_meeting', 'huddle'].includes(String(t || ''))) {
     scheduleEventRecurrence.value = 'ONCE';
-    scheduleEventRecurrenceEndMode.value = 'count';
+    scheduleEventRecurrenceEndMode.value = 'indefinite';
     scheduleEventOccurrenceCount.value = 7;
   }
   if (String(t || '') !== 'supervision') {
     supervisionRecurrence.value = 'ONCE';
-    supervisionRecurrenceEndMode.value = 'count';
+    supervisionRecurrenceEndMode.value = 'indefinite';
     supervisionOccurrenceCount.value = 6;
   }
   ensureModalEndTimeValid();
@@ -24032,7 +24035,7 @@ const closeCancelSupvConfirm = () => {
   showCancelSupvModal.value = false;
 };
 
-const confirmCancelSupvSession = async () => {
+const confirmCancelSupvSession = async (scope = 'single') => {
   const id = Number(selectedSupvSessionId.value || 0);
   if (!id) return;
   if (!canCancelSelectedSupvSession.value) {
@@ -24043,7 +24046,7 @@ const confirmCancelSupvSession = async () => {
     cancelSupvBusy.value = true;
     supvSaving.value = true;
     cancelSupvError.value = '';
-    await api.post(`/supervision/sessions/${id}/cancel`, { notifyParticipants: cancelSupvNotify.value });
+    await api.post(`/supervision/sessions/${id}/cancel`, { scope, notifyParticipants: cancelSupvNotify.value });
     invalidateScheduleSummaryCacheForUser(props.userId);
     showCancelSupvModal.value = false;
     await load({ forceRefresh: true });

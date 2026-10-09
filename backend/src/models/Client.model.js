@@ -486,6 +486,23 @@ class Client {
    * @returns {Promise<Object|null>} Updated client object or null
    */
   static async update(id, clientData, updated_by_user_id = null, { executor = pool, hydrate = true, agencyId = null } = {}) {
+    const schedulingStatusChange = clientData.client_status_id !== undefined || clientData.terminated_at !== undefined;
+    if (schedulingStatusChange && executor === pool) {
+      const db = await pool.getConnection();
+      let saved;
+      try {
+        await db.beginTransaction();
+        saved = await this.update(id, clientData, updated_by_user_id, { executor: db, hydrate: false, agencyId });
+        await db.commit();
+      } catch (error) { await db.rollback(); throw error; }
+      finally { db.release(); }
+      if (saved?.terminationJobId) {
+        try { await (await import('../services/clientScheduleTermination.service.js')).processClientScheduleTermination(saved.terminationJobId); }
+        catch (error) { console.warn('[Client.update] schedule cleanup queued for retry', saved.terminationJobId, error.code || 'CLEANUP_FAILED'); }
+      }
+      return saved && hydrate ? this.findById(id) : saved;
+    }
+    let terminationJobId = null;
     const updates = [];
     const values = [];
 
@@ -600,7 +617,7 @@ class Client {
     }
 
     if (updates.length === 0) {
-      return hydrate ? this.findById(id) : { id };
+      return hydrate ? this.findById(id) : { id, terminationJobId };
     }
 
     updates.push('last_activity_at = CURRENT_TIMESTAMP');
@@ -610,6 +627,11 @@ class Client {
     const query = `UPDATE clients SET ${updates.join(', ')} WHERE id = ?${agencyId !== null ? ' AND agency_id = ?' : ''}`;
     const [result] = await executor.execute(query, values);
     if (!result.affectedRows && agencyId !== null) return null;
+
+    if (schedulingStatusChange && result.affectedRows) {
+      const { enqueueClientScheduleTermination } = await import('../services/clientScheduleTermination.service.js');
+      terminationJobId = await enqueueClientScheduleTermination(executor, id, updated_by_user_id);
+    }
 
     if (clientData.provider_id !== undefined || clientData.service_day !== undefined) {
       try {
@@ -628,7 +650,7 @@ class Client {
       }
     }
 
-    return hydrate ? this.findById(id) : { id };
+    return hydrate ? this.findById(id) : { id, terminationJobId };
   }
 
   /**

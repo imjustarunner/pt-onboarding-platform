@@ -9,7 +9,7 @@ export function assertRecurringWindow({ recurrenceSeriesId, startAt, startDate, 
   if (!recurrenceSeriesId) return;
   const zone = eventTimezone || 'America/Denver';
   const day = startDate ? String(startDate).slice(0, 10) : utcToZonedMysqlWall(startAt, zone)?.slice(0, 10);
-  if (!day || day >= recurringWindowEnd(now, zone)) throw Object.assign(new Error('Recurring appointments can be scheduled only within the next year.'), { status: 400 });
+  if (!day || day >= recurringWindowEnd(now, zone)) throw Object.assign(new Error('Meetings can be scheduled only within the next year. Ongoing series renew automatically.'), { status: 400 });
 }
 // Use the original calendar anchor, not the last month's clamped date. Keep
 // wall-clock start/end (including overnight sessions) through DST changes.
@@ -32,4 +32,8 @@ export function nextRecurringWindow(anchor, last) {
   const days = Math.round((Date.parse(`${utcToZonedMysqlWall(last.end_at,zone).slice(0,10)}T00:00:00Z`) - Date.parse(`${lastStart.slice(0,10)}T00:00:00Z`)) / 86400000);
   return { day, startAt: wallMysqlToUtcMysql(`${day} ${lastStart.slice(11)}`, zone),
     endAt: wallMysqlToUtcMysql(`${addDaysYmd(day, days)} ${utcToZonedMysqlWall(last.end_at, zone).slice(11)}`, zone) };
+}
+
+export function assertMeetingBookingWindow(input, now = new Date()) {
+  return assertRecurringWindow({ ...input, recurrenceSeriesId: input.recurrenceSeriesId || 'meeting' }, now);
 }

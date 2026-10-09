@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-09",
+  "branch": "codex/scheduling-lifecycle-fixes",
+  "base_commit": "3c386d87f",
+  "worktree": "/private/tmp/scheduling-lifecycle-fixes-20261009",
+  "deployed": false,
+  "behavior": [
+    "Client termination durably cancels future appointments and reminders, releases reserved package credits without cancellation fees, and blocks future clinical claims.",
+    "Canceled appointment and clinical records remain intact; a separate unlinked Assigned Available room event can be opened for in-person booking.",
+    "Group sessions retain other clients; the final departing client cancels the shared appointment and room.",
+    "Stopped client plans and canceled meeting series cannot silently renew; cancellation, renewal, and calendar synchronization share locks.",
+    "New room bookings and series must start within six office-local calendar weeks; recurring tails can extend through the one-year record window.",
+    "New one-time meetings are capped at one year; ongoing recurring meetings default to a rolling year.",
+    "Supervision supports single-occurrence and this-and-all-future cancellation, including held occurrences and already-canceled anchors.",
+    "Biweekly counts exclude off-weeks. New Monthly office assignments use calendar dates with month-end clamping; migrated four-week commitments retain their dates."
+  ],
+  "validation": {
+    "scheduling_unit_tests": 351,
+    "disposable_mysql_tests": 34,
+    "recurring_reservation_tests": 47,
+    "client_lifecycle_tests": 23,
+    "supervision_ui_tests": 2,
+    "unique_tests_passed": 457,
+    "production_frontend_build": "passed (8 GB Node heap; existing large-chunk warnings)",
+    "changed_javascript_syntax": "passed",
+    "git_diff_check": "passed",
+    "mysql_version": "9.5.0",
+    "live_database_writes": false
+  },
+  "deployment": {
+    "required_migration": "database/migrations/1560_client_termination_scheduling.sql",
+    "prerequisite": "1559_recurring_schedule_window.sql and the existing recurring scheduling branch migrations",
+    "apply_migration_before_backend": true,
+    "cleanup_retry_interval_seconds": 60,
+    "calendar_retry_interval_seconds": 300,
+    "existing_anonymous_legacy_bookings": "No client identity is inferred; the migration does not cancel unattributed room reservations."
+  }
+}

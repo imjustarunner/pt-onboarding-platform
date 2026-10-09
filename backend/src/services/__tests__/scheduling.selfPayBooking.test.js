@@ -1,3 +1,4 @@
+vi.mock('../clientSchedulingGuard.service.js', () => ({ withClientSchedulingLock: async (ids, work) => work() }));
 vi.mock('../staffCareEligibility.service.js', () => ({ requireStaffCareEligibility: vi.fn().mockResolvedValue({ canProvideCare: true }) }));
 import { requireStaffCareEligibility } from '../staffCareEligibility.service.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

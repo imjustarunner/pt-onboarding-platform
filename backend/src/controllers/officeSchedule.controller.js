@@ -1,3 +1,4 @@
+import { withClientSchedulingLock } from '../services/clientSchedulingGuard.service.js';
 import {officeAvailabilityWindows} from '../services/officeAvailabilityWindow.service.js';
 import { confirmSameDayServiceWarnings } from '../services/sameDayServiceWarning.service.js';
 import { expandAppointmentRecurrence } from '../utils/appointmentRecurrence.js';
@@ -446,8 +447,8 @@ async function isRoomOpenAt({ officeLocationId, roomId, startAt, endAt, officeTi
   if (wh) {
     const parsedEnd = parseSlotEndHour(startAt, endAt, officeTimeZone || 'America/New_York');
     for (let hour = Number(wh.hour); hour < (parsedEnd?.endHour || Number(wh.hour) + 1); hour++) {
-      const standing = await OfficeStandingAssignment.findActiveBySlot({ officeLocationId, roomId, weekday: wh.weekdayIndex, hour });
-      if (standing?.id) return false;
+      const standing = await OfficeStandingAssignment.listActiveAtDate({ officeLocationId, roomId, date: wh.date, hour });
+      if (standing.length) return false;
     }
 
     // Soft hold: pending office request for this room+weekday+hour blocks kiosk/same-day book.
@@ -802,18 +803,9 @@ function weekdayIndexFromYmdOfficeMandatory(ymd) {
 
 function computeSuggestedBookingStartDateMandatory(assignment) {
   const today = new Date().toISOString().slice(0, 10);
-  const weekday = Number(assignment.weekday);
-  const freq = String(assignment.assigned_frequency || 'WEEKLY').toUpperCase();
-  const anchorRaw = assignment.available_since_date || assignment.created_at;
-  const anchor = String(anchorRaw || '').slice(0, 10);
-  const anchorUse = /^\d{4}-\d{2}-\d{2}$/.test(anchor) ? anchor : today;
   for (let i = 0; i < 56; i += 1) {
-    const ymd = addDays(today, i);
-    const wd = weekdayIndexFromYmdOfficeMandatory(ymd);
-    if (wd !== weekday) continue;
-    if (freq !== 'BIWEEKLY') return ymd;
-    const wi = weekIndexFromAnchorOfficeMandatory(ymd, anchorUse);
-    if (wi % 2 === 0) return ymd;
+    const date = addDays(today, i);
+    if (isAssignmentActiveOnDate(assignment,date)) return date;
   }
   return today;
 }
@@ -1195,9 +1187,12 @@ export const getWeeklyGrid = async (req, res, next) => {
         [officeLocationIdNum]
       );
       for (const row of await attachOfficeSchedulingPolicies(standingRows || [])) {
-        const sk = `${Number(row.room_id)}:${Number(row.weekday)}:${Number(row.hour)}`;
-        if (!standingByRoomWeekdayHour.has(sk)) standingByRoomWeekdayHour.set(sk, []);
-        standingByRoomWeekdayHour.get(sk).push(row);
+        const weekdays = row.assigned_frequency === 'MONTHLY' && !Number(row.legacy_monthly_four_weeks) ? [0,1,2,3,4,5,6] : [Number(row.weekday)];
+        for (const weekday of weekdays) {
+          const sk = `${Number(row.room_id)}:${weekday}:${Number(row.hour)}`;
+          if (!standingByRoomWeekdayHour.has(sk)) standingByRoomWeekdayHour.set(sk, []);
+          standingByRoomWeekdayHour.get(sk).push(row);
+        }
       }
       const standingIdsForPlans = (standingRows || []).map((r) => Number(r.id)).filter((n) => n > 0);
       if (standingIdsForPlans.length) {
@@ -3105,6 +3100,12 @@ export const getOfficeBookingRequestContext = async (req, res, next) => {
 };
 
 export const approveOfficeBookingRequest = async (req, res, next) => {
+  try {
+    const request = await OfficeBookingRequest.findById(req.params.requestId || req.params.id);
+    return await withClientSchedulingLock([request?.client_id], () => approveOfficeBookingRequestLocked(req,res,next));
+  } catch (error) { next(error); }
+};
+const approveOfficeBookingRequestLocked = async (req, res, next) => {
   try {
     if (!canManageSchedule(req.user.role)) {
       return res.status(403).json({ error: { message: 'Only CPA/admin can approve booking requests' } });

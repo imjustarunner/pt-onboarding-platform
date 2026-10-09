@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const m=vi.hoisted(()=>({execute:vi.fn(),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn(),google:vi.fn(),remove:vi.fn()}));
 vi.mock('../../config/database.js',()=>({default:{getConnection:async()=>m,execute:m.execute}}));
 vi.mock('../supervisionReviewTime.service.js',()=>({withSupervisorTimeLock:async(ids,fn)=>fn(m),assertNoReviewTimeOverlap:vi.fn()}));
+vi.mock('../recurringScheduleCancellation.service.js',()=>({withRecurringScheduleEdit:async work=>work(m)}));
 vi.mock('../googleCalendar.service.js',()=>({default:{upsertProviderPrimaryCalendarEvent:m.google,deleteEvent:m.remove}}));
 vi.mock('../../utils/tenantMeetingUrl.js',()=>({tenantMeetingBase:async()=> 'https://example.test'}));
 import {maintainRecurringScheduleWindow,copyRecurringRoster,syncRecurringCalendars} from '../recurringScheduleWindow.service.js';
@@ -84,4 +85,23 @@ it('calendar retries use stable IDs and no invitation emails',async()=>{
  m.google.mockResolvedValue({ok:true,googleEventId:'stable'});
  await syncRecurringCalendars();
  expect(m.google).toHaveBeenCalledWith(expect.objectContaining({stableInsertId:'reca1d0',sendUpdates:'none',disableReminders:true,startAt:'2027-10-01 10:00:00'}));
+});
+it('deletes a silent Google copy even if cancellation followed a crash before its ID was saved',async()=>{
+ const row=session({status:'CANCELLED',recurrence_series_id:'series',recurrence_calendar_pending:1,recurrence_calendar_generation:1,google_event_id:null,host_email:'host@example.test'});
+ m.execute.mockImplementation(async sql=>sql.startsWith('SELECT e.*')&&sql.includes('supervision_sessions')?[[row]]:[[]]);
+ m.remove.mockResolvedValue({ok:true});
+ await syncRecurringCalendars();
+ expect(m.remove.mock.calls.map(([args])=>args.eventId)).toEqual(['reca1d1','reca1d0']);
+ expect(m.google).not.toHaveBeenCalled();
+});
+it('reloads cancellation state under the shared lock before syncing a queued active occurrence',async()=>{
+ let reads=0;
+ m.execute.mockImplementation(async sql=>{
+  if(sql.startsWith('SELECT e.*')&&sql.includes('supervision_sessions')) {
+   reads++;return [[session({status:reads===1?'SCHEDULED':'CANCELLED',google_event_id:'remote',host_email:'host@example.test'})]];
+  }
+  return [[]];
+ });
+ m.remove.mockResolvedValue({ok:true});await syncRecurringCalendars();
+ expect(m.google).not.toHaveBeenCalled();expect(m.remove).toHaveBeenCalledWith(expect.objectContaining({eventId:'remote',sendUpdates:'none'}));
 });

@@ -122,6 +122,7 @@ async function validateOfficeSlotSeries({
 
   for (let oi = 0; oi < occurrenceDates.length; oi++) {
     const occDate = occurrenceDates[oi];
+    const occurrenceWeekday = new Date(`${occDate}T12:00:00Z`).getUTCDay();
 
     for (let h = startHour; h < endHour; h++) {
       // office_events.start_at/end_at are UTC — never compare wall-digit strings or HOUR()/DAYOFWEEK().
@@ -161,7 +162,7 @@ async function validateOfficeSlotSeries({
           ok: false,
           status: 409,
           error: {
-            message: `Cannot approve — ${roomLabel} is already booked by ${blocker} on ${dateLabel} at ${DAY_NAMES[weekday] || weekday} ${h}:00. Please choose a different room or start date.`,
+            message: `Cannot approve — ${roomLabel} is already booked by ${blocker} on ${dateLabel} at ${DAY_NAMES[occurrenceWeekday] || occurrenceWeekday} ${h}:00. Please choose a different room or start date.`,
             blockedOccurrence: oi + 1,
             blockedDate: occDate,
             blockingProvider: blocker,
@@ -175,14 +176,14 @@ async function validateOfficeSlotSeries({
       if (officeLocationId) {
         const [saConflicts] = await pool.execute(
           `SELECT a.id, a.provider_id, a.office_location_id, a.availability_mode,
-                  a.assigned_frequency, a.available_since_date, a.temporary_until_date,
+                  a.weekday, a.assigned_frequency, a.legacy_monthly_four_weeks, a.available_since_date, a.temporary_until_date,
                   u.first_name, u.last_name, u.role, ol.name AS office_name
            FROM office_standing_assignments a
            JOIN users u ON u.id = a.provider_id
            LEFT JOIN office_locations ol ON ol.id = a.office_location_id
            WHERE a.office_location_id = ?
              AND a.room_id = ?
-             AND a.weekday = ?
+             AND (a.weekday = ? OR a.assigned_frequency = 'MONTHLY')
              AND a.hour = ?
              AND a.is_active = TRUE
              AND a.provider_id != ?
@@ -192,11 +193,10 @@ async function validateOfficeSlotSeries({
                OR a.temporary_until_date IS NULL
                OR a.temporary_until_date >= ?
              )
-           LIMIT 1`,
-          [officeLocationId, roomId, weekday, h, providerId, occDate, occDate]
+           ORDER BY a.id`,
+          [officeLocationId, roomId, occurrenceWeekday, h, providerId, occDate, occDate]
         );
-        if (saConflicts?.length) {
-          const c = saConflicts[0];
+        for (const c of saConflicts || []) {
           const staffRoles = new Set([
             'super_admin', 'superadmin', 'admin', 'staff', 'support', 'clinical_practice_assistant'
           ]);

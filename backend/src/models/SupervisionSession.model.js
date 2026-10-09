@@ -1,6 +1,7 @@
+import { withMeetingWindow } from '../services/meetingWindowConflict.service.js';
 import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import pool from '../config/database.js';
-import { assertRecurringWindow } from '../utils/recurringWindow.js';
+import { assertMeetingBookingWindow } from '../utils/recurringWindow.js';
 import Notification from './Notification.model.js';
 import { generateJoinToken } from '../utils/joinToken.js';
 import { resolveArtifactPlainFields } from '../services/supervisionArtifactEncryption.service.js';
@@ -14,13 +15,11 @@ function normalizeInviteScopeValue(raw) {
 
 class SupervisionSession {
   static async create(input) {
-    assertRecurringWindow(input);
+    assertMeetingBookingWindow(input);
     const ids=[input.supervisorUserId,input.coFacilitatorUserId,input.superviseeUserId];
-    return withSupervisorTimeLock(ids,async db=>{
-      await assertNoReviewTimeOverlap(db,ids,input.startAt,input.endAt,0,true);
-      return this.createWithReviewTimeChecked(input);
-    });
+    return withMeetingWindow({ userIds: ids, startAt: input.startAt, endAt: input.endAt, timeZone: input.eventTimezone }, () => this.createWithReviewTimeChecked(input));
   }
+
   static async createWithReviewTimeChecked({
     agencyId,
     supervisorUserId,
@@ -929,13 +928,12 @@ class SupervisionSession {
     if(patch.startAt===undefined && patch.endAt===undefined && patch.coFacilitatorUserId===undefined) return this.updateWithReviewTimeChecked(id,patch);
     const row=await this.findById(id);
     if(!row)return null;
+    if (patch.startAt !== undefined) assertMeetingBookingWindow({ startAt: patch.startAt, eventTimezone: row.event_timezone });
     const [attendees]=await pool.execute('SELECT user_id FROM supervision_session_attendees WHERE session_id = ? UNION SELECT user_id FROM supervision_session_presenters WHERE session_id = ?',[id,id]);
     const ids=[row.supervisor_user_id,row.co_facilitator_user_id,patch.coFacilitatorUserId,row.supervisee_user_id,...attendees.map(a=>a.user_id)];
-    return withSupervisorTimeLock(ids,async db=>{
-      const latest=await this.findById(id);
-      await assertNoReviewTimeOverlap(db,ids,patch.startAt??latest.start_at,patch.endAt??latest.end_at,0,true);
-      return this.updateWithReviewTimeChecked(id,patch);
-    });
+    return withMeetingWindow({ userIds: ids, startAt: patch.startAt ?? row.start_at,
+      endAt: patch.endAt ?? row.end_at, timeZone: row.event_timezone, excludeSupervisionId: id },
+      () => this.updateWithReviewTimeChecked(id,patch));
   }
   static async updateWithReviewTimeChecked(id, {
     startAt,

@@ -1,3 +1,4 @@
+import { withClientSchedulingLock } from './clientSchedulingGuard.service.js';
 import { withinOfficeRecordWindow } from '../utils/officeRecordWindow.js';
 import pool from '../config/database.js';
 import BookingPackage from '../models/BookingPackage.model.js';
@@ -15,7 +16,6 @@ export function officeSessionPlanDates(plan, assignment) {
   const dates = [];
   for (let i = 0; i <= 365; i += 1) {
     const date = OfficeScheduleMaterializer.addDays(start, i);
-    if (new Date(`${date}T12:00:00Z`).getUTCDay() !== Number(assignment.weekday)) continue;
     if (isAssignmentActiveOnDate(assignment, date) && shouldBookOnDate(plan, assignment, date) && shouldBookByCount(plan, assignment, date)) dates.push(date);
   }
   return dates;
@@ -23,6 +23,9 @@ export function officeSessionPlanDates(plan, assignment) {
 
 /** Explicit booking writes finalize the entire bounded series, including its package reservations. */
 export async function saveOfficeSessionPlanContext(planId, context, actorUserId = null) {
+  return withClientSchedulingLock([context.clientId], () => saveLockedPlanContext(planId, context, actorUserId));
+}
+async function saveLockedPlanContext(planId, context, actorUserId) {
   const conn = await pool.getConnection();
   const lockName = `office_session_plan:${Number(planId)}`;
   let locked = false;
@@ -32,12 +35,14 @@ export async function saveOfficeSessionPlanContext(planId, context, actorUserId 
     locked = Number(lock?.acquired) === 1;
     if (!locked) throw fail('This series is being updated. Refresh before retrying.');
     const [[plan]] = await conn.execute('SELECT * FROM office_booking_plans WHERE id = ?', [planId]);
-    if (!plan) throw fail('Office booking plan not found');
+    if (!plan || Number(plan.is_active) === 0) throw fail('Office booking plan is inactive or not found');
     const [[assignment]] = await conn.execute('SELECT a.*, l.timezone FROM office_standing_assignments a JOIN office_locations l ON l.id = a.office_location_id WHERE a.id = ?', [plan.standing_assignment_id]);
     if (!assignment) throw fail('Office assignment not found');
     await assertAppointmentClients(context.agencyId, [{ clientId: context.clientId }]);
     const candidate = { ...plan, session_context_json: context };
-    const dates = officeSessionPlanDates(candidate, assignment);
+    const allDates = officeSessionPlanDates(candidate, assignment);
+    const openEnded = !Number(plan.booked_occurrence_count) && !plan.active_until_date;
+    const dates = openEnded ? allDates.filter(date => withinOfficeRecordWindow(date, assignment.timezone)) : allDates;
     if (!dates.length) throw fail('This office plan has no bookable occurrences');
     if (dates.some(date => !withinOfficeRecordWindow(date, assignment.timezone))) {
       throw fail('Create client sessions within the next year. Choose an earlier end date or fewer occurrences, then renew the series later.');

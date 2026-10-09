@@ -396,6 +396,19 @@ class OfficeEvent {
         _locked: true
       }));
     }
+    // Recheck source rows while holding the room lock. A materializer may have
+    // read a plan just before client termination stopped it.
+    if (bookingPlanId) {
+      const [[plan]] = await pool.execute('SELECT is_active FROM office_booking_plans WHERE id=?', [bookingPlanId]);
+      if (!plan || Number(plan.is_active) === 0) return null;
+    } else if (standingAssignmentId && slotState === 'ASSIGNED_BOOKED') {
+      const [[assignment]] = await pool.execute('SELECT client_booking_released_at FROM office_standing_assignments WHERE id=?', [standingAssignmentId]);
+      if (assignment?.client_booking_released_at) { slotState='ASSIGNED_AVAILABLE'; bookedProviderId=null; allowAutomaticReservationDowngrade=true; }
+    }
+    const [overlaps] = await pool.execute(`SELECT id,assigned_provider_id,booked_provider_id,start_at,end_at FROM office_events
+      WHERE room_id=? AND start_at<? AND end_at>? AND status='BOOKED'`, [roomId,normalizedEndAt,normalizedStartAt]);
+    if (overlaps.some(row => Number(row.booked_provider_id || row.assigned_provider_id) !== Number(assignedProviderId)
+      || normalizeMySqlDateTime(row.start_at) !== normalizedStartAt || normalizeMySqlDateTime(row.end_at) !== normalizedEndAt)) return null;
     // Keep legacy `status` aligned for older code paths.
     const legacyStatus = (slotState === 'ASSIGNED_BOOKED' || slotState === 'COMPANY_HOLD') ? 'BOOKED' : 'RELEASED';
 

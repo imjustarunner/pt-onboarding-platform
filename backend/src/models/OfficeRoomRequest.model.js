@@ -1,3 +1,5 @@
+import { assertRoomBookingStart } from '../utils/roomBookingWindow.js';
+import OfficeLocation from './OfficeLocation.model.js';
 import pool from '../config/database.js';
 
 class OfficeRoomRequest {
@@ -7,6 +9,8 @@ class OfficeRoomRequest {
   }
 
   static async create({ userId, locationId, roomId, requestType = 'ONE_TIME', startAt, endAt, notes = null }) {
+    const office = await OfficeLocation.findById(locationId);
+    assertRoomBookingStart(startAt,office?.timezone || 'America/Denver');
     const [result] = await pool.execute(
       `INSERT INTO office_room_requests
        (user_id, location_id, room_id, request_type, status, start_at, end_at, notes)

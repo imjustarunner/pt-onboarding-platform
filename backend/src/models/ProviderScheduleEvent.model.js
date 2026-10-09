@@ -1,12 +1,22 @@
+import { withMeetingWindow } from '../services/meetingWindowConflict.service.js';
+import { wallMysqlToUtcMysql } from '../utils/zonedWallTime.util.js';
 import {interviewCalendarEventId} from '../utils/interviewCalendarLink.js';
 import {expireEmptyMeeting} from '../services/meetingExpiry.service.js';
 import { assertProviderEventCanMove, syncAppointmentFromProviderEvent, moveOfficeFromProviderEvent, cancelAppointmentsFromCalendar } from '../services/appointmentScheduleSync.service.js';
 import pool from '../config/database.js';
-import { assertRecurringWindow } from '../utils/recurringWindow.js';
+import { assertRecurringWindow, assertMeetingBookingWindow } from '../utils/recurringWindow.js';
 import { generateJoinToken } from '../utils/joinToken.js';
 
 class ProviderScheduleEvent {
-  static async create({
+  static async create(input) {
+    if (!['TEAM_MEETING', 'HUDDLE'].includes(String(input.kind).toUpperCase())) return this.createWithWindowChecked(input);
+    assertMeetingBookingWindow(input);
+    const zone = input.eventTimezone || 'America/Denver';
+    const startAt = input.allDay ? wallMysqlToUtcMysql(`${input.startDate} 00:00:00`, zone) : input.startAt;
+    const endAt = input.allDay ? wallMysqlToUtcMysql(`${input.endDate} 00:00:00`, zone) : input.endAt;
+    return withMeetingWindow({ userIds: [input.providerId], startAt, endAt, timeZone: zone }, () => this.createWithWindowChecked(input));
+  }
+  static async createWithWindowChecked({
     agencyId,
     providerId,
     kind,
@@ -361,7 +371,21 @@ class ProviderScheduleEvent {
     return rows?.[0] || null;
   }
 
-  static async updateForProvider({
+  static async updateForProvider(input) {
+    const changed = ['startAt','endAt','startDate','endDate','allDay','eventTimezone'].some(key => input[key] !== undefined);
+    const current = changed ? await this.findByIdForProvider(input) : null;
+    if (!current || !['TEAM_MEETING','HUDDLE'].includes(current.kind)) return this.updateWithWindowChecked(input);
+    const zone = input.eventTimezone || current.event_timezone || 'America/Denver';
+    const allDay = input.allDay ?? current.all_day;
+    const startDate = input.startDate ?? current.start_date;
+    const endDate = input.endDate ?? current.end_date;
+    const startAt = allDay ? wallMysqlToUtcMysql(`${String(startDate).slice(0,10)} 00:00:00`,zone) : input.startAt ?? current.start_at;
+    const endAt = allDay ? wallMysqlToUtcMysql(`${String(endDate).slice(0,10)} 00:00:00`,zone) : input.endAt ?? current.end_at;
+    assertMeetingBookingWindow({startAt,startDate:allDay ? startDate : null,eventTimezone:zone});
+    return withMeetingWindow({userIds:[current.provider_id],startAt,endAt,timeZone:zone,excludeMeetingId:current.id},
+      () => this.updateWithWindowChecked(input));
+  }
+  static async updateWithWindowChecked({
     eventId,
     providerId,
     title = undefined,
@@ -490,7 +514,7 @@ class ProviderScheduleEvent {
     } catch (e) {
       if (e?.code === 'ER_BAD_FIELD_ERROR' && eventTimezone !== undefined) {
         // Retry without event_timezone when migration 1193 is not applied yet.
-        return this.updateForProvider({
+        return this.updateWithWindowChecked({
           eventId: eid,
           providerId: pid,
           title,
@@ -513,7 +537,7 @@ class ProviderScheduleEvent {
       }
       if (e?.code === 'ER_BAD_FIELD_ERROR' && meetingSubtype !== undefined) {
         // Retry without meeting_subtype when migration 1052 is not applied yet.
-        return this.updateForProvider({
+        return this.updateWithWindowChecked({
           eventId: eid,
           providerId: pid,
           title,

@@ -1,3 +1,4 @@
+import { cancelMeetingOccurrences } from '../services/recurringScheduleCancellation.service.js';
 import { isStaffCommunicationRole } from '../utils/staffCommunicationChoices.js';
 import { getStaffCommunicationChoices } from '../services/staffCommunicationChoices.service.js';
 import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
@@ -7224,9 +7225,6 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
       }
     }
     if (!target) return res.status(404).json({ error: { message: 'Schedule event not found' } });
-    if (String(target.status || '').trim().toUpperCase() === 'CANCELLED') {
-      return res.json({ ok: true, cancelledCount: 0, alreadyCancelled: true });
-    }
     if (target.reason_code === 'FAMILY') {
       return res.status(409).json({ error: { message: 'Remove this personal event in Family Command Center so everyone’s calendar stays in sync.' } });
     }
@@ -7246,35 +7244,25 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
       notifyRaw === false || notifyRaw === 0 || notifyRaw === '0' || notifyRaw === 'false'
     );
 
-    let rowsToCancel = [target];
     const seriesId = String(target.recurrence_series_id || '').trim();
-    if (scope === 'future' || scope === 'others') {
-      if (!seriesId) {
-        return res.status(400).json({ error: { message: 'This event is not part of a recurring series.' } });
+    const isMeeting = ['TEAM_MEETING', 'HUDDLE'].includes(String(target.kind).toUpperCase());
+    let rowsToCancel;
+    let cancelledCount;
+    if (isMeeting) {
+      const canceled = await cancelMeetingOccurrences({ kind: 'meeting', eventId, scope, actorUserId });
+      rowsToCancel = canceled.rows;
+      cancelledCount = canceled.cancelledCount;
+    } else {
+      rowsToCancel = [target];
+      if (scope !== 'single') {
+        if (!seriesId) return res.status(400).json({ error: { message: 'This event is not part of a recurring series.' } });
+        rowsToCancel = scope === 'future'
+          ? await ProviderScheduleEvent.listActiveSeriesFromPoint({ recurrenceSeriesId: seriesId, providerId: hostProviderId, fromStartAt: target.start_at, fromStartDate: target.start_date })
+          : await ProviderScheduleEvent.listActiveOthersInSeries({ recurrenceSeriesId: seriesId, providerId: hostProviderId, excludeEventId: eventId });
       }
-      if (scope === 'future') {
-        rowsToCancel = await ProviderScheduleEvent.listActiveSeriesFromPoint({
-          recurrenceSeriesId: seriesId,
-          providerId: hostProviderId,
-          fromStartAt: target.start_at || null,
-          fromStartDate: target.start_date || null
-        });
-        if (!rowsToCancel.length) rowsToCancel = [target];
-      } else {
-        rowsToCancel = await ProviderScheduleEvent.listActiveOthersInSeries({
-          recurrenceSeriesId: seriesId,
-          providerId: hostProviderId,
-          excludeEventId: eventId
-        });
-      }
+      cancelledCount = await ProviderScheduleEvent.cancelByIds({ eventIds: rowsToCancel.map(row => row.id), updatedByUserId: actorUserId });
     }
-
-    const ids = rowsToCancel.map((r) => Number(r.id || 0)).filter((n) => n > 0);
-    if (scope === 'future' || scope === 'others') {
-      await pool.execute('UPDATE provider_schedule_events SET recurrence_stopped=1 WHERE agency_id=? AND provider_id=? AND recurrence_series_id=?', [target.agency_id,hostProviderId,seriesId]);
-      // Also permanently cancel held dates outside the materialization window.
-      await pool.execute(`UPDATE provider_schedule_events SET recurrence_horizon_held=0 WHERE agency_id=? AND provider_id=? AND recurrence_series_id=? AND recurrence_horizon_held=1 AND (?='others' OR start_at>=?)`, [target.agency_id,hostProviderId,seriesId,scope,target.start_at]);
-    }
+    const ids = rowsToCancel.map(row => Number(row.id));
     // Soft-cancel in-app; best-effort mark Google copy cancelled via delete
     // (keeps Google clean while app calendars retain CANCELLED rows).
     await Promise.all(rowsToCancel.map(async (row) => {
@@ -7288,10 +7276,6 @@ export const deleteUserScheduleEvent = async (req, res, next) => {
       }).catch(() => {});
     }));
 
-    const cancelledCount = await ProviderScheduleEvent.cancelByIds({
-      eventIds: ids,
-      updatedByUserId: actorUserId
-    });
 
     try {
       const { withdrawTrainingPayClaimsForEventIds } = await import('../services/scheduleEventTrainingPay.service.js');

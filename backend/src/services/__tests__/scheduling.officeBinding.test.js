@@ -20,7 +20,7 @@ describe('room approval binds an existing appointment', () => {
     Appointment.listParticipants.mockResolvedValue([{ clientId: 8, role: 'client' }, { clientId: 12, role: 'client' }]);
     clinicalPool.execute.mockResolvedValue([[]]);
     pool.execute.mockResolvedValue([[{ id: 10 }]]);
-    pool.getConnection.mockResolvedValue({ execute: vi.fn().mockResolvedValue([[{ acquired: 1 }]]), release: vi.fn() });
+    pool.getConnection.mockResolvedValue({ execute: vi.fn(async sql => sql.includes('GET_LOCK') ? [[{ acquired: 1 }]] : [[]]), release: vi.fn() });
     OfficeEvent.findActiveRoomConflicts.mockResolvedValue([]);
     OfficeEvent.createIfRoomOpen.mockResolvedValue(event);
   });

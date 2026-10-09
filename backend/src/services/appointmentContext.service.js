@@ -1,3 +1,4 @@
+import { withClientSchedulingLock, assertClientNotTerminated } from './clientSchedulingGuard.service.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import Client from '../models/Client.model.js';
@@ -42,7 +43,11 @@ async function lookupBillingContextIdByOfficeEvent({ officeEventId }) {
   }
 }
 
-export async function ensureAppointmentContext({
+export async function ensureAppointmentContext(input) {
+  const event = input.clientId ? null : await OfficeEvent.findById(input.officeEventId);
+  return withClientSchedulingLock([input.clientId || event?.client_id], () => ensureLockedAppointmentContext(input));
+}
+async function ensureLockedAppointmentContext({
   officeEventId,
   agencyId = null,
   clientId = null,
@@ -72,6 +77,9 @@ export async function ensureAppointmentContext({
   if (!client) {
     return { ok: false, reason: 'client_not_found', ensured: false, event };
   }
+
+  const eventStart = event.start_at instanceof Date ? event.start_at : new Date(String(event.start_at).replace(' ', 'T') + 'Z');
+  if (eventStart >= new Date()) assertClientNotTerminated(client);
 
   const savedContext = typeof event.session_context_json === 'string' ? JSON.parse(event.session_context_json) : (event.session_context_json || {});
   const resolvedAgencyId = parseIntId(agencyId) || parseIntId(sessionContext?.agencyId)

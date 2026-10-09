@@ -1,3 +1,4 @@
+vi.mock('../clientSchedulingGuard.service.js',()=>({withClientSchedulingLock:async(ids,work)=>work(),hasClientSchedulingLock:()=>false}));
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() } }));
 vi.mock('../officeAssignmentBookingAvailability.service.js', () => ({ publishOfficeAssignmentEvent: vi.fn() }));

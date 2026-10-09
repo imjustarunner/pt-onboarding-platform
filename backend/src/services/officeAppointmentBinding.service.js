@@ -1,3 +1,5 @@
+import { withClientSchedulingLock, assertClientNotTerminated } from './clientSchedulingGuard.service.js';
+import Client from '../models/Client.model.js';
 import pool from '../config/database.js';
 import clinicalPool from '../config/clinicalDatabase.js';
 import Appointment from '../models/Appointment.model.js';
@@ -49,7 +51,13 @@ export async function bindOfficeEventToAppointment({ event, context, agencyId, c
   }
 }
 
-export async function bookOfficeForAppointmentRequest({ request, context, rooms, office, selection, actorUserId }) {
+export async function bookOfficeForAppointmentRequest(input) {
+  return withClientSchedulingLock([input.request.client_id], async () => {
+    assertClientNotTerminated(await Client.findById(input.request.client_id));
+    return bookLockedOfficeRequest(input);
+  });
+}
+async function bookLockedOfficeRequest({ request, context, rooms, office, selection, actorUserId }) {
   let appointments;
   if (context.appointmentSeriesId) {
     const [rows] = await pool.execute(`SELECT a.id FROM appointments a JOIN provider_schedule_events p ON p.id = a.provider_schedule_event_id

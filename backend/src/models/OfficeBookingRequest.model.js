@@ -1,3 +1,5 @@
+import { assertRoomBookingStart } from '../utils/roomBookingWindow.js';
+import OfficeLocation from './OfficeLocation.model.js';
 import pool from '../config/database.js';
 
 class OfficeBookingRequest {
@@ -24,6 +26,10 @@ class OfficeBookingRequest {
     modality = null,
     sessionContext = null
   }) {
+    if (['PROVIDER_REQUEST','INTAKE_REQUEST'].includes(requestType)) {
+      const office = await OfficeLocation.findById(officeLocationId);
+      assertRoomBookingStart(startAt,office?.timezone || 'America/Denver');
+    }
     const occurrenceCount = Number.isInteger(Number(bookedOccurrenceCount)) && Number(bookedOccurrenceCount) > 0
       ? Number(bookedOccurrenceCount)
       : null;

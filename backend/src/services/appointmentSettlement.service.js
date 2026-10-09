@@ -56,6 +56,7 @@ export async function settleAppointmentOutcome(appointmentId, {
   if (!appointment) return { settled: false, reason: 'NOT_FOUND' };
 
   const billing = await Appointment.getBilling(id);
+  if (billing?.paymentStatus === 'review') return { settled: false, reason: 'BILLING_REVIEW_REQUIRED', paymentStatus: 'review' };
   if (!force && billing?.paymentStatus && ['package_consumed', 'forfeited', 'fee_pending', 'paid', 'invoiced', 'free_rebook', 'waived'].includes(
     String(billing.paymentStatus)
   )) {

@@ -1,5 +1,6 @@
 export const ymd = value => value instanceof Date ? value.toISOString().slice(0, 10) : String(value || '').slice(0, 10);
 export function appointmentMode(assignment, date) {
+  if (assignment?.client_booking_released_at) return true;
   const transition = ymd(assignment?.transition_date);
   return !!transition && date >= transition;
 }

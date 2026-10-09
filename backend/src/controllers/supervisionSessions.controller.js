@@ -1,3 +1,4 @@
+import { cancelMeetingOccurrences } from '../services/recurringScheduleCancellation.service.js';
 import { meetingSummaryStatus } from '../services/meetingSummaryJobs.service.js';
 import { setMeetingTranscription } from './meetingTranscription.controller.js';
 import { requirePersonalSupervisionInvitation, canJoinSupervision, hasActiveMeetingMembership, roomUnavailable } from '../services/meetingJoinPolicy.service.js';
@@ -4258,7 +4259,9 @@ export const cancelSupervisionSession = async (req, res, next) => {
       }
     }
 
-    const cancelled = await SupervisionSession.cancel(id);
+    const scope = String(req.body?.scope || 'single').toLowerCase();
+    const result = await cancelMeetingOccurrences({ kind: 'supervision', eventId: id, scope, actorUserId: actorId });
+    const cancelled = await SupervisionSession.findById(id);
 
     // Only suppress the cancellation email when explicitly opted out — default stays 'send'.
     const notifyRaw = req.body?.notifyParticipants;
@@ -4266,18 +4269,10 @@ export const cancelSupervisionSession = async (req, res, next) => {
       notifyRaw === false || notifyRaw === 0 || notifyRaw === '0' || notifyRaw === 'false'
     );
 
-    // Best-effort delete in Google
-    const hostEmail = String(row.google_host_email || '').trim() || (await User.findById(row.supervisor_user_id))?.email;
-    if (hostEmail && row.google_event_id) {
-      await GoogleCalendarService.cancelSupervisionSessionGoogleEvent({
-        hostEmail,
-        googleEventId: row.google_event_id,
-        sendUpdates: 'none'
-      });
-    }
-
-    if (notifyParticipants) await sendMeetingScheduleChange([row],'cancelled');
-    res.json({ ok: true, session: cancelled });
+    // Calendar deletion is durably queued by cancellation. The normal worker
+    // retries external failures without reactivating the canceled series.
+    if (notifyParticipants && result.rows.length) await sendMeetingScheduleChange(result.rows, 'cancelled');
+    res.json({ ok: true, session: cancelled, scope, cancelledCount: result.cancelledCount });
   } catch (e) {
     next(e);
   }

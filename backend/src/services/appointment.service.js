@@ -1,3 +1,4 @@
+import { withClientSchedulingLock } from './clientSchedulingGuard.service.js';
 import { resolveAppointmentServiceSetting } from './appointmentServiceSetting.service.js';
 import { assertAppointmentWindowAvailable } from './appointmentConflict.service.js';
 import { requireStaffCareEligibility } from './staffCareEligibility.service.js';
@@ -156,7 +157,10 @@ export async function getAppointmentBundle(appointmentId, { includeTimeline = tr
   return { ...appt, serviceSetting: await resolveAppointmentServiceSetting(appt), participants, billing, reminders, communications };
 }
 
-export async function createAppointment({
+export async function createAppointment(input) {
+  return withClientSchedulingLock((input.participants || []).map(p => p.clientId || p.client_id), () => createLockedAppointment(input));
+}
+async function createLockedAppointment({
   agencyId,
   parentAgencyId = null,
   tenantServiceId = null,
@@ -374,7 +378,13 @@ export async function createAppointment({
   return getAppointmentBundle(appt.id);
 }
 
-export async function updateAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null } = {}) {
+export async function updateAppointment(appointmentId, patch = {}, options = {}) {
+  const participants = patch.participants || await Appointment.listParticipants(appointmentId);
+  return withClientSchedulingLock(participants.map(p => p.clientId || p.client_id), async () => {
+    return updateLockedAppointment(appointmentId, patch, options);
+  });
+}
+async function updateLockedAppointment(appointmentId, patch = {}, { actorUserId = null, settleOutcome = true, guardianCancellationClientId = null } = {}) {
   const existing = await Appointment.findById(appointmentId);
   if (!existing) return null;
   if ((patch.status && patch.status !== existing.status) || patch.startAt != null || patch.endAt != null) {
@@ -382,6 +392,9 @@ export async function updateAppointment(appointmentId, patch = {}, { actorUserId
     if (guardianCancellationClientId && ['canceled_by_client','canceled_by_guardian','late_canceled'].includes(patch.status) && patch.startAt == null && patch.endAt == null) {
       await requireGuardianCancellation({ userId: actorUserId, clientId: guardianCancellationClientId, appointment: existing });
     } else await requireAppointmentRequestProvider(appointmentId, actorUserId, { onlyPending: true });
+  }
+  if (patch.startAt || patch.endAt || patch.participants || ['scheduled','confirmed'].includes(patch.status)) {
+    await assertAppointmentClients(existing.agencyId, patch.participants || await Appointment.listParticipants(appointmentId));
   }
   if (patch.serviceLocationId != null) {
     const location = await AgencyServiceLocation.findById(patch.serviceLocationId);

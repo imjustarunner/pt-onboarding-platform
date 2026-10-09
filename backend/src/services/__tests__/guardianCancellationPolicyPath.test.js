@@ -1,3 +1,4 @@
+vi.mock('../clientSchedulingGuard.service.js', () => ({ withClientSchedulingLock: async (ids, work) => work() }));
 import {beforeEach,expect,it,vi} from 'vitest';
 const m=vi.hoisted(()=>({find:vi.fn(),update:vi.fn(),guardian:vi.fn(),provider:vi.fn(),evaluate:vi.fn(),release:vi.fn(),reminders:vi.fn(),entitlement:vi.fn(),usage:vi.fn(),expiration:vi.fn()}));
 vi.mock('../../models/BookingPackage.model.js',()=>({default:{findEntitlementById:m.entitlement,applyAppointmentUsage:m.usage}}));

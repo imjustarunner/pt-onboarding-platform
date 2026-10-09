@@ -2442,6 +2442,13 @@ if (!isBootstrap) {
   // Drain old calendar-copy removals in bounded batches, independently of the
   // daily materialization sweep. A failed copy never holds up app scheduling.
   setInterval(recurringCalendarTick,5*60*1000).unref();
+  const clientTerminationTick = async () => {
+    try { await (await import('./services/clientScheduleTermination.service.js')).processPendingClientScheduleTerminations(); }
+    catch (error) { console.warn('[client termination schedule] Worker failed', error.code || 'CLEANUP_FAILED'); }
+  };
+  void clientTerminationTick();
+  setInterval(clientTerminationTick, 60 * 1000).unref();
+
 
   // Session documentation Notes tasks (~5 min before booked clinical sessions)
   const scheduleSessionDocTasks = async () => {
