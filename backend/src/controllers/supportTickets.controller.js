@@ -213,7 +213,7 @@ async function applyTopicAudienceVisibility({ req, where, params, topicFilter = 
   }
   if ((payrollIds || []).length) {
     parts.push(
-      `(LOWER(COALESCE(t.topic, '')) = 'payroll' AND t.agency_id IN (${payrollIds.map(() => '?').join(',')}))`
+      `(LOWER(COALESCE(t.topic, '')) IN ('payroll','people_operations') AND t.agency_id IN (${payrollIds.map(() => '?').join(',')}))`
     );
     params.push(...payrollIds.map((n) => Number(n)));
   }

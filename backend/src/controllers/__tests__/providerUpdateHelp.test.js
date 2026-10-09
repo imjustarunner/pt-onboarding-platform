@@ -16,7 +16,7 @@ it('creates a technology ticket scoped to the recipient and stores screenshots p
  mocks.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([{insertId:70}]).mockResolvedValue([{}]);
  const request=req();request.files=[{buffer:await sharp({create:{width:1,height:1,channels:3,background:'#ffffff'}}).png().toBuffer()}];
  const response=res(),next=vi.fn();await submitUpdateHelp(request,response,next);
- expect(next).not.toHaveBeenCalled();expect(mocks.execute.mock.calls[2][1].slice(0,3)).toEqual([2,2,465]);expect(mocks.execute.mock.calls[2][0]).toContain("'technology'");expect(mocks.assign).toHaveBeenCalledWith({ticketId:70,agencyId:2},mocks);expect(mocks.save).toHaveBeenCalledOnce();expect(mocks.commit).toHaveBeenCalledOnce();expect(response.json).toHaveBeenCalledWith({ticketId:70,topic:'technology'});
+ expect(next).not.toHaveBeenCalled();expect(mocks.execute.mock.calls[2][1].slice(0,3)).toEqual([2,2,465]);expect(mocks.execute.mock.calls[2][1].at(-1)).toBe('technology');expect(mocks.assign).toHaveBeenCalledWith({ticketId:70,agencyId:2},mocks);expect(mocks.save).toHaveBeenCalledOnce();expect(mocks.commit).toHaveBeenCalledOnce();expect(response.json).toHaveBeenCalledWith({ticketId:70,topic:'technology'});
 });
 it('returns an existing ticket on retry without creating another',async()=>{mocks.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ticket_id:70}]]);const response=res();await submitUpdateHelp(req(),response,vi.fn());expect(response.json).toHaveBeenCalledWith({ticketId:70,topic:'technology'});expect(mocks.assign).not.toHaveBeenCalled();expect(mocks.commit).not.toHaveBeenCalled();});
 
@@ -43,4 +43,16 @@ it('keeps a client ticket retry idempotent, but rejects reusing its request ID f
   else expect(next.mock.calls[0][0].status).toBe(409);
  }
  expect(mocks.commit).not.toHaveBeenCalled();
+});
+
+it('routes People Operations questions to their existing topic without claiming them for Technology',async()=>{
+ mocks.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[]]).mockResolvedValueOnce([{insertId:72}]).mockResolvedValue([{}]);
+ const request=req();request.body.topic='people_operations';const response=res(),next=vi.fn();await submitUpdateHelp(request,response,next);
+ expect(next).not.toHaveBeenCalled();expect(mocks.execute.mock.calls[2][1].at(-1)).toBe('people_operations');expect(mocks.assign).not.toHaveBeenCalled();expect(mocks.commit).toHaveBeenCalledOnce();expect(response.json).toHaveBeenCalledWith({ticketId:72,topic:'people_operations'});
+});
+it('rejects unsupported destinations before opening a transaction',async()=>{
+ const request=req();request.body.topic='other_agency';const next=vi.fn();await submitUpdateHelp(request,res(),next);expect(next.mock.calls[0][0].status).toBe(400);expect(mocks.beginTransaction).not.toHaveBeenCalled();
+});
+it('does not reuse a Technology ticket request as a People Operations ticket',async()=>{
+ mocks.execute.mockResolvedValueOnce([[]]).mockResolvedValueOnce([[{ticket_id:70,topic:'technology'}]]);const request=req();request.body.topic='people_operations';const next=vi.fn();await submitUpdateHelp(request,res(),next);expect(next.mock.calls[0][0].status).toBe(409);expect(mocks.commit).not.toHaveBeenCalled();
 });

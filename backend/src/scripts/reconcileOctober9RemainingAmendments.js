@@ -8,7 +8,7 @@ import {staffMilestones} from '../services/staffMilestonePresentation.service.js
 import {EXEMPT_DRAFT_KIND} from '../services/compensationAmendmentExemption.service.js';
 import {renderAmendment,amendmentIssues,escapeHtml} from '../content/itscoOctober2026Drafts.js';
 const confirmed=[
- [776,'Danica Alter',1,2],[1147,'Eden Olsen Edwards',1,1],[485,'Jacquelyne Fernandez',1,5],
+ [776,'Danica Alter',1,2],[1147,'Eden Olsen Edwards',2,1],[485,'Jacquelyne Fernandez',1,5],
  [979,'Lily Finch',1,1],[506,'Pauline Boyd',3,4],[1157,'Ryn Pantoya',1,1],
  [1249,'Paige Reilly',2,2],[1185,'Paige Tayloe',1,1]
 ];
@@ -22,6 +22,8 @@ const exclusions=[
 ];
 const parse=v=>typeof v==='string'?JSON.parse(v):v;
 const apply=process.argv.includes('--apply'),effectiveOn='2026-10-10';
+const onlyUser=process.argv.find(arg=>arg.startsWith('--user='))?.slice(7);
+if(onlyUser&&!confirmed.some(([id])=>id===Number(onlyUser)))throw Error('Unknown correction user');
 const staff=await staffMilestones(2),db=await pool.getConnection();
 try{
  await db.beginTransaction();
@@ -32,7 +34,7 @@ try{
  const [history]=await db.execute("SELECT s.user_id,s.breakdown,s.grace_active FROM payroll_summaries s JOIN payroll_periods p ON p.id=s.payroll_period_id WHERE s.agency_id=2 AND p.status IN ('posted','finalized') ORDER BY p.period_end DESC,s.id DESC");
  const plans=[],skips=[];
  const identify=(id,name)=>{const person=staff.find(p=>p.id===id);if(!person||`${person.first_name} ${person.last_name}`!==name)throw Error(`Identity mismatch: ${id}`);return person;};
- for(const [id,name,category,level] of confirmed){
+ for(const [id,name,category,level] of confirmed.filter(([id])=>!onlyUser||id===Number(onlyUser))){
   const person=identify(id,name),a=assignments.find(a=>a.user_id===id),rows=drafts.filter(d=>d.candidate_user_id===id);
   if(a?.pay_system_enabled)throw Error(`Active pay system needs a dated rate-change review: ${name}`);
   if(rows.length!==1||rows.some(d=>d.task_id||d.user_specific_document_id))throw Error(`Expected one unissued draft: ${name}`);
@@ -65,7 +67,7 @@ try{
   data.source={...data.source,assignment,rateProfile:rate,ownerConfirmedOn:'2026-10-09',correctionKey:'remaining-amendments-oct9',eligibilitySource:{...data.source?.eligibilitySource,location}};
   plans.push({id,name,row,assignment,data,html:renderAmendment(data)});
  }
- for(const [id,name,reason] of exclusions){identify(id,name);const rows=drafts.filter(d=>d.candidate_user_id===id);if(rows.some(d=>d.task_id||d.user_specific_document_id))throw Error(`Issued document requires separate handling: ${name}`);
+ for(const [id,name,reason] of exclusions.filter(()=>!onlyUser)){identify(id,name);const rows=drafts.filter(d=>d.candidate_user_id===id);if(rows.some(d=>d.task_id||d.user_specific_document_id))throw Error(`Issued document requires separate handling: ${name}`);
   for(const row of rows.length?rows:[null]){const data=row?parse(row.token_values_json):{employee:{userId:id,name}};data.draftKind=EXEMPT_DRAFT_KIND;data.exemptionReason=reason;data.exemptedAt=data.exemptedAt||new Date().toISOString();if([559,555].includes(id))data.employee.employmentType='salaried';skips.push({id,name,row,data,reason});}
  }
  if(apply){if(!process.env.UPDATE_BACKUP_PATH)throw Error('Exclusive backup path required');fs.writeFileSync(process.env.UPDATE_BACKUP_PATH,JSON.stringify({assignments,drafts,dates},null,2),{mode:0o600,flag:'wx'});
@@ -79,7 +81,7 @@ try{
  const remaining=finalDrafts.map(data=>({name:data.employee.name,issues:amendmentIssues(data)})).filter(r=>r.issues.length);
  if(apply&&process.env.AMENDMENT_REVIEW_DIR){const dir=process.env.AMENDMENT_REVIEW_DIR;fs.mkdirSync(dir,{recursive:true});
   for(const data of finalDrafts)fs.writeFileSync(path.join(dir,`${data.employee.name.replace(/[^a-zA-Z0-9]+/g,'-')}-amendment.html`),'<!doctype html><meta charset="utf-8"><style>body{font:16px/1.6 system-ui;max-width:1200px;margin:30px auto;padding:20px;color:#173346}table{border-collapse:collapse;width:100%}th,td{padding:10px;border:1px solid #ccd6df;text-align:left}</style>'+renderAmendment(data),{mode:0o600});
-  const report=['Remaining amendment review items — October 9, 2026','',remaining.length?remaining.map(r=>r.name+'\n'+r.issues.map(i=>'  '+i).join('\n')).join('\n\n'):'No unresolved draft review items.','','Confirmed assignments (prospective October 10, subject to completed signatures):',...plans.map(p=>`  ${p.name}: Category ${p.assignment.category}, Level ${p.assignment.level}${p.data.employee.employmentType==='intern'?' — paid intern':''}.`),'','Eden: recorded agreement/start date 09-12-2026; first non-probation day 12-11-2026, unless workload Tier 3 or management ends probation earlier. The 60-day minimum-workload waiver is separate.','','Excluded from this amendment rollout:',...exclusions.map(([,name,reason])=>'  '+name+': '+reason),'  Megan Geil-Crader: existing salary exemption retained.','','Pay setup and unsigned drafts updated. Existing salary arrangements and payroll remain in effect until the approved prospective transition. No agreements issued, payroll activated, or messages sent.',''];
+  const report=['Remaining amendment review items — October 9, 2026','',remaining.length?remaining.map(r=>r.name+'\n'+r.issues.map(i=>'  '+i).join('\n')).join('\n\n'):'No unresolved draft review items.','','Confirmed assignments (prospective October 10, subject to completed signatures):',...confirmed.map(([id,name,category,level])=>`  ${name}: Category ${category}, Level ${level}${finalDrafts.find(d=>d.employee.userId===id)?.employee.employmentType==='intern'?' — paid intern':''}.`),'','Eden: recorded agreement/start date 09-12-2026; first non-probation day 12-11-2026, unless workload Tier 3 or management ends probation earlier. The 60-day minimum-workload waiver is separate.','','Excluded from this amendment rollout:',...exclusions.map(([,name,reason])=>'  '+name+': '+reason),'  Megan Geil-Crader: existing salary exemption retained.','','Pay setup and unsigned drafts updated. Existing salary arrangements and payroll remain in effect until the approved prospective transition. No agreements issued, payroll activated, or messages sent.',''];
   fs.writeFileSync(path.join(dir,'remaining-review-items.txt'),report.join('\n'),{mode:0o600});
  }
  console.log(JSON.stringify({mode:apply?'saved':'dry-run',assignments:plans.map(p=>({id:p.id,name:p.name,category:p.assignment.category,level:p.assignment.level,sickRate:p.data.schedule.ptoRate,probationEnd:p.data.schedule.probationEndDate})),excluded:skips.map(s=>s.name),remaining,payrollActivated:false,messagesSent:0}));

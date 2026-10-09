@@ -19,7 +19,8 @@ export async function submitUpdateHelp(req, res, next) {
     const requestId = String(req.body.requestId || '');
     const clientId=req.body.clientId==null?null:Number(req.body.clientId);
     if(clientId!==null&&(!Number.isSafeInteger(clientId)||clientId<1))throw Object.assign(new Error('Choose a client from your update.'),{status:400});
-    const topic=clientId?'general':'technology';
+    const topic=clientId?'general':String(req.body.topic||'technology').trim();
+    if(!clientId&&!['technology','people_operations'].includes(topic))throw Object.assign(new Error('Choose Technology or People Operations.'),{status:400});
     if (question.length < 5 || question.length > 10000 || !/^[a-f0-9-]{36}$/i.test(requestId)) throw Object.assign(new Error('Describe the problem before submitting.'), {status:400});
     const enc = prepareEncryptedTicketText(question);
     if (!enc.encrypted) throw Object.assign(new Error('Secure ticket storage is unavailable. Please try again later.'), {status:503});
@@ -27,7 +28,7 @@ export async function submitUpdateHelp(req, res, next) {
     // Lock this recipient to serialize duplicate form submissions.
     await db.execute('SELECT id FROM provider_update_recipients WHERE id=? FOR UPDATE',[r.id]);
     const [[prior]] = await db.execute('SELECT h.ticket_id,t.client_id,t.topic FROM provider_update_help_requests h JOIN support_tickets t ON t.id=h.ticket_id WHERE h.recipient_id=? AND h.request_id=?',[r.id,requestId]);
-    if (prior) { if(Number(prior.client_id||0)!==Number(clientId||0))throw Object.assign(new Error('This request was already used for another ticket. Reopen the ticket form.'),{status:409});await db.rollback(); return res.json({ticketId:prior.ticket_id,topic:prior.topic||topic}); }
+    if (prior) { if(Number(prior.client_id||0)!==Number(clientId||0)||(prior.topic&&prior.topic!==topic))throw Object.assign(new Error('This request was already used for another ticket. Reopen the ticket form.'),{status:409});await db.rollback(); return res.json({ticketId:prior.ticket_id,topic:prior.topic||topic}); }
     let client;
     if(clientId){
       requireSection(r,'client_fall_update');
@@ -41,9 +42,9 @@ export async function submitUpdateHelp(req, res, next) {
       [r.agency_id,client.schoolOrganizationId,client.id,r.provider_user_id,subject,enc.plain,enc.ciphertext,enc.iv,enc.authTag,enc.keyId]) : await db.execute(`INSERT INTO support_tickets
       (agency_id,school_organization_id,created_by_user_id,created_by_source_key,subject,question,
        question_ciphertext,question_iv,question_auth_tag,question_encryption_key_id,status,topic,priority)
-      VALUES (?,?,?,'provider_update',?,?,?,?,?,?,'open','technology','medium')`,
-      [r.agency_id,r.agency_id,r.provider_user_id,subject,enc.plain,enc.ciphertext,enc.iv,enc.authTag,enc.keyId]);
-    if(!client)await assignTechnologyTicket({ticketId:created.insertId,agencyId:r.agency_id},db);
+      VALUES (?,?,?,'provider_update',?,?,?,?,?,?,'open',?,'medium')`,
+      [r.agency_id,r.agency_id,r.provider_user_id,subject,enc.plain,enc.ciphertext,enc.iv,enc.authTag,enc.keyId,topic]);
+    if(topic==='technology')await assignTechnologyTicket({ticketId:created.insertId,agencyId:r.agency_id},db);
     if(req.files?.length) bucket = await StorageService.getGCSBucket();
     for (const file of req.files || []) {
       // Re-encode rather than trusting the filename/MIME; strip metadata from screenshots.

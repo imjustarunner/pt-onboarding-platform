@@ -16,7 +16,7 @@ export const GUARDIAN_TICKET_TOPICS = TICKET_TOPICS.filter((t) =>
 
 /** Providers: general + credentialing (+ billing if needed for claims questions) */
 export const PROVIDER_TICKET_TOPICS = TICKET_TOPICS.filter((t) =>
-  ['general', 'technology', 'credentialing', 'billing'].includes(t.id)
+  ['general', 'technology', 'credentialing', 'billing', 'people_operations'].includes(t.id)
 );
 
 /** Staff / CPA: general + payroll + people ops (+ billing) */
