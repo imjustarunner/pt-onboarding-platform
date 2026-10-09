@@ -6,7 +6,10 @@ import {
   unregisterPushSubscription
 } from '../controllers/pushSubscription.controller.js';
 
+import {emailSignatureNote} from '../controllers/emailSignatureNote.controller.js';
 const router = express.Router();
+router.get('/me/email-signature-note',authenticate,emailSignatureNote);
+router.put('/me/email-signature-note',authenticate,emailSignatureNote);
 
 // Kiosk PIN (must be before :userId routes)
 router.put('/me/kiosk-pin', authenticate, updateKioskPin);

@@ -3,7 +3,7 @@ import { sharedLoginLimiter } from '../middleware/loginProtection.middleware.js'
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { authLimiter } from '../middleware/rateLimiter.middleware.js';
-import { status, begin, confirm, challenge, reset, forget, sessions, sessionEvents, endSession, sendEmailCode, verifyEmailCode } from '../controllers/accountSecurity.controller.js';
+import { status, begin, confirm, challenge, reset, forget, sessions, sessionEvents, endSession, sendEmailCode, verifyEmailCode,signInPasswordState,setInitialSignInPassword } from '../controllers/accountSecurity.controller.js';
 import { ownProtection, requestFileAccess, printIntent } from '../controllers/activityProtection.controller.js';
 const router = express.Router();
 router.use(authenticate);
@@ -14,6 +14,8 @@ router.use((req, res, next) => {
 });
 router.get('/', status);
 const passkeyLimit=sharedLoginLimiter({identify:true,namespace:'passkey-security',accountFromSession:true});
+router.get('/sign-in-password',signInPasswordState);
+router.post('/sign-in-password',passkeyLimit,setInitialSignInPassword);
 router.get('/passkeys', passkeys.status);
 router.post('/passkeys/register/options', passkeyLimit, passkeys.registerOptions);
 router.post('/passkeys/register/verify', passkeyLimit, passkeys.registerVerify);

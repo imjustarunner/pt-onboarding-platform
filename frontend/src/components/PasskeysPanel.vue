@@ -1,16 +1,16 @@
 <template>
  <section v-if="state?.eligible" class="passkeys security-card" data-analytics-ignore>
-  <h2>Passkeys</h2>
+  <h2>Passkeys</h2><p v-if="state.ssoSetup">You can prepare a passkey now. Keep using Google while your agency requires SSO; the passkey becomes a sign-in option after your agency enables app-only access.</p>
   <p>Sign in with Face ID, a fingerprint, your device PIN, or a security key. Your biometric information stays with your device.</p>
   <p>Save passkeys on a personal device or your own security key. Use the same portal address when signing in; a passkey saved for another portal address will not appear here.</p>
   <p v-if="!supported">Passkey setup needs a supported browser on a secure portal address. Your usual sign-in is still available.</p>
   <p v-if="error" role="alert" class="error">{{error}}</p><p v-if="message" role="status">{{message}}</p>
   <template v-if="supported">
-   <button v-if="state.enabled" :disabled="busy" @click="verify">Verify with an existing passkey</button>
+   <button v-if="state.enabled && !state.ssoSetup" :disabled="busy" @click="verify">Verify with an existing passkey</button>
    <form @submit.prevent="register">
     <label>Passkey name<input v-model="label" maxlength="100" placeholder="My phone" required /></label>
     <label v-if="!state.recentlyVerified">Confirm your account password<input v-model="password" type="password" autocomplete="current-password" /></label>
-    <p v-if="!state.recentlyVerified" class="hint">If you already protect your account with a passkey or authenticator, verify it first. An email link by itself cannot authorize setup.</p>
+    <p v-if="!state.recentlyVerified" class="hint">If you already protect your account with a passkey or authenticator, verify it first. A Google sign-in within the last five minutes also authorizes setup. An email link by itself cannot authorize setup.</p>
     <button :disabled="busy">{{busy?'Waiting for your device…':state.keys.length?'Add another passkey':'Set up a passkey'}}</button>
    </form>
   </template>

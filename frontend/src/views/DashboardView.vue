@@ -63,6 +63,8 @@
       </button>
     </div>
 
+    <ProviderOpeningNotice v-if="!previewMode && !isClubContext && isOnboardingComplete && activeTab !== 'my' && (['provider','provider_plus','intern','intern_plus','facilitator','supervisor'].includes(authStore.user?.role) || authStore.user?.has_provider_access)" :provider-id="authStore.user?.id" :agency-id="currentAgencyId" @open="setMyTab('availability')" />
+
     <ProfileContentSearch v-if="!previewMode && !(isOnboardingComplete && !isClubContext && activeTab === 'overview')" :targets="dashboardContentIndex.targets.value" :loading="dashboardContentIndex.loading.value"
       :error="dashboardContentIndex.loadError.value" :scope-key="dashboardSearchScope" label="Search My Dashboard" input-id="dashboard-profile-search"
       @load="dashboardContentIndex.load" @select="jumpToDashboardSearchResult" />
@@ -1369,6 +1371,7 @@ import ScheduleMultiUserOverlayGrid from '../components/schedule/ScheduleMultiUs
 import ProviderScheduleList from '../components/schedule/ProviderScheduleList.vue';
 import MyPayrollTab from '../components/dashboard/MyPayrollTab.vue';
 import SubmitPanelTab from '../components/dashboard/SubmitPanelTab.vue';
+import ProviderOpeningNotice from '../components/availability/ProviderOpeningNotice.vue';
 import MyAccountTab from '../components/dashboard/MyAccountTab.vue';
 import ScheduleHubPanel from '../components/dashboard/ScheduleHubPanel.vue';
 import { SCHEDULE_VIEWS } from '../config/scheduleDisplayViews.js';

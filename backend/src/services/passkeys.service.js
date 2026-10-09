@@ -21,10 +21,10 @@ export function currentPasskeySite(req) {
   ...(process.env.PASSKEY_ALLOWED_ORIGINS || '').split(',').map(v=>v.trim()).filter(Boolean)])];
  return passkeySite(req.get('origin'), allowed);
 }
-export async function eligiblePasskeyUser(id) {
+export async function eligiblePasskeyUser(id,{enrollment=false}={}) {
  const [[user]] = await pool.execute('SELECT * FROM users WHERE id=? LIMIT 1',[id]);
  assertPasskeyAccount(user);
- if ((await getPasswordRecoverySsoState(user)).ssoRequired) throw securityError('SSO_REQUIRED', 'Your organization requires Google sign-in. Continue with Google.', 403);
+ if (!enrollment && (await getPasswordRecoverySsoState(user)).ssoRequired) throw securityError('SSO_REQUIRED', 'Your organization requires Google sign-in. Continue with Google.', 403);
  return user;
 }
 async function audit(db, req, action, userId, details={}) {
@@ -47,17 +47,18 @@ async function saveProof(db,req,credentialId,method='passkey') {
 }
 export async function passkeyStatus(req) {
  requireAccountSession(req);
- if(req.authClaims?.authMethod==='google')return {eligible:false};
+ const ssoSetup=req.authClaims?.authMethod==='google';
  const user=await User.findById(req.user.id);
  if(!passkeyRoleAllowed(user))return {eligible:false};
- try {await eligiblePasskeyUser(user.id);}catch(e){if(['PASSKEY_ACCOUNT_UNAVAILABLE','SSO_REQUIRED'].includes(e.code))return {eligible:false};throw e;}
+ try {await eligiblePasskeyUser(user.id,{enrollment:ssoSetup});}catch(e){if(['PASSKEY_ACCOUNT_UNAVAILABLE','SSO_REQUIRED'].includes(e.code))return {eligible:false};throw e;}
  const [[account]]=await pool.execute('SELECT protection_enabled,recovery_hashes FROM account_passkey_accounts WHERE user_id=?',[user.id]);
  const [keys]=await pool.execute('SELECT id,label,rp_id,created_at,last_used_at,backed_up FROM account_passkeys WHERE user_id=? AND revoked_at IS NULL ORDER BY id',[user.id]);
  const proof=await passkeyProof(req);
- return {eligible:true,enabled:!!account?.protection_enabled,keys,recoveryCodesRemaining:(json(account?.recovery_hashes)||[]).length,
-  recentlyVerified:!!proof && new Date(proof.verified_at).getTime()>Date.now()-5*60000};
+ return {eligible:true,ssoSetup,enabled:!!account?.protection_enabled,keys,recoveryCodesRemaining:(json(account?.recovery_hashes)||[]).length,
+  recentlyVerified:(ssoSetup && Number(req.authClaims.iat)*1000>Date.now()-5*60000)||!!proof && new Date(proof.verified_at).getTime()>Date.now()-5*60000};
 }
 async function confirmExistingAccount(req,user) {
+ if(req.authClaims?.authMethod==='google' && Number(req.authClaims.iat)*1000>Date.now()-5*60000)return;
  const proof=await passkeyProof(req);
  if(proof && new Date(proof.verified_at).getTime()>Date.now()-5*60000)return;
  if(await accountPasswordLocked(user.id))throw securityError('PASSKEY_PASSWORD_LOCKED','Account verification is locked. Contact support.',429);
@@ -90,8 +91,7 @@ async function consumeChallenge(req,purpose) {
 }
 export async function beginPasskeyRegistration(req,res) {
  requireAccountSession(req);
- if(req.authClaims?.authMethod==='google')throw securityError('PASSKEY_SSO_UNCHANGED','Continue using your organization’s Google sign-in.',403);
- const user=await eligiblePasskeyUser(req.user.id);const site=currentPasskeySite(req);
+ const user=await eligiblePasskeyUser(req.user.id,{enrollment:req.authClaims?.authMethod==='google'});const site=currentPasskeySite(req);
  await pool.execute('INSERT IGNORE INTO account_passkey_accounts (user_id,user_handle) VALUES (?,?)',[user.id,crypto.randomBytes(32).toString('base64url')]);
  const [[account]]=await pool.execute('SELECT user_handle,authorization_epoch FROM account_passkey_accounts WHERE user_id=?',[user.id]);
  await confirmExistingAccount(req,user);
@@ -103,7 +103,7 @@ export async function beginPasskeyRegistration(req,res) {
  return newChallenge(req,res,'register',options,site,{userId:user.id,authorizationEpoch:account.authorization_epoch,label:String(req.body?.label||'My passkey').trim().slice(0,100)||'My passkey'});
 }
 export async function finishPasskeyRegistration(req) {
- requireAccountSession(req);const challenge=await consumeChallenge(req,'register');await eligiblePasskeyUser(req.user.id);
+ requireAccountSession(req);const challenge=await consumeChallenge(req,'register');await eligiblePasskeyUser(req.user.id,{enrollment:req.authClaims?.authMethod==='google'});
  let result;try{result=await verifyRegistrationResponse({response:req.body.response,expectedChallenge:challenge.challenge,expectedOrigin:challenge.origin,expectedRPID:challenge.rp_id,requireUserVerification:true,supportedAlgorithmIDs:[-7,-257]});}catch{throw invalid();}
  if(!result.verified)throw invalid();
  const info=result.registrationInfo,key=info.credential;

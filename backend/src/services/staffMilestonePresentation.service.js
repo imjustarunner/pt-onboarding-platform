@@ -9,6 +9,19 @@ export function staffStartDate(row={}) {
   }
   return null;
 }
+export function applicationWorkBase(data){
+ if(typeof data==='string'){try{data=JSON.parse(data);}catch{return '';}}
+ if(!data||typeof data!=='object')return '';
+ // Work-location answers only: a home address is not an office assignment.
+ for(const [key,value] of Object.entries(data)){
+  if(/^(?:preferred_)?(?:work_location|office_location|work_region|job_location|provider_location_selection)$/i.test(key)){
+   const text=Array.isArray(value)?value.join(' / '):typeof value==='string'?value:'';
+   if(/Denver|Colorado Springs|Windchime/i.test(text))return text.replace(/Windchime(?! \/ Colorado Springs)/ig,'Windchime / Colorado Springs');
+  }
+ }
+ for(const key of ['responses','submission','applicant','application']){const found=applicationWorkBase(data[key]);if(found)return found;}
+ return '';
+}
 export async function staffMilestones(agencyId) {
   const [staff]=await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.preferred_name,u.title,u.credential,u.profile_photo_path,u.provider_start_date,u.work_location,u.terminated_at,ua.agency_position,
     (SELECT JSON_UNQUOTE(v.value) FROM user_info_values v JOIN user_info_field_definitions d ON d.id=v.field_definition_id
@@ -21,6 +34,25 @@ export async function staffMilestones(agencyId) {
   const [locations]=await pool.execute(`SELECT DISTINCT ul.user_id,ol.city FROM user_office_locations ul
     JOIN office_locations ol ON ol.id=ul.office_location_id AND ol.is_active=1 WHERE ul.is_active=1
     AND (ol.agency_id=? OR EXISTS (SELECT 1 FROM office_location_agencies a WHERE a.office_location_id=ol.id AND a.agency_id=?))`,[agencyId,agencyId]);
+  const [assigned]=await pool.execute(`SELECT DISTINCT a.provider_id AS user_id,l.city FROM office_standing_assignments a
+    JOIN office_locations l ON l.id=a.office_location_id AND l.is_active=1 WHERE a.is_active=1 AND a.booking_agency_id=?`,[agencyId]);
+  locations.push(...assigned);
+  const [applicationBases]=await pool.execute(`SELECT v.user_id,JSON_UNQUOTE(v.value) AS location FROM user_info_values v
+    JOIN user_info_field_definitions d ON d.id=v.field_definition_id JOIN user_agencies ua ON ua.user_id=v.user_id AND ua.agency_id=?
+    WHERE d.field_key IN ('provider_work_location','provider_location_selection','work_location') ORDER BY v.updated_at DESC,v.id DESC`,[agencyId]);
+  for(const person of staff)if(!person.work_location)person.work_location=applicationBases.find(x=>Number(x.user_id)===Number(person.id)&&/Denver|Colorado Springs|Windchime/i.test(x.location||''))?.location?.replace(/Windchime/ig,'Windchime / Colorado Springs');
+  const unresolved=staff.filter(person=>!person.work_location&&!locations.some(l=>Number(l.user_id)===Number(person.id)));
+  if(unresolved.length){
+    const [applications]=await pool.execute(`SELECT s.id,s.guardian_user_id FROM intake_submissions s JOIN intake_links l ON l.id=s.intake_link_id
+      WHERE l.organization_id=? AND l.form_type='job_application' AND s.status IN ('submitted','completed','approved')
+      AND s.guardian_user_id IN (${unresolved.map(()=>'?').join(',')}) ORDER BY s.id DESC`,[agencyId,...unresolved.map(s=>s.id)]);
+    const {default:IntakeSubmission}=await import('../models/IntakeSubmission.model.js');
+    const checked=new Set();
+    for(const row of applications){if(checked.has(Number(row.guardian_user_id)))continue;checked.add(Number(row.guardian_user_id));
+      const submission=await IntakeSubmission.findById(row.id);const person=unresolved.find(s=>Number(s.id)===Number(row.guardian_user_id));
+      if(person)person.work_location=applicationWorkBase(submission?.intake_data);
+    }
+  }
   return staff.map(s=>({...s,startDate:staffStartDate(s),departureDate:s.terminated_at instanceof Date?s.terminated_at.toISOString().slice(0,10):String(s.terminated_at||'').slice(0,10),bases:[...new Set(locations.filter(l=>Number(l.user_id)===Number(s.id)&&['Denver','Colorado Springs'].includes(l.city)).map(l=>l.city))]}));
 }
 // Markers keep the editable prose intact while refreshing identity photos and dates.

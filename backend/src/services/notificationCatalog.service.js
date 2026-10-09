@@ -452,6 +452,12 @@ const SMS_CAPABLE = new Set([
   'school_provider_slot_verification_requested'
 ]);
 
+const EMAIL_CAPABLE = new Set([
+  ...SMS_CAPABLE, 'emergency_broadcast','password_changed','temp_password_expired',
+  'supervision_session_scheduled','team_meeting_scheduled','supervision_presenter_reminder',
+  'training_assigned','training_due_soon','company_event_message','custom_task_assigned',
+  'support_ticket_forwarded_to_provider','voicemail_received','chat_message'
+]);
 const PUSH_CAPABLE = new Set([
   ...SMS_CAPABLE,
   'new_packet_uploaded', 'hiring_task_assigned', 'task_comment_mention',
@@ -490,7 +496,7 @@ for (const [category, types] of Object.entries(TYPES_BY_CATEGORY)) {
         sound: true,
         digest: true,
         push: PUSH_CAPABLE.has(type),
-        email: true,
+        email: EMAIL_CAPABLE.has(type),
         sms: SMS_CAPABLE.has(type)
       }),
       defaults: Object.freeze({

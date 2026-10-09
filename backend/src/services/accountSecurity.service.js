@@ -153,3 +153,22 @@ export async function forgetDevice(req, deviceId) {
     return { forgotten: result.affectedRows > 0, mirror: await recordSecurityAction(db, req, 'mfa_device_forgotten', { deviceId }) };
   });
 }
+
+// Prepare an SSO account for a later app-only rollout. Never replaces a password
+// and never treats a Provider Update bearer link as account authentication.
+export async function initializeSignInPassword(req){
+ requireAccountSession(req);await primaryProof(req,req.body?.password);
+ const state=await accountSecurityState(req);
+ if((state.enabled||state.passkeyEnabled)&&!state.verified&&!state.ssoAuthenticated)throw securityError('MFA_REQUIRED','Verify your account before setting its password.',403);
+ const {validatePasswordStrength}=await import('../utils/passwordValidation.js');
+ const checked=await validatePasswordStrength(req.body?.newPassword,{accountId:req.user.email});
+ if(!checked.valid)throw securityError('INVALID_PASSWORD',checked.message,400);
+ const hash=await bcrypt.hash(req.body.newPassword,12);
+ await transaction(async db=>{
+  const [[user]]=await db.execute('SELECT password_hash FROM users WHERE id=? FOR UPDATE',[req.user.id]);
+  if(!user||user.password_hash)throw securityError('PASSWORD_ALREADY_SET','A password is already set. Use Change password to replace it.',409);
+  await db.execute('UPDATE users SET password_hash=?,password_changed_at=UTC_TIMESTAMP() WHERE id=? AND password_hash IS NULL',[hash,req.user.id]);
+  return {mirror:await recordSecurityAction(db,req,'initial_sign_in_password_created')};
+ });
+ return {saved:true};
+}

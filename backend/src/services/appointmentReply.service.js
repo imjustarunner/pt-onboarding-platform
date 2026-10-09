@@ -111,7 +111,7 @@ async function notifyProviderInApp(appt, title, message) {
       message,
       relatedEntityType: 'appointment',
       relatedEntityId: appt.id
-    });
+    },{context:{appointmentReply:{intent:appt.staffReplyIntent,startAt:appt.startAt,timeZone:appt.timezone||'America/Denver',applied:title==='Client canceled appointment'}}});
   } catch {
     /* optional */
   }
@@ -151,6 +151,7 @@ export async function applyAppointmentReply({
     ]
   );
   const reviewId = Number(ins.insertId);
+  appt.staffReplyIntent=intent;
 
   await logCommunication({
     appointmentId: appt.id,
@@ -319,6 +320,7 @@ export async function escalateUnknownAppointmentReply({
     ]
   );
   const reviewId = Number(ins.insertId);
+  appt.staffReplyIntent=intent;
 
   await logCommunication({
     appointmentId: appt.id,

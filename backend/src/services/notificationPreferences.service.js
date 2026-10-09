@@ -88,8 +88,9 @@ export function resolveNotificationTypePreference(type, context) {
     lockReason = 'Notification preferences are managed by the agency';
   }
 
-  const capabilities = entry.capabilities;
   const staffChoices=legacyCategories[staffCommunicationKey(context?.agencyId)];
+  const consented=staffChoices?.choices?.[staffNotificationKind(type)]===true;
+  const capabilities = {...entry.capabilities,sms:entry.capabilities.sms && consented};
   const roleDefault = (channel) => type==='client_exchange_match' && ['email','sms'].includes(channel) ? false : channel === 'sms' && staffChoices ? staffChoices.choices?.[staffNotificationKind(type)] === true : essentialForRole ? entry.defaults[channel] : false;
   const effective = {
     inApp,
@@ -128,6 +129,7 @@ export function resolveNotificationTypePreference(type, context) {
   }
   return {
     ...entry,
+    capabilities,
     override,
     effective,
     locked,

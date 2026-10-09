@@ -40,9 +40,9 @@ export const PROVIDER_UPDATE_SECTIONS = [
   },
   {
     key: 'pin',
-    title: 'Quick View — Six-digit PIN',
-    shortTitle: 'Quick View',
-    description: 'Create your six-digit Quick View code here if you have not set one. This step is hidden when a code already exists.',
+    title: 'Security and passwords',
+    shortTitle: 'Security',
+    description: 'Review app sign-in, optional passkeys, and your six-digit Quick View code.',
     checklist: ['Create a missing six-digit code', 'Store your new code safely'],
     mode: 'set_confirm_update',
     icon: 'pin',

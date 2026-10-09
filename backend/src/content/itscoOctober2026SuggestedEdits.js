@@ -118,8 +118,8 @@ export const itscoSuggestedTopicEdits = {
     ]) + p('Forwarding client information to personal email remains prohibited.')
   },
   quick_view: {
-    title: 'Quick View · set up one-touch access on your phone',
-    body: p('Set up Quick View on your mobile device for fast access during the workday:') + '<h3>Add to Home Screen</h3>' + list([
+    title: 'Security and passwords · Quick View on your phone',
+    body: p('Use Security and passwords in this Provider Update to prepare your app sign-in password, an optional passkey, and your Quick View code. Password and passkey changes require your own verified account session. Preparing them does not turn off Google SSO.') + p('Set up Quick View on your mobile device for fast access during the workday:') + '<h3>Add to Home Screen</h3>' + list([
       '<strong>iOS (Safari):</strong> Tap Share → Add to Home Screen.',
       '<strong>Android (Chrome):</strong> Tap the menu (⋮) → Add to Home screen or Install app.'
     ]) + p('<strong>Get your six-digit code:</strong> Create your passcode through the Provider Update or go to My Preferences → Privacy & Quick View. Existing passcodes will not be displayed or overwritten.') + list([

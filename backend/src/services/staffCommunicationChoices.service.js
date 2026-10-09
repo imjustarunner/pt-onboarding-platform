@@ -72,7 +72,7 @@ export async function getStaffCommunicationChoices({userId,agencyId}) {
   return {agencyId:Number(agencyId),disclosure:c.disclosure,disclosureHash:c.disclosureHash,phone:c.phone,
     choices:{...Object.fromEntries(STAFF_COMMUNICATION_CHOICES.map(x=>[x.key,false])),...c.state?.choices,...(typeof c.exchangeSms==='boolean'?{exchangeMatches:c.exchangeSms}:{})},
     answeredChoices:Object.keys(c.state?.choices||{}),
-    arrivalEmail:c.arrivalEmail,exchangeEmail:c.exchangeEmail,
+    arrivalEmail:c.arrivalEmail,exchangeEmail:c.exchangeEmail,appointmentReplyMode:c.state?.appointmentReplyMode||'all',
     accessRequests:c.state?.accessRequests||Object.fromEntries(STAFF_COMMUNICATION_REQUESTS.map(x=>[x.key,false])),
     reviewedAt:c.state?.reviewedAt||null,activation,
     needsReview:!c.state||c.state.disclosureHash!==c.disclosureHash||(Object.values(c.state.choices||{}).some(v=>v===true)&&c.state.phoneHash!==phoneFingerprint(c.phone)),
@@ -96,9 +96,9 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
     if(errors.length)throw fail(errors.join(' '));
     if(!isChatEncryptionConfigured())throw fail('Secure consent storage is unavailable. Nothing was saved.',503);
     const reviewedAt=new Date().toISOString(),reference=`staff_communications:${randomUUID()}`;
-    const signed={phone,choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,exchangeEmail:input.exchangeEmail,signerName:input.signerName.trim(),acknowledged:true,usageAcknowledged:true,agencyId:Number(agencyId),disclosure:c.disclosure,disclosureHash:c.disclosureHash,reviewedAt,source};
+    const signed={phone,choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,exchangeEmail:input.exchangeEmail,appointmentReplyMode:input.appointmentReplyMode||'all',signerName:input.signerName.trim(),acknowledged:true,usageAcknowledged:true,agencyId:Number(agencyId),disclosure:c.disclosure,disclosureHash:c.disclosureHash,reviewedAt,source};
     const envelope=encryptChatText(JSON.stringify(signed));
-    const state={staffAssistantVersion:STAFF_SMS_COMMAND_VERSION,choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,exchangeEmail:input.exchangeEmail,reviewedAt,phoneHash:phoneFingerprint(phone),disclosureHash:c.disclosureHash,reference,envelope,activation:[]};
+    const state={staffAssistantVersion:STAFF_SMS_COMMAND_VERSION,choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,exchangeEmail:input.exchangeEmail,appointmentReplyMode:input.appointmentReplyMode||'all',reviewedAt,phoneHash:phoneFingerprint(phone),disclosureHash:c.disclosureHash,reference,envelope,activation:[]};
     await connection.beginTransaction();
     const evidenceId=await appendSecurityEvidence({requestId:randomUUID(),phase:'completed',userId,method:'PUT',route:'/staff-communication-choices',clientIp:null,ipSource:'not_collected',peerIp:null,
       action:'staff_communication_choices_signed',outcome:'success',statusCode:200,details:{agencyId:Number(agencyId),reference,envelope}},connection,{mirror:false});

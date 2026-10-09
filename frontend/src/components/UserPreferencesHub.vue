@@ -2,6 +2,8 @@
   <div class="preferences-content">
     <nav class="prefs-toc" aria-label="Settings sections">
       <router-link v-if="Number(props.userId) === Number(authStore.user?.id)" to="/account-security">Two-step verification & sign-ins</router-link>
+      <a href="#prefs-enrollment" @click.prevent="scrollToSection('prefs-enrollment')">Enrollment preferences</a>
+      <a href="#prefs-email" @click.prevent="scrollToSection('prefs-email')">Email settings</a>
       <a href="#prefs-notifications" @click.prevent="scrollToSection('prefs-notifications')">Notifications</a>
       <a href="#prefs-availability" @click.prevent="scrollToSection('prefs-availability')">Schedule</a>
       <a href="#prefs-communication" @click.prevent="scrollToSection('prefs-communication')">Support assist</a>
@@ -16,6 +18,8 @@
       >Summit danger zone</a>
     </nav>
 
+    <section v-if="isOwnAccount && !viewOnly && isWorkforceEmployeeRole" id="prefs-enrollment" class="preferences-section"><h2>Enrollment preferences</h2><p>Choose the communication programs you join. Notifications below can use email or SMS only when the type supports that channel and your enrollment permits it.</p><StaffCommunicationChoices /></section>
+    <section v-if="isOwnAccount && !viewOnly" id="prefs-email" class="preferences-section"><EmailSignatureNote /></section>
     <!-- Section 1: Notification Preferences -->
     <section id="prefs-notifications" class="preferences-section">
       <div class="section-header">
@@ -37,7 +41,7 @@
 
         <div v-else class="prefs-grid">
           <div id="notification-delivery-matrix" class="card notification-type-settings-card">
-            <NotificationTypeSettingsPanel :global-editable="!notificationDisabled" @changed="onNotificationPanelChanged" />
+            <NotificationTypeSettingsPanel :agency-id="agencyStore.currentAgency?.id" :global-editable="!notificationDisabled" @changed="onNotificationPanelChanged" />
           </div>
 
           <div v-if="!notificationDisabled" class="card">
@@ -186,7 +190,7 @@
       </div>
     </section>
 
-    <StaffCommunicationChoices v-if="isOwnAccount && !viewOnly && isWorkforceEmployeeRole" />
+
     <PersonalMessageDeliverySettings v-if="isOwnAccount && !viewOnly" />
 
     <!-- Section 2: Availability & Work Style -->
@@ -898,6 +902,7 @@
 </template>
 
 <script setup>
+import EmailSignatureNote from './communications/EmailSignatureNote.vue';
 import StaffCommunicationChoices from './communications/StaffCommunicationChoices.vue';
 import { canAccessMedicalBilling } from '../config/medicalBillingAccess.js';
 const canSeeClaimBillingPreferences = computed(() => canAccessMedicalBilling(authStore.user, agencyStore.currentAgency?.id));

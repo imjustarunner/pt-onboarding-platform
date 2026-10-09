@@ -25,7 +25,7 @@ const overlaps = (a,b) => Date.parse(a.startAt) < Date.parse(b.endAt) && Date.pa
 export function virtualOpening(input, timeZone) {
   const date = calendarDate(input.date), startTime = String(input.startTime || '');
   if (!/^(?:[01]\d|2[0-2]):[0-5]\d$/.test(startTime)) throw fail('Choose a start time before 11 PM for your one-hour opening.');
-  if (!['WEEKLY','BIWEEKLY','MONTHLY'].includes(input.frequency)) throw fail('Choose weekly, every other week, or monthly recurring availability.');
+  if (!['WEEKLY','BIWEEKLY','EVERY_4_WEEKS'].includes(input.frequency)) throw fail('Choose weekly, every other week, or every four weeks recurring availability.');
   const endTime = String(Number(startTime.slice(0,2)) + 1).padStart(2,'0') + startTime.slice(2);
   const startAt = wallMysqlToUtcMysql(`${date} ${startTime}:00`, timeZone).replace(' ','T')+'Z';
   const endAt = wallMysqlToUtcMysql(`${date} ${endTime}:00`, timeZone).replace(' ','T')+'Z';
@@ -66,12 +66,14 @@ export async function readUpdateCalendar(ids, {weekStart,previewOnly=false}={}) 
     const legacy=context.profile?.details?.[{IN_PERSON:'officeAvailability',VIRTUAL:'virtualAvailability',SCHOOL:'schoolAvailability'}[format]];
     return [format,context.policy?agencyIntakeStatus(context.policy,format):['accepting','waitlist','unavailable'].includes(legacy)?legacy:agencyIntakeStatus(context.preferences,format)];
   }));
-  return {...calendar,assignments,weekly,profileServices,preferences:{...context.preferences,intakeStatusByFormat},
+  const [offices]=await pool.execute(`SELECT DISTINCT l.id,l.name,l.city FROM office_locations l LEFT JOIN office_location_agencies a ON a.office_location_id=l.id WHERE l.is_active=1 AND (l.agency_id=? OR a.agency_id=?) ORDER BY l.name`,[ids.agencyId,ids.agencyId]);
+  return {offices,...calendar,assignments,weekly,profileServices,preferences:{...context.preferences,intakeStatusByFormat},
     canEdit:!previewOnly && Number(sourceId)===Number(ids.agencyId) && context.preferences.seesClients,
     previewOnly, today, agency:agencies[0][0], provider:{id:ids.providerId,...people[0][0]}};
 }
 export async function addUpdateVirtualOpening(ids, input) {
-  await writableContext(ids,'VIRTUAL');
+  const context=await writableContext(ids);
+  if(!agencyFormatAllowed(context.policy,'VIRTUAL') && input.enableVirtualOpen!==true)throw fail('Confirm that virtual appointments should be Open before publishing.',409);
   const timeZone = await Availability.resolveAgencyTimeZone(ids);
   const opening = virtualOpening(input,timeZone);
   const calendar = await Availability.computeWeekAvailability({...ids,weekStartYmd:opening.date,intakeOnly:true,includePrivateCalendar:true,materializeOfficeEvents:false});
@@ -89,6 +91,10 @@ export async function addUpdateVirtualOpening(ids, input) {
       (agency_id,provider_id,day_of_week,start_time,end_time,session_type,available_for_intake,available_for_session,frequency,start_date,end_date,purpose,excluded_dates_json,care_types_json)
       VALUES (?,?,?,?,?,'BOTH',1,1,?,?,?,?, '[]',NULL)`,
       [ids.agencyId,ids.providerId,opening.dayOfWeek,opening.startTime,opening.endTime,opening.frequency,opening.date,opening.frequency==='ONCE'?opening.date:null,opening.frequency==='ONCE'?'INTAKE':'ONGOING']);
+    if(input.enableVirtualOpen===true){
+      const p=context.preferences;
+      await saveAgencyAvailability(db,{...ids,actor:{id:ids.providerId,role:'provider'},body:{...p,virtual:true,acceptingNewClients:true,intakeStatusByFormat:{IN_PERSON:agencyIntakeStatus(p,'IN_PERSON'),VIRTUAL:'accepting',SCHOOL:agencyIntakeStatus(p,'SCHOOL')},applyToAll:false}});
+    }
     await db.commit();
     return {ok:true,id:result.insertId};
   } catch(e) {await db.rollback();throw e;} finally {db.release();}
@@ -102,7 +108,7 @@ export async function closeUpdateVirtualOpening(ids, {id,date,scope}) {
   return editAvailabilityPublication({...ids,kind:'weekly',id:Number(id),action:'delete',scope,occurrenceDate:date});
 }
 export async function openUpdateOfficeHours(ids,{eventId,assignmentId,inPerson,virtual,frequency='WEEKLY'}) {
-  if(!['WEEKLY','BIWEEKLY','MONTHLY'].includes(frequency))throw fail('Choose recurring office availability: weekly, every other week, or monthly.');
+  if(!['WEEKLY','BIWEEKLY','EVERY_4_WEEKS'].includes(frequency))throw fail('Choose recurring office availability: weekly, every other week, or every four weeks.');
   const {policy} = await writableContext(ids);
   if (typeof inPerson!=='boolean'||typeof virtual!=='boolean') throw fail('Choose the formats to publish.');
   if ((inPerson&&!agencyFormatAllowed(policy,'IN_PERSON'))||(virtual&&!agencyFormatAllowed(policy,'VIRTUAL'))) throw fail('Enable the selected formats and accepting new clients in your profile availability settings first.',409);

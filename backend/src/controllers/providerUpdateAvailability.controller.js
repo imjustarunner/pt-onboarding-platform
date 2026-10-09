@@ -12,7 +12,7 @@ export async function updateAvailability(req,res,next) {
     if(recipient.previewOnly)throw Object.assign(new Error('This preview is read-only.'),{status:403});
     const body=req.body||{};
     const actions={
-      virtual:()=>addUpdateVirtualOpening(ids,{date:body.date,startTime:body.startTime,frequency:body.frequency}),
+      virtual:()=>addUpdateVirtualOpening(ids,{date:body.date,startTime:body.startTime,frequency:body.frequency,...(body.enableVirtualOpen===true?{enableVirtualOpen:true}:{})}),
       close:()=>closeUpdateVirtualOpening(ids,{id:body.id,date:body.date,scope:body.scope}),
       office:()=>openUpdateOfficeHours(ids,{eventId:body.eventId,assignmentId:body.assignmentId,frequency:body.frequency,inPerson:body.inPerson,virtual:body.virtual}),
       settings:()=>saveUpdateAvailabilitySettings(ids,{acceptingNewClients:body.acceptingNewClients,inPerson:body.inPerson,virtual:body.virtual,inPersonStatus:body.inPersonStatus,virtualStatus:body.virtualStatus})

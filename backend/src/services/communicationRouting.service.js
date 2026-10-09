@@ -373,6 +373,8 @@ export async function resolveInboundRoute({ toNumber, fromNumber }) {
   if (ownerUser?.id && ownerType === 'staff' && agencyId) {
     const availableCaregivers = [];
     for (const id of eligibleUserIds.length ? eligibleUserIds : [ownerUser.id]) {
+      const [[choiceRow]]=await pool.execute("SELECT JSON_EXTRACT(notification_categories,?) AS texting FROM user_preferences WHERE user_id=?",[`$.staff_communications_${Number(agencyId)}.accessRequests.inAppTexting`,id]);
+      if([false,0,'false'].includes(choiceRow?.texting)){coverageReason='texting_disabled';continue;}
       const onVacation = await VacationScheduleSyncService.isUserOnVacation(id, agencyId);
       const availability = await isUserAvailable(id, new Date(), { agencyId });
       if (onVacation || !availability.available) {

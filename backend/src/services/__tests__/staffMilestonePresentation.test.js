@@ -1,6 +1,6 @@
 import {it,expect,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
-import {staffStartDate,fillStaffMarkers} from '../staffMilestonePresentation.service.js';
+import {staffStartDate,fillStaffMarkers,applicationWorkBase} from '../staffMilestonePresentation.service.js';
 it('uses timeline start then legacy start then first client, never record creation',()=>{
  expect(staffStartDate({timeline_start_date:'2025-01-02',provider_start_date:'2024-01-01',first_client_date:'2023-01-01'})).toBe('2025-01-02');
  expect(staffStartDate({first_client_date:'2024-05-06',created_at:'2020-01-01'})).toBe('2024-05-06');
@@ -16,3 +16,5 @@ it('shows recorded position and base without inferring a missing location',()=>{
  expect(fillStaffMarkers('{{staff:1:position}} / {{staff:1:base}}',[{id:1,title:'Counselor',bases:['Denver']}])).toBe('Counselor / Denver');
  expect(fillStaffMarkers('{{staff:1:base}}',[{id:1}])).toBe('Base location to be confirmed');
 });
+
+it('uses application work-location answers, never the applicant home city',()=>{expect(applicationWorkBase({applicant:{home_city:'Denver'}})).toBe('');expect(applicationWorkBase({responses:{submission:{work_location:'Windchime'}}})).toBe('Windchime / Colorado Springs');expect(applicationWorkBase({application:{work_region:'Denver'}})).toBe('Denver');});

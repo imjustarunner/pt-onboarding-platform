@@ -119,7 +119,7 @@
                     </button>
                     <button v-else type="button" @click="restore(notification)">Restore</button>
                     <button type="button" @click="markTypeRead(notification.type)">Mark all {{ notification.catalog?.label || 'of this type' }} read</button>
-                    <button v-if="!notification.catalog?.required" type="button" @click="muteType(notification)">Mute this type</button>
+                    <button v-if="!notification.catalog?.required" type="button" @click="muteType(notification)">Disable this type of in-app notification</button>
                     <button type="button" @click="openSettings(notification.type)">Manage this notification type</button>
                     <button v-if="role === 'super_admin'" type="button" @click="overflowId = null; openDetail(notification)">View full details</button>
                   </div>

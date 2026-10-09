@@ -26,7 +26,7 @@ export function octoberAdminTopics({staff=[],schools=[]}={}) {
   {key:'supervision',icon:'cap',...itscoSuggestedTopicEdits.supervision},
   {key:'availability_profiles',icon:'calendar',...itscoSuggestedTopicEdits.availability_profiles},
   {key:'communication_rollout',icon:'chat',...itscoSuggestedTopicEdits.communication_rollout},
-  {key:'private_virtual_rooms',icon:'spark',...itscoSuggestedTopicEdits.private_virtual_rooms},
+  {key:'private_virtual_rooms',enabled:false,icon:'spark',...itscoSuggestedTopicEdits.private_virtual_rooms},
   {key:'therapynotes_transition',icon:'target',...itscoSuggestedTopicEdits.therapynotes_transition},
   {key:'google_transition',icon:'gear',...itscoSuggestedTopicEdits.google_transition},
   {key:'quick_view',icon:'lightbulb',...itscoSuggestedTopicEdits.quick_view},

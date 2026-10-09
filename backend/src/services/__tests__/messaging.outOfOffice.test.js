@@ -51,7 +51,7 @@ it('does not repeat an offer for a carrier retry', async () => {
 });
 it.each(['Y','YES','N','No','Can you help?'])('does not forward without acceptance: %s', async body => {
  expect(await handleOutOfOfficeSupportReply({...incoming,body})).toBe(false);
- expect(pool.getConnection).not.toHaveBeenCalled();
+ expect(db.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO support_tickets'))).toBe(false);
 });
 it.each(['SUPPORT','support',' SUPPORT '])('creates a ticket and consent evidence for %s', async body => {
  expect(await handleOutOfOfficeSupportReply({...incoming,body})).toBe(true);
@@ -97,3 +97,6 @@ it('retains the queued request when alert dispatch fails', async () => {
  expect(db.commit).toHaveBeenCalled();
  expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({body:expect.stringContaining('does not confirm someone has read it')}));
 });
+
+it('accepts YES only for the disabled-texting support offer',async()=>{offer.metadata.textingDisabled=true;expect(await handleOutOfOfficeSupportReply({...incoming,body:'YES'})).toBe(true);expect(db.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO support_tickets'))).toBe(true);});
+it('NO declines disabled-texting forwarding without changing an appointment or creating a ticket',async()=>{offer.metadata.textingDisabled=true;expect(await handleOutOfOfficeSupportReply({...incoming,body:'NO'})).toBe(true);expect(db.execute.mock.calls.some(([sql])=>sql.includes('INSERT INTO support_tickets'))).toBe(false);expect(Vonage.sendSms).not.toHaveBeenCalled();});

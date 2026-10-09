@@ -7,6 +7,7 @@
     :user-role-label="userRoleLabel"
     @select-section="$emit('select-section', $event)"
   >
+    <ProviderOpeningNotice v-if="canManageOwnAvailability" :provider-id="userId" :agency-id="agencyId" @open="$emit('select-section','availability')" />
     <div data-profile-my-section="account" v-show="activeSection === 'account'" class="acct-hub__pane">
       <AccountInfoView />
       <ProviderBillingSettings v-if="canSetOwnRates" :agency-id="agencyId" :provider-id="userId" />
@@ -55,7 +56,7 @@
       <ProviderAvailabilitySettings :provider-id="Number(userId)" :agency-id="Number(agencyId)" />
       <details><summary>Add or edit my virtual openings</summary><VirtualWorkingHoursEditor :provider-id="Number(userId)" :agency-id="Number(agencyId)" /></details>
     </section>
-    <div data-profile-my-section="preferences" v-show="activeSection === 'preferences'" class="acct-hub__pane">
+    <div data-profile-my-section="preferences" v-if="activeSection === 'preferences'" class="acct-hub__pane account-preferences-fullscreen" role="dialog" aria-modal="true" aria-label="Account settings" @keydown.esc="$emit('select-section','account')"><button class="account-preferences-close" type="button" @click="$emit('select-section','account')">Close account settings ✕</button>
       <UserPreferencesHub v-if="userId" :user-id="userId" :is-club-context="isClubContext" />
     </div>
     <div data-profile-my-section="support" v-show="activeSection === 'support'" class="acct-hub__pane">
@@ -66,6 +67,7 @@
 
 <script setup>
 import { computed } from 'vue';
+import ProviderOpeningNotice from '../availability/ProviderOpeningNotice.vue';
 import ProviderAvailabilitySettings from '../availability/ProviderAvailabilitySettings.vue';
 import VirtualWorkingHoursEditor from '../availability/VirtualWorkingHoursEditor.vue';
 import ProviderBillingSettings from '../admin/ProviderBillingSettings.vue';
@@ -176,3 +178,5 @@ const userRoleLabel = computed(() => {
   font-size: 14px;
 }
 </style>
+
+<style scoped>.account-preferences-fullscreen{position:fixed;inset:0;z-index:10000;background:var(--bg-primary,#fff);overflow:auto;padding:32px;box-sizing:border-box}.account-preferences-close{position:sticky;top:0;float:right;z-index:2;padding:12px 18px;background:#173b51;color:#fff;border:0;border-radius:8px;font:inherit}</style>

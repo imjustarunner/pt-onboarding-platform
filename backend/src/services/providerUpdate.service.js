@@ -794,7 +794,7 @@ export async function getRecipientBundle(recipient) {
     }
   }
 
-  if(quickViewSection?.data?.quickView?.hasPasscode) sectionList.splice(sectionList.indexOf(quickViewSection),1);
+  // Keep security setup visible; hide only the existing Quick View code controls.
   const amendmentSection=sectionList.find(s=>s.key==='amendments');
   if(amendmentSection&&!recipient.locked_at&&(!amendmentTasks.length||amendmentTasks.some(t=>t.status!=='completed')))amendmentSection.completed=false;
   const completedCount=sectionList.filter(s=>s.completed).length;

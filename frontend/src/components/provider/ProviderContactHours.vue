@@ -8,7 +8,7 @@
    <p><strong>Current setting:</strong> {{savedLabel}}. Time zone: {{schedule.timezone}}.</p>
    <p v-if="schedule.legacyQuietHours">An older quiet-hours rule is also active. Saving here replaces it with the contact hours below.</p>
    <fieldset :disabled="readonly||busy"><legend>Contact hours</legend>
-    <label><input v-model="schedule.mode" type="radio" value="default" /> Default: Monday–Friday, {{format(schedule.defaults.startTime)}}–{{format(schedule.defaults.endTime)}}; weekends off</label>
+    <label><input v-model="schedule.mode" type="radio" value="follow" /> Follow my saved availability settings: {{availabilityLabel}}</label>
     <label><input v-model="schedule.mode" type="radio" value="anytime" /> Anytime, any day</label>
     <label><input v-model="schedule.mode" type="radio" value="custom" /> Set my daily hours</label>
     <label>Time zone<input v-model="schedule.timezone" placeholder="America/Denver" /></label>
@@ -27,10 +27,10 @@
 <script setup>
 import {ref,onMounted} from 'vue';import api from '../../services/api';
 const props=defineProps({base:String,agencyId:[Number,String],readonly:Boolean});
-const schedule=ref(null),loading=ref(true),busy=ref(false),error=ref(''),notice=ref(''),savedLabel=ref('');let nextId=0;
+const schedule=ref(null),loading=ref(true),busy=ref(false),error=ref(''),notice=ref(''),savedLabel=ref(''),availabilityLabel=ref('');let nextId=0;
 const days=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const format=t=>{const [h,m]=String(t).split(':');return `${Number(h)%12||12}:${m} ${Number(h)<12?'AM':'PM'}`;};
-function hydrate(data){schedule.value={...data,blocks:data.blocks.map(b=>({...b,id:++nextId}))};savedLabel.value=data.mode==='anytime'?'Anytime':data.blocks.map(b=>`${days[b.dayOfWeek]} ${format(b.startTime)}–${format(b.endTime)}`).join('; ');}
+function hydrate(data){availabilityLabel.value=data.blocks.map(b=>`${days[b.dayOfWeek]} ${format(b.startTime)}–${format(b.endTime)}`).join('; ')||`Monday–Friday ${format(data.defaults.startTime)}–${format(data.defaults.endTime)}`;schedule.value={...data,mode:data.mode==='anytime'?'anytime':'follow',blocks:data.blocks.map(b=>({...b,id:++nextId}))};savedLabel.value=data.mode==='anytime'?'Anytime':data.blocks.map(b=>`${days[b.dayOfWeek]} ${format(b.startTime)}–${format(b.endTime)}`).join('; ');}
 onMounted(async()=>{try{hydrate((await api.get(`${props.base}/contact-hours`,{params:{agencyId:props.agencyId}})).data);}catch(e){error.value=e.response?.data?.error?.message||'Unable to load contact hours.';}finally{loading.value=false;}});
 async function save(){if(props.readonly)return;busy.value=true;error.value='';notice.value='';try{hydrate((await api.put(`${props.base}/contact-hours`,{...schedule.value,agencyId:props.agencyId})).data);notice.value='Contact hours saved.';}catch(e){error.value=e.response?.data?.error?.message||'Unable to save contact hours.';}finally{busy.value=false;}}
 </script>

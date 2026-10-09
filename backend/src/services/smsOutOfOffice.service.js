@@ -47,8 +47,8 @@ export async function offerOutOfOfficeSupport({ route, from, to, body, messageId
     AND JSON_EXTRACT(metadata, '$.supportChoiceTicketId') IS NULL LIMIT 1`, [agencyId, numberId, clientId, to, from]);
   if (recent.length) return;
   try {
-    await sendLogged({ agencyId, numberId, clientId, userId, from: to, to: from, body: `${OUT_OF_OFFICE_SMS} ${communicationRulesNotice(await Agency.findById(agencyId) || {})} Reply STOP to opt out.`,
-      metadata: { provider: 'vonage', supportChoiceOffer: true, triggerInboundId: inbound.id } });
+    await sendLogged({ agencyId, numberId, clientId, userId, from: to, to: from, body: `${route.coverageReason==='texting_disabled'?`Your assigned provider(s) have client-text alerts turned off. Would you like this message forwarded to support? Reply YES or SUPPORT, or NO to leave it in the app. Support response times depend on staff availability. ${SMS_CRISIS_NOTICE}`:OUT_OF_OFFICE_SMS} ${communicationRulesNotice(await Agency.findById(agencyId) || {})} Reply STOP to opt out.`,
+      metadata: { provider: 'vonage', supportChoiceOffer: true, textingDisabled:route.coverageReason==='texting_disabled', triggerInboundId: inbound.id } });
   } catch (error) {
     // Preserve the client's original message even if consent or carrier delivery blocks the offer.
     console.warn('[smsOOO] Offer not sent:', error.code || 'sms_send_failed');
@@ -57,7 +57,8 @@ export async function offerOutOfOfficeSupport({ route, from, to, body, messageId
 
 export async function handleOutOfOfficeSupportReply({ agencyId, numberId, clientId, from, to, body, messageId }) {
   if (!agencyId || !numberId || !clientId) return false;
-  if (String(body || '').trim().toUpperCase() !== 'SUPPORT') return false;
+  const command=String(body||'').trim().toUpperCase();
+  if(!['SUPPORT','YES','NO'].includes(command))return false;
   const db = await pool.getConnection();
   let offer, ticketId;
   try {
@@ -70,6 +71,10 @@ export async function handleOutOfOfficeSupportReply({ agencyId, numberId, client
     offer = offers[0];
     if (!offer) { await db.rollback(); return false; }
     const metadata = typeof offer.metadata === 'string' ? JSON.parse(offer.metadata) : offer.metadata || {};
+    // YES/NO applies only to this explicit disabled-texting offer. Y/N remain
+    // appointment commands, so a reminder response can never forward a message.
+    if(command!=='SUPPORT'&&!metadata.textingDisabled){await db.rollback();return false;}
+    if(command==='NO'){await db.execute(`UPDATE message_logs SET metadata=JSON_SET(COALESCE(metadata,JSON_OBJECT()),'$.supportChoiceDeclinedAt',UTC_TIMESTAMP()) WHERE id=?`,[offer.id]);await db.commit();return true;}
     if (metadata.supportChoiceTicketId) {
       await db.rollback();
       return !!messageId && metadata.supportChoiceReplyId === messageId;

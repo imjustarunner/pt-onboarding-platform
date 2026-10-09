@@ -10,12 +10,12 @@ export async function getContactHours(userId){
  const saved=await UserWorkSchedule.getForUser(userId);
  const anytime=!schedule.enabled||[true,1,'1'].includes(prefs?.allow_notifications_outside_work_schedule);
  return {mode:anytime?'anytime':schedule.source==='default'?'default':'custom',timezone:saved?.timezone||schedule.timezone,
-  blocks:schedule.blocks.map(b=>({dayOfWeek:b.dayOfWeek,startTime:time(b.startMinutes),endTime:time(b.endMinutes)})),
+  blocks:schedule.blocks.length?schedule.blocks.map(b=>({dayOfWeek:b.dayOfWeek,startTime:time(b.startMinutes),endTime:time(b.endMinutes)})):(saved?.blocks||[]).map(b=>({dayOfWeek:Number(b.day_of_week),startTime:String(b.start_time).slice(0,5),endTime:String(b.end_time).slice(0,5)})),
   defaults:{days:DEFAULT_AVAILABILITY.days,startTime:time(DEFAULT_AVAILABILITY.startMinutes),endTime:time(DEFAULT_AVAILABILITY.endMinutes)},
   legacyQuietHours:!!prefs?.quiet_hours_enabled};
 }
 export function validateContactHours(input){
- const mode=input?.mode;if(!['default','custom','anytime'].includes(mode)||!isValidTimeZone(input?.timezone))throw Object.assign(new Error('Choose contact hours and a valid time zone.'),{status:400});
+ const mode=input?.mode;if(!['follow','default','custom','anytime'].includes(mode)||!isValidTimeZone(input?.timezone))throw Object.assign(new Error('Choose contact hours and a valid time zone.'),{status:400});
  const blocks=mode==='default'?DEFAULT_AVAILABILITY.days.map(dayOfWeek=>({dayOfWeek,startTime:time(DEFAULT_AVAILABILITY.startMinutes),endTime:time(DEFAULT_AVAILABILITY.endMinutes)})):mode==='anytime'?[]:input.blocks;
  if(!Array.isArray(blocks)||blocks.length>28||mode==='custom'&&!blocks.length)throw Object.assign(new Error('Add at least one contact window, or choose Anytime.'),{status:400});
  const seen=[];
@@ -23,8 +23,14 @@ export function validateContactHours(input){
  return {mode,timezone:input.timezone,blocks};
 }
 export async function saveContactHours(userId,input){
+ if(input?.mode==='follow'){
+  await pool.execute('UPDATE user_work_schedules SET is_active=1 WHERE user_id=? AND agency_id IS NULL',[userId]);
+  await UserPreferences.update(userId,{quiet_hours_enabled:false,allow_notifications_outside_work_schedule:false});
+  await pool.execute(`INSERT INTO user_communication_prefs(user_id,availability_hours_enabled) VALUES(?,1) ON DUPLICATE KEY UPDATE availability_hours_enabled=1`,[userId]);
+  return getContactHours(userId);
+ }
  const data=validateContactHours(input);
- await UserWorkSchedule.upsertForUser(userId,{timezone:data.timezone,isActive:data.mode!=='anytime',blocks:data.mode==='default'?[]:data.blocks});
+ if(data.mode!=='anytime')await UserWorkSchedule.upsertForUser(userId,{timezone:data.timezone,isActive:data.mode!=='anytime',blocks:data.mode==='default'?[]:data.blocks});
  // This form replaces older quiet-window rules, without changing channel consent.
  await UserPreferences.update(userId,{quiet_hours_enabled:false,allow_notifications_outside_work_schedule:data.mode==='anytime'});
  await pool.execute(`INSERT INTO user_communication_prefs(user_id,availability_hours_enabled) VALUES(?,?) ON DUPLICATE KEY UPDATE availability_hours_enabled=VALUES(availability_hours_enabled)`,[userId,data.mode==='anytime'?0:1]);

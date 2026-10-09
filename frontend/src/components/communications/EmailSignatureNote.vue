@@ -1,0 +1,6 @@
+<template><section><h2>Email settings</h2><p>Optional: add a quote, pronouns, or contact instructions above your company signature. Your company signature remains in place. This is plain text, not HTML.</p><label>Additional signature text<textarea v-model="text" maxlength="2000" rows="5" /></label><button type="button" :disabled="busy" @click="save">Save email settings</button><p v-if="message" role="status">{{message}}</p><p v-if="error" role="alert">{{error}}</p></section></template>
+<script setup>
+import {ref,onMounted} from 'vue';import api from '../../services/api';const text=ref(''),message=ref(''),error=ref(''),busy=ref(false);
+onMounted(async()=>{try{text.value=(await api.get('/users/me/email-signature-note')).data.text;}catch{error.value='Unable to load email settings.';}});
+async function save(){busy.value=true;error.value='';try{text.value=(await api.put('/users/me/email-signature-note',{text:text.value})).data.text;message.value='Email settings saved.';}catch(e){error.value=e.response?.data?.error?.message||'Unable to save email settings.';}finally{busy.value=false;}}
+</script><style scoped>section{display:grid;gap:12px}textarea{display:block;width:100%;max-width:800px;padding:12px;box-sizing:border-box;font:inherit}button{width:fit-content;padding:10px 16px}</style>

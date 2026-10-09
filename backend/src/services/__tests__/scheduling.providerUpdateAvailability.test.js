@@ -49,3 +49,10 @@ it('refuses publishing into a closed or waitlisted format even while another for
  m.profile.mockResolvedValue({agencyAvailability:{seesClients:true,scheduleAgencyId:2,inPerson:true,virtual:true,acceptingNewClients:true,intakeStatusByFormat:{IN_PERSON:'accepting',VIRTUAL:'waitlist'}}});
  await expect(addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'WEEKLY'})).rejects.toMatchObject({status:409});expect(m.connection).not.toHaveBeenCalled();
 });
+it('explicitly opening virtual appointments publishes a four-week slot and opens only that format atomically',async()=>{
+ m.profile.mockResolvedValue({agencyAvailability:{seesClients:true,scheduleAgencyId:2,inPerson:true,virtual:false,acceptingNewClients:false,intakeStatusByFormat:{IN_PERSON:'waitlist',VIRTUAL:'unavailable',SCHOOL:'unavailable'}}});
+ await addUpdateVirtualOpening(ids,{date:'2026-10-12',startTime:'09:00',frequency:'EVERY_4_WEEKS',enableVirtualOpen:true});
+ expect(db.execute.mock.calls.find(([sql])=>sql.startsWith('INSERT'))[1][5]).toBe('EVERY_4_WEEKS');
+ expect(m.save).toHaveBeenCalledWith(db,expect.objectContaining({body:expect.objectContaining({virtual:true,acceptingNewClients:true,applyToAll:false,intakeStatusByFormat:{IN_PERSON:'waitlist',VIRTUAL:'accepting',SCHOOL:'unavailable'}})}));
+ expect(db.commit).toHaveBeenCalledOnce();
+});

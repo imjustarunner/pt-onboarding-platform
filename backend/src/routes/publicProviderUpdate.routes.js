@@ -1,3 +1,4 @@
+import {updateRoomRequest} from '../controllers/providerUpdateRoomRequest.controller.js';
 import {helpUpload,submitUpdateHelp} from '../controllers/providerUpdateHelp.controller.js';
 import {getAmendment,amendmentSigning} from '../controllers/providerUpdateAmendmentReview.controller.js';
 import {updateAvailability} from '../controllers/providerUpdateAvailability.controller.js';
@@ -46,5 +47,8 @@ router.get('/:token/availability-calendar',updateAvailability);
 router.post('/:token/availability-calendar/:action',updateAvailability);
 
 router.post('/:token/help-ticket',helpUpload.array('screenshots',3),submitUpdateHelp);
+
+router.get('/:token/availability-rooms',updateRoomRequest);
+router.post('/:token/availability-rooms',updateRoomRequest);
 
 export default router;

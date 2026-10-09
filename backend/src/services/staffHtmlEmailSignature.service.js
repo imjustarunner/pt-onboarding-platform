@@ -1048,6 +1048,8 @@ export async function appendStaffHtmlSignature({
   if (!ctx) return { text, html, appended: false };
   if (!force && (!ctx.eligible || !ctx.enabled)) return { text, html, appended: false, ctx };
 
+  const [[noteRow]]=await pool.execute("SELECT JSON_UNQUOTE(JSON_EXTRACT(notification_categories,'$.email_signature_note')) AS text FROM user_preferences WHERE user_id=?",[userId]);
+  const personalNote=String(noteRow?.text||'').slice(0,2000);
   const block = buildStaffSignatureHtml({
     ...ctx,
     misdirectedReportUrl: misdirectedReportUrl || ctx.misdirectedReportUrl || null
@@ -1068,7 +1070,7 @@ export async function appendStaffHtmlSignature({
       .map((line) => `<p style="margin:0 0 10px;">${escapeHtml(line || '').trim() || '&nbsp;'}</p>`)
       .join('')}</div>`;
   // Space above pulls the card down toward the green footer; keep left, not full-bleed.
-  const htmlOut = `${String(bodyHtml)}\n${marker}\n<div data-pt-staff-signature="1" style="margin:36px 0 0;padding:0 0 2px;background:#ffffff;text-align:left;">${block}</div><div style="clear:both;height:0;font-size:0;line-height:0;">&nbsp;</div>`;
-  const textOut = `${String(text || '').trim()}\n\n--\n${textBlock}`.trim();
+  const htmlOut = `${String(bodyHtml)}\n${marker}\n<div data-pt-staff-signature="1" style="margin:36px 0 0;padding:0 0 2px;background:#ffffff;text-align:left;">${personalNote?`<div style="margin-bottom:14px;white-space:pre-wrap;color:#263544">${escapeHtml(personalNote)}</div>`:''}${block}</div><div style="clear:both;height:0;font-size:0;line-height:0;">&nbsp;</div>`;
+  const textOut = `${String(text || '').trim()}\n\n--\n${personalNote?personalNote+'\n\n':''}${textBlock}`.trim();
   return { text: textOut, html: htmlOut, appended: true, ctx };
 }

@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import config from '../config/config.js';
-import { accountSecurityState, beginAuthenticator, verifyAuthenticator, forgetDevice, requireAccountSession, DEVICE_COOKIE } from '../services/accountSecurity.service.js';
+import { accountSecurityState, beginAuthenticator, verifyAuthenticator, forgetDevice, requireAccountSession, DEVICE_COOKIE,initializeSignInPassword } from '../services/accountSecurity.service.js';
 import { personalSessions } from '../services/personalSessionHistory.service.js';
 import { appendSecurityEvidence, mirrorSecurityEvidence } from '../services/securityEvidence.service.js';
 import { sessionReference } from '../utils/securityEvidence.js';
@@ -61,3 +61,9 @@ export const endSession = handle(async (req, res) => {
     res.json({ ended: result.affectedRows > 0, current: reference === sessionReference(req.user.sessionId) });
   } catch (error) { await db.rollback(); throw error; } finally { db.release(); }
 });
+
+export const signInPasswordState=handle(async(req,res)=>{
+ const [[user]]=await pool.execute('SELECT password_hash IS NOT NULL AS has_password FROM users WHERE id=?',[req.user.id]);
+ res.json({hasPassword:!!user?.has_password});
+});
+export const setInitialSignInPassword=handle(async(req,res)=>res.json(await initializeSignInPassword(req)));
