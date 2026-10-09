@@ -4,7 +4,8 @@ const p=t=>`<p>${t}</p>`;
 const list=items=>`<ul>${items.map(t=>`<li>${t}</li>`).join('')}</ul>`;
 const app='https://app.itsco.health';
 export const UPDATE_PALETTE=['#326b57','#315f8c','#7352a0','#a05528','#287d86','#96506d','#56682f','#6655a0'];
-export const spanishIntakeProcedure=itscoSuggestedTopicEdits.spanish_intake.body;
+// Shared updater/handbook copy must not direct another agency to ITSCO.
+export const spanishIntakeProcedure=itscoSuggestedTopicEdits.spanish_intake.body.replace(/ For ITSCO, use .*?both reach the same team\./,'');
 export const businessCards=p('You can print your own business-card fronts at the office. Card stock will be available with the QR-code backs already printed; follow the printer and alignment instructions kept with the cards. Use the current app-generated card and check your name, credential and public contact details before printing a batch.')+p('Open your public provider profile from the Provider Update to check the information and your shareable link. Use the current template and leave the preprinted QR side intact. Ask support about a missing or outdated profile; do not add a private care-texting number to the public card.');
 export const kioskTopic={key:'office_kiosk',icon:'spark',...itscoSuggestedTopicEdits.office_kiosk};
 const milestones=[['Megan Geil-Crader',1],['Gio',2],['Dayana',3],['Michael',4],['Aneta',2],['Pauli',3],['Tatainya',2],['Hannah',4],['Destiny',2],['Rachel',4],['Lindsey',1],['Haley Inyart',3],['Mia',1],['Gini',3],['Jacque',2],['Mariela',2],['Caitlyn',2],['Bobby',1],['Jade',2],['Liz',4]];
