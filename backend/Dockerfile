@@ -1,7 +1,8 @@
+# Pull Docker Official Images from ECR Public to avoid Docker Hub anonymous pull limits.
 # Multi-stage Dockerfile for Google Cloud Run
 # Stage 1: Build frontend
 # Use Node 18 to match repo engines (reduces CI inconsistencies).
-FROM node:18-alpine AS frontend-builder
+FROM public.ecr.aws/docker/library/node:18-alpine AS frontend-builder
 
 # Install and Build Frontend
 WORKDIR /app/frontend
@@ -58,7 +59,7 @@ RUN echo "=== Building frontend (vite) ===" && \
 WORKDIR /app
 
 # Stage 2: Backend with embedded frontend
-FROM node:22-alpine
+FROM public.ecr.aws/docker/library/node:22-alpine
 
 WORKDIR /app
 
