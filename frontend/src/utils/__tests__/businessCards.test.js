@@ -190,3 +190,5 @@ it('puts Candidate on a separate card line and suppresses ambiguous titles for U
  expect([...doc.querySelectorAll('tspan,text')].some(e=>e.textContent==='Candidate')).toBe(true);
  const unlicensed=cardSvg({...card,title:'Counselor',displayLabel:'Unlicensed Masters',candidate:false});expect(unlicensed).toContain('Unlicensed Masters');expect(unlicensed).not.toContain('>Counselor<');expect(unlicensed).not.toContain('>Candidate<');
 });
+
+it('defaults the QR back to the agency website and lets staff choose their saved public profile',()=>{const organization={website:'https://itsco.health',qrUrl:'https://old.example',backCaption:'Explore our website'};const person={profileUrl:'https://www.itsco.health/providers/test-1'};expect(resolveCard(person,organization).qrUrl).toBe('https://itsco.health');const card=resolveCard({...person,qrTarget:'profile'},organization);expect(card.qrUrl).toBe(person.profileUrl);expect(card.backCaption).toBe('Meet your provider');});

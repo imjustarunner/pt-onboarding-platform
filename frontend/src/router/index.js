@@ -366,6 +366,7 @@ const routes = [
     {path:`/p/${slug}/live-chat-support`,name:`LiveChatSupport-${slug}`,component:()=>import('../views/public/LiveChatSupportView.vue'),props:{agencySlug:slug},meta:{requiresGuest:false}}
   ]),
   { path: '/privacy-review', name: 'PrivacyReview', component: () => import('../components/ActivityProtectionPanel.vue'), props: { review: true }, meta: { requiresAuth: true, accountSecurity: true } },
+  { path: '/provider-update-security-verified', name: 'ProviderUpdateSecurityVerified', component: () => import('../views/public/ProviderUpdateSecurityVerifiedView.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   { path: '/account-security', name: 'AccountSecurity', component: () => import('../components/AccountSecurityPanel.vue'), meta: { requiresAuth: true, accountSecurity: true } },
   {path:'/billing/complete/:token?',name:'PaymentTask',component:()=>import('../views/PaymentTaskView.vue'),meta:{requiresAuth:true}},
   {path:'/:organizationSlug/admin/family-billing',name:'FamilyBillingDesk',component:()=>import('../views/admin/FamilyBillingDesk.vue'),meta:{requiresAuth:true,requiresRole:['admin','agency_admin','super_admin','support','staff','backoffice_admin']}},

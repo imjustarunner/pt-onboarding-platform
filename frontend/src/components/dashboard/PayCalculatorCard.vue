@@ -212,11 +212,11 @@
               <strong>${{ fmt(estimate.summary.tierBonusAmount) }}</strong>
             </div>
             <div v-if="estimate.summary.spanishBonusAmount > 0" class="pay-calc__sum-row">
-              <span>Spanish bonus</span>
+              <span>Spanish-language differential</span>
               <strong>${{ fmt(estimate.summary.spanishBonusAmount) }}</strong>
             </div>
             <div v-if="estimate.summary.locationBonusAmount > 0" class="pay-calc__sum-row">
-              <span>Location / Denver bonus</span>
+              <span>Denver location differential</span>
               <strong>${{ fmt(estimate.summary.locationBonusAmount) }}</strong>
             </div>
             <div class="pay-calc__sum-row pay-calc__sum-row--total">

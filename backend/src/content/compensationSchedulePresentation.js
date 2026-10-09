@@ -22,7 +22,7 @@ export function personalRateTable(s) {
     ['Indirect pay','per hour',s.indirectRate,s.indirectRateProbation ?? s.indirectRate],
     ['Support activities','per hour',s.supportRate,s.supportRateProbation ?? s.supportRate]
   ];
-  return '<table class="compensation-rates"><thead><tr><th scope="col">Pay type / basis</th><th scope="col">Regular base rate</th><th scope="col">Probationary rate</th><th scope="col">Minimum-workload rate</th></tr></thead><tbody>'+rows.map(([label,basis,regular,reduced])=>`<tr><th scope="row">${label}<br /><small>${basis}</small></th><td>${amount(regular)}</td><td>${amount(reduced)}</td><td>${amount(reduced)}</td></tr>`).join('')+'</tbody></table>';
+  return '<table class="compensation-rates"><thead><tr><th scope="col">Pay type / basis</th><th scope="col">Regular base rate</th><th scope="col">Probationary / minimum-workload rate</th></tr></thead><tbody>'+rows.map(([label,basis,regular,reduced])=>`<tr><th scope="row">${label}<br /><small>${basis}</small></th><td>${amount(regular)}</td><td>${amount(reduced)}</td></tr>`).join('')+'</tbody></table>';
 }
 
 export function categoryRateSchedule(rates, levels = []) {

@@ -1,4 +1,4 @@
-import QRCode from 'qrcode';
+import {profileQrLayout} from './providerProfileQr';
 import { safeLogo, safeColor, cardLogoMarkup } from './businessCards';
 const escape = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function cardQrUrl(organization) {
@@ -20,10 +20,10 @@ const darken = hex => {
 };
 export function cardBackSvg(card, fonts = {}, bleedInches = 0, bottomBleedInches = bleedInches) {
   const url = cardQrUrl(card);
-  const qr = QRCode.create(url, { errorCorrectionLevel: 'H' });
-  const n = qr.modules.size, module = 600 / (n + 8), start = 75 + 4 * module;
+  const {qr,n,from,size:centerSize}=profileQrLayout(url);
+  const module = 600 / (n + 8), start = 75 + 4 * module;
   const finder = (r,c) => (r < 7 && (c < 7 || c >= n-7)) || (r >= n-7 && c < 7);
-  const centerSize = Math.max(3, Math.floor(n * .24) | 1), from = Math.floor((n-centerSize)/2), to = from + centerSize;
+  const to = from + centerSize;
   let logo = safeLogo(card.watermarkLogo) || safeLogo(card.logo);
   for(let r=from;r<to;r++)for(let c=from;c<to;c++)if(qr.modules.isReserved(r,c))logo='';
   const dots=[];

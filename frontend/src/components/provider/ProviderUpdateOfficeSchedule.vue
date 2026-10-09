@@ -1,7 +1,7 @@
 <template>
  <div class="availability-review">
   <p v-if="view==='calendar'">Click a reserved office hour to make it OPEN for online booking—in person, virtually, or both. Click an empty calendar time to request a recurring room or make virtual appointments Open. A room request goes through the existing scheduling review; it does not schedule a client or meeting. Choose weekly, every other week, or every four weeks. Booked appointments and other commitments stay unavailable.</p>
-  <p v-if="readonly" class="notice">Read-only preview. You can browse weeks and open the public profile. Publishing is available through the provider’s own update link.</p>
+  <p v-if="readonly" class="notice">Preview: click calendar times and try the availability controls. Changes cannot be published from this preview; use the provider’s own update link to save.</p>
   <section v-if="calendar &amp;&amp; view==='settings'" class="settings">
    <h3>How new clients can connect with you</h3><p>Choose a status for each appointment format at {{calendar.agency?.name}}. Your profile stays listed when a format is Closed.</p>
    <fieldset :disabled="!canEdit||busy||loading">
@@ -33,13 +33,13 @@
    <div class="week-grid">
     <div class="time-column"><div class="day-heading">Time</div><div class="day-body" :style="{height:`${calendarHeight}px`}"><span v-for="hour in hours" :key="hour" class="hour-label" :style="{top:`${(hour-firstHour)*hourHeight}px`}">{{hour%12||12}} {{hour<12?'AM':'PM'}}</span></div></div>
     <section v-for="day in days" :key="day.date" class="day-column"><h4 class="day-heading" :class="{today:day.date===calendar.today}">{{day.label}}</h4>
-     <div class="day-body" :class="{'can-add':canEdit}" :style="{height:`${calendarHeight}px`}" @click.self="chooseCalendarTime($event,day.date)">
+     <div class="day-body" :class="{'can-add':canExplore}" :style="{height:`${calendarHeight}px`}" @click.self="chooseCalendarTime($event,day.date)">
       <span v-for="hour in hours" :key="hour" class="hour-line" :style="{top:`${(hour-firstHour)*hourHeight}px`}" />
       <button v-for="event in day.events" :key="event.key" type="button" class="calendar-event" :class="event.kind" :style="eventStyle(event,day.events)" :title="`${time(event.startAt)}–${time(event.endAt)} · ${event.label} · ${event.detail||''}`" @click.stop="selectEvent(event)">
        <strong>{{time(event.startAt)}}–{{time(event.endAt)}}</strong><span>{{event.label}}</span><small>{{event.detail}}</small>
       </button>
      </div>
-     <button type="button" class="day-add" v-if="canEdit" :disabled="busy||loading||day.date<calendar.today" @click="startOpening(day.date)">+ Available hour</button>
+     <button type="button" class="day-add" v-if="canExplore" :disabled="busy||loading||day.date<calendar.today" @click="startOpening(day.date)">+ Available hour</button>
     </section>
    </div>
   </div>
@@ -59,10 +59,10 @@
   </section>
   <section v-if="openingChoice!==null" ref="virtualPanel" class="edit-panel">
    <h3>What would you like to make available?</h3><div class="row"><button type="button" @click="openingChoice='room';rooms=[]">Request a recurring room</button><button type="button" @click="openingChoice='virtual'">Open virtual appointments</button><button type="button" @click="openingChoice=null">Cancel</button></div>
-   <template v-if="openingChoice==='room'"><p>Request a room for one hour, repeating weekly, every other week, or every four weeks. The room search checks the next six occurrences. Staff review the request before it becomes your office reservation.</p><fieldset :disabled="!canEdit||busy||loading"><div class="row"><label>Date<input v-model="opening.date" type="date" :min="calendar?.today" /></label><label>Start<input v-model="opening.startTime" type="time" /></label><label>Repeat<select v-model="opening.frequency"><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every other week</option><option value="EVERY_4_WEEKS">Every four weeks</option></select></label><label>Office<select v-model="requestLocation"><option value="">Choose an office</option><option v-for="office in calendar?.offices||[]" :key="office.id" :value="office.id">{{office.name}} · {{office.city}}</option></select></label></div><button type="button" @click="findRooms">Find available rooms</button><label v-if="rooms.length">Room<select v-model="requestRoom"><option value="">Choose a room</option><option v-for="room in rooms" :key="room.id" :value="room.id">{{room.label||room.name}}</option></select></label><p v-if="roomsChecked && !rooms.length">No rooms are available for that pattern. Try another office or time.</p><button v-if="rooms.length" type="button" class="primary" @click="requestOffice">Submit room request</button></fieldset></template>
+   <template v-if="openingChoice==='room'"><p>Request a room for one hour, repeating weekly, every other week, or every four weeks. The room search checks the next six occurrences. Staff review the request before it becomes your office reservation.</p><fieldset :disabled="!canExplore||busy||loading"><div class="row"><label>Date<input v-model="opening.date" type="date" :min="calendar?.today" /></label><label>Start<input v-model="opening.startTime" type="time" /></label><label>Repeat<select v-model="opening.frequency"><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every other week</option><option value="EVERY_4_WEEKS">Every four weeks</option></select></label><label>Office<select v-model="requestLocation"><option value="">Choose an office</option><option v-for="office in calendar?.offices||[]" :key="office.id" :value="office.id">{{office.name}} · {{office.city}}</option></select></label></div><button type="button" :disabled="!canEdit" @click="findRooms">Find available rooms</button><label v-if="rooms.length">Room<select v-model="requestRoom"><option value="">Choose a room</option><option v-for="room in rooms" :key="room.id" :value="room.id">{{room.label||room.name}}</option></select></label><p v-if="roomsChecked && !rooms.length">No rooms are available for that pattern. Try another office or time.</p><button v-if="rooms.length" type="button" class="primary" :disabled="!canEdit" @click="requestOffice">Submit room request</button></fieldset></template>
    <template v-if="openingChoice==='virtual'">
    <h3>Add virtual availability</h3><p>Publishing this hour also sets Virtual appointments to Open on your public profile. Cancel above to keep your current setting.</p><p>Virtual openings can be added outside your office reservations. To offer in-person or combined availability, select a reserved office hour in the calendar.</p>
-   <fieldset :disabled="!canEdit||busy||loading"><div class="row"><label>Date<input ref="openingDate" v-model="opening.date" type="date" :min="calendar?.today" /></label><label>Start time<input v-model="opening.startTime" type="time" /></label><label>Repeat<select v-model="opening.frequency"><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every other week</option><option value="EVERY_4_WEEKS">Every four weeks</option></select></label></div><p>One hour · Virtual · {{calendar?.timeZone}}</p><button type="button" class="primary" @click="addOpening">Publish virtual opening</button></fieldset></template>
+   <fieldset :disabled="!canExplore||busy||loading"><div class="row"><label>Date<input ref="openingDate" v-model="opening.date" type="date" :min="calendar?.today" /></label><label>Start time<input v-model="opening.startTime" type="time" /></label><label>Repeat<select v-model="opening.frequency"><option value="WEEKLY">Weekly</option><option value="BIWEEKLY">Every other week</option><option value="EVERY_4_WEEKS">Every four weeks</option></select></label></div><p>One hour · Virtual · {{calendar?.timeZone}}</p><button type="button" class="primary" :disabled="!canEdit" @click="addOpening">Publish virtual opening</button></fieldset></template>
   </section>
 
   </template>
@@ -91,6 +91,7 @@ const opening=reactive({date:'',startTime:'09:00',frequency:'WEEKLY'}),settings=
 const inPersonOpen=computed(()=>settings.inPersonStatus==='accepting'),virtualOpen=computed(()=>settings.virtualStatus==='accepting');
 const profileService=ref('counseling');
 const canEdit=computed(()=>!props.readonly&&!!calendar.value?.canEdit);
+const canExplore=computed(()=>canEdit.value || props.readonly && !!calendar.value);
 const days=computed(()=>calendarDays(calendar.value));
 const hourHeight=76;
 const firstHour=computed(()=>Math.min(7,...days.value.flatMap(d=>d.events.map(e=>Math.floor(e.startMinute/60)))));
@@ -113,7 +114,7 @@ async function load(weekStart=''){
 }
 function navigate(amount){if(calendar.value)load(shiftDate(calendar.value.weekStart,amount));}
 async function selectEvent(event){selected.value=event;closeScope.value='single';await nextTick();officeFrequency.value='WEEKLY';officeFormat.value=event.label==='In person or virtual'?'both':event.label==='In person'?'inPerson':event.label==='Virtual'?'virtual':'private';selectionPanel.value?.focus();}
-async function startOpening(date,startTime){if(!canEdit.value||busy.value||loading.value||date<calendar.value.today)return;openingChoice.value='choose';rooms.value=[];roomsChecked.value=false;opening.date=date;if(startTime)opening.startTime=startTime;selected.value=null;await nextTick();virtualPanel.value?.scrollIntoView?.({behavior:'smooth',block:'start'});openingDate.value?.focus({preventScroll:true});}
+async function startOpening(date,startTime){if(!canExplore.value||busy.value||loading.value||date<calendar.value.today)return;openingChoice.value='choose';rooms.value=[];roomsChecked.value=false;opening.date=date;if(startTime)opening.startTime=startTime;selected.value=null;await nextTick();virtualPanel.value?.scrollIntoView?.({behavior:'smooth',block:'start'});openingDate.value?.focus({preventScroll:true});}
 function chooseCalendarTime(event,date){const hour=Math.min(22,Math.max(0,firstHour.value+Math.floor((event.clientY-event.currentTarget.getBoundingClientRect().top)/hourHeight)));return startOpening(date,`${String(hour).padStart(2,'0')}:00`);}
 async function mutate(action,payload,success,weekStart){if(!canEdit.value||busy.value||loading.value)return;busy.value=true;error.value='';message.value='';try{await api.post(`${base.value}/availability-calendar/${action}`,{agencyId:props.agencyId,...payload},{timeout:60000});message.value=success;await load(weekStart||calendar.value.weekStart);}catch(e){error.value=e.response?.data?.error?.message||'The change could not be confirmed. Refresh the calendar before trying again.';}finally{busy.value=false;}}
 function addOpening(){return mutate('virtual',{...opening,enableVirtualOpen:true},'Your virtual opening was saved. Review it in the My Public Profile step later in this update.',opening.date);}

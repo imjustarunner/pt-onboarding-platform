@@ -41,7 +41,7 @@ export const itscoSuggestedTopicEdits = {
   },
   notes_workspace: {
     title: 'Notes Workspace · find, write & manage your notes',
-    body: p('The Notes Workspace has three main areas, each with a different purpose:') + list([
+    body: p('Use the Notes Workspace as your note-generation tool when Google Workspace and Gemini are retired. It has three main areas, each with a different purpose:') + list([
       '<strong>Right — My Work / To-do:</strong> This shows the sessions and documentation tasks you need to work on. Select an item to open it in the workspace. When available, “Open next in queue” lets you move through your remaining work without searching for each client.',
       '<strong>Center — Writing & Review:</strong> Use this area to create and review notes. Select the appropriate note tool, verify the client, service date, and clinical details, and review all generated content before saving. AI-assisted text must be reviewed by you and does not replace clinical judgment.',
       '<strong>Left — Note Library:</strong> Use the library to search, filter, group, and reopen drafts or saved notes. The Note Library and Work Queue serve different purposes. Deleting a draft does not remove the related item from the Work Queue. If a to-do is no longer needed, remove it from the queue when appropriate.'

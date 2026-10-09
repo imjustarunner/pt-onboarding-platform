@@ -296,15 +296,15 @@
               class="card"
               style="margin-top: 10px;"
             >
-              <h3 class="card-title" style="margin: 0 0 6px 0;">Tier / Spanish / Location bonus</h3>
+              <h3 class="card-title" style="margin: 0 0 6px 0;">Tier additions & pay differentials</h3>
               <div class="row" v-if="Number(expanded.breakdown.__paySystemBonuses.tierBonusAmount || 0) > 0">
                 <strong>Tier bonus:</strong> {{ fmtMoney(expanded.breakdown.__paySystemBonuses.tierBonusAmount) }}
               </div>
               <div class="row" v-if="Number(expanded.breakdown.__paySystemBonuses.spanishBonusAmount || 0) > 0">
-                <strong>Spanish bonus:</strong> {{ fmtMoney(expanded.breakdown.__paySystemBonuses.spanishBonusAmount) }}
+                <strong>Spanish-language differential:</strong> {{ fmtMoney(expanded.breakdown.__paySystemBonuses.spanishBonusAmount) }}
               </div>
               <div class="row" v-if="Number(expanded.breakdown.__paySystemBonuses.locationBonusAmount || 0) > 0">
-                <strong>Location / Denver bonus:</strong> {{ fmtMoney(expanded.breakdown.__paySystemBonuses.locationBonusAmount) }}
+                <strong>Denver location differential:</strong> {{ fmtMoney(expanded.breakdown.__paySystemBonuses.locationBonusAmount) }}
               </div>
               <div class="row">
                 <strong>Total bonuses:</strong> {{ fmtMoney(expanded.breakdown.__paySystemBonuses.totalBonusAmount || 0) }}

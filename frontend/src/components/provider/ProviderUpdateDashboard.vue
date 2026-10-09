@@ -85,9 +85,6 @@
               </div>
               <h2>{{ p.title }}</h2>
               <p>{{ p.description }}</p>
-              <ul>
-                <li v-for="(c, i) in (p.checklist || [])" :key="i">{{ c }}</li>
-              </ul>
               <p v-if="!p.alone" class="pu-card-meta">
                 {{ p.sectionsCompleted }}/{{ p.sectionsTotal }} items on this page
               </p>

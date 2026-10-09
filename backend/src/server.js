@@ -362,7 +362,8 @@ app.use(cors({
     'X-Requested-With',
     'X-Agency-Id',
     'X-Quick-View-Session',
-    'X-Account-Security'
+    'X-Account-Security',
+    'X-Account-User-Id'
   ],
   // Explicitly set exposed headers (cookies are automatically exposed)
   exposedHeaders: ['Set-Cookie', 'X-Request-ID', 'X-Evidence-SHA256'],

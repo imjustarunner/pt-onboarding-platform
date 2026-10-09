@@ -10,8 +10,8 @@ export const businessCards=p('You can print your own business-card fronts at the
 export const kioskTopic={key:'office_kiosk',icon:'spark',...itscoSuggestedTopicEdits.office_kiosk};
 const milestones=[['Megan Geil-Crader',1],['Gio',2],['Dayana',3],['Michael',4],['Aneta',2],['Pauli',3],['Tatainya',2],['Hannah',4],['Destiny',2],['Rachel',4],['Lindsey',1],['Haley Inyart',3],['Mia',1],['Gini',3],['Jacque',2],['Mariela',2],['Caitlyn',2],['Bobby',1],['Jade',2],['Liz',4]];
 export const schoolPartnershipUpdate = p('We are adding new school partnerships in both Colorado Springs and Denver.')
- + '<h3>Colorado Springs / D11</h3>' + list(['Colorado Springs School of Technology','Doherty High School','Keller Elementary','Steele Elementary','Tesla Educational Opportunity School'])
- + '<h3>Denver</h3>' + list(['Lake Middle School','Manual MS','Summit at Castro','Bradley International Elementary School','CTD at Greenlee','Denver Green Southeast'])
+ + '<h3>Colorado Springs / D11</h3>' + list(['Colorado Springs School of Technology','Doherty High School','Keller Elementary','Steele Elementary','Tesla Educational Opportunity School','Sabin Middle School'])
+ + '<h3>Denver</h3>' + list(['Manual MS','Summit at Castro','Bradley International Elementary School','CTD at Greenlee','Denver Green Southeast','Grant Beacon Middle School','Lowry Elementary School','Denver Green School Northfield','Compassion Road Academy'])
  + p('These schools have been added as part of our ongoing onboarding and partnership work. Your assigned school roster is the source of truth for your actual schedule. Review your school assignments, days, hours, and any open client actions in the Provider Update.')
  + '<h3>School Visit Reminders</h3>' + p('Families who have school-appointment reminders enabled will receive a message identifying the visit as a school visit and explaining how to report an absence or scheduling concern.')
  + p('“ITSCO: A school visit is planned today. If your child will be absent or there is a scheduling concern, please let us know. No confirmation is needed. Reply STOP to opt out.”');

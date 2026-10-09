@@ -5,7 +5,7 @@
       <p>{{ section.meta?.description }}</p>
     </header>
     <p v-if="localError" class="err" role="alert">{{localError}}</p>
-    <fieldset class="preview-fields" :disabled="recipient?.previewOnly && !['office_schedule','public_availability','public_profile_review','office_review','admin_update','handbook','amendments'].includes(section.key)">
+    <fieldset class="preview-fields" :disabled="recipient?.previewOnly && !['pin','office_schedule','public_availability','public_profile_review','office_review','admin_update','handbook','amendments'].includes(section.key)">
 
     <!-- Handbook -->
     <WorkplaceHandbookReader
@@ -32,15 +32,15 @@
 
     <div v-else-if="section.key === 'pin'" class="pu-panel">
       <template v-if="!section.data?.quickView?.hasPasscode"><button type="button" class="pu-btn" @click="showQuickViewHelp=!showQuickViewHelp">What’s Quick View?</button>
-      <div v-if="showQuickViewHelp" class="qv-help"><h3>Your app essentials on your phone</h3><p>Quick View gives you quick access to your assigned work, messages, schedule, and meeting links without opening the full dashboard. Your private six-digit code unlocks your access; it is separate from your account password.</p><p>Save your agency link to your phone’s home screen. Keep your device locked and store your code somewhere safe. Do not share it.</p><video v-if="section.data?.quickViewVideoUrl" :src="section.data.quickViewVideoUrl" controls preload="metadata" /><p v-else>Video instructions can be added to the Quick View section of the Admin Update. You can create your code now.</p><button type="button" class="pu-btn" @click="showQuickViewHelp=false">Continue without watching a video</button></div>
+      <div v-if="showQuickViewHelp" class="qv-help"><h3>Your app essentials on your phone</h3><p>Quick View gives you quick access to your assigned work, messages, schedule, and meeting links without opening the full dashboard. Your private six-digit code unlocks your access; it is separate from your account password.</p><p>Save your agency link to your phone’s home screen. Keep your device locked and store your code somewhere safe. Do not share it.</p><button v-if="section.data?.quickViewVideoUrl" type="button" class="pu-btn training-video-button" @click="openTrainingVideo({url:section.data.quickViewVideoUrl,title:'Quick View instructions',trigger:$event.currentTarget})">▶ Watch Quick View instructions</button><p v-else>Video instructions can be added to the Quick View section of the Admin Update. You can create your code now.</p><button type="button" class="pu-btn" @click="showQuickViewHelp=false">Continue without watching a video</button></div>
       <p>Your agency’s Quick View: <a :href="recipient?.quickViewUrl" target="_blank" rel="noopener noreferrer">{{recipient?.quickViewUrl}}</a></p>
       <p>Create your six-digit Quick View code here. Your invitation already identifies your account; no password or login is needed.</p>
       <p v-if="newPasscode" role="status">Your new code: <strong>{{newPasscode}}</strong>. Store it safely. This code is shown only once.</p>
       <button v-if="!newPasscode" type="button" class="pu-btn primary" :disabled="saving || recipient?.previewOnly" @click="setupQuickView">Create my six-digit Quick View code</button>
       <button v-else type="button" class="pu-btn primary" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">I saved my code somewhere safe — continue</button>
       </template><p v-else>Your Quick View code is already set. Existing codes are never displayed here.</p>
-      <template v-if="isSignedInRecipient && !recipient?.previewOnly"><SignInPasswordSetup /><PasskeysPanel /></template>
-      <p v-else>Set your app password and optional passkey in your own signed-in account. <a href="/account-security" target="_blank" rel="noopener noreferrer">Open security and passwords ↗</a>. Your update stays open here. The invitation opens this update; account verification protects password and passkey changes.</p>
+      <p><strong>Add Quick View to your home screen:</strong> On iPhone/iPad, open the agency link in Safari → Share → Add to Home Screen. On Android, open it in Chrome → ⋮ → Add to home screen or Install app. Save your code in your password manager.</p>
+      <ProviderUpdateSecuritySetup :user-id="recipient?.providerUserId" :agency-slug="recipient?.agencySlug || route.params.organizationSlug" :preview="!!recipient?.previewOnly" />
       <button v-if="section.data?.quickView?.hasPasscode" type="button" class="pu-btn primary" @click="markComplete({quickViewConfirmed:true,codeStoredSafely:true})">Finish security review</button>
     </div>
 
@@ -293,6 +293,7 @@
 
 <script setup>
 import ProviderSessionLanguages from './ProviderSessionLanguages.vue';
+import {openTrainingVideo} from '../../utils/trainingVideo';
 import {validateSessionLanguages} from '../../navigation/providerLanguages';
 import DOMPurify from 'dompurify';
 import ProviderUpdateAmendment from './ProviderUpdateAmendment.vue';
@@ -307,10 +308,8 @@ import api from '../../services/api';
 import TypicalAvailabilityInput from '../publicServices/TypicalAvailabilityInput.vue';
 import WorkplaceHandbookReader from '../handbook/WorkplaceHandbookReader.vue';
 import ProviderUpdateOfficeReview from './ProviderUpdateOfficeReview.vue';
-import {getActivePinia} from 'pinia';
-import {useAuthStore} from '../../store/auth';
-import SignInPasswordSetup from '../SignInPasswordSetup.vue';
-import PasskeysPanel from '../PasskeysPanel.vue';
+
+import ProviderUpdateSecuritySetup from './ProviderUpdateSecuritySetup.vue';
 import ProviderContactHours from './ProviderContactHours.vue';
 import ProviderUpdateOfficeSchedule from './ProviderUpdateOfficeSchedule.vue';
 import ProviderUpdateAdminUpdateEmbed from './ProviderUpdateAdminUpdateEmbed.vue';
@@ -339,8 +338,7 @@ const clinicalFocus=ref({top:{},excluded:{}});
 const typicalAvailability=ref('');
 const schoolChanges=ref('');
 const photoUrl=ref('');
-const authStore=getActivePinia()?useAuthStore():{user:null};
-const isSignedInRecipient=computed(()=>Number(authStore.user?.id)===Number(props.recipient?.providerUserId));
+
 const newPasscode=ref('');
 const showQuickViewHelp=ref(false);
 const license = reactive({ number: '', issued: '', expires: '', hasUpload: false });

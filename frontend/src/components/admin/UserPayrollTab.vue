@@ -251,11 +251,11 @@
               </label>
               <label class="pay-sys-flag">
                 <input type="checkbox" v-model="paySysFlags.spanishBonusEligible" :disabled="paySysFlagsSaving" />
-                Spanish bonus eligible
+                Spanish-language differential eligible
               </label>
               <label class="pay-sys-flag">
                 <input type="checkbox" v-model="paySysFlags.locationBonusEligible" :disabled="paySysFlagsSaving" />
-                Location bonus eligible
+                Denver location differential eligible
                 <span class="pay-sys-flag-hint">(e.g. Denver office)</span>
               </label>
               <label class="pay-sys-flag pay-sys-flag--date">

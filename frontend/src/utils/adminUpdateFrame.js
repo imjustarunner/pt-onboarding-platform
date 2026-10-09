@@ -1,8 +1,10 @@
+import {connectTrainingVideos} from './trainingVideo';
 /** Keep fragment navigation inside srcdoc instead of inheriting the host page URL.
  * The iframe grants same-origin DOM access but deliberately does not run scripts. */
 export function connectAdminUpdateFrame(event) {
   const doc=event.target.contentDocument;
   if(!doc)return;
+  connectTrainingVideos(doc,event.target.ownerDocument||document);
   // App pages need their own browsing context; scripts are intentionally disabled
   // in this reading frame. Keep topic anchors within the update.
   for(const link of doc.querySelectorAll('a[href]')) {

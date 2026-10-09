@@ -1,7 +1,7 @@
 // Avery 35702: US Letter, 3 × 3 cards. Positions match Avery's sheet diagram:
 // https://img.avery.com/web/templates/line-art/35702
 export const AVERY_35702 = Object.freeze({ width: 8.5, height: 11, card: 2.5, bleed: 0.0625, left: 0.25, top: 0.875, pitchX: 2.75, pitchY: 3.375 });
-export const CARD_FIELDS = ['name', 'title', 'credentials', 'email', 'phone', 'extension', 'website', 'address'];
+export const CARD_FIELDS = ['name', 'title', 'credentials', 'email', 'phone', 'extension', 'website', 'address', 'qrTarget'];
 const text = (value) => String(value ?? '').trim();
 const extension = (value) => text(value).replace(/^(?:extension|ext\.?|x)\s*[:#.-]?\s*/i, '');
 const shortZip = (value) => text(value).replace(/\b(\d{5})-\d{4}$/, '$1');
@@ -62,7 +62,7 @@ export function assignedCardOffices(assignments, offices, agencyId) {
 
 export function employeeCardDefaults(user = {}, offices = [], contact = {}) {
   return {
-    id: String(user.id), selected: false,
+    id: String(user.id), selected: false, qrTarget: 'website', profileUrl: text(user.publicProfileUrl),
     name: [user.preferred_name || user.first_name, user.last_name].filter(Boolean).join(' '),
     title: text(user.agency_position) || text(user.title), displayLabel: user.displayRole?.label || '', candidate: !!user.displayRole?.candidate, credentials: text(user.credential || user.provider_credential),
     // Use the app's tenant-specific public contact identity, not a raw login email.
@@ -94,7 +94,8 @@ export function resolveCard(person, organization) {
   const allAddresses = [...new Set((person.offices || []).map(o => text(o.address)).filter(Boolean))];
   const defaultAddress = person.kind && person.officeId === '__all' ? allAddresses.join('\n\n') : person.officeId === '__organization' || !Array.isArray(person.offices) ? organization.address : office?.address || '';
   return { ...organization, ...person, website: text(person.website) || organization.website,
-    qrUrl: text(organization.qrUrl) || text(organization.website), backWebsite: organization.website,
+    qrUrl: person.qrTarget === 'profile' && text(person.profileUrl) ? text(person.profileUrl) : text(organization.website) || text(organization.qrUrl), backWebsite: person.qrTarget === 'profile' && text(person.profileUrl) ? text(person.profileUrl).replace(/^https?:\/\//, '') : organization.website,
+    backCaption: person.qrTarget === 'profile' && text(person.profileUrl) ? 'Meet your provider' : organization.backCaption,
     address: shortZip(text(person.address) || defaultAddress), phone: ownPhone || organization.phone,
     extension: extension(ownPhone ? person.extension : text(person.extension) || organization.extension) };
 }

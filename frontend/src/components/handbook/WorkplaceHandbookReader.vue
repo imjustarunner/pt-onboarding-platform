@@ -1,5 +1,5 @@
 <template>
-  <div class="hb-digest">
+  <div ref="readerRoot" class="hb-digest">
     <div v-if="loading" class="muted">Loading handbook updates…</div>
     <template v-else>
       <header class="hb-head">
@@ -75,7 +75,8 @@
 
 <script setup>
 import DOMPurify from 'dompurify';
-import { onMounted, ref, watch } from 'vue';
+import { onMounted, onUpdated, ref, watch } from 'vue';
+import {connectTrainingVideos} from '../../utils/trainingVideo';
 import api from '../../services/api';
 import DraftHtmlEditor from '../admin/DraftHtmlEditor.vue';
 import {useAuthStore} from '../../store/auth';
@@ -91,6 +92,8 @@ const props = defineProps({
 });
 const emit = defineEmits(['acknowledged']);
 
+const readerRoot=ref(null);
+onUpdated(()=>{if(readerRoot.value)connectTrainingVideos(readerRoot.value);});
 const loading = ref(false);
 const digest = ref(null);
 const entries = ref([]);

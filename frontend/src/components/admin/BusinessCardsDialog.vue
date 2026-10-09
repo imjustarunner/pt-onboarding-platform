@@ -58,6 +58,8 @@
           <p class="phone-source">Office: <strong>{{ resolvedPreview.phone || 'Not configured for this agency' }}{{ resolvedPreview.phone && resolvedPreview.extension ? ` ext. ${resolvedPreview.extension}` : '' }}</strong></p>
           <p class="phone-source" v-if="editing.workLine">Work number: <strong>{{ editing.workLine.number }}</strong> · {{ editing.workLine.canCall ? (editing.workLine.canText ? 'Call / Text' : 'Call') : 'Text' }}</p>
           <p class="card-data-note" v-else-if="!editing.kind">No enabled work number assigned. Only the office number will print.</p>
+          <label v-if="!editing.kind">QR code on the back<select v-model="editing.qrTarget" aria-label="QR code destination"><option value="website">Agency main website (default)</option><option v-if="editing.profileUrl" value="profile">My public provider profile</option></select></label>
+          <p v-if="!editing.kind">Choose your QR destination before printing the back. Stock with an agency QR already printed keeps that destination; use blank backs for your profile QR.</p>
           <div class="selection-actions"><button class="btn btn-secondary btn-sm" @click="previewSide = 'front'">Front preview</button><button class="btn btn-secondary btn-sm" @click="previewSide = 'back'">QR back preview</button></div>
           <p v-if="previewError" class="card-error">{{ previewError }}</p>
           <img v-if="preview" class="card-preview" :src="preview" :alt="`Card preview for ${editing.name}`" />
@@ -79,7 +81,7 @@
         </section>
       </div>
       <footer>
-        <div><label>Print sides<select v-model="printSide" aria-label="Print sides"><option value="front">Front only</option><option value="back">Agency QR back only</option><option value="both">Front + back (two-sided)</option></select></label><p>Print at <strong>Actual size / 100%</strong>.<template v-if="printSide === 'both'"> Front and back pages alternate; use <strong>flip on long edge</strong>.</template> Test both sides on plain paper first.</p></div>
+        <div><label>Print sides<select v-model="printSide" aria-label="Print sides"><option value="front">Front only</option><option value="back">QR back only</option><option value="both">Front + back (two-sided)</option></select></label><p>Print at <strong>Actual size / 100%</strong>.<template v-if="printSide === 'both'"> Front and back pages alternate; use <strong>flip on long edge</strong>.</template> Test both sides on plain paper first.</p></div>
         <div><button class="btn btn-secondary" :disabled="!selected.length || busy" @click="exportCards('html')">Download printable template</button><button class="btn btn-primary" :disabled="!selected.length || busy" @click="exportCards('pdf')">{{ exporting ? 'Preparing cards…' : `Download PDF (${pageCount} ${pageCount === 1 ? 'page' : 'pages'})` }}</button></div>
       </footer>
     </dialog>
@@ -91,6 +93,7 @@ import { computed, nextTick, onMounted, onBeforeUnmount, reactive, ref, watch } 
 import api from '../../services/api';
 import { toUploadsUrl } from '../../utils/uploadsUrl';
 import { cardSvg, svgDataUrl, employeeCardDefaults, groupCardDefaults, assignedCardOffices, organizationCardDefaults, isCardEmployee, resolveCard, readCardDraft, CARD_FIELDS } from '../../utils/businessCards';
+import { providerProfileUrl } from '../../utils/providerProfileLinks';
 import { cardBackSvg, cardQrUrl } from '../../utils/businessCardBack';
 import { printSettingsDefaults, normalizePrintSettings, printableCardsHtml } from '../../utils/businessCardPrint';
 import { businessCardsPdf, downloadCardFile, embedCardLogo } from '../../utils/businessCardsExport';
@@ -170,7 +173,8 @@ async function loadOrganization(id) {
       const batch = await Promise.allSettled(eligible.slice(start, start + 6).map(async user => {
         const { data } = await api.get(`/agencies/${id}/business-cards/people/${user.id}`, { skipGlobalLoading: true });
         const offices = assignedCardOffices(data.offices || [], data.offices || [], id);
-        return { ...employeeCardDefaults({ ...user, ...data.user }, offices, data.contact), selected: singlePerson.value, organizationContact: data.contact };
+        const profile = String(agency.slug).toLowerCase() === 'itsco' ? providerProfileUrl(data.user) : String(agency.slug).toLowerCase() === 'nlu' ? `https://nextleveluplcc.com/nlu/provider/${Number(user.id)}?serviceType=counseling` : '';
+        return { ...employeeCardDefaults({ ...user, ...data.user, publicProfileUrl: profile }, offices, data.contact), selected: singlePerson.value, organizationContact: data.contact };
 
       }));
       batch.forEach((result, i) => results.push(result.status === 'fulfilled' ? result.value : { ...employeeCardDefaults(eligible[start + i]), loadError: 'Work details, organization contacts, or office assignments failed to load.' }));

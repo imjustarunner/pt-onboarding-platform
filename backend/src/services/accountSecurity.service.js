@@ -7,6 +7,8 @@ import { authenticator, newAuthenticatorSecret, verifiedCounter, sealMfaSecret, 
 
 export const DEVICE_COOKIE = 'ptRememberedDevice';
 export function requireAccountSession(req) {
+  const expectedUserId=req.get?.('X-Account-User-Id');
+  if(expectedUserId && Number(expectedUserId)!==Number(req.user?.id))throw securityError('ACCOUNT_CHANGED','The signed-in account changed. Verify the account named on this update before continuing.',403);
   if (!Number.isSafeInteger(Number(req.user?.id)) || !req.sessionSecurity?.key || !req.user?.sessionId || req.user.demoMode || req.user.switchedFromUserId) {
     throw securityError('ACCOUNT_SESSION_REQUIRED', 'Sign in directly to your own account to manage its security.', 403);
   }

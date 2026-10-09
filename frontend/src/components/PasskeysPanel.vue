@@ -39,14 +39,15 @@
 import {onMounted,onBeforeUnmount,ref} from 'vue';
 import {browserSupportsWebAuthn,startRegistration,startAuthentication} from '@simplewebauthn/browser';
 import api from '../services/api';import {passkeyError} from '../utils/passkeys';
+const props=defineProps({expectedUserId:[Number,String]});
 const emit=defineEmits(['changed']);const supported=browserSupportsWebAuthn()&&window.isSecureContext;
 const state=ref(null),busy=ref(false),error=ref(''),message=ref(''),label=ref('My passkey'),password=ref(''),recoveryCodes=ref([]),removeTarget=ref(null),recoveryPassword=ref(''),recoveryCode=ref(''),confirmRecovery=ref(false);
-const options={headers:{'X-Account-Security':'1'}},base='/account-security/passkeys';
+const options={headers:{'X-Account-Security':'1',...(props.expectedUserId?{'X-Account-User-Id':String(props.expectedUserId)}:{})}},base='/account-security/passkeys';
 const date=value=>new Date(value).toLocaleDateString();
-async function load(){state.value=(await api.get(base)).data;}
+async function load(){state.value=(await api.get(base,options)).data;}
 async function changed(){await load();emit('changed');window.dispatchEvent(new Event('account-security-changed'));}
 async function run(work){busy.value=true;error.value='';message.value='';try{await work();}catch(e){error.value=passkeyError(e);}finally{busy.value=false;password.value='';recoveryPassword.value='';recoveryCode.value='';}}
-async function register(){await run(async()=>{const {data}=await api.post(`${base}/register/options`,{password:password.value,label:label.value},options);password.value='';const response=await startRegistration({optionsJSON:data.options});const result=await api.post(`${base}/register/verify`,{challengeId:data.challengeId,response},options);recoveryCodes.value=result.data.recoveryCodes||[];message.value='Passkey saved. You can use it the next time you sign in.';await changed();});}
+async function register(){await run(async()=>{const {data}=await api.post(`${base}/register/options`,{password:password.value,label:label.value},options);password.value='';const response=await startRegistration({optionsJSON:data.options});const result=await api.post(`${base}/register/verify`,{challengeId:data.challengeId,response},options);recoveryCodes.value=result.data.recoveryCodes||[];message.value=state.value?.ssoSetup?'Passkey saved for your app-only transition. Keep using Google while SSO is required.':'Passkey saved. You can use it the next time you sign in.';await changed();});}
 async function verify(){await run(async()=>{const {data}=await api.post(`${base}/verify/options`,{},options);const response=await startAuthentication({optionsJSON:data.options});await api.post(`${base}/verify/finish`,{challengeId:data.challengeId,response},options);message.value='Your sign-in is verified.';await changed();});}
 async function remove(){await run(async()=>{await api.delete(`${base}/${removeTarget.value.id}`,{...options,data:{password:password.value}});removeTarget.value=null;message.value='Passkey removed.';await changed();});}
 async function recover(){await run(async()=>{await api.post(`${base}/recover`,{password:recoveryPassword.value,code:recoveryCode.value},options);confirmRecovery.value=false;message.value='Lost passkeys have been removed. Add a replacement now.';await changed();});}
