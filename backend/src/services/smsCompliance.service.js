@@ -101,7 +101,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply, hiringUserId }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -120,6 +120,18 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     throw smsPolicyError('sms_campaign_purpose_mismatch', 'This sending number is not registered for the requested SMS purpose');
   }
   if (await isSmsSuppressed(sender, recipient)) throw smsPolicyError('sms_opted_out', 'Recipient has opted out of this SMS campaign');
+  if (purpose === 'workforce' && staffNotificationKind === 'hiring') {
+    if(!Number.isSafeInteger(Number(hiringUserId))||Number(hiringUserId)<1)throw smsPolicyError('sms_hiring_consent_required','The hiring recipient must be identified.');
+    const [grants] = await pool.execute(`SELECT r.id FROM hire_communication_preferences p
+      JOIN sms_consent_requests r ON r.id=p.consent_request_id AND r.agency_id=p.agency_id AND r.phone=p.phone
+      JOIN sms_sender_registrations s ON s.number_id=r.number_id
+      WHERE p.user_id=? AND p.agency_id=? AND p.phone=? AND p.channel='email_sms' AND s.campaign_id=?
+      AND r.signed_at IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(r.disclosure_json,'$.enrollmentCategory'))='hiring'
+      AND JSON_EXTRACT(r.activation_json,'$.workforce.activated')=TRUE
+      AND JSON_UNQUOTE(JSON_EXTRACT(r.activation_json,'$.workforce.choice'))='yes' LIMIT 1`,[Number(hiringUserId),sender.agency_id,recipient,sender.campaign_id]);
+    if(!grants.length)throw smsPolicyError('sms_hiring_consent_required','Reviewed hiring notification consent is required.');
+    return {to:recipient,from:sender.phone_number,body:formatRegisteredSms(body,registration.brandName),registration,purpose};
+  }
   if(purpose==='workforce' && sender.phone_number===ITSCO_STAFF_ASSISTANT_NUMBER && staffAssistantReply && staffAssistantReplies.has(staffAssistantReply)
       && staffAssistantReply.from===sender.phone_number && staffAssistantReply.to===recipient && staffAssistantReply.body===body) {
     staffAssistantReplies.delete(staffAssistantReply);

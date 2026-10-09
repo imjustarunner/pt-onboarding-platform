@@ -11,14 +11,14 @@ const hash = (text) => createHash('sha256').update(text).digest('hex');
 const parse = (value) => typeof value === 'string' ? JSON.parse(value) : value;
 const invalid = () => Object.assign(new Error('Consent request is unavailable or expired'), { status: 404 });
 
-export async function createSmsConsentRequest({ agencyId, numberId, phone, signerRole, actorUserId }) {
+export async function createSmsConsentRequest({ agencyId, numberId, phone, signerRole, actorUserId, enrollmentCategory = null }) {
   if (!['client', 'guardian', 'staff'].includes(signerRole) || !normalizeSmsPhone(phone)) throw smsPolicyError('sms_signer_required', 'A valid recipient phone and signer role are required');
   if (!isChatEncryptionConfigured()) throw new Error('Encryption must be configured before collecting SMS signatures');
   const [numbers] = await pool.execute('SELECT phone_number FROM twilio_numbers WHERE id = ? AND agency_id = ?', [numberId, agencyId]);
   if (!numbers[0]) throw invalid();
   const sender = await getSmsSender(numbers[0].phone_number);
   if (validateSmsRegistration(sender.registration).length) throw smsPolicyError('sms_campaign_not_ready', 'Configure the verified program before requesting recipient signatures');
-  const disclosure = buildSmsConsentDisclosure(sender.registration, { signerRole });
+  const disclosure = buildSmsConsentDisclosure(sender.registration, { signerRole, enrollmentCategory });
   if (!disclosure.purposes.length) throw smsPolicyError('sms_signer_program_mismatch', 'This program has no message purposes for the selected signer');
   const token = randomBytes(32).toString('hex');
   const serialized = JSON.stringify(disclosure);
@@ -90,12 +90,13 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
   const [numbers] = await pool.execute('SELECT phone_number FROM twilio_numbers WHERE id = ? AND agency_id = ?', [row.number_id, agencyId]);
   if (!numbers[0]) throw invalid();
   const sender = await getSmsSender(numbers[0].phone_number);
-  const currentDisclosure = JSON.stringify(buildSmsConsentDisclosure(sender.registration, { signerRole: row.signer_role }));
+  const currentDisclosure = JSON.stringify(buildSmsConsentDisclosure(sender.registration, { signerRole: row.signer_role, enrollmentCategory: signed.disclosure.enrollmentCategory }));
   if (hash(currentDisclosure) !== row.disclosure_hash) throw smsPolicyError('sms_disclosure_changed', 'The program disclosure changed; issue a fresh consent request');
   const [newer] = await pool.execute(
     `SELECT id FROM sms_consent_requests WHERE agency_id = ? AND number_id = ? AND phone = ?
+     AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(disclosure_json,'$.enrollmentCategory')),'staff') = ?
      AND signed_at IS NOT NULL AND (signed_at > ? OR (signed_at = ? AND id > ?)) LIMIT 1`,
-    [agencyId, row.number_id, row.phone, row.signed_at, row.signed_at, row.id]
+    [agencyId, row.number_id, row.phone, signed.disclosure.enrollmentCategory || 'staff', row.signed_at, row.signed_at, row.id]
   );
   if (newer.length) throw smsPolicyError('sms_consent_superseded', 'Review the recipient’s newer signed choices instead');
   const reviewToken = randomBytes(32).toString('hex');
@@ -104,6 +105,32 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
   try {
     const [claimedRows] = await pool.execute('SELECT activation_json FROM sms_consent_requests WHERE id = ?', [row.id]);
     const results = parse(claimedRows[0]?.activation_json) || {};
+    if (signed.disclosure.enrollmentCategory === 'hiring') {
+      // An isolated grant: reviewing hiring consent cannot overwrite staff/poll permissions.
+      if (results.workforce?.activated) return {reviewed:true,results};
+      const [preferences]=await pool.execute(`SELECT user_id FROM hire_communication_preferences
+        WHERE agency_id=? AND consent_request_id=? AND phone=? AND channel='email_sms'`,[agencyId,row.id,row.phone]);
+      if(!preferences.length)throw smsPolicyError('sms_consent_superseded','The applicant changed their hiring notification choices.');
+      results.workforce={activated:true,choice:signed.choices.workforce,reviewedBy:actorUserId,reviewedAt:new Date().toISOString()};
+      await pool.execute('UPDATE sms_consent_requests SET activation_json=? WHERE id=?',[JSON.stringify(results),row.id]);
+      try {
+        if(signed.choices.workforce==='yes')await sendConfirmation({to:row.phone,from:sender.phone_number,purpose:'workforce',agencyId,
+          staffNotificationKind:'hiring',hiringUserId:preferences[0].user_id,body:'You subscribed to hiring and onboarding updates. Email will continue. Message frequency varies; message and data rates may apply. Reply HELP for help, STOP to opt out.'});
+      } catch(error) {
+        results.workforce.activated=false;
+        await pool.execute('UPDATE sms_consent_requests SET activation_json=? WHERE id=?',[JSON.stringify(results),row.id]);
+        throw error;
+      }
+      if(signed.choices.workforce==='yes'){
+        const {queueHiringNotification}=await import('./hiringNotification.service.js');
+        for(const preference of preferences){
+          const [[person]]=await pool.execute('SELECT status FROM users WHERE id=?',[preference.user_id]);
+          if(['PENDING_SETUP','PREHIRE_OPEN','PREHIRE_REVIEW','ONBOARDING'].includes(person?.status))
+            await queueHiringNotification({userId:preference.user_id,agencyId,key:`enrollment:${row.id}`,type:person.status==='ONBOARDING'?'onboarding_started':'prehire_invite',emailAlreadyHandled:true});
+        }
+      }
+      return {reviewed:true,results};
+    }
     for (const [purpose, choice] of Object.entries(signed.choices)) {
       if (results[purpose]?.activated) continue;
       await enrollSmsRecipient({ from: sender.phone_number, phone: row.phone, purpose,
@@ -123,7 +150,7 @@ export async function reviewSmsConsentRequest({ agencyId, requestId, actorUserId
 export async function listSmsConsentRequests(agencyId) {
   const [rows] = await pool.execute(
     `SELECT id, number_id, RIGHT(phone, 4) AS phone_last_four, signer_role, signed_at, expires_at,
-     activation_json, created_at FROM sms_consent_requests WHERE agency_id = ? ORDER BY id DESC LIMIT 200`, [agencyId]
+     activation_json, JSON_UNQUOTE(JSON_EXTRACT(disclosure_json,'$.enrollmentCategory')) AS enrollment_category, created_at FROM sms_consent_requests WHERE agency_id = ? ORDER BY id DESC LIMIT 200`, [agencyId]
   );
   return rows;
 }

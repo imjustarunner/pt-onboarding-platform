@@ -5,6 +5,7 @@ import { signedPacketTemplate, validateRequiredSharedSignatures, childDocumentVa
 import { buildSharedIntakeDocuments } from '../services/sharedIntakeDocuments.service.js';
 import { sendPacketCompletionNotification } from '../services/packetCompletionNotification.service.js';
 import {allowsProviderPreference,stripIneligibleProviderPreference} from '../utils/intakeProviderPreference.js';
+import { hiringCommunicationContext, validateHiringChoice, saveHiringChoice } from '../services/hiringCommunication.service.js';
 import { applicationSnapshot, enrichApplicationRecord, issueApplicationReceiptToken, appendApplicationJobDescription } from '../services/jobApplicationRecord.service.js';
 import learningReflections from '../../../frontend/src/navigation/learningReflection.js';
 import {prepareLearningPacket} from '../services/learningEnrollment.service.js';
@@ -6210,6 +6211,7 @@ export const getPublicIntakeLink = async (req, res, next) => {
         language_code: link.language_code || 'en',
         scope_type: link.scope_type,
         form_type: link.form_type || 'intake',
+        hiringNotifications: link.form_type === 'job_application' ? await hiringCommunicationContext(await resolveAgencyIdForLink(link)) : null,
         organization_id: link.organization_id,
         program_id: link.program_id,
         learning_class_id: link.learning_class_id ?? null,
@@ -8003,6 +8005,8 @@ export const finalizePublicIntake = async (req, res, next) => {
 
     const now = new Date();
     let intakeData = req.body?.intakeData || null;
+    const hiringChoiceInput = intakeData?.applicantProfile?.hiringNotifications || intakeData?.responses?.submission?.applicantProfile?.hiringNotifications || intakeData?.submission?.applicantProfile?.hiringNotifications || {channel:'email'};
+    if(isJobApplication)validateHiringChoice(hiringChoiceInput,await hiringCommunicationContext(await resolveAgencyIdForLink(link)));
     validateIntakeMatchingPreferences(intakeData);
     await validateAndStampIntakeCommunications({ link, agencyId: await resolveAgencyIdForLink(link), intakeData, submittedAt: now });
     const sharedSigningError = validateMultiChildSigning({ intakeData: intakeData || {}, clients: req.body?.clients })
@@ -8167,6 +8171,8 @@ export const finalizePublicIntake = async (req, res, next) => {
       } catch (importErr) {
         console.warn('[job_application] profile import failed:', importErr?.message || importErr);
       }
+
+      await saveHiringChoice({userId:user.id,agencyId,input:hiringChoiceInput,source:'application',ip:req.ip,userAgent:req.get('user-agent')});
 
       // Migrate intake_submission_uploads to user_admin_docs
       let uploadRows = [];

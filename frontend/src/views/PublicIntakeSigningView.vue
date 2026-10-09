@@ -707,6 +707,9 @@
           :phone="guardianPhone"
           :fluent-languages="fluentLanguagesInput"
           :best-time-to-contact="bestTimeToContact"
+          :hiring-notification-context="link?.hiringNotifications"
+          :hiring-notifications="hiringNotifications"
+          @update:hiringNotifications="hiringNotifications = $event"
           :interview-availability="interviewAvailability"
           :credential="applicantCredential"
           :license-number="applicantLicenseNumber"
@@ -6505,6 +6508,7 @@ const jobDescriptionSummary = ref(null);
 const jobAckPdfZoom = ref(125);
 const jobDescriptionAcknowledged = ref(false);
 const bestTimeToContact = ref('');
+const hiringNotifications = ref({channel:'email'});
 const interviewAvailability = ref('');
 const applicantCredential = ref('');
 const applicantLicenseNumber = ref('');
@@ -11810,6 +11814,7 @@ const finalizePacket = async () => {
         },
         fluentLanguages: String(fluentLanguagesInput.value || '').split(',').map((s) => s.trim()).filter(Boolean),
         applicantProfile: {
+          hiringNotifications: {...hiringNotifications.value},
           credential: String(applicantCredential.value || '').trim() || null,
           licenseNumber: String(applicantLicenseNumber.value || '').trim() || null,
           bestTimeToContact: String(bestTimeToContact.value || '').trim() || null,
@@ -11964,6 +11969,7 @@ const resetIntakeState = () => {
   guardianPhone.value = '';
   fluentLanguagesInput.value = '';
   bestTimeToContact.value = '';
+  hiringNotifications.value = {channel:'email'};
   interviewAvailability.value = '';
   applicantCredential.value = '';
   applicantLicenseNumber.value = '';
@@ -13052,6 +13058,7 @@ const submitJobApplicationPage2 = async () => {
   referencesWaived.value = false;
   intakeResponses.submission.references = filled.filter((r) => r.name || r.email);
   intakeResponses.submission.applicantProfile = {
+    hiringNotifications: {...hiringNotifications.value},
     credential: String(applicantCredential.value || '').trim() || null,
     licenseNumber: String(applicantLicenseNumber.value || '').trim() || null,
     bestTimeToContact: String(bestTimeToContact.value || '').trim() || null,

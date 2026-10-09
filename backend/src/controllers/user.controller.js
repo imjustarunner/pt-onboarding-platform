@@ -10550,6 +10550,9 @@ export const promoteToOnboarding = async (req, res, next) => {
     await db.execute(`INSERT INTO hire_portal_packets (user_id, agency_id, config_json) VALUES (?, ?, ?)
       ON DUPLICATE KEY UPDATE config_json = VALUES(config_json)`, [id, agencyRow.id, JSON.stringify(onboardingPacket)]);
     await startOnboarding(id, db);
+    const {queueHiringNotification}=await import('../services/hiringNotification.service.js');
+    await queueHiringNotification({userId:id,agencyId:agencyRow.id,key:'onboarding_started',type:'onboarding_started',
+      emailAlreadyHandled:true,skipDelivery:req.body?.sendMethod==='none'},db);
     const crypto = await import('node:crypto');
     const portalToken = (locked.passwordless_token_purpose !== 'reset' && locked.passwordless_token) || crypto.randomBytes(32).toString('hex');
     await db.execute(

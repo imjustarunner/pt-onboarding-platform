@@ -2149,6 +2149,13 @@ if (!isBootstrap) {
   scheduleSchoolVisitReminders();
   setInterval(scheduleSchoolVisitReminders, 5 * 60 * 1000);
 
+  const scheduleHiringNotifications = async () => {
+    try { const {runHiringNotifications}=await import('./services/hiringNotification.service.js');await runHiringNotifications(); }
+    catch(error){console.warn('[hiring-notifications] Worker unavailable',error.code||error.name);}
+  };
+  scheduleHiringNotifications();
+  setInterval(scheduleHiringNotifications,60 * 1000).unref();
+
   // Incomplete school-onboarding digests (ITSCO → Rachel Finch, Mon/Wed/Fri ~10:00 America/Denver)
   const scheduleIncompleteOnboardingDigests = async () => {
     try {

@@ -40,7 +40,7 @@
       <table v-if="requests.length">
         <thead><tr><th>Request</th><th>Phone ends in</th><th>Signer</th><th>Signature</th><th>Actions</th></tr></thead>
         <tbody><tr v-for="request in requests" :key="request.id">
-          <td>{{ request.id }}</td><td>{{ request.phone_last_four }}</td><td>{{ request.signer_role }}</td>
+          <td>{{ request.id }}</td><td>{{ request.phone_last_four }}</td><td>{{ request.enrollment_category === 'hiring' ? 'Hiring / onboarding only' : request.signer_role }}</td>
           <td>{{ request.signed_at ? 'Signed' : new Date(request.expires_at) < new Date() ? 'Expired — issue a new link' : 'Awaiting signature' }}</td>
           <td v-if="request.signed_at"><button type="button" @click="downloadEvidence(request.id)">Review signed evidence</button><label><input v-model="reviewed[request.id]" type="checkbox" /> I reviewed the signed choices and verified the signer’s authority</label> <button type="button" :disabled="busy || !reviewed[request.id]" @click="activateSignature(request.id)">Approve choices and activate</button><span v-if="request.activation_json">Recorded activation results available</span></td><td v-else>Texting remains blocked without consent</td>
         </tr></tbody>

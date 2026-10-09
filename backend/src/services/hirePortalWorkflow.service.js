@@ -2,6 +2,10 @@ import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import { FACET_FIELD_ALIASES } from '../constants/clinicalFacetFields.js';
 import pool from '../config/database.js';
 import ProviderPublicProfile from '../models/ProviderPublicProfile.model.js';
+import { hiringCommunicationContext } from './hiringCommunication.service.js';
+import { getHireUserSetup, persistHireUserSetup } from './hireUserSetup.service.js';
+import { getStaffCommunicationChoices, saveStaffCommunicationChoices } from './staffCommunicationChoices.service.js';
+import { isStaffCommunicationRole } from '../utils/staffCommunicationChoices.js';
 import { agreementsForUser, agreementPublic } from './supervisionAgreement.service.js';
 import { CLINICAL_PROFILE_FIELDS, needsClinicalProfile, clinicalProfileForm } from '../utils/hireClinicalProfile.js';
 import { listClinicalFacetsForUser } from './providerClinicalFacets.service.js';
@@ -25,7 +29,7 @@ export async function portalStepSubmissions(userId, { completionOnly = false } =
 }
 
 export function requiredSubmissionKeys(steps, hasWorkEmail = false) {
-  const savedKinds = new Set(['clinical-profile', 'profile', 'headshot', 'handbook', 'work-email', 'upload', 'video', 'meeting', 'link', 'acknowledgement']);
+  const savedKinds = new Set(['user-setup', 'staff-communications', 'clinical-profile', 'profile', 'headshot', 'handbook', 'work-email', 'upload', 'video', 'meeting', 'link', 'acknowledgement']);
   return steps.filter((step) => step.required !== false && savedKinds.has(step.kind)
     && !(step.kind === 'work-email' && hasWorkEmail)).map((step) => step.key);
 }
@@ -40,7 +44,7 @@ export async function assertPortalStepCompletion(userId, phase, keys, db = pool)
 // Every write locks the same user row as phase completion. A concurrent submit cannot
 // leave a closed package with a newly edited profile or a late resource acknowledgement.
 export async function savePortalStep({ userId, agencyId, phase, key, value, complete = true, profile = false, file = null }) {
-  const encrypted = JSON.stringify(encryptGuardianIntake(JSON.stringify(value)));
+  let encrypted = JSON.stringify(encryptGuardianIntake(JSON.stringify(value)));
   const db = await pool.getConnection();
   try {
     await db.beginTransaction();
@@ -49,9 +53,15 @@ export async function savePortalStep({ userId, agencyId, phase, key, value, comp
     const open = phase === 'pre_hire' ? ['PENDING_SETUP', 'PREHIRE_OPEN'].includes(user?.status) && !journey?.prehire_completed_at
       : user?.status === 'ONBOARDING' && !journey?.onboarding_completed_at;
     if (!open) throw Object.assign(new Error('This package is closed. Contact People Operations to request a correction.'), { status: 409 });
+    if(phase==='onboarding' && key==='staff-communications'){
+      const saved=await saveStaffCommunicationChoices({userId,agencyId,input:value,source:'onboarding',database:db});
+      value={choices:saved.choices,accessRequests:saved.accessRequests,reviewedAt:saved.reviewedAt};
+      encrypted=JSON.stringify(encryptGuardianIntake(JSON.stringify(value)));
+    }
     await db.execute(`INSERT INTO hire_portal_submissions (user_id, phase, step_key, encrypted_value, completed_at)
       VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE encrypted_value = VALUES(encrypted_value), completed_at = VALUES(completed_at)`,
     [userId, phase, key, encrypted, complete ? new Date() : null]);
+    if (phase === 'onboarding' && key === 'user-setup' && complete) await persistHireUserSetup(db, userId, agencyId, value);
     if (profile) {
       for (const field of PREEMPLOYMENT_FIELDS) {
         const [[existing]] = await db.execute(`SELECT id FROM user_info_field_definitions WHERE field_key = ? AND (agency_id = ? OR agency_id IS NULL)
@@ -137,6 +147,8 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
   const steps = { pre_hire: [], onboarding: [] };
   const add = (phase, step) => steps[phase].push({ required: true, ...step });
   const pTasks = uniquePortalTasks(user.status === 'ONBOARDING' ? prehireTasks : tasks);
+  const hiringChoices=await hiringCommunicationContext(agencyId,user.id);
+  for(const phase of ['pre_hire','onboarding'])add(phase,{key:'hiring-notifications',kind:'hiring-notifications',title:'Hiring notification preference',required:false,complete:!!hiringChoices.reviewedAt,communicationChoices:hiringChoices});
   const contract = (pTasks || []).filter((t) => t.metadata?.contractGeneration || t.metadata?.employmentContract || t.metadata?.autoFromSendPreHire);
   add('pre_hire', { key: 'background', kind: 'background', title: 'Background check authorization', complete: !!backgroundCheck.signed });
   add('pre_hire', { key: 'job-description', kind: 'job-description', title: 'Your job description', complete: !!extras.jdAcknowledged });
@@ -161,7 +173,7 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
       add('onboarding', {key:`supervision-agreement-${row.id}`,kind:'supervision-agreement',title:`Supervision agreement · ${agreement.document.parties[0].name}`,agreement,complete:agreement.complete});
     }
   }
-  if ((needsClinicalProfile(user) && !onboardingClosed) || stored('onboarding', 'clinical-profile')) {
+  if (onboardingClosed && stored('onboarding', 'clinical-profile')) {
     const saved = stored('onboarding', 'clinical-profile');
     const form = clinicalProfileForm(await listClinicalFacetsForUser(user.id, { agencyId }));
     const publicProfile=await ProviderPublicProfile.getForProvider({providerUserId:user.id,agencyId});
@@ -169,6 +181,17 @@ export async function buildPortalWorkflow({ user, agencyId, tasks, prehireTasks,
       instructions: 'Deselect areas you do not serve and highlight up to three in each category.',
       clinicalFocus:normalizeFocusAgeValues(saved?.value?.clinicalFocus||publicProfile?.details?.clinicalFocus)||null,
       complete: !!saved?.completedAt, ...form, values: saved?.value?.values || form.values });
+  }
+  if (user.status === 'ONBOARDING' && (!onboardingClosed || stored('onboarding', 'user-setup'))) {
+    const saved = stored('onboarding', 'user-setup');
+    const setup = await getHireUserSetup(user, agencyId);
+    add('onboarding', {key:'user-setup',kind:'user-setup',title:'Your user setup',...setup,
+      values:saved?.value || setup.values,complete:!!saved?.completedAt});
+  }
+  if (user.status === 'ONBOARDING' && isStaffCommunicationRole(user.role) && (!onboardingClosed || stored('onboarding','staff-communications'))) {
+    const choices = await getStaffCommunicationChoices({userId:user.id,agencyId});
+    add('onboarding',{key:'staff-communications',kind:'staff-communications',title:'Your texting choices and enrollments',
+      communicationChoices:choices,complete:!!stored('onboarding','staff-communications')?.completedAt && !choices.needsReview});
   }
   for (const task of uniquePortalTasks(user.status === 'ONBOARDING' ? tasks : [])) add('onboarding', { key: `task-${task.id}`, kind: 'task', title: task.title, task, required: !!task.isRequired, complete: task.status === 'completed' });
   add('onboarding', { key: 'handbook', kind: 'handbook', title: 'Handbook acknowledgement', url: handbook, complete: !!stored('onboarding', 'handbook')?.completedAt });

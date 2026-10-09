@@ -25,7 +25,7 @@ export const safePortalUrl = (value) => {
 };
 const resourceKey = (value) => {
   const key = String(value).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 60);
-  return /^(background|job-description|agreement|work-email|profile|clinical-profile|headshot|resume|handbook|account|review)$|^(task|doc)-/.test(key) ? `resource-${key}`.slice(0, 60) : key;
+  return /^(background|job-description|agreement|work-email|profile|clinical-profile|user-setup|staff-communications|hiring-notifications|headshot|resume|handbook|account|review)$|^(task|doc)-/.test(key) ? `resource-${key}`.slice(0, 60) : key;
 };
 export function sanitizeWorkflow(input) {
   const raw = jsonObject(input);

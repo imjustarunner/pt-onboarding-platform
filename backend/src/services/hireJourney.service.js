@@ -78,6 +78,9 @@ export async function closePrehire(userId, snapshot, db = pool) {
   await db.execute(
     `UPDATE hire_journeys SET prehire_completed_at = COALESCE(prehire_completed_at, UTC_TIMESTAMP()),
       prehire_snapshot = COALESCE(prehire_snapshot, ?) WHERE user_id = ?`, [JSON.stringify(snapshot), userId]);
+  const {queueHiringNotification}=await import('./hiringNotification.service.js');
+  const [[journeyAgency]]=await db.execute('SELECT agency_id FROM hire_journeys WHERE user_id=?',[userId]);
+  if(journeyAgency?.agency_id)await queueHiringNotification({userId,agencyId:journeyAgency.agency_id,key:'prehire_complete',type:'prehire_complete'},db);
   // Freeze provenance before the employee's status changes.
   await db.execute(
     `UPDATE tasks SET metadata = JSON_SET(COALESCE(metadata, JSON_OBJECT()), '$.portalPhase', 'pre_hire')
@@ -195,6 +198,8 @@ export async function completeOnboarding(userId, requiredStepKeys = []) {
     await db.execute(
       `UPDATE hire_journeys SET onboarding_completed_at = UTC_TIMESTAMP(), onboarding_snapshot = ?, activity_active = FALSE WHERE user_id = ?`,
       [JSON.stringify({ tasks, questionnairesEncrypted, completedAt: new Date().toISOString() }), userId]);
+    const {queueHiringNotification}=await import('./hiringNotification.service.js');
+    await queueHiringNotification({userId,agencyId:journey.agency_id,key:'onboarding_complete',type:'onboarding_complete'},db);
     await db.commit();
     return getJourney(userId);
   } catch (e) { await db.rollback(); throw e; }

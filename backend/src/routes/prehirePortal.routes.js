@@ -1,5 +1,7 @@
 import { saveWorkflowStep, uploadWorkflowFile, viewWorkflowFile, previewPortalDocument } from '../controllers/hirePortalWorkflow.controller.js';
 import express from 'express';
+import {portalStaffEnrollments} from '../controllers/hireStaffEnrollments.controller.js';
+import {portalHiringChoices} from '../controllers/hiringCommunication.controller.js';
 import { listSupervisionAgreements, signAgreement, downloadAgreement } from '../controllers/supervisionAgreement.controller.js';
 import { portalTrainingAction } from '../controllers/portalTraining.controller.js';
 import multer from 'multer';
@@ -73,6 +75,10 @@ router.post('/:token/workflow/:stepKey/upload', workflowUpload.single('file'), u
 router.get('/:token/workflow/:phase/:stepKey/file', viewWorkflowFile);
 router.get('/:token/tasks/:taskId/preview', previewPortalDocument);
 
+router.get('/:token/staff-enrollments',portalStaffEnrollments);
+router.post('/:token/staff-enrollments',portalStaffEnrollments);
+router.get('/:token/hiring-notifications',portalHiringChoices);
+router.put('/:token/hiring-notifications',portalHiringChoices);
 router.get('/:token', getPortal);
 router.get('/:token/messages', listPortalMessages);
 router.post(

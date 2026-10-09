@@ -44,7 +44,8 @@
           <template v-else-if="step">
             <div class="card current-heading"><span class="large-icon"><Icon :name="iconFor(step)" /></span><div><h2>{{ step.title }}</h2><p>{{ step.instructions || (closed ? 'Your retained submission' : step.complete ? 'Completed and saved to your hire record.' : 'Complete this item, then continue to your next step.') }}</p></div><span v-if="step.complete" class="badge done">Completed</span></div>
             <p v-if="error" class="notice error" role="alert">{{ error }}</p><p v-if="savedMessage" class="notice success" role="status">{{ savedMessage }}</p>
-            <div v-if="step.kind === 'profile'" class="card">
+            <HiringNotificationChoices v-if="step.kind === 'hiring-notifications'" :key="phase" :context="step.communicationChoices" show-save :busy="busy" @save="saveHiringNotifications" />
+            <div v-else-if="step.kind === 'profile'" class="card">
               <p>This information is collected for individuals under consideration with {{ agency.name }}. People Operations will review your submission. Submitting does not guarantee employment or finalize an offer.</p>
               <form @submit.prevent="saveProfile(true)"><fieldset :disabled="closed || busy"><div class="profile-grid"><label v-for="field in workflow.profileFields" :key="field.key" :class="{ wide: field.type === 'textarea' }">{{ field.label }}<span v-if="field.required"> *</span><textarea v-if="field.type === 'textarea'" v-model="profile[field.key]" rows="3" /><input v-else v-model="profile[field.key]" :type="field.type === 'phone' ? 'tel' : field.type" :required="field.required" /></label></div></fieldset><div v-if="!closed" class="form-actions"><button type="button" :disabled="busy" @click="saveProfile(false)">Save for later</button><button class="primary" :disabled="busy">{{ busy ? 'Saving…' : 'Save information' }}</button></div></form>
               <div v-if="workflow.resume" class="upload-card"><h3>Your application resume</h3><p>Your resume is already saved with your application.</p><a :href="workflow.resume.documentId ? `${http.defaults.baseURL}/prehire-portal/${token}/submissions/files/${workflow.resume.documentId}` : fileUrl('pre_hire','resume')" target="_blank" rel="noopener">{{ workflow.resume.name || 'View uploaded resume' }}</a></div>
@@ -63,6 +64,8 @@
                 <p v-if="step.submission?.scheduledAt">Scheduled for {{ new Date(step.submission.scheduledAt).toLocaleString() }}</p><a v-if="step.submission?.receiptPath" :href="fileUrl(phase,step.key)" target="_blank" rel="noopener">View signed acknowledgement</a>
               </template><div v-else class="notice"><Icon name="clock" /><p>People Operations needs to attach this resource. Message the team so they can help you continue.</p></div>
             </div>
+            <div v-else-if="step.kind === 'user-setup'" class="card"><HireUserSetup :key="step.key" :step="step" :busy="busy" :readonly="closed" @save="save(step.key,$event)" /></div>
+            <div v-else-if="step.kind === 'staff-communications'" class="card"><StaffCommunicationChoices :initial="step.communicationChoices" :agency-id="agency.id" external-save :busy="busy" :readonly="closed" @save="save(step.key,$event)" /><HireStaffEnrollments :http="http" :token="token" /></div>
             <div v-else-if="step.kind === 'clinical-profile'" class="card"><HireClinicalProfile :step="step" :busy="busy" :readonly="closed" @save="save(step.key, $event)" /></div>
             <SupervisionAgreementCard v-else-if="step.kind === 'supervision-agreement'" :agreement="step.agreement" :http="http" :base-url="`/prehire-portal/${token}/supervision-agreements`" @signed="emit('reload')" />
             <div v-else-if="step.kind === 'task' && step.task.taskType === 'training'" class="card embedded-training"><iframe :key="step.key" :src="`/pre-hire/${token}/module/${step.task.referenceId}?embedded=1`" :title="step.title" /></div>
@@ -93,6 +96,10 @@ import HireWorkEmailPicker from './HireWorkEmailPicker.vue';
 import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import Icon from './HirePortalIcon.vue';
 import HireClinicalProfile from './HireClinicalProfile.vue';
+import HireStaffEnrollments from './HireStaffEnrollments.vue';
+import HireUserSetup from './HireUserSetup.vue';
+import HiringNotificationChoices from '../communications/HiringNotificationChoices.vue';
+import StaffCommunicationChoices from '../communications/StaffCommunicationChoices.vue';
 import SupervisionAgreementCard from '../supervision/SupervisionAgreementCard.vue';
 import AdaptiveSignatureCapture from '../adaptive-intake/AdaptiveSignatureCapture.vue';
 import { buildFormUrl } from '../../utils/publicIntakeUrl.js';
@@ -155,6 +162,7 @@ function embedUrl(raw) {
 }
 async function copyLink() { try { await navigator.clipboard.writeText(portalLink.value); copied.value = true; } catch { error.value = 'Select and copy your personal link from the field.'; } }
 async function save(key, body) { busy.value = true; error.value = ''; savedMessage.value = ''; try { await props.http.post(`/prehire-portal/${props.token}/workflow/${key}`, body); savedMessage.value = body.complete === false ? 'Draft saved. Complete this step when you are ready.' : 'Saved to your hire record.'; emit('reload'); } catch (e) { error.value = e.response?.data?.error?.message || 'Unable to save. Please try again.'; } finally { busy.value = false; } }
+async function saveHiringNotifications(input) { busy.value=true;error.value='';try{await props.http.put(`/prehire-portal/${props.token}/hiring-notifications`,input);savedMessage.value='Your notification preference was saved.';emit('reload');}catch(e){error.value=e.response?.data?.error?.message||'Unable to save your notification preference.';}finally{busy.value=false;} }
 const saveProfile = (complete) => save('profile', { values: profile.value, complete });
 async function upload(key, event) { const file = event.target.files?.[0]; if (!file) return; if (file.size > 10 * 1024 * 1024) { error.value = 'Choose a file up to 10 MB.'; return; } busy.value = true; error.value = ''; try { const body = new FormData(); body.append('file', file); await props.http.post(`/prehire-portal/${props.token}/workflow/${key}/upload`, body); savedMessage.value = 'Your file has been saved.'; emit('reload'); } catch (e) { error.value = e.response?.data?.error?.message || 'Upload failed. Please try again.'; } finally { busy.value = false; event.target.value = ''; } }
 function registerMediaFrame(event) {

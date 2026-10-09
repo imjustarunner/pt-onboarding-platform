@@ -4,6 +4,8 @@
  * controls enable/disable and People Operations sender identity.
  */
 import pool from '../config/database.js';
+import {queueHiringNotification,hiringNotificationSnapshot} from './hiringNotification.service.js';
+import {createHash} from 'node:crypto';
 import User from '../models/User.model.js';
 import { sendNotificationEmail } from './unifiedEmail/unifiedEmailSender.service.js';
 import { HOGWARTS_TEST_INBOX } from '../utils/hogwartsTestEmail.js';
@@ -225,6 +227,11 @@ export async function sendPrehirePortalInviteEmail({
     html += `<p><a href="${escHtml(portalLink)}">Open your private pre-hire portal</a></p>`;
   }
 
+  await queueHiringNotification({userId:candidateUserId,agencyId,type:'prehire_invite',
+    key:`prehire_invite:${createHash('sha256').update(portalLink).digest('hex')}`,emailAlreadyHandled:true});
+  const notificationSnapshot=await hiringNotificationSnapshot(candidateUserId,agencyId,user.status);
+  await pool.execute('UPDATE hire_communication_preferences SET observed_snapshot=COALESCE(observed_snapshot,CAST(? AS JSON)) WHERE user_id=? AND agency_id=?',
+    [JSON.stringify(notificationSnapshot),candidateUserId,agencyId]);
   const result = await sendNotificationEmail({
     agencyId,
     triggerKey: PREHIRE_PORTAL_ACCESS_TRIGGER,

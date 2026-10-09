@@ -1,6 +1,7 @@
 import { PDFDocument } from 'pdf-lib';
 import { isEmploymentContract, addContractSignatureFields } from '../utils/contractSignatureFields.js';
 import {validateFocus} from '../../../frontend/src/navigation/providerFocus.js';
+import { validateHireUserSetup } from '../services/hireUserSetup.service.js';
 import { randomUUID } from 'node:crypto';
 import { portalStateForUser, getPortalTask, viewPortalSignedFile } from './prehirePortal.controller.js';
 import { savePortalStep, portalStepSubmissions, validatePreemployment } from '../services/hirePortalWorkflow.service.js';
@@ -23,6 +24,11 @@ export async function saveWorkflowStep(req, res, next) {
     let value, file;
     if (ctx.phase === 'pre_hire' && ctx.key === 'profile') {
       value = validatePreemployment(req.body?.values, req.body?.complete !== false);
+    } else if (ctx.phase === 'onboarding' && ctx.step?.kind === 'user-setup') {
+      value = validateHireUserSetup(req.body?.values, ctx.step.clinical, ctx.step.focusGroups);
+    } else if (ctx.phase === 'onboarding' && ctx.step?.kind === 'staff-communications') {
+      if(req.body?.complete === false)fail('Review and sign your texting choices. Every choice may be No.');
+      value = req.body;
     } else if (ctx.phase === 'onboarding' && ctx.step?.kind === 'clinical-profile') {
       if (req.body?.complete !== false && req.body?.reviewed !== true) fail('Confirm that you have reviewed all four sections.');
       const groups=ctx.step.fields.map(f=>({key:f.group,label:f.label,options:f.options}));
@@ -62,7 +68,7 @@ export async function saveWorkflowStep(req, res, next) {
       }
     }
     await savePortalStep({ ...ctx, value, file, complete: req.body?.complete !== false, profile: ctx.key === 'profile' });
-    if (ctx.step?.kind === 'clinical-profile' && req.body?.complete !== false) {
+    if (['clinical-profile','user-setup'].includes(ctx.step?.kind) && req.body?.complete !== false) {
       setImmediate(async () => {
         try {
           const { default: ProviderSearchIndex } = await import('../models/ProviderSearchIndex.model.js');

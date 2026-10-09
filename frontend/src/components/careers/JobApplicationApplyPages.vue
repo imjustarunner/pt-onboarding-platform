@@ -76,6 +76,7 @@
             Languages spoken fluently
             <input :value="fluentLanguages" type="text" placeholder="e.g., English, Spanish, ASL" @input="$emit('update:fluentLanguages', $event.target.value)" />
           </label>
+          <HiringNotificationChoices class="jap-span" :context="hiringNotificationContext" :model-value="hiringNotifications" :phone="phone" @update:model-value="$emit('update:hiringNotifications',$event)" />
           <WeeklyAvailabilityPicker class="jap-span" :model-value="interviewAvailability" @update:model-value="$emit('update:interviewAvailability', $event)" />
         </div>
 
@@ -207,6 +208,7 @@
 </template>
 
 <script setup>
+import HiringNotificationChoices from '../communications/HiringNotificationChoices.vue';
 import WeeklyAvailabilityPicker from './WeeklyAvailabilityPicker.vue';
 import { computed, ref } from 'vue';
 import JobDescriptionSections from './JobDescriptionSections.vue';
@@ -214,6 +216,8 @@ import { AdaptiveSignatureCapture } from '../adaptive-intake';
 import { isFullyLicensedCredentialText } from '../../utils/credentialNormalization.js';
 
 const props = defineProps({
+  hiringNotificationContext: {type:Object,default:null},
+  hiringNotifications: {type:Object,default:null},
   page: { type: String, default: 'personal' },
   accentColor: { type: String, default: '#1a8c54' },
   agencyName: { type: String, default: '' },
@@ -249,6 +253,7 @@ const props = defineProps({
 });
 
 defineEmits([
+  'update:hiringNotifications',
   'update:firstName',
   'update:lastName',
   'update:email',

@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn() }));
-vi.mock('../../config/database.js', () => ({ default: mocks }));
+vi.mock('../../config/database.js', () => ({ default: mocks, onTableWrite:vi.fn() }));
+vi.mock('../hiringCommunication.service.js',()=>({hiringCommunicationContext:vi.fn(async()=>({channel:'email',available:false}))}));
+vi.mock('../hireUserSetup.service.js',()=>({getHireUserSetup:vi.fn(async(user)=>({clinical:['provider','intern'].includes(user.role),values:{},focusGroups:[]})),persistHireUserSetup:vi.fn()}));
+vi.mock('../staffCommunicationChoices.service.js',()=>({getStaffCommunicationChoices:vi.fn(async()=>({needsReview:true})),saveStaffCommunicationChoices:vi.fn()}));
 import { CLINICAL_PROFILE_FIELDS, needsClinicalProfile, clinicalProfileForm, validateClinicalProfile } from '../../utils/hireClinicalProfile.js';
 import { buildPortalWorkflow, savePortalStep, requiredSubmissionKeys } from '../hirePortalWorkflow.service.js';
 import { listClinicalFacetsForUsers } from '../providerClinicalFacets.service.js';
@@ -31,8 +34,9 @@ describe('clinical profile onboarding', () => {
   it('only includes the step in clinical staff onboarding', async () => {
     const workflow = await manifest({ role: 'provider' });
     expect(workflow.steps.pre_hire.map(s => s.kind)).not.toContain('clinical-profile');
-    expect(workflow.steps.onboarding.find(s => s.kind === 'clinical-profile').kind).toBe('clinical-profile');
-    expect(requiredSubmissionKeys(workflow.steps.onboarding)).toContain('clinical-profile');
+    expect(workflow.steps.onboarding.find(s=>s.kind==='user-setup').clinical).toBe(true);
+    expect(requiredSubmissionKeys(workflow.steps.onboarding)).toContain('user-setup');
+    expect(requiredSubmissionKeys(workflow.steps.onboarding)).toContain('staff-communications');
     expect(needsClinicalProfile({ role: 'provider', sees_clients: 0 })).toBe(false);
     expect(needsClinicalProfile({ role: 'admin' })).toBe(false);
     expect(needsClinicalProfile({ role: 'admin', sees_clients: 1 })).toBe(true);

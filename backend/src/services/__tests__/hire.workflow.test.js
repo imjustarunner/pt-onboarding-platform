@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), getConnection: vi.fn(), findUser: vi.fn(), journeyTasks: vi.fn(), getJourney: vi.fn() }));
-vi.mock('../../config/database.js', () => ({ default: mocks }));
+vi.mock('../../config/database.js', () => ({ default: mocks, onTableWrite:vi.fn() }));
 vi.mock('../../models/User.model.js', () => ({ default: { findById: mocks.findUser } }));
 vi.mock('../hireJourney.service.js', () => ({ journeyTasks: mocks.journeyTasks, getJourney: mocks.getJourney }));
 import { composeWorkflow, sanitizeWorkflow, validatePreemployment, summarizeSteps, onboardingPasswordReady } from '../../utils/hirePortalWorkflow.js';
 import { onboardingContactForAgency, uniquePortalTasks, portalPacket, buildPortalWorkflow, savePortalStep, requiredSubmissionKeys, assertPortalStepCompletion, assertOnboardingPasswordReady } from '../hirePortalWorkflow.service.js';
+vi.mock('../../config/database.js', () => ({ default: mocks, onTableWrite:vi.fn() }));
+vi.mock('../hiringCommunication.service.js',()=>({hiringCommunicationContext:vi.fn(async()=>({channel:'email',available:false}))}));
+vi.mock('../hireUserSetup.service.js',()=>({getHireUserSetup:vi.fn(async(user)=>({clinical:['provider','intern'].includes(user.role),values:{},focusGroups:[]})),persistHireUserSetup:vi.fn()}));
+vi.mock('../staffCommunicationChoices.service.js',()=>({getStaffCommunicationChoices:vi.fn(async()=>({needsReview:true})),saveStaffCommunicationChoices:vi.fn()}));
 import { encryptGuardianIntake } from '../guardianIntakeEncryption.service.js';
 process.env.GUARDIAN_INTAKE_ENCRYPTION_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
 const db = { execute: mocks.execute, beginTransaction: vi.fn(), commit: vi.fn(), rollback: vi.fn(), release: vi.fn() };
@@ -52,7 +56,9 @@ describe('phase manifest', () => {
   it('includes personal information and headshot only in prehire, account setup only in onboarding', async () => {
     mocks.execute.mockImplementation(async (sql) => sql.includes('config_json FROM') ? [[{ config_json: { workflow: { resources: [] }, handbookUrl: 'https://drive.google.com/file/d/book/view' } }]] : [[]]);
     const manifest = await buildPortalWorkflow({ user: { id: 1, status: 'PREHIRE_OPEN', first_name: 'Taylor', sso_password_override: '0' }, agencyId: 2, tasks: [], prehireTasks: [], extras: {}, backgroundCheck: {}, hireAccountMode: 'group_password', journey: {} });
-    expect(manifest.steps.pre_hire[0].kind).toBe('background');
+    expect(manifest.steps.pre_hire[0].kind).toBe('hiring-notifications');
+    expect(manifest.steps.pre_hire[0].required).toBe(false);
+    expect(manifest.steps.pre_hire[1].kind).toBe('background');
     expect(manifest.steps.pre_hire.map(s => s.kind)).toEqual(expect.arrayContaining(['profile', 'headshot', 'handbook']));
     expect(manifest.steps.onboarding.map(s => s.kind)).not.toContain('profile');
     expect(manifest.steps.pre_hire.map(s => s.kind)).not.toContain('work-email');
@@ -135,11 +141,13 @@ describe('final onboarding password step', () => {
 });
 
 it('checks saved onboarding tasks and acknowledgements before password preparation', async () => {
+  const { getStaffCommunicationChoices } = await import('../staffCommunicationChoices.service.js');
+  getStaffCommunicationChoices.mockResolvedValueOnce({needsReview:false}).mockResolvedValueOnce({needsReview:false});
   mocks.findUser.mockResolvedValue({ id: 1, status: 'ONBOARDING', role: 'staff', work_email: 'taylor@example.org' });
   mocks.getJourney.mockResolvedValue({ prehireCompletedAt: '2026-09-01' });
   mocks.journeyTasks.mockResolvedValue([{ id: 9, phase: 'onboarding', isRequired: true, status: 'pending' }]);
   mocks.execute.mockImplementation(async sql => sql.includes('FROM hire_portal_submissions')
-    ? [[{ phase: 'onboarding', step_key: 'handbook', encrypted_value: encryptGuardianIntake('{}'), completed_at: '2026-09-26' }]] : [[]]);
+    ? [['handbook','user-setup','staff-communications'].map(step_key => ({ phase: 'onboarding', step_key, encrypted_value: encryptGuardianIntake('{}'), completed_at: '2026-09-26' }))] : [[]]);
   await expect(assertOnboardingPasswordReady(1, 2)).rejects.toMatchObject({ code: 'ONBOARDING_INCOMPLETE' });
   mocks.journeyTasks.mockResolvedValue([{ id: 9, phase: 'onboarding', isRequired: true, status: 'completed' }]);
   await expect(assertOnboardingPasswordReady(1, 2)).resolves.toBeUndefined();

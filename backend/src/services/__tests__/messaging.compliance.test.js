@@ -37,6 +37,22 @@ beforeEach(() => {
 });
 
 describe('campaign-wide SMS delivery gate', () => {
+  it('requires a separately reviewed hiring grant and never turns it into staff consent',async()=>{
+    const original=pool.execute.getMockImplementation();let hiringGranted=false;
+    pool.execute.mockImplementation(async(sql,args)=>{
+      if(sql.includes('FROM twilio_numbers'))return [[{...sender,registration_json:{...registration,purposes:['workforce']}}]];
+      if(sql.includes('FROM hire_communication_preferences'))return [hiringGranted?[{id:1}]:[]];
+      return original(sql,args);
+    });
+    const hiring={...message,purpose:'workforce',staffNotificationKind:'hiring',hiringUserId:8,agencyId:2};
+    await expect(prepareSmsDelivery(hiring)).rejects.toMatchObject({code:'sms_hiring_consent_required'});
+    hiringGranted=true;
+    await expect(prepareSmsDelivery(hiring)).resolves.toMatchObject({to:message.to});
+    await expect(prepareSmsDelivery({...message,purpose:'workforce'})).rejects.toMatchObject({code:'sms_consent_required'});
+    permissions.push({scope:'campaign:C123',phone:message.to,purpose:'suppression',status:'opted_out'});
+    await expect(prepareSmsDelivery(hiring)).rejects.toMatchObject({code:'sms_opted_out'});
+  });
+
   it('does not grandfather a self-activated staff preference into reviewed enrollment', async () => {
     pool.execute.mockResolvedValueOnce([[{ ...sender, registration_json: { ...registration, purposes: ['workforce'] } }]]);
     permissions.push({ scope: 'campaign:C123', phone: message.to, purpose: 'workforce', status: 'opted_in',

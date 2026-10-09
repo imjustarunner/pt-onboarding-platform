@@ -4,7 +4,7 @@ import { journeyTasks, getJourney } from '../services/hireJourney.service.js';
 export async function enforcePortalWritePhase(req, res, next) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
   const path = req.path;
-  if (/^\/(messages|activity|complete)\/?$/.test(path)) return next();
+  if (/^\/(messages|activity|complete|hiring-notifications|staff-enrollments)\/?$/.test(path)) return next();
   // Account details stay accessible while the submitted onboarding package awaits activation.
   if (req.portalUser?.status === 'ONBOARDING' && req.method === 'POST'
     && /^\/credential-packet\/(acknowledge|systems\/[^/]+\/reveal-temp-password)\/?$/.test(path)) return next();

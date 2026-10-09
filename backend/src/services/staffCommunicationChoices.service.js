@@ -78,8 +78,8 @@ export async function getStaffCommunicationChoices({userId,agencyId}) {
     needsReview:!c.state||c.state.disclosureHash!==c.disclosureHash||(Object.values(c.state.choices||{}).some(v=>v===true)&&c.state.phoneHash!==phoneFingerprint(c.phone)),
     capabilities:{clientRelay:false,callBridge:false,voicemail:false,recording:false,transcription:false}};
 }
-export async function saveStaffCommunicationChoices({userId,agencyId,input,source='account',sendConfirmation}) {
-  const connection=await pool.getConnection();let locked=false;
+export async function saveStaffCommunicationChoices({userId,agencyId,input,source='account',sendConfirmation,database=null}) {
+  const connection=database || await pool.getConnection();let locked=false;
   const lock=`staff-communications-${Number(agencyId)}-${Number(userId)}`;
   try {
     const [locks]=await connection.execute('SELECT GET_LOCK(?, 5) AS acquired',[lock]);locked=Number(locks[0]?.acquired)===1;
@@ -99,7 +99,7 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
     const signed={phone,choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,exchangeEmail:input.exchangeEmail,appointmentReplyMode:input.appointmentReplyMode||'all',signerName:input.signerName.trim(),acknowledged:true,usageAcknowledged:true,agencyId:Number(agencyId),disclosure:c.disclosure,disclosureHash:c.disclosureHash,reviewedAt,source};
     const envelope=encryptChatText(JSON.stringify(signed));
     const state={staffAssistantVersion:STAFF_SMS_COMMAND_VERSION,choices:input.choices,accessRequests:input.accessRequests,arrivalEmail:input.arrivalEmail,exchangeEmail:input.exchangeEmail,appointmentReplyMode:input.appointmentReplyMode||'all',reviewedAt,phoneHash:phoneFingerprint(phone),disclosureHash:c.disclosureHash,reference,envelope,activation:[]};
-    await connection.beginTransaction();
+    if(!database)await connection.beginTransaction();
     const evidenceId=await appendSecurityEvidence({requestId:randomUUID(),phase:'completed',userId,method:'PUT',route:'/staff-communication-choices',clientIp:null,ipSource:'not_collected',peerIp:null,
       action:'staff_communication_choices_signed',outcome:'success',statusCode:200,details:{agencyId:Number(agencyId),reference,envelope}},connection,{mirror:false});
     state.evidenceId=evidenceId;
@@ -110,7 +110,7 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
       VALUES (?,'client_exchange_match',1,?,?) ON DUPLICATE KEY UPDATE in_app_enabled=1,email_enabled=VALUES(email_enabled),sms_enabled=VALUES(sms_enabled)`,[userId,input.exchangeEmail?1:0,input.choices.exchangeMatches?1:0]);
     // Personal-phone forwarding never becomes enabled as a side effect of consent.
     await connection.execute('UPDATE user_preferences SET sms_forwarding_enabled=FALSE WHERE user_id=?',[userId]);
-    await connection.commit();
+    if(!database)await connection.commit();
     const old=c.state?.envelope?JSON.parse(decryptChatText(c.state.envelope)):null;
     const oldPhone=normalizeSmsPhone(old?.phone);
     const kinds=staffDeliveryKinds(input.choices);
@@ -138,9 +138,10 @@ export async function saveStaffCommunicationChoices({userId,agencyId,input,sourc
     }
     await writeState(connection,userId,agencyId,state);
     if(kinds.length)await connection.execute('UPDATE user_preferences SET sms_enabled=TRUE WHERE user_id=?',[userId]);
+    if(database)return {choices:state.choices,accessRequests:state.accessRequests,reviewedAt:state.reviewedAt,activation:state.activation};
     return getStaffCommunicationChoices({userId,agencyId});
-  } catch(error) {await connection.rollback();throw error;}
-  finally {try{if(locked)await connection.execute('SELECT RELEASE_LOCK(?)',[lock]);}finally{connection.release();}}
+  } catch(error) {if(!database)await connection.rollback();throw error;}
+  finally {try{if(locked)await connection.execute('SELECT RELEASE_LOCK(?)',[lock]);}finally{if(!database)connection.release();}}
 }
 async function writeState(db,userId,agencyId,state) {
   const key=staffCommunicationKey(agencyId),serialized=JSON.stringify(state);
