@@ -36,6 +36,8 @@ export async function assertNoReviewTimeOverlap(db, userIds, startAt, endAt, exc
       WHERE supervisor_user_id IN (${ids.map(() => '?').join(',')}) AND status <> 'void' AND id <> ?
       AND start_at < ? AND end_at > ? LIMIT 1`, [...ids, excludeId, endAt, startAt]);
     if (rows.length) throw policyError(409, 'This time overlaps a scheduled or attested documentation review. Resolve the overlap first.');
+    const [tracked]=await db.execute(`SELECT id FROM cosign_review_activity_intervals WHERE supervisor_user_id IN (${ids.map(()=>'?').join(',')}) AND start_at < ? AND end_at > ? LIMIT 1`,[...ids,endAt,startAt]);
+    if(tracked.length)throw policyError(409,'This time overlaps automatically tracked co-sign review. Do not count it twice.');
   } catch (e) { if (!(allowMissing && e.code === 'ER_NO_SUCH_TABLE')) throw e; }
 }
 export async function assertNoMeetingOverlap(db, supervisorUserId, startAt, endAt) {

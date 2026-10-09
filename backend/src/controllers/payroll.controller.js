@@ -1,3 +1,4 @@
+import {roleCompensationRate} from '../services/roleCompensationRate.js';
 import { isUnpaidMeetingClaim } from '../services/huddlePolicy.js';
 import multer from 'multer';
 import { parse } from 'csv-parse/sync';
@@ -19357,6 +19358,9 @@ async function computeDefaultAppliedAmountForTimeClaim({ claim, rateCard, approv
       }
     }
     if (serviceCode && claim?.agency_id && claim?.user_id) {
+      const ctx=await loadUserPaySystemContext({agencyId:Number(claim.agency_id),userId:Number(claim.user_id),periodEnd:new Date(claim.claim_date)});
+      const assignedRate=ctx?.enabled?roleCompensationRate(ctx.rateProfile?.roleCompensation,serviceCode,payload):null;
+      if(assignedRate>0)return Math.round(hrs*assignedRate*100)/100;
       try {
         const PayrollRate = (await import('../models/PayrollRate.model.js')).default;
         const best = await PayrollRate.findBestRate({

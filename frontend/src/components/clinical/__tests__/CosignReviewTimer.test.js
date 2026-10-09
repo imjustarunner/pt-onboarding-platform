@@ -1,0 +1,12 @@
+import {mount,flushPromises} from '@vue/test-utils';
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+import CosignReviewTimer from '../CosignReviewTimer.vue';
+import api from '../../../services/api.js';
+vi.mock('../../../services/api.js',()=>({default:{post:vi.fn()}}));
+let w;
+beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-09T18:00:00Z'));vi.spyOn(document,'hasFocus').mockReturnValue(true);vi.spyOn(document,'hidden','get').mockReturnValue(false);api.post.mockImplementation(async(url,payload)=>({data:{item:{id:2,active_seconds:url.endsWith('start')?0:15,ended_at:payload.close?'2026-10-09':null}}}));});
+afterEach(async()=>{w?.unmount();await flushPromises();vi.restoreAllMocks();vi.clearAllMocks();vi.useRealTimers();});
+const start=async()=>{w=mount(CosignReviewTimer,{props:{agencyId:2,providerId:7,noteId:3,contentHash:'hash'}});await flushPromises();};
+it('tracks an opened co-sign review and closes its timer on leaving',async()=>{await start();await vi.advanceTimersByTimeAsync(15000);expect(api.post).toHaveBeenLastCalledWith('/supervision/supervisee/7/cosign-time/2/heartbeat',{agencyId:2,active:true,close:false});expect(w.text()).toContain('0m 15s');w.unmount();await flushPromises();expect(api.post).toHaveBeenLastCalledWith(expect.any(String),{agencyId:2,active:true,close:true});w=null;});
+it('pauses for hidden windows, explicit pause, and inactivity',async()=>{await start();vi.spyOn(document,'hidden','get').mockReturnValue(true);document.dispatchEvent(new Event('visibilitychange'));await flushPromises();expect(api.post).toHaveBeenLastCalledWith(expect.any(String),{agencyId:2,active:false,close:false});vi.spyOn(document,'hidden','get').mockReturnValue(false);await w.find('button').trigger('click');await flushPromises();expect(api.post).toHaveBeenLastCalledWith(expect.any(String),{agencyId:2,active:false,close:false});await w.find('button').trigger('click');await vi.advanceTimersByTimeAsync(75000);expect(api.post).toHaveBeenLastCalledWith(expect.any(String),{agencyId:2,active:false,close:false});});
+it('shows a tracking failure instead of pretending time was saved',async()=>{api.post.mockRejectedValueOnce(new Error('offline'));await start();expect(w.text()).toContain('Not tracking');expect(w.find('[role=alert]').exists()).toBe(true);await vi.advanceTimersByTimeAsync(30000);expect(api.post).toHaveBeenCalledTimes(1);});

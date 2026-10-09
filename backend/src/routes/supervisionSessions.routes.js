@@ -1,3 +1,4 @@
+import {startReviewActivity,pulseReviewActivity,submitReviewActivity,listReviewActivities} from '../controllers/cosignReviewActivity.controller.js';
 import {calendarHostList,calendarHostAdmit} from './meetingCalendar.routes.js';
 import {listManualSupervision,createManualSupervision,finishManualSupervision} from '../controllers/supervisionManual.controller.js';
 import { requirePersonalSupervisionInvitation } from '../services/meetingJoinPolicy.service.js';
@@ -94,6 +95,10 @@ router.get('/supervisee/:providerId/cases/:clientId/overview',...documentationGa
 router.post('/supervisee/:providerId/cases/:clientId/acknowledgement',...documentationGate,acknowledgeSupervisionCase);
 router.get('/supervisee/:providerId/documentation-policy',...documentationGate,getSupervisionDocumentationPolicy);
 router.put('/supervisee/:providerId/documentation-policy',...documentationGate,saveSupervisionDocumentationPolicy);
+router.get('/supervisee/:providerId/cosign-time',...documentationGate,listReviewActivities);
+router.post('/supervisee/:providerId/cosign-time/start',...documentationGate,startReviewActivity);
+router.post('/supervisee/:providerId/cosign-time/:activityId/heartbeat',...documentationGate,pulseReviewActivity);
+router.post('/supervisee/:providerId/cosign-time/:activityId/submit',...documentationGate,submitReviewActivity);
 router.get('/supervisee/:providerId/review-time',...documentationGate,listDocumentationReviewTime);
 router.post('/supervisee/:providerId/review-time',...documentationGate,saveDocumentationReviewTime);
 router.patch('/supervisee/:providerId/review-time/:timeId',...documentationGate,changeDocumentationReviewTime);

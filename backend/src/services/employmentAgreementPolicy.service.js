@@ -44,7 +44,7 @@ export function agreementRateProfile(profile, agreement) {
   const tierTerms = agreement.data.compensationPolicyVersion === COMPENSATION_POLICY_VERSION
     ? {tierBonusFfs:{1:0,2:0,3:bonus},tierBonusHcode:{1:0,2:0,3:Number(s.category)===1?bonus:0}}
     : {};
-  return {...profile, ...tierTerms, conditionalAdditionMode:agreement.data.conditionalAdditionMode||null, sickLeaveRateMode:agreement.data.sickLeaveRateMode||null, clinicalEligible:s.clinicalEligible!==false, category:s.category,level:s.level,creditRate:s.creditRate,hcodeRate:s.hcodeRate,
+  return {...profile, ...tierTerms, roleCompensation:agreement.data.roleCompensation||null, conditionalAdditionMode:agreement.data.conditionalAdditionMode||null, sickLeaveRateMode:agreement.data.sickLeaveRateMode||null, clinicalEligible:s.clinicalEligible!==false, category:s.category,level:s.level,creditRate:s.creditRate,hcodeRate:s.hcodeRate,
     indirectRate:s.indirectRate,supportActivityRate:s.supportRate,
     creditRateProbation:s.creditRateProbation,hcodeRateProbation:s.hcodeRateProbation,
     indirectRateProbation:s.indirectRateProbation ?? s.indirectRate,

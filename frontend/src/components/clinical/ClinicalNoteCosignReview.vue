@@ -3,6 +3,7 @@
     <button type="button" :disabled="busy" @click="open">Review &amp; cosign</button>
     <p v-if="error" role="alert">{{ error }}</p>
     <section v-if="document" aria-label="Review note and amendments before signing">
+      <CosignReviewTimer v-if="document.canTrackCosignTime && reviewProviderId" :key="`${noteId}-${document.contentHash}`" :agency-id="agencyId" :provider-id="reviewProviderId" :note-id="noteId" :content-hash="document.contentHash" />
       <pre>{{ document.content }}</pre>
       <p>Sign-off covers this note and every attached amendment/addendum.</p>
       <label><input v-model="attested" type="checkbox" :disabled="busy" /> I reviewed and approve this version and all amendments.</label>
@@ -14,6 +15,8 @@
 <script setup>
 import { ref, watch, onBeforeUnmount } from 'vue';
 import api from '../../services/api.js';
+import CosignReviewTimer from './CosignReviewTimer.vue';
+const reviewProviderId=ref(null);
 const props=defineProps({noteId:{type:[Number,String],required:true},agencyId:{type:[Number,String],required:true},providerId:{type:[Number,String],default:null}});
 const emit=defineEmits(['signed']);
 const document=ref(null),busy=ref(false),error=ref(''),attested=ref(false);
@@ -28,8 +31,8 @@ async function open(){
     if(!providerId){const {data}=await api.get(`/medical-billing/notes/${props.noteId}`,{params:{agencyId:props.agencyId}});providerId=data.note?.providerSignedByUserId;}
     if(g!==generation)return;
     if(!providerId)throw new Error('The signed note author is required for supervisor review.');
-    const {data}=await api.get(`/supervision-sessions/supervisee/${providerId}/document-reviews/note/${props.noteId}`,{params:{agencyId:props.agencyId}});
-    if(g===generation)document.value=data;
+    const {data}=await api.get(`/supervision/supervisee/${providerId}/document-reviews/note/${props.noteId}`,{params:{agencyId:props.agencyId}});
+    if(g===generation){reviewProviderId.value=providerId;document.value=data;}
   }catch(e){if(g===generation)error.value=e.response?.data?.error?.message||e.message||'Unable to load the current note.';}
   finally{if(g===generation)busy.value=false;}
 }

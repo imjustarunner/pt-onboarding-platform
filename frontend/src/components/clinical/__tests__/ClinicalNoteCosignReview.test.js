@@ -8,6 +8,7 @@ describe('amendment cosign review',()=>{
   it('requires opening and attesting to the exact version before signing',async()=>{
     const w=mount(ClinicalNoteCosignReview,{props:{noteId:4,agencyId:1,providerId:7}});
     await w.find('button').trigger('click');await flushPromises();
+    expect(api.get).toHaveBeenCalledWith('/supervision/supervisee/7/document-reviews/note/4',{params:{agencyId:1}});
     expect(w.text()).toContain('Signed note and amendment');
     const sign=w.findAll('button').find(b=>b.text()==='Sign off');expect(sign.element.disabled).toBe(true);
     await w.find('input').setValue(true);await sign.trigger('click');await flushPromises();

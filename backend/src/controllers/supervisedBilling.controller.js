@@ -134,7 +134,7 @@ export async function getSuperviseeReviewDocument(req,res,next) {
     const d=await loadReviewDocument(s,req.params.type,Number(req.params.documentId));
     const cosignCurrent=hasCurrentSupervisorCosign(d.row,s.policy.supervisorUserId,d.hash);
     await pool.execute(`INSERT INTO supervision_case_review_events (agency_id,provider_user_id,reviewer_user_id,client_id,event_type,content_hash) VALUES (?,?,?,?,'view',?)`,[s.agencyId,s.providerUserId,req.user.id,d.row.client_id,d.hash]);
-    res.json({content:clinicalReviewContent(d.content),contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:Number(d.row.addendum_count || 0)>0});
+    res.json({canTrackCosignTime:req.params.type==='note'&&s.canAttest&&Number(req.user.id)!==s.providerUserId&&Number(d.row.provider_signed_by_user_id)!==Number(req.user.id)&&!!d.row.provider_signed_at&&!cosignCurrent,content:clinicalReviewContent(d.content),contentHash:d.hash,cosignedAt:cosignCurrent?d.row.supervisor_cosigned_at:null,amendmentSignoffRequired:Number(d.row.addendum_count || 0)>0});
   }catch(e){next(e);}
 }
 export async function listSuperviseeDocumentReviews(req,res,next) {

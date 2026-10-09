@@ -1,0 +1,17 @@
+/** Personal role terms are snapshots in unsigned amendments, not payroll activation. */
+const money=value=>`$${Number(value).toFixed(2)}`;
+export function roleCompensationTerms(roles = {}) {
+ const sections=[];
+ if(roles.supervisor){
+  const hourly=Number(roles.supervisor.hourlyRate);
+  if(!(hourly>0))throw new Error('Supervisor hourly rate must be confirmed.');
+  sections.push(`<h3>Clinical supervision compensation</h3><table><thead><tr><th>Assigned responsibility</th><th>Hourly compensation</th></tr></thead><tbody><tr><td>Providing direct clinical supervision</td><td>${money(hourly)} per hour</td></tr><tr><td>Hosting group clinical supervision</td><td>${money(hourly*1.5)} per hour (1.5 × ${money(hourly)})</td></tr><tr><td>Reviewing and co-signing another provider’s notes</td><td>${money(hourly*.5)} per actual review hour (0.5 × ${money(hourly)})</td></tr></tbody></table><p>These rates apply when you perform the corresponding assigned supervisor duties. Group compensation is based on time spent hosting the group, not the number of participants. Note-review compensation covers actual time reviewing and co-signing notes authored by another provider; it does not apply to writing, reviewing or signing your own notes. Review time is recorded separately from direct and group supervision, with no automatic allowance per supervision hour and no duplicate payment for the same time. The app may capture active co-sign review time for your review and payroll submission. Paused, inactive and closed-document time is excluded from automatic tracking; report any legitimate work the tracker misses through a time correction.</p><p>Example: one hour of direct supervision pays ${money(hourly)}; one hour hosting group supervision pays ${money(hourly*1.5)}; 30 minutes reviewing and co-signing another provider’s notes pays ${money(hourly*.5*.5)}. Each example is before taxes.</p>`);
+ }
+ for(const [key,label] of [['mentor','Internship mentor responsibilities'],['cpa','Clinical Practice Assistant (CPA) responsibilities']]){
+  const role=roles[key];if(!role)continue;
+  const rows=[['Assigned individual '+(key==='mentor'?'mentoring':'CPA')+' meetings',role.meetingRate],['Assigned role-specific administrative work',role.adminRate],...(role.outreachRate?[['Assigned outreach work',role.outreachRate]]:[])].filter(([,rate])=>Number(rate)>0);
+  sections.push(`<h3>${label}</h3><p>In addition to your clinical service compensation, your assigned ${key==='mentor'?'internship mentor':'Clinical Practice Assistant'} duties are paid separately using the following role-specific rates.</p><table><thead><tr><th>Assigned duty</th><th>Rate per actual hour</th></tr></thead><tbody>${rows.map(([duty,rate])=>`<tr><td>${duty}</td><td>${money(rate)}</td></tr>`).join('')}</tbody></table><p>Record actual time under the corresponding duty or meeting type in the app. These are hourly rates for that work, not amounts added to every clinical service credit, and they do not depend on workload-tier qualification. Your regular indirect and support activity rates apply to other work classified under those categories. Do not report the same work under more than one pay category. The specific role rates above control for the listed duties.</p><p>Example: one hour of assigned ${key==='mentor'?'mentoring':'CPA'} meetings pays ${money(role.meetingRate)} before taxes, separately from clinical service pay.</p>`);
+ }
+ return sections.join('\n');
+}
+export const SUPERVISOR_COMPENSATION_HANDBOOK = roleCompensationTerms({supervisor:{hourlyRate:65}});

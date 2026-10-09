@@ -1,3 +1,4 @@
+import {isCompensationAmendmentExempt,isCompensationUpdatePlan} from './compensationAmendmentExemption.service.js';
 import {missingFocusGroups} from '../../../frontend/src/navigation/providerFocus.js';
 import {buildQuickViewHomeUrl} from '../utils/publicPortalUrl.js';
 import {recordUpdateTime,submitCompletedUpdateTime,createUpdateTimeClaim,updateTimeSummary} from './providerUpdateTime.service.js';
@@ -435,10 +436,11 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
       roleSnapshot: p.role || null,
       isDemoSnapshot: Number(p.is_demo) ? 1 : 0
     });
-    const keysForRecipient = enabledKeys.filter((key) =>
+    let keysForRecipient = enabledKeys.filter((key) =>
       recipientSeesSection(key, audience, p.provider_user_id, { hasFallActions: null })
     );
-    await ensureSectionRows(recipient.id, keysForRecipient.length ? keysForRecipient : enabledKeys);
+    if(isCompensationUpdatePlan(amendmentPlan)&&await isCompensationAmendmentExempt(agencyId,p.provider_user_id))keysForRecipient=keysForRecipient.filter(k=>k!=='amendments');
+    await ensureSectionRows(recipient.id, keysForRecipient);
 
     // Assign amendment document tasks when plan is attached and section is enabled for this user
     if (!prepareOnly && keysForRecipient.includes('amendments') && amendmentPlan) {
@@ -694,6 +696,7 @@ export async function getRecipientBundle(recipient) {
   enabledKeys = enabledKeys.filter((key) =>
     recipientSeesSection(key, audience, recipient.provider_user_id)
   );
+  if(enabledKeys.includes('amendments')&&isCompensationUpdatePlan(push?.amendment_plan_json)&&await isCompensationAmendmentExempt(recipient.agency_id,recipient.provider_user_id))enabledKeys=enabledKeys.filter(k=>k!=='amendments');
   if (!recipient.previewOnly) await ensureSectionRows(recipient.id, enabledKeys);
   const [sections] = await pool.execute(
     `SELECT * FROM provider_update_section_progress WHERE recipient_id = ?`,
