@@ -84,3 +84,13 @@ describe('Tier 3 conditional level additions',()=>{
   expect(earned.sickEarn).toBe(.97);
  });
 });
+
+it('uses the saved original agreement date for the remaining new-hire probation and ends it at workload Tier 3',()=>{
+ const assignment={category:1,level:1,waive_probation:0,probation_start_override:'2026-09-12',compensation_policy_version:'itsco-2026-10-service-credit-v3',compensation_agreement_effective_on:'2026-10-10'};
+ const args={assignment,providerStartDate:'2026-08-27',benefitTierLevel:1,displayTierLevel:1};
+ expect(resolveUserPaySystemStatus({...args,periodEnd:'2026-11-25'}).inProbation).toBe(true);
+ expect(resolveUserPaySystemStatus({...args,periodEnd:'2026-12-10'}).inProbation).toBe(true);
+ expect(resolveUserPaySystemStatus({...args,periodEnd:'2026-12-11'}).inProbation).toBe(false);
+ expect(resolveUserPaySystemStatus({...args,periodEnd:'2026-10-23',displayTierLevel:3}).inProbation).toBe(false);
+ expect(resolveUserPaySystemStatus({...args,assignment:{...assignment,probation_ended_on:'2026-10-23'},periodEnd:'2026-11-06'}).inProbation).toBe(false);
+});
