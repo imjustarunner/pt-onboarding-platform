@@ -718,7 +718,14 @@ export async function getRecipientBundle(recipient) {
     section.data={...defaults,...section.data};
     if(section.key==='credential_display'){section.data.displayRole=records.displayRole;section.data.publicGender=records.publicGender;}
     if(section.key==='supervision_hours')section.data.breakdown=records.supervision;
-    if(section.key==='specialties'){section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus};if(!recipient.locked_at&&missingFocusGroups(records.clinicalFocus,records.focusGroups||[]).length){section.completed=false;section.status='in_progress';}}
+    if(section.key==='specialties'){
+      section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus};
+      if(!recipient.locked_at&&missingFocusGroups(records.clinicalFocus,records.focusGroups||[]).length){
+        // Reopen prior completion without marking untouched sections as started.
+        if(section.completed)section.status='in_progress';
+        section.completed=false;
+      }
+    }
     if(section.key==='school_availability')section.data.schools=records.schools;
   }
   if(!records.schools?.length){const index=sectionList.findIndex(s=>s.key==='school_availability');if(index>=0)sectionList.splice(index,1);}
@@ -735,7 +742,11 @@ export async function getRecipientBundle(recipient) {
     const communicationChoices=await getStaffCommunicationChoices({userId:recipient.provider_user_id,agencyId:recipient.agency_id});
     const {getCommunicationPrefs}=await import('./inboxDigest.service.js');
     communicationSection.data={...communicationSection.data,communicationChoices,hasSchoolAssignments:!!records.schools?.length,appEmail:await getCommunicationPrefs(recipient.provider_user_id)};
-    if (!recipient.locked_at && communicationChoices.needsReview) {communicationSection.completed=false;communicationSection.status='in_progress';}
+    if (!recipient.locked_at && communicationChoices.needsReview) {
+      // Required answers do not imply the recipient has started this section.
+      if (communicationSection.completed) communicationSection.status='in_progress';
+      communicationSection.completed=false;
+    }
   }
   let agency = null;
   try {
