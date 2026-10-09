@@ -19,7 +19,8 @@ number. Reuse the already owned **719-716-3661** for one appropriate role after
 registration; its final role has not been changed by this update. Campaign linkage
 authorizes SMS use; it does not configure calling, extensions or forwarding.
 
-Read-only Vonage inventory verified **October 8, 8:34 PM America/Denver**:
+Read-only Vonage inventory verified **October 8, 8:34 PM America/Denver** (staff
+number provisioned later that evening; see the update below):
 
 | Organization | Service campaign | Staff notifications / polling campaign |
 | --- | --- | --- |
@@ -27,7 +28,7 @@ Read-only Vonage inventory verified **October 8, 8:34 PM America/Denver**:
 | Next Level Up | `VC23QD14`, ACTIVE, Account Notification + Customer Care | None found; polling is not included in the existing campaign |
 | Inner Strength | `VCA596DN`, PENDING_REVIEW, Account Notification + Customer Care | None found; polling is not included in the pending campaign |
 
-All four non-terminated campaigns have **zero linked numbers**. Next Level Up and
+At that check all four non-terminated campaigns had **zero linked numbers**. Next Level Up and
 Inner Strength need a separate Staff Notifications and Voting campaign if adopting
 ITSCO's separation. Submit Account Notification + Polling/Voting with each
 organization's own program description, signed opt-in flow and published policies.
@@ -51,10 +52,29 @@ Do not treat the presence of Account Notification as approval for polling.
    shared-family routing, STOP/HELP, delivery failures and availability behavior
    with consenting staff and fictional records before patient use.
 
-No numbers were bought, linked, repurposed or activated in this change. No texts,
+No numbers were bought, linked, repurposed or activated in the unread-badge change. No texts,
 calls or campaign submissions were made. SMS and Calls tabs now display unread
 badges and load stored conversations even while new sending/capture awaits
 activation; the old “Coming soon” shortcut had hidden stored records in those tabs.
+
+### Staff number linked — October 8, 9:21 PM America/Denver
+
+- Purchased **719-716-3884** for ITSCO's permanent staff notifications and polling line.
+  Verified carrier status **LINKED** on brand `BRC2ZW3`, campaign `VCSVZ9AN`.
+  Rental quote: EUR 0.93 setup and EUR 0.93/month, plus usage.
+- Saved as ITSCO number ID `3`, purpose `notification`, with only `polling` and
+  `workforce` registration purposes. `companyEventsSenderNumberId` points to `3`.
+  Existing care/main numbers and the HIPAA provisioning hold remain unchanged.
+- Configured the number's inbound URL as
+  `https://plottwisthq.com/api/vonage/inbound`. The production endpoint was found
+  behind catch-all staff authentication (HTTP 401). The accompanying server fix
+  mounts Vonage callbacks before that authentication and request-body logging;
+  production callbacks still require valid Vonage signatures. Deploy this fix
+  before activating texts, and confirm Vonage inbound and receipt signing.
+- Enrollment activation is planned for October 9. Agency SMS/polling enable flags
+  remain off; no recipients were enrolled and no texts were sent by provisioning.
+  Signed recipient choices and administrator review are still required. Linking
+  the number does not enable calls, care texts, or appointment announcements.
 
 ## Prior compliance check — October 7, 2026
 

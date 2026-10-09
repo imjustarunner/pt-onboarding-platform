@@ -397,6 +397,9 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(securityEvidenceMiddleware);
 // Preserve the existing preview boundary on every public clinical entry point.
 app.use('/api', auricwellPreviewBoundary);
+// Carrier callbacks authenticate with Vonage signatures, not staff login tokens.
+// Mount before catch-all API authentication and request-body logging.
+app.use('/api/vonage', vonageRoutes);
 // Public check-in must precede catch-all authentication and body logging.
 app.use('/api/my-room', providerMyRoomRoutes);
 
@@ -1040,7 +1043,6 @@ app.use('/api/session-recordings', sessionRecordingRoutes);
 app.use('/api/compliance-corner', complianceCornerRoutes);
 app.use('/api', researchCandidateRoutes);
   app.use('/api/voice-video', voiceVideoRoutes);
-app.use('/api/vonage', vonageRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/sms-numbers', smsNumbersRoutes);
 app.use('/api/extensions', extensionsRoutes);
