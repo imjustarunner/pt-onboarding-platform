@@ -7,7 +7,7 @@ export const CURRENT_MANAGED_DOMAINS = Object.freeze({
 export const GROUP_LABELS = Object.freeze({
   staff: 'Staff', unlicensed: 'Unlicensed', prelicensed: 'Prelicensed', licensed: 'Licensed',
   supervisors: 'Supervisors', supervisees: 'Supervisees', interns: 'Interns',
-  costaff: 'Colorado staff', denver: 'Denver', cosprings: 'Colorado Springs'
+  spanish: 'Spanish intake coordination', costaff: 'Colorado staff', denver: 'Denver', cosprings: 'Colorado Springs'
 });
 const norm = value => String(value || '').trim().toLowerCase();
 const staffRoles = new Set(['super_admin','admin','support','staff','provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant']);
@@ -26,6 +26,11 @@ export function activeManagedStaff(row) {
 export function staffGroupKeys(row, { supervisorIds = new Set(), superviseeIds = new Set() } = {}) {
   if (!activeManagedStaff(row)) return [];
   const keys = new Set(['staff']);
+  let details=row.public_details_json||{};if(typeof details==='string'){try{details=JSON.parse(details);}catch{details={};}}
+  const reviewed=Array.isArray(details.languageProficiencies);
+  const spanish=reviewed?details.languageProficiencies.some(l=>/^spanish$|^español$/i.test(l.language||'')&&l.canConductSessions===true&&['professional','fluent','native'].includes(l.proficiency))
+    :/\bspanish\b|español/i.test(String(row.languages_spoken||row.recorded_languages||''));
+  if(spanish||norm(row.role)==='support'||(norm(row.first_name)==='michael'&&norm(row.last_name)==='mendez'))keys.add('spanish');
   const credential = norm(row.credential).replace(/\./g, '');
   const tokens = new Set(credential.split(/[^a-z]+/).filter(Boolean));
   // Current license evidence takes precedence over stale "intern" job labels or

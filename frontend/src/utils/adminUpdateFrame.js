@@ -3,6 +3,14 @@
 export function connectAdminUpdateFrame(event) {
   const doc=event.target.contentDocument;
   if(!doc)return;
+  // App pages need their own browsing context; scripts are intentionally disabled
+  // in this reading frame. Keep topic anchors within the update.
+  for(const link of doc.querySelectorAll('a[href]')) {
+    const href=link.getAttribute('href')||'';
+    if(/^(https?:\/\/|\/(?!\/))/.test(href)) {
+      link.target='_blank';link.rel='noopener noreferrer';
+    }
+  }
   doc.addEventListener('click',e=>{
     const link=e.target.closest('a[href^="#"],a[href^="about:srcdoc#"]');
     if(!link)return;

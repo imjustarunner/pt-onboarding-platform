@@ -1,3 +1,4 @@
+import {validateSessionLanguages} from '../../../frontend/src/utils/providerLanguages.js';
 import {scopeProviderProfile} from '../utils/providerAgencyAvailability.js';
 import pool from '../config/database.js';
 import {publicLanguages,restrictPublicInsurances} from '../utils/publicProviderPresentation.js';
@@ -76,6 +77,7 @@ class ProviderPublicProfile {
       const value = (details ?? previous?.details)?.[key];
       publicDetails[key] = ['accepting', 'waitlist', 'unavailable'].includes(value) ? value : 'auto';
     }
+    if(Object.hasOwn(details,'languageProficiencies')){publicDetails.languageProficiencies=validateSessionLanguages(details.languageProficiencies);publicDetails.languages=publicDetails.languageProficiencies.map(row=>row.language);}
     publicDetails.gender = String(details.gender || '').trim().slice(0, 80);
     for (const key of ['inPersonEnabled','virtualEnabled','waitlistEnabled']) {
       if (typeof details[key] === 'boolean') publicDetails[key] = details[key];

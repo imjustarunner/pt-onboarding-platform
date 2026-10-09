@@ -87,3 +87,8 @@ describe('provider discovery',()=>{
  });
 
 });
+
+it('filters session languages and preserves the choice in a shareable search',async()=>{
+ const {wrapper,router}=await render('/p/itsco/providers?language=Spanish',{providers:[{...providers[0],details:{languages:['English']}},{...providers[1],details:{languages:['English','Spanish']}}]});
+ expect(wrapper.findAll('.its-provider-card')).toHaveLength(1);expect(wrapper.get('.its-provider-card').text()).toContain('Zeta Person');expect(router.currentRoute.value.query.language).toBe('Spanish');wrapper.unmount();
+});

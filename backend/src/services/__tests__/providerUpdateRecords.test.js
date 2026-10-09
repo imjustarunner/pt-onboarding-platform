@@ -18,3 +18,11 @@ it('saves a self-selected public gender while preserving existing profile detail
  expect(Profile.upsertForProvider).toHaveBeenCalledWith(expect.objectContaining({providerUserId:7,details:expect.objectContaining({gender:'nonbinary',languages:['Spanish']})}));
  await expect(saveProviderReviewProfile({provider_user_id:7,agency_id:2},'credential_display',{displayLabel:'Counselor',publicGender:'inferred'})).rejects.toMatchObject({status:400});
 });
+
+it('requires language proficiency and a session-capability confirmation before saving',async()=>{
+ Profile.getForProvider=vi.fn(async()=>({details:{languages:['English']}}));Profile.upsertForProvider=vi.fn();
+ await expect(saveProviderReviewProfile({provider_user_id:7,agency_id:2},'credential_display',{displayLabel:'Counselor',sessionLanguages:[{language:'Spanish',proficiency:'fluent',canConductSessions:false}]})).rejects.toMatchObject({status:400});
+ expect(Profile.upsertForProvider).not.toHaveBeenCalled();
+ await saveProviderReviewProfile({provider_user_id:7,agency_id:2},'credential_display',{displayLabel:'Counselor',sessionLanguages:[{language:'Spanish',proficiency:'fluent',canConductSessions:true}]});
+ expect(Profile.upsertForProvider).toHaveBeenCalledWith(expect.objectContaining({details:expect.objectContaining({languages:['Spanish'],languageProficiencies:[{language:'Spanish',proficiency:'fluent',canConductSessions:true}]})}));
+});

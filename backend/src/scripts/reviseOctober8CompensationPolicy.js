@@ -33,13 +33,13 @@ async function main(){
   const staff=await staffMilestones(2);
   const revisions=itscoRevisionTopics(staff).filter(t=>['people_since_march','credentials_roles','anniversaries'].includes(t.key));
   const compensation=octoberAdminTopics().find(t=>t.key==='compensation_october');
-  const intro='This Admin Update is included in your Provider Update invitation. Read or listen here, then continue through your personal update steps. Active review time is tracked and submitted for payroll review at your support activity rate when you finish.';
+  const intro='This Admin Update is included in your Provider Update invitation. Read or listen here, then continue through your personal update steps.';
   update.title=update.title.replace(/\s*[—–-]?\s*together since march/ig,'').trim();update.intro_html=intro;
   update.support_title='Need help with the app?';update.support_body='Use Need help in your Provider Update to submit a Technology support ticket and attach screenshots. General ITSCO support: support@itsco.health.';update.support_email='support@itsco.health';
   for(const topic of topics){
    const replacement=[...revisions,compensation].find(t=>t.key===topic.topic_key);
    if(replacement){topic.body_html=replacement.body;topic.title=replacement.title;}
-   if(['schoolcarebridge','auricwell'].includes(topic.topic_key))topic.enabled=0;
+   if(['schoolcarebridge','auricwell','compensation_october'].includes(topic.topic_key))topic.enabled=0;
    if(topic.topic_key==='welcome_october')topic.body_html=topic.body_html.replace(/Please complete your personal Provider Update when your invitation arrives\./g,'Continue through your personal Provider Update in this same invitation.');
    topic.rendered_body_html=fillStaffMarkers(topic.body_html,staff);
    if(apply)await db.execute('UPDATE admin_update_topics SET enabled=?,title=?,body_html=? WHERE id=? AND update_id=1',[topic.enabled,topic.title,topic.body_html,topic.id]);

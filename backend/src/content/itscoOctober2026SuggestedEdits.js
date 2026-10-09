@@ -8,13 +8,14 @@ const app = 'https://app.itsco.health';
 export const itscoSuggestedTopicEdits = {
   spanish_intake: {
     title: 'Spanish-speaking families · intake handoff',
-    body: p('When a client or parent prefers Spanish, document their language preference and connect them with the designated Spanish-speaking team member for intake.') + list([
-      '<strong>Ask language preference:</strong> The client and parent may have different preferences, so ask each separately.',
-      '<strong>Make the handoff:</strong> Use the client’s authorized record or a secure support request. Include preferred contact method and availability. Do not share client information in broad team texts.',
-      '<strong>Document progress:</strong> The Spanish-speaking team member records contact attempts, intake progress, outstanding items, and who is responsible for the next step. The assigned provider should refer to the same record to avoid duplicate work.',
-      '<strong>If the Spanish-speaking intake team member is unavailable:</strong> Ask support to arrange language assistance and follow-up. An unsuccessful English-language contact should not be treated as a refusal of services.',
-      '<strong>Use appropriate language support:</strong> Use approved translated forms or qualified interpretation when needed. Children should not interpret intake, consent, or clinical information.'
-    ]) + p('No additional approval is needed to make the handoff. As always, interpreting, translation, and clinical services should stay within the staff member’s training, skills, and assigned responsibilities.')
+    body: p('Record the client’s and parent/guardian’s primary languages separately in the intake paperwork and client profile. When a parent or guardian prefers Spanish, arrange a Spanish-speaking parent intake through the agency’s Spanish intake team.') + steps([
+      '<strong>Request availability:</strong> Contact spanish@your-agency-domain (espanol@ is an alias for the same group), or use the agency’s Spanish intake channel. Request a parent-intake time without posting identifying clinical information to the group.',
+      '<strong>Assign the Spanish-speaking provider:</strong> Support coordinates the handoff and adds that provider to the individual client’s authorized care team. Group membership alone does not grant access to client records.',
+      '<strong>Complete the intake:</strong> The Spanish-speaking provider conducts the parent intake and completes its documentation in the client record. The primary provider may attend if helpful.',
+      '<strong>Prepare the care summary:</strong> The primary provider uses the Note Aid treatment-summary workflow to prepare a brief, relevant summary, reviews it for accuracy, and saves the reviewed summary in the authorized medical record. The assigned Spanish-speaking provider accesses it there.',
+      '<strong>Continue coordination:</strong> The assigned Spanish-speaking provider handles future parent check-ins and coordination of care, documenting contacts and sharing relevant updates with the primary provider through the client record.',
+      '<strong>When coverage is unavailable:</strong> Ask support to arrange appropriate language assistance. Do not use children as interpreters or treat an unsuccessful English-language contact as a refusal of services.'
+    ]) + p('In your Provider Update, list languages you can use proficiently enough to conduct sessions and select your proficiency. Update support when your availability changes. For ITSCO, use <a href="mailto:spanish@itsco.health">spanish@itsco.health</a> or <a href="mailto:espanol@itsco.health">espanol@itsco.health</a>; both reach the same team.')
   },
   office_kiosk: {
     title: 'The new office kiosk · arrival, directions & provider information',
@@ -26,22 +27,22 @@ export const itscoSuggestedTopicEdits = {
       '<strong>Provider profiles:</strong> View current provider photos and public profile information. Please keep your photo, biography, and focus areas up to date through your Provider Update.',
       '<strong>Programs & events:</strong> View available office programs and events. Program-specific check-in or clock-in/out options will only appear where configured.',
       '<strong>Visit forms & feedback:</strong> Complete assigned visit questionnaires or feedback after check-in. Optional feedback can be skipped and will not prevent check-in. Authorized providers can review saved responses and available trends.'
-    ]) + p('The kiosk will return to the welcome screen after completion or inactivity. Please finish or clear the screen before leaving it and let staff know if any information appears incorrect.') + p('The kiosk is intended for arrival and office information only. It is not used to start care or report an emergency.') + p(`<a href="${app}/itsco/kiosk?mode=office">Open the kiosk entry</a> · Staff can open the configured office kiosk; clients should use the device provided at their office.`)
+    ]) + p('The kiosk will return to the welcome screen after completion or inactivity. Please finish or clear the screen before leaving it and let staff know if any information appears incorrect.') + p('The kiosk is intended for arrival and office information only. It is not used to start care or report an emergency.') + p(`<a target="_blank" rel="noopener noreferrer" href="${app}/itsco/kiosk?mode=office">Open the kiosk entry</a> · Opens in a new window. The entry link will change in the coming weeks to a fixed location. Remind clients to complete check-in as soon as they arrive; they should use the device provided at their office.`)
   },
   tasks_my_work: {
     title: 'Tasks & My Work · know what needs your attention',
     body: p('Tasks shows the work assigned to you. Open each task to see the instructions, due date, attachments, and required action.') + list([
       '<strong>Complete the actual task:</strong> Signing a document, submitting a request, and checking off a task are separate steps. Complete the required action before marking the task as done.',
       '<strong>If you’re blocked:</strong> Use the relevant task to ask for help rather than marking it complete.',
-      '<strong>My Work:</strong> This gives you an overview of items that need your attention. Some accounts may still display this as Checklist. Use the dashboard for a quick view of what is due, then open the full task list for details.',
+      '<strong>My Work / To-do:</strong> The right panel on the documentation page contains clinical to-dos for providers and their supervisors. These items connect with the Note Aid interface so you can open the relevant documentation workflow. The general Tasks list also contains other assigned work.',
       '<strong>Provider Update:</strong> Continue to review your school/client actions there as well. Each listed client has a specific outstanding action based on your assignment.',
       '<strong>Protect client information:</strong> Keep client details in the appropriate authorized record. Do not copy sensitive information into broad team tasks or announcements.'
-    ]) + p('A reminder or checked-off task does not confirm that a clinical note, enrollment, signature, or other required step has actually been completed.') + p(`<a href="${app}/tasks">Open Tasks</a>`)
+    ]) + p('A reminder or checked-off task does not confirm that a clinical note, enrollment, signature, or other required step has actually been completed.') + p('During the current rollout, you may see tasks that do not apply to you or that should already have resolved. Open that task and choose <strong>Report a weird task</strong>. This creates a Technology ticket with the task, assignee, creation time and available source details so the team can investigate. Explain what seems wrong; reporting does not complete or delete the task.') + p(`<a target="_blank" rel="noopener noreferrer" href="${app}/itsco/tasks">Open Tasks ↗</a> · <a target="_blank" rel="noopener noreferrer" href="${app}/itsco/tasks?reportTask=1">Report a weird task ↗</a>`)
   },
   notes_workspace: {
     title: 'Notes Workspace · find, write & manage your notes',
     body: p('The Notes Workspace has three main areas, each with a different purpose:') + list([
-      '<strong>Right — Work Queue:</strong> This shows the sessions and documentation tasks you need to work on. Select an item to open it in the workspace. When available, “Open next in queue” lets you move through your remaining work without searching for each client.',
+      '<strong>Right — My Work / To-do:</strong> This shows the sessions and documentation tasks you need to work on. Select an item to open it in the workspace. When available, “Open next in queue” lets you move through your remaining work without searching for each client.',
       '<strong>Center — Writing & Review:</strong> Use this area to create and review notes. Select the appropriate note tool, verify the client, service date, and clinical details, and review all generated content before saving. AI-assisted text must be reviewed by you and does not replace clinical judgment.',
       '<strong>Left — Note Library:</strong> Use the library to search, filter, group, and reopen drafts or saved notes. The Note Library and Work Queue serve different purposes. Deleting a draft does not remove the related item from the Work Queue. If a to-do is no longer needed, remove it from the queue when appropriate.'
     ]) + p('<strong>Current workflow:</strong> ITSCO is using the note-generation tools while the full clinical charting and signing process is being rolled out in stages. A saved or reviewed note in this workspace is not automatically a signed TherapyNotes record. Until you receive notice that the workflow has changed, continue copying reviewed notes into TherapyNotes as required.') + p(`<a href="${app}/admin/clinical-note-generator">Open Notes Workspace</a>`)
@@ -49,10 +50,10 @@ export const itscoSuggestedTopicEdits = {
   supervision: {
     title: 'Supervision hours · now tracked in the app',
     body: p('Your supervision hours are now recorded in the app. Review the different hour totals shown in your Provider Update:') + list([
-      '<strong>Starting hours:</strong> Your previously reported hours.',
-      '<strong>Imported hours:</strong> Hours brought over from the previous tracking period.',
-      '<strong>Finalized credits:</strong> Hours that have been reviewed and converted to app credits.',
-      '<strong>Total:</strong> Your current overall balance.'
+      '<strong>Starting hours — before app tracking:</strong> Your reported supervision hours from before supervision tracking began in this app.',
+      '<strong>Imported billing-report hours:</strong> Supervision hours entered from billing reports for recorded periods.',
+      '<strong>App-recorded supervision hours:</strong> Hours posted from supervision sessions finalized in the app. These are supervision hours, not pay or service credits; unfinished sessions are not included here.',
+      '<strong>Calculated total:</strong> Starting hours plus imported billing-report hours plus app-recorded supervision hours. Compare this with your current recorded balance and report any missing or overlapping hours.'
     ]) + p('The Provider Update keeps these sources separate so you can spot missing or duplicate hours.') + p('<strong>If something looks incorrect:</strong> Submit a correction with an explanation and any supporting information. Do not enter historical hours again if they are already included in your balance.')
   },
   availability_profiles: {

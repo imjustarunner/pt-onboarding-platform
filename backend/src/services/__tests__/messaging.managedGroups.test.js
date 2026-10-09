@@ -2,7 +2,7 @@ import { describe,expect,it,vi,beforeEach } from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()}}));
 import pool from '../../config/database.js';
 import { managedDomain,staffGroupKeys,buildManagedGroupPlan } from '../managedWorkspaceGroupPolicy.js';
-import { managedGroupEnvelope,assertManagedChatPost } from '../managedWorkspaceGroupAccess.service.js';
+import { managedGroupEnvelope,assertManagedChatPost,assertSpanishGroupSender } from '../managedWorkspaceGroupAccess.service.js';
 import { meetingInvitationContent } from '../meetingInvitationPolicy.js';
 const staff={id:12,first_name:'Brittany',role:'provider',status:'ACTIVE_EMPLOYEE',is_active:1,is_archived:0,is_demo:0,membership_active:1,credential:'BA, Intern'};
 const agency={slug:'itsco',is_active:1,organization_type:'agency'};
@@ -56,4 +56,18 @@ it('shows attendee names without email addresses, response statuses, or staff ro
  const result=meetingInvitationContent({events:[{id:1,title:'Initial interview',start_at:'2026-09-25T15:00:00Z'}],joinUrl:'https://example.org/join',participants:[{name:'Kelly Wagle',email:'candidate@example.org',rsvp:'pending',is_required:1},{name:'Haley Inyart',email:'host@example.org',isHost:true}]});
  expect(result.text).toContain('Attendees: Kelly Wagle, Haley Inyart');
  expect(result.html).not.toMatch(/candidate@example|host@example|mandatory|pending/);
+});
+
+it('uses explicit language records, honors the newer proficiency review, and includes support',()=>{
+ expect(staffGroupKeys({...staff,recorded_languages:'["English & Spanish"]'})).toContain('spanish');
+ expect(staffGroupKeys({...staff,recorded_languages:'Spanish',public_details_json:{languageProficiencies:[]}})).not.toContain('spanish');
+ expect(staffGroupKeys({...staff,public_details_json:{languageProficiencies:[{language:'Spanish',proficiency:'professional',canConductSessions:true}]}})).toContain('spanish');
+ expect(staffGroupKeys({...staff,role:'support'})).toContain('spanish');
+ expect(staffGroupKeys({...staff,first_name:'Spanish',last_name:'Name'})).not.toContain('spanish');
+});
+
+it('limits the Spanish sender to active channel members',async()=>{
+ pool.execute.mockResolvedValue([[staff]]);await expect(assertSpanishGroupSender(2,12)).resolves.toBeUndefined();
+ pool.execute.mockResolvedValue([[]]);await expect(assertSpanishGroupSender(2,99)).rejects.toMatchObject({status:403});
+ pool.execute.mockResolvedValue([[{...staff,is_archived:1}]]);await expect(assertSpanishGroupSender(2,12)).rejects.toMatchObject({status:403});
 });

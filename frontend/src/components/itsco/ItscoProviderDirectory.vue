@@ -26,7 +26,7 @@
      <label>Insurance / payment<select v-model="insurance"><option value="">Any payment option</option><option value="self-pay">Self-pay</option><option v-for="v in insurances" :key="v">{{v}}</option></select></label>
      <label>Provider Status<select v-model="accepting"><option value="">Any status</option><option value="yes">Accepting new clients</option><option value="waitlist">Waitlist</option><option value="unavailable">Closed to new clients</option></select></label>
      <label>Openings<select v-model="openings"><option value="">Any availability</option><option value="yes">With openings</option><option value="no">No published openings</option></select></label>
-     <label>Provider gender<select v-model="gender"><option value="">Any gender</option><option v-for="v in genders" :key="v">{{v}}</option></select></label>
+     <label>Session language<select v-model="language"><option value="">Any language</option><option v-for="item in languages" :key="item">{{item}}</option></select></label><label>Provider gender<select v-model="gender"><option value="">Any gender</option><option v-for="v in genders" :key="v">{{v}}</option></select></label>
      <label>City<select v-model="city"><option value="">All locations</option><option v-for="v in cities" :key="v">{{v}}</option></select></label>
      <label v-if="mode==='virtual'">State<select v-model="state"><option value="">All available states</option><option v-for="v in virtualStates" :key="v" :value="v">{{v==='CO'?'Colorado':v}}</option></select></label>
      <ProviderTimeFilters v-model="desiredTime"/>
@@ -52,6 +52,7 @@
  </section>
 </template>
 <script setup>
+import {sessionLanguageLabels} from '../../utils/providerLanguages';
 import {mentalRangeSearchUrl,providerOpeningGroups,networkSearchKeys} from '../../utils/networkProviderSearch';
 import Icon from '../rise/RiseIcon.vue';
 import ItscoProfilePlaceholders from './ItscoProfilePlaceholders.vue';
@@ -72,26 +73,27 @@ import PublicProviderProfileEditor from '../publicServices/PublicProviderProfile
 import PublicProviderAvailabilityPanel from '../publicServices/PublicProviderAvailabilityPanel.vue';
 const props=defineProps({providers:{type:Array,default:()=>[]},offices:{type:Array,default:()=>[]},schools:{type:Array,default:()=>[]},availability:{type:Object,default:()=>({})},directoryLoading:Boolean,availabilityLoading:Boolean,availabilityError:String,agencyId:{type:Number,required:true}});
 defineEmits(['refresh','retry-availability']);
-const route=useRoute(),router=useRouter(),officeId=ref(''),mode=ref('all'),school=ref(''),search=ref(''),age=ref(''),specialty=ref(''),insurance=ref(''),accepting=ref(''),openings=ref(''),gender=ref(''),sort=ref('popular'),limit=ref(12),profileSchedule=ref(null);
+const route=useRoute(),router=useRouter(),officeId=ref(''),mode=ref('all'),school=ref(''),search=ref(''),age=ref(''),specialty=ref(''),insurance=ref(''),accepting=ref(''),openings=ref(''),gender=ref(''),language=ref(''),sort=ref('popular'),limit=ref(12),profileSchedule=ref(null);
 const moreFilters=ref(false),care=ref(''),city=ref(''),state=ref(''),desiredTime=ref({});
 const modes=[['all','All'],['office','In office'],['virtual','Virtual'],['school','School-based']];
 watch(()=>[route.query.officeId,route.query.setting,route.query.school],([id,setting,schoolId])=>{school.value=String(schoolId||'');mode.value=schoolId?'school':id?'office':['office','virtual','school'].includes(setting)?setting:'all';officeId.value=mode.value==='office'?String(id||''):'';},{immediate:true});
 watch(()=>providerIdFromRoute(route),()=>{profileSchedule.value=null;});
-watch([officeId,mode,school,search,age,specialty,insurance,accepting,openings,gender,care,city,state,desiredTime],()=>{limit.value=12;});
+watch([officeId,mode,school,search,age,specialty,insurance,accepting,openings,gender,language,care,city,state,desiredTime],()=>{limit.value=12;});
 watch(()=>[route.query.care,route.query.city,route.query.insurance],([c,l,i])=>{care.value=String(c||'');city.value=String(l||'');insurance.value=String(i||'');},{immediate:true});
 const selected=computed(()=>props.providers.find(p=>String(p.id)===providerIdFromRoute(route)));
 const officeLocations=computed(()=>[...new Map([...props.offices,...props.providers.flatMap(p=>p.officeLocations||[])].map(o=>[o.id,o])).values()].sort((a,b)=>a.name.localeCompare(b.name)));
 const needsOffice=computed(()=>false);
-const directoryQuery=computed(()=>({...desiredTime.value,state:state.value||undefined,search:search.value||undefined,age:age.value||undefined,specialty:specialty.value||undefined,accepting:accepting.value||undefined,openings:openings.value||undefined,gender:gender.value||undefined,setting:mode.value,care:care.value||undefined,city:city.value||undefined,insurance:insurance.value||undefined,...(school.value?{school:school.value}:{}),...(mode.value==='office'?{officeId:officeId.value||undefined}:{})}));
+const directoryQuery=computed(()=>({...desiredTime.value,state:state.value||undefined,search:search.value||undefined,age:age.value||undefined,specialty:specialty.value||undefined,accepting:accepting.value||undefined,openings:openings.value||undefined,gender:gender.value||undefined,language:language.value||undefined,setting:mode.value,care:care.value||undefined,city:city.value||undefined,insurance:insurance.value||undefined,...(school.value?{school:school.value}:{}),...(mode.value==='office'?{officeId:officeId.value||undefined}:{})}));
 // Keep searches shareable and intact when returning from the collective or an inquiry.
-watch(directoryQuery,q=>{if(selected.value)return;const next={...route.query};for(const key of [...networkSearchKeys,'officeId']){if(q[key])next[key]=q[key];else delete next[key];}const stable=value=>JSON.stringify(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)));if(stable(next)!==stable(route.query))router.replace({query:next});});
+watch(directoryQuery,q=>{if(selected.value)return;const next={...route.query};for(const key of [...networkSearchKeys,'officeId','language']){if(q[key])next[key]=q[key];else delete next[key];}const stable=value=>JSON.stringify(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)));if(stable(next)!==stable(route.query))router.replace({query:next});});
 const networkSearchUrl=computed(()=>mentalRangeSearchUrl(mode.value==='school'?{...directoryQuery.value,school:undefined,setting:'all'}:directoryQuery.value,officeLocations.value.find(o=>String(o.id)===officeId.value)));
-watch(()=>route.query,q=>{for(const [key,field] of Object.entries({search,age,specialty,accepting,openings,gender,state}))field.value=String(q[key]||'');desiredTime.value={day:String(q.day||''),timeFrom:String(q.timeFrom||''),timeTo:String(q.timeTo||'')};},{immediate:true});
+watch(()=>route.query,q=>{for(const [key,field] of Object.entries({search,age,specialty,accepting,openings,gender,language,state}))field.value=String(q[key]||'');desiredTime.value={day:String(q.day||''),timeFrom:String(q.timeFrom||''),timeTo:String(q.timeTo||'')};},{immediate:true});
 function setMode(value){mode.value=value;school.value='';if(value!=='office')officeId.value='';router.replace({query:{...directoryQuery.value,school:undefined,officeId:officeId.value||undefined,setting:value}});}
 function chooseSchool(id){mode.value='school';school.value=String(id);officeId.value='';router.replace({query:{...directoryQuery.value,setting:'school',school:school.value,officeId:undefined}});}
 function chooseOffice(id){mode.value='office';officeId.value=String(id);school.value='';router.replace({path:'/p/itsco/providers',query:{...directoryQuery.value,setting:'office',officeId:officeId.value}});}
 const values=key=>uniquePublicFacets(props.providers.flatMap(p=>p[key]||[])).sort();
 const ages=computed(()=>sortClientAges(values('ageGroups'))),specialties=computed(()=>values('specialties'));
+const languages=computed(()=>[...new Set(['English','Spanish',...props.providers.flatMap(p=>p.details?.languages||[])])].sort());
 const genders=computed(()=>[...new Set(props.providers.map(p=>p.details?.gender).filter(Boolean))].sort());
 const insurances=computed(()=>[...new Set(props.providers.flatMap(p=>p.insurances.map(i=>i.name)))].sort());
 const availability=p=>selected.value?.id===p.id && profileSchedule.value?profileSchedule.value:props.availability[p.id]||{};
@@ -109,6 +111,7 @@ const filtered=computed(()=>props.providers.filter(p=>
  (!care.value||(p.populations||[]).some(v=>v.toLowerCase()===care.value.toLowerCase()))&&(!city.value||(p.officeLocations||[]).some(o=>`${o.city}, ${o.state}`===city.value))&&
  (!state.value||(mode.value==='virtual'?publicVirtualStates(p).includes(normalizeServiceState(state.value)):(p.officeLocations||[]).some(o=>normalizeServiceState(o.state)===normalizeServiceState(state.value))))&&
  (!hasTimePreference(desiredTime.value)||openingSlots(p).length>0)&&
+ (!language.value||(p.details?.languages||[]).some(l=>l.toLowerCase()===language.value.toLowerCase()))&&
  (!specialty.value||p.specialties.includes(specialty.value))&&(!gender.value||p.details?.gender===gender.value)&&
  (!insurance.value||(insurance.value==='self-pay'?true:p.insurances.some(i=>i.name===insurance.value)))&&(!accepting.value||currentStatus(p)===(accepting.value==='yes'?'accepting':accepting.value))&&
  (!openings.value||(openings.value==='yes'?hasOpenings(p):!hasOpenings(p)&&!props.availabilityLoading&&!props.availabilityError))&&
@@ -116,10 +119,10 @@ const filtered=computed(()=>props.providers.filter(p=>
  ).sort((a,b)=>(sort.value==='popular'?(a.popularityRank??999999)-(b.popularityRank??999999):0)||({accepting:0,waitlist:1,unavailable:2}[currentStatus(a)]-{accepting:0,waitlist:1,unavailable:2}[currentStatus(b)])||
  (['recommended','soonest'].includes(sort.value)?String(nextOpening(a)||'9999').localeCompare(String(nextOpening(b)||'9999')):0)||a.displayName.localeCompare(b.displayName)));
 const providerGroups=computed(()=>providerOpeningGroups(filtered.value,hasOpenings,{loading:props.availabilityLoading,error:props.availabilityError}));
-const profileFacets=computed(()=>selected.value?[['Specialties',selected.value.specialties],['Client ages',sortClientAges(selected.value.ageGroups)],['Populations served',selected.value.populations],['Therapy approaches',selected.value.modalities],['Languages',selected.value.details?.languages||[]],['Insurance',selected.value.insurances.map(i=>i.name)]]:[]);
+const profileFacets=computed(()=>selected.value?[['Specialties',selected.value.specialties],['Client ages',sortClientAges(selected.value.ageGroups)],['Populations served',selected.value.populations],['Therapy approaches',selected.value.modalities],['Session languages (self-reported)',sessionLanguageLabels(selected.value.details)],['Insurance',selected.value.insurances.map(i=>i.name)]]:[]);
 function nextOpening(p){if(care.value||hasTimePreference(desiredTime.value))return openingSlots(p)[0]?.startAt;const a=availability(p);return mode.value==='office'?a.inPerson?.nextAvailableAt:mode.value==='virtual'?a.virtual?.nextAvailableAt:[a.inPerson?.nextAvailableAt,a.virtual?.nextAvailableAt].filter(Boolean).sort()[0];}
 function availabilityText(p){const at=nextOpening(p);if(at)return `Next opening: ${new Date(at).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'})}`;if(props.availabilityLoading)return 'Checking appointment times…';if(props.availabilityError)return 'Appointment availability could not be checked';return currentStatus(p)==='waitlist'?'Join this provider’s waitlist':currentStatus(p)==='unavailable'?'Closed to new clients · inquire with our team':'Accepting new clients · we’ll work with you directly to find a time';}
-function clear(){officeId.value='';router.replace({query:{}});mode.value='all';school.value='';search.value='';age.value='';specialty.value='';insurance.value='';accepting.value='';openings.value='';gender.value='';care.value='';city.value='';state.value='';desiredTime.value={};limit.value=12;}
+function clear(){officeId.value='';router.replace({query:{}});mode.value='all';school.value='';search.value='';age.value='';specialty.value='';insurance.value='';accepting.value='';openings.value='';gender.value='';language.value='';care.value='';city.value='';state.value='';desiredTime.value={};limit.value=12;}
 function initials(name){return name.split(' ').map(s=>s[0]).slice(0,2).join('');}
 
 function profileLink(p){return providerProfileUrl(p,directoryQuery.value);}
@@ -128,7 +131,7 @@ function inquiryLink(p){return {path:'/p/itsco/contact',query:{provider:String(p
 const virtualStates=computed(()=>[...new Set(props.providers.flatMap(publicVirtualStates))].sort());
 
 const cities=computed(()=>[...new Set(officeLocations.value.map(o=>`${o.city}, ${o.state}`))].sort());
-const filterCount=computed(()=>[school.value,age.value,specialty.value,insurance.value,accepting.value,openings.value,gender.value,city.value,state.value,desiredTime.value.day,desiredTime.value.timeFrom,desiredTime.value.timeTo].filter(Boolean).length);
+const filterCount=computed(()=>[school.value,age.value,specialty.value,insurance.value,accepting.value,openings.value,gender.value,language.value,city.value,state.value,desiredTime.value.day,desiredTime.value.timeFrom,desiredTime.value.timeTo].filter(Boolean).length);
 </script>
 <style scoped>
 .its-collective-link{text-align:center;font-size:13px}.its-collective-link a{color:#155b44;text-decoration:underline}.its-opening-group{margin-top:28px}.its-opening-group h2{font-size:25px}.its-opening-group h2 small{font-size:16px;font-weight:500}.its-network-search{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:20px;background:#edf5f1;border-radius:16px;margin:20px 0 40px}.its-network-search p{margin:6px 0 0;font-size:14px}@media(max-width:650px){.its-network-search{align-items:flex-start;flex-direction:column}.its-opening-group h2{font-size:22px}}

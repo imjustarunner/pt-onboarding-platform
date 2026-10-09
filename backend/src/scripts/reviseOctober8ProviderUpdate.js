@@ -14,7 +14,7 @@ async function main(){
  const [[update]]=await pool.execute("SELECT * FROM admin_updates WHERE id=1 AND agency_id=2 AND status='draft'");
  if(!update)throw new Error('ITSCO update is not an editable draft.');
  const [topics]=await pool.execute('SELECT * FROM admin_update_topics WHERE update_id=1 ORDER BY sort_order,id');
- const intro='Your Admin Update is included in this Provider Update invitation. Review the news here, then continue through your personal update steps. Your active review time is tracked and submitted for payroll review at your support activity rate when you finish.';
+ const intro='Your Admin Update is included in this Provider Update invitation. Review the news here, then continue through your personal update steps.';
  for(const topic of topics){const replacement=revisions.find(t=>t.key===topic.topic_key);if(replacement){topic.body_html=replacement.body;topic.title=replacement.title;}topic.rendered_body_html=fillStaffMarkers(topic.body_html,staff);}
  const reviewed={...update,intro_html:intro,support_title:'Need help with the app?',support_body:'Use Need help in your Provider Update to submit a Technology support ticket. You may attach screenshots. General ITSCO support: support@itsco.health.',support_email:'support@itsco.health',topics};
  const output=process.env.UPDATE_REVIEW_OUTPUT;

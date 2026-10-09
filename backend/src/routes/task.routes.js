@@ -1,4 +1,5 @@
 import express from 'express';
+import {reportTask} from '../controllers/taskReport.controller.js';
 import { body } from 'express-validator';
 import {
   getTask,
@@ -37,6 +38,7 @@ const validateDueDate = [
 
 // User routes
 router.get('/', authenticate, getUserTasks);
+router.post('/:id/report', authenticate, reportTask);
 router.get('/counts', authenticate, getTaskCounts);
 router.get('/search', authenticate, searchTasksHub);
 router.put('/:id/complete', authenticate, completeTask);

@@ -218,7 +218,8 @@ class GoogleWorkspaceDirectoryService {
     includeInGlobalAddressList = true,
     isArchived = false,
     messageModerationLevel = 'MODERATE_NONE',
-    spamModerationLevel = 'MODERATE'
+    spamModerationLevel = 'MODERATE',
+    membersCanPostAsTheGroup = undefined
   } = {}) {
     const email = String(groupEmail || '').trim().toLowerCase();
     if (!email) throw new Error('groupEmail is required');
@@ -244,7 +245,8 @@ class GoogleWorkspaceDirectoryService {
           includeInGlobalAddressList: bool(includeInGlobalAddressList),
           isArchived: bool(isArchived),
           messageModerationLevel,
-          spamModerationLevel
+          spamModerationLevel,
+          ...(membersCanPostAsTheGroup===undefined?{}:{membersCanPostAsTheGroup:bool(membersCanPostAsTheGroup)})
         }
       });
       return result?.data || { email, allowExternalMembers: bool(allowExternalMembers) };

@@ -1,5 +1,6 @@
 <template>
   <div class="tasks-hub" :class="{ 'tasks-hub--embedded': embedded }">
+    <p v-if="route.query.reportTask" class="tasks-report-help" role="status">To report a task, open its details and choose <strong>⚑ Report a weird task</strong>. Technology will receive the task and assignment details with your explanation.</p>
     <header class="tasks-hub__header">
       <h1 data-tour="tasks-title" class="tasks-hub__title">
         <span class="tasks-hub__icon" aria-hidden="true">☑</span>

@@ -27,6 +27,7 @@
  </div>
 </template>
 <script setup>
+import {sessionLanguageLabels} from '../../utils/providerLanguages';
 import {publishedFocus} from '../../navigation/providerFocus.js';
 import {uniquePublicFacets} from '../../utils/publicProviderFacets';
 import { computed, ref, watch } from 'vue';
@@ -51,7 +52,7 @@ const groups=computed(()=>[
  {title:'Populations served',values:provider.value?.focus||[]},
  {title:service.value==='tutoring'?'Grades':'Approaches',values:provider.value?.tutoringProfile?.gradeLevels||[...(provider.value?.modalities||[]),...(provider.value?.interventions||[])]},
  {title:'Insurance accepted',values:profile.value?.insurancesAccepted||[]},
- {title:'Languages',values:profile.value?.details?.languages||[]},
+ {title:'Session languages (self-reported)',values:sessionLanguageLabels(profile.value?.details)},
  {title:'Provider gender',values:profile.value?.details?.gender?[profile.value.details.gender]:[]}
 ].map((g,i)=>{if(i>3||service.value==='tutoring')return g;const focus=publishedFocus(['specialties','ageGroups','populations','modalities'][i],profile.value?.details?.clinicalFocus,g.values);return {...g,values:focus.top,more:focus.more,reviewed:focus.reviewed};}));
 let generation=0;

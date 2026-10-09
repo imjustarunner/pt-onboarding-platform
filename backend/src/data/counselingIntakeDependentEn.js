@@ -208,6 +208,12 @@ function partAAboutYou() {
         scope: 'guardian'
       }),
       field({
+        key: 'guardian_preferred_language',
+        label: 'Parent/guardian primary language',
+        type: 'text',
+        scope: 'guardian'
+      }),
+      field({
         key: 'guardian_dob',
         label: 'Date of birth',
         type: 'date',

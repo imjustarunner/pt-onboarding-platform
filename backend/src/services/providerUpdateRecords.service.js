@@ -1,3 +1,4 @@
+import {validateSessionLanguages} from '../../../frontend/src/utils/providerLanguages.js';
 import {normalizeFocusAgeValues} from '../utils/providerFacetNormalization.js';
 import {getProviderDisplayRole,DISPLAY_ROLE_OPTIONS} from './providerDisplayRole.service.js';
 import {FOCUS_GROUPS,validateFocus} from '../../../frontend/src/navigation/providerFocus.js';
@@ -37,7 +38,9 @@ export async function getProviderUpdateRecords(userId,agencyId){
  const focusGroups=FOCUS_GROUPS.map(g=>({...g,previous:groups.find(v=>v.key===g.field)?.selected||[],options:g.key==='ageGroups'?g.options:[...new Set([...g.options,...(groups.find(v=>v.key===g.field)?.options||[])])]}));
  const clinicalFocus=normalizeFocusAgeValues(profile?.details?.clinicalFocus)||{top:Object.fromEntries(FOCUS_GROUPS.map(g=>[g.key,[]])),excluded:Object.fromEntries(FOCUS_GROUPS.map(g=>[g.key,[]]))};
  const [docs]=await pool.execute("SELECT id,file_path FROM user_compliance_documents WHERE user_id=? AND (agency_id=? OR agency_id IS NULL) AND document_type='license' AND file_path IS NOT NULL ORDER BY uploaded_at DESC LIMIT 1",[userId,agencyId]);
- return {displayRole:await getProviderDisplayRole(userId,agencyId),contact:{personalEmail:u.personal_email||'',phone:u.personal_phone||u.phone_number||'',street:u.home_street_address||String(values.mailing_address||values.provider_address||''),line2:u.home_address_line2||'',city:u.home_city||'',state:u.home_state||'',postalCode:u.home_postal_code||'',emergency:String(values.emergency_contact||values.emergency_contact_name||'')},publicGender:profile?.details?.gender||'',blurb:profile?.publicBlurb||u.provider_school_info_blurb||'',credential:u.credential||String(values.provider_credential_license_type_number||'').match(/^[A-Za-z]+/)?.[0]||u.title||'',photoPath:u.profile_photo_path||null,typicalAvailability:profile?.details?.typicalAvailability||[],specialtyGroups:groups,focusGroups,clinicalFocus,schools,
+ const languageNames=[...new Set([...(profile?.details?.languages||[]),...strings(values.languages_spoken||values.provider_languages_spoken).flatMap(value=>value.split(/\s*(?:,|;|\/|&|\band\b)\s*/i)).map(value=>value.replace(/\s*\((Primary|Secondary)\)/i,'').trim()).map(value=>/^english$/i.test(value)?'English':/^spanish$|^español$/i.test(value)?'Spanish':value).filter(Boolean)])];
+ const sessionLanguages=profile?.details?.languageProficiencies||languageNames.map(language=>({language,proficiency:'',canConductSessions:false}));
+ return {displayRole:await getProviderDisplayRole(userId,agencyId),contact:{personalEmail:u.personal_email||'',phone:u.personal_phone||u.phone_number||'',street:u.home_street_address||String(values.mailing_address||values.provider_address||''),line2:u.home_address_line2||'',city:u.home_city||'',state:u.home_state||'',postalCode:u.home_postal_code||'',emergency:String(values.emergency_contact||values.emergency_contact_name||'')},sessionLanguages,publicGender:profile?.details?.gender||'',blurb:profile?.publicBlurb||u.provider_school_info_blurb||'',credential:u.credential||String(values.provider_credential_license_type_number||'').match(/^[A-Za-z]+/)?.[0]||u.title||'',photoPath:u.profile_photo_path||null,typicalAvailability:profile?.details?.typicalAvailability||[],specialtyGroups:groups,focusGroups,clinicalFocus,schools,
  license:{number:String(values.provider_credential_license_type_number||''),issued:String(values.provider_credential_license_issued_date||'').slice(0,10),expires:String(values.provider_credential_license_expiration_date||'').slice(0,10),hasUpload:!!(docs[0]?.file_path||values.license_upload)},licensePath:docs[0]?.file_path||values.license_upload||null,
  supervision:supervisionBreakdown({individual:ua?.supervision_is_prelicensed?ua.supervision_start_individual_hours:0,group:ua?.supervision_is_prelicensed?ua.supervision_start_group_hours:0},period,credits,account)};
 }
@@ -65,7 +68,8 @@ export async function saveProviderReviewProfile(recipient,key,data){
   const current=await ProviderPublicProfile.getForProvider({providerUserId:uid});
   const publicGender=Object.hasOwn(data,'publicGender')?String(data.publicGender||'').trim():current?.details?.gender||'';
   if(!['','male','female','nonbinary'].includes(publicGender)&&publicGender!==current?.details?.gender)throw Object.assign(new Error('Choose Male, Female, Nonbinary, or Not shown.'),{status:400});
-  await ProviderPublicProfile.upsertForProvider({providerUserId:uid,...current,details:{...current?.details,gender:publicGender,agencyDisplayLabels:{...current?.details?.agencyDisplayLabels,[aid]:choice}}});
+  const sessionLanguages=Object.hasOwn(data,'sessionLanguages')?validateSessionLanguages(data.sessionLanguages):null;
+  await ProviderPublicProfile.upsertForProvider({providerUserId:uid,...current,details:{...current?.details,...(sessionLanguages?{languageProficiencies:sessionLanguages,languages:sessionLanguages.map(x=>x.language)}:{}),gender:publicGender,agencyDisplayLabels:{...current?.details?.agencyDisplayLabels,[aid]:choice}}});
   await pool.execute('UPDATE users SET credential=? WHERE id=?',[String(data.credential||'').trim().slice(0,100),uid]);
  }
  if(key==='specialties'){

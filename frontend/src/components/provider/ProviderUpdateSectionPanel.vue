@@ -86,7 +86,7 @@
           <tr v-for="row in supervisionRows" :key="row.key"><th>{{ row.label }}</th><td>{{ row.value.individual }}</td><td>{{ row.value.group }}</td><td>{{ row.value.total }}</td></tr>
         </tbody></table>
         <p>Current recorded balance minus calculated total: <strong>{{ section.data?.breakdown?.difference ?? 'Unavailable' }} hours</strong>.</p>
-        <p>Reported hours and finalized app credits are separate sources. Request a correction if a prior report includes hours already counted in the app.</p>
+        <p>Starting hours predate app tracking. Imported hours come from billing reports. App-recorded hours come from finalized supervision sessions, not payroll credits. These are separate sources. Request a correction if a prior report includes hours already counted in the app.</p>
         <p>You can suggest a correction below. Submitting a suggestion does not change your recorded hours.</p><div class="pu-actions"><button type="button" class="pu-btn" @click="supervisionReview.decision = 'correction_requested'">Suggest a correction</button></div><label class="field"><span>Review</span><select v-model="supervisionReview.decision" class="input"><option value="confirmed">These hours are correct</option><option value="correction_requested">Request a correction</option></select></label>
         <template v-if="supervisionReview.decision === 'correction_requested'">
           <label class="field"><span>Requested total hours</span><input v-model.number="supervisionReview.requestedHours" type="number" min="0" step="0.01" class="input" /></label>
@@ -133,9 +133,10 @@
       </select></label>
       <p v-if="section.data?.displayRole?.candidate">Candidate appears on its own line in your email signature and business card.</p>
       <label class="field"><span>Gender on your public profile (optional)</span><select v-model="publicGender" class="input"><option value="">Not shown / prefer not to say</option><option value="male">Male</option><option value="female">Female</option><option value="nonbinary">Nonbinary</option><option v-if="publicGender && !['male','female','nonbinary'].includes(publicGender)" :value="publicGender">{{publicGender}} (current)</option></select><small>This choice is public and helps clients filter for a provider. It is your own selection; no gender is inferred.</small></label>
+      <ProviderSessionLanguages v-model="sessionLanguages" :error="languageError" />
       <label class="field"><span>Display credential</span><input v-model="credential" class="input" /></label>
       <div class="pu-actions">
-        <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ credential, displayLabel, publicGender })">
+        <button type="button" class="pu-btn primary" :disabled="saving" @click="saveCredentialDisplay">
           Confirm credential display
         </button>
       </div>
@@ -288,6 +289,8 @@
 </template>
 
 <script setup>
+import ProviderSessionLanguages from './ProviderSessionLanguages.vue';
+import {validateSessionLanguages} from '../../utils/providerLanguages';
 import DOMPurify from 'dompurify';
 import ProviderUpdateAmendment from './ProviderUpdateAmendment.vue';
 import ProviderUpdateSchoolSchedule from './ProviderUpdateSchoolSchedule.vue';
@@ -338,7 +341,7 @@ const supervisionReview = reactive({ decision: 'confirmed', requestedHours: null
 const reviewBase = computed(() => props.mode === 'token' ? `/public/provider-update/${encodeURIComponent(props.token)}` : '/provider-update/me');
 const contact = reactive({personalEmail:'',phone:'',street:'',line2:'',city:'',state:'',postalCode:'',emergency:''});
 const contactFields=[{key:'personalEmail',label:'Personal email for app-only email reminders',autocomplete:'email'},{key:'phone',label:'Personal mobile phone',autocomplete:'tel'},{key:'street',label:'Street address',autocomplete:'address-line1'},{key:'line2',label:'Address line 2',autocomplete:'address-line2'},{key:'city',label:'City',autocomplete:'address-level2'},{key:'state',label:'State',autocomplete:'address-level1'},{key:'postalCode',label:'ZIP code',autocomplete:'postal-code'},{key:'emergency',label:'Emergency contact',autocomplete:'off'}];
-const supervisionRows=computed(()=>Object.entries({baseline:'Reported starting hours',period:'Imported / period hours',app:'Finalized app credits',calculated:'Calculated total',current:'Current recorded balance'}).map(([key,label])=>({key,label,value:props.section.data?.breakdown?.[key]||{individual:'—',group:'—',total:'—'}})));
+const supervisionRows=computed(()=>Object.entries({baseline:'Starting hours — before app tracking',period:'Imported billing-report hours',app:'App-recorded supervision hours',calculated:'Calculated total',current:'Current recorded balance'}).map(([key,label])=>({key,label,value:props.section.data?.breakdown?.[key]||{individual:'—',group:'—',total:'—'}})));
 function formatTime(value){if(!value)return 'Not set';const [h,m='00']=String(value).split(':');return `${Number(h)%12||12}:${m} ${Number(h)<12?'AM':'PM'}`;}
 async function openAsset(kind){try{const {data}=await api.get(`${reviewBase.value}/assets/${kind}`,{params:{agencyId:props.agencyId}});if(kind==='photo')photoUrl.value=data.url;else window.open(data.url,'_blank','noopener,noreferrer');}catch(e){localError.value=e.response?.data?.error?.message||'Could not open the saved document.';}}
 async function setupQuickView(){if(props.recipient?.previewOnly)return;saving.value=true;localError.value='';try{const {data}=await api.post(`${reviewBase.value}/quick-view-setup`,{agencyId:props.agencyId});newPasscode.value=data.passcode;}catch(e){localError.value=e.response?.data?.error?.message||'Could not create the code.';}finally{saving.value=false;}}
@@ -346,6 +349,8 @@ async function setupQuickView(){if(props.recipient?.previewOnly)return;saving.va
 const credential = ref('');
 const displayLabel = ref('');
 const publicGender = ref('');
+const sessionLanguages=ref([]),languageError=ref('');
+function saveCredentialDisplay(){languageError.value='';try{validateSessionLanguages(sessionLanguages.value);}catch(e){languageError.value=e.message;return;}markComplete({credential:credential.value,displayLabel:displayLabel.value,publicGender:publicGender.value,sessionLanguages:sessionLanguages.value});}
 const emailPreference=ref({});
 const preferredDays = ref([]);
 const notify = reactive({ email: true, sms: false });
@@ -519,6 +524,7 @@ onMounted(async () => {
   if (data.license) Object.assign(license, data.license);
   if (data.contact) Object.assign(contact, data.contact);
   publicGender.value = data.publicGender || '';
+  sessionLanguages.value=(data.sessionLanguages||[]).map(row=>({...row}));languageError.value='';
   credential.value = data.credential || '';
   displayLabel.value = data.displayRole?.label || data.displayLabel || '';
   emailPreference.value = {personalEmailNotify:data.appEmail?.personalEmailNotify !== false,personalEmailDeliveryMode:data.appEmail?.personalEmailDeliveryMode || 'notification',personalEmailDelayMode:data.appEmail?.personalEmailDelayMode || 'business_day',personalEmailDelayHours:data.appEmail?.personalEmailDelayHours ?? 24};

@@ -7,7 +7,7 @@ async function findGroups(where, params) {
   catch(e) { if(e.code==='ER_NO_SUCH_TABLE')return []; throw e; }
 }
 export async function assertManagedGroupManager(group, userId) {
-  if(!managedDomain(group) || !userId || !json(group.manager_user_ids).map(Number).includes(Number(userId))) throw Object.assign(new Error('Only this group’s managers can contact its members.'),{status:403,code:'GROUP_MANAGER_REQUIRED'});
+  if(!managedDomain(group) || !userId || (group.group_key!=='spanish'&&!json(group.manager_user_ids).map(Number).includes(Number(userId)))) throw Object.assign(new Error('Only this group’s managers can contact its members.'),{status:403,code:'GROUP_MANAGER_REQUIRED'});
   const [[row]] = await pool.execute(`SELECT u.*,ua.is_active AS membership_active FROM users u JOIN user_agencies ua ON ua.user_id=u.id WHERE u.id=? AND ua.agency_id=?`,[userId,group.agency_id]);
   if(!row || !activeManagedStaff(row)) throw Object.assign(new Error('Active staff membership is required to contact this group.'),{status:403,code:'GROUP_MANAGER_REQUIRED'});
 }
@@ -26,12 +26,14 @@ export async function assertManagedMeetingGroupEditable(groupId) {
 export async function managedGroupEnvelope({to,cc=null,bcc=null,actorUserId}) {
   const targets=[...new Set([...emails(to),...emails(cc),...emails(bcc)])];
   if(!targets.length)return {to,cc,bcc};
-  const groups=await findGroups(`LOWER(g.email) IN (${targets.map(()=>'?').join(',')})`,targets);
+  const placeholders=targets.map(()=>'?').join(',');
+  const groups=await findGroups(`LOWER(g.email) IN (${placeholders}) OR (g.group_key='spanish' AND REPLACE(LOWER(g.email),'spanish@','espanol@') IN (${placeholders}))`,[...targets,...targets]);
   if(!groups.length)return {to,cc,bcc};
   const expanded=new Set(),groupEmails=new Set();
   for(const group of groups) {
     await assertManagedGroupManager(group,actorUserId);
     groupEmails.add(String(group.email).toLowerCase());
+    if(group.group_key==='spanish')groupEmails.add(String(group.email).toLowerCase().replace(/^spanish@/,'espanol@'));
     for(const address of json(group.member_emails)) expanded.add(String(address).toLowerCase());
   }
   const keptTo=emails(to).filter(e=>!groupEmails.has(e)),keptCc=emails(cc).filter(e=>!groupEmails.has(e));
@@ -48,4 +50,13 @@ export async function assertManagedMeetingInvite(groupIds,userId) {
   if(!groupIds.length)return;
   const groups=await findGroups(`g.meeting_group_id IN (${groupIds.map(()=>'?').join(',')})`,groupIds);
   for(const group of groups)await assertManagedGroupManager(group,userId);
+}
+
+/** Sending as the intake team is limited to its current app-channel members. */
+export async function assertSpanishGroupSender(agencyId,userId) {
+ const [[row]]=await pool.execute(`SELECT u.*,ua.is_active AS membership_active FROM managed_workspace_groups g
+   JOIN chat_thread_participants p ON p.thread_id=g.chat_thread_id AND p.user_id=?
+   JOIN users u ON u.id=p.user_id JOIN user_agencies ua ON ua.user_id=u.id AND ua.agency_id=g.agency_id
+   WHERE g.agency_id=? AND g.group_key='spanish' LIMIT 1`,[userId,agencyId]);
+ if(!row||!activeManagedStaff(row))throw Object.assign(new Error('Only the Spanish intake team and its Support members can send from this address.'),{status:403,code:'SPANISH_SENDER_REQUIRED'});
 }

@@ -11,3 +11,8 @@ it('refreshes the marked dates while retaining edited prose',()=>{
  expect(fillStaffMarkers(body,[{id:5,timeline_start_date:'2025-10-09'}],new Date('2026-10-08'))).toContain('Welcome! Start date: 10-09-2025 <strong>0 years!</strong>');
  expect(fillStaffMarkers(body,[{id:5,timeline_start_date:'2024-10-01'}],new Date('2026-10-08'))).toContain('2 years');
 });
+
+it('shows recorded position and base without inferring a missing location',()=>{
+ expect(fillStaffMarkers('{{staff:1:position}} / {{staff:1:base}}',[{id:1,title:'Counselor',bases:['Denver']}])).toBe('Counselor / Denver');
+ expect(fillStaffMarkers('{{staff:1:base}}',[{id:1}])).toBe('Base location to be confirmed');
+});

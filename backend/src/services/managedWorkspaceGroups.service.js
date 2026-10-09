@@ -9,8 +9,11 @@ const status = e => Number(e?.code || e?.response?.status);
 const manager = m => ['OWNER','MANAGER'].includes(m?.role);
 const addresses = row => [...new Set([...(row.mailbox_emails || '').split(','),row.email,row.work_email].map(normalize))].filter(e => e.includes('@'));
 export async function loadManagedWorkspaceRoster(agencyId) {
-  const [rows] = await pool.execute(`SELECT u.id,u.first_name,u.email,u.work_email,u.personal_email,u.role,u.status,u.is_active,u.is_archived,
-    u.is_demo,u.credential,u.has_supervisor_privileges,u.work_location,u.login_is_group_email,
+  const [rows] = await pool.execute(`SELECT u.id,u.first_name,u.last_name,u.email,u.work_email,u.personal_email,u.role,u.status,u.is_active,u.is_archived,
+    u.is_demo,u.languages_spoken,
+    (SELECT public_details_json FROM provider_public_profiles WHERE user_id=u.id) AS public_details_json,
+    (SELECT GROUP_CONCAT(v.value) FROM user_info_values v JOIN user_info_field_definitions d ON d.id=v.field_definition_id WHERE v.user_id=u.id AND d.field_key IN ('languages_spoken','provider_languages_spoken')) AS recorded_languages,
+    u.credential,u.has_supervisor_privileges,u.work_location,u.login_is_group_email,
     ua.is_active AS membership_active,ua.agency_position,ua.supervision_is_prelicensed,
     (SELECT GROUP_CONCAT(DISTINCT i.from_email) FROM communication_inboxes i
       WHERE i.owner_user_id=u.id AND i.agency_id=ua.agency_id AND i.kind='personal') AS mailbox_emails
@@ -81,7 +84,7 @@ export async function ensureManagedAppGroup({ agencyId, plan, userIds, managerUs
   } catch(e) { await db.rollback(); throw e; }
   finally { db.release(); }
 }
-export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=null, createMissingOnly=false, enrolledOnly=false, createdGroupEmails=[] }={}) {
+export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=null, createMissingOnly=false, enrolledOnly=false, createdGroupEmails=[],groupKeys=null }={}) {
   if (!Directory.isConfigured()) return { skipped:'directory_not_configured' };
   const [agencies] = await pool.execute("SELECT id,name,slug,organization_type,is_active,feature_flags FROM agencies WHERE is_active=1 AND organization_type='agency'");
   const tenants=agencies.filter(a => {
@@ -124,6 +127,7 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
         if(!plans.some(p=>['interns','unlicensed','prelicensed','licensed'].includes(p.key) && p.userIds.includes(Number(row.id))) && ['provider','provider_plus','intern','intern_plus'].includes(row.role)) report.unclassified.push(row.id);
       }
       for(const plan of plans) {
+        if(groupKeys&&!groupKeys.includes(plan.key))continue;
         if(plan.key.startsWith('supervisor:') && !selected.has(Number(plan.key.split(':')[1])) && !stored.some(g=>g.group_key===plan.key)) continue;
         const result={email:plan.email,created:false,aiRole:null,added:[],removed:[],preserved:[],error:null};report.groups.push(result);
         try {
@@ -151,14 +155,35 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
             await write(()=>Directory.setGroupMemberDeliverySettings({groupEmail:plan.email,memberEmail:relay,deliverySettings:'ALL_MAIL',client:admin}));
             current.set(relay,{email:relay,role:'MANAGER'});result.aiRole='MANAGER';
           }
-          if(apply) await write(()=>Directory.applyGroupAccessSettings({groupEmail:plan.email,whoCanJoin:'INVITED_CAN_JOIN',whoCanPostMessage:'ALL_MANAGERS_CAN_POST',whoCanViewMembership:'ALL_MANAGERS_CAN_VIEW',whoCanViewGroup:'ALL_MEMBERS_CAN_VIEW',allowExternalMembers:true}));
+          if(apply) await write(()=>Directory.applyGroupAccessSettings({groupEmail:plan.email,whoCanJoin:'INVITED_CAN_JOIN',whoCanPostMessage:plan.key==='spanish'?'ALL_IN_DOMAIN_CAN_POST':'ALL_MANAGERS_CAN_POST',whoCanViewMembership:'ALL_MANAGERS_CAN_VIEW',whoCanViewGroup:'ALL_MEMBERS_CAN_VIEW',allowExternalMembers:true,...(plan.key==='spanish'?{membersCanPostAsTheGroup:true}:{})}));
+          const spanishOwner=plan.key==='spanish'?rows.find(r=>activeManagedStaff(r)&&normalize(r.first_name)==='michael'&&normalize(r.last_name)==='mendez'):null;
+          const ownerEmail=spanishOwner?selected.get(Number(spanishOwner.id)):null;
+          if(plan.key==='spanish'&&apply){
+            if(!ownerEmail)throw new Error('Spanish group owner Michael Mendez could not be resolved');
+            await write(()=>Directory.addGroupMember({groupEmail:plan.email,memberEmail:ownerEmail,role:'OWNER',client:admin,memberType:'USER'}));
+            current.set(ownerEmail,{email:ownerEmail,role:'OWNER'});
+            const alias=`espanol@${report.domain}`;
+            const aliases=(await admin.groups.aliases.list({groupKey:plan.email})).data.aliases||[];
+            if(!aliases.some(a=>a.alias===alias))await write(()=>admin.groups.aliases.insert({groupKey:plan.email,requestBody:{alias}}));
+            const support=`support@${report.domain}`;
+            const supportGroup=await lookupGroup(admin,support),supportUser=supportGroup?null:await lookupUser(admin,support);
+            if(!supportGroup&&!supportUser)throw new Error('Support address must exist before completing the Spanish group');
+            if(!current.has(support)){await write(()=>Directory.addGroupMember({groupEmail:plan.email,memberEmail:support,client:admin,memberType:supportGroup?'GROUP':'USER'}));current.set(support,{email:support,role:'MEMBER'});}
+            // Add Support's verified users to the app channel as well. A nested
+            // Google Group is not itself an app user or a client-care assignment.
+            const supportMembers=supportGroup?await Directory.listGroupMembers(support,{maxResults:10000,client:admin}):[{email:supportUser.primaryEmail}];
+            const supportEmails=new Set(supportMembers.map(m=>normalize(m.email)));
+            for(const [id,email] of selected)if(supportEmails.has(email)||supportEmails.has(canonical.get(email)))plan.userIds.push(id);
+            plan.userIds=[...new Set(plan.userIds)];
+
+          }
           const desired=new Set(plan.userIds.map(id=>selected.get(id)).filter(Boolean));
           const managerIds=new Set(plan.managerUserIds || []);
           if(isNew) {
             for(const row of rows.filter(r=>activeManagedStaff(r) && ['admin','super_admin'].includes(r.role))) managerIds.add(Number(row.id));
             for(const id of managerIds) {
               const email=selected.get(id);
-              if(email && verified.get(email)==='USER') {
+              if(email && verified.get(email)==='USER' && email!==ownerEmail) {
                 if(apply) await write(()=>Directory.addGroupMember({groupEmail:plan.email,memberEmail:email,role:'MANAGER',client:admin,memberType:verified.get(email)}));
                 current.set(email,{email,role:'MANAGER'});
               }
@@ -171,12 +196,13 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
             }
             if(apply) {
               const detail=await memberDetails(admin,plan.email,email);
-              if(detail?.delivery_settings!=='ALL_MAIL') await write(()=>Directory.setGroupMemberDeliverySettings({groupEmail:plan.email,memberEmail:email,deliverySettings:'ALL_MAIL',client:admin}));
+              const delivery=email===ownerEmail?'NONE':'ALL_MAIL';
+              if(detail?.delivery_settings!==delivery) await write(()=>Directory.setGroupMemberDeliverySettings({groupEmail:plan.email,memberEmail:email,deliverySettings:delivery,client:admin}));
             }
           }
           let owners=[...current.values()].filter(m=>m.role==='OWNER').length;
           for(const [email,m] of current) {
-            if(email===relay || desired.has(email)) continue;
+            if(email===relay || desired.has(email) || plan.key==='spanish'&&email===`support@${report.domain}`) continue;
             if(createMissingOnly) {result.preserved.push(email);continue;}
             const people=known.get(email);
             if(!people?.length) {result.preserved.push(email);continue;}
@@ -191,12 +217,13 @@ export async function reconcileManagedWorkspaceGroups({ apply=false, agencyIds=n
             if(m.role==='OWNER')owners--;current.delete(email);result.removed.push(email);
           }
           for(const [email,m] of current) if(manager(m)) for(const row of known.get(email)||[]) if(activeManagedStaff(row))managerIds.add(Number(row.id));
+          if(plan.key==='spanish')for(const id of plan.userIds)managerIds.add(id);
           const appIds=new Set(plan.userIds);
           for(const [email] of current) for(const row of known.get(email)||[]) if(activeManagedStaff(row))appIds.add(Number(row.id));
-          if(apply) result.app=await ensureManagedAppGroup({agencyId:agency.id,plan,userIds:[...appIds],memberEmails:[...current.keys()].filter(e=>e!==relay && domains.has(e.split('@')[1]) && (known.get(e)||[]).some(activeManagedStaff)),managerUserIds:[...managerIds].filter(id=>rows.some(r=>Number(r.id)===id && activeManagedStaff(r)))});
+          if(apply) result.app=await ensureManagedAppGroup({agencyId:agency.id,plan,userIds:[...appIds],memberEmails:[...current.keys()].filter(e=>e!==relay && e!==ownerEmail && domains.has(e.split('@')[1]) && (known.get(e)||[]).some(activeManagedStaff)),managerUserIds:[...managerIds].filter(id=>rows.some(r=>Number(r.id)===id && activeManagedStaff(r)))});
         } catch(e) {result.error=String(e.message).slice(0,240);}
       }
-      if(apply && !createMissingOnly) for(const [id,email] of selected) {
+      if(apply && !createMissingOnly && !groupKeys) for(const [id,email] of selected) {
         const row=rows.find(r=>Number(r.id)===id);
         if(!(row.mailbox_emails || '').split(',').map(normalize).includes(email)) await ensurePersonalMailboxForAddress({agencyId:agency.id,userId:id,fromEmail:email});
       }

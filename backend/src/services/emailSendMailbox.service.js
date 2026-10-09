@@ -1,3 +1,4 @@
+import {assertSpanishGroupSender} from './managedWorkspaceGroupAccess.service.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import User from '../models/User.model.js';
 import { managedDomain } from './managedWorkspaceGroupPolicy.js';
@@ -24,6 +25,7 @@ export async function resolveEmailSendMailbox({ agencyId, userId, inbox }) {
       String(identity.from_email || '').toLowerCase() !== String(selected.from_email || '').toLowerCase()) {
     throw Object.assign(new Error('Work mailbox sender identity is unavailable'), { status: 400 });
   }
+  if(identity.identity_key==='spanish')await assertSpanishGroupSender(agencyId,userId);
   const personal = selected.kind === 'personal';
   const messages = ['messages', 'messages_at_tenant'].includes(identity.identity_key);
   const flags = typeof agency.feature_flags === 'string' ? JSON.parse(agency.feature_flags || '{}') : agency.feature_flags || {};

@@ -1,5 +1,6 @@
 // Shared public presentation policy; these values never change appointment or claim records.
 export function publicLanguages(profile, fallback) {
+ if(Array.isArray(profile?.details?.languageProficiencies))return profile.details.languageProficiencies.filter(r=>r.canConductSessions===true&&['professional','fluent','native'].includes(r.proficiency)).map(r=>r.language);
  let values=profile?.details?.languages;
  if(!Array.isArray(values)||!values.some(v=>String(v).trim())) {
   try { values=typeof fallback==='string'&&fallback.startsWith('[')?JSON.parse(fallback):fallback; } catch { values=[]; }

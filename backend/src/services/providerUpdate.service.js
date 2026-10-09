@@ -716,7 +716,8 @@ export async function getRecipientBundle(recipient) {
   for(const section of sectionList){
     const defaults={spanish_intake:{bodyHtml:spanishIntakeProcedure},contact_info:{contact:records.contact},profile_blurb:{blurb:records.blurb},credential_display:{publicGender:records.publicGender,credential:records.credential,displayRole:records.displayRole},work_hours:{typicalAvailability:records.typicalAvailability},specialties:{focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus,specialtyGroups:records.specialtyGroups,specialties:Object.fromEntries(records.specialtyGroups.map(g=>[g.key,g.selected]))},directory_photo:{hasPhoto:!!records.photoPath},school_availability:{schools:records.schools},supervision_hours:{breakdown:records.supervision},license:{license:records.license}}[section.key];
     section.data={...defaults,...section.data};
-    if(section.key==='credential_display'){section.data.displayRole=records.displayRole;section.data.publicGender=records.publicGender;}
+    if(section.key==='credential_display'){section.data.displayRole=records.displayRole;section.data.publicGender=records.publicGender;section.data.sessionLanguages=records.sessionLanguages;}
+    if(section.key==='spanish_intake')section.data.bodyHtml=spanishIntakeProcedure;
     if(section.key==='supervision_hours')section.data.breakdown=records.supervision;
     if(section.key==='specialties'){
       section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus};

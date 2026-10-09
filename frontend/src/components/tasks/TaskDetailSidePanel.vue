@@ -29,6 +29,16 @@
           <span v-if="schoolTag" class="chip chip--school">{{ schoolTag }}</span>
         </div>
 
+        <section v-if="!isActionItem" class="client-action-banner">
+          <button type="button" class="btn btn-secondary btn-sm" @click="showReport=!showReport">⚑ Report a weird task</button>
+          <form v-if="showReport" @submit.prevent="submitTaskReport">
+            <p>This sends Technology the task ID, assignee, creation time and available source details. Tell us why the task seems incorrect or should already be resolved.</p>
+            <label>What seems wrong?<textarea v-model="reportQuestion" class="form-control" minlength="5" maxlength="8000" required /></label>
+            <button type="submit" class="btn btn-primary btn-sm" :disabled="reporting||!!reportTicket">{{reporting?'Submitting…':'Create Technology ticket'}}</button>
+          </form>
+          <p v-if="reportTicket" role="status">Technology ticket #{{reportTicket}} is open. The task itself has not been changed.</p>
+          <p v-if="reportError" role="alert">{{reportError}}</p>
+        </section>
         <TaskClaimButton :task="item" @claimed="onTaskClaimed" />
         <section v-if="exchangeSetup" class="client-action-banner">
           <p>Complete this client's record from the EHR. Paste demographics, the intake, and the latest treatment plan here, or review records the provider already supplied.</p>
@@ -385,6 +395,14 @@ function pinToDock() {
   emit('close');
 }
 
+const showReport=ref(false),reportQuestion=ref(''),reportError=ref(''),reportTicket=ref(null),reporting=ref(false);
+watch(()=>props.item.id,()=>{showReport.value=false;reportQuestion.value='';reportError.value='';reportTicket.value=null;});
+async function submitTaskReport(){
+ if(reporting.value)return;reporting.value=true;reportError.value='';
+ try{const {data}=await api.post(`/tasks/${props.item.id}/report`,{question:reportQuestion.value,agencyId:props.agencyId});reportTicket.value=data.ticketId;}
+ catch(e){reportError.value=e.response?.data?.error?.message||'Unable to submit. Please try again.';}
+ finally{reporting.value=false;}
+}
 const tab = ref('details');
 const loading = ref(false);
 const phiRevealed = ref(false);
