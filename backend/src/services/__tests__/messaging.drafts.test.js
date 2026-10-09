@@ -40,3 +40,11 @@ it('keeps a draft editable when availability needs a choice, then passes the cho
  expect(planEmailDelivery).toHaveBeenLastCalledWith(expect.objectContaining({choice:'now',requireChoice:true}));
  expect(replyToConversation).toHaveBeenCalledWith(10,expect.objectContaining({deliveryPlan:expect.objectContaining({choice:'now'})}),{userId:5});
 });
+
+it('persists sanitized formatted history and passes it separately from the new writing to delivery',async()=>{
+ const raw=validateEmailDraft({to:'alice@example.org',text:'Thank you',quotedText:'Wrapped\nMIME text',quotedHtml:'<p>A complete paragraph.</p><script>alert(1)</script><img src="https://example.org/signature.png" onerror="alert(1)">'});
+ expect(raw.quotedHtml).toContain('<p>A complete paragraph.</p>');expect(raw.quotedHtml).not.toMatch(/script|onerror/);
+ pool.execute.mockResolvedValueOnce([[{...draft,draft_json:JSON.stringify(raw)}]]).mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([{affectedRows:1}]);
+ replyToConversation.mockResolvedValue({messageId:40});await sendEmailDraft(actor,'draft',2);
+ const payload=replyToConversation.mock.calls[0][1];expect(payload.html).toContain('<p>A complete paragraph.</p>');expect(payload.html).not.toContain('MIME text');expect(payload.html).toContain('pt-quoted-email-history');expect(payload.text).toContain('Wrapped\nMIME text');
+});

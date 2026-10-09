@@ -1,3 +1,4 @@
+import { plainEmailHtml } from '../utils/emailReplyContent.js';
 import { communicationPrintDocument } from './communicationPrint.service.js';
 import { resolveEmailClientFiling, linkConversationClients } from './clientConversationRecord.service.js';
 import { planEmailDelivery, recordEmailDeliveryChoice } from './emailDeliveryChoice.service.js';
@@ -772,13 +773,7 @@ function escapeHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-function plainTextToHtml(text) {
-  const body = String(text || '')
-    .split('\n')
-    .map((line) => `<p>${escapeHtml(line || '').trim() || '&nbsp;'}</p>`)
-    .join('');
-  return `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111;">${body}</div>`;
-}
+const plainTextToHtml = plainEmailHtml;
 
 export async function composeNewEmail({ agencyId, inboxId, userId, payload }) {
   if (payload.clientId) {

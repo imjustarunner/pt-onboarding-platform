@@ -29,7 +29,7 @@
           </section>
           <EmailDeliveryChoice :info="availabilityPrompt" :busy="busy" @choose="send({confirmMissingAttachment:true,deliveryChoice:$event})" @cancel="availabilityPrompt=null" />
           <footer><button class="send" :disabled="busy" type="submit">{{ busy ? 'Working…' : 'Send' }}</button><button :disabled="busy" type="button" @click="discard">Discard draft</button></footer>
-          <details v-if="draft.quotedText" open><summary>Original conversation — collapse or expand</summary><pre v-html="readableEmailHtml({body_text:draft.quotedText})" /></details>
+          <details v-if="draft.quotedHtml || draft.quotedText" open><summary>Original conversation — collapse or expand</summary><div v-if="draft.quotedHtml" class="quoted-email" v-html="readableEmailHtml({body_html:draft.quotedHtml},{collapseQuotes:false})" /><pre v-else v-html="readableEmailHtml({body_text:draft.quotedText})" /></details>
         </fieldset></form>
       </template>
       <p v-else-if="record.state === 'sending'">Submission is awaiting confirmation. Check the conversation’s delivery status before sending another copy.</p>
@@ -46,14 +46,14 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import api, { messagingRequestOptions } from '../services/messagingApi';
 import { emailReplyRecipients } from '../utils/messageThreads';
-import { quoteEmailHistory } from '../utils/emailReading';
+import { quoteEmailHistory, quoteEmailHistoryHtml } from '../utils/emailReading';
 import { readableEmailHtml, emailDeliveryLabel } from '../utils/emailPresentation';
 import { encodeEmailFiles } from '../utils/communicationAttachments';
 const props=defineProps({composeContext:{type:Object,default:null}});
 const emit=defineEmits(['close','composer-state']);
 const route=useRoute(); const router=useRouter(); const context=props.composeContext || route.query; const qv=props.composeContext ? !!context.quickView : route.meta.publicQuickView === true;
 const setDraftRoute=id=>props.composeContext ? Promise.resolve() : router.replace({query:{draftId:id}});
-const record=ref(null),draft=ref({to:'',cc:'',bcc:'',subject:'',text:'',quotedText:'',attachments:[]});
+const record=ref(null),draft=ref({to:'',cc:'',bcc:'',subject:'',text:'',quotedText:'',quotedHtml:'',attachments:[]});
 const error=ref(''),status=ref(''),loading=ref(true),busy=ref(false),fromEmail=ref(''),bodyInput=ref(null),sendResult=ref(null),undoAvailable=ref(false);
 const senderPreview=ref(null),senderPreviewUnavailable=ref(false);
 const title=computed(()=>({new:'New email',reply:'Reply',reply_all:'Reply all',forward:'Forward'})[record.value?.mode || context.mode] || 'Email draft');
@@ -92,7 +92,7 @@ async function openDraft(){
     if(context.draftId){const {data}=await request('get',`/drafts/${context.draftId}`);record.value=data.draft;draft.value={...draft.value,...data.draft.draft};}
     else {
       const mode=String(context.mode || 'new');let agencyId=Number(context.agencyId);const cid=Number(context.conversationId);draft.value.to=String(context.to || '');
-      if(cid){const {data}=await request('get',`/conversations/${cid}?markRead=0`);const c=data.conversation;agencyId=c.agency_id;fromEmail.value=c.inbox_from_email || '';const addresses=emailReplyRecipients(data.messages,{mode,inboxEmail:fromEmail.value});draft.value.to=addresses.to.join(', ');draft.value.cc=addresses.cc.join(', ');draft.value.subject=`${mode==='forward'?'Fwd:':'Re:'} ${String(c.subject || '').replace(/^(?:(?:re|fwd?)\s*:\s*)+/i,'')}`;draft.value.quotedText=quoteEmailHistory(data.messages);}
+      if(cid){const {data}=await request('get',`/conversations/${cid}?markRead=0`);const c=data.conversation;agencyId=c.agency_id;fromEmail.value=c.inbox_from_email || '';const addresses=emailReplyRecipients(data.messages,{mode,inboxEmail:fromEmail.value});draft.value.to=addresses.to.join(', ');draft.value.cc=addresses.cc.join(', ');draft.value.subject=`${mode==='forward'?'Fwd:':'Re:'} ${String(c.subject || '').replace(/^(?:(?:re|fwd?)\s*:\s*)+/i,'')}`;draft.value.quotedText=quoteEmailHistory(data.messages);draft.value.quotedHtml=quoteEmailHistoryHtml(data.messages);}
       // Creating a draft must not wait for Workspace mailbox provisioning.
       // Sender validation runs independently after the draft is editable.
       const {data}=await request('post','/drafts',{agencyId,conversationId:cid || null,mode,draft:draft.value});record.value=data.draft;draft.value={...draft.value,...data.draft.draft};await setDraftRoute(record.value.id);notify();
@@ -119,6 +119,7 @@ watch([status,error,busy,loading,()=>record.value?.id,()=>draft.value.subject,()
 defineExpose({save,saveAndClose,preparePopout});
 </script>
 <style scoped>
+.quoted-email{overflow-wrap:anywhere;overflow-x:auto;line-height:1.5}.quoted-email :deep(img){max-width:100%;height:auto}.quoted-email :deep(table){max-width:100%}
 .composer-heading{display:flex;align-items:center;gap:20px;flex-wrap:wrap}.composer-heading h1{font-size:18px}.email-composer header{flex-wrap:wrap;gap:12px}
 
 fieldset{border:0;padding:0;margin:0;min-width:0}.email-composer{max-width:1050px;margin:auto;padding:24px;color:var(--text-primary,#20352b);background:var(--bg-primary,#fff);min-height:100vh}header,footer,.recipients,.to-row{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}h1{font-size:1.5rem}label{display:flex;flex-direction:column;gap:6px;margin:12px 0;flex:1}input,textarea,button{font:inherit;color:inherit;border:1px solid #a5b9af;border-radius:6px;padding:10px;background:transparent}textarea{min-height:250px;resize:vertical;line-height:1.5;width:100%;box-sizing:border-box}button{cursor:pointer}button:disabled{opacity:.5}.send{background:#0047b3;color:white;min-width:120px}.error{color:#af2929}.status{font-size:.85rem;color:#47755f}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.6}details{margin-top:24px;border-top:1px solid #a5b9af;padding-top:14px;opacity:.85}footer{justify-content:flex-start}@media(max-width:600px){.email-composer{padding:12px}.recipients{display:block}}

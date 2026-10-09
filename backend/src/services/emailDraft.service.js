@@ -1,3 +1,4 @@
+import { emailDraftContent, sanitizeQuotedEmailHtml } from '../utils/emailReplyContent.js';
 import { resolveEmailClientFiling } from './clientConversationRecord.service.js';
 import { planEmailDelivery } from './emailDeliveryChoice.service.js';
 import { randomUUID } from 'node:crypto';
@@ -10,9 +11,10 @@ const fail = (message, status = 400) => Object.assign(new Error(message), { stat
 const parse = (value) => typeof value === 'string' ? JSON.parse(value) : value;
 const map = (r) => ({ ...r, draft: parse(r.draft_json), result: r.send_result_json ? parse(r.send_result_json) : null, draft_json: undefined, send_result_json: undefined });
 export function validateEmailDraft(raw = {}) {
-  const data = Object.fromEntries(['to','cc','bcc','subject','text','quotedText'].map((key) => [key, String(raw[key] || '')]));
+  const data = Object.fromEntries(['to','cc','bcc','subject','text','quotedText','quotedHtml'].map((key) => [key, String(raw[key] || '')]));
   if (data.subject.length > 998 || ['to','cc','bcc'].some((k) => /[\r\n]/.test(data[k]))) throw fail('Invalid email headers');
-  if (data.text.length + data.quotedText.length > 1_000_000) throw fail('Message is too long');
+  if (data.text.length + data.quotedText.length + data.quotedHtml.length > 1_000_000) throw fail('Message is too long');
+  data.quotedHtml = sanitizeQuotedEmailHtml(data.quotedHtml);
   data.clientIds = [...new Set((Array.isArray(raw.clientIds) ? raw.clientIds : []).map(Number).filter(n=>Number.isSafeInteger(n)&&n>0))];
   if(data.clientIds.length>50) throw fail('Too many client records selected');
   data.deferClientFiling = raw.deferClientFiling === true;
@@ -132,7 +134,7 @@ export async function sendEmailDraft(actor,id,version,deliveryChoice=null) {
   if (['new','forward'].includes(draft.mode)) await resolveEmailClientFiling({agencyId:draft.agency_id,userId:actor.id,...draft.draft,defer:draft.draft.deferClientFiling});
   const [claim] = await pool.execute("UPDATE communication_email_drafts SET state='sending' WHERE id=? AND user_id=? AND version=? AND state='editing'",[id,actor.id,Number(version)||0]);
   if (!claim.affectedRows) throw fail('This draft is already being submitted or changed in another window',409);
-  const payload = { ...draft.draft, text: [draft.draft.text,draft.draft.quotedText].filter(Boolean).join('\n\n'), mode:draft.mode, undoDelaySeconds:20, deliveryPlan };
+  const payload = { ...draft.draft, ...emailDraftContent(draft.draft), mode:draft.mode, undoDelaySeconds:20, deliveryPlan };
   try {
     const result = draft.mode === 'new'
       ? await composeNewEmail({ agencyId:draft.agency_id,userId:actor.id,payload })

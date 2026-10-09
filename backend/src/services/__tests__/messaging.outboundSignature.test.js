@@ -1,3 +1,4 @@
+import { emailDraftContent, EMAIL_HISTORY_MARKER } from '../../utils/emailReplyContent.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn() }, onTableWrite: () => {} }));
 vi.mock('../schoolCommunicationContext.service.js', () => ({ isSchoolCommunication: vi.fn(async () => false) }));
@@ -86,4 +87,15 @@ describe('outbound email author signature', () => {
       expect(render({ ...ctx, phone: { display: '719-657-7444 Ext. 701' } }).match(/Ext\. 701/g)).toHaveLength(1);
     }
   });
+});
+
+it('places the author signature after the reply and before formatted quoted history, including on retry',async()=>{
+ const content=emailDraftContent({text:'Thanks for the update',quotedText:'Earlier sender message',quotedHtml:'<p>Earlier sender message</p><table><tr><td>Earlier signature</td></tr></table>'});
+ const first=await finalizeOutboundContent({...message,...content});
+ expect(first.html.indexOf('Thanks for the update')).toBeLessThan(first.html.indexOf('<!-- pt-staff-html-signature -->'));
+ expect(first.html.indexOf('<!-- pt-staff-html-signature -->')).toBeLessThan(first.html.indexOf(EMAIL_HISTORY_MARKER));
+ expect(first.text.indexOf('Ext. 701')).toBeLessThan(first.text.indexOf('Earlier sender message'));
+ const second=await finalizeOutboundContent({...message,...first});
+ expect(second.html.match(/<!-- pt-staff-html-signature -->/g)).toHaveLength(1);
+ expect(second.html.match(/Earlier signature/g)).toHaveLength(1);
 });

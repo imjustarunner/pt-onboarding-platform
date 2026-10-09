@@ -115,3 +115,17 @@ it('allows filing one conversation under both children and saves the selection b
  await state.send();await flushPromises();
  expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({method:'put',data:expect.objectContaining({draft:expect.objectContaining({clientIds:[1,2]})})}));
 });
+
+it('previews and autosaves formatted reply history independently of the new message',async()=>{
+ wrapper.unmount();const original=mock.api.getMockImplementation();
+ mock.api.mockImplementation(async config=>{
+  const response=await original(config);
+  if(config.url.includes('/conversations/'))response.data.messages[0].body_html='<p>The complete original paragraph.</p><table><tr><td>Original signature</td></tr></table>';
+  return response;
+ });
+ wrapper=shallowMount(Composer);await flushPromises();state=wrapper.vm.$.setupState;
+ expect(wrapper.find('.quoted-email table').exists()).toBe(true);
+ expect(wrapper.find('details pre').exists()).toBe(false);
+ expect(state.draft.text).toBe('');state.draft.text='My new reply';await nextTick();await state.save();
+ expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({method:'put',data:expect.objectContaining({draft:expect.objectContaining({text:'My new reply',quotedHtml:expect.stringContaining('<table>')})})}));
+});

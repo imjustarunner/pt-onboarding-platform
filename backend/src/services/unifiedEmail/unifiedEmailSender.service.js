@@ -1,3 +1,4 @@
+import { splitEmailHistory } from '../../utils/emailReplyContent.js';
 import { isSchoolCommunication } from '../schoolCommunicationContext.service.js';
 import { compactSchoolCareBridgeEmail } from '../schoolCareBridgeEmail.service.js';
 import { managedGroupEnvelope } from '../managedWorkspaceGroupAccess.service.js';
@@ -214,6 +215,8 @@ export async function finalizeOutboundContent({
       !['billing', 'collections'].includes(identity?.identity_key)
     )
   );
+  const history = useStaffSignature && tt === 'hub_email' ? splitEmailHistory({html, text}) : {html, text, historyHtml:'', historyText:''};
+  ({html, text} = history);
   let signed;
   const { usesDepartmentHtmlSignature, appendDepartmentHtmlSignature } = await import('../staffHtmlEmailSignature.service.js');
   const preferDepartmentHtml = usesDepartmentHtmlSignature(identity);
@@ -266,6 +269,10 @@ export async function finalizeOutboundContent({
     }
     signed = applySenderSignatureBlock({ identity, text, html });
   }
+  if (history.historyHtml) signed = { ...signed,
+    html: `${signed.html || ''}${history.historyHtml}`,
+    text: `${signed.text || ''}${history.historyText}`
+  };
   // Tenant HTML header/footer chrome (Email Settings assets; ITSCO seeded)
   try {
     if (aid && signed.html) {
