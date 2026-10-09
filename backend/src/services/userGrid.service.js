@@ -260,7 +260,7 @@ async function enrichRows(rows, fields, { agencyId }) {
   if (needInfo.length) {
     const infoKeys = [...new Set(needInfo.map((f) => f.infoKey).filter(Boolean))];
     const dobFallback = infoKeys.includes('date_of_birth');
-    const keys = dobFallback ? [...infoKeys, 'provider_birthdate'] : infoKeys;
+    const keys = dobFallback ? [...infoKeys, 'provider_birthdate', 'birthdate'] : infoKeys;
     await loadMapInChunks(ids, async (group) => {
       const [vals] = await pool.execute(
         `SELECT uiv.user_id, uifd.field_key, uiv.value, uiv.updated_at
@@ -280,7 +280,8 @@ async function enrichRows(rows, fields, { agencyId }) {
         for (const uid of group) {
           const bag = ensure(uid);
           let row = latest.get(`${uid}:${f.infoKey}`);
-          if (!row && f.key === 'date_of_birth') row = latest.get(`${uid}:provider_birthdate`);
+          if (!row?.value && f.key === 'date_of_birth') row = latest.get(`${uid}:provider_birthdate`);
+          if (!row?.value && f.key === 'date_of_birth') row = latest.get(`${uid}:birthdate`);
           bag[f.key] = toYmd(row?.value || '');
         }
       }

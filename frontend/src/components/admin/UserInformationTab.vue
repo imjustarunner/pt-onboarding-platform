@@ -180,6 +180,7 @@
 </template>
 
 <script setup>
+import { isBirthdateField } from '../../utils/profileDemographics.js';
 import { ref, onMounted, computed } from 'vue';
 import api from '../../services/api';
 
@@ -304,7 +305,7 @@ const fetchUserInfo = async () => {
       api.get('/user-info-categories')
     ]);
     // Only agency-scoped fields (bulk import / agency-specific).
-    fields.value = (response.data || []).filter((f) => !!f?.agency_id);
+    fields.value = (response.data || []).filter((f) => !!f?.agency_id && !isBirthdateField(f.field_key));
     categories.value = cats.data || [];
     
     // Build values map
@@ -502,4 +503,3 @@ onMounted(() => {
   gap: 10px;
 }
 </style>
-

@@ -10,6 +10,8 @@ import User from './User.model.js';
 import { parseUsAddressLoose } from '../utils/addressParsing.js';
 import { formOptionSources } from '../config/formOptionSources.js';
 
+const BIRTHDATE_FIELD_KEYS = ['date_of_birth', 'provider_birthdate', 'birthdate'];
+
 class UserInfoValue {
   static _usersCredentialColumnExists = null;
 
@@ -57,6 +59,8 @@ class UserInfoValue {
     if (!fk) return;
     if (!Number.isInteger(keepId) || keepId <= 0) return;
 
+    const keys = BIRTHDATE_FIELD_KEYS.includes(fk) ? BIRTHDATE_FIELD_KEYS : [fk];
+    // Birthdate aliases are one logical field, including when its value is cleared.
     // Enforce: at most one value per (user_id, field_key).
     // Keep the row for keepFieldDefinitionId, delete any others for the same field_key.
     await pool.execute(
@@ -64,9 +68,9 @@ class UserInfoValue {
        FROM user_info_values uiv
        JOIN user_info_field_definitions uifd ON uiv.field_definition_id = uifd.id
        WHERE uiv.user_id = ?
-         AND uifd.field_key = ?
+         AND uifd.field_key IN (${keys.map(() => '?').join(',')})
          AND uiv.field_definition_id <> ?`,
-      [uid, fk, keepId]
+      [uid, ...keys, keepId]
     );
   }
 
@@ -178,6 +182,16 @@ class UserInfoValue {
   }
 
   static async delete(userId, fieldDefinitionId) {
+    const fk = await this._getFieldKeyForDefinitionId(fieldDefinitionId);
+    if (BIRTHDATE_FIELD_KEYS.includes(fk)) {
+      const [result] = await pool.execute(
+        `DELETE uiv FROM user_info_values uiv
+         JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
+         WHERE uiv.user_id = ? AND uifd.field_key IN (?, ?, ?)`,
+        [userId, ...BIRTHDATE_FIELD_KEYS]
+      );
+      return result.affectedRows > 0;
+    }
     const [result] = await pool.execute(
       'DELETE FROM user_info_values WHERE user_id = ? AND field_definition_id = ?',
       [userId, fieldDefinitionId]
@@ -465,4 +479,3 @@ class UserInfoValue {
 }
 
 export default UserInfoValue;
-

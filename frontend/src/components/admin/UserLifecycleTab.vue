@@ -39,11 +39,6 @@
           <div class="lc-summary-label">Offboarding Status</div>
           <div class="lc-summary-value">{{ data.summary.offboardingStatus }}</div>
         </div>
-        <div v-if="data.summary.dateOfBirth" class="lc-summary-field">
-          <div class="lc-summary-label">Date of Birth</div>
-          <div class="lc-summary-value">{{ fmtDate(data.summary.dateOfBirth) }}</div>
-          <div class="lc-summary-note">Edit in Clinical Information</div>
-        </div>
         <div v-if="data.summary.leave?.isOnLeave || data.summary.leave?.departureDate" class="lc-summary-field">
           <div class="lc-summary-label">Leave of Absence</div>
           <div class="lc-summary-value">

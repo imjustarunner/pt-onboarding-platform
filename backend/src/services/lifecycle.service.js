@@ -81,8 +81,9 @@ async function fetchDateOfBirth(userId) {
     `SELECT uiv.value
      FROM user_info_values uiv
      JOIN user_info_field_definitions uifd ON uifd.id = uiv.field_definition_id
-     WHERE uiv.user_id = ? AND uifd.field_key IN ('date_of_birth', 'provider_birthdate')
-     ORDER BY (uifd.field_key = 'date_of_birth') DESC, uiv.updated_at DESC
+     WHERE uiv.user_id = ? AND uifd.field_key IN ('date_of_birth', 'provider_birthdate', 'birthdate')
+       AND NULLIF(TRIM(uiv.value), '') IS NOT NULL
+     ORDER BY (uifd.field_key = 'date_of_birth') DESC, (uifd.field_key = 'provider_birthdate') DESC, uiv.updated_at DESC
      LIMIT 1`,
     [userId]
   );

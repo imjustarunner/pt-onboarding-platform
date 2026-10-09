@@ -165,20 +165,20 @@ export const CLINICAL_SUB_TABS = Object.freeze([
       'provider_marketing_mental_health_categories'
     ]
   },
-    {
+  {
+    id: 'demographics',
+    label: 'Demographics',
+    panelHint: 'Personal identity and contact details. Birthdate is maintained here for the employee profile and roster.',
+    fieldKeys: ['first_name', 'last_name', 'date_of_birth', 'provider_birthdate', 'birthdate', 'personal_email', 'email_address', 'cell_number', 'mailing_address', 'previous_addresses'],
+    fieldGroups: [
+      { id: 'identity', label: 'Identity', fieldKeys: ['first_name', 'last_name', 'date_of_birth', 'provider_birthdate', 'birthdate'] },
+      { id: 'contact', label: 'Contact details', fieldKeys: ['personal_email', 'email_address', 'cell_number', 'mailing_address', 'previous_addresses'] }
+    ]
+  },
+  {
     id: 'administrative',
     label: 'Administrative & Schedule',
     fieldKeys: [
-      'first_name',
-      'last_name',
-      'date_of_birth',
-      'provider_birthdate',
-      'birthdate',
-      'personal_email',
-      'email_address',
-      'cell_number',
-      'mailing_address',
-      'previous_addresses',
       'itsco_position',
       'research_past_topics',
       'research_interest',
@@ -381,7 +381,7 @@ export function subTabForFieldKey(fieldKey) {
 
 export function isClinicalProfileField(field) {
   const cat = String(field?.category_key || '').trim();
-  if (cat && EXCLUDED_CLINICAL_CATEGORY_KEYS.has(cat)) return false;
+  if (cat && EXCLUDED_CLINICAL_CATEGORY_KEYS.has(cat) && !['date_of_birth', 'provider_birthdate', 'birthdate'].includes(field?.field_key)) return false;
   const fk = String(field?.field_key || '').trim();
   if (!fk) return false;
   if (fk.startsWith('provider_accepts_') || fk.startsWith('provider_background_')) return false;

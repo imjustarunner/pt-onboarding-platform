@@ -16,8 +16,6 @@
       <div class="header-actions" data-tour="users-header-actions">
         <button v-if="!isSscSstcTenant && ['admin', 'super_admin', 'support'].includes(user?.role)" class="btn btn-secondary" @click="showBusinessCards = true">Business cards</button>
         <BusinessCardsDialog v-if="showBusinessCards" :agencies="agencyOptions" :initial-agency-id="agencySort || agencyStore.currentAgency?.id || ''" @close="showBusinessCards = false" />
-        <button v-if="user?.role === 'admin' || user?.role === 'super_admin'" class="btn btn-secondary" @click="showDirectoryOnboarding = true">Provider onboarding</button>
-        <DirectoryAdminLauncher v-if="showDirectoryOnboarding" :agency-id="agencySort || agencyStore.currentAgency?.id" @close="showDirectoryOnboarding = false" />
         <router-link
           v-if="canSeeClientExchange && !isSscSstcTenant && directoryPersona === 'employees'"
           :to="clientExchangeLink"
@@ -1767,7 +1765,6 @@
 </template>
 
 <script setup>
-import DirectoryAdminLauncher from '../../components/providerDirectory/DirectoryAdminLauncher.vue';
 import BusinessCardsDialog from '../../components/admin/BusinessCardsDialog.vue';
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
@@ -1943,7 +1940,6 @@ const rosterProfileBase = computed(() => {
 const statusSort = ref('ACTIVE_EMPLOYEE');
 const agencySort = ref('');
 const showBusinessCards = ref(false);
-const showDirectoryOnboarding = ref(false);
 watch([agencySort, () => route.fullPath], closeUmQuickView);
 const organizationSort = ref('');
 const roleSort = ref('');

@@ -886,8 +886,7 @@ const employmentRows = computed(() => {
     { label: 'First Client Seen Date', value: fmt('first_client_date') },
     { label: 'Employment Agreement Date', value: fmt('employment_agreement_date') },
     { label: 'Work Anniversary', value: fmt('work_anniversary_date') },
-    { label: 'Termination Date', value: fmtDate(user.value?.terminated_at) },
-    { label: 'Date of Birth', value: fmtDate(user.value?.date_of_birth) }
+    { label: 'Termination Date', value: fmtDate(user.value?.terminated_at) }
   ].filter((r) => r.value && r.value !== '—');
 });
 

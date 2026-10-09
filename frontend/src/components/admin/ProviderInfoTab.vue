@@ -40,8 +40,6 @@
       </div>
     </div>
 
-    <LatinxDirectoryMembership v-if="!embedded || visibleProviderFields.some(f => /ethnicity|heritage|gender/.test(f.field_key || f.fieldKey || ''))" :user-id="userId" />
-
     <div v-if="installError" class="error" style="margin-bottom: 12px;">{{ installError }}</div>
     <div v-if="saveError" class="error" style="margin-bottom: 12px;">{{ saveError }}</div>
     <div v-if="saveSuccess" class="success" style="margin-bottom: 12px;">{{ saveSuccess }}</div>
@@ -364,7 +362,7 @@
 </template>
 
 <script setup>
-import LatinxDirectoryMembership from '../providerDirectory/LatinxDirectoryMembership.vue';
+import { consolidateBirthdateFields, isBirthdateField } from '../../utils/profileDemographics.js';
 import {SPECIALTIES, POPULATIONS, CLIENT_AGES, THERAPY_APPROACHES} from '../../constants/providerClinicalTaxonomy';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import api from '../../services/api';
@@ -545,7 +543,9 @@ const targetAgency = computed(() => {
 });
 
 const providerFields = computed(() => {
-  let list = allFields.value || [];
+  let list = consolidateBirthdateFields(allFields.value || []);
+  const showsDemographics = !props.embedded || props.fieldKeys?.some(isBirthdateField);
+  if (!showsDemographics) list = list.filter((f) => !isBirthdateField(f.field_key));
   if (props.clinicalFilter) {
     list = list.filter((f) => isClinicalProfileField(f));
   }
@@ -599,6 +599,7 @@ const sectionKeyForField = (f) => {
     return '__clinical_panel';
   }
   const fk = String(f?.field_key || '').trim();
+  if (isBirthdateField(fk)) return 'demographics';
   if (fk && LEGACY_MATCH_KEYS.has(fk)) return 'provider_legacy_matching';
   return f?.category_key || '__uncategorized';
 };
@@ -609,6 +610,7 @@ const sectionLabelForKey = (key) => {
     const g = (props.fieldGroups || []).find((x) => String(x?.id || x?.label) === id);
     if (g?.label) return g.label;
   }
+  if (key === 'demographics') return 'Demographics';
   if (key === '__clinical_panel_other') return 'Other';
   if (key === '__clinical_panel') return props.panelTitle || 'Clinical fields';
   if (key === 'provider_legacy_matching') return 'Legacy Provider Matching (Imported)';
@@ -755,7 +757,7 @@ const refresh = async ({ quiet = false } = {}) => {
       }
     }
 
-    allFields.value = fields.map(applyDefaultFieldOptions);
+    allFields.value = consolidateBirthdateFields(fields).map(applyDefaultFieldOptions);
 
     const values = {};
     (allFields.value || []).forEach((f) => {
@@ -779,9 +781,9 @@ const saveAll = async () => {
     saveError.value = '';
     saveSuccess.value = '';
 
-    const values = Object.keys(fieldValues.value).map((fieldId) => ({
-      fieldDefinitionId: parseInt(fieldId),
-      value: Array.isArray(fieldValues.value[fieldId]) ? JSON.stringify(fieldValues.value[fieldId]) : (fieldValues.value[fieldId] || null)
+    const values = visibleProviderFields.value.filter(canEditField).map((field) => ({
+      fieldDefinitionId: Number(field.id),
+      value: Array.isArray(fieldValues.value[field.id]) ? JSON.stringify(fieldValues.value[field.id]) : (fieldValues.value[field.id] || null)
     }));
 
     await api.post(`/users/${props.userId}/user-info`, { values, agencyId: targetAgency.value?.id || null });

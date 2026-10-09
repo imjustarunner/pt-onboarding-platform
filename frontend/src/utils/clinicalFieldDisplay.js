@@ -1,6 +1,7 @@
 /**
  * Shared helpers for reading clinical profile EAV fields in overview/snapshot views.
  */
+import { formatProfileDate } from './profileDemographics.js';
 
 export const CLINICAL_FIELD_ALIASES = Object.freeze({
   license_type_number: ['provider_credential_license_type_number'],
@@ -99,10 +100,7 @@ export function formatClinicalFieldValue(field) {
   }
   if (field?.field_type === 'select') return optionLabel(field, raw);
   if (field?.field_type === 'date') {
-    const d = new Date(String(raw).slice(0, 10));
-    if (!Number.isNaN(d.getTime())) {
-      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    }
+    return formatProfileDate(raw);
   }
   if (field?.field_type === 'file') {
     const key = String(field?.field_key || '').toLowerCase();

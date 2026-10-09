@@ -237,7 +237,6 @@
                     <span class="ov-fv">{{ formattedAddress || '—' }}</span>
                   </div>
                   <div class="ov-field-row"><span class="ov-fl">Emergency Contact</span><span class="ov-fv">{{ user.emergency_contact || '—' }}</span></div>
-                  <div class="ov-field-row"><span class="ov-fl">Date of Birth</span><span class="ov-fv">{{ fmtDate(lifecycle?.summary?.dateOfBirth) || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Language Spoken</span><span class="ov-fv">{{ ai?.languagesSpoken || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Pronouns</span><span class="ov-fv">{{ user.pronouns || '—' }}</span></div>
                   <div class="ov-field-row"><span class="ov-fl">Title</span><span class="ov-fv">{{ user.title || '—' }}</span></div>
@@ -422,11 +421,6 @@
               <div class="ov-lc-field">
                 <div class="ov-lc-label">Offboarding Status</div>
                 <div class="ov-lc-val">{{ lifecycle.summary?.offboardingStatus || 'N/A' }}</div>
-              </div>
-              <div v-if="lifecycle.summary?.dateOfBirth" class="ov-lc-field">
-                <div class="ov-lc-label">Date of Birth</div>
-                <div class="ov-lc-val">{{ fmtDate(lifecycle.summary.dateOfBirth) }}</div>
-                <div class="ov-lc-note">Edit in Clinical Information</div>
               </div>
             </div>
 
@@ -674,6 +668,7 @@
 </template>
 
 <script setup>
+import { formatProfileDate } from '../../utils/profileDemographics.js';
 import { ref, computed, onMounted, inject, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../../services/api';
@@ -1030,12 +1025,7 @@ const timelinePoints = computed(() => {
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const fmtDate = (raw) => {
-  if (!raw) return '';
-  const d = new Date(raw);
-  if (isNaN(d)) return String(raw);
-  return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
-};
+const fmtDate = formatProfileDate;
 
 const fmtShortDate = (raw) => {
   if (!raw) return '—';
