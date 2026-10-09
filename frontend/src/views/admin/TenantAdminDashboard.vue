@@ -728,15 +728,14 @@ const peopleOpsFeatureEnabled = computed(() => {
 const showPeopleOpsPipeline = computed(() =>
   peopleOpsFeatureEnabled.value && isVisible('peopleOps')
 );
-const presenceEnabled = computed(() => agencyFlags.value?.presenceEnabled === true);
 const canAccessTeamBoardRole = computed(() =>
   ['admin', 'support', 'super_admin'].includes(roleLower.value)
 );
-/** Super admin always sees Team Board on tenant ops; admin/support need presenceEnabled. */
+/** Team Board is a core admin/support tool; retain per-user dashboard visibility. */
 const showTeamBoardCard = computed(() => {
   if (!canAccessTeamBoardRole.value) return false;
   if (roleLower.value === 'super_admin') return true;
-  return presenceEnabled.value && isVisible('teamBoard');
+  return isVisible('teamBoard');
 });
 
 const customizeSectionLabels = computed(() => {
@@ -746,7 +745,7 @@ const customizeSectionLabels = computed(() => {
         if (item.key === 'escalations') return canSeeEscalations.value;
         if (item.key !== 'teamBoard') return true;
         if (roleLower.value === 'super_admin') return true;
-        return canAccessTeamBoardRole.value && presenceEnabled.value;
+        return canAccessTeamBoardRole.value;
       })
       .map((item) => [item.key, item])
   );
@@ -1188,7 +1187,7 @@ const defaultQuickActionIds = computed(() => {
     'progress_dashboard',
     'manage_clients',
     'management_team',
-    ...((canAccessTeamBoardRole.value && (roleLower.value === 'super_admin' || presenceEnabled.value))
+    ...(canAccessTeamBoardRole.value
       ? ['presence_team_board']
       : []),
     ...(clinicalNoteGeneratorEnabledForAgency.value ? ['tools_aids', 'clinical_note_generator'] : []),

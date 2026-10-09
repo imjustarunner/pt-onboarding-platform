@@ -1429,7 +1429,7 @@ export const listPrivilegedPresence = async (req, res, next) => {
 
 /**
  * List presence for Team Board.
- * Super-admin: all users. Admin: agency-scoped when agency has presenceEnabled.
+ * Super-admin: all users. Admin/support: assigned agency only.
  * GET /api/presence (root) or GET /api/presence/agency/:agencyId
  */
 
@@ -1583,7 +1583,7 @@ export const listPresence = async (req, res, next) => {
 };
 
 /**
- * Admin: list presence for their agency's team (when agency has presenceEnabled).
+ * Admin/support: list presence for their assigned agency's team.
  * GET /api/presence/agency/:agencyId/team
  */
 export const listPresenceForAgency = async (req, res, next) => {
@@ -1607,25 +1607,6 @@ export const listPresenceForAgency = async (req, res, next) => {
     const hasAccess = (userAgencies || []).some((a) => parseInt(a.id, 10) === agencyId);
     if (!hasAccess) {
       return res.status(403).json({ error: { message: 'Access denied to this agency' } });
-    }
-
-    const [agencyRows] = await pool.execute(
-      'SELECT feature_flags FROM agencies WHERE id = ?',
-      [agencyId]
-    );
-    const agency = agencyRows?.[0];
-    let flags = {};
-    if (agency?.feature_flags) {
-      try {
-        flags = typeof agency.feature_flags === 'string'
-          ? JSON.parse(agency.feature_flags)
-          : agency.feature_flags;
-      } catch {
-        /* ignore */
-      }
-    }
-    if (flags.presenceEnabled !== true) {
-      return res.status(403).json({ error: { message: 'Presence is not enabled for this agency' } });
     }
 
     const rows = await UserPresenceStatus.findAllWithUsersForAgency(agencyId);

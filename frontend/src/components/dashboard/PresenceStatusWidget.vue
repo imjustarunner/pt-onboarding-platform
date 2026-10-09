@@ -22,7 +22,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '../../store/auth';
-import { useAgencyStore } from '../../store/agency';
 import { usePresenceSessionStore } from '../../store/presenceSession';
 import {
   isPrivilegedPresenceRole,
@@ -36,15 +35,10 @@ defineProps({
 });
 
 const authStore = useAuthStore();
-const agencyStore = useAgencyStore();
 const presenceSession = usePresenceSessionStore();
 const canViewTeamBoard = computed(() => {
   const role = String(authStore.user?.role || '').toLowerCase();
-  if (role === 'super_admin') return true;
-  if (role !== 'admin' && role !== 'support') return false;
-  const flags = agencyStore.currentAgency?.feature_flags || agencyStore.currentAgency?.featureFlags || {};
-  const f = typeof flags === 'object' ? flags : (() => { try { return JSON.parse(flags || '{}'); } catch { return {}; } })();
-  return f?.presenceEnabled === true;
+  return ['admin', 'support', 'super_admin'].includes(role);
 });
 
 const canUseAwayPrompt = computed(() =>

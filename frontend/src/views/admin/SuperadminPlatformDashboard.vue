@@ -40,6 +40,7 @@
         <router-link class="pthq-nav-item" to="/admin/settings?scope=platform&amp;category=platform&amp;item=platform-all-agencies">Manage Organizations</router-link>
 
         <div class="pthq-nav-section">User Management</div>
+        <router-link class="pthq-nav-item" to="/admin/presence">Team Presence</router-link>
         <router-link class="pthq-nav-item" to="/admin/users">Users</router-link>
         <router-link class="pthq-nav-item" to="/tickets?mine=1&status=open">Support Tickets</router-link>
 
@@ -101,6 +102,10 @@
           <span class="pthq-pill">SUPER ADMIN</span>
         </div>
       </header>
+
+      <section v-if="panel === 'schedule' || panel === 'overview'" class="pthq-presence">
+        <PresenceTeamPreview embedded />
+      </section>
 
       <!-- Platform messages: always mounted so unread badge stays live (rail is hidden on HQ chrome) -->
       <section
@@ -370,6 +375,7 @@ import SuperadminDemoTestingLab from '../../components/admin/SuperadminDemoTesti
 import ScheduleAvailabilityGrid from '../../components/schedule/ScheduleAvailabilityGrid.vue';
 import WorkHoursEditor from '../../components/schedule/WorkHoursEditor.vue';
 import MessagesWorkspace from '../../components/messages/MessagesWorkspace.vue';
+import PresenceTeamPreview from '../../components/dashboard/PresenceTeamPreview.vue';
 
 const router = useRouter();
 const route = useRoute();
@@ -740,6 +746,13 @@ onMounted(fetchAll);
 </script>
 
 <style scoped>
+.pthq-presence {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+}
+
 .pthq {
   --bg: var(--bg-primary);
   --panel: var(--bg-card);
