@@ -103,7 +103,7 @@ export function mapAcceptedInsuranceForDisplay(row) {
   };
 }
 
-export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyId }) {
+export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyId, forMatching = false }) {
   const allRows = await listProviderAcceptedInsurances({ userId, agencyId, includeIneligible: true });
   const rows = allRows.filter(row => !row.ineligible_for_supervisee);
   const excluded = allRows.filter(row => row.ineligible_for_supervisee);
@@ -123,7 +123,14 @@ export async function listProviderAcceptedInsurancesForDisplay({ userId, agencyI
   }
   const merged = mergeAgencyInsuranceAcceptance(rows, overrides, excluded);
   const [people] = await pool.execute('SELECT credential, title FROM users WHERE id = ? LIMIT 1', [Number(userId)]);
-  return restrictPublicInsurances(merged, people[0] || {}).map(mapAcceptedInsuranceForDisplay);
+  const accepted = restrictPublicInsurances(merged, people[0] || {}).map(mapAcceptedInsuranceForDisplay);
+  if (forMatching) return {
+    accepted,
+    known: allRows.length > 0 || overrides.length > 0,
+    excluded: [...excluded.flatMap(row=>[row.name,...(row.aliases||[])]), ...overrides.filter(row=>!Number(row.is_allowed)).map(row=>row.label)],
+    credential: people[0] || {}
+  };
+  return accepted;
 }
 
 export function mergeAgencyInsuranceAcceptance(rows, overrides, excluded = []) {

@@ -20,3 +20,10 @@ it('prefills contact, credential, blurb and saved checkbox selections',async()=>
 it('shows an unsigned amendment as required rather than allowing a completion checkbox',async()=>{const w=mount(Panel,{props:{recipient,section:{key:'amendments',data:{}}},global:globals});await flushPromises();expect(w.get('button.primary').element.disabled).toBe(true);w.unmount();});
 
 it('opens the stored license using a direct link even in a read-only preview',async()=>{const w=mount(Panel,{props:{mode:'token',token:'preview-token',agencyId:2,recipient:{...recipient,previewOnly:true},section:{key:'license',data:{license:{hasUpload:true,number:'TEST'}}}},global:globals});await flushPromises();const a=w.get('a');expect(a.attributes('href')).toBe('/api/public/provider-update/preview-token/assets/license?open=1&agencyId=2');expect(a.attributes('target')).toBe('_blank');expect(w.get('fieldset').element.disabled).toBe(true);w.unmount();});
+
+it('lets the invited provider choose their own public gender without inferring it',async()=>{
+ const w=mount(Panel,{props:{mode:'token',token:'test-token',recipient,section:{key:'credential_display',data:{credential:'LPCC',publicGender:'',displayRole:{label:'Counselor',options:['Counselor']}}}},global:globals});await flushPromises();
+ const gender=w.findAll('select').find(s=>s.find('option[value=nonbinary]').exists());expect(gender.element.value).toBe('');
+ await gender.setValue('nonbinary');await w.get('button.primary').trigger('click');await flushPromises();
+ expect(api.put).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({data:expect.objectContaining({publicGender:'nonbinary'})}));w.unmount();
+});

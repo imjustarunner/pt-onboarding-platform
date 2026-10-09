@@ -1,5 +1,8 @@
 import { canonicalAge, normalizeClinicalFacets } from './providerFacetNormalization.js';
 import { providerAvailabilityPreferences } from './providerAvailabilityReminders.js';
+import { agencyFormatAllowed } from './providerAgencyAvailability.js';
+import { restrictPublicInsurances } from './publicProviderPresentation.js';
+import { FOCUS_GROUPS } from '../../../frontend/src/navigation/providerFocus.js';
 
 export function ageRange(value) {
   const raw = String(canonicalAge(value) || value || '').trim().replace(/[–—]/g, '-');
@@ -30,20 +33,51 @@ export function normalizedProviderGender(value) {
 
 export function matchesExchangeListing({ user, profile, facets = {}, listing, client, now }) {
   const availability = providerAvailabilityPreferences(user, profile);
-  if (!availability.seesClients || !availability.acceptingNewClients) return false;
-  const modality = listing.preferences?.modality || listing.preferences?.preferredModality;
-  if (modality === 'in_person' ? !availability.inPerson : modality === 'virtual' ? !availability.virtual : !availability.inPerson && !availability.virtual) return false;
+  if (!availability.seesClients || (!availability.intakeStatusByFormat && !availability.acceptingNewClients)) return false;
+  const modality = String(listing.preferences?.modality || listing.preferences?.preferredModality || '').toLowerCase();
+  const formatOpen = (format, enabled) => enabled && (availability.intakeStatusByFormat
+    ? agencyFormatAllowed(availability, format) : !['waitlist','unavailable','closed'].includes(profile?.details?.[format==='IN_PERSON'?'officeAvailability':'virtualAvailability']));
+  const inPerson = formatOpen('IN_PERSON', availability.inPerson), virtual = formatOpen('VIRTUAL', availability.virtual);
+  if (modality === 'in_person' ? !inPerson : modality === 'virtual' ? !virtual : !inPerson && !virtual) return false;
   const preferredGender = normalizedProviderGender(listing.preferences?.providerGender);
-  if (preferredGender && preferredGender !== normalizedProviderGender(profile?.details?.gender)) return false;
+  const providerGender = normalizedProviderGender(profile?.details?.gender);
+  if (['male','female','nonbinary'].includes(preferredGender) && ['male','female','nonbinary'].includes(providerGender) && preferredGender !== providerGender) return false;
+  const focus = profile?.details?.clinicalFocus;
+  const known = (group, fallback) => focus?.reviewed
+    ? FOCUS_GROUPS.find(g=>g.key===group).options.filter(v=>!(focus.excluded?.[group]||[]).includes(v))
+    : (fallback || []);
   const age = clientAge(client, now);
   const requestedAge = age == null ? ageRange(listing.demographics?.ageBand) : [age, age];
-  if (requestedAge && !(facets.ageGroups || []).some(value => {
+  const ages = known('ageGroups', facets.ageGroups);
+  if (requestedAge && (ages.length || focus?.reviewed) && !ages.some(value => {
     const supported = ageRange(value);
     return supported && supported[0] <= requestedAge[0] && supported[1] >= requestedAge[1];
   })) return false;
-  const concerns = normalizeClinicalFacets({ specialties: listing.presentingProblems || [] }).specialties;
-  if (concerns.length && !(facets.specialties || []).some(value => concerns.includes(value))) return false;
-  const insurance = String(listing.preferences?.insurance || '').trim().toLowerCase();
-  if (insurance && !(profile?.insurances || []).some(value => String(value).trim().toLowerCase() === insurance)) return false;
+  const taxonomy = FOCUS_GROUPS.find(g=>g.key==='specialties').options;
+  // Free-text narratives that do not map to a known topic remain unknown, not a rejection.
+  const concerns = normalizeClinicalFacets({ specialties: listing.presentingProblems || [] }).specialties.filter(v=>taxonomy.includes(v));
+  const specialties = normalizeClinicalFacets({specialties:known('specialties',facets.specialties)}).specialties;
+  if (concerns.some(v=>(focus?.excluded?.specialties||[]).includes(v))) return false;
+  if (concerns.length && (specialties.length || focus?.reviewed) && !specialties.some(v=>concerns.includes(v))) return false;
+  const requested = listing.preferences?.matchingPreferences || {};
+  for (const group of FOCUS_GROUPS) {
+    const wants = (Array.isArray(requested[group.key]) ? requested[group.key] : []).filter(v=>group.options.includes(v));
+    if (wants.some(v=>(focus?.excluded?.[group.key]||[]).includes(v))) return false;
+    const supports = known(group.key, facets[group.key]);
+    if (wants.length && (supports.length || focus?.reviewed) && !wants.some(v=>supports.includes(v))) return false;
+  }
+  const service = String(listing.serviceType || '').toLowerCase();
+  const population = {individual:'Individuals',family:'Families',couples:'Couples'}[service];
+  const populations = known('populations',facets.populations);
+  if (population && (populations.length || focus?.reviewed) && !populations.includes(population)) return false;
+  const norm = v => String(v||'').trim().toLowerCase().replace(/[^a-z0-9]/g,'');
+  const insurance = norm(listing.preferences?.insurance || client?.insurance_type_label);
+  const isUnknown = ['','unknown','notprovided','notspecified','other','unlisted','tbd'].includes(insurance);
+  if (!isUnknown) {
+    if ((profile?.excludedInsurances||[]).some(v=>norm(v)===insurance)) return false;
+    const insurances = profile?.insurances || [];
+    if (!restrictPublicInsurances([insurance], profile?.insuranceCredential || {}).length) return false;
+    if ((insurances.length || profile?.insuranceEligibilityKnown) && !insurances.some(v=>norm(v)===insurance)) return false;
+  }
   return true;
 }

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 export const isStaffCommunicationRole = role => ['super_admin','admin','assistant_admin','support','clinical_practice_assistant','provider_plus','staff','provider','schedule_manager','intern','intern_plus','supervisor','facilitator'].includes(String(role || '').toLowerCase());
-export const STAFF_COMMUNICATION_VERSION = '2026-10-08.2';
+export const STAFF_COMMUNICATION_VERSION = '2026-10-08.3';
 export const STAFF_COMMUNICATION_REQUESTS = [
   {key:'inAppTexting',label:'I would like client texting access in the app',description:'Request access to send and receive messages with assigned clients using the agency business number. An administrator reviews access; this choice does not grant permissions or enroll clients.'},
   {key:'personalSmsRelay',label:'I would like client-message forwarding when it becomes available',description:'Record interest in receiving client messages and replying through your personal phone. Forwarding is not available now. This request does not enable forwarding or authorize sharing client information. Separate healthcare setup and consent are required before launch.'}
@@ -12,6 +12,7 @@ export const STAFF_COMMUNICATION_CHOICES = [
   { key: 'messageAlerts', label: 'Message-waiting text alerts', description: 'A generic notice that a message is waiting in the app. Client names, initials, message contents and clinical details are not included.' },
   { key: 'appointmentReplies', label: 'Client cancellations and appointment replies', description: 'Text me when an assigned client responds about an appointment—including N, Y, R, or another response. Open the app to read the reply and take action. School replies need staff review; they do not automatically cancel a school visit.' },
   { key: 'kioskArrivals', label: 'Client check-in at the office kiosk', description: 'Text me “Your client has just checked in!” with a secure app link. Your in-app arrival notification is always on; this choice controls only the extra text.' },
+  { key: 'exchangeMatches', label: 'New matching clients in Client Exchange', description: 'Text me about possible matches only while I am open for new clients in the requested format. Waitlist and Closed do not receive match alerts. Unknown preferences may still match. Open the app to review and request the client. Texts use a secure link; clinical summaries require separately verified healthcare delivery.' },
   { key: 'polling', label: 'Optional staff polls and voting', description: 'Attendance Y/N and numbered choices for dates or activities. Final totals are available in the app; a results text is a separate choice for each poll.' }
 ];
 export function validateStaffCommunicationInput(input, disclosureHash) {
@@ -24,8 +25,8 @@ export function validateStaffCommunicationInput(input, disclosureHash) {
   return errors;
 }
 export function staffDeliveryKinds(choices) { return STAFF_COMMUNICATION_CHOICES.filter(c=>c.key!=='polling'&&choices?.[c.key]===true).map(c=>c.key); }
-export function staffNotificationKind(type) { return type==='kiosk_checkin'?'kioskArrivals':type==='client_appointment_reply'?'appointmentReplies':['inbound_client_message','support_safety_net_alert','client_note'].includes(type)?'messageAlerts':'notifications'; }
+export function staffNotificationKind(type) { return type==='client_exchange_match'?'exchangeMatches':type==='kiosk_checkin'?'kioskArrivals':type==='client_appointment_reply'?'appointmentReplies':['inbound_client_message','support_safety_net_alert','client_note'].includes(type)?'messageAlerts':'notifications'; }
 export function staffNotificationBody(type, portalUrl) {
-  const intro=type==='kiosk_checkin'?'Your client has just checked in!':type==='client_appointment_reply'?'A client replied about an appointment. Open the app to review any cancellation or scheduling concern.':staffNotificationKind(type)==='messageAlerts'?'You have a message waiting in the app.':'You have a staff update or reminder in the app.';
+  const intro=type==='client_exchange_match'?'New client added to the exchange. A possible match is available.':type==='kiosk_checkin'?'Your client has just checked in!':type==='client_appointment_reply'?'A client replied about an appointment. Open the app to review any cancellation or scheduling concern.':staffNotificationKind(type)==='messageAlerts'?'You have a message waiting in the app.':'You have a staff update or reminder in the app.';
   return `${intro} Sign in to review: ${portalUrl}`;
 }

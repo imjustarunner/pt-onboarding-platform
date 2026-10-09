@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), profile: vi.fn(), facets: vi.fn(), send: vi.fn(), notify: vi.fn(), enabled: vi.fn(), identities: vi.fn() }));
+const mocks = vi.hoisted(() => ({ execute: vi.fn(), profile: vi.fn(), facets: vi.fn(), send: vi.fn(), notify: vi.fn(), enabled: vi.fn(), identities: vi.fn(), dispatch: vi.fn(), accepted: vi.fn() }));
 vi.mock('../../config/database.js', () => ({ default: { execute: mocks.execute } }));
 vi.mock('../../models/Agency.model.js', () => ({ default: { findById: vi.fn().mockResolvedValue({ id: 2, slug: 'itsco' }) } }));
 vi.mock('../../models/Notification.model.js', () => ({ default: { create: mocks.notify } }));
@@ -8,11 +8,14 @@ vi.mock('../../models/EmailSenderIdentity.model.js', () => ({ default: { list: m
 vi.mock('../providerClinicalFacets.service.js', () => ({ listClinicalFacetsForUsers: mocks.facets }));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js', () => ({ sendEmailFromIdentity: mocks.send }));
 vi.mock('../notificationPreferences.service.js', () => ({ isNotificationChannelEnabled: mocks.enabled }));
+vi.mock('../notificationDispatcher.service.js', () => ({ default: { dispatchForNotification: mocks.dispatch } }));
+vi.mock('../providerAcceptedInsurance.service.js', () => ({ listProviderAcceptedInsurancesForDisplay: mocks.accepted }));
 import { notifyExchangeMatches, notifyExchangeClaim, notifyExchangeAssignment } from '../clientExchangeNotifications.service.js';
 const listing = { id: 44, agencyId: 2, currentProviderUserId: 9, postedByUserId: 9, demographics: { ageBand: '9' }, preferences: { modality: 'virtual' } };
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.execute.mockResolvedValue([[9, 10, 11].map(id => ({ id, role: 'provider', email: `user${id}@example.com`, sees_clients: 1, provider_accepting_new_clients: 1 }))]);
+  mocks.execute.mockImplementation(async sql => sql.includes('provider_insurance_overrides') ? [[]] : [[9, 10, 11].map(id => ({ id, role: 'provider', email: `user${id}@example.com`, sees_clients: 1, provider_accepting_new_clients: 1 }))]);
+  mocks.accepted.mockResolvedValue({accepted:[],known:false,excluded:[]}); mocks.dispatch.mockResolvedValue({dispatched:false});
   mocks.profile.mockResolvedValue({ details: { virtualEnabled: true } });
   mocks.facets.mockResolvedValue(new Map([[10, { ageGroups: ['Children (6-10)'] }], [11, { ageGroups: ['Adults (18+)'] }]]));
   mocks.enabled.mockResolvedValue(true);
@@ -30,12 +33,12 @@ it('sends to every matched provider except current provider, with an agency-scop
 it('preserves in-app notification when the recipient opts out of email', async () => {
   mocks.enabled.mockResolvedValue(false);
   const result = await notifyExchangeMatches({ listing });
-  expect(result.skipped).toBe(1); expect(mocks.send).not.toHaveBeenCalled(); expect(mocks.notify).toHaveBeenCalledTimes(1);
+  expect(mocks.dispatch).toHaveBeenCalledTimes(1); expect(result.skipped).toBe(1); expect(mocks.send).not.toHaveBeenCalled(); expect(mocks.notify).toHaveBeenCalledTimes(1);
 });
 it('reports missing sender and held mail rather than claiming delivery', async () => {
   mocks.identities.mockResolvedValue([]);
   expect((await notifyExchangeMatches({ listing })).failed).toBe(1);
-  mocks.identities.mockResolvedValue([{ id: 77, identity_key: 'notifications' }]);
+  mocks.identities.mockResolvedValue([{ id: 77, identity_key: 'notifications', from_email:'notifications@itsco.health' }]);
   mocks.send.mockResolvedValue({ queued: true });
   const result = await notifyExchangeMatches({ listing }); expect(result.queued).toBe(1); expect(result.sent).toBe(0);
 });
@@ -72,11 +75,12 @@ it('sends a direct referral only to its matching recipient', async () => {
 it('clearly identifies available clients instead of calling them unread messages', async () => {
   await notifyExchangeMatches({ listing });
   expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({
-    subject: '1 client is available in Client Exchange',
-    text: expect.stringContaining('open for scheduling'),
-    html: expect.stringContaining('in-office or virtual care')
+    subject: 'New client added to the exchange',
+    replyToOverride:'no-reply@itsco.health',
+    text: expect.stringContaining('possible match'),
+    html: expect.stringContaining('Review and request')
   }));
-  expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({title: '1 client is available in Client Exchange'}));
+  expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({title: 'New client added to the exchange'}));
 });
 it.each([false, true])('excludes closed scheduling, including directed referrals (%s)', async direct => {
   mocks.profile.mockResolvedValue({agencyAvailability:{seesClients:true, acceptingNewClients:false, virtual:true, inPerson:true}});

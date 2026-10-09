@@ -132,9 +132,10 @@
         <option v-for="label in ['Counselor','Provider','Therapist','Social Worker']" :key="label">{{label}}</option>
       </select></label>
       <p v-if="section.data?.displayRole?.candidate">Candidate appears on its own line in your email signature and business card.</p>
+      <label class="field"><span>Gender on your public profile (optional)</span><select v-model="publicGender" class="input"><option value="">Not shown / prefer not to say</option><option value="male">Male</option><option value="female">Female</option><option value="nonbinary">Nonbinary</option><option v-if="publicGender && !['male','female','nonbinary'].includes(publicGender)" :value="publicGender">{{publicGender}} (current)</option></select><small>This choice is public and helps clients filter for a provider. It is your own selection; no gender is inferred.</small></label>
       <label class="field"><span>Display credential</span><input v-model="credential" class="input" /></label>
       <div class="pu-actions">
-        <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ credential, displayLabel })">
+        <button type="button" class="pu-btn primary" :disabled="saving" @click="markComplete({ credential, displayLabel, publicGender })">
           Confirm credential display
         </button>
       </div>
@@ -344,6 +345,7 @@ async function setupQuickView(){if(props.recipient?.previewOnly)return;saving.va
 
 const credential = ref('');
 const displayLabel = ref('');
+const publicGender = ref('');
 const emailPreference=ref({});
 const preferredDays = ref([]);
 const notify = reactive({ email: true, sms: false });
@@ -516,6 +518,7 @@ onMounted(async () => {
   if(props.section.key==='directory_photo'&&data.hasPhoto)await openAsset('photo');
   if (data.license) Object.assign(license, data.license);
   if (data.contact) Object.assign(contact, data.contact);
+  publicGender.value = data.publicGender || '';
   credential.value = data.credential || '';
   displayLabel.value = data.displayRole?.label || data.displayLabel || '';
   emailPreference.value = {personalEmailNotify:data.appEmail?.personalEmailNotify !== false,personalEmailDeliveryMode:data.appEmail?.personalEmailDeliveryMode || 'notification',personalEmailDelayMode:data.appEmail?.personalEmailDelayMode || 'business_day',personalEmailDelayHours:data.appEmail?.personalEmailDelayHours ?? 24};

@@ -1,7 +1,9 @@
 import pool from '../config/database.js';
-import { buildExchangeEmail } from '../utils/clientExchangeSummary.js';
+import { buildExchangeEmail, exchangeNotificationSummary } from '../utils/clientExchangeSummary.js';
 import Agency from '../models/Agency.model.js';
 import Notification from '../models/Notification.model.js';
+import NotificationDispatcher from './notificationDispatcher.service.js';
+import { listProviderAcceptedInsurancesForDisplay } from './providerAcceptedInsurance.service.js';
 import Profile from '../models/ProviderPublicProfile.model.js';
 import EmailSenderIdentity from '../models/EmailSenderIdentity.model.js';
 import { listClinicalFacetsForUsers } from './providerClinicalFacets.service.js';
@@ -24,28 +26,39 @@ export async function notifyExchangeMatches({ listing, client }) {
   const sender = identities.find(row => row.identity_key === 'notifications')
     || identities.find(row => /^notifications@/i.test(row.from_email || ''));
   const link = `${buildPublicAppUrl(agency, 'client-exchange')}?listingId=${listing.id}&agencyId=${agencyId}`;
+  const noReply=identities.find(row=>/^(no-?reply)@/i.test(row.from_email||''))?.from_email || (sender?.from_email?.includes('@')?`no-reply@${sender.from_email.split('@')[1]}`:null);
   const summary = { matched: 0, sent: 0, queued: 0, skipped: 0, failed: 0 };
   for (const user of users) {
     if (Number(user.id) === Number(listing.currentProviderUserId)) continue;
     if (listing.targetProviderUserId && Number(user.id) !== Number(listing.targetProviderUserId)) continue;
     try {
       const profile = await Profile.getForProvider({ providerUserId: user.id, agencyId });
-      if (!matchesExchangeListing({ user, profile, facets: facets.get(Number(user.id)), listing, client })) continue;
+      const coverage = await listProviderAcceptedInsurancesForDisplay({userId:user.id,agencyId,forMatching:true});
+      const matchingProfile = {...profile,
+        insurances: coverage.known ? coverage.accepted.map(i=>i.name) : profile?.insurances || [],
+        insuranceEligibilityKnown: coverage.accepted.length > 0,
+        insuranceCredential: coverage.credential,
+        excludedInsurances: coverage.excluded
+      };
+      if (!matchesExchangeListing({ user, profile:matchingProfile, facets: facets.get(Number(user.id)), listing, client })) continue;
       summary.matched++;
-      await Notification.create({
-        type: 'client_exchange_match', severity: 'info', title: '1 client is available in Client Exchange',
+      const notification=await Notification.create({
+        type: 'client_exchange_match', severity: 'info', title: 'New client added to the exchange',
         message: 'A client matches your care preferences and you are open for scheduling. Open Client Exchange to review the requested care and request the client.',
         userId: user.id, agencyId, relatedEntityType: 'client_exchange_listing', relatedEntityId: listing.id,
         actorUserId: listing.postedByUserId, actorSource: 'client_exchange',
         audienceJson: { agencySlug: agency?.slug || agency?.portal_url }
       });
+      // SMS is independently optional: an email opt-out must not suppress a chosen text.
+      await NotificationDispatcher.dispatchForNotification(notification,{context:{exchangeSummary:exchangeNotificationSummary({listing,client}).join(' · ')}}).catch(error=>console.warn('[clientExchange] SMS delivery failed',{listingId:listing.id,userId:user.id,code:error.code||'delivery_failed'}));
       const enabled = await isNotificationChannelEnabled({ userId: user.id, userRole: user.role, agencyId, type: 'client_exchange_match', channel: 'email' });
       if (!enabled) { summary.skipped++; continue; }
-      const to = user.work_email || user.email || user.personal_email;
-      if (!sender?.id || !to) { summary.failed++; continue; }
+      const to = user.work_email || user.email;
+      if (!sender?.id || !to || !noReply) { summary.failed++; continue; }
       const result = await sendEmailFromIdentity({
         senderIdentityId: sender.id, to, userId: user.id, source: 'auto',
-        subject: '1 client is available in Client Exchange',
+        subject: 'New client added to the exchange',
+        replyToOverride:noReply,
         ...buildExchangeEmail({ listing, link, client }),
         templateType: 'client_exchange_match', linkUrl: link, fromDisplayNameOverride: 'Notifications'
       });

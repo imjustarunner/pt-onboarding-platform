@@ -8,11 +8,12 @@ import VonageService from './vonage.service.js';
 import NotificationSmsLog from '../models/NotificationSmsLog.model.js';
 import AgencyNotificationPreferences from '../models/AgencyNotificationPreferences.model.js';
 import Agency from '../models/Agency.model.js';
-import { buildPublicPortalBaseUrl } from '../utils/publicPortalUrl.js';
+import { buildPublicPortalBaseUrl, buildPublicAppUrl } from '../utils/publicPortalUrl.js';
 import { staffCommunicationKey, staffNotificationKind, staffNotificationBody } from '../utils/staffCommunicationChoices.js';
 import { isNotificationChannelEnabled } from './notificationPreferences.service.js';
 
 const SMS_CATEGORY_BY_TYPE = {
+  client_exchange_match: 'client_exchange_matches',
   inbound_client_message: 'messaging_new_inbound_client_text',
   support_safety_net_alert: 'messaging_support_safety_net_alerts',
   client_note: 'messaging_client_notes',
@@ -155,6 +156,7 @@ class NotificationDispatcherService {
     const categoryEnabled = categories[categoryKey];
     const personalPrefs=await UserPreferences.findByUserId(userId);
     const staffChoices=(parseJsonMaybe(personalPrefs?.notification_categories)||{})[staffCommunicationKey(agencyId)];
+    if(notification.type==='client_exchange_match' && staffChoices?.choices?.exchangeMatches!==true)return {dispatched:false,reason:'exchange_sms_not_consented'};
     if (staffChoices && staffChoices.choices?.[staffNotificationKind(notification.type)] !== true) return {dispatched:false,reason:'staff_choice_off'};
     if (!staffChoices && categoryEnabled === false) return { dispatched: false, reason: 'category_disabled' };
     const typeSmsEnabled = await isNotificationChannelEnabled({
@@ -211,9 +213,14 @@ class NotificationDispatcherService {
     const agency=await Agency.findById(agencyId);
     const urgentSupport = notification.type === 'support_safety_net_alert' && notification.severity === 'urgent'
       && notification.related_entity_type === 'support_ticket';
-    const body = urgentSupport
+    const exchangeLink=`${buildPublicAppUrl(agency,'client-exchange')}?agencyId=${Number(agencyId)}${notification.related_entity_type==='client_exchange_listing'&&Number(notification.related_entity_id)>0?`&listingId=${Number(notification.related_entity_id)}`:''}`;
+    // Off by default. Enable an agency only after its healthcare SMS delivery has been verified; a BAA alone is not sufficient.
+    const clinicalExchangeSms=String(process.env.CLIENT_EXCHANGE_CLINICAL_SMS_AGENCY_IDS||'').split(',').map(Number).includes(Number(agencyId));
+    const body = notification.type==='client_exchange_match' && clinicalExchangeSms && context.exchangeSummary
+      ? `New client added to the exchange. ${context.exchangeSummary} Review and request securely: ${exchangeLink}`
+      : urgentSupport
       ? `Urgent: a support request needs your attention. Sign in to claim it and reply securely: ${buildPublicPortalBaseUrl(agency)}`
-      : staffNotificationBody(notification.type,buildPublicPortalBaseUrl(agency));
+      : staffNotificationBody(notification.type,notification.type==='client_exchange_match'?exchangeLink:buildPublicPortalBaseUrl(agency));
 
     const log = await NotificationSmsLog.create({
       userId,

@@ -66,6 +66,6 @@ export async function loadClientExchangeSummary({ client, agencyId = client.agen
     demographics: { ...(age == null ? (referral.age == null ? {} : { ageBand: String(referral.age) }) : { ageBand: String(age) }), ...(client.gender ? { gender: client.gender } : {}) },
     diagnoses: summaryItems(diagnoses.length ? diagnoses : billing.length ? billing : referral.diagnoses),
     ...problem,
-    preferences: { modality: intake.preferredModality || null, schedule: scheduleFromIntake(intake, client.timezone), providerGender: intake.preferredProviderGender || null }
+    preferences: { insurance: client.insurance_type_label || intake.insurance || null, matchingPreferences: intake.matchingPreferences || null, modality: intake.preferredModality || null, schedule: scheduleFromIntake(intake, client.timezone), providerGender: intake.preferredProviderGender || null }
   };
 }

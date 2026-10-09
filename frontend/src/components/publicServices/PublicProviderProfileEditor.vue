@@ -6,7 +6,7 @@
    <div class="editor-grid">
     <label>First name<input v-model="draft.firstName" required maxlength="100" /></label>
     <label>Last name<input v-model="draft.lastName" required maxlength="100" /></label>
-    <label>Professional title<input v-model="draft.title" maxlength="160" /></label><label>Public gender (optional)<input v-model="draft.gender" maxlength="80" placeholder="Provider’s self-described gender"/><small>Published in the directory and its gender filter.</small></label>
+    <label>Professional title<input v-model="draft.title" maxlength="160" /></label><label>Public gender (optional)<select v-model="draft.gender"><option value="">Not shown / prefer not to say</option><option value="male">Male</option><option value="female">Female</option><option value="nonbinary">Nonbinary</option><option v-if="draft.gender && !['male','female','nonbinary'].includes(draft.gender)" :value="draft.gender">{{draft.gender}} (current)</option></select><small>Published in the directory and its gender filter.</small></label>
     <label>Photo<input type="file" accept="image/png,image/jpeg,image/webp" @change="photo=$event.target.files?.[0] || null" /><small>PNG, JPG or WebP, up to 8 MB. Saved as the provider’s profile photo.</small></label>
    </div>
    <label>Public biography<textarea v-model="draft.publicBlurb" rows="7" maxlength="4000" /></label>

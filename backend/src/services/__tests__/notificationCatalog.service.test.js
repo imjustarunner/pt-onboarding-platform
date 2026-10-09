@@ -151,13 +151,13 @@ test('master channel switches and unsupported capabilities cannot be bypassed', 
 });
 
 
-test('exchange matches default to inbox and email for staff who receive a match', () => {
+test('exchange matches default to required inbox and optional email for staff who receive a match', () => {
   for (const userRole of ['provider', 'intern', 'staff', 'admin', 'clinical_practice_assistant']) {
     const result = resolveNotificationTypePreference('client_exchange_match', {
       userRole, globalPreferences: {}, typePreferences: new Map()
     });
     assert.equal(result.effective.inApp, true, userRole);
-    assert.equal(result.effective.email, true, userRole);
+    assert.equal(result.effective.email, false, userRole);
     assert.equal(result.effective.sms, false, userRole);
   }
 });
@@ -169,4 +169,10 @@ test('exchange claims and assignments reach provider and support inboxes by defa
       assert.equal(preference.effective.inApp, true);
     }
   }
+});
+
+test('exchange inbox remains automatic while email and SMS respect opt-in and master switches',()=>{
+ const context={userRole:'provider',globalPreferences:{email_enabled:true,sms_enabled:true},typePreferences:new Map([['client_exchange_match',{inApp:false,email:true,sms:true}]])};
+ const enabled=resolveNotificationTypePreference('client_exchange_match',context);assert.equal(enabled.effective.inApp,true);assert.equal(enabled.locked,true);assert.equal(enabled.effective.email,true);assert.equal(enabled.effective.sms,true);
+ const off=resolveNotificationTypePreference('client_exchange_match',{...context,globalPreferences:{email_enabled:false,sms_enabled:false}});assert.equal(off.effective.email,false);assert.equal(off.effective.sms,false);
 });

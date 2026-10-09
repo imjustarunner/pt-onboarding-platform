@@ -70,11 +70,11 @@ export function resolveNotificationTypePreference(type, context) {
   let inApp = resolveBoolean(override.inApp, defaultInApp);
   let locked = false;
   let lockReason = null;
-  const requiredForRole = type === 'kiosk_checkin' || entry.required || (type === 'support_safety_net_alert' && context?.userRole === 'support');
+  const requiredForRole = type === 'client_exchange_match' || type === 'kiosk_checkin' || entry.required || (type === 'support_safety_net_alert' && context?.userRole === 'support');
   if (requiredForRole) {
     inApp = true;
     locked = true;
-    lockReason = type === 'kiosk_checkin' ? 'Client check-ins always appear in the app' : entry.required ? 'Required safety notification' : 'Required for support users';
+    lockReason = type === 'client_exchange_match' ? 'Matching clients always appear in the app while intake is Open' : type === 'kiosk_checkin' ? 'Client check-ins always appear in the app' : entry.required ? 'Required safety notification' : 'Required for support users';
   } else if (!recommendedForRole) {
     inApp = false;
     locked = true;
@@ -90,7 +90,7 @@ export function resolveNotificationTypePreference(type, context) {
 
   const capabilities = entry.capabilities;
   const staffChoices=legacyCategories[staffCommunicationKey(context?.agencyId)];
-  const roleDefault = (channel) => channel === 'sms' && staffChoices ? staffChoices.choices?.[staffNotificationKind(type)] === true : essentialForRole ? entry.defaults[channel] : false;
+  const roleDefault = (channel) => type==='client_exchange_match' && ['email','sms'].includes(channel) ? false : channel === 'sms' && staffChoices ? staffChoices.choices?.[staffNotificationKind(type)] === true : essentialForRole ? entry.defaults[channel] : false;
   const effective = {
     inApp,
     toast: capabilities.toast && resolveBoolean(override.toast, roleDefault('toast')),

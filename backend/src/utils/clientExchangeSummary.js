@@ -1,5 +1,4 @@
 import { exchangeSafeText } from './clientExchangePrivacy.js';
-import { exchangeScheduleLines } from './clientExchangeSchedule.js';
 export function summaryItems(value) {
   if (value == null || value === '') return [];
   if (typeof value === 'number') return Number.isFinite(value) ? [String(value)] : [];
@@ -27,23 +26,19 @@ export function mergeExchangeSummary(saved, additional = {}) {
 }
 
 const escapeHtml = value => String(value || '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+/** Keep notification summaries brief; never include names, initials, dates of birth or raw notes. */
+export function exchangeNotificationSummary({listing,client={}}) {
+  const compact = value => summaryItems(value).map(v=>exchangeSafeText(v,client).replace(/\s+/g,' ').trim()).filter(Boolean).slice(0,2).map(v=>v.length>100?v.slice(0,97)+'…':v);
+  const age = compact(listing.demographics?.ageBand).join(', ') || 'Not provided';
+  const concerns = compact(listing.presentingProblems), diagnoses = compact(listing.diagnoses);
+  const type = {individual:'Individual therapy',family:'Family therapy',couples:'Couples therapy'}[String(listing.serviceType||'').toLowerCase()] || 'Therapy type not provided';
+  return [`Age: ${age}`, ...(diagnoses.length?[`Diagnosis: ${diagnoses.join('; ')}`]:[]), ...(concerns.length?[`Presenting concerns: ${concerns.join('; ')}`]:[]), type];
+}
 export function buildExchangeEmail({ listing, link, client = {} }) {
-  const demographics = listing.demographics || {};
-  const preferences = listing.preferences || {};
-  const sections = [
-    ['Age', summaryItems(demographics.ageBand)],
-    ['Gender', summaryItems(demographics.gender)],
-    ['Preferred provider gender', summaryItems(preferences.providerGender)],
-    ['Presenting problems', summaryItems(listing.presentingProblems)],
-    ['Presenting problem source', [listing.presentingProblemSource, listing.presentingProblemUpdatedAt ? new Date(listing.presentingProblemUpdatedAt).toISOString().slice(0, 10) : null].filter(Boolean)],
-    ['Diagnoses', summaryItems(listing.diagnoses)],
-    ['Modality', summaryItems(({ in_person: 'In person', virtual: 'Virtual', either: 'In person or virtual' })[preferences.modality] || preferences.modality)],
-    ['Insurance', summaryItems(preferences.insurance)],
-    ['When the client needs a provider', exchangeScheduleLines(preferences.schedule)]
-  ].map(([label, values]) => [label, values.map(value => exchangeSafeText(value, client))]).filter(([, values]) => values.length);
-  const intro = '1 client is available in Client Exchange. You are receiving this because you are open for scheduling and match the client’s care preferences, including in-office or virtual care. Review the shared information and request the client if you are interested. Multiple providers may request; the current provider or support team chooses the assignment.';
+  const lines=exchangeNotificationSummary({listing,client});
+  const intro='New client added to the exchange. This is a possible match while you are open for new clients. Unknown preferences may still match; review the client’s needs before requesting. An assignment is not automatic.';
   return {
-    text: `${intro}\n\n${sections.map(([label, values]) => `${label}:\n${values.map(value => `- ${value}`).join('\n')}`).join('\n\n')}\n\nView client and request: ${link}`,
-    html: `<p>${intro}</p>${sections.map(([label, values]) => `<h3>${label}</h3><ul>${values.map(value => `<li style="white-space:pre-wrap">${escapeHtml(value)}</li>`).join('')}</ul>`).join('')}<p><a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 18px;background:#1f6b4a;color:white;border-radius:8px;text-decoration:none">View client and request</a></p>`
+    text:`${intro}\n\n${lines.join('\n')}\n\nReview and request in the app: ${link}\nThis notification mailbox does not accept replies.`,
+    html:`<p>${intro}</p><ul>${lines.map(line=>`<li>${escapeHtml(line)}</li>`).join('')}</ul><p><a href="${escapeHtml(link)}">Review and request in the app</a></p><p>This notification mailbox does not accept replies.</p>`
   };
 }

@@ -8,7 +8,7 @@ it('excludes client name, initials and chart identifiers even when they appear i
     diagnoses: ['F41.1 — Anxiety'], presentingProblems: ['Al Smith has worry; AS attends school.'],
     preferences: { providerGender: 'female', schedule: { days: ['Monday'], periods: ['after_school'], windows: [], notes: 'Al can attend; reference 123456.' } }
   } });
-  for (const output of [text, html]) { expect(output).not.toMatch(/\bAl\b|\bSmith\b|\bAS\b|123456/); expect(output).toContain('F41.1'); expect(output).toContain('After school'); }
+  for (const output of [text, html]) { expect(output).not.toMatch(/\bAl\b|\bSmith\b|\bAS\b|123456/); expect(output).toContain('F41.1'); expect(output).not.toContain('After school'); }
 });
 it('removes identity labels rather than generating initials in email prose', () => {
   expect(exchangeSafeText('Name: Example Person\nClient: Example Person\nPresenting problem: Worry')).not.toContain('Example');

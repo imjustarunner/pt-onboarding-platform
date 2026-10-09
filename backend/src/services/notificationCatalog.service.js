@@ -95,6 +95,7 @@ const TYPES_BY_CATEGORY = {
 };
 
 const LABEL_OVERRIDES = {
+  client_exchange_match: 'New matching clients in Client Exchange',
   client_exchange_claim: 'Client Exchange request',
   kiosk_checkin: 'Client arrival at office',
   client_appointment_reply: 'Client appointment replies and cancellations',
@@ -444,6 +445,7 @@ const LEGACY_CATEGORY_BY_TYPE = {
 };
 
 const SMS_CAPABLE = new Set([
+  'client_exchange_match',
   'inbound_client_message', 'support_safety_net_alert', 'client_note', 'kiosk_checkin', 'client_appointment_reply',
   'survey_completed', 'credential_expiring', 'credential_expired_blocking',
   'program_reminder', 'client_assigned', 'shift_calloff_need_coverage',
@@ -497,7 +499,7 @@ for (const [category, types] of Object.entries(TYPES_BY_CATEGORY)) {
         sound: defaultOverrides.sound ?? required,
         digest: false,
         push: required && PUSH_CAPABLE.has(type),
-        email: required || type === 'client_exchange_match' || type === 'kiosk_checkin',
+        email: required || type === 'kiosk_checkin',
         sms: required && SMS_CAPABLE.has(type),
         toastDurationMode:
           defaultOverrides.toastDurationMode ?? (required ? 'dismissable' : 'timed'),

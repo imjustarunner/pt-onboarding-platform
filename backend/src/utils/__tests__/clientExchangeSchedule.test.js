@@ -7,7 +7,7 @@ it('preserves days, after school, PM, exact starts, and per-day ranges with a ti
   expect(lines).toContain('Monday: 3:30 PM–5:00 PM');
   expect(lines).toContain('Friday: 4:00 PM (specific start time)');
   const email = buildExchangeEmail({ listing: { preferences: { schedule } }, link: 'https://example.test/client-exchange' });
-  for (const text of ['After school', 'PM', 'Monday: 3:30 PM–5:00 PM', 'America/Denver', 'Every other Friday']) expect(email.text).toContain(text);
+  for (const text of ['After school', 'PM', 'Monday: 3:30 PM–5:00 PM', 'America/Denver', 'Every other Friday']) expect(email.text).not.toContain(text);
 });
 it('rejects invalid times, backwards ranges, and missing time zones before posting', () => {
   for (const window of [{ start: '25:00' }, { start: '16:00', end: '15:00' }, { start: '15:00', end: '15:00' }, { day: 'Funday', start: '16:00' }]) expect(() => normalizeExchangeSchedule({ windows: [window], timezone: 'America/Denver' })).toThrow();

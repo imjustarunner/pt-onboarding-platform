@@ -24,9 +24,9 @@ it('reads flat self-intake and nested clinical responses', () => {
 });
 it('includes diagnoses and problems in both email formats and escapes HTML', () => {
   const mail = buildExchangeEmail({ listing: { demographics: { ageBand: '12' }, diagnoses: [{ icd10_code: 'F41.1', description: 'Anxiety' }], presentingProblems: ['Worry <script>'], presentingProblemSource: 'Treatment plan', presentingProblemUpdatedAt: '2026-09-20' }, link: 'https://example.test/client-exchange?listingId=4&agencyId=2' });
-  for (const body of [mail.text, mail.html]) { expect(body).toContain('F41.1 — Anxiety'); expect(body).toContain('Treatment plan'); expect(body).toContain('View client and request'); }
-  expect(mail.text).toContain('Age:\n- 12');
-  expect(mail.html).toContain('<li style="white-space:pre-wrap">12</li>');
+  for (const body of [mail.text, mail.html]) { expect(body).toContain('F41.1 — Anxiety'); expect(body).not.toContain('Treatment plan'); expect(body).toContain('Review and request'); }
+  expect(mail.text).toContain('Age: 12');
+  expect(mail.html).toContain('<li>Age: 12</li>');
   expect(mail.html).toContain('Worry &lt;script&gt;'); expect(mail.html).not.toContain('<script>');
 });
 

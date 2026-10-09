@@ -38,11 +38,28 @@ test('broad adult referrals do not match teen-only profiles at the overlapping b
 });
 test('specified insurance requires a supported insurance', () => {
   assert.equal(matchesExchangeListing({ ...base, listing: { ...base.listing, preferences: { insurance: 'aetna' } } }), true);
-  assert.equal(matchesExchangeListing({ ...base, listing: { ...base.listing, preferences: { insurance: 'Other' } } }), false);
+  assert.equal(matchesExchangeListing({ ...base, listing: { ...base.listing, preferences: { insurance: 'United Healthcare' } } }), false);
 });
 test('honors an explicitly requested provider gender', () => {
   const listing = { ...base.listing, preferences: { ...base.listing.preferences, providerGender: 'female' } };
   assert.equal(matchesExchangeListing({ ...base, listing, profile: { ...base.profile, details: { gender: 'Woman (she/her)' } } }), true);
   assert.equal(matchesExchangeListing({ ...base, listing, profile: { ...base.profile, details: { gender: 'male' } } }), false);
-  assert.equal(matchesExchangeListing({ ...base, listing }), false);
+  assert.equal(matchesExchangeListing({ ...base, listing }), true);
+});
+
+test('unknown age, coverage and gender remain possible matches', () => {
+  assert.equal(matchesExchangeListing({...base, facets:{}, profile:{details:{}}, listing:{preferences:{insurance:'Aetna',providerGender:'female'}, demographics:{ageBand:'9'}}}),true);
+  assert.equal(matchesExchangeListing({...base, listing:{preferences:{},presentingProblems:['An unclassified narrative']}}),true);
+});
+test('per-format waitlist and closed never get alerts; an explicit open format does', () => {
+  const profile={agencyAvailability:{seesClients:true,acceptingNewClients:false,inPerson:true,virtual:true,intakeStatusByFormat:{IN_PERSON:'waitlist',VIRTUAL:'accepting'}}};
+  assert.equal(matchesExchangeListing({...base,profile}),false);
+  assert.equal(matchesExchangeListing({...base,profile,listing:{preferences:{modality:'virtual'}}}),true);
+  profile.agencyAvailability.intakeStatusByFormat.VIRTUAL='unavailable';
+  assert.equal(matchesExchangeListing({...base,profile,listing:{preferences:{modality:'either'}}}),false);
+});
+test('known therapy and insurance exclusions reject while unknown preferences pass', () => {
+  assert.equal(matchesExchangeListing({...base,facets:{populations:['Individuals']},listing:{serviceType:'couples'}}),false);
+  assert.equal(matchesExchangeListing({...base,profile:{...base.profile,excludedInsurances:['Aetna']},listing:{preferences:{insurance:'Aetna'}}}),false);
+  assert.equal(matchesExchangeListing({...base,facets:{populations:['Individuals']},listing:{preferences:{matchingPreferences:{populations:['Couples']}}}}),false);
 });
