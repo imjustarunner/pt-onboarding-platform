@@ -61,7 +61,9 @@ export async function getAgencyPtoPolicy({ agencyId }) {
 }
 
 export async function upsertAgencyPtoPolicy({ agencyId, policy, defaultPayRate, ptoEnabled }) {
-  const nextPolicy = { ...DEFAULT_PTO_POLICY, ...(policy || {}) };
+  const {policy: existingPolicy}=await getAgencyPtoPolicy({agencyId});
+  // Older settings forms do not know the new bank/handoff fields; preserve them.
+  const nextPolicy = { ...DEFAULT_PTO_POLICY, ...existingPolicy, ...(policy || {}) };
   nextPolicy.trainingPtoEnabled = nextPolicy.trainingPtoEnabled === true;
   await pool.execute(
     `UPDATE agencies
