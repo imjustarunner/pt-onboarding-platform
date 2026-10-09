@@ -1,3 +1,4 @@
+import { resolveFamilyPortalOrganization, familyPortalDashboardPath } from './familyPortalContext.js';
 import { useAuthStore } from '../store/auth';
 import { useAgencyStore } from '../store/agency';
 import { getDashboardRoute } from './router';
@@ -18,7 +19,7 @@ function markJustLoggedIn() {
  * Persist the JWT from a password-set / reset-token response and send the user
  * to their home (school portal for school staff, otherwise the usual dashboard).
  */
-export async function completePasswordTokenLogin(payload, router, { destination = null } = {}) {
+export async function completePasswordTokenLogin(payload, router, { destination = null, portalSlug = null } = {}) {
   const authStore = useAuthStore();
   const agencyStore = useAgencyStore();
   const user = payload?.user || null;
@@ -48,5 +49,12 @@ export async function completePasswordTokenLogin(payload, router, { destination 
     if (slug) dest = `/${slug}/dashboard`;
   }
 
+  if (['client_guardian', 'client'].includes(role)) {
+    const invitedOrganization = resolveFamilyPortalOrganization(agencyList, portalSlug);
+    if (invitedOrganization) {
+      agencyStore.setCurrentAgency(invitedOrganization);
+      dest = familyPortalDashboardPath(invitedOrganization);
+    }
+  }
   await router.replace(destination || dest);
 }

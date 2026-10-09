@@ -13,8 +13,8 @@ export function validateGuardianAppointmentRequest(input) {
   if (!reason || reason.length > 2000) throw fail('Please give a reason, up to 2,000 characters.');
   return { type: input.type, reason };
 }
-async function authorizedClient(userId, clientId) {
-  const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: userId, requiredClinicalScope: 'session_frequency' });
+async function authorizedClient(userId, clientId, requiredClinicalScope = 'session_frequency') {
+  const clients = await ClientGuardian.listClientsForGuardian({ guardianUserId: userId, requiredClinicalScope });
   const client = clients.find(c => Number(c.client_id) === Number(clientId) && !ClientGuardian.isNoView(c.permissions_json));
   if (!client) throw fail('Appointment access is not authorized for this child. Contact the care team.', 403);
   return client;
@@ -170,7 +170,8 @@ export async function recordGuardianAppointmentApproval(appointmentId, userId) {
 }
 
 export async function guardianReminderPreferences({ userId, clientId, input = null }) {
-  const client = await authorizedClient(userId, clientId);
+  // Personal channel choices disclose no appointment data; viewing and delivery retain their clinical grants.
+  const client = await authorizedClient(userId, clientId, null);
   const { getClientPreferences, putClientPreferences } = await import('./sessionNotification.service.js');
   if (!input) {
     const preferences = await getClientPreferences(client.agency_id, clientId, userId);

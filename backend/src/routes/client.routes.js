@@ -1,3 +1,4 @@
+import * as clientPortalInvites from '../controllers/clientPortalInvites.controller.js';
 import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
 import { listClientSecureMessages, getClientSecureMessage } from '../controllers/clientSecureMessages.controller.js';
 import express from 'express';
@@ -147,6 +148,8 @@ const router = express.Router();
 
 // All client routes require authentication (controllers assume req.user is present)
 router.use(authenticate);
+router.post('/portal-invites/preview', clientPortalInvites.preview);
+router.post('/portal-invites/send', clientPortalInvites.send);
 
 // List clients (agency view)
 router.get('/', getClients);

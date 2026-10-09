@@ -130,7 +130,7 @@ const pageStyle = computed(() => ({
   background: loginBackground.value || 'linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)'
 }));
 const loginTo = computed(() => {
-  const slug = route.params.organizationSlug || tenantBrand.value?.slug;
+  const slug = route.params.organizationSlug || route.query.portal || tenantBrand.value?.slug;
   return slug ? `/${slug}/login` : '/login';
 });
 
@@ -150,14 +150,14 @@ const validateToken = async () => {
   }
 
   try {
-    const response = await api.get(`/auth/validate-setup-token/${encodeURIComponent(token)}`);
+    const response = await api.get(`/auth/validate-setup-token/${encodeURIComponent(token)}`, { params: { portal: route.params.organizationSlug || route.query.portal || undefined } });
     const first = response.data.firstName || 'User';
     const preferred = String(response.data?.preferredName || '').trim();
     userFirstName.value = preferred ? `${first} "${preferred}"` : first;
     requiresClientDob.value = !!response.data?.requiresClientDob;
     tenantBrand.value = response.data?.tenant || null;
     schoolBrand.value = response.data?.school || null;
-    const slug = route.params.organizationSlug || response.data?.portalSlug || response.data?.tenant?.slug;
+    const slug = route.params.organizationSlug || route.query.portal || response.data?.portalSlug || response.data?.tenant?.slug;
     if (slug) await brandingStore.fetchAgencyTheme(slug);
     loading.value = false;
   } catch (err) {
@@ -191,7 +191,7 @@ const handleSetup = async () => {
       password: password.value,
       clientDob: requiresClientDob.value ? clientDob.value : undefined
     });
-    await completePasswordTokenLogin(response.data, router);
+    await completePasswordTokenLogin(response.data, router, { portalSlug: route.params.organizationSlug || route.query.portal || tenantBrand.value?.slug });
   } catch (err) {
     setupError.value = err.response?.data?.error?.message || err.message || 'Failed to set password. Please try again.';
     setting.value = false;

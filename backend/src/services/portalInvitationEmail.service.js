@@ -41,6 +41,8 @@ const FEATURES = [
  */
 export function buildPortalInvitationEmail(opts = {}) {
   const agencyName = String(opts.agencyName || 'Care team').trim();
+  const accountAction = opts.existingAccount ? 'sign in to your account in' : 'create an account in';
+  const actionLabel = opts.existingAccount ? 'Open Your Portal' : 'Create Your Portal Account';
   const providerName = String(opts.providerName || 'your provider').trim();
   const recipientFirst = String(opts.recipientFirstName || '').trim();
   const greet = recipientFirst ? `Hello ${escapeHtml(recipientFirst)},` : 'Hello,';
@@ -72,7 +74,7 @@ export function buildPortalInvitationEmail(opts = {}) {
         ${greet}
       </p>
       <p style="margin:0 0 22px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#334155;">
-        Your provider, <strong style="color:${navy};">${escapeHtml(providerName)}</strong>, has invited you to create an account in the
+        Your provider, <strong style="color:${navy};">${escapeHtml(providerName)}</strong>, has invited you to ${accountAction} the
         ${escapeHtml(agencyName)} client portal. The portal gives you a secure and convenient way to stay connected,
         access important information, and manage your care.
       </p>
@@ -85,7 +87,7 @@ export function buildPortalInvitationEmail(opts = {}) {
           <td style="vertical-align:top;padding:0 12px 0 0;width:58%;">
             <a href="${escapeHtml(setupUrl)}"
                style="display:inline-block;background:${primary};color:#ffffff;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;text-decoration:none;padding:14px 22px;border-radius:10px;">
-              Create Your Portal Account →
+              ${actionLabel} →
             </a>
             <p style="margin:14px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.45;color:#64748b;">
               Or copy and paste this link into your browser:<br/>
@@ -112,7 +114,7 @@ export function buildPortalInvitationEmail(opts = {}) {
   <tr>
     <td style="padding:28px 28px 8px;">
       <p style="margin:0 0 14px;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;color:${navy};">
-        With your portal account, you can:
+        Your first task: review your notification preferences and complete text enrollment if you choose text reminders. Then, with your portal account, you can:
       </p>
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
         <tr>${featureCells}</tr>
@@ -153,10 +155,12 @@ export function buildPortalInvitationEmail(opts = {}) {
 
 ${recipientFirst ? `Hello ${recipientFirst},` : 'Hello,'}
 
-Your provider, ${providerName}, has invited you to create an account in the ${agencyName} client portal.
+Your provider, ${providerName}, has invited you to ${accountAction} the ${agencyName} client portal.
 
-Create your portal account:
+${actionLabel}:
 ${setupUrl}
+
+Your first task: review your notification preferences and complete text enrollment if you choose text reminders.
 
 Your information is secure. The ${agencyName} portal is HIPAA-compliant.
 

@@ -3727,7 +3727,8 @@ export async function sendHubPortalInvitation({
   personKey = null,
   clientId = null,
   guardianUserId = null,
-  skipEmail = false
+  skipEmail = false,
+  existingLinkOnly = false
 } = {}) {
   const aid = Number(agencyId);
   const actorId = Number(actorUserId);
@@ -3751,7 +3752,6 @@ export async function sendHubPortalInvitation({
   const Client = (await import('../models/Client.model.js')).default;
   const ClientGuardian = (await import('../models/ClientGuardian.model.js')).default;
   const User = (await import('../models/User.model.js')).default;
-  const Agency = (await import('../models/Agency.model.js')).default;
   const { resolveClientRecordAccess } = await import('./clientRecordAccess.service.js');
 
   if (uid && !email) {
@@ -3801,6 +3801,17 @@ export async function sendHubPortalInvitation({
     throw err;
   }
 
+  const { resolveClientPortalContext, resolveClientPortalSender, clientPortalInviteUrl } = await import('./clientPortalContext.service.js');
+  const portalContext = await resolveClientPortalContext(client);
+  const inviteAgencyId = Number(portalContext.tenant.id);
+
+  if (existingLinkOnly) {
+    const link = (await ClientGuardian.listForClient(cid)).find(g => Number(g.guardian_user_id) === uid);
+    if (Number(client.agency_id) !== aid || !link || ![1, true].includes(link.access_enabled)) {
+      throw Object.assign(new Error('Portal contact access changed. Refresh the invitation preview.'), { status: 409 });
+    }
+  }
+
   let guardian = uid ? await User.findById(uid) : null;
   if (!guardian && email) {
     guardian = await User.findByEmail(email);
@@ -3845,12 +3856,12 @@ export async function sendHubPortalInvitation({
   if (client.organization_id) {
     await User.assignToAgency(guardian.id, parseInt(client.organization_id, 10)).catch(() => {});
   }
-  await User.assignToAgency(guardian.id, Number(client.agency_id || aid)).catch(() => {});
+  await User.assignToAgency(guardian.id, inviteAgencyId).catch(() => {});
 
   const existingLink = (await ClientGuardian.listForClient(cid)).find(
     (g) => Number(g.guardian_user_id) === Number(guardian.id)
   );
-  await ClientGuardian.upsertLink({
+  if (!existingLinkOnly) await ClientGuardian.upsertLink({
     clientId: cid,
     guardianUserId: guardian.id,
     relationshipType: ClientGuardian.normalizeRelationshipType(
@@ -3887,13 +3898,25 @@ export async function sendHubPortalInvitation({
     /* ignore */
   }
 
-  const tokenResult = await User.generatePasswordlessToken(guardian.id, 48, 'setup');
-  const agency = await Agency.findById(aid);
-  const { buildPublicAppUrl, buildPublicPortalBaseUrl } = await import('../utils/publicPortalUrl.js');
-  const frontendBase = buildPublicPortalBaseUrl(agency);
-  const setupUrl = buildPublicAppUrl(agency, `new_account/${tokenResult.token}`);
-  const setupDisplayUrl = String(frontendBase || '').replace(/^https?:\/\//, '');
+  const existingAccount = existingLinkOnly && !!guardian.password_hash;
+  let tokenResult = null;
+  if (!existingAccount) {
+    if (existingLinkOnly) {
+      // Shared accounts can receive invitations from multiple agencies. Reuse a
+      // still-valid setup link so the later email does not invalidate the first.
+      const [tokens] = await pool.execute(`SELECT passwordless_token AS token FROM users
+        WHERE id = ? AND passwordless_token_purpose = 'setup'
+          AND passwordless_token IS NOT NULL AND passwordless_token_expires_at > NOW() LIMIT 1`, [guardian.id]);
+      tokenResult = tokens?.[0] || null;
+    }
+    tokenResult ||= await User.generatePasswordlessToken(guardian.id, 48, 'setup');
+  }
+  const agency = portalContext.tenant;
+  const { buildPublicAppUrl } = await import('../utils/publicPortalUrl.js');
+  const setupUrl = clientPortalInviteUrl({ portal: portalContext.portal, token: tokenResult?.token, existingAccount });
+  const setupDisplayUrl = setupUrl;
 
+  let delivery = null;
   if (!skipEmail) {
 
   const actor = actorRows?.[0];
@@ -3903,10 +3926,11 @@ export async function sendHubPortalInvitation({
 
   const { buildPortalInvitationEmailForAgency } = await import('./portalInvitationEmail.service.js');
   const built = await buildPortalInvitationEmailForAgency(agency, {
-    agencyId: aid,
-    agencyName: agency?.name || 'Care team',
+    agencyId: inviteAgencyId,
+    agencyName: portalContext.portal.name || agency.name || 'Care team',
     providerName: providerTitle,
     recipientFirstName: firstName || guardian.first_name,
+    existingAccount,
     setupUrl,
     setupDisplayUrl,
     colorPalette: agency?.color_palette,
@@ -3914,32 +3938,25 @@ export async function sendHubPortalInvitation({
   });
 
   const { sendEmailFromIdentity } = await import('./unifiedEmail/unifiedEmailSender.service.js');
-  const { resolvePreferredSenderIdentityForAgency } = await import('./emailSenderIdentityResolver.service.js');
-  const { preferredIdentityKeysForTemplateType } = await import('../constants/automatedEmailCatalog.js');
-  const identity = await resolvePreferredSenderIdentityForAgency({
-    agencyId: aid,
-    preferredKeys: preferredIdentityKeysForTemplateType('hub_portal_invite')
-  });
-  if (!identity?.id) {
-    const err = new Error('No email sender identity configured for portal invitations');
-    err.status = 503;
-    throw err;
-  }
+  const identity = await resolveClientPortalSender(inviteAgencyId);
 
-  await sendEmailFromIdentity({
+  delivery = await sendEmailFromIdentity({
     senderIdentityId: identity.id,
     to: email,
     subject: built.subject,
     text: built.text,
     html: built.html,
     source: 'auto',
-    agencyId: aid,
-    templateType: 'hub_portal_invite'
+    agencyId: inviteAgencyId,
+    templateType: 'hub_portal_invite',
+    userId: guardian.id,
+    clientId: cid
   });
   }
 
   return {
     ok: true,
+    delivery,
     emailed: skipEmail ? null : email,
     guardianUserId: guardian.id,
     clientId: cid,

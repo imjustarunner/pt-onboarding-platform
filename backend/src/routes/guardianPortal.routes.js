@@ -1,3 +1,4 @@
+import * as notificationSetup from '../controllers/guardianNotificationSetup.controller.js';
 import { listClientNotificationHistory } from '../controllers/clientNotificationHistory.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
@@ -90,6 +91,8 @@ router.put('/clients/:clientId/reminder-preferences', guardianAppointments.saveP
 router.post('/clients/:clientId/appointments/:appointmentId/requests', guardianAppointments.requestChange);
 router.post('/clients/:clientId/appointments/:appointmentId/cancel', guardianAppointments.cancel);
 router.get('/clients/:clientId/notification-history', listClientNotificationHistory);
+router.get('/clients/:clientId/notification-setup', notificationSetup.getSetup);
+router.post('/clients/:clientId/notification-setup/sms-consent', notificationSetup.beginConsent);
 router.get('/clients', listMyGuardianClients);
 router.get('/messages', listGuardianMessageThreads);
 router.post('/messages/open', openGuardianClientThread);

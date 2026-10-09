@@ -67,8 +67,13 @@ export async function buildPasswordRecoveryBranding(req, user) {
   const agencies = await User.getAgencies(user.id);
   const list = Array.isArray(agencies) ? agencies : [];
 
-  const school = list.find((row) => CHILD_ORG_TYPES.has(orgType(row))) || null;
-  let tenant = list.find((row) => !CHILD_ORG_TYPES.has(orgType(row))) || null;
+  const requestedSlug = String(req?.query?.portal || '').trim().toLowerCase();
+  const requested = requestedSlug ? list.find(row => orgSlug(row) === requestedSlug) : null;
+  const school = requested && CHILD_ORG_TYPES.has(orgType(requested)) ? requested
+    : list.find((row) => CHILD_ORG_TYPES.has(orgType(row))) || null;
+  let tenant = requested && !CHILD_ORG_TYPES.has(orgType(requested)) ? requested
+    : requested && CHILD_ORG_TYPES.has(orgType(requested)) ? null
+    : list.find((row) => !CHILD_ORG_TYPES.has(orgType(row))) || null;
 
   if (!tenant && school) {
     try {

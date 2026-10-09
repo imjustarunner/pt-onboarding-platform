@@ -3166,6 +3166,7 @@ const routes = [
   },
   {
     path: '/initial-setup/:token',
+    alias: '/new_account/:token',
     name: 'InitialSetup',
     component: () => import('../views/InitialSetupView.vue'),
     meta: { requiresGuest: true }

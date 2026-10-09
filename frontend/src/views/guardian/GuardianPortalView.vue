@@ -17,6 +17,8 @@
         <div class="portal-program-picker"><GuardianProgramSelector :programs="programs" /><button class="btn btn-secondary btn-sm" @click="refreshAll" :disabled="loading">Refresh</button></div>
       </section>
 
+      <PortalNotificationSetup v-if="['overview','tutoring','notifications'].includes(activePanel)" :client-id="selectedChildId" :preview="isSuperadminPreview" @contact="navigatePortal('messages')" />
+
       <div v-if="programs.length === 0 && children.length === 0 && !['account','messages','payment_methods','billing'].includes(activePanel)" class="empty-state">
         <p>No children or programs are linked to this guardian account yet.</p>
         <p class="hint">Ask your organization to add you as a guardian on the child’s record.</p>
@@ -609,6 +611,7 @@
 </template>
 
 <script setup>
+import { resolveFamilyPortalOrganization, familyPortalClients } from '../../utils/familyPortalContext.js';
 import { AURICWELL_MARK_URL } from '../../constants/auricwellBrand';
 import GuardianSchoolCareBridge from '../../components/guardian/GuardianSchoolCareBridge.vue';
 import { isClinicalClient } from '../../utils/clinicalWorkspace';
@@ -616,6 +619,7 @@ import ClinicalWorkspaceFrame from '../../components/clinicalWorkspace/ClinicalW
 import { computed, onMounted, ref, watch } from 'vue';
 import FamilyPortalShell from '../../components/portal/FamilyPortalShell.vue';
 import FamilyPortalHome from '../../components/portal/FamilyPortalHome.vue';
+import PortalNotificationSetup from '../../components/portal/PortalNotificationSetup.vue';
 import { useBrandingStore } from '../../store/branding';
 const brandingStore = useBrandingStore();
 import { useAuthStore } from '../../store/auth';
@@ -687,7 +691,7 @@ const registrationEnrollPayerType = ref('');
 const registrationEnrollSaving = ref(false);
 const registrationEnrollError = ref('');
 
-const activePanel = ref(['overview','schoolcarebridge','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan'].includes(route.query.panel) ? route.query.panel : 'overview');
+const activePanel = ref(['overview','schoolcarebridge','tutoring','registrations','appointments','documents','child','billing','payment_methods','messages','account','dependents','contact','plan','notifications'].includes(route.query.panel) ? route.query.panel : 'overview');
 const selectedChildId = computed({
   get: () => guardianStore.selectedChildId,
   set: (v) => guardianStore.setSelectedChild(v)
@@ -724,7 +728,14 @@ const formatOrgType = (t) => {
 };
 
 const programs = computed(() => Array.isArray(overview.value?.programs) ? overview.value.programs : []);
-const children = computed(() => Array.isArray(overview.value?.children) ? overview.value.children : []);
+const children = computed(() => {
+  const linked = Array.isArray(overview.value?.children) ? [...overview.value.children] : [];
+  if (overview.value?.me && !linked.some(c => Number(c.client_id) === Number(overview.value.me.client_id))) linked.unshift(overview.value.me);
+  return familyPortalClients(linked, agencyStore.currentAgency);
+});
+watch(children, (list) => {
+  if (!list.some(c => Number(c.client_id) === Number(selectedChildId.value))) selectedChildId.value = Number(list[0]?.client_id || 0) || null;
+});
 const currentAgencyId = computed(() => Number(agencyStore.currentAgency?.id || 0) || null);
 const dashboardAgencyId = computed(() => previewAgencyId.value || currentAgencyId.value || null);
 const totalEnrolledEventCount = computed(() => sbUpcomingGrouped.value.length + genCurrentEvents.value.length);
@@ -905,6 +916,7 @@ const dashboardTabs = computed(() => {
       label: 'Payment & insurance',
       meta: pm('Cards and coverage', 'Cards & coverage (live data)')
     },
+    { key: 'notifications', label: 'Notification setup', meta: pm('Reminders and text enrollment', 'Notification setup') },
     { key: 'account', label: 'Account', meta: pm('Profile and security', 'Profile and security shell') }
   );
   return tabs;
@@ -914,7 +926,7 @@ const portalGrants = ref([]);
 let portalGrantRequest = 0;
 const portalPlanAllowed = computed(() => !isSuperadminPreview.value && !!selectedChildId.value && (standardsLearningVisible.value || selectedChild.value?.relationship_type === 'self' || portalGrants.value.some(g => Number(g.clientId) === Number(selectedChildId.value) && Number(g.guardianUserId) === Number(authStore.user?.id) && g.scopes?.includes('treatment_plan'))));
 const portalNavigation = computed(() => {
-  const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages'};
+  const icons = {overview:'dashboard',tutoring:'dashboard',registrations:'sessions',documents:'tasks',child:'child',dependents:'child',billing:'billing',payment_methods:'shield',account:'account',messages:'messages',notifications:'tasks'};
   const labels = {overview:standardsLearningVisible.value ? 'Family overview' : 'Dashboard',documents:'Tasks & documents',billing:'Invoices & receipts',payment_methods:'Insurance & payments',child:selectedChild.value?.relationship_type === 'self' ? 'My profile' : 'My client'};
   const items = dashboardTabs.value.map(t => ({...t,label:labels[t.key] || t.label,icon:icons[t.key]}));
   if (portalPlanAllowed.value) items.splice(3,0,{key:'plan',label:standardsLearningVisible.value?'Learning plan':'Treatment plan',icon:'plan'});
@@ -1271,6 +1283,12 @@ const openProgramWorkspace = async (program) => {
 };
 
 const initProgramContext = async () => {
+  const requestedPortal = route.params.organizationSlug || route.query.portal || brandingStore.portalHostPortalUrl;
+  const invitedOrganization = resolveFamilyPortalOrganization(agencyStore.userAgencies, requestedPortal);
+  if (invitedOrganization) {
+    agencyStore.setCurrentAgency(invitedOrganization);
+    return;
+  }
   const list = programs.value || [];
   if (list.length === 0) return;
 
@@ -1440,12 +1458,12 @@ const fetchOverview = async () => {
       params: previewParams.value
     });
     overview.value = resp.data || { children: [], programs: [] };
-    const firstChildId = Number(overview.value?.children?.[0]?.client_id || 0) || null;
-    const currentChildStillExists = (overview.value?.children || []).some((child) => Number(child?.client_id) === Number(selectedChildId.value || 0));
+    await initProgramContext();
+    const firstChildId = Number(children.value[0]?.client_id || 0) || null;
+    const currentChildStillExists = children.value.some((child) => Number(child?.client_id) === Number(selectedChildId.value || 0));
     if (!currentChildStillExists) {
       selectedChildId.value = firstChildId;
     }
-    await initProgramContext();
     await fetchSkillBuilderEvents();
     await fetchRegistrationCatalog();
   } catch (err) {
@@ -1792,6 +1810,7 @@ watch(
     allowedKeys.add('dependents');
     allowedKeys.add('messages');
     allowedKeys.add('account');
+    allowedKeys.add('notifications');
     if (!allowedKeys.has(activePanel.value)) {
       activePanel.value = standardsLearningVisible.value && allowedKeys.has('tutoring')
         ? 'tutoring'

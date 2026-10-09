@@ -360,6 +360,14 @@
       </div>
     </div>
 
+    <ClientPortalInviteDialog v-if="portalInviteClientIds.length" :client-ids="portalInviteClientIds" @close="portalInviteClientIds = []" />
+    <div v-if="canInvitePortal && filteredClients.length" class="bulk-left" style="margin:12px 0;flex-wrap:wrap">
+      <span>Portal invitations: filter by provider, school, or status, then select clients.</span>
+      <button class="btn btn-secondary btn-sm" type="button" :disabled="loading || filteredClients.length > 200" @click="openPortalInvites(filteredClients.map(c => c.id))">
+        {{ usingServerPagination ? 'Invite clients on this page' : 'Invite all matching clients' }} ({{ filteredClients.length }})
+      </button>
+      <small v-if="filteredClients.length > 200">Narrow the filters or select up to 200 clients at a time.</small>
+    </div>
     <!-- Initial empty load — only show full loading screen when we have nothing yet -->
     <div v-if="loading && clients.length === 0" class="loading">Loading clients…</div>
     <div v-else-if="error" class="error">{{ error }}</div>
@@ -381,6 +389,7 @@
           <button class="btn btn-secondary btn-sm" type="button" @click="clearSelection">Clear</button>
         </div>
         <div class="bulk-right">
+          <button v-if="canInvitePortal" class="btn btn-primary btn-sm" type="button" :disabled="selectedIds.size > 200 || loading" @click="openPortalInvites(selectedIds)">Invite selected to portal</button>
           <div class="bulk-group">
             <select v-model="bulkPromoteYear" class="filter-select">
               <option value="">Add to school year…</option>
@@ -644,6 +653,7 @@
             </td>
             <td class="actions-cell col-actions" @click.stop @mouseenter="quickViewClient = null; clearTimeout(_hoverOpenTimer)">
               <QuickPostClientToExchange :client="client" @posted="loadSideCounts" />
+              <button v-if="canInvitePortal" @click.stop="openPortalInvites([client.id])" class="btn btn-secondary btn-xs">Invite to portal</button>
               <button @click.stop="openQuickView(client)" class="btn btn-primary btn-xs cm-view-btn" title="Quick preview">
                 Preview
               </button>
@@ -1399,6 +1409,7 @@
 </template>
 
 <script setup>
+import ClientPortalInviteDialog from '../../components/clients/ClientPortalInviteDialog.vue';
 import PostClientToExchangeButton from '../../components/clientExchange/PostClientToExchangeButton.vue';
 import FaxClientIntake from '../../components/clients/FaxClientIntake.vue';
 import { ref, reactive, computed, onMounted, watch } from 'vue';
@@ -2750,6 +2761,9 @@ const toggleSelectAllPage = (evt) => {
   selectedIds.value = set;
 };
 
+const portalInviteClientIds = ref([]);
+const canInvitePortal = computed(() => ['super_admin','admin','support','staff','provider','provider_plus','intern','intern_plus','clinical_practice_assistant'].includes(authStore.user?.role));
+function openPortalInvites(ids) { portalInviteClientIds.value = [...ids]; }
 const clearSelection = () => {
   selectedIds.value = new Set();
   bulkAffiliationId.value = '';
