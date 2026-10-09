@@ -11,6 +11,9 @@ describe('Provider Update invitation', () => {
       expect(body).toContain('Mark each section complete');
       expect(body).toContain('People Operations');
       expect(body).toContain('this weekend');
+      expect(body).toContain('current Workplace Handbook may not yet reflect');
+      expect(body).toContain('Handbook Updates section');
+      expect(body).toContain('Monday, October 12, 2026');
       expect(body).toContain('do not hesitate');
       expect(body).toContain('reply to People Operations');
       expect(body).toContain('Technology');
