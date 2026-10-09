@@ -86,7 +86,7 @@ export async function listEligibleProviders(agencyId, { includeDemoTesters = tru
 
   const [agencyStaff] = await pool.execute(`SELECT u.id AS provider_user_id, u.first_name, u.last_name, u.email, u.work_email, u.role,
       COALESCE(u.is_demo, 0) AS is_demo FROM users u JOIN user_agencies ua ON ua.user_id = u.id
-      WHERE ua.agency_id = ? AND COALESCE(u.is_archived, 0) = 0 AND COALESCE(u.is_active,1)=1 AND COALESCE(ua.is_active,1)=1
+      WHERE ua.agency_id = ? AND COALESCE(u.is_archived, 0) = 0 AND COALESCE(u.is_active,1)=1 AND COALESCE(ua.is_active,1)=1 AND UPPER(u.status)='ACTIVE_EMPLOYEE'
       AND u.role IN ('provider','provider_plus','intern','intern_plus','supervisor','clinical_practice_assistant','staff','admin','super_admin')`, [Number(agencyId)]);
   for (const person of agencyStaff) byId.set(Number(person.provider_user_id), { ...person, source: 'agency_staff' });
 
@@ -97,7 +97,7 @@ export async function listEligibleProviders(agencyId, { includeDemoTesters = tru
     const [rows] = await pool.execute(
       `SELECT u.id, u.work_email, u.role, COALESCE(u.is_demo, 0) AS is_demo
        FROM users u WHERE u.id IN (${placeholders})
-         AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0
+         AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(u.status)='ACTIVE_EMPLOYEE'
          AND EXISTS (SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=? AND COALESCE(ua.is_active,1)=1)`,
       [...ids,Number(agencyId)]
     );

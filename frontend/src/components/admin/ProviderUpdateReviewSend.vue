@@ -1,7 +1,7 @@
 <template>
  <section class="review-send">
   <div class="roster-heading"><span class="eyebrow">YOUR TEAM · PROVIDER UPDATE</span><h2>Everyone, in one place.</h2></div>
-  <p>See everyone in one list, including staff who have not received an invitation. Preview a person’s update and amendment, mark your review complete, then send from their row. Time shown is recorded active time; idle and timed-out periods are excluded.</p>
+  <p>See all active staff in one list, including those who have not received an invitation. Preview a person’s update and amendment, mark your review complete, then send from their row. Time shown is recorded active time; idle and timed-out periods are excluded.</p>
   <label>Saved Provider Update<select v-model="pushId" :disabled="busy" @change="loadPush"><option value="">Choose an update…</option><option v-for="p in availablePushes" :key="p.id" :value="p.id">{{p.title}} · #{{p.id}} · {{p.status}}</option></select></label>
   <p v-if="!availablePushes.length">Create and save a Provider Update from Compose first.</p>
   <p v-if="error" role="alert" class="error">{{error}}</p><p v-if="notice" role="status">{{notice}}</p>
@@ -14,7 +14,7 @@
    </div>
    <p v-if="refreshError" role="alert" class="error">{{refreshError}}</p>
    <div class="roster-metrics">
-    <div class="metric"><span>Team members</span><strong>{{rows.length}}</strong><small>Everyone assigned or eligible</small></div>
+    <div class="metric"><span>Team members</span><strong>{{rows.length}}</strong><small>Active staff only</small></div>
     <div class="metric metric-blue"><span>Invitations sent</span><strong>{{rows.filter(r=>['sent','delivered'].includes(r.recipient?.last_delivery_status)).length}}</strong><small>Individual email invitations</small></div>
     <div class="metric metric-green"><span>Completed</span><strong>{{rows.filter(r=>r.recipient?.status==='finalized').length}}</strong><small>Finished and submitted</small></div>
     <div class="metric metric-amber"><span>Active time so far</span><strong>{{duration(rows.reduce((total,r)=>total+Number(r.recipient?.active_seconds||0),0))}}</strong><small>Excludes idle and timed-out time</small></div>
@@ -77,7 +77,7 @@ const reviewOpen=ref(false),reviews=ref({}),refreshing=ref(false),refreshedAt=re
 let refreshTimer,alive=true,reviewTrigger=null;
 const rows=computed(()=>{
  const byId=new Map(people.value.map(p=>[Number(p.provider_user_id),{...p,eligible:true,recipient:null}]));
- for(const r of recipients.value){if(Number(r.is_demo_snapshot))continue;const id=Number(r.provider_user_id);byId.set(id,{...(byId.get(id)||{...r,eligible:false}),recipient:r});}
+ for(const r of recipients.value){if(Number(r.is_demo_snapshot))continue;const id=Number(r.provider_user_id);if(byId.has(id))byId.set(id,{...byId.get(id),recipient:r});}
  return [...byId.values()].sort((a,b)=>`${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
 });
 const filteredRows=computed(()=>rows.value.filter(p=>`${p.first_name} ${p.last_name} ${p.work_email||p.email||''}`.toLowerCase().includes(search.value.toLowerCase())).filter(row=>statusFilter.value==='Everyone'||(statusFilter.value==='Not sent'?!['sent','delivered'].includes(row.recipient?.last_delivery_status):progressStatus(row.recipient)===statusFilter.value)));
@@ -87,9 +87,10 @@ function sectionTitle(key){return PROVIDER_UPDATE_SECTIONS.find(s=>s.key===key)?
 function invitationStatus(r){return ({sent:'Sent',delivered:'Delivered',pending:'Pending delivery',failed:'Failed',bounced:'Bounced',skipped:'Skipped'})[r?.last_delivery_status]||(r?'Link prepared — not emailed':'Not sent');}
 function progressStatus(r){return r?.status==='finalized'?'Complete':r?.status==='in_progress'||Number(r?.active_seconds)>0||Number(r?.sections_completed)>0?'In progress':r?.last_viewed_at?'Opened':'Not started';}
 async function refreshProgress(){if(!push.value||refreshing.value)return;const id=Number(push.value.id);refreshing.value=true;refreshError.value='';try{
- const {data}=await api.get(`/provider-update/pushes/${id}`,{params:{agencyId:props.agencyId},skipGlobalLoading:true});
+ const [{data},staff]=await Promise.all([api.get(`/provider-update/pushes/${id}`,{params:{agencyId:props.agencyId},skipGlobalLoading:true}),api.get('/provider-update/eligible-providers',{params:{agencyId:props.agencyId},skipGlobalLoading:true})]);
  if(!alive||Number(pushId.value)!==id)return;
  if(JSON.stringify([push.value.section_config_json,push.value.amendment_plan_json])!==JSON.stringify([data.push.section_config_json,data.push.amendment_plan_json])){reviews.value={};approved.value=false;previewUrl.value='';amendment.value=null;reviewOpen.value=false;}
+ people.value=(staff.data.providers||[]).filter(p=>!Number(p.is_demo));
  push.value=data.push;recipients.value=data.recipients||[];refreshedAt.value=new Date();
  }catch(e){if(alive&&Number(pushId.value)===id)refreshError.value='Could not refresh progress. The last recorded values remain visible.';}finally{refreshing.value=false;}}
 function rememberReview(){if(!personId.value)return;reviews.value={...reviews.value,[personId.value]:{previewUrl:previewUrl.value,amendment:amendment.value,needsAmendment:needsAmendment.value,approved:approved.value&&ready.value}};}
