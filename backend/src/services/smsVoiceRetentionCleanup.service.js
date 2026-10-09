@@ -1,6 +1,8 @@
 /**
  * SMS/Voice retention cleanup: purge message_logs, call_voicemails, call_logs,
  * notification_sms_logs older than SMS_VOICE_RETENTION_DAYS (default 365).
+ * Routine call logs use three calendar years. Client-linked and preservation-held
+ * records are excluded; voicemail audio/transcripts require a separate clinical retention policy.
  * Set SMS_VOICE_RETENTION_DAYS=0 to disable (keep indefinitely).
  */
 import pool from '../config/database.js';
@@ -23,6 +25,9 @@ export default class SmsVoiceRetentionCleanupService {
 
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
+    const callCutoff = new Date();
+    callCutoff.setUTCFullYear(callCutoff.getUTCFullYear() - 3);
+    const callCutoffSql = callCutoff.toISOString().slice(0, 19).replace('T', ' ');
     const cutoffSql = cutoff.toISOString().slice(0, 19).replace('T', ' ');
     // MySQL prepared statements do not support LIMIT with a placeholder; use sanitized literal
     const lim = Math.max(1, Math.min(10000, parseInt(limit, 10) || 500));
@@ -33,23 +38,25 @@ export default class SmsVoiceRetentionCleanupService {
     let deletedNotificationSms = 0;
 
     try {
-      // 1. call_voicemails (before call_logs due to FK)
-      const [vmResult] = await pool.execute(
-        `DELETE FROM call_voicemails WHERE created_at < ? LIMIT ${lim}`,
-        [cutoffSql]
-      );
-      deletedVoicemails = vmResult?.affectedRows || 0;
-
-      // 2. call_logs
+      // Voicemail may itself be a clinical record. Do not purge audio/transcripts
+      // through this routine task, or remove a log with a surviving voicemail.
       const [clResult] = await pool.execute(
-        `DELETE FROM call_logs WHERE COALESCE(started_at, created_at) < ? LIMIT ${lim}`,
-        [cutoffSql]
+        `DELETE FROM call_logs WHERE COALESCE(started_at, created_at) < ?
+          AND client_id IS NULL
+          AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.legalHold')), 'false') NOT IN ('true','1')
+          AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.retentionHold')), 'false') NOT IN ('true','1')
+          AND NOT EXISTS (SELECT 1 FROM call_voicemails v WHERE v.call_log_id=call_logs.id)
+          LIMIT ${lim}`,
+        [callCutoffSql]
       );
       deletedCallLogs = clResult?.affectedRows || 0;
 
       // 3. message_logs
       const [mlResult] = await pool.execute(
-        `DELETE FROM message_logs WHERE created_at < ? LIMIT ${lim}`,
+        `DELETE FROM message_logs WHERE created_at < ? AND client_id IS NULL
+          AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.legalHold')), 'false') NOT IN ('true','1')
+          AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.retentionHold')), 'false') NOT IN ('true','1')
+          LIMIT ${lim}`,
         [cutoffSql]
       );
       deletedMessageLogs = mlResult?.affectedRows || 0;
@@ -67,6 +74,8 @@ export default class SmsVoiceRetentionCleanupService {
 
     return {
       days,
+      callLogRetentionYears: 3,
+      callLogCutoff: callCutoffSql,
       cutoff: cutoffSql,
       deletedVoicemails,
       deletedCallLogs,

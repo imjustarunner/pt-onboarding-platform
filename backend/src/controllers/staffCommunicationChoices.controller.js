@@ -12,3 +12,23 @@ export async function listMyCommunicationChoices(req,res,next) {
 export async function saveMyCommunicationChoices(req,res,next) {
   try {res.set('Cache-Control','no-store');res.json(await saveStaffCommunicationChoices({userId:req.user.id,agencyId:Number(req.body?.agencyId),input:req.body,sendConfirmation:m=>VonageService.sendSms(m)}));}catch(e){next(e);}
 }
+
+export async function listMyCommunicationAgreementsController(req,res,next) {
+  try {
+    res.set('Cache-Control','no-store');
+    const {listMyCommunicationAgreements}=await import('../services/staffCommunicationAgreementCopies.service.js');
+    res.json({agreements:await listMyCommunicationAgreements(req.user.id)});
+  } catch(e){next(e);}
+}
+export async function downloadMyCommunicationAgreement(req,res,next) {
+  try {
+    res.set('Cache-Control','no-store');
+    const {getMyCommunicationAgreement,communicationAgreementPdf}=await import('../services/staffCommunicationAgreementCopies.service.js');
+    const signed=await getMyCommunicationAgreement(req.user.id,req.params.reference);
+    const bytes=await communicationAgreementPdf(signed);
+    res.set('Content-Type','application/pdf');
+    res.set('Content-Disposition','attachment; filename="signed-communications-agreement.pdf"');
+    res.set('X-Content-Type-Options','nosniff');
+    res.send(bytes);
+  } catch(e){next(e);}
+}

@@ -1,3 +1,5 @@
+import Agency from '../models/Agency.model.js';
+import { communicationRulesNotice } from './smsCommunicationNotice.service.js';
 import pool from '../config/database.js';
 import MessageLog from '../models/MessageLog.model.js';
 import SmsCareThread from '../models/SmsCareThread.model.js';
@@ -45,7 +47,7 @@ export async function offerOutOfOfficeSupport({ route, from, to, body, messageId
     AND JSON_EXTRACT(metadata, '$.supportChoiceTicketId') IS NULL LIMIT 1`, [agencyId, numberId, clientId, to, from]);
   if (recent.length) return;
   try {
-    await sendLogged({ agencyId, numberId, clientId, userId, from: to, to: from, body: OUT_OF_OFFICE_SMS,
+    await sendLogged({ agencyId, numberId, clientId, userId, from: to, to: from, body: `${OUT_OF_OFFICE_SMS} ${communicationRulesNotice(await Agency.findById(agencyId) || {})} Reply STOP to opt out.`,
       metadata: { provider: 'vonage', supportChoiceOffer: true, triggerInboundId: inbound.id } });
   } catch (error) {
     // Preserve the client's original message even if consent or carrier delivery blocks the offer.

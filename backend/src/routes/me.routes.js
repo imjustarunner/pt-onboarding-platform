@@ -1,4 +1,4 @@
-import { listMyCommunicationChoices, saveMyCommunicationChoices } from '../controllers/staffCommunicationChoices.controller.js';
+import { listMyCommunicationChoices, saveMyCommunicationChoices, listMyCommunicationAgreementsController, downloadMyCommunicationAgreement } from '../controllers/staffCommunicationChoices.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { downloadCompanyEventIcsForMe, listMyCompanyEvents, listMyCompanyEventsCalendar, respondToMyCompanyEvent, listMyStaffPolls, updateMyPollResultPreference } from '../controllers/companyEvents.controller.js';
@@ -41,6 +41,8 @@ import {
 } from '../controllers/clubEmployerShare.controller.js';
 
 const router = express.Router();
+router.get('/communication-agreements', authenticate, listMyCommunicationAgreementsController);
+router.get('/communication-agreements/:reference/download', authenticate, downloadMyCommunicationAgreement);
 router.get('/communication-choices', authenticate, listMyCommunicationChoices);
 router.put('/communication-choices', authenticate, saveMyCommunicationChoices);
 

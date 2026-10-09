@@ -1745,7 +1745,8 @@ if (!isBootstrap) {
   }, getMsUntilMidnight() + (5 * 60 * 60 * 1000) + (15 * 60 * 1000));
 
   // SMS/Voice retention cleanup (message_logs, call_logs, call_voicemails, notification_sms_logs)
-  // Runs daily at 3:00 AM. Set SMS_VOICE_RETENTION_DAYS=365 (default) or 0 to keep indefinitely.
+  // Runs daily at 3:00 AM. Routine call logs: 3 years; nonclinical SMS: SMS_VOICE_RETENTION_DAYS (365 default).
+  // Client-linked records and voicemail are preserved. SMS_VOICE_RETENTION_DAYS=0 disables cleanup.
   const scheduleSmsVoiceRetentionCleanup = async () => {
     try {
       const SmsVoiceRetentionCleanupService = (await import('./services/smsVoiceRetentionCleanup.service.js')).default;

@@ -1,3 +1,4 @@
+import { sendConversationStartNotice } from '../services/smsCommunicationNotice.service.js';
 import { offerOutOfOfficeSupport, handleOutOfOfficeSupportReply } from '../services/smsOutOfOffice.service.js';
 import { inspectInboundReception, enqueueCommunicationReview } from '../services/communicationReview.service.js';
 import { staffNotificationBody } from '../utils/staffCommunicationChoices.js';
@@ -365,6 +366,13 @@ export const inboundSmsWebhook = async (req, res, next) => {
       clientId: clientId || null,
       userId: route.matchedUserId || null
     });
+
+    if (!keyword && !appointmentReplyContext?.ackMessage) {
+      try {
+        await sendConversationStartNotice({agencyId,numberId,clientId,userId:assignedUserId,
+          from:toNorm,to:fromNorm,inboundLogId:inboundLog?.id});
+      } catch(error) { console.warn('[VonageWebhook] Communication notice unavailable:',error.code||'notice_failed'); }
+    }
 
     if (agencyId && clientId && inboundLog?.id) {
       try {

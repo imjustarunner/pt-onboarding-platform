@@ -33,6 +33,8 @@
     </template>
   </DocumentsHubPanel>
 
+  <StaffCommunicationAgreementCopies v-if="!isGuardian" />
+
   <section v-if="!isGuardian" class="personal-copies" aria-labelledby="application-copies-title">
     <header class="personal-copies__head">
       <div>
@@ -137,6 +139,7 @@
 </template>
 
 <script setup>
+import StaffCommunicationAgreementCopies from '../communications/StaffCommunicationAgreementCopies.vue';
 import { ref, onMounted, computed, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../../services/api';

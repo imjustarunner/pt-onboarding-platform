@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+vi.mock('../../models/Agency.model.js',()=>({default:{findById:vi.fn(async()=>({name:'ITSCO',portal_url:'itsco'}))}}));
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
 vi.mock('../../models/MessageLog.model.js', () => ({ default: { createInbound: vi.fn(), createOutbound: vi.fn(), markSent: vi.fn(), markFailed: vi.fn() } }));
 vi.mock('../../models/SmsCareThread.model.js', () => ({ default: { upsert: vi.fn() } }));
@@ -32,7 +33,7 @@ it('stores the original for both providers without any ticket or forwarding', as
  await offerOutOfOfficeSupport({route,...incoming,body:'Can we talk tomorrow?'});
  expect(MessageLog.createInbound).toHaveBeenCalledWith(expect.objectContaining({body:'Can we talk tomorrow?',clientId:4,metadata:expect.objectContaining({awaitingProviderReturn:true})}));
  expect(SmsCareThread.upsert).toHaveBeenCalledWith(expect.objectContaining({careState:'under_care',supportAccess:'observe'}));
- expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({body:OUT_OF_OFFICE_SMS}));
+ expect(Vonage.sendSms).toHaveBeenCalledWith(expect.objectContaining({body:expect.stringContaining(OUT_OF_OFFICE_SMS)}));
  expect(MessageLog.createInbound.mock.invocationCallOrder[0]).toBeLessThan(Vonage.sendSms.mock.invocationCallOrder[0]);
  expect(OUT_OF_OFFICE_SMS).toContain('saved in their app now');
  expect(pool.getConnection).not.toHaveBeenCalled();

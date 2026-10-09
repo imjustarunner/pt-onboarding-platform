@@ -25,7 +25,7 @@ beforeEach(()=>{
  conn={execute:vi.fn(async(sql,args)=>{if(sql.includes('GET_LOCK'))return [[{acquired:1}]];if(sql.includes('INSERT INTO user_preferences'))stored[args[1]]=JSON.parse(args[2]);return [{affectedRows:1}];}),beginTransaction:vi.fn(),commit:vi.fn(),rollback:vi.fn(),release:vi.fn()};pool.getConnection.mockResolvedValue(conn);
  enrollSmsRecipient.mockResolvedValue({status:'opted_in'});
 });
-async function input(choices={notifications:false,messageAlerts:false,polling:false}){const form=await getStaffCommunicationChoices({userId:7,agencyId:2});return {disclosureHash:form.disclosureHash,arrivalEmail:false,exchangeEmail:false,choices:{appointmentReplies:false,kioskArrivals:false,exchangeMatches:false,...choices},accessRequests:{inAppTexting:false,personalSmsRelay:false},phone:form.phone,signerName:'Example Provider',acknowledged:true};}
+async function input(choices={notifications:false,messageAlerts:false,polling:false}){const form=await getStaffCommunicationChoices({userId:7,agencyId:2});return {disclosureHash:form.disclosureHash,arrivalEmail:false,exchangeEmail:false,choices:{appointmentReplies:false,kioskArrivals:false,exchangeMatches:false,...choices},accessRequests:{inAppTexting:false,personalSmsRelay:false},phone:form.phone,signerName:'Example Provider',acknowledged:true,usageAcknowledged:true};}
 describe('staff communication choices',()=>{
  it('records access and future-forwarding requests without enabling texting or relay',async()=>{const form=await input();form.accessRequests={inAppTexting:true,personalSmsRelay:true};const send=vi.fn();const saved=await saveStaffCommunicationChoices({userId:7,agencyId:2,input:form,sendConfirmation:send});expect(saved.accessRequests).toEqual(form.accessRequests);expect(saved.capabilities.clientRelay).toBe(false);expect(saved.activation).toEqual([]);expect(enrollSmsRecipient).not.toHaveBeenCalled();expect(send).not.toHaveBeenCalled();expect(conn.execute.mock.calls.some(([sql])=>sql.includes('sms_forwarding_enabled=FALSE'))).toBe(true);expect(JSON.parse(stored.staff_communications_2.envelope.cipher).accessRequests).toEqual(form.accessRequests);});
  it('requires both access-request choices without accepting permission grants',async()=>{const form=await input();delete form.accessRequests;await expect(saveStaffCommunicationChoices({userId:7,agencyId:2,input:form})).rejects.toThrow('in-app texting');form.accessRequests={inAppTexting:true,personalSmsRelay:true,grantAccess:true};await expect(saveStaffCommunicationChoices({userId:7,agencyId:2,input:form})).rejects.toThrow('in-app texting');expect(appendSecurityEvidence).not.toHaveBeenCalled();});
@@ -73,4 +73,15 @@ it('records separate Exchange email and SMS choices without activating a sender'
  expect(enrollSmsRecipient).not.toHaveBeenCalled();
  const missing={...form};delete missing.exchangeEmail;
  await expect(saveStaffCommunicationChoices({userId:7,agencyId:2,input:missing})).rejects.toThrow('Client Exchange emails');
+});
+
+it('requires the use agreement independently of optional text consent and preserves the signed terms',async()=>{
+ const form=await input();delete form.usageAcknowledged;
+ await expect(saveStaffCommunicationChoices({userId:7,agencyId:2,input:form})).rejects.toThrow('Communications Use Agreement');
+ expect(appendSecurityEvidence).not.toHaveBeenCalled();
+ await saveStaffCommunicationChoices({userId:7,agencyId:2,input:{...form,usageAcknowledged:true}});
+ const signed=JSON.parse(stored.staff_communications_2.envelope.cipher);
+ expect(signed.usageAcknowledged).toBe(true);
+ expect(signed.disclosure.agreement.sections.map(s=>s.body).join(' ')).toContain('three years');
+ expect(signed.choices.notifications).toBe(false);
 });
