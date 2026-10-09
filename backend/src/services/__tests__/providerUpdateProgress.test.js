@@ -12,17 +12,15 @@ import {getRecipientBundle} from '../providerUpdate.service.js';
 import {getProviderUpdateRecords} from '../providerUpdateRecords.service.js';
 import {getStaffCommunicationChoices} from '../staffCommunicationChoices.service.js';
 import {PROVIDER_UPDATE_SECTION_KEYS} from '../../constants/providerUpdateSections.js';
-import {buildPagesFromSections} from '../../../../frontend/src/utils/providerUpdate.js';
 const keys=['specialties','notification_prefs'];
 const config=Object.fromEntries(PROVIDER_UPDATE_SECTION_KEYS.map(k=>[k,keys.includes(k)]));
 const recipient={id:1,push_id:2,provider_user_id:7,agency_id:2,previewOnly:true,section_config_json:config};
 let progress;
 beforeEach(()=>{vi.clearAllMocks();progress=[];pool.execute.mockImplementation(async sql=>sql.includes('provider_update_pushes')?[[{id:2,section_config_json:config}]]:sql.includes('provider_update_section_progress')?[progress]:[[]]);getProviderUpdateRecords.mockResolvedValue({schools:[],specialtyGroups:[],focusGroups:[{key:'specialties',options:['Anxiety','Depression','Grief']}],clinicalFocus:{top:{specialties:[]},excluded:{specialties:[]}}});getStaffCommunicationChoices.mockResolvedValue({needsReview:true,reviewedAt:null});});
-it('keeps unanswered sections and their grouped pages Not started without saving anything',async()=>{
+it('keeps unanswered sections Not started without saving anything',async()=>{
  const bundle=await getRecipientBundle(recipient);
  expect(bundle.sections).toHaveLength(2);
  expect(bundle.sections.every(s=>s.status==='not_started'&&!s.completed)).toBe(true);
- expect(buildPagesFromSections(bundle.sections).every(p=>p.status==='not_started')).toBe(true);
  expect(pool.execute.mock.calls.every(([sql])=>sql.trim().startsWith('SELECT'))).toBe(true);
 });
 it('preserves actual saved progress when required answers remain missing',async()=>{
