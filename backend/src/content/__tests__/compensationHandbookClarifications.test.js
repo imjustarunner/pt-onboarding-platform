@@ -18,6 +18,12 @@ it('keeps the group proposal option while requiring funded legal wages and offic
  expect(GROUP_POLICY_HTML).toContain('Staff may propose a group');expect(GROUP_POLICY_HTML).toContain('reasonable likelihood');expect(GROUP_POLICY_HTML).toContain('individual written agreement');expect(GROUP_POLICY_HTML).toContain('Public Law 119-21');expect(GROUP_POLICY_HTML).toContain('leg.colorado.gov/bills/hb26-1410');expect(GROUP_POLICY_HTML).toContain('historical context');
 });
 it('keeps benefit drafts separate and does not invent forfeiture authority or remove wages from payroll',()=>{
- expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('all employees');expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('0.25');expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('must be confirmed');
- expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('2 hours');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('15 qualifying credits plus 10');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('not be sent to ADP as a leave bank');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('normal payroll, tax and wage records');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('before activation');
+ expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('All hours');expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('0.25');expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('20-hour balance cap');
+ expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('2 support activity hours');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('Thirty qualifying hours earn 2.4');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('not be sent to ADP as a leave bank');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('normal payroll, tax and wage records');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('20-hour balance cap');
+});
+
+it('replaces future funding percentages without changing prior earnings or salary terms',()=>{
+ const rendered=renderAmendment({employee:{name:'Example'},schedule:{category:2,level:2},commonClausesHtml:commonAmendmentClauses()});
+ expect(rendered).toContain('11. Compensation regardless of funding source');expect(rendered).toContain('12. Employee acknowledgment');expect(rendered).toContain('iMatter');expect(rendered).toContain('replace prior funding-specific percentage');expect(rendered).toContain('does not reduce compensation already earned');
+ expect(rendered.match(/<h3>11. Compensation regardless of funding source/g)).toHaveLength(1);
 });

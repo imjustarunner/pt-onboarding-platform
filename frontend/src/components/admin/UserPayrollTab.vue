@@ -657,14 +657,21 @@
               <div class="field">
                 <label>Current Training balance (hours)</label>
                 <input
-                  v-if="editingPto && agencyPtoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible"
+                  v-if="editingPto && agencyPtoPolicy?.trainingPtoEnabled === true && (ptoAccount?.training_pto_eligible || agencyPtoPolicy?.sharedLeaveAccrualEnabled)"
                   v-model.number="ptoForm.trainingBalanceHours"
                   type="number" step="0.01" min="0"
                 />
-                <input v-else :value="(agencyPtoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Number(ptoAccount?.training_balance_hours || 0)) : '—'" type="text" disabled />
+                <input v-else :value="(agencyPtoPolicy?.trainingPtoEnabled === true && (ptoAccount?.training_pto_eligible || agencyPtoPolicy?.sharedLeaveAccrualEnabled)) ? fmtNum(Number(ptoAccount?.training_balance_hours || 0)) : '—'" type="text" disabled />
               </div>
             </div>
 
+            <div v-if="agencyPtoPolicy?.sharedLeaveAccrualEnabled" class="field">
+              <label>ADP training balance includes pay periods through</label>
+              <input v-if="editingPto" v-model="ptoForm.trainingAdpThroughDate" type="date" />
+              <span v-else>{{ ptoAccount?.training_adp_through_date ? String(ptoAccount.training_adp_through_date).slice(0,10) : 'Needs confirmation' }}</span>
+              <p class="muted">Enter or confirm the current training balance above, then choose the last completed payroll period included by ADP. App accrual begins with the following period. Existing balances are preserved.</p>
+            </div>
+            <div v-if="agencyPtoPolicy?.schoolSupportEnabled" class="field"><label>Support activity hours</label><span>{{ fmtNum(Number(ptoAccount?.school_support_balance_hours || 0)) }} / 20 hours</span></div>
             <!-- PTO pay rate -->
             <div class="field-row" style="grid-template-columns: 1fr 1fr; margin-top: 10px;">
               <div class="field">
@@ -1640,7 +1647,8 @@ const loadPtoAccount = async () => {
     ptoAccount.value = acct;
     ptoForm.value = {
       employmentType: String(acct?.employment_type || 'hourly'),
-      trainingEligible: !!acct?.training_pto_eligible,
+      trainingEligible: !!acct?.training_pto_eligible || agencyPtoPolicy.value?.sharedLeaveAccrualEnabled,
+      trainingAdpThroughDate:acct?.training_adp_through_date?String(acct.training_adp_through_date).slice(0,10):'',
       sickBalanceHours: Number(acct?.sick_balance_hours || 0),
       trainingBalanceHours: Number(acct?.training_balance_hours || 0),
       ptoPayRate: (acct?.pto_pay_rate !== null && acct?.pto_pay_rate !== undefined) ? Number(acct.pto_pay_rate) : ''
@@ -1669,6 +1677,7 @@ const savePtoAccount = async () => {
       trainingPtoEligible: ptoForm.value.trainingEligible ? 1 : 0,
       sickBalanceHours: Number(ptoForm.value.sickBalanceHours || 0),
       trainingBalanceHours: Number(ptoForm.value.trainingBalanceHours || 0),
+      trainingAdpThroughDate:ptoForm.value.trainingAdpThroughDate||undefined,
       ptoPayRate
     });
     await loadPtoAccount();

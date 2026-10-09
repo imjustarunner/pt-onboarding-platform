@@ -83,6 +83,7 @@ class PayrollPtoRequest {
     requestType,
     notes,
     trainingDescription,
+    trainingCost = null,
     proof,
     policyWarningsJson,
     policyAckJson,
@@ -90,10 +91,10 @@ class PayrollPtoRequest {
   }) {
     const [res] = await pool.execute(
       `INSERT INTO payroll_pto_requests
-       (agency_id, user_id, submitted_by_user_id, status, request_type, notes, training_description,
+       (agency_id, user_id, submitted_by_user_id, status, request_type, notes, training_description, training_cost,
         proof_file_path, proof_original_name, proof_mime_type, proof_size_bytes,
         policy_warnings_json, policy_ack_json, total_hours)
-       VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, 'submitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         agencyId,
         userId,
@@ -101,6 +102,7 @@ class PayrollPtoRequest {
         requestType,
         notes || null,
         trainingDescription || null,
+        trainingCost,
         proof?.filePath || null,
         proof?.originalName || null,
         proof?.mimeType || null,
@@ -134,6 +136,17 @@ class PayrollPtoRequest {
     return res.affectedRows || 0;
   }
 
+  static async withdrawPending({requestId,agencyId,userId}) {
+    const db=await pool.getConnection();
+    try{await db.beginTransaction();
+      const [[row]]=await db.execute('SELECT status FROM payroll_pto_requests WHERE id=? AND agency_id=? AND user_id=? FOR UPDATE',[requestId,agencyId,userId]);
+      if(!row||!['submitted','deferred','rejected'].includes(row.status))throw Object.assign(new Error('Only pending or returned requests can be withdrawn'),{status:409});
+      await db.execute('DELETE FROM payroll_pto_request_items WHERE request_id=?',[requestId]);
+      await db.execute('DELETE FROM payroll_pto_requests WHERE id=? AND agency_id=? AND user_id=?',[requestId,agencyId,userId]);
+      await db.commit();
+    }catch(e){await db.rollback();throw e;}finally{db.release();}
+  }
+
   static async updateStatus({
     requestId,
     agencyId,
@@ -144,7 +157,7 @@ class PayrollPtoRequest {
     rejectedAt = null,
     rejectionReason = null
   }) {
-    await pool.execute(
+    const [result] = await pool.execute(
       `UPDATE payroll_pto_requests
        SET status = ?,
            approved_by_user_id = ?,
@@ -153,7 +166,7 @@ class PayrollPtoRequest {
            rejected_at = ?,
            rejection_reason = ?,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND agency_id = ?`,
+       WHERE id = ? AND agency_id = ? AND status IN ('submitted','deferred')`,
       [
         status,
         approvedByUserId,
@@ -165,6 +178,7 @@ class PayrollPtoRequest {
         agencyId
       ]
     );
+    if(!result.affectedRows)throw Object.assign(new Error('Request was already processed; refresh before changing it'),{status:409});
     return this.findById(requestId);
   }
 }

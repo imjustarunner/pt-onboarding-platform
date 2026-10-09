@@ -1,12 +1,11 @@
+import {postSupplementalLeave,hasSchoolAssignment} from './supplementalLeave.service.js';
+import {approveLeaveAtomically} from './payrollLeaveApproval.service.js';
 import {currentEligibleSickRate} from './sickLeaveRate.service.js';
 import pool from '../config/database.js';
 import Agency from '../models/Agency.model.js';
 import PayrollPtoAccount from '../models/PayrollPtoAccount.model.js';
 import PayrollPtoLedger from '../models/PayrollPtoLedger.model.js';
 import PayrollPtoRequest from '../models/PayrollPtoRequest.model.js';
-import PayrollAdjustment from '../models/PayrollAdjustment.model.js';
-import PayrollPeriod from '../models/PayrollPeriod.model.js';
-import { computeSubmissionWindow, resolveClaimTimeZone } from '../utils/payrollSubmissionWindow.js';
 import {
   computeAccrualFromBasisHours,
   computeServiceCreditLeave,
@@ -134,7 +133,7 @@ export async function ensurePtoAccount({
   defaults = {}
 }) {
   const existing = await PayrollPtoAccount.findForAgencyUser({ agencyId, userId });
-  if (existing) return existing;
+  if (existing) {const {policy}=await getAgencyPtoPolicy({agencyId});return policy.sharedLeaveAccrualEnabled?{...existing,training_pto_eligible:1}:existing;}
 
   const employmentType = defaults.employmentType
     || await resolvePtoEmploymentType({
@@ -143,7 +142,8 @@ export async function ensurePtoAccount({
       asOfDate: defaults.asOfDate || null,
       existingType: null
     });
-  const trainingPtoEligible = defaults.trainingPtoEligible != null
+  const {policy: accountPolicy}=await getAgencyPtoPolicy({agencyId});
+  const trainingPtoEligible = accountPolicy.sharedLeaveAccrualEnabled ? 1 : defaults.trainingPtoEligible != null
     ? (defaults.trainingPtoEligible ? 1 : 0)
     : (employmentType === 'salaried' && defaults.trainingPtoEnabled ? 1 : 0);
   const emptyYmd = null;
@@ -222,7 +222,8 @@ async function getUserTerminationInfo({ userId }) {
 
 export async function getPtoBalances({ agencyId, userId }) {
   const { policy, defaultPayRate } = await getAgencyPtoPolicy({ agencyId });
-  const acct = await PayrollPtoAccount.findForAgencyUser({ agencyId, userId });
+  const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId:userId });
+  const schoolEligible=!!policy.schoolSupportEnabled&&(Number(acct.school_support_balance_hours)>0||await hasSchoolAssignment({agencyId,userId}));
   const effectivePtoPayRate = await currentEligibleSickRate({agencyId,userId,asOfDate:todayYmd(),fallbackRate:acct?.pto_pay_rate??defaultPayRate});
   if (!acct) {
     return {
@@ -236,7 +237,7 @@ export async function getPtoBalances({ agencyId, userId }) {
 
   // Enforce training forfeit on termination (one-time).
   const term = await getUserTerminationInfo({ userId });
-  if (term.isTerminated && policy.trainingForfeitOnTermination && !acct.training_forfeited_at) {
+  if (term.isTerminated && !policy.sharedLeaveAccrualEnabled && policy.trainingForfeitOnTermination && !acct.training_forfeited_at) {
     const current = Number(acct.training_balance_hours || 0);
     if (current > 1e-9) {
       const eff = term.terminatedAt || todayYmd();
@@ -288,10 +289,11 @@ export async function getPtoBalances({ agencyId, userId }) {
     policy,
     defaultPayRate,
     effectivePtoPayRate,
-    account: acct,
+    account: {...acct,school_support_eligible:schoolEligible},
     balances: {
       sickHours: Number(acct.sick_balance_hours || 0),
-      trainingHours: policy?.trainingPtoEnabled ? Number(acct.training_balance_hours || 0) : 0
+      trainingHours: policy?.trainingPtoEnabled ? Number(acct.training_balance_hours || 0) : 0,
+      schoolSupportHours:Number(acct.school_support_balance_hours||0)
     }
   };
 }
@@ -597,20 +599,6 @@ export async function isPtoSheetEligibleUser({ agencyId, userId }) {
   return isPtoSheetEmployeeRow(rows?.[0] || null);
 }
 
-async function findPayrollPeriodIdForDate({ agencyId, dateYmd }) {
-  const [rows] = await pool.execute(
-    `SELECT id
-     FROM payroll_periods
-     WHERE agency_id = ?
-       AND period_start <= ?
-       AND period_end >= ?
-     ORDER BY period_end ASC
-     LIMIT 1`,
-    [agencyId, dateYmd, dateYmd]
-  );
-  return rows?.[0]?.id || null;
-}
-
 export async function approvePtoRequestAndPostToPayroll({
   agencyId,
   requestId,
@@ -619,205 +607,11 @@ export async function approvePtoRequestAndPostToPayroll({
   overrideDeadline = true,
   overrideBalance = false
 }) {
-  const req = await PayrollPtoRequest.findById(requestId);
-  if (!req || Number(req.agency_id) !== Number(agencyId)) throw new Error('PTO request not found');
-  if (String(req.status || '') !== 'submitted' && String(req.status || '') !== 'deferred') {
-    throw new Error('PTO request is not pending');
-  }
-
-  const items = await PayrollPtoRequest.listItemsForRequest(requestId);
-  if (!items.length) throw new Error('PTO request has no items');
-
-  const userId = Number(req.user_id);
-  const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId: approvedByUserId });
-
-  const bucket = String(req.request_type || '').toLowerCase() === 'training' ? 'training' : 'sick';
-  const { policy, defaultPayRate } = await getAgencyPtoPolicy({ agencyId });
-  if (bucket === 'training') {
-    if (policy?.trainingPtoEnabled !== true) throw new Error('Training PTO is disabled for this organization');
-    if (!acct.training_pto_eligible) throw new Error('Training PTO is not enabled for this provider');
-  }
-
-  // Balance check (admin overrideable) — done before any DB writes.
-  let sickBal = Number(acct.sick_balance_hours || 0);
-  let trainingBal = Number(acct.training_balance_hours || 0);
-  const totalRequestedHours = (items || []).reduce((a, it) => a + Number(it?.hours || 0), 0);
-  const starting = bucket === 'training' ? trainingBal : sickBal;
-  const projected = starting - totalRequestedHours;
-  if (!overrideBalance && projected < -1e-9) {
-    throw new Error(
-      `Insufficient PTO balance: starting ${starting.toFixed(2)} hours, requested ${totalRequestedHours.toFixed(2)} hours, projected ${projected.toFixed(2)} hours.`
-    );
-  }
-
-  // Validate leave-date rates before deducting balances or approving the request.
-  const leaveRates=new Map();
-  for(const item of items){const d=ymd(item.request_date);if(d&&Number(item.hours)>0&&!leaveRates.has(d))leaveRates.set(d,bucket==='sick'?await currentEligibleSickRate({agencyId,userId,asOfDate:d,fallbackRate:acct.pto_pay_rate??defaultPayRate}):Number(acct.pto_pay_rate??defaultPayRate??0));}
-
-  // ── Phase 1: Deduct balance + mark approved (atomic via connection transaction) ──
-  const conn = await pool.getConnection();
-  try {
-    await conn.beginTransaction();
-
-    for (const it of items) {
-      const d = ymd(it.request_date);
-      const h = Number(it.hours || 0);
-      if (!d || !(h > 0)) continue;
-      await conn.execute(
-        `INSERT INTO payroll_pto_ledger
-           (agency_id, user_id, entry_type, pto_bucket, hours_delta, effective_date, payroll_period_id, request_id, note, created_by_user_id)
-         VALUES (?, ?, 'usage', ?, ?, ?, NULL, ?, 'PTO used (approved request)', ?)`,
-        [agencyId, userId, bucket, -h, d, requestId, approvedByUserId]
-      );
-      if (bucket === 'training') trainingBal -= h;
-      else sickBal -= h;
-    }
-
-    await conn.execute(
-      `INSERT INTO payroll_pto_accounts
-         (agency_id, user_id, employment_type, training_pto_eligible,
-          sick_start_hours, sick_start_effective_date,
-          training_start_hours, training_start_effective_date,
-          sick_balance_hours, training_balance_hours,
-          last_accrued_payroll_period_id, last_sick_rollover_year, training_forfeited_at,
-          updated_by_user_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         sick_balance_hours = VALUES(sick_balance_hours),
-         training_balance_hours = VALUES(training_balance_hours),
-         updated_by_user_id = VALUES(updated_by_user_id),
-         updated_at = CURRENT_TIMESTAMP`,
-      [
-        agencyId, userId,
-        acct.employment_type, acct.training_pto_eligible ? 1 : 0,
-        acct.sick_start_hours, acct.sick_start_effective_date,
-        acct.training_start_hours, acct.training_start_effective_date,
-        sickBal, trainingBal,
-        acct.last_accrued_payroll_period_id, acct.last_sick_rollover_year, acct.training_forfeited_at,
-        approvedByUserId
-      ]
-    );
-
-    await conn.execute(
-      `UPDATE payroll_pto_requests
-       SET status = 'approved',
-           approved_by_user_id = ?,
-           approved_at = NOW(),
-           rejected_by_user_id = NULL,
-           rejected_at = NULL,
-           rejection_reason = NULL,
-           updated_at = NOW()
-       WHERE id = ? AND agency_id = ?
-       LIMIT 1`,
-      [approvedByUserId, requestId, agencyId]
-    );
-
-    await conn.commit();
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-
-  // ── Phase 2: Post pay into payroll adjustments (best-effort per period) ──
-  // Balance is already deducted. Pay-line failures are logged but do not roll back the approval.
-  const rate = (acct?.pto_pay_rate !== null && acct?.pto_pay_rate !== undefined)
-    ? Number(acct.pto_pay_rate)
-    : Number(defaultPayRate || 0);
-
-  let explicitTargetPeriod = null;
-  if (Number.isFinite(Number(targetPayrollPeriodId)) && Number(targetPayrollPeriodId) > 0) {
-    explicitTargetPeriod = await PayrollPeriod.findById(Number(targetPayrollPeriodId));
-    if (explicitTargetPeriod) {
-      const st = String(explicitTargetPeriod.status || '').toLowerCase();
-      if (st === 'posted' || st === 'finalized') explicitTargetPeriod = null;
-    }
-  }
-
-  const byPeriod = new Map();
-  const payByPeriod = new Map();
-  const skippedDates = [];
-  for (const it of items) {
-    const d = ymd(it.request_date);
-    const h = Number(it.hours || 0);
-    if (!d || !(h > 0)) continue;
-    let pid = null;
-    try {
-      if (explicitTargetPeriod) {
-        pid = Number(explicitTargetPeriod.id);
-      } else if (overrideDeadline) {
-        const [pRows] = await pool.execute(
-          `SELECT id, status FROM payroll_periods
-           WHERE agency_id = ? AND period_start <= ? AND period_end >= ?
-           ORDER BY period_end ASC LIMIT 1`,
-          [agencyId, d, d]
-        );
-        const p = pRows?.[0] || null;
-        const st = p ? String(p.status || '').toLowerCase() : null;
-        if (p?.id && st !== 'posted' && st !== 'finalized') pid = Number(p.id);
-      } else {
-        const win = await computeSubmissionWindow({
-          agencyId, effectiveDateYmd: d, submittedAt: req.created_at,
-          timeZone: resolveClaimTimeZone(), hardStopPolicy: '60_days'
-        });
-        if (win.ok && win.suggestedPayrollPeriodId) pid = Number(win.suggestedPayrollPeriodId);
-      }
-    } catch {
-      // Period lookup failure: skip pay posting for this date, balance already deducted.
-    }
-    if (pid) {
-      const leaveRate=leaveRates.get(d)??rate;
-      byPeriod.set(pid, (byPeriod.get(pid) || 0) + h);
-      payByPeriod.set(pid,(payByPeriod.get(pid)||0)+h*leaveRate);
-    }
-    else skippedDates.push(d);
-  }
-
-  const failedPeriods = [];
-  for (const [payrollPeriodId, hours] of byPeriod.entries()) {
-    try {
-      const existing = await PayrollAdjustment.findForPeriodUser(payrollPeriodId, userId);
-      const currentSick = Number(existing?.sick_pto_hours ?? 0);
-      const currentTraining = Number(existing?.training_pto_hours ?? 0);
-      const nextSick = bucket === 'sick' ? currentSick + hours : currentSick;
-      const nextTraining = bucket === 'training' ? currentTraining + hours : currentTraining;
-      await PayrollAdjustment.upsert({
-        payrollPeriodId, agencyId, userId,
-        mileageAmount: Number(existing?.mileage_amount ?? 0),
-        medcancelAmount: Number(existing?.medcancel_amount ?? 0),
-        otherTaxableAmount: Number(existing?.other_taxable_amount ?? 0),
-        bonusAmount: Number(existing?.bonus_amount ?? 0),
-        reimbursementAmount: Number(existing?.reimbursement_amount ?? 0),
-        salaryAmount: Number(existing?.salary_amount ?? 0),
-        ptoHours: nextSick + nextTraining,
-        sickPtoHours: nextSick,
-        trainingPtoHours: nextTraining,
-        ptoRate: (nextSick+nextTraining)>0?((currentSick+currentTraining)*Number(existing?.pto_rate??rate)+(payByPeriod.get(payrollPeriodId)||0))/(nextSick+nextTraining):rate,
-        updatedByUserId: approvedByUserId
-      });
-    } catch {
-      failedPeriods.push(payrollPeriodId);
-    }
-  }
-
-  // Store the primary period on the request for display purposes (first resolved period).
-  const primaryPeriodId = Array.from(byPeriod.keys())[0] || null;
-  if (primaryPeriodId) {
-    try {
-      await pool.execute(
-        `UPDATE payroll_pto_requests SET approved_payroll_period_id = ? WHERE id = ? LIMIT 1`,
-        [primaryPeriodId, requestId]
-      );
-    } catch { /* best-effort */ }
-  }
-
-  return {
-    ok: true,
-    affectedPayrollPeriodIds: Array.from(byPeriod.keys()),
-    skippedDates,
-    failedPeriods
-  };
+  const req=await PayrollPtoRequest.findById(requestId);
+  if(!req||Number(req.agency_id)!==Number(agencyId))throw Error('PTO request not found');
+  await ensurePtoAccount({agencyId,userId:Number(req.user_id),updatedByUserId:approvedByUserId});
+  const {policy,defaultPayRate}=await getAgencyPtoPolicy({agencyId});
+  return approveLeaveAtomically({agencyId,requestId,actorId:approvedByUserId,targetPayrollPeriodId,overrideBalance,policy,defaultPayRate});
 }
 
 /**
@@ -918,7 +712,7 @@ export async function syncPtoAccrualForManualDirectPayLine({
     basisHours: hrs,
     policy,
     employmentType: acct.employment_type,
-    trainingPtoEligible: Boolean(acct.training_pto_eligible)
+    trainingPtoEligible: !policy.sharedLeaveAccrualEnabled && Boolean(acct.training_pto_eligible)
   });
 
   if (sickEarn <= 1e-9 && trainingEarn <= 1e-9) {
@@ -970,7 +764,7 @@ export async function syncPtoAccrualForManualDirectPayLine({
   const sickCap = Number(policy.sickAnnualMaxAccrual ?? DEFAULT_PTO_POLICY.sickAnnualMaxAccrual);
   const trainingCap = Number(policy.trainingMaxBalance ?? DEFAULT_PTO_POLICY.trainingMaxBalance);
   if (Number.isFinite(sickCap) && sickBal > sickCap + 1e-9) sickBal = sickCap;
-  if (Number.isFinite(trainingCap) && trainingBal > trainingCap + 1e-9) trainingBal = trainingCap;
+  if (!policy.sharedLeaveAccrualEnabled && Number.isFinite(trainingCap) && trainingBal > trainingCap + 1e-9) trainingBal = trainingCap;
 
   await PayrollPtoAccount.upsert({
     agencyId,
@@ -1072,6 +866,9 @@ export async function runPtoAccrualForPostedPeriod({
       warnings.push({ userId, message: 'Could not ensure PTO account' });
       continue;
     }
+    const resolvedEmployment=await resolvePtoEmploymentType({agencyId,userId,asOfDate,existingType:acct.employment_type});
+    warnings.push(...await postSupplementalLeave({agencyId,userId,payrollPeriodId,period,summaryRow:sum,employmentType:resolvedEmployment,policy,actorId:postedByUserId}));
+    acct=await PayrollPtoAccount.findForAgencyUser({agencyId,userId});
     if (Number(acct.last_accrued_payroll_period_id || 0) === Number(payrollPeriodId)) continue;
 
     const employment = await resolvePtoEmploymentType({
@@ -1088,7 +885,7 @@ export async function runPtoAccrualForPostedPeriod({
         ? false
         : true;
     }
-    if (employment === 'hourly') trainingEligible = false;
+    if (employment === 'hourly' || policy.sharedLeaveAccrualEnabled) trainingEligible = false;
 
     // Roll over sick leave once per year.
     let sickBal = Number(acct.sick_balance_hours || 0);
@@ -1176,13 +973,13 @@ export async function runPtoAccrualForPostedPeriod({
     const sickCap = Number(policy.sickAnnualMaxAccrual ?? DEFAULT_PTO_POLICY.sickAnnualMaxAccrual);
     const trainingCap = Number(policy.trainingMaxBalance ?? DEFAULT_PTO_POLICY.trainingMaxBalance);
     if (Number.isFinite(sickCap) && sickBal > sickCap + 1e-9) sickBal = sickCap;
-    if (Number.isFinite(trainingCap) && trainingBal > trainingCap + 1e-9) trainingBal = trainingCap;
+    if (!policy.sharedLeaveAccrualEnabled && Number.isFinite(trainingCap) && trainingBal > trainingCap + 1e-9) trainingBal = trainingCap;
 
     await PayrollPtoAccount.upsert({
       agencyId,
       userId,
       employmentType: employment,
-      trainingPtoEligible: trainingEligible ? 1 : 0,
+      trainingPtoEligible: policy.sharedLeaveAccrualEnabled || trainingEligible ? 1 : 0,
       sickStartHours: acct.sick_start_hours,
       sickStartEffectiveDate: acct.sick_start_effective_date,
       trainingStartHours: acct.training_start_hours,

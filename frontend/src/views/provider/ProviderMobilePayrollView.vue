@@ -27,6 +27,7 @@
       </article>
     </div>
 
+    <article v-if="summary?.pto?.policy?.schoolSupportEnabled" class="stat"><div class="label">Support activity hours</div><div class="value">{{ formatNumber(summary?.pto?.balances?.schoolSupportHours || 0) }} / 20 hrs</div></article>
     <h3>Recent Periods</h3>
     <div v-if="loading" class="muted">Loading payroll…</div>
     <div v-else-if="periods.length === 0" class="muted">No payroll periods found.</div>

@@ -401,6 +401,7 @@
                     {{ (ptoPolicy?.trainingPtoEnabled === true && ptoAccount?.training_pto_eligible) ? fmtNum(Math.max(0, (ptoBalances.trainingHours || 0) - ptoPendingTrainingHours)) : '—' }}
                   </td>
                 </tr>
+            <tr v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)"><td>Support activity hours</td><td class="right">{{ fmtNum(ptoBalances.schoolSupportHours || 0) }} / 20 hours</td><td class="muted">Paid at your support-activity rate; deducted on payroll approval.</td></tr>
                 <tr>
                   <td>PTO Pay Rate</td>
                   <td class="right" colspan="2">{{ fmtMoney(ptoEffectivePayRate) }}/hr</td>
@@ -446,7 +447,7 @@
                 <tr v-for="r in ptoRequests" :key="r.id">
                   <td>{{ fmtShortDate(r.created_at) }}</td>
                   <td>{{ submitterLabel(r) }}</td>
-                  <td>{{ String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
+                  <td>{{ r.request_type==='school_support' ? 'Support activity hours' : String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
                   <td class="right">{{ fmtNum(Number(r.total_hours || 0)) }}</td>
                   <td>
                     <div>{{ String(r.status || '').toUpperCase() }}</div>
@@ -1505,7 +1506,7 @@
       <div class="modal-header">
         <div>
           <div class="modal-title">Request PTO</div>
-          <div class="hint">Choose Sick Leave or Training PTO (if eligible).</div>
+          <div class="hint">Choose Sick Leave, Training PTO or school support activity hours (if eligible).</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closePtoChooserModal">Close</button>
       </div>
@@ -1541,6 +1542,7 @@
                 <template v-else>—</template>
               </td>
             </tr>
+            <tr v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)"><td>Support activity hours</td><td class="right">{{ fmtNum(ptoBalances.schoolSupportHours || 0) }} / 20 hours</td><td class="muted">Paid at your support-activity rate; deducted on payroll approval.</td></tr>
           </tbody>
         </table>
       </div>
@@ -1549,6 +1551,7 @@
         PTO over {{ fmtNum(ptoPolicy?.ptoConsecutiveUseLimitHours ?? 15) }} hours consecutively requires
         {{ fmtNum(ptoPolicy?.ptoConsecutiveUseNoticeDays ?? 30) }} days notice and management approval.
         Training PTO requires a description and proof of participation.
+        <span v-if="ptoPolicy?.sharedLeaveAccrualEnabled && !ptoAccount?.training_adp_confirmed_at">People Operations must confirm your ADP opening balance before new training hours are added. Your existing balance remains available.</span>
       </div>
 
       <div class="actions" style="margin-top: 12px; justify-content: flex-end;">
@@ -1556,6 +1559,7 @@
         <button class="btn btn-secondary" type="button" @click="openPtoTraining" :disabled="ptoPolicy?.trainingPtoEnabled !== true || !ptoAccount?.training_pto_eligible">
           Training PTO Request
         </button>
+        <button v-if="ptoPolicy?.schoolSupportEnabled && (ptoAccount?.school_support_eligible || ptoBalances.schoolSupportHours > 0)" class="btn btn-secondary" type="button" @click="openPtoSick('school_support')">Request support activity hours</button>
       </div>
     </div>
   </div>
@@ -1565,8 +1569,8 @@
     <div class="modal" style="width: min(720px, 100%);">
       <div class="modal-header">
         <div>
-          <div class="modal-title">PTO Request — Sick Leave</div>
-          <div class="hint">Submit date(s) and hours for Sick Leave.</div>
+          <div class="modal-title">{{ ptoDateRequestType === 'school_support' ? 'Request support activity hours' : 'PTO Request — Sick Leave' }}</div>
+          <div class="hint">Select the date and number of hours you want to use. Your balance is deducted only after payroll approves and applies the payment.</div>
         </div>
         <button class="btn btn-secondary btn-sm" @click="closePtoSick">Close</button>
       </div>
@@ -1579,7 +1583,7 @@
       </div>
 
       <div class="hint" style="margin-top: 8px; padding: 8px 12px; background: #e8f5e9; border-left: 3px solid #43a047; border-radius: 4px; color: #1b5e20;">
-        PTO can be submitted at any time — you are not restricted by the pay period. Once submitted, your balance will reflect the pending deduction. Payroll will process your request and may take 24–48 hours to approve. Note that PTO cannot be applied to a pay period that has already been finalized, so if your request covers past dates, it will be applied to the next available period.
+        PTO can be submitted at any time — you are not restricted by the pay period. Pending requests are shown separately; your balance is deducted only when payroll approves and applies the payment. Payroll will process your request and may take 24–48 hours to approve. Note that PTO cannot be applied to a pay period that has already been finalized, so if your request covers past dates, it will be applied to the next available period.
       </div>
 
       <div class="card" style="margin-top: 12px;">
@@ -1642,7 +1646,7 @@
       <div v-if="submitPtoError" class="warn-box" style="margin-top: 10px;">{{ submitPtoError }}</div>
 
       <div class="hint" style="margin-top: 8px; padding: 8px 12px; background: #e8f5e9; border-left: 3px solid #43a047; border-radius: 4px; color: #1b5e20;">
-        Training PTO can be submitted at any time. Your balance will reflect the pending deduction immediately. Payroll reviews and approves requests within 24–48 hours. PTO cannot be applied to pay periods that have already been finalized — late submissions will be applied to the next available period.
+        Training PTO is paid at your sick-leave rate. Upload your signup, receipt or proof of participation and enter the cost. Payroll reviews the documentation before approval. Your balance changes only when approved hours are applied to payroll. Unused training hours carry forward; accrual pauses at 20 hours.
       </div>
 
       <div class="card" style="margin-top: 12px;">
@@ -1670,6 +1674,9 @@
       </div>
 
       <div class="field" style="margin-top: 10px;">
+        <label>Training cost ($)</label>
+        <input v-model="ptoTrainingForm.cost" type="number" min="0" step="0.01" placeholder="0.00" />
+        <p class="hint">Training PTO pays for approved time. Any separate expense reimbursement requires its own approval.</p>
         <label>Description (required)</label>
         <textarea v-model="ptoTrainingForm.description" rows="3" placeholder="Brief description of the training…"></textarea>
       </div>
@@ -2725,6 +2732,7 @@ const ptoRequestsLoading = ref(false);
 const ptoRequestsError = ref('');
 const showPtoChooser = ref(false);
 const showPtoSickModal = ref(false);
+const ptoDateRequestType=ref('sick');
 const showPtoTrainingModal = ref(false);
 const submittingPtoRequest = ref(false);
 const submitPtoError = ref('');
@@ -2732,7 +2740,7 @@ const submitPtoError = ref('');
 const ptoPendingSickHours = computed(() => {
   const list = Array.isArray(ptoRequests.value) ? ptoRequests.value : [];
   return list
-    .filter((r) => String(r.status || '').toLowerCase() === 'submitted' && String(r.request_type || '').toLowerCase() !== 'training')
+    .filter((r) => String(r.status || '').toLowerCase() === 'submitted' && String(r.request_type || '').toLowerCase() === 'sick')
     .reduce((sum, r) => sum + Number(r.total_hours || 0), 0);
 });
 const ptoPendingTrainingHours = computed(() => {
@@ -5056,7 +5064,8 @@ const loadPto = async () => {
     ptoAccount.value = resp.data?.account || null;
     ptoBalances.value = {
       sickHours: Number(resp.data?.balances?.sickHours || 0),
-      trainingHours: Number(resp.data?.balances?.trainingHours || 0)
+      trainingHours: Number(resp.data?.balances?.trainingHours || 0),
+      schoolSupportHours:Number(resp.data?.balances?.schoolSupportHours||0)
     };
   } catch (e) {
     ptoError.value = e.response?.data?.error?.message || e.message || 'Failed to load PTO';
@@ -5112,6 +5121,7 @@ const openEditPtoRequest = (r) => {
         ? existingItems.map((it) => ({ date: String(it?.request_date || it?.date || '').slice(0, 10), hours: Number(it?.hours || 0) }))
         : [{ date: '', hours: '' }],
       description: r.training_description || '',
+      cost:r.training_cost??'',
       notes: r.notes || '',
       proofFile: null,
       proofName: r.proof_original_name || '',
@@ -5121,6 +5131,7 @@ const openEditPtoRequest = (r) => {
     showPtoTrainingModal.value = true;
   } else {
     editingPtoExistingProofPath.value = '';
+    ptoDateRequestType.value=r.request_type==='school_support'?'school_support':'sick';
     ptoSickForm.value = {
       items: existingItems.length
         ? existingItems.map((it) => ({ date: String(it?.request_date || it?.date || '').slice(0, 10), hours: Number(it?.hours || 0) }))
@@ -5156,7 +5167,8 @@ const removePtoItem = (formRef, idx) => {
   form.items = next;
 };
 
-const openPtoSick = () => {
+const openPtoSick = (type='sick') => {
+  ptoDateRequestType.value=typeof type==='string'?type:'sick';
   submitPtoError.value = '';
   const today = new Date();
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -5229,8 +5241,8 @@ const submitPto = async ({ requestType, form }) => {
 
     // Balance check — compare requested total against current available balance
     const totalRequested = items.reduce((s, it) => s + it.hours, 0);
-    const currentBalance = requestType === 'training' ? Number(ptoBalances.value.trainingHours || 0) : Number(ptoBalances.value.sickHours || 0);
-    const pendingHours = requestType === 'training' ? ptoPendingTrainingHours.value : ptoPendingSickHours.value;
+    const currentBalance = Number(ptoBalances.value[requestType==='school_support'?'schoolSupportHours':requestType==='training'?'trainingHours':'sickHours']||0);
+    const pendingHours = requestType === 'school_support' ? ptoRequests.value.filter(r=>['submitted','deferred'].includes(r.status)&&r.request_type==='school_support').reduce((n,r)=>n+Number(r.total_hours||0),0) : requestType === 'training' ? ptoPendingTrainingHours.value : ptoPendingSickHours.value;
     // When re-editing, the old request's hours are already counted in pending — subtract them so we don't double-count
     const replacingHours = replacingPtoId ? (() => {
       const old = (ptoRequests.value || []).find((r) => r.id === replacingPtoId);
@@ -5239,7 +5251,7 @@ const submitPto = async ({ requestType, form }) => {
     const effectivePending = Math.max(0, pendingHours - replacingHours);
     const availableBalance = currentBalance - effectivePending;
     if (totalRequested > currentBalance) {
-      const typeLabel = requestType === 'training' ? 'Training PTO' : 'Sick Leave';
+      const typeLabel = requestType === 'school_support' ? 'Support activity hours' : requestType === 'training' ? 'Training PTO' : 'Sick Leave';
       submitPtoError.value = `Insufficient ${typeLabel} balance. You have ${fmtNum(currentBalance)} hours available${effectivePending > 0 ? ` (${fmtNum(availableBalance)} after other pending requests)` : ''}. You requested ${fmtNum(totalRequested)} hours.`;
       return;
     }
@@ -5263,6 +5275,7 @@ const submitPto = async ({ requestType, form }) => {
     if (String(form.value.notes || '').trim()) fd.append('notes', String(form.value.notes || '').trim());
     if (requestType === 'training') {
       fd.append('trainingDescription', String(form.value.description || '').trim());
+      if(form.value.cost!==undefined&&form.value.cost!=='')fd.append('trainingCost',String(form.value.cost));
       if (form.value.proofFile) {
         fd.append('proof', form.value.proofFile);
       } else if (existingProofPath) {
@@ -5295,7 +5308,7 @@ const submitPto = async ({ requestType, form }) => {
   }
 };
 
-const submitPtoSick = async () => submitPto({ requestType: 'sick', form: ptoSickForm });
+const submitPtoSick = async () => submitPto({ requestType: ptoDateRequestType.value, form: ptoSickForm });
 const submitPtoTraining = async () => submitPto({ requestType: 'training', form: ptoTrainingForm });
 
 const addMedcancelItem = () => {

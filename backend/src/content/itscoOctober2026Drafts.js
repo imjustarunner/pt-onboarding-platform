@@ -1,4 +1,4 @@
-import {SIMPLE_HANDBOOK_CLAUSE,SCHOOL_MILEAGE_CLAUSE,TRAINING_LEAVE_CLAUSE,SUPERVISORY_REVIEW_CONSIDERATION,workloadHandbookSection,codeReferenceSection,GROUP_POLICY_HTML,SCHOOL_MILEAGE_SECTION,TRAINING_LEAVE_SECTION,SCHOOL_SUPPORT_SECTION} from './compensationHandbookClarifications.js';
+import {addFundingNeutralClause,FUNDING_NEUTRAL_PAY_SECTION,SIMPLE_HANDBOOK_CLAUSE,SCHOOL_MILEAGE_CLAUSE,TRAINING_LEAVE_CLAUSE,SUPERVISORY_REVIEW_CONSIDERATION,workloadHandbookSection,codeReferenceSection,GROUP_POLICY_HTML,SCHOOL_MILEAGE_SECTION,TRAINING_LEAVE_SECTION,SCHOOL_SUPPORT_SECTION} from './compensationHandbookClarifications.js';
 import {HCODE_HANDBOOK_REFERENCE,HCODE_HANDBOOK_HTML} from './hcodeCompensationPolicy.js';
 import {roleCompensationTerms} from './roleCompensationTerms.js';
 import {categoryRateSchedule,personalRateTable,payTypeDescriptions,categoryDescriptions,conditionalLevelBonus,personalPayTypeDescriptions,SICK_LEAVE_RATE_POLICY,ACTIVITY_CLASSIFICATION_POLICY,CONDITIONAL_ADDITION_POLICY} from './compensationSchedulePresentation.js';
@@ -64,7 +64,7 @@ export function personalizeAmendmentClauses(html, s) {
  const hcode=![1,2,3].includes(cat)?'Your H-code terms will be completed after your category and level are assigned.':HCODE_HANDBOOK_REFERENCE+(cat===1
   ? ' Report actual indirect work separately at your indirect rate; no automatic indirect allowance is added. The same work may not be counted or paid twice.'
   : ` You receive ${Number(s.autoIndirectMinutes??10)} minutes of indirect pay per compensated direct-hour equivalent at your applicable indirect rate, proportionally calculated under the handbook. Payroll records direct and indirect pay separately; do not claim the same work twice.`);
- return String(html)
+ return addFundingNeutralClause(html)
   .replace(/<h3>8\. (?:Handbook appendix, group policy and prospective changes|Handbook service and pay rules)<\/h3><p>[\s\S]*?<\/p>/, '<h3>8. Handbook service and pay rules</h3>'+p(SIMPLE_HANDBOOK_CLAUSE))
   .replace(/<h3>6\. Probation, workload rates and the 60-day transition<\/h3><p>[\s\S]*?<\/p>/, s.probationWaived ? '<h3>6. Minimum-workload rate and 60-day waiver</h3>'+p('The minimum-workload rate in your individual schedule is waived for 60 calendar days from this amendment’s prospective effective date. For an October 10, 2026 effective date, the waiver covers October 10 through December 8; December 9 is the first day the minimum-workload rate can apply. After the waiver, your rate depends on the applicable workload conditions in the current Workplace Handbook. No rate change reduces pay already earned.') : '$&')
   .replace('It is available as earned without a probationary waiting period.',s.probationWaived?'It is available as earned.':'It is available as earned without a probationary waiting period.')
@@ -111,6 +111,7 @@ export function handbookSections({leaveChoice='sick',rates=[],rules=[],levels=[]
  SCHOOL_MILEAGE_SECTION,
  TRAINING_LEAVE_SECTION,
  SCHOOL_SUPPORT_SECTION,
+ FUNDING_NEUTRAL_PAY_SECTION,
  {slug:'category-level-rate-schedule',title:'Category and level rate schedule',bodyHtml:categoryRateSchedule(rates,levels)},
  levelExpectationsHandbookSection(),
  {slug:'paid-time-off-and-colorado-sick-leave',title:'Sick-leave accrual ratio for fee-for-service staff',bodyHtml:

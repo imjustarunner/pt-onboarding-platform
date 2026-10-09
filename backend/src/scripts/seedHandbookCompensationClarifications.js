@@ -4,7 +4,7 @@ import pool from '../config/database.js';
 import {SUPERVISORY_REVIEW_CONSIDERATION} from '../content/compensationHandbookClarifications.js';
 import {handbookSections,renderAmendment} from '../content/itscoOctober2026Drafts.js';
 const apply=process.argv.includes('--apply'),parse=v=>typeof v==='string'?JSON.parse(v):v;
-const slugs=new Set(['minimum-workload-rates-and-tracking','service-code-approval-and-credit-reference','school-mileage-reimbursement','training-leave-benefit','school-service-support-time','groups-moratorium-and-approval','compensation-level-expectations-and-review']);
+const slugs=new Set(['compensation-regardless-of-funding-source','minimum-workload-rates-and-tracking','service-code-approval-and-credit-reference','school-mileage-reimbursement','training-leave-benefit','school-service-support-time','groups-moratorium-and-approval','compensation-level-expectations-and-review']);
 const db=await pool.getConnection();
 try{
  await db.beginTransaction();
@@ -21,16 +21,16 @@ try{
  if(apply){if(!process.env.UPDATE_BACKUP_PATH)throw Error('Backup path required');fs.writeFileSync(process.env.UPDATE_BACKUP_PATH,JSON.stringify({sections,entries,drafts}),{mode:0o600,flag:'wx'});}
  let order=Math.max(0,...sections.map(s=>Number(s.sort_order)||0))+1;
  for(const s of refreshed){
-  const existing=sections.find(row=>row.slug===s.slug),entry=entries.find(row=>row.subject===s.title);
+  const existing=sections.find(row=>row.slug===s.slug),entry=entries.find(row=>row.subject===s.title||(s.slug==='school-service-support-time'&&row.subject==='School Service Support Time — proposed benefit'));
   const reviewMarker='<!-- supervisory-review-consideration -->';
   const preserveReviews=html=>String(html).includes(reviewMarker)?String(html):String(html)+reviewMarker+'<h2>Supervisory review and evaluations</h2><p>'+SUPERVISORY_REVIEW_CONSIDERATION+'</p>';
   const sectionHtml=s.slug==='compensation-level-expectations-and-review'&&existing?preserveReviews(existing.body_html):s.bodyHtml;
   const entryHtml=s.slug==='compensation-level-expectations-and-review'&&entry?preserveReviews(entry.changed_content):s.bodyHtml;
-  const rationale=s.slug==='school-service-support-time'?'Create a separate proposed school benefit; finalize eligible uses and accrual scope before activation.':s.slug==='training-leave-benefit'?'Document the 0.25-per-30 training benefit for all employees, with separate eligibility and carryover rules.':'Make compensation, service approval and benefit rules easy to find and understand.';
+  const rationale=s.slug==='school-service-support-time'?'Track school support hours on the shared sick-leave basis, with a 20-hour cap and payroll-approved use.':s.slug==='training-leave-benefit'?'Document the 0.25-per-30 training benefit for all employees, with separate eligibility and carryover rules.':'Make compensation, service approval and benefit rules easy to find and understand.';
   if(apply){
-   if(existing)await db.execute('UPDATE workplace_handbook_sections SET body_html=? WHERE id=?',[sectionHtml,existing.id]);
+   if(existing)await db.execute('UPDATE workplace_handbook_sections SET body_html=?,title=? WHERE id=?',[sectionHtml,s.title,existing.id]);
    else await db.execute('INSERT INTO workplace_handbook_sections(version_id,agency_id,slug,title,body_html,sort_order) VALUES(?,2,?,?,?,?)',[version.id,s.slug,s.title,s.bodyHtml,order]);
-   if(entry)await db.execute('UPDATE workplace_handbook_digest_entries SET changed_content=?,rationale=? WHERE id=?',[entryHtml,rationale,entry.id]);
+   if(entry)await db.execute('UPDATE workplace_handbook_digest_entries SET changed_content=?,rationale=?,subject=? WHERE id=?',[entryHtml,rationale,s.title,entry.id]);
    else await db.execute('INSERT INTO workplace_handbook_digest_entries(digest_id,agency_id,sort_order,subject,rationale,changed_content) VALUES(?,?,?,?,?,?)',[digest.id,2,order,s.title,rationale,s.bodyHtml]);
   }order++;
  }

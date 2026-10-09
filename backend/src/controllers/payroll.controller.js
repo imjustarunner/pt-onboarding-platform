@@ -1,3 +1,5 @@
+import {hasSchoolAssignment,confirmTrainingHandoff,validateTrainingHandoff,catchUpTrainingAfterHandoff} from '../services/supplementalLeave.service.js';
+import {LEAVE_BALANCE_COLUMNS,validateLeaveItems} from '../utils/supplementalLeave.js';
 import {roleCompensationRate} from '../services/roleCompensationRate.js';
 import { isUnpaidMeetingClaim } from '../services/huddlePolicy.js';
 import multer from 'multer';
@@ -16421,6 +16423,11 @@ export const createMyMedcancelClaim = async (req, res, next) => {
       return res.status(400).json({ error: { message: 'claimDate (YYYY-MM-DD) is required' } });
     }
 
+    const {policy:schoolLeavePolicy}=await getAgencyPtoPolicy({agencyId});
+    if(schoolLeavePolicy.schoolSupportEnabled && schoolLeavePolicy.schoolSupportAccrualAfter && claimDate>schoolLeavePolicy.schoolSupportAccrualAfter){
+      return res.status(409).json({error:{message:'Use Request support activity hours in My Payroll for school benefits from this period onward. Prior-period no-show claims remain available.'}});
+    }
+
     // Enforce submission deadlines.
     const win = await computeSubmissionWindow({
       agencyId,
@@ -20603,6 +20610,7 @@ export const upsertUserPtoAccount = async (req, res, next) => {
       ptoPayRate = Number.isFinite(n) && n >= 0 ? n : undefined;
     }
 
+    if(body.trainingAdpThroughDate)await validateTrainingHandoff({agencyId,userId,throughDate:body.trainingAdpThroughDate});
     const acct = await ensurePtoAccount({
       agencyId,
       userId,
@@ -20642,6 +20650,7 @@ export const upsertUserPtoAccount = async (req, res, next) => {
       note: 'Balance set by admin (profile)'
     });
 
+    if(body.trainingAdpThroughDate){await confirmTrainingHandoff({agencyId,userId,throughDate:body.trainingAdpThroughDate,actorId:req.user.id});await catchUpTrainingAfterHandoff({agencyId,userId,actorId:req.user.id});}
     if (balanceResult.sickChanged || balanceResult.trainingChanged) {
       try {
         await AdminAuditLog.logAction({
@@ -20906,7 +20915,11 @@ export const createMyPtoRequest = [
       }
 
       const requestTypeRaw = String(body.requestType || body.request_type || '').trim().toLowerCase();
-      const requestType = requestTypeRaw === 'training' ? 'training' : 'sick';
+      const requestType = requestTypeRaw||'sick';
+      if(!LEAVE_BALANCE_COLUMNS[requestType])return res.status(400).json({error:{message:'Unknown leave type'}});
+      if(requestType==='school_support'&&!policy.schoolSupportEnabled)return res.status(403).json({error:{message:'School support hours are not enabled'}});
+      const trainingCost=body.trainingCost==null||body.trainingCost===''?null:Number(body.trainingCost);
+      if(trainingCost!==null&&(!Number.isFinite(trainingCost)||trainingCost<0))return res.status(400).json({error:{message:'Enter a valid training cost'}});
       const notes = body.notes ? String(body.notes) : null;
       const trainingDescription = body.trainingDescription ? String(body.trainingDescription) : null;
 
@@ -20924,16 +20937,15 @@ export const createMyPtoRequest = [
       if (!items.length) {
         return res.status(400).json({ error: { message: 'At least one (date, hours) entry is required' } });
       }
+      try{validateLeaveItems(items);}catch(e){return res.status(400).json({error:{message:e.message}});}
       const totalHours = Math.round(items.reduce((a, it) => a + Number(it.hours || 0), 0) * 100) / 100;
 
       // Training eligibility + proof requirements.
       const acct = await ensurePtoAccount({ agencyId, userId, updatedByUserId: userId });
       // Validate balance before creating request
-      const currentBalance = requestType === 'training'
-        ? Number(acct.training_balance_hours || 0)
-        : Number(acct.sick_balance_hours || 0);
+      const currentBalance=Number(acct[LEAVE_BALANCE_COLUMNS[requestType]]||0);
       if (totalHours > currentBalance) {
-        const typeLabel = requestType === 'training' ? 'Training PTO' : 'Sick Leave';
+        const typeLabel = requestType === 'school_support' ? 'Support activity hours' : requestType === 'training' ? 'Training PTO' : 'Sick Leave';
         return res.status(409).json({
           error: {
             message: `Insufficient ${typeLabel} balance. You have ${Number(currentBalance).toFixed(2)} hours available. You requested ${Number(totalHours).toFixed(2)} hours.`
@@ -20945,7 +20957,7 @@ export const createMyPtoRequest = [
         if (policy.trainingPtoEnabled !== true) {
           return res.status(403).json({ error: { message: 'Training PTO is disabled for this organization' } });
         }
-        if (!acct.training_pto_eligible) {
+        if (!policy.sharedLeaveAccrualEnabled && !acct.training_pto_eligible) {
           return res.status(403).json({ error: { message: 'Training PTO is not enabled for your account' } });
         }
         if (!String(trainingDescription || '').trim()) {
@@ -20958,9 +20970,10 @@ export const createMyPtoRequest = [
         }
       }
 
-      const policyWarnings = computePtoPolicyWarnings({ policy, requestItems: items.map((x) => ({ requestDate: x.requestDate, hours: x.hours })) });
+      const policyWarnings = requestType==='school_support'?[]:computePtoPolicyWarnings({ policy, requestItems: items.map((x) => ({ requestDate: x.requestDate, hours: x.hours })) });
 
       const existingProofFilePath = body.existingProofFilePath ? String(body.existingProofFilePath).trim() : '';
+      if(existingProofFilePath){const [owned]=await pool.execute('SELECT id FROM payroll_pto_requests WHERE agency_id=? AND user_id=? AND proof_file_path=? LIMIT 1',[agencyId,userId,existingProofFilePath]);if(!owned.length)return res.status(403).json({error:{message:'Proof does not belong to this account'}});}
       let proofMeta = null;
       if (req.file) {
         const saved = await StorageService.savePtoProof(req.file.buffer, req.file.originalname, req.file.mimetype, userId);
@@ -20985,6 +20998,7 @@ export const createMyPtoRequest = [
         requestType,
         notes,
         trainingDescription,
+        trainingCost,
         proof: proofMeta,
         policyWarningsJson: policyWarnings,
         policyAckJson: body.policyAck ? body.policyAck : null,
@@ -21072,8 +21086,7 @@ export const deleteMyPtoRequest = async (req, res, next) => {
       return res.status(409).json({ error: { message: 'Only pending or returned PTO requests can be withdrawn' } });
     }
 
-    await pool.execute('DELETE FROM payroll_pto_request_items WHERE request_id = ?', [id]);
-    await pool.execute('DELETE FROM payroll_pto_requests WHERE id = ? LIMIT 1', [id]);
+    await PayrollPtoRequest.withdrawPending({requestId:id,agencyId,userId});
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -21133,7 +21146,7 @@ export const getPendingSubmissionsSummary = async (req, res, next) => {
         byUser.set(uid, { userId: uid, name: String(r.user_name || '').trim() || `User ${uid}`, types: [], count: 0 });
       }
       const entry = byUser.get(uid);
-      const type = String(r.request_type || 'sick').toLowerCase() === 'training' ? 'Training PTO' : 'Sick PTO';
+      const type = r.request_type==='school_support'?'Support activity hours':String(r.request_type || 'sick').toLowerCase() === 'training' ? 'Training PTO' : 'Sick PTO';
       if (!entry.types.includes(type)) entry.types.push(type);
       entry.count += 1;
     }

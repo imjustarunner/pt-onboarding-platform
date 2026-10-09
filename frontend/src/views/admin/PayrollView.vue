@@ -3248,7 +3248,7 @@
                       <td>{{ nameForUserId(r.user_id) }}</td>
                       <td>{{ String(r.created_at || '').slice(0, 10) }}</td>
                       <td>{{ submitterLabel(r) }}</td>
-                      <td>{{ String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}</td>
+                      <td>{{ r.request_type==='school_support' ? 'Support activity hours' : String(r.request_type || '').toLowerCase() === 'training' ? 'Training PTO' : 'Sick Leave' }}<div v-if="r.request_type === 'training'" class="muted">{{ r.training_description }}<span v-if="r.training_cost != null"> · Reported cost: ${{ Number(r.training_cost).toFixed(2) }}</span></div></td>
                       <td>
                         <span :class="['pto-status-badge', `pto-status-${String(r.status || 'submitted').toLowerCase()}`]">
                           {{ String(r.status || 'submitted').charAt(0).toUpperCase() + String(r.status || 'submitted').slice(1) }}
@@ -9681,7 +9681,7 @@ const fetchAllPendingPtoRequests = async () => {
             const b = await api.get(`/payroll/users/${uid}/pto-balances`, { params: { agencyId: agencyId.value } });
             next[uid] = {
               sickHours: Number(b.data?.balances?.sickHours ?? 0),
-              trainingHours: Number(b.data?.balances?.trainingHours ?? 0)
+              trainingHours: Number(b.data?.balances?.trainingHours ?? 0), schoolSupportHours:Number(b.data?.balances?.schoolSupportHours||0)
             };
           } catch {
             next[uid] = { sickHours: 0, trainingHours: 0 };
@@ -9726,8 +9726,8 @@ const ptoBalancePreviewForRequest = (r) => {
   const uid = Number(r?.user_id || 0);
   const b = ptoBalancesByUserId.value?.[uid] || { sickHours: 0, trainingHours: 0 };
   const hours = Number(r?.total_hours || 0);
-  const bucket = String(r?.request_type || '').toLowerCase() === 'training' ? 'training' : 'sick';
-  const start = bucket === 'training' ? Number(b.trainingHours || 0) : Number(b.sickHours || 0);
+  const bucket = r?.request_type==='school_support'?'school_support':String(r?.request_type || '').toLowerCase() === 'training' ? 'training' : 'sick';
+  const start = Number(b[bucket==='school_support'?'schoolSupportHours':bucket==='training'?'trainingHours':'sickHours']||0);
   const requested = Number.isFinite(hours) ? hours : 0;
   const next = start - requested;
   return { bucket, start, requested, next };
@@ -9782,7 +9782,7 @@ const approvePtoRequest = async (r) => {
           ...(ptoBalancesByUserId.value || {}),
           [uid]: {
             sickHours: Number(b.data?.balances?.sickHours ?? 0),
-            trainingHours: Number(b.data?.balances?.trainingHours ?? 0)
+            trainingHours: Number(b.data?.balances?.trainingHours ?? 0), schoolSupportHours:Number(b.data?.balances?.schoolSupportHours||0)
           }
         };
       }
