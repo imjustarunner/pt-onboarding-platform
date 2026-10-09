@@ -830,8 +830,8 @@
           <table class="table">
             <thead>
               <tr>
-                <th>Submitted</th>
-                <th>Submitted by</th>
+                <th>Recorded</th>
+                <th>Recorded by</th>
                 <th>Date</th>
                 <th>Type</th>
                 <th>Status</th>
@@ -846,7 +846,7 @@
                 <td>{{ fmtShortDate(c.claim_date) }}</td>
                 <td>{{ timeClaimTypeLabel(c) }}</td>
                 <td>
-                  <div>{{ String(c.status || '').toUpperCase() }}</div>
+                  <div>{{ employeeTimeStatusLabel(c) }}</div>
                   <div
                     v-if="isMeetingTimeClaim(c) && String(c?.payload?.googleMeetLink || '').trim()"
                     class="muted"
@@ -885,7 +885,7 @@
                     Withdrawn — edit and resubmit when ready. Not in payroll review until resubmitted.
                   </div>
                 </td>
-              <td class="right">{{ c.applied_amount ? fmtMoney(c.applied_amount) : '—' }}</td>
+              <td class="right">{{ isTimeAppliedToPayroll(c) ? fmtMoney(c.applied_amount) : '—' }}</td>
                 <td class="right">
                   <button
                     v-if="canEditTimeClaim(c)"
@@ -2446,6 +2446,7 @@ import AccountabilityWorkspace from './AccountabilityWorkspace.vue';
 import PayrollHubSection from './PayrollHubSection.vue';
 import IndirectTimeClaimEditModal from './IndirectTimeClaimEditModal.vue';
 import PayCalculatorCard from './PayCalculatorCard.vue';
+import { employeeTimeStatusLabel, isTimeAppliedToPayroll } from '../../utils/employeeTimeStatus';
 import { computePayrollHubStats, getPayrollActionRequired } from '../../utils/payrollUiHelpers';
 import {
   formatBusinessDateTime,
@@ -4493,7 +4494,7 @@ const closeIndirectTimeEditModal = () => {
 };
 
 const onIndirectTimeClaimSaved = async () => {
-  submitSuccess.value = 'Indirect time updated and resubmitted for payroll review.';
+  submitSuccess.value = 'Indirect time updated. Awaiting payroll review before it is applied.';
   window.setTimeout(() => { submitSuccess.value = ''; }, 5000);
   await loadTimeClaims();
 };

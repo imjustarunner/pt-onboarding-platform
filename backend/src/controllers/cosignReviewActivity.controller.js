@@ -20,5 +20,5 @@ export async function submitReviewActivity(req,res,next){try{
 }catch(e){next(e);}}
 export async function listReviewActivities(req,res,next){try{
  const s=await documentationScope(req,{supervisorOnly:true});
- const [items]=await pool.execute('SELECT a.id,a.note_id,a.started_at,a.ended_at,a.active_seconds,a.payroll_time_claim_id,c.status AS claim_status FROM cosign_review_activity a LEFT JOIN payroll_time_claims c ON c.id=a.payroll_time_claim_id WHERE a.agency_id=? AND a.provider_user_id=? AND a.supervisor_user_id=? ORDER BY a.id DESC LIMIT 200',[s.agencyId,s.providerUserId,req.user.id]);res.json({items});
+ const [items]=await pool.execute('SELECT a.id,a.note_id,a.started_at,a.ended_at,a.active_seconds,a.payroll_time_claim_id,c.status AS claim_status,c.target_payroll_period_id,c.applied_amount FROM cosign_review_activity a LEFT JOIN payroll_time_claims c ON c.id=a.payroll_time_claim_id WHERE a.agency_id=? AND a.provider_user_id=? AND a.supervisor_user_id=? ORDER BY a.id DESC LIMIT 200',[s.agencyId,s.providerUserId,req.user.id]);res.json({items});
 }catch(e){next(e);}}

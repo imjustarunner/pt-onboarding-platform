@@ -33,3 +33,25 @@ describe('supervisee documentation controls',()=>{
     api.get.mockRejectedValue({response:{status:403}});const w=mount(SupervisionDocumentationPanel,{props:{agencyId:1,providerId:7}});await flushPromises();expect(w.find('section').exists()).toBe(false);w.unmount();
   });
 });
+
+it('shows recorded, pending and applied co-sign time without exposing internal submitted status', async () => {
+  api.get.mockImplementation(url => Promise.resolve({data:
+    url.endsWith('/documentation-policy') ? structuredClone(settings) :
+    url.endsWith('/cosign-time') ? {items: [
+      {id: 1, note_id: 10, active_seconds: 60, claim_status: null},
+      {id: 2, note_id: 11, active_seconds: 120, payroll_time_claim_id: 50, claim_status: 'submitted'},
+      {id: 3, note_id: 12, active_seconds: 180, payroll_time_claim_id: 51, claim_status: 'approved', target_payroll_period_id: 4, applied_amount: 1.63}
+    ]} : {items: []}
+  }));
+  const w = mount(SupervisionDocumentationPanel, {props: {agencyId: 1, providerId: 7}});
+  await flushPromises();
+  const timeSection = w.findAll('details').find(d => d.find('summary').text() === 'Documentation review & RPO time');
+  timeSection.element.open = true;
+  await timeSection.trigger('toggle'); await flushPromises();
+  expect(timeSection.text()).toContain('Recorded — awaiting confirmation');
+  expect(timeSection.text()).toContain('Awaiting payroll review');
+  expect(timeSection.text()).toContain('Applied to payroll');
+  expect(timeSection.text().toLowerCase()).not.toContain('submitted');
+  expect(timeSection.findAll('button').filter(b => b.text() === 'Confirm recorded time')).toHaveLength(1);
+  w.unmount();
+});

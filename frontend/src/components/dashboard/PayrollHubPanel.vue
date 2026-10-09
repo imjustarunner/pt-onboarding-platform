@@ -38,7 +38,7 @@
         </div>
         <div>
           <div class="pay-hub__stat-value">{{ stats.pendingSubmissions }}</div>
-          <div class="pay-hub__stat-label">Pending Submissions</div>
+          <div class="pay-hub__stat-label">Pending review / changes</div>
           <div class="pay-hub__stat-hint">Awaiting approval</div>
         </div>
       </div>

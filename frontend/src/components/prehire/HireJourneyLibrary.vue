@@ -1,7 +1,7 @@
 <template>
   <section v-if="record?.journey || error" class="hire-library">
     <h2>My hire & onboarding package</h2>
-    <p>Your completed pre-hire documents, onboarding questionnaires, training record, and submitted time stay here.</p>
+    <p>Your completed pre-hire documents, onboarding questionnaires, training record, and recorded time stay here.</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="record?.journey">
       <details v-for="phase in ['prehire', 'onboarding']" :key="phase">
@@ -36,7 +36,7 @@
         </ul>
       </details>
       <p>{{ Math.floor((record.journey.time?.seconds || 0) / 60) }} minutes of active onboarding recorded.</p>
-      <p v-if="record.journey.onboardingCompletedAt">Recorded time was automatically submitted for payroll review.</p>
+      <p v-if="record.journey.onboardingCompletedAt">Your onboarding time has been recorded. It is applied to payroll only after review and acceptance.</p>
     </template>
     <div v-if="selected" class="hire-document" role="dialog" aria-modal="true" aria-label="Completed document">
       <div>

@@ -37,7 +37,7 @@
           @click="openSubmissionsTab"
         >
           <IndirectTimeIcon name="list" :size="16" />
-          My Submissions
+          My time records
         </button>
       </div>
 
@@ -334,10 +334,10 @@
                 </label>
               </div>
               <p class="itl-disclaimer">
-                Virtual meetings are auto-logged and submitted via this application — duplicate submissions are not
+                Virtual meetings are automatically recorded for payroll review — duplicate submissions are not
                 required. This includes supervision, training, and onboarding meetings. If a meeting was not
-                auto-submitted, submit it here, verify with your supervisor, or check My Submissions for those
-                auto submissions. Peer-to-peer meetings are never compensable unless at the direction of administrative staff.
+                automatically recorded, submit it here, verify with your supervisor, or check My time records for those
+                automatically recorded time. Peer-to-peer meetings are never compensable unless at the direction of administrative staff.
               </p>
             </div>
 
@@ -373,13 +373,13 @@
               </div>
               <p class="itl-disclaimer">
                 Use this for writing supervision notes and related admin after sessions, or to log a
-                Supervisor's Meeting when it was not auto-submitted. Supervisor attendance at Admin Meetings is
-                auto-submitted and paid at your Admin Time rate — do not duplicate those claims.
+                Supervisor's Meeting when it was not automatically recorded. Supervisor attendance at Admin Meetings is
+                automatically recorded for review at your Admin Time rate — do not duplicate those claims.
               </p>
             </div>
           </div>
           <p v-if="selectedTypeIds.size === 1" class="itl-step-hint itl-step-hint--activities">
-            All {{ formatHm(sessionTotalMinutes) }} will be submitted for {{ singleSelectedActivityLabel }}.
+            All {{ formatHm(sessionTotalMinutes) }} will be recorded for {{ singleSelectedActivityLabel }}.
           </p>
         </section>
 
@@ -486,11 +486,11 @@
             :disabled="submitting || !canSubmit"
             @click="submitTime"
           >
-            {{ submitting ? 'Submitting…' : 'Submit Time' }}
+            {{ submitting ? 'Saving…' : 'Confirm time for review' }}
           </button>
           <p class="itl-secure">
             <IndirectTimeIcon name="lock" :size="14" />
-            Your time is saved securely. Submit when you're ready.
+            Your time is saved securely. Confirm it when you’re ready for payroll review.
           </p>
         </div>
         </section>
@@ -502,14 +502,14 @@
             v-if="submissionViewMode === 'recent' && highlightSubmissionIds.size"
             class="itl-recent-only-banner"
           >
-            <span>Showing the submission you just sent.</span>
-            <button type="button" class="itl-link-btn" @click="showAllSubmissions">View all submissions</button>
+            <span>Showing the time you just recorded.</span>
+            <button type="button" class="itl-link-btn" @click="showAllSubmissions">View all time records</button>
           </div>
           <p class="itl-subs-intro hint">
-            Manual Log Time and auto-submitted meeting/training claims appear here so you can avoid duplicates.
+            Manual and automatically recorded time appear here so you can avoid duplicates. Recorded time awaits payroll review before it is applied.
           </p>
-          <div v-if="subsLoading" class="itl-muted">Loading submissions…</div>
-          <div v-else-if="!displaySubmissions.length" class="itl-muted">No time submissions yet.</div>
+          <div v-if="subsLoading" class="itl-muted">Loading time records…</div>
+          <div v-else-if="!displaySubmissions.length" class="itl-muted">No time records yet.</div>
           <ul v-else class="itl-subs">
             <li v-for="s in displaySubmissions" :key="s.id" class="itl-sub">
               <div class="itl-sub-main">
@@ -524,7 +524,7 @@
                   :data-category="s.payload?.categoryGroup || claimTypeCategory(s)"
                 >{{ submissionCategoryLabel(s) }}</span>
                 <span class="itl-sub-mins">{{ formatHm(submissionMinutes(s)) }}</span>
-                <span class="itl-sub-status" :data-status="s.status">{{ submissionStatusLabel(s.status) }}</span>
+                <span class="itl-sub-status" :data-status="s.status">{{ employeeTimeStatusLabel(s) }}</span>
               </div>
               <div
                 v-if="submissionMetaLine(s)"
@@ -591,7 +591,7 @@ import {
   timezoneAbbrevAt
 } from '../../utils/timezones';
 import IndirectTimeIcon from './IndirectTimeIcon.vue';
-import { getClaimStatusLabel } from '../../utils/payrollUiHelpers';
+import { employeeTimeStatusLabel } from '../../utils/employeeTimeStatus';
 import {
   isNoteAidEmployeeRole,
   isNoteAidEnabledForAgencyFlags
@@ -633,7 +633,7 @@ const EXCLUDED_INDIRECT_TYPE_KEYS = new Set(['other_indirect', 'billing_correcti
 /** Support activities hidden from supervisors (they use Supervisor's Meeting instead). */
 const SUPERVISOR_HIDDEN_SUPPORT_TYPE_KEYS = new Set(['clinical_supervision_sa']);
 
-/** Categories that often overlap with auto-submitted meeting/training claims. */
+/** Categories that often overlap with automatically recorded meeting/training claims. */
 const AUTO_CLAIM_WARN_TYPE_KEYS = new Set([
   'outreach_activities',
   'staff_meeting',
@@ -913,7 +913,7 @@ const selectedCategoryWarnings = computed(() => {
   const out = [];
   if ([...keys].some((k) => AUTO_CLAIM_WARN_TYPE_KEYS.has(k))) {
     out.push(
-      'Please ensure you do not have a current time claim auto-submitted prior to manually submitting. Check My Submissions for Auto claims first.'
+      'Please ensure you do not have a current time claim automatically recorded prior to manually submitting. Check My time records for Auto claims first.'
     );
   }
   if ([...keys].some((k) => BILLABLE_WARN_TYPE_KEYS.has(k))) {
@@ -943,7 +943,7 @@ const duplicateWarning = computed(() => {
     .slice(0, 3)
     .map((s) => autoClaimDetail(s) || submissionCategoryLabel(s) || 'Auto claim')
     .join('; ');
-  return `Possible duplicate: ${sameDayAuto.length} auto-submitted claim(s) already on ${formatDisplayDate(ymd)} (${labels}). Review My Submissions before submitting.`;
+  return `Possible duplicate: ${sameDayAuto.length} automatically recorded claim(s) already on ${formatDisplayDate(ymd)} (${labels}). Review My time records before submitting.`;
 });
 
 function openSubmissionsTab() {
@@ -1425,7 +1425,7 @@ function autoClaimDetail(s) {
   if (mt && code) return `${mt} (${code})`;
   if (mt) return mt;
   if (code) return code;
-  return 'Auto-submitted meeting / training';
+  return 'Automatically recorded meeting / training';
 }
 
 function submissionCategoryLabel(s) {
@@ -1762,7 +1762,7 @@ async function submitTime() {
     if (!parts.length) {
       throw new Error('Allocate minutes to at least one activity type');
     }
-    success.value = `Submitted ${parts.join(' + ')} for payroll review.`;
+    success.value = `Recorded ${parts.join(' + ')}. Awaiting payroll review before it is applied.`;
 
     attestation.value = false;
     approvedByName.value = '';
@@ -1793,10 +1793,6 @@ async function submitTime() {
   } finally {
     submitting.value = false;
   }
-}
-
-function submissionStatusLabel(status) {
-  return getClaimStatusLabel(status);
 }
 
 function canEditSubmission(s) {

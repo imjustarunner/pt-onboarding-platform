@@ -1,3 +1,5 @@
+import { employeeTimeStatusLabel } from './employeeTimeStatus';
+
 /** Helpers for My Payroll hub panel (stats, action required, claim status pills). */
 
 const NEEDS_ACTION = new Set(['submitted', 'deferred', 'rejected', 'withdrawn']);
@@ -121,7 +123,7 @@ function pushAction(out, row, { type, title }) {
     type,
     title: title || row.name || type,
     status: row.status,
-    statusLabel: getClaimStatusLabel(row.status),
+    statusLabel: type === 'time_claims' ? employeeTimeStatusLabel(row) : getClaimStatusLabel(row.status),
     statusClass: getClaimStatusBadgeClass(row.status),
   });
 }

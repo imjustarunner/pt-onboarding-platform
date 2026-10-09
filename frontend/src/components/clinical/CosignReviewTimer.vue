@@ -4,7 +4,7 @@
   <p>Tracks active review of this provider’s note. Hidden windows and inactivity pause tracking. Your own notes are excluded.</p>
   <button type="button" @click="toggle" :disabled="!session || !!ended">{{ paused ? 'Resume timer' : 'Pause timer' }}</button>
   <p v-if="error" role="alert">{{ error }} Use Documentation review time to report work the timer missed.</p>
-  <p>Review and submit recorded time under Documentation oversight → Documentation review &amp; RPO time.</p>
+  <p>Review and confirm recorded time under Documentation oversight → Documentation review &amp; RPO time.</p>
  </aside>
 </template>
 <script setup>

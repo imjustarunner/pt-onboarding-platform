@@ -58,7 +58,7 @@
       <main class="pu-main">
         <div v-if="!recipient.previewOnly && recipient.id" class="pu-preview-notice" role="status">
           <strong>Paid review time: {{ Math.floor(session.activeSeconds.value / 60) }}m {{ session.activeSeconds.value % 60 }}s</strong>
-          <p>Time is saved while this update is visible and active, and pauses after five minutes without interaction. Completed time is submitted at your support activity rate. Need a time correction? Use Need help.</p>
+          <p>Time is saved while this update is visible and active, and pauses after five minutes without interaction. Completed time is recorded for payroll review at your support activity rate and is applied only after acceptance. Need a time correction? Use Need help.</p>
           <button v-if="session.paused.value" type="button" @click="session.activity">Time paused — continue reviewing</button>
           <p v-if="session.timeError.value">{{ session.timeError.value }}</p>
         </div>
@@ -339,7 +339,7 @@ async function finalize() {
     } else {
       await api.post('/provider-update/me/finalize', { agencyId: props.agencyId });
     }
-    success.value = 'Provider Update complete. Your recorded time has been submitted for payroll review at your support activity rate.';
+    success.value = 'Provider Update complete. Your time has been recorded and is awaiting payroll review at your support activity rate.';
     await load();
   } catch (e) {
     session.start(session.activeSeconds.value);
