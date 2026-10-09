@@ -1,3 +1,4 @@
+import {buildProviderUpdateInvitation} from '../../../frontend/src/navigation/providerUpdateInvitation.js';
 import {isCompensationAmendmentExempt,isCompensationUpdatePlan} from './compensationAmendmentExemption.service.js';
 import {missingFocusGroups} from '../../../frontend/src/navigation/providerFocus.js';
 import {buildQuickViewHomeUrl} from '../utils/publicPortalUrl.js';
@@ -17,7 +18,6 @@ import {
   normalizeSectionConfig,
   enabledSectionKeys,
   getSectionMeta,
-  PROVIDER_UPDATE_EMAIL_SUBJECT,
   PROVIDER_UPDATE_REPLY_TO,
   PROVIDER_UPDATE_SECTIONS
 } from '../constants/providerUpdateSections.js';
@@ -483,18 +483,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
     const link = buildProviderUpdatePublicUrl(recipient.token, orgSlug || agency?.portal_url || agency?.slug);
     if(prepareOnly){results.push({providerUserId:Number(p.provider_user_id),deliveryStatus:'link_prepared',link,token:recipient.token});continue;}
     const to = String(p.work_email || '').trim().toLowerCase();
-    const subject = PROVIDER_UPDATE_EMAIL_SUBJECT;
-    const text = [
-      `Hello ${p.first_name || 'there'},`,
-      '',
-      'Please complete your Provider Update. Your responses help keep scheduling, compliance, and school information current.',
-      '',
-      `Open your update: ${link}`,
-      '',
-      'Important: this message often lands in Junk or Spam. Please check Junk if you do not see it in Inbox.',
-      '',
-      '— People Operations'
-    ].join('\n');
+    const {subject, text, html} = buildProviderUpdateInvitation({firstName: p.first_name, agencyName: agency?.name || 'Your agency', link});
 
     let deliveryStatus = 'pending';
     let errorMessage = null;
@@ -528,10 +517,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
             to,
             subject,
             text,
-            html: `<pre style="font-family:inherit;white-space:pre-wrap;">${text
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')}</pre><p><a href="${link.replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" target="_blank" rel="noopener">Open your Provider Update</a></p>`,
+            html,
             source: 'auto',
             agencyId,
             userId: Number(p.provider_user_id),

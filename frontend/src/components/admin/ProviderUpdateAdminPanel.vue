@@ -6,11 +6,21 @@
         <p class="muted">Modular staff updates with toggleable sections, email from People Ops, time tracking, and payroll submit.</p>
       </div>
       <div class="head-actions">
+        <button type="button" class="btn" @click="invitationPreviewOpen = true">Preview invitation email</button>
+        <router-link class="btn" :to="adminUpdateEditorTo">Edit Admin Update · photos &amp; videos</router-link>
         <button type="button" class="btn" @click="tab = 'handbook'">Handbook Updates</button>
         <button type="button" class="btn primary" @click="startCompose">New push</button>
       </div>
     </header>
 
+    <div v-if="invitationPreviewOpen" class="full-modal" @click.self="invitationPreviewOpen = false">
+      <div class="panel" style="width:min(800px,96vw);max-height:92vh;overflow:auto" role="dialog" aria-modal="true" aria-label="Provider Update invitation email">
+        <button type="button" class="btn" @click="invitationPreviewOpen = false">Close email preview</button>
+        <p><strong>Subject:</strong> {{ invitationPreview.subject }}</p>
+        <p class="muted">Sample greeting and link. Each recipient receives their own update link. Nothing is sent from this preview.</p>
+        <iframe title="Provider Update invitation email preview" sandbox="" :srcdoc="invitationPreview.html" style="width:100%;height:680px;border:0" />
+      </div>
+    </div>
     <nav class="tabs">
       <button type="button" :class="{ active: tab === 'pushes' }" @click="tab = 'pushes'">Past pushes</button>
       <button type="button" :class="{ active: tab === 'compose' }" @click="tab = 'compose'">Compose</button>
@@ -381,6 +391,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import {buildProviderUpdateInvitation} from '../../navigation/providerUpdateInvitation.js';
 import { useRoute } from 'vue-router';
 import { useAuthStore } from '../../store/auth';
 import { PROVIDER_UPDATE_SECTIONS, PROVIDER_UPDATE_PAGES, defaultSectionConfig } from '../../utils/providerUpdate';
@@ -398,6 +409,9 @@ const props = defineProps({
 const authStore = useAuthStore();
 const canManageCompensation = computed(() => ['admin','super_admin','superadmin'].includes(String(authStore.user?.role || '').toLowerCase()));
 const route = useRoute();
+const invitationPreviewOpen = ref(route.query.preview === 'email');
+const invitationPreview = computed(() => buildProviderUpdateInvitation({firstName: 'Aunya', agencyName: props.agencyName || 'Your agency', link: '[Your personalized update link]'}));
+const adminUpdateEditorTo = computed(() => ({path: `${props.organizationSlug ? '/' + props.organizationSlug : ''}/admin/communications`, query: {mode: 'admin-update', ...(draft.attachedAdminUpdateId ? {updateId: String(draft.attachedAdminUpdateId)} : {})}}));
 const tab = ref(['handbook', 'compensation'].includes(route.query.tab) ? route.query.tab : 'pushes');
 const catalog = PROVIDER_UPDATE_SECTIONS;
 const pageCatalog = PROVIDER_UPDATE_PAGES.map((p) => ({

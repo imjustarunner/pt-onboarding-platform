@@ -3,7 +3,7 @@
     <div class="cc-mode-intro split">
       <div>
         <h2>Admin Update</h2>
-        <p>Compose the monthly Admin Update here. Staff get a short branded email with a “Click here for this Admin Update” button. That link asks them to sign in if needed, then lands on this published page in the app — the same page the splash opens. Clicks, scroll, and time spent are tracked there.</p>
+        <p>Edit your Admin Update here, including links, photos, and training videos in each section. When attached to a Provider Update, staff read it inside their personalized update. The separate newsletter preview and sending controls below are for standalone Admin Updates.</p>
       </div>
       <div class="cc-intro-actions">
         <button type="button" class="cc-btn outline" @click="$emit('go-home')">← Center Home</button>
@@ -379,6 +379,7 @@ import {connectAdminUpdateFrame,adminUpdateFrameHtml} from '../../utils/adminUpd
 import TrainingMediaAttachment from '../admin/TrainingMediaAttachment.vue';
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../../services/api';
+import {useRoute, useRouter} from 'vue-router';
 import BrandingLogo from '../BrandingLogo.vue';
 import { useAgencyStore } from '../../store/agency';
 import { useAuthStore } from '../../store/auth';
@@ -390,6 +391,8 @@ defineProps({
 });
 defineEmits(['go-home']);
 
+const route = useRoute();
+const router = useRouter();
 const agencyStore = useAgencyStore();
 const authStore = useAuthStore();
 
@@ -554,6 +557,9 @@ async function openDraft(id) {
   try {
     const res = await api.get(`${base()}/${id}`, { skipGlobalLoading: true });
     draft.value = res.data;
+    if (String(route.query.updateId || '') !== String(id)) {
+      router.replace({query: {...route.query, mode: 'admin-update', updateId: String(id)}}).catch(() => {});
+    }
     scheduleLocal.value = toLocalInput(res.data.scheduled_at);
     publicViewUrl.value = '';
     activity.value = null;
@@ -767,11 +773,26 @@ async function removeDraft() {
   }
 }
 
+async function openRequestedDraft() {
+  const requestedId = Number(route.query.updateId);
+  if (requestedId > 0) {
+    if (!drafts.value.some(row => Number(row.id) === requestedId)) {
+      error.value = 'This Admin Update is not available in the selected agency. Select its agency to open the editor.';
+      return;
+    }
+    await openDraft(requestedId);
+  } else if (drafts.value[0]) await openDraft(drafts.value[0].id);
+}
+
+watch(() => route.query.updateId, () => {
+  if (String(route.query.updateId || '') !== String(draft.value?.id || '')) void openRequestedDraft();
+});
+
 onMounted(async () => {
   try {
     loading.value = true;
     await loadList();
-    if (drafts.value[0]) await openDraft(drafts.value[0].id);
+    await openRequestedDraft();
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load Admin Updates';
   } finally {
@@ -782,7 +803,7 @@ onMounted(async () => {
 watch(agencyId, async () => {
   draft.value = null;
   await loadList();
-  if (drafts.value[0]) await openDraft(drafts.value[0].id);
+  await openRequestedDraft();
 });
 </script>
 

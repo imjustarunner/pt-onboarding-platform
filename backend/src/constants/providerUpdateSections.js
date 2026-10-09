@@ -289,7 +289,7 @@ export const PROVIDER_UPDATE_PAGES = [
 
 export const PROVIDER_UPDATE_SECTION_KEYS = PROVIDER_UPDATE_SECTIONS.map((s) => s.key);
 
-export const PROVIDER_UPDATE_EMAIL_SUBJECT = 'Provider Update : Response Needed';
+export {PROVIDER_UPDATE_EMAIL_SUBJECT} from '../../../frontend/src/navigation/providerUpdateInvitation.js';
 export const PROVIDER_UPDATE_FROM_HINT = 'po@itsco.health';
 export const PROVIDER_UPDATE_REPLY_TO = 'technology@itsco.health';
 
