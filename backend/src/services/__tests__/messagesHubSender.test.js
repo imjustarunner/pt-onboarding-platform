@@ -49,3 +49,19 @@ it('reports email-load failures instead of returning an empty unread inbox', asy
   mocks.list.mockRejectedValueOnce(Object.assign(new Error('Database unavailable'), { code: 'ECONNRESET' }));
   await expect(listHubConversationFeed({ agencyId: 2, userId: 1, channel: 'email', mode: 'unread' })).rejects.toMatchObject({ status: 503 });
 });
+
+it('queries both calls and voicemails before pagination and retains them in the Calls tab', async () => {
+  mocks.list.mockResolvedValue([
+    { id: 5, channel: 'call', is_unread: true, subject: 'Missed call' },
+    { id: 6, channel: 'voicemail', is_unread: true, subject: 'Voicemail' }
+  ]);
+  const feed = await listHubConversationFeed({ agencyId: 2, userId: 1, channel: 'calls', mode: 'unread' });
+  expect(mocks.list).toHaveBeenCalledWith(expect.objectContaining({ channel: 'call', filter: 'unread', scopeToUserId: 1 }));
+  expect(feed.items.map(item => item.channel)).toEqual(['call', 'voicemail']);
+  expect(feed.counts.unread).toBe(2);
+});
+
+it.each(['sms', 'calls'])('reports %s loading failures instead of saying no saved conversations', async channel => {
+  mocks.list.mockRejectedValueOnce(new Error('Database unavailable'));
+  await expect(listHubConversationFeed({ agencyId: 2, userId: 1, channel })).rejects.toMatchObject({ status: 503 });
+});

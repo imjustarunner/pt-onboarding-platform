@@ -371,7 +371,7 @@ function buildMethods({
   }
 
   const smsReason = !HUB_SMS_PLATFORM_READY
-    ? 'Soon'
+    ? 'Provider texting is awaiting activation by your administrator'
     : smsAvailable
       ? 'SMS to their phone'
       : !hasPhone
@@ -3986,7 +3986,7 @@ export async function listHubConversationFeed({
     const emailRows = await CommunicationConversation.list({
       agencyId: aid,
       filter: unreadOnly ? 'unread' : 'all',
-      channel: ['email','sms'].includes(channelFilter) ? channelFilter : null,
+      channel: channelFilter === 'calls' ? 'call' : ['email','sms'].includes(channelFilter) ? channelFilter : null,
       userId: uid,
       scopeToUserId: uid,
       limit: lim,
@@ -4085,8 +4085,8 @@ export async function listHubConversationFeed({
     }
   } catch (e) {
     console.warn('[listHubConversationFeed] email:', e?.code || 'load_failed');
-    if (['all', 'email', 'sms'].includes(channelFilter)) {
-      const failure = new Error('Could not load your email. Please try Refresh.');
+    if (['all', 'email', 'sms', 'calls'].includes(channelFilter)) {
+      const failure = new Error('Could not load your conversations. Please try Refresh.');
       failure.status = 503;
       throw failure;
     }
@@ -4322,7 +4322,8 @@ export async function listHubConversationFeed({
     return sortNewest ? tb - ta : ta - tb;
   });
 
-  const sliced = collapsed.filter(item => channelFilter === 'all' || item.channel === channelFilter).slice(0, lim);
+  const sliced = collapsed.filter(item => channelFilter === 'all'
+    || (channelFilter === 'calls' ? ['call', 'voicemail'].includes(item.channel) : item.channel === channelFilter)).slice(0, lim);
   const emailCount = sliced.filter((i) => i.kind === 'email' || i.channel === 'email').length;
   const smsCount = sliced.filter((i) => i.channel === 'sms').length;
   const chatCount = sliced.filter((i) =>

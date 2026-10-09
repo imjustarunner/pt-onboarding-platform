@@ -39,15 +39,19 @@
           # Channels
         </button>
         <button type="button" class="btn btn-secondary" @click="openGroupPicker">Group chat</button>
-        <button type="button" class="btn btn-primary" @click="openNewConversation()" :disabled="channelComingSoon" :title="newMessageLabel">
+        <button type="button" class="btn btn-primary" @click="openNewConversation()" :disabled="channelNeedsActivation" :title="channelActivationMessage || newMessageLabel">
           + {{ newMessageLabel }}
         </button>
       </div>
     </header>
 
     <div class="email-channel-filters" role="group" aria-label="Filter conversations by channel">
-      <button v-for="channel in inboxChannels" :key="channel.id" type="button" :aria-pressed="inboxChannel === channel.id" @click="selectInboxChannel(channel.id)"><ConversaIcon :type="channel.id" :size="16" />{{ channel.label }}</button>
+      <button v-for="channel in inboxChannels" :key="channel.id" type="button" :data-channel="channel.id" :aria-pressed="inboxChannel === channel.id" @click="selectInboxChannel(channel.id)">
+        <ConversaIcon :type="channel.id" :size="16" />{{ channel.label }}
+        <span v-if="channelUnreadCount(channel.id)" class="msg-hub-channel-count" :aria-label="`${channelUnreadCount(channel.id)} unread conversations`">{{ channelUnreadCount(channel.id) }}</span>
+      </button>
     </div>
+    <div v-if="channelActivationMessage" class="msg-hub-channel-status" role="status">{{ channelActivationMessage }}</div>
     <div v-if="['channel', 'group'].includes(inboxChannel)" class="msg-hub-group-help">
       <span>Messages go to the members of the selected channel or group.</span>
       <button v-if="inboxChannel === 'channel'" type="button" class="btn btn-secondary btn-sm" @click="openTeamChat('channels')">Browse # channels</button>
@@ -390,7 +394,7 @@
               v-if="navSection !== 'tools'"
               type="button"
               class="btn btn-primary"
-              @click="openNewConversation()" :disabled="channelComingSoon" :title="newMessageLabel"
+              @click="openNewConversation()" :disabled="channelNeedsActivation" :title="channelActivationMessage || newMessageLabel"
             >
               + {{ newMessageLabel }}
             </button>
@@ -1230,7 +1234,7 @@
             <p>
               Browse your clients by name or school, open someone recent, or search by name, email, or phone.
             </p>
-            <button type="button" class="btn btn-primary" @click="openNewConversation()" :disabled="channelComingSoon" :title="newMessageLabel">
+            <button type="button" class="btn btn-primary" @click="openNewConversation()" :disabled="channelNeedsActivation" :title="channelActivationMessage || newMessageLabel">
               + {{ newMessageLabel }}
             </button>
           </div>
@@ -1397,7 +1401,7 @@
               <ul class="msg-hub-methods">
                 <li v-for="m in methodButtons" :key="m.id" :class="{ off: !m.available }">
                   <strong>{{ methodLabel(m.id) }}</strong>
-                  <span>{{ m.available ? (m.recommended ? 'Recommended' : 'Available') : (m.id === 'sms' ? 'Soon' : (m.reason || 'Not available yet')) }}</span>
+                  <span>{{ m.available ? (m.recommended ? 'Recommended' : 'Available') : (m.reason || 'Not available yet') }}</span>
                 </li>
               </ul>
               <button
@@ -1600,9 +1604,13 @@ import HubEmailBodyEditor from './HubEmailBodyEditor.vue';
 
 const inboxChannel = ref('all');
 const newConversationChannel = ref('all');
-const newMessageLabel = computed(() => ({email:'New email',internal:'New internal message',secure:'New secure message',sms:'New SMS · Coming soon',calls:'Calls / Voicemails · Coming soon',group:'New group'})[inboxChannel.value] || 'New conversation');
-const channelComingSoon = computed(() => ['sms','calls'].includes(inboxChannel.value));
-const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS · Coming soon'},{id:'calls',label:'Calls / Voicemails · Coming soon'},{id:'channel',label:'Channels'},{id:'group',label:'Groups'}];
+const newMessageLabel = computed(() => ({email:'New email',internal:'New internal message',secure:'New secure message',sms:'New SMS',calls:'Calls / Voicemails',group:'New group'})[inboxChannel.value] || 'New conversation');
+const channelNeedsActivation = computed(() => ['sms','calls'].includes(inboxChannel.value));
+const channelActivationMessage = computed(() => ({
+  sms: 'Provider texting is awaiting activation. You can read saved texts here. Contact your administrator to enable the agency’s provider texting line.',
+  calls: 'Calling and voicemail capture are not connected yet. Saved conversation records remain available here.'
+})[inboxChannel.value] || '');
+const inboxChannels = [{id:'all',label:'All'},{id:'email',label:'Email'},{id:'internal',label:'Internal'},{id:'secure',label:'Secure'},{id:'sms',label:'SMS'},{id:'calls',label:'Calls / Voicemails'},{id:'channel',label:'Channels'},{id:'group',label:'Groups'}];
 const readerSmsText=ref('');
 async function replyReaderSms(){const cid=conversationPreview.value?.conversation?.id;if(!cid||sending.value)return;sending.value=true;try{await api.post(`/communications/conversations/${cid}/reply`,{text:readerSmsText.value,mode:'reply'},{skipGlobalLoading:true});readerSmsText.value='';await refreshMail();}catch(e){error.value=e.response?.data?.error?.message||'Could not send text';}finally{sending.value=false;}}
 const refreshing = ref(false), loadingEmailHistory = ref(false), hoverEmail = ref(null);
@@ -2103,7 +2111,7 @@ const filteredPeople = computed(() => {
 const filteredConversations = computed(() => {
   let list = [...(conversations.value || [])];
   const q = listSearch.value.trim().toLowerCase();
-  if (inboxChannel.value !== 'all') list = list.filter(c => c.channel === inboxChannel.value);
+  if (inboxChannel.value !== 'all') list = list.filter(c => inboxChannel.value === 'calls' ? ['call', 'voicemail'].includes(c.channel) : c.channel === inboxChannel.value);
   if (!q || emailSearchEnabled.value) return list;
   return list.filter((c) => {
     const hay = `${conversationThreadTitle(c)} ${c.primary_participant_name || ''} ${c.primary_participant_email || ''} ${c.subject || ''} ${c.last_message_preview || ''} ${c.hubChannelLabel || ''}`.toLowerCase();
@@ -2112,7 +2120,6 @@ const filteredConversations = computed(() => {
 });
 
 const emptyListCopy = computed(() => {
-  if (channelComingSoon.value) return inboxChannel.value === 'calls' ? 'Calls and voicemails are coming soon.' : 'SMS is coming soon.';
   if (navSection.value === 'tools' && navId.value === 'calls') {
     return 'Calls and voicemail in Communications management.';
   }
@@ -2218,7 +2225,7 @@ const talkingToGuardian = computed(() => {
 
 function methodUnavailableShort(ch) {
   if (!ch || ch.available) return '';
-  if (ch.id === 'sms') return 'Soon';
+  if (ch.id === 'sms') return 'Not activated';
   if (ch.id === 'secure') return 'Unavailable';
   return 'Unavailable';
 }
@@ -3810,7 +3817,6 @@ async function loadConversations({ quiet = false, append = false } = {}) {
       conversations.value = [];
       return;
     }
-    if (channelComingSoon.value) { conversations.value = []; hasMoreEmailResults.value = false; return; }
     const id = navId.value;
     if (id === 'needs_attention') {
       const {data} = await api.get('/communications/drafts/attention', {params:{agencyId:agencyId.value},signal:controller.signal});
@@ -3876,7 +3882,7 @@ async function loadConversations({ quiet = false, append = false } = {}) {
       return;
     }
 
-    const params = { agencyId: agencyId.value, limit: 80, hubScope: 1, channel: inboxChannel.value };
+    const params = { agencyId: agencyId.value, limit: 80, hubScope: 1, channel: inboxChannel.value === 'calls' ? 'call' : inboxChannel.value };
     if (id === 'mentions') {
       params.channel = 'mention';
       params.filter = 'all';
@@ -3937,13 +3943,20 @@ function inboxBadgeCount(id) {
   if (id === 'drafts') return emailWorkspace.value?.draftCount || 0;
   if (id === 'needs_attention') return emailWorkspace.value?.attentionCount || 0;
   if (id === 'unread') {
-    const counts = inboxCounts.value.unreadByChannel;
-    return inboxChannel.value !== 'all' && counts ? Number(counts[inboxChannel.value] || 0) : Number(inboxCounts.value.unread || 0);
+    return channelUnreadCount(inboxChannel.value);
   }
   if (id === 'snoozed') return inboxCounts.value.snoozed > 0 ? inboxCounts.value.snoozed : 0;
   if (id === 'unknown') return inboxCounts.value.unknown > 0 ? inboxCounts.value.unknown : 0;
   if (id === 'queued') return inboxCounts.value.queued > 0 ? inboxCounts.value.queued : 0;
   return 0;
+}
+
+function channelUnreadCount(channel) {
+  const count = value => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0;
+  if (channel === 'all') return count(inboxCounts.value.unread);
+  const counts = inboxCounts.value.unreadByChannel || {};
+  if (channel === 'calls') return count(counts.call) + count(counts.voicemail);
+  return count(counts[channel]);
 }
 
 const isUnknownConversation = computed(() => {
@@ -6854,6 +6867,29 @@ watch([composeBody, composeSubject, composeCc, composeBcc, sendMethod, () => sel
   align-items: center;
   justify-content: center;
   line-height: 1;
+}
+.msg-hub-channel-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 2px 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--mh-primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+.email-channel-filters button[aria-pressed=true] .msg-hub-channel-count {
+  background: #fff;
+  color: var(--mh-primary);
+}
+.msg-hub-channel-status {
+  padding: 8px 16px;
+  color: var(--text-secondary);
+  font-size: 14px;
 }
 .msg-hub-row-actions {
   display: flex;

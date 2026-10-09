@@ -1,4 +1,62 @@
-## Current compliance check — October 7, 2026
+## Current scope and carrier check — October 8, 2026
+
+The immediate priority is **two-way provider/parent texting** in Messages. Parents
+text the agency's care number; authorized providers read and reply in the app.
+This does not depend on automated appointment reminders. Appointment announcements,
+balance announcements and automated appointment actions are paused in this work.
+Keep recordings and transcripts out of outbound text/email notifications.
+
+The owner clarified ITSCO's arrangement as **three separate 719 numbers**:
+
+| Campaign | Number | Purpose |
+| --- | --- | --- |
+| Campaign 1 — Service Communications | Main line | Calls and existing extensions. Keep the Grasshopper public number in place until a tested port is explicitly scheduled. |
+| Campaign 1 — Service Communications | Separate care line | One-to-one provider/client texts, received and answered in the app. |
+| Campaign 2 — Staff Notifications and Voting | Separate notification line | App notifications and staff polls; no provider/client conversation content. |
+
+Use temporary 719 numbers for the first two roles and a permanent 719 notification
+number. Reuse the already owned **719-716-3661** for one appropriate role after
+registration; its final role has not been changed by this update. Campaign linkage
+authorizes SMS use; it does not configure calling, extensions or forwarding.
+
+Read-only Vonage inventory verified **October 8, 8:34 PM America/Denver**:
+
+| Organization | Service campaign | Staff notifications / polling campaign |
+| --- | --- | --- |
+| ITSCO | `VCV2DNM4`, ACTIVE, Account Notification + Customer Care | `VCSVZ9AN`, ACTIVE, Account Notification + Polling/Voting |
+| Next Level Up | `VC23QD14`, ACTIVE, Account Notification + Customer Care | None found; polling is not included in the existing campaign |
+| Inner Strength | `VCA596DN`, PENDING_REVIEW, Account Notification + Customer Care | None found; polling is not included in the pending campaign |
+
+All four non-terminated campaigns have **zero linked numbers**. Next Level Up and
+Inner Strength need a separate Staff Notifications and Voting campaign if adopting
+ITSCO's separation. Submit Account Notification + Polling/Voting with each
+organization's own program description, signed opt-in flow and published policies.
+Do not treat the presence of Account Notification as approval for polling.
+
+### What still enables real one-to-one texting
+
+1. Have Vonage confirm the BAA and healthcare feature for the exact account and
+   SMS API transport used here (`vonage.sms.send`), plus the required retention
+   and webhook settings. The last HIPAA number-link attempt returned the 403
+   below; the inventory check does not establish that this account hold is lifted.
+2. Link the chosen care number to that organization's service campaign with the
+   required healthcare designation, and verify `LINKED` at Vonage. Correct the
+   ITSCO HELP and opt-in example placeholders during this review.
+3. Record the verified registration in Texting Numbers, configure signed inbound
+   and delivery-status callbacks, assign the shared care number, and review the
+   recipient's signed care-texting choice. Parent-initiated disclosure and the
+   practice/vendor's responsibilities for handling received messages are separate.
+4. Complete the Hub sending rollout: its new-send control is still gated. Test
+   parent-to-provider receipt, provider replies, staff identity/agency labeling,
+   shared-family routing, STOP/HELP, delivery failures and availability behavior
+   with consenting staff and fictional records before patient use.
+
+No numbers were bought, linked, repurposed or activated in this change. No texts,
+calls or campaign submissions were made. SMS and Calls tabs now display unread
+badges and load stored conversations even while new sending/capture awaits
+activation; the old “Coming soon” shortcut had hidden stored records in those tabs.
+
+## Prior compliance check — October 7, 2026
 
 Read [the non-compliance audit](docs/VONAGE_10DLC_NONCOMPLIANCE_AUDIT.md) before activation. Three ACTIVE campaigns have zero linked numbers (ITSCO service, ITSCO staff/voting, NextLevelUp service); Inner Strength is pending review. ITSCO's submitted HELP and opt-in fields contain leftover example text, including an incorrect email and a truncated opt-out instruction. The audit has full replacement wording. The healthcare account hold remains in place.
 
@@ -62,14 +120,15 @@ organization (or a current super administrator) can read or save its workflow.
 Private forwarding destinations are encrypted in `agency_phone_workflows`, not
 stored in public branding flags. Migration: `1553_agency_phone_workflows.sql`.
 
-### Two-number arrangement: public organization line and shared care line
+### Keep the main line, care line and notification line separate
 
-Use **two distinct phone numbers** for ITSCO:
+Use **three distinct phone numbers** for ITSCO, following the campaign mapping above:
 
 | Line | SMS purpose in Texting Numbers | Intended handling |
 | --- | --- | --- |
 | Public main number | Public main line (organization calls/texts), `tenant_contact` | People contacting ITSCO reach support for general questions, scheduling, and billing. Texts enter agency support review. Calls will use the 0–9 menu when voice is connected. |
 | Shared provider/client care number | Provider/client care line (inbox), `clinical_care` | Select this under Shared provider/client care number. Client assignments determine the care team; unassigned and unfamiliar senders go to support review. Providers can share this line. |
+| App notifications and polling | Notification / reminders, `notification` | Separate campaign 2 number for app alerts and staff polling. Recipient choices and the registered purpose control delivery. |
 
 “Contact staff” (`provider_contact`) is not the purpose for client care conversations.
 The setup screen shows the current saved public SMS numbers and selected shared

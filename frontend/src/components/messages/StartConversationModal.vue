@@ -203,10 +203,10 @@
                   <small>New external contact</small>
                 </span>
               </button>
-              <button v-if="channel !== 'email'" type="button" class="scm-external-card" disabled title="SMS is coming soon">
+              <button v-if="channel !== 'email'" type="button" class="scm-external-card" disabled title="Provider texting is awaiting activation by your administrator">
                 <span class="scm-ext-icon" aria-hidden="true">☎</span>
                 <span>
-                  <strong>SMS · Coming soon</strong>
+                  <strong>SMS · Awaiting activation</strong>
                   <em>{{ externalHint?.channel === 'sms' ? externalHint.value : 'new number…' }}</em>
                   <small>New external contact</small>
                 </span>

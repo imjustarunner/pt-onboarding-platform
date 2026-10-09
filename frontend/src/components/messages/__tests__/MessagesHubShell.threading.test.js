@@ -327,6 +327,43 @@ describe('reading layout and unread navigation', () => {
     state.inboxChannel = 'all';
     expect(state.inboxBadgeCount('unread')).toBe(6);
   });
+  it('shows every channel’s unread badge independently of the open folder and loaded page', async () => {
+    state.inboxChannel = 'email';
+    state.conversations = [];
+    api.get.mockResolvedValue({ data: { summary: { unread: 14,
+      unreadByChannel: { email: 3, internal: 2, secure: 1, sms: 2, channel: 1, group: 2, call: 1, voicemail: 2 }
+    } } });
+    await state.loadInboxCounts();
+    await nextTick();
+    for (const [channel, count] of Object.entries({ all: 14, email: 3, internal: 2, secure: 1, sms: 2, calls: 3, channel: 1, group: 2 })) {
+      const badge = wrapper.find(`[data-channel="${channel}"] .msg-hub-channel-count`);
+      expect(badge.text()).toBe(String(count));
+      expect(badge.attributes('aria-label')).toBe(`${count} unread conversations`);
+    }
+    state.inboxChannel = 'calls';
+    expect(state.inboxBadgeCount('unread')).toBe(3);
+    api.get.mockResolvedValue({ data: { summary: { unread: 11,
+      unreadByChannel: { internal: 2, secure: 1, sms: 2, channel: 1, group: 2, call: 1, voicemail: 2 }
+    } } });
+    await state.loadInboxCounts();
+    await nextTick();
+    expect(wrapper.find('[data-channel="email"] .msg-hub-channel-count').exists()).toBe(false);
+    expect(wrapper.find('[data-channel="all"] .msg-hub-channel-count').text()).toBe('11');
+  });
+  it.each(['sms', 'calls'])('loads stored %s conversations even while new sends await activation', async channel => {
+    state.selected = null; state.inboxChannel = channel; state.navId = 'unread';
+    const storedChannel = channel === 'calls' ? 'voicemail' : 'sms';
+    api.get.mockImplementation(async url => ({ data: url === '/messages/hub/unread'
+      ? { items: [{ id: 90, conversationId: 90, channel: storedChannel, displayName: 'Saved conversation', is_unread: true }] }
+      : {} }));
+    await state.loadConversations();
+    await nextTick();
+    expect(api.get).toHaveBeenCalledWith('/messages/hub/unread', expect.objectContaining({ params: expect.objectContaining({ channel }) }));
+    expect(state.filteredConversations).toHaveLength(1);
+    expect(wrapper.text()).toContain('Saved conversation');
+    expect(wrapper.text()).not.toContain('Coming soon');
+    expect(wrapper.find('.msg-hub-head-actions .btn-primary').element.disabled).toBe(true);
+  });
   it('offers a route to unread messages in other channels instead of saying caught up', async () => {
     state.selected = null; state.navId = 'unread'; state.inboxChannel = 'email'; state.conversations = [];
     state.inboxCounts = { unread: 3, unreadByChannel: { internal: 3, email: 0 } };
