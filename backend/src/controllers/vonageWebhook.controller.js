@@ -1,3 +1,4 @@
+import { handleStaffSmsAssistant } from '../services/staffSmsAssistant.service.js';
 import { sendConversationStartNotice } from '../services/smsCommunicationNotice.service.js';
 import { offerOutOfOfficeSupport, handleOutOfOfficeSupportReply } from '../services/smsOutOfOffice.service.js';
 import { inspectInboundReception, enqueueCommunicationReview } from '../services/communicationReview.service.js';
@@ -166,6 +167,8 @@ export const inboundSmsWebhook = async (req, res, next) => {
     })) return res.status(200).json({ ok: true, supportChoice: true });
 
 
+
+    if (await handleStaffSmsAssistant({from:fromNorm,to:toNorm,body,messageId})) return res.status(200).json({ok:true,staffAssistant:true});
 
     const companyEventHandled = await handleCompanyEventInbound({ from: fromNorm, to: toNorm, body });
     if (companyEventHandled?.handled) {

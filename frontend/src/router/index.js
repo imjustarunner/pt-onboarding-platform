@@ -359,6 +359,7 @@ const routes = [
   { path: '/email-compose', name: 'EmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { requiresAuth: true, hideNav: true } },
   { path: '/quick-view/email-compose', name: 'QuickViewEmailComposer', component: () => import('../views/EmailComposerView.vue'), meta: { publicQuickView: true, hideNav: true } },
   ...['itsco','nlu','ptco','tisi','rise','mh4kidz','range','kimi'].map(slug=>({path:`/p/${slug}/referral-network`,name:`ReferralNetwork-${slug}`,component:()=>import('../views/public/PublicReferralNetworkView.vue'),props:{slug},meta:{requiresGuest:false,publicMarketingHub:true}})),
+  {path:'/staff-text-assistant/:requestId',name:'StaffTextAssistant',component:()=>import('../views/StaffTextAssistantView.vue'),meta:{requiresAuth:true}},
   {path:'/community-standards',name:'CommunityStandards',component:()=>import('../views/public/CommunityStandardsView.vue'),meta:{requiresGuest:false}},
   ...['itsco','nlu','kimi','ptco','rise','range','mh4kidz','tisi'].flatMap(slug=>[
     {path:`/p/${slug}/community-standards`,name:`CommunityStandards-${slug}`,component:()=>import('../views/public/CommunityStandardsView.vue'),meta:{requiresGuest:false}},

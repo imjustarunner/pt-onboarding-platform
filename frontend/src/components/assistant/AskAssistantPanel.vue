@@ -2021,7 +2021,8 @@ watch(
       textareaRef.value?.focus?.();
       autoGrow();
     });
-  }
+  },
+  { immediate: true }
 );
 
 watch(

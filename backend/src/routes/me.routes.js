@@ -1,3 +1,4 @@
+import {getStaffSmsRequest} from '../services/staffSmsAssistant.service.js';
 import { listMyCommunicationChoices, saveMyCommunicationChoices, listMyCommunicationAgreementsController, downloadMyCommunicationAgreement } from '../controllers/staffCommunicationChoices.controller.js';
 import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
@@ -41,6 +42,7 @@ import {
 } from '../controllers/clubEmployerShare.controller.js';
 
 const router = express.Router();
+router.get('/sms-assistant-requests/:id',authenticate,async(req,res,next)=>{try{res.set('Cache-Control','no-store');res.json(await getStaffSmsRequest(req.user,req.params.id));}catch(e){next(e);}});
 router.get('/communication-agreements', authenticate, listMyCommunicationAgreementsController);
 router.get('/communication-agreements/:reference/download', authenticate, downloadMyCommunicationAgreement);
 router.get('/communication-choices', authenticate, listMyCommunicationChoices);

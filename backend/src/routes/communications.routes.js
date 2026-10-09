@@ -1,3 +1,4 @@
+import {getCallBilling,listCallBilling,putCallBilling} from '../controllers/callBillingReview.controller.js';
 import {conversationFilingChoices,fileExistingConversation} from '../services/clientConversationRecord.service.js';
 import { reactToHubMessage } from '../services/hubMessageReactions.service.js';
 import emailDraftRoutes from './emailDraft.routes.js';
@@ -120,6 +121,9 @@ router.post('/conversations/:id/spam', postMarkSpam);
 router.post('/test-email', sendSystemTestEmail);
 router.post('/test-email/preflight', getSystemTestEmailPreflight);
 router.get('/calls', getCallsFeed);
+router.get('/call-billing', listCallBilling);
+router.get('/calls/:callLogId/billing-review', getCallBilling);
+router.put('/calls/:callLogId/billing-review', putCallBilling);
 router.get('/calls/analytics', getCallsAnalytics);
 router.get('/calls/settings', getCallSettings);
 router.put('/calls/settings', updateCallSettings);

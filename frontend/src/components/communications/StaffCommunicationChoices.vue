@@ -13,7 +13,8 @@
       <p v-if="data.reviewedAt">Last reviewed: {{ new Date(data.reviewedAt).toLocaleString() }}</p>
       <p v-if="data.needsReview && data.reviewedAt">Your program details or profile phone changed. Review and save your choices again.</p>
       <fieldset :disabled="readonly || busy || saving">
-        <h3>Client texting and forwarding requests</h3>
+        <section v-if="data.disclosure.assistant" class="agreement" aria-label="Staff text assistant"><h3>Text your app assistant · {{ data.disclosure.assistant.displayNumber }}</h3><p>{{ data.disclosure.assistant.text }}</p><details><summary>Examples you can start by text</summary><ul><li v-for="example in data.disclosure.assistant.examples" :key="example">{{ example }}</li></ul></details><p>Current release: MENU instructions and a secure handoff to the app assistant. Answers depend on the information and tools available in your account; this is not unrestricted SMS access to client records.</p></section>
+        <h3>Text assistant, client texting and forwarding requests</h3>
         <p>These requests are separate from texts to your personal phone. Choosing No does not remove any existing app access.</p>
         <fieldset v-for="requestChoice in data.disclosure.accessRequests" :key="requestChoice.key" class="choice" data-testid="access-request">
           <legend>{{ requestChoice.label }}</legend><p>{{ requestChoice.description }}</p>
@@ -59,7 +60,7 @@ const props=defineProps({agencyId:{type:[Number,String],default:null},initial:{t
 const emit=defineEmits(['save','saved']);
 const root=ref(null),arrivalEmail=ref(null),exchangeEmail=ref(null);
 const id=useId(),agencies=ref([]),selectedAgency=ref(props.agencyId||''),data=ref(null),choices=ref({}),accessRequests=ref({}),phone=ref(''),signerName=ref(''),acknowledged=ref(false),usageAcknowledged=ref(false),loading=ref(false),saving=ref(false),error=ref(''),notice=ref('');let request=0;
-function apply(value){data.value=value;choices.value=Object.fromEntries(value.disclosure.choices.map(c=>[c.key,(value.answeredChoices||[]).includes(c.key)?value.choices[c.key]:null]));accessRequests.value=value.reviewedAt?{...value.accessRequests}:{inAppTexting:null,personalSmsRelay:null};arrivalEmail.value=value.arrivalEmail??null;exchangeEmail.value=value.exchangeEmail??null;phone.value=value.phone||'';acknowledged.value=false;usageAcknowledged.value=false;signerName.value='';}
+function apply(value){data.value=value;choices.value=Object.fromEntries(value.disclosure.choices.map(c=>[c.key,(value.answeredChoices||[]).includes(c.key)?value.choices[c.key]:null]));accessRequests.value=Object.fromEntries(value.disclosure.accessRequests.map(c=>[c.key,typeof value.accessRequests?.[c.key]==='boolean'&&value.reviewedAt?value.accessRequests[c.key]:null]));arrivalEmail.value=value.arrivalEmail??null;exchangeEmail.value=value.exchangeEmail??null;phone.value=value.phone||'';acknowledged.value=false;usageAcknowledged.value=false;signerName.value='';}
 watch(()=>props.initial,value=>{if(value)apply(value)},{immediate:true});
 watch(()=>props.agencyId,value=>{if(value)selectedAgency.value=value});
 async function load(){if(props.externalSave||props.initial)return;const current=++request;data.value=null;notice.value='';error.value='';if(!selectedAgency.value){loading.value=false;return;}loading.value=true;try{const r=await api.get('/me/communication-choices',{params:{agencyId:selectedAgency.value}});if(current===request)apply(r.data);}catch(e){if(current===request)error.value=e.response?.data?.error?.message||'Unable to load your choices.';}finally{if(current===request)loading.value=false;}}

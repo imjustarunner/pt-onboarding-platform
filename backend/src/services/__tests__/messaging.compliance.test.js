@@ -2,7 +2,7 @@ import {phoneFingerprint} from '../../utils/staffCommunicationChoices.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../../config/database.js', () => ({ default: { execute: vi.fn(), getConnection: vi.fn() } }));
 import pool from '../../config/database.js';
-import { prepareSmsDelivery, processSmsKeyword, recordInboundConversation } from '../smsCompliance.service.js';
+import { prepareSmsDelivery, processSmsKeyword, recordInboundConversation, staffAssistantReplyCapability } from '../smsCompliance.service.js';
 import { parseSmsKeyword, validateSmsRegistration, validateSmsConsentEvidence } from '../../utils/smsCompliancePolicy.js';
 
 const registration = {
@@ -152,4 +152,17 @@ it('a provider name does not bypass consent or STOP', async () => {
  permissions.push({scope:'campaign:C123',phone:message.to,purpose:'care',status:'opted_in'});
  await processSmsKeyword({from:message.to,to:message.from,body:'STOP',sendReply:vi.fn()});
  await expect(prepareSmsDelivery({...message,purpose:'care',senderFirstName:'Michael'})).rejects.toMatchObject({code:'sms_opted_out'});
+});
+
+it('allows one bounded staff request reply without changing recurring consent, but honors STOP and rejects forged/reused replies',async()=>{
+ const original=pool.execute.getMockImplementation();const from='+17197163884';
+ pool.execute.mockImplementation((sql,args)=>sql.includes('FROM twilio_numbers')?Promise.resolve([[{...sender,phone_number:from,registration_json:{...registration,purposes:['workforce','polling']}}]]):original(sql,args));
+ const request={from,to:message.to,body:'ITSCO: Open your request securely.',purpose:'workforce'};
+ await expect(prepareSmsDelivery({...request,staffAssistantReply:{...request,messageId:'fake'}})).rejects.toMatchObject({code:'sms_consent_required'});
+ const capability=staffAssistantReplyCapability({...request,messageId:'inbound-1'});
+ await expect(prepareSmsDelivery({...request,staffAssistantReply:capability})).resolves.toMatchObject({to:message.to});
+ await expect(prepareSmsDelivery({...request,staffAssistantReply:capability})).rejects.toMatchObject({code:'sms_consent_required'});
+ permissions.push({scope:'campaign:C123',phone:message.to,purpose:'suppression',status:'opted_out'});
+ await expect(prepareSmsDelivery({...request,staffAssistantReply:staffAssistantReplyCapability({...request,messageId:'inbound-2'})})).rejects.toMatchObject({code:'sms_opted_out'});
+ expect(connection.execute).not.toHaveBeenCalled();
 });

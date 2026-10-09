@@ -1,3 +1,4 @@
+import {ITSCO_STAFF_ASSISTANT_NUMBER} from '../utils/staffSmsAssistant.js';
 import { staffCommunicationKey, phoneFingerprint } from '../utils/staffCommunicationChoices.js';
 import pool from '../config/database.js';
 import { normalizeSmsPhone } from '../utils/smsThreadIdentity.js';
@@ -6,6 +7,14 @@ import { parseSmsKeyword, SMS_PURPOSES, smsPolicyError, validateSmsRegistration,
 const json = (value) => typeof value === 'string' ? JSON.parse(value) : value;
 // One-use capabilities bind an automated control reply to its exact recipient/body.
 const controlReplies = new WeakSet();
+const staffAssistantReplies = new WeakSet();
+// Internal capability for an immediate reply to one authenticated-webhook request.
+// It is never accepted from an HTTP body or reused for unsolicited notifications.
+export function staffAssistantReplyCapability({from,to,body,messageId}) {
+  if(!messageId||!from||!to||!body)throw smsPolicyError('sms_assistant_reply_invalid','An inbound request is required');
+  const capability=Object.freeze({from:normalizeSmsPhone(from),to:normalizeSmsPhone(to),body,messageId});
+  staffAssistantReplies.add(capability);return capability;
+}
 
 export async function getSmsSender(from) {
   const phone = normalizeSmsPhone(from);
@@ -92,7 +101,7 @@ export async function isSmsSuppressed(sender, phone) {
   return staff.length > 0;
 }
 
-export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName }) {
+export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, complianceReply, agencyId, staffNotificationKind = 'notifications', senderFirstName, staffAssistantReply }) {
   const recipient = normalizeSmsPhone(to);
   if (!recipient) throw smsPolicyError('sms_invalid_recipient', 'A valid recipient number is required');
   if (mediaUrl) throw smsPolicyError('sms_mms_unsupported', 'Attachments require a configured MMS transport; nothing was sent');
@@ -111,6 +120,11 @@ export async function prepareSmsDelivery({ to, from, body, purpose, mediaUrl, co
     throw smsPolicyError('sms_campaign_purpose_mismatch', 'This sending number is not registered for the requested SMS purpose');
   }
   if (await isSmsSuppressed(sender, recipient)) throw smsPolicyError('sms_opted_out', 'Recipient has opted out of this SMS campaign');
+  if(purpose==='workforce' && sender.phone_number===ITSCO_STAFF_ASSISTANT_NUMBER && staffAssistantReply && staffAssistantReplies.has(staffAssistantReply)
+      && staffAssistantReply.from===sender.phone_number && staffAssistantReply.to===recipient && staffAssistantReply.body===body) {
+    staffAssistantReplies.delete(staffAssistantReply);
+    return {to:recipient,from:sender.phone_number,body:formatRegisteredSms(body,registration.brandName),registration,purpose};
+  }
   if (['workforce','polling'].includes(purpose)) {
     const digits=recipient.slice(1), local=digits.length===11&&digits.startsWith('1')?digits.slice(1):digits;
     const [staff]=await pool.execute(`SELECT JSON_EXTRACT(p.notification_categories, ?) AS choices

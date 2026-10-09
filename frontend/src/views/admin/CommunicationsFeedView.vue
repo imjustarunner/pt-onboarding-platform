@@ -245,6 +245,7 @@
               <div class="body">
                 Status: {{ String(c.status || c.call_status || 'unknown').toUpperCase() }}
                 <span v-if="c.duration_seconds || c.duration"> · Duration: {{ c.duration_seconds || c.duration }}s</span>
+                <CallBillingReview v-if="c.id && c.client_id" :call-id="c.id" />
                 <div v-if="getCallRecordingSid(c)" class="recording-row">
                   <button
                     type="button"
@@ -780,6 +781,7 @@
 </template>
 
 <script setup>
+import CallBillingReview from '../../components/communications/CallBillingReview.vue';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import api from '../../services/api';
 import { useAuthStore } from '../../store/auth';

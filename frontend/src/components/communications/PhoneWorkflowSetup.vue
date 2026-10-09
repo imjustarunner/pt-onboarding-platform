@@ -60,6 +60,7 @@
       <p class="hint">This is the required workflow for the live phone integration. Automatic recording and transcription are not active yet.</p>
       <label>Support voicemail greeting<textarea v-model="config.voicemailGreeting" maxlength="1000" rows="3" /></label>
       <p class="hint">This is the final destination when nobody accepts a call. Voicemail capture and storage require the live phone integration.</p>
+      <section class="preview"><h3>Fax service and number porting</h3><p><strong>Fax is not available through Vonage Communications APIs.</strong> A number that receives faxes with its current carrier does not automatically retain that capability when ported to the API platform. Keep the existing fax service active until a compatible fax provider and number-routing plan are verified.</p><p>For now, download a fax from your current service and use New client → From fax to review and import it. Automatic fax delivery into this app is not connected.</p><a href="https://api.support.vonage.com/hc/en-us/articles/360038592671-Can-I-send-fax-over-the-Vonage-Voice-API" target="_blank" rel="noopener">Vonage fax capability information</a></section>
       <h3>Menu choices 0–9</h3>
       <p>Sequential rings one destination at a time in the order shown. Simultaneous rings the group together. The planned workflow requires staff to press 1 to accept, so a personal voicemail cannot take the caller.</p>
       <fieldset v-for="option in config.menu" :key="option.key" class="option">
