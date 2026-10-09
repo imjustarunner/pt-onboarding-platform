@@ -729,6 +729,7 @@ export async function getRecipientBundle(recipient) {
     }
     if(section.key==='school_availability')section.data.schools=records.schools;
   }
+  if(audience.license?.mode==='auto' && !records.license?.number && !records.license?.hasUpload && !/\b(?:LPC|LPCC|LCSW|LSW|SWC|LMFT|MFTC|LMHC|LCPC|LP|PsyD)\b/i.test(records.credential||'')){const index=sectionList.findIndex(s=>s.key==='license');if(index>=0)sectionList.splice(index,1);}
   if(!records.schools?.length){const index=sectionList.findIndex(s=>s.key==='school_availability');if(index>=0)sectionList.splice(index,1);}
   const officeReview=sectionList.find(s=>s.key==='office_review');
   if(officeReview?.completed){const current=await listOpenForBookingForProvider(recipient.provider_user_id,recipient.agency_id);const confirmed=(officeReview.data.confirmedAssignmentIds||[]).map(Number);if(current.some(i=>!confirmed.includes(i.id))){officeReview.completed=false;officeReview.status='in_progress';}}

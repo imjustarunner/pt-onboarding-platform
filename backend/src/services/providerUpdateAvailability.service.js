@@ -53,7 +53,7 @@ export async function readUpdateCalendar(ids, {weekStart,previewOnly=false}={}) 
   const [calendar,assignments,context,agencies,people,enrollments] = await Promise.all([
     Availability.computeWeekAvailability({...ids,weekStartYmd:calendarDate(weekStart || today),intakeOnly:true,includePrivateCalendar:true,includeDiagnostics:true,materializeOfficeEvents:!previewOnly}),
     listOpenForBookingForProvider(ids.providerId,ids.agencyId),availabilityContext(ids),
-    pool.execute('SELECT name,portal_url,slug,organization_type FROM agencies WHERE id=?',[ids.agencyId]),
+    pool.execute('SELECT name,portal_url,slug,organization_type,logo_path,logo_url,color_palette FROM agencies WHERE id=?',[ids.agencyId]),
     pool.execute('SELECT first_name,last_name FROM users WHERE id=?',[ids.providerId]),
     pool.execute('SELECT service_type FROM provider_public_service_enrollments WHERE agency_id=? AND user_id=? AND is_active=1',[ids.agencyId,ids.providerId])
   ]);
