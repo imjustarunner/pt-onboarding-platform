@@ -6,6 +6,8 @@ describe('Provider Update invitation', () => {
     expect(email.subject).toContain('Provider Update is ready');
     for(const body of [email.text, email.html]) {
       expect(body).toContain('Aunya');
+      expect(body).toContain('The wait is over!');
+      expect(body).toContain('Thank you for your patience');
       expect(body).toContain('https://app.itsco.health/provider-update/example');
       expect(body).toContain('Your Admin Update is included');
       expect(body).toContain('Mark each section complete');

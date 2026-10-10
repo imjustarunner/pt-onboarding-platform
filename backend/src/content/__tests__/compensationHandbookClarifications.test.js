@@ -37,3 +37,16 @@ it('places named benefits before agreement clauses, with school benefits only fo
  expect(office).toContain('Earned training benefit');expect(office).not.toContain('Earned school support benefit');expect(office).not.toContain('<h4>School mileage reimbursement');
  expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('weather-related school closures');expect(SCHOOL_SUPPORT_SECTION.bodyHtml).toContain('20-hour balance cap');
 });
+
+it('places electronic signatures last, incorporates review into section 10 and replaces prior financial terms',()=>{
+ const html=renderAmendment({employee:{name:'Example'},schedule:{category:2,level:2},commonClausesHtml:commonAmendmentClauses(),additionalTerms:'Employee-specific term.'});
+ expect(html).toContain('replaces all financial, compensation and employee-benefit terms');
+ expect(html).toContain('All other terms of the prior agreement and all other agency policies remain in effect');
+ expect(html).not.toContain('____________________');expect(html).not.toContain('Other existing vacation/PTO entitlements are unchanged');
+ expect(html).toContain('countersigns electronically');expect(html).toContain('My Documents');
+ expect(html.indexOf('Individual notes')).toBeLessThan(html.indexOf('13. Employee acknowledgment and signatures'));
+ const section10=html.split('<h3>10. Compensation-level expectations and review</h3>')[1].split('<h3>11.')[0];
+ expect(section10).toContain('Supervisory reviews, clinical documentation reviews and formal performance evaluations');
+ expect(html.match(/Supervisory reviews, clinical documentation reviews/g)).toHaveLength(1);
+ expect(html.slice(html.indexOf('13. Employee acknowledgment and signatures'))).not.toMatch(/<h[1-6]>/);
+});
