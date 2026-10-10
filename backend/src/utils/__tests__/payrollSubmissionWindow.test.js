@@ -61,7 +61,7 @@ test('computeSubmissionWindow: after Sunday cutoff => suggest next pay period', 
   }
 });
 
-test('computeSubmissionWindow: after next period Sunday cutoff => reject', async () => {
+test('computeSubmissionWindow: in-school claims after next period Sunday cutoff => reject', async () => {
   const restore = stubPeriods({
     period: { id: 301, agency_id: 1, period_start: '2026-01-03', period_end: '2026-01-16' },
     next: { id: 302, agency_id: 1, period_start: '2026-01-17', period_end: '2026-01-30' }
@@ -73,7 +73,8 @@ test('computeSubmissionWindow: after next period Sunday cutoff => reject', async
       agencyId: 1,
       effectiveDateYmd: '2026-01-16',
       submittedAt,
-      timeZone: 'America/New_York'
+      timeZone: 'America/New_York',
+      hardStopPolicy: 'in_school'
     });
     assert.equal(out.ok, false);
     assert.equal(out.status, 409);

@@ -1,3 +1,4 @@
+import { appliedLeaveExportHours } from '../utils/payrollLeaveExport.js';
 import {hasSchoolAssignment,confirmTrainingHandoff,validateTrainingHandoff,catchUpTrainingAfterHandoff} from '../services/supplementalLeave.service.js';
 import {LEAVE_BALANCE_COLUMNS,validateLeaveItems} from '../utils/supplementalLeave.js';
 import {roleCompensationRate} from '../services/roleCompensationRate.js';
@@ -4644,43 +4645,10 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       }
     }
 
-    const [ptoRequestedRows] = await pool.execute(
-      `SELECT
-         r.user_id,
-         r.request_type,
-         COALESCE(SUM(i.hours), 0) AS requested_hours
-       FROM payroll_pto_requests r
-       JOIN payroll_pto_request_items i ON i.request_id = r.id
-       WHERE r.agency_id = ?
-         AND r.status IN ('submitted', 'approved')
-         AND i.request_date >= ?
-         AND i.request_date <= ?
-       GROUP BY r.user_id, r.request_type`,
-      [period.agency_id, String(period.period_start || '').slice(0, 10), String(period.period_end || '').slice(0, 10)]
-    );
-    const sickPtoRequestedByUserId = new Map();
-    const trainingPtoRequestedByUserId = new Map();
-    for (const r of (ptoRequestedRows || [])) {
-      const uid = Number(r.user_id);
-      const hrs = Number(r.requested_hours || 0);
-      const rtype = String(r.request_type || '').toLowerCase();
-      if (rtype === 'training') {
-        trainingPtoRequestedByUserId.set(uid, (trainingPtoRequestedByUserId.get(uid) || 0) + hrs);
-      } else {
-        // sick_leave, sick, or any unspecified type → sick bucket
-        sickPtoRequestedByUserId.set(uid, (sickPtoRequestedByUserId.get(uid) || 0) + hrs);
-      }
-    }
-    const ptoRequestedHoursByUserId = new Map(
-      [...new Set([...sickPtoRequestedByUserId.keys(), ...trainingPtoRequestedByUserId.keys()])].map(
-        (uid) => [uid, (sickPtoRequestedByUserId.get(uid) || 0) + (trainingPtoRequestedByUserId.get(uid) || 0)]
-      )
-    );
-
     // Export format (payroll processor output):
     // - Sorted by provider last name
     // - Direct/indirect hour credits and derived hourly rates
-    // - PTO requested hours (sick + training split) + key adjustment columns
+    // - Applied PTO hours (sick + training split) + key adjustment columns
     const header = [
       'Employee',
       'Benefit Tier',
@@ -4843,18 +4811,10 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
       const imatter = safeNum(adjFromBreakdown?.imatterAmount ?? adjFallback?.imatter_amount ?? 0);
       const missedAppointments = safeNum(adjFromBreakdown?.missedAppointmentsAmount ?? adjFallback?.missed_appointments_amount ?? 0);
       const extraTaxableNoHours = medcancel + otherTaxable + imatter + missedAppointments;
-      const breakdownPtoHours = safeNum(adjFromBreakdown?.ptoHours ?? 0);
-      const fallbackPtoHours = safeNum(adjFallback?.sick_pto_hours ?? 0) + safeNum(adjFallback?.training_pto_hours ?? 0);
-      const ptoTakenHours = breakdownPtoHours > 0
-        ? breakdownPtoHours
-        : (fallbackPtoHours > 0 ? fallbackPtoHours : safeNum(adjFallback?.pto_hours ?? 0));
-      const ptoRequestedHours = safeNum(ptoRequestedHoursByUserId.get(userId) ?? ptoTakenHours);
-      // Split PTO by type for CSV columns
-      const sickPtoRequested = safeNum(sickPtoRequestedByUserId.get(userId) ?? 0);
-      const trainingPtoRequested = safeNum(trainingPtoRequestedByUserId.get(userId) ?? 0);
-      // If no split data exists but there are taken hours, put them all under sick leave (legacy)
-      const sickPtoCsv = (sickPtoRequested + trainingPtoRequested > 0) ? sickPtoRequested : ptoTakenHours;
-      const trainingPtoCsv = (sickPtoRequested + trainingPtoRequested > 0) ? trainingPtoRequested : 0;
+      // Export only leave applied to this run. Pending requests and school-support
+      // leave are not sick/training hours; school-support pay stays in taxable extras.
+      const { sickHours: sickPtoCsv, trainingHours: trainingPtoCsv, totalHours: ptoTakenHours } =
+        appliedLeaveExportHours(adjFromBreakdown, adjFallback);
 
       // PTO pay: from breakdown adjustment lines (type 'pto') or computed from hours × rate.
       const ptoPay = (() => {
@@ -4886,8 +4846,8 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
           fmt2(reimbursement),
           fmt2(tuition),
           fmt2(totalPay),
-          csvEscape(String(period.period_start || '').slice(0, 10)),
-          csvEscape(String(period.period_end || '').slice(0, 10))
+          csvEscape(ymdFromDbDate(period.period_start)),
+          csvEscape(ymdFromDbDate(period.period_end))
         ].join(',')
       );
     }
@@ -4916,8 +4876,8 @@ export const downloadPayrollExportCsv = async (req, res, next) => {
     lines.push(`Payroll ran at,${csvEscape(ranAt)}`);
     lines.push(`Report downloaded at,${csvEscape(downloadedAt)}`);
 
-    const ps = String(period.period_start || '').slice(0, 10);
-    const pe = String(period.period_end || '').slice(0, 10);
+    const ps = ymdFromDbDate(period.period_start);
+    const pe = ymdFromDbDate(period.period_end);
     const filename = (ps && pe) ? `${ps}-${pe}.csv` : `payroll-export-period-${payrollPeriodId}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
