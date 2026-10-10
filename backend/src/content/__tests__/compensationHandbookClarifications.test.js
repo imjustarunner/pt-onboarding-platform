@@ -92,3 +92,12 @@ it('replaces old detailed Medicaid references while preserving policy and append
  const updated=updateMedicaidGroupRationale(old);
  expect(updated).toBe(policy+MEDICAID_GROUP_RATIONALE+extra);expect(updateMedicaidGroupRationale(updated)).toBe(updated);
 });
+
+import {EXTRA_DUTY_PAY_TERMS,updateAmendmentExecutionTerms} from '../amendmentExecution.js';
+it('permits documented additional-duty pay in section 2 before signatures without rewriting unrelated terms',()=>{
+ const prior='<h3>2. Individual category, level and rates</h3><p>Owner rate term.</p><h3>3. Other policy</h3><p>Keep this.</p>';
+ const html=updateAmendmentExecutionTerms(prior);
+ expect(html).toContain(EXTRA_DUTY_PAY_TERMS);expect(html).toContain('Owner rate term.');expect(html).toContain('<h3>3. Other policy</h3><p>Keep this.</p>');expect(updateAmendmentExecutionTerms(html)).toBe(html);
+ const rendered=renderAmendment({employee:{name:'Example'},schedule:{category:2,level:2}});
+ expect(rendered).toContain('both parties’ acceptance');expect(rendered).toContain('without issuing a new full employment amendment');expect(rendered.indexOf(EXTRA_DUTY_PAY_TERMS)).toBeLessThan(rendered.indexOf('13. Employee acknowledgment'));
+});
