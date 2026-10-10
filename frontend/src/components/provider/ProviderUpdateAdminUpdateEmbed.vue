@@ -16,8 +16,8 @@
           <button v-if="editable && status !== 'sent'" type="button" class="au-link" @click="showEdit = !showEdit">
             {{ showEdit ? 'Hide editor' : 'Edit here' }}
           </button>
-          <button type="button" class="au-link" @click="toggleFullscreen">{{ fullscreen ? 'Exit full screen' : 'Read full screen' }}</button>
-          <a v-if="viewUrl && !previewMode" class="au-link" :href="viewUrl" target="_blank" rel="noopener">Open full page →</a>
+          <button type="button" class="au-btn au-reader-action" :class="{ 'au-pulse': !fullscreen }" @click="toggleFullscreen">{{ fullscreen ? 'Exit full screen' : 'Read full screen' }}</button>
+          <a v-if="viewUrl && !previewMode" class="au-btn au-reader-action au-pulse" :href="viewUrl" target="_blank" rel="noopener">Open full page →</a>
         </div>
       </div>
 
@@ -206,7 +206,16 @@ watch(() => [props.agencyId, props.token, props.mode, props.updateId], load);
   color: #64748b;
   font-weight: 600;
 }
-.bar-actions { display: flex; gap: 0.75rem; align-items: center; }
+.bar-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.au-embed-bar { flex-wrap: wrap; }
+.au-reader-action { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; font: inherit; font-weight: 700; }
+.au-reader-action:focus-visible { outline: 3px solid #174b49; outline-offset: 4px; }
+.au-pulse { animation: reader-action-pulse 2.4s ease-in-out infinite; }
+@keyframes reader-action-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(61,107,79,.35); }
+  60% { box-shadow: 0 0 0 7px rgba(61,107,79,0); }
+}
+@media (prefers-reduced-motion: reduce) { .au-pulse { animation: none; } }
 .au-edit {
   display: grid;
   gap: 0.55rem;
@@ -226,6 +235,7 @@ watch(() => [props.agencyId, props.token, props.mode, props.updateId], load);
 .au-embed-frame {
   display: block;
   width: 100%;
+  height: 75vh;
   min-height: 480px;
   border: 0;
   background: #e2e8f0;

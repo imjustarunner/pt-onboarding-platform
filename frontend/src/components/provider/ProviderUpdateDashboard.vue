@@ -56,12 +56,6 @@
       </aside>
 
       <main class="pu-main">
-        <div v-if="!recipient.previewOnly && recipient.id" class="pu-preview-notice" role="status">
-          <strong>Paid review time: {{ Math.floor(session.activeSeconds.value / 60) }}m {{ session.activeSeconds.value % 60 }}s</strong>
-          <p>Time is saved while this update is visible and active, and pauses after five minutes without interaction. Completed time is recorded for payroll review at your support activity rate and is applied only after acceptance. Need a time correction? Use Need help.</p>
-          <button v-if="session.paused.value" type="button" @click="session.activity">Time paused — continue reviewing</button>
-          <p v-if="session.timeError.value">{{ session.timeError.value }}</p>
-        </div>
         <p v-if="recipient.previewOnly" role="status" class="pu-preview-notice"><strong>Read-only preview for {{ displayName }}.</strong> No invitation was sent. Profile changes, signatures, text enrollment, and completion time are disabled. This link expires after seven days; send a separate editable invitation to staff.</p>
         <template v-if="!activePageKey">
           <div class="pu-hero">
@@ -339,7 +333,7 @@ async function finalize() {
     } else {
       await api.post('/provider-update/me/finalize', { agencyId: props.agencyId });
     }
-    success.value = 'Provider Update complete. Your time has been recorded and is awaiting payroll review at your support activity rate.';
+    success.value = 'Provider Update complete. Thank you for reviewing and updating your information.';
     await load();
   } catch (e) {
     session.start(session.activeSeconds.value);

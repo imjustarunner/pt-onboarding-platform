@@ -850,9 +850,9 @@ export function renderAdminUpdateHtml(update, agency, { viewUrl, layout = 'email
   <style>img,video{max-width:100%;height:auto}figure{margin:16px 0}figcaption{font-size:14px;color:#52665e}</style>
 </head>
 <body style="margin:0;padding:0;background:#e2e8f0;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#e2e8f0;padding:24px 12px;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#e2e8f0;padding:${layout === 'web' ? '0' : '24px 12px'};">
     <tr><td align="center">
-      <table class="newsletter-content" width="${layout === 'web' ? '1200' : '640'}" cellpadding="0" cellspacing="0" style="max-width:${layout === 'web' ? '1200' : '640'}px;width:100%;background:#fff;border-radius:18px;overflow:hidden;">
+      <table class="newsletter-content" width="${layout === 'web' ? '100%' : '640'}" cellpadding="0" cellspacing="0" style="max-width:${layout === 'web' ? 'none' : '640px'};width:100%;background:#fff;border-radius:18px;overflow:hidden;">
         <tr>
           <td style="background:${escapeHtml(primary)};padding:28px 28px 24px;color:#fff;">
             ${logo ? `<img src="${escapeHtml(logo)}" alt="${escapeHtml(agencyName)}" height="40" style="display:block;margin-bottom:14px;max-height:40px;" />` : ''}
