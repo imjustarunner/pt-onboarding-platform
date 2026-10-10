@@ -1,3 +1,4 @@
+import {updateMedicaidGroupRationale} from './medicaidGroupRationale.js';
 import {codeInventory,restrictedCodeTable,CODE_USE_POLICY,HANDBOOK_APP_TRANSITION,RESTRICTED_CODES} from './handbookCodePresentation.js';
 import {SUPERVISOR_COMPENSATION_HANDBOOK} from './roleCompensationTerms.js';
 
@@ -14,7 +15,7 @@ export function correctHandbookPresentation(slug, body, rules=[]) {
   if(body.includes(marker))return main+body.slice(body.indexOf(marker)).replace(/<h2>Restricted and currently unapproved services<\/h2>[\s\S]*?<\/table>/,restrictedCodeTable());
   return main.replace('<h2>How quantities are categorized</h2>',restrictedCodeTable()+'<h2>How quantities are categorized</h2>');
  }
- if(slug==='groups-moratorium-and-approval')return body.includes(CODE_USE_POLICY)?body:CODE_USE_POLICY+body;
+ if(slug==='groups-moratorium-and-approval')return updateMedicaidGroupRationale(body.includes(CODE_USE_POLICY)?body:CODE_USE_POLICY+body);
  if(slug==='timekeeping-support-and-overtime') {
   return body.replace(/(<!-- supervisor-compensation-october-2026 -->)<h3>Clinical supervision compensation<\/h3>[\s\S]*?<p>Your sick-leave payment rate[\s\S]*?<\/p>/,'$1'+SUPERVISOR_COMPENSATION_HANDBOOK);
  }

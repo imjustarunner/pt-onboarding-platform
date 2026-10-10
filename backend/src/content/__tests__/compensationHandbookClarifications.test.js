@@ -14,8 +14,8 @@ it('does not treat a saved group rate or zero-credit mapping as approval',()=>{
  const section=codeReferenceSection([{service_code:'90853',category:'direct',credit_value:1},{service_code:'99051',category:'direct',credit_value:0},{service_code:'H0031',category:'direct',credit_value:1/60,pay_divisor:60},{service_code:'Homework',category:'direct',credit_value:1/60,pay_divisor:60}]);
  expect(section.bodyHtml).toContain('Group moratorium — express written approval of an exception required');expect(section.bodyHtml).toContain('No automatic credit payment');expect(section.bodyHtml).toContain('Actual service minutes ÷ 60');expect(section.bodyHtml).not.toContain('<th>Homework</th>');
 });
-it('keeps the group proposal option while requiring funded legal wages and official dated sources',()=>{
- expect(GROUP_POLICY_HTML).toContain('Staff may propose a group');expect(GROUP_POLICY_HTML).toContain('reasonable likelihood');expect(GROUP_POLICY_HTML).toContain('individual written agreement');expect(GROUP_POLICY_HTML).toContain('Public Law 119-21');expect(GROUP_POLICY_HTML).toContain('leg.colorado.gov/bills/hb26-1410');expect(GROUP_POLICY_HTML).toContain('historical context');
+it('keeps the group proposal option while explaining funding and family coverage concerns',()=>{
+ expect(GROUP_POLICY_HTML).toContain('Staff may propose a group');expect(GROUP_POLICY_HTML).toContain('reasonable likelihood');expect(GROUP_POLICY_HTML).toContain('individual written agreement');expect(GROUP_POLICY_HTML).toContain('CCHA, Rocky Mountain Health Plans and Colorado Access');expect(GROUP_POLICY_HTML).toContain('federal and state levels');expect(GROUP_POLICY_HTML).toContain('even when a child remains eligible');expect(GROUP_POLICY_HTML).not.toContain('href=');
 });
 it('keeps benefit drafts separate and does not invent forfeiture authority or remove wages from payroll',()=>{
  expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('All hours');expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('0.25');expect(TRAINING_LEAVE_SECTION.bodyHtml).toContain('20-hour balance cap');
@@ -82,4 +82,13 @@ it('refreshes saved content idempotently and preserves unrelated edits and attac
  const supervision=correctHandbookPresentation('timekeeping-support-and-overtime',originalSupervision);
  expect(supervision).not.toContain('$65');expect(supervision).toContain('Timekeeping owner edit.');expect(supervision).toContain(tail);expect(correctHandbookPresentation('timekeeping-support-and-overtime',supervision)).toBe(supervision);
  const transition=correctHandbookPresentation(HANDBOOK_APP_TRANSITION.slug,'<p>Old summary.</p>'+tail);expect(transition).toContain('<figure>');expect(transition).not.toContain('Old summary');expect(correctHandbookPresentation(HANDBOOK_APP_TRANSITION.slug,transition)).toBe(transition);
+});
+
+import {MEDICAID_GROUP_RATIONALE,updateMedicaidGroupRationale} from '../medicaidGroupRationale.js';
+it('replaces old detailed Medicaid references while preserving policy and appended owner content',()=>{
+ const policy='<h2>Group approvals</h2><p>Written permission required.</p>';
+ const extra='<p>Owner addition.</p><figure><img src="instructions.png"></figure>';
+ const old=policy+'<h2>Why groups require review</h2><p>Old explanation.</p><ul><li><a href="https://example.test">Old citation</a></li></ul><h2>Federal Medicaid changes</h2><p>Old dated claims.</p>'+extra;
+ const updated=updateMedicaidGroupRationale(old);
+ expect(updated).toBe(policy+MEDICAID_GROUP_RATIONALE+extra);expect(updateMedicaidGroupRationale(updated)).toBe(updated);
 });
