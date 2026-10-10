@@ -645,7 +645,7 @@ export async function listRecipients(pushId, agencyId) {
   return rows || [];
 }
 
-export async function getRecipientByToken(token) {
+export async function getRecipientByToken(token, { allowCompletedReceipt = false } = {}) {
   const tok = String(token || '').trim();
   if (!tok) return null;
   const [rows] = await pool.execute(
@@ -663,7 +663,7 @@ export async function getRecipientByToken(token) {
   const row = rows?.[0];
   if (!row || (row.push_status === 'draft' && !isProviderUpdatePreviewToken(row.token))) return null;
   if (row.push_status === 'closed') return null;
-  if (row.locked_at) {
+  if (row.locked_at && !(allowCompletedReceipt && row.finalized_at && row.status === 'finalized')) {
     throw Object.assign(new Error('This update link is locked'), { status: 410 });
   }
   if (row.expires_at && new Date(row.expires_at).getTime() < Date.now()) {

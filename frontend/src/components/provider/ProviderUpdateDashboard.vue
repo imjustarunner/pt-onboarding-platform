@@ -22,8 +22,8 @@
       </div>
     </header>
 
-    <div class="pu-layout">
-      <aside class="pu-side">
+    <div class="pu-layout" :class="{submitted:isSubmitted}">
+      <aside v-if="!isSubmitted" class="pu-side">
         <div class="pu-side-brand">
           <img v-if="tenantLogo" :src="tenantLogo" :alt="tenantName" />
           <div>
@@ -56,6 +56,13 @@
       </aside>
 
       <main class="pu-main">
+        <section v-if="isSubmitted" ref="completionReceipt" class="pu-completion-receipt" role="status" tabindex="-1">
+          <span aria-hidden="true" class="pu-receipt-check">✓</span>
+          <h1>Your Provider Update is complete</h1>
+          <p>Your submission was received. Thank you for reviewing and updating your information.</p>
+          <p>You’re all done and can close this window. Your completed answers are saved.</p>
+        </section>
+        <template v-else>
         <p v-if="recipient.previewOnly" role="status" class="pu-preview-notice"><strong>Read-only preview for {{ displayName }}.</strong> No invitation was sent. Profile changes, signatures, text enrollment, and completion time are disabled. This link expires after seven days; send a separate editable invitation to staff.</p>
         <template v-if="!activePageKey">
           <div class="pu-hero">
@@ -96,15 +103,7 @@
               <button v-if="nextPage" type="button" class="pu-btn light" @click="openPage(nextPage.key)">
                 Open Next Page →
               </button>
-              <button
-                v-else-if="!recipient.finalizedAt"
-                type="button"
-                class="pu-btn light"
-                :disabled="finalizing || recipient.previewOnly"
-                @click="finalize"
-              >
-                {{ finalizing ? 'Submitting…' : 'Mark Provider Update complete' }}
-              </button>
+              <p v-else>All sections are reviewed. Submit your completed update below.</p>
             </div>
             <div class="pu-overall">
               <div class="eyebrow">Overall Progress</div>
@@ -143,7 +142,11 @@
           />
         </template>
 
-        <button v-if="recipient.id && !recipient.previewOnly && !recipient.finalizedAt" type="button" class="pu-btn primary" :disabled="savingForLater" @click="saveForLater">{{savingForLater?'Saving…':'Save and come back later'}}</button>
+        <section v-if="readyToSubmit" class="pu-submit-ready" aria-labelledby="submit-ready-title">
+          <div><h2 id="submit-ready-title">One final step: submit your update</h2><p>All sections are reviewed. Click below to finish and receive confirmation.</p></div>
+          <button type="button" class="pu-submit-button" :disabled="finalizing || savingForLater" @click="finalize">{{finalizing ? 'Submitting your update…' : 'Submit my completed Provider Update →'}}</button>
+        </section>
+        <button v-if="recipient.id && !recipient.previewOnly && !recipient.finalizedAt" type="button" class="pu-btn primary" :disabled="savingForLater || finalizing" @click="saveForLater">{{savingForLater?'Saving…':'Save and come back later'}}</button>
         <section v-if="savedForLater" class="pu-return" role="status">
           <h2>Your progress is saved</h2><p>Use the same link in your invitation email to return to this update. You can also copy the link below. Keep it private.</p>
           <label>Your return link<input :value="returnLink" readonly @focus="$event.target.select()" /></label>
@@ -154,6 +157,7 @@
         </section>
         <p v-if="error" class="pu-error">{{ error }}</p>
         <p v-if="success" class="pu-success">{{ success }}</p>
+        </template>
       </main>
     </div>
 
@@ -187,7 +191,9 @@ const progress = ref({ completed: 0, total: 0, percent: 0 });
 const recipient = ref({});
 const agencyInfo = ref(null);
 const activePageKey = ref('');
-const pagePanel=ref(null);
+const pagePanel=ref(null),completionReceipt=ref(null);
+const isSubmitted=computed(()=>!!recipient.value.finalizedAt || recipient.value.status==='finalized');
+const readyToSubmit=computed(()=>!isSubmitted.value && !recipient.value.previewOnly && pages.value.length>0 && pages.value.every(p=>p.completed));
 const loading = ref(false);
 const error = ref('');
 const success = ref('');
@@ -232,7 +238,7 @@ const activePage = computed(() => pages.value.find((p) => p.key === activePageKe
 const nextPage = computed(() => pages.value.find((p) => !p.completed) || null);
 const etaLabel = computed(() => {
   const remaining = Math.max(0, pageProgress.value.total - pageProgress.value.completed);
-  if (!remaining) return 'Done';
+  if (!remaining) return isSubmitted.value ? 'Complete' : 'Ready to submit';
   return `${remaining * 2}–${remaining * 4} minutes`;
 });
 
@@ -262,7 +268,7 @@ function iconFor(icon) {
     pin: '🔢',
     hours: '⏱',
     office: '🏢',
-    clients: '🏫',
+    clients: '👥',
     license: '🪪',
     blurb: '✎',
     specialties: '★',
@@ -311,7 +317,7 @@ async function load() {
     agencyInfo.value = data.agency || null;
     sections.value = data.sections || [];
     progress.value = data.progress || { completed: 0, total: 0, percent: 0 };
-    if(!restoredPosition){restoredPosition=true;const key=data.resumeSectionKey;const page=pages.value.find(p=>p.sections.some(s=>s.key===key));if(page){activePageKey.value=page.key;loading.value=false;await nextTick();await pagePanel.value?.focusSection(key);}}
+    if(!isSubmitted.value && !restoredPosition){restoredPosition=true;const key=data.resumeSectionKey;const page=pages.value.find(p=>p.sections.some(s=>s.key===key));if(page){activePageKey.value=page.key;loading.value=false;await nextTick();await pagePanel.value?.focusSection(key);}}
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load Provider Update';
   } finally {
@@ -334,7 +340,7 @@ async function onSectionSaved(bundle) {
 }
 
 async function saveForLater(){
- if(savingForLater.value||recipient.value.previewOnly)return;
+ if(savingForLater.value||finalizing.value||isSubmitted.value||recipient.value.previewOnly)return;
  savingForLater.value=true;error.value='';
  try{if(await pagePanel.value?.saveDraft()===false)throw Error('The current section could not be saved. Please check its error and try again.');
  await session.flush();if(session.timeError.value)throw Error('Could not save your progress. Please reconnect and try again.');
@@ -346,24 +352,32 @@ async function saveForLater(){
 function continueReview(){savedForLater.value=false;}
 async function copyReturnLink(){try{await navigator.clipboard.writeText(returnLink.value);returnLinkCopied.value=true;}catch{error.value='Select and copy the return link above.';}}
 
+async function showCompletion(data) {
+  recipient.value={...recipient.value,...data?.recipient,status:'finalized'};
+  savedForLater.value=false;activePageKey.value='';error.value='';success.value='';
+  await nextTick();completionReceipt.value?.focus();completionReceipt.value?.scrollIntoView?.({behavior:'smooth',block:'center'});
+}
 async function finalize() {
-  if (recipient.value.previewOnly) return;
+  if (!readyToSubmit.value || finalizing.value || savingForLater.value) return;
   finalizing.value = true;
-  error.value = '';
+  error.value = '';success.value='';
   try {
-    await session.flush();
-    if (session.timeError.value) throw new Error(session.timeError.value);
     await session.stop();
-    if (props.accessMode === 'token') {
-      await api.post(`/public/provider-update/${encodeURIComponent(props.token)}/finalize`);
-    } else {
-      await api.post('/provider-update/me/finalize', { agencyId: props.agencyId });
-    }
-    success.value = 'Provider Update complete. Thank you for reviewing and updating your information.';
-    await load();
+    if (session.timeError.value) throw new Error(session.timeError.value);
+    const {data}=props.accessMode === 'token'
+      ? await api.post(`/public/provider-update/${encodeURIComponent(props.token)}/finalize`)
+      : await api.post('/provider-update/me/finalize', {agencyId:props.agencyId||recipient.value.agencyId});
+    await showCompletion(data);
   } catch (e) {
+    // A dropped response can follow a successful submission. Read only the
+    // completion receipt before offering a retry; never reopen editing.
+    if(props.accessMode==='token' && (!e.response || e.response.status===410)){
+      try{const {data}=await api.get(`/public/provider-update/${encodeURIComponent(props.token)}`);
+        if(data.finalized){await showCompletion(data);return;}
+      }catch{/* Preserve the original failure when completion cannot be verified. */}
+    }
     session.start(session.activeSeconds.value);
-    error.value = e?.response?.data?.error?.message || e.message || 'Could not finalize';
+    error.value = e?.response?.data?.error?.message || e.message || 'Could not submit. Please try again.';
   } finally {
     finalizing.value = false;
   }
@@ -371,7 +385,7 @@ async function finalize() {
 
 onMounted(async () => {
   await load();
-  if (!recipient.value.previewOnly && !recipient.value.finalizedAt && recipient.value.id) session.start(Number(recipient.value.activeSeconds || 0));
+  if (!recipient.value.previewOnly && !isSubmitted.value && recipient.value.id) session.start(Number(recipient.value.activeSeconds || 0));
 });
 
 watch(
@@ -381,6 +395,15 @@ watch(
 </script>
 
 <style scoped>
+.pu-layout.submitted{grid-template-columns:minmax(0,1fr)}
+.pu-completion-receipt{max-width:800px;margin:8vh auto;padding:48px 28px;text-align:center;background:white;border:2px solid var(--pu-green);border-radius:22px;line-height:1.6}
+.pu-receipt-check{display:inline-grid;place-items:center;width:72px;height:72px;font-size:42px;border-radius:50%;color:white;background:var(--pu-green)}
+.pu-submit-ready{position:sticky;bottom:16px;z-index:4;margin:24px 0 16px;padding:24px;border:2px solid var(--pu-green);border-radius:18px;background:#fff;box-shadow:0 8px 30px #173c3426;display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between}
+.pu-submit-ready h2{margin:0 0 8px;font-size:1.3rem}.pu-submit-ready p{margin:0;line-height:1.5}
+.pu-submit-button{padding:18px 24px;background:var(--pu-green-deep);color:white;border:2px solid var(--pu-green-deep);border-radius:12px;font:700 1.1rem system-ui;cursor:pointer;animation:submit-pulse 2.5s ease-in-out infinite}
+.pu-submit-button:disabled{animation:none;opacity:.65;cursor:wait}.pu-submit-button:focus-visible{outline:3px solid var(--pu-accent);outline-offset:4px}
+@keyframes submit-pulse{50%{box-shadow:0 0 0 7px #3d6b4f33}}@media(prefers-reduced-motion:reduce){.pu-submit-button{animation:none}}
+
 .pu-preview-notice{padding:16px;background:#fff8db;border:1px solid #e6cd70;border-radius:10px;line-height:1.6}
 .pu-hub {
   --pu-green: #3d6b4f;

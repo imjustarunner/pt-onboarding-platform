@@ -291,9 +291,9 @@ export const PROVIDER_UPDATE_PAGES = [
   },
   {
     key: 'school_client',
-    title: 'School Client Update',
-    shortTitle: 'School Client Update',
-    description: 'Review school/client-related update items.',
+    title: 'Client Updates',
+    shortTitle: 'Client Updates',
+    description: 'Review client care, Spanish-language coordination, and any assigned school updates.',
     checklist: ['Client fall update', 'School-related information', 'Required confirmations'],
     icon: 'clients',
     sectionKeys: ['client_fall_update', 'school_availability', 'spanish_intake']

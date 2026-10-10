@@ -174,10 +174,18 @@ export const submitPayrollHandler = async (req, res, next) => {
   }
 };
 
+// A completion receipt contains no editable answers or payroll data.
+export function completionReceipt(recipient) {
+  return {ok:true,finalized:true,recipient:{id:recipient.id,agencyId:recipient.agency_id,
+    firstName:recipient.first_name,lastName:recipient.last_name,status:'finalized',
+    finalizedAt:recipient.finalized_at,lockedAt:recipient.locked_at},sections:[]};
+}
+
 export const getPublicByToken = async (req, res, next) => {
   try {
-    const recipient = await getRecipientByToken(req.params.token);
+    const recipient = await getRecipientByToken(req.params.token, {allowCompletedReceipt:true});
     if (!recipient) return res.status(404).json({ error: { message: 'Link not found' } });
+    if (recipient.finalized_at && recipient.status === 'finalized') return res.json(completionReceipt(recipient));
     if (!recipient.previewOnly) {
       await recordViewEvent(recipient.id, 'token_click').catch(() => {});
       await recordViewEvent(recipient.id, 'dashboard_view').catch(() => {});
@@ -228,18 +236,11 @@ export const updatePublicSection = async (req, res, next) => {
 
 export const finalizePublic = async (req, res, next) => {
   try {
-    const recipient = await getRecipientByToken(req.params.token);
+    const recipient = await getRecipientByToken(req.params.token, {allowCompletedReceipt:true});
     if (!recipient) return res.status(404).json({ error: { message: 'Link not found' } });
-    await finalizeRecipient({
-      recipientId: recipient.id,
-      actorType: 'token_guest',
-      actorUserId: recipient.provider_user_id
-    });
-    const refreshed = await getRecipientByToken(req.params.token).catch(() => null);
-    if (!refreshed) {
-      return res.json({ ok: true, finalized: true });
-    }
-    res.json(await getRecipientBundle(refreshed));
+    if (recipient.finalized_at && recipient.status === 'finalized') return res.json(completionReceipt(recipient));
+    const completed = await finalizeRecipient({recipientId:recipient.id,actorType:'token_guest',actorUserId:recipient.provider_user_id});
+    res.json(completionReceipt({...recipient,...completed}));
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message, details: e.details } });
     next(e);
@@ -306,12 +307,12 @@ export const finalizeMyUpdate = async (req, res, next) => {
     const agencyId = Number(req.body.agencyId);
     const recipient = await getMyOpenRecipient(req.user.id, agencyId);
     if (!recipient) return res.status(404).json({ error: { message: 'No open Provider Update' } });
-    await finalizeRecipient({
+    const completed = await finalizeRecipient({
       recipientId: recipient.id,
       actorType: 'provider',
       actorUserId: req.user.id
     });
-    res.json({ ok: true, finalized: true });
+    res.json(completionReceipt({...recipient,...completed}));
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: { message: e.message, details: e.details } });
     next(e);
