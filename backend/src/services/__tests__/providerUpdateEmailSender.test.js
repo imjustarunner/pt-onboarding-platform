@@ -14,3 +14,9 @@ it('allows the real provider invitation through attachment/link validation witho
  expect(email.text).toContain('upload a screenshot');expect(email.html).toContain('upload a screenshot');
  expect(validateOutboundEmailQuality({...email,text:email.text+' See attached agreement.',templateType:'provider_update_invite'}).flags).toContainEqual(expect.objectContaining({code:'missing_attachment'}));
 });
+
+import {providerUpdateAuditBcc} from '../providerUpdateAuditCopy.js';
+it('copies only the two authorized October ITSCO invitations to Michael',()=>{
+ for(const providerUserId of [485,494])expect(providerUpdateAuditBcc({agencyId:2,pushId:2,providerUserId})).toEqual(['michael@plottwistco.com']);
+ for(const scope of [{agencyId:2,pushId:2,providerUserId:482},{agencyId:6,pushId:2,providerUserId:485},{agencyId:2,pushId:3,providerUserId:494},{}])expect(providerUpdateAuditBcc(scope)).toBeNull();
+});

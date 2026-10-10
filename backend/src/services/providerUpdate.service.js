@@ -1,3 +1,4 @@
+import {providerUpdateAuditBcc} from './providerUpdateAuditCopy.js';
 import {resolveProviderUpdateRecipients} from './providerUpdateRecipient.service.js';
 import {sanitizeSectionTraining} from './providerUpdateTraining.service.js';
 import {buildProviderUpdateInvitation} from '../../../frontend/src/navigation/providerUpdateInvitation.js';
@@ -514,6 +515,7 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
           const sendResult = await sendEmailFromIdentity({
             senderIdentityId: resolved.identity.id,
             to,
+            bcc: providerUpdateAuditBcc({agencyId,pushId,providerUserId:p.provider_user_id}),
             subject,
             text,
             html,

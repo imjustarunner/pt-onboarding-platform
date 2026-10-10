@@ -101,3 +101,19 @@ it('permits documented additional-duty pay in section 2 before signatures withou
  const rendered=renderAmendment({employee:{name:'Example'},schedule:{category:2,level:2}});
  expect(rendered).toContain('both parties’ acceptance');expect(rendered).toContain('without issuing a new full employment amendment');expect(rendered.indexOf(EXTRA_DUTY_PAY_TERMS)).toBeLessThan(rendered.indexOf('13. Employee acknowledgment'));
 });
+
+import {correctIndividualAmendment,correctSpanishLanguages,correctSpanishProfile,MARIELA_TRAVEL_STIPEND} from '../octoberIndividualCorrections.js';
+it('corrects Spanish eligibility without losing unrelated pay terms or languages',()=>{
+ const original={schedule:{creditRate:44,spanishDifferentialEligible:true},additionalTerms:'Existing duty.'};
+ expect(correctIndividualAmendment(original,482).schedule).toEqual({creditRate:44,spanishDifferentialEligible:false});
+ expect(correctIndividualAmendment(original,485).schedule.spanishDifferentialEligible).toBe(true);
+ expect(correctSpanishLanguages('English, Spanish (limited), French',false)).toEqual(['English','French']);
+ const profile={gender:'Female',languages:['English','Spanish'],languageProficiencies:[{language:'English',proficiency:'native',canConductSessions:true},{language:'Spanish',proficiency:'fluent',canConductSessions:true}]};
+ expect(correctSpanishProfile(profile,false)).toEqual({...profile,languages:['English'],languageProficiencies:[profile.languageProficiencies[0]]});
+ expect(correctSpanishProfile({languages:['English']},true).languages).toEqual(['English','Spanish']);
+});
+it('preserves Mariela’s existing written stipend without inventing an amount or replacing individual terms',()=>{
+ const data=correctIndividualAmendment({employee:{name:'Mariela Duran'},schedule:{category:2,level:2},additionalTerms:'Existing duty.'},494);
+ expect(data.additionalTerms).toBe('Existing duty.\n\n'+MARIELA_TRAVEL_STIPEND);expect(correctIndividualAmendment(data,494)).toEqual(data);
+ const html=renderAmendment(data);expect(html).toContain('previously agreed travel stipend will continue');expect(html.indexOf('Continuation of existing travel stipend')).toBeLessThan(html.indexOf('13. Employee acknowledgment'));
+});
