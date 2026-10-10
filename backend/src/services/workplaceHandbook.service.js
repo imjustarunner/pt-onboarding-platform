@@ -2,6 +2,7 @@
  * In-app Workplace Handbook — versioned content, view tracking, People Ops Q&A.
  */
 import pool from '../config/database.js';
+import {prepareEncryptedTicketText} from '../utils/supportTicketCrypto.js';
 import {sanitizeTrainingHtml as sanitizeHtml,resolveTrainingHtml} from './updateTrainingMedia.service.js';
 
 function slugify(title) {
@@ -192,53 +193,41 @@ export async function recordHandbookView({
   );
 }
 
-export async function askHandbookQuestion({
-  agencyId,
-  versionId,
-  sectionId = null,
-  askedByUserId,
-  recipientId = null,
-  questionText
-}) {
-  const text = String(questionText || '').trim();
-  if (!text) throw Object.assign(new Error('Question is required'), { status: 400 });
-  const [ins] = await pool.execute(
-    `INSERT INTO workplace_handbook_questions
-      (agency_id, version_id, section_id, asked_by_user_id, provider_update_recipient_id, question_text, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'escalated')`,
-    [agencyId, versionId, sectionId, askedByUserId || null, recipientId, text]
-  );
+// Keep the Q&A record and its People Operations ticket in one transaction.
+async function attachHandbookQuestionTicket(db,question){
+  if(question.support_ticket_id)return question.support_ticket_id;
+  const enc=prepareEncryptedTicketText(question.question_text);
+  if(!enc.encrypted)throw Object.assign(new Error('Secure ticket storage is unavailable. Your question has not been sent; please try again.'),{status:503});
+  const [ticket]=await db.execute(`INSERT INTO support_tickets
+    (agency_id,school_organization_id,created_by_user_id,created_by_source_key,subject,question,
+     question_ciphertext,question_iv,question_auth_tag,question_encryption_key_id,status,topic,priority)
+    VALUES (?,?,?,'provider_update',?,?,?,?,?,?,'open','people_operations','medium')`,
+    [question.agency_id,question.agency_id,question.asked_by_user_id,'Workplace Handbook question',enc.plain,enc.ciphertext,enc.iv,enc.authTag,enc.keyId]);
+  await db.execute(`UPDATE workplace_handbook_questions SET support_ticket_id=?,status='escalated' WHERE id=?`,[ticket.insertId,question.id]);
+  return ticket.insertId;
+}
 
-  // Best-effort People Ops task / notification via support ticket if available
-  let supportTicketId = null;
-  try {
-    const SupportTicket = (await import('../models/SupportTicket.model.js')).default;
-    if (SupportTicket?.create) {
-      const ticket = await SupportTicket.create({
-        agencyId,
-        createdByUserId: askedByUserId,
-        subject: 'Workplace Handbook question',
-        description: text,
-        category: 'people_operations',
-        priority: 'medium',
-        metadata: { handbookVersionId: versionId, handbookSectionId: sectionId, handbookQuestionId: ins.insertId }
-      });
-      supportTicketId = ticket?.id || null;
-      if (supportTicketId) {
-        await pool.execute(
-          `UPDATE workplace_handbook_questions SET support_ticket_id = ? WHERE id = ?`,
-          [supportTicketId, ins.insertId]
-        );
-      }
-    }
-  } catch {
-    /* optional */
-  }
+export async function recoverHandbookQuestionTicket(questionId){
+  const db=await pool.getConnection();
+  try{await db.beginTransaction();const [[question]]=await db.execute('SELECT * FROM workplace_handbook_questions WHERE id=? FOR UPDATE',[questionId]);
+    if(!question)throw Object.assign(new Error('Handbook question not found'),{status:404});
+    const ticketId=await attachHandbookQuestionTicket(db,question);await db.commit();return {questionId:question.id,ticketId};
+  }catch(e){await db.rollback();throw e;}finally{db.release();}
+}
 
-  const [rows] = await pool.execute(`SELECT * FROM workplace_handbook_questions WHERE id = ?`, [
-    ins.insertId
-  ]);
-  return rows[0];
+export async function askHandbookQuestion({agencyId,versionId,sectionId=null,askedByUserId,recipientId=null,questionText}) {
+  const text=String(questionText||'').trim();
+  if(!text)throw Object.assign(new Error('Question is required'),{status:400});
+  const db=await pool.getConnection();
+  try{
+    await db.beginTransaction();
+    const [ins]=await db.execute(`INSERT INTO workplace_handbook_questions
+      (agency_id,version_id,section_id,asked_by_user_id,provider_update_recipient_id,question_text,status)
+      VALUES (?,?,?,?,?,?,'open')`,[agencyId,versionId,sectionId,askedByUserId||null,recipientId,text]);
+    await attachHandbookQuestionTicket(db,{id:ins.insertId,agency_id:agencyId,asked_by_user_id:askedByUserId||null,question_text:text});
+    const [[question]]=await db.execute('SELECT * FROM workplace_handbook_questions WHERE id=?',[ins.insertId]);
+    await db.commit();return question;
+  }catch(e){await db.rollback();throw e;}finally{db.release();}
 }
 
 export async function listHandbookQuestions(agencyId, { status = null } = {}) {

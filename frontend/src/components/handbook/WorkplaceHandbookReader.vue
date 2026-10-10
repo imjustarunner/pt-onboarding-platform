@@ -20,9 +20,10 @@
         >Open full handbook →</a>
       </header>
 
-      <p v-if="digest?.status === 'draft'" class="muted">Draft for review — these changes are still being edited. Formal acknowledgment opens when they are published.</p>
+      <p v-if="digest?.status === 'draft'" class="muted">These communicated updates are being incorporated into the Workplace Handbook. You can mark this review complete below; doing so does not publish the manual or sign your amendment.</p>
       <p v-if="canEdit" class="editor-notice">Administrator editing: changes saved here update this shared handbook digest for everyone in the agency.</p>
       <p v-if="editMessage" role="status">{{editMessage}}</p>
+      <p v-if="loadError" role="alert">{{loadError}} <button type="button" class="btn" @click="load">Try again</button></p>
       <div v-if="!entries.length" class="empty">
         No handbook updates in this digest.
       </div>
@@ -61,11 +62,11 @@
         <button type="button" class="btn" :disabled="asking || !question.trim()" @click="submitQuestion">
           {{ asking ? 'Sending…' : 'Submit question' }}
         </button>
-        <p v-if="askMsg" class="ok">{{ askMsg }}</p>
+        <p v-if="askMsg" role="status">{{ askMsg }}</p>
       </div>
 
       <div class="ack-row">
-        <button type="button" class="btn primary" :disabled="acking || previewMode || digest?.status==='draft' || !entries.length" @click="acknowledge">
+        <button type="button" class="btn primary" :disabled="acking || previewMode || !!loadError || !entries.length" @click="acknowledge">
           {{ acking ? 'Saving…' : 'I have reviewed these handbook updates' }}
         </button>
       </div>
@@ -94,7 +95,7 @@ const emit = defineEmits(['acknowledged']);
 
 const readerRoot=ref(null);
 onUpdated(()=>{if(readerRoot.value)connectTrainingVideos(readerRoot.value);});
-const loading = ref(false);
+const loading = ref(false),loadError=ref('');
 const digest = ref(null);
 const entries = ref([]);
 const fullHandbookUrl = ref('');
@@ -123,7 +124,7 @@ function formatChanged(text) {
 }
 
 async function load() {
-  loading.value = true;
+  loading.value = true;loadError.value='';
   try {
     let data;
     if (props.accessMode === 'token' && props.token) {
@@ -143,7 +144,7 @@ async function load() {
     entries.value = data.entries || [];
     fullHandbookUrl.value = data.fullHandbookUrl || '';
     await checkEditAccess();
-  } finally {
+  } catch(e){loadError.value=e.response?.data?.error?.message||'Handbook updates could not be loaded. Please try again.';} finally {
     loading.value = false;
   }
 }
@@ -164,8 +165,8 @@ async function submitQuestion() {
       });
     }
     question.value = '';
-    askMsg.value = 'Question sent to People Operations.';
-  } finally {
+    askMsg.value = 'Question sent to People Operations. You can continue reviewing your update.';
+  } catch(e){askMsg.value=e.response?.data?.error?.message||'Your question could not be sent. Please try again; your text has been kept.';} finally {
     asking.value = false;
   }
 }

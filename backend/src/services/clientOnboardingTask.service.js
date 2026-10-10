@@ -77,9 +77,10 @@ async function loadClientForLifecycleTask(clientId) {
             c.full_name, c.provider_id, c.service_day,
             c.services_started_at, c.first_service_at, c.school_year, c.created_at, c.submission_date,
             c.agency_intake_json, c.continuation_services_json,
-            c.disclosure_required, cs.status_key AS client_status_key
+            c.disclosure_required, org.organization_type, cs.status_key AS client_status_key
      FROM clients c
      LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
+     LEFT JOIN agencies org ON org.id = c.organization_id
      WHERE c.id = ?
      LIMIT 1`,
     [clientId]

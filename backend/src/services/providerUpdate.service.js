@@ -708,6 +708,7 @@ export async function getRecipientBundle(recipient) {
   );
   if(enabledKeys.includes('amendments')&&isCompensationUpdatePlan(push?.amendment_plan_json)&&await isCompensationAmendmentExempt(recipient.agency_id,recipient.provider_user_id))enabledKeys=enabledKeys.filter(k=>k!=='amendments');
   if (!recipient.previewOnly) await ensureSectionRows(recipient.id, enabledKeys);
+  const [[resume]]=await pool.execute("SELECT section_key FROM provider_update_view_events WHERE recipient_id=? AND event_type='save_for_later' ORDER BY id DESC LIMIT 1",[recipient.id]);
   const [sections] = await pool.execute(
     `SELECT * FROM provider_update_section_progress WHERE recipient_id = ?`,
     [recipient.id]
@@ -730,11 +731,11 @@ export async function getRecipientBundle(recipient) {
   for(const section of sectionList){
     const defaults={spanish_intake:{bodyHtml:spanishIntakeProcedure},contact_info:{contact:records.contact},profile_blurb:{blurb:records.blurb},credential_display:{publicGender:records.publicGender,credential:records.credential,displayRole:records.displayRole},work_hours:{typicalAvailability:records.typicalAvailability},specialties:{focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus,specialtyGroups:records.specialtyGroups,specialties:Object.fromEntries(records.specialtyGroups.map(g=>[g.key,g.selected]))},directory_photo:{hasPhoto:!!records.photoPath},school_availability:{schools:records.schools},supervision_hours:{breakdown:records.supervision},license:{license:records.license}}[section.key];
     section.data={...defaults,...section.data};
-    if(section.key==='credential_display'){section.data.displayRole=records.displayRole;section.data.publicGender=records.publicGender;section.data.sessionLanguages=records.sessionLanguages;}
+    if(section.key==='credential_display'){section.data.displayRole=records.displayRole;section.data.publicGender=section.data.publicGender??records.publicGender;section.data.sessionLanguages=section.data.sessionLanguages??records.sessionLanguages;}
     if(section.key==='spanish_intake')section.data.bodyHtml=spanishIntakeProcedure;
     if(section.key==='supervision_hours')section.data.breakdown=records.supervision;
     if(section.key==='specialties'){
-      section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:records.clinicalFocus};
+      section.data={...section.data,focusGroups:records.focusGroups,clinicalFocus:section.data.clinicalFocus??records.clinicalFocus};
       if(!recipient.locked_at&&missingFocusGroups(records.clinicalFocus,records.focusGroups||[]).length){
         // Reopen prior completion without marking untouched sections as started.
         if(section.completed)section.status='in_progress';
@@ -837,6 +838,7 @@ export async function getRecipientBundle(recipient) {
     },
     agency,
     sections: sectionList,
+    resumeSectionKey:resume?.section_key||null,
     progress: {
       completed: completedCount,
       total: sectionList.length,
@@ -1161,6 +1163,8 @@ export async function listFallActionClientsForProvider(providerUserId, agencyId)
        LEFT JOIN client_statuses cs ON cs.id = c.client_status_id
        LEFT JOIN agencies sch ON sch.id = c.organization_id
        WHERE c.compliance_archived_at IS NULL
+         AND LOWER(COALESCE(c.client_type,'school')) = 'school'
+         AND sch.organization_type = 'school'
          AND (
            c.provider_id = ?
            OR EXISTS (

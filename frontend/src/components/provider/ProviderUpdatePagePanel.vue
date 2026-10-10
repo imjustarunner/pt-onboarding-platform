@@ -9,7 +9,7 @@
     </header>
 
     <!-- Standalone page (Admin Update, Handbook, Amendments): one section fills the view -->
-    <ProviderUpdateSectionPanel
+    <ProviderUpdateSectionPanel ref="sectionEditors"
       v-if="page.alone && soleSection"
       :section="soleSection" :key="soleSection.key" hide-heading
       :mode="mode"
@@ -17,6 +17,7 @@
       :agency-id="agencyId"
       :recipient="recipient"
       @saved="onSaved"
+            @navigate="focusSection"
       @close="$emit('close')"
     />
 
@@ -45,13 +46,14 @@
           <span class="chev">{{ expandedKey === s.key ? '▾' : '▸' }}</span>
         </button>
         <div v-if="expandedKey === s.key" class="pu-page-block-body">
-          <ProviderUpdateSectionPanel
+          <ProviderUpdateSectionPanel ref="sectionEditors"
             :section="s" :key="s.key" hide-heading
             :mode="mode"
             :token="token"
             :agency-id="agencyId"
             :recipient="recipient"
             @saved="onSaved"
+            @navigate="focusSection"
             @close="expandedKey = ''"
           />
         </div>
@@ -70,9 +72,9 @@
           v-else
           type="button"
           class="pu-btn ghost"
-          @click="$emit('close')"
+          @click="$emit('save-later')"
         >
-          Save progress &amp; return
+          Save and come back later
         </button>
       </div>
     </div>
@@ -90,8 +92,8 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   recipient: { type: Object, default: null }
 });
-const emit = defineEmits(['saved', 'close', 'section', 'advance']);
-const pageRoot = ref(null);
+const emit = defineEmits(['saved', 'close', 'section', 'advance', 'save-later']);
+const pageRoot = ref(null),sectionEditors=ref(null);
 
 const soleSection = computed(() => props.page.sections?.[0] || null);
 const expandedKey = ref('');
@@ -114,7 +116,8 @@ function toggle(key) {
 
 async function focusSection(key){expandedKey.value=key;await nextTick();const block=pageRoot.value?.querySelector(`[data-section-key="${key}"]`);block?.scrollIntoView?.({behavior:'smooth',block:'start'});block?.querySelector('.pu-page-block-toggle')?.focus({preventScroll:true});}
 async function focusTop(){await nextTick();pageRoot.value?.scrollIntoView?.({behavior:'smooth',block:'start'});}
-defineExpose({focusSection,focusTop});
+async function saveDraft(){const editors=Array.isArray(sectionEditors.value)?sectionEditors.value:[sectionEditors.value];for(const editor of editors)if(editor?.saveDraft&&await editor.saveDraft()===false)return false;return true;}
+defineExpose({focusSection,focusTop,saveDraft});
 
 async function onSaved(bundle) {
   const completedKey=props.page.alone?soleSection.value?.key:expandedKey.value;

@@ -42,7 +42,7 @@ import api from '../services/api';import {passkeyError} from '../utils/passkeys'
 const props=defineProps({expectedUserId:[Number,String]});
 const emit=defineEmits(['changed']);const supported=browserSupportsWebAuthn()&&window.isSecureContext;
 const state=ref(null),busy=ref(false),error=ref(''),message=ref(''),label=ref('My passkey'),password=ref(''),recoveryCodes=ref([]),removeTarget=ref(null),recoveryPassword=ref(''),recoveryCode=ref(''),confirmRecovery=ref(false);
-const options={headers:{'X-Account-Security':'1',...(props.expectedUserId?{'X-Account-User-Id':String(props.expectedUserId)}:{})}},base='/account-security/passkeys';
+const options={...(props.expectedUserId?{cookieAuthOnly:true,skipAuthRedirect:true}:{}),headers:{'X-Account-Security':'1',...(props.expectedUserId?{'X-Account-User-Id':String(props.expectedUserId)}:{})}},base='/account-security/passkeys';
 const date=value=>new Date(value).toLocaleDateString();
 async function load(){state.value=(await api.get(base,options)).data;}
 async function changed(){await load();emit('changed');window.dispatchEvent(new Event('account-security-changed'));}

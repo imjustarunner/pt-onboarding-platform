@@ -1,4 +1,4 @@
-import {sectionTraining,saveGuides,savedInstructions} from '../controllers/providerUpdateTraining.controller.js';
+import {sectionTraining,saveGuides,savedInstructions,pushGuides} from '../controllers/providerUpdateTraining.controller.js';
 import {updateRoomRequest} from '../controllers/providerUpdateRoomRequest.controller.js';
 import {helpUpload,submitUpdateHelp} from '../controllers/providerUpdateHelp.controller.js';
 import {trainingMediaUpload,uploadTrainingMedia} from '../controllers/updateTrainingMedia.controller.js';
@@ -17,12 +17,14 @@ import * as compensationDrafts from '../controllers/compensationDraft.controller
 
 const router = express.Router();
 
+router.post('/me/save-for-later', authenticate, review.saveForLater);
 router.post('/training-media', authenticate, trainingMediaUpload.single('file'), uploadTrainingMedia);
 router.get('/compensation-drafts', authenticate, compensationDrafts.list);
 router.get('/compensation-drafts/:draftId', authenticate, compensationDrafts.get);
 router.put('/compensation-drafts/:draftId', authenticate, compensationDrafts.save);
 router.post('/compensation-drafts/:draftId/release', authenticate, compensationDrafts.release);
 
+router.post('/pushes/:pushId/push-training', authenticate, pushGuides);
 router.post('/pushes/:pushId/training/:sectionKey', authenticate, saveGuides);
 router.get('/instructions/:pushId/:sectionKey', authenticate, savedInstructions);
 router.get('/catalog', authenticate, ctrl.getCatalog);

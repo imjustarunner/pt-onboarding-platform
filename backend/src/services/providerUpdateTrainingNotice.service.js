@@ -25,7 +25,8 @@ export function trainingNoticeEmail({firstName,section,guideTitles,link}) {
  html:`<div style="background:#f1f5f7;padding:28px;font:16px/1.6 Arial;color:#203c48"><div style="max-width:620px;margin:auto;background:white;border-radius:18px;overflow:hidden"><div style="background:#214f60;color:white;padding:26px 32px"><p style="margin:0">PROVIDER UPDATE · NEW INSTRUCTIONS</p><h1 style="font-size:26px;margin:10px 0 0">${escape(section.title)}</h1></div><div style="padding:28px 32px"><p>Hello ${escape(firstName)},</p><p>${escape(message)}</p><p>${escape(detail)}</p><ul>${guideTitles.map(t=>`<li>${escape(t)}</li>`).join('')}</ul><p style="margin:28px 0"><a href="${escape(link)}" style="background:#214f60;color:white;text-decoration:none;padding:14px 22px;border-radius:9px;display:inline-block">Watch / view instructions →</a></p><p>${escape(footer)}</p></div></div></div>`};
 }
 
-export async function saveTrainingAndNotify({pushId,agencyId,sectionKey,guides,notify=true}) {
+export async function saveTrainingAndNotify({pushId,agencyId,sectionKey,guides}) {
+ // Uploading/saving never emails. Only the explicit batch push queues notices.
  const section=getSectionMeta(sectionKey);
  if(!section)throw Object.assign(Error('Unknown section.'),{status:400});
  if(!Array.isArray(guides))throw Object.assign(Error('Guides must be a list.'),{status:400});
@@ -37,30 +38,11 @@ export async function saveTrainingAndNotify({pushId,agencyId,sectionKey,guides,n
   const [[push]]=await db.execute('SELECT * FROM provider_update_pushes WHERE id=? AND agency_id=? FOR UPDATE',[pushId,agencyId]);
   if(!push||String(push.title).startsWith('[PREVIEW]'))throw Object.assign(Error('Update not found.'),{status:404});
   const config=parse(push.section_config_json), audience=parse(push.section_audience_json);
-  const changed=changedTrainingGuides(config._training?.[sectionKey]||[],next);
   config._training={...config._training,[sectionKey]:next};
   await db.execute('UPDATE provider_update_pushes SET section_config_json=? WHERE id=? AND agency_id=?',[JSON.stringify(config),pushId,agencyId]);
-  if(notify&&changed.length&&config[sectionKey]&&push.status!=='draft') {
-   const revision=trainingRevision(next);
-   const [recipients]=await db.execute(`SELECT r.* FROM provider_update_recipients r JOIN users u ON u.id=r.provider_user_id
-    WHERE r.push_id=? AND r.agency_id=? AND LEFT(r.token,8)<>'preview_'
-    AND COALESCE(r.is_demo_snapshot,0)=0 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.is_active,1)=1 AND COALESCE(u.is_archived,0)=0 AND UPPER(u.status)='ACTIVE_EMPLOYEE'
-    AND EXISTS(SELECT 1 FROM user_agencies ua WHERE ua.user_id=u.id AND ua.agency_id=r.agency_id AND COALESCE(ua.is_active,1)=1)
-    AND EXISTS(SELECT 1 FROM provider_update_section_progress sp WHERE sp.recipient_id=r.id AND sp.section_key=?)
-    AND (r.last_viewed_at IS NOT NULL OR r.status='finalized' OR EXISTS(SELECT 1 FROM provider_update_sends s WHERE s.recipient_id=r.id AND s.delivery_status IN ('sent','pending','delivered')))`,[pushId,agencyId,sectionKey]);
-   for(const r of recipients)if(recipientSeesSection(sectionKey,audience,r.provider_user_id))await db.execute(`INSERT IGNORE INTO provider_update_training_notices (push_id,recipient_id,agency_id,section_key,revision_hash,guide_titles_json) VALUES (?,?,?,?,?,?)`,[pushId,r.id,agencyId,sectionKey,revision,JSON.stringify(changed.map(g=>g.title))]);
-  }
   await db.commit();saved={...push,section_config_json:config,section_audience_json:audience,amendment_plan_json:push.amendment_plan_json?parse(push.amendment_plan_json):null};
  }catch(e){await db.rollback();throw e;}finally{db.release();}
- let delivery=null;
- if(notify){
-  // Retry explicit failures when the administrator saves again. Delivery is
-  // handled by the durable worker, so a large roster cannot time out this save.
-  await pool.execute("UPDATE provider_update_training_notices SET status='queued' WHERE push_id=? AND agency_id=? AND section_key=? AND status='failed'",[pushId,agencyId,sectionKey]);
-  const [[counts]]=await pool.execute(`SELECT COALESCE(SUM(status='sent'),0) AS sent, COALESCE(SUM(status IN ('queued','sending','pending')),0) AS pending, COALESCE(SUM(status='failed'),0) AS failed FROM provider_update_training_notices WHERE push_id=? AND agency_id=? AND section_key=?`,[pushId,agencyId,sectionKey]);
-  delivery={sent:Number(counts.sent),pending:Number(counts.pending),failed:Number(counts.failed)};
- }
- return {push:saved,delivery};
+ return {push:saved,delivery:null};
 }
 export async function dispatchTrainingNotices({pushId,agencyId,sectionKey,retryFailed=true}) {
  const [rows]=await pool.execute(`SELECT n.*,r.provider_user_id,u.first_name,u.email,u.work_email,p.section_config_json,p.section_audience_json FROM provider_update_training_notices n
@@ -100,5 +82,5 @@ export async function dispatchTrainingNotices({pushId,agencyId,sectionKey,retryF
 // are not retried automatically, because the email may already have been accepted.
 export async function processQueuedTrainingNotices() {
  const [groups]=await pool.execute("SELECT DISTINCT push_id,agency_id,section_key FROM provider_update_training_notices WHERE status='queued' LIMIT 20");
- for(const row of groups)await dispatchTrainingNotices({pushId:row.push_id,agencyId:row.agency_id,sectionKey:row.section_key,retryFailed:false});
+ for(const row of groups){if(row.section_key==='__batch__'){const {dispatchTrainingBatch}=await import('./providerUpdateTrainingBatch.service.js');await dispatchTrainingBatch({pushId:row.push_id,agencyId:row.agency_id});}else await dispatchTrainingNotices({pushId:row.push_id,agencyId:row.agency_id,sectionKey:row.section_key,retryFailed:false});}
 }

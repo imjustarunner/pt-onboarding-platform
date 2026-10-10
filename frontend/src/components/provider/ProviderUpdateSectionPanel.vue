@@ -51,7 +51,7 @@
       <button class="pu-btn primary" :disabled="saving" @click="markComplete({typicalAvailability:typicalAvailability.split(',').map(s=>s.trim()).filter(Boolean)})">Save &amp; confirm typical availability</button>
     </div>
 
-    <ProviderUpdateOfficeReview v-else-if="section.key==='office_review'" :agency-id="agencyId" :mode="mode" :token="token" :data="section.data" :readonly="!!recipient?.previewOnly" @complete="markComplete" />
+    <ProviderUpdateOfficeReview ref="officeReviewEditor" v-else-if="section.key==='office_review'" :agency-id="agencyId" :mode="mode" :token="token" :data="section.data" :readonly="!!recipient?.previewOnly" @navigate="key => $emit('navigate',key)" @complete="markComplete" />
     <!-- Office schedule -->
     <ProviderUpdateOfficeSchedule
       v-else-if="['office_schedule','public_availability','public_profile_review'].includes(section.key)"
@@ -324,7 +324,7 @@ const props = defineProps({
   agencyId: { type: [Number, String], default: null },
   recipient: { type: Object, default: null }
 });
-const emit = defineEmits(['saved', 'close']);
+const emit = defineEmits(['saved', 'close', 'navigate']);
 const route = useRoute();
 
 const saving = ref(false);
@@ -417,12 +417,31 @@ async function saveSectionPayload(payload) {
       });
     }
     emit('saved', res.data);
+    return true;
   } catch (e) {
     localError.value = e?.response?.data?.error?.message || 'Save failed';
+    return false;
   } finally {
     saving.value = false;
   }
 }
+
+const officeReviewEditor=ref(null);
+let draftBaseline=null;
+function currentDraft(){
+ const drafts={contact_info:{contact:{...contact}},profile_blurb:{blurb:blurb.value},specialties:{clinicalFocus:clinicalFocus.value,specialties:{...specialties}},license:{license:{...license}},credential_display:{credential:credential.value,displayLabel:displayLabel.value,publicGender:publicGender.value,sessionLanguages:sessionLanguages.value},work_hours:{typicalAvailability:typicalAvailability.value.split(',').map(s=>s.trim()).filter(Boolean)},preferred_days:{preferredDays:preferredDays.value},office_review:officeReviewEditor.value?.draft(),supervision_hours:{...supervisionReview}};
+ return drafts[props.section.key];
+}
+async function saveDraft(){
+ if(props.recipient?.previewOnly)return true;
+ if(saving.value||reviewLoading.value){localError.value='Please wait for the current save or upload to finish.';return false;}
+ const data=currentDraft();if(!data)return true;
+ if(JSON.stringify(data)===draftBaseline)return true;
+ const saved=await saveSectionPayload({completed:false,status:'in_progress',data:{...(props.section.data||{}),...data}});
+ if(saved)draftBaseline=JSON.stringify(data);
+ return saved;
+}
+defineExpose({saveDraft});
 
 function markComplete(data = {}) {
   const rawMode = props.section.meta?.mode || 'ack';
@@ -539,6 +558,7 @@ onMounted(async () => {
   emailPreference.value = {personalEmailNotify:data.appEmail?.personalEmailNotify !== false,personalEmailDeliveryMode:data.appEmail?.personalEmailDeliveryMode || 'notification',personalEmailDelayMode:data.appEmail?.personalEmailDelayMode || 'business_day',personalEmailDelayHours:data.appEmail?.personalEmailDelayHours ?? 24};
   preferredDays.value = data.preferredDays || [];
   if (data.notify) Object.assign(notify, data.notify);
+  draftBaseline=JSON.stringify(currentDraft());
   if (props.section.key === 'client_fall_update') await loadFallClients();
 });
 </script>

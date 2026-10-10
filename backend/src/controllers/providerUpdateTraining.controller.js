@@ -36,6 +36,8 @@ export async function saveGuides(req,res,next) {
   const {assertAgencyAdmin}=await import('../services/providerUpdate.service.js');
   const {saveTrainingAndNotify}=await import('../services/providerUpdateTrainingNotice.service.js');
   const agencyId=await assertAgencyAdmin(req.user,req.body.agencyId);
-  res.json(await saveTrainingAndNotify({pushId:Number(req.params.pushId),agencyId,sectionKey:req.params.sectionKey,guides:req.body.guides,notify:req.body.notify!==false,actorId:req.user.id}));
+  res.json(await saveTrainingAndNotify({pushId:Number(req.params.pushId),agencyId,sectionKey:req.params.sectionKey,guides:req.body.guides,notify:false,actorId:req.user.id}));
  }catch(e){next(e);}
 }
+
+export async function pushGuides(req,res,next){try{const {assertAgencyAdmin}=await import('../services/providerUpdate.service.js');const {queueTrainingBatch}=await import('../services/providerUpdateTrainingBatch.service.js');const agencyId=await assertAgencyAdmin(req.user,req.body.agencyId);res.json(await queueTrainingBatch({pushId:Number(req.params.pushId),agencyId}));}catch(e){next(e);}}

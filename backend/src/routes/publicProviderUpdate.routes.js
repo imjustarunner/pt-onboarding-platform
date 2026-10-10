@@ -13,6 +13,7 @@ import * as hb from '../controllers/workplaceHandbook.controller.js';
 import {protectProviderUpdatePreview} from '../middleware/providerUpdatePreview.middleware.js';
 
 const router = express.Router();
+router.post('/:token/save-for-later', review.saveForLater);
 router.use('/:token',protectProviderUpdatePreview);
 
 router.get('/:token', ctrl.getPublicByToken);

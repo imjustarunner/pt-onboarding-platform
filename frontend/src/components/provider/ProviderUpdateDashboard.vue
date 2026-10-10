@@ -138,10 +138,20 @@
             :recipient="recipient"
             @saved="onSectionSaved"
             @advance="advancePage"
+            @save-later="saveForLater"
             @close="openPage('')"
           />
         </template>
 
+        <button v-if="recipient.id && !recipient.previewOnly && !recipient.finalizedAt" type="button" class="pu-btn primary" :disabled="savingForLater" @click="saveForLater">{{savingForLater?'Saving…':'Save and come back later'}}</button>
+        <section v-if="savedForLater" class="pu-return" role="status">
+          <h2>Your progress is saved</h2><p>Use the same link in your invitation email to return to this update. You can also copy the link below. Keep it private.</p>
+          <label>Your return link<input :value="returnLink" readonly @focus="$event.target.select()" /></label>
+          <button type="button" class="pu-btn" @click="copyReturnLink">Copy return link</button>
+          <p v-if="returnLinkCopied">Link copied.</p>
+          <p>Your unfinished sections stay unfinished. Passwords, unsigned agreements and unsent messages are not saved by this button. Use each section’s confirmation to apply changes.</p>
+          <button type="button" class="pu-btn primary" @click="continueReview">Continue now</button>
+        </section>
         <p v-if="error" class="pu-error">{{ error }}</p>
         <p v-if="success" class="pu-success">{{ success }}</p>
       </main>
@@ -181,7 +191,9 @@ const pagePanel=ref(null);
 const loading = ref(false);
 const error = ref('');
 const success = ref('');
-const finalizing = ref(false);
+const finalizing = ref(false),savingForLater=ref(false),savedForLater=ref(false),returnLinkCopied=ref(false);
+const returnLink=computed(()=>{const url=new URL(window.location.href);url.hash='';return url.href;});
+let restoredPosition=false;
 
 const pages = computed(() => buildPagesFromSections(sections.value));
 const tenantName = computed(() =>
@@ -299,6 +311,7 @@ async function load() {
     agencyInfo.value = data.agency || null;
     sections.value = data.sections || [];
     progress.value = data.progress || { completed: 0, total: 0, percent: 0 };
+    if(!restoredPosition){restoredPosition=true;const key=data.resumeSectionKey;const page=pages.value.find(p=>p.sections.some(s=>s.key===key));if(page){activePageKey.value=page.key;loading.value=false;await nextTick();await pagePanel.value?.focusSection(key);}}
   } catch (e) {
     error.value = e?.response?.data?.error?.message || 'Failed to load Provider Update';
   } finally {
@@ -319,6 +332,19 @@ async function onSectionSaved(bundle) {
     success.value = '';
   }, 1500);
 }
+
+async function saveForLater(){
+ if(savingForLater.value||recipient.value.previewOnly)return;
+ savingForLater.value=true;error.value='';
+ try{if(await pagePanel.value?.saveDraft()===false)throw Error('The current section could not be saved. Please check its error and try again.');
+ await session.flush();if(session.timeError.value)throw Error('Could not save your progress. Please reconnect and try again.');
+ const base=props.accessMode==='token'?`/public/provider-update/${encodeURIComponent(props.token)}`:'/provider-update/me';
+ await api.post(`${base}/save-for-later`,{agencyId:props.agencyId||recipient.value.agencyId,sectionKey:activeSectionKey.value||'overview'});
+ savedForLater.value=true;returnLinkCopied.value=false;await nextTick();document.querySelector('.pu-return')?.scrollIntoView?.({behavior:'smooth',block:'center'});
+ }catch(e){error.value=e.response?.data?.error?.message||e.message||'Could not save your progress.';}finally{savingForLater.value=false;}
+}
+function continueReview(){savedForLater.value=false;}
+async function copyReturnLink(){try{await navigator.clipboard.writeText(returnLink.value);returnLinkCopied.value=true;}catch{error.value='Select and copy the return link above.';}}
 
 async function finalize() {
   if (recipient.value.previewOnly) return;
@@ -541,6 +567,7 @@ watch(
   margin-bottom: 0.75rem; font: inherit; padding: 0;
 }
 .pu-error { color: #b91c1c; }
+.pu-return{background:#fff;border:2px solid #3d6b4f;border-radius:14px;padding:24px;margin:18px 0;display:grid;gap:12px}.pu-return input{display:block;width:100%;box-sizing:border-box;font:inherit;padding:10px}.pu-return p{line-height:1.5}
 .pu-success { color: var(--pu-green); }
 @media (max-width: 1100px) {
   .pu-grid, .pu-bottom { grid-template-columns: 1fr 1fr; }

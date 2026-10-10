@@ -20,3 +20,9 @@ it('limits highlights to three and visibly excludes deselected options',async()=
  const props={modelValue:{top:{populations:['A','B','C']},excluded:{populations:[]}},groups:[{key:'populations',label:'Populations',options:['A','B','C','D']}]};const w=mount(Editor,{props});expect(w.findAll('.highlighted')).toHaveLength(3);
  expect(w.findAll('.focus-option')[3].findAll('input')[1].attributes('disabled')).toBeDefined();await w.findAll('.focus-option')[0].findAll('input')[0].setValue(false);const next=w.emitted('update:modelValue')[0][0];expect(next).toEqual({top:{populations:['B','C']},excluded:{populations:['A']}});await w.setProps({modelValue:next});expect(w.findAll('.excluded')).toHaveLength(1);expect(w.findAll('.highlighted')).toHaveLength(2);expect(w.findAll('.focus-option')[3].findAll('input')[1].attributes('disabled')).toBeUndefined();
 });
+it('clears matches and highlights in only the requested category',async()=>{
+ const value=complete(),w=mount(Editor,{props:{modelValue:value,groups:FOCUS_GROUPS,requireThree:true}});
+ await w.get('[data-focus-group="specialties"] button').trigger('click');
+ const next=w.emitted('update:modelValue')[0][0];expect(next.top.specialties).toEqual([]);expect(next.excluded.specialties).toEqual(FOCUS_GROUPS[0].options);expect(next.top.populations).toEqual(value.top.populations);
+ await w.setProps({modelValue:next});expect(w.get('[data-focus-group="specialties"]').findAll('input').every(i=>!i.element.checked)).toBe(true);w.unmount();
+});

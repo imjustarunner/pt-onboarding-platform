@@ -245,3 +245,5 @@ export async function schoolAdjustment(req,res,next){
   const {createMySchoolAvailabilityRequest}=await import('./availability.controller.js');return createMySchoolAvailabilityRequest(scoped,res,next);
  }catch(e){next(e);}
 }
+
+export async function saveForLater(req,res,next){try{const recipient=await reviewRecipient(req);if(recipient.previewOnly)throw fail('This preview is read-only.',403);const key=String(req.body.sectionKey||'overview');if(key!=='overview')requireSection(recipient,key);const {recordViewEvent}=await import('../services/providerUpdate.service.js');await recordViewEvent(recipient.id,'save_for_later',key);res.json({saved:true,sectionKey:key});}catch(e){next(e);}}

@@ -5,7 +5,7 @@
   <template v-if="bundle">
    <h1>{{bundle.section.title}}</h1><p>{{bundle.section.description}}</p>
    <p class="completion-note">These instructions are available after you finish your update. Viewing them does not change your completed sections.</p>
-   <ProviderUpdateTrainingGuides :guides="bundle.guides" :base="''" :endpoint="endpoint" :agency-id="bundle.agencyId" :section-key="sectionKey" />
+   <ProviderUpdateTrainingGuides :guides="bundle.guides" :base="''" :endpoint="endpoint" :agency-id="bundle.agencyId" :section-key="sectionKey" :initial-guide-id="String(route.query.guide || '')" />
    <p v-if="!bundle.guides.length">No instructions are currently attached to this section.</p>
   </template>
  </main>

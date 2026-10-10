@@ -109,6 +109,9 @@ function clientHasAssignedProvider(client) {
 }
 
 export function deriveLifecycleAction({ client, viewerRole, disposition = null, now = new Date() }) {
+  // These are school-year/parent-intake actions, not office-client tasks.
+  if (client?.client_type && String(client.client_type).trim().toLowerCase() !== 'school') return null;
+  if (client?.organization_type && String(client.organization_type).trim().toLowerCase() !== 'school') return null;
   const role = String(viewerRole || '').toLowerCase();
   const statusKey = String(client?.client_status_key || '').toLowerCase();
   const agencyIntake = parseJson(client?.agency_intake_json) || {};

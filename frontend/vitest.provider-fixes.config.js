@@ -1,0 +1,3 @@
+import {defineConfig} from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
+export default defineConfig({plugins:[vue()],test:{environment:'jsdom',include:['src/components/admin/__tests__/ProviderUpdateTrainingEditor.test.js','src/components/provider/__tests__/ProviderUpdateTrainingGuides.test.js','src/components/provider/__tests__/ProviderUpdateSaveLater.test.js','src/components/provider/__tests__/ProviderUpdateSecuritySetup.test.js','src/components/provider/__tests__/ProviderUpdateOfficeSchedule.test.js','src/components/provider/__tests__/ProviderUpdatePagePanel.test.js','src/components/provider/__tests__/ProviderFocusEditor.test.js','src/components/handbook/__tests__/WorkplaceHandbookReader.test.js']}});

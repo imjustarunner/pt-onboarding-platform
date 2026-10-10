@@ -12,7 +12,7 @@ vi.mock('../../models/UserComplianceDocument.model.js',()=>({default:{findById:v
 vi.mock('../../models/SupervisionSession.model.js',()=>({default:{getHoursSummaryForSupervisee:vi.fn()}}));
 vi.mock('../storage.service.js',()=>({default:{}}));
 vi.mock('../licenseCredentialSync.service.js',()=>({saveProviderLicenseUpload:vi.fn()}));
-vi.mock('../providerUpdate.service.js',()=>({getRecipientByToken:vi.fn(),getMyOpenRecipient:vi.fn(),normalizeSectionAudience:vi.fn(v=>v),recipientSeesSection:vi.fn(()=>true),listFallActionClientsForProvider:vi.fn()}));
+vi.mock('../providerUpdate.service.js',()=>({getRecipientByToken:vi.fn(),getMyOpenRecipient:vi.fn(),normalizeSectionAudience:vi.fn(v=>v),recipientSeesSection:vi.fn(()=>true),listFallActionClientsForProvider:vi.fn(),recordViewEvent:vi.fn()}));
 vi.mock('../officeAssignmentBookingAvailability.service.js',()=>({setOfficeAssignmentBookingAvailability:vi.fn()}));
 vi.mock('../providerAvailabilityAccess.service.js',()=>({requireProviderAvailabilityAccess:vi.fn()}));
 vi.mock('../../controllers/officeSlotActions.controller.js',()=>({forfeitAssignment:vi.fn(),downgradeStandingAssignment:vi.fn(),rescheduleStandingAssignment:vi.fn()}));
@@ -77,7 +77,7 @@ it('requires signed communication choices and keeps signatures out of provider-u
  expect(data).toEqual({choices,accessRequests:undefined,reviewedAt:'2026-10-06T12:00:00Z'});
 });
 
-it('requires a configured, unlocked Quick View passcode and strips credential material from the update',async()=>{getCredentialStatus.mockResolvedValueOnce({hasPasscode:false,isLocked:false});await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');getCredentialStatus.mockResolvedValueOnce({hasPasscode:true,isLocked:true});await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');const data={quickViewConfirmed:true,pin:'123456'};await persistReviewSection(recipient,'pin',data,true);expect(data).toEqual({quickViewConfirmed:true});expect(getCredentialStatus).toHaveBeenLastCalledWith(recipient.provider_user_id);});
+it('requires a configured, unlocked Quick View passcode and strips credential material from the update',async()=>{getCredentialStatus.mockResolvedValueOnce({hasPasscode:false,isLocked:false});await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');getCredentialStatus.mockResolvedValueOnce({hasPasscode:true,isLocked:true});await expect(persistReviewSection(recipient,'pin',{quickViewConfirmed:true},true)).rejects.toThrow('six-digit');const data={quickViewConfirmed:true,codeStoredSafely:true,pin:'123456'};await persistReviewSection(recipient,'pin',data,true);expect(data).toEqual({quickViewConfirmed:true,codeStoredSafely:true});expect(getCredentialStatus).toHaveBeenLastCalledWith(recipient.provider_user_id);});
 
 it('initializes only the invited recipient’s missing code without a password or administrator identity',async()=>{
  res.setHeader=vi.fn();getCredentialStatus.mockResolvedValue({hasPasscode:false,isLocked:false});
@@ -142,3 +142,8 @@ it('accepts protected immediate timing and rejects an invalid delay before savin
  await expect(persistReviewSection(recipient,'notification_prefs',{emailReminderPreferences:{personalEmailDelayHours:0}},true)).rejects.toMatchObject({status:400});
  expect(saveStaffCommunicationChoices).not.toHaveBeenCalled();
 });
+
+import {saveForLater} from '../../controllers/providerUpdateReview.controller.js';
+import {recordViewEvent} from '../providerUpdate.service.js';
+it('saves a resume position for the invitation owner, never a caller supplied recipient',async()=>{req.body={agencyId:999,recipientId:99,sectionKey:'office_schedule'};await saveForLater(req,res,next);expect(next).not.toHaveBeenCalled();expect(recordViewEvent).toHaveBeenCalledWith(1,'save_for_later','office_schedule');expect(res.json).toHaveBeenCalledWith({saved:true,sectionKey:'office_schedule'});});
+it('rejects resume writes for preview, locked, or unassigned sections',async()=>{getRecipientByToken.mockResolvedValue({...recipient,previewOnly:true});await saveForLater(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));getRecipientByToken.mockResolvedValue({...recipient,locked_at:'now'});await saveForLater(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:410}));getRecipientByToken.mockResolvedValue({...recipient});req.body.sectionKey='not-real';await saveForLater(req,res,next);expect(next).toHaveBeenLastCalledWith(expect.objectContaining({status:403}));expect(recordViewEvent).not.toHaveBeenCalled();});

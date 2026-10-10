@@ -397,3 +397,7 @@ describe('deriveLifecycleAction', () => {
     assert.match(action?.label, /Waitlist/i);
   });
 });
+
+describe('office clients are excluded from school lifecycle actions',()=>{
+ for(const viewerRole of ['provider','admin'])for(const client_status_key of ['needs_day_assignment','ready_to_schedule','being_seen','confirmation_pending'])it(`${viewerRole} ${client_status_key}`,()=>{assert.equal(deriveLifecycleAction({client:{client_type:'clinical',organization_type:'clinical',client_status_key,provider_id:501},viewerRole}),null);});
+});
