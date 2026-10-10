@@ -108,6 +108,7 @@ it('corrects Spanish eligibility without losing unrelated pay terms or languages
  expect(correctIndividualAmendment(original,482).schedule).toEqual({creditRate:44,spanishDifferentialEligible:false});
  expect(correctIndividualAmendment(original,485).schedule.spanishDifferentialEligible).toBe(true);
  expect(correctSpanishLanguages('English, Spanish (limited), French',false)).toEqual(['English','French']);
+ expect(correctSpanishLanguages(['English & Spanish'],false)).toEqual(['English']);
  const profile={gender:'Female',languages:['English','Spanish'],languageProficiencies:[{language:'English',proficiency:'native',canConductSessions:true},{language:'Spanish',proficiency:'fluent',canConductSessions:true}]};
  expect(correctSpanishProfile(profile,false)).toEqual({...profile,languages:['English'],languageProficiencies:[profile.languageProficiencies[0]]});
  expect(correctSpanishProfile({languages:['English']},true).languages).toEqual(['English','Spanish']);

@@ -7,7 +7,7 @@ export function correctIndividualAmendment(data,userId) {
 }
 // Only clinically proficient languages belong in matching and session-language fields.
 export function correctSpanishLanguages(value,eligible) {
- const values=Array.isArray(value)?value:String(value||'').split(/\s*(?:,|;|\/|&|\band\b)\s*/i);
+ const values=(Array.isArray(value)?value:[value]).flatMap(item=>String(item||'').split(/\s*(?:,|;|\/|&|\band\b)\s*/i)).map(item=>item.trim());
  const other=values.filter(item=>!/\bspanish\b|español|spanglish/i.test(String(item)));
  return [...new Set([...other.filter(Boolean),...(eligible?['Spanish']:[])])];
 }

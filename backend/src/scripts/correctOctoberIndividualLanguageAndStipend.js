@@ -15,6 +15,10 @@ try {
  const [rates]=await db.query('SELECT * FROM payroll_pay_system_rates WHERE agency_id=2');
  const [profiles]=await db.query('SELECT * FROM provider_public_profiles WHERE user_id IN(482,485) FOR UPDATE');
  const [fields]=await db.query("SELECT v.*,d.field_key FROM user_info_values v JOIN user_info_field_definitions d ON d.id=v.field_definition_id WHERE v.user_id IN(482,485) AND d.field_key IN('languages_spoken','provider_languages_spoken') FOR UPDATE");
+ const languagesFor=uid=>{
+  const person=people.find(p=>p.id===uid),details=parse(profiles.find(p=>p.user_id===uid)?.public_details_json)||{};
+  return correctSpanishLanguages([person.languages_spoken,...(details.languages||[]),...fields.filter(f=>f.user_id===uid).flatMap(f=>{try{return parse(f.value)}catch{return f.value}})],uid===485);
+ };
  const [progress]=await db.query("SELECT p.*,r.provider_user_id FROM provider_update_section_progress p JOIN provider_update_recipients r ON r.id=p.recipient_id WHERE r.agency_id=2 AND r.provider_user_id IN(482,485) AND p.section_key='credential_display' FOR UPDATE");
  const [drafts]=await db.query("SELECT * FROM contract_generations WHERE agency_id=2 AND candidate_user_id IN(482,485,494) AND JSON_UNQUOTE(JSON_EXTRACT(token_values_json,'$.draftKind'))='provider_update_compensation' FOR UPDATE");
  if(new Set(drafts.map(d=>d.candidate_user_id)).size!==3)throw Error('Expected all three amendments');
@@ -41,9 +45,11 @@ try {
   fs.writeFileSync(process.env.UPDATE_BACKUP_PATH,JSON.stringify({people,assignments,profiles,fields,progress,drafts,documents}),{flag:'wx',mode:0o600});
   for(const uid of [482,485]){
    const eligible=uid===485,person=people.find(p=>p.id===uid);
-   await db.execute('UPDATE users SET languages_spoken=? WHERE id=?',[correctSpanishLanguages(person.languages_spoken,eligible).join(', '),uid]);
+   const profile=profiles.find(p=>p.user_id===uid),existingDetails=parse(profile?.public_details_json)||{};
+   const languages=languagesFor(uid);
+   await db.execute('UPDATE users SET languages_spoken=? WHERE id=?',[languages.join(', '),uid]);
    await db.execute('UPDATE payroll_user_compensation_levels SET spanish_bonus_eligible=? WHERE agency_id=2 AND user_id=?',[eligible?1:0,uid]);
-   const profile=profiles.find(p=>p.user_id===uid),details=correctSpanishProfile(parse(profile?.public_details_json)||{},eligible);
+   const details=correctSpanishProfile({...existingDetails,languages},eligible);
    if(profile)await db.execute('UPDATE provider_public_profiles SET public_details_json=? WHERE user_id=?',[JSON.stringify(details),uid]);
    else await db.execute('INSERT INTO provider_public_profiles(user_id,public_details_json) VALUES(?,?)',[uid,JSON.stringify(details)]);
    for(const field of fields.filter(f=>f.user_id===uid)){
@@ -62,6 +68,6 @@ try {
   for(const p of plans){await db.execute('UPDATE contract_generations SET token_values_json=?,rendered_html=? WHERE id=?',[JSON.stringify(p.data),p.html,p.row.id]);if(p.doc)await db.execute('UPDATE user_specific_documents SET html_content=? WHERE id=?',[p.html,p.doc.id]);}
   await db.commit();
  }else await db.rollback();
- console.log(JSON.stringify({apply,languageCorrections:people.filter(p=>p.id!==494).map(p=>({id:p.id,before:p.languages_spoken,after:correctSpanishLanguages(p.languages_spoken,p.id===485).join(', ')})),amendments:plans.map(p=>({id:p.row.id,userId:p.row.candidate_user_id,spanish:p.data.schedule.spanishDifferentialEligible,issuedUnsigned:!!p.doc})),priorInvitations:sends,emailsSent:0}));
+ console.log(JSON.stringify({apply,languageCorrections:people.filter(p=>p.id!==494).map(p=>({id:p.id,before:p.languages_spoken,after:languagesFor(p.id).join(', ')})),amendments:plans.map(p=>({id:p.row.id,userId:p.row.candidate_user_id,spanish:p.data.schedule.spanishDifferentialEligible,issuedUnsigned:!!p.doc})),priorInvitations:sends,emailsSent:0}));
 }catch(e){await db.rollback();throw e;}finally{db.release();await pool.end();}
 process.exit(0);
