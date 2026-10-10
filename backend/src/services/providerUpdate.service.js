@@ -541,7 +541,8 @@ export async function sendPush({ pushId, agencyId, sentByUserId, providerUserIds
             communicationId = sendResult?.communicationId || comm?.id || null;
             if (comm?.id && sendResult?.id) {
               await CommunicationLoggingService.markAsSent(comm.id, sendResult.id, {
-                replyTo: resolved.replyTo
+                replyTo: resolved.replyTo,
+                bcc: providerUpdateAuditBcc({agencyId,pushId,providerUserId:p.provider_user_id})
               }).catch(() => {});
             }
           }
