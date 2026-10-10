@@ -78,7 +78,8 @@ let refreshTimer,alive=true,reviewTrigger=null;
 const rows=computed(()=>{
  const byId=new Map(people.value.map(p=>[Number(p.provider_user_id),{...p,eligible:true,recipient:null}]));
  for(const r of recipients.value){if(Number(r.is_demo_snapshot))continue;const id=Number(r.provider_user_id);if(byId.has(id))byId.set(id,{...byId.get(id),recipient:r});}
- return [...byId.values()].sort((a,b)=>`${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
+ const sent=row=>['pending','sent','delivered'].includes(row.recipient?.last_delivery_status)?1:0;
+ return [...byId.values()].sort((a,b)=>sent(a)-sent(b)||`${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`));
 });
 const filteredRows=computed(()=>rows.value.filter(p=>`${p.first_name} ${p.last_name} ${p.work_email||''}`.toLowerCase().includes(search.value.toLowerCase())).filter(row=>statusFilter.value==='Everyone'||(statusFilter.value==='Not sent'?!['sent','delivered'].includes(row.recipient?.last_delivery_status):progressStatus(row.recipient)===statusFilter.value)));
 function duration(raw){const n=Math.max(0,Math.floor(Number(raw)||0));return `${n>=3600?Math.floor(n/3600)+'h ':''}${Math.floor(n%3600/60)}m ${n%60}s`;}

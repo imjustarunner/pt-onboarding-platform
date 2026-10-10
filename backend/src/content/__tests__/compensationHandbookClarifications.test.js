@@ -12,7 +12,7 @@ it('uses the saved threshold and separate reduced rates rather than guessing fro
 });
 it('does not treat a saved group rate or zero-credit mapping as approval',()=>{
  const section=codeReferenceSection([{service_code:'90853',category:'direct',credit_value:1},{service_code:'99051',category:'direct',credit_value:0},{service_code:'H0031',category:'direct',credit_value:1/60,pay_divisor:60},{service_code:'Homework',category:'direct',credit_value:1/60,pay_divisor:60}]);
- expect(section.bodyHtml).toContain('Group moratorium — written exception required');expect(section.bodyHtml).toContain('No automatic credit payment');expect(section.bodyHtml).toContain('Actual service minutes ÷ 60');expect(section.bodyHtml).not.toContain('<th>Homework</th>');
+ expect(section.bodyHtml).toContain('Group moratorium — express written approval of an exception required');expect(section.bodyHtml).toContain('No automatic credit payment');expect(section.bodyHtml).toContain('Actual service minutes ÷ 60');expect(section.bodyHtml).not.toContain('<th>Homework</th>');
 });
 it('keeps the group proposal option while requiring funded legal wages and official dated sources',()=>{
  expect(GROUP_POLICY_HTML).toContain('Staff may propose a group');expect(GROUP_POLICY_HTML).toContain('reasonable likelihood');expect(GROUP_POLICY_HTML).toContain('individual written agreement');expect(GROUP_POLICY_HTML).toContain('Public Law 119-21');expect(GROUP_POLICY_HTML).toContain('leg.colorado.gov/bills/hb26-1410');expect(GROUP_POLICY_HTML).toContain('historical context');
@@ -49,4 +49,37 @@ it('places electronic signatures last, incorporates review into section 10 and r
  expect(section10).toContain('Supervisory reviews, clinical documentation reviews and formal performance evaluations');
  expect(html.match(/Supervisory reviews, clinical documentation reviews/g)).toHaveLength(1);
  expect(html.slice(html.indexOf('13. Employee acknowledgment and signatures'))).not.toMatch(/<h[1-6]>/);
+});
+
+import {codeInventory,formatHandbookQuantity,formatHandbookBasis,HANDBOOK_APP_TRANSITION} from '../handbookCodePresentation.js';
+import {SUPERVISOR_COMPENSATION_HANDBOOK,roleCompensationTerms} from '../roleCompensationTerms.js';
+it('formats saved decimal values and basis labels without losing minute equivalence',()=>{
+ expect(formatHandbookQuantity('1.0000000000')).toBe('1');expect(formatHandbookQuantity('0.7500000000')).toBe('0.75');expect(formatHandbookQuantity('0.0166666667')).toBe('1/60');expect(formatHandbookBasis('per_hour')).toBe('Per hour');
+});
+it('separates restricted mappings from available services in both tables',()=>{
+ const rules=['90837','90853','H0004','H0025','H2014','H2015','H2016','H2017','H2018','H2032'].map(service_code=>({service_code,category:'direct',credit_value:'1.0000000000',pay_rate_unit:'per_unit'}));
+ for(const html of [codeInventory(rules),codeReferenceSection(rules).bodyHtml]){
+  const [available,restricted]=html.split('<h2>Restricted and currently unapproved services</h2>');
+  for(const code of ['90853','H0025','H2014','H2015','H2016','H2017','H2018','H2032']){expect(available).not.toMatch(new RegExp('<(?:th|td)>'+code+'</'));expect(restricted).toContain(code);}
+  expect(restricted).toContain('Not approved for individual services');expect(restricted).toContain('Skill Builders only');expect(restricted).toContain('Express written permission required before any use');
+ }
+});
+it('uses contracted percentages only in the handbook and preserves personal supervision rates',()=>{
+ expect(SUPERVISOR_COMPENSATION_HANDBOOK).not.toContain('$');for(const rate of ['100%','150%','50%'])expect(SUPERVISOR_COMPENSATION_HANDBOOK).toContain(rate);
+ expect(roleCompensationTerms({supervisor:{hourlyRate:65}})).toContain('$97.50');expect(SUPERVISOR_COMPENSATION_HANDBOOK).toContain('actual note-review hour');
+ expect(HANDBOOK_APP_TRANSITION.bodyHtml).toContain('will transition into the app');expect(HANDBOOK_APP_TRANSITION.bodyHtml).not.toContain('Replace old');
+});
+
+import {correctHandbookPresentation} from '../handbookPresentationCorrections.js';
+it('refreshes saved content idempotently and preserves unrelated edits and attached media',()=>{
+ const tail='<p>Owner note.</p><figure><img src="training.png"></figure>';
+ const old='<h2>Saved code inventory</h2><table><tr><td>H2014</td></tr></table>'+tail;
+ const rules=[{service_code:'H0004',credit_value:'.25',category:'direct',pay_rate_unit:'per_hour'}];
+ const refreshed=correctHandbookPresentation('colorado-billing-compensation-appendix',old,rules);
+ expect(refreshed).toContain(tail);expect(refreshed).toContain('Per hour');expect(correctHandbookPresentation('colorado-billing-compensation-appendix',refreshed,rules)).toBe(refreshed);
+ const reference=codeReferenceSection(rules).bodyHtml+tail;expect(correctHandbookPresentation('service-code-approval-and-credit-reference',reference,rules)).toBe(reference);
+ const originalSupervision='<p>Timekeeping owner edit.</p><!-- supervisor-compensation-october-2026 -->'+roleCompensationTerms({supervisor:{hourlyRate:65}})+tail;
+ const supervision=correctHandbookPresentation('timekeeping-support-and-overtime',originalSupervision);
+ expect(supervision).not.toContain('$65');expect(supervision).toContain('Timekeeping owner edit.');expect(supervision).toContain(tail);expect(correctHandbookPresentation('timekeeping-support-and-overtime',supervision)).toBe(supervision);
+ const transition=correctHandbookPresentation(HANDBOOK_APP_TRANSITION.slug,'<p>Old summary.</p>'+tail);expect(transition).toContain('<figure>');expect(transition).not.toContain('Old summary');expect(correctHandbookPresentation(HANDBOOK_APP_TRANSITION.slug,transition)).toBe(transition);
 });

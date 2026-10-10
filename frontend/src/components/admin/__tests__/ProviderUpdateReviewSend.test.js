@@ -25,3 +25,12 @@ it('starts with everyone and can filter completed staff without affecting invita
 it('does not restore former staff from historical recipients',async()=>{m.recipients=[{provider_user_id:999,first_name:'Former',last_name:'Employee',status:'finalized',active_seconds:1000,sections_completed:8,sections_total:8}];const w=await render();expect(w.find('[data-person-id="999"]').exists()).toBe(false);expect(w.findAll('tbody tr')).toHaveLength(2);expect(w.text()).toContain('Active staff only');w.unmount();});
 
 it('labels the work destination and never displays a personal fallback',async()=>{const original=m.get.getMockImplementation();m.get.mockImplementation(async path=>path.includes('eligible-providers')?{data:{providers:[{provider_user_id:465,first_name:'Aunya',last_name:'Albinana',work_email:null,email:'private@yahoo.com'}]}}:original(path));const w=await render();expect(w.text()).not.toContain('private@yahoo.com');expect(w.text()).toContain('Work email: Missing');await preview(w);expect(w.text()).toContain('No agency work email found');expect(w.get('input[type=checkbox]').attributes('disabled')).toBeDefined();expect(w.get('[data-person-id="465"] .row-send').attributes('disabled')).toBeDefined();w.unmount();});
+
+it.each(['pending','sent','delivered'])('moves %s invitations below unsent staff after refresh',async status=>{
+ const w=await render();expect(w.findAll('tbody tr')[0].attributes('data-person-id')).toBe('465');
+ m.recipients=[{provider_user_id:465,last_delivery_status:status}];await w.findAll('button').find(b=>b.text()==='Refresh progress').trigger('click');await flushPromises();
+ expect(w.findAll('tbody tr').map(r=>r.attributes('data-person-id'))).toEqual(['466','465']);expect(m.post).not.toHaveBeenCalled();w.unmount();
+});
+it.each(['failed','bounced'])('keeps %s invitations with staff still needing attention',async status=>{
+ m.recipients=[{provider_user_id:465,last_delivery_status:status}];const w=await render();expect(w.findAll('tbody tr')[0].attributes('data-person-id')).toBe('465');w.unmount();
+});
