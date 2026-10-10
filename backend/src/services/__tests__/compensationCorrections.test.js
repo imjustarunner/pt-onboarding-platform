@@ -18,3 +18,13 @@ it('restores the practical card-printing steps with both QR destinations',()=>{c
 it('shows the 50-session pretax example only for eligible levels',()=>{expect(renderAmendment(data)).toContain('50 × $46.00 = $2300.00');expect(renderAmendment({...data,schedule:{...data.schedule,tier3LevelBonus:0}})).not.toContain('Your Tier 3 example');});
 
 it('uses the greater current direct base rate, never supervision, support or indirect allowances',()=>{expect(highestEligibleSickRate({rateProfile:{...profile,hcodeRate:50,indirectRate:65,supportActivityRate:100},status:{tierLevel:3,currentTierLevel:3}})).toBe(50);expect(renderAmendment(data)).toContain('Tier 3 additions, bonuses, pay differentials, supervision rates and indirect allowances are excluded');});
+
+import PayrollPaySystemRate from '../../models/PayrollPaySystemRate.model.js';
+import pool from '../../config/database.js';
+it('defaults every new category and level to the uniform Spanish differential while honoring saved amounts',async()=>{
+ pool.execute.mockResolvedValueOnce([[]]);
+ const defaults=await PayrollPaySystemRate.listForAgency(2);
+ expect(defaults).toHaveLength(15);for(const row of defaults)expect(row.spanishBonus).toEqual({1:0,2:1,3:2});
+ pool.execute.mockResolvedValueOnce([[{agency_id:2,category:1,level:5,spanish_bonus_json:{1:0,2:2,3:4}}]]);
+ expect((await PayrollPaySystemRate.get(2,1,5)).spanishBonus).toEqual({1:0,2:2,3:4});
+});

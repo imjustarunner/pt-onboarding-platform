@@ -118,3 +118,15 @@ it('preserves Mariela’s existing written stipend without inventing an amount o
  expect(data.additionalTerms).toBe('Existing duty.\n\n'+MARIELA_TRAVEL_STIPEND);expect(correctIndividualAmendment(data,494)).toEqual(data);
  const html=renderAmendment(data);expect(html).toContain('previously agreed travel stipend will continue');expect(html.indexOf('Continuation of existing travel stipend')).toBeLessThan(html.indexOf('13. Employee acknowledgment'));
 });
+
+import {applyStandardSpanishDifferential,STANDARD_SPANISH_DIFFERENTIAL} from '../spanishDifferential.js';
+it('uses the same Spanish differential in all category/level amendments without changing eligibility or other rates',()=>{
+ for(const category of [1,2,3])for(const level of [1,2,3,4,5]){
+  const data={employee:{name:'Example'},schedule:{category,level,creditRate:44,spanishDifferentialEligible:true,spanishDifferentialRates:{1:0,2:2,3:4},denverDifferentialRates:{3:7},tier3LevelBonus:3}};
+  const updated=applyStandardSpanishDifferential(data);
+  expect(updated.schedule).toEqual({...data.schedule,spanishDifferentialRates:{1:0,2:1,3:2}});
+  const html=renderAmendment(updated);expect(html).toContain('Tier 1: $0.00 · Tier 2: $1.00 · Tier 3: $2.00');
+ }
+ expect(applyStandardSpanishDifferential({schedule:{spanishDifferentialEligible:false}}).schedule.spanishDifferentialEligible).toBe(false);
+ expect(STANDARD_SPANISH_DIFFERENTIAL).toEqual({1:0,2:1,3:2});
+});

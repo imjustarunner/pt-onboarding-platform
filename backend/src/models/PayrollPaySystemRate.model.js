@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import { CATEGORY_IDS, LEVEL_IDS } from './PayrollCompensationLevel.model.js';
 
 const DEFAULT_TIER_BONUS = Object.freeze({ 1: 0, 2: 2, 3: 4 });
-const DEFAULT_SPANISH_BONUS = Object.freeze({ 1: 0, 2: 2, 3: 4 });
+const DEFAULT_SPANISH_BONUS = Object.freeze({ 1: 0, 2: 1, 3: 2 });
 const DEFAULT_LOCATION_BONUS = Object.freeze({ 1: 0, 2: 0, 3: 0 });
 
 function parseBonusJson(raw, fallback) {

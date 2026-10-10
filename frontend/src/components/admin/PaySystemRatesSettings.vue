@@ -312,7 +312,7 @@ const emptyLevel = () => ({
   supportActivityRate: null,
   autoIndirectMinutesPerHour: 10,
   tierBonus: { 1: 0, 2: 2, 3: 4 },
-  spanishBonus: { 1: 0, 2: 2, 3: 4 },
+  spanishBonus: { 1: 0, 2: 1, 3: 2 },
   locationBonus: { 1: 0, 2: 0, 3: 0 }
 });
 
@@ -347,8 +347,8 @@ const applyRates = (rates) => {
       },
       spanishBonus: {
         1: Number(row.spanishBonus?.[1] ?? 0) || 0,
-        2: Number(row.spanishBonus?.[2] ?? 2) || 0,
-        3: Number(row.spanishBonus?.[3] ?? 4) || 0
+        2: Number(row.spanishBonus?.[2] ?? 1) || 0,
+        3: Number(row.spanishBonus?.[3] ?? 2) || 0
       },
       locationBonus: {
         1: Number(row.locationBonus?.[1] ?? 0) || 0,

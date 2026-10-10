@@ -1,3 +1,4 @@
+import {SPANISH_DIFFERENTIAL_HANDBOOK} from './spanishDifferential.js';
 const e = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const amount = value => value != null && Number(value) > 0 ? `$${Number(value).toFixed(2)}` : '[confirm rate]';
 import {conditionalLevelBonus} from '../utils/serviceCreditPolicy.js';
@@ -41,7 +42,7 @@ export function personalRateTable(s) {
 }
 
 export function categoryRateSchedule(rates, levels = []) {
-  return '<h2>Category and level rate schedule</h2>'+payTypeDescriptions+[1,2,3].map(category=>{
+  return '<h2>Category and level rate schedule</h2>'+payTypeDescriptions+SPANISH_DIFFERENTIAL_HANDBOOK+[1,2,3].map(category=>{
     const rows = rates.filter(r=>Number(r.category)===category).sort((a,b)=>Number(a.level)-Number(b.level));
     return `<section class="compensation-category"><h2>Category ${category} · ${['','Unlicensed','Pre-licensed','Fully licensed'][category]}</h2><p>${categoryDescriptions[category]}</p>`+rows.map(r=>{
       const description=levels.find(l=>Number(l.category)===category&&Number(l.level)===Number(r.level))?.label;
