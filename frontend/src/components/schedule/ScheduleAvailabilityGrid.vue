@@ -20371,6 +20371,7 @@ const submitAdminAssign = async () => {
       hour: startHour,
       endHour,
       recurrenceFrequency: adminAssignRecurrence.value,
+      agencyId: Number(effectiveAgencyId.value || 0) || undefined,
       assignmentMode: adminAssignMode.value === 'company_hold' ? 'COMPANY_HOLD' : 'PROVIDER',
     };
     if (adminAssignMode.value === 'company_hold') {
@@ -20475,6 +20476,7 @@ const submitOfficeAssign = async () => {
     await api.post(`/office-slots/${officeAssignBuildingId.value}/open-slots/assign`, {
       roomId: officeAssignRoomId.value,
       assignedUserId: Number(props.userId),
+      agencyId: Number(effectiveAgencyId.value || 0) || undefined,
       date: dateYmd,
       hour: officeAssignStartHour.value,
       endHour: officeAssignEndHour.value
