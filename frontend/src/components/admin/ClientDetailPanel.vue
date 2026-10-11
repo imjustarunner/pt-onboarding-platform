@@ -206,6 +206,7 @@
                 <p v-if="careSummaryLoading" class="muted">Loading clinical summary…</p>
                 <p v-else-if="careSummaryError" class="error">{{ careSummaryError }}</p>
                 <ClientExchangeSummary v-else-if="careSummary" :listing="careSummary" />
+                <ClientExchangeFitEditor v-if="careSummary &amp;&amp; canPostClientToExchange" :key="clientChartClientId" :client-id="clientChartClientId" :agency-id="clientAgencyId" v-model="careSummary.preferences.matchingPreferences" />
               </section>
             </template>
           </ClientOverviewHub>
@@ -353,6 +354,7 @@
             <p v-if="careSummaryLoading" class="muted">Loading clinical summary…</p>
             <p v-else-if="careSummaryError" class="error">{{ careSummaryError }}</p>
             <ClientExchangeSummary v-else-if="careSummary" :listing="careSummary" />
+                <ClientExchangeFitEditor v-if="careSummary &amp;&amp; canPostClientToExchange" :key="clientChartClientId" :client-id="clientChartClientId" :agency-id="clientAgencyId" v-model="careSummary.preferences.matchingPreferences" />
           </div>
 
           <div class="cdp-care-section">
@@ -2817,6 +2819,7 @@ import {
 import ClientCareTimeline from './clientChart/ClientCareTimeline.vue';
 import ClientIntakeNotePanel from './clientChart/ClientIntakeNotePanel.vue';
 import ClientRecordsOverview from './clientChart/ClientRecordsOverview.vue';
+import ClientExchangeFitEditor from '../clientExchange/ClientExchangeFitEditor.vue';
 import ClientExchangeSummary from '../clientExchange/ClientExchangeSummary.vue';
 import ClientTreatmentPlansPanel from './clientChart/ClientTreatmentPlansPanel.vue';
 import ClientLearningOsPanel from './clientChart/ClientLearningOsPanel.vue';

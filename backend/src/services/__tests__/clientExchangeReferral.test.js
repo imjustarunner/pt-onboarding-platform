@@ -39,3 +39,10 @@ it('validates minimal input and refuses to create an orphan referral without a s
   expect(() => validateExchangeReferral({ ...args.input, initials: '' })).toThrow('initials');
   members = []; await expect(createExchangeReferral(args)).rejects.toThrow('No support'); expect(mocks.create).not.toHaveBeenCalled();
 });
+it('validates and stores all client fit selections on the created chart',async()=>{
+ const matchingPreferences={specialties:['Depression','Mood Disorders','Anxiety','Stress'],populations:['Veterans'],modalities:['EMDR']};
+ await createExchangeReferral({...args,input:{...args.input,matchingPreferences}});
+ const update=mocks.execute.mock.calls.find(([sql])=>sql.startsWith('UPDATE clients SET intake_preferences_json'));
+ expect(JSON.parse(update[1][0]).matchingPreferences).toMatchObject(matchingPreferences);
+ expect(()=>validateExchangeReferral({...args.input,matchingPreferences:{specialties:['invalid']}})).toThrow('Select valid');
+});

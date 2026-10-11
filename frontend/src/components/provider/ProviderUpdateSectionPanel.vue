@@ -460,7 +460,7 @@ const focusEditor=ref(null),focusErrors=ref(false);
 async function saveSpecialties() {
   focusErrors.value=true;
   const missing=missingFocusGroups(clinicalFocus.value,props.section.data?.focusGroups||[]);
-  if(missing.length){localError.value='Select three top choices in each highlighted category before continuing.';await nextTick();const group=focusEditor.value?.$el?.querySelector('[data-focus-group="'+missing[0].key+'"]');group?.scrollIntoView?.({behavior:'smooth',block:'start'});group?.focus({preventScroll:true});return;}
+  if(missing.length){localError.value='Select three top choices or waive each highlighted category before continuing.';await nextTick();const group=focusEditor.value?.$el?.querySelector('[data-focus-group="'+missing[0].key+'"]');group?.scrollIntoView?.({behavior:'smooth',block:'start'});group?.focus({preventScroll:true});return;}
   await markComplete({clinicalFocus:clinicalFocus.value});
 }
 

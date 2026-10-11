@@ -30,6 +30,9 @@ export async function insertExchangeListing({ agencyId, clientId, postedByUserId
     if (summary.preferences?.schedule) {
       await connection.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.exchangeSchedule', CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`, [JSON.stringify(summary.preferences.schedule), clientId, agencyId]);
     }
+    if (summary.preferences?.matchingPreferences) {
+      await connection.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.matchingPreferences', CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`, [JSON.stringify(summary.preferences.matchingPreferences), clientId, agencyId]);
+    }
     await connection.execute(`INSERT INTO client_status_history (client_id, changed_by_user_id, field_changed, from_value, to_value, note)
       VALUES (?, ?, 'client_exchange_listing', NULL, 'open', ?)`, [clientId, postedByUserId, referralKind === 'additional_service' ? `Additional ${serviceType} services requested; primary provider retained` : 'Posted to Client Exchange for reassignment']);
     await connection.commit();

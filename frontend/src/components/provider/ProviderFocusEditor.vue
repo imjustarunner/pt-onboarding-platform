@@ -1,17 +1,19 @@
 <template>
  <div class="focus-editor">
-  <p>Use “Start with all off” to clear a category, then select the areas you serve. You can also deselect individual “Consider matches” choices. Those areas turn gray and are excluded from matching. Then choose {{ requireThree ? 'exactly three' : 'up to three' }} of your strongest areas in each category to highlight on your profile. Other areas you leave selected remain available for matching. An available area is an invitation to discuss fit, not a claim of specialized training.</p>
-  <div v-if="requireThree &amp;&amp; missing.length" class="focus-required" :role="showErrors?'alert':'status'">Before continuing, choose three top choices in each category. Still needed: <strong>{{missing.map(g=>g.label).join(', ')}}</strong>.</div>
+  <p>Use “Start with all off” to clear a category, then select the areas you serve. You can also deselect individual “Consider matches” choices. Those areas turn gray and are excluded from matching. Your top three choices appear on your public profile and small provider card. Choose three in each category, or waive that category to let the website randomly choose up to three from the areas you leave available for matching. If fewer than three remain available, only those areas will show. Other areas you leave selected remain available for matching. An available area is an invitation to discuss fit, not a claim of specialized training.</p>
+  <div v-if="missing.length" class="focus-required" :role="showErrors?'alert':'status'">You haven’t chosen your top three in every section. Choose three or waive each remaining section: <strong>{{missing.map(g=>g.label).join(', ')}}</strong>.</div>
   <fieldset v-for="group in groups" :key="group.key" :data-focus-group="group.key" :class="{'focus-missing':requireThree &amp;&amp; missing.some(g=>g.key===group.key)}" tabindex="-1">
-   <legend>{{group.label}} · {{value.top[group.key]?.length||0}} of 3 highlighted</legend>
+   <legend>{{group.label}} · {{value.waived?.[group.key]?'Automatic highlights':`${value.top[group.key]?.length||0} of 3 highlighted`}}</legend>
    <p v-if="requireThree &amp;&amp; missing.some(g=>g.key===group.key)" class="focus-required"><strong>Required: select {{3-(value.top[group.key]?.length||0)}} more top {{3-(value.top[group.key]?.length||0)===1?'choice':'choices'}} here.</strong></p>
+   <label class="waive-choice"><input type="checkbox" :checked="value.waived?.[group.key]===true" @change="waive(group.key,$event.target.checked)" /> Waive my top three for {{group.label.toLowerCase()}} — let the website choose randomly</label>
+   <p v-if="value.waived?.[group.key]">Automatic highlights come only from choices you leave available below. This does not change which clients can match you.</p>
    <p v-if="group.previous?.length">Currently listed: {{group.previous.join('; ')}}.</p>
    <button type="button" class="clear-matches" @click="clearGroup(group)">Start with all off</button>
    <p>Turn off “Consider matches” for areas you do not serve. Select your strongest areas under “Top three.”</p>
    <div class="focus-options"><div v-for="option in group.options" :key="option" class="focus-option" :class="{ excluded:value.excluded[group.key]?.includes(option), highlighted:value.top[group.key]?.includes(option) }">
     <span>{{option}}</span>
     <label><input type="checkbox" :checked="!value.excluded[group.key]?.includes(option)" @change="toggleAllowed(group.key,option,$event.target.checked)" /> Consider matches</label>
-    <label><input type="checkbox" :checked="value.top[group.key]?.includes(option)" :disabled="value.excluded[group.key]?.includes(option)||(!value.top[group.key]?.includes(option)&&value.top[group.key]?.length>=3)" @change="toggleTop(group.key,option,$event.target.checked)" /> Top three</label>
+    <label><input type="checkbox" :checked="value.top[group.key]?.includes(option)" :disabled="value.waived?.[group.key]||value.excluded[group.key]?.includes(option)||(!value.top[group.key]?.includes(option)&&value.top[group.key]?.length>=3)" @change="toggleTop(group.key,option,$event.target.checked)" /> Top three</label>
    </div></div>
   </fieldset>
  </div>
@@ -22,6 +24,7 @@ import {missingFocusGroups} from '../../navigation/providerFocus';
 const props=defineProps({modelValue:{type:Object,required:true},groups:{type:Array,required:true},requireThree:Boolean,showErrors:Boolean}),emit=defineEmits(['update:modelValue']);
 const value=computed(()=>props.modelValue);
 const missing=computed(()=>missingFocusGroups(props.modelValue,props.groups));
+function waive(key,on){const next=JSON.parse(JSON.stringify(props.modelValue));next.waived={...next.waived,[key]:on};if(on)next.top[key]=[];emit('update:modelValue',next);}
 function clearGroup(group){const next=JSON.parse(JSON.stringify(props.modelValue));next.excluded[group.key]=[...new Set([...(next.excluded[group.key]||[]),...group.options])];next.top[group.key]=[];emit('update:modelValue',next);}
 function update(key,option,on,field){const next=JSON.parse(JSON.stringify(props.modelValue));const list=next[field][key]||[];if(field==='top'&&on&&(next.excluded[key]?.includes(option)||(!list.includes(option)&&list.length>=3)))return;next[field][key]=on?[...new Set([...list,option])]:list.filter(v=>v!==option);if(field==='excluded'&&on)next.top[key]=(next.top[key]||[]).filter(v=>v!==option);emit('update:modelValue',next);}
 function toggleAllowed(key,option,on){update(key,option,!on,'excluded');}function toggleTop(key,option,on){update(key,option,on,'top');}

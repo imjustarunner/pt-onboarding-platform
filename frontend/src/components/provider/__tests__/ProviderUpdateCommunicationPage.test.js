@@ -15,7 +15,7 @@ it('blocks preview saves even if a submit event is triggered programmatically',a
 
 it('prefills contact, credential, blurb and saved checkbox selections',async()=>{
  for(const [key,data,selector,value] of [['contact_info',{contact:{phone:'7195550100',street:'Saved address'}},'input[autocomplete=tel]','7195550100'],['profile_blurb',{blurb:'My existing introduction'},'textarea','My existing introduction'],['credential_display',{credential:'LPCC'},'input','LPCC']]){const w=mount(Panel,{props:{recipient,section:{key,data}},global:globals});await flushPromises();expect(w.get(selector).element.value).toBe(value);w.unmount();}
- const w=mount(Panel,{props:{recipient,section:{key:'specialties',data:{focusGroups:[{key:'populations',label:'Populations',options:['Families','Veterans']}],clinicalFocus:{top:{populations:['Families']},excluded:{populations:['Veterans']}}}}},global:globals});await flushPromises();expect(w.findAll('input').map(x=>x.element.checked)).toEqual([true,true,false,false]);w.unmount();
+ const w=mount(Panel,{props:{recipient,section:{key:'specialties',data:{focusGroups:[{key:'populations',label:'Populations',options:['Families','Veterans']}],clinicalFocus:{top:{populations:['Families']},excluded:{populations:['Veterans']}}}}},global:globals});await flushPromises();expect(w.findAll('.focus-option input').map(x=>x.element.checked)).toEqual([true,true,false,false]);w.unmount();
 });
 it('shows an unsigned amendment as required rather than allowing a completion checkbox',async()=>{const w=mount(Panel,{props:{recipient,section:{key:'amendments',data:{}}},global:globals});await flushPromises();expect(w.get('button.primary').element.disabled).toBe(true);w.unmount();});
 
@@ -26,4 +26,10 @@ it('lets the invited provider choose their own public gender without inferring i
  const gender=w.findAll('select').find(s=>s.find('option[value=nonbinary]').exists());expect(gender.element.value).toBe('');
  await gender.setValue('nonbinary');await w.get('button.primary').trigger('click');await flushPromises();
  expect(api.put).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({data:expect.objectContaining({publicGender:'nonbinary'})}));w.unmount();
+});
+it('allows saving focus areas after explicitly waiving that section',async()=>{
+ const w=mount(Panel,{props:{mode:'token',token:'sample',recipient,section:{key:'specialties',data:{focusGroups:[{key:'specialties',label:'Specialties',options:['Anxiety','Depression','Stress']}],clinicalFocus:{top:{specialties:[]},excluded:{specialties:[]}}}}},global:globals});
+ await w.get('button.primary').trigger('click');await flushPromises();expect(api.put).not.toHaveBeenCalled();
+ await w.get('.waive-choice input').setValue(true);await w.get('button.primary').trigger('click');await flushPromises();
+ expect(api.put).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({data:expect.objectContaining({clinicalFocus:expect.objectContaining({waived:{specialties:true}})})}));w.unmount();
 });

@@ -26,3 +26,14 @@ it('clears matches and highlights in only the requested category',async()=>{
  const next=w.emitted('update:modelValue')[0][0];expect(next.top.specialties).toEqual([]);expect(next.excluded.specialties).toEqual(FOCUS_GROUPS[0].options);expect(next.top.populations).toEqual(value.top.populations);
  await w.setProps({modelValue:next});expect(w.get('[data-focus-group="specialties"]').findAll('input').every(i=>!i.element.checked)).toBe(true);w.unmount();
 });
+it('waives one group explicitly, keeps other choices, and can require manual selection again',async()=>{
+ const value=complete();value.top.specialties=[];
+ const w=mount(Editor,{props:{modelValue:value,groups:FOCUS_GROUPS,requireThree:true}});
+ expect(w.text()).toContain('small provider card');expect(w.text()).toContain('randomly');
+ await w.get('[data-focus-group="specialties"] .waive-choice input').setValue(true);
+ const next=w.emitted('update:modelValue')[0][0];expect(next.waived).toEqual({specialties:true});expect(next.top.populations).toEqual(value.top.populations);
+ await w.setProps({modelValue:next});expect(missingFocusGroups(next)).toEqual([]);expect(w.find('.focus-missing').exists()).toBe(false);
+ expect(validateFocus(next,FOCUS_GROUPS,{requireThree:true}).automaticTop.specialties).toHaveLength(3);
+ await w.get('[data-focus-group="specialties"] .waive-choice input').setValue(false);
+ expect(missingFocusGroups(w.emitted('update:modelValue')[1][0]).map(g=>g.key)).toEqual(['specialties']);w.unmount();
+});

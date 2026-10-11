@@ -704,6 +704,7 @@
             <textarea v-model="createRecords.plan" rows="5" placeholder="Paste the most recent treatment plan…"></textarea>
             <small>Pasted records are imported before the client is assigned or posted. Any treatment-plan review opens before completion.</small>
           </section>
+          <ClientMatchingPreferences v-model="createMatchingPreferences" :max-selections="0" />
           <ClientSchedulePreferences v-model="createSchedule" />
           <div class="form-group">
             <label>Agency</label>
@@ -1441,6 +1442,7 @@ import {
 } from '../../utils/clientManagementVisuals.js';
 import { parseClientManagementSearch, matchesParsedSearch, SEARCH_HINTS } from '../../utils/clientManagementSearch.js';
 import ClientEhrBringUpToDatePanel from '../../components/admin/clientChart/ClientEhrBringUpToDatePanel.vue';
+import ClientMatchingPreferences from '../../components/public/ClientMatchingPreferences.vue';
 import ClientSchedulePreferences from '../../components/clientExchange/ClientSchedulePreferences.vue';
 import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
 import QuickPostClientToExchange from '../../components/clientExchange/QuickPostClientToExchange.vue';
@@ -2043,6 +2045,7 @@ const createdRecordsImported = ref(false);
 const createdDocumentsSaved = ref(false);
 const showCreatedRecordsImport = ref(false);
 const createSchedule = ref({});
+const createMatchingPreferences = ref({});
 const createRecords = reactive({ demographics: '', intake: '', plan: '' });
 const parsingCreateDemographics = ref(false);
 let createDemographicsVersion = 0;
@@ -3277,7 +3280,7 @@ const createClient = async ({ forceCreate = false } = {}) => {
       return;
     }
     const listing = await finishClientCreation({ api, clientId: created.id, agencyId, organizationId: orgId,
-      schedule, outcome: createOutcome.value, providerId: newClient.value.provider_id,
+      schedule, matchingPreferences: createMatchingPreferences.value, outcome: createOutcome.value, providerId: newClient.value.provider_id,
       serviceDay: newClient.value.service_day, isSchool: selectedOrgIsSchool.value });
     await fetchClients();
     if (listing?.notifications?.failed) {
@@ -3321,6 +3324,7 @@ const closeCreateModal = () => {
   createdDocumentsSaved.value = false;
   createOutcome.value = canBackofficeEdit.value ? 'unassigned' : 'assign';
   createSchedule.value = {};
+  createMatchingPreferences.value = {};
   Object.assign(createRecords, { demographics: '', intake: '', plan: '' });
   faxReview.value = null;
   showCreateModal.value = false;

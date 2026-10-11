@@ -1,3 +1,4 @@
+import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
 import { createExchangeReferral } from '../services/clientExchangeReferral.service.js';
 import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
 import pool from '../config/database.js';
@@ -111,8 +112,10 @@ export async function createReferral(req, res, next) {
   }
 }
 
-/** Save scheduling preferences for later one-click exchange posting. */
-export async function saveClientSchedule(req, res, next) {
+/** Persist profile preferences using the same agency/assignment checks as posting. */
+export async function saveClientSchedule(req,res,next){return saveClientPreference(req,res,next,'exchangeSchedule','schedule',normalizeExchangeSchedule);}
+export async function saveClientMatchingPreferences(req,res,next){return saveClientPreference(req,res,next,'matchingPreferences','matchingPreferences',value=>validateMatchingPreferences(value,{maxSelections:0})||{});}
+async function saveClientPreference(req, res, next, field, bodyKey, normalize) {
   try {
     const clientId = safeInt(req.params.clientId);
     const agencyId = safeInt(req.body?.agencyId);
@@ -121,11 +124,11 @@ export async function saveClientSchedule(req, res, next) {
     const client = await Client.findById(clientId);
     if (!client || Number(client.agency_id) !== agencyId) return res.status(404).json({ error: { message: 'Client not found' } });
     if (!isBackoffice(req.user.role) && !(await providerHasAssignedClientAccess({ userId: req.user.id, clientId, client }))) {
-      return res.status(403).json({ error: { message: 'Only assigned providers or agency staff can update scheduling preferences' } });
+      return res.status(403).json({ error: { message: 'Only assigned providers or agency staff can update client preferences' } });
     }
-    const schedule = normalizeExchangeSchedule(req.body?.schedule);
-    await pool.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.exchangeSchedule', CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`, [JSON.stringify(schedule), clientId, agencyId]);
-    res.json({ schedule });
+    const value = normalize(req.body?.[bodyKey]);
+    await pool.execute(`UPDATE clients SET intake_preferences_json = JSON_SET(COALESCE(intake_preferences_json, JSON_OBJECT()), '$.${field}', CAST(? AS JSON)) WHERE id = ? AND agency_id = ?`, [JSON.stringify(value), clientId, agencyId]);
+    res.json({ [bodyKey]: value });
   } catch (error) {
     if (error.status) return res.status(error.status).json({ error: { message: error.message } });
     next(error);

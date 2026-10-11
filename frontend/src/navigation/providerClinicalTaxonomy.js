@@ -29,6 +29,7 @@ export const SPECIALTIES = Object.freeze([
   "Learning Difficulties",
   "Life Transitions",
   "Men’s Mental Health",
+  "Mood Disorders",
   "Neurodivergence",
   "Obsessive-Compulsive Disorder (OCD)",
   "Parenting",

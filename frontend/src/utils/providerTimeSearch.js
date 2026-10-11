@@ -1,3 +1,4 @@
+import { FOCUS_GROUPS, publishedFocus } from '../navigation/providerFocus.js';
 export const appointmentDays = [['weekdays','Weekdays'],['weekends','Weekends'],['Mon','Monday'],['Tue','Tuesday'],['Wed','Wednesday'],['Thu','Thursday'],['Fri','Friday'],['Sat','Saturday'],['Sun','Sunday']];
 export function hasTimePreference(filters={}) { return Boolean(filters.day || filters.timeFrom || filters.timeTo); }
 export function slotMatchesTime(slot, filters={}, timeZone='America/Denver') {
@@ -10,6 +11,13 @@ export function slotMatchesTime(slot, filters={}, timeZone='America/Denver') {
  return dayMatches && (!filters.timeFrom || time>=filters.timeFrom) && (!filters.timeTo || time<=filters.timeTo);
 }
 export function matchingProviderTags(provider, search='', specialty='', limit=3) {
+ const focus=provider.details?.clinicalFocus||provider.profile?.details?.clinicalFocus;
+ if(focus?.reviewed){
+  const groups=FOCUS_GROUPS.map(g=>publishedFocus(g.key,focus,provider[g.key]||[]));
+  const all=[...new Set(groups.flatMap(g=>[...g.top,...g.more]))],q=search.trim().toLowerCase();
+  const matches=all.filter(tag=>tag===specialty||(q&&tag.toLowerCase().includes(q)));
+  return [...new Set([...matches,...groups[0].top])].slice(0,3);
+ }
  const all=[...new Set([...(provider.specialties||[]),...(provider.modalities||[]),...(provider.populations||[]),...(provider.subjects||[])])];
  const q=search.trim().toLowerCase(),matches=all.filter(tag=>tag===specialty||(q&&tag.toLowerCase().includes(q)));
  return [...new Set([...matches,...(provider.specialties||[])])].slice(0,Math.max(limit,matches.length));

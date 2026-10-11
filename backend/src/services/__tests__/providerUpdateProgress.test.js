@@ -3,6 +3,7 @@ vi.mock('../../config/database.js',()=>({default:{execute:vi.fn()},onTableWrite:
 vi.mock('../providerYearUpdate.service.js',()=>({listSchoolAssignedProviders:vi.fn(async()=>[])}));
 vi.mock('../emailSenderIdentityResolver.service.js',()=>({resolveSenderIdentityForSend:vi.fn()}));
 vi.mock('../unifiedEmail/unifiedEmailSender.service.js',()=>({sendEmailFromIdentity:vi.fn()}));
+vi.mock('../providerUpdateSignIn.service.js',()=>({getProviderUpdateSignIn:vi.fn(async()=>({}))}));
 vi.mock('../providerUpdateRecords.service.js',()=>({getProviderUpdateRecords:vi.fn()}));
 vi.mock('../staffCommunicationChoices.service.js',()=>({getStaffCommunicationChoices:vi.fn()}));
 vi.mock('../inboxDigest.service.js',()=>({getCommunicationPrefs:vi.fn(async()=>({}))}));
@@ -38,4 +39,10 @@ it('does not reopen finalized sections',async()=>{
  progress=keys.map(section_key=>({section_key,status:'completed',completed:1,data_json:{}}));
  const bundle=await getRecipientBundle({...recipient,locked_at:'2026-10-08'});
  expect(bundle.sections.every(s=>s.status==='completed'&&s.completed)).toBe(true);
+});
+
+it('keeps an explicitly waived specialty section complete',async()=>{
+ progress=[{section_key:'specialties',status:'completed',completed:1,data_json:{}}];
+ getProviderUpdateRecords.mockResolvedValue({schools:[],specialtyGroups:[],focusGroups:[{key:'specialties',options:['Anxiety','Depression','Grief']}],clinicalFocus:{top:{specialties:[]},excluded:{specialties:[]},waived:{specialties:true}}});
+ const bundle=await getRecipientBundle(recipient);expect(bundle.sections.find(s=>s.key==='specialties').completed).toBe(true);
 });

@@ -63,3 +63,29 @@ test('known therapy and insurance exclusions reject while unknown preferences pa
   assert.equal(matchesExchangeListing({...base,profile:{...base.profile,excludedInsurances:['Aetna']},listing:{preferences:{insurance:'Aetna'}}}),false);
   assert.equal(matchesExchangeListing({...base,facets:{populations:['Individuals']},listing:{preferences:{matchingPreferences:{populations:['Couples']}}}}),false);
 });
+test('diagnosis-only referrals match Depression and Mood Disorders, not unrelated specialties',()=>{
+ for(const diagnosis of ['Major Depressive Disorder','F33.1',{icd10_code:'F32.9',description:'Major depressive disorder'}]){
+  const args={...base,listing:{diagnoses:[diagnosis]},facets:{specialties:['Depression']}};
+  assert.equal(matchesExchangeListing(args),true);
+  assert.equal(matchesExchangeListing({...args,facets:{specialties:['Mood Disorders']}}),true);
+  assert.equal(matchesExchangeListing({...args,facets:{specialties:['Bipolar Disorder']}}),false);
+ }
+});
+test('clinical exclusions override parent-category matches and random highlights never narrow eligibility',()=>{
+ const focus={reviewed:true,top:{specialties:[]},waived:{specialties:true},automaticTop:{specialties:['Anxiety']},excluded:{specialties:['Depression']}};
+ const args={...base,profile:{...base.profile,details:{clinicalFocus:focus}},listing:{diagnoses:['Major Depressive Disorder']}};
+ assert.equal(matchesExchangeListing(args),false);
+ focus.excluded.specialties=[];assert.equal(matchesExchangeListing(args),true);
+ focus.excluded.specialties=['Mood Disorders'];assert.equal(matchesExchangeListing(args),false);
+});
+test('client selections use shared profile choices for specialty, age, population and approach',()=>{
+ const args={...base,listing:{preferences:{matchingPreferences:{specialties:['Mood Disorders'],ageGroups:['Adults (18+)'],populations:['Veterans'],modalities:['EMDR']}}},facets:{specialties:['Depression'],ageGroups:['Adults (18+)'],populations:['Veterans'],modalities:['EMDR']}};
+ assert.equal(matchesExchangeListing(args),true);
+ assert.equal(matchesExchangeListing({...args,facets:{...args.facets,modalities:['Play Therapy']}}),false);
+ assert.equal(matchesExchangeListing({...args,facets:{...args.facets,populations:['Couples']}}),false);
+});
+test('a different presenting concern cannot bypass a known diagnosis specialty mismatch',()=>{
+ const listing={diagnoses:['Major Depressive Disorder'],presentingProblems:['Anxiety']};
+ assert.equal(matchesExchangeListing({...base,listing}),false);
+ assert.equal(matchesExchangeListing({...base,listing,facets:{specialties:['Depression','Anxiety']}}),true);
+});

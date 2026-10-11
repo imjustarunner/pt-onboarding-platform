@@ -7,7 +7,7 @@ vi.mock('../../services/clientRecordAccess.service.js', () => ({ providerHasAssi
 vi.mock('../../services/clientExchangeSummary.service.js', () => ({ loadClientExchangeSummary: mocks.summary }));
 vi.mock('../../services/clientExchange.service.js', () => ({ createListing: mocks.create }));
 vi.mock('../../services/clientExchangeReferral.service.js', () => ({ createExchangeReferral: mocks.referral }));
-import { createReferral, createListing, previewClientSummary, saveClientSchedule } from '../clientExchange.controller.js';
+import { createReferral, createListing, previewClientSummary, saveClientSchedule, saveClientMatchingPreferences } from '../clientExchange.controller.js';
 const response = () => { const res = { status: vi.fn(), json: vi.fn() }; res.status.mockReturnValue(res); return res; };
 const request = () => ({ user: { id: 7, role: 'provider', agencies: [{ id: 2 }] }, body: { agencyId: 2, clientId: 4, currentProviderUserId: 999 } });
 beforeEach(() => { vi.clearAllMocks(); mocks.client.mockResolvedValue({ id: 4, agency_id: 2, provider_id: 7, status: 'CURRENT' }); mocks.access.mockResolvedValue(true); mocks.create.mockResolvedValue({ id: 12 }); });
@@ -71,4 +71,13 @@ it('allows an agency provider to create an EHR referral but rejects nonclinical 
   expect(res.status).toHaveBeenCalledWith(201); expect(mocks.referral).toHaveBeenCalledWith({ agencyId: 2, actor: req.user, input: req.body });
   mocks.referral.mockClear(); req.user.role = 'school_staff';
   const denied = response(); await createReferral(req, denied, vi.fn()); expect(denied.status).toHaveBeenCalledWith(403); expect(mocks.referral).not.toHaveBeenCalled();
+});
+it('saves validated fit selections only for assigned providers or agency staff',async()=>{
+ const req=request();req.params={clientId:4};req.body.matchingPreferences={specialties:['Depression','Mood Disorders','Anxiety','Stress'],populations:['Veterans']};
+ const res=response();await saveClientMatchingPreferences(req,res,vi.fn());expect(res.json).toHaveBeenCalledWith({matchingPreferences:expect.objectContaining(req.body.matchingPreferences)});expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.matchingPreferences'"),[expect.any(String),4,2]);
+ mocks.execute.mockClear();mocks.access.mockResolvedValue(false);const denied=response();await saveClientMatchingPreferences(req,denied,vi.fn());expect(denied.status).toHaveBeenCalledWith(403);expect(mocks.execute).not.toHaveBeenCalled();
+ req.user.role='support';mocks.client.mockResolvedValue({agency_id:3});const other=response();await saveClientMatchingPreferences(req,other,vi.fn());expect(other.status).toHaveBeenCalledWith(404);expect(mocks.execute).not.toHaveBeenCalled();
+});
+it('rejects invalid fit preferences without changing the client record',async()=>{
+ const req=request();req.params={clientId:4};req.body.matchingPreferences={specialties:['invented']};const res=response();await saveClientMatchingPreferences(req,res,vi.fn());expect(res.status).toHaveBeenCalledWith(400);expect(mocks.execute).not.toHaveBeenCalled();
 });

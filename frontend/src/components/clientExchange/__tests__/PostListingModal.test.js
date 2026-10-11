@@ -44,3 +44,10 @@ it('keeps invalid time ranges from being posted', async () => {
   await wrapper.find('.btn-primary').trigger('click'); await flushPromises();
   expect(mocks.post).not.toHaveBeenCalled(); expect(wrapper.text()).toContain('End time must be later'); wrapper.unmount();
 });
+it('prefills client fit selections and includes edits in the posted referral',async()=>{
+ const saved={specialties:['Depression'],populations:['Veterans']};mocks.get.mockResolvedValue({data:{summary:{preferences:{matchingPreferences:saved}}}});
+ const wrapper=mount(Modal,{props:{agencyId:2,presetClientId:4,lockClient:true}});await flushPromises();
+ const editor=wrapper.findComponent({name:'ClientMatchingPreferences'});expect(editor.props('modelValue')).toEqual(saved);expect(editor.props('maxSelections')).toBe(0);
+ const edited={...saved,modalities:['EMDR']};editor.vm.$emit('update:modelValue',edited);await wrapper.find('.btn-primary').trigger('click');await flushPromises();
+ expect(mocks.post).toHaveBeenCalledWith('/client-exchange/listings',expect.objectContaining({preferences:expect.objectContaining({matchingPreferences:edited})}));wrapper.unmount();
+});

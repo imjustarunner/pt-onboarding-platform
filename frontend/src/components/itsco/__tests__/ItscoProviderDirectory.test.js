@@ -92,3 +92,9 @@ it('filters session languages and preserves the choice in a shareable search',as
  const {wrapper,router}=await render('/p/itsco/providers?language=Spanish',{providers:[{...providers[0],details:{languages:['English']}},{...providers[1],details:{languages:['English','Spanish']}}]});
  expect(wrapper.findAll('.its-provider-card')).toHaveLength(1);expect(wrapper.get('.its-provider-card').text()).toContain('Zeta Person');expect(router.currentRoute.value.query.language).toBe('Spanish');wrapper.unmount();
 });
+it('renders a provider’s saved automatic highlights on the compact directory card',async()=>{
+ const automaticTop={specialties:['Depression','Life Transitions','Self-Esteem']};
+ const p={...providers[0],details:{...base.details,clinicalFocus:{reviewed:true,waived:{specialties:true},top:{specialties:[]},excluded:{specialties:[]},automaticTop}}};
+ const {wrapper}=await render('/p/itsco/providers',{providers:[p]});
+ expect(wrapper.findAll('.its-card-top .its-tags span').map(s=>s.text())).toEqual(automaticTop.specialties);wrapper.unmount();
+});

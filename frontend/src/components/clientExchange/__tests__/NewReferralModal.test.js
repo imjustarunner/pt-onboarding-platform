@@ -31,3 +31,7 @@ it('uses the same request key if the create response is lost', async () => {
   const calls = mocks.post.mock.calls.filter(([url]) => url === '/client-exchange/referrals');
   expect(calls[0][1].requestId).toBe(calls[1][1].requestId); wrapper.unmount();
 });
+it('sends the same profile taxonomy choices when creating a minimal referral',async()=>{
+ const wrapper=make(),state=wrapper.vm.$.setupState;state.form.initials='AB';state.form.matchingPreferences={specialties:['Mood Disorders'],populations:['Veterans'],modalities:['EMDR']};await state.submit();await flushPromises();
+ expect(mocks.post).toHaveBeenCalledWith('/client-exchange/referrals',expect.objectContaining({matchingPreferences:state.form.matchingPreferences}));wrapper.unmount();
+});

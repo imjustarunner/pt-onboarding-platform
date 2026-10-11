@@ -15,6 +15,8 @@
       <ul v-if="diagnoses.length"><li v-for="diagnosis in diagnoses" :key="diagnosis">{{ diagnosis }}</li></ul>
       <p v-else class="muted">Not recorded</p>
     </section>
+    <section v-if="fitGroups.length" class="summary-section"><strong>Provider fit preferences</strong><p v-for="group in fitGroups" :key="group.key">{{group.label}}: {{group.values.join('; ')}}</p></section>
+    <p v-if="suggestedSpecialties.length">Clinical matching topics: {{suggestedSpecialties.join('; ')}}. Matched from the recorded concerns and diagnoses.</p>
     <p v-if="listing.preferences?.providerGender">Preferred provider gender: {{ listing.preferences.providerGender }}</p>
     <section v-if="scheduleLines.length">
       <strong>When the client needs a provider</strong>
@@ -27,6 +29,8 @@
   </div>
 </template>
 <script setup>
+import { FOCUS_GROUPS } from '../../navigation/providerFocus.js';
+import { clinicalMatchingSpecialties } from '../../navigation/clientMatching.js';
 import { computed } from 'vue';
 import { exchangeScheduleLines } from '../../utils/clientExchangeSchedule.js';
 const props = defineProps({ listing: { type: Object, required: true } });
@@ -42,6 +46,8 @@ function items(value) {
   }
   return [];
 }
+const fitGroups=computed(()=>FOCUS_GROUPS.map(g=>({...g,values:props.listing.preferences?.matchingPreferences?.[g.key]||[]})).filter(g=>g.values.length));
+const suggestedSpecialties=computed(()=>clinicalMatchingSpecialties(props.listing));
 const scheduleLines = computed(() => exchangeScheduleLines(props.listing.preferences?.schedule));
 const problems = computed(() => items(props.listing.presentingProblems));
 const diagnoses = computed(() => items(props.listing.diagnoses));

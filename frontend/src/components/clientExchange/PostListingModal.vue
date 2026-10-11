@@ -101,6 +101,7 @@
         <label class="field"><span class="label">Preferred provider gender</span>
           <select v-model="providerGender" class="select"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select>
         </label>
+        <ClientMatchingPreferences v-model="matchingPreferences" :max-selections="0" expanded />
         <ClientSchedulePreferences v-model="schedule" />
 
         <label class="field">
@@ -124,6 +125,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import ClientExchangeSummary from './ClientExchangeSummary.vue';
+import ClientMatchingPreferences from '../public/ClientMatchingPreferences.vue';
 import ClientSchedulePreferences from './ClientSchedulePreferences.vue';
 import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
 import api from '../../services/api';
@@ -156,6 +158,7 @@ const modality = ref('');
 const providerGender = ref('');
 const insurance = ref('');
 const schedule = ref({});
+const matchingPreferences = ref({});
 const notes = ref('');
 const submitting = ref(false);
 const posted = ref(false);
@@ -167,6 +170,7 @@ let summaryVersion = 0;
 watch(selectedClientId, async clientId => {
   const version = ++summaryVersion;
   sharedSummary.value = {};
+  matchingPreferences.value = {};
   schedule.value = {}; providerGender.value = '';
   ageBand.value = ''; gender.value = ''; presentingProblemsRaw.value = ''; modality.value = ''; insurance.value = ''; notes.value = '';
   summaryError.value = '';
@@ -178,6 +182,7 @@ watch(selectedClientId, async clientId => {
     if (version === summaryVersion) {
       sharedSummary.value = response.data?.summary || {};
       schedule.value = sharedSummary.value.preferences?.schedule || {};
+      matchingPreferences.value = sharedSummary.value.preferences?.matchingPreferences || {};
       providerGender.value = sharedSummary.value.preferences?.providerGender || '';
     }
   } catch (error) {
@@ -238,6 +243,7 @@ async function submit() {
         .map((s) => s.trim())
         .filter(Boolean),
       preferences: {
+        matchingPreferences: matchingPreferences.value,
         modality: modality.value || undefined,
         insurance: insurance.value || undefined,
         providerGender: providerGender.value || null,

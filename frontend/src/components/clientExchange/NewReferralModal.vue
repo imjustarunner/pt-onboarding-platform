@@ -17,6 +17,7 @@
             <label>Preferred provider gender<select v-model="form.providerGender"><option value="">No preference</option><option value="female">Female / woman</option><option value="male">Male / man</option><option value="nonbinary">Nonbinary</option></select></label>
             <label>Modality<select v-model="form.modality"><option value="">No preference</option><option value="in_person">In person</option><option value="virtual">Virtual</option><option value="either">Either</option></select></label>
           </div>
+          <ClientMatchingPreferences v-model="form.matchingPreferences" :max-selections="0" expanded />
           <ClientSchedulePreferences v-model="form.schedule" />
           <details>
             <summary>Optional EHR details and pasted records</summary>
@@ -41,12 +42,13 @@
 <script setup>
 import { reactive, ref } from 'vue';
 import api from '../../services/api';
+import ClientMatchingPreferences from '../public/ClientMatchingPreferences.vue';
 import ClientSchedulePreferences from './ClientSchedulePreferences.vue';
 import ClientEhrBringUpToDatePanel from '../admin/clientChart/ClientEhrBringUpToDatePanel.vue';
 import { normalizeExchangeSchedule } from '../../utils/clientExchangeSchedule.js';
 const props = defineProps({ agencyId: { type: Number, required: true } });
 const emit = defineEmits(['close', 'posted']);
-const form = reactive({ initials: '', age: '', gender: '', fullName: '', ehrReference: '', diagnoses: '', presentingProblem: '', providerGender: '', modality: '', schedule: {} });
+const form = reactive({ initials: '', age: '', gender: '', fullName: '', ehrReference: '', diagnoses: '', presentingProblem: '', providerGender: '', modality: '', matchingPreferences: {}, schedule: {} });
 const records = reactive({ demographics: '', intake: '', plan: '' });
 const requestId = crypto.randomUUID();
 const clientId = ref(null);

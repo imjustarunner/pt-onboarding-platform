@@ -2,6 +2,7 @@ import { canonicalAge, normalizeClinicalFacets } from './providerFacetNormalizat
 import { providerAvailabilityPreferences } from './providerAvailabilityReminders.js';
 import { agencyFormatAllowed } from './providerAgencyAvailability.js';
 import { restrictPublicInsurances } from './publicProviderPresentation.js';
+import { clinicalMatchingSpecialties, specialtiesOverlap, hasExcludedSpecialty } from '../../../frontend/src/navigation/clientMatching.js';
 import { FOCUS_GROUPS } from '../../../frontend/src/navigation/providerFocus.js';
 
 export function ageRange(value) {
@@ -53,18 +54,21 @@ export function matchesExchangeListing({ user, profile, facets = {}, listing, cl
     const supported = ageRange(value);
     return supported && supported[0] <= requestedAge[0] && supported[1] >= requestedAge[1];
   })) return false;
-  const taxonomy = FOCUS_GROUPS.find(g=>g.key==='specialties').options;
-  // Free-text narratives that do not map to a known topic remain unknown, not a rejection.
-  const concerns = normalizeClinicalFacets({ specialties: listing.presentingProblems || [] }).specialties.filter(v=>taxonomy.includes(v));
+  const concerns = [...new Set([
+    ...normalizeClinicalFacets({specialties:listing.presentingProblems||[]}).specialties,
+    ...clinicalMatchingSpecialties(listing)
+  ])];
   const specialties = normalizeClinicalFacets({specialties:known('specialties',facets.specialties)}).specialties;
-  if (concerns.some(v=>(focus?.excluded?.specialties||[]).includes(v))) return false;
-  if (concerns.length && (specialties.length || focus?.reviewed) && !specialties.some(v=>concerns.includes(v))) return false;
+  if (hasExcludedSpecialty(concerns, focus?.excluded?.specialties||[])) return false;
+  const diagnosticConcerns=clinicalMatchingSpecialties({diagnoses:listing.diagnoses});
+  if ((specialties.length || focus?.reviewed) && diagnosticConcerns.some(need=>!specialtiesOverlap([need],specialties))) return false;
+  if (concerns.length && (specialties.length || focus?.reviewed) && !specialtiesOverlap(concerns,specialties)) return false;
   const requested = listing.preferences?.matchingPreferences || {};
   for (const group of FOCUS_GROUPS) {
     const wants = (Array.isArray(requested[group.key]) ? requested[group.key] : []).filter(v=>group.options.includes(v));
-    if (wants.some(v=>(focus?.excluded?.[group.key]||[]).includes(v))) return false;
+    if (group.key==='specialties' ? hasExcludedSpecialty(wants,focus?.excluded?.specialties||[]) : wants.some(v=>(focus?.excluded?.[group.key]||[]).includes(v))) return false;
     const supports = known(group.key, facets[group.key]);
-    if (wants.length && (supports.length || focus?.reviewed) && !wants.some(v=>supports.includes(v))) return false;
+    if (wants.length && (supports.length || focus?.reviewed) && !(group.key==='specialties'?specialtiesOverlap(wants,supports):wants.some(v=>supports.includes(v)))) return false;
   }
   const service = String(listing.serviceType || '').toLowerCase();
   const population = {individual:'Individuals',family:'Families',couples:'Couples'}[service];

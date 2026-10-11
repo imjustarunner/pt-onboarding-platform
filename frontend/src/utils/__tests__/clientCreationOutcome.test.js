@@ -27,3 +27,9 @@ it('persists scheduling needs for an unassigned client so one-click posting can 
   expect(a.api.put).toHaveBeenCalledWith('/client-exchange/clients/12/schedule', { agencyId: 2, schedule });
   expect(a.api.post).not.toHaveBeenCalled();
 });
+it('persists client fit choices before one-click posting and stops when saving fails',async()=>{
+ const a=args(),matchingPreferences={specialties:['Depression'],modalities:['EMDR']};
+ await finishClientCreation({...a,outcome:'exchange',matchingPreferences});
+ expect(a.api.put).toHaveBeenCalledWith('/client-exchange/clients/12/matching-preferences',{agencyId:2,matchingPreferences});expect(a.api.put.mock.invocationCallOrder[0]).toBeLessThan(a.api.post.mock.invocationCallOrder[0]);
+ a.api.post.mockClear();a.api.put.mockRejectedValueOnce(new Error('Save failed'));await expect(finishClientCreation({...a,outcome:'exchange',matchingPreferences})).rejects.toThrow('Save failed');expect(a.api.post).not.toHaveBeenCalled();
+});

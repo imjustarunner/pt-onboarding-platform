@@ -28,3 +28,9 @@ describe('provider time preferences',()=>{
   expect(publicVirtualStates({virtualStates:['Colorado','NM']})).toEqual(['CO','NM']);
  });
 });
+it('uses provider-selected or waived automatic highlights on ITSCO compact cards',()=>{
+ const p={specialties:['Stress'],details:{clinicalFocus:{reviewed:true,top:{specialties:['Depression','Anxiety','ADHD']},excluded:{specialties:['Stress']}}}};
+ expect(matchingProviderTags(p)).toEqual(['Depression','Anxiety','ADHD']);
+ p.details.clinicalFocus.waived={specialties:true};p.details.clinicalFocus.automaticTop={specialties:['Grief & Loss','Life Transitions','Self-Esteem']};
+ expect(matchingProviderTags(p)).toEqual(p.details.clinicalFocus.automaticTop.specialties);expect(matchingProviderTags(p,'stress')).not.toContain('Stress');
+});

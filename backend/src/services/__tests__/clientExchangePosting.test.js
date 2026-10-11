@@ -43,3 +43,9 @@ it('preserves scheduling preferences on the client in the same transaction as po
   expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining('JSON_SET'), [JSON.stringify(schedule), 12, 2]);
   expect(mocks.commit).toHaveBeenCalledOnce();
 });
+
+it('saves fit selections for future referrals in the posting transaction',async()=>{
+ const matchingPreferences={specialties:['Depression'],modalities:['EMDR']};
+ await insertExchangeListing({...args,summary:{...args.summary,preferences:{matchingPreferences}}});
+ expect(mocks.execute).toHaveBeenCalledWith(expect.stringContaining("'$.matchingPreferences'"),[JSON.stringify(matchingPreferences),12,2]);expect(mocks.commit).toHaveBeenCalledOnce();
+});

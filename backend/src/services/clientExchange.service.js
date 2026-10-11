@@ -1,3 +1,4 @@
+import { validateMatchingPreferences } from '../../../frontend/src/navigation/providerFocus.js';
 import { providerHasAssignedClientAccess } from './clientRecordAccess.service.js';
 import { exchangeSafeValue, exchangeSafeText } from '../utils/clientExchangePrivacy.js';
 import { normalizeExchangeSchedule } from '../utils/clientExchangeSchedule.js';
@@ -265,6 +266,7 @@ export async function createListing({
   }
   preferences = safeJson(preferences);
   if (preferences?.schedule != null) preferences = { ...preferences, schedule: normalizeExchangeSchedule(preferences.schedule) };
+  if (preferences?.matchingPreferences != null) preferences = { ...preferences, matchingPreferences: validateMatchingPreferences(preferences.matchingPreferences,{maxSelections:0}) };
   const savedSummary = await loadClientExchangeSummary({ client });
   const sharedSummary = mergeExchangeSummary(savedSummary, {
     demographics: safeJson(demographics), preferences: safeJson(preferences),
