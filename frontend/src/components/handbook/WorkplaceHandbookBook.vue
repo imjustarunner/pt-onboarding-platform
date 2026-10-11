@@ -284,7 +284,7 @@ defineExpose({ selectSection, showAssistant: () => assistant.value?.show() });
 .book-search { display: flex; align-items: center; gap: 8px; padding: 10px; background: white; border: 1px solid #d6dece; border-radius: 6px; }
 .book-search input { background: transparent; border: 0; width: 100%; font: inherit; font-size: 12px; color: #233c2c; min-width: 0; }.book-search input:focus { outline: none; }.book-search:focus-within { outline: 2px solid var(--ink); }
 .search-count { font-size: 10px; color: var(--muted); padding-left: 7px; margin: 12px 0; }
-.outline-scroll { flex: 1; min-height: 280px; height: 0; overflow: auto; scrollbar-width: thin; }
+.outline-scroll { contain: size; flex: 1 1 0px; min-height: 280px; height: 0; overflow: auto; scrollbar-width: thin; }
 .book-outline { display: flex; flex-direction: column; min-height: 560px; }
 .outline-link { display: grid; gap: 5px; padding: 12px 10px; border-radius: 5px; color: #354c39; text-decoration: none; border-left: 3px solid transparent; }
 .outline-link.child { padding-left: 23px; }.outline-title { font-size: 11px; line-height: 1.6; font-weight: 650; }.outline-status { font-size: 10px; color: #6a7867; }.outline-link.active { background: #e0e9d7; border-left-color: var(--ink); color: var(--ink); }.outline-link:hover { background: #e7eddf; }
