@@ -1,3 +1,4 @@
+import {getProviderUpdateSignIn} from './providerUpdateSignIn.service.js';
 import { officeRoomLabel } from '../utils/officeRoomLabel.js';
 import {providerUpdateAuditBcc} from './providerUpdateAuditCopy.js';
 import {resolveProviderUpdateRecipients} from './providerUpdateRecipient.service.js';
@@ -829,6 +830,8 @@ export async function getRecipientBundle(recipient) {
       lastName: recipient.last_name,
       displayRole: records.displayRole?.label || null,
       quickViewUrl:agency?.quickViewUrl || null,
+      agencySlug:agency?.slug || null,
+      signIn:await getProviderUpdateSignIn(recipient.provider_user_id,recipient.agency_id),
       email: recipient.email,
       finalizedAt: recipient.finalized_at,
       lockedAt: recipient.locked_at,

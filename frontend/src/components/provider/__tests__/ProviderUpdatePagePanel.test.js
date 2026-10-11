@@ -21,12 +21,14 @@ it('advances after completing a standalone full page',async()=>{
  w.findComponent({name:'TestSectionEditor'}).vm.$emit('saved',{sections:[{key:'handbook',completed:true}]});await flushPromises();
  expect(w.findComponent(Panel).emitted('advance')).toHaveLength(1);w.unmount();
 });
-it('prevents skipping an incomplete specialties editor and leaves it highlighted for review',async()=>{
+it('allows switching away from incomplete specialties without marking them complete',async()=>{
  const page={key:'profile',sections:[{key:'specialties',completed:false,meta:{title:'Focus areas'}},{key:'directory_photo',completed:false,meta:{title:'Photo'}}]};
  const w=mount(Panel,{props:{page}});await w.get('[data-section-key="directory_photo"] button').trigger('click');await flushPromises();
- expect(w.get('[data-section-key="specialties"] button').attributes('aria-expanded')).toBe('true');expect(w.get('[data-section-key="directory_photo"] button').attributes('aria-expanded')).toBe('false');w.unmount();
+ expect(w.get('[data-section-key="specialties"] button').attributes('aria-expanded')).toBe('false');expect(w.get('[data-section-key="directory_photo"] button').attributes('aria-expanded')).toBe('true');expect(page.sections[0].completed).toBe(false);w.unmount();
 });
 it('offers save and continue when every item is complete even without a redundant page completion flag',async()=>{
  const w=mount(Panel,{props:{page:{key:'user_updates',sections:sections().map(s=>({...s,completed:true}))}}});
  expect(w.text()).not.toContain('Save and come back later');const button=w.findAll('button').find(b=>b.text()==='Save and continue →');expect(button).toBeTruthy();await button.trigger('click');await flushPromises();expect(w.emitted('advance')).toHaveLength(1);w.unmount();
 });
+
+it('lets staff save and continue while a page has unfinished sections',async()=>{const w=mount(Panel,{props:{page:{key:'user_updates',sections:sections()}}});await w.findAll('button').find(b=>b.text()==='Save and continue →').trigger('click');await flushPromises();expect(w.emitted('advance')).toHaveLength(1);expect(w.props('page').sections.every(s=>!s.completed)).toBe(true);w.unmount();});

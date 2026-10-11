@@ -21,7 +21,7 @@
       @close="$emit('close')"
     />
 
-    <div v-if="page.alone" class="pu-page-footer"><button v-if="allSectionsComplete" type="button" class="pu-btn primary" :disabled="continuing" @click="saveAndContinue">Save and continue →</button><button type="button" class="pu-btn" @click="$emit('close')">Back to steps</button><span v-if="recipient?.previewOnly">Preview only — completion buttons are shown but do not save.</span></div>
+    <div v-if="page.alone" class="pu-page-footer"><button type="button" class="pu-btn primary" :disabled="continuing" @click="saveAndContinue">Save and continue →</button><button type="button" class="pu-btn" @click="$emit('close')">Back to steps</button><span v-if="recipient?.previewOnly">Preview only — completion buttons are shown but do not save.</span></div>
 
     <!-- Bundled page: several related sections on one interface -->
     <div v-if="!page.alone" class="pu-page-stack">
@@ -61,14 +61,13 @@
 
       <div class="pu-page-footer">
         <button
-          v-if="allSectionsComplete"
           type="button"
           class="pu-btn primary"
           :disabled="continuing" @click="saveAndContinue"
         >
           Save and continue →
         </button>
-        <p v-else class="pu-remaining">Complete the remaining items above to continue, or save and come back later below.</p>
+        <p v-if="!allSectionsComplete" class="pu-remaining">You can review sections in any order. Unfinished items stay open until you complete them before final submission.</p>
       </div>
     </div>
   </div>
@@ -93,7 +92,7 @@ const continuing = ref(false);
 async function saveAndContinue(){
  if(continuing.value)return;continuing.value=true;
  try{if(await saveDraft()===false)return;await nextTick();
- if(allSectionsComplete.value)emit('advance');else {const section=props.page.sections.find(s=>!s.completed);if(section)await focusSection(section.key);}
+ emit('advance');
  }finally{continuing.value=false;}
 }
 const soleSection = computed(() => props.page.sections?.[0] || null);
@@ -109,10 +108,14 @@ watch(
   { immediate: true }
 );
 
-function toggle(key) {
-  const required=props.page.sections?.find(s=>s.key==='specialties'&&!s.completed);
-  if(!props.recipient?.previewOnly&&required&&expandedKey.value===required.key&&key!==required.key){focusSection(required.key);return;}
-  expandedKey.value = expandedKey.value === key ? '' : key;
+let switchingSection = false;
+async function toggle(key) {
+  if (switchingSection) return;
+  switchingSection = true;
+  try {
+    if (await saveDraft() === false) return;
+    expandedKey.value = expandedKey.value === key ? '' : key;
+  } finally { switchingSection = false; }
 }
 
 async function focusSection(key){expandedKey.value=key;await nextTick();const block=pageRoot.value?.querySelector(`[data-section-key="${key}"]`);block?.scrollIntoView?.({behavior:'smooth',block:'start'});block?.querySelector('.pu-page-block-toggle')?.focus({preventScroll:true});}

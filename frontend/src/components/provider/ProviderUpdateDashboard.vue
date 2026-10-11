@@ -284,19 +284,26 @@ function iconFor(icon) {
   return map[icon] || '•';
 }
 
-function openPage(key) {
-  const required=activePage.value?.sections?.find(s=>['pin','notification_prefs','office_review','specialties'].includes(s.key)&&!s.completed);
-  if(!recipient.value.previewOnly&&key!==activePageKey.value&&required){error.value=`Complete ${required.meta?.title||required.key} before continuing.`;pagePanel.value?.focusSection(required.key);return;}
+let navigating = false;
+async function openPage(key) {
+  if (navigating) return;
+  navigating = true;
+  try {
+    if (key !== activePageKey.value && await pagePanel.value?.saveDraft?.() === false) {
+      error.value = 'Your latest changes could not be saved. Please retry before leaving this page.';
+      return;
+    }
   error.value='';
   session.changeSection('overview');
   activeSectionKey.value = 'overview';
   activePageKey.value = key;
   nextTick(()=>pagePanel.value?.focusTop());
+  } finally { navigating = false; }
 }
 
 function advancePage(){
   const index=pages.value.findIndex(p=>p.key===activePageKey.value);
-  const next=pages.value.slice(index+1).find(p=>!p.completed)||pages.value.find(p=>!p.completed);
+  const next=pages.value.slice(index+1).find(p=>!p.completed)||pages.value.find(p=>!p.completed&&p.key!==activePageKey.value);
   if(next)openPage(next.key);
   else activePageKey.value='';
 }

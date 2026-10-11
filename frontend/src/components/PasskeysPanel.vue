@@ -1,6 +1,6 @@
 <template>
  <section v-if="state?.eligible" class="passkeys security-card" data-analytics-ignore>
-  <h2>Passkeys</h2><p v-if="state.ssoSetup">You can prepare a passkey now. Keep using Google while your agency requires SSO; the passkey becomes a sign-in option after your agency enables app-only access.</p>
+  <h2>Passkeys</h2><p v-if="state.ssoSetup">You can prepare a passkey now. Keep using Sign in with Google while your agency requires it; the passkey becomes a sign-in option after your agency enables app-only access.</p>
   <p>Sign in with Face ID, a fingerprint, your device PIN, or a security key. Your biometric information stays with your device.</p>
   <p>Save passkeys on a personal device or your own security key. Use the same portal address when signing in; a passkey saved for another portal address will not appear here.</p>
   <p v-if="!supported">Passkey setup needs a supported browser on a secure portal address. Your usual sign-in is still available.</p>
@@ -34,6 +34,7 @@
   </details>
  </section>
  <p v-else-if="error" role="alert">{{error}}</p>
+ <p v-else-if="state && !state.eligible" role="status">Passkey setup is not available for your account. Continue using your usual sign-in; a passkey is not needed to complete this update.</p>
 </template>
 <script setup>
 import {onMounted,onBeforeUnmount,ref} from 'vue';
@@ -47,7 +48,7 @@ const date=value=>new Date(value).toLocaleDateString();
 async function load(){state.value=(await api.get(base,options)).data;}
 async function changed(){await load();emit('changed');window.dispatchEvent(new Event('account-security-changed'));}
 async function run(work){busy.value=true;error.value='';message.value='';try{await work();}catch(e){error.value=passkeyError(e);}finally{busy.value=false;password.value='';recoveryPassword.value='';recoveryCode.value='';}}
-async function register(){await run(async()=>{const {data}=await api.post(`${base}/register/options`,{password:password.value,label:label.value},options);password.value='';const response=await startRegistration({optionsJSON:data.options});const result=await api.post(`${base}/register/verify`,{challengeId:data.challengeId,response},options);recoveryCodes.value=result.data.recoveryCodes||[];message.value=state.value?.ssoSetup?'Passkey saved for your app-only transition. Keep using Google while SSO is required.':'Passkey saved. You can use it the next time you sign in.';await changed();});}
+async function register(){await run(async()=>{const {data}=await api.post(`${base}/register/options`,{password:password.value,label:label.value},options);password.value='';const response=await startRegistration({optionsJSON:data.options});const result=await api.post(`${base}/register/verify`,{challengeId:data.challengeId,response},options);recoveryCodes.value=result.data.recoveryCodes||[];message.value=state.value?.ssoSetup?'Passkey saved for your app-only transition. Keep using Sign in with Google until your changeover is confirmed.':'Passkey saved. You can use it the next time you sign in.';await changed();});}
 async function verify(){await run(async()=>{const {data}=await api.post(`${base}/verify/options`,{},options);const response=await startAuthentication({optionsJSON:data.options});await api.post(`${base}/verify/finish`,{challengeId:data.challengeId,response},options);message.value='Your sign-in is verified.';await changed();});}
 async function remove(){await run(async()=>{await api.delete(`${base}/${removeTarget.value.id}`,{...options,data:{password:password.value}});removeTarget.value=null;message.value='Passkey removed.';await changed();});}
 async function recover(){await run(async()=>{await api.post(`${base}/recover`,{password:recoveryPassword.value,code:recoveryCode.value},options);confirmRecovery.value=false;message.value='Lost passkeys have been removed. Add a replacement now.';await changed();});}
