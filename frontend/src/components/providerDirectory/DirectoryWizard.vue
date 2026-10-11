@@ -21,7 +21,7 @@
    <template v-else-if="step===2"><p>Keep what you help with, client ages, communities served and treatment approaches separate so people can find the right match.</p>
     <DirectoryMultiSelect v-model="profile.specialties" label="Specialties — what I help with" :options="SPECIALTIES" />
     <DirectoryMultiSelect v-model="profile.clientAges" label="Client ages — who I see by age" :options="CLIENT_AGES" />
-    <DirectoryMultiSelect v-model="profile.populations" label="Populations served — communities and client types" :options="POPULATIONS" />
+    <DirectoryMultiSelect v-model="profile.populations" :label="POPULATIONS_LABEL" :options="POPULATIONS" />
     <DirectoryMultiSelect v-model="profile.approaches" label="Therapy approaches — how I provide treatment" :options="THERAPY_APPROACHES" />
    </template>
    <template v-else-if="step===3"><DirectoryMultiSelect v-model="profile.insurance" label="Insurance & payment options" :options="INSURANCES" custom />
@@ -45,7 +45,7 @@
 <script setup>
 import {ref,watch} from 'vue';import DirectoryMultiSelect from './DirectoryMultiSelect.vue';import DirectoryProfile from './DirectoryProfile.vue';
 import {directoryRequest,STATES,HERITAGES,LANGUAGES,INSURANCES} from '../../services/providerDirectory';
-import {SPECIALTIES,CLIENT_AGES,POPULATIONS,THERAPY_APPROACHES} from '../../constants/providerClinicalTaxonomy';
+import {SPECIALTIES,CLIENT_AGES,POPULATIONS,POPULATIONS_LABEL,THERAPY_APPROACHES} from '../../constants/providerClinicalTaxonomy';
 const props=defineProps({member:Object,portal:Object});const emit=defineEmits(['saved','submitted','refresh']);
 const steps=['Basic information','Licenses & locations','Services & specialties','Insurance & availability','Biography & photo','Review & submit'];
 const step=ref(0),busy=ref(false),error=ref(''),notice=ref(''),profile=ref({}),heritage=ref(''),optIn=ref(false),revision=ref(0);

@@ -7,6 +7,7 @@
    <p v-if="requireThree &amp;&amp; missing.some(g=>g.key===group.key)" class="focus-required"><strong>Required: select {{3-(value.top[group.key]?.length||0)}} more top {{3-(value.top[group.key]?.length||0)===1?'choice':'choices'}} here.</strong></p>
    <label class="waive-choice"><input type="checkbox" :checked="value.waived?.[group.key]===true" @change="waive(group.key,$event.target.checked)" /> Waive my top three for {{group.label.toLowerCase()}} — let the website choose randomly</label>
    <p v-if="value.waived?.[group.key]">Automatic highlights come only from choices you leave available below. This does not change which clients can match you.</p>
+   <p v-if="group.description">{{ group.description }}</p>
    <p v-if="group.previous?.length">Currently listed: {{group.previous.join('; ')}}.</p>
    <button type="button" class="clear-matches" @click="clearGroup(group)">Start with all off</button>
    <p>Turn off “Consider matches” for areas you do not serve. Select your strongest areas under “Top three.”</p>

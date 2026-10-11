@@ -1,8 +1,8 @@
-import {SPECIALTIES,POPULATIONS,CLIENT_AGES,THERAPY_APPROACHES} from './providerClinicalTaxonomy.js';
+import {SPECIALTIES,POPULATIONS,POPULATIONS_LABEL,POPULATIONS_DESCRIPTION,CLIENT_AGES,THERAPY_APPROACHES} from './providerClinicalTaxonomy.js';
 export const FOCUS_GROUPS = [
  {key:'specialties',field:'specialties_general',label:'Specialties',options:SPECIALTIES},
  {key:'ageGroups',field:'age_specialty',label:'Client ages',options:CLIENT_AGES},
- {key:'populations',field:'groups',label:'Populations served',options:POPULATIONS},
+ {key:'populations',field:'groups',label:POPULATIONS_LABEL,description:POPULATIONS_DESCRIPTION,options:POPULATIONS},
  {key:'modalities',field:'modality',label:'Therapy approaches',options:THERAPY_APPROACHES}
 ];
 export function missingFocusGroups(value,groups=FOCUS_GROUPS){

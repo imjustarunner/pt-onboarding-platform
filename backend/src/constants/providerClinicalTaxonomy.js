@@ -1,1 +1,1 @@
-export {SPECIALTIES,POPULATIONS,CLIENT_AGES,THERAPY_APPROACHES} from '../../../frontend/src/navigation/providerClinicalTaxonomy.js';
+export {SPECIALTIES,POPULATIONS,POPULATIONS_LABEL,POPULATIONS_DESCRIPTION,CLIENT_AGES,THERAPY_APPROACHES} from '../../../frontend/src/navigation/providerClinicalTaxonomy.js';

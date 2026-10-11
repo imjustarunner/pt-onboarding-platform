@@ -696,7 +696,12 @@ function buildProviderSections(fieldsList) {
     .map((key) => ({
       key,
       label: sectionLabelForKey(key),
-      fields: (byCat.get(key) || []).slice().sort((a, b) => (a.order_index || 0) - (b.order_index || 0))
+      fields: (byCat.get(key) || []).slice().sort((a, b) => {
+        const group = (props.fieldGroups || []).find(g => `clinical_group_${g.id || g.label}` === key);
+        const order = expandFieldKeys(group?.fieldKeys || []);
+        const rank = field => { const index = order.indexOf(field.field_key); return index < 0 ? order.length : index; };
+        return rank(a) - rank(b) || (a.order_index || 0) - (b.order_index || 0);
+      })
     }))
     .filter((s) => (s.fields || []).length > 0);
 }

@@ -1,9 +1,9 @@
-import { SPECIALTIES, CLIENT_AGES, POPULATIONS, THERAPY_APPROACHES } from '../constants/providerClinicalTaxonomy.js';
+import { SPECIALTIES, CLIENT_AGES, POPULATIONS, POPULATIONS_LABEL, POPULATIONS_DESCRIPTION, THERAPY_APPROACHES } from '../constants/providerClinicalTaxonomy.js';
 
 export const CLINICAL_PROFILE_FIELDS = Object.freeze([
   { key: 'specialties_general', group: 'specialties', label: 'Specialties', description: 'What I help with', options: SPECIALTIES },
   { key: 'age_specialty', group: 'ageGroups', label: 'Client Ages', description: 'Who I see by age', options: CLIENT_AGES },
-  { key: 'groups', group: 'populations', label: 'Populations Served', description: 'Communities and client types I have experience serving', options: POPULATIONS },
+  { key: 'groups', group: 'populations', label: POPULATIONS_LABEL, description: POPULATIONS_DESCRIPTION, options: POPULATIONS },
   { key: 'modality', group: 'modalities', label: 'Therapy Approaches', description: 'How I provide treatment', options: THERAPY_APPROACHES }
 ]);
 

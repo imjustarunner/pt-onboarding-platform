@@ -21,7 +21,7 @@ const emit = defineEmits(['save']);
 const copy = value => Object.fromEntries(Object.entries(value || {}).map(([key, selections]) => [key, [...selections]]));
 const values = ref(copy(props.step.values));
 const reviewed = ref(false);
-const focusGroups=computed(()=>props.step.fields.map(f=>({key:f.group,field:f.key,label:f.label,options:f.options})));
+const focusGroups=computed(()=>props.step.fields.map(f=>({key:f.group,field:f.key,label:f.label,description:f.description,options:f.options})));
 const clinicalFocus=ref(props.step.clinicalFocus||{top:Object.fromEntries(focusGroups.value.map(g=>[g.key,[]])),excluded:Object.fromEntries(focusGroups.value.map(g=>[g.key,[]]))});
 watch(() => props.step.values, (value, previous) => {
   if (JSON.stringify(values.value) === JSON.stringify(previous)) values.value = copy(value);

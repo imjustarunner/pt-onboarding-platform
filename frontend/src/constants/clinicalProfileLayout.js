@@ -10,7 +10,7 @@ export const CLINICAL_SUB_TABS = Object.freeze([
     label: 'Populations & Client Focus',
     emptyMeansOpenToAll: false,
     panelHint:
-      'Client ages are separate from communities and client types. Select only groups this provider has experience serving; blank means not yet specified.',
+      'Choose client ages and who this provider serves: individuals, couples, families or groups, plus communities served. Select only areas this provider has experience serving; blank means not yet specified.',
     fieldKeys: [
       'age_specialty',
       'provider_marketing_age_specialty',
@@ -40,14 +40,14 @@ export const CLINICAL_SUB_TABS = Object.freeze([
     fieldGroups: [
       {
         id: 'ages_demographics',
-        label: 'Ages & demographics',
+        label: 'Client ages & populations served',
         fieldKeys: [
           'age_specialty',
           'provider_marketing_age_specialty',
+          'groups',
           'pt_gender_ethnicity',
           'sexuality',
-          'other_issues',
-          'groups'
+          'other_issues'
         ]
       },
       {

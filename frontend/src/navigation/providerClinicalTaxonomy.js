@@ -63,6 +63,8 @@ export const SPECIALTIES = Object.freeze([
   "Social-Emotional Skill Development",
   "Transition to Adulthood"
 ]);
+export const POPULATIONS_LABEL = 'Populations served — individuals, couples, families & groups';
+export const POPULATIONS_DESCRIPTION = 'Who do you serve? Choose the client types and communities you work with. Client ages are selected separately above.';
 export const POPULATIONS = Object.freeze([
   "Individuals",
   "Couples",

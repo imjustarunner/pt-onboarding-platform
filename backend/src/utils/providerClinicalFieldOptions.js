@@ -1,12 +1,12 @@
 import {canonicalAge} from './providerFacetNormalization.js';
-import {SPECIALTIES,POPULATIONS,CLIENT_AGES,THERAPY_APPROACHES} from '../constants/providerClinicalTaxonomy.js';
+import {SPECIALTIES,POPULATIONS,POPULATIONS_LABEL,CLIENT_AGES,THERAPY_APPROACHES} from '../constants/providerClinicalTaxonomy.js';
 import {normalizeFacetFieldKey} from '../constants/clinicalFacetFields.js';
 const definitions={
  specialties_general:{options:SPECIALTIES,label:'Specialties — What I help with'},
  provider_counseling_specialties:{options:SPECIALTIES,label:'Specialties — What I help with'},
  pt_specialties_max25:{options:SPECIALTIES,label:'Specialties — What I help with'},
  age_specialty:{options:CLIENT_AGES,label:'Client Ages — Who I see by age'},
- groups:{options:POPULATIONS,label:'Populations Served — Communities and client types'},
+ groups:{options:POPULATIONS,label:POPULATIONS_LABEL},
  modality:{options:THERAPY_APPROACHES,label:'Therapy Approaches — How I provide treatment'},
  treatment_prefs_max15:{options:THERAPY_APPROACHES,label:'Therapy Approaches — How I provide treatment'}
 };
