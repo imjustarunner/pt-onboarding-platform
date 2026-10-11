@@ -4833,6 +4833,7 @@ const routes = [
   },
   {
     path: '/itsco/hiring-test',
+    alias: '/hiring-test',
     name: 'ItscoHiringRehearsalGuest',
     component: () => import('../views/public/HiringRehearsalGuestView.vue'),
     meta: { requiresGuest: false, isPublicPortal: true }
