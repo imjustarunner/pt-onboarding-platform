@@ -1,6 +1,16 @@
 # ITSCO payroll transition audit — October 10, 2026
 
-**Result: not ready for automatic activation.** This is a configuration and code audit, not a completed payroll rehearsal or approval to issue payments. All production queries ran in read-only transactions. No production rates, signatures, balances, enrollment flags, payroll runs or posted periods were changed.
+**Result: not ready for automatic activation.** This is a configuration and code audit, not a completed payroll rehearsal or approval to issue payments. The initial audit used read-only transactions. The later authorized setup preparation is recorded below; no new rates were activated and no payroll was run or posted.
+
+## Follow-up: clarify and prepare the priority items
+
+- Saved October 10 as the planned service start for 30 active assignments that had no date. All 38 assigned active staff now have the planned date. The agency and employee activation flags remain off. Prior values were backed up privately before the transaction.
+- Initialized the remaining missing leave record. All 48 active internal accounts now have a record; this includes nonparticipants/system accounts and is not a claim that 48 people move to service pay. New balances remain unreconciled; no ADP handoff or sick-rate amount was invented.
+- Rechecked production configuration after preparation: 38 assigned, 0 enabled, 0 executed amendments, 48 leave records, 0 confirmed Training PTO handoffs. Signature, salary-exception and handoff reviews remain outstanding.
+- Added a private plain-language report with a label on every employee value, saved amendment sick rates, definitions and UI instructions. `missing` no longer stands alone without explaining the field/action. Use `--report-path=/private/tmp/<new-report>.txt` with the audit script; it creates a mode-0600 file and refuses to overwrite an existing path.
+- Automatic approval review rejected the proposed payroll-calculation safeguards because they change payroll processing behavior. They have **not** been applied. Explicit authorization has been requested. The earlier local export/audit commit is also still unpublished.
+
+The production findings below describe the original audit snapshot. The start-date and missing-record counts above supersede those original counts; creating a record does not verify its opening balance or classification.
 
 ## Correct service periods
 

@@ -3,7 +3,9 @@
  * Output contains staff identifiers; store privately, not in source control.
  */
 import pool from '../config/database.js';
+import fs from 'node:fs';
 import { assessPayrollReadiness } from '../services/payrollReadiness.service.js';
+import { renderPayrollReadinessReport } from '../services/payrollReadinessReport.js';
 const args = Object.fromEntries(process.argv.slice(2).map(arg => arg.replace(/^--/, '').split('=')));
 const agencyId = Number(args.agency);
 if (!Number.isInteger(agencyId) || agencyId <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(args.start || '') ||
@@ -31,6 +33,8 @@ try {
     ORDER BY u.last_name,u.first_name`, [agencyId]);
   const [amendments] = await db.execute(`SELECT g.id,g.candidate_user_id user_id,g.task_id,
     JSON_UNQUOTE(JSON_EXTRACT(g.token_values_json,'$.effectiveDate')) effective_date,
+    JSON_EXTRACT(g.token_values_json,'$.schedule.ptoRate') draft_sick_rate,
+    JSON_UNQUOTE(JSON_EXTRACT(g.token_values_json,'$.schedule.sickLeaveRateAsOf')) draft_sick_rate_date,
     EXISTS(SELECT 1 FROM signed_documents s WHERE s.task_id=g.task_id AND NULLIF(s.signed_pdf_path,'') IS NOT NULL
       AND JSON_EXTRACT(s.audit_trail,'$.adminCountersign.signedAt') IS NOT NULL) executed
     FROM contract_generations g WHERE g.agency_id=?
@@ -40,7 +44,12 @@ try {
     AND (effective_start IS NULL OR effective_start<=?)`, [agencyId, args.start, period?.period_end || args.start]);
   const report = assessPayrollReadiness({ agency, period, previousPeriod, staff, amendments, salaries });
   await db.rollback();
-  console.log(JSON.stringify({ auditedAt: new Date().toISOString(), scope: 'Configuration only; historical service-rate and end-to-end payroll reconciliation are also required.', agency, ...report, staff, amendments, salaries }, null, 2));
+  const output = { auditedAt: new Date().toISOString(), scope: 'Configuration only; historical service-rate and end-to-end payroll reconciliation are also required.', agency, ...report, staff, amendments, salaries };
+  if (args['report-path']) {
+    // Private employee data: create a new file; never replace an unrelated file/symlink.
+    fs.writeFileSync(args['report-path'], renderPayrollReadinessReport(output), {mode:0o600,flag:'wx'});
+  }
+  console.log(JSON.stringify(output, null, 2));
   process.exitCode = report.configurationChecksPassed ? 0 : 2;
 } finally {
   db.release();
