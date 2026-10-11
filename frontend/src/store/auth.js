@@ -421,7 +421,7 @@ export const useAuthStore = defineStore('auth', () => {
       if (!loginUrl) {
         loginUrl = getLoginUrlForRedirect(currentUser);
       }
-      if (window.location.pathname.startsWith('/schoolcarebridge') || ['schoolcarebridge.org','www.schoolcarebridge.org'].includes(window.location.hostname)) {
+      if (window.location.pathname.startsWith('/schoolcarebridge') || ['schoolcarebridge.com','www.schoolcarebridge.com','app.schoolcarebridge.com','schoolcarebridge.org','www.schoolcarebridge.org'].includes(window.location.hostname)) {
         const { schoolCareBridgeExternalPath } = await import('../utils/schoolCareBridge');
         loginUrl = String(options.redirectTo || '').startsWith('/session-ended?')
           ? schoolCareBridgeExternalPath('/schoolcarebridge' + options.redirectTo)

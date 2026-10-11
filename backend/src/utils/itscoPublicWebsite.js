@@ -26,7 +26,7 @@ export function assembleSchoolDistricts(rows, config = {}, resolveDistrict, logo
     const options = config?.[slug] || {};
     if (!districts.has(slug)) districts.set(slug, { slug, name: options.name || canonical.canonicalName,
       logoUrl: options.logoUrl || null, description: options.description || '', websiteUrl: options.websiteUrl || '', schools: [] });
-    districts.get(slug).schools.push({ id: Number(row.id), name: row.official_name || row.name, slug: row.slug,
+    districts.get(slug).schools.push({ id: Number(row.id), name: row.official_name || row.name, slug: row.portal_url || row.slug,
       city: row.city || '', state: row.state || '', logoUrl: logo(row), intakePublicKey: row.intake_public_key || null,
       level: schoolLevel(row.official_name || row.name, options.schoolLevels?.[row.id]), providerIds: [] });
   }

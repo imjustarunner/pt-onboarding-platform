@@ -6,6 +6,7 @@
  * Everyone else keeps path-based links on the platform frontend host.
  */
 
+import { routingDestination } from '../services/schoolCareBridgeRouting.service.js';
 import { publicAppBaseUrl } from '../services/contactReminderToken.service.js';
 
 export const DEDICATED_APP_HOSTS = Object.freeze({
@@ -160,6 +161,7 @@ export function buildPublicMarketingUrl(agency, path = '', { platformBaseUrl } =
 }
 
 export function buildPublicPortalLoginUrl(agency, opts = {}) {
+  if (norm(agency?.organization_type || agency?.organizationType) === 'school' && orgSlug(agency)) return routingDestination(orgSlug(agency));
   return buildPublicAppUrl(agency, 'login', opts);
 }
 

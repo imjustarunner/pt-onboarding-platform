@@ -13,8 +13,8 @@ export const tenantLegalProfiles = {
   kimi: profile('kimi','Kimi Cain Life Coaching','https://kimicain.com','coaching',{logo:'/assets/kimi/logo.svg',color:'#4e624b'}),
   ptco: profile('ptco','Plot Twist Co','https://plottwistco.com','platform',{logo:'/assets/ptco/logo-flat.webp',color:'#A71111',email:'Support@plottwistco.com',phone:'833-756-8894',privacyEmail:'HQ@plottwistco.com',privacyOfficer:'Michael Mendez'}),
   auricwell: profile('auricwell','AuricWell','https://auricwell.com','platform',{legalName:'Plot Twist Co',legalOrigin:'https://plottwisthq.com',logo:AURICWELL_MARK_URL,color:'#5d5941',email:'Support@plottwistco.com',phone:'833-756-8894',privacyEmail:'HQ@plottwistco.com',privacyOfficer:'Michael Mendez',contactUrl:'https://plottwistco.com/contact'}),
-  schoolcarebridge: profile('schoolcarebridge','SchoolCareBridge','https://mh4kidz.org','coordination',{legalName:'MH4Kidz',logo:'/assets/schoolcarebridge/logo.png',color:'#245e51',email:'support@mh4kidz.org',contactUrl:'https://mh4kidz.org/contact'}),
-  michael: profile('michael','Michael V. Mendez Consulting','https://plottwisthq.com','consulting',{color:'#304c58',contactUrl:'https://plottwisthq.com/michael'}),
+  schoolcarebridge: profile('schoolcarebridge','SchoolCareBridge','https://schoolcarebridge.com','coordination',{legalName:'MH4Kidz',logo:'/assets/schoolcarebridge/logo.png',color:'#245e51',email:'support@mh4kidz.org',contactUrl:'https://mh4kidz.org/contact'}),
+  michael: profile('michael','Michael V. Mendez Consulting','https://michaelvmendez.com','consulting',{color:'#304c58',contactUrl:'https://plottwisthq.com/michael'}),
   sstc: profile('sstc','Summit Stats Team Challenge','https://summitstatstc.com','fitness',{color:'#1F6FB5',contactUrl:'https://summitstatstc.com/support'})
 };
 export const tenantLegalAliases = {plottwistco:'ptco',plottwist:'ptco',plottwisthq:'ptco',nextlevelup:'nlu',nextleveluplcc:'nlu','next-level-up':'nlu',innerstrength:'tisi',theinnerstrengthinstitute:'tisi',riserevive:'rise',risereviveco:'rise',mentalrange:'range',summitstats:'sstc',summitstatsteamchallenge:'sstc'};

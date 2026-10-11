@@ -1,3 +1,4 @@
+import { productBrowserBranding } from './productDomains.js';
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
 import { publicSiteSlug, isItscoPublicHost } from './publicDomainRouting.js';
 
@@ -162,6 +163,8 @@ function guessTenantName(host) {
 }
 
 export function buildShareMeta({ host, path, proto = 'https' } = {}) {
+  const product = productBrowserBranding(host);
+  if (product) return { name: product.title, title: product.title, description: product.description, image: `https://${String(host).split(':')[0]}${product.image}`, imagePath: product.image, url: `https://${String(host).split(':')[0]}${path || '/'}` };
   const hostname = normHost(host);
   const hostSlug = isItscoPublicHost(hostname) ? 'itsco' : publicSiteSlug(hostname);
   const pathSlugWebsite = /^\/p\//.test(path || '') ? String(path).split('?')[0].split('/')[2] : null;

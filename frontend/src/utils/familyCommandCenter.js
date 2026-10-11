@@ -1,5 +1,5 @@
 export function isFamilyHost(host = typeof window === 'undefined' ? '' : window.location.hostname) {
-  return String(host).toLowerCase() === 'qv.app.mentalrange.org';
+  return ['familycommandcenterhub.com', 'qv.app.mentalrange.org'].includes(String(host).toLowerCase().split(':')[0]);
 }
 import { familyEventTypes, familyEventCategories, familyStatuses, legacyFamilyStatuses } from './familyEventCatalog';
 export { familyEventTypes, familyEventCategories, familyStatuses };

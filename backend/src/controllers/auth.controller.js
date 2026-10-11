@@ -1855,7 +1855,7 @@ export const googleOAuthCallback = async (req, res, next) => {
     try {
       const state = verifyGoogleState(String(req.query?.state || ''));
       const next = String(state?.next || '');
-      if (/^\/schoolcarebridge\/app(?:\/|$)/.test(next) || (['schoolcarebridge.org','www.schoolcarebridge.org'].includes(new URL(state.redirectUri).hostname) && /^\/app(?:\/|$)/.test(next))) {
+      if (/^\/schoolcarebridge\/app(?:\/|$)/.test(next) || (['schoolcarebridge.com','www.schoolcarebridge.com','app.schoolcarebridge.com','schoolcarebridge.org','www.schoolcarebridge.org'].includes(new URL(state.redirectUri).hostname) && /^\/app(?:\/|$)/.test(next))) {
         if (!next.includes('\\')) schoolCareBridgeReturn = next.split('?')[0];
       }
     } catch { /* Unverified state must never control a destination. */ }

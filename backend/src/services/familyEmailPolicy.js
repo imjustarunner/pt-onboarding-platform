@@ -73,7 +73,7 @@ export function authenticatedFamilySender(headers, fromEmail) {
 }
 
 export function familyPocketUrl(householdId) {
-  const origin=process.env.FAMILY_COMMAND_CENTER_ORIGIN || 'https://qv.app.mentalrange.org';
+  const origin=process.env.FAMILY_COMMAND_CENTER_ORIGIN || 'https://familycommandcenterhub.com';
   return `${origin.replace(/\/$/,'')}/family?view=on-the-go&household=${Number(householdId)}`;
 }
 

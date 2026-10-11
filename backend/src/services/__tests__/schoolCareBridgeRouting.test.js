@@ -7,9 +7,9 @@ function database(){const records=new Map();let expired=false;return {records,ex
  if(sql.startsWith('SELECT')){const row=records.get(args[0]);return [[row && row.destination===args[1] && !expired?{username:row.username}:null].filter(Boolean)];}
  if(sql.startsWith('DELETE')&&args.length)records.delete(args[0]);return [[]];
  },async getConnection(){return {...this,beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},release:()=>{}};}};}
-test('default stays at MH4Kidz and redirects remain disabled',async()=>{
+test('default uses SchoolCareBridge.com and automatic login hints remain opt-in',async()=>{
  assert.equal(schoolCareBridgeDeployment({}).legacyRedirectEnabled,false);
- assert.equal(routingDestination('ashley',{}),'https://mh4kidz.org/schoolcarebridge/app/ashley');
+ assert.equal(routingDestination('ashley',{}),'https://schoolcarebridge.com/app/ashley');
  const db=database();assert.equal(await mintRoutingHint(db,{username:'staff@example.test',slug:'ashley'},{}),null);assert.equal(db.records.size,0);
 });
 test('rejects arbitrary destinations and unsafe school slugs',()=>{

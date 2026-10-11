@@ -44,7 +44,7 @@ async function buildItscoWebsiteData({agency,page,settings,baseUrl}) {
     WHERE a.agency_id=? AND l.is_active=1 ORDER BY l.city,l.name`,[agency.id]);
   const offices=officeRows.map(o=>({id:Number(o.id),name:o.name,city:o.city||'',state:o.state||'',address:[o.street_address,o.city,o.state,o.postal_code].filter(Boolean).join(', ')}));
   // A school must have a real portal account, not just an outreach/directory entry.
-  const [schoolRows] = await pool.execute(`SELECT org.id, org.name, org.official_name, org.slug, org.logo_url, org.logo_path, org.city, org.state,
+  const [schoolRows] = await pool.execute(`SELECT org.id, org.name, org.official_name, org.slug, org.portal_url, org.logo_url, org.logo_path, org.city, org.state,
     COALESCE(NULLIF(sp.district_name, ''), ad.name) AS district_name,
     (SELECT il.public_key FROM intake_links il WHERE il.scope_type = 'school' AND il.organization_id = org.id
       AND il.is_active = 1 AND COALESCE(il.form_type, 'intake') IN ('intake', 'public_form')

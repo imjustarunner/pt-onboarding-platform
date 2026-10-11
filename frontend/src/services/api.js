@@ -1,3 +1,7 @@
+import { isFamilyWebsiteHost, isMichaelHost } from '../utils/productDomains';
+import { isFundthredHost } from '../utils/fundthred';
+import { isPlotlineHost } from '../utils/plotline';
+const isProductApiHost = host => isFamilyWebsiteHost(host) || isMichaelHost(host) || isFundthredHost(host) || isPlotlineHost(host) || host === 'auricwell.com' || host === 'qv.app.schoolcarebridge.com';
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from '../utils/schoolCareBridge';
 import { sameDayServiceWarningMessage } from '../utils/sameDayServiceWarning.js';
 import { attachTeamMeetingAccess } from '../utils/teamMeetingInvitationAccess';
@@ -14,7 +18,7 @@ import {
 import { isSchoolPortalShellActive } from '../utils/schoolPortalShell.js';
 
 const api = axios.create({
-  baseURL: (typeof window !== 'undefined' && (isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname)))) ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:3000/api'),
+  baseURL: (typeof window !== 'undefined' && (isProductApiHost(window.location.hostname) || isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname)))) ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:3000/api'),
   headers: {
     'Content-Type': 'application/json'
   },
@@ -143,7 +147,7 @@ api.interceptors.request.use(
       config.skipAuthRedirect = true;
       config.skipGlobalLoading = true;
     }
-    if (isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname))) config.baseURL = '/api';
+    if (isProductApiHost(window.location.hostname) || isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname))) config.baseURL = '/api';
     // Circuit-breaker check must run before anything else (incl. global loading),
     // so a tripped request never begins a loading overlay or touches the network.
     checkRequestStorm(config);

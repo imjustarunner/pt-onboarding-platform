@@ -1,5 +1,7 @@
 export const SCB_PREFIX = '/schoolcarebridge';
-export const SCB_HOSTS = ['schoolcarebridge.org', 'www.schoolcarebridge.org'];
+export const SCB_ORIGIN = 'https://schoolcarebridge.com';
+export const schoolCareBridgeUrl = (school = '') => `${SCB_ORIGIN}/app${school ? `/${encodeURIComponent(school)}` : ''}`;
+export const SCB_HOSTS = ['schoolcarebridge.com', 'www.schoolcarebridge.com', 'app.schoolcarebridge.com', 'schoolcarebridge.org', 'www.schoolcarebridge.org'];
 export const isSchoolCareBridgeHost = (host = '') => SCB_HOSTS.includes(host.toLowerCase().split(':')[0]);
 export const isSchoolCareBridgePath = (path = '') => /^\/schoolcarebridge(?:[/?#]|$)/.test(path);
 export const schoolCareBridgePath = (school = '', suffix = '') => `${SCB_PREFIX}/app${school ? `/${encodeURIComponent(school)}` : ''}${suffix}`;

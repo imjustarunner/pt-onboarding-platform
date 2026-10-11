@@ -44,7 +44,7 @@ router.post('/launch', authenticate, wrap(async (req, res) => {
   await assertFamilyBenefit(req.user.id, agencyId);
   const token = crypto.randomBytes(32).toString('base64url');
   await pool.execute('INSERT INTO family_launch_tokens (token_hash,user_id,agency_id,expires_at) VALUES (?,?,?,DATE_ADD(NOW(),INTERVAL 2 MINUTE))', [familyHash(token), req.user.id, agencyId]);
-  const origin = process.env.FAMILY_COMMAND_CENTER_ORIGIN || 'https://qv.app.mentalrange.org';
+  const origin = process.env.FAMILY_COMMAND_CENTER_ORIGIN || 'https://familycommandcenterhub.com';
   res.json({ url: `${origin}/family#launch=${token}` });
 }));
 router.post('/exchange', loginLimiter, wrap(async (req, res) => {

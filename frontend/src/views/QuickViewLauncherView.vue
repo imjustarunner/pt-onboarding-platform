@@ -1,10 +1,16 @@
 <template>
   <div class="qv-launch" :style="brandStyle">
     <img v-if="agencyLogoUrl" :src="agencyLogoUrl" alt="" class="logo" />
+    <p v-if="schoolQuickView" class="muted">SchoolCareBridge · Quick View</p>
     <h1>{{ agencyName || 'Quick View' }}</h1>
 
     <div v-if="error" class="err">{{ error }}</div>
 
+    <form v-if="schoolQuickView && !agencyId" class="form" @submit.prevent="selectSchool">
+      <label>School portal name<input v-model="schoolSlug" placeholder="Your school’s portal name" pattern="[a-zA-Z0-9-]+" required /></label>
+      <button type="submit" class="btn">Open school Quick View</button>
+      <a href="https://schoolcarebridge.com/app">Open SchoolCareBridge sign-in →</a>
+    </form>
     <template v-if="isLocked">
       <p>Quick View is locked. Sign in to the portal and reset your 6-digit passcode.</p>
       <a v-if="loginUrl" class="btn" :href="loginUrl">Sign in to reset</a>
@@ -36,7 +42,7 @@
       </p>
     </template>
 
-    <p v-else class="muted">Loading…</p>
+    <p v-else-if="!schoolQuickView || schoolSlug" class="muted">Loading…</p>
   </div>
 </template>
 
@@ -50,6 +56,9 @@ import { useBrandingStore } from '../store/branding';
 
 const SESSION_KEY = 'plottwist.quickViewSession';
 const apiBase = '/api/quick-view';
+const schoolQuickView = window.location.hostname === 'qv.app.schoolcarebridge.com';
+const schoolSlug = ref(new URLSearchParams(window.location.search).get('organization') || '');
+async function selectSchool() { try { await resolveTenant(); } catch (e) { error.value = e?.response?.data?.error?.message || 'School Quick View could not be opened.'; } }
 const router = useRouter();
 const route = useRoute();
 const branding = useBrandingStore();
@@ -93,12 +102,14 @@ const brandStyle = computed(() => {
 
 async function resolveTenant() {
   error.value = '';
+  if (schoolQuickView && !schoolSlug.value.trim()) return;
   try {
     await branding.initializePortalTheme?.();
   } catch { /* ignore */ }
 
   const slug =
-    getSubdomain()
+    (schoolQuickView ? schoolSlug.value.trim().toLowerCase() : '')
+    || getSubdomain()
     || String(branding.portalHostPortalUrl || '').trim().toLowerCase()
     || '';
   portalSlug.value = slug;
@@ -113,7 +124,7 @@ async function resolveTenant() {
   agencyLogoUrl.value = data.agencyLogoUrl || '';
   agencyPrimaryColor.value = data.agencyPrimaryColor || '';
   colorPalette.value = data.colorPalette || {};
-  loginUrl.value = data.loginUrl || '';
+  loginUrl.value = schoolQuickView ? `https://schoolcarebridge.com/app/${encodeURIComponent(slug)}` : data.loginUrl || '';
   ready.value = true;
 
   // Install PWA manifest for this origin root

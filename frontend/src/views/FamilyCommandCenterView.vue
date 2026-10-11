@@ -120,7 +120,7 @@ const http = axios.create({ baseURL:'/api/family', withCredentials:true });
 const session=ref(null), dashboard=ref(null), tenant=ref(null), loading=ref(true), busy=ref(false), refreshing=ref(false), error=ref(''), notice=ref('');
 const params=new URLSearchParams(window.location.search), organization=ref(params.get('organization') || ''), agencyId=ref(Number(params.get('agencyId')) || null), pin=ref(''), email=ref(''), needsEmail=ref(false);
 const householdId=ref(Number(new URLSearchParams(window.location.search).get('household')) || null), householdName=ref(''), timezone=ref(Intl.DateTimeFormat().resolvedOptions().timeZone), inviteCode=ref(''), createdInvite=ref('');
-const tab=ref(new URLSearchParams(window.location.search).get('view')==='on-the-go'?'On the go':new URLSearchParams(window.location.search).get('view')==='home'?'Home':'Calendar'), now=ref(new Date()), weather=ref(null), workMode=ref('busy'), calendarDate=ref('');
+const tab=ref(new URLSearchParams(window.location.search).get('view')==='on-the-go'?'On the go':new URLSearchParams(window.location.search).get('view')==='home'?'Home':window.location.hostname==='familycommandcenterhub.com'?'Home':'Calendar'), now=ref(new Date()), weather=ref(null), workMode=ref('busy'), calendarDate=ref('');
 const activeMember=ref('all'),navExpanded=ref(false),musicOpen=ref(false);
 try{navExpanded.value=localStorage.getItem('family-navigation-expanded')==='true';}catch{}
 watch(navExpanded,value=>{try{localStorage.setItem('family-navigation-expanded',String(value));}catch{}});

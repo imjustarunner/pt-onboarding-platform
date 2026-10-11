@@ -62,7 +62,7 @@ describe('publicPortalUrl', () => {
     };
     assert.equal(
       buildPublicPortalLoginUrl(hogwarts, { platformBaseUrl: PLATFORM }),
-      'https://app.itsco.health/hogwarts/login'
+      'https://schoolcarebridge.com/app/hogwarts'
     );
   });
 

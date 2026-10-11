@@ -4,7 +4,7 @@ export const FUNDTHRED = Object.freeze({
   tagline: 'Follow the thread of every dollar.',
   website: '/fundthred', entry: '/fundthred/app',
   logo: '/assets/fundthred/wordmark.svg', icon: '/assets/fundthred/icon.svg',
-  origin: 'https://plottwisthq.com'
+  origin: 'https://fundthred.com'
 });
 
 export const fundthredPlans = [

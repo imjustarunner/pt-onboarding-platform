@@ -1,7 +1,7 @@
 export const PLOTLINE_ORIGIN = 'https://plotlinepo.com';
-// Public marketing lives here until the dedicated product domain is launched.
+// Retained for existing links and the standalone site's asset paths.
 export const PLOTLINE_WEBSITE_PATH = '/plottline';
-export const PLOTLINE_WEBSITE_URL = `https://plottwistco.com${PLOTLINE_WEBSITE_PATH}`;
+export const PLOTLINE_WEBSITE_URL = PLOTLINE_ORIGIN;
 export const PLOTLINE_MARKETING_PAGES = ['product', 'solutions', 'careers', 'resources', 'about', 'pricing', 'start'];
 export const PLOTLINE_PREFIX = '/plotline';
 export const isPlotlineHost = (host = '') => ['plotlinepo.com', 'www.plotlinepo.com'].includes(String(host).toLowerCase().split(':')[0]);
@@ -27,7 +27,7 @@ export const plotlinePaths = {
     const path = String(value);
     if (PLOTLINE_MARKETING_PAGES.some(page => new RegExp(`^/${page}(?:[/?#]|$)`).test(path))) return `/plotline${path}`;
     if (/^\/(?:[?#]|$)/.test(path)) return `/plotline${path.slice(1)}`;
-    if (/^\/(?:app|login)\/?(?:[?#]|$)/.test(path)) return path.replace(/^\/(?:app|login)\/?/, '/plotline/app');
+    if (/^\/app\/?(?:[?#]|$)/.test(path)) return path.replace(/^\/app\/?/, '/plotline/app');
     const staff = path.match(/^\/app\/([a-z0-9-]+)(\/[^?#]*)?([?#].*)?$/);
     if (staff && isPlotlineCompanySlug(staff[1])) return `/${staff[1]}${staff[2] && staff[2] !== '/' ? staff[2] : '/people-operations'}${staff[3] || ''}`;
     const careers = path.match(/^\/([a-z0-9-]+)(\/jobs\/[^/?#]+)?\/?([?#].*)?$/);

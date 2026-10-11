@@ -4,6 +4,10 @@ const dist = new URL('../dist/', import.meta.url);
 const shell = readFileSync(new URL('index.html', dist), 'utf8');
 let nginx = '';
 for (const site of OFFICE_SITES) {
+ if (site.host === 'kiosk.plottwisthq.com') {
+  nginx += `server { listen 8080; server_name kiosk.plottwisthq.com; return 302 https://kiosk.auricwell.com$request_uri; }\n`;
+  continue;
+ }
   const folder = `_public-sites/office-${site.locationId}`;
   mkdirSync(new URL(folder, dist), { recursive: true });
   writeFileSync(new URL(`${folder}/home.html`, dist), officeHtml(shell, site));

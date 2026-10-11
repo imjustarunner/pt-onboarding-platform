@@ -1,5 +1,6 @@
 import { isTokenAuthenticationRoute } from '../utils/loginHandoff';
-import { fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
+import { isFundthredHost, fundthredLoginLocation, isFundthredLogin, isFundthredWorkspacePath } from '../utils/fundthred';
+import { isPlotlineHost } from '../utils/plotline';
 import { isSchoolCareBridgePath, schoolCareBridgePath, schoolCareBridgeWorkflowPath } from '../utils/schoolCareBridge.js';
 import { canAccessBillingWorkspace } from '../config/medicalBillingAccess.js';
 import { setRememberedGoogleLogin } from '../utils/loginRemember';
@@ -339,6 +340,9 @@ const flattenPathForHostPortal = (targetPath, brandingStore) => {
 };
 
 const routes = [
+  ...(window.location.hostname === 'auricwell.com' ? [{path:'/app/:pathMatch(.*)*', name:'AuricWellAppEntry', beforeEnter: to => {window.location.assign(to.fullPath); return false;}, component: {template:'<p>Opening AuricWell…</p>'}}] : []),
+  { path: '/family-website', name: 'FamilyWebsite', component: () => import('../views/public/FamilyWebsite.vue'), meta: { publicMarketingHub: true, hideNav: true, familyWebsite: true } },
+  { path: '/plotline/app', name: 'PlotlineEntry', component: () => import('../views/PlotlineEntryView.vue'), meta: { plotlineEntry: true, hideNav: true } },
   { path: '/fundthred/:section(product|solutions|pricing|resources|start)?', name: 'FundThredWebsite', component: () => import('../views/public/FundThredWebsite.vue'), meta: { publicMarketingHub: true, hideNav: true, fundthred: true, publicMarketingTitle: 'FundThred | Finance operations' } },
   { path: '/fundthred/app', name: 'FundThredEntry', component: () => import('../views/FundThredEntryView.vue'), meta: { hideNav: true, fundthred: true, fundthredEntry: true } },
   { path: '/fundthred/login', redirect: () => fundthredLoginLocation() },
@@ -5032,6 +5036,16 @@ router.beforeEach(async (to, from, next) => {
     }
   };
 
+  if (isFundthredHost(window.location.hostname) && to.name === 'Login' && to.query.product !== 'fundthred') {
+    next({ ...fundthredLoginLocation(to.query.redirect), replace: true }); return;
+  }
+  if (to.meta.plotlineEntry) {
+    await tryBootstrapAuthFromCookie();
+    if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
+      next({ path: '/change-password', query: { redirect: '/plotline/app' }, replace: true }); return;
+    }
+    next(); return;
+  }
   if (to.meta.fundthredEntry) {
     await tryBootstrapAuthFromCookie();
     if (authStore.isAuthenticated && authStore.user?.requiresPasswordChange === true) {
@@ -5064,7 +5078,7 @@ router.beforeEach(async (to, from, next) => {
     if (!authStore.isAuthenticated) { next({ path: schoolCareBridgePath(String(to.params.organizationSlug || '')), query: { redirect: to.fullPath }, replace: true }); return; }
   }
 
-  if (isFamilyHost() && !to.meta?.familyCommandCenter) {
+  if (isFamilyHost() && !to.meta?.familyCommandCenter && !to.meta?.familyWebsite) {
     next({ name: 'FamilyCommandCenter', query: to.query, hash: to.hash, replace: true });
     return;
   }
@@ -6037,6 +6051,8 @@ router.beforeEach(async (to, from, next) => {
     }
   } else if (to.meta.requiresGuest && authStore.isAuthenticated && !isTokenAuthenticationRoute(to)) {
     if (isFundthredLogin(to)) { next({ path: '/fundthred/app', replace: true }); return; }
+    if (isPlotlineHost(window.location.hostname) && to.name === 'Login') { next({ path: '/plotline/app', replace: true }); return; }
+    if (window.location.hostname === 'auricwell.com' && to.name === 'Login') { window.location.assign('/app'); next(false); return; }
     // Redirect to appropriate dashboard based on user role
     next({ path: getDashboardRoute(), replace: true });
   } else if (to.meta.requiresApprovedEmployee) {

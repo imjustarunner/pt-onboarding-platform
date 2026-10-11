@@ -159,8 +159,8 @@ writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-pub
 
 // Prepared now; DNS, certificate and load-balancer activation are separate rollout steps.
 mkdirSync(`${dist}/_public-sites/schoolcarebridge`, {recursive:true});
-const scbMeta = buildShareMeta({host:'schoolcarebridge.org',path:'/'});
-writeFileSync(`${dist}/_public-sites/schoolcarebridge/home.html`, injectPublicFavicon(injectShareMetaIntoHtml(shell,scbMeta), 'schoolcarebridge.org'));
+const scbMeta = buildShareMeta({host:'schoolcarebridge.com',path:'/'});
+writeFileSync(`${dist}/_public-sites/schoolcarebridge/home.html`, injectPublicFavicon(injectShareMetaIntoHtml(shell,scbMeta), 'schoolcarebridge.com'));
 writeFileSync(`${dist}/itsco-public.nginx.conf`, readFileSync(`${dist}/itsco-public.nginx.conf`, 'utf8') + `
 server {
  listen 8080;

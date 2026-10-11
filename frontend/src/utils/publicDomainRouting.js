@@ -1,3 +1,6 @@
+import { productDomainPaths } from './productDomains.js';
+import { isFundthredHost, fundthredPaths } from './fundthred.js';
+import { isPlotlineHost, plotlinePaths } from './plotline.js';
 import { officePaths } from './officeSite.js';
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
 import {isSstcPublicHost, sstcPublicPaths} from '../sstc/website/routing.mjs';
@@ -37,6 +40,10 @@ export function publicSupportSlugFromHost(host = '') {
  return publicSiteSlug(host);
 }
 export function publicSitePaths(host) {
+ if (isFundthredHost(host)) return fundthredPaths;
+ if (isPlotlineHost(host)) return plotlinePaths;
+ const product = productDomainPaths(host);
+ if (product) return product;
  if (isSstcPublicHost(host)) return sstcPublicPaths;
  const office = officePaths(host);
  if (office) return office;
@@ -45,7 +52,9 @@ export function publicSitePaths(host) {
   internal: value => {
    const path = String(value);
    if (isSchoolCareBridgePath(path) || /^\/(api|assets|uploads|p|intake|i|preferences-form|life-balance-form)(\/|$)/.test(path)) return path;
-   return `/schoolcarebridge${path === '/' ? '' : path}`;
+   if (/^\/login\/?(?=[?#]|$)/.test(path)) return path.replace(/^\/login\/?/, '/schoolcarebridge/app');
+   if (/^\/(?:app|session-ended|for-schools|for-agencies|for-families|how-it-works|partners|programs|resources|about|security|pricing|contact|terms|privacypolicy|platformhipaa|messaging)(?:[/?#]|$)/.test(path) || /^\/(?=[?#]|$)/.test(path)) return `/schoolcarebridge${/^\/(?=[?#]|$)/.test(path) ? path.slice(1) : path}`;
+   return path;
   }
  };
 

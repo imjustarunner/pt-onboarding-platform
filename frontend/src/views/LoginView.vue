@@ -2070,7 +2070,7 @@ const verifyUsername = async ({ orgSlugOverride = null, reason = 'user' } = {}) 
 
     if (data.schoolCareBridgeRedirect && !isSchoolCareBridge.value) {
       const target = new URL(data.schoolCareBridgeRedirect);
-      if (target.protocol === 'https:' && ['mh4kidz.org', 'schoolcarebridge.org', 'www.schoolcarebridge.org'].includes(target.hostname)) {
+      if (target.protocol === 'https:' && ['mh4kidz.org', 'schoolcarebridge.com', 'www.schoolcarebridge.com', 'app.schoolcarebridge.com', 'schoolcarebridge.org', 'www.schoolcarebridge.org'].includes(target.hostname)) {
         window.location.assign(target.href); return;
       }
     }
@@ -2360,6 +2360,10 @@ const handleLogin = async (passkeyResult = null) => {
         agencyStore.applyLoginAgencies(result.agencies);
       }
 
+      if (window.location.hostname === 'auricwell.com' && !authStore.user?.requiresPasswordChange) {
+        window.location.assign(safeLoginDestination(route.query.redirect) || '/app');
+        loading.value = false; return;
+      }
       if (isSchoolCareBridge.value) {
         sessionStorage.removeItem('__pt_login_pending_username__');
         sessionStorage.removeItem('__pt_login_pending_verify__');
@@ -2367,6 +2371,9 @@ const handleLogin = async (passkeyResult = null) => {
         const safeDestination = typeof destination === 'string' && isSchoolCareBridgePath(destination) && !destination.includes('\\');
         await router.replace(safeDestination ? destination : schoolCareBridgePath(String(route.params.organizationSlug || '')));
         loading.value = false; return;
+      }
+      if (window.location.hostname === 'plotlinepo.com' && !authStore.user?.requiresPasswordChange) {
+        await router.replace('/plotline/app'); loading.value = false; return;
       }
       const agencies = agencyStore.userAgencies?.value ?? agencyStore.userAgencies ?? [];
       const agencyList = Array.isArray(agencies) ? agencies : [];

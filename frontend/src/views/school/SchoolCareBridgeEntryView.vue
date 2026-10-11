@@ -1,6 +1,6 @@
 <template>
  <div class="scb-entry" :class="{'school-login-view':school&&!auth.isAuthenticated}" :style="schoolStyle">
-  <header v-if="!portalOpen" class="scb-header"><SchoolCareBridgeBrand/><div class="scb-school-identity" v-if="school"><img v-if="school.logoUrl" :src="asset(school.logoUrl)" alt="" @error="hideImage"/><strong>{{school.name}}<small>School portal</small></strong></div><div class="scb-entry-links"><router-link v-if="school&&!auth.isAuthenticated" class="scb-active-login" :to="schoolCareBridgePath(school.slug)">⌂ &nbsp; Sign in</router-link><router-link :to="schoolCareBridgePath()">{{school ? 'Switch school' : 'Portal home'}}</router-link><a href="https://mh4kidz.org">MH4Kidz ↗</a><button v-if="auth.isAuthenticated" @click="logout">Sign out</button></div></header>
+  <header v-if="!portalOpen" class="scb-header"><SchoolCareBridgeBrand/><div class="scb-school-identity" v-if="school"><img v-if="school.logoUrl" :src="asset(school.logoUrl)" alt="" @error="hideImage"/><strong>{{school.name}}<small>School portal</small></strong></div><div class="scb-entry-links"><a v-if="school" :href="`https://qv.app.schoolcarebridge.com/?organization=${encodeURIComponent(school.slug)}`">Quick View ↗</a><router-link v-if="school&&!auth.isAuthenticated" class="scb-active-login" :to="schoolCareBridgePath(school.slug)">⌂ &nbsp; Sign in</router-link><router-link :to="schoolCareBridgePath()">{{school ? 'Switch school' : 'Portal home'}}</router-link><a href="https://mh4kidz.org">MH4Kidz ↗</a><button v-if="auth.isAuthenticated" @click="logout">Sign out</button></div></header>
   <div v-if="!portalOpen && school?.agencies?.length" class="scb-affiliates"><span>Affiliated agencies</span><div v-for="agency in school.agencies" :key="agency.id"><img v-if="agency.logoUrl" :src="asset(agency.logoUrl)" alt="" @error="hideImage"/><strong>{{agency.name}}</strong></div></div>
   <p v-if="busy" class="scb-status" role="status">Opening your portal…</p>
   <section v-else-if="error" class="scb-status" role="alert"><h1>We couldn’t open this portal</h1><p>{{error}}</p><router-link :to="schoolCareBridgePath()">Choose a school</router-link> <button @click="load">Try again</button></section>
@@ -24,7 +24,7 @@
  </div>
 </template>
 <script setup>
-import {computed,onMounted,ref,watch} from 'vue';
+import {computed,onMounted,onUnmounted,ref,watch} from 'vue';
 import {useRoute,useRouter} from 'vue-router';
 import SchoolCareBridgeBrand from '../../components/schoolcarebridge/SchoolCareBridgeBrand.vue';
 import ServiceUseNotice from '../../components/legal/ServiceUseNotice.vue';
@@ -49,19 +49,22 @@ const hideImage=event=>{event.target.style.display='none';};
 const options={skipAuthRedirect:true,skipGlobalLoading:true};
 const schoolStyle=computed(()=>{const color=school.value?.colors?.primary;const background=publicWebsiteUrl(school.value?.backgroundUrl);return {...(/^#[a-f0-9]{3,8}$/i.test(color||'')?{'--scb-school-color':color}:{}),...(background?{'--scb-school-background':`url("${background.replace(/["\\\n\r]/g,'')}")`}:{})};});
 const agencyWorkspace=computed(()=>{const agency=(agencyStore.userAgencies||[]).find(a=>a.organization_type==='agency');return `https://plottwisthq.com/${encodeURIComponent(agency?.portal_url||agency?.slug||'')}${agency?'/dashboard':'dashboard'}`;});
-async function load(){busy.value=true;error.value='';authorized.value=false;try{
+let loadVersion=0;
+onUnmounted(()=>loadVersion++);
+async function load(){const version=++loadVersion;busy.value=true;error.value='';authorized.value=false;school.value=null;schools.value=[];try{
  const slug=String(route.params.organizationSlug||'');
- if(slug){const {data}=await api.get(`/schoolcarebridge/schools/${encodeURIComponent(slug)}`,options);school.value=data.school;}
+ if(slug){const {data}=await api.get(`/schoolcarebridge/schools/${encodeURIComponent(slug)}`,options);if(version!==loadVersion)return;school.value=data.school;}
  if(route.query.routingHint){const token=String(route.query.routingHint);const clean={...route.query};delete clean.routingHint;try{const {data}=await api.post('/schoolcarebridge/routing-hint/consume',{token,destination:window.location.origin+schoolCareBridgeExternalPath(route.path)},options);sessionStorage.setItem('__pt_login_pending_username__',data.username);sessionStorage.setItem('__pt_login_pending_verify__','1');}finally{await router.replace({path:route.path,query:clean});}}
+ if(version!==loadVersion)return;
  if(auth.isAuthenticated){
   if(!agencyStore.userAgencies?.length)await agencyStore.fetchUserAgencies();
-  if(slug){await api.get(`/schoolcarebridge/access/${encodeURIComponent(slug)}`,options);await organizationStore.fetchBySlug(slug);brandingStore.setActiveRouteSlug(slug);await brandingStore.fetchAgencyTheme(slug);authorized.value=true;}
+  if(slug){await api.get(`/schoolcarebridge/access/${encodeURIComponent(slug)}`,options);if(version!==loadVersion)return;await organizationStore.fetchBySlug(slug);if(version!==loadVersion)return;brandingStore.setActiveRouteSlug(slug);await brandingStore.fetchAgencyTheme(slug);if(version!==loadVersion)return;authorized.value=true;}
   else {const [schoolResponse,partnerResponse]=await Promise.all([api.get('/schoolcarebridge/my-schools',options),api.get('/schoolcarebridge/my-partners',options)]);schools.value=schoolResponse.data.schools||[];partners.value=partnerResponse.data.partners||[];}
  }
  document.title=school.value?`${school.value.name} | SchoolCareBridge`:'Sign in | SchoolCareBridge';
-}catch(e){if(e.response?.status===401 && auth.isAuthenticated){auth.clearAuth();error.value='';}else{error.value=e.response?.data?.error?.message||'Please try again or contact your school administrator.';}}finally{busy.value=false;}}
+}catch(e){if(version!==loadVersion)return;if(e.response?.status===401 && auth.isAuthenticated){auth.clearAuth();error.value='';}else{error.value=e.response?.data?.error?.message||'Please try again or contact your school administrator.';}}finally{if(version===loadVersion)busy.value=false;}}
 async function logout(){await auth.logout();if(auth.isAuthenticated)return;window.location.assign(schoolCareBridgeExternalPath(schoolCareBridgePath(school.value?.slug||'')));}
-watch(()=>auth.isAuthenticated,()=>load());
+watch(()=>[auth.isAuthenticated,route.params.organizationSlug],()=>load());
 onMounted(load);
 </script>
 <style scoped>
