@@ -1,5 +1,5 @@
 <template>
-  <KioskWelcomeView v-if="session" :location-id="session.locationId" @lock-kiosk="lock" />
+  <KioskWelcomeView v-if="session && !buildingMismatch" :location-id="session.locationId" @lock-kiosk="lock" />
   <main v-else class="kiosk-setup">
     <section class="setup-card" aria-labelledby="kiosk-title">
       <img src="/office/auricwell-kiosk.svg" alt="" class="kiosk-logo" />
@@ -7,6 +7,8 @@
       <h1 id="kiosk-title">A warm welcome.<br /><em>One simple connection.</em></h1>
       <p v-if="loading" role="status">Opening your office…</p>
       <form v-else @submit.prevent="unlock">
+        <p v-if="buildingMismatch" class="setup-error" role="alert">This device is connected to {{ session.locationName || 'another building' }}. This link is for {{ expectedName }}. Enter {{ expectedName }}’s code below to switch buildings.</p>
+        <p v-else-if="expectedOfficeId"><strong>Set up {{ expectedName }}</strong></p>
         <p>Enter your office’s six-digit setup code. This device will remember your office for future visits.</p>
         <label for="office-code">Office setup code</label>
         <input id="office-code" v-model="code" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" required placeholder="••••••" :disabled="busy" />
@@ -19,11 +21,16 @@
   </main>
 </template>
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { useRoute } from 'vue-router';
 import api from '../services/api';
 import KioskWelcomeView from './KioskWelcomeView.vue';
-import { applyOfficeInstallIdentity } from '../utils/officeSite';
+import { applyOfficeInstallIdentity, OFFICE_SITES } from '../utils/officeSite';
+const route = useRoute();
+const expectedOfficeId = computed(() => /^\d+$/.test(String(route.params.locationId || '')) ? Number(route.params.locationId) : null);
+const expectedName = computed(() => OFFICE_SITES.find(site => site.locationId === expectedOfficeId.value)?.name || 'the requested building');
 const session = ref(null), code = ref(''), loading = ref(true), busy = ref(false), error = ref('');
+const buildingMismatch = computed(() => session.value && expectedOfficeId.value && Number(session.value.locationId) !== expectedOfficeId.value);
 let timer, disposed = false, sessionVersion = 0;
 const options = { skipGlobalLoading: true, skipAuthRedirect: true };
 function expired() { sessionVersion++; session.value = null; code.value = ''; }

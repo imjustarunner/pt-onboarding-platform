@@ -6,6 +6,7 @@
         <button class="btn btn-secondary" @click="loadAll" :disabled="loading">Refresh</button>
       </div>
 
+      <KioskBuildingSelector />
       <div v-if="!officeId" class="muted" data-tour="buildings-settings-empty">
         Select a building above to manage settings.
       </div>
@@ -110,10 +111,10 @@
           </div>
         </div>
 
-        <div class="section" data-tour="buildings-settings-kiosk-assignments">
-          <div class="section-title">Kiosk Assignments</div>
+        <details class="section" data-tour="buildings-settings-kiosk-assignments">
+          <summary class="section-title">Advanced: legacy kiosk user accounts</summary>
           <div class="hint">
-            Assign kiosk users to this building. Kiosks must be created as users with role "Kiosk" first.
+            Not needed for the six-digit client check-in above. These assignments are only for existing staff-managed kiosk user accounts.
           </div>
           <div class="row" style="margin-top: 10px; flex-wrap: wrap; gap: 8px;">
             <select v-model="newKioskAssignment.kioskUserId" :disabled="loading" style="min-width: 180px;">
@@ -155,7 +156,7 @@
               <button class="btn btn-danger btn-sm" @click="removeKioskAssignment(a.id)" :disabled="saving || !canManageOfficeSettings">Remove</button>
             </div>
           </div>
-        </div>
+        </details>
 
         <div class="section" data-tour="buildings-settings-slot-rules">
           <div class="section-title">Per-Slot Questionnaire Rules</div>
@@ -376,6 +377,7 @@ import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import OfficeRoomPhotoButton from '../components/schedule/OfficeRoomPhotoButton.vue';
 import OfficeKioskAccessSettings from '../components/kiosk/OfficeKioskAccessSettings.vue';
+import KioskBuildingSelector from '../components/kiosk/KioskBuildingSelector.vue';
 import OfficeRoomPhotoGalleryModal from '../components/schedule/OfficeRoomPhotoGalleryModal.vue';
 
 const route = useRoute();
@@ -483,7 +485,9 @@ const loadAgencyOptions = async () => {
   }
 };
 
+let settingsLoadVersion = 0;
 const loadAll = async () => {
+  const version = ++settingsLoadVersion;
   if (!officeId.value) return;
   try {
     loading.value = true;
@@ -501,6 +505,7 @@ const loadAll = async () => {
       api.get('/intake-links')
     ]);
 
+    if (version !== settingsLoadVersion) return;
     const officeResp = settled[0].status === 'fulfilled' ? settled[0].value : null;
     const qResp = settled[1].status === 'fulfilled' ? settled[1].value : null;
     const modResp = settled[2].status === 'fulfilled' ? settled[2].value : null;
@@ -546,9 +551,9 @@ const loadAll = async () => {
     }
     roomEdits.value = edits;
   } catch (e) {
-    error.value = e.response?.data?.error?.message || 'Failed to load office settings';
+    if (version === settingsLoadVersion) error.value = e.response?.data?.error?.message || 'Failed to load office settings';
   } finally {
-    loading.value = false;
+    if (version === settingsLoadVersion) loading.value = false;
   }
 };
 
@@ -912,6 +917,8 @@ const removeAgencyAccess = async (agencyId) => {
 };
 
 watch(() => officeId.value, async () => {
+  officeName.value = '';
+  officeAgencies.value = [];
   await loadAll();
 }, { immediate: true });
 

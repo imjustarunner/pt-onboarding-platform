@@ -6,7 +6,8 @@
         <p class="subtitle" data-tour="buildings-subtitle">Scheduling, kiosk, and office location settings.</p>
       </div>
       <div class="actions" data-tour="buildings-office-select">
-        <select v-model="selectedOfficeId" @change="onOfficeChanged" :disabled="loading">
+        <label for="managed-building">Building you are managing</label>
+        <select id="managed-building" v-model="selectedOfficeId" @change="onOfficeChanged" :disabled="loading">
           <option value="">Select an office location…</option>
           <option v-for="o in offices" :key="o.id" :value="String(o.id)">{{ o.name }}</option>
         </select>
@@ -15,8 +16,8 @@
 
     <div v-if="kioskUrl" class="kiosk-link-panel">
       <div>
-        <strong>Lobby check-in</strong>
-        <p>One link for this office’s providers across agencies. No client login needed.</p>
+        <strong>{{ selectedOfficeName }} · Lobby check-in</strong>
+        <p>One building code covers all affiliated agencies. No client login needed.</p>
         <a :href="kioskUrl" target="_blank" rel="noopener noreferrer" class="kiosk-full-url">{{ kioskUrl }}</a>
       </div>
       <div class="kiosk-link-actions">
@@ -43,7 +44,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import BuildingNotificationsPanel from '../components/buildings/BuildingNotificationsPanel.vue';
@@ -55,6 +56,7 @@ const loading = ref(false);
 const error = ref('');
 const offices = ref([]);
 const selectedOfficeId = ref('');
+const selectedOfficeName = computed(() => offices.value.find(office => String(office.id) === selectedOfficeId.value)?.name || 'Selected building');
 const copyMessage = ref('');
 const kioskUrl = computed(() => /^\d+$/.test(selectedOfficeId.value)
   ? `https://plottwisthq.com/kiosk-welcome/${selectedOfficeId.value}`
@@ -103,15 +105,11 @@ const onOfficeChanged = () => {
   router.replace({ query: { ...route.query, officeId: selectedOfficeId.value || undefined } });
 };
 
-onMounted(async () => {
-  selectedOfficeId.value = typeof route.query.officeId === 'string' ? route.query.officeId : '';
-  await loadOffices();
-  // If none selected yet, auto-select first
-  if (!selectedOfficeId.value && (offices.value || []).length > 0) {
-    selectedOfficeId.value = String(offices.value[0].id);
-    onOfficeChanged();
-  }
-});
+watch(() => route.query.officeId, id => {
+  selectedOfficeId.value = typeof id === 'string' ? id : '';
+  copyMessage.value = '';
+}, { immediate: true });
+onMounted(loadOffices);
 </script>
 
 <style scoped>
@@ -139,6 +137,8 @@ onMounted(async () => {
   gap: 12px;
   margin-bottom: 12px;
 }
+.actions { display: flex; flex-direction: column; gap: 8px; }
+@media (max-width: 600px) { .header { flex-direction: column; align-items: stretch; } select { min-width: 0; width: 100%; } }
 .subtitle {
   color: var(--text-secondary);
   margin: 6px 0 0 0;
@@ -177,4 +177,3 @@ select {
   margin: 12px 0;
 }
 </style>
-
