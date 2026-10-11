@@ -5,6 +5,13 @@ beforeEach(()=>{vi.useFakeTimers();vi.setSystemTime(new Date('2026-09-30T20:45:0
 afterEach(()=>{wrapper?.unmount();vi.useRealTimers();document.body.innerHTML='';});
 async function open(){wrapper=mount(Welcome,{attachTo:document.body,global:{stubs:{KioskCheckInFlow:true,KioskOfficeBoard:true}}});await flushPromises();await wrapper.get('.welcome-screen').trigger('click');await flushPromises();}
 it('has one compact welcome heading and five separate views',async()=>{await open();expect(wrapper.findAll('h1')).toHaveLength(1);expect(wrapper.findAll('.tabs button').map(b=>b.text())).toEqual(['Client check-in','Today’s providers','Programs & events','Office directory','Providers']);expect(wrapper.find('.lobby-header').exists()).toBe(false);expect(wrapper.find('.intro-row .clock').exists()).toBe(true);});
+it('brands the lobby AuricWell and keeps provider office numbers in the directory only',async()=>{
+ const roomProvider={...p,currentRoomNumber:'204',currentSlot:{...p.currentSlot,roomNumber:'204'},bookings:p.bookings.map(b=>({...b,roomNumber:'204'}))};
+ api.get.mockResolvedValue({data:{providers:[roomProvider],locationName:'Windchime'}});
+ await open();expect(wrapper.get('.hero').text()).toContain('AuricWell Office');expect(wrapper.text()).not.toContain('Office 204');
+ await wrapper.findAll('.tabs button')[1].trigger('click');await flushPromises();await wrapper.get('.choose').trigger('click');
+ expect(document.body.textContent).not.toContain('Office 204');expect(document.body.textContent).toContain('3:00 PM');
+});
 it('uses the current slot directly, while today opens a read-only list',async()=>{await open();await wrapper.get('.choose').trigger('click');expect(wrapper.findComponent({name:'KioskCheckInFlow'}).props('directSlot')).toEqual(p.currentSlot);await wrapper.findAll('.tabs button')[1].trigger('click');await flushPromises();await wrapper.get('.choose').trigger('click');expect(document.body.textContent).toContain('Office hours and bookings for today');expect(wrapper.findComponent({name:'KioskCheckInFlow'}).exists()).toBe(false);});
 it('warns at 60 seconds and clears the visit after 10 more seconds',async()=>{await open();await wrapper.get('.search input').setValue('elzbth');await vi.advanceTimersByTimeAsync(60000);expect(document.body.textContent).toContain('All done?');await vi.advanceTimersByTimeAsync(10000);expect(wrapper.find('.welcome-screen').exists()).toBe(true);expect(wrapper.get('.search input').element.value).toBe('');});
 it('shows only the organizations in the current result set',async()=>{await open();expect(wrapper.findAll('.filters button').map(b=>b.text())).toEqual(['All organizations','ITSCO']);});

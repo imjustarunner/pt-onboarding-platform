@@ -299,7 +299,7 @@
                   </div>
                 </div>
                 <div class="meta" style="margin-top: 8px;">
-                  <div style="font-weight: 700; margin-bottom: 4px;">Google room resource email</div>
+                  <div style="font-weight: 700; margin-bottom: 4px;">Optional Google room resource email</div>
                   <div class="row" style="margin: 0;">
                     <input
                       v-model="roomGoogleEmails[String(r.id)]"
@@ -318,7 +318,8 @@
         </div>
 
         <div class="section">
-          <div class="section-title">Google Calendar Sync Test</div>
+          <div class="section-title">Optional Google Calendar sync</div>
+          <p class="hint">AuricWell manages buildings, office spaces, assignments, and bookings in the app. The kiosk uses these app records. Connect Google only if you also want calendar copies of your bookings.</p>
           <div class="muted">Tests the next few booked events in this building (next 4 weeks).</div>
           <div class="row" style="margin-top: 8px;">
             <button class="btn btn-secondary" @click="runGoogleSyncTest('dry_run')" :disabled="googleTestRunning || loading">
@@ -982,4 +983,3 @@ input, select {
 }
 .btn-sm { padding: 8px 10px; font-size: 13px; }
 </style>
-

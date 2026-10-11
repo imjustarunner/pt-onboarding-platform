@@ -1,6 +1,14 @@
 # Office building sites
 
-The public Office app combines provider-and-time check-in with a room directory. It does not require a staff login. Use a dedicated lobby browser profile, signed out of staff accounts.
+AuricWell Office is the office and kiosk add-on to AuricWell. The public kiosk combines provider-and-time check-in with a separate room directory. It does not require a staff login. Use a dedicated lobby browser profile, signed out of staff accounts. The mountain/skyline artwork and each building's identity remain part of the experience.
+
+## App records are authoritative
+
+The app manages physical buildings (`office_locations`), their rooms/spaces (`office_rooms`), organization affiliations, recurring assignments, booking plans and dated bookings (`office_events`). Appointments bind through `appointments.office_event_id`; clinical sessions and billing contexts remain attached to their authorized records. The kiosk reads the app's schedule. It does not fetch Google Calendar or require a Google room resource, domain or staff Google account. Google calendar synchronization is an optional downstream integration.
+
+Booking ownership comes from the linked appointment/client agency, saved booking context, or recurring assignment agency—in that order. A provider belonging to both ITSCO and NLU appears under the agency that owns each booking. Today’s provider times remain separated by agency, and the same ownership determines new arrival notifications and feedback receipts. Explicit ownership never falls back to an unrelated agency; only older records without ownership use the first active affiliated membership, preferring the building owner.
+
+Only active, non-archived staff who see clients appear in client check-in. A staff-only office reservation is still visible in the directory. Actual appointment windows control check-in when a client/session is linked; unlinked office allocations retain the existing hourly windows. Client names, notes, responses and claim data are never displayed in the public directory.
 
 | Physical building | Working bookmark now | Prepared hostname (pending DNS/LB) |
 | --- | --- | --- |
@@ -21,7 +29,7 @@ The release prepares app routing, HTML, manifests and icons; it does not change 
 
 ## Directory behavior
 
-Both lobby tabs show room availability at the selected office-local time: green for available, red for booked or held. This represents scheduled occupancy, not physical presence detection. The directory shows booked provider, assigned provider, existing profile photos and agency logos; a known agency's bundled brand mark is used when no uploaded logo is configured. Names belong to providers only. No client names, IDs, notes or event titles are returned by the directory endpoint.
+Only Office directory shows rooms and their availability at the selected office-local time: green for available, red for booked or held. Provider cards, daily provider times and check-in steps omit room numbers and names. Arrival instructions ask clients to wait in the lobby. Availability represents scheduled occupancy, not physical presence detection. The directory shows booked provider, assigned provider, existing profile photos and the booking/assignment agency's logo; a known agency's bundled brand mark is used when no uploaded logo is configured. Names belong to providers only. No client names, IDs, notes or event titles are returned by the directory endpoint.
 
 Tap a room for its day schedule. Date/time controls and next/previous day retain the selected room. Now resumes the live view, refreshed each minute. A failed refresh clears stale availability colors. Existing recurring assignments and booking plans are projected for future dates without creating or changing database rows. Explicit bookings, releases and cancellations take precedence over recurring defaults.
 
@@ -29,7 +37,7 @@ An assignment and a booking are separate. Assigned but unbooked time is green an
 
 ## iPad home screen
 
-Open either current bookmark in Safari and use Add to Home Screen. The suggested name is **Office**, with the new office-building icon. Each building's manifest starts at its own check-in URL. Once the dedicated hostname is live, a shortcut saved from it stays on that hostname. Existing saved shortcuts may need to be removed and added again to pick up the new icon/name.
+Open either current bookmark in Safari and use Add to Home Screen. Browser and Apple install metadata use **AuricWell Office**; the manifest's compact label remains **Office**, with the office-building icon. Each building's manifest starts at its own check-in URL. Once the dedicated hostname is live, a shortcut saved from it stays on that hostname. Existing saved shortcuts may need to be removed and added again to pick up the new name.
 
 A public lobby does not need an indefinitely signed-in staff account. iPad screen auto-lock remains a device setting; the web app does not change it.
 

@@ -15,7 +15,7 @@
         <div v-else-if="!slots.length" class="state">No appointment times are listed today. Please ask the office team for help.</div>
         <div v-else class="times" aria-label="Appointment times">
           <button v-for="slot in slots" :key="slot.eventId" class="time" :class="{ selected: selected?.eventId === slot.eventId }" :aria-pressed="selected?.eventId === slot.eventId" @click="selected = slot">
-            <strong>{{ formatKioskTime(slot.startAt) }}</strong><span>{{ roomLabel(slot) }}</span>
+            <strong>{{ formatKioskTime(slot.startAt) }}</strong>
           </button>
         </div>
         <p class="help">Don’t see your time? Please ask the office team. This screen is for scheduled visits.</p>
@@ -27,7 +27,7 @@
         <p>We’ll let your provider know you’ve arrived.</p>
         <label class="visit-type">Type of visit<select v-model="serviceType"><option value="counseling">Therapy / counseling</option><option value="tutoring">Tutoring</option></select></label>
         <fieldset class="respondent"><legend>Who is checking in?</legend><label><input v-model="respondentType" type="radio" value="adult_self" /> I’m answering for myself (18 or older)</label><label><input v-model="respondentType" type="radio" value="youth_self" /> I’m answering for myself (under 18)</label><label><input v-model="respondentType" type="radio" value="caregiver" /> I’m answering for my dependent (child or someone in my care)</label></fieldset>
-        <div class="visit"><span>Today at</span><strong>{{ formatKioskTime(selected.startAt) }}</strong><span>{{ roomLabel(selected) }}</span></div>
+        <div class="visit"><span>Today at</span><strong>{{ formatKioskTime(selected.startAt) }}</strong></div>
         <p>Please wait in the lobby after checking in. Your provider will come get you.</p>
         <div v-if="error" class="error" role="alert">{{ error }}</div>
         <div class="actions"><button class="secondary" :disabled="saving" @click="props.directSlot ? emit('close') : (step = 'slots'); error = ''">Back</button><button class="primary" :disabled="saving || !respondentType" @click="checkIn">{{ saving ? 'Checking you in…' : 'I’m here · Check in' }}</button></div>
@@ -38,7 +38,7 @@
         <div class="success" aria-hidden="true">✓</div>
         <h2 id="arrival-title">You’re checked in.</h2>
         <p role="status">An arrival notification is saved for {{ provider.firstName }}. Make yourself comfortable in the lobby.</p>
-        <div class="visit compact"><strong>{{ formatKioskTime(selected.startAt) }}</strong><span>{{ roomLabel(selected) }}</span></div>
+        <div class="visit compact"><strong>{{ formatKioskTime(selected.startAt) }}</strong></div>
         <p v-if="formsUnavailable">Please ask your provider about completing the remaining questionnaires.</p>
         <button class="primary" @click="emit('close')">Done</button>
         <p class="help">Returning to the welcome screen in {{ remaining }} seconds.</p>
@@ -71,7 +71,6 @@ const serviceType=ref(props.provider.serviceType||'counseling');
 const forms = ref([]), formsUnavailable = ref(false);
 let submissionKey = crypto.randomUUID();
 const initials = computed(() => `${props.provider.firstName?.[0] || ''}${props.provider.lastName?.[0] || ''}`);
-const roomLabel = (slot) => slot.roomNumber ? `Office ${slot.roomNumber}` : slot.roomName || 'Your provider’s office';
 let activityAt = Date.now();
 let timer;
 let previousFocus;

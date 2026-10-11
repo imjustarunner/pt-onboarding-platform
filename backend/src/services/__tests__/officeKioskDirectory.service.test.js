@@ -8,6 +8,22 @@ const base = { now: new Date('2026-09-01T12:00:00Z'), rooms, events: [event], st
 const assignment = { id: 9, room_id: 1, provider_id: 4, weekday: 2, hour: 10, assigned_frequency: 'WEEKLY', available_since_date: '2026-09-01', availability_mode: 'AVAILABLE' };
 const plan = { standing_assignment_id: 9, is_active: 1, booked_frequency: 'WEEKLY', booking_start_date: '2026-09-01' };
 describe('public office directory', () => {
+ it('shows the booked and assigned agencies independently for shared providers', () => {
+  const sharedPeople = [2,6].map(agency_id=>({...people[0],agency_id,agency_name:agency_id===6?'Next Level Up':'ITSCO',agency_logo_path:`${agency_id}.png`}));
+  const result = buildOfficeDirectory({...base,people:sharedPeople,standing:[{...assignment,booking_agency_id:2}],events:[{...event,standing_assignment_id:9,booked_provider_id:4,client_id:42,session_context_json:'{"agencyId":6}'}]});
+  expect(result[0].current[0].assignedProvider).toMatchObject({agencyId:2,agencyName:'ITSCO'});
+  expect(result[0].current[0].bookedProvider).toMatchObject({agencyId:6,agencyName:'Next Level Up',agencyLogoPath:'6.png'});
+  expect(result[0].roomNumber).toBe(1);
+ });
+ it('uses the assigned agency for future projected office time', () => {
+  const sharedPeople=[2,6].map(agency_id=>({...people[0],agency_id,agency_name:agency_id===6?'Next Level Up':'ITSCO'}));
+  const result=buildOfficeDirectory({...base,events:[],people:sharedPeople,standing:[{...assignment,booking_agency_id:6}]});
+  expect(result[0].current[0].bookedProvider.agencyName).toBe('Next Level Up');
+ });
+ it('does not substitute an unrelated agency for historical office entries', () => {
+  const result=buildOfficeDirectory({...base,events:[{...event,booked_provider_id:4,session_context_json:'{"agencyId":6}'}]});
+  expect(result[0].current[0].bookedProvider).toMatchObject({name:'Jordan Rivera',agencyName:null,agencyLogoPath:null});
+ });
  it('uses office date across device/UTC date changes and DST day boundaries', () => {
   expect(directorySelection({}, timezone, new Date('2026-09-30T02:00:00Z')).date).toBe('2026-09-29');
   const {bounds} = directorySelection({date:'2026-11-01',time:'12:00'},timezone);

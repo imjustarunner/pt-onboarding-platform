@@ -10,14 +10,14 @@ describe('dedicated office sites', () => {
  it('leaves planned/unconfigured buildings and other products untouched', () => {
   for(const host of ['office2.plottwisthq.com','office10.plottwisthq.com','fcc.plottwisthq.com','qv.itsco.health']) expect(officeSiteForHost(host)).toBeNull();
  });
- it('uses Office branding for hostnames and existing bookmark paths', () => {
-  expect(publicBrowserBranding('plottwisthq.com','/kiosk-welcome/1').title).toBe('Office');
-  expect(publicBrowserBranding('437.plottwisthq.com','/').title).toBe('Office');
+ it('uses AuricWell Office branding for hostnames and existing bookmark paths', () => {
+  expect(publicBrowserBranding('plottwisthq.com','/kiosk-welcome/1').title).toBe('AuricWell Office');
+  expect(publicBrowserBranding('437.plottwisthq.com','/').title).toBe('AuricWell Office');
   const html=officeHtml('<head><title>Portal</title><link rel="manifest" href="/manifest.webmanifest"></head>',OFFICE_SITES[0]);
-  expect(html).toContain('<title>Office</title>');expect(html).toContain('/office/windchime.webmanifest');expect(html).toContain('apple-mobile-web-app-title');
+  expect(html).toContain('<title>AuricWell Office</title>');expect(html).toContain('/office/windchime.webmanifest');expect(html).toContain('apple-mobile-web-app-title');
  });
  it('gives each location its own SMS title and landscape image without changing the installed app name',()=>{
   const shell='<head><title>Plot Twist Co</title><meta property="og:title" content="Plot Twist Co"><meta property="og:image" content="old"><meta name="twitter:title" content="Plot Twist Co"><meta name="twitter:image" content="old"></head>';
-  for(const site of OFFICE_SITES){const html=officeHtml(shell,site);expect(html).toContain(`<title>Office</title>`);expect(html).toContain(`content="${site.name} Kiosk"`);expect(html).toContain(`/office/${site.locationId===6?'denver':'windchime'}-kiosk-share.jpg`);expect(html).not.toContain('content="old"');}
+  for(const site of OFFICE_SITES){const html=officeHtml(shell,site);expect(html).toContain(`<title>AuricWell Office</title>`);expect(html).toContain(`content="${site.name} Kiosk · AuricWell Office"`);expect(html).toContain(`/office/${site.locationId===6?'denver':'windchime'}-kiosk-share.jpg`);expect(html).not.toContain('content="old"');}
  });
 });

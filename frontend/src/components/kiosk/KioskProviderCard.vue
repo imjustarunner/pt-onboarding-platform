@@ -3,13 +3,13 @@
   <div class="card-top"><button class="portrait" :aria-label="`Enlarge photo of ${provider.firstName} ${provider.lastName}`" @click="$emit('photo',provider)"><img v-if="photoUrl&&!photoFailed" :src="photoUrl" alt="" @error="photoFailed=true"/><span v-else>{{initials}}</span></button><span class="status">{{mode==='current'?(provider.currentSlot?.checkedIn?'Checked in':'Your appointment'):mode==='today'?'Here today':'Provider'}}</span></div>
   <button class="profile-link" @click="$emit('profile',provider)"><strong>{{provider.firstName}} {{provider.lastName}}</strong><span class="credential">{{provider.credential||provider.title||'Provider'}}</span></button>
   <div class="agency"><img v-if="logoUrl&&!logoFailed" :src="logoUrl" alt="" @error="logoFailed=true"/><span>{{provider.agencyName}}</span>
-  <span v-if="mode!=='profiles'" class="room"><MapPin :size="15"/>{{provider.currentRoomNumber?`Office ${provider.currentRoomNumber}`:provider.currentRoomName||'Office visit'}}</span></div>
+  </div>
   <button :disabled="mode==='current' && provider.currentSlot?.checkedIn" class="choose" :class="{checkin:mode==='current'}" @click="$emit('select',provider)"><span>{{mode==='current'?`${formatKioskTime(provider.currentSlot?.startAt)} · ${provider.currentSlot?.checkedIn?'Checked in':'Check in'}`:mode==='today'?'More info · Today’s times':'View profile'}}</span><ArrowRight :size="19" aria-hidden="true"/></button>
  </article>
 </template>
 <script setup>
 import {computed,ref} from 'vue';
-import {ArrowRight,MapPin} from '@lucide/vue';
+import {ArrowRight} from '@lucide/vue';
 import {toUploadsUrl} from '../../utils/uploadsUrl';
 import {tenantFaviconUrl} from '../../utils/tenantBrandAssets';
 import {formatKioskTime} from '../../utils/kioskTime';

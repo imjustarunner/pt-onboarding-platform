@@ -52,7 +52,7 @@ export const PLAN_FEATURES = Object.freeze([
   {
     "key": "calendar_sync",
     "label": "Google Calendar integration",
-    "description": "Calendar invitations and external busy time.",
+    "description": "Optional Google calendar invitations and external busy time. App scheduling and office kiosks work independently.",
     "category": "Scheduling",
     "minimumTier": "premium",
     "products": [
@@ -63,8 +63,8 @@ export const PLAN_FEATURES = Object.freeze([
   },
   {
     "key": "office_booking",
-    "label": "Office and room reservations",
-    "description": "Physical rooms, office availability and booking.",
+    "label": "AuricWell Office and kiosk",
+    "description": "Buildings, bookable office spaces, recurring assignments, appointment-linked bookings, client check-in and provider arrival alerts. Google Calendar is optional.",
     "category": "Scheduling",
     "minimumTier": "premium_plus",
     "products": [

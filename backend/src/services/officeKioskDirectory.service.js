@@ -3,6 +3,7 @@ import { isAssignmentActiveOnDate, shouldBookOnDate, shouldBookByCount } from '.
 import { attachOfficeSchedulingPolicies } from './officeSchedulingPolicy.service.js';
 import { appointmentMode } from '../utils/officeSchedulingPolicy.js';
 import { officePlanHasClient } from '../utils/officeRecordWindow.js';
+import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 
 export function directorySelection(query, timezone, now = new Date()) {
   const wall = utcToZonedMysqlWall(now, timezone);
@@ -24,13 +25,20 @@ export function directorySelection(query, timezone, now = new Date()) {
 
 export function buildOfficeDirectory({ rooms, events, standing, plans, people, date, selectedAt, selectedEndAt = null, timezone, now = new Date() }) {
   const historical = date < utcToZonedMysqlWall(now, timezone).slice(0, 10);
-  const peopleById = new Map(people.map(p => [Number(p.id), {
+  const directoryPeople = people.map(p => ({
     id: Number(p.id), firstName: p.first_name, lastName: p.last_name,
     name: `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Provider',
-    profilePhotoPath: p.profile_photo_path || null, agencyName: p.agency_name || null,
+    profilePhotoPath: p.profile_photo_path || null, agencyId: Number(p.agency_id) || null, agencyName: p.agency_name || null,
     agencySlug: p.agency_slug || null, agencyLogoPath: p.agency_logo_path || null
-  }]));
-  const person = id => peopleById.get(Number(id)) || null;
+  }));
+  const person = (id, agencyId) => {
+    const matches = directoryPeople.filter(p => p.id === Number(id));
+    if (!agencyId) return matches[0] || null;
+    const match = matches.find(p => p.agencyId === agencyId);
+    if (match || !matches.length) return match || null;
+    // Preserve historical names without substituting an unrelated agency logo.
+    return { ...matches[0], agencyId: null, agencyName: null, agencySlug: null, agencyLogoPath: null };
+  };
   const planByAssignment = new Map(plans.map(p => [Number(p.standing_assignment_id), p]));
   const assignmentById = new Map(standing.map(a => [Number(a.id), a]));
   events = events.map(event => {
@@ -65,6 +73,8 @@ export function buildOfficeDirectory({ rooms, events, standing, plans, people, d
       || ((historical || officePlanHasClient(plan)) && shouldBookOnDate(plan, assignment, date) && shouldBookByCount(plan, assignment, date));
     for (const [from, to] of gaps) dayEvents.push({ room_id: assignment.room_id, start_at: from, end_at: to,
       status: booked ? 'BOOKED' : 'RELEASED', slot_state: booked ? 'ASSIGNED_BOOKED' : 'ASSIGNED_AVAILABLE',
+      standing_assignment_id: assignment.id, booking_agency_id: assignment.booking_agency_id,
+      session_context_json: booked ? plan?.session_context_json : null,
       assigned_provider_id: assignment.provider_id, booked_provider_id: booked ? assignment.provider_id : null });
   }
   return rooms.map(room => {
@@ -72,8 +82,12 @@ export function buildOfficeDirectory({ rooms, events, standing, plans, people, d
       .map(e => {
         const booked = e.status === 'BOOKED' || e.slot_state === 'ASSIGNED_BOOKED';
         const held = e.slot_state === 'COMPANY_HOLD';
-        const assignedProvider = person(e.assigned_provider_id);
-        const bookedProvider = booked ? person(e.booked_provider_id) : null;
+        const assignment = assignmentById.get(Number(e.standing_assignment_id));
+        const bookingAgencyId = officeBookingAgencyId(e) || officeBookingAgencyId(assignment);
+        const assignedAgencyId = assignment && Number(assignment.provider_id) === Number(e.assigned_provider_id)
+          ? officeBookingAgencyId(assignment) : bookingAgencyId;
+        const assignedProvider = person(e.assigned_provider_id, assignedAgencyId);
+        const bookedProvider = booked ? person(e.booked_provider_id, bookingAgencyId) : null;
         const startAt = utcToZonedMysqlWall(e.start_at, timezone);
         const endAt = utcToZonedMysqlWall(e.end_at, timezone);
         return { startAt, endAt, booked, held, assignedProvider, bookedProvider,
@@ -93,7 +107,9 @@ export async function loadOfficeDirectory(db, location, query) {
     db.execute('SELECT id, name, room_number FROM office_rooms WHERE location_id = ? AND is_active = 1', [location.id]),
     db.execute(`SELECT room_id, DATE_FORMAT(start_at, '%Y-%m-%d %H:%i:%s') start_at,
       DATE_FORMAT(end_at, '%Y-%m-%d %H:%i:%s') end_at, status, slot_state, assigned_provider_id, booked_provider_id,
-      standing_assignment_id, client_id, clinical_session_id, billing_context_id, note_context_id,
+      standing_assignment_id, client_id, clinical_session_id, billing_context_id, note_context_id, session_context_json,
+      (SELECT c.agency_id FROM clients c WHERE c.id = office_events.client_id) client_agency_id,
+      (SELECT ap.agency_id FROM appointments ap WHERE ap.office_event_id = office_events.id ORDER BY ap.id LIMIT 1) appointment_agency_id,
       EXISTS(SELECT 1 FROM appointments ap WHERE ap.office_event_id = office_events.id) has_appointment
       FROM office_events WHERE office_location_id = ? AND start_at < ? AND end_at > ?`, [location.id, bounds.endExclusive, bounds.startAt]),
     db.execute('SELECT * FROM office_standing_assignments WHERE office_location_id = ? AND is_active = 1', [location.id]),
@@ -104,13 +120,13 @@ export async function loadOfficeDirectory(db, location, query) {
   const ids = [...new Set([...events.flatMap(e => [e.assigned_provider_id, e.booked_provider_id]), ...standing.map(a => a.provider_id)].filter(Boolean))];
   let people = [];
   if (ids.length) [people] = await db.execute(`SELECT u.id, u.first_name, u.last_name, u.profile_photo_path,
-    a.name agency_name, COALESCE(NULLIF(a.slug, ''), a.portal_url) agency_slug, COALESCE(NULLIF(a.logo_path, ''), NULLIF(a.logo_url, ''), ai.file_path) agency_logo_path
-    FROM users u LEFT JOIN agencies a ON a.id = (
-      SELECT ua.agency_id FROM user_agencies ua JOIN agencies candidate ON candidate.id = ua.agency_id
-      WHERE ua.user_id = u.id AND ua.is_active = 1 AND candidate.organization_type = 'agency'
-      ORDER BY (ua.agency_id = ?) DESC, ua.agency_id LIMIT 1)
+    a.id agency_id, a.name agency_name, COALESCE(NULLIF(a.slug, ''), a.portal_url) agency_slug, COALESCE(NULLIF(a.logo_path, ''), NULLIF(a.logo_url, ''), ai.file_path) agency_logo_path
+    FROM users u LEFT JOIN user_agencies ua ON ua.user_id = u.id AND ua.is_active = 1
+    LEFT JOIN agencies a ON a.id = ua.agency_id AND a.organization_type = 'agency'
+      AND a.is_active = 1 AND COALESCE(a.is_archived,0) = 0
+      AND (a.id = ? OR EXISTS(SELECT 1 FROM office_location_agencies ola WHERE ola.office_location_id = ? AND ola.agency_id = a.id))
     LEFT JOIN icons ai ON ai.id = a.icon_id
-    WHERE u.id IN (${ids.map(() => '?').join(',')})`, [location.agency_id, ...ids]);
+    WHERE u.id IN (${ids.map(() => '?').join(',')}) ORDER BY (a.id = ?) DESC, a.id IS NULL, a.id`, [location.agency_id, location.id, ...ids, location.agency_id]);
   return { locationId: location.id, locationName: location.name, timezone, date, time, endTime, selectedAt,
     rooms: buildOfficeDirectory({ rooms, events, standing, plans, people, date, selectedAt, selectedEndAt, timezone }) };
 }

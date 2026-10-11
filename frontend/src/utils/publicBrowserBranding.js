@@ -1,4 +1,4 @@
-import { officeSiteForHost, isOfficePath, OFFICE_ICON } from './officeSite.js';
+import { officeSiteForHost, isOfficePath, OFFICE_ICON, OFFICE_APP_NAME } from './officeSite.js';
 import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from './schoolCareBridge.js';
 import { publicSupportSlugFromHost } from './publicDomainRouting.js';
 import { tenantFaviconUrl } from './tenantBrandAssets.js';
@@ -18,7 +18,7 @@ export const PUBLIC_WEBSITE_TITLES = {
 /** Public website identity must not depend on the visitor's selected app agency. */
 export function publicBrowserBranding(host, path = '/') {
   if (sstcMarketingPage(host,path)) return {slug:'sstc',title:'Summit Stats Team Challenge',favicon:'/assets/sstc/logo.png'};
-  if (officeSiteForHost(host) || isOfficePath(path)) return { slug: 'office', title: 'Office', favicon: OFFICE_ICON };
+  if (officeSiteForHost(host) || isOfficePath(path)) return { slug: 'office', title: OFFICE_APP_NAME, favicon: OFFICE_ICON };
   if (isSchoolCareBridgeHost(host) || isSchoolCareBridgePath(path)) return { slug: 'schoolcarebridge', title: 'SchoolCareBridge | A Plot Twist Co. product', favicon: '/assets/schoolcarebridge/logo.png' };
   const slug = publicSupportSlugFromHost(host) || String(path).match(/^\/p\/([^/?#]+)/)?.[1];
   const title = PUBLIC_WEBSITE_TITLES[slug];

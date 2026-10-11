@@ -24,6 +24,20 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 const checkIn = () => recordOfficeKioskCheckin({ locationId: 3, eventId: 9, providerId: 7 });
 describe('office arrival atomicity and privacy', () => {
+  it.each(['session_context_json', 'booking_agency_id', 'appointment_agency_id', 'client_agency_id'])('routes the alert and email fallback to the booked agency using %s', async key => {
+    event[key] = key === 'session_context_json' ? '{"agencyId":6}' : 6;
+    const base = mocks.execute.getMockImplementation();
+    mocks.execute.mockImplementation((sql, args) => sql.includes('SELECT ua.agency_id') ? [[{agency_id:2},{agency_id:6}]] : base(sql,args));
+    await checkIn();
+    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO notifications'))[1][2]).toBe(6);
+    expect(mocks.execute.mock.calls.find(([sql])=>sql.includes('INSERT INTO office_arrival_deliveries'))[1]).toEqual([12,7,6]);
+  });
+  it('rolls back instead of sending an explicitly owned booking to another agency', async () => {
+    event.session_context_json = '{"agencyId":6}';
+    await expect(checkIn()).rejects.toHaveProperty('status',409);
+    expect(mocks.commit).not.toHaveBeenCalled(); expect(mocks.rollback).toHaveBeenCalledOnce();
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
   it('commits arrival and provider alert together, using the office day and timezone', async () => {
     const result = await checkIn();
     expect(result.notification.inApp).toBe(true);

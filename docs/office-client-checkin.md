@@ -1,6 +1,6 @@
 # Client check-in and same-day office reservations
 
-Client landing: https://plottwisthq.com/kiosk-welcome/1 (Windchime) and https://plottwisthq.com/kiosk-welcome/6 (Denver). Existing building aliases and Office home-screen identity are unchanged. Client check-in opens directly to provider selection. Room cards and date/time controls appear only after selecting Office directory.
+Client landing: https://plottwisthq.com/kiosk-welcome/1 (Windchime) and https://plottwisthq.com/kiosk-welcome/6 (Denver). AuricWell Office branding retains the existing building aliases, landscape images and office icon. Client check-in opens to provider selection after the welcome screen. Room numbers, room names and date/time controls appear only in Office directory; the check-in flow asks clients to wait in the lobby.
 
 ## Client arrival
 
@@ -73,7 +73,7 @@ In-app arrival remains immediate. Email retains the 90-second acknowledgment gra
 
 ### Arrival feedback and tablet flow — September 30 follow-up
 
-The tablet uses a larger questionnaire panel with 0–10 buttons and a separate “Not sure” choice. Completing all three items advances to the next questionnaire; Back retains the responses and permits edits without automatically advancing again. A final review precedes saving. Completing or skipping feedback returns to the welcome screen with confirmation. Credentials flow beside provider names, offices share the agency row, and today's appointment details include an explicit provider-profile button.
+The tablet uses a larger questionnaire panel with 0–10 buttons and a separate “Not sure” choice. Completing all three items advances to the next questionnaire; Back retains the responses and permits edits without automatically advancing again. A final review precedes saving. Completing or skipping feedback returns to the welcome screen with confirmation. Credentials flow beside provider names, the agency row identifies the booking's organization, and today's appointment details include an explicit provider-profile button. Office numbers and names remain in Office directory.
 
 Provider arrival splashes show Connection and Progress scores, averages, and signed change from the first recorded complete score of the same category/provider/agency/service/respondent history. This is not a claim to know the start of treatment. Anonymous receipts never infer a client from a recurring slot. Answers load on expansion through the owning-provider response endpoint; polling updates scores after submission and clears answers when the alert changes. Missing feedback never prevents the arrival alert from displaying.
 

@@ -12,6 +12,16 @@ afterEach(() => { wrapper?.unmount(); vi.useRealTimers(); });
 async function open() { wrapper = mount(KioskCheckInFlow, { props: { provider, locationId: 3 } }); await flushPromises(); }
 async function confirm() { await wrapper.find('.time').trigger('click'); await wrapper.find('.primary').trigger('click'); await wrapper.get('input[value=adult_self]').setValue(); await wrapper.find('.actions .primary').trigger('click'); await flushPromises(); }
 describe('private office check-in', () => {
+  it('keeps office numbers out of time selection, confirmation and completion', async () => {
+    api.post.mockResolvedValue({ data: { ok: true, notification: { inApp: true } } });
+    await open(); expect(wrapper.text()).not.toContain('204');
+    await wrapper.get('.time').trigger('click');
+    await wrapper.find('.primary').trigger('click');
+    expect(wrapper.text()).not.toContain('204'); expect(wrapper.text()).toContain('Please wait in the lobby');
+    await wrapper.get('input[value=adult_self]').setValue();
+    await wrapper.find('.actions .primary').trigger('click'); await flushPromises();
+    expect(wrapper.text()).not.toContain('204'); expect(wrapper.emitted('checked-in')).toHaveLength(1);
+  });
   it('formats office wall time without shifting for the device timezone', () => {
     expect(formatKioskTime(slot.startAt)).toBe('2:30 PM');
     expect(formatKioskTime('2026-09-29 00:15:00')).toBe('12:15 AM');

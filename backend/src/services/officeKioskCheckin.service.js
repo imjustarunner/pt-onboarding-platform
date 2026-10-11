@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 import NotificationDispatcher from './notificationDispatcher.service.js';
 import { lobbySlot } from '../utils/officeLobbyWindow.js';
 import { officeTodayUtcBounds, parseUtcDate } from '../utils/officeEventDateTime.util.js';
+import { officeBookingAgencyId } from '../utils/officeBookingAgency.js';
 
 function reject(status, message) {
   return Object.assign(new Error(message), { status });
@@ -20,12 +21,17 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
     const [rows] = await conn.execute(
       `SELECT e.id, e.office_location_id, e.room_id, (CASE WHEN e.status='BOOKED' OR e.slot_state='ASSIGNED_BOOKED' THEN COALESCE(e.booked_provider_id,e.assigned_provider_id) ELSE e.assigned_provider_id END) AS booked_provider_id, e.status, e.slot_state,
               e.start_at, e.end_at, e.client_id, e.clinical_session_id, ol.name AS location_name, ol.timezone, ol.agency_id,
-              r.name AS room_name, r.room_number, u.email, u.work_email, u.role
+              r.name AS room_name, r.room_number, u.email, u.work_email, u.role,
+              e.session_context_json, sa.booking_agency_id, c.agency_id client_agency_id,
+              (SELECT ap.agency_id FROM appointments ap WHERE ap.office_event_id=e.id ORDER BY ap.id LIMIT 1) appointment_agency_id
        FROM office_events e
        JOIN office_locations ol ON ol.id = e.office_location_id AND ol.is_active = 1
        JOIN office_rooms r ON r.id = e.room_id AND r.is_active = 1
+       LEFT JOIN office_standing_assignments sa ON sa.id = e.standing_assignment_id
+       LEFT JOIN clients c ON c.id = e.client_id
        JOIN users u ON u.id = (CASE WHEN e.status='BOOKED' OR e.slot_state='ASSIGNED_BOOKED' THEN COALESCE(e.booked_provider_id,e.assigned_provider_id) ELSE e.assigned_provider_id END) AND u.is_active = 1
          AND u.status = 'ACTIVE_EMPLOYEE' AND u.terminated_at IS NULL
+         AND COALESCE(u.is_archived,0)=0 AND COALESCE(u.is_demo,0)=0 AND COALESCE(u.sees_clients,1)=1
        WHERE e.id = ? AND e.office_location_id = ? FOR UPDATE`, [eventId, locationId]);
     const event = rows[0];
     if (!event) throw reject(404, 'Appointment not found at this office. Please select your provider again.');
@@ -65,15 +71,18 @@ export async function recordOfficeKioskCheckin({ locationId, eventId, providerId
        AND related_entity_type = 'office_event_checkin' AND related_entity_id = ? LIMIT 1`,
       [event.booked_provider_id, checkinId]);
     if (!alerts.length) {
-      // Resolve membership at this office, never an unrelated first agency on the user.
+      // Honor the booked agency. Only older bookings without agency context may
+      // fall back to another active membership at this physical office.
       const [agencies] = await conn.execute(
-        `SELECT ua.agency_id FROM user_agencies ua
+        `SELECT ua.agency_id FROM user_agencies ua JOIN agencies a ON a.id=ua.agency_id
          WHERE ua.user_id = ? AND ua.is_active = 1
+           AND a.is_active=1 AND COALESCE(a.is_archived,0)=0 AND a.organization_type='agency'
            AND (ua.agency_id = ? OR EXISTS (SELECT 1 FROM office_location_agencies ola
                 WHERE ola.office_location_id = ? AND ola.agency_id = ua.agency_id))
-         ORDER BY (ua.agency_id = ?) DESC, ua.agency_id LIMIT 1`,
+         ORDER BY (ua.agency_id = ?) DESC, ua.agency_id`,
         [event.booked_provider_id, event.agency_id, locationId, event.agency_id]);
-      const agencyId = agencies[0]?.agency_id;
+      const bookedAgencyId = officeBookingAgencyId(event);
+      const agencyId = (bookedAgencyId ? agencies.find(a=>Number(a.agency_id)===bookedAgencyId) : agencies[0])?.agency_id;
       if (!agencyId) throw reject(409, 'Your provider’s office setup needs attention. Please ask staff to check you in.');
       const time = parseUtcDate(event.start_at).toLocaleTimeString('en-US', {
         hour: 'numeric', minute: '2-digit', timeZone: timezone, timeZoneName: 'short'
