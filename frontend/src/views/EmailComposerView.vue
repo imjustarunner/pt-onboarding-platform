@@ -28,16 +28,23 @@
             <button type="button" @click="deferFiling">Send and flag for filing review</button>
           </section>
           <EmailDeliveryChoice :info="availabilityPrompt" :busy="busy" @choose="send({confirmMissingAttachment:true,deliveryChoice:$event})" @cancel="availabilityPrompt=null" />
-          <footer><button class="send" :disabled="busy" type="submit">{{ busy ? 'Working…' : 'Send' }}</button><button :disabled="busy" type="button" @click="discard">Discard draft</button></footer>
+          <label>Send delay<select v-model.number="draft.undoDelaySeconds"><option v-if="![5,10,20,30,60,120,300,600].includes(draft.undoDelaySeconds)" :value="draft.undoDelaySeconds">{{ draft.undoDelaySeconds }} seconds</option><option :value="5">5 seconds</option><option :value="10">10 seconds</option><option :value="20">20 seconds</option><option :value="30">30 seconds</option><option :value="60">1 minute</option><option :value="120">2 minutes</option><option :value="300">5 minutes</option><option :value="600">10 minutes</option></select></label>
+          <p>You can undo during the {{ draft.undoDelaySeconds }}-second delay. If delivery is scheduled for later, you can cancel until sending begins.</p>
+          <footer><button class="send" :disabled="busy" type="submit">{{ busy ? 'Working…' : `Send · ${draft.undoDelaySeconds}s Undo` }}</button><button :disabled="busy" type="button" @click="discard">Discard draft</button></footer>
           <details v-if="draft.quotedHtml || draft.quotedText" open><summary>Original conversation — collapse or expand</summary><div v-if="draft.quotedHtml" class="quoted-email" v-html="readableEmailHtml({body_html:draft.quotedHtml},{collapseQuotes:false})" /><pre v-else v-html="readableEmailHtml({body_text:draft.quotedText})" /></details>
         </fieldset></form>
       </template>
       <p v-else-if="record.state === 'sending'">Submission is awaiting confirmation. Check the conversation’s delivery status before sending another copy.</p>
-      <div v-else><p role="status">{{ deliveryStatus }}</p><button v-if="sendResult?.conversationId && sendResult?.messageId" type="button" :disabled="busy" @click="checkDelivery">Check delivery status</button><button v-if="sendResult?.messageId && undoAvailable" type="button" :disabled="busy" @click="undo">Undo send</button><button type="button" @click="closeWindow">Close</button></div>
+      <div v-else>
+        <EmailSendReceipt v-if="sendResult" :receipt="sendResult" :check-status="fetchDelivery" :busy="busy" @undo="undo" @status="onDeliveryStatus" />
+        <button v-if="sendResult?.cancelled && record.state!=='editing'" type="button" :disabled="busy" @click="undo">Restore cancelled email as draft</button>
+        <button type="button" @click="closeWindow">Close</button>
+      </div>
     </template>
   </main>
 </template>
 <script setup>
+import EmailSendReceipt from '../components/messages/EmailSendReceipt.vue';
 import ConversaBrand from '../components/conversa/ConversaBrand.vue';
 import EmailRecipientField from '../components/messages/EmailRecipientField.vue';
 import EmailDeliveryChoice from '../components/messages/EmailDeliveryChoice.vue';
@@ -47,22 +54,22 @@ import axios from 'axios';
 import api, { messagingRequestOptions } from '../services/messagingApi';
 import { emailReplyRecipients } from '../utils/messageThreads';
 import { quoteEmailHistory, quoteEmailHistoryHtml } from '../utils/emailReading';
-import { readableEmailHtml, emailDeliveryLabel } from '../utils/emailPresentation';
+import { readableEmailHtml } from '../utils/emailPresentation';
 import { encodeEmailFiles } from '../utils/communicationAttachments';
 const props=defineProps({composeContext:{type:Object,default:null}});
 const emit=defineEmits(['close','composer-state']);
 const route=useRoute(); const router=useRouter(); const context=props.composeContext || route.query; const qv=props.composeContext ? !!context.quickView : route.meta.publicQuickView === true;
 const setDraftRoute=id=>props.composeContext ? Promise.resolve() : router.replace({query:{draftId:id}});
-const record=ref(null),draft=ref({to:'',cc:'',bcc:'',subject:'',text:'',quotedText:'',quotedHtml:'',attachments:[]});
-const error=ref(''),status=ref(''),loading=ref(true),busy=ref(false),fromEmail=ref(''),bodyInput=ref(null),sendResult=ref(null),undoAvailable=ref(false);
+const record=ref(null),draft=ref({to:'',cc:'',bcc:'',subject:'',text:'',quotedText:'',quotedHtml:'',attachments:[],undoDelaySeconds:undefined});
+const error=ref(''),status=ref(''),loading=ref(true),busy=ref(false),fromEmail=ref(''),bodyInput=ref(null),sendResult=ref(null);
 const senderPreview=ref(null),senderPreviewUnavailable=ref(false);
 const title=computed(()=>({new:'New email',reply:'Reply',reply_all:'Reply all',forward:'Forward'})[record.value?.mode || context.mode] || 'Email draft');
 const filingChoices=ref([]);
 async function deferFiling(){draft.value.deferClientFiling=true;draft.value.clientIds=[];await send({confirmMissingAttachment:true});}
 const showCopyFields=ref(false),confirmAttachment=ref(false),availabilityPrompt=ref(null),confirmedDelivery=ref('');
-const deliveryStatus=computed(()=>confirmedDelivery.value || (sendResult.value?.sent ? 'Sent' : sendResult.value?.scheduledSendAt ? `Queued for ${new Date(sendResult.value.scheduledSendAt).toLocaleString()}` : 'Email queued for delivery.'));
-async function checkDelivery(){busy.value=true;try{const {data}=await request('get',`/conversations/${sendResult.value.conversationId}?markRead=0`);const message=data.messages?.find(m=>Number(m.id)===Number(sendResult.value.messageId));error.value='';confirmedDelivery.value=message?emailDeliveryLabel(message):'Open the conversation to check this email’s delivery status.';status.value=confirmedDelivery.value;notify('delivery');}catch{error.value='Could not check delivery. Please try again.';}finally{busy.value=false;}}
-let saved='',timer=null,saveTask=null,undoTimer=null;
+async function fetchDelivery(receipt){const {data}=await request('get',`/conversations/${receipt.conversationId}/messages/${receipt.messageId}/delivery`);return data.message;}
+function onDeliveryStatus({label}){confirmedDelivery.value=label;status.value=label;notify('delivery');}
+let saved='',timer=null,saveTask=null;
 const config=()=>{const session=context.session || sessionStorage.getItem('plottwist.quickViewSession');return messagingRequestOptions({withCredentials:true,headers:qv && session && session!=='cookie' ? {'X-Quick-View-Session':session} : {}});};
 const request=(method,path,data)=>qv ? axios({method,url:`/api/quick-view${path}`,data,...config()}) : api({method,url:`/communications${path}`,data,...config()});
 const notify=(change='draft')=>{window.dispatchEvent(new CustomEvent('email-workspace-changed',{detail:{change,draft:record.value ? {id:record.value.id,agencyId:record.value.agency_id,mode:record.value.mode,state:record.value.state,to:draft.value.to,subject:draft.value.subject} : null}}));try{window.opener?.postMessage({type:'email-drafts-changed',change},window.location.origin);}catch{/* opener may be closed */}};
@@ -84,8 +91,25 @@ function beforeUnload(event){if(record.value?.state==='editing' && JSON.stringif
 function onHidden(){if(document.visibilityState==='hidden')save().catch(()=>{});}
 function retrySave(){if(!busy.value)save().catch(()=>{});}
 async function discard(){busy.value=true;try{clearTimeout(timer);if(saveTask)await saveTask;await request('delete',`/drafts/${record.value.id}`);record.value.state='discarded';saved=JSON.stringify(draft.value);closeWindow();}catch(e){error.value=e.response?.data?.error?.message || 'Could not discard draft';}finally{busy.value=false;}}
-async function send({confirmMissingAttachment=false,deliveryChoice=null}={}){if(busy.value)return;if(!confirmMissingAttachment&&!draft.value.attachments.length&&/\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject+'\n'+draft.value.text)){confirmAttachment.value=true;return;}confirmAttachment.value=false;busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version,deliveryChoice});availabilityPrompt.value=null;sendResult.value=data;confirmedDelivery.value='';record.value.state='sent';status.value=data.sent?'Sent':'Queued';undoAvailable.value=true;undoTimer=setTimeout(()=>undoAvailable.value=false,20000);notify('delivery');}catch(e){if(e.response?.data?.error?.code==='CLIENT_FILING_CHOICE_REQUIRED'){filingChoices.value=e.response.data.error.clients || [];if(!draft.value.clientIds)draft.value.clientIds=[];return;}if(e.response?.data?.error?.code==='RECIPIENT_AVAILABILITY_CHOICE_REQUIRED'){availabilityPrompt.value=e.response.data.error.availability;return;}error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
-async function undo(){busy.value=true;try{await request('post',`/conversations/${sendResult.value.conversationId}/messages/${sendResult.value.messageId}/undo`,{});const {data}=await request('post','/drafts',{agencyId:record.value.agency_id,conversationId:record.value.conversation_id,mode:record.value.mode,draft:draft.value});record.value=data.draft;saved=JSON.stringify(draft.value);undoAvailable.value=false;status.value='Send undone. Draft saved.';await setDraftRoute(record.value.id);notify('delivery');}catch(e){error.value=e.response?.data?.error?.message || 'The undo window has ended';}finally{busy.value=false;}}
+async function send({confirmMissingAttachment=false,deliveryChoice=null}={}){if(busy.value)return;if(!confirmMissingAttachment&&!draft.value.attachments.length&&/\battach(?:ed|ment|ments|ing)?\b/i.test(draft.value.subject+'\n'+draft.value.text)){confirmAttachment.value=true;return;}confirmAttachment.value=false;busy.value=true;error.value='';try{await save();const {data}=await request('post',`/drafts/${record.value.id}/send`,{version:record.value.version,deliveryChoice});availabilityPrompt.value=null;sendResult.value=data;confirmedDelivery.value='';record.value.state='sent';status.value=data.sent?'Sent':data.scheduled?'Email scheduled — not sent yet':'Delivery confirmation pending';notify('delivery');}catch(e){if(e.response?.data?.error?.code==='CLIENT_FILING_CHOICE_REQUIRED'){filingChoices.value=e.response.data.error.clients || [];if(!draft.value.clientIds)draft.value.clientIds=[];return;}if(e.response?.data?.error?.code==='RECIPIENT_AVAILABILITY_CHOICE_REQUIRED'){availabilityPrompt.value=e.response.data.error.availability;return;}error.value=e.response?.data?.error?.message || 'Could not confirm sending. Check the conversation before retrying.';try{const {data}=await request('get',`/drafts/${record.value.id}`);record.value.state=data.draft.state;}catch{/* retain original error */}}finally{busy.value=false;}}
+async function undo(){
+  if(busy.value)return;
+  busy.value=true;error.value='';
+  try{
+    if(!sendResult.value.cancelled){
+      const {data:cancelled}=await request('post',`/conversations/${sendResult.value.conversationId}/messages/${sendResult.value.messageId}/undo`,{});
+      if(!draft.value.text && !draft.value.quotedText && !draft.value.quotedHtml && !draft.value.attachments.length){
+        const addresses=list=>(list || []).map(a=>a.email || a).join(', ');
+        draft.value={...draft.value,text:cancelled.body || '',subject:cancelled.subject || '',to:addresses(cancelled.to),cc:addresses(cancelled.cc),bcc:addresses(cancelled.bcc),attachments:cancelled.attachments || []};
+      }
+      sendResult.value={...sendResult.value,cancelled:true,sent:false,scheduled:false};status.value='Send cancelled. Restoring your draft…';notify('delivery');
+    }
+    const {data}=await request('post','/drafts',{agencyId:record.value.agency_id,conversationId:record.value.conversation_id,mode:record.value.mode,draft:draft.value});
+    record.value=data.draft;saved=JSON.stringify(draft.value);sendResult.value=null;status.value='Send cancelled. Draft saved — you can keep editing.';
+    await setDraftRoute(record.value.id);notify('delivery');
+  }catch(e){error.value=sendResult.value?.cancelled?'The email was cancelled, but the draft could not be restored. Your writing is still here; choose Restore cancelled email as draft to retry.':e.response?.data?.error?.message || 'Could not cancel. Check delivery status before retrying.';}
+  finally{busy.value=false;}
+}
 async function openDraft(){
   loading.value=true;error.value='';
   try{
@@ -99,10 +123,11 @@ async function openDraft(){
     }
     fromEmail.value=record.value.from_email || fromEmail.value;sendResult.value=record.value.result || sendResult.value;
     if(String(record.value.id).startsWith('legacy-') && /<[^>]+>/.test(draft.value.text)){const doc=new DOMParser().parseFromString(draft.value.text,'text/html');doc.querySelectorAll('p,div,br').forEach(e=>e.append('\n'));draft.value.text=doc.body.textContent || '';}
+    draft.value.undoDelaySeconds ??= 20;
     saved=JSON.stringify(draft.value);status.value=record.value.state==='editing'?(record.value.resumed?'Draft restored':'Draft saved'):'Submitted';
     if(record.value.state==='editing')void loadSenderPreview(record.value.id);
   }catch(e){error.value=e.response?.data?.error?.message || 'Could not open draft. Sign in again and retry.';}
-  finally{loading.value=false;await nextTick();bodyInput.value?.focus();}
+  finally{await nextTick();loading.value=false;await nextTick();bodyInput.value?.focus();}
 }
 async function loadSenderPreview(id){
   senderPreview.value=null;senderPreviewUnavailable.value=false;
@@ -113,7 +138,7 @@ onMounted(()=>{
   window.addEventListener('beforeunload',beforeUnload);window.addEventListener('online',retrySave);document.addEventListener('visibilitychange',onHidden);
   void openDraft();
 });
-onUnmounted(()=>{clearTimeout(timer);clearTimeout(undoTimer);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('online',retrySave);document.removeEventListener('visibilitychange',onHidden);});
+onUnmounted(()=>{clearTimeout(timer);window.removeEventListener('beforeunload',beforeUnload);window.removeEventListener('online',retrySave);document.removeEventListener('visibilitychange',onHidden);});
 async function preparePopout(){if(busy.value||loading.value)return null;busy.value=true;try{await save();return record.value?.id;}finally{busy.value=false;}}
 watch([status,error,busy,loading,()=>record.value?.id,()=>draft.value.subject,()=>draft.value.to],()=>emit('composer-state',{draftId:record.value?.id,conversationId:record.value?.conversation_id,mode:record.value?.mode,subject:draft.value.subject,recipient:draft.value.to,status:error.value?'Needs attention':status.value,busy:busy.value,loading:loading.value}),{immediate:true});
 defineExpose({save,saveAndClose,preparePopout});
@@ -122,5 +147,5 @@ defineExpose({save,saveAndClose,preparePopout});
 .quoted-email{overflow-wrap:anywhere;overflow-x:auto;line-height:1.5}.quoted-email :deep(img){max-width:100%;height:auto}.quoted-email :deep(table){max-width:100%}
 .composer-heading{display:flex;align-items:center;gap:20px;flex-wrap:wrap}.composer-heading h1{font-size:18px}.email-composer header{flex-wrap:wrap;gap:12px}
 
-fieldset{border:0;padding:0;margin:0;min-width:0}.email-composer{max-width:1050px;margin:auto;padding:24px;color:var(--text-primary,#20352b);background:var(--bg-primary,#fff);min-height:100vh}header,footer,.recipients,.to-row{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}h1{font-size:1.5rem}label{display:flex;flex-direction:column;gap:6px;margin:12px 0;flex:1}input,textarea,button{font:inherit;color:inherit;border:1px solid #a5b9af;border-radius:6px;padding:10px;background:transparent}textarea{min-height:250px;resize:vertical;line-height:1.5;width:100%;box-sizing:border-box}button{cursor:pointer}button:disabled{opacity:.5}.send{background:#0047b3;color:white;min-width:120px}.error{color:#af2929}.status{font-size:.85rem;color:#47755f}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.6}details{margin-top:24px;border-top:1px solid #a5b9af;padding-top:14px;opacity:.85}footer{justify-content:flex-start}@media(max-width:600px){.email-composer{padding:12px}.recipients{display:block}}
+fieldset{border:0;padding:0;margin:0;min-width:0}.email-composer{max-width:1050px;margin:auto;padding:24px;color:var(--text-primary,#20352b);background:var(--bg-primary,#fff);min-height:100vh}header,footer,.recipients,.to-row{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap}h1{font-size:1.5rem}label{display:flex;flex-direction:column;gap:6px;margin:12px 0;flex:1}input,textarea,select,button{font:inherit;color:inherit;border:1px solid #a5b9af;border-radius:6px;padding:10px;background:transparent}textarea{min-height:250px;resize:vertical;line-height:1.5;width:100%;box-sizing:border-box}button{cursor:pointer}button:disabled{opacity:.5}.send{background:#0047b3;color:white;min-width:120px}.error{color:#af2929}.status{font-size:.85rem;color:#47755f}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit;line-height:1.6}details{margin-top:24px;border-top:1px solid #a5b9af;padding-top:14px;opacity:.85}footer{justify-content:flex-start}@media(max-width:600px){.email-composer{padding:12px}.recipients{display:block}}
 </style>

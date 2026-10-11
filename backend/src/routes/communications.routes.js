@@ -1,3 +1,4 @@
+import { getEmailDeliveryReceipt } from '../services/emailDeliveryReceipt.service.js';
 import {getCallBilling,listCallBilling,putCallBilling} from '../controllers/callBillingReview.controller.js';
 import {conversationFilingChoices,fileExistingConversation} from '../services/clientConversationRecord.service.js';
 import { reactToHubMessage } from '../services/hubMessageReactions.service.js';
@@ -100,6 +101,7 @@ router.get('/conversations/:id/messages', async (req, res, next) => {
     res.json({ messages, nextBeforeId: messages.length === 200 ? Math.min(...messages.map((m) => Number(m.id))) : null });
   } catch (e) { next(e); }
 });
+router.get('/conversations/:id/messages/:messageId/delivery', async(req,res,next)=>{try{res.set('Cache-Control','private, no-store');res.json({message:await getEmailDeliveryReceipt(req.user,req.params.id,req.params.messageId)});}catch(e){next(e);}});
 router.get('/conversations/:id', getUnifiedConversation);
 router.patch('/conversations/:id', patchUnifiedConversation);
 router.post('/conversations/:id/reply', postUnifiedReply);

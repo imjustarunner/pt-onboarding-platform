@@ -1,6 +1,6 @@
 import { getQuickPresence, postQuickAway, postQuickPresenceClear } from '../controllers/quickViewPresence.controller.js';
 import emailDraftRoutes from './emailDraft.routes.js';
-import { getQuickConversation, patchQuickConversation, postQuickReply, postQuickCompose, getQuickAttachment, postQuickReaction, postQuickUndo } from '../controllers/quickViewMessaging.controller.js';
+import { getQuickDeliveryReceipt, getQuickConversation, patchQuickConversation, postQuickReply, postQuickCompose, getQuickAttachment, postQuickReaction, postQuickUndo } from '../controllers/quickViewMessaging.controller.js';
 import express from 'express';
 import multer from 'multer';
 import { getQuickMeetingLink } from '../controllers/quickViewMeeting.controller.js';
@@ -106,6 +106,7 @@ router.get('/calendar/day', requireQuickViewSession, getQuickDayCalendar);
 router.get('/meetings/:type/:ref/link', requireQuickViewSession, getQuickMeetingLink);
 router.get('/office', requireQuickViewSession, getQuickOfficeAvailability);
 router.patch('/conversations/:id', requireQuickViewSession, patchQuickConversation);
+router.get('/conversations/:id/messages/:messageId/delivery', requireQuickViewSession, getQuickDeliveryReceipt);
 router.get('/conversations/:id', requireQuickViewSession, getQuickConversation);
 router.post('/conversations/:id/reply', requireQuickViewSession, postQuickReply);
 router.get('/conversations/:id/attachments/:attachmentId', requireQuickViewSession, getQuickAttachment);

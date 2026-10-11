@@ -1,4 +1,5 @@
 <script setup>
+import EmailSendReceipt from '../messages/EmailSendReceipt.vue';
 import EmailDeliveryChoice from '../messages/EmailDeliveryChoice.vue';
 const availabilityPrompt = ref(null);
 import ConversaIcon from '../../components/conversa/ConversaIcon.vue';
@@ -33,6 +34,7 @@ const sendError = ref('');
 const showSnooze = ref(false);
 const showSchedule = ref(false);
 const schedulePreset = ref(null);
+const undoDelaySeconds = ref(20);
 const confirmOpen = ref(false);
 const pendingWarnings = ref([]);
 const undoBanner = ref(null);
@@ -252,6 +254,7 @@ async function send({ skipConfirm = false, deliveryChoice = null } = {}) {
       text: body.value,
       attachments: attachments.value,
       deliveryChoice,
+      undoDelaySeconds: undoDelaySeconds.value,
       to: to.value,
       cc: cc.value,
       bcc: bcc.value,
@@ -266,17 +269,8 @@ async function send({ skipConfirm = false, deliveryChoice = null } = {}) {
     confirmOpen.value = false;
     schedulePreset.value = null;
     showSchedule.value = false;
-    if (data?.scheduled && data?.messageId) {
-      const expires = data.undoExpiresAt || data.scheduledSendAt;
-      undoBanner.value = {
-        conversationId: data.conversation?.id || conversationId,
-        messageId: data.messageId,
-        expiresAt: expires ? new Date(expires).getTime() : Date.now() + 20000
-      };
-      const ms = Math.max(1000, (undoBanner.value.expiresAt - Date.now()));
-      undoTimer = setTimeout(() => {
-        undoBanner.value = null;
-      }, ms);
+    if (!isSms.value && composerMode.value !== 'internal' && data?.messageId) {
+      undoBanner.value = { ...data, conversationId: data.conversation?.id || conversationId };
     }
     emit('reply', data);
   } catch (e) {
@@ -287,20 +281,27 @@ async function send({ skipConfirm = false, deliveryChoice = null } = {}) {
   }
 }
 
+async function checkSendStatus(receipt) {
+  const {data}=await api.get(`/communications/conversations/${receipt.conversationId}/messages/${receipt.messageId}/delivery`, {skipGlobalLoading:true});
+  return data.message;
+}
 async function undoSend() {
-  if (!conv.value || !undoBanner.value?.messageId) return;
+  if (!conv.value || !undoBanner.value?.messageId || sending.value) return;
+  sending.value=true;
   try {
     const { data } = await api.post(
       `/communications/conversations/${undoBanner.value.conversationId || conv.value.id}/messages/${undoBanner.value.messageId}/undo`,
       {},
       { skipGlobalLoading: true }
     );
+    body.value = data.body || '';
+    if(data.attachments) attachments.value = data.attachments;
+    if(data.subject) subject.value = data.subject;
     clearUndoBanner();
     emit('reply', data);
   } catch (e) {
     sendError.value = e?.response?.data?.error?.message || 'Undo failed';
-    clearUndoBanner();
-  }
+  } finally { sending.value=false; }
 }
 
 function setMode(mode) {
@@ -469,10 +470,7 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
         </div>
       </header>
 
-      <div v-if="undoBanner" class="uc-undo">
-        Message scheduled — sending shortly.
-        <button type="button" @click="undoSend">Undo</button>
-      </div>
+      <EmailSendReceipt v-if="undoBanner" :receipt="undoBanner" :check-status="checkSendStatus" :busy="sending" @undo="undoSend" @status="emit('refresh')" />
 
       <div v-if="insight?.summary" class="uc-insight">
         <div class="uc-insight-top">
@@ -599,6 +597,9 @@ watch([to, cc, bcc, body, subject], () => { availabilityPrompt.value = null; });
           <button type="button" class="uc-btn primary" :disabled="sending || !body.trim()" @click="send()">
             {{ sending ? 'Sending…' : (composerMode === 'internal' ? 'Add note' : (isSms ? 'Send SMS' : (schedulePreset ? 'Schedule send' : 'Send'))) }}
           </button>
+          <label v-if="!isTelephony && composerMode !== 'internal'">Send delay
+            <select v-model.number="undoDelaySeconds"><option :value="20">20 seconds</option><option :value="30">30 seconds</option><option :value="60">1 minute</option><option :value="120">2 minutes</option><option :value="300">5 minutes</option><option :value="600">10 minutes</option></select>
+          </label>
           <div v-if="!isTelephony && composerMode !== 'internal'" class="uc-snooze-wrap">
             <button type="button" class="uc-btn ghost" @click="showSchedule = !showSchedule">
               {{ schedulePreset ? `Later: ${schedulePreset}` : 'Send later' }}

@@ -1,3 +1,4 @@
+vi.mock('../inboxDigest.service.js',()=>({getCommunicationPrefs:vi.fn(async()=>({sendDelayEmailSeconds:20}))}));
 import {beforeEach,expect,it,vi} from 'vitest';
 vi.mock('../../config/database.js',()=>({default:{execute:vi.fn(),getConnection:vi.fn()}}));
 vi.mock('../../models/User.model.js',()=>({default:{getAgencies:vi.fn(async()=>[{id:2}])}}));
@@ -60,4 +61,11 @@ it('updates an untouched reply shell with the newest quoted email',async()=>{
  const result=await createEmailDraft(actor,{mode:'reply',conversationId:10,draft:raw});
  expect(result.resumed).toBe(false);expect(connection.execute.mock.calls[2][0]).toContain('version=version+1');
  expect(JSON.parse(connection.execute.mock.calls[2][1][0]).quotedText).toBe('Original email');
+});
+
+it('uses the saved email-delay preference for a new draft',async()=>{
+ const {getCommunicationPrefs}=await import('../inboxDigest.service.js');getCommunicationPrefs.mockResolvedValueOnce({sendDelayEmailSeconds:60});
+ pool.execute.mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([[{id:'new',agency_id:2,draft_json:JSON.stringify({...raw,undoDelaySeconds:60})}]]);
+ await createEmailDraft(actor,{agencyId:2,mode:'new',draft:raw});
+ const inserted=JSON.parse(pool.execute.mock.calls[0][1][5]);expect(inserted.undoDelaySeconds).toBe(60);
 });

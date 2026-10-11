@@ -65,3 +65,14 @@ it('uses explicit Workspace ownership over fallback sender domains without hidin
  expect([...mailboxDomainOwners(senders,[{domain:'shared.test',agency_id:1}])]).toEqual([['shared.test',1],['other.test',2]]);
  expect(mailboxDomainOwners(senders,[{domain:'shared.test',agency_id:1},{domain:'shared.test',agency_id:9}]).has('shared.test')).toBe(false);
 });
+
+it('keeps both agencies for multi-agency providers while routing direct ITSCO and NLU group deliveries separately',async()=>{
+ const shared=[465,496].flatMap((owner,i)=>[2,6].map(agency=>({id:owner*10+agency,inbox_id:owner*10+agency,owner_user_id:owner,agency_id:agency,organization_type:'agency',from_email:['aunya@itsco.health','megan@itsco.health'][i]})));
+ const list=async()=>[{type:'USER',email:'aunya@itsco.health'},{type:'USER',email:'megan@itsco.health'}];
+ const domains=new Map([['itsco.health',2]]),groups=new Map([['staff@nlu.test',6]]);
+ const direct=await expandMailboxRecipients(['aunya@itsco.health','megan@itsco.health'],shared,list,groups,domains);
+ expect(direct.map(b=>b.agency_id)).toEqual([2,2]);
+ const grouped=await expandMailboxRecipients(['staff@nlu.test'],shared,list,groups,domains);
+ expect(grouped.map(b=>b.agency_id)).toEqual([6,6]);
+ expect(shared).toHaveLength(4);
+});

@@ -1,6 +1,7 @@
 import { emailDraftContent, sanitizeQuotedEmailHtml } from '../utils/emailReplyContent.js';
 import { resolveEmailClientFiling } from './clientConversationRecord.service.js';
 import { planEmailDelivery } from './emailDeliveryChoice.service.js';
+import { getCommunicationPrefs } from './inboxDigest.service.js';
 import { randomUUID } from 'node:crypto';
 import pool from '../config/database.js';
 import User from '../models/User.model.js';
@@ -18,6 +19,9 @@ export function validateEmailDraft(raw = {}) {
   data.clientIds = [...new Set((Array.isArray(raw.clientIds) ? raw.clientIds : []).map(Number).filter(n=>Number.isSafeInteger(n)&&n>0))];
   if(data.clientIds.length>50) throw fail('Too many client records selected');
   data.deferClientFiling = raw.deferClientFiling === true;
+  const delay = raw.undoDelaySeconds == null ? 20 : Number(raw.undoDelaySeconds);
+  if (!Number.isInteger(delay) || delay < 1 || delay > 600) throw fail('Choose a send delay between 1 and 600 seconds');
+  data.undoDelaySeconds = delay;
   const attachments = raw.attachments || [];
   if (!Array.isArray(attachments) || attachments.length > 50) throw fail('Too many attachments');
   let bytes = 0;
@@ -88,7 +92,9 @@ export async function createEmailDraft(actor, input) {
     agencyId = Number(conv.agency_id); cid = conv.id;
   }
   await agencyAccess(actor,agencyId);
-  const data = draftWithMetadata(validateEmailDraft(input.draft));
+  const initial = { ...input.draft };
+  if (initial.undoDelaySeconds == null) initial.undoDelaySeconds = (await getCommunicationPrefs(actor.id)).sendDelayEmailSeconds;
+  const data = draftWithMetadata(validateEmailDraft(initial));
   let id = randomUUID(), resumed = false;
   const insert = db => db.execute(`INSERT INTO communication_email_drafts(id,user_id,agency_id,conversation_id,mode,draft_json) VALUES(?,?,?,?,?,?)`,[id,actor.id,agencyId,cid,mode,JSON.stringify(data)]);
   if (cid) {
@@ -132,15 +138,18 @@ export async function sendEmailDraft(actor,id,version,deliveryChoice=null) {
   if (recipients.some(email=>! /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email))) throw fail('Use complete email addresses separated by commas');
   const deliveryPlan = await planEmailDelivery({agencyId:draft.agency_id,userId:actor.id,...draft.draft,choice:deliveryChoice,requireChoice:true});
   if (['new','forward'].includes(draft.mode)) await resolveEmailClientFiling({agencyId:draft.agency_id,userId:actor.id,...draft.draft,defer:draft.draft.deferClientFiling});
+  const undoDelaySeconds = validateEmailDraft(draft.draft).undoDelaySeconds;
   const [claim] = await pool.execute("UPDATE communication_email_drafts SET state='sending' WHERE id=? AND user_id=? AND version=? AND state='editing'",[id,actor.id,Number(version)||0]);
   if (!claim.affectedRows) throw fail('This draft is already being submitted or changed in another window',409);
-  const payload = { ...draft.draft, ...emailDraftContent(draft.draft), mode:draft.mode, undoDelaySeconds:20, deliveryPlan };
+  const payload = { ...draft.draft, ...emailDraftContent(draft.draft), mode:draft.mode, undoDelaySeconds, deliveryPlan };
   try {
     const result = draft.mode === 'new'
       ? await composeNewEmail({ agencyId:draft.agency_id,userId:actor.id,payload })
       : await replyToConversation(draft.conversation_id,payload,{userId:actor.id});
     const receipt = { ...result, conversationId: result.forwardedConversationId || result.id || draft.conversation_id };
-    await pool.execute("UPDATE communication_email_drafts SET state='sent',send_result_json=?,draft_json='{}' WHERE id=? AND user_id=?",[JSON.stringify(receipt),id,actor.id]);
+    // A queued submission can still be cancelled after closing/reopening the
+    // composer. Keep its private draft so Undo restores writing and attachments.
+    await pool.execute("UPDATE communication_email_drafts SET state='sent',send_result_json=?,draft_json=? WHERE id=? AND user_id=?",[JSON.stringify(receipt),receipt.scheduled ? JSON.stringify(draft.draft) : '{}',id,actor.id]);
     return receipt;
   } catch (e) {
     // An ambiguous failure after queuing must never silently offer a duplicate send.

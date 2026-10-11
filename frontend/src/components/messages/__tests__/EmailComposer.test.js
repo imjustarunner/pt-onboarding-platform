@@ -129,3 +129,26 @@ it('previews and autosaves formatted reply history independently of the new mess
  expect(state.draft.text).toBe('');state.draft.text='My new reply';await nextTick();await state.save();
  expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({method:'put',data:expect.objectContaining({draft:expect.objectContaining({text:'My new reply',quotedHtml:expect.stringContaining('<table>')})})}));
 });
+
+it('saves the selected send delay and keeps the server receipt for a longer scheduled send',async()=>{
+ state.draft.text='My reply';state.draft.undoDelaySeconds=120;await nextTick();
+ const original=mock.api.getMockImplementation();const receipt={messageId:40,conversationId:10,scheduled:true,sent:false,scheduledSendAt:new Date(Date.now()+120000).toISOString()};
+ mock.api.mockImplementation(async c=>c.url.endsWith('/send')?{data:receipt}:original(c));
+ await state.send();await flushPromises();
+ expect(mock.api).toHaveBeenCalledWith(expect.objectContaining({method:'put',data:expect.objectContaining({draft:expect.objectContaining({undoDelaySeconds:120})})}));
+ expect(state.status).toBe('Email scheduled — not sent yet');
+ expect(wrapper.findComponent({name:'EmailSendReceipt'}).props('receipt')).toEqual(receipt);
+});
+it('cancels only once if restoring a draft fails, then retries restoring without resending or cancelling again',async()=>{
+ state.draft.text='Keep my writing';state.draft.undoDelaySeconds=120;await nextTick();
+ const original=mock.api.getMockImplementation();let failRestore=true;
+ mock.api.mockImplementation(async c=>{
+  if(c.url.endsWith('/send'))return {data:{messageId:40,conversationId:10,scheduled:true,scheduledSendAt:new Date(Date.now()+120000).toISOString()}};
+  if(c.url==='/communications/drafts' && failRestore)throw Error('offline');
+  return original(c);
+ });
+ await state.send();await state.undo();expect(state.sendResult.cancelled).toBe(true);expect(state.error).toContain('was cancelled');expect(state.draft.text).toBe('Keep my writing');
+ failRestore=false;await state.undo();expect(state.record.state).toBe('editing');expect(state.sendResult).toBeNull();
+ expect(mock.api.mock.calls.filter(([c])=>c.url.endsWith('/undo'))).toHaveLength(1);
+ expect(mock.api.mock.calls.filter(([c])=>c.url.endsWith('/send'))).toHaveLength(1);
+});

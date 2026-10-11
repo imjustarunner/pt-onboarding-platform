@@ -577,6 +577,9 @@ export async function undoOutboundMessage(conversationId, messageId, { userId } 
       scheduled: true,
       body: msg.body_text || '',
       subject: msg.subject || '',
+      to: msg.to || [],
+      cc: msg.cc || [],
+      bcc: msg.bcc || [],
       channel: 'email',
       conversationId: Number(conversationId),
       messageId: Number(messageId)

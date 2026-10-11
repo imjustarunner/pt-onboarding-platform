@@ -1,3 +1,4 @@
+vi.mock('../inboxDigest.service.js',()=>({getCommunicationPrefs:vi.fn(async()=>({sendDelayEmailSeconds:20}))}));
 vi.mock('../emailDeliveryChoice.service.js',()=>({planEmailDelivery:vi.fn(async()=>({choice:'now',recipientIds:[],scheduledAt:null}))}));
 import {planEmailDelivery} from '../emailDeliveryChoice.service.js';
 import {beforeEach,expect,it,vi} from 'vitest';
@@ -47,4 +48,22 @@ it('persists sanitized formatted history and passes it separately from the new w
  pool.execute.mockResolvedValueOnce([[{...draft,draft_json:JSON.stringify(raw)}]]).mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([{affectedRows:1}]);
  replyToConversation.mockResolvedValue({messageId:40});await sendEmailDraft(actor,'draft',2);
  const payload=replyToConversation.mock.calls[0][1];expect(payload.html).toContain('<p>A complete paragraph.</p>');expect(payload.html).not.toContain('MIME text');expect(payload.html).toContain('pt-quoted-email-history');expect(payload.text).toContain('Wrapped\nMIME text');
+});
+
+it('persists a chosen delay and passes it to the send queue instead of forcing 20 seconds',async()=>{
+ const raw=validateEmailDraft({to:'alice@example.org',text:'Hello',undoDelaySeconds:120});
+ expect(raw.undoDelaySeconds).toBe(120);
+ pool.execute.mockResolvedValueOnce([[{...draft,draft_json:JSON.stringify(raw)}]]).mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([{affectedRows:1}]);
+ replyToConversation.mockResolvedValue({messageId:40,scheduled:true});await sendEmailDraft(actor,'draft',2);
+ expect(replyToConversation).toHaveBeenCalledWith(10,expect.objectContaining({undoDelaySeconds:120}),{userId:5});
+});
+it.each([-1,0,601,1.5,'invalid'])('rejects invalid draft send delay %s',undoDelaySeconds=>{
+ expect(()=>validateEmailDraft({undoDelaySeconds})).toThrow('send delay');
+});
+
+it('retains the private draft while scheduled so Undo survives closing and reopening the composer',async()=>{
+ pool.execute.mockResolvedValueOnce([[draft]]).mockResolvedValueOnce([{affectedRows:1}]).mockResolvedValueOnce([{affectedRows:1}]);
+ replyToConversation.mockResolvedValue({messageId:40,scheduled:true,sent:false});await sendEmailDraft(actor,'draft',2);
+ const save=pool.execute.mock.calls.find(([sql])=>sql.includes("state='sent',send_result_json"));
+ expect(JSON.parse(save[1][1])).toMatchObject({text:'Hello',to:'alice@example.org',quotedText:'Prior email'});
 });

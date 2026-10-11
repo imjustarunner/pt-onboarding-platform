@@ -1,3 +1,4 @@
+import { getEmailDeliveryReceipt } from '../services/emailDeliveryReceipt.service.js';
 import { requireConversationAccess } from '../services/communicationAccess.service.js';
 import Conversation from '../models/CommunicationConversation.model.js';
 import { getConversationDetail, replyToConversation, composeNewEmail, undoOutboundMessage, updateConversation } from '../services/unifiedInbox.service.js';
@@ -69,3 +70,5 @@ export const postQuickUndo = handle(async (req, res) => {
 });
 
 export const patchQuickConversation = handle(async(req,res)=>{await authorize(req);res.json({conversation:await updateConversation(req.params.id,{markUnread:req.body.markUnread === true,markRead:req.body.markRead === true},{userId:req.quickView.userId})});});
+
+export const getQuickDeliveryReceipt = handle(async(req,res)=>{res.set('Cache-Control','private, no-store');res.json({message:await getEmailDeliveryReceipt({id:req.quickView.userId,role:'provider'},req.params.id,req.params.messageId)});});
