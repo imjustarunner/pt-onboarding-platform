@@ -3,7 +3,6 @@ import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 vi.mock('../../../services/api',()=>({default:{get:vi.fn(),post:vi.fn(),delete:vi.fn()}}));
 const { route, replace } = vi.hoisted(()=>({route:{query:{},params:{},path:'/buildings/settings'},replace:vi.fn()}));
 vi.mock('vue-router',()=>({useRoute:()=>route,useRouter:()=>({replace})}));
-vi.mock('../../buildings/BuildingNotificationsPanel.vue',()=>({default:{template:'<div />'}}));
 import api from '../../../services/api';
 import Selector from '../KioskBuildingSelector.vue';
 import Access from '../OfficeKioskAccessSettings.vue';
