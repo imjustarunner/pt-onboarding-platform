@@ -60,7 +60,7 @@ async function assertGroupNpiBelongsToAgency(groupNpiId, agencyId) {
 async function listOfficeOptions(agencyId) {
   let rows = [];
   try {
-    rows = await OfficeLocation.findByAgencyMembership(agencyId, { includeInactive: false });
+    rows = await OfficeLocation.findBillingByAgency(agencyId);
   } catch {
     rows = [];
   }

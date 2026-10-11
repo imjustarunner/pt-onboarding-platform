@@ -20,7 +20,7 @@ export class OfficeScheduleWatchdogService {
     let buildings = [];
     try {
       const [rows] = await pool.execute(
-        `SELECT id FROM office_locations WHERE is_active = TRUE`
+        `SELECT id FROM office_locations WHERE is_active = TRUE AND physical_office_location_id IS NULL`
       );
       buildings = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
     } catch (e) {
@@ -72,7 +72,7 @@ export class OfficeScheduleWatchdogService {
       const [rows] = await pool.execute(
         `SELECT id
          FROM office_locations
-         WHERE is_active = TRUE`
+         WHERE is_active = TRUE AND physical_office_location_id IS NULL`
       );
       buildings = (rows || []).map((r) => Number(r.id)).filter((n) => Number.isInteger(n) && n > 0);
     } catch (e) {
