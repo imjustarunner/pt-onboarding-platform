@@ -48,6 +48,7 @@ redirect('app.schoolcarebridge.org','https://schoolcarebridge.org', 'location = 
 server('qv.app.schoolcarebridge.org','');
 const family=page('family','home',injectPublicFavicon(injectShareMetaIntoHtml(shell,buildShareMeta({host:'familycommandcenterhub.com',path:'/'})), 'familycommandcenterhub.com'));
 server('familycommandcenterhub.com',location('/',family),family);
+redirect('www.familycommandcenterhub.com','https://familycommandcenterhub.com');
 
 const michaelLocations=Object.keys(michaelPages).map(section=>{
  let html=renderSite(section).replaceAll('https://plottwisthq.com/michael','https://michaelvmendez.com');
@@ -59,6 +60,7 @@ const michaelLocations=Object.keys(michaelPages).map(section=>{
  return location(section?`/${section}`:'/',file)+`\n location = /michael${section?'/'+section:''} { return 302 https://michaelvmendez.com${section?'/'+section:'/'}$is_args$args; }`;
 }).join('\n');
 server('michaelvmendez.com',michaelLocations);
+redirect('www.michaelvmendez.com','https://michaelvmendez.com');
 const auricwellLocations=Object.keys(auricwellPages).map(section=>location(section?`/${section}`:'/',page('auricwell-domain',section||'home',renderWebsite(section,{base:'',email:'support@auricwell.com'}).replaceAll('https://plottwisthq.com/auricwell','https://auricwell.com')))).join('\n');
 server('auricwell.com',`${auricwellLocations}
  location = /app { add_header Cache-Control "no-store"; add_header X-Robots-Tag "noindex" always; try_files /auricwell.html =404; }
