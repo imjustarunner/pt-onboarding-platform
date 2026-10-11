@@ -1,6 +1,7 @@
 import { officeSupportRead } from './officeLobby.routes.js';
 import { completeForms, listSubmissions, submissionClients, submissionSessions, attachSubmission, attachSeries, clientFeedback, clientFeedbackSummaries, submissionResponses } from '../controllers/officeClientSubmissions.controller.js';
 import express from 'express';
+import { kioskSameOrigin, requireOfficeDevice } from '../middleware/officeKioskAccess.middleware.js';
 import { authenticate, requireKioskUser } from '../middleware/auth.middleware.js';
 import {
   getKioskContext,
@@ -51,12 +52,16 @@ const router = express.Router();
 // Authenticated kiosk user context (must be before :locationId)
 router.get('/me/context', authenticate, requireKioskUser, getKioskContext);
 
-// Provider-First Welcome Kiosk: public endpoints
-router.get('/:locationId/providers-today', listProvidersToday);
-router.get('/:locationId/office-directory', listKioskOfficeDirectory);
-router.get('/:locationId/providers/:providerId/slots-today', listProviderSlotsToday);
-router.get('/:locationId/available-rooms', listAvailableRooms);
-router.post('/:locationId/reserve-by-pin', reserveRoomByPin);
+// Attach the boundary to the handlers themselves so Express's case-insensitive
+// and trailing-slash matching cannot bypass a separate URL predicate.
+const officeDevice = [kioskSameOrigin, requireOfficeDevice];
+
+// Provider-first office kiosk endpoints
+router.get('/:locationId/providers-today', officeDevice, listProvidersToday);
+router.get('/:locationId/office-directory', officeDevice, listKioskOfficeDirectory);
+router.get('/:locationId/providers/:providerId/slots-today', officeDevice, listProviderSlotsToday);
+router.get('/:locationId/available-rooms', officeDevice, listAvailableRooms);
+router.post('/:locationId/reserve-by-pin', officeDevice, reserveRoomByPin);
 
 // Public kiosk endpoints (backward compatibility)
 router.get('/:locationId/skill-builders-events/:eventId/sessions', listKioskSkillBuilderEventSessions);
@@ -76,8 +81,8 @@ router.post('/:locationId/guardian-waiver-section', postKioskGuardianWaiverSecti
 router.post('/:locationId/clock-in', kioskClockIn);
 router.post('/:locationId/clock-out', kioskClockOut);
 router.post('/:locationId/guardian-checkin', kioskGuardianCheckin);
-router.post('/:locationId/checkin/forms', completeForms);
-router.post('/:locationId/checkin', checkInToEvent);
+router.post('/:locationId/checkin/forms', officeDevice, completeForms);
+router.post('/:locationId/checkin', officeDevice, checkInToEvent);
 router.get('/:locationId/questionnaires', listKioskQuestionnaires);
 router.get('/:locationId/intake-questionnaire/:intakeLinkId/definition', getKioskIntakeLinkDefinition);
 router.get('/:locationId/intake-questionnaire/:intakeLinkId/definition', getKioskIntakeLinkDefinition);

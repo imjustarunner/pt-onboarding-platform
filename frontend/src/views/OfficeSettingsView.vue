@@ -12,6 +12,7 @@
 
       <div v-else>
         <div v-if="error" class="error-box">{{ error }}</div>
+        <OfficeKioskAccessSettings v-if="['admin','super_admin'].includes(authStore.user?.role)" :key="officeId" :office-id="officeId" />
 
         <div v-if="canManageOfficeSettings" class="section">
           <div class="section-title">Add Building</div>
@@ -374,6 +375,7 @@ import { useRoute, useRouter } from 'vue-router';
 import api from '../services/api';
 import { useAuthStore } from '../store/auth';
 import OfficeRoomPhotoButton from '../components/schedule/OfficeRoomPhotoButton.vue';
+import OfficeKioskAccessSettings from '../components/kiosk/OfficeKioskAccessSettings.vue';
 import OfficeRoomPhotoGalleryModal from '../components/schedule/OfficeRoomPhotoGalleryModal.vue';
 
 const route = useRoute();

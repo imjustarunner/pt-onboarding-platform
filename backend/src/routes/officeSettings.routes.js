@@ -2,6 +2,7 @@ import express from 'express';
 import { authenticate } from '../middleware/auth.middleware.js';
 import {
   listOffices,
+  manageOfficeKioskAccess,
   listArchivedOffices,
   createOffice,
   getOffice,
@@ -50,6 +51,9 @@ router.get('/', listOffices);
 router.get('/archived', listArchivedOffices);
 router.post('/', createOffice);
 router.get('/:officeId', getOffice);
+router.get('/:officeId/kiosk-access', manageOfficeKioskAccess);
+router.post('/:officeId/kiosk-access/rotate', manageOfficeKioskAccess);
+router.delete('/:officeId/kiosk-access/devices/:deviceId', manageOfficeKioskAccess);
 router.put('/:officeId', updateOffice);
 router.post('/:officeId/archive', archiveOffice);
 router.post('/:officeId/restore', restoreOffice);
@@ -98,4 +102,3 @@ router.post('/:officeId/kiosk-assignments', createKioskAssignment);
 router.delete('/:officeId/kiosk-assignments/:assignmentId', deleteKioskAssignment);
 
 export default router;
-

@@ -19,7 +19,7 @@
     <aside><div class="privacy-card"><ShieldCheck :size="28"/><h3>A simple,<br/>private arrival.</h3><p>Select your provider.<br/>We’ll let them know you’re here.</p><span>Check-in responses stay private.</span></div><div class="help-card"><h3>Need a hand?</h3><p>Don’t see your appointment?</p><button @click="openSupport"><MessageCircle :size="18"/> Message our support team<ArrowRight :size="16"/></button><small>This kiosk is still being improved. Your provider may still be at the office.</small></div></aside>
    </div>
   </main>
-  <footer><span>AuricWell Office · {{locationName||'A warm welcome, a simple arrival.'}}</span><button @click="reset(true)">Return to welcome screen</button></footer>
+  <footer><span>AuricWell Kiosk · {{locationName||'A warm welcome, a simple arrival.'}}</span><button @click="reset(true)">Return to welcome screen</button><button @click="$emit('lock-kiosk')">Disconnect this device</button></footer>
   <KioskCheckInFlow v-if="selectedProvider" :provider="selectedProvider" :location-id="locationId" :timezone="timezone" :direct-slot="selectedProvider.currentSlot" @close="selectedProvider=null" @checked-in="checkedIn" @arrival-recorded="markArrival" @busy="busy=$event"/>
   <KioskDialog v-if="dayProvider" :title="`${dayProvider.firstName} ${dayProvider.lastName} · Today`" @close="dayProvider=null"><p>Office hours and bookings for today. To check in, use Client check-in.</p><button class="text-button" @click="showProfile(dayProvider)">View provider profile</button><div v-for="b in dayProvider.bookings" :key="`${b.eventId}:${b.startAt}`" class="booking-row"><CalendarDays :size="18"/><div><strong>{{formatKioskTime(b.startAt)}}–{{formatKioskTime(b.endAt)}}</strong><span>{{b.booked?'Booked':'Assigned office time'}}</span></div></div><button class="solid-button" @click="dayProvider=null;changeTab('current')">Go to client check-in</button></KioskDialog>
   <KioskDialog v-if="photo" :title="`${photo.firstName} ${photo.lastName}`" @close="photo=null"><img v-if="photo.profilePhotoPath" class="large-photo" :src="toUploadsUrl(photo.profilePhotoPath)" :alt="`${photo.firstName} ${photo.lastName}`"/><p v-else>No photo has been added yet.</p><button class="solid-button" @click="showProfile(photo);photo=null">View provider profile</button></KioskDialog>
@@ -32,7 +32,8 @@
 </template>
 <script setup>
 import { useKioskTabScroll } from '../composables/useKioskTabScroll.js';
-import { AURICWELL_MARK_URL } from '../constants/auricwellBrand.js';
+const AURICWELL_MARK_URL = '/office/auricwell-kiosk.svg';
+defineEmits(['lock-kiosk']);
 
 import {ref,computed,onMounted,onUnmounted,watch} from 'vue';import {useRoute} from 'vue-router';
 import {Building2,CalendarCheck,Users,CalendarDays,LayoutGrid,Search,X,ArrowRight,ShieldCheck,MessageCircle,ChevronDown,CheckCircle2,Hand,ContactRound} from '@lucide/vue';

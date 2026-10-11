@@ -28,7 +28,7 @@ app.use((req,res,next) => {
 });
 app.use((req,res,next)=>{
   const match=req.path.match(/^\/kiosk-welcome\/(1|6)\/?$/);
-  const site=match?OFFICE_SITES.find(s=>s.locationId===Number(match[1])):req.path==='/'?officeSiteForHost(req.headers.host):null;
+  const site=match?OFFICE_SITES.find(s=>s.locationId===Number(match[1])):req.path==='/office-kiosk'?officeSiteForHost('kiosk.auricwell.com'):req.path==='/'?officeSiteForHost(req.headers.host):null;
   if(!site)return next();
   return res.type('html').set('Cache-Control','no-store').send(officeHtml(readFileSync(join(distPath,'index.html'),'utf8'),site));
 });

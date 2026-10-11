@@ -10,6 +10,26 @@ import Module from '../models/Module.model.js';
 import GoogleCalendarService from '../services/googleCalendar.service.js';
 import User from '../models/User.model.js';
 import pool from '../config/database.js';
+import { officeAccessStatus, rotateOfficeCode, revokeOfficeDevice } from '../services/officeKioskAccess.service.js';
+
+export const manageOfficeKioskAccess = async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    const officeId = Number(req.params.officeId);
+    // Setup credentials belong to administrators, not every scheduling staff role.
+    if (!['admin', 'super_admin'].includes(req.user?.role) || !(await requireOfficeAccess(req, officeId))) {
+      return res.status(403).json({ error: { message: 'Office administrator access is required.' } });
+    }
+    const location = await OfficeLocation.findById(officeId);
+    if (!location?.is_active) return res.status(404).json({ error: { message: 'Active office not found.' } });
+    if (req.method === 'POST') return res.json(await rotateOfficeCode(officeId, req.user.id));
+    if (req.method === 'DELETE') { await revokeOfficeDevice(officeId, req.params.deviceId); return res.sendStatus(204); }
+    return res.json(await officeAccessStatus(officeId));
+  } catch (error) {
+    if (error.status) return res.status(error.status).json({ error: { message: error.message } });
+    next(error);
+  }
+};
 
 const canManageOfficeSettingsRole = (role) =>
   role === 'admin' || role === 'super_admin' || role === 'support' || role === 'clinical_practice_assistant' || role === 'provider_plus' || role === 'staff';
@@ -803,4 +823,3 @@ export const deleteSlotQuestionnaireRule = async (req, res, next) => {
     next(e);
   }
 };
-

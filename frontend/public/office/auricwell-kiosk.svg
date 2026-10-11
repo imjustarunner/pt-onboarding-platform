@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <title>AuricWell Kiosk</title>
+  <defs>
+    <linearGradient id="blue" x1="66" y1="0" x2="454" y2="512" gradientUnits="userSpaceOnUse"><stop stop-color="#0B4B9D"/><stop offset="1" stop-color="#051F4C"/></linearGradient>
+    <linearGradient id="gold" x1="170" y1="150" x2="330" y2="280" gradientUnits="userSpaceOnUse"><stop stop-color="#FFF0AC"/><stop offset="1" stop-color="#D4A017"/></linearGradient>
+  </defs>
+  <path fill="url(#blue)" d="M0 0h512v512H0z"/>
+  <circle cx="434" cy="53" r="209" stroke="#fff" stroke-opacity=".06" stroke-width="40"/>
+  <rect x="140" y="95" width="232" height="260" rx="30" fill="#fff" fill-opacity=".07" stroke="#F0D889" stroke-width="12"/>
+  <rect x="162" y="118" width="188" height="185" rx="13" fill="#FAFBF5"/>
+  <!-- AuricWell's peak and wave, presented on an unmistakable check-in terminal. -->
+  <path d="m195 224 61-91 61 91c-31-14-45-4-65 8-23 13-38 13-57 7z" fill="#073782"/>
+  <path d="m256 148 48 76c-21-5-32 6-55 16l-37-1z" fill="url(#gold)"/>
+  <path d="M193 247c35 22 66-32 125-10-31 33-75 49-125 10" fill="#073782"/>
+  <path d="m238 272 12 11 23-23" stroke="#2F6D58" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="329" r="7" fill="#F0D889"/>
+  <path d="M235 356v28m42-28v28m-64 3h86" stroke="#F0D889" stroke-width="12" stroke-linecap="round"/>
+  <text x="256" y="437" text-anchor="middle" fill="#fff" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="37" letter-spacing="6">KIOSK</text>
+</svg>

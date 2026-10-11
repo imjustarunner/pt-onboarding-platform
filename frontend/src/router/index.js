@@ -1509,10 +1509,11 @@ const routes = [
   { path: '/office-support/:id', name: 'OfficeSupportMessage', component: () => import('../views/OfficeSupportMessageView.vue'), meta: { requiresAuth: true } },
   { path: '/office-booking/:locationId', name: 'OfficeSelfBooking', component: () => import('../views/OfficeSelfBookingView.vue'), meta: { requiresAuth: true } },
   // Client check-in and office directory (public lobby)
+  { path: '/office-kiosk', name: 'OfficeKiosk', component: () => import('../views/OfficeKioskEntryView.vue'), meta: { requiresGuest: false } },
   {
     path: '/kiosk-welcome/:locationId',
     name: 'KioskWelcome',
-    component: () => import('../views/KioskWelcomeView.vue'),
+    component: () => import('../views/OfficeKioskEntryView.vue'),
     meta: { requiresGuest: false }
   },
   {

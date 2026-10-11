@@ -2,6 +2,7 @@ import { isSchoolCareBridgeHost, isSchoolCareBridgePath } from '../utils/schoolC
 import { sameDayServiceWarningMessage } from '../utils/sameDayServiceWarning.js';
 import { attachTeamMeetingAccess } from '../utils/teamMeetingInvitationAccess';
 import axios from 'axios';
+import { isOfficePath, officeSiteForHost } from '../utils/officeSite';
 import { applicantInterviewMode } from '../utils/applicantInterviewMode';
 import { attachSupervisionAccess } from '../utils/supervisionInvitationAccess';
 import { attachCounselingAccess } from '../utils/counselingInvitationAccess';
@@ -135,6 +136,13 @@ function checkRequestStorm(config) {
 // Request interceptor
 api.interceptors.request.use(
   (config) => {
+    const officeSurface = isOfficePath(window.location.pathname) || officeSiteForHost(window.location.hostname);
+    if (String(config.url || '').startsWith('/public/office-kiosk/') || (officeSurface && /^\/(kiosk\/|public\/office-lobby\/)/.test(config.url || ''))) {
+      config.baseURL = '/api';
+      config.cookieAuthOnly = true;
+      config.skipAuthRedirect = true;
+      config.skipGlobalLoading = true;
+    }
     if (isSchoolCareBridgeHost(window.location.hostname) || (window.location.hostname.replace(/^www\./,'') === 'mh4kidz.org' && isSchoolCareBridgePath(window.location.pathname))) config.baseURL = '/api';
     // Circuit-breaker check must run before anything else (incl. global loading),
     // so a tripped request never begins a loading overlay or touches the network.
@@ -256,6 +264,9 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    if (['KIOSK_LOCKED', 'KIOSK_WRONG_OFFICE'].includes(error.response?.data?.error?.code)) {
+      window.dispatchEvent(new CustomEvent('auricwell:kiosk-locked'));
+    }
     if (error.response?.data instanceof Blob && error.response.data.type.includes('json')) {
       try { error.response.data = JSON.parse(await error.response.data.text()); } catch { /* Keep the original response if it is not JSON. */ }
     }

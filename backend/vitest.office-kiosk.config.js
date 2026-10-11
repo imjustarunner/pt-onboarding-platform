@@ -5,6 +5,8 @@ export default {
   test: {
     environment: 'node',
     include: [
+      'src/services/__tests__/officeKioskAccess.test.js',
+      'src/middleware/__tests__/officeKioskDeviceRoutes.test.js',
       'src/services/__tests__/officeLobby.service.test.js',
       'src/services/__tests__/officeArrivalFeedback.test.js',
       'src/services/__tests__/officeFeedbackSummary.test.js',
